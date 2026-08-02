@@ -28,7 +28,12 @@
  * `bootstrapping` with nothing coming.
  */
 
-import { type CreateEngineOutbox, openKernelEngineOutbox } from '@podium/client-core/engine'
+import {
+  type CreateEngineOutbox,
+  type CreateReplicaForPrincipal,
+  openKernelEngineOutbox,
+} from '@podium/client-core/engine'
+import { asClientPrincipal, type ClientPrincipal } from '@podium/client-core/principal'
 import {
   type Replica as ClientReplica,
   createKernelReplica,
@@ -36,8 +41,8 @@ import {
   FeedAuthorityClient,
   FeedSink,
   PushedBootstrapSource,
-  type ReplicaMode,
   preparePrincipalNamespace,
+  type ReplicaMode,
   resolveReplicaMode,
 } from '@podium/client-core/replica'
 import type { FeedSinkPort, SocketHub } from '@podium/client-core/socket-transport'
@@ -58,8 +63,20 @@ export const KERNEL_SIDE_CACHE_PREFIX = 'podium.kernel-replica'
  * address below is bound to it before the first row is read. */
 
 export interface KernelAssembly {
-  /** Handed to the engine; called once. */
-  readonly createReplicaFn: () => ClientReplica
+  /** WHOSE ASSEMBLY THIS IS. The whole thing — IndexedDB region, side cache,
+   *  outbox, cursor — was opened for exactly this principal and can serve no
+   *  other (POD-404). */
+  readonly principal: ClientPrincipal
+  /**
+   * Handed to the provider; called once, WITH the principal it is building for.
+   *
+   * It refuses rather than answers when that principal is not the one this
+   * assembly was opened for. A silent answer would hand one person's slice and
+   * cursor to another — the exact cross-principal adoption the namespace exists
+   * to prevent — and the failure would be invisible, because a wrong slice
+   * renders like a slice.
+   */
+  readonly createReplicaFn: CreateReplicaForPrincipal
   /** Handed to the engine; makes its hub advertise wire 2. */
   readonly feed: FeedSinkPort
   /** Real kernel Outbox over this assembly's IndexedDB store. */
@@ -208,7 +225,16 @@ export async function openKernelAssembly(
   const sink = new FeedSink({ replica: kernel, bootstraps })
 
   return {
-    createReplicaFn: () => facade,
+    principal: asClientPrincipal(options.principal),
+    createReplicaFn: (principal: ClientPrincipal) => {
+      if (principal.userId !== options.principal) {
+        throw new Error(
+          `kernel replica assembly belongs to a different principal (opened for ${options.principal}); ` +
+            'a new principal needs a new assembly, never this one',
+        )
+      }
+      return facade
+    },
     feed: sink,
     createOutboxFn,
     kernel,

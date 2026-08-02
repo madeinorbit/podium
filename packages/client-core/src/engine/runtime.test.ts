@@ -21,10 +21,11 @@ import type {
 import { asArtifactId, asIssueId, asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
+import { asClientPrincipal } from '../principal'
 import { createReplica, memoryStorage, type StorageApi } from '../replica/replica'
 import type { SocketHub } from '../socket-transport'
 import type { RouterWindow } from '../ui-state'
-import { createEngine } from './engine'
+import { createClientRuntime } from './runtime'
 
 const settle = (ms = 25): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
@@ -211,13 +212,15 @@ function makeEngine(
     hub?: FakeHub
     storage?: StorageApi
     spawnConfirmGraceMs?: number
+    principal?: string
   } = {},
 ) {
   const hub = opts.hub ?? new FakeHub()
   const rw = makeRouterWindow(opts.url ?? '/')
   const fatals: string[] = []
   const errors: string[] = []
-  const engine = createEngine({
+  const engine = createClientRuntime({
+    principal: asClientPrincipal(opts.principal ?? 'operator'),
     config: { httpOrigin: 'http://x', wsClientUrl: 'ws://x' },
     api: (opts.api ?? makeApi()) as PodiumClientApi,
     onFatalError: (m) => fatals.push(m),
@@ -246,14 +249,15 @@ describe('engine replica construction (POD-1239)', () => {
     // ambient storage silently. This drives the RUNTIME arm — without it, the
     // check is a declaration whose refusing branch nothing has ever produced.
     const init = {
+      principal: asClientPrincipal('operator'),
       config: { httpOrigin: 'http://x', wsClientUrl: 'ws://x' },
       api: makeApi() as PodiumClientApi,
       onFatalError: () => {},
       createHub: () => new FakeHub() as unknown as SocketHub,
     }
-    expect(() => createEngine(init as unknown as Parameters<typeof createEngine>[0])).toThrow(
-      /requires createReplicaFn/,
-    )
+    expect(() =>
+      createClientRuntime(init as unknown as Parameters<typeof createClientRuntime>[0]),
+    ).toThrow(/requires createReplicaFn/)
   })
 
   it('uses the factory it is given (the arm that must say yes)', () => {
@@ -264,7 +268,8 @@ describe('engine replica construction (POD-1239)', () => {
     const { engine } = makeEngine()
     expect(engine).toBeDefined()
     expect(() =>
-      createEngine({
+      createClientRuntime({
+        principal: asClientPrincipal('operator'),
         config: { httpOrigin: 'http://x', wsClientUrl: 'ws://x' },
         api: makeApi() as PodiumClientApi,
         onFatalError: () => {},
@@ -659,9 +664,7 @@ describe('unified optimistic overlay (#263)', () => {
     expect(nameOf(engine, 's1')).toBeUndefined()
     expect(engine.getSnapshot().outboxSize).toBe(0)
 
-    engine
-      .getSnapshot()
-      .recoverOutbox.retry(parked!.entry.mutationId, { expectedRevision: 2 })
+    engine.getSnapshot().recoverOutbox.retry(parked!.entry.mutationId, { expectedRevision: 2 })
     expect(engine.getSnapshot().outboxDeadLetters).toEqual([])
     expect(nameOf(engine, 's1')).toBe('rebased')
     await settle()
@@ -995,29 +998,29 @@ describe('spawn transport failure (#263 review finding 4)', () => {
     return api
   }
 
-  it.each(['unauthorized', 'unreachable'] as const)(
-    'refuses %s placement before optimistic rows are painted',
-    (placement) => {
-      const { engine } = makeEngine({ api: spawnApi() })
-      const before = engine.getSnapshot()
+  it.each([
+    'unauthorized',
+    'unreachable',
+  ] as const)('refuses %s placement before optimistic rows are painted', (placement) => {
+    const { engine } = makeEngine({ api: spawnApi() })
+    const before = engine.getSnapshot()
 
-      expect(() =>
-        engine.getSnapshot().spawnDraftAgent({
-          target: {
-            path: '/w',
-            repoPath: '/w',
-            machineId: 'machine-1',
-            placement,
-          },
-          agentKind: 'claude-code',
-        }),
-      ).toThrow(placement === 'unauthorized' ? /not authorized/ : /unreachable/)
+    expect(() =>
+      engine.getSnapshot().spawnDraftAgent({
+        target: {
+          path: '/w',
+          repoPath: '/w',
+          machineId: 'machine-1',
+          placement,
+        },
+        agentKind: 'claude-code',
+      }),
+    ).toThrow(placement === 'unauthorized' ? /not authorized/ : /unreachable/)
 
-      expect(engine.getSnapshot().sessions).toEqual(before.sessions)
-      expect(engine.getSnapshot().issues).toEqual(before.issues)
-      engine.dispose()
-    },
-  )
+    expect(engine.getSnapshot().sessions).toEqual(before.sessions)
+    expect(engine.getSnapshot().issues).toEqual(before.issues)
+    engine.dispose()
+  })
 
   it('a failure AFTER the session row landed is success: no toast, no rollback', async () => {
     const api = spawnApi()

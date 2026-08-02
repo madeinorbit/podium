@@ -1,9 +1,22 @@
-import { asIssueId, asSessionId, type IssueId, type IssueWire, type SessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
+import { asClientPrincipal } from '@podium/client-core/principal'
+import {
+  asIssueId,
+  asSessionId,
+  type IssueId,
+  type IssueWire,
+  type SessionId,
+  type SessionMeta,
+  type SessionMetaInput,
+} from '@podium/model'
 import type { SyncChangesSinceResult } from '@podium/protocol'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { optimisticDraftIssue } from './optimistic-spawn'
+
+/** These suites predate multi-user; they exercise ONE signed-in operator, which
+ *  is what the shipped single-admin install is. */
+const TEST_PRINCIPAL = asClientPrincipal('operator')
 
 // ---------------------------------------------------------------------------
 // Optimistic new-session spawn (#119): clicking "New <Agent>" must paint a
@@ -128,6 +141,7 @@ function render(): void {
   act(() => {
     root.render(
       <StoreProvider
+        principal={TEST_PRINCIPAL}
         config={{ httpOrigin: 'http://x', wsClientUrl: 'ws://x' }}
         onFatalError={() => {}}
         // No broadcast-confirm grace in tests: the rollback pin below asserts

@@ -547,6 +547,145 @@ export function unattributedStoreRead(repoRoot: string, roots: readonly string[]
   return out
 }
 
+/**
+ * Item 5 — a construction of the client's principal-scoped machinery OUTSIDE the
+ * one place that owns the principal (POD-404).
+ *
+ * The acceptance clause is "no residual path constructs transport, replica or
+ * outbox outside the provider". That is a claim about CALL SITES, so it is
+ * checked as one: there is exactly one chain — `react/provider.tsx` builds a
+ * `ClientRuntime` per principal, and the runtime builds the hub and the outbox
+ * for itself. A second site anywhere is a second principal boundary that nobody
+ * tears down on sign-out.
+ *
+ * WHY BY SYMBOL AND NOT BY "does this file import the engine".
+ * An import is not a construction, and the failure this item exists to catch is
+ * a file that quietly opens a socket or a queue of its own — not one that reads
+ * a type. Conversely a MENTION is not a call (the lesson item 4 already learned
+ * the hard way), so each pattern below requires call shape, and the DEFINITION
+ * of each factory is excluded explicitly: `wiring.ts` declares `createEngineHub`
+ * and `createEngineOutbox`, and declaring them is not calling them.
+ *
+ * The REPLICA half of the clause is item 4's job and stays there: a replica is
+ * legitimately built at a platform composition root (client-core cannot know the
+ * device's storage), so the property that matters for it is that the root asks
+ * whose store it is — which is what item 4 measures.
+ */
+interface ConstructionRule {
+  /** The construction, in CALL position. */
+  readonly call: RegExp
+  /** Its declaration, which is not a call to it. */
+  readonly definition: RegExp
+  /**
+   * The files allowed to make this call.
+   *
+   * Two entries for the runtime rule, not a widening: `runtime.ts` DECLARES the
+   * class, so the `new ClientRuntime` inside `createClientRuntime` is that
+   * factory's own body rather than a second construction site. The property this
+   * rule protects is that no OTHER file reaches either symbol.
+   */
+  readonly homes: readonly string[]
+  readonly what: string
+}
+
+const CONSTRUCTION_RULES: readonly ConstructionRule[] = [
+  {
+    call: /\b(?:createClientRuntime\s*\(|new\s+ClientRuntime\s*\()/,
+    definition: /\b(?:export\s+)?(?:function\s+createClientRuntime|class\s+ClientRuntime)\b/,
+    homes: [
+      'packages/client-core/src/react/provider.tsx',
+      'packages/client-core/src/engine/runtime.ts',
+    ],
+    what: 'constructs a client runtime outside the provider that owns the principal',
+  },
+  {
+    call: /\bcreateEngineHub\s*\(/,
+    definition: /\b(?:export\s+)?function\s+createEngineHub\b/,
+    homes: ['packages/client-core/src/engine/runtime.ts'],
+    what: 'constructs the socket transport outside the principal-scoped runtime',
+  },
+  {
+    call: /\bcreateEngineOutbox\s*\(/,
+    definition: /\b(?:export\s+)?function\s+createEngineOutbox\b/,
+    homes: ['packages/client-core/src/engine/runtime.ts'],
+    what: 'constructs the outbox outside the principal-scoped runtime',
+  },
+]
+
+export function constructionOutsideProvider(lines: readonly SourceLine[]): AuditFinding[] {
+  const out: AuditFinding[] = []
+  for (const line of lines) {
+    for (const rule of CONSTRUCTION_RULES) {
+      if (rule.homes.includes(line.file)) continue
+      if (rule.definition.test(line.text)) continue
+      if (!rule.call.test(line.text)) continue
+      out.push({ file: line.file, line: line.line, text: rule.what })
+    }
+  }
+  return out
+}
+
+/**
+ * Item 6 — identity read from something other than the authenticated transport
+ * (ADR 3 D7, the client half — POD-404).
+ *
+ * "Payload identity is inert" has a client twin: the value that selects WHOSE
+ * slice and WHOSE storage namespace this client opens may only come from an
+ * authenticated server answer. Every other source is controlled by somebody
+ * other than the server — the address bar, whatever the last person on the
+ * device left behind, a wire frame, a text field.
+ *
+ * THE CONCEPT HAS THREE SPELLINGS AND A DETECTOR THAT KNOWS ONE CERTIFIES THE
+ * OTHER TWO, so all three are enumerated:
+ *
+ *   1. a STORAGE read whose key names an identity ("podium.last-user");
+ *   2. a URL read naming an identity (`searchParams.get('userId')`);
+ *   3. a principal ASSIGNED from a payload/frame/input.
+ *
+ * WHAT IS DELIBERATELY NOT A FINDING, and why each is safe:
+ *
+ *   - The THEME. It is a pre-auth storage read by design (ThemeProvider wraps
+ *     StoreProvider) and carries no identity, no cursor and no authored work, so
+ *     it cannot leak one person's data to another. Form 1 keys on identity words
+ *     and the theme is not one, so this needs no exemption — it is out of scope
+ *     by construction, which is the only kind of exemption worth having.
+ *   - `inspectPrincipalNamespaces`. The offline fallback in
+ *     `use-kernel-replica.ts` reads namespace MARKERS, accepts an answer only
+ *     when exactly one principal has ever been retained on the device, and fails
+ *     closed on ambiguity. It enumerates keys rather than reading an
+ *     identity-named key, so form 1 does not see it — again by construction.
+ */
+const IDENTITY_WORD = String.raw`user|principal|account|identity|signed-?in|whoami`
+const IDENTITY_FROM_STORAGE = new RegExp(
+  // `getItem` only. Deleting a key derives nothing — `kernelReplica.ts` retires
+  // the old raw identity ledger with `removeItem`, which is the FIX for this
+  // item's failure mode, and a detector that flagged it would be arguing for the
+  // ledger's return.
+  String.raw`\.getItem\(\s*(['"\`])[^'"\`]*(?:${IDENTITY_WORD})[^'"\`]*\1`,
+  'i',
+)
+const IDENTITY_FROM_URL = new RegExp(
+  String.raw`(?:searchParams|urlParams|queryParams)\s*\.\s*get\(\s*(['"\`])\s*(?:${IDENTITY_WORD})\w*\s*\1`,
+  'i',
+)
+const IDENTITY_FROM_PAYLOAD =
+  /\b(?:principal|userId|actor)\s*[:=]\s*[\w.]*\b(?:payload|body|frame|wire|input|message|params)\b/i
+
+export function identityFromNonTransportSource(lines: readonly SourceLine[]): AuditFinding[] {
+  return lines
+    .filter(
+      (line) =>
+        IDENTITY_FROM_STORAGE.test(line.text) ||
+        IDENTITY_FROM_URL.test(line.text) ||
+        IDENTITY_FROM_PAYLOAD.test(line.text),
+    )
+    .map(({ file, line, text }) => ({
+      file,
+      line,
+      text: `derives an identity from something other than the authenticated transport: ${text.trim()}`,
+    }))
+}
+
 export function runPhase2ClientAudit(repoRoot: string): AuditItem[] {
   const lines = readClientLines(repoRoot, CLIENT_ROOTS)
   // The audit grades PRODUCT code. A test may legitimately construct the very
@@ -600,6 +739,18 @@ export function runPhase2ClientAudit(repoRoot: string): AuditItem[] {
       unit: 'composition root that never asks',
       findings: unattributedStoreRead(repoRoot, discoverCompositionRoots(repoRoot)),
     },
+    {
+      id: 'construction-outside-provider',
+      title: 'transport or outbox constructed outside the provider’s principal-scoped path',
+      unit: 'construction site that no principal change tears down',
+      findings: constructionOutsideProvider(product),
+    },
+    {
+      id: 'identity-from-non-transport-source',
+      title: 'identity read from the URL, storage, a payload or a client-supplied name',
+      unit: 'identity derived from something the server did not authenticate',
+      findings: identityFromNonTransportSource(product),
+    },
   ]
 }
 
@@ -618,5 +769,5 @@ if (import.meta.main) {
     console.error(`\nPhase-2 client audit: ${total} item(s) NOT at zero`)
     process.exit(1)
   }
-  console.log('\nPhase-2 client audit: all four items at zero')
+  console.log(`\nPhase-2 client audit: all ${items.length} items at zero`)
 }

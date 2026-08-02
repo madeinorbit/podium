@@ -14,6 +14,7 @@ import type { SpawnTarget } from '@podium/client-core'
 import { OUTBOX_COMMANDS, outboxCommandFor } from '@podium/client-core/engine'
 import { groupSessions, withoutShells } from '@podium/client-core/focus'
 import type { OutboxStorage } from '@podium/client-core/outbox'
+import { asClientPrincipal } from '@podium/client-core/principal'
 import { type StoreNotices, StoreProvider, useStore } from '@podium/client-core/react'
 import {
   createAsyncStorageReplicaStorage,
@@ -534,7 +535,19 @@ function LiveProvider({ children }: { children: ReactNode }) {
       api={trpc}
       onFatalError={setError}
       notices={notices}
-      createReplicaFn={() => openedReplica.replica}
+      // The principal the auth status named, and the store opened for exactly
+      // it. The factory REFUSES any other principal rather than handing back
+      // the store it happens to hold: on a shared device that would give one
+      // account another's slice and cursor (POD-404).
+      principal={asClientPrincipal(openedReplica.principal)}
+      createReplicaFn={(principal) => {
+        if (principal.userId !== openedReplica.principal) {
+          throw new Error(
+            `mobile replica belongs to a different principal (opened for ${openedReplica.principal})`,
+          )
+        }
+        return openedReplica.replica
+      }}
       routerWindow={routerWindow}
     >
       <LiveBridge
