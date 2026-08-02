@@ -349,6 +349,12 @@ export const DURABLE_STORES: readonly DurableStore[] = [
     writeSites: ['packages/runtime/src/local-machine.ts'],
   },
   {
+    store: '<stateDir>/enrollment.ledger',
+    kind: 'filesystem',
+    row: 'enrollment-ledger',
+    writeSites: ['apps/server/src/enrollment-ledger.ts'],
+  },
+  {
     store: '<stateDir>/instance.json',
     kind: 'filesystem',
     row: 'instance-id',
