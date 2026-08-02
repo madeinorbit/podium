@@ -48,7 +48,10 @@ branch.
 The coordinator retracted the earlier rule that every red on this host is new. POD-1363 records a
 load-dependent rearchitecture-audit timeout, and POD-1329 found a unit-test path that overwrites
 the live host config. Therefore a future red is unattributed until it is compared under controlled
-state isolation; neither “new regression” nor “known baseline” may be inferred from color alone.
+state isolation and host load; neither “new regression” nor “known baseline” may be inferred from
+color alone. An assertion failure that reproduces on a quiet host is real. A red that disappears
+when load drops is a host effect. A timeout whose elapsed time scales with load is also a host
+effect even when it reproduces, because its protected assertions never ran.
 
 The POD-279 coordinator later stated that the full landing lane was green with no baseline
 failures, but supplied no candidate SHA, command list, exit codes, or counts that this report can
