@@ -51,7 +51,6 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   })
   connection = createDaemonConnection({
     options: opts,
-    instanceId: instance.instanceId,
     machineId: host.machineId,
     identity: host.identity,
     receiveApplicationFrame: host.receive,

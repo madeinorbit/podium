@@ -9,6 +9,9 @@ the repository oracle is red and the required paired-VPS soak has not run.
 - `connection-state.ts` owns the three credential choices, shared protocol dialer, lifecycle,
   authorization terminal state, reconnect backoff, connectivity reporting, and pre-auth host
   diagnostic retention.
+- Connection state is one ephemeral process-to-server transport lifecycle; `SessionBinding` is
+  durable identity and launch entitlement for many sessions. Transport retry or denial has no
+  binding transition API and cannot mutate a binding.
 - `frame-guards.ts`, `instance-bootstrap.ts`, `reattach-gates.ts`, `durable-backend.ts`, and
   `host-runtime.ts` own the relocated seams. `self-update.ts` remains its own policy module and is
   extended for both handshake rejection and HTTP 426. POD-600's classifier remains in

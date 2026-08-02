@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import { hostname } from 'node:os'
+import type { MachineId } from '@podium/model'
 import {
   createHandshakeDialer,
   type DaemonMessage,
@@ -53,8 +54,7 @@ interface SocketLike {
 
 export interface DaemonConnectionDeps {
   readonly options: DaemonOptions
-  readonly instanceId: string
-  readonly machineId: string
+  readonly machineId: MachineId
   readonly identity: { token?: string }
   readonly receiveApplicationFrame: (raw: RawData) => void
   readonly sendApplicationFrame: (socket: SocketLike | undefined, msg: DaemonMessage) => void
@@ -73,8 +73,14 @@ export interface DaemonConnection {
 
 /**
  * The daemon transport state machine. The shared protocol dialer owns handshake
- * ordering; this module owns socket lifecycle, the three machine credential
- * choices, retry/backoff, and truthful connectivity reporting.
+ * ordering; this module owns the ONE process-to-server socket lifecycle, the
+ * three machine credential choices, retry/backoff, and truthful connectivity.
+ *
+ * This is not SessionBinding under another name. SessionBinding durably owns
+ * identity and launch entitlement for MANY sessions and survives a transport
+ * outage unchanged. These states are ephemeral connectivity facts with no
+ * SessionId and no binding transition API: a reconnect, auth denial, or backoff
+ * must never spawn, reattach, adopt, retire, or otherwise mutate a binding.
  *
  * An `auth-failed` reply is UNAUTHORIZED, not unreachable: it is terminal and
  * never schedules reconnect backoff. Payload claims remain inert because the
@@ -275,7 +281,6 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         hostname: hostname(),
         ...(options.name ? { name: options.name } : {}),
       },
-      instanceId: deps.instanceId,
     })
   }
 

@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { asMachineId } from '@podium/model'
 import { type PeerHello, type PeerHelloReply, WIRE_VERSION } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RawData } from 'ws'
@@ -9,6 +10,7 @@ import { createDaemonConnection } from './connection-state'
 import type { DaemonOptions, ReconnectTimers } from './daemon-options'
 
 const roots: string[] = []
+const MACHINE_ID = asMachineId('11111111-1111-4111-8111-111111111111')
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
@@ -34,7 +36,7 @@ function localOptions(
         return {
           established: true,
           reply: ok,
-          machineId: 'machine-a',
+          machineId: MACHINE_ID,
           deliver: vi.fn(),
           close: vi.fn(),
         }
@@ -47,8 +49,7 @@ function localOptions(
 function connection(options: DaemonOptions, identity: { token?: string } = {}) {
   return createDaemonConnection({
     options,
-    instanceId: 'blue',
-    machineId: 'machine-a',
+    machineId: MACHINE_ID,
     identity,
     receiveApplicationFrame: vi.fn(),
     sendApplicationFrame: vi.fn(),
@@ -70,7 +71,7 @@ describe('daemon connection credential state machine', () => {
       'machine token',
       {},
       { token: 'machine-token' },
-      { kind: 'machineToken', token: 'machine-token', machineHint: 'machine-a' },
+      { kind: 'machineToken', token: 'machine-token', machineHint: MACHINE_ID },
     ],
   ] as const)('uses the shared handshake for the %s credential', async (_name, opts, identity, expected) => {
     let hello: PeerHello | undefined
@@ -83,8 +84,7 @@ describe('daemon connection credential state machine', () => {
       type: 'peerHello',
       peerRole: 'machine',
       credential: expected,
-      claims: { machineId: 'machine-a' },
-      instanceId: 'blue',
+      claims: { machineId: MACHINE_ID },
     })
     expect(state.state).toBe('connected')
     await state.close()
@@ -131,8 +131,7 @@ it('reports transport loss as backoff and schedules a retry', async () => {
       identityDir: temp(),
       reconnectTimers: { setTimeout, clearTimeout: vi.fn() },
     },
-    instanceId: 'blue',
-    machineId: 'machine-a',
+    machineId: MACHINE_ID,
     identity: { token: 'token' },
     receiveApplicationFrame: vi.fn(),
     sendApplicationFrame: vi.fn(),
@@ -157,8 +156,7 @@ it('retains a host diagnostic until the machine transport authenticates', async 
   const sendApplicationFrame = vi.fn()
   const state = createDaemonConnection({
     options: { serverUrl: 'ws://server', identityDir: temp() },
-    instanceId: 'blue',
-    machineId: 'machine-a',
+    machineId: MACHINE_ID,
     identity: { token: 'token' },
     receiveApplicationFrame: vi.fn(),
     sendApplicationFrame,
