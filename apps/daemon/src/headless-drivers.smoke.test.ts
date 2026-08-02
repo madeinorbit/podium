@@ -156,8 +156,10 @@ for (const smoke of resumeExecCases) {
   describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !smoke.available)(
     `[real-agent:${smoke.label}] ${smoke.label} resume-exec real-binary smoke`,
     () => {
+      // Cursor preserves its workspace-trust boundary in headless mode; use the
+      // runner checkout that the operator chose to trust, not a fresh temp directory.
       it('runs a turn and resumes the same session with its context intact', async () => {
-        const cwd = tempCwd()
+        const cwd = smoke.agent === 'cursor' ? process.cwd() : tempCwd()
         const token = `${smoke.tokenPrefix}-${Math.floor(Math.random() * 100000)}`
         const first = runHeadlessTurn(
           {

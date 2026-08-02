@@ -29,6 +29,7 @@ describe('buildHarnessExec', () => {
     expect(cmd).toBe('grok')
     expect(args).not.toContain('--append-system-prompt')
     expect(args.at(-1)).toBe('SYS\n\n---\n\ndo the thing')
+    expect(args.at(-2)).toBe('--single')
   })
 
   it('omits the model flag when model is auto or unset', () => {

@@ -83,14 +83,16 @@ describe('buildHeadlessExec argv shapes', () => {
     expect(args.some((a) => a.includes('sekret'))).toBe(false)
   })
 
-  it('grok: -p with the pinned --session-id (create-or-resume) and positional prompt', () => {
+  it('grok: options precede --single so its required prompt is consumed correctly', () => {
     const { cmd, args } = buildHeadlessExec(
       'grok',
       { prompt: 'hello', sessionId: 'uuid-1', model: 'grok-4' },
       bins,
     )
     expect(cmd).toBe('grok')
-    expect(args).toEqual(['-p', '--session-id', 'uuid-1', '--model', 'grok-4', 'hello'])
+    expect(args).toEqual(['--session-id', 'uuid-1', '--model', 'grok-4', '--single', 'hello'])
+    const resumed = buildHeadlessExec('grok', { prompt: 'again', resumeValue: 'uuid-1' }, bins)
+    expect(resumed.args).toEqual(['--resume', 'uuid-1', '--single', 'again'])
   })
 
   it('opencode: run --format json, -s only when resuming', () => {
