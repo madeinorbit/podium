@@ -430,7 +430,37 @@ export class MessageDeliveryService {
     if (previousIssueId && previousIssueId !== nextIssueId) {
       queue({ kind: 'issue', id: previousIssueId })
     }
-    if (nextIssueId) queue({ kind: 'issue', id: nextIssueId }, preferred)
+    // Session-addressed mail above is preferred to this session unconditionally —
+    // it names this session. ISSUE-addressed mail does not, and routing already
+    // chose a recipient for it by ROLE [POD-1365]. Handing the issue's pending
+    // rows to whichever member happens to reach a turn boundary first DISCARDS
+    // that decision, and it is not a race the coordinator merely loses sometimes:
+    // a fan-out coordinator is mid-turn by definition, so it queues (no recipient
+    // recorded) and a peer that idles often takes it every time. Measured on
+    // POD-279: three consecutive sends to the same wrong session while the
+    // coordinator was set and live.
+    if (nextIssueId) {
+      queue({ kind: 'issue', id: nextIssueId }, this.mayDrainIssueMail(nextIssueId, preferred))
+    }
+  }
+
+  /** Whether `session` may take an issue's pending mail at its turn boundary
+   *  [POD-1365]. A live coordinator owns its issue's mail: peers hold, and the
+   *  row waits for the coordinator's OWN next boundary rather than being handed
+   *  to a bystander. Deliberate second-order choice: the hold lasts only while the
+   *  coordinator is live — once it exits or hibernates the branch yields and any
+   *  member may drain, so a departed coordinator can never strand its issue's mail
+   *  (waking a hibernated one is POD-1371). Undefined preference = no preference,
+   *  which is the caller's "let attemptDelivery decide" path. */
+  private mayDrainIssueMail(issueId: string, session?: SessionMeta): SessionMeta | undefined {
+    if (!session) return undefined
+    const coordinatorId = this.deps.issues().get(issueId)?.coordinatorSessionId
+    if (typeof coordinatorId !== 'string' || coordinatorId === session.sessionId) return session
+    const coordinatorLive = this.deps
+      .sessions()
+      .listSessions()
+      .some((s) => s.sessionId === coordinatorId && s.agentKind !== 'shell' && s.status === 'live')
+    return coordinatorLive ? undefined : session
   }
 
   /** Issue-side target changes can alter inferred session membership and the

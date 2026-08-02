@@ -436,6 +436,43 @@ describe('issue spawn provenance', () => {
       registry.dispose()
     }
   })
+
+  // [POD-1365] The command RESPONSE carrying coordinatorSessionId (above) is not
+  // the thing mail routing reads. attemptDelivery calls issues().get(id) and looks
+  // at `issue.coordinatorSessionId` on that projection, so the field has to survive
+  // toWire() — which spreads it conditionally. A routing test that builds its own
+  // issue object cannot see this seam: it would stay green while the live server
+  // routed every message by recency, which is exactly the failure mode this pair of
+  // tests exists to separate (the defect is SILENT — mail reaches someone, nothing
+  // errors, no lane goes red).
+  it('exposes coordinatorSessionId on issues.get(), the projection mail routing reads', async () => {
+    const registry = new SessionRegistry()
+    try {
+      const issue = registry.issues.create({
+        repoPath: '/r',
+        title: 'Routing reads the projection',
+        startNow: false,
+      })
+
+      // Unset must be ABSENT, not null/'' — routing tests `typeof === 'string'`.
+      expect(registry.issues.get(issue.id)?.coordinatorSessionId).toBeUndefined()
+
+      await registry.issueCommands.dispatch({ capability: OPERATOR }, 'issues', 'setCoordinator', {
+        id: issue.id,
+        sessionId: 'sess_coord_wire',
+      })
+      expect(registry.issues.get(issue.id)?.coordinatorSessionId).toBe('sess_coord_wire')
+
+      // And it must go back to absent, or a stale coordinator keeps winning.
+      await registry.issueCommands.dispatch({ capability: OPERATOR }, 'issues', 'setCoordinator', {
+        id: issue.id,
+        sessionId: null,
+      })
+      expect(registry.issues.get(issue.id)?.coordinatorSessionId).toBeUndefined()
+    } finally {
+      registry.dispose()
+    }
+  })
 })
 
 /**

@@ -611,6 +611,40 @@ describe('MessageDeliveryService.send', () => {
     expect(r.message.deliveredTo).not.toBe('sCoord')
   })
 
+  // [POD-1365] Measured in production: the coordinator preference was applied at SEND
+  // time only. A coordinator that is mid-turn cannot take an fyi immediately, so the row
+  // stays queued with NO recipient recorded — and the drain path (onSessionIdle) then
+  // hands the issue's pending mail to whichever OTHER member reaches idle first. On a
+  // fan-out the coordinator is busy by definition and a classifier/worker idles often,
+  // so this is not a race the coordinator sometimes loses: it loses every time. Three
+  // consecutive POD-279 sends (msg_546b389c, msg_fd3fb616, msg_2822086a) went to the
+  // same wrong session while the coordinator field was set and both sessions were live.
+  it('holds queued issue mail for a busy coordinator instead of draining it to a peer', () => {
+    const members = [
+      // The coordinator is mid-turn — the normal state of a fan-out coordinator.
+      session({ sessionId: 'sCoord', agentState: WORKING, lastActiveAt: 't0', issueId: ISSUE.id }),
+      session({ sessionId: 'sWorker', agentState: IDLE, lastActiveAt: 't9', issueId: ISSUE.id }),
+    ]
+    const { svc, store, sent } = harness(members, {
+      coordinatorByIssue: new Map([[ISSUE.id, 'sCoord']]),
+    })
+    const r = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'lane green', urgency: 'fyi' },
+    )
+    // Correct today: a busy coordinator cannot take it now, so it waits.
+    expect(r.message.status).toBe('queued')
+
+    // The peer reaches a turn boundary first. It must NOT swallow the coordinator's mail.
+    svc.onSessionIdle(session({ sessionId: 'sWorker', agentState: IDLE, issueId: ISSUE.id }))
+    expect(sent.map((s) => s.sessionId)).not.toContain('sWorker')
+    expect(store.messages.getMessage(r.message.id)!.deliveredTo).not.toBe('sWorker')
+
+    // It is still waiting, and the coordinator gets it at ITS next boundary.
+    svc.onSessionIdle(session({ sessionId: 'sCoord', agentState: IDLE, issueId: ISSUE.id }))
+    expect(sent.map((s) => s.sessionId)).toContain('sCoord')
+  })
+
   // [POD-1365] The coordinator preference turns on session STATUS, and status is a
   // different axis from agent PHASE. An agent sitting at its prompt is phase 'idle'
   // and status 'live' — it IS preferred; SessionStatus has no 'idle' member at all
