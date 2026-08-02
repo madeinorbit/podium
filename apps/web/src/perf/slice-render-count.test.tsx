@@ -2,6 +2,7 @@
 import { Profiler, act, type JSX } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { CommandPalette } from '../app/CommandPalette'
 import { SidebarUnified } from '../features/worklist/SidebarUnified'
 
 // ---------------------------------------------------------------------------
@@ -157,6 +158,16 @@ function storeSnapshot() {
     markIssueUnread: vi.fn(async () => {}),
     markSessionRead: vi.fn(async () => {}),
     markSessionUnread: vi.fn(async () => {}),
+    // --- CommandPalette (the SECOND consumer, see the two-consumer probe) ---
+    paletteOpen: true,
+    setPaletteOpen: vi.fn(),
+    superOpen: false,
+    setSuperOpen: vi.fn(),
+    setSnooze: vi.fn(async () => {}),
+    clearSnooze: vi.fn(async () => {}),
+    hibernateSession: vi.fn(async () => {}),
+    resurrectSession: vi.fn(async () => {}),
+    startBtw: vi.fn(async () => {}),
   }
 }
 
@@ -172,6 +183,7 @@ vi.mock('@/features/machines/HostIndicators', () => ({ HostIndicators: () => nul
 vi.mock('@/lib/hooks/use-session-guard', () => ({
   useSessionGuard: () => ({ guardedKill: vi.fn(), guardedArchive: vi.fn() }),
 }))
+vi.mock('@/lib/use-feature', () => ({ useFeature: () => true }))
 
 
 /** How many publishes the probe drives. Enough that a per-publish regression is
@@ -240,6 +252,67 @@ describe('POD-330 render-count probe — worklist', () => {
   })
 })
 
+// ---------------------------------------------------------------------------
+// THE TWO-CONSUMER PROBE (POD-331).
+//
+// POD-330's map, §6.4, records why the single-consumer probe above cannot show
+// the improvement it exists to measure:
+//
+//   "The probe renders SidebarUnified and nothing else, so it observes ONE
+//    consumer. A published hook would move the number from 1-per-consumer to
+//    1-per-change, but with one consumer those are the same number."
+//
+// So the gain is only observable with a SECOND, INDEPENDENT consumer of the
+// same derivation. `CommandPalette` is that consumer in the real app — it calls
+// `sidebarSections` itself (via `@/lib/derive`, which `export *`s the module
+// this file wraps), and it can be open while the sidebar is mounted.
+//
+// This test is deliberately landed BEFORE the port and its ceiling recorded on
+// the UNPORTED tree, so the before/after is a measured pair rather than a
+// remembered one.
+// ---------------------------------------------------------------------------
+describe('POD-331 render-count probe — worklist with a second consumer', () => {
+  it('records derivation executions per publish across two independent consumers', () => {
+    let commits = 0
+    const tree = (): JSX.Element => (
+      <Profiler
+        id="worklist-two-consumer"
+        onRender={(_id, phase) => {
+          if (phase !== 'mount') commits++
+        }}
+      >
+        <SidebarUnified />
+        <CommandPalette />
+      </Profiler>
+    )
+
+    act(() => root.render(tree()))
+    const atMount = { ...derivations }
+
+    for (let i = 0; i < PUBLISHES; i++) {
+      publishNonce++
+      act(() => root.render(tree()))
+    }
+
+    // Same can-say-NO guard as above: numbers from a derivation that never ran
+    // are not a measurement, and zero passes every ceiling.
+    expect(derivations.sidebarSections).toBeGreaterThan(atMount.sidebarSections)
+
+    const perPublishCommits = commits / PUBLISHES
+    const perPublishSections = (derivations.sidebarSections - atMount.sidebarSections) / PUBLISHES
+    const perPublishWorkList = (derivations.unifiedWorkList - atMount.unifiedWorkList) / PUBLISHES
+
+    console.log(
+      `[POD-331 two-consumer] per publish: commits=${perPublishCommits} ` +
+        `sidebarSections=${perPublishSections} unifiedWorkList=${perPublishWorkList} ` +
+        `(mount: sections=${atMount.sidebarSections} workList=${atMount.unifiedWorkList})`,
+    )
+
+    expect(perPublishSections).toBeLessThanOrEqual(BASELINE.twoConsumer.sidebarSectionsPerPublish)
+    expect(perPublishWorkList).toBeLessThanOrEqual(BASELINE.twoConsumer.unifiedWorkListPerPublish)
+  })
+})
+
 /**
  * Measured on the UNCUT tree at c3b8247e, before any of POD-330's changes.
  * These are CEILINGS, not targets: the slice split may lower them (that is the
@@ -252,6 +325,25 @@ const BASELINE = {
     /** Measured 1 on the uncut tree — one execution per consuming component. */
     sidebarSectionsPerPublish: 1,
     /** Measured 1 on the uncut tree. */
+    unifiedWorkListPerPublish: 1,
+  },
+  /**
+   * MEASURED ON THE UNPORTED TREE at 5409a3ac, with SidebarUnified and
+   * CommandPalette both mounted:
+   *
+   *   [POD-331 two-consumer] per publish: commits=3 sidebarSections=2 unifiedWorkList=1
+   *
+   * `sidebarSections=2` against the single-consumer probe's 1 is the
+   * per-CONSUMER cost the published slice exists to remove — the second
+   * consumer bought a second execution of the identical derivation. This is a
+   * CEILING: the port must bring it to 1 and may never raise it.
+   *
+   * `unifiedWorkList` stays 1 because CommandPalette does not call it — only
+   * `sidebarSections` has two consumers here, which is exactly why the pair of
+   * numbers is reported rather than one.
+   */
+  twoConsumer: {
+    sidebarSectionsPerPublish: 2,
     unifiedWorkListPerPublish: 1,
   },
 } as const
