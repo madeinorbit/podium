@@ -128,10 +128,14 @@ describe('handoff placement: what it resolves', () => {
   })
 
   it('offers no fallback worktree when the issue is homed on a DIFFERENT machine', () => {
+    // The path deliberately sits UNDER the source repo, so the only thing that
+    // can refuse it is the machine check. A worktree path outside the repo
+    // would be rejected by the `startsWith` guard as well, and the case would
+    // pass with the machine check deleted — it did, until this fixture changed.
     const placement = resolve(
       ports({
         session: makeSession({ issueId: 'iss-1' }),
-        issue: { machineId: TARGET, worktreePath: '/elsewhere/wt', branch: 'feat' },
+        issue: { machineId: TARGET, worktreePath: '/repo/wt/elsewhere', branch: 'feat' },
       }),
     )
     expect(placement.issueWorktree).toBeUndefined()
