@@ -10,7 +10,7 @@ import { SessionStore } from './store'
 function harness() {
   const store = new SessionStore(':memory:')
   store.repos.addRepo('/r/podium', store.hostMachineId) // prefix POD
-  const reg = new SessionRegistry(store)
+  const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
   const issue = reg.modules.issues.create({ repoPath: '/r/podium', title: 'T', startNow: false })
   const meta = (id: string) =>
     reg.modules.sessions.listSessions().find((s) => s.sessionId === id)
@@ -124,14 +124,14 @@ describe('session birth naming (#474)', () => {
   it('boot backfill names historical unnamed sessions once, deterministically', () => {
     const store = new SessionStore(':memory:')
     store.repos.addRepo('/r/podium', store.hostMachineId)
-    const reg1 = new SessionRegistry(store)
+    const reg1 = new SessionRegistry(store, undefined, { instanceId: 'default' })
     const a = reg1.modules.sessions.createSession({ agentKind: 'shell', cwd: '/r/podium' }).sessionId
     // Simulate a pre-#474 row: rewrite it with its ref wiped (COALESCE in the
     // upsert keeps non-null refs, so write via a fresh row literal).
     const seeded = store.sessions.loadSessions().find((r) => r.id === a)!
     store.sessions.purgeSession(a)
     store.sessions.upsertSession({ ...seeded, refIssueId: null, refLetter: null, refDraft: null })
-    const reg2 = new SessionRegistry(store)
+    const reg2 = new SessionRegistry(store, undefined, { instanceId: 'default' })
     reg2.modules.sessions.loadFromStore()
     const row = store.sessions.loadSessions().find((r) => r.id === a)
     expect(row?.refDraft).not.toBeNull()

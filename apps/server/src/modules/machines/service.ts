@@ -83,6 +83,8 @@ export interface PairingGrant {
 }
 
 export interface MachinesDeps {
+  /** Deployment configuration only; never an owner or grant input. */
+  instanceId: string
   store: SessionStore
   /**
    * THIS HOST'S machine id — the UUID in `<stateDir>/machine.id`, read once by the
@@ -137,6 +139,11 @@ export class MachinesService {
   private machineNameCache = new Map<string, string>()
 
   constructor(private readonly deps: MachinesDeps) {}
+
+  /** Deployment label supplied by the composition root. */
+  get instanceId(): string {
+    return this.deps.instanceId
+  }
 
   /** This host's machine id — see {@link MachinesDeps.hostMachineId}. Exposed because
    *  the handshake's machine directory has to name the machine the loopback bootstrap

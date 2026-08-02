@@ -7,6 +7,7 @@ import type { AgentKind, SessionId, SessionMeta } from '@podium/model'
 import { asSessionId, asUserId, FIRST_ADMIN_USER_ID, parseIssueDepId } from '@podium/model'
 import type { LiveServerMessage, VisibilityResolver } from '@podium/protocol'
 import { formatIssueRef, SubscriptionRegistry, sessionTitleRule } from '@podium/protocol'
+import { durableSessionLabel } from '@podium/runtime/instance'
 import { stateDir } from '@podium/runtime/local-machine'
 import {
   DEVICE_GRADE_PRINCIPAL,
@@ -98,6 +99,8 @@ export type {
 export type { MemoryBreakdown }
 
 interface SessionRegistryOptions {
+  /** Boot-resolved deployment identity; every composition root names it explicitly. */
+  instanceId: string
   telegramSetup?: TelegramSetupClient
   generateTelegramSetupCode?: () => string
   now?: () => number
@@ -237,13 +240,17 @@ export class SessionRegistry {
   private readonly issueAutoArchive: IssueAutoArchive
   /** Cron tick for scheduled automations (#470) [spec:SP-17db] — modules/automations. */
   private readonly automationScheduler: AutomationScheduler
+  private readonly store: SessionStore
   private readonly now: () => number
 
   constructor(
-    private readonly store: SessionStore = new SessionStore(':memory:'),
-    notificationPushers: NotificationPushers = DEFAULT_NOTIFICATION_PUSHERS,
-    options: SessionRegistryOptions = {},
+    store: SessionStore | undefined,
+    notificationPushers: NotificationPushers | undefined,
+    options: SessionRegistryOptions,
   ) {
+    this.store = store ?? new SessionStore(':memory:')
+    notificationPushers ??= DEFAULT_NOTIFICATION_PUSHERS
+    const { instanceId } = options
     this.now = options.now ?? Date.now
     // Resolve feature state once, then keep it atomic with settings changes. This also
     // avoids reading persistence during instruction preparation after async recovery.
@@ -306,6 +313,7 @@ export class SessionRegistry {
       this.store.repos,
     )
     const machines = new MachinesService({
+      instanceId,
       store: this.store,
       // ONE READER of `<stateDir>/machine.id`: the composition root passes the id to
       // the store, and every consumer takes the store's copy. A second `readOrCreate*`
@@ -692,6 +700,7 @@ export class SessionRegistry {
       now: () => new Date(this.now()).toISOString(),
     })
     const sessionsSvc = new SessionLifecycle({
+      durableLabelFor: (sessionId) => durableSessionLabel(sessionId, instanceId),
       store: this.store,
       now: () => this.now(),
       bus: this.bus,

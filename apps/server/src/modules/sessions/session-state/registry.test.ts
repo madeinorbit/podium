@@ -38,7 +38,7 @@ const BOB = asUserId('user:bob')
 
 function fixture() {
   const store = new SessionStore(':memory:')
-  const reg = new SessionRegistry(store)
+  const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
   registries.push(reg)
   reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
   const sessionState = new SessionStateRegistry({
@@ -453,7 +453,7 @@ describe('the composer draft rejects a stale revision instead of overwriting', (
       ...store.settings.getSettings(),
       experimental: { 'draft-sync': true },
     })
-    const reg = new SessionRegistry(store)
+    const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
     registries.push(reg)
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const sessionState = new SessionStateRegistry({

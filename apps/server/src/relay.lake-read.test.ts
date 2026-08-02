@@ -41,7 +41,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
   function setup() {
     const lakeDir = mkdtempSync(join(tmpdir(), 'podium-lake-read-'))
     const store = new SessionStore(':memory:')
-    const registry = new SessionRegistry(store, undefined, { mirrorLakeDir: lakeDir })
+    const registry = new SessionRegistry(store, undefined, { instanceId: 'default', mirrorLakeDir: lakeDir })
     cleanups.push(() => {
       registry.dispose()
       rmSync(lakeDir, { recursive: true, force: true })

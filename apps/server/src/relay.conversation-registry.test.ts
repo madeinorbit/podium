@@ -18,7 +18,7 @@ describe('SessionRegistry conversation registry', () => {
   })
 
   function makeRegistry(): SessionRegistry {
-    const registry = new SessionRegistry()
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
     return registry
   }

@@ -23,7 +23,7 @@ function caller(rawCapability: Capability, shared?: SessionRegistry) {
           actorUser: rawCapability.actorUser ?? FIRST_ADMIN_USER_ID,
           onBehalfOf: rawCapability.onBehalfOf ?? FIRST_ADMIN_USER_ID,
         }
-  const registry = shared ?? new SessionRegistry() // in-memory :memory: store
+  const registry = shared ?? new SessionRegistry(undefined, undefined, { instanceId: 'default' }) // in-memory :memory: store
   if (!shared) registries.push(registry)
   return appRouter.createCaller({
     registry,
@@ -63,7 +63,7 @@ describe('issues.* capability gate', () => {
   })
 
   it('subtree-scoped worker may start a CHILD inside its subtree without --outside-scope; outside issues are scope-blocked', async () => {
-    const registry = new SessionRegistry()
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
     // No daemon in this harness: a real repoOp would await a machine round-trip forever.
     // Failing it fast keeps the test on what it proves — the AUTHZ gate decision.

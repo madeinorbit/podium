@@ -28,7 +28,7 @@ afterEach(() => {
 it('captures spawn values instead of drifting issue defaults in row, meta, and status', async () => {
   // SessionStore boot applies the bundled migration chain to this fresh database.
   const store = new SessionStore(':memory:')
-  const registry = new SessionRegistry(store)
+  const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
   registries.push(registry)
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
 

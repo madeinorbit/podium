@@ -27,7 +27,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
   })
 
   function makeRegistry(store?: SessionStore): SessionRegistry {
-    const registry = new SessionRegistry(store)
+    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
     registries.push(registry)
     return registry
   }
@@ -281,7 +281,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
 
   it('(d) restart: the baseline folds from the retained log — no boot reconcile, and the first scan dedups', () => {
     const store = new SessionStore(':memory:')
-    const first = new SessionRegistry(store)
+    const first = new SessionRegistry(store, undefined, { instanceId: 'default' })
     first.gateway.attachDaemon('m1', () => {})
     push(first, [conv('c1', { title: 't' }), conv('c2')])
     first.dispose()

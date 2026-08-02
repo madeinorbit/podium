@@ -13,7 +13,7 @@ import { appRouter } from './router'
 import { SuperagentService } from './modules/superagent'
 
 function caller() {
-  const registry = new SessionRegistry()
+  const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)

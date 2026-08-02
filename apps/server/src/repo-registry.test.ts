@@ -10,7 +10,7 @@ import { SessionStore } from './store'
  *  so single-machine add/remove attribute to that machine — preserving the original
  *  single-store behavior these tests assert. */
 function singleMachineRepos(store: SessionStore): RepoRegistry {
-  const registry = new SessionRegistry(store)
+  const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
   return new RepoRegistry(registry, store)
 }

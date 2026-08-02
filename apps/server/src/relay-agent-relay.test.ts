@@ -40,7 +40,7 @@ describe('server agent relay handler (P1b)', () => {
   let sA: string
 
   beforeEach(() => {
-    registry = new SessionRegistry()
+    registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
     // A is a subtree root with a worktree; a session runs INSIDE it → subtree cap rooted at A.
     // B is unrelated. (create + set worktreePath directly, as capabilityForSession's test does.)
@@ -334,7 +334,7 @@ describe('sessions.stop relay authz [spec:SP-9904]', () => {
   let wtA: string
 
   beforeEach(() => {
-    registry = new SessionRegistry()
+    registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
     A = registry.issues.create({ repoPath, title: 'stop root', startNow: false })
     registry.issues.update(A.id, { worktreePath: '/r/.worktrees/issue-stop-a' })
@@ -523,7 +523,7 @@ describe('sessions.title — an agent names its own session (#490)', () => {
     registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.name
 
   beforeEach(() => {
-    registry = new SessionRegistry()
+    registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
     A = registry.issues.create({ repoPath, title: 'epic root', startNow: false }) as typeof A
     registry.issues.update(A.id, { worktreePath: '/r/.worktrees/issue-1-a' })
@@ -640,7 +640,7 @@ describe('offer.set / offer.clear — an agent offers the user next actions', ()
     registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.offer
 
   beforeEach(() => {
-    registry = new SessionRegistry()
+    registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
     sA = registry.modules.sessions.createSession({ cwd: '/r', agentKind: 'shell' }).sessionId
     sB = registry.modules.sessions.createSession({ cwd: '/r', agentKind: 'shell' }).sessionId

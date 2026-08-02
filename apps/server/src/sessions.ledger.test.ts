@@ -26,7 +26,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
   })
 
   function makeRegistry(store?: SessionStore): SessionRegistry {
-    const registry = new SessionRegistry(store)
+    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
     registries.push(registry)
     return registry
   }
@@ -224,7 +224,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
 
   it('(f) boot reconcile records offline row changes durably, with no fan-out', () => {
     const store = new SessionStore(':memory:')
-    const first = new SessionRegistry(store)
+    const first = new SessionRegistry(store, undefined, { instanceId: 'default' })
     const { sessionId } = first.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     first.dispose()
     const cursor = first.modules.sessions.syncChangesSince(null).cursor
@@ -437,7 +437,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
 
   it('resets the internal generation across restart without disturbing durable ledger order', () => {
     const store = new SessionStore(':memory:')
-    const first = new SessionRegistry(store)
+    const first = new SessionRegistry(store, undefined, { instanceId: 'default' })
     const { sessionId } = first.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     const clientId = attachTestClient(first.clientGateway, () => {})
     first.clientGateway.routeClientFrame(clientId, { type: 'attach', sessionId })
@@ -916,7 +916,7 @@ describe('feed identity on the wire (ADR 2 D1/D5)', () => {
   })
 
   function makeRegistry(): SessionRegistry {
-    const registry = new SessionRegistry()
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
     return registry
   }

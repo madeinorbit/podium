@@ -46,7 +46,7 @@ describe('daemon socket auth', () => {
       name: 'box',
       hostname: 'box',
       tokenHash: sha256('tok'), ownerUserId: 'user:sole' })
-    const reg = new SessionRegistry(store)
+    const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
     const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
@@ -76,7 +76,7 @@ describe('daemon socket auth', () => {
       name: 'thishost',
       hostname: 'thishost',
       tokenHash: sha256('sekret'), ownerUserId: 'user:sole' })
-    const reg = new SessionRegistry(store)
+    const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
     const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const onMsg = vi.spyOn(reg.gateway, 'routeDaemonFrame')
     const ws = fakeWs()
@@ -143,7 +143,7 @@ describe('daemon socket auth', () => {
 
   it('rejects an unknown hello with helloRejected and does not attach', () => {
     const store = new SessionStore(':memory:')
-    const reg = new SessionRegistry(store)
+    const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
     const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
@@ -161,7 +161,7 @@ describe('daemon socket auth', () => {
   it('a pair frame redeems a code, replies once with paired, then attaches', () => {
     const store = new SessionStore(':memory:')
     // Pairing is a hub-role capability, injected the way server assembly does it.
-    const reg = new SessionRegistry(store, undefined, { pairing: new PairingManager() })
+    const reg = new SessionRegistry(store, undefined, { instanceId: 'default', pairing: new PairingManager() })
     const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const code = reg.modules.machines.mintPairingCode()
     const ws = fakeWs()
@@ -190,7 +190,7 @@ describe('daemon socket auth', () => {
   it('detaches the machine on close', () => {
     const store = new SessionStore(':memory:')
     store.machines.upsertMachine({ id: 'm1', name: 'h', hostname: 'h', tokenHash: sha256('tok'), ownerUserId: 'user:sole' })
-    const reg = new SessionRegistry(store)
+    const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
     const detach = vi.spyOn(reg.gateway, 'detachDaemon')
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
@@ -207,7 +207,7 @@ describe('daemon socket auth', () => {
   it('does not detach when the socket closes before it ever attached', () => {
     const store = new SessionStore(':memory:')
     store.machines.upsertMachine({ id: 'm1', name: 'h', hostname: 'h', tokenHash: sha256('tok'), ownerUserId: 'user:sole' })
-    const reg = new SessionRegistry(store)
+    const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
     const detach = vi.spyOn(reg.gateway, 'detachDaemon')
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)

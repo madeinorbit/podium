@@ -16,11 +16,7 @@ import {
   type WorkState,
 } from '@podium/model'
 import { FIRST_ADMIN_USER_ID, WorkState as WorkStateSchema } from '@podium/model'
-import type {
-  ControlMessage,
-  SessionObservationCheckpointV1,
-} from '@podium/protocol'
-import { durableSessionLabel } from '@podium/runtime/instance'
+import type { ControlMessage, SessionObservationCheckpointV1 } from '@podium/protocol'
 import type { SessionRow } from '../../store'
 import { SessionTerminal, type SessionTerminalState } from './terminal'
 
@@ -80,7 +76,8 @@ export interface SessionInit {
    *  supply and no placeholder to adopt away from later. */
   machineId: MachineId
   resume?: ResumeRef
-  durableLabel?: string
+  /** Resolved by process composition; never derived from ambient env here. */
+  durableLabel: string
   lastActiveAt?: string
   /** Persisted completed working/compacting time; absent for legacy sessions. */
   workingMsTotal?: number
@@ -130,7 +127,6 @@ export interface SessionInit {
    */
   onUnreadRearm?: () => void
 }
-
 
 /** One agent's relay state: controller gating, geometry/epoch, and its attached clients. */
 export type SessionVolatileField = 'geometry' | 'status' | 'machineId' | 'handoffTarget'
@@ -318,7 +314,7 @@ export class Session {
       },
     })
     this.machineId = init.machineId
-    this.durableLabel = init.durableLabel ?? durableSessionLabel(init.sessionId)
+    this.durableLabel = init.durableLabel
     this.resume = init.resume
     this.lastActiveAt = init.lastActiveAt ?? init.createdAt
     this.workingMsTotal = init.workingMsTotal
@@ -668,7 +664,9 @@ export class Session {
       lastActiveAt: this.lastActiveAt,
       // Last human (controller) input — the offer-artifact freshness fallback
       // [POD-120] compares issue-artifact addedAt against this on the client.
-      ...(this.terminal.lastInputAtMs > 0 ? { lastInputAt: new Date(this.terminal.lastInputAtMs).toISOString() } : {}),
+      ...(this.terminal.lastInputAtMs > 0
+        ? { lastInputAt: new Date(this.terminal.lastInputAtMs).toISOString() }
+        : {}),
       origin: this.origin,
       archived: this.archived,
       // Email-style read state (issue #124). unread = there is activity the operator
@@ -715,5 +713,4 @@ export class Session {
     const parsed = WorkStateSchema.safeParse(raw)
     return parsed.success ? parsed.data : undefined
   }
-
 }
