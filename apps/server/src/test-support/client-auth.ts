@@ -1,4 +1,4 @@
-import { FIRST_ADMIN_USER_ID, type UserId } from '@podium/model'
+import type { UserId } from '@podium/model'
 import { SESSION_COOKIE } from '@podium/protocol'
 
 export interface TestClientLogin {
@@ -22,7 +22,7 @@ export async function loginTestClient(input: {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
-      userId: input.userId ?? FIRST_ADMIN_USER_ID,
+      ...(input.userId ? { userId: input.userId } : {}),
       password: input.password,
     }),
   })
