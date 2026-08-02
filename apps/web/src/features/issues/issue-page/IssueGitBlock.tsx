@@ -34,7 +34,12 @@ export function IssueGitBlock({
       <h3 className="font-medium text-[12px] text-muted-foreground">Git</h3>
       <div className="flex flex-wrap gap-2">
         {primaryIsPr ? (
-          <Button type="button" size="sm" disabled={busy} onClick={() => void commands.gitAction('pr')}>
+          <Button
+            type="button"
+            size="sm"
+            disabled={busy}
+            onClick={() => void commands.gitAction('pr')}
+          >
             Open PR
           </Button>
         ) : (

@@ -55,6 +55,7 @@ export function useEvictionGuard(issue: IssueViewModel, onLeave: () => void): vo
   const wasPresent = useRef(false)
   const fired = useRef(false)
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `issue.id` is the SUBJECT of the re-arm, not a value the body reads — dropping it is what the rule suggests and it would make the effect fire once and never re-arm on navigation
   useEffect(() => {
     // A new issue id is a new subject: re-arm from scratch rather than carrying
     // the previous one's presence across a navigation.

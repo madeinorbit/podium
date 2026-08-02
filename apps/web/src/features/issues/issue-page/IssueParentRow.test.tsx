@@ -12,10 +12,11 @@
  *     "not equal" would fire on every reparent and be trained away long before
  *     the field is real.
  */
+
+import type { IssueEdge } from '@podium/client-core/viewmodels'
 import { cleanup, render, screen } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { IssueEdge } from '@podium/client-core/viewmodels'
 import { makeIssue } from '@/lib/test-issue'
 import {
   crossesOwnerBoundary,

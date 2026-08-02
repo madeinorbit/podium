@@ -30,8 +30,9 @@
  * `issue-page-commands.ts` mentions no actor, owner or origin anywhere, and
  * `issue-page.payload-identity.test.ts` is the check that keeps it that way.
  */
-import type { IssuePanelArtifact } from '@podium/model'
+
 import { shallowEqual } from '@podium/client-core'
+import type { IssuePanelArtifact } from '@podium/model'
 import { FileText, Play } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'

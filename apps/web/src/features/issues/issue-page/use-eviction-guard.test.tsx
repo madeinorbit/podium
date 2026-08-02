@@ -18,8 +18,8 @@
  */
 import { act, cleanup, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { makeIssue } from '@/lib/test-issue'
 import type { IssueViewModel } from '@/app/store'
+import { makeIssue } from '@/lib/test-issue'
 import { useEvictionGuard } from './use-eviction-guard'
 
 const ISSUE = makeIssue({ id: 'i-open', seq: 3, title: 'Open issue' })

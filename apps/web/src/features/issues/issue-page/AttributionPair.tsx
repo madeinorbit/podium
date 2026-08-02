@@ -21,7 +21,7 @@
  * half is also the answer to "whose work is this?" — which is why it is shown
  * next to the actor rather than behind a hover.
  */
-import { actorDisplayId, type Attribution } from '@podium/model'
+import { type Attribution, actorDisplayId } from '@podium/model'
 import type { JSX } from 'react'
 import { cn } from '@/lib/utils'
 
@@ -59,7 +59,10 @@ export function AttributionPair({
   const { actor, onBehalfOf } = attribution
   return (
     <span
-      className={cn('inline-flex items-baseline gap-1 text-[11px] text-muted-foreground', className)}
+      className={cn(
+        'inline-flex items-baseline gap-1 text-[11px] text-muted-foreground',
+        className,
+      )}
       data-testid="attribution-pair"
     >
       <span data-testid="attribution-actor" title={`${actorKindLabel(actor)} — the actor`}>

@@ -44,9 +44,9 @@
  * is also the single-user parity guard.
  */
 import type { CrossBoundaryPolicy, IssueEdge } from '@podium/client-core/viewmodels'
-import { resolveIssueEdge, type ReferentExit } from '@podium/client-core/viewmodels'
+import { type ReferentExit, resolveIssueEdge } from '@podium/client-core/viewmodels'
 import type { IssueId, IssueWire } from '@podium/model'
-import { createContext, useContext, useMemo, type JSX, type ReactNode } from 'react'
+import { createContext, type JSX, type ReactNode, useContext, useMemo } from 'react'
 import { type IssueViewModel, useReplicaIssues } from '@/app/store'
 import { issueRefLong } from '../issue-card'
 

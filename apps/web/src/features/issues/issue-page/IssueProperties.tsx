@@ -40,10 +40,10 @@ import {
 } from '../issue-page-model'
 import { IssueAbout } from './IssueAbout'
 import { IssueGitBlock } from './IssueGitBlock'
-import { useIssueEdgeResolver } from './issue-edges'
 import { IssueParentRow } from './IssueParentRow'
 import { IssueRelations } from './IssueRelations'
 import { IssueSessionsBlock } from './IssueSessionsBlock'
+import { useIssueEdgeResolver } from './issue-edges'
 import { PropertyRow, TriggerButton } from './property-chrome'
 
 /** The properties stack. `commands` is the page's named-command set (all

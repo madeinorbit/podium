@@ -76,7 +76,10 @@ export const ABOUT_ROWS: readonly AboutRowSpec[] = [
 export function IssueAbout({ issue }: { issue: IssueViewModel }): JSX.Element {
   const now = Date.now()
   return (
-    <section className="flex flex-col gap-0.5 border-border border-t pt-3" data-testid="issue-about">
+    <section
+      className="flex flex-col gap-0.5 border-border border-t pt-3"
+      data-testid="issue-about"
+    >
       {ABOUT_ROWS.map((row) => (
         <AboutRow
           key={row.label}

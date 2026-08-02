@@ -60,9 +60,7 @@ function Harness({
 
 function Edge({ targetId, onNavigate }: { targetId: string; onNavigate: (id: never) => void }) {
   const resolve = useIssueEdgeResolver()
-  return (
-    <IssueEdgeLink edge={resolve(targetId)} onNavigate={onNavigate} fallbackId={targetId} />
-  )
+  return <IssueEdgeLink edge={resolve(targetId)} onNavigate={onNavigate} fallbackId={targetId} />
 }
 
 describe('the shipped cross-boundary policy', () => {

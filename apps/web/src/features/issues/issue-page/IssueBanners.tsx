@@ -11,10 +11,10 @@
  * removed" defect. See ./issue-edges.ts for the policy.
  */
 import type { IssueId } from '@podium/model'
-import type { JSX } from 'react'
-import { Button } from '@/components/ui/button'
 import { ArchiveRestore } from 'lucide-react'
+import type { JSX } from 'react'
 import type { IssueViewModel } from '@/app/store'
+import { Button } from '@/components/ui/button'
 import { STAGE_LABELS } from '../issue-card'
 import type { IssuePageCommands } from '../issue-page-commands'
 import { IssueEdgeLink, useIssueEdgeResolver } from './issue-edges'
@@ -41,7 +41,12 @@ export function IssueBanners({
             This issue and its sessions were deleted. Restoring it returns the sessions as exited
             records; their running processes were stopped.
           </p>
-          <Button type="button" size="sm" disabled={busy} onClick={() => commands.restoreIssue(onBack)}>
+          <Button
+            type="button"
+            size="sm"
+            disabled={busy}
+            onClick={() => commands.restoreIssue(onBack)}
+          >
             <ArchiveRestore size={14} aria-hidden="true" /> Restore task
           </Button>
         </div>

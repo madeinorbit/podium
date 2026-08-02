@@ -34,7 +34,7 @@ function isFinished(child: IssueViewModel): boolean {
 
 export function IssueSubIssues({
   issue,
-  children,
+  subIssues,
   busy,
   addingChild,
   childTitle,
@@ -44,7 +44,10 @@ export function IssueSubIssues({
   onNavigate,
 }: {
   issue: IssueViewModel
-  children: IssueViewModel[]
+  /** Named `subIssues` rather than `children`: a `children` PROP on a component
+   *  that does not render its React children is the one thing React's own
+   *  vocabulary reserves, and biome's noChildrenProp is right to refuse it. */
+  subIssues: IssueViewModel[]
   busy: boolean
   addingChild: boolean
   childTitle: string
@@ -53,8 +56,8 @@ export function IssueSubIssues({
   onCreate: (title: string) => void
   onNavigate: (id: IssueId) => void
 }): JSX.Element {
-  const doneChildren = children.filter(isFinished)
-  const openChildren = children.filter((child) => !isFinished(child))
+  const doneChildren = subIssues.filter(isFinished)
+  const openChildren = subIssues.filter((child) => !isFinished(child))
   return (
     <section className="mb-7 flex flex-col gap-1" data-testid="sub-issues">
       <SectionHeading

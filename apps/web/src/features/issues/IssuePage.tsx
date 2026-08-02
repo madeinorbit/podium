@@ -4,8 +4,6 @@ import { useEffect, useState } from 'react'
 import type { IssueViewModel } from '@/app/store'
 import { cn } from '@/lib/utils'
 import { IssueCloseDialog, type IssueCloseReason } from './issue-lifecycle'
-import { issuePageCommands } from './issue-page-commands'
-import { repoMatesOf, useIssuePageModel } from './issue-page-model'
 import { IssueActivitySection, MailSection } from './issue-page/IssueActivity'
 import { IssueAgentActivity } from './issue-page/IssueAgentActivity'
 import { IssueBanners } from './issue-page/IssueBanners'
@@ -20,6 +18,8 @@ import { IssueDetailHeader } from './issue-page/IssueDetailHeader'
 import { IssueProperties } from './issue-page/IssueProperties'
 import { IssueSubIssues } from './issue-page/IssueSubIssues'
 import { useEvictionGuard } from './issue-page/use-eviction-guard'
+import { issuePageCommands } from './issue-page-commands'
+import { repoMatesOf, useIssuePageModel } from './issue-page-model'
 
 /**
  * The full issue page — an in-view (not overlay) replacement for the detail
@@ -195,7 +195,7 @@ export function IssuePage({
 
             <IssueSubIssues
               issue={issue}
-              children={children}
+              subIssues={children}
               busy={busy}
               addingChild={addingChild}
               childTitle={childTitle}
