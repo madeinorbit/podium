@@ -8,7 +8,11 @@
  */
 import { type IssueId, type IssueWire, type SessionMeta } from '@podium/model'
 import { isSessionWorking } from '../../session-status'
-import { issueIdOwningSession, type SessionOwnershipIndex } from '../../session-ownership'
+import {
+  issueIdOwningSession,
+  sessionsForIssueNav,
+  type SessionOwnershipIndex,
+} from '../../session-ownership'
 import { sortSessionsForSidebar } from '../../session-urgency'
 import {
   isClosedTopLevelIssue,
@@ -16,8 +20,12 @@ import {
   issueAwaitingMerge,
   type IssueNavigationModel,
 } from '../issues'
+// worklist -> terminal, value-level and the only one: `elevateCoordinatorSession`
+// puts the designated driver first among equal sessions. It is an ORDERING
+// question living in the terminal slice because the tab strip was its first
+// caller — see map §6.1, which proposes moving it to F3 (session-urgency),
+// whose invariant it already satisfies, and deleting this edge outright.
 import { elevateCoordinatorSession } from '../terminal'
-import { sessionsForIssueNav } from '../../session-ownership'
 import type { SidebarSections } from './nav'
 import { compareManualOrder, sortUnifiedWorkRows } from './row-order'
 import {

@@ -340,11 +340,51 @@ Split by question, each edge points one way and the whole thing is a DAG:
                            (which lane)
 ```
 
-`row-types.ts` is the leaf and imports nothing from worklist. The
-**worklist → issues** edge the previous agent predicted lands exactly where it
-said it would: `row-attention.ts` (the `issuePendingDecision` family,
-`pendingDecisionLabel`, `issueFinishedAt`) and `folds.ts`
-(`isClosedTopLevelIssue`, `issueAwaitingMerge`, `issueFinishedAt`). One way.
+**Corrected after review (POD-330 reviewing POD-1496).** The first version of this
+section claimed `row-types.ts` "is the leaf and imports nothing from worklist",
+and named TWO outgoing slice edges. Both statements were false, and the second
+is the dangerous one: POD-331, its six children and POD-332 inherit this map as
+their brief, and an incomplete edge list is exactly the blind spot that has
+already cost this issue two near-misses. The full census, measured rather than
+recalled:
+
+| module | lines | reads from outside worklist |
+|---|---|---|
+| `row-types.ts` | 71 | F1 session-status, F3 session-urgency, **issues** (type), `./nav` (type) |
+| `visibility.ts` | 61 | **issues** |
+| `row-order.ts` | 71 | — (worklist-internal only) |
+| `row-attention.ts` | 268 | F1, F3, **issues** |
+| `rows.ts` | 376 | F1, F2 session-ownership, F3, **issues**, **terminal** |
+| `folds.ts` | 180 | **issues** |
+
+`row-order.ts` is the only true leaf. `row-types.ts` is a leaf of the *value*
+graph but not of the import graph: it takes `IssueNavigationModel` and
+`WorktreeNavView` as TYPES, which erase at runtime and cannot cycle, but which a
+reader looking for the module with no dependencies will not find here.
+
+**THE THIRD SLICE EDGE: `worklist -> terminal`.** `rows.ts` imports
+`elevateCoordinatorSession` from the terminal slice — a VALUE import, not a type.
+The declared outgoing edge set is therefore **three**, not two:
+
+```
+    worklist ──▶ machines   (via nav.ts, pre-existing)
+    worklist ──▶ issues     (row-types, visibility, row-attention, rows, folds)
+    worklist ──▶ terminal   (rows.ts, elevateCoordinatorSession)   <-- was undocumented
+```
+
+Still a DAG: `terminal.ts` imports only `session-ownership` and `@podium/model`,
+so nothing points back.
+
+**And this edge should be DELETED rather than documented.**
+`elevateCoordinatorSession` is *sessions in, an order out* — which is verbatim
+F3 `session-urgency.ts`'s stated invariant ("a collection of sessions in, an
+order or a rank out. No issues, no rows, no repos, no presentation strings"). It
+is not a terminal concern; it is an ordering concern that terminal happened to
+call first, because the tab strip was its first caller. Moving it to F3 makes
+the edge stop existing, which is better than making the map complete: a shared
+derivation both slices reach for is F-material by construction. Same shape as
+the `spawnTargetForRepo` retype in §3.1 — **the symbol's own signature says
+which module should have owned it.** Filed as POD-1503.
 
 ### 6.2 `orderMap` was NOT duplicated — it had no callers
 
@@ -374,6 +414,15 @@ across both lanes, so the function is entered constantly. And a tree-wide census
 of `.rank` readers finds none: the only `.rank` in the codebase outside this
 family is `apps/server/src/modules/memory/search.ts`, an unrelated relevance
 score.
+
+**Why nobody noticed, added on review.** A reader census is not quite enough on
+its own: `rank` DOES appear in `apps/web/src/lib/derive-unified.test.ts` at six
+sites — `rank: 0`, `rank: 4` — where fixtures CONSTRUCT it to satisfy the type.
+Not one test asserts on it (`grep '\.rank' apps/web/src --include=*.test.*`
+returns nothing). A field kept alive by fixtures reads as consumed to anyone
+grepping for its name, which is exactly how a dead field survives review after
+review. **Count the READS, not the occurrences — a fixture that constructs a
+field is evidence about the type, not about the field.**
 
 So the mutant is **genuinely equivalent**, and the reason is that the field has
 no consumer. It is a leftover from when the sidebar sorted by urgency; §3 of the
@@ -410,11 +459,29 @@ will land, be correct, and measure as a flat 1, and someone will read that as
 
 ### 6.5 What remains after this commit
 
-- The single `useSlice` hook (published worklist slice, one derivation per
-  change) — and the probe's second consumer, per §6.4.
-- `superagent-shadow-types` → zero. NOTE: the audit assigns this to **POD-332**,
-  not here, and it is not a deletion — `SuperagentThread` / `SuperagentMessage`
-  are declared ONLY in `apps/mobile/src/client/trpc.ts`; there is no canonical
-  copy in `@podium/protocol` or `@podium/model` to point at. Reaching zero means
-  CREATING the shared type first.
-- Removing `UnifiedWorkRow.rank` (§6.3).
+- The published worklist slice — POD-1502. The HOOK MECHANISM already landed on
+  integration at `1b7784db` (`slices/publish.ts`, `react/use-slice.ts`); what is
+  missing is a `defineSlice` over `sidebarSections` / `unifiedWorkList` and the
+  consumer port, plus the probe's second consumer per §6.4.
+- `superagent-shadow-types` → zero: see §6.6, it is POD-332's and it is not a
+  deletion.
+- Removing `UnifiedWorkRow.rank` (§6.3) — POD-1501. Note the six fixture sites in
+  `derive-unified.test.ts` construct it; they must be updated, and none asserts
+  on it.
+- Moving `elevateCoordinatorSession` to F3 to delete the `worklist -> terminal`
+  edge (§6.1) — POD-1503.
+
+### 6.6 Two things POD-330 still owns, recorded so this approval is not misread
+
+Confirmed by POD-330's own review of this branch, and NOT part of POD-1496:
+
+- **Two modules are over the ~400-line criterion**: `slices/machines.ts` at 464
+  and `session-status.ts` at 451. Both were under it at the cut (390 and 380) and
+  grew afterwards. POD-330's residue.
+- **The superagent shadow mirror is not at zero.**
+  `apps/web/src/features/superagent/SuperagentView.tsx` still carries it —
+  `interface SuperThread` (:32), `useState<SuperThread[]>` (:115),
+  `setThreads(t as SuperThread[])` (:169) — and the mobile half
+  (`apps/mobile/src/client/trpc.ts`) has no canonical type in `@podium/protocol`
+  or `@podium/model` to point at, so reaching zero means CREATING the shared type
+  first. The audit assigns this item to **POD-332**.
