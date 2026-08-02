@@ -213,56 +213,95 @@ it('POD-1402: mint needs only state-dir write access — no password, no princip
 })
 
 /**
- * Schema tripwire (POD-1402 instrument). Reads the Authority drizzle schema from
- * this worktree via a relative path so we do not depend on @podium/* resolution
- * (worktrees often resolve workspace packages to the main checkout).
+ * Schema tripwire (POD-1402 instrument / ADR 3 D14).
  *
- * A per-user column on client_sessions means "write the DB" no longer implies
- * "sole owner". While HOST_LOCAL_MINT_TRUST.assumesSingleOperator is true, that
- * column must not exist — multi-user must flip the trust object and bind mint.
+ * ACCEPT rests on "this host cannot express a second human": no per-user binding
+ * on client_sessions, no owner on machines, no grants/users tables. When that
+ * storage appears while HOST_LOCAL_MINT_TRUST.assumesSingleOperator is still true,
+ * this fails and names D14 so the mint trust root cannot be forgotten.
+ *
+ * Schema is read via a relative path so worktrees without node_modules/@podium
+ * still see *this* branch's Authority schema (package-name imports resolve to main).
  */
-it('POD-1402 tripwire: client_sessions has no per-user binding while mint is FS-only', () => {
+function authoritySchemaSource(): string {
   const schemaPath = join(
     import.meta.dirname,
     '../../../apps/server/src/migrations/schema.ts',
   )
-  const src = readFileSync(schemaPath, 'utf8')
-  const tableMatch = /export const clientSessions = sqliteTable\(\s*'client_sessions',\s*\{([^}]+)\}/s.exec(
-    src,
+  return readFileSync(schemaPath, 'utf8')
+}
+
+function tableColumnKeys(src: string, exportName: string, sqlName: string): string[] {
+  const re = new RegExp(
+    `export const ${exportName} = sqliteTable\\(\\s*'${sqlName}',\\s*\\{([^}]+)\\}`,
+    's',
   )
+  const tableMatch = re.exec(src)
   expect(
     tableMatch,
-    `POD-1402 tripwire could not find clientSessions table in ${schemaPath}`,
+    `POD-1402 tripwire could not find ${exportName} ('${sqlName}') in Authority schema — ADR 3 D14`,
   ).not.toBeNull()
-  const body = tableMatch![1]!
-  const columnKeys = [...body.matchAll(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*:/gm)].map((m) => m[1]!)
+  return [...tableMatch![1]!.matchAll(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*:/gm)].map((m) => m[1]!)
+}
 
-  if (HOST_LOCAL_MINT_TRUST.assumesSingleOperator) {
-    const forbidden = [
-      'userId',
-      'user_id',
-      'ownerId',
-      'owner_id',
-      'accountId',
-      'account_id',
-      'principalId',
-      'principal_id',
-    ]
-    for (const bad of forbidden) {
-      expect(
-        columnKeys,
-        `POD-1402: client_sessions gained '${bad}' while assumesSingleOperator=true. ` +
-          `FS-only mint ACCEPT has ended — bind mint to an identity before multi-user.`,
-      ).not.toContain(bad)
-    }
-    expect(
-      columnKeys.sort(),
-      `POD-1402: client_sessions column set drifted (measured: ${columnKeys.join(',')})`,
-    ).toEqual(['createdAt', 'expiresAt', 'label', 'tokenHash'].sort())
-  } else {
+const PER_USER_COLUMN_KEYS = [
+  'userId',
+  'user_id',
+  'ownerId',
+  'owner_id',
+  'ownerUserId',
+  'owner_user_id',
+  'accountId',
+  'account_id',
+  'principalId',
+  'principal_id',
+] as const
+
+/** Tables that would represent a second human / sharing grants (not OAuth `accounts`). */
+const MULTI_USER_TABLE_SQL_NAMES = ['grants', 'users', 'memberships', 'user_grants'] as const
+
+it('POD-1402 tripwire: host cannot express a second human while mint is FS-only (ADR 3 D14)', () => {
+  const src = authoritySchemaSource()
+
+  if (!HOST_LOCAL_MINT_TRUST.assumesSingleOperator) {
     expect(
       HOST_LOCAL_MINT_TRUST.mintBoundToIdentity,
-      'POD-1402: multi-user requires mintBoundToIdentity=true',
+      'POD-1402 / ADR 3 D14: multi-user requires mintBoundToIdentity=true — rebind mint before shipping a second human',
     ).toBe(true)
+    return
+  }
+
+  // --- client_sessions: no per-user binding ---
+  const sessionCols = tableColumnKeys(src, 'clientSessions', 'client_sessions')
+  for (const bad of PER_USER_COLUMN_KEYS) {
+    expect(
+      sessionCols,
+      `POD-1402 / ADR 3 D14: client_sessions gained '${bad}' while assumesSingleOperator=true. ` +
+        `FS-only mint ACCEPT has ended — bind mint to an identity (HOST_LOCAL_MINT_TRUST) before multi-user.`,
+    ).not.toContain(bad)
+  }
+  expect(
+    sessionCols.sort(),
+    `POD-1402: client_sessions column set drifted (measured: ${sessionCols.join(',')})`,
+  ).toEqual(['createdAt', 'expiresAt', 'label', 'tokenHash'].sort())
+
+  // --- machines: no owner_user_id (second human ownership) ---
+  const machineCols = tableColumnKeys(src, 'machines', 'machines')
+  for (const bad of PER_USER_COLUMN_KEYS) {
+    expect(
+      machineCols,
+      `POD-1402 / ADR 3 D14: machines gained '${bad}' while assumesSingleOperator=true. ` +
+        `Host can express a second human — reopen the mint trust root before multi-user.`,
+    ).not.toContain(bad)
+  }
+
+  // --- no grants / users / memberships tables ---
+  for (const table of MULTI_USER_TABLE_SQL_NAMES) {
+    const present = new RegExp(`sqliteTable\\(\\s*'${table}'`).test(src)
+    expect(
+      present,
+      `POD-1402 / ADR 3 D14: multi-user table '${table}' appeared while assumesSingleOperator=true. ` +
+        `Reopen the mint trust root (HOST_LOCAL_MINT_TRUST / POD-1067) before shipping a second human.`,
+    ).toBe(false)
   }
 })

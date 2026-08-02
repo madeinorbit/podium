@@ -53,19 +53,19 @@ arrives without rebinding mint.**
 | Decision object | `HOST_LOCAL_MINT_TRUST` in `packages/runtime/src/session-mint.ts` |
 | Coherence + schema tripwire | `packages/runtime/src/session-mint.test.ts` (schema read via relative path) |
 | ADR | ADR 3 D14 |
-| CLI help | `podium auth` usage |
+| CLI help | `podium auth` usage (two-line trust note) |
+
+**Behaviour change:** none. `session-mint.ts` adds comments + the exported
+`HOST_LOCAL_MINT_TRUST` constant; `mintBreakGlassSession` logic is unchanged.
+`auth-cli.ts` changes `AUTH_USAGE` help text only.
 
 Multi-user must, in one change: set `assumesSingleOperator: false`, set
 `mintBoundToIdentity: true`, and actually bind mint to an identity.
 
+Tripwire asserts the ACCEPT precondition (host cannot express a second human):
+no per-user columns on `client_sessions` / `machines`, no `grants`/`users`/
+`memberships` tables, while `assumesSingleOperator` is true.
+
 ## Mutant verification (tripwire)
 
-| Mutant | Measured | Exit |
-|---|---|---|
-| `assumesSingleOperator: false` while `mintBoundToIdentity: false` | 2 failed: coherence + schema branch require `mintBoundToIdentity=true` | 1 |
-| Forbidden list includes existing column `label` | 1 failed: `expected … not to include 'label'` with measured column list | 1 |
-| Schema gains `userId: text('user_id')` on `client_sessions` | 1 failed: `gained 'userId' while assumesSingleOperator=true` | 1 |
-| Delete exact column-set pin only | Still 15/15 green under single-op — **did not fire**; forbidden-list + coherence cover the multi-user flip | 0 |
-| Delete coherence if/else body only | Still 15/15 green while flags stay single-op — **did not fire until flag flips** (mutant 1 proves the branch) | 0 |
-
-Anchors restored; final run 15/15 exit 0.
+See latest evidence in the POD-1402 handoff mail; re-run after any tripwire edit.
