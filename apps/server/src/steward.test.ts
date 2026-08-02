@@ -14,10 +14,10 @@ import {
 } from './steward'
 import { SessionStore } from './store'
 import { NotificationArbiter } from './store/notification-facts'
+
 /** The fixture's caller. `addComment` requires a principal (POD-1315) — these
  *  tests exercise the operator seam, so they say so rather than defaulting. */
 const AS_OPERATOR = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
-
 
 function harness(opts: { enabled?: boolean; sessions?: SessionMeta[]; seedCursor?: boolean } = {}) {
   const store = new SessionStore(':memory:')

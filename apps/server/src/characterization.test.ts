@@ -14,6 +14,7 @@ import { Ledger } from '@podium/sync'
 import { describe, expect, it } from 'vitest'
 import { runIssueCli } from '../../cli/src/issue-cli'
 import { resolvePrincipal, userCommandPrincipal } from './command-principal'
+
 /** The fixture's caller. `addComment` requires a principal (POD-1315) — these
  *  tests exercise the operator seam, so they say so rather than defaulting. */
 const AS_OPERATOR = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')

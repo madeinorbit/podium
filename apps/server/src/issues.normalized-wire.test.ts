@@ -12,6 +12,7 @@ import { SessionRegistry } from './relay'
 import type { IssueRow } from './store'
 import { SessionStore } from './store'
 import { attachTestClient } from './test-support/client-transport'
+
 /** The fixture's caller. `addComment` requires a principal (POD-1315) — these
  *  tests exercise the operator seam, so they say so rather than defaulting. */
 const AS_OPERATOR = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
