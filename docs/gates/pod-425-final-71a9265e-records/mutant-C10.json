@@ -1,0 +1,25 @@
+{
+  "id": "C10",
+  "file": "apps/server/src/migrations/schema.ts",
+  "cmd": "bun run audit:rearch",
+  "candidate_sha": "94a5cba20a9a179da88199030a8d3e184f1910fd",
+  "original_sha256": "d679bcd7338b195217ada9e07591f1d82529e06924162c3f6b59b6cdb362fa9d",
+  "edits": [
+    {
+      "anchor_count_before": 1,
+      "anchor_line": 33,
+      "anchor_first_line": "'sessions',",
+      "grep_back_kind": "replacement present",
+      "grep_back_probe": "'sessions',",
+      "grep_back_present": true,
+      "anchor_count_after": 1
+    }
+  ],
+  "mutated_sha256": "a958a64770ab39c0a7e0f3a4ef69a886dbf30f22d201170446f30b78b0eb75b9",
+  "exit_code": 1,
+  "elapsed_s": 6.8,
+  "output": "$ bun scripts/rearch-audit.ts\nDeletion audit: 1 item(s) GREW. The rewrite may not add to\nthe debt it is deleting \u2014 route the new code through the replacement seam.\n\n  instance-partitions (POD-302) \u2014 Instance/tenant partition on a representation or a physical table\n      baseline 0 \u2192 now 1   [one instance_id/tenant_id-shaped key or table column]\n      apps/server/src/migrations/schema.ts:37  sessions.instance_id (column)\n\nerror: script \"audit:rearch\" exited with code 1\n",
+  "restored_sha256": "d679bcd7338b195217ada9e07591f1d82529e06924162c3f6b59b6cdb362fa9d",
+  "restored_identical": true,
+  "git_clean_after": true
+}

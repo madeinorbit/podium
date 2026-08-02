@@ -1,13 +1,321 @@
 # POD-425 Phase 4 exit gate
 
+> Passing named-candidate verdict: [71a9265e exit gate](./pod-425-final-71a9265e.md).
+
+> Latest named-candidate verdict: [2b637a2b exit gate](./pod-425-final-2b637a2b.md).
+
+> Final named-candidate verdict: [2359f9d9 exit gate](./pod-425-final-2359f9d9.md).
+> The sections below are the preserved history of earlier immutable candidates.
+
+## Re-candidate verdict — 2026-08-02
+
+**Candidate:** `6fc75d094e8c7adde42654a9b2acff78fda95377`
+**Audit branch tip before this report:** `8469640083f06d88c0a0f952678d5eaa5de177d1`
+**Verdict:** **REFUSED — Phase 7 entry remains blocked.**
+
+POD-1316 is closed and its fix is present in this candidate at `3a92ed56`, but that does not make
+the complete Phase 4 exit gate green. The re-candidate proves that the runtime composition is
+acyclic and that session/issue paths, isolated redeploy, environment locality, and multi-instance
+isolation work. At that named SHA it also finds five acceptance gaps: stale composition documents;
+28 server modules over 600 lines; no memory-service E2E; no complete ten-condition production-tree
+mutation campaign; and a cold browser-redeploy checkout that cannot discover its test because a
+required workspace build is omitted. POD-1384, POD-1385, POD-1390, POD-1394, and POD-1389
+respectively own those frozen-candidate findings. POD-1384 is now void against current integration,
+as recorded below; later repair does not alter what the immutable candidate contained.
+
+The recursive Phase 4 subtree was re-derived rather than inferred from this issue's waits-on list.
+The named implementation children and corrective work, including POD-1078, POD-1079, POD-1315,
+POD-1316, POD-1343, POD-1351, and POD-1356, are present by ancestry or direct tree inspection.
+At the frozen verdict, POD-1356 and five gate-created blocking children were open. POD-1384,
+POD-1389, POD-1356, and POD-1390 have since closed with their fixes landed. The current
+substantive gate grounds are POD-1385 and POD-1394. Therefore the “all Phase 4 children closed
+with evidence” criterion remains **refused**.
+
+### Criterion verdicts
+
+| Criterion | Evidence at candidate `6fc75d09` | Verdict |
+| --- | --- | --- |
+| Composition root acyclic | The real generated graph has 178 modules, 286 edges, and 0 cycles. Construction has 52 declarations, 0 forward dependencies, 0 deferred closures, and 0 non-null late bindings. The reactions ledger is current at 25. Four negative-test files pass 15/15 and exercise runtime import cycles, dependencies on later services, non-null late binding, `this.modules` reads, deferred closures around already-constructed services, and reaction totality. | **MET** |
+| God-object audit items zero | `sessions/service.ts` is deleted. IssueService composes six capabilities over one store with no inheritance or protected-state sharing. The literal production-server size screen nevertheless reports 28 TypeScript modules over 600 lines, from 616 to 2,955 lines. The remaining paths and counts are recorded on POD-1385. | **REFUSED** |
+| Module graph documents committed and current | The three documents exist, but `server-composition-graph.ts` and `server-construction-order.ts` both exit 1 without `--write`. A disposable exact-candidate regeneration reports 166 insertions/161 deletions. Only `reactions-ledger.ts` exits 0. POD-1384 owns the stale generated documents. | **REFUSED** |
+| Session, issue, and memory E2E green | Isolated `bun run test:e2e` exits 0: 8 files/31 tests. Its eight files exercise session and issue/feed behavior but contain no named memory service, transcript lake/index, or omni-search E2E. POD-1390 owns the missing memory proof. | **PARTIAL / REFUSED** |
+| Live redeploy keeps sessions | With the missing local model build supplied, the real authenticated browser test exits 0: 1/1. It logs in through `/auth/login`, restarts only the isolated server, and preserves the marker/grid. A zero-artifact cold checkout fails before discovery because the Playwright build does not build `@podium/model`; POD-1389 owns that harness self-containment defect. | **PRODUCT BEHAVIOR MET; ENVIRONMENT CHECK REFUSED** |
+| Multi-instance isolation stays green | Fresh isolated `bun run test:multi-instance` exits 0: Bun 1/1 with 41 expectations, Vitest 1 file/3 tests, installer `ALL OK`. | **MET** |
+| Landing evidence cited, not re-derived | At this same SHA, the POD-279 coordinator reports typecheck 22/22, `wsServer.client-auth` 7/7, and protocol wire goldens 90/0, all exit 0. The gate did not rerun those lanes. | **MET** |
+| Ten multi-user deliberate-violation probes | Three detector controls exit 0 on their own scoped-feed, machine-grant, and durable-class fixtures. They prove only that those detector fixtures can make the source scanners refuse; they do not prove that the shipped running object is guarded. At POD-1394 candidate `d8fba769`, two real scoped-feed production mutants left `audit:scoped-feed` green and were caught only by running-object tests. The focused multi-user run exits 0 at 14 files/251 tests; an additional composition/capability run exits 0 at 8 files/190 tests. POD-1078 also retains historical evidence of one real cross-user production mutation going red and being restored. There is no fresh candidate-wide production-code mutation-and-byte-restore campaign covering every one of the ten conditions, with the source-scanner versus running-object half named for every cited audit. Detector-local fixtures and positive tests do not meet POD-422 checklist E's production-tree counterfactual standard. POD-1394 owns the complete campaign. | **REFUSED** |
+| Deliberately open questions remain flagged | O1 existence leakage (including room occupancy), O2 opaque cross-boundary references, O3 permission-affecting reparent, and O4 per-class owner/grant inheritance remain explicitly open in `multi-user-readiness.md`, ADRs 1/2/3/4/7/9, and `rearchitecture-v3.md`; no implementer silently resolved them. | **MET** |
+| Phase 7 entry | The gate must compose with G5 and G6 only after every row above is met. | **BLOCKED** |
+
+### Structural and audit detail
+
+The three composition commands were run without `--write`. The graph and construction commands
+correctly refused their stale checked-in outputs, while the reactions ledger passed. Regeneration
+was used only in a disposable exact-candidate worktree to measure the drift; no candidate file was
+changed. The 4-file/15-test refusal suite proves that the instruments can say no, not merely that
+the current tree happens to pass its topology checks.
+
+`bun scripts/rearch-audit.ts --phase POD-318` exits 0 and prints the declared three-site legacy
+placeholder residue with its justification and expiry. `bun run audit:rearch` exits 0 at the exact
+31-item/142-site baseline. Those green audit results do not override the separate literal
+approximately-600-line gate criterion. The size screen's 28 paths are:
+
+```text
+2955 modules/sessions/lifecycle.ts
+2595 modules/messages/service.ts
+2026 relay.ts
+1664 modules/issues/registry.ts
+1404 migrations/schema.ts
+1187 modules/superagent/service.ts
+1152 modules/issues/service/workflow.ts
+1080 steward.ts
+969  modules/superagent/tools.ts
+934  modules/issues/service/core.ts
+915  modules/machines/rpc.ts
+879  store/issues.ts
+820  modules/issues/service/crud.ts
+810  modules/messaging/service.ts
+779  store/sessions.ts
+738  modules/issues/service/reads.ts
+724  modules/workflows/service.ts
+716  modules/sessions/session.ts
+713  modules/settings/service.ts
+685  composition/reactions.ts
+672  store/types.ts
+651  server.ts
+649  modules/sessions/command-plane.ts
+648  modules/automations/service.ts
+625  modules/machines/service.ts
+622  store/workflows.ts
+621  modules/sessions/session-state/service.ts
+616  modules/sessions/handoff/coordinator.ts
+```
+
+### Isolation and environment evidence
+
+Every runtime lane used fresh `PODIUM_STATE_DIR` and host roots, explicit ports, and only its own
+PID markers. The live instance on 18787 was never addressed, restarted, or reaped. Before and
+after the E2E, redeploy, and multi-instance legs, `/home/mgw/.podium/config.json` had identical
+mtime `1785661627` (`2026-08-02 11:07:07.128162673 +0200`). All temporary roots, PID markers, and
+ports were released.
+
+A detached exact-candidate checkout started with zero `node_modules`; frozen install exited 0,
+created all 25 local `node_modules/@podium` workspace links, and the runtime-resolution integration
+test passed 1 file/3 tests. Thus the former cross-checkout resolution defect is fixed in this
+candidate. The cold browser lane then exposed a narrower build-orchestration defect: the declared
+Playwright web server builds protocol/web/mobile but not model, so it cannot import
+`packages/model/dist/index.js`. Building only `@podium/model` made the unchanged isolated restart
+test pass 1/1. This separates a valid product redeploy proof from an invalid cold-harness proof.
+
+The passing restart emitted the already-tracked POD-1101 shutdown race (`RangeError: Cannot use a
+closed database` from the transcript indexer after store close). It is not counted as a new issue,
+but reinforces why memory E2E and clean teardown cannot be inferred from the session-preservation
+assertion.
+
+### POD-1316 disposition
+
+Candidate ancestry contains `3a92ed56`. The corrected integration test passes 1 file/1 test
+without increasing its timeout or restoring an ambient/test principal. It deliberately codifies
+the protocol decision: current wire 2 receives scoped feed frames; stale wire 1 cannot express
+`evict`, receives `scoping-requires-eviction`, and remains silent on the entity plane. The
+coordinator independently inspected the assertion change and the unchanged fail-closed auth gate.
+POD-1316 is therefore **met in the candidate**, not merely closed in the tracker.
+
+## Successor candidate and evidence limits
+
+The immutable `6fc75d09` refusal remains valid, but POD-1384 is **void as a refusal ground against
+the current tree**. `git merge-base --is-ancestor 6fc75d09 7509f2b4` succeeds: regeneration commit
+`7509f2b4` postdates the frozen candidate and is the minimum successor that can satisfy the
+current-document criterion. On integration `4b947e7d`, both generators passed without `--write`
+at 178 modules/286 edges/0 cycles and 52 constructor declarations with zero forward dependencies,
+deferred closures, or non-null late bindings; reactions were current at 25 and the preserved
+negative suite passed 7/7. The graph delta adds the layout service and user-layout store plus their
+expected edges; construction adds `layout | ledger`; the remaining changes are generated source
+locations and renumbering.
+
+The worker's `--write` re-run was bit-identical and added only the 72-line evidence record at
+`18f478d7`. The POD-279 coordinator then independently reran both no-write generators on
+`4b947e7d`, verified exit 0, merged the evidence, and reported integration `c0902647` with cached
+typecheck 22/22 and no ambient-principal change. Thus current composition documents are proven
+current; only the historical candidate result remains red.
+
+POD-1389 is likewise **cleared against current integration**. Fix `98e3dd5e`, authored under
+POD-1356 and landed at `c9ff372f`, builds `@podium/model` before `@podium/protocol` in both
+Playwright configs. The merged source-level guard inspects command order rather than existing
+`dist` state and passes 1 file/12 tests. The POD-279 coordinator then removed the model build from
+the real Playwright config, grep-confirmed its absence, and the same guard refused at 1 failed/11
+passed; restoration left zero dirty files. A detached cold checkout began with
+model/protocol/web/mobile outputs absent; the exact authenticated restart command rebuilt all four
+and passed 1 Chromium test with 0 skipped,
+unchanged 180-second timeout, complete port/state/PID cleanup, and live-config mtime `1785661627`.
+The first cold attempt built all outputs but timed out waiting for health at host load 81; the
+unchanged retry passed at load about 49, so the first timeout is correctly attributed to host load,
+not code. This repairs harness self-containment; the final gate still requires the authenticated
+redeploy lane once on its eventual same-SHA candidate.
+
+
+POD-1385 **still reproduces and is not review-complete**. Its branch is based on integration
+`89b24118` and has no `apps/` or `packages/` runtime diff. The new machine-readable audit
+screens the same 28 production modules over 600 physical lines, accepts 24 only through
+predicate-backed reviewed arguments, and exits 1 on four items: sessions lifecycle, messages
+service, issues registry, and session handoff coordinator. The handoff explicitly says the audit
+half is complete and the decomposition half is filed, not finished. Those targets are POD-1396,
+POD-1397, POD-1398, and POD-1399.
+
+The instrument itself is useful but does not clear the criterion: its focused suite passes 19/19,
+its fixture probe runs before every audit, and five restored real-tree mutations prove it catches
+state growth, a runtime export in a type-only file, a stale ledger entry, a broken construction
+record, and a broken population root. The worker correctly refused to add false exceptions merely
+to make the count zero. It also documents its boundary: a file-local size audit cannot detect
+shared mutable maps or async work outliving an owner. Final acceptance therefore requires all four
+decompositions to land, the audit to exit 0 on the final named candidate, and the separate
+composition/construction/lifecycle evidence to remain green.
+
+A third review request names branch tip `d40956b4`, but it still cannot satisfy that bar. Direct
+tree measurement finds `sessions/lifecycle.ts` at 2,700 lines, `messages/service.ts` at 2,595,
+`issues/registry.ts` at 1,664, and `sessions/handoff/coordinator.ts` at 616. POD-1396 and POD-1399
+remain in backlog and POD-1397 remains in progress. POD-1398 is closed in the tracker, but its merge
+`233d4fba` is not an ancestor of `d40956b4` (`git merge-base --is-ancestor` exits 1), and the
+candidate retains the unsplit 1,664-line registry. Therefore neither the stage transition nor the
+closed child is candidate evidence. The review is refused without rerunning the audit: three leaves
+are unfinished and the fourth fix is absent from the named tree, so a zero-item result is impossible.
+
+
+POD-1390 is **cleared against current integration**. Merge `d8fba769` contains implementation
+`295992a4` and the strengthened shutdown assertion `2d05fcff`; the four-test file is unchanged in
+the merge and has no skipped or focused-only clause. Its focused post-fix run passes 4/4 with one
+named test each for byte-verbatim transcript persistence, prose-only indexing, discriminating
+omni-search over real HTTP, and quiet shutdown plus restart from the durable index.
+
+The transcript bytes cross the authenticated daemon socket through real ranged reads. The worker
+explicitly discloses the one boundary: the daemon conversation-change projection enters through
+the real gateway route in-process because the discovery worker cannot resolve workspaces in a
+Vitest fork (POD-1400); neither lake, index, nor store is seeded directly. Five restored production
+mutations make the clauses refuse: truncated mirror chunks; indexing non-prose; match-everything
+search; removing memory disposal; and suppressing shutdown noise without abandoning the outstanding
+read. The last mutant stays silent but releases only after 9.7 seconds and therefore fails the
+under-5-second assertion, preventing a quiet leak from being mistaken for clean shutdown.
+
+This clears the missing memory-specific E2E ground and the POD-1101-class late-write defect on the
+current tree. It does not replace the final gate obligation to run the complete session/issue/memory
+lane once on the eventual same-SHA candidate.
+
+
+POD-1394 **is not review-complete**. Its campaign at candidate `d8fba769` is the first
+candidate-wide run to mutate production code rather than detector fixtures. The runner enforces a
+clean tree, single anchor, moved hash, replacement grep-back, byte-identical restoration, restored
+anchor count, and clean final status. Local module identity passed 3/3, scratch state was isolated,
+nothing bound live port 18787, and the live config mtime remained unchanged.
+
+The campaign planted 19 mutants across the ten conditions. Seventeen were caught, with three
+mis-aims correctly re-aimed and one piped-exit instrument error rerun unpiped. Two production
+violations **survived**:
+
+- C3b removed session-expiry validation from the transport auth gate; 2 files/29 tests stayed green
+  because tests call only the store predicate, not `requestUserId` or `isRequestAuthed`
+  (POD-1410).
+- C6c raised the outbound presence queue bound from 64 to 1,000,000; 6 files/88 tests stayed green
+  because the apparent pressure test covers send failure/eviction, not queue depth (POD-1412).
+
+Those two proposed issues are now hard dependencies of POD-1394; only an operator can reparent them
+under it. After their fixes, the same production mutants must fail on a new named candidate. The
+campaign must also complete the compound clauses its summary does not mutation-prove: global
+sequence/feed epoch/healing and mid-session grant/revoke; live agent delegation and revoke-at-next-
+apply plus machine migration/fact scoping; subscription/join/invisible-target oracle equivalence
+including timing/drop/disconnect; the deliberately small tenant-visible floor; and SYSTEM scope and
+no-widening beyond attribution helpers.
+
+The committed artifact preserves the summary and runner but not the per-mutant JSON command/output/
+hash records, which remained in scratch storage. Before acceptance, the actual records—or an
+equivalent durable transcript containing every command, diagnostic, original/mutated/restored hash,
+and clean-tree result—must be committed or attached. The campaign also correctly records that
+`audit:scoped-feed` alone misses a real cross-principal leak and the shipped remove-for-eviction
+site; future gate runs must cite the running-object guards that actually caught those mutants.
+
+The re-review at candidate `4b5c3a43` and evidence tip `ce16e98c` clears the durable-record ground:
+25 raw JSON records, edit definitions, and both batch drivers are committed, and the runner now
+writes pre-mutation breadcrumbs and restores on SIGTERM/SIGINT or `--restore-orphans`. It also adds
+useful caught mutants for feed identity persistence, delegation-chain identity, refusal payload,
+the tenant-visible floor, and the SYSTEM declaration.
+
+It still does not clear the campaign. POD-1410's fix merge `bbd05a08` is present on current
+integration but is not an ancestor of either reviewed SHA (`merge-base --is-ancestor` exits 1), so
+C3b still survives in this candidate. POD-1412 remains open and C6c still survives. The compound
+rows also do not cover every clause they claim: N1 mutates epoch persistence but not global sequence
+or mid-session grant/revoke delivery; N2 mutates delegation-root identity but not revoke-at-next-
+apply or machine migration/fact scoping; N3b mutates refusal payload but not timing/drop/disconnect
+equivalence; and N5 is explicitly a declaration-string check, not running-object evidence that
+steward, expiry, boot reconcile, and derived writes retain scope and never widen visibility. Under
+the object-walking evidence rule, those claims remain unproved. The transcript also retains stale
+P2 prose saying breadcrumbs are only a future mitigation even though its protocol and runner say
+they are implemented; that internal contradiction should be corrected in the next artifact.
+
+Review therefore remains **refused**. Re-request only after both blocker fixes are present in one
+named candidate, the original campaign is rerun there, and the uncovered compound subclauses have
+their own production mutation-and-restore records.
+
+Post-review landing update: integration `777a4d5c` contains POD-1410 merge `bbd05a08` and POD-1412
+implementation `cb26d51f` by ancestry. The POD-279 coordinator reports rerunning the original C3b
+expiry-check deletion and seeing the guard refuse. For C6c, the coordinator independently raised
+`STREAM_QUEUE_MAX_FRAMES` to one million and, in a separate mutation with the constant left at 64,
+bypassed the bound at its call site; both mutations failed on the intended queue-bound behavior.
+The gate did not re-run those fresh landing checks. This clears the two survivor defects on current
+integration, but it does not retroactively change candidate `4b5c3a43`; the eventual campaign
+candidate must contain both fixes and re-run the complete set there.
+
+Boundary enforcement is currently not green evidence. The POD-279 coordinator reports
+`bun run lint:boundaries` red on integration because three POD-1385 extractions import
+`@podium/harness` from `apps/server` while the exemption is per-file and did not follow the moved
+code. No boundary-enforcement citation is accepted until that lane is green on the final candidate.
+The gate did not re-run the known-red lane.
+
+No banked lane requires merge sequencing or protection. Every prior result in this report is bound
+to its immutable named SHA and cannot be promoted to a later tree; the final session/issue/memory,
+authenticated redeploy, multi-instance, structural, and full-unit evidence is deliberately withheld
+until the coordinator names the post-blocker candidate.
+
+
+There is **no complete same-SHA landing record yet** for current integration `d8fba769`. The
+POD-279 coordinator has earlier same-tree typecheck 22/22, client-auth 1 file/7 tests, wire
+goldens 1 file/90 tests, the three generators, both rearchitecture audits, and POD-1316 ancestry. The following were
+explicitly **not run** on those SHAs and are not cited as covered: session/issue/memory E2E,
+authenticated live-redeploy survival, multi-instance isolation, and the full unit lane. Earlier
+worker results on other commits remain different propositions. Heavy lanes are deliberately held
+until all hard blockers land, then must run once against the final named candidate under controlled
+load.
+
+POD-1395 records the repeated process gap: three integration points became stale because nothing
+requires generated composition artifacts to be current before merge. It is discovered work rather
+than a new gate blocker; a final candidate still must have current artifacts regardless of whether
+that enforcement improvement has shipped.
+
+### Machine state is not code evidence
+
+Three independently observed failures share one class:
+
+- POD-1343 let a worktree resolve workspace packages from a neighbouring checkout.
+- POD-1389 let the browser redeploy proof borrow warm `dist` artifacts; a cold checkout could not
+  discover the test until `@podium/model` was built.
+- POD-1393 makes the wire-golden corpus depend on agent CLIs installed on the host: the identical
+  command and commit passed 90/90 on the five-CLI host but failed 2 of 87 tests on a zero-CLI host.
+
+A result obtained only on the warm ludovico host therefore certifies the code only when the lane
+also proves its inputs are candidate-local and machine-neutral. The isolated cold-checkout and
+second-machine comparisons are the evidence that exposed this class; warm green alone is not.
+
+
+## Historical candidate report — `aba864a9`
+
+
 **Gate run:** 2026-08-02  
 **Candidate:** `aba864a9e2531cd8b543633ef48bb60b8f7d76a4`  
-**Verdict:** **HELD OPEN — Phase 7 entry is not unblocked.**
+**Verdict:** **REFUSED — Phase 7 entry is not unblocked.**
 
 The scheduler dependency on POD-734 is closed, but dependency readiness is not the exit
-verdict. The candidate still has an open required child, open Phase 4 defects, no fresh
-same-candidate landing record for all required lanes, and a reproduced environment-neutrality
-failure. The gate therefore does not infer green results from child closure.
+verdict. Required children remain open, POD-318's own phase-close audit refuses, the isolated
+live-redeploy proof cannot authenticate its browser, the literal module-size screen is non-zero,
+the ten multi-user conditions lack the required production-tree counterfactuals, and the audited
+candidate is stale relative to integration. The gate therefore does not infer green results from
+child closure or from fixes merged after its named candidate.
 
 ## Evidence convention
 
@@ -19,19 +327,88 @@ The worktree was clean and exactly aligned with `issue/279-integration` (`git re
 --left-right --count HEAD...issue/279-integration` returned `0 0`). The candidate identity check
 `apps/server/src/issues.expected-revision.test.ts` passed 147/147, exit 0.
 
+### Tree-over-tracker rule
+
+An issue's closed stage and its fix being present in the audited candidate are different
+propositions. Only the latter is gate evidence. Every claimed blocker fix must be verified in the
+candidate tree; dependency status is process metadata and cannot substitute for that measurement.
+Likewise, later integration merges do not retroactively repair a named candidate. Once integration
+moves, the existing report remains an honest result for its immutable SHA and candidate staleness
+is a refusal ground until a new candidate is cut and verified.
+
+POD-1315 demonstrates the rule. Candidate `aba864a9` still contains
+`principal: CommandPrincipal = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')` in the
+production `IssueService.addComment` signature even though the tracker now says POD-1315 is
+closed. At this report refresh, local `issue/279-integration` is `746580f2`, 35 commits ahead of
+the candidate, and its tree removes the override. That later fix is required in the next candidate
+but is not evidence for this one.
+
+### Re-candidate scheduling and red attribution
+
+This refusal is held against `aba864a9`. POD-1351 has now landed after that candidate and its
+reported evidence is banked. POD-1356 has since landed; no new candidate should be cut until
+POD-1316 lands.
+The verified results below are banked rather than rerun against a moving integration branch.
+
+The coordinator retracted the earlier rule that every red on this host is new. POD-1363 records a
+load-dependent rearchitecture-audit timeout, and POD-1329 found a unit-test path that overwrites
+the live host config. Therefore a future red is unattributed until it is compared under controlled
+state isolation and host load; neither “new regression” nor “known baseline” may be inferred from
+color alone. An assertion failure that reproduces on a quiet host is real. A red that disappears
+when load drops is a host effect. A timeout whose elapsed time scales with load is also a host
+effect even when it reproduces, because its protected assertions never ran.
+
+Typecheck evidence uses `bun run typecheck` with Turbo's normal input-keyed cache. `--force` is
+now refused: POD-1378 adds an environment fingerprint so installs, linker changes, and base swaps
+automatically invalidate the cache, while an uninstalled checkout fails closed. A genuinely
+missing cache input requires `bun run typecheck -- --uncached-because="<reason>"`; such a reason is
+evidence of a fingerprint defect to report, not routine lane syntax. Test lanes follow the same
+principle and do not bypass valid caches without a named reason.
+The POD-279 coordinator later stated that the full landing lane was green with no baseline
+failures, but supplied no candidate SHA, command list, exit codes, or counts that this report can
+audit. The coordinator separately directed this gate to run the three structural generators,
+their named refusal cases, the focused E2E lane, and the isolated redeploy check; those results
+are recorded below. Vitest resolves workspace packages to this worktree through aliases derived
+from `vitest.config.ts`'s own `import.meta.url`. The structural generators derive their repository
+root from their own local `import.meta.dirname`. Direct Bun acceptance runs used temporary root
+links whose `import.meta.resolve` output was checked against this worktree; the links were removed
+afterward and are not treated as a fix for ordinary worktree installation.
+
 ## Process closure
 
 - POD-645 and POD-734 are now `done`.
-- POD-1078 is still `in_progress`. Its owner was mailed the required exit evidence: one shared
-  registry, ephemeral/gated rooms, non-distinguishing refusal, and drop-not-buffer pressure
-  behavior, each with a deliberate violation and candidate SHA.
+- POD-1078 is now `done` and reports reconciliation with integration `0e62caa9` at `02b65cbe`.
+  Its focused room/feed/protocol evidence is 9 files/209 tests, with a cross-user non-leak
+  production mutation refusing red then restoring green; the 50 Hz reattach storm is 1 file/2
+  tests. Reported typecheck, composition, web, mobile, Bun SQLite, and multi-instance lanes are
+  green. Its historical full unit lane exited 1 with 5 failed files/10 failed tests: seven timed-out
+  tests plus three POD-1315 principal-refusal failures. A TerminalView keyboard-fidelity `beforeAll`
+  hook failed at file setup and skipped 13 tests, so it added a failed file but not an eleventh
+  failed test. The recovered transcript names five `scripts/rearch-audit.test.ts` CLI-exit
+  timeouts: baseline match (20 seconds), unknown phase fails closed (20 seconds), nonzero/zero phase
+  gating (40 seconds), output flag cannot disable the gate (40 seconds), and output flag cannot
+  swallow the baseline write (20 seconds). The other two timeouts were normalized dependency
+  emission without membership scans (60 seconds) and the session-free live-scale residue benchmark
+  (300 seconds). All four affected files passed isolated with 72, 7, 1, and 13 tests. The recovered
+  transcript closes the count/title reconciliation; it does not turn the historical full lane
+  green.
+  None of this work is in candidate `aba864a9` or can retroactively satisfy that candidate.
 - POD-1079 is `done`.
-- POD-1315 and POD-1316 remain open direct Phase 4 children. The first leaves a defaulted
-  first-admin principal on `IssueService.addComment`; the second leaves the real wire-window
-  integration test unauthenticated and timing out at the fail-closed client gate.
+- POD-1315 closed after this gate run, but its correction is not in candidate `aba864a9`, where
+  the defaulted first-admin principal remains. POD-1078 reports integration `c557f306` passes its
+  focused principal suite at 1 file/3 tests, exit 0. POD-1316 remains open: real-cookie auth now
+  reaches product policy, which refuses stale wire 1 with `scoping-requires-eviction`.
 - POD-1318 is now `done`; its test-only correction landed through the POD-1327 change.
-- POD-1343 is a blocking child of this gate for the reproduced worktree runtime-resolution
-  failure below.
+- POD-1351 is now `done` and landed after this gate run at `61cf1b8b`, with reported phase-audit,
+  baseline, one-to-one refusal, focused-test, and typecheck evidence. It remains absent from
+  candidate `aba864a9` and is not credited there.
+- POD-1356 is now `done` at clean branch HEAD `9f4b35d3` (tree `3476e973`). Review proved that
+  browser and real-WebSocket consumers POST the production `/auth/login` route and use its
+  `podium_session` cookie; bad-cookie rejection remains green and no timeout was increased. This
+  correction is absent from candidate `aba864a9` and is not credited there.
+- POD-1343 remains real work, but a detached `/tmp` worktree at ancestor `844c7ff1` reproduces
+  the same resolution failure from a zero-`node_modules` start. It is top-level `discovered-from`
+  work, not evidence that Phase 4 regressed; the environment-neutrality criterion remains refused.
 
 The named Phase 4 child-closure criterion is therefore not met.
 
@@ -39,33 +416,105 @@ The named Phase 4 child-closure criterion is therefore not met.
 
 | Requirement | Candidate evidence | Disposition |
 | --- | --- | --- |
-| Acyclic composition and no forward thunks | Committed `docs/architecture/server-composition-graph.md`: 176 runtime modules, 282 edges, 0 cycles. Committed `docs/architecture/server-construction-order.md`: 51 declarations, 0 forward dependencies, 0 deferred service closures, 0 non-null late bindings. POD-734 attaches the latter document. | **Documented**, but no same-candidate command/exit record was attached. |
-| God-object audit zero | POD-395 records deletion of `sessions/service.ts`; POD-320 records zero IssueService inheritance and six composed capabilities over one store. The living Phase 4 ledger explicitly accepts the 600-plus session-state module as a cohesion-reviewed exception; POD-355 likewise records line count as a review signal. | **Earlier child evidence only**; no same-candidate audit result with exit code. |
-| Module graph committed | Both generated graph documents are committed at the candidate; `aba864a9` regenerates construction-order line numbers after POD-734. | **Met as a repository fact.** |
-| Session, issue, memory E2E green | POD-395 records session E2E 8 files/31 tests at its earlier candidate. POD-320 records focused issue suites but refers final lanes to its handoff. POD-322 attaches only the living ledger. | **Not evidenced at `aba864a9`.** |
-| Live redeploy preserves sessions | POD-395 records a successful supervised redeploy on 2026-08-01, including unchanged durable scope and agent PID start time. | **Attributable earlier child evidence**, not a candidate landing record. |
-| Multi-instance isolation green | POD-395 records an earlier green lane. POD-734's sole artifact is the construction-order document; its issue has no command, exit code, or same-candidate multi-instance result. | **Not evidenced at `aba864a9`.** |
+| Acyclic composition and no forward thunks | All three generators exit 0 without `--write`: 176 modules, topological construction, 25 reactions. Four files/15 named tests exercise every requested refusal mode. | **Met.** |
+| God-object audit zero | `sessions/service.ts` is absent; IssueService has one store, six capabilities, no inheritance/protected sharing. A direct size screen finds 28 production server TS modules over 600 lines; only the 621-line session-state module and 1,080-line steward have explicit reviewed exceptions in the Phase 4 record. | **Refused under the literal size criterion.** |
+| Module graph committed | All three documents are tracked and the generators report them current. The resolution ledger now has 14 former-cycle rows, not the prompt's stale count of 13. | **Met.** |
+| Session, issue, memory E2E green | `bun run test:e2e` exits 0: Test Files 8/8, Tests 31/31. It covers real session and issue/feed paths but contains no named memory-service E2E assertion. | **Partial; memory-specific evidence absent.** |
+| Live redeploy preserves sessions | At `aba864a9`, three isolated browser runs fail before session creation with `authenticated account is unavailable`; no restart assertion executes. POD-1356's later branch-local correction passes one authenticated restart test but is absent from this candidate. | **Refused for this candidate; child correction verified.** |
+| Multi-instance isolation green | Candidate-local `bun run test:multi-instance` exits 0: Bun 1/1 (41 assertions), Vitest 1 file/3 tests, installer `ALL OK`. | **Met.** |
 
 There is no fresh integrator landing record at `aba864a9` covering the required lanes. The latest
 durable coordinator handover is for an older SHA and explicitly records red tests. It cannot be
 promoted into same-candidate gate evidence.
 
+### Structural command and refusal evidence
+
+`bun scripts/server-composition-graph.ts`, `bun scripts/server-construction-order.ts`, and `bun scripts/reactions-ledger.ts` each exited 0 without `--write`: 176 modules, topological construction, and 25 reactions.
+The corresponding Vitest run passed 4 files/15 tests and names the planted runtime import cycle, future service hidden in a thunk, deferred closure around an already-constructed service, non-null late binding, `this.modules` read, missing reaction properties, durable replay without reauthorization, and system attribution/scope violations.
+
+The deletion ratchet exits 0 at the exact baseline (31 items/142 sites), but its phase-close commands disagree.
+- `bun scripts/rearch-audit.ts --phase POD-321`: exit 0, its sole item at zero.
+- `bun scripts/rearch-audit.ts --phase POD-318`: exit 1, with `local-placeholders=3`, `adoption-backfill-heals=5`, and `machine-id-unbranded-fields=26`; POD-1351 owns the required in-repository disposition and a negative case proving undeclared residue still fails.
+
+### Isolated runtime evidence
+
+Before the E2E lane, ports 9921–9923 were explicitly checked free. `bun run test:e2e` exited 0 with 8 files/31 tests and released all three ports.
+The multi-instance lane used fresh roots and six reserved ports; its Bun process test passed 1/1 with 41 assertions, its Vitest process layer passed 1 file/3 tests, and its installer layer ended `ALL OK`.
+
+For live redeploy, three fresh temp roots and explicit free ports 19921–19923 were used with `PODIUM_NO_RELAY=1`; the reaper's entire search root was redirected into each fresh directory and the test could signal only the PID stored there.
+Two unmodified runs hit the 30-second test ceiling; a diagnostic raising only Playwright's outer ceiling to 120 seconds reached the helper's own 60-second limit. All failed before session creation or restart and showed:
+
+```text
+Podium could not open its private replica
+authenticated account is unavailable
+```
+
+This is not evidence of a product restart failure: the Phase 3 authentication boundary is working
+and terminates the unauthenticated socket before replica open. The missing proof must authenticate
+the harness through a real account/login and session cookie; restoring an ambient principal or
+raising the timeout would not satisfy the gate.
+
+Every exact PID marker disappeared and every port was released. Immediately before and after these runs and the multi-instance lane, `/home/mgw/.podium/config.json` had unchanged mtime `1785657372` (`2026-08-02 09:56:12.911369050 +0200`). Because another live process rewrites that file periodically, the paired unchanged value is positive evidence that the isolated run did not interfere with the live instance. The live instance was never redeployed.
+
+At POD-1356 branch HEAD `9f4b35d3` (tree `3476e973`), both reviewer-run and child-owned final
+follow-up proved the correction with workspace resolution local to that branch. The socket-auth
+suite exited 0 (1 file/7 tests, including bad-cookie rejection). The reviewer browser proof used
+fresh short roots and port 19926: it authenticated through `/auth/login`, created a session,
+restarted only the isolated server, and preserved its terminal marker/grid (1 test passed in 1.5
+minutes). The child-owned final Playwright command repeated the proof on port 19933 with an explicit
+isolated password: 1 ran, 1 passed, 0 skipped. Both runs fully cleaned their state, ports, and PIDs;
+the live config mtime remained `1785661627`.
+
+The same helper exposes POD-1316's remaining non-auth defect. Its real-socket lane reached feed
+policy but exited 1 (1 file/1 test) under the child-owned integration command: all three
+cookie-bearing sockets authenticated, stale wire 1 received 426 `scoping-requires-eviction`, then
+the test waited for an entity frame that policy deliberately withheld. The unchanged 20-second
+timeout is the symptom, not the repair target; reported host load was `43.96/54.56/76.02`.
+
+## Audit evidence acceptance rule
+
+Every cited `audit:*` result must name which half actually walks the property being claimed. A
+source-text scanner can prove absence, construction shape, or declared coverage. Its detector-local
+`--probe` can prove that the scanner recognizes its own fixtures. Neither establishes that the
+shipped running object enforces a behavioral policy. When an audit has a running-object half in a
+`.test.ts` or package suite, gate evidence for runtime behavior must cite that half's nonzero exit
+and intended diagnostic against the production mutant.
+
+POD-1394 measured the distinction twice at candidate `d8fba769`:
+
+- C2 changed `GrantEdgeVisibilityPolicy.decide` so a principal with no grant received a personal
+  or owned-compute row. `bun run audit:scoped-feed` exited 0. The running-object
+  `scripts/audit-scoped-feed.test.ts` exited 1 and diagnosed both the unfiltered row and scoped
+  catch-up reply.
+- C4c changed the shipped scoping operation from `evict` to `remove` in `anchorFor`.
+  `bun run audit:scoped-feed` again exited 0 because its source check keys on revocation-named
+  functions. The running authority tests exited 1 and diagnosed that a visibility change is
+  derived and never a remove.
+
+Accordingly, a green source audit, a detector-local probe, and positive tests cannot be combined
+into an implied production counterfactual. For every audit cited by this gate, the record must name
+the production mutant, the source-scanner or running-object command that actually caught it, the
+nonzero exit and intended diagnostic, and the restored bytes/hash. If the source scanner stays
+green while its running-object half catches the mutation, only the latter is evidence for the
+behavioral condition. POD-1417 independently reached the same rule while repairing a
+rearchitecture-audit self-test.
+
 ## Deliberate-violation probes
 
 At `aba864a9`, these detector-local planted-fixture probes completed:
 
-| Command | Exit | What it proves |
+| Command | Exit | Detector-control result |
 | --- | ---: | --- |
-| `bun scripts/audit-scoped-feed.ts --probe` | 0 | The detector catches an unscoped policy/read seam, `remove` used for revocation, and a batch without a certified range, while sparing clean fixtures. |
-| `bun scripts/audit-machine-grants.ts --probe` | 0 | The detector catches fail-open ownership, a missing derived fleet gate, an unscoped fleet scan, and owner exposure on wire, while sparing clean fixtures. |
-| `bun scripts/audit-durable-classes.ts --probe` | 0 | The detector catches an undeclared store, missing/mistyped matrix membership, and unaccounted durable writes. The script also reported 89 current durable stores classified or explained. |
+| `bun scripts/audit-scoped-feed.ts --probe` | 0 | Its source scanner recognizes its planted unscoped seam, remove-for-revocation, and uncertified-range fixtures while sparing clean fixtures. It does not prove that the shipped filter filters or that every shipped eviction site is named for the scanner. |
+| `bun scripts/audit-machine-grants.ts --probe` | 0 | Its source scanner recognizes its planted fail-open ownership, missing derived gate, unscoped scan, and owner-on-wire fixtures while sparing clean fixtures. Running-object claims require the corresponding production mutation and runtime half. |
+| `bun scripts/audit-durable-classes.ts --probe` | 0 | Its source scanner recognizes its planted undeclared-store, matrix, and durable-write fixtures. The script separately reported 89 current stores classified or explained; behavioral policy still requires the half that walks the object. |
 
-These are useful instrument checks, but they are not substituted for the required real-tree
-counterfactuals. POD-423 and POD-424 established that a gate mutation must alter production code,
-make the real guardrail fail, and restore the original hash. The complete ten-condition production
-mutation campaign has not run on this candidate, and POD-1078 is still changing the code for
-conditions 1, 6, and 7. Accordingly, the criterion that *every* multi-user condition fired on
-planted bad product code is **not met**.
+These are useful detector controls, but they are not gate evidence for shipped behavior.
+POD-423 and POD-424 established that a gate mutation must alter production code, make the real
+guardrail fail for the intended reason, and restore the original hash. The complete ten-condition
+production mutation campaign has not run on this candidate, and POD-1078's completed work is absent
+from it for conditions 1, 6, and 7. Accordingly, the criterion that *every* multi-user condition
+fired on planted bad product code is **not met**.
 
 ## Environment neutrality
 
@@ -80,9 +529,28 @@ the drizzle migrator does not recognise this database handle ...
 the package is loaded twice — check how the lane resolves it
 ```
 
-This proves the gate environment can resolve two copies of `@podium/runtime`, including one from
-outside this worktree. POD-1343 owns the repair. Until it is green, further resolution-sensitive
-probe results are not trustworthy as environment-neutral evidence.
+This proves the ordinary gate environment can resolve two copies of `@podium/runtime`, including one from outside this worktree. POD-1343 owns the repair.
+
+The failure is **pre-existing, not introduced by Phase 4**. In an isolated detached worktree at `b9cf3b91b7432cd0cfe72115247b0a8ed72cc576` — the first-parent integration commit immediately before the first Phase 4 merge — the same Bun 1.3.14 sequence produced the same result:
+
+- `bun install --frozen-lockfile`: exit 0, 2,704 packages, root `node_modules/@podium` absent.
+- `bun test --conditions=@podium/source scripts/runtime-resolution.integration.test.ts`: exit 1, 0/1, identical duplicate-runtime database-handle error.
+
+POD-1343 is therefore top-level discovered work rather than evidence of a Phase 4 regression.
+That attribution does not satisfy the environment-neutrality criterion.
+
+A stronger historical control at ancestor `844c7ff1` used a detached `/tmp` worktree that could
+not borrow a sibling checkout. From zero `node_modules`, its frozen install exited 0, left the root
+`node_modules/@podium` absent, and reproduced the same dual-runtime failure: 1 file/1 test,
+0 passed/1 failed.
+
+The environment-neutrality criterion itself is **refused** for candidate `aba864a9`: it does not
+guarantee that one local copy of every workspace package resolves into the audited worktree.
+POD-1343 reports a `linker=hoisted` repair plus a 25-workspace realpath guard, cold-tested at
+1 file/2 tests passing, but that fix has not landed in this candidate.
+
+Evidence in this report is labelled local-by-relative-path, local-by-Vitest-alias, or local after
+temporary root-link instrumentation; the earlier detector-fixture runs are not gate evidence.
 
 ## Deliberately open questions
 
@@ -100,7 +568,16 @@ the cross-owner policy.
 
 ## Required next candidate
 
-The gate may be rerun only after POD-1078, POD-1315, POD-1316, and POD-1343 close with evidence.
+The gate may be rerun only after POD-1316 closes with evidence, and after POD-1078, POD-1315's
+correction, POD-1351, POD-1356, and every other blocker land in the next candidate.
+Closure alone is insufficient: the next candidate tree must be inspected for every claimed fix,
+including POD-1315, before any dependency is credited as satisfied.
+The candidate must start at integration `3a45f190` or later. The gate must independently verify the
+protocol wire-golden suite is 90/90; the earlier integrated tree reported 3 failed/87 passed before
+POD-1350's repair landed. A green wire-window test is also insufficient by itself: POD-1316 must
+record whether the correct result is the stale client's 426 eviction or a delivered frame, and the
+candidate tree must be inspected to prove that the accepted semantic decision—not merely a changed
+assertion or accessor—is what made the lane green.
 The integrator must then publish one fresh landing record at the resulting SHA with commands, exit
 codes, and attribution for the structural audits, session/issue/memory E2E, live redeploy survival,
 and multi-instance isolation. Against that same SHA, this gate must run and restore the real-tree

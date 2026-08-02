@@ -1,0 +1,25 @@
+{
+  "id": "C7a",
+  "file": "apps/server/src/machine-access.ts",
+  "cmd": "bun --bun node_modules/vitest/vitest.mjs run --passWithNoTests --config vitest.unit.config.ts --project node apps/server/src/modules/fleet apps/server/src/machine-access.test.ts apps/server/src/modules/sessions/handoff",
+  "candidate_sha": "94a5cba20a9a179da88199030a8d3e184f1910fd",
+  "original_sha256": "ff2d296589a3eafc971cc3a45c8272af2f90ad4758c16cb7d0fbbc34231304cd",
+  "edits": [
+    {
+      "anchor_count_before": 1,
+      "anchor_line": 376,
+      "anchor_first_line": "? `unknown machine '${machineId}'`",
+      "grep_back_kind": "replacement present",
+      "grep_back_probe": "? `unknown machine '${machineName ?? machineId}'`",
+      "grep_back_present": true,
+      "anchor_count_after": 1
+    }
+  ],
+  "mutated_sha256": "543189202d25033d278f1766a9c87b9369b7d464c72aa74b313d1be1681ab236",
+  "exit_code": 1,
+  "elapsed_s": 12.8,
+  "output": "\n RUN  v5.0.0-beta.6 /home/mgw/src/other/podium/.worktrees/issue-425-4-8-phase-4-exit-gate-node-decomposition\n\n \u276f |node| apps/server/src/machine-access.test.ts (32 tests | 1 failed) 37ms\n     \u00d7 a machine the principal cannot SEE fails identically to one that was never paired 10ms\n \u276f |node| apps/server/src/modules/sessions/handoff/refusal.test.ts (8 tests | 1 failed) 35ms\n     \u00d7 a colleague's invisible machine and an id that never existed refuse IDENTICALLY 15ms\n\n Test Files  2 failed | 6 passed (8)\n      Tests  2 failed | 133 passed (135)\n   Start at  00:48:37\n   Duration  12.16s (transform 23.66s, setup 882ms, import 31.69s, tests 1.55s, environment 2ms)\n\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af Failed Tests 2 \u23af\u23af\u23af\u23af\u23af\u23af\u23af\n\n FAIL  |node| apps/server/src/machine-access.test.ts > absent / unauthorized are two different answers > a machine the principal cannot SEE fails identically to one that was never paired\nAssertionError: expected 'unknown machine \\'Their Mac\\'' to be 'unknown machine \\'theirs\\'' // Object.is equality\n\nExpected: \"unknown machine 'theirs'\"\nReceived: \"unknown machine 'Their Mac'\"\n\n \u276f apps/server/src/machine-access.test.ts:213:67\n    211|     expect(invisible).toBe('absent')\n    212|     expect(nonexistent).toBe('absent')\n    213|     expect(machineAccessMessage('absent', 'theirs', 'Their Mac')).toBe\u2026\n       |                                                                   ^\n    214|     expect(machineAccessMessage('absent', 'never-paired', undefined)).\u2026\n    215|       \"unknown machine 'never-paired'\",\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[1/2]\u23af\n\n FAIL  |node| apps/server/src/modules/sessions/handoff/refusal.test.ts > the handoff `use` gate classifies its refusals > a colleague's invisible machine and an id that never existed refuse IDENTICALLY\nAssertionError: expected 'unknown machine \\'their-laptop\\'' to be 'unknown machine \\'<id>\\'' // Object.is equality\n\nExpected: \"unknown machine '<id>'\"\nReceived: \"unknown machine 'their-laptop'\"\n\n \u276f apps/server/src/modules/sessions/handoff/refusal.test.ts:82:57\n     80|     // and quoting it discloses nothing. Everything else must be ident\u2026\n     81|     // comparison is made with that one variable substituted out.\n     82|     expect(invisible.message.replace('theirs', '<id>')).toBe(\n       |                                                         ^\n     83|       nonexistent.message.replace('never-paired', '<id>'),\n     84|     )\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[2/2]\u23af\n\n",
+  "restored_sha256": "ff2d296589a3eafc971cc3a45c8272af2f90ad4758c16cb7d0fbbc34231304cd",
+  "restored_identical": true,
+  "git_clean_after": true
+}
