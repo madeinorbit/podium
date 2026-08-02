@@ -20,6 +20,8 @@
  *    progressbar/status role, because a reference that can never resolve must
  *    not spin (doc §3.1 rule 2).
  */
+
+import type { IssueId } from '@podium/model'
 import { cleanup, render, screen } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -49,7 +51,7 @@ function Harness({
 }: {
   targetId: string
   exits?: Record<string, 'removed' | 'evicted'>
-  onNavigate?: (id: never) => void
+  onNavigate?: (id: IssueId) => void
 }) {
   return (
     <IssueExitProvider exitOf={(id) => exits[id]}>
@@ -58,7 +60,7 @@ function Harness({
   )
 }
 
-function Edge({ targetId, onNavigate }: { targetId: string; onNavigate: (id: never) => void }) {
+function Edge({ targetId, onNavigate }: { targetId: string; onNavigate: (id: IssueId) => void }) {
   const resolve = useIssueEdgeResolver()
   return <IssueEdgeLink edge={resolve(targetId)} onNavigate={onNavigate} fallbackId={targetId} />
 }

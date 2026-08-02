@@ -14,6 +14,7 @@
  */
 
 import type { IssueEdge } from '@podium/client-core/viewmodels'
+import type { UserId } from '@podium/model'
 import { cleanup, render, screen } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -48,25 +49,32 @@ const stubConfirm = (answer: boolean) => {
 
 const PENDING_EDGE: IssueEdge = { resolution: { state: 'pending' }, render: 'pending' }
 
+/** `owner` is a BRANDED `UserId`, so a bare string literal will not type here.
+ *  Branding at the fixture boundary keeps the assertions readable while leaving
+ *  the predicate's real signature intact — widening `crossesOwnerBoundary` to
+ *  take plain strings would have made the test pass by weakening the thing it
+ *  tests. */
+const owner = (id: string): UserId => id as UserId
+
 describe('crossesOwnerBoundary', () => {
   it('is true only when both owners are known and differ', () => {
-    expect(crossesOwnerBoundary({ owner: 'alice' }, { owner: 'bob' })).toBe(true)
+    expect(crossesOwnerBoundary({ owner: owner('alice') }, { owner: owner('bob') })).toBe(true)
   })
 
   it('is false for the same owner', () => {
-    expect(crossesOwnerBoundary({ owner: 'alice' }, { owner: 'alice' })).toBe(false)
+    expect(crossesOwnerBoundary({ owner: owner('alice') }, { owner: owner('alice') })).toBe(false)
   })
 
   it('is false when EITHER owner is unknown — missing data is not a crossing', () => {
     // The whole reason the confirm is usable today. Both directions, because a
     // one-sided check would still fire on half of the current tree.
-    expect(crossesOwnerBoundary({ owner: undefined }, { owner: 'bob' })).toBe(false)
-    expect(crossesOwnerBoundary({ owner: 'alice' }, { owner: undefined })).toBe(false)
+    expect(crossesOwnerBoundary({ owner: undefined }, { owner: owner('bob') })).toBe(false)
+    expect(crossesOwnerBoundary({ owner: owner('alice') }, { owner: undefined })).toBe(false)
     expect(crossesOwnerBoundary({ owner: undefined }, { owner: undefined })).toBe(false)
   })
 
   it('is false when there is no target at all — clearing the parent', () => {
-    expect(crossesOwnerBoundary({ owner: 'alice' }, undefined)).toBe(false)
+    expect(crossesOwnerBoundary({ owner: owner('alice') }, undefined)).toBe(false)
   })
 })
 
