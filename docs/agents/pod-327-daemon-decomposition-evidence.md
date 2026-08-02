@@ -22,6 +22,9 @@ hand-merged.
   extended for both handshake rejection and HTTP 426. POD-600's classifier remains in
   `loop-attribution.ts`.
 - The frame guard documents and tests the benign one-malformed-frame-per-reattach case.
+- The scar-tissue registry names the relocated frame, self-update, instance-boot ordering,
+  loop-stall attribution, durable-backend fallback, reattach/boot-state, and Codex guard seams with
+  their incident rationale and backing tests.
 - Host control dispatch remains exhaustive, while the runtime context carries `SessionBinding`.
 
 ## Identity and authorization contract

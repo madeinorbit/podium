@@ -466,6 +466,9 @@ recorded here (phase agents append rows).
 |---|---|---|
 | Malformed-frame-per-reattach tolerated as benign | `apps/daemon/src/frame-guards.ts` (`frame-guards.test.ts`) | One ZodError per (re)attach is NORMAL; treating it as fatal broke reattach |
 | `decideOnProtocolMismatch` / `decidePostUpdate` self-update policy | `apps/daemon/src/self-update.ts` (`self-update.test.ts`); both envelope rejection and HTTP 426 enter this policy | Self-update decisions were once inline and cross-wired; keep/extend the module (POD-327) |
+| Instance identity before durable-path reads | `apps/daemon/src/instance-bootstrap.ts` (`instance-bootstrap.test.ts`) | InstanceId is a deployment partition, not a user boundary; resolving/applying it after state or labels are read mixes instance-scoped durable data |
+| Loop-stall starved-vs-busy attribution | `apps/daemon/src/loop-attribution.ts` (`loop-attribution.test.ts`); classifier input remains in `@podium/runtime/loop-metrics` | POD-600: wall-clock lag alone blamed daemon work when the process was scheduler-starved; preserve activity, heap and schedstat classification together |
+| Durable-backend preference and no-survival warning | `apps/daemon/src/durable-backend.ts` (selection/warning cases in `daemon.test.ts`) | Silent fallback hid that sessions would die with the daemon; explicit override wins, then abduco, then tmux, otherwise warn that durability is absent |
 | Delete-tracking on replica sync (assign `undefined`, never `delete`) | replica delta application | Replica dropped nulled fields — stuck fields incident (POD-170-era); POD-378 carries the regression test |
 | `reclaimStaleScope` | session scope allocation | Scope-name collision killed a live agent |
 | Master-probe + exited-row heal on restart | `apps/daemon/src/control/session.ts`; burst pacing in `apps/daemon/src/reattach-gates.ts` | Restart orphaned live sessions |
