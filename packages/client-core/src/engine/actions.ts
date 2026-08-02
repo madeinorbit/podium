@@ -43,15 +43,12 @@ export const UI_LOCAL_ACTIONS = [
   'setOpenIssueId',
   'setPeekIssueId',
   'setSuperThreadId',
-  'setSuperOpen',
   'setPaletteOpen',
   'setSelectedWorktree',
   'setSelectedIssueId',
   'setPane',
   'setFocusedPane',
   'navigateToSession',
-  'setDockTab',
-  'setPanelMode',
   'setDockShell',
   'setDockVisibleSession',
   'setPanelRenderMode',
@@ -67,6 +64,9 @@ export const UI_LOCAL_ACTIONS = [
 export const COMMAND_ACTIONS = [
   'setPinned',
   'setTabOrder',
+  'setSuperOpen',
+  'setDockTab',
+  'setPanelMode',
   'startBtw',
   'tldrSession',
   'writeFileScoped',
@@ -163,8 +163,25 @@ export function createEngineActions<TApi extends PodiumClientApi>(
   const api = rt.api
   const replicatedLayout = createReplicatedLayoutController({
     outbox: rt.outbox,
+    api,
     notices: rt.notices,
   })
+  const setSuperOpen = (superOpen: boolean): void => {
+    rt.apply({ superOpen })
+    replicatedLayout.set('superOpen', superOpen ? '1' : '0')
+  }
+  const setDockTab = (dockTab: DockTab): void => {
+    rt.apply({ dockTab })
+    replicatedLayout.set('dockTab', dockTab)
+  }
+  const setPanelMode = (sessionId: SessionId, mode: 'chat' | 'native'): void => {
+    const panelMode = rt.state().panelMode
+    if (panelMode[sessionId] === mode) return
+    const next = { ...panelMode, [sessionId]: mode }
+    rt.apply({ panelMode: next })
+    replicatedLayout.set('panelMode', JSON.stringify(next))
+  }
+
   return {
     replicatedLayout,
     setPinned: async (kind: PinKind, id: string, pinned: boolean) => {
@@ -213,16 +230,18 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     },
     setPeekIssueId: (peekIssueId) => rt.apply({ peekIssueId }),
     setSuperThreadId: (superThreadId) => rt.apply({ superThreadId }),
-    setSuperOpen: (superOpen) => rt.apply({ superOpen }),
-    setDockTab: (dockTab) => rt.apply({ dockTab }),
+    setSuperOpen,
+    setDockTab,
     startBtw: async (sessionId) => {
-      rt.apply({ superThreadId: `btw_${sessionId}`, superOpen: true })
+      rt.apply({ superThreadId: `btw_${sessionId}` })
+      setSuperOpen(true)
       await api.superagent.startBtw.mutate({ sessionId }).catch(() => {})
       rt.apply({ superRefreshKey: rt.state().superRefreshKey + 1 })
     },
     tldrSession: async (sessionId, answerText) => {
       const threadId = `btw_${sessionId}`
-      rt.apply({ superThreadId: threadId, superOpen: true })
+      rt.apply({ superThreadId: threadId })
+      setSuperOpen(true)
       await api.superagent.startBtw.mutate({ sessionId }).catch(() => {})
       const prompt = answerText.trim()
         ? `Give me a concise tl;dr (2–4 bullet points) of the agent's last answer below.\n\n---\n${answerText.trim().slice(0, 4000)}`
@@ -258,11 +277,7 @@ export function createEngineActions<TApi extends PodiumClientApi>(
         pane: meta.sessionId,
       })
     },
-    setPanelMode: (sessionId, mode) => {
-      const panelMode = rt.state().panelMode
-      if (panelMode[sessionId] !== mode)
-        rt.apply({ panelMode: { ...panelMode, [sessionId]: mode } })
-    },
+    setPanelMode,
     setDockVisibleSession: (dockVisibleSession) => rt.apply({ dockVisibleSession }),
     setDockShell: (worktreePath, sessionId) => {
       const current = rt.state().dockShells

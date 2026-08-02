@@ -18,6 +18,7 @@ const sessionId = asSessionId('session-1')
 function harness() {
   const queued: { kind: keyof OutboxKinds; input: unknown }[] = []
   const pending: OutboxEntry[] = []
+  const awaiting: OutboxEntry[] = []
   const errors: string[] = []
   const navigated: unknown[] = []
   let state = {
@@ -68,12 +69,12 @@ function harness() {
     navigate: (route: unknown) => navigated.push(route),
   } as unknown as Router
   const runtime = {
-    api: {} as PodiumClientApi,
+    api: { layout: { get: { query: async () => ({}) } } } as unknown as PodiumClientApi,
     hub: {} as SocketHub,
     outbox: {
       enqueue,
       pending: () => pending,
-      awaiting: () => [],
+      awaiting: () => awaiting,
       retireAwaiting: vi.fn(),
     } as unknown as EngineOutbox,
     router,
@@ -92,6 +93,9 @@ function harness() {
   return {
     actions: createEngineActions(runtime),
     enqueue,
+    pending,
+    awaiting,
+    retireAwaiting: runtime.outbox.retireAwaiting as ReturnType<typeof vi.fn>,
     errors,
     queued,
     navigated,
@@ -114,8 +118,6 @@ describe('engine action ownership boundary', () => {
     h.actions.setSelectedIssueId(asIssueId('issue-1'))
     h.actions.setPane('A', sessionId)
     h.actions.setFocusedPane('B')
-    h.actions.setDockTab('files')
-    h.actions.setPanelMode(sessionId, 'native')
     h.actions.setDockShell('/worktree', sessionId)
     h.actions.toggleSplit()
     h.actions.setPaletteOpen(true)
@@ -135,6 +137,87 @@ describe('engine action ownership boundary', () => {
     ])
   })
 
+  it('routes personal layout actions through reducer optimism and the airplane-mode queue', () => {
+    const h = harness()
+
+    h.actions.setSuperOpen(true)
+    h.actions.setDockTab('files')
+    h.actions.setPanelMode(sessionId, 'native')
+
+    expect(h.state().superOpen).toBe(true)
+    expect(h.state().dockTab).toBe('files')
+    expect(h.state().panelMode).toEqual({ [sessionId]: 'native' })
+    expect(h.queued).toEqual([
+      { kind: 'layoutSet', input: { values: { superOpen: '1' } } },
+      { kind: 'layoutSet', input: { values: { dockTab: 'files' } } },
+      {
+        kind: 'layoutSet',
+        input: { values: { panelMode: JSON.stringify({ [sessionId]: 'native' }) } },
+      },
+    ])
+  })
+
+  it('rolls layout reducer optimism back when durable enqueue fails', async () => {
+    const h = harness()
+    h.enqueue.mockRejectedValueOnce(new Error('storage unavailable'))
+
+    h.actions.replicatedLayout.set('superOpen', '1')
+    expect(h.actions.replicatedLayout.get('superOpen')).toBe('1')
+
+    await vi.waitFor(() => expect(h.actions.replicatedLayout.get('superOpen')).toBeUndefined())
+    expect(h.errors).toEqual([expect.stringContaining('storage unavailable')])
+  })
+
+  it('rolls a denied layout command back instead of leaving or retrying its overlay', async () => {
+    const h = harness()
+    h.actions.replicatedLayout.set('superOpen', '1')
+    await Promise.resolve()
+    await Promise.resolve()
+    const denied = h.pending.shift()
+    expect(denied).toBeDefined()
+
+    h.actions.replicatedLayout.commandDropped(denied!)
+
+    expect(h.actions.replicatedLayout.get('superOpen')).toBeUndefined()
+  })
+
+  it('retires an accepted command whose row is absent instead of painting a phantom', async () => {
+    const h = harness()
+    h.actions.replicatedLayout.set('superOpen', '1')
+    await Promise.resolve()
+    await Promise.resolve()
+    const accepted = h.pending.shift()
+    expect(accepted).toBeDefined()
+    h.awaiting.push(accepted!)
+
+    expect(h.actions.replicatedLayout.commandApplied(accepted!)).toBe(true)
+    h.actions.replicatedLayout.reconcile({}, [accepted!.mutationId])
+
+    expect(h.actions.replicatedLayout.get('superOpen')).toBeUndefined()
+    expect(h.retireAwaiting).toHaveBeenCalledWith(accepted!.mutationId)
+  })
+
+  it('suppresses old-scope layout overlays on rescope while keeping the command recoverable', async () => {
+    const h = harness()
+    h.actions.replicatedLayout.set('superOpen', '1')
+    await Promise.resolve()
+    await Promise.resolve()
+
+    h.actions.replicatedLayout.rescope({ dockTab: 'git' })
+
+    expect(h.actions.replicatedLayout.get('superOpen')).toBeUndefined()
+    expect(h.actions.replicatedLayout.get('dockTab')).toBe('git')
+    expect(h.pending).toHaveLength(1)
+  })
+
+  it('fails closed for a device-local key without touching the Outbox', () => {
+    const h = harness()
+    expect(() => h.actions.replicatedLayout.set('podium.split', '1')).toThrow(
+      /not a replicated layout key/,
+    )
+    expect(h.queued).toEqual([])
+  })
+
   it('rolls reducer optimism back when durable enqueue itself fails', async () => {
     const h = harness()
     h.enqueue.mockRejectedValueOnce(new Error('storage unavailable'))
@@ -150,6 +233,8 @@ describe('engine action ownership boundary', () => {
     await h.actions.setPinned('panel', sessionId, true)
     await h.actions.setTabOrder('/worktree', [sessionId])
     await h.actions.renameSession(sessionId, 'new name')
+    h.actions.replicatedLayout.set('superOpen', '1')
+    h.actions.replicatedLayout.clear('superOpen')
 
     for (const { input } of h.queued) {
       expect(Object.keys(input as object)).not.toEqual(

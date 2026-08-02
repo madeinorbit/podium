@@ -7,11 +7,8 @@
  * reconciliation seam for authoritative snapshots.
  */
 
-import {
-  isLayoutKey,
-  layoutKeyFromLegacy,
-  type LayoutSnapshot,
-} from '@podium/model'
+import { isLayoutKey, layoutKeyFromLegacy, type LayoutSnapshot } from '@podium/model'
+import type { PodiumClientApi } from '../api'
 import type { OutboxEntry } from '../outbox'
 import type { StoreNotices } from './types'
 import type { EngineOutbox, OutboxKinds } from './wiring'
@@ -32,9 +29,7 @@ function canonicalLayoutKey(key: string): string {
   throw new Error(`'${key}' is not a replicated layout key`)
 }
 
-function operationForEntry(
-  entry: Pick<OutboxEntry, 'kind' | 'input'>,
-): LayoutOperation | null {
+function operationForEntry(entry: Pick<OutboxEntry, 'kind' | 'input'>): LayoutOperation | null {
   if (entry.kind === 'layoutSet') {
     const input = entry.input as OutboxKinds['layoutSet']
     return { kind: 'set', values: input.values }
@@ -63,25 +58,24 @@ export function reduceLayoutSnapshot(
   return next
 }
 
-function storedValue(value: unknown): string | null {
-  if (value === undefined) return null
-  if (typeof value === 'string') return value
-  const encoded = JSON.stringify(value)
-  return typeof encoded === 'string' ? encoded : null
-}
-
 /**
  * Structurally compatible with POD-403's ReplicatedUiStatePort. Keys may be the
  * legacy ui-state spelling or the canonical layout spelling; device-local keys
  * fail closed instead of silently acquiring a server row.
  */
 export interface ReplicatedLayoutPort {
-  get(key: string): string | null
-  set(key: string, value: string | null): void
+  get(key: string): unknown
+  set(key: string, value: unknown): void
+  clear(key: string): void
   subscribe(listener: () => void): () => void
-  /** Install a full authoritative snapshot. POD-403 owns when bootstrap,
-   * rebind, and rescope call this seam. */
-  hydrate(snapshot: LayoutSnapshot): void
+  /** Fetch and install this principal's authoritative snapshot. Queued
+   * optimism stays painted over it. */
+  hydrate(): Promise<void>
+  /** Install already-delivered same-principal truth without a second fetch. */
+  replace(snapshot: LayoutSnapshot): void
+  /** Install a newly scoped slice and stop every old-scope overlay painting.
+   * The durable commands remain recoverable, but no longer fabricate visibility. */
+  rescope(snapshot: LayoutSnapshot): void
 }
 
 /** Engine-only lifecycle hooks kept off POD-403's routing surface. */
@@ -93,10 +87,11 @@ export interface ReplicatedLayoutController extends ReplicatedLayoutPort {
 }
 
 export function createReplicatedLayoutController(init: {
+  api: PodiumClientApi
   outbox: EngineOutbox
   notices: StoreNotices
 }): ReplicatedLayoutController {
-  const { outbox, notices } = init
+  const { api, outbox, notices } = init
   let base: LayoutSnapshot = {}
   let nextToken = 1
   let temporary: TemporaryOperation[] = []
@@ -107,8 +102,15 @@ export function createReplicatedLayoutController(init: {
     for (const listener of listeners) listener()
   }
 
+  const installBase = (snapshot: LayoutSnapshot): void => {
+    base = Object.fromEntries(Object.entries(snapshot).filter(([key]) => isLayoutKey(key)))
+  }
+
+  const layoutEntries = (): OutboxEntry[] =>
+    [...outbox.awaiting(), ...outbox.pending()].filter((entry) => operationForEntry(entry) !== null)
+
   const durableOperations = (): LayoutOperation[] =>
-    [...outbox.awaiting(), ...outbox.pending()]
+    layoutEntries()
       .filter((entry) => !ignoredAwaiting.has(entry.mutationId))
       .sort((a, b) => a.queuedAt - b.queuedAt)
       .flatMap((entry) => {
@@ -159,30 +161,42 @@ export function createReplicatedLayoutController(init: {
   }
 
   return {
-    get: (key) => storedValue(projection()[canonicalLayoutKey(key)]),
+    get: (key) => projection()[canonicalLayoutKey(key)],
     set: (key, value) => {
       const canonical = canonicalLayoutKey(key)
-      if (storedValue(projection()[canonical]) === value) return
-      enqueue(
-        value === null
-          ? { kind: 'clear', keys: [canonical] }
-          : { kind: 'set', values: { [canonical]: value } },
-      )
+      if (Object.is(projection()[canonical], value)) return
+      enqueue({ kind: 'set', values: { [canonical]: value } })
+    },
+    clear: (key) => {
+      const canonical = canonicalLayoutKey(key)
+      if (projection()[canonical] === undefined) return
+      enqueue({ kind: 'clear', keys: [canonical] })
     },
     subscribe: (listener) => {
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
-    hydrate: (snapshot) => {
-      base = Object.fromEntries(
-        Object.entries(snapshot).filter(([key]) => isLayoutKey(key)),
-      )
+    hydrate: async () => {
+      installBase(await api.layout.get.query())
+      emit()
+    },
+    replace: (snapshot) => {
+      installBase(snapshot)
+      emit()
+    },
+    rescope: (snapshot) => {
+      installBase(snapshot)
+      temporary = []
+      for (const entry of layoutEntries()) ignoredAwaiting.add(entry.mutationId)
+      for (const entry of outbox.awaiting()) {
+        if (operationForEntry(entry) !== null) outbox.retireAwaiting(entry.mutationId)
+      }
       emit()
     },
     outboxChanged: () => {
-      const awaiting = new Set(outbox.awaiting().map((entry) => entry.mutationId))
+      const live = new Set(layoutEntries().map((entry) => entry.mutationId))
       for (const mutationId of ignoredAwaiting) {
-        if (!awaiting.has(mutationId)) ignoredAwaiting.delete(mutationId)
+        if (!live.has(mutationId)) ignoredAwaiting.delete(mutationId)
       }
       emit()
     },
@@ -191,9 +205,7 @@ export function createReplicatedLayoutController(init: {
       if (operationForEntry(entry) !== null) emit()
     },
     reconcile: (snapshot, mutationIds) => {
-      base = Object.fromEntries(
-        Object.entries(snapshot).filter(([key]) => isLayoutKey(key)),
-      )
+      installBase(snapshot)
       for (const mutationId of mutationIds) {
         ignoredAwaiting.add(mutationId)
         outbox.retireAwaiting(mutationId)
@@ -202,4 +214,3 @@ export function createReplicatedLayoutController(init: {
     },
   }
 }
-
