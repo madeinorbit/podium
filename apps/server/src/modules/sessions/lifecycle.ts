@@ -46,8 +46,8 @@ import {
   type SessionBindingAdoptLaunchInstruction,
   type SessionBindingSpawnInstruction,
   type SessionOpenUrlMessage,
-  type SyncChangesSinceResult,
   type SubscriptionRegistry,
+  type SyncChangesSinceResult,
 } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
 import { type EntityChangeSpec, MutationLedger, type MutationLedgerPort } from '@podium/sync'
@@ -86,16 +86,15 @@ import type {
   TerminalCandidateFacts,
 } from '../../store'
 import type { EventBus } from '../bus'
-import type { MemoryService } from '../memory/service'
 import type { WriteFunnel } from '../funnel'
 import type { DurableIssueAccessIndex } from '../issues/access-index'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachinesService, MachineUseResolver } from '../machines/service'
+import type { MemoryService } from '../memory/service'
 import { HeadlessService } from '../superagent/headless'
 import { resolveAccountEnv } from './account-env'
 import { SessionClientControl } from './client-control'
 import { machinesForPrincipal as projectMachinesForPrincipal } from './command-ctx'
-import type { SessionIssueWorkflowPort } from './issue-workflow-port'
 import { SessionDaemonLifecycle } from './daemon-lifecycle'
 import { SessionDaemonProjection } from './daemon-projection'
 import { machineUseGateForCapability } from './handoff/access'
@@ -112,6 +111,8 @@ import {
 // Still used by the lazy workspace-fetch path (POD-658), which shares the
 // source-side bundle-base handshake and the chunked transfer with handoff.
 import type { PreparedSessionInstructions } from './instructions'
+import type { SessionIssueWorkflowPort } from './issue-workflow-port'
+import { SessionObservationLeases } from './observation-leases'
 import { SessionBroadcastCoordinator } from './publication/broadcast'
 import {
   SessionPublicationCoordinator,
@@ -120,13 +121,13 @@ import {
 } from './publication/coordinator'
 import type { SessionProjectionEvent } from './publish-worker-actor'
 import { PublishWorkerClient } from './publish-worker-client'
+import { SessionRepository } from './repository'
 import { type PublicationAuthority, Session } from './session'
 import { assertMayCommandSession, resolveSessionTarget } from './session-access'
 import { SessionBindingReceipts } from './session-binding'
 import { SessionStateRegistry, sessionStatePrincipalFor } from './session-state/registry'
 import { type SessionStatePrincipal, SessionStateService } from './session-state/service'
 import { SessionView } from './view'
-import { SessionRepository } from './repository'
 import { SessionWorkspace } from './workspace'
 
 export const DEFAULT_GEOMETRY: Geometry = { cols: 80, rows: 24 }
@@ -307,7 +308,7 @@ export class SessionLifecycle {
   readonly clients: ClientRegistry
 
   /** Durable observer leases, hydrated before session state restoration. */
-  private readonly observationLeases = new Map<SessionId, ObservationLeaseRecord>()
+  private readonly observationLeases = new SessionObservationLeases()
 
   private readonly store: SessionStore
   private readonly now: () => number
@@ -813,7 +814,7 @@ export class SessionLifecycle {
       provider,
       session.resume?.value ?? null,
     )
-    this.observationLeases.set(session.sessionId, lease)
+    this.observationLeases.record(session.sessionId, lease)
     return lease
   }
 
