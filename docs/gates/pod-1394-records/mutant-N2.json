@@ -2,7 +2,7 @@
   "id": "N2",
   "file": "apps/server/src/command-principal.ts",
   "cmd": "bun --bun node_modules/vitest/vitest.mjs run --passWithNoTests --config vitest.unit.config.ts --project node apps/server/src/authz-matrix.test.ts apps/server/src/machine-access.test.ts packages/model/src/identity",
-  "candidate_sha": "7ceec3f7d5196fac203d21950bae5843ac8583c8",
+  "candidate_sha": "c3b8247ebee10ee772c1c40654742965ee0f2100",
   "original_sha256": "0fbb008d45c76cc63cd63a26503db23c02f07bd1f1c784a6994f17938130a283",
   "edits": [
     {
@@ -17,8 +17,8 @@
   ],
   "mutated_sha256": "226520d8e70358a24c54deac1bbdc53f33e0a13a1c4c3eca9cd58059d4a74ba6",
   "exit_code": 1,
-  "elapsed_s": 24.6,
-  "output": "\n RUN  v5.0.0-beta.6 /home/mgw/src/other/podium/.worktrees/issue-1394-multi-user-mutation-probe-campaign\n\n \u276f |node| apps/server/src/machine-access.test.ts (27 tests | 1 failed) 62ms\n     \u00d7 an agent chain carries exactly ONE human, taken from the ROOT and not the leaf 24ms\n\n Test Files  1 failed | 8 passed (9)\n      Tests  1 failed | 167 passed (168)\n   Start at  17:14:56\n   Duration  22.70s (transform 45.52s, setup 8.93s, import 56.31s, tests 1.33s, environment 30ms)\n\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af Failed Tests 1 \u23af\u23af\u23af\u23af\u23af\u23af\u23af\n\n FAIL  |node| apps/server/src/machine-access.test.ts > the principal itself > an agent chain carries exactly ONE human, taken from the ROOT and not the leaf\nAssertionError: expected 'user:sole' to be 'colleague' // Object.is equality\n\nExpected: \"colleague\"\nReceived: \"user:sole\"\n\n \u276f apps/server/src/machine-access.test.ts:296:64\n    294|\n    295|     expect(principal.kind).toBe('agent')\n    296|     expect(principal.kind === 'agent' && principal.onBehalfOf).toBe(CO\u2026\n       |                                                                ^\n    297|     expect(principal.kind === 'agent' && principal.chain).toEqual(['pa\u2026\n    298|   })\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[1/1]\u23af\n\n",
+  "elapsed_s": 8.1,
+  "output": "\n RUN  v5.0.0-beta.6 /home/mgw/src/other/podium/.worktrees/issue-1394-multi-user-mutation-probe-campaign\n\n \u276f |node| apps/server/src/machine-access.test.ts (27 tests | 1 failed) 56ms\n     \u00d7 an agent chain carries exactly ONE human, taken from the ROOT and not the leaf 15ms\n\n Test Files  1 failed | 8 passed (9)\n      Tests  1 failed | 167 passed (168)\n   Start at  20:03:21\n   Duration  7.29s (transform 13.10s, setup 2.12s, import 17.17s, tests 443ms, environment 11ms)\n\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af Failed Tests 1 \u23af\u23af\u23af\u23af\u23af\u23af\u23af\n\n FAIL  |node| apps/server/src/machine-access.test.ts > the principal itself > an agent chain carries exactly ONE human, taken from the ROOT and not the leaf\nAssertionError: expected 'user:sole' to be 'colleague' // Object.is equality\n\nExpected: \"colleague\"\nReceived: \"user:sole\"\n\n \u276f apps/server/src/machine-access.test.ts:312:64\n    310|\n    311|     expect(principal.kind).toBe('agent')\n    312|     expect(principal.kind === 'agent' && principal.onBehalfOf).toBe(CO\u2026\n       |                                                                ^\n    313|     expect(principal.kind === 'agent' && principal.chain).toEqual(['pa\u2026\n    314|   })\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[1/1]\u23af\n\n",
   "restored_sha256": "0fbb008d45c76cc63cd63a26503db23c02f07bd1f1c784a6994f17938130a283",
   "restored_identical": true,
   "git_clean_after": true

@@ -146,6 +146,62 @@ A fourth error was instrumental rather than aim: `C4c`'s first invocation ended 
 the recorded exit was `tail`'s `0`. Re-run unpiped → exit 1. **A piped guardrail command reports the
 pipe.**
 
+## Gate candidate `c3b8247e` — re-run / carry split
+
+POD-279 named `c3b8247e`, 78 commits ahead of the previous candidate `7ceec3f7`. Re-running all
+thirty against a moving tree is the wrong trade, so each mutant was classified from the diff.
+
+**The carry rule is stricter than "the subject did not move".** A mutant is carried only when BOTH
+its subject file AND every guardrail test file it is graded by are byte-identical across
+`7ceec3f7..c3b8247e` (`git diff --quiet <old> <new> -- <path>`). The guardrail half is not optional:
+`C8b`, `C9a`, `C9b` and `N2` have **unchanged subject code but changed test files**, and carrying
+them on subject-identity alone would have asserted a guardrail still fires while its own test moved
+underneath. A weakened guardrail is invisible from the subject side.
+
+**RE-RUN (14) — all CAUGHT at `c3b8247e`, exit 1 each:** `C1` `C1b` `C5a` `C6a` `C6b` `C6c` `C7a`
+`C8b` `C9a` `C9b` `N2` `N2b2` `N2c` `N3c`. Anchor lines moved as expected (`relay.ts` 536→548,
+`machine-access.ts` 305→319 and 326→340, `stream-port.ts` 110→111 and 197→198,
+`command-principal.ts` unchanged at 171/173/224), and the runner located each anchor at match-count
+exactly 1, so no mutant silently failed to apply against the newer tree.
+
+**CARRIED (16):** `C2b` `C3a2` `C3b` `C4a` `C4b2` `C4c` `C5b` `C8a2` `C10` `N1` `N1b` `N1c` `N3b`
+`N4` `N5` `N5b`. Each carries because its subject and guardrail files are byte-identical between the
+two SHAs, cited by diff rather than re-measured. **This is a weaker claim than a re-run and is
+labelled as one:** it says the code and its guardrail did not change, not that the guardrail was
+observed firing at this SHA.
+
+## New refusal surface in the 78 commits
+
+The landings (POD-1385, POD-1399, POD-1081, POD-1114, POD-1123, POD-1125, POD-1193, POD-329,
+POD-1241) introduced **new SITES for conditions the ten already cover, not new conditions.** Stated
+as a finding rather than an assumption, the load-bearing one was probed rather than asserted:
+
+**`N6` — POD-1081's session-control surface, condition 3/5 at a site the campaign had never
+touched.** `apps/server/src/modules/sessions/session-control-policy.ts:116`, `humanMay`:
+`return grantees.includes(human)` → `return true`, admitting a stranger with neither ownership nor a
+grant. Anchor match-count 1; restored byte-identical; **exit 1**, 4 failed / 18 passed:
+
+```
+FAIL session-control-policy.test.ts > stranger with neither grant nor ownership is refused
+  AssertionError: expected true to be 'unauthorized'
+FAIL session-control-policy.test.ts > read-only grantee may watch but not drive
+FAIL session-control-identity.test.ts > POD-1081 attach + take-control policy > denies attach …
+FAIL session-control-identity.test.ts > POD-1081 attach + take-control policy > refuses requestControl …
+```
+
+The new surface is guarded. It was checked with a mutant rather than read off its test names,
+because "well-named tests exist" is the claim this campaign exists to distrust.
+
+## Standing at `c3b8247e`
+
+**31 mutants, 30 caught, 1 survivor.**
+
+The survivor is `N5b` — **POD-1429, an OPEN DEFECT, not an accepted gap.** The `writeScope` half of
+the system-reaction invariant can be deleted with `audit:composition` and the composition suite both
+green, because the only fixture pinning it violates two clauses at once and both throw the same
+message. Its brief carries a written two-arm acceptance standard (recorded value / mechanism) so it
+cannot be closed by a fixture that merely re-states the check.
+
 ## Process findings — the runner's own blind spots
 
 These are not code defects. They are defects in *how the campaign proves things*, and each was found
