@@ -57,6 +57,8 @@ const STORM_TIMEOUT_MS = 30_000
 
 const geometry = { cols: 80, rows: 24 }
 
+const priorStateDir = process.env.PODIUM_STATE_DIR!
+
 describe('a daemon reattach storm', () => {
   let stateDir: string
   let handle: Awaited<ReturnType<typeof startServer>>
@@ -86,7 +88,7 @@ describe('a daemon reattach storm', () => {
 
   afterAll(async () => {
     await handle?.close()
-    delete process.env.PODIUM_STATE_DIR
+    process.env.PODIUM_STATE_DIR = priorStateDir
     rmSync(stateDir, { recursive: true, force: true })
   })
 

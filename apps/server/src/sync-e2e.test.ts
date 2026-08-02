@@ -16,6 +16,8 @@ import { startServer } from './server'
 // End-to-end over the REAL wiring (docs/spec/oplog-read-path.md §5): a booted
 // server, real WS upgrades through wsServer's hello parse, and sync.changesSince
 // over actual HTTP tRPC — the seams the registry-level tests can't cover.
+const priorStateDir = process.env.PODIUM_STATE_DIR!
+
 describe('metadata oplog e2e (live server)', () => {
   let stateDir: string
   let server: Awaited<ReturnType<typeof startServer>>
@@ -32,7 +34,7 @@ describe('metadata oplog e2e (live server)', () => {
     for (const s of sockets) s.close()
     await server.close()
     rmSync(stateDir, { recursive: true, force: true })
-    delete process.env.PODIUM_STATE_DIR
+    process.env.PODIUM_STATE_DIR = priorStateDir
   })
 
   function connect(caps?: string[]): { inbox: ServerMessage[]; ready: Promise<void> } {

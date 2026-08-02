@@ -38,34 +38,54 @@ import { CAP_METADATA_DELTA, MIN_SUPPORTED_VERSION, WIRE_VERSION } from '@podium
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
 import { startServer } from '../server'
+import { loginTestClient } from '../test-support/client-auth'
 
+const CLIENT_PASSWORD = 'wire-window-client-password'
+
+const priorStateDir = process.env.PODIUM_STATE_DIR!
 describe('the wire window, over real sockets', () => {
   let stateDir: string
   let handle: Awaited<ReturnType<typeof startServer>>
+  let cookieHeader: string
+  let machineId: string
+  let originalPassword: string | undefined
 
   beforeAll(async () => {
     stateDir = mkdtempSync(join(tmpdir(), 'podium-wire-window-'))
     process.env.PODIUM_STATE_DIR = stateDir
+    originalPassword = process.env.PODIUM_PASSWORD
+    process.env.PODIUM_PASSWORD = CLIENT_PASSWORD
     handle = await startServer({ port: 0 })
-    handle.registry.gateway.attachDaemon(handle.registry.sessionStore.hostMachineId, () => {})
+    cookieHeader = (
+      await loginTestClient({
+        origin: `http://127.0.0.1:${handle.port}`,
+        password: CLIENT_PASSWORD,
+      })
+    ).cookieHeader
+    machineId = handle.registry.modules.machines.hostMachineId
+    handle.registry.gateway.attachDaemon(machineId, () => {})
     handle.registry.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/repo/before-the-deploy',
-      machineId: handle.registry.sessionStore.hostMachineId,
+      machineId,
     })
     handle.registry.modules.sessions.flushBroadcasts()
   })
 
   afterAll(async () => {
     await handle?.close()
-    delete process.env.PODIUM_STATE_DIR
+    process.env.PODIUM_STATE_DIR = priorStateDir
+    if (originalPassword === undefined) delete process.env.PODIUM_PASSWORD
+    else process.env.PODIUM_PASSWORD = originalPassword
     rmSync(stateDir, { recursive: true, force: true })
   })
 
   /** A real `/client` socket that announces itself the way a build does. */
   async function connect(hello: Record<string, unknown>) {
     const frames: ServerMessage[] = []
-    const ws = new WebSocket(`ws://127.0.0.1:${handle.port}/client`)
+    const ws = new WebSocket(`ws://127.0.0.1:${handle.port}/client`, {
+      headers: { Cookie: cookieHeader },
+    })
     ws.on('message', (raw) => frames.push(JSON.parse(raw.toString()) as ServerMessage))
     await new Promise<void>((resolve, reject) => {
       ws.on('open', () => resolve())
@@ -133,7 +153,7 @@ describe('the wire window, over real sockets', () => {
     handle.registry.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/repo/after-the-deploy',
-      machineId: handle.registry.sessionStore.hostMachineId,
+      machineId,
     })
     handle.registry.modules.sessions.flushBroadcasts()
 

@@ -14,6 +14,8 @@ import { WebSocketServer } from 'ws'
 import { type ReconnectTimers, startDaemon } from './daemon'
 import { loadIdentity } from './identity'
 
+const priorStateDir = process.env.PODIUM_STATE_DIR!
+
 describe('daemon connectivity state (#19)', () => {
   let dir: string
   let httpServer: Server
@@ -33,7 +35,7 @@ describe('daemon connectivity state (#19)', () => {
     port = (httpServer.address() as { port: number }).port
   })
   afterEach(async () => {
-    delete process.env.PODIUM_STATE_DIR
+    process.env.PODIUM_STATE_DIR = priorStateDir
     for (const c of wss.clients) c.terminate()
     await new Promise<void>((r) => wss.close(() => r()))
     httpServer.closeAllConnections?.()
