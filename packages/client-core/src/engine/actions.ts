@@ -154,10 +154,14 @@ function reducePin(state: PinState, kind: PinKind, id: string, pinned: boolean):
  * knows only this port: reads hydrate from layout.get and writes enter the
  * typed Outbox kinds here, never through local persistence.
  */
+export interface ReplicatedLayoutPort extends ReplicatedUiStatePort {
+  adopt(snapshot: LayoutSnapshot): void
+}
+
 export function createReplicatedLayoutPort(init: {
   api: PodiumClientApi
   outbox: EngineOutbox
-}): ReplicatedUiStatePort {
+}): ReplicatedLayoutPort {
   let base: LayoutSnapshot = {}
   const optimistic = new Map<string, unknown>()
   const cleared = new Set<string>()
@@ -180,11 +184,19 @@ export function createReplicatedLayoutPort(init: {
       }
     }
   }
+  const adopt = (snapshot: LayoutSnapshot): void => {
+    base = snapshot
+    for (const [key, value] of optimistic) {
+      if (Object.is(base[key], value)) optimistic.delete(key)
+    }
+    for (const key of cleared) {
+      if (!(key in base)) cleared.delete(key)
+    }
+    notify()
+  }
   return {
-    hydrate: async () => {
-      base = await init.api.layout.get.query()
-      notify()
-    },
+    hydrate: async () => adopt(await init.api.layout.get.query()),
+    adopt,
     get: (key) => {
       if (cleared.has(key)) return undefined
       return optimistic.has(key) ? optimistic.get(key) : base[key]

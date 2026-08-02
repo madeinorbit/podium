@@ -30,6 +30,7 @@ import type {
   HostMetricsWire,
   IssueId,
   IssueWire,
+  LayoutWire,
   MachineWire,
   SessionId,
   SessionMeta,
@@ -50,7 +51,6 @@ import { createSubscriptionStore, type SubscriptionStore } from '../store'
 import {
   createRouterUiState,
   type MainView,
-  type ReplicatedUiStatePort,
   type RoutedUiState,
   type Router,
   type RouterUiState,
@@ -72,7 +72,11 @@ import {
   type RecentFileEntry,
   reposToViews,
 } from '../viewmodels'
-import { createEngineActions, createReplicatedLayoutPort } from './actions'
+import {
+  createEngineActions,
+  createReplicatedLayoutPort,
+  type ReplicatedLayoutPort,
+} from './actions'
 import {
   AWAITING_TRUTH_TTL_MS,
   type AwaitingTruth,
@@ -246,7 +250,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
 
   private readonly replicaBinding: ReplicaBinding
   private readonly routerUi: RouterUiState
-  private readonly replicatedUi: ReplicatedUiStatePort
+  private readonly replicatedUi: ReplicatedLayoutPort
 
   private readonly api: TApi
   private readonly notices: StoreNotices
@@ -570,6 +574,12 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     offs.push(
       this.hub.on('sessionDraft', (sessionId, text) => this.adoptSessionDraft(sessionId, text)),
     )
+    offs.push(
+      this.hub.on('userLayouts', (rows: LayoutWire[]) => {
+        this.replicatedUi.adopt(Object.fromEntries(rows.map((row) => [row.key, row.value])))
+      }),
+    )
+
     // A daemon-created worktree is otherwise invisible in every repo menu until
     // reload (POD-665) — re-fetch through the same path used at boot.
     offs.push(this.hub.on('worktreesChanged', () => void this.refreshRepos()))
