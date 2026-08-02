@@ -5438,6 +5438,106 @@
       "encoded": "{\"worktreePath\":\"worktreePath\",\"branch\":\"branch\",\"parentBranch\":\"parentBranch\",\"machineId\":\"machineId\"}"
     },
     {
+      "schema": "LayoutKeyField",
+      "variant": "minimal",
+      "wire": "dockTab",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"dockTab\""
+    },
+    {
+      "schema": "LayoutKeyField",
+      "variant": "full",
+      "wire": "dockTab",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"dockTab\""
+    },
+    {
+      "schema": "LayoutSnapshot",
+      "variant": "minimal",
+      "wire": {},
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{}"
+    },
+    {
+      "schema": "LayoutSnapshot",
+      "variant": "full",
+      "wire": {
+        "dockTab": {
+          "unknownFixture": "dockTab"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"dockTab\":{\"unknownFixture\":\"dockTab\"}}"
+    },
+    {
+      "schema": "LayoutState",
+      "variant": "minimal",
+      "wire": {
+        "userId": "userId",
+        "entityId": "dockTab",
+        "value": {
+          "unknownFixture": "value"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"entityId\":\"dockTab\",\"value\":{\"unknownFixture\":\"value\"}}"
+    },
+    {
+      "schema": "LayoutState",
+      "variant": "full",
+      "wire": {
+        "userId": "userId",
+        "entityId": "dockTab",
+        "value": {
+          "unknownFixture": "value"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"entityId\":\"dockTab\",\"value\":{\"unknownFixture\":\"value\"}}"
+    },
+    {
+      "schema": "LayoutWire",
+      "variant": "minimal",
+      "wire": {
+        "userId": "userId",
+        "key": "dockTab",
+        "value": {
+          "unknownFixture": "value"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"key\":\"dockTab\",\"value\":{\"unknownFixture\":\"value\"}}"
+    },
+    {
+      "schema": "LayoutWire",
+      "variant": "full",
+      "wire": {
+        "userId": "userId",
+        "key": "dockTab",
+        "value": {
+          "unknownFixture": "value"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"key\":\"dockTab\",\"value\":{\"unknownFixture\":\"value\"}}"
+    },
+    {
       "schema": "LintFinding",
       "variant": "minimal",
       "wire": {
@@ -5549,6 +5649,24 @@
       "encoded": "{\"machineId\":\"machineId\",\"machineName\":\"machineName\",\"hostname\":\"hostname\",\"agents\":[{\"agent\":\"claude-code\",\"status\":\"ok\",\"account\":{\"email\":\"agents[0].account.email\",\"plan\":\"agents[0].account.plan\"},\"windows\":[{\"key\":\"agents[0].windows[0].key\",\"label\":\"agents[0].windows[0].label\",\"usedPercent\":1,\"resetsAt\":\"agents[0].windows[0].resetsAt\",\"windowMinutes\":1,\"scopeModel\":\"agents[0].windows[0].scopeModel\"}],\"error\":\"agents[0].error\",\"fetchedAt\":\"agents[0].fetchedAt\"}]}"
     },
     {
+      "schema": "MachineUseDecision",
+      "variant": "minimal",
+      "wire": "granted",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"granted\""
+    },
+    {
+      "schema": "MachineUseDecision",
+      "variant": "full",
+      "wire": "granted",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"granted\""
+    },
+    {
       "schema": "MachineWire",
       "variant": "minimal",
       "wire": {
@@ -5572,6 +5690,7 @@
         "hostname": "hostname",
         "online": true,
         "lastSeenAt": "lastSeenAt",
+        "use": "granted",
         "inventory": {
           "os": "linux",
           "arch": "x64",
@@ -5601,7 +5720,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"name\":\"name\",\"hostname\":\"hostname\",\"online\":true,\"lastSeenAt\":\"lastSeenAt\",\"inventory\":{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"inventory.podiumVersion\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"version\":\"inventory.agents[0].version\",\"path\":\"inventory.agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"inventory.agents[0].login.account\"}}],\"tools\":[{\"name\":\"inventory.tools[0].name\",\"installed\":true,\"version\":\"inventory.tools[0].version\",\"path\":\"inventory.tools[0].path\"}]}}"
+      "encoded": "{\"id\":\"id\",\"name\":\"name\",\"hostname\":\"hostname\",\"online\":true,\"lastSeenAt\":\"lastSeenAt\",\"use\":\"granted\",\"inventory\":{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"inventory.podiumVersion\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"version\":\"inventory.agents[0].version\",\"path\":\"inventory.agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"inventory.agents[0].login.account\"}}],\"tools\":[{\"name\":\"inventory.tools[0].name\",\"installed\":true,\"version\":\"inventory.tools[0].version\",\"path\":\"inventory.tools[0].path\"}]}}"
     },
     {
       "schema": "MutationId",

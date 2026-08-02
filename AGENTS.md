@@ -33,6 +33,30 @@ no roles, no write-claim, no auto-isolation [spec:SP-4ef9] — so what you tell 
 prompt is the only lever: its job, a title to give itself, who else is on the issue, and who
 owns which files. Full guide: **[docs/agents/delegating.md](docs/agents/delegating.md)**.
 
+## Cached checks
+
+Run `bun run typecheck` and trust a cache hit. Never force a recompute: a forced run
+costs ~3m14s of CPU against ~2s cached (110x, measured on 22 packages) on a host
+shared with a live Podium instance. The cache key covers source files, `bun.lock`,
+`package.json`, `tooling/tsconfig`, and — via `scripts/typecheck.ts`'s environment
+fingerprint (`PODIUM_CHECK_ENV_HASH` in `turbo.json` `globalEnv`) — `bunfig.toml`
+and the `node_modules/@podium` link census. Installs, linker changes, and git base
+swaps therefore invalidate the cache by themselves; you do not need `--force` after
+a merge. A checkout with no usable `node_modules/@podium` links is refused outright
+(a cached green there is not evidence — POD-1343).
+
+If you have a concrete reason to believe the cache is wrong, state it:
+
+```
+bun run typecheck -- --uncached-because="<what the cache key is missing>"
+```
+
+and file the gap as an issue so the key gets fixed. Bare `--force` and `TURBO_FORCE`
+exit with an error. Test lanes (`bun run test*`) are not turbo tasks and always
+execute for real; there is no cached/uncached split to choose there.
+
+Evidence for the cache-key coverage table: **[docs/agents/pod-1378-cache-evidence.md](docs/agents/pod-1378-cache-evidence.md)**.
+
 ## Testing policy
 
 Match testing effort to regression risk. Simple, low-risk changes may skip automated tests when
