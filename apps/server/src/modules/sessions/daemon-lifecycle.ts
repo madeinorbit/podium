@@ -7,7 +7,6 @@ import type { SessionsDaemonFrame } from '../../gateway/daemon-frame-routing'
 import { harnessObservationProvider } from '../../harness-manifest'
 import type { ObservationLeaseRecord, SessionStore, TerminalCandidateFacts } from '../../store'
 import type { EventBus } from '../bus'
-import type { IssueService } from '../issues/service'
 import type { SessionDaemonProjection } from './daemon-projection'
 import type { SessionInbox } from './inbox'
 import type { Session } from './session'
@@ -25,7 +24,9 @@ export interface SessionDaemonLifecyclePorts {
   observationLeases: Map<SessionId, ObservationLeaseRecord>
   persist(session: Session, additionalWrite?: () => void): void
   broadcastSessions(): void
-  issues(): IssueService
+  onSessionActivity(sessionId: SessionId): void
+  onSessionAttention(sessionId: SessionId): void
+  onSessionTurnEnd(sessionId: SessionId): void
   maybeReapDraftIssue(issueId: string | null | undefined): void
   emitSessionExited(sessionId: SessionId, code: number, spawnedBy?: string): void
   toMachine(machineId: string, message: ControlMessage): void
@@ -79,7 +80,6 @@ export class SessionDaemonLifecycle {
   private readonly persist = (session: Session, additionalWrite?: () => void): void =>
     this.ports.persist(session, additionalWrite)
   private readonly broadcastSessions = (): void => this.ports.broadcastSessions()
-  private readonly issues = (): IssueService => this.ports.issues()
   private readonly maybeReapDraftIssue = (issueId: string | null | undefined): void =>
     this.ports.maybeReapDraftIssue(issueId)
   private readonly emitSessionExited = (
@@ -166,7 +166,7 @@ export class SessionDaemonLifecycle {
         const s = this.sessions.get(msg.sessionId)
         if (s) this.persist(s)
         this.broadcastSessions()
-        this.issues().onSessionActivity(msg.sessionId)
+        this.ports.onSessionActivity(msg.sessionId)
         // If the process death made an empty draft's last session 'exited', reap
         // the draft. A hibernate kill lands here too, but onExit keeps status
         // 'hibernated', which blocks the reap — parked drafts survive.
@@ -417,7 +417,7 @@ export class SessionDaemonLifecycle {
         // effect below is exclusive to one accepted causal live phase edge.
         if (outcome.kind !== 'live_transition_accepted') break
         this.autoContinue.onStateChange(session.sessionId, next)
-        this.issues().onSessionActivity(session.sessionId)
+        this.ports.onSessionActivity(session.sessionId)
         this.inbox.stateChanged({
           sessionId: session.sessionId,
           prev,
@@ -428,7 +428,7 @@ export class SessionDaemonLifecycle {
           this.state.clearAllSnoozes(session.sessionId)
         }
         if (!isAttentionPhase(prev) && isAttentionPhase(next)) {
-          this.issues().onSessionAttention(session.sessionId)
+          this.ports.onSessionAttention(session.sessionId)
         }
         break
       }
@@ -485,11 +485,11 @@ export class SessionDaemonLifecycle {
           sessionId: msg.sessionId,
           state: next,
         })
-        this.issues().onSessionActivity(msg.sessionId)
+        this.ports.onSessionActivity(msg.sessionId)
         // Turn end (working → anything else) is the only moment new commits can
         // appear — refresh the owning issue's git state [POD-98].
         if (prev?.phase === 'working' && next.phase !== 'working') {
-          this.issues().onSessionTurnEnd(msg.sessionId)
+          this.ports.onSessionTurnEnd(msg.sessionId)
         }
         // Synchronous fan-out to bus subscribers (NotifyService) — same ordering
         // as the old direct notifyAttention call.
@@ -500,7 +500,7 @@ export class SessionDaemonLifecycle {
         // Entering an attention phase = a new message needs the user: end any
         // "until next message" defer on the issue that owns this session.
         if (!isAttentionPhase(prev) && isAttentionPhase(next)) {
-          this.issues().onSessionAttention(msg.sessionId)
+          this.ports.onSessionAttention(msg.sessionId)
         }
         // A NEW turn beginning after the offer was made means the conversation
         // moved past it — its suggested actions no longer apply [spec:SP-c7f1]

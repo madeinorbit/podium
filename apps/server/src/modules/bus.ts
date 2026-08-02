@@ -9,7 +9,12 @@ import type {
   TranscriptItem,
   UserId,
 } from '@podium/model'
-import type { AgentObservation, MetadataChange, SessionOpenUrlMessage } from '@podium/protocol'
+import type {
+  AgentObservation,
+  DaemonMessage,
+  MetadataChange,
+  SessionOpenUrlMessage,
+} from '@podium/protocol'
 
 /**
  * The typed in-process event map (architecture redesign, issue #13 Phase 2).
@@ -40,6 +45,16 @@ export interface EventMap {
   'session.created': { sessionId: SessionId; agentKind: AgentKind }
   /** A session's process ended (agentExit / reattachFailed death). */
   'session.exited': { sessionId: SessionId; code: number }
+  /** System derived-field maintenance driven by committed/live session facts. */
+  'issue.sessionDerived':
+    | { kind: 'gitActivity'; sessionId: SessionId; commits?: string[]; touched?: string[] }
+    | { kind: 'activity' | 'attention' | 'turnEnd' | 'removedOrArchived'; sessionId: SessionId }
+    | { kind: 'reapDraft'; issueId: string }
+    | {
+        kind: 'adoptWorktree'
+        issueId: string
+        message: Extract<DaemonMessage, { type: 'sessionCwd' }>
+      }
   /** A remote session asked its host to open a browser URL. [spec:SP-a43e] */
   'session.openUrl': SessionOpenUrlMessage
   /** The session list changed in a way that was broadcast (post-fanout). */

@@ -302,7 +302,11 @@ export class SessionRegistry {
     const clientRegistry = new ClientRegistry()
     const clients = () => clientRegistry
 
-    const issueAccess = new DurableIssueAccessIndex(this.store.issues, this.store.grants)
+    const issueAccess = new DurableIssueAccessIndex(
+      this.store.issues,
+      this.store.grants,
+      this.store.repos,
+    )
     const machines = new MachinesService({
       store: this.store,
       bus: this.bus,
@@ -834,6 +838,49 @@ export class SessionRegistry {
           seq: row.seq,
           ...(row.worktreePath ? { worktreePath: row.worktreePath } : {}),
         }),
+    })
+    this.bus.on('issue.sessionDerived', (event) => {
+      switch (event.kind) {
+        case 'gitActivity':
+          issues.recordSessionGitActivity(event.sessionId, {
+            ...(event.commits ? { commits: event.commits } : {}),
+            ...(event.touched ? { touched: event.touched } : {}),
+          })
+          break
+        case 'activity':
+          issues.onSessionActivity(event.sessionId)
+          break
+        case 'attention':
+          issues.onSessionAttention(event.sessionId)
+          break
+        case 'turnEnd':
+          issues.onSessionTurnEnd(event.sessionId)
+          break
+        case 'removedOrArchived':
+          issues.onSessionRemovedOrArchived(event.sessionId)
+          break
+        case 'reapDraft':
+          issues.reapIfEmptyDraft(event.issueId)
+          break
+        case 'adoptWorktree': {
+          const issue = issueAccess.getMeta(event.issueId)
+          const message = event.message
+          if (
+            !issue ||
+            issue.archived ||
+            issue.worktreePath !== null ||
+            message.kind !== 'worktree'
+          )
+            break
+          if (message.repoRoot !== undefined && message.repoRoot !== issue.repoPath) break
+          if (issueAccess.worktreePaths().includes(message.cwd)) break
+          issues.update(issue.id, {
+            worktreePath: message.cwd,
+            ...(message.branch ? { branch: message.branch } : {}),
+          })
+          break
+        }
+      }
     })
     this.bus.on('session.listChanged', () => {
       publisher.publishIssues(issues.allWire(), issues.allProjections())

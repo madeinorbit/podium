@@ -406,12 +406,14 @@ export class SessionLifecycle {
     })
     this.daemonProjection = new SessionDaemonProjection({
       sessions: this.sessions,
-      issues: () => this.issues(),
+      recordSessionGitActivity: (sessionId, input) =>
+        this.bus.emit('issue.sessionDerived', { kind: 'gitActivity', sessionId, ...input }),
       binding: this.bindingReceipts,
       persist: (session) => this.repository.persist(session),
       broadcastSessions: () => this.broadcastSessions(),
       broadcastToClients: (message) => this.broadcastToClients(message),
-      adoptWorktree: (issueId, message) => this.adoptWorktree(issueId, message),
+      adoptWorktree: (issueId, message) =>
+        this.bus.emit('issue.sessionDerived', { kind: 'adoptWorktree', issueId, message }),
     })
 
     this.workspace = new SessionWorkspace({
@@ -447,7 +449,7 @@ export class SessionLifecycle {
       },
       toMachine: (machineId, message) => this.toMachine(machineId, message),
       onArchived: (sessionId) => {
-        this.issues().onSessionRemovedOrArchived(sessionId)
+        this.bus.emit('issue.sessionDerived', { kind: 'removedOrArchived', sessionId })
         this.maybeReapDraftIssue(this.sessions.get(sessionId)?.issueId)
         this.parkArchivedSession(sessionId)
       },
@@ -628,7 +630,12 @@ export class SessionLifecycle {
       observationLeases: this.observationLeases,
       persist: (session, additionalWrite) => this.repository.persist(session, additionalWrite),
       broadcastSessions: () => this.broadcastSessions(),
-      issues: () => this.issues(),
+      onSessionActivity: (sessionId) =>
+        this.bus.emit('issue.sessionDerived', { kind: 'activity', sessionId }),
+      onSessionAttention: (sessionId) =>
+        this.bus.emit('issue.sessionDerived', { kind: 'attention', sessionId }),
+      onSessionTurnEnd: (sessionId) =>
+        this.bus.emit('issue.sessionDerived', { kind: 'turnEnd', sessionId }),
       maybeReapDraftIssue: (issueId) => this.maybeReapDraftIssue(issueId),
       emitSessionExited: (sessionId, code, spawnedBy) =>
         this.emitSessionExited(sessionId, code, spawnedBy),
@@ -1229,7 +1236,7 @@ export class SessionLifecycle {
     }
     // Explicit attachment wins; otherwise starting in an issue-owned worktree
     // means continuing that issue (spec: issue-as-workspace).
-    const issueId = input.issueId ?? this.issues().soleOwnerForCwd(input.cwd) ?? undefined
+    const issueId = input.issueId ?? this.deps.issueAccess.soleOwnerForCwd(input.cwd) ?? undefined
     // MINT SITE: a server-minted session id. The brand belongs where the id is
     // GENERATED — nothing upstream had it, so this is not an adapter cast.
     const sessionId = input.sessionId ?? asSessionId(randomUUID())
@@ -1328,7 +1335,7 @@ export class SessionLifecycle {
     // Explicit attachment wins over cwd containment (issue-as-workspace): an
     // attached / draft-bound session is scoped to ITS issue even when its cwd
     // sits in another issue's worktree (or none).
-    const issueId = s.issueId ?? this.issues().issueForCwd(s.cwd)
+    const issueId = s.issueId ?? this.deps.issueAccess.issueForCwd(s.cwd)
     return issueId
       ? {
           role: 'worker',
@@ -1397,7 +1404,7 @@ export class SessionLifecycle {
       }
       return { sessionId: existing.sessionId }
     }
-    const issueId = this.issues().soleOwnerForCwd(input.cwd) ?? undefined
+    const issueId = this.deps.issueAccess.soleOwnerForCwd(input.cwd) ?? undefined
     // MINT SITE: a server-minted session id. The brand belongs where the id is
     // GENERATED — nothing upstream had it, so this is not an adapter cast.
     const sessionId = asSessionId(randomUUID())
@@ -1747,8 +1754,8 @@ export class SessionLifecycle {
     const session = this.sessions.get(input.sessionId)
     if (!session) return { ok: false, reason: 'unknown session' }
 
-    const issueId = session.issueId ?? this.issues().issueForCwd(session.cwd)
-    const issue = issueId ? this.issues().getMeta(issueId) : undefined
+    const issueId = session.issueId ?? this.deps.issueAccess.issueForCwd(session.cwd)
+    const issue = issueId ? this.deps.issueAccess.getMeta(issueId) : undefined
     const worktreePath = issue?.worktreePath ?? null
 
     // Unsaved-work guard: inspect the working copy when present. Branch commits
@@ -1888,7 +1895,7 @@ export class SessionLifecycle {
     worktreeFreed: boolean
     deferredKill?: boolean
   }> {
-    const issue = this.issues().getMeta(input.issueId)
+    const issue = this.deps.issueAccess.getMeta(input.issueId)
     if (!issue) return { ok: false, reason: 'unknown issue', stopped: [], worktreeFreed: false }
     // sessionsForIssue matches on the canonical issue id; input.issueId may be a
     // human ref/seq that getMeta resolved above but a raw string compare would miss [POD-985].
@@ -1921,7 +1928,7 @@ export class SessionLifecycle {
     }
     // Final free pass: only when no live cwd still uses the worktree (any issue).
     let worktreeFreed = false
-    const current = this.issues().getMeta(input.issueId)
+    const current = this.deps.issueAccess.getMeta(input.issueId)
     const wt = current?.worktreePath ?? null
     if (wt) {
       const stillUsing = liveSessionsUsingWorktree(wt, this.listSessions())
@@ -2228,7 +2235,7 @@ export class SessionLifecycle {
         })),
       listRepos: () => this.store.repos.listRepos(),
       listMachines: () => this.machines.listMachines(),
-      issueMeta: (issueId) => this.issues().getMeta(issueId) ?? undefined,
+      issueMeta: (issueId) => this.deps.issueAccess.getMeta(issueId) ?? undefined,
       rehomeIssue: (issueId, where) => this.issues().rehome(issueId, where),
       ensureTargetRepo: (sourceRepo, targetMachineId) =>
         this.workspace.ensureTargetRepo(sourceRepo, targetMachineId),
@@ -2353,7 +2360,7 @@ export class SessionLifecycle {
   private maybeReapDraftIssue(issueId: string | null | undefined): void {
     if (!issueId) return
     try {
-      this.issues().reapIfEmptyDraft(issueId)
+      this.bus.emit('issue.sessionDerived', { kind: 'reapDraft', issueId })
     } catch (err) {
       console.warn(`[podium:issues] draft-issue reap failed for ${issueId}:`, err)
     }
@@ -2428,7 +2435,7 @@ export class SessionLifecycle {
     const session = this.sessions.get(sessionId)
     // The issues service owns the per-session Git attribution ledger. Notify it
     // while membership/cwd are still resolvable, before this permanent removal.
-    this.issues().onSessionRemovedOrArchived(sessionId)
+    this.bus.emit('issue.sessionDerived', { kind: 'removedOrArchived', sessionId })
 
     this.toMachine(session?.machineId ?? LOCAL_PLACEHOLDER, {
       type: 'kill',
@@ -2834,38 +2841,6 @@ export class SessionLifecycle {
    *  the guards below decide, and `explicit` only buys a send the daemon would otherwise
    *  dedup away. Both answer the same question — is the session working in a worktree
    *  its issue doesn't know about? */
-  private adoptWorktree(
-    issueId: string,
-    msg: Extract<DaemonMessage, { type: 'sessionCwd' }>,
-  ): void {
-    const issue = this.issues().getMeta(issueId)
-    if (!issue || issue.archived || issue.worktreePath !== null) return
-    // Only a POD-665+ daemon may adopt: `kind` is the ONLY trustworthy way to know a
-    // path is a real worktree and not main, because it comes from git. An older daemon
-    // sends no `kind` and simply does not adopt — its sessions self-heal the instant
-    // its binary updates, since any hook cwd from a real worktree then adopts.
-    //
-    // Its old guard (`explicit && issue.repoPath !== msg.cwd`) is deliberately NOT kept.
-    // It identifies "main" by string-comparing against a REGISTERED path, which holds
-    // only while that string is byte-identical to git's toplevel: a symlinked repo path
-    // resolves to its real path, so the compare says "not main" and the issue gets
-    // stamped with live main itself — the swallow-everything failure [spec:SP-595b].
-    // Path tests cannot be rescued here either, since worktrees live INSIDE the repo
-    // dir (`<repo>/.worktrees/x`) — no prefix separates them from a main subdirectory.
-    // That is the whole reason classification moved into git. A nicety that heals on
-    // its own is not worth a live-main stamp during a mixed-version rollout.
-    if (msg.kind !== 'worktree') return
-    // Absent repoRoot means an exotic layout (a bare repo serving worktrees) where no
-    // primary checkout exists to compare; the remaining guards still apply.
-    if (msg.repoRoot !== undefined && msg.repoRoot !== issue.repoPath) return
-    if (this.issues().worktreePaths().includes(msg.cwd)) return
-    this.issues().update(issue.id, {
-      worktreePath: msg.cwd,
-      // Absent on a detached HEAD: take the worktree, leave the branch claim alone.
-      ...(msg.branch ? { branch: msg.branch } : {}),
-    })
-  }
-
   // ---- the sessions FEATURE PORT for daemon frames (gateway/daemon-mux.ts) ----
   /**
    * One SESSION-OWNED daemon frame, attributed to the machine that sent it.

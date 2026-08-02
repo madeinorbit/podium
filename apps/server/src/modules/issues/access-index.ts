@@ -3,6 +3,7 @@ import type { IssueAccessIndex } from '../../issue-authz'
 import { isMemberCwd } from '../../issue-util'
 import type { GrantsRepository } from '../../store/grants'
 import type { IssuesRepository } from '../../store/issues'
+import type { ReposRepository } from '../../store/repos'
 
 /**
  * Live issue authorization facts for lower-layer consumers.
@@ -15,6 +16,7 @@ export class DurableIssueAccessIndex implements IssueAccessIndex {
   constructor(
     private readonly issues: IssuesRepository,
     private readonly grants: GrantsRepository,
+    private readonly repos: ReposRepository,
   ) {}
 
   has(id: string): boolean {
@@ -51,6 +53,37 @@ export class DurableIssueAccessIndex implements IssueAccessIndex {
         .filter((edge) => covers(edge.verb))
         .map((edge) => edge.grantee),
     }
+  }
+
+  getMeta(id: string) {
+    return this.issues.getIssue(id)
+  }
+
+  worktreePaths(): string[] {
+    return this.issues
+      .listIssueRows()
+      .filter((row) => !row.deletedAt && row.worktreePath)
+      .map((row) => row.worktreePath as string)
+  }
+
+  soleOwnerForCwd(cwd: string): IssueId | null {
+    const repoRoots = new Set(this.repos.listRepoPaths())
+    const owners = this.issues
+      .listIssueRows()
+      .filter(
+        (row) =>
+          !row.deletedAt &&
+          !row.archived &&
+          row.worktreePath !== null &&
+          !repoRoots.has(row.worktreePath) &&
+          isMemberCwd(row.worktreePath, cwd),
+      )
+    const deepest = owners.reduce(
+      (length, row) => Math.max(length, row.worktreePath?.length ?? 0),
+      0,
+    )
+    const mostSpecific = owners.filter((row) => row.worktreePath?.length === deepest)
+    return mostSpecific.length === 1 ? (mostSpecific[0]?.id ?? null) : null
   }
 
   issueForCwd(cwd: string): IssueId | null {
