@@ -157,7 +157,9 @@ smoke passed with `codex-cli 0.146.0`.
   1.33 / 1.27 / 1.21, and exited 1 after 973.20 seconds at load 1.96 / 3.32 / 3.88. The unit census
   was 661 files total (654 passed, 4 failed, 3 skipped) and 9,497 tests total (9,470 passed,
   7 failed, 20 skipped). Because `test:unit` failed, the chained web, mobile, and Bun-only stages
-  did not run.
+  did not run. The complete log is preserved on the VPS at
+  `/home/till/.podium/pod327-oracle/oracle-fc6f5bbb.log` with SHA-256
+  `369add892bf2446e71eb3c113d834b8a8f3f6d7856823f6b008b2c1b7bbbb130`.
 - The quiet-VPS reds were classified individually. `resolve-node-executable.test.ts` failed both
   tests because the VPS has no real Node 22 binary on `PATH`; this is the resolver's explicit
   environment prerequisite and can be supplied non-system-wide through `PODIUM_NODE_BIN`.
