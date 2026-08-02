@@ -12,6 +12,7 @@ import type {
   AgentKind,
   IssueId,
   IssueWire,
+  type LayoutSnapshot,
   SessionId,
   SessionMeta,
   WorkState,
@@ -19,8 +20,7 @@ import type {
 import { resolveSessionIdentifier } from '@podium/protocol'
 import { type Sidebar as SidebarSettings, shouldPromptAutoContinue } from '@podium/runtime'
 import type { PodiumClientApi } from '../api'
-import type { Router } from '../ui-state'
-import { routeDefaults } from '../ui-state'
+import { type ReplicatedUiStatePort, routeDefaults, type Router } from '../ui-state'
 import type { SocketHub } from '../socket-transport'
 import type { SpawnTarget } from '../spawn-agent'
 import type { DockTab, FileScope, FileTab, PinKind, PinState, RecentFileEntry } from '../viewmodels'
@@ -147,6 +147,77 @@ function reducePin(state: PinState, kind: PinKind, id: string, pinned: boolean):
   const key = kind === 'panel' ? 'panels' : kind === 'worktree' ? 'worktrees' : 'repos'
   const values = state[key].filter((candidate) => candidate !== id)
   return { ...state, [key]: pinned ? [...values, id] : values }
+}
+
+/**
+ * Actions-owned adapter for the replicated layout family. The ui-state module
+ * knows only this port: reads hydrate from layout.get and writes enter the
+ * typed Outbox kinds here, never through local persistence.
+ */
+export function createReplicatedLayoutPort(init: {
+  api: PodiumClientApi
+  outbox: EngineOutbox
+}): ReplicatedUiStatePort {
+  let base: LayoutSnapshot = {}
+  const optimistic = new Map<string, unknown>()
+  const cleared = new Set<string>()
+  const listeners = new Set<() => void>()
+  const notify = (): void => {
+    for (const listener of [...listeners]) listener()
+  }
+  for (const entry of init.outbox.pending()) {
+    if (entry.kind === 'layoutSet') {
+      const values = (entry.input as { values?: Record<string, unknown> }).values ?? {}
+      for (const [key, value] of Object.entries(values)) {
+        optimistic.set(key, value)
+        cleared.delete(key)
+      }
+    } else if (entry.kind === 'layoutClear') {
+      const keys = (entry.input as { keys?: string[] }).keys ?? []
+      for (const key of keys) {
+        optimistic.delete(key)
+        cleared.add(key)
+      }
+    }
+  }
+  return {
+    hydrate: async () => {
+      base = await init.api.layout.get.query()
+      notify()
+    },
+    get: (key) => {
+      if (cleared.has(key)) return undefined
+      return optimistic.has(key) ? optimistic.get(key) : base[key]
+    },
+    set: (key, value) => {
+      const previous = optimistic.get(key)
+      const hadPrevious = optimistic.has(key)
+      optimistic.set(key, value)
+      cleared.delete(key)
+      notify()
+      void Promise.resolve(init.outbox.enqueue('layoutSet', { values: { [key]: value } })).catch(
+        () => {
+          if (!Object.is(optimistic.get(key), value)) return
+          if (hadPrevious) optimistic.set(key, previous)
+          else optimistic.delete(key)
+          notify()
+        },
+      )
+    },
+    clear: (key) => {
+      optimistic.delete(key)
+      cleared.add(key)
+      notify()
+      void Promise.resolve(init.outbox.enqueue('layoutClear', { keys: [key] })).catch(() => {
+        cleared.delete(key)
+        notify()
+      })
+    },
+    subscribe: (listener) => {
+      listeners.add(listener)
+      return () => void listeners.delete(listener)
+    },
+  }
 }
 
 export function createEngineActions<TApi extends PodiumClientApi>(

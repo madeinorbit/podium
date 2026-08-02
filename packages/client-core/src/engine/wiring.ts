@@ -40,6 +40,8 @@ export type OutboxKinds = {
     Parameters<PodiumClientApi['settings']['updatePersonal']['mutate']>[0],
     'mutationId'
   >
+  layoutSet: Omit<Parameters<PodiumClientApi['layout']['set']['mutate']>[0], 'mutationId'>
+  layoutClear: Omit<Parameters<PodiumClientApi['layout']['clear']['mutate']>[0], 'mutationId'>
   resumeAndSend: { sessionId: SessionId; text: string }
   rename: { sessionId: SessionId; name: string }
   setArchived: { sessionId: SessionId; archived: boolean }
@@ -131,6 +133,8 @@ export const OUTBOX_COMMANDS: Record<
     delivery,
     confirmation: 'none',
   },
+  layoutSet: { name: 'layout.set', version: 1, delivery, confirmation: 'none' },
+  layoutClear: { name: 'layout.clear', version: 1, delivery, confirmation: 'none' },
   resumeAndSend: { name: 'sessions.resumeAndSend', version: 1, delivery, confirmation: 'none' },
   rename: { name: 'sessions.rename', version: 1, delivery, confirmation: 'none' },
   setArchived: { name: 'sessions.setArchived', version: 1, delivery, confirmation: 'none' },
@@ -225,6 +229,8 @@ export function createEngineOutbox(args: EngineOutboxCallbacks): Outbox<OutboxKi
       tabSetOrder: (i) => api.tabs.setOrder.mutate(i),
       settingsUpdatePersonal: (i) => api.settings.updatePersonal.mutate(i),
       resumeAndSend: (i) => api.sessions.resumeAndSend.mutate(i),
+      layoutSet: (i) => api.layout.set.mutate(i),
+      layoutClear: (i) => api.layout.clear.mutate(i),
       rename: (i) => api.sessions.rename.mutate(i),
       setArchived: (i) => api.sessions.setArchived.mutate(i),
       setWorkState: (i) => api.sessions.setWorkState.mutate(i),

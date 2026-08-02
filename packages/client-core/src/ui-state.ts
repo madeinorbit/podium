@@ -5,12 +5,22 @@
  * No key has an implicit home.
  */
 
-import { asArtifactId, asIssueId, asSessionId, type IssueId, type SessionId } from '@podium/model'
+import {
+  asArtifactId,
+  asIssueId,
+  asSessionId,
+  DEVICE_LOCAL_UI_KEYS,
+  isLayoutKey,
+  layoutKeyFromLegacy,
+  type IssueId,
+  type SessionId,
+  THEME_UI_KEYS,
+} from '@podium/model'
 import type { UiState } from './replica/contract'
 import type { DockTab, RecentFileEntry } from './viewmodels'
 import { readStoredDockTab } from './viewmodels'
 
-export type UiStateHome = 'device-local' | 'per-user-replicated'
+export type UiStateHome = 'device-local' | 'per-user-replicated' | 'pre-auth-theme'
 
 export const UI_STATE_KEYS = {
   view: 'podium.view',
@@ -67,8 +77,8 @@ export const UI_STATE_ROUTES = {
     reason: 'Current selection is device-local and mirrored into the URL.',
   },
   [UI_STATE_KEYS.dockTab]: {
-    home: 'device-local',
-    reason: 'The selected dock tab is current navigation on this screen.',
+    home: 'per-user-replicated',
+    reason: 'Dock-tab selection is personal tab layout in the shared layout family.',
   },
   [UI_STATE_KEYS.paneA]: {
     home: 'device-local',
@@ -100,18 +110,71 @@ export const UI_STATE_ROUTES = {
   },
 } as const satisfies Record<WorkspaceUiStateKey, UiStateRoute>
 
+/** Client-only exact keys outside the model's shared local/replicated vocabulary.
+ * Each is deliberately local: transient chrome, device capability/preferences,
+ * screen geometry, or a cursor describing what this screen displayed. */
+export const CLIENT_DEVICE_LOCAL_UI_KEYS = [
+  'podium.chat.stickyPrompts',
+  'podium.sounds.enabled',
+  'podium.terminal.appearance',
+  'podium:tray:open',
+  'podium:superagent:chat',
+  'podium:tray:height',
+  'podium:superfeed:cursor',
+  'podium:superagent:width',
+  'podium:rightdock:width',
+] as const
+
+const DEVICE_LOCAL_SET: ReadonlySet<string> = new Set([
+  ...DEVICE_LOCAL_UI_KEYS,
+  ...CLIENT_DEVICE_LOCAL_UI_KEYS,
+])
+const THEME_SET: ReadonlySet<string> = new Set(THEME_UI_KEYS)
+
+/** Default-closed classifier shared by all component and engine reads/writes. */
+export function uiStateRoute(key: string): UiStateRoute {
+  if (THEME_SET.has(key)) {
+    return {
+      home: 'pre-auth-theme',
+      reason: 'Theme alone is read before a principal exists to prevent first-paint flash.',
+    }
+  }
+  const layoutKey = layoutKeyFromLegacy(key)
+  if (layoutKey !== null && isLayoutKey(layoutKey)) {
+    return {
+      home: 'per-user-replicated',
+      reason: 'The shared per-user layout vocabulary classifies this key as replicated.',
+    }
+  }
+  if (DEVICE_LOCAL_SET.has(key)) {
+    return {
+      home: 'device-local',
+      reason: 'The shared/client local vocabulary classifies this key as device-local.',
+    }
+  }
+  throw new Error(`Unclassified UI-state key: ${key}`)
+}
+
 export interface ReplicatedUiStatePort {
-  get(key: WorkspaceUiStateKey): string | null
+  get(key: string): unknown
   /** Actions owns command dispatch. This method must update its optimistic row
    * synchronously before returning, then enqueue through the Outbox. */
-  set(key: WorkspaceUiStateKey, value: string | null): void
+  set(key: string, value: unknown): void
+  clear(key: string): void
   subscribe(cb: () => void): () => void
 }
 
 export interface RoutedUiState {
-  get(key: WorkspaceUiStateKey): string | null
-  set(key: WorkspaceUiStateKey, value: string | null): void
+  get(key: string): string | null
+  set(key: string, value: string | null): void
+  hydrate(): Promise<void>
   subscribe(cb: () => void): () => void
+}
+
+function replicatedString(port: ReplicatedUiStatePort, key: string): string | null {
+  const value = port.get(key)
+  if (value === undefined || value === null) return null
+  return typeof value === 'string' ? value : JSON.stringify(value)
 }
 
 /**
@@ -126,26 +189,32 @@ export function createRoutedUiState(init: {
   replicated: ReplicatedUiStatePort
 }): RoutedUiState {
   const { local, replicated } = init
-  const read = (key: WorkspaceUiStateKey): string | null => {
-    const route = UI_STATE_ROUTES[key]
-    if (route.home === 'device-local') return local.get(key)
-    const current = replicated.get(key)
+  const read = (key: string): string | null => {
+    const route = uiStateRoute(key)
+    if (route.home !== 'per-user-replicated') return local.get(key)
+    const layoutKey = layoutKeyFromLegacy(key)
+    if (layoutKey === null) throw new Error(`Replicated UI-state key has no layout key: ${key}`)
+    const current = replicatedString(replicated, layoutKey)
     if (current !== null) {
       if (local.get(key) !== null) local.set(key, null)
       return current
     }
     const legacy = local.get(key)
     if (legacy === null) return null
-    replicated.set(key, legacy)
+    replicated.set(layoutKey, legacy)
     local.set(key, null)
     return legacy
   }
   return {
     get: read,
     set: (key, value) => {
-      if (UI_STATE_ROUTES[key].home === 'device-local') local.set(key, value)
+      const route = uiStateRoute(key)
+      if (route.home !== 'per-user-replicated') local.set(key, value)
       else {
-        replicated.set(key, value)
+        const layoutKey = layoutKeyFromLegacy(key)
+        if (layoutKey === null) throw new Error(`Replicated UI-state key has no layout key: ${key}`)
+        if (value === null) replicated.clear(layoutKey)
+        else replicated.set(layoutKey, value)
         if (local.get(key) !== null) local.set(key, null)
       }
     },
@@ -461,7 +530,7 @@ export interface RouterUiState {
   readonly router: Router
   readonly ui: RoutedUiState
   hydrate(): WorkspaceUiSnapshot
-  flush(state: WorkspaceUiSnapshot, changed?: ReadonlySet<keyof WorkspaceUiSnapshot>): void
+  flush(state: WorkspaceUiSnapshot, changed?: ReadonlySet<string>): void
   mirrorWorkspaceRoute(state: Pick<WorkspaceUiSnapshot, 'selectedWorktree' | 'paneA'>): void
 }
 

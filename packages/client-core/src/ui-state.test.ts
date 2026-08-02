@@ -7,7 +7,6 @@ import {
   type ReplicatedUiStatePort,
   UI_STATE_KEYS,
   UI_STATE_ROUTES,
-  type WorkspaceUiStateKey,
 } from './ui-state'
 
 function memoryUi(seed: Record<string, string> = {}): UiState & { data: Map<string, string> } {
@@ -23,16 +22,14 @@ function memoryUi(seed: Record<string, string> = {}): UiState & { data: Map<stri
   }
 }
 
-function replicatedUi(seed: Record<string, string> = {}): ReplicatedUiStatePort & {
-  data: Map<string, string>
+function replicatedUi(seed: Record<string, unknown> = {}): ReplicatedUiStatePort & {
+  data: Map<string, unknown>
   set: ReturnType<typeof vi.fn>
 } {
   const data = new Map(Object.entries(seed))
-  const set = vi.fn((key: WorkspaceUiStateKey, value: string | null) => {
-    if (value === null) data.delete(key)
-    else data.set(key, value)
-  })
-  return { data, get: (key) => data.get(key) ?? null, set, subscribe: () => () => {} }
+  const set = vi.fn((key: string, value: unknown) => void data.set(key, value))
+  const clear = vi.fn((key: string) => void data.delete(key))
+  return { data, get: (key) => data.get(key), set, clear, subscribe: () => () => {} }
 }
 
 describe('workspace ui-state routing', () => {
@@ -52,8 +49,8 @@ describe('workspace ui-state routing', () => {
     ui.set(UI_STATE_KEYS.panelMode, '{"s1":"chat"}')
 
     expect(local.get(UI_STATE_KEYS.split)).toBe('1')
-    expect(replicated.get(UI_STATE_KEYS.split)).toBeNull()
-    expect(replicated.get(UI_STATE_KEYS.panelMode)).toBe('{"s1":"chat"}')
+    expect(replicated.get(UI_STATE_KEYS.split)).toBeUndefined()
+    expect(replicated.get('panelMode')).toBe('{"s1":"chat"}')
     expect(local.get(UI_STATE_KEYS.panelMode)).toBeNull()
   })
 
@@ -64,7 +61,7 @@ describe('workspace ui-state routing', () => {
 
     expect(ui.get(UI_STATE_KEYS.superOpen)).toBe('0')
     expect(replicated.set).toHaveBeenCalledOnce()
-    expect(replicated.get(UI_STATE_KEYS.superOpen)).toBe('0')
+    expect(replicated.get('superOpen')).toBe('0')
     expect(local.get(UI_STATE_KEYS.superOpen)).toBeNull()
 
     expect(ui.get(UI_STATE_KEYS.superOpen)).toBe('0')

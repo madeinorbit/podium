@@ -29,8 +29,8 @@ import type { SocketHub } from '../socket-transport'
 import type { PodiumClientApi } from '../api'
 import type { OutboxDeadLetterEntry } from '../outbox'
 import type { IssueProjectionRow } from '../replica/contract'
-import type { Replica, UiState } from '../replica/replica'
-import type { MainView } from '../ui-state'
+import type { Replica } from '../replica/replica'
+import type { MainView, RoutedUiState } from '../ui-state'
 import type { SpawnTarget } from '../spawn-agent'
 import type { DockTab, FileScope, FileTab, PinKind, PinState, RecentFileEntry } from '../viewmodels'
 
@@ -304,7 +304,7 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   /** ONE UI persistence mechanism: the replica's versioned ui-state collection
    *  (see replica.uiState()) — components persist prefs through this, never
    *  through ad-hoc localStorage keys. */
-  uiState: UiState
+  uiState: RoutedUiState
   /** Server HTTP origin — used to build asset URLs (e.g. markdown images). */
   httpOrigin: string
   /** Count of not-yet-synced outbox entries (offline-authored writes waiting to
