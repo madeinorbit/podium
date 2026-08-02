@@ -412,7 +412,7 @@ export function IssuesView(): JSX.Element {
         <Input
           value={filter.text ?? ''}
           onChange={(e) => setFilter({ ...filter, text: e.target.value || undefined })}
-          placeholder="Search tasks…"
+          placeholder="Search tasks or ID…"
           aria-label="Search tasks"
           className="h-8 w-full max-w-[240px] flex-1"
         />
