@@ -1,4 +1,4 @@
-import { asIssueId, asSessionId, FIRST_ADMIN_USER_ID, asMachineId} from '@podium/model'
+import { asIssueId, asSessionId, FIRST_ADMIN_USER_ID, asMachineId } from '@podium/model'
 import { type ServerMessage, WIRE_VERSION } from '@podium/protocol'
 import { normalizeSettings } from '@podium/runtime'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -15,7 +15,6 @@ import { attachTestClient } from './test-support/client-transport'
 /** The fixture's caller. `addComment` requires a principal (POD-1315) — these
  *  tests exercise the operator seam, so they say so rather than defaulting. */
 const AS_OPERATOR = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
-
 
 /**
  * The normalized issue wire, end to end through the PRODUCTION wiring

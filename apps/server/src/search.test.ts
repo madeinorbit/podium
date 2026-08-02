@@ -14,7 +14,6 @@ import { MEMORY_EXISTENCE_POLICY, MemoryVisibilityPolicy } from './modules/memor
  *  tests exercise the operator seam, so they say so rather than defaulting. */
 const AS_OPERATOR = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
 
-
 const READER = { kind: 'user' as const, id: FIRST_ADMIN_USER_ID }
 
 // Omni-search (docs/spec/search-v1.md §2.4): one query, ranked typed hits across
@@ -59,7 +58,12 @@ describe('MemoryService omni-search', () => {
       description: 'nothing relevant',
       startNow: false,
     })
-    registry.issues.addComment(commentIssue.id, 'operator', 'the capacitor comment trail', AS_OPERATOR)
+    registry.issues.addComment(
+      commentIssue.id,
+      'operator',
+      'the capacitor comment trail',
+      AS_OPERATOR,
+    )
 
     // Conversation row in the durable index.
     const { sessionId: conversationSessionId } = registry.modules.sessions.createSession({

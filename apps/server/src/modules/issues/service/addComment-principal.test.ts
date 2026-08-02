@@ -105,7 +105,12 @@ describe('addComment requires an explicit principal', () => {
   it('always records attribution — a comment can no longer land anonymously', () => {
     const { store, svc, issue } = harness()
 
-    svc.addComment(issue.id, 'mike', 'attributed', userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin'))
+    svc.addComment(
+      issue.id,
+      'mike',
+      'attributed',
+      userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin'),
+    )
 
     const [comment] = store.issues.listIssueComments(issue.id)
     expect(comment?.actor).not.toBeNull()

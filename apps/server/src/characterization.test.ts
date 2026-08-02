@@ -218,7 +218,9 @@ describe('characterization: issue lifecycle equivalence across entry points (con
    *  install has one host; this pins that. */
   const HOST = asMachineId('machine-under-test')
   const freshRegistry = () => {
-    const reg = new SessionRegistry(new SessionStore(':memory:', HOST), undefined, { instanceId: 'default' })
+    const reg = new SessionRegistry(new SessionStore(':memory:', HOST), undefined, {
+      instanceId: 'default',
+    })
     registries.push(reg)
     // A delta-cap client so the broadcast pipeline runs the full oplog path in
     // all three runs identically.

@@ -366,7 +366,10 @@ export class IssueCommandCtx {
   requirePrincipal(): CommandPrincipal {
     const principal = this.caller.principal
     if (!principal)
-      throw new TRPCError({ code: 'UNAUTHORIZED', message: 'missing authenticated command principal' })
+      throw new TRPCError({
+        code: 'UNAUTHORIZED',
+        message: 'missing authenticated command principal',
+      })
     return principal
   }
 

@@ -6,7 +6,9 @@ import {
   FIRST_ADMIN_USER_ID,
   type IssueId,
   type SessionMeta,
-  type SessionMetaInput, asMachineId} from '@podium/model'
+  type SessionMetaInput,
+  asMachineId,
+} from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { repoOpCommand } from '../../daemon/src/repo-op'
@@ -19,7 +21,6 @@ import { SessionStore } from './store'
 /** The fixture's caller. `addComment` requires a principal (POD-1315) — these
  *  tests exercise the operator seam, so they say so rather than defaulting. */
 const AS_OPERATOR = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
-
 
 function harness(sessions: SessionMeta[] = []) {
   const store = new SessionStore(':memory:')
@@ -40,7 +41,7 @@ function harness(sessions: SessionMeta[] = []) {
         },
         sessionDefaults: { agent: 'claude-code' },
       }),
-    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') , machine: 'machine-under-test' })),
+    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     broadcast,
     ...issueTestPlumbing((msg) => broadcast(msg)),
@@ -402,7 +403,7 @@ describe('IssueService unread (#124)', () => {
           },
           sessionDefaults: { agent: 'claude-code' },
         }),
-      spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') , machine: 'machine-under-test' })),
+      spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
       repoOp: vi.fn(async () => ({ ok: true, output: '' })),
       broadcast,
       ...issueTestPlumbing((msg) => broadcast(msg)),
@@ -504,7 +505,7 @@ describe('IssueService tuck-away (POD-333)', () => {
           },
           sessionDefaults: { agent: 'claude-code' },
         }),
-      spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') , machine: 'machine-under-test' })),
+      spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
       repoOp: vi.fn(async () => ({ ok: true, output: '' })),
       broadcast,
       ...issueTestPlumbing((msg) => broadcast(msg)),
