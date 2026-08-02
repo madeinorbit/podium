@@ -125,9 +125,19 @@ describe('engine action ownership boundary', () => {
     await second.hydrate()
 
     expect(second.get('dockTab')).toBe('files')
+    second.adopt({ dockTab: 'chat' })
+    expect(second.get('dockTab')).toBe('chat')
     expect(enqueue).toHaveBeenCalledWith('layoutSet', { values: { dockTab: 'files' } })
   })
 
+  it('retires optimistic layout state when its feed echo arrives', () => {
+    const outbox = { pending: () => [], enqueue: vi.fn() } as unknown as EngineOutbox
+    const port = createReplicatedLayoutPort({ api: {} as PodiumClientApi, outbox })
+    port.set('dockTab', 'files')
+    port.adopt({ dockTab: 'files' })
+    port.adopt({ dockTab: 'chat' })
+    expect(port.get('dockTab')).toBe('chat')
+  })
   it('optimistically applies a representative replicated write while airplane-mode queues it', async () => {
     const h = harness()
 

@@ -36,6 +36,7 @@ export const UI_STATE_KEYS = {
   split: 'podium.split',
   superOpen: 'podium.superOpen.v2',
   panelMode: 'podium.panelMode',
+  panelModeDefault: 'podium.panelModeDefault',
   dockShells: 'podium.dockShells',
   recentFiles: 'podium.recentFiles',
 } as const
@@ -49,6 +50,7 @@ export const PANE_B_KEY = UI_STATE_KEYS.paneB
 export const SPLIT_KEY = UI_STATE_KEYS.split
 export const SUPER_OPEN_KEY = UI_STATE_KEYS.superOpen
 export const PANEL_MODE_KEY = UI_STATE_KEYS.panelMode
+export const PANEL_MODE_DEFAULT_KEY = UI_STATE_KEYS.panelModeDefault
 export const DOCK_SHELLS_KEY = UI_STATE_KEYS.dockShells
 export const RECENT_FILES_KEY = UI_STATE_KEYS.recentFiles
 
@@ -103,6 +105,10 @@ export const UI_STATE_ROUTES = {
   [UI_STATE_KEYS.panelMode]: {
     home: 'per-user-replicated',
     reason: 'Per-session tab presentation is personal tab layout.',
+  },
+  [UI_STATE_KEYS.panelModeDefault]: {
+    home: 'per-user-replicated',
+    reason: 'The default tab presentation is a personal preference.',
   },
   [UI_STATE_KEYS.dockShells]: {
     home: 'device-local',
