@@ -4,14 +4,21 @@
  * Dispose: none.
  */
 
-// @ts-nocheck — ports typed loosely after mechanical extract; body is a verbatim move.
 
 import type { SessionId, UserId } from '@podium/model'
-import { asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asSessionId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import {
+  type CommandPrincipal,
+  resolvePrincipal,
+  userCommandPrincipal,
+} from '../../command-principal'
 import type { ClientPrincipal } from '../../gateway/client-principal'
 import type { Capability } from '../../issue-authz'
 import { machineUseDecision, ownershipFromMachines } from '../../machine-access'
-import { userCommandPrincipal } from '../../command-principal'
+import { sessionSpawnerParentId } from '../../steward'
+import type { GrantRow } from '../../store/grants'
+import { type InboxPrincipalReference, inboxPrincipalFromCommand } from './inbox'
+import { assertMayCommandSession, resolveSessionTarget } from './session-access'
 import type { Session } from './session'
 
 export interface SessionAuthzPorts {
@@ -131,8 +138,6 @@ export class SessionAuthz {
   }
 
   /** Live drive gate for requestControl / controller input (POD-1081 §3). */
-
-  /** Live drive gate for requestControl / controller input (POD-1081 §3). */
   authorizeClientDrive(principal: ClientPrincipal, sessionId: SessionId): boolean {
     return this.ports.clientControl.authorizeDrive(principal, sessionId)
   }
@@ -192,8 +197,7 @@ export class SessionAuthz {
     if (!parentOwner) return undefined
     const grants = [
       ...new Set(
-        this.ports.store.grants
-          .listForResource(resourceKind, resourceId)
+        (this.ports.store.grants.listForResource(resourceKind, resourceId) as GrantRow[])
           .filter((edge) => edge.verb === 'read' || edge.verb === 'write' || edge.verb === 'manage')
           .map((edge) => edge.grantee),
       ),

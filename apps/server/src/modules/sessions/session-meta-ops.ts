@@ -5,7 +5,6 @@
  * Dispose: none.
  */
 
-// @ts-nocheck — ports typed loosely after mechanical extract; body is a verbatim move.
 
 import type { Attribution, IssueId, SessionId, TranscriptItem, UserId, WorkState } from '@podium/model'
 import { asUserId } from '@podium/model'
@@ -68,9 +67,6 @@ export class SessionMetaOps {
     this.ports.repository.persist(session, () => this.ports.store.sessions.setOffer(sessionId, offer))
     this.ports.broadcastSessions()
   }
-
-  /** Clear a session's agent action offer [spec:SP-c7f1] (explicit `offer clear`
-   *  or auto-clear on the next user turn). Skips work when nothing changes. */
 
   /** Clear a session's agent action offer [spec:SP-c7f1] (explicit `offer clear`
    *  or auto-clear on the next user turn). Skips work when nothing changes. */
@@ -139,11 +135,6 @@ export class SessionMetaOps {
    *  markSessionRead): DELETE the actor's marker so the derived `unread` (readAt
    *  null ⇒ unread) flips back to true, then broadcast. Marking MY copy unread
    *  never touches yours. No-op for an unknown session. */
-
-  /** Mark this session UNREAD again (issue #138, the email-style inverse of
-   *  markSessionRead): DELETE the actor's marker so the derived `unread` (readAt
-   *  null ⇒ unread) flips back to true, then broadcast. Marking MY copy unread
-   *  never touches yours. No-op for an unknown session. */
   markSessionUnread(userId: string, sessionId: SessionId): void {
     this.ports.state.markUnread(this.ports.view.principalForTrustedUser(asUserId(userId)), sessionId)
   }
@@ -168,8 +159,6 @@ export class SessionMetaOps {
       if (issueId) return this.ports.view.prepareRefAllocation(session)
     })
   }
-
-  /** The session's explicit issue attachment (issue-as-workspace), if any. */
 
   /** The session's explicit issue attachment (issue-as-workspace), if any. */
   getSessionIssueId(sessionId: SessionId): IssueId | null {
@@ -336,14 +325,13 @@ export class SessionMetaOps {
   /** Prepare restoration of the sessions tombstoned by one issue deletion. The
    *  durable rows and ledger upserts commit with the issue restore; runtime
    *  installation follows only after that transaction succeeds. */
-
-  /** Prepare restoration of the sessions tombstoned by one issue deletion. The
-   *  durable rows and ledger upserts commit with the issue restore; runtime
-   *  installation follows only after that transaction succeeds. */
   prepareIssueSessionRestore(issueId: string): SessionRestorePlan {
-    const rows = this.ports.store.sessions.loadDeletedSessionsForIssue(issueId)
+    const rows = this.ports.store.sessions.loadDeletedSessionsForIssue(issueId) as SessionRow[]
     const restored = rows
-      .map((row) => ({ row, session: this.ports.repository.sessionFromStoredRow(row, 'restore') }))
+      .map((row) => ({
+        row,
+        session: this.ports.repository.sessionFromStoredRow(row, 'restore') as Session | null,
+      }))
       .filter((entry): entry is { row: SessionRow; session: Session } => entry.session !== null)
     return {
       sessionIds: restored.map(({ session }) => session.sessionId),

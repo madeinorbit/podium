@@ -9,11 +9,10 @@
  * (activityFlushTimer stays a field initializer on SessionLifecycle).
  */
 
-// @ts-nocheck — bag cast erases contextual types on moved lambdas; body is a verbatim constructor move.
 
-import { computePriorities, asUserId } from '@podium/model'
+import { computePriorities, asUserId, type SessionId } from '@podium/model'
 import { asDelegationRef } from '@podium/protocol'
-import { MutationLedger } from '@podium/sync'
+import { MutationLedger, type SyncRepository } from '@podium/sync'
 import { AutoContinueController } from '../../auto-continue'
 import { userCommandPrincipal } from '../../command-principal'
 import { isFeatureEnabled } from '../../features'
@@ -34,6 +33,10 @@ import {
 } from './inbox'
 import { SessionLaunchConfig } from './launch-config'
 import type { SessionLifecycle, SessionLifecycleDeps } from './lifecycle'
+import type { Session } from './session'
+
+type QueuedMessageRow = ReturnType<SyncRepository['listQueuedMessages']>[number]
+
 import { SessionMachineReconciler } from './machine-reconciler'
 import { SessionNaming } from './naming'
 import { SessionBroadcastCoordinator } from './publication/broadcast'
@@ -181,7 +184,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         if (session) bag.repository.persist(session, additionalWrite)
       },
       mutateSession: (sessionId, mutate) => {
-        bag.mutateSessionMeta(sessionId, (session) => mutate(session))
+        bag.mutateSessionMeta(sessionId, (session: Session) => mutate(session))
       },
       broadcastSessions: () => bag.broadcastSessions(),
       broadcastToClients: (message, options) => bag.broadcastToClients(message, options),
@@ -291,7 +294,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
           })
         },
         list: (sessionId) =>
-          bag.store.sync.listQueuedMessages(sessionId).map((row) => ({
+          bag.store.sync.listQueuedMessages(sessionId).map((row: QueuedMessageRow) => ({
             id: row.id,
             text: row.text,
             attempts: row.attempts,
@@ -350,17 +353,17 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       // Take-control / hold-control re-auth at every apply (POD-1081).
       authorizeDrive: (principal, sessionId) => bag.authorizeClientDrive(principal, sessionId),
     })
-    bag.sendText = (input) => bag.inbox.sendText(input)
-    bag.interruptText = (input) => bag.inbox.interruptText(input)
-    bag.queueText = (input) => bag.inbox.queueText(input)
-    bag.resumeAndSend = (input) => bag.inbox.resumeAndSend(input)
-    bag.answerAskUserQuestion = (input) =>
+    bag.sendText = (input: any) => bag.inbox.sendText(input)
+    bag.interruptText = (input: any) => bag.inbox.interruptText(input)
+    bag.queueText = (input: any) => bag.inbox.queueText(input)
+    bag.resumeAndSend = (input: any) => bag.inbox.resumeAndSend(input)
+    bag.answerAskUserQuestion = (input: any) =>
       bag.inbox.answerAskUserQuestion({
         ...input,
         principal: input.principal ?? SYSTEM_INBOX_PRINCIPAL,
       })
-    bag.setSessionDraft = (input, fromClientId) => bag.state.setDraft(input, fromClientId)
-    bag.draftRevision = (sessionId) => bag.state.draftRevision(sessionId)
+    bag.setSessionDraft = (input: any, fromClientId: string) => bag.state.setDraft(input, fromClientId)
+    bag.draftRevision = (sessionId: SessionId) => bag.state.draftRevision(sessionId)
     bag.clientControl = new SessionClientControl({
       sessions: bag.sessions,
       publication: bag.publication,
@@ -515,14 +518,14 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       funnel: bag.funnel,
       mutations: bag.mutations,
       now: () => bag.now(),
-      removeSessionRuntime: (id, ret) => bag.sessionKill.removeSessionRuntime(id, ret),
+      removeSessionRuntime: (id: SessionId, ret: unknown) => bag.sessionKill.removeSessionRuntime(id, ret),
       repository: bag.repository,
-      sessionRemovalSpecs: (id) => bag.sessionKill.sessionRemovalSpecs(id),
+      sessionRemovalSpecs: (id: SessionId) => bag.sessionKill.sessionRemovalSpecs(id),
       sessionTeardown: bag.sessionTeardown,
       sessions: bag.sessions,
       state: bag.state,
       store: bag.store,
-      toMachine: (mid, msg) => bag.toMachine(mid, msg),
+      toMachine: (mid: string, msg: unknown) => bag.toMachine(mid, msg),
       view: bag.view,
     })
     // Revival needs sessionStart.spawn, workspace, repository, launchConfig,
@@ -551,7 +554,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     // Auto-continue re-arm on the settings flip — the reaction needs the sessions
     // map, so it lives here as a bus subscriber (this service is constructed AFTER
     // NotifyService, so the notification replay keeps firing first).
-    bag.bus.on('settings.changed', ({ previous, next }) => {
+    bag.bus.on('settings.changed', ({ previous, next }: { previous: any; next: any }) => {
       // Keep the cached draftSync flag current (POD-859). Resolved through the
       // canonical experiments system (channel/config/user) [spec:SP-f4b9].
       bag.state.setDraftSyncEnabled(isFeatureEnabled('draft-sync', next))
@@ -576,7 +579,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     // live agent gets an immediate sendText; otherwise the most recently active
     // live agent gets a durable queued send; no live agents → nothing (the mail
     // surfaces via prime / the stop-hook).
-    bag.bus.on('issue.mailSent', ({ seq, worktreePath }) => {
+    bag.bus.on('issue.mailSent', ({ seq, worktreePath }: { seq: number; worktreePath?: string | null }) => {
       const members = sessionsForIssue(worktreePath ?? null, bag.listSessions())
       const target = selectMailNudgeSession(members)
       if (!target) return
