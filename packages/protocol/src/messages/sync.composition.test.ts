@@ -133,10 +133,12 @@ describe('the composition did not change what parses', () => {
     // with a malformed value would sneak through as "unknown" and the cursor
     // would advance past it permanently.
     expect(
-      UnknownMetadataChange.safeParse({ seq: 1, entity: 'session', id: 's1', op: 'remove' }).success,
+      UnknownMetadataChange.safeParse({ seq: 1, entity: 'session', id: 's1', op: 'remove' })
+        .success,
     ).toBe(false)
     expect(
-      UnknownMetadataChange.safeParse({ seq: 1, entity: 'machine', id: 'm1', op: 'remove' }).success,
+      UnknownMetadataChange.safeParse({ seq: 1, entity: 'machine', id: 'm1', op: 'remove' })
+        .success,
     ).toBe(true)
   })
 
