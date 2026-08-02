@@ -78,7 +78,12 @@ function inlineWorkerClient(): DiscoveryWorkerClient {
 // that conversation — its transcript never lands in a normal project bucket,
 // which breaks handoff export (and any transcript-based feature under test).
 for (const key of Object.keys(process.env)) {
-  if (key === 'CLAUDECODE' || key.startsWith('CLAUDE_') || key === 'PODIUM_AGENT_RELAY')
+  if (
+    key === 'CLAUDECODE' ||
+    key.startsWith('CLAUDE_') ||
+    key === 'PODIUM_AGENT_RELAY' ||
+    key === 'PODIUM_SESSION_RELAY'
+  )
     delete process.env[key]
 }
 

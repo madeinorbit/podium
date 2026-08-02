@@ -72,7 +72,7 @@ import { DiscoveryWorkerClient } from './worker-client'
 import { createCwdResolver, createSessionCwdTracker } from './worktree-resolve'
 
 export type { DurableBackend } from './control/context'
-export { agentRelayEnv } from './control/session'
+export { sessionRelayEnv } from './control/session'
 // Re-exported from their new module homes for the daemon's public surface
 // (index.ts) and the unit tests that exercise them directly.
 export { normalizeAgentKind } from './control/transcripts'

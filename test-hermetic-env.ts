@@ -6,16 +6,18 @@
  * the ambient Podium agent-session env so a suite launched from INSIDE a live agent session
  * cannot touch, or be hijacked by, the live instance.
  *
- * Why this is needed: an agent session carries PODIUM_AGENT_RELAY (+ PODIUM_SESSION_ID,
- * PODIUM_PORT) in its env, and stateDir() falls back to ~/.podium when PODIUM_STATE_DIR is
- * unset. Any test that reads process.env without overriding it would otherwise route through
+ * Why this is needed: a session carries PODIUM_SESSION_RELAY (+ PODIUM_AGENT_RELAY when it is
+ * an agent, PODIUM_SESSION_ID, PODIUM_PORT) in its env, and stateDir() falls back to ~/.podium
+ * when PODIUM_STATE_DIR is unset.
+ * Any test that reads process.env without overriding it would otherwise route through
  * the session relay, dial the live server on :18787, or open the live ~/.podium/podium.db —
  * i.e. "separate instances can't be tested; they conflict with the main instance" (POD-555).
  *
  * The scrub mirrors resolveAgentRelay()'s escape hatch:
  *  - drop the session-identity + instance-targeting vars, so nothing inherits them;
- *  - set PODIUM_NO_RELAY=1, so resolveAgentRelay() returns undefined (act as operator, not
- *    "this session") for any code that reads the live process.env;
+ *  - set PODIUM_NO_RELAY=1, so resolveAgentRelay() AND resolveSessionRelay() return
+ *    undefined (act as operator, not "this session") for any code that reads the live
+ *    process.env;
  *  - point PODIUM_STATE_DIR at a per-file throwaway (setupFiles runs once per test file, in
  *    its own fork) so stateDir() never resolves to ~/.podium. A suite that sets its own
  *    PODIUM_STATE_DIR keeps it.
@@ -35,6 +37,7 @@ import { join } from 'node:path'
 // Tests always run as the hermetic per-file throwaway, never as the hosting instance.
 const SCRUB_EXACT = new Set([
   'PODIUM_AGENT_RELAY',
+  'PODIUM_SESSION_RELAY',
   'PODIUM_ISSUE_RELAY',
   'PODIUM_SESSION_ID',
   'PODIUM_PORT',

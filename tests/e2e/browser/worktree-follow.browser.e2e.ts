@@ -43,9 +43,13 @@ async function selectWorktree(page: Page, name: string, path: string): Promise<v
 }
 
 /** Report a worktree move from INSIDE the session's shell, as an agent would.
- *  `delaySec` queues the report so it can fire after the user looks away. */
+ *  `delaySec` queues the report so it can fire after the user looks away.
+ *  PODIUM_SESSION_RELAY, not PODIUM_AGENT_RELAY: a shell is the operator's own
+ *  terminal and no longer carries the agent-identity variable [POD-1375]. That this
+ *  test drives a REAL Shell session is the point — it is the end-to-end proof that
+ *  session self-reporting survives the split. */
 async function reportWorktree(page: Page, path: string, delaySec = 0): Promise<void> {
-  const curl = `curl -s -X POST "$PODIUM_AGENT_RELAY" -H 'content-type: application/json' -d '{"router":"session","proc":"setWorktree","input":{"path":"${path}"}}'`
+  const curl = `curl -s -X POST "$PODIUM_SESSION_RELAY" -H 'content-type: application/json' -d '{"router":"session","proc":"setWorktree","input":{"path":"${path}"}}'`
   await podium.send(page, delaySec > 0 ? `(sleep ${delaySec} && ${curl}) &\r` : `${curl}\r`)
 }
 

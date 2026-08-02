@@ -31,8 +31,9 @@
  * | PODIUM_HOME                   | — → dirname(execPath)   | `resolveInstallDir()` (headless launcher exports it)   |
  * | PODIUM_RUN_MODE               | — (env-only)            | `resolveRunRecordMode()` ('detached' set by cli-spawn) |
  * | NOTIFY_SOCKET (systemd's)     | — (env-only)            | `resolveRunRecordMode()`, sd-notify                    |
- * | PODIUM_AGENT_RELAY            | — (env-only)            | `resolveAgentRelay()` (daemon-injected per agent)      |
- * | PODIUM_NO_RELAY               | — (env-only flag)       | `resolveAgentRelay()` (shed inherited relay; escape)   |
+ * | PODIUM_AGENT_RELAY            | — (env-only)            | `resolveAgentRelay()` (daemon-injected per AGENT)      |
+ * | PODIUM_SESSION_RELAY          | — (env-only)            | `resolveSessionRelay()` (per SESSION, shells included) |
+ * | PODIUM_NO_RELAY               | — (env-only flag)       | both resolvers (shed inherited relay; escape hatch)    |
  * | PODIUM_ISSUE_RELAY            | — (env-only, LEGACY)    | `resolveAgentRelay()` read-only alias (dual-read, 1 rel)|
  * | PODIUM_SESSION_ID             | — (env-only)            | daemon-injected agent identity (control/session.ts)    |
  * | PODIUM_BOOT_TIMEOUT_MS        | — → 45000               | boot.ts boot watchdog                                  |
@@ -352,6 +353,22 @@ export function resolveInstallDir(
 export function resolveAgentRelay(env: EnvSource = process.env): string | undefined {
   if (env.PODIUM_NO_RELAY) return undefined
   return env.PODIUM_AGENT_RELAY ?? env.PODIUM_ISSUE_RELAY
+}
+
+/** Daemon-injected relay endpoint for THIS session, whatever drives it — bound for
+ *  shells too, where `resolveAgentRelay()` deliberately reads undefined [POD-1375].
+ *
+ *  Use this ONLY for commands that are the session talking about ITSELF and carry no
+ *  delegate authority (the browser shim's URL open, `podium worktree`). Anything whose
+ *  answer depends on WHO is asking — issues, mail, specs, locks, workflows, quota,
+ *  offers, workspace claims — must keep reading `resolveAgentRelay()`, so a human in
+ *  their own terminal gets the operator path instead of a constrained agent identity.
+ *
+ *  Falls back to the agent relay (and its legacy alias) so sessions spawned before the
+ *  split — whose env carries only the old name — keep working for one release. */
+export function resolveSessionRelay(env: EnvSource = process.env): string | undefined {
+  if (env.PODIUM_NO_RELAY) return undefined
+  return env.PODIUM_SESSION_RELAY ?? env.PODIUM_AGENT_RELAY ?? env.PODIUM_ISSUE_RELAY
 }
 
 /**

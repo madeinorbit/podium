@@ -15,7 +15,6 @@ import {
   tmuxHasSessionAsync,
 } from '@podium/agent-bridge'
 import { AGENT_CAPABILITIES, type AgentKind } from '@podium/protocol'
-import { resolveInstanceId } from '@podium/runtime/config'
 import { countFrame } from '../loop-attribution'
 import type { Tier } from '../output-scheduler'
 import type { ReattachControl, SpawnControl } from '../session-observers'
@@ -28,27 +27,43 @@ const DRAFT_SYNC_HARNESS_ENV: Partial<Record<AgentKind, Record<string, string>>>
 }
 
 /**
- * Env vars bound into EVERY spawned agent so its `podium` CLI can reach the
+ * Env vars bound into EVERY spawned session so its `podium` CLI can reach the
  * daemon's loopback relay for this exact session. PODIUM_SESSION_ID is bound at
- * spawn (never a CLI arg the agent could spoof); PODIUM_AGENT_RELAY is the relay
- * URL with the session id baked into the path (agentRelay.endpointFor(sessionId)).
- * Only the new name is written — never the legacy PODIUM_ISSUE_RELAY (read-side
+ * spawn (never a CLI arg the agent could spoof); the relay URL has the session id
+ * baked into its path (agentRelay.endpointFor(sessionId)).
+ * Only the new names are written — never the legacy PODIUM_ISSUE_RELAY (read-side
  * tolerance for in-flight sessions lives in resolveAgentRelay, not here). [spec:SP-b85a]
  * Pure so it's unit-testable without standing up the daemon.
+ *
+ * TWO variables, one URL, two different questions [POD-1375]:
+ *   PODIUM_SESSION_RELAY — TRANSPORT: "there is a Podium session here, and this is
+ *     how you talk to it about ITSELF". Bound for every kind, shells included, and
+ *     read by session-scoped, authority-free consumers: the browser-command shim
+ *     and `podium worktree`.
+ *   PODIUM_AGENT_RELAY — IDENTITY: "this process IS a constrained delegate agent;
+ *     route its commands through the relay so the server applies agent scope".
+ *     Bound for harness kinds ONLY.
+ * A shell is the human at their own terminal: there is no delegate to bound, no
+ * subtree to scope to, and nothing is contained by pretending otherwise — binding
+ * the identity var there only stripped the operator of their own authority (the
+ * `podium issue promote` → "outside your subtree" refusal this split fixes).
+ * See docs/adr/0007-plane-inventory.md §"Session relay vs agent relay".
  */
-export function agentRelayEnv(
+export function sessionRelayEnv(
   sessionId: string,
   endpoint: string,
-  instanceId: string = resolveInstanceId(),
+  instanceId: string,
+  agentKind: AgentKind,
 ): Record<string, string> {
   // PODIUM_SESSION_ID is a deliberate informational/identity var: the `podium`
-  // CLI reads the session id from PODIUM_AGENT_RELAY's path, so this isn't consumed
-  // by the relay path today — it's exposed for the agent itself and future consumers.
+  // CLI reads the session id from the relay URL's path, so this isn't consumed
+  // by the relay path today — it's exposed for the session itself and future consumers.
   return {
     PODIUM_INSTANCE: instanceId,
     PODIUM_SESSION_INSTANCE: instanceId,
     PODIUM_SESSION_ID: sessionId,
-    PODIUM_AGENT_RELAY: endpoint,
+    PODIUM_SESSION_RELAY: endpoint,
+    ...(agentKind === 'shell' ? {} : { PODIUM_AGENT_RELAY: endpoint }),
   }
 }
 
@@ -213,9 +228,15 @@ function spawn(ctx: DaemonContext, msg: SpawnControl): void {
         sessionEnv: msg.env,
         harnessEnv: cmd.env,
         podiumEnv: {
-          // Bind the loopback agent-relay + session id into every agent's env so its
-          // `podium` CLI can reach the daemon for this exact session.
-          ...agentRelayEnv(msg.sessionId, ctx.agentRelayEndpointFor(msg.sessionId), ctx.instanceId),
+          // Bind the loopback session relay + session id into every session's env so its
+          // `podium` CLI can reach the daemon for this exact session. The agent-IDENTITY
+          // half rides along only for harness kinds — a shell is the operator [POD-1375].
+          ...sessionRelayEnv(
+            msg.sessionId,
+            ctx.agentRelayEndpointFor(msg.sessionId),
+            ctx.instanceId,
+            msg.agentKind,
+          ),
           ...browserOpenEnv(ctx.settingsDir),
           ...(ctx.homeDir ? { HOME: ctx.homeDir } : {}),
           // Subagent model rides as env — Claude Code reads it; harmless elsewhere.
@@ -501,8 +522,13 @@ export const sessionHandlers: Pick<
 /**
  * Install the browser-command shims once and return the env that makes every
  * spawned session use them. The script reads the already capability-scoped
- * PODIUM_AGENT_RELAY at invocation time, so one shim directory serves every
+ * session relay at invocation time, so one shim directory serves every
  * session without embedding session ids. [spec:SP-a43e]
+ *
+ * Opening a URL is session TRANSPORT, not delegate authority, so the shim reads
+ * PODIUM_SESSION_RELAY — which shells get too. PODIUM_AGENT_RELAY stays as the
+ * fallback for sessions spawned before the split, whose env carries only the old
+ * name; without it their `open`/`xdg-open` would start exiting 2 [POD-1375].
  */
 export function browserOpenEnv(
   settingsDir: string,
@@ -534,9 +560,11 @@ export function browserOpenEnv(
     '  echo "podium browser shim: no URL argument and no real $name on PATH" >&2',
     '  exit 2',
     'fi',
-    '[ -n "$PODIUM_AGENT_RELAY" ] || { echo "podium browser shim: missing relay" >&2; exit 2; }',
     // biome-ignore lint/suspicious/noTemplateCurlyInString: evaluated by the generated shell script.
-    'endpoint="${PODIUM_AGENT_RELAY%/}/open"',
+    'relay="${PODIUM_SESSION_RELAY:-$PODIUM_AGENT_RELAY}"',
+    '[ -n "$relay" ] || { echo "podium browser shim: missing relay" >&2; exit 2; }',
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: evaluated by the generated shell script.
+    'endpoint="${relay%/}/open"',
     'if command -v curl >/dev/null 2>&1; then',
     '  exec curl --silent --show-error --fail --request POST --header "content-type: text/plain" --data-binary "$url" "$endpoint" >/dev/null',
     'fi',

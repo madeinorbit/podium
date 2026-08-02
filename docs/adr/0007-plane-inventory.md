@@ -91,6 +91,23 @@ Application code stays **vertical by feature**. Planes are **boundary port contr
 | Fourth plane “host” | Host traffic still maps to control/stream/bulk; the separation is a **module boundary**, not a plane |
 | Treat `agentRelayRequest` as stream | It is directed request/reply with correlated result — command class |
 
+#### D2a — Session relay vs agent relay: what a `shell` session gets (POD-1375)
+
+**Decision.** The relay URL is bound under **two** env names, and they answer different questions:
+
+| Var | Question it answers | Bound for | Read by |
+|-----|--------------------|-----------|---------|
+| `PODIUM_SESSION_RELAY` | *"Where is my session's daemon endpoint?"* — pure transport | **every** kind, `shell` included | browser-command shim ([spec:SP-a43e]), `podium worktree` |
+| `PODIUM_AGENT_RELAY` | *"Am I a constrained delegate agent?"* — identity | harness kinds **only** (`AgentKind` minus `shell`) | everything whose answer depends on **who** is asking: issues, mail, specs, locks, workflows, `agent`, `session`, quota, offers, workspace, approvals |
+
+Both hold the same URL. `resolveSessionRelay()` falls back to `PODIUM_AGENT_RELAY` (then the legacy `PODIUM_ISSUE_RELAY`) so sessions spawned before the split keep working for one release.
+
+**Rationale.** A `shell` session is the human at their own terminal. There is no delegate to bound, no subtree to scope to, and nothing is contained by pretending otherwise — binding the identity var there only stripped the operator of their own authority, invisibly: `podium issue promote` answered *"issue … is outside your subtree"*, and `--outside-scope` could not rescue it because `promote`/`reparent`-on-proposed are hard operator-only. `agentKind` already records what a session **is**; identity must follow it, not an env var injected uniformly at spawn.
+
+**Consequence (correct, and it should stay):** `podium quota`, `podium offer` and `podium workspace` now print *"only works inside a Podium-managed agent session"* in a shell — they are agent affordances, and a shell is not an agent. `podium session title` / `session stop`-without-id likewise stop working in a shell; they bind the calling session from the relay capability, so restoring them means routing only the self-referential subcommands through the session relay (deferred, not done here).
+
+**Rule.** Adding a relay consumer? Ask whether the command is the session describing **itself** (session relay) or claiming **delegate authority** (agent relay). Default to the agent relay; the session relay is the narrow exception, and every addition to it widens what a human's shell can do while still being *right*, not merely convenient.
+
 **In-process `EventBus`** (`apps/server/src/modules/bus.ts`) is **not** a wire plane. External chat adapters (Telegram long-poll/webhook, [spec:SP-5d81]) sit on bus + superagent services — **outside** the three peer planes; not tRPC for the external edge.
 
 ---

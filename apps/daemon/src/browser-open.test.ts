@@ -1,5 +1,7 @@
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { DaemonMessage, SessionOpenUrlMessage } from '@podium/protocol'
@@ -165,8 +167,74 @@ describe('browser command shims', () => {
       const path = join(shimDir, name)
       expect(statSync(path).mode & 0o700).toBe(0o700)
       // biome-ignore lint/suspicious/noTemplateCurlyInString: this is a literal shell expansion.
-      expect(readFileSync(path, 'utf8')).toContain('${PODIUM_AGENT_RELAY%/}/open')
+      expect(readFileSync(path, 'utf8')).toContain('${relay%/}/open')
     }
+  })
+
+  // POD-1375: a human's shell no longer carries PODIUM_AGENT_RELAY, and the shim is on
+  // its PATH. Opening a URL is transport, not delegate authority — so the shim reads
+  // PODIUM_SESSION_RELAY (bound for every kind) and only falls back to the agent name
+  // for sessions spawned before the split. Without this, `open`/`xdg-open` in a shell
+  // would start exiting 2 with "missing relay" — silently, from the human's point of view.
+  for (const [label, relayVar] of [
+    ['session relay (shells included)', 'PODIUM_SESSION_RELAY'],
+    ['legacy agent relay (pre-split session)', 'PODIUM_AGENT_RELAY'],
+  ] as const) {
+    it(`posts the URL to the daemon using the ${label}`, async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'podium-browser-shims-'))
+      dirs.push(dir)
+      const received: { path?: string; body?: string } = {}
+      const server = createServer((req, res) => {
+        const chunks: Buffer[] = []
+        req.on('data', (c: Buffer) => chunks.push(c))
+        req.on('end', () => {
+          received.path = req.url
+          received.body = Buffer.concat(chunks).toString('utf8')
+          res.writeHead(200).end()
+        })
+      })
+      await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
+      const port = (server.address() as AddressInfo).port
+
+      try {
+        const env = browserOpenEnv(dir, '/usr/bin')
+        // spawn, NOT spawnSync: the server above lives on THIS event loop, so a
+        // synchronous wait would block the accept curl is waiting for — deadlock.
+        const child = spawn(join(dir, 'browser-shims', 'xdg-open'), ['https://example.test/x'], {
+          env: {
+            ...process.env,
+            PATH: env.PATH,
+            PODIUM_SESSION_RELAY: '',
+            PODIUM_AGENT_RELAY: '',
+            [relayVar]: `http://127.0.0.1:${port}/agent/s1`,
+          },
+        })
+        let stderr = ''
+        child.stderr.on('data', (c: Buffer) => {
+          stderr += c.toString()
+        })
+        const status = await new Promise<number | null>((r) => child.on('close', r))
+
+        expect(stderr).not.toContain('missing relay')
+        expect(status).toBe(0)
+        expect(received.path).toBe('/agent/s1/open')
+        expect(received.body).toBe('https://example.test/x')
+      } finally {
+        await new Promise<void>((r) => server.close(() => r()))
+      }
+    })
+  }
+
+  it('exits 2 when neither relay variable is bound', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-browser-shims-'))
+    dirs.push(dir)
+    const env = browserOpenEnv(dir, '/usr/bin')
+    const result = spawnSync(join(dir, 'browser-shims', 'xdg-open'), ['https://example.test/x'], {
+      env: { ...process.env, PATH: env.PATH, PODIUM_SESSION_RELAY: '', PODIUM_AGENT_RELAY: '' },
+    })
+
+    expect(result.status).toBe(2)
+    expect(result.stderr.toString()).toContain('missing relay')
   })
 
   it('falls through to the real binary when no URL argument is present', () => {

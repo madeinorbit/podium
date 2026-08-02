@@ -1,13 +1,17 @@
 import { resolve } from 'node:path'
-import { resolveAgentRelay } from '@podium/runtime/config'
+import { resolveSessionRelay } from '@podium/runtime/config'
 
 /**
- * `podium worktree [path]` — tell Podium which worktree this agent session is
- * working in. Rides the daemon's agent-relay loopback (PODIUM_AGENT_RELAY, bound
+ * `podium worktree [path]` — tell Podium which worktree this session is
+ * working in. Rides the daemon's loopback session relay (PODIUM_SESSION_RELAY, bound
  * to the session at spawn), where the daemon resolves the path to its git
  * toplevel and restamps the session's worktree grouping. Complements the
  * automatic hook-cwd detection: an agent whose harness doesn't report cwd (or
  * that wants to declare a worktree it hasn't cd'd into) can report explicitly.
+ *
+ * Session relay, not agent relay [POD-1375]: reporting where you are is the session
+ * describing itself, with no scope question attached — so it keeps working in a human's
+ * shell, which no longer carries the agent-identity variable.
  */
 export async function runWorktreeCli(
   argv: string[],
@@ -18,9 +22,9 @@ export async function runWorktreeCli(
       text: [
         'Usage: podium worktree [path]',
         '',
-        '  Tell Podium which git worktree this agent session is working in',
+        '  Tell Podium which git worktree this session is working in',
         '  (defaults to the current directory; resolved to its git toplevel).',
-        '  Only works inside a Podium-managed agent session (PODIUM_AGENT_RELAY).',
+        '  Only works inside a Podium-managed session (PODIUM_SESSION_RELAY).',
       ].join('\n'),
       exitCode: 0,
     }
@@ -33,7 +37,7 @@ export async function runWorktreeCli(
   }
   if (!opts.relayEndpoint) {
     return {
-      text: 'podium worktree: PODIUM_AGENT_RELAY is not set — this command only works inside a Podium-managed agent session.',
+      text: 'podium worktree: PODIUM_SESSION_RELAY is not set — this command only works inside a Podium-managed session.',
       exitCode: 1,
     }
   }
@@ -64,7 +68,7 @@ export async function runWorktreeCli(
 /** Entry used by scripts/cli.ts. */
 export async function worktreeCliMain(argv: string[]): Promise<void> {
   const out = await runWorktreeCli(argv, {
-    relayEndpoint: resolveAgentRelay(),
+    relayEndpoint: resolveSessionRelay(),
     cwd: process.cwd(),
   })
   ;(out.exitCode === 0 ? console.log : console.error)(out.text)
