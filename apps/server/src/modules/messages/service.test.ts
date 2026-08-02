@@ -2724,6 +2724,47 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
     expect(store.messages.getMessage(r2.message.id)!.status).toBe('read')
   })
 
+  it('an OVERSIZED issue row is pull-path too — no boundary confirm, no sweep re-nudge', () => {
+    // Two things make an issue-addressed row a pointer: fyi urgency, and a body
+    // too large to paste inline. The tests above cover the fyi half; this covers
+    // the oversized half, whose CLASSIFICATION nothing else asserted — the
+    // rendering tests only check the text, and `renderFor` decides that on its
+    // own. So a delivery path that forgot the size clause and treated an
+    // oversized row as an echo row stayed green: it would be confirmed at the
+    // next turn boundary it never appeared in, and re-pushed by the sweep once
+    // the echo window passed. Neither may happen (POD-1397 mutation M2).
+    let clock = Date.parse('2026-07-13T00:00:00.000Z')
+    const now = () => new Date(clock).toISOString()
+    const live: SessionMeta[] = []
+    const { svc, sent, store } = harness(live, { now })
+    // next-turn, NOT fyi — the size clause has to carry this row on its own, or
+    // the fyi clause would mask a delivery path that dropped it.
+    const r = svc.send(
+      { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id) },
+      {
+        to: { kind: 'issue', id: ISSUE.id },
+        body: 'x'.repeat(INLINE_BODY_MAX + 1),
+        urgency: 'next-turn',
+      },
+    )
+    expect(r.message.urgency).toBe('next-turn') // peer cap allows it; not silently clamped to fyi
+    const s = session({ sessionId: asSessionId('s1'), issueId: ISSUE.id })
+    live.push(s)
+    svc.onSessionIdle(s)
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!.text).not.toContain('xxxx') // the body never entered the transcript
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('queued')
+    // A turn boundary cannot confirm what was never shown; an inbox read can.
+    clock += ECHO_CONFIRM_WINDOW_MS + 1_000
+    svc.onSessionIdle(s)
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('queued')
+    // ... and the sweep must not nudge again past the echo window.
+    svc.sweep()
+    expect(sent).toHaveLength(1)
+    svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: asSessionId('s1') })
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('read')
+  })
+
   it('an ERRORED turn does not confirm its injected rows — they re-queue via the sweep', () => {
     // API 529 mid-turn is frequent: an errored turn (errored→idle fires here too)
     // did not complete, so it must NOT confirm what it may not have consumed
