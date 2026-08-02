@@ -34,6 +34,9 @@ export interface StatusView {
   /** Daemon⇄server link state written by the daemon itself (issue #19); absent on
    *  boxes that run no remote daemon (or before the daemon's first write). */
   connectivity?: ConnectivityStatus
+  /** HTTP liveness is an independent truth source. A surviving server may have
+   * lost its advisory run-registry record during a redeploy or signal race. */
+  serverHealthy?: boolean
 }
 
 /** Render the daemon⇄server connectivity line(s) from the daemon-written status file. */
@@ -89,6 +92,8 @@ export function renderStatus(view: StatusView): string {
     if (rec) {
       const port = rec.port ? ` :${rec.port}` : ''
       lines.push(`  ● ${role}  up${port}  pid ${rec.pid}  (${humanUptime(rec.startedAt, nowMs)})`)
+    } else if (role === 'server' && view.serverHealthy) {
+      lines.push(`  ● server  up :${view.port ?? config.port ?? 18787}  (health)`)
     } else {
       lines.push(`  ○ ${role}  down`)
     }
@@ -123,17 +128,32 @@ function hasSystemctl(): boolean {
   }
 }
 
+async function serverHealth(port: number): Promise<boolean> {
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/health`, {
+      signal: AbortSignal.timeout(1_500),
+    })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
 /** `podium status` */
-export function statusCommand(): void {
+export async function statusCommand(): Promise<void> {
   const config = loadConfig()
   const connectivity = readConnectivity()
+  const port = resolvePort(config)
+  const serverHealthy =
+    config.mode === 'server' || config.mode === 'all-in-one' ? await serverHealth(port) : false
   console.log(
     renderStatus({
       live: listLive(),
       config,
       nowMs: Date.now(),
       instanceId: resolveInstanceId(),
-      port: resolvePort(config),
+      port,
+      serverHealthy,
       ...(connectivity ? { connectivity } : {}),
     }),
   )

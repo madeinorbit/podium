@@ -1220,7 +1220,7 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
     }
     case 'status': {
       const { statusCommand } = await import('./cli-lifecycle')
-      statusCommand()
+      await statusCommand()
       return
     }
     case 'stop': {
