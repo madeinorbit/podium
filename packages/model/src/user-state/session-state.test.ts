@@ -43,7 +43,7 @@ import {
 } from './session-state'
 
 describe('the family list is the thing every totality assertion below reads', () => {
-  it('covers inventory §7.1 completely: eight schemas plus one declared non-member', () => {
+  it('covers inventory §7.1 completely: eight schemas plus one declared non-member, plus POD-1380\'s ninth member from outside §7.1', () => {
     // Eight + one = the nine distinct facts §7.1 enumerates once the three issue
     // markers are recognised as one key. If a member is ever dropped, this fails
     // BEFORE the it.each blocks below quietly stop checking it.
@@ -54,9 +54,19 @@ describe('the family list is the thing every totality assertion below reads', ()
     // got `user_layout`. The pair is asserted together on purpose — a member
     // that arrived without leaving the non-member list, or left it without
     // arriving, changes exactly one of these two numbers.
-    expect(PER_USER_STATE_FAMILY).toHaveLength(8)
+    //
+    // POD-1380 moves the family count WITHOUT moving the §7.1 reduction:
+    // `issueEventReadCursor` is not one of §7.1's eleven facts. It was found by
+    // POD-403's totality pass over CLIENT ui-state, because it had no server row
+    // to be inventoried. So the §7.1 arithmetic below is asserted separately from
+    // the family length — a member arriving from outside the inventory must not
+    // silently look like the inventory growing.
+    const fromInventory = PER_USER_STATE_FAMILY.filter((m) => m.name !== 'issueEventReadCursor')
+    expect(fromInventory).toHaveLength(8)
+    expect(PER_USER_STATE_FAMILY).toHaveLength(9)
     expect(PER_USER_STATE_NON_MEMBERS).toHaveLength(1)
     expect(PER_USER_STATE_FAMILY.map((m) => m.name).sort()).toEqual([
+      'issueEventReadCursor',
       'issueMessageReadState',
       'issueUserState',
       'personalPreference',

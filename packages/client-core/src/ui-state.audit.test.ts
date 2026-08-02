@@ -3,7 +3,12 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import { DEVICE_LOCAL_UI_KEYS, LAYOUT_KEY_FROM_LEGACY, THEME_UI_KEYS } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { CLIENT_DEVICE_LOCAL_UI_KEYS, uiStateRoute } from './ui-state'
+import {
+  CLIENT_DEVICE_LOCAL_UI_KEYS,
+  createRoutedUiState,
+  KNOWN_NON_UI_ROUTES,
+  uiStateRoute,
+} from './ui-state'
 
 const ROOT = resolve(import.meta.dirname, '../../..')
 const UI_STATE_SOURCE = join(import.meta.dirname, 'ui-state.ts')
@@ -80,7 +85,9 @@ describe('UI persistence ownership lint', () => {
       expect(uiStateRoute(key).home, key).toBe('device-local')
     }
     for (const key of THEME_UI_KEYS) expect(uiStateRoute(key).home, key).toBe('pre-auth-theme')
-    expect(uiStateRoute('podium:superfeed:cursor').home).toBe('known-unrouted')
+    // POD-1380 routed the last unrouted key: it is per-user state with its own
+    // family and command, not a layout key and not device-local.
+    expect(uiStateRoute('podium:superfeed:cursor').home).toBe('per-user-command')
   })
 
   it('no product file outside ui-state accesses an owned key through raw localStorage', () => {
@@ -123,7 +130,7 @@ describe('UI persistence ownership lint', () => {
   })
 
   it('every known non-UI key is classified (no silent local default)', () => {
-    expect(uiStateRoute('podium:superfeed:cursor').home).toBe('known-unrouted')
+    expect(uiStateRoute('podium:superfeed:cursor').home).toBe('per-user-command')
     expect(uiStateRoute('podium.vreload').home).toBe('known-unrouted')
     expect(uiStateRoute('podium.outbox.v1').home).toBe('known-unrouted')
     expect(uiStateRoute('podium.echoHud').home).toBe('device-local')
@@ -142,6 +149,42 @@ describe('UI persistence ownership lint', () => {
     const reads = source.match(/(?:globalThis\.|window\.)?localStorage\??\.getItem\([^\n]+/g) ?? []
     expect(reads).toEqual(['globalThis.localStorage?.getItem(key) ?? null'])
     expect(source).toContain('readPreAuthTheme')
+  })
+
+  it('NO key is left unrouted that names an issue as its home', () => {
+    // A `known-unrouted` row is a promissory note: it says an issue owns the
+    // decision. POD-1380 was the last one, so the remaining two must be the
+    // mechanism exceptions (a pre-store sessionStorage guard and the replica's
+    // own legacy blob) and nothing else. A new deferred key has to be a
+    // deliberate edit here rather than something that accumulates quietly.
+    const unrouted = Object.entries(KNOWN_NON_UI_ROUTES)
+      .filter(([, route]) => route.home === 'known-unrouted')
+      .map(([key]) => key)
+      .sort()
+    expect(unrouted).toEqual(['podium.outbox.v1', 'podium.vreload'])
+  })
+
+  it('the command-homed key is REFUSED by the ui-state router, not written locally', () => {
+    // The trap this home exists to close: falling back to local storage would
+    // give this device a private copy of a value that follows the user, and it
+    // would look like it worked.
+    const local = {
+      get: () => null,
+      set: () => {
+        throw new Error('local write must never be reached for a command-homed key')
+      },
+      subscribe: () => () => {},
+    }
+    const replicated = {
+      get: () => undefined,
+      set: () => {},
+      clear: () => {},
+      hydrate: async () => {},
+      subscribe: () => () => {},
+    }
+    const routed = createRoutedUiState({ local: local as never, replicated })
+    expect(() => routed.get('podium:superfeed:cursor')).toThrow(/own command family/)
+    expect(() => routed.set('podium:superfeed:cursor', '{"id":1}')).toThrow(/own command family/)
   })
 
   it('the raw-storage detector rejects a planted owned-key access', () => {

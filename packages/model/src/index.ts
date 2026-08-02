@@ -80,6 +80,9 @@ export * from './fields/session'
 // POD-365's one fragment; `user-state/family.ts` is the totality list and records
 // which of inventory §7.1's facts have no server row, and why.
 export * from './user-state/family'
+// The event-stream read cursor (POD-1380) — the key POD-403's routing table
+// could not classify, because it had no server row to be per-user in.
+export * from './user-state/read-position-state'
 export * from './user-state/issue-state'
 export * from './user-state/layout-state'
 // The personal preference half (POD-1213) — the member POD-1076 recorded as

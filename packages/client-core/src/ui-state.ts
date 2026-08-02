@@ -25,6 +25,20 @@ export type { UiState }
 export type UiStateHome =
   | 'device-local'
   | 'per-user-replicated'
+  /**
+   * Per-user state that follows the person but is NOT a `user_layout` key/value
+   * row: it has its own family, its own table and its own command, because its
+   * arbitration rule is not last-writer-wins (POD-1380's read cursor is
+   * monotonic). The distinction is load-bearing rather than cosmetic —
+   * `per-user-replicated` means "goes through the layout port", and routing a
+   * monotonic cursor through an LWW port is how a cursor moves backward.
+   *
+   * A key with this home is NOT stored in the ui-state collection at all, and
+   * {@link createRoutedUiState} REFUSES it rather than falling back to local:
+   * silently writing it to this device is the exact bug the routing table exists
+   * to prevent.
+   */
+  | 'per-user-command'
   | 'pre-auth-theme'
   | 'known-unrouted'
 
@@ -196,10 +210,25 @@ export const WIRE_RELOAD_COUNTER_KEY = 'podium.vreload'
 /** Legacy pre-replica outbox blob key — replica migrates it once. */
 export const LEGACY_OUTBOX_LS_KEY = 'podium.outbox.v1'
 
+/**
+ * The issue-event feed's read position. POD-403 recorded it `known-unrouted`
+ * against POD-1380; POD-1380 gave it a home, and it is NOT this module's.
+ *
+ * It is per-user state (`docs/multi-user-readiness.md` §3.3 — read state follows
+ * the person), stored in `user_read_position` and written by `readPosition.advance`.
+ * It stays in this table because the table is a TOTALITY over every key this
+ * module has ever persisted: deleting the row would make a key that once lived
+ * here indistinguishable from one that never did.
+ */
+export const READ_POSITION_UI_KEY = 'podium:superfeed:cursor'
+
 export const KNOWN_NON_UI_ROUTES = {
-  'podium:superfeed:cursor': {
-    home: 'known-unrouted' as const,
-    reason: 'POD-1380 owns the event-stream cursor home; preserve local parity meanwhile.',
+  [READ_POSITION_UI_KEY]: {
+    home: 'per-user-command' as const,
+    reason:
+      'The issue-event read position is per-user state with its own family and command ' +
+      '(readPosition.advance, POD-1380). Monotonic, so it cannot ride the last-writer-wins layout ' +
+      'port; not device-local, because read state follows the person (readiness §3.3).',
   },
   /** sessionStorage-only PWA wire-version reload guard; deliberately pre-store. */
   [WIRE_RELOAD_COUNTER_KEY]: {
@@ -409,8 +438,17 @@ export function createRoutedUiState(init: {
   replicated: ReplicatedUiStatePort
 }): RoutedUiState {
   const { local, replicated } = init
+  const refuseCommandHome = (key: string, route: UiStateRoute): void => {
+    if (route.home !== 'per-user-command') return
+    throw new Error(
+      `'${key}' is per-user state owned by its own command family, not the ui-state store — ` +
+        'reading or writing it here would give this device a private copy of a value that ' +
+        'follows the user (POD-1380)',
+    )
+  }
   const read = (key: string): string | null => {
     const route = uiStateRoute(key)
+    refuseCommandHome(key, route)
     if (route.home !== 'per-user-replicated') return local.get(key)
     const layoutKey = requireReplicatedLayoutKey(key)
     const current = replicatedString(replicated, layoutKey)
@@ -428,6 +466,7 @@ export function createRoutedUiState(init: {
     get: read,
     set: (key, value) => {
       const route = uiStateRoute(key)
+      refuseCommandHome(key, route)
       if (route.home !== 'per-user-replicated') local.set(key, value)
       else {
         const layoutKey = requireReplicatedLayoutKey(key)

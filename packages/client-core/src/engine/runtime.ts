@@ -48,10 +48,11 @@
  * authentication has produced a principal. The provider renders nothing instead.
  */
 
-import type { IssueId, LayoutWire, SessionId } from '@podium/model'
+import type { ReadPositionWire, IssueId, LayoutWire, SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import type { PodiumClientApi } from '../api'
 import type { OutboxEntry } from '../outbox'
+import { createReadPositionClient, type ReadPositionPort } from '../read-position'
 import type { ClientPrincipal } from '../principal'
 import type { Replica } from '../replica/replica'
 import type { FeedSinkPort, SocketHub } from '../socket-transport'
@@ -169,6 +170,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   readonly router: Router
   readonly ui: RoutedUiState
   readonly replicatedLayout: ReplicatedLayoutController
+  /** This person's event-stream read positions (POD-1380) — its own family
+   *  because a cursor merges monotonically, not last-writer-wins. */
+  readonly readPosition: ReadPositionPort
 
   private readonly replicaBinding: ReplicaBinding
   private readonly routerUi: RouterUiState
@@ -270,6 +274,11 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.router = createUiStateRouter(localUi, init.routerWindow)
     const actions = this.createActions()
     this.replicatedLayout = actions.replicatedLayout
+    this.readPosition = createReadPositionClient({
+      api: this.api,
+      local: localUi,
+      onError: (message) => this.notices.error(message),
+    })
     this.boot = new BootFetches<TApi>({
       api: this.api,
       publish: (patch) => this.apply(patch),
@@ -441,6 +450,20 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         this.replicatedLayout.replace(Object.fromEntries(rows.map((row) => [row.key, row.value])))
       }),
     )
+    // A read position moved on this person's OTHER device (POD-1380). The feed
+    // is scoped per-user, so every row here is already this principal's — the
+    // filter is belt-and-braces against a widened feed, not the primary guard.
+    offs.push(
+      this.hub.on('userReadPositions', (rows: ReadPositionWire[]) => {
+        this.readPosition.replace(
+          Object.fromEntries(
+            rows
+              .filter((row) => row.userId === this.principal.userId)
+              .map((row) => [row.streamId, { lastEventId: row.lastEventId, seenAt: row.seenAt }]),
+          ),
+        )
+      }),
+    )
 
     // A daemon-created worktree is otherwise invisible in every repo menu until
     // reload (POD-665) — re-fetch through the same path used at boot.
@@ -500,6 +523,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
 
     if (!this.booted) {
       void this.replicatedLayout.hydrate().catch(() => {})
+      void this.readPosition.hydrate().catch(() => {})
       this.booted = true
       // Sidebar prefs load out of band so boot fans out only repos + pins + tab
       // orders (never gated on settings or a conversation scan).
@@ -835,6 +859,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       trpc: this.api,
       replica: this.replica,
       uiState: this.ui,
+      readPosition: this.readPosition,
       httpOrigin: this.httpOrigin,
       getUserFocus: () => this.getUserFocus(),
       refreshRepos: () => this.boot.refreshRepos(),

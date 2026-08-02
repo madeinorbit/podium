@@ -81,6 +81,7 @@ export function SuperagentView({
     setSelectedIssueId,
     setView,
     uiState,
+    readPosition,
     setSessionDraft,
   } = useStoreSelector(
     (s) => ({
@@ -95,6 +96,7 @@ export function SuperagentView({
       setSelectedIssueId: s.setSelectedIssueId,
       setView: s.setView,
       uiState: s.uiState,
+      readPosition: s.readPosition,
       setSessionDraft: s.setSessionDraft,
     }),
     shallowEqual,
@@ -152,7 +154,7 @@ export function SuperagentView({
     window.addEventListener('pointerup', up)
   }
 
-  const feed = useIssueEvents(trpc, uiState, mobile || chatOpen, true)
+  const feed = useIssueEvents(trpc, readPosition, mobile || chatOpen, true)
 
   const refreshThreads = () => refreshSuperThreads().catch(() => {})
 

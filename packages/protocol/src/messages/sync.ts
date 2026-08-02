@@ -5,6 +5,7 @@ import {
   ChangeSeqField,
   ConversationDiagnosticWire,
   ConversationSummaryWire,
+  ReadPositionWire,
   GlobalChangeOpField,
   IssueDepProjection,
   IssueProjection,
@@ -170,6 +171,13 @@ export const MetadataChange = z.discriminatedUnion('entity', [
    *  wire (same contract as issueProjection): older clients ignore via
    *  UnknownMetadataChange and advance the cursor. */
   metadataChangeArm(z.literal('userLayout'), LayoutWire),
+  /** Per-user event-stream read position (POD-1380) — keyed `(userId, feedId)` on
+   *  the change id via `readPositionRowId`. Visibility class `per-user-state`, the
+   *  same as `userLayout` and for a sharper reason: a read cursor delivered to
+   *  the wrong principal is a privacy defect that looks exactly like a working
+   *  cursor. Additive on the wire; older clients ignore it via
+   *  UnknownMetadataChange and advance the cursor. */
+  metadataChangeArm(z.literal('userReadPosition'), ReadPositionWire),
 ])
 export type MetadataChange = z.infer<typeof MetadataChange>
 export const MetadataEntityKind = z.enum([
@@ -182,6 +190,7 @@ export const MetadataEntityKind = z.enum([
   'automation',
   'automationRun',
   'userLayout',
+  'userReadPosition',
 ])
 export type MetadataEntityKind = z.infer<typeof MetadataEntityKind>
 

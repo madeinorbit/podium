@@ -11,10 +11,14 @@ export const SUPER_CHAT_OPEN_KEY = 'podium:superagent:chat'
 /** Tray body height (px) set by the tray/chat split handle (every section is
  *  resizable — .design/decisions.md). Absent = size to content. */
 export const TRAY_HEIGHT_KEY = 'podium:tray:height'
-/** Feed read cursor: the last issue-event id seen with the chat visible, plus
- *  the ISO time it was set — the YOU WERE HERE divider and the collapsed-✦
- *  unread dot both derive from it. */
-export const FEED_CURSOR_KEY = 'podium:superfeed:cursor'
+/**
+ * The feed read cursor USED to live here as `podium:superfeed:cursor`, a
+ * device-local ui-state key. It is per-user state — read state follows the
+ * person (`docs/multi-user-readiness.md` §3.3) — and POD-1380 moved it to the
+ * `readPosition` family: `store.readPosition`, backed by `user_read_position` and
+ * `readPosition.advance`. The note stays because a reader looking for the cursor
+ * looks here first, and an absence explains nothing.
+ */
 
 export function readSectionOpen(value: string | null): boolean {
   return value !== 'false' && value !== '0'
@@ -27,29 +31,4 @@ export function readTrayHeight(value: string | null): number | null {
   if (!value) return null
   const n = Number(value)
   return Number.isFinite(n) && n >= TRAY_MIN_HEIGHT ? Math.round(n) : null
-}
-
-export interface FeedCursor {
-  /** Highest event id acknowledged as seen; 0 = never seen the feed. */
-  id: number
-  /** When the cursor was last advanced (drives the divider's clock label). */
-  ts: string | null
-}
-
-export function readFeedCursor(value: string | null): FeedCursor {
-  if (value) {
-    try {
-      const parsed = JSON.parse(value) as { id?: unknown; ts?: unknown }
-      if (typeof parsed.id === 'number' && Number.isFinite(parsed.id) && parsed.id >= 0) {
-        return { id: Math.floor(parsed.id), ts: typeof parsed.ts === 'string' ? parsed.ts : null }
-      }
-    } catch {
-      // fall through — corrupt value reads as "never seen"
-    }
-  }
-  return { id: 0, ts: null }
-}
-
-export function writeFeedCursor(cursor: FeedCursor): string {
-  return JSON.stringify(cursor)
 }

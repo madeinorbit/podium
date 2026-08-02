@@ -39,9 +39,22 @@
  * So: eight schemas here, one member excluded WITH a reason, and the reasons are
  * the part a later reader needs — an unexplained absence from a totality list is
  * indistinguishable from a member somebody forgot.
+ *
+ * ---------------------------------------------------------------------------
+ * ONE MEMBER §7.1 DID NOT ENUMERATE (POD-1380)
+ * ---------------------------------------------------------------------------
+ * `issueEventReadCursor` (`./read-position-state.ts`) is NOT one of §7.1's eleven
+ * facts. It was found by POD-403's totality exercise over CLIENT ui-state, not by
+ * the field-schema inventory over SERVER storage, because it had no server row to
+ * be inventoried — it lived only in a browser. It joins the family for the reason
+ * §3.3 gives for every `readAt`: read state follows the person. The count above
+ * therefore describes §7.1's reduction, and this member is counted separately
+ * rather than being quietly absorbed into it — a totality claim that grows a
+ * member without saying where it came from is the stale-claim failure again.
  */
 
 import type { z } from 'zod'
+import { READ_POSITION_USER_STATE_MEMBERS } from './read-position-state'
 import { ISSUE_USER_STATE_MEMBERS } from './issue-state'
 import { LAYOUT_USER_STATE_MEMBERS } from './layout-state'
 import { PREFERENCE_USER_STATE_MEMBERS } from './preference-state'
@@ -58,12 +71,14 @@ export interface PerUserStateMember {
 }
 
 /** Every member with a server-side table: session half, issue half, preference
- *  half, then the layout half POD-1350 moved off client-local ui-state. */
+ *  half, the layout half POD-1350 moved off client-local ui-state, then the
+ *  event-stream cursor POD-1380 moved off it. */
 export const PER_USER_STATE_FAMILY: readonly PerUserStateMember[] = [
   ...SESSION_USER_STATE_MEMBERS,
   ...ISSUE_USER_STATE_MEMBERS,
   ...PREFERENCE_USER_STATE_MEMBERS,
   ...LAYOUT_USER_STATE_MEMBERS,
+  ...READ_POSITION_USER_STATE_MEMBERS,
 ]
 
 /**

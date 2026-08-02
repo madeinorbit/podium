@@ -19,6 +19,7 @@
 import type { SuperThreadView } from './viewmodels/slices/superagent'
 import type {
   AgentKind,
+  ReadPositionSnapshot,
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
   LayoutSnapshot,
@@ -119,6 +120,16 @@ export interface PodiumClientApi {
     setOrder: ApiMutation<
       WithMutationId<{ worktree: string; sessionIds: string[] }>,
       Record<string, string[]>
+    >
+  }
+  /** Per-user event-stream read positions (POD-1380). `advance` is monotonic —
+   *  the server clamps to max(stored, proposed) — and returns the caller's whole
+   *  snapshot, never anyone else's. */
+  readPosition: {
+    get: ApiQuery<void, ReadPositionSnapshot>
+    advance: ApiMutation<
+      WithMutationId<{ streamId: string; lastEventId: number; seenAt?: string | null }>,
+      ReadPositionSnapshot
     >
   }
   layout: {

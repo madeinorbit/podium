@@ -106,6 +106,9 @@ export const ROW = {
   /** Sidebar/tab layout shell chrome (POD-1350) — distinct from tab_order's
    *  session order per worktree. */
   sidebarTabLayout: id('sidebar-tab-layout'),
+  /** How far a person has read an event stream (POD-1380) — a POSITION in an
+   *  ordered log, not the per-entity `readAt` markers above it. */
+  feedReadCursor: id('feed-read-cursor'),
 
   preferencesPersonal: id('preferences-personal-keys'),
   preferencesInstance: id('preferences-instance-keys'),
@@ -1630,6 +1633,18 @@ const REPO_ROWS: readonly MatrixRow[] = [
     ],
     conflictNote:
       'Shell chrome (dock tab, superagent open, panel modes, section collapses) is per person by definition. Key-at-a-time so concurrent multi-device writes of independent keys do not last-writer-wins over the whole shell. Device-local route, selection, focus, pane/split geometry and screen pixel widths are NOT this row — they stay in principal-namespaced client ui-state (POD-403).',
+    tombstoneNote: 'Cascades on user deletion. No entity lifecycle owns these rows.',
+  }),
+  perUserState({
+    id: ROW.feedReadCursor,
+    section: 'repos-pins-tabs',
+    title: 'Event-stream read cursor',
+    sites: [
+      '`user_read_position` — keyed `(user_id, stream_id)` (POD-1380; device-local ui-state until then)',
+      'packages/model/src/user-state/read-position-state.ts — closed stream vocabulary + the monotonic rule',
+    ],
+    conflictNote:
+      'How far a person has read an ordered log, so it is theirs by definition (readiness §3.3). NOT the `readAt` rows above: those are per-ENTITY timestamps and merge last-writer-wins, while a cursor is a POSITION and merges MONOTONICALLY — `max(stored, proposed)`, executed by advanceReadPosition and declared as `readPosition.advance`\'s `cmd` conflict rule. Under LWW a device writing before its hydration lands would move the marker backward and re-mark read events unread.',
     tombstoneNote: 'Cascades on user deletion. No entity lifecycle owns these rows.',
   }),
   // -------------------------------------------------------------------------
