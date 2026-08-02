@@ -105,6 +105,7 @@
  * is that a transport is served because a contract NAMES it.
  */
 
+import { UserIdField } from '@podium/model'
 import { z } from 'zod'
 import type {
   AttributionPolicy,
@@ -174,7 +175,7 @@ export const machineRevokeInput = z.object({ id: z.string() })
  *  D7), so a frame claiming to act for the owner is inert. */
 export const machineTransferOwnershipInput = z.object({
   id: z.string(),
-  newOwnerUserId: z.string().min(1),
+  newOwnerUserId: UserIdField,
 })
 
 export const machinePairingCodeInput = z
