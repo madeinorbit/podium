@@ -23,7 +23,7 @@ export default defineConfig({
   webServer: [
     {
       command:
-        'bun run --filter @podium/protocol build && bun run --filter @podium/web build && bun --conditions=@podium/source serve-harness.ts',
+        'bun run --filter @podium/model build && bun run --filter @podium/protocol build && bun run --filter @podium/web build && bun --conditions=@podium/source serve-harness.ts',
       url: `${ORIGIN}/health`,
       reuseExistingServer: false,
       env: { PODIUM_PASSWORD: process.env.PODIUM_PASSWORD ?? '' },
