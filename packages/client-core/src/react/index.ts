@@ -4,4 +4,5 @@ export * from '../replica/react'
 // embedded IssueWire fields [POD-856].
 export * from '../replica/use-issue-views'
 export * from './provider'
+export * from './use-slice'
 export * from './use-mark-read-on-view'

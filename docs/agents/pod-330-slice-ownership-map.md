@@ -231,6 +231,37 @@ from the wrong tree is indistinguishable from green.
 Check `ls node_modules/@podium` in a fresh worktree before quoting any result from it. The linker
 is `hoisted` (see `bunfig.toml`), so the links land at the repo root, not under `apps/*`.
 
+## 4a. The publication mechanism, and the bar it had to clear
+
+`viewmodels/slices/publish.ts` + `react/use-slice.ts`.
+
+A slice is derived ONCE per snapshot and handed to every reader; three components reading the
+worklist cause one derivation, not three. That is the whole point of publishing.
+
+The bar was not performance. `react/provider.tsx` had already written it down, in the comment that
+kept its own hand-rolled selector cache:
+
+> When POD-330 lands its slice mechanism it should be measured against exactly this: **it must
+> invalidate on shrink-without-revision-change, not merely on update.**
+
+Under the scoped feed the world can SHRINK when the authority evicts a row — a removal from your
+view that is not a deletion and that moves no revision. A cache keyed on entity identity, on a
+dependency set of ids, or on a revision high-water mark is wrong under all three, because each
+encodes "a row I cannot see is merely LATE".
+
+The key is therefore the snapshot OBJECT and nothing else, which makes evict, rescope and ordinary
+update indistinguishable to it: all three miss, all three re-derive from what is visible now. And
+the reason that is STRUCTURAL rather than disciplined is worth stating — **the publisher is generic
+over its source and never sees an id, a revision or a collection, so it could not key on one if it
+wanted to. The wrong cache is unwritable here, not merely avoided.**
+
+The same property carries the principal boundary: a new principal is a new runtime, so a new
+handle, so a new publisher holding nothing. Nothing has to be TOLD that a sign-out happened — and a
+cache that must be told is a cache that one day will not be.
+
+Presence does not come through here. It is stream-plane, ephemeral and blank offline (POD-1078), so
+it gets its own publisher and is deliberately not expressible as a `SliceDefinition`.
+
 ## 4c. LEDGER — what the phase shipped for cross-boundary edges (§3.1.2)
 
 The acceptance criterion asks for the shipped choice to be *recorded here, not baked into a slice
