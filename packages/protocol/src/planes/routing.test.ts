@@ -22,8 +22,12 @@ import {
 
 // Parts chosen to attack the escaping: each contains the separator, the escape
 // character, or a shape that would look like a valid multi-part key on its own.
-// Same battery as packages/model/src/ids/keys.test.ts (POD-1134).
-const HOSTILE = ['a:b', 'a\\b', 'a\nb', '\\', ':', '\n', 'a\\:b', '', 'x:y:z']
+// Same battery as packages/model/src/ids/keys.test.ts (POD-1134), PLUS the
+// complementary halves of the classic unescaped collision
+// (kind='a', id='b:c') vs (kind='a:b', id='c'). Without 'a'/'c'/'b:c' in the
+// set, a pure HOSTILE cartesian product never produces that pair — and an
+// injectivity suite can stay green under the pre-POD-1134 unescaped concat.
+const HOSTILE = ['a:b', 'a\\b', 'a\nb', '\\', ':', '\n', 'a\\:b', '', 'x:y:z', 'a', 'c', 'b:c']
 
 const user = (id: string, device = `${id}-d1`): Principal => ({
   kind: 'user',
