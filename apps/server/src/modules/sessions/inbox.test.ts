@@ -46,6 +46,11 @@ function harness(options: { owner?: typeof ALICE | null; status?: string } = {})
       lastOutputAtMs: 0,
       transcriptItems: () => [],
       recordInputActivity: vi.fn(),
+      // POD-1081 added a live last-input attribution call on the real terminal
+      // (terminal.ts). This fixture is `as unknown as Session`, so the compiler
+      // cannot see the gap — the drift surfaces only as a runtime TypeError on
+      // whichever line happens to be exercised. See POD-1459.
+      noteInputAttribution: vi.fn(),
       handleInput,
       requestControl: vi.fn(),
       handleResize: vi.fn(),
