@@ -1,11 +1,37 @@
 /**
- * F3 — *how sessions rank against each other for human attention.*
+ * F3 — *what order sessions are presented in.*
  *
  * The third named shared derivation (POD-330). Not a helpers bag: it answers
- * exactly one question and never departs from its shape — **a collection of
- * sessions in, an order or a rank out.** No issues, no rows, no repos, no
- * presentation strings. It depends on `@podium/model` and `../focus` and on
- * nothing else in `viewmodels/`, so it cannot participate in a cycle.
+ * exactly one question and never departs from its shape.
+ *
+ * The invariant has TWO clauses, and only one of them is mechanically
+ * checkable. Both must hold before a symbol belongs here.
+ *
+ *   SHAPE (checkable): **a collection of sessions in, an order or a rank out.**
+ *   No issues, no rows, no repos, no presentation strings. It depends on
+ *   `@podium/model` and `../focus` and on nothing else in `viewmodels/`, so it
+ *   cannot participate in a cycle.
+ *
+ *   QUESTION (not checkable): **what order sessions are presented in** —
+ *   whether that order is decided by COMPARING the sessions
+ *   (`sortSessionsForSidebar`, `sessionUrgencyRank`, `mostUrgentSession`) or by
+ *   HONOURING AN EXTERNAL DESIGNATION (`elevateCoordinatorSession`, whose key
+ *   is an id handed in, not a property of the sessions being ordered).
+ *
+ * That second paragraph of the question clause was widened deliberately in
+ * POD-1503, when `elevateCoordinatorSession` moved here and satisfied the shape
+ * clause verbatim while the original question — "how sessions RANK AGAINST EACH
+ * OTHER" — did not describe it. The sentence is what arbitrates the NEXT
+ * symbol, so a stated question that no longer describes the contents is worse
+ * than a module over its line budget: the next candidate gets argued against
+ * what the file SAYS, not against what anyone meant.
+ *
+ * A SHAPE PREDICATE IS NECESSARY, NOT SUFFICIENT. It refuses a symbol whose
+ * shape is wrong — that is how `isCoordinatorSession` was refused here on sight,
+ * for taking an `IssueWire`. It cannot refuse one whose shape is right and whose
+ * question is foreign, and that is the drift that actually produces god objects,
+ * because nobody ever adds a symbol that LOOKS wrong. (POD-330, map §4e.1,
+ * b9b39289.)
  *
  * It exists because the census that produced the ownership map counted only
  * EXTERNAL consumers, and `sortSessionsForSidebar` has none outside tests — its
