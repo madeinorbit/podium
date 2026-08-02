@@ -56,7 +56,12 @@ describe('SessionRegistry model catalog wiring', () => {
     second.dispose()
   })
 
-  it('does not serve one machine’s catalog under another machineId', async () => {
+  /**
+   * THE multi-machine property through the settings seam + durable store.
+   * Two machines refresh different catalogs; neither get() may return the
+   * other's models, and a restart must still keep them separate in meta.
+   */
+  it('two machines keep distinct catalogs through settings+store — neither sees the other', async () => {
     const store = new SessionStore(':memory:')
     const host = store.hostMachineId
     const other = 'other-machine'
@@ -65,15 +70,43 @@ describe('SessionRegistry model catalog wiring', () => {
         ? { grok: [{ value: 'host-model', label: 'host-model' }] }
         : { grok: [{ value: 'other-model', label: 'other-model' }] },
     )
-    const registry = new SessionRegistry(store, undefined, { instanceId: 'default', modelProbe: probe })
+    const registry = new SessionRegistry(store, undefined, {
+      instanceId: 'default',
+      modelProbe: probe,
+    })
     await registry.modules.settings.refreshModelCatalog(host)
     await registry.modules.settings.refreshModelCatalog(other)
-    expect(registry.modules.settings.getModelCatalog(host).byAgent.grok?.[0]?.value).toBe(
+    const hostSnap = registry.modules.settings.getModelCatalog(host)
+    const otherSnap = registry.modules.settings.getModelCatalog(other)
+    expect(hostSnap.machineId, `host snapshot.machineId=${hostSnap.machineId}`).toBe(host)
+    expect(otherSnap.machineId, `other snapshot.machineId=${otherSnap.machineId}`).toBe(other)
+    expect(
+      hostSnap.byAgent.grok?.map((m) => m.value),
+      `host models=${JSON.stringify(hostSnap.byAgent.grok)}`,
+    ).toEqual(['host-model'])
+    expect(
+      otherSnap.byAgent.grok?.map((m) => m.value),
+      `other models=${JSON.stringify(otherSnap.byAgent.grok)}`,
+    ).toEqual(['other-model'])
+    expect(hostSnap.byAgent.grok?.some((m) => m.value === 'other-model')).toBe(false)
+    expect(otherSnap.byAgent.grok?.some((m) => m.value === 'host-model')).toBe(false)
+    // Durable store rows are keyed separately — a global meta key would collapse them.
+    expect(store.settings.getModelCatalog(host)?.byAgent.grok?.[0]?.value).toBe('host-model')
+    expect(store.settings.getModelCatalog(other)?.byAgent.grok?.[0]?.value).toBe('other-model')
+    registry.dispose()
+
+    // Restart: each machine still reads its own persisted catalog, not the other's.
+    const probe2 = vi.fn(async () => ({}))
+    const second = new SessionRegistry(store, undefined, {
+      instanceId: 'default',
+      modelProbe: probe2,
+    })
+    expect(second.modules.settings.getModelCatalog(host).byAgent.grok?.[0]?.value).toBe(
       'host-model',
     )
-    expect(registry.modules.settings.getModelCatalog(other).byAgent.grok?.[0]?.value).toBe(
+    expect(second.modules.settings.getModelCatalog(other).byAgent.grok?.[0]?.value).toBe(
       'other-model',
     )
-    registry.dispose()
+    second.dispose()
   })
 })
