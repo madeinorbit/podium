@@ -3,7 +3,7 @@ import { basename, join } from 'node:path'
 import { AgentKind, repoNameFromOrigin, type SessionId, type UserId } from '@podium/model'
 import { resolveRole } from '@podium/runtime'
 import type { SessionStore } from '../../store'
-import type { IssueService } from '../issues/service'
+import type { DurableIssueAccessIndex } from '../issues/access-index'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachinesService, MachineUseResolver } from '../machines/service'
 import {
@@ -12,6 +12,7 @@ import {
   verifiedCommonBundleBases,
 } from './handoff-transfer'
 import type { Session } from './session'
+import type { SessionIssueWorkflowPort } from './issue-workflow-port'
 
 type SessionLookup = (sessionId: SessionId) => Session | undefined
 
@@ -19,7 +20,7 @@ export interface SessionWorkspacePorts {
   store: SessionStore
   rpc: DaemonRpcService
   machines: MachinesService
-  issues(): IssueService
+  issueAccess: DurableIssueAccessIndex
   getSession: SessionLookup
   settingsViewer(): UserId
   onWorktreesChanged(repoPath: string, machineId?: string): void
@@ -152,7 +153,7 @@ export class SessionWorkspace {
     )
     if (!fetcherRepo) throw new Error('this machine does not have the source repository')
 
-    const issue = source.issueId ? this.ports.issues().getMeta(source.issueId) : undefined
+    const issue = source.issueId ? this.ports.issueAccess.getMeta(source.issueId) : undefined
     const branch = issue?.branch ?? basename(source.cwd)
     const candidates = [
       ...new Set(
@@ -241,13 +242,13 @@ export class SessionWorkspace {
 
   ensureSessionWorktree(
     session: Session,
+    issues: SessionIssueWorkflowPort,
   ):
     | { ok: boolean; reason?: string; cwd?: string }
     | Promise<{ ok: boolean; reason?: string; cwd?: string }> {
-    const issues = this.ports.issues()
-    const issueId = session.issueId ?? issues.issueForCwd(session.cwd)
+    const issueId = session.issueId ?? this.ports.issueAccess.issueForCwd(session.cwd)
     if (!issueId) return { ok: true, cwd: session.cwd }
-    const issue = issues.getMeta(issueId)
+    const issue = this.ports.issueAccess.getMeta(issueId)
     if (!issue) return { ok: true, cwd: session.cwd }
     if (issue.worktreePath) return { ok: true, cwd: issue.worktreePath }
     if (!session.stopReason || !issue.branch) return { ok: true, cwd: session.cwd }

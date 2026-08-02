@@ -2,7 +2,6 @@ import type { SessionId } from '@podium/model'
 import type { DaemonMessage, LiveServerMessage } from '@podium/protocol'
 import { harnessUsesPromptTitleFallback } from '../../harness-manifest'
 import type { SessionsDaemonFrame } from '../../gateway/daemon-frame-routing'
-import type { IssueService } from '../issues/service'
 import {
   isCommandWrapperText,
   isGenericClaudeTitle,
@@ -29,7 +28,10 @@ export type SessionProjectionDaemonFrame = Extract<
 
 export interface SessionDaemonProjectionPorts {
   sessions: ReadonlyMap<SessionId, Session>
-  issues(): IssueService
+  recordSessionGitActivity(
+    sessionId: SessionId,
+    input: { commits?: string[]; touched?: string[] },
+  ): void
   binding: SessionBindingReceipts
   persist(session: Session): void
   broadcastSessions(): void
@@ -112,7 +114,7 @@ export class SessionDaemonProjection {
         break
       }
       case 'sessionGitActivity':
-        this.ports.issues().recordSessionGitActivity(message.sessionId, {
+        this.ports.recordSessionGitActivity(message.sessionId, {
           ...(message.commits ? { commits: message.commits } : {}),
           ...(message.touched ? { touched: message.touched } : {}),
         })
@@ -128,17 +130,15 @@ export class SessionDaemonProjection {
           this.ports.persist(session)
           this.ports.broadcastSessions()
         }
-        if (
-          session &&
-          harnessUsesPromptTitleFallback(session.agentKind) &&
-          !session.titleLocked
-        ) {
-          const firstUser = session.terminal.transcriptItems().find(
-            (item) =>
-              item.role === 'user' &&
-              item.text.trim().length > 0 &&
-              !isCommandWrapperText(item.text),
-          )
+        if (session && harnessUsesPromptTitleFallback(session.agentKind) && !session.titleLocked) {
+          const firstUser = session.terminal
+            .transcriptItems()
+            .find(
+              (item) =>
+                item.role === 'user' &&
+                item.text.trim().length > 0 &&
+                !isCommandWrapperText(item.text),
+            )
           const title = firstUser ? titleFromPrompt(firstUser.text) : undefined
           if (title) {
             session.setTitle(title)

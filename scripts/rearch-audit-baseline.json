@@ -8,7 +8,7 @@
     "capability-tables": 0,
     "change-row-typings": 15,
     "cli-launch-plan-debt": 1,
-    "composition-root-forward-refs": 1,
+    "composition-root-forward-refs": 0,
     "durable-host-sync-async-twins": 0,
     "instance-partitions": 0,
     "issue-shapes": 3,

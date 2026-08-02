@@ -31,14 +31,14 @@ export interface IssuePublisherDeps {
   /** The LOCAL issue list builder (IssueService.allWire) — may be undefined while
    *  the registry constructor hasn't assigned the service yet (broadcasts can run
    *  via loadFromStore before that). */
-  allWire(): IssueWire[] | undefined
+  allWire?(): IssueWire[] | undefined
   /** The LOCAL normalized projection truth (IssueService.allProjections) —
    *  Undefined only when a row cannot be projected or the service is not yet
    *  constructed; normalized emission itself is unconditional.
    *
    *  LOCAL only. POD-309 retired the hub mirror on this branch, so the union
    *  main guarded against here has no second half left to union with. */
-  allProjections(): { id: string; value: IssueProjection }[] | undefined
+  allProjections?(): { id: string; value: IssueProjection }[] | undefined
   /** Full-list publish tail ([spec:SP-3fe2] #255): ledger reconcile of the
    *  spec's rows — the durable change append, including removes, which IS the
    *  fan-out since POD-1203. Wired in relay.ts.
@@ -70,7 +70,7 @@ export class IssuePublisher implements IssuePublishSpecs {
    */
   safeIssuesList(): IssueWire[] {
     try {
-      const issues = this.deps.allWire() ?? []
+      const issues = this.deps.allWire?.() ?? []
       this.currentLocalIssues = issues
       return issues
     } catch (err) {
@@ -94,7 +94,7 @@ export class IssuePublisher implements IssuePublishSpecs {
    */
   safeProjectionRows(): { id: string; value: IssueProjection }[] | undefined {
     try {
-      return this.deps.allProjections()
+      return this.deps.allProjections?.()
     } catch (err) {
       console.warn('[podium] issue projection build failed — skipping the normalized feed', err)
       return undefined
@@ -142,7 +142,12 @@ export class IssuePublisher implements IssuePublishSpecs {
    *  entirely once every connected client reads the normalized shape (see
    *  `runSessionsBroadcast`). What still arrives here is the genuinely
    *  issue-shaped write-less churn — staleness flips and hub-mirror sets. */
-  publishIssues(localIssues: IssueWire[]): void {
-    this.deps.publishIssueList(this.issuesChanged(localIssues), this.safeProjectionRows())
+  publishIssues(
+    localIssues: IssueWire[],
+    projectionRows:
+      | { id: string; value: IssueProjection }[]
+      | undefined = this.safeProjectionRows(),
+  ): void {
+    this.deps.publishIssueList(this.issuesChanged(localIssues), projectionRows)
   }
 }

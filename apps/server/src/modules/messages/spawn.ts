@@ -17,7 +17,7 @@ import type { IssueService } from '../issues/service'
 import type { SpawnOnWake } from './service'
 
 export interface SpawnOnWakeDeps {
-  issues(): IssueService
+  issues: IssueService
   /** SessionLifecycle.createSession, narrowed to what a wake-spawn needs. */
   createSession(input: {
     cwd: string
@@ -50,7 +50,7 @@ export function makeSpawnOnWake(deps: SpawnOnWakeDeps): SpawnOnWake {
   return {
     spawn({ issueId, message }) {
       if (!issueId) return { ok: false, reason: 'no target issue to spawn on' }
-      const issue = deps.issues().getMeta(issueId)
+      const issue = deps.issues.getMeta(issueId)
       if (!issue) return { ok: false, reason: `unknown issue ${issueId}` }
       // Started issue: spawn alongside its work. Unstarted: the repo root —
       // starting the issue (worktree + branch) stays a deliberate action.

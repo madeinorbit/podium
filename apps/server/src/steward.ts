@@ -1,5 +1,5 @@
 import { asSessionId } from '@podium/model'
-import type { IssueComment, IssueWire, SessionId, SessionMeta } from '@podium/model'
+import type { IssueComment, IssueWire, SessionId, SessionMeta, UserId } from '@podium/model'
 import type { PodiumSettings } from '@podium/runtime'
 import { sessionsForIssue } from './issue-util'
 import type { IssueService } from './modules/issues/service'
@@ -303,6 +303,7 @@ export interface StewardDeps {
   messages: Pick<SessionStore['messages'], 'alreadyCommunicated'>
   issues: Pick<IssueService, 'get' | 'getMeta' | 'list' | 'addComment' | 'ancestorIds' | 'comments'>
   listSessions: () => SessionMeta[]
+  sessionOwner?: (sessionId: SessionId) => UserId | undefined
   /** Durable-queue a nudge into a session (relay.queueText). For live sessions
    *  this is next-turn delivery; for parked/hibernated/exited sessions with a
    *  resume ref it ALSO resurrects (wake rights). Issue-parentnudge deliberately
@@ -324,7 +325,7 @@ export interface StewardDeps {
    *  subscription's `notify` switch, wired to NotifyService.notifyExternal in the
    *  composition root. Structurally typed (not the NotifyService type) so the
    *  steward's unit tests stay hermetic. Absent = notify is breadcrumb-only. */
-  notify?: (notice: { title: string; body: string }) => void
+  notify?: (ownerUserId: UserId, notice: { title: string; body: string }) => void
   getSettings: () => PodiumSettings
   intervalMs?: number
   now?: () => string
@@ -763,7 +764,11 @@ export class StewardService {
       // The push itself is fire-and-forget (the pushers log their own failures) —
       // but a thrown notifier must not cost the caller its delivery record.
       try {
-        this.deps.notify?.(subscriptionNotice(sub, e))
+        const ownerUserId =
+          sub.subscriberKind === 'session'
+            ? this.deps.sessionOwner?.(asSessionId(sub.subscriberId))
+            : this.deps.issues.getMeta(sub.subscriberId)?.ownerUserId
+        if (ownerUserId) this.deps.notify?.(ownerUserId, subscriptionNotice(sub, e))
       } catch (err) {
         console.warn(`[podium:steward] notify for subscription ${sub.id} failed:`, err)
       }

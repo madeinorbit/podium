@@ -28,7 +28,7 @@ export interface SessionPublicationMetrics extends PublishWorkerMetrics {
   shadowMismatches: number
 }
 
-type SnapshotTail = Omit<
+export type SnapshotTail = Omit<
   Extract<SyncChangesSinceResult, { kind: 'snapshot' }>,
   'kind' | 'sessions' | 'cursor' | 'feedId' | 'epoch' | 'minAvailableSeq'
 >

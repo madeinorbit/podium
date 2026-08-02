@@ -138,18 +138,24 @@ const DISPATCH: Dispatcher = {
 
   // ---- conversations: discovery is per-machine ----
   conversationsChanged: (ports, principal, msg) =>
-    ports
-      .conversations()
-      .onDiscovery(principal.machine, msg.conversations, msg.diagnostics, msg.removed),
+    ports.conversations.onDiscovery(
+      principal.machine,
+      msg.conversations,
+      msg.diagnostics,
+      msg.removed,
+    ),
   transcriptMirrorResult: (ports, _principal, msg) =>
-    ports.conversations().onTranscriptMirrorResult(msg),
+    ports.conversations.onTranscriptMirrorResult(msg),
   // Dual ownership, preserved from the pre-extraction switch: a scan is BOTH a
   // conversation discovery and the reply to an RPC. Order matters and is the
   // table's, not a send site's.
   scanResult: (ports, principal, msg) => {
-    ports
-      .conversations()
-      .onDiscovery(principal.machine, msg.conversations, msg.diagnostics, msg.removed)
+    ports.conversations.onDiscovery(
+      principal.machine,
+      msg.conversations,
+      msg.diagnostics,
+      msg.removed,
+    )
     ports.rpc.onScanResult(msg)
   },
 

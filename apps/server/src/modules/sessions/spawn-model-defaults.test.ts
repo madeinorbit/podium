@@ -62,7 +62,7 @@ async function resurrectFrame(agentKind: 'claude-code' | 'codex') {
     agentKind === 'codex'
       ? ({ kind: 'codex-thread', value: 'thread-1' } as const)
       : ({ kind: 'claude-session', value: 'session-1' } as const)
-  const { sessionId } = await registry.modules.sessions.resumeSession({
+  const { sessionId } = await registry.modules.issueSessionLifecycle.resumeSession({
     agentKind,
     cwd: '/proj',
     resume,
@@ -77,7 +77,7 @@ async function resurrectFrame(agentKind: 'claude-code' | 'codex') {
     geometry: { cols: 80, rows: 24 },
   })
   expect(registry.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
-  expect(await registry.modules.sessions.resurrectSession({ sessionId })).toEqual({ ok: true })
+  expect(await registry.modules.issueSessionLifecycle.resurrectSession({ sessionId })).toEqual({ ok: true })
   return latestSpawn(daemon)
 }
 

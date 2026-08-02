@@ -100,6 +100,7 @@ export interface RpcSessionView {
 }
 
 interface DaemonRpcDeps {
+  broker?: DaemonRequestBroker
   store: Pick<SessionStore['conversations'], 'conversationSegmentPath'>
   toMachine(machineId: string, msg: ControlMessage): void
   defaultMachine(): string
@@ -108,8 +109,7 @@ interface DaemonRpcDeps {
   machineName(id: string): string
   onlineMachineIds(): string[]
   getSession(sessionId: SessionId): RpcSessionView | undefined
-  /** Lake-fallback transcript read (modules/conversations) — lazy: the
-   *  conversations service is constructed after this one.
+  /** Lake-fallback transcript read supplied by the already-constructed conversation lake.
    *
    *  Takes `LakeReadSession` by NAME rather than restating its three fields
    *  inline. The inline copy was a second definition of the port (inventory
@@ -120,6 +120,45 @@ interface DaemonRpcDeps {
     session: LakeReadSession,
     input: { anchor?: string; direction: 'before' | 'after'; limit: number },
   ): Promise<TranscriptSlice | undefined>
+}
+
+export interface DaemonRequestBrokerDeps {
+  toMachine(machineId: string, msg: ControlMessage): void
+  defaultMachine(): string
+}
+
+/** Shared request-id and timeout substrate, constructed before every daemon RPC consumer. */
+export class DaemonRequestBroker {
+  private nextRequestNum = 0
+
+  constructor(private readonly deps: DaemonRequestBrokerDeps) {}
+
+  nextRequestId(prefix: string): string {
+    return `${prefix}${this.nextRequestNum++}`
+  }
+
+  request<T>(
+    pending: Map<string, (r: T) => void>,
+    prefix: string,
+    timeoutMs: number,
+    onTimeout: () => T,
+    buildMsg: (requestId: string) => ControlMessage,
+    machineId: string = this.deps.defaultMachine(),
+  ): Promise<T> {
+    const requestId = this.nextRequestId(prefix)
+    return new Promise<T>((resolve) => {
+      const timer = setTimeout(() => {
+        pending.delete(requestId)
+        resolve(onTimeout())
+      }, timeoutMs)
+      timer.unref?.()
+      pending.set(requestId, (result) => {
+        clearTimeout(timer)
+        resolve(result)
+      })
+      this.deps.toMachine(machineId, buildMsg(requestId))
+    })
+  }
 }
 
 /**
@@ -134,7 +173,7 @@ interface DaemonRpcDeps {
  * separate pending maps.
  */
 export class DaemonRpcService {
-  private nextRequestNum = 0
+  private readonly broker: DaemonRequestBroker
   private readonly pendingScans = new Map<string, (r: ScanResult) => void>()
   private readonly pendingRepoScans = new Map<string, (r: ScanReposResult) => void>()
   private readonly pendingBrowseDirs = new Map<string, (r: BrowseDirsResult) => void>()
@@ -207,16 +246,19 @@ export class DaemonRpcService {
     (r: Omit<CredentialInstallResultMessage, 'type' | 'requestId'>) => void
   >()
 
-  constructor(private readonly deps: DaemonRpcDeps) {}
+  constructor(private readonly deps: DaemonRpcDeps) {
+    this.broker =
+      deps.broker ??
+      new DaemonRequestBroker({ toMachine: deps.toMachine, defaultMachine: deps.defaultMachine })
+  }
 
   /** Globally-unique requestId mint — shared with the headless module so its
    *  turn/bind ids can never collide with an RPC id. */
   nextRequestId(prefix: string): string {
-    return `${prefix}${this.nextRequestNum++}`
+    return this.broker.nextRequestId(prefix)
   }
 
-  /** The generic round-trip primitive. Public: the hosts/conversations modules
-   *  run their own pending maps through it (their result handlers live there). */
+  /** The generic round-trip primitive delegates to the shared lower-layer broker. */
   request<T>(
     pending: Map<string, (r: T) => void>,
     prefix: string,
@@ -225,19 +267,7 @@ export class DaemonRpcService {
     buildMsg: (requestId: string) => ControlMessage,
     machineId: string = this.deps.defaultMachine(),
   ): Promise<T> {
-    const requestId = this.nextRequestId(prefix)
-    return new Promise<T>((resolve) => {
-      const timer = setTimeout(() => {
-        pending.delete(requestId)
-        resolve(onTimeout())
-      }, timeoutMs)
-      timer.unref?.()
-      pending.set(requestId, (r) => {
-        clearTimeout(timer)
-        resolve(r)
-      })
-      this.deps.toMachine(machineId, buildMsg(requestId))
-    })
+    return this.broker.request(pending, prefix, timeoutMs, onTimeout, buildMsg, machineId)
   }
 
   /** Resolve one pending request out of `map` (shared `*Result` handler shape). */

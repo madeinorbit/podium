@@ -210,6 +210,7 @@ export class MessagingService implements TelegramNoticePort {
 
   constructor(private readonly deps: MessagingDeps) {
     deps.bus.on('superagent.turnEnded', (ev) => this.onTurnEnded(ev))
+    deps.bus.on('notification.telegramRequested', (request) => this.sendUserNotice(request))
     deps.bus.on('settings.changed', () => this.configure())
     deps.bus.on('session.stateChanged', ({ sessionId, ownerUserId, next }) => {
       this.onSessionStateChanged(sessionId, ownerUserId, next)
@@ -293,6 +294,28 @@ export class MessagingService implements TelegramNoticePort {
    * otherwise the main chat. Without `sessionId`, thread into the last inbound
    * forum topic (subscription / legacy callers).
    */
+  private sendUserNotice(input: {
+    ownerUserId: UserId
+    text: string
+    sessionId?: SessionId
+  }): void {
+    const botToken = this.deps.telegramBotToken().trim()
+    const chatId = this.deps.routing.chatIdForUser(input.ownerUserId)?.trim()
+    if (!botToken || !chatId) return
+    if (this.adapter) {
+      const threadRef = this.noticeThreadRef(chatId, input.sessionId)
+      const target: ConversationRef = {
+        channel: 'telegram',
+        chatId,
+        ...(threadRef ? { threadRef } : {}),
+      }
+      void this.adapter.send(target, input.text).catch((err) => {
+        console.warn('[podium] Telegram push failed:', err instanceof Error ? err.message : err)
+      })
+      return
+    }
+    pushTelegramText({ botToken, chatId }, input.text)
+  }
   sendNotice(text: string, config: TelegramConfig, opts?: { sessionId?: SessionId }): void {
     const botToken = config.botToken.trim()
     const chatId = config.chatId.trim()

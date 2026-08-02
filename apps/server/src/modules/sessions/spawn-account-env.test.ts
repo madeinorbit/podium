@@ -74,7 +74,7 @@ function createFrame(store: SessionStore, agentKind: 'claude-code' | 'shell' = '
 /** The frame for a wake (call site 2: SessionLifecycle.resurrectSession). */
 async function resurrectFrame(store: SessionStore) {
   const { reg, daemon } = makeRegistry(store)
-  const { sessionId } = await reg.modules.sessions.resumeSession({
+  const { sessionId } = await reg.modules.issueSessionLifecycle.resumeSession({
     agentKind: 'codex',
     cwd: '/proj',
     resume: { kind: 'codex-thread', value: 't1' },
@@ -90,7 +90,7 @@ async function resurrectFrame(store: SessionStore) {
   })
   expect(reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
   const before = spawns(daemon).length
-  expect(await reg.modules.sessions.resurrectSession({ sessionId })).toEqual({ ok: true })
+  expect(await reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })).toEqual({ ok: true })
   const frame = spawns(daemon).at(-1)
   // A wake really did re-spawn — otherwise we'd be asserting on the create frame.
   expect(spawns(daemon).length).toBe(before + 1)

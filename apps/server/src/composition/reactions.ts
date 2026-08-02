@@ -196,6 +196,101 @@ export const REACTIONS = [
     scopeInvariant: 'Routes to the owner of the issue/mail target, never an ambient operator.',
   },
   {
+    id: 'issues.session-derived-maintenance',
+    description: 'Maintain issue fields from committed or live session facts.',
+    trigger: 'issue.sessionDerived',
+    durability: 'in-memory',
+    replay: {
+      mode: 'none',
+      reason:
+        'Boot rebuilds row-derived projections; live-only daemon facts retry on the next event.',
+    },
+    idempotency: {
+      key: 'event kind + issue/session id + derived payload hash',
+      duplicatePolicy: 'safe-repeat',
+    },
+    ordering: 'Synchronous EventBus emission order per session; issue writes retain funnel order.',
+    retry: 'The next session event or boot projection reconciliation is the retry backstop.',
+    failureOwner: 'issue derived-field maintainer',
+    observability: {
+      registry: true,
+      events: ['issue.sessionDerived', 'oplog.appended'],
+      metrics: [],
+    },
+    principal: system(),
+    scopeInvariant: 'Writes inherit the acted-on issue scope and stamp no human actor.',
+  },
+  {
+    id: 'sessions.delegated-wake-on-queue',
+    description: 'Best-effort wake a parked session after delegated input is durably queued.',
+    trigger: 'session.wakeRequested',
+    durability: 'in-memory',
+    replay: {
+      mode: 'none',
+      reason:
+        'Queued input remains durable; restart does not replay execution, and a later resume or send retries.',
+    },
+    idempotency: { key: 'session id + queued principal reference', duplicatePolicy: 'coalesce' },
+    ordering: 'After durable enqueue; before the inbox attempts ordered FIFO delivery.',
+    retry: 'Best-effort drop; the durable inbox row remains pending for an explicit later resume.',
+    failureOwner: 'session inbox delivery',
+    observability: {
+      registry: true,
+      events: ['session.wakeRequested'],
+      metrics: ['message delivery attempts'],
+    },
+    principal: delegated(),
+    scopeInvariant:
+      'Resolve the queued delegation live at apply; revocation prevents process wake and delivery.',
+  },
+  {
+    id: 'sessions.system-wake-on-queue',
+    description:
+      'Best-effort wake a parked session after system-attributed input is durably queued.',
+    trigger: 'session.wakeRequested',
+    durability: 'in-memory',
+    replay: {
+      mode: 'none',
+      reason:
+        'Queued input remains durable; restart does not replay execution, and a later system action retries.',
+    },
+    idempotency: { key: 'session id + system job reference', duplicatePolicy: 'coalesce' },
+    ordering: 'After durable enqueue; before the inbox attempts ordered FIFO delivery.',
+    retry: 'Best-effort drop; the durable inbox row remains pending for an explicit later resume.',
+    failureOwner: 'session inbox delivery',
+    observability: {
+      registry: true,
+      events: ['session.wakeRequested'],
+      metrics: ['message delivery attempts'],
+    },
+    principal: system(),
+    scopeInvariant:
+      'Acts only on the existing session binding and never stamps or impersonates a human.',
+  },
+  {
+    id: 'messages.dead-letter-nudge',
+    description: 'Notify the original sender after a durable queued message is refused at apply.',
+    trigger: 'message.deadLettered',
+    durability: 'in-memory',
+    replay: {
+      mode: 'none',
+      reason:
+        'The durable dead-letter row remains visible; the sender nudge is best-effort and is not replayed after restart.',
+    },
+    idempotency: { key: 'message id', duplicatePolicy: 'deduplicate' },
+    ordering: 'After the guarded queued-to-dead-letter transition for that message.',
+    retry: 'Best-effort drop; the durable ledger row is the restart-visible failure record.',
+    failureOwner: 'message delivery service',
+    observability: {
+      registry: true,
+      events: ['message.deadLettered', 'message.dead_letter'],
+      metrics: ['message dead letters'],
+    },
+    principal: delegated(),
+    scopeInvariant:
+      'Routes only to the persisted sender attribution and never to an ambient operator.',
+  },
+  {
     id: 'messages.eligibility',
     description: 'Re-evaluate durable queued deliveries after session or issue metadata commits.',
     trigger: 'oplog.appended',
@@ -324,6 +419,31 @@ export const REACTIONS = [
     observability: { registry: true, events: ['oplog.appended'], metrics: ['feed cursor and lag'] },
     principal: system(),
     scopeInvariant: 'Visibility is evaluated for each authenticated subscriber before delivery.',
+  },
+  {
+    id: 'messaging.telegram-attention',
+    description: 'Route notification policy decisions to the owning user Telegram binding.',
+    trigger: 'notification.telegramRequested',
+    durability: 'in-memory',
+    replay: {
+      mode: 'none',
+      reason: 'Attention pushes are best-effort and are never replayed after restart.',
+    },
+    idempotency: {
+      key: 'owner user + session or notification fact + attention transition',
+      duplicatePolicy: 'deduplicate',
+    },
+    ordering: 'Per-owner EventBus request order; topic routing is resolved at send time.',
+    retry: 'Best-effort drop; the durable phase or steward breadcrumb remains observable.',
+    failureOwner: 'Telegram messaging bridge',
+    observability: {
+      registry: true,
+      events: ['notification.telegramRequested', 'session.phase', 'steward.notify'],
+      metrics: ['Telegram send failures'],
+    },
+    principal: delegated(),
+    scopeInvariant:
+      'Route comes from the owner of the triggering session/subscriber; unknown or ambiguous chats fail closed.',
   },
   {
     id: 'messaging.telegram-outbound',

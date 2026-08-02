@@ -58,7 +58,7 @@
     "test:bun:unit": "bun test --conditions=@podium/source packages/runtime/test/sqlite.bun.test.ts --test-name-pattern ''",
     "lint": "biome check . && bun run lint:boundaries && bun scripts/render-systemd.ts --check",
     "lint:boundaries": "bun scripts/check-boundaries.ts",
-    "audit:composition": "bun scripts/server-composition-graph.ts && bun scripts/reactions-ledger.ts",
+    "audit:composition": "bun scripts/server-composition-graph.ts && bun scripts/server-construction-order.ts && bun scripts/reactions-ledger.ts",
     "lint:shadowing": "bun scripts/check-merge-shadowing.ts",
     "audit:rearch": "bun scripts/rearch-audit.ts",
     "audit:declared-consumers": "bun scripts/audit-declared-consumers.ts",

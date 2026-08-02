@@ -15,7 +15,7 @@ export function inboxConsumeHandler(
   input: ContractInput<typeof mailInboxConsumeContract>,
 ): MessageWire[] {
   const { caller, deps, access } = ctx
-  const svc = deps.messages()
+  const svc = deps.messages
   if (input?.issue) {
     // Peek at a named issue's box — never consumes queued status unless it
     // IS the caller's own issue. Cross-SCOPE peeks are body-filtered: the
@@ -38,7 +38,7 @@ export function inboxConsumeHandler(
       own ||
       (scope.kind === 'subtree' &&
         scope.rootId !== undefined &&
-        deps.issues().ancestorIds(id).includes(scope.rootId))
+        deps.issues.ancestorIds(id).includes(scope.rootId))
     const consume = own ? (caller.capability.actorSessionId ?? null) : undefined
     const rows = svc.readInbox([{ kind: 'issue', id }], consume !== undefined ? { consume } : {})
     return (inScope ? rows : rows.filter((m) => access.mayView(caller.capability, m))).map((m) =>

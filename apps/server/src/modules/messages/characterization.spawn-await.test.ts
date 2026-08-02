@@ -151,8 +151,8 @@ describe('characterization: spawn target resolution (S1)', () => {
     const h = mailHarness()
     const iss = h.createIssue({ title: 'x' })
     const unwired = new MessageGate({
-      messages: () => h.svc,
-      issues: () => h.issues,
+      messages: h.svc,
+      issues: h.issues,
       listSessions: () => h.sessions,
     })
     await expect(

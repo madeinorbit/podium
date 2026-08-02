@@ -37,8 +37,7 @@ function harness(opts?: { sessions?: SessionMeta[]; items?: TranscriptItem[]; ha
   const reads: { anchor?: string; direction: string }[] = []
   const toolkit = new SessionReadToolkit({
     listSessions: () => opts?.sessions ?? [session({ issueId: ISSUE.id })],
-    issues: () =>
-      ({
+    issues: ({
         resolveRef: (ref: string) => {
           if (ref === '#228' || ref === '228' || ref === ISSUE.id) return ISSUE.id
           throw new Error(`unknown ref ${ref}`)
@@ -47,8 +46,7 @@ function harness(opts?: { sessions?: SessionMeta[]; items?: TranscriptItem[]; ha
         get: (id: string) => (id === ISSUE.id ? ISSUE : undefined),
         issueForCwd: () => null,
       }) as unknown as IssueService,
-    messages: () =>
-      ({
+    messages: ({
         deliveredUnacked: () => [{ id: 'm1' }, { id: 'm2' }],
       }) as unknown as MessageDeliveryService,
     events: {

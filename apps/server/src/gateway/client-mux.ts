@@ -145,6 +145,8 @@ export interface ClientMuxDeps {
    */
   readonly feed: FeedServing
   readonly presence: PresenceRouting
+  /** Non-session bootstrap assembled after every contributing feature exists. */
+  readonly bootstrap: (conn: ClientConn) => void
 }
 
 export class ClientMux {
@@ -223,6 +225,7 @@ export class ClientMux {
     // value rather than a client-chosen one.
     this.deps.registry.deliver(conn, { type: 'welcome', clientId: id })
     this.deps.ports.sessions.onClientAttached(conn.principal, conn)
+    this.deps.bootstrap(conn)
     // THE FEED, LAST, and at wire 1 without the delta capability — because that
     // is everything this server honestly knows about a socket that has not spoken
     // yet, and it is the same assumption the pre-cutover code stated ("a pre-hello
@@ -281,6 +284,9 @@ export class ClientMux {
       msg: ClientMessage,
     ) => void
     dispatch(this, conn, msg)
+    if (msg.type === 'hello' && msg.clientId && msg.clientId !== conn.id) {
+      this.reclaim(msg.clientId, conn)
+    }
     // NEGOTIATION, AFTER THE PORT AND ONLY FOR `hello`. The port is what applies
     // `hello.caps` to the connection, so reading them before it ran would
     // renegotiate against the previous state. This is the ONLY frame the gateway
@@ -329,6 +335,19 @@ export class ClientMux {
       client: conn.id,
       refusal,
     })
+  }
+  private reclaim(priorId: string, next: ClientConn): void {
+    const prior = this.deps.registry.get(priorId)
+    if (!prior || prior.id === next.id) return
+    if (prior.principal.user !== next.principal.user) {
+      console.warn('[podium] refused cross-user client reconnect reclaim', {
+        prior: prior.id,
+        next: next.id,
+      })
+      return
+    }
+    this.deps.ports.sessions.onClientReclaim(prior, next)
+    this.detachClient(prior.id)
   }
 
   /**
