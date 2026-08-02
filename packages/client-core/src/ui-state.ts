@@ -247,7 +247,6 @@ export function createRoutedUiState(init: {
       if (route.home !== 'per-user-replicated') local.set(key, value)
       else {
         const layoutKey = layoutKeyFromLegacy(key)
-        if (layoutKey === null) throw new Error(`Replicated UI-state key has no layout key: ${key}`)
         if (value === null) replicated.clear(layoutKey)
         else replicated.set(layoutKey, value)
         if (local.get(key) !== null) local.set(key, null)
@@ -583,13 +582,18 @@ const ALL_SNAPSHOT_KEYS = new Set<keyof WorkspaceUiSnapshot>([
   'recentFiles',
 ])
 
+export function createUiStateRouter(local: UiState, win?: RouterWindow): Router {
+  return createRouter({ fallbackView: readStoredView(local), win })
+}
+
 export function createRouterUiState(init: {
   local: UiState
   replicated: ReplicatedUiStatePort
   win?: RouterWindow
+  router?: Router
 }): RouterUiState {
   const ui = createRoutedUiState(init)
-  const router = createRouter({ fallbackView: readStoredView(ui), win: init.win })
+  const router = init.router ?? createUiStateRouter(init.local, init.win)
   return {
     router,
     ui,

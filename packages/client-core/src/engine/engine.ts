@@ -50,6 +50,7 @@ import { createDraftAgent, type SpawnTarget } from '../spawn-agent'
 import { createSubscriptionStore, type SubscriptionStore } from '../store'
 import {
   createRouterUiState,
+  createUiStateRouter,
   type MainView,
   type RoutedUiState,
   type Router,
@@ -72,11 +73,7 @@ import {
   type RecentFileEntry,
   reposToViews,
 } from '../viewmodels'
-import {
-  createEngineActions,
-  createReplicatedLayoutPort,
-  type ReplicatedLayoutPort,
-} from './actions'
+import { createEngineActions, type EngineActions } from './actions'
 import {
   AWAITING_TRUTH_TTL_MS,
   type AwaitingTruth,
@@ -95,6 +92,7 @@ import {
   type ReplicaBinding,
   type ReplicaPublication,
 } from './replica-binding'
+import type { ReplicatedLayoutController } from './replicated-layout'
 import {
   defaultFormatError,
   NOOP_NOTICES,
@@ -247,10 +245,10 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
   readonly outbox: EngineOutbox
   readonly router: Router
   readonly ui: RoutedUiState
+  readonly replicatedLayout: ReplicatedLayoutController
 
   private readonly replicaBinding: ReplicaBinding
   private readonly routerUi: RouterUiState
-  private readonly replicatedUi: ReplicatedLayoutPort
 
   private readonly api: TApi
   private readonly notices: StoreNotices
@@ -375,14 +373,16 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       }
     }
     this.awaitingTruth = restoredAwaiting
-    this.replicatedUi = createReplicatedLayoutPort({ api: this.api, outbox: this.outbox })
+    const localUi = this.replica.uiState()
+    this.router = createUiStateRouter(localUi, init.routerWindow)
+    const actions = this.createActions()
+    this.replicatedLayout = actions.replicatedLayout
     this.routerUi = createRouterUiState({
-      local: this.replica.uiState(),
-      replicated: this.replicatedUi,
-      win: init.routerWindow,
+      local: localUi,
+      replicated: this.replicatedLayout,
+      router: this.router,
     })
     this.ui = this.routerUi.ui
-    this.router = this.routerUi.router
     const persisted = this.routerUi.hydrate()
     const route = this.router.current()
     this.prevRoute = route
@@ -485,7 +485,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
         },
       },
     }
-    this.statics = this.buildStatics()
+    this.statics = this.buildStatics(actions)
     this.subStore = createSubscriptionStore<Store<TApi>>(this.buildSnapshot())
   }
 
@@ -511,7 +511,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     // A route may have changed between dispose() and a re-start (StrictMode).
     const cur = this.router.current()
     if (cur !== this.prevRoute) this.onRouteChanged(cur)
-    offs.push(this.replicatedUi.subscribe(() => this.syncReplicatedUi()))
+    offs.push(this.replicatedLayout.subscribe(() => this.syncReplicatedUi()))
 
     // Outbox → snapshot; attach re-arms drain triggers after a dispose. Queue
     // membership IS overlay membership (#263), so any enqueue/drop repaints
@@ -519,6 +519,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     offs.push(
       this.outbox.subscribe((size) => {
         this.apply({ outboxSize: size, outboxDeadLetters: this.outbox.deadLetters() })
+        this.replicatedLayout.outboxChanged()
         this.recomputeSessions()
         this.recomputeIssues()
         this.recomputeIssueProjections()
@@ -576,7 +577,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     )
     offs.push(
       this.hub.on('userLayouts', (rows: LayoutWire[]) => {
-        this.replicatedUi.adopt(Object.fromEntries(rows.map((row) => [row.key, row.value])))
+        this.replicatedLayout.replace(Object.fromEntries(rows.map((row) => [row.key, row.value])))
       }),
     )
 
@@ -635,7 +636,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     }, 0)
 
     if (!this.booted) {
-      void this.replicatedUi.hydrate().catch(() => {})
+      void this.replicatedLayout.hydrate().catch(() => {})
       this.booted = true
       // Sidebar prefs load out of band so boot fans out only repos + pins + tab
       // orders (never gated on settings or a conversation scan).
@@ -1112,7 +1113,8 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
    *  Returns true to keep the entry DURABLY in storage (finding 1) until
    *  covering truth retires it. */
   private onMutationApplied(entry: OutboxEntry): boolean {
-    if (this.reconcileActionState(entry)) return false
+    const actionHold = this.reconcileActionState(entry, 'applied')
+    if (actionHold !== null) return actionHold
     const overlay = overlayForOutboxEntry(entry)
     if (overlay?.op !== 'patch') return false
     const row =
@@ -1191,7 +1193,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
   /** Definitive failure — retirement rule (b): the wiring already surfaced the
    *  poison toast; repaint without the dropped entry's overlay. */
   private onMutationDropped(entry: OutboxEntry): void {
-    this.reconcileActionState(entry)
+    this.reconcileActionState(entry, 'dropped')
     this.recomputeFor(overlayForOutboxEntry(entry)?.entity)
   }
 
@@ -1199,20 +1201,29 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
    *  outbox subscription (armed in start()) already repaints on any queue
    *  change; recomputing here as well keeps actions optimistic before start()
    *  and after dispose() (the duplicate recompute is a no-op publish). */
-  private reconcileActionState(entry: OutboxEntry): boolean {
+  private reconcileActionState(entry: OutboxEntry, outcome: 'applied' | 'dropped'): boolean | null {
+    if (entry.kind === 'layoutSet' || entry.kind === 'layoutClear') {
+      if (outcome === 'dropped') {
+        this.replicatedLayout.commandDropped(entry)
+        return false
+      }
+      const hold = this.replicatedLayout.commandApplied(entry)
+      if (hold) void this.refreshReplicatedLayout([entry.mutationId]).catch(() => {})
+      return hold
+    }
     if (entry.kind === 'pinSet') {
       void this.refreshPins().catch(() => {})
-      return true
+      return false
     }
     if (entry.kind === 'tabSetOrder') {
       void this.refreshTabOrders().catch(() => {})
-      return true
+      return false
     }
     if (entry.kind === 'settingsUpdatePersonal') {
       void this.refreshPersonalSettings().catch(() => {})
-      return true
+      return false
     }
-    return false
+    return null
   }
 
   private async enqueueOverlayed<K extends keyof OutboxKinds & string>(
@@ -1296,6 +1307,11 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
   private async refreshPersonalSettings(): Promise<void> {
     const settings = await this.api.settings.get.query()
     this.apply({ sidebarSettings: settings.sidebar })
+  }
+
+  private async refreshReplicatedLayout(mutationIds: readonly string[]): Promise<void> {
+    const snapshot = await this.api.layout.get.query()
+    this.replicatedLayout.reconcile(snapshot, mutationIds)
   }
 
   private getUserFocus(): UserFocus {
@@ -1428,7 +1444,29 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     return { sessionId, issueId }
   }
 
-  private buildStatics(): Omit<Store<TApi>, keyof EngineState> {
+  private createActions(): EngineActions<TApi> {
+    return createEngineActions({
+      api: this.api,
+      hub: this.hub,
+      outbox: this.outbox,
+      router: this.router,
+      notices: this.notices,
+      state: () => this.state,
+      apply: (patch) => this.apply(patch),
+      enqueueOverlayed: (kind, input) => {
+        void this.enqueueOverlayed(kind, input)
+      },
+      revealFileTab: (args) => this.revealFileTab(args),
+      recordRecentFile: (entry) => this.recordRecentFile(entry),
+      spawnDraftAgent: (args) => this.spawnDraftAgent(args),
+      setSessionDraft: (sessionId, text) => {
+        this.adoptSessionDraft(sessionId, text)
+        this.hub.sendSessionDraft(sessionId, text)
+      },
+    })
+  }
+
+  private buildStatics(actions: EngineActions<TApi>): Omit<Store<TApi>, keyof EngineState> {
     return {
       hub: this.hub,
       trpc: this.api,
@@ -1437,25 +1475,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       httpOrigin: this.httpOrigin,
       getUserFocus: () => this.getUserFocus(),
       refreshRepos: () => this.refreshRepos(),
-      ...createEngineActions({
-        api: this.api,
-        hub: this.hub,
-        outbox: this.outbox,
-        router: this.router,
-        notices: this.notices,
-        state: () => this.state,
-        apply: (patch) => this.apply(patch),
-        enqueueOverlayed: (kind, input) => {
-          void this.enqueueOverlayed(kind, input)
-        },
-        revealFileTab: (args) => this.revealFileTab(args),
-        recordRecentFile: (entry) => this.recordRecentFile(entry),
-        spawnDraftAgent: (args) => this.spawnDraftAgent(args),
-        setSessionDraft: (sessionId, text) => {
-          this.adoptSessionDraft(sessionId, text)
-          this.hub.sendSessionDraft(sessionId, text)
-        },
-      }),
+      ...actions,
     }
   }
 }

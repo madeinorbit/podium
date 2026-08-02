@@ -12,7 +12,6 @@ import type {
   AgentKind,
   IssueId,
   IssueWire,
-  LayoutSnapshot,
   SessionId,
   SessionMeta,
   WorkState,
@@ -22,9 +21,13 @@ import { type Sidebar as SidebarSettings, shouldPromptAutoContinue } from '@podi
 import type { PodiumClientApi } from '../api'
 import type { SocketHub } from '../socket-transport'
 import type { SpawnTarget } from '../spawn-agent'
-import { type ReplicatedUiStatePort, type Router, routeDefaults } from '../ui-state'
+import { type Router, routeDefaults } from '../ui-state'
 import type { DockTab, FileScope, FileTab, PinKind, PinState, RecentFileEntry } from '../viewmodels'
 import { reposToViews, tabIdFor } from '../viewmodels'
+import {
+  createReplicatedLayoutController,
+  type ReplicatedLayoutController,
+} from './replicated-layout'
 import type { Store, StoreNotices } from './types'
 import type { EngineOutbox, OutboxKinds } from './wiring'
 
@@ -89,6 +92,8 @@ export const COMMAND_ACTIONS = [
 export const ACTION_STATE_REDUCER_COMMANDS = [
   'pins.set',
   'tabs.setOrder',
+  'layout.set',
+  'layout.clear',
   'settings.updatePersonal',
 ] as const
 
@@ -123,7 +128,7 @@ type ActionName = (typeof UI_LOCAL_ACTIONS)[number] | (typeof COMMAND_ACTIONS)[n
 export type EngineActions<TApi extends PodiumClientApi = PodiumClientApi> = Pick<
   Store<TApi>,
   ActionName | 'readFileScoped' | 'listDir' | 'gitStatus' | 'gitLog' | 'gitDiffFile'
->
+> & { readonly replicatedLayout: ReplicatedLayoutController }
 
 export interface EngineActionRuntime<TApi extends PodiumClientApi> {
   readonly api: TApi
@@ -149,94 +154,17 @@ function reducePin(state: PinState, kind: PinKind, id: string, pinned: boolean):
   return { ...state, [key]: pinned ? [...values, id] : values }
 }
 
-/**
- * Actions-owned adapter for the replicated layout family. The ui-state module
- * knows only this port: reads hydrate from layout.get and writes enter the
- * typed Outbox kinds here, never through local persistence.
- */
-export interface ReplicatedLayoutPort extends ReplicatedUiStatePort {
-  adopt(snapshot: LayoutSnapshot): void
-}
-
-export function createReplicatedLayoutPort(init: {
-  api: PodiumClientApi
-  outbox: EngineOutbox
-}): ReplicatedLayoutPort {
-  let base: LayoutSnapshot = {}
-  const optimistic = new Map<string, unknown>()
-  const cleared = new Set<string>()
-  const listeners = new Set<() => void>()
-  const notify = (): void => {
-    for (const listener of [...listeners]) listener()
-  }
-  for (const entry of init.outbox.pending()) {
-    if (entry.kind === 'layoutSet') {
-      const values = (entry.input as { values?: Record<string, unknown> }).values ?? {}
-      for (const [key, value] of Object.entries(values)) {
-        optimistic.set(key, value)
-        cleared.delete(key)
-      }
-    } else if (entry.kind === 'layoutClear') {
-      const keys = (entry.input as { keys?: string[] }).keys ?? []
-      for (const key of keys) {
-        optimistic.delete(key)
-        cleared.add(key)
-      }
-    }
-  }
-  const adopt = (snapshot: LayoutSnapshot): void => {
-    base = snapshot
-    for (const [key, value] of optimistic) {
-      if (Object.is(base[key], value)) optimistic.delete(key)
-    }
-    for (const key of cleared) {
-      if (!(key in base)) cleared.delete(key)
-    }
-    notify()
-  }
-  return {
-    hydrate: async () => adopt(await init.api.layout.get.query()),
-    adopt,
-    get: (key) => {
-      if (cleared.has(key)) return undefined
-      return optimistic.has(key) ? optimistic.get(key) : base[key]
-    },
-    set: (key, value) => {
-      const previous = optimistic.get(key)
-      const hadPrevious = optimistic.has(key)
-      optimistic.set(key, value)
-      cleared.delete(key)
-      notify()
-      void Promise.resolve(init.outbox.enqueue('layoutSet', { values: { [key]: value } })).catch(
-        () => {
-          if (!Object.is(optimistic.get(key), value)) return
-          if (hadPrevious) optimistic.set(key, previous)
-          else optimistic.delete(key)
-          notify()
-        },
-      )
-    },
-    clear: (key) => {
-      optimistic.delete(key)
-      cleared.add(key)
-      notify()
-      void Promise.resolve(init.outbox.enqueue('layoutClear', { keys: [key] })).catch(() => {
-        cleared.delete(key)
-        notify()
-      })
-    },
-    subscribe: (listener) => {
-      listeners.add(listener)
-      return () => void listeners.delete(listener)
-    },
-  }
-}
-
 export function createEngineActions<TApi extends PodiumClientApi>(
   rt: EngineActionRuntime<TApi>,
 ): EngineActions<TApi> {
   const api = rt.api
+  const replicatedLayout = createReplicatedLayoutController({
+    outbox: rt.outbox,
+    api,
+    notices: rt.notices,
+  })
   return {
+    replicatedLayout,
     setPinned: async (kind: PinKind, id: string, pinned: boolean) => {
       const previous = rt.state().pins
       rt.apply({ pins: reducePin(previous, kind, id, pinned) })

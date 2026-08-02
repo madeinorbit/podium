@@ -71,6 +71,7 @@ function recordingApi() {
     pins: { set: proc('pins.set') },
     tabs: { setOrder: proc('tabs.setOrder') },
     settings: { updatePersonal: proc('settings.updatePersonal') },
+    layout: { set: proc('layout.set'), clear: proc('layout.clear') },
     issues: {
       markRead: proc('issues.markRead'),
       markUnread: proc('issues.markUnread'),
@@ -120,6 +121,8 @@ async function drainFully(outbox: { size(): number; drain(): Promise<void> }): P
 const COVERED: { kind: keyof OutboxKinds & string; input: object; path: string }[] = [
   { kind: 'pinSet', input: { kind: 'panel', id: 's1', pinned: true }, path: 'pins.set' },
   { kind: 'tabSetOrder', input: { worktree: '/w', sessionIds: ['s1'] }, path: 'tabs.setOrder' },
+  { kind: 'layoutSet', input: { values: { superOpen: '0' } }, path: 'layout.set' },
+  { kind: 'layoutClear', input: { keys: ['superOpen'] }, path: 'layout.clear' },
   {
     kind: 'settingsUpdatePersonal',
     input: { values: { 'sidebar.repoSort': 'name' } },
@@ -147,7 +150,7 @@ const COVERED: { kind: keyof OutboxKinds & string; input: object; path: string }
 ]
 
 describe('oracle: the offline-queued write set', () => {
-  it(`${MUST_NOT_CHANGE}: eight session writes, three issue writes, and three replicated per-user writes drain to their tRPC procedures — offline queueing is not issue-only`, async () => {
+  it(`${MUST_NOT_CHANGE}: eight session writes, three issue writes, and five replicated per-user writes drain to their tRPC procedures — offline queueing is not issue-only`, async () => {
     const { outbox, calls } = makeOutbox()
 
     for (const covered of COVERED) {

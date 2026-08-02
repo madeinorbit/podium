@@ -25,14 +25,15 @@ import type {
 import type { ApprovalWire } from '@podium/protocol'
 import type { Sidebar as SidebarSettings } from '@podium/runtime'
 import type { RetrySatisfaction } from '@podium/sync/outbox'
-import type { SocketHub } from '../socket-transport'
 import type { PodiumClientApi } from '../api'
 import type { OutboxDeadLetterEntry } from '../outbox'
 import type { IssueProjectionRow } from '../replica/contract'
 import type { Replica } from '../replica/replica'
-import type { MainView, RoutedUiState } from '../ui-state'
+import type { SocketHub } from '../socket-transport'
 import type { SpawnTarget } from '../spawn-agent'
+import type { MainView, RoutedUiState } from '../ui-state'
 import type { DockTab, FileScope, FileTab, PinKind, PinState, RecentFileEntry } from '../viewmodels'
+import type { ReplicatedLayoutPort } from './replicated-layout'
 
 /** The two endpoints the shared store needs to reach a Podium server. */
 export interface StoreServerConfig {
@@ -305,6 +306,9 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  (see replica.uiState()) — components persist prefs through this, never
    *  through ad-hoc localStorage keys. */
   uiState: RoutedUiState
+  /** Command-owned replicated layout writer consumed by POD-403's routing,
+   * hydration, and migration module. Device-local keys fail closed here. */
+  replicatedLayout: ReplicatedLayoutPort
   /** Server HTTP origin — used to build asset URLs (e.g. markdown images). */
   httpOrigin: string
   /** Count of not-yet-synced outbox entries (offline-authored writes waiting to

@@ -54,11 +54,11 @@ describe('the wire change row composes the model vocabulary', () => {
     // The counterfactual guard: if `.options` ever stopped resolving, every
     // per-arm assertion below would iterate an empty list and pass silently.
     //
-    // FIVE UNTIL THE POD-1246 CATCH-UP, NINE NOW: 'issueProjection', 'issueDep'
-    // and 'repo' (POD-796 / POD-822), then 'userLayout' (POD-1350), joined the
-    // union. They are COUNTED here
-    // rather than exempted because the loops below are what proves the new arms
-    // compose the shared vocabulary too — main declared all three as hand-written
+    // FIVE UNTIL THE POD-1246 CATCH-UP, EIGHT with issueProjection/issueDep/repo
+    // (POD-796 / POD-822), NINE NOW: 'userLayout' (POD-1350) joined the union
+    // for per-user sidebar/tab chrome. They are COUNTED here rather than
+    // exempted because the loops below are what proves the new arms compose the
+    // shared vocabulary too — main declared the earlier three as hand-written
     // `z.object`s restating `seq`/`id`/`op`, which is exactly the fork this file
     // exists to see. They are composed through `metadataChangeArm` instead, and
     // these assertions are the evidence that the port did not reintroduce the
