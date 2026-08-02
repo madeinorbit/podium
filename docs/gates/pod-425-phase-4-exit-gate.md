@@ -37,9 +37,7 @@ afterward and are not treated as a fix for ordinary worktree installation.
   registry, ephemeral/gated rooms, non-distinguishing refusal, and drop-not-buffer pressure
   behavior, each with a deliberate violation and candidate SHA.
 - POD-1079 is `done`.
-- POD-1315 and POD-1316 remain open direct Phase 4 children. The first leaves a defaulted
-  first-admin principal on `IssueService.addComment`; the second leaves the real wire-window
-  integration test unauthenticated and timing out at the fail-closed client gate.
+- POD-1315 closed after this gate run, but its correction is not in candidate `aba864a9`, where the defaulted first-admin principal remains. POD-1316 remains open and leaves the real wire-window integration test unauthenticated and timing out at the fail-closed client gate.
 - POD-1318 is now `done`; its test-only correction landed through the POD-1327 change.
 - POD-1351 is an open blocking child: POD-318's phase-close audit refuses three undeclared
   residue families.
@@ -145,7 +143,7 @@ the cross-owner policy.
 
 ## Required next candidate
 
-The gate may be rerun only after POD-1078, POD-1315, POD-1316, POD-1351, and POD-1356 close with evidence and land.
+The gate may be rerun only after POD-1078, POD-1316, POD-1351, and POD-1356 close with evidence, and after POD-1315's correction plus every other blocker land in the next candidate.
 The integrator must then publish one fresh landing record at the resulting SHA with commands, exit
 codes, and attribution for the structural audits, session/issue/memory E2E, live redeploy survival,
 and multi-instance isolation. Against that same SHA, this gate must run and restore the real-tree
