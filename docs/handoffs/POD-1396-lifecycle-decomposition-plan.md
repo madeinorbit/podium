@@ -96,16 +96,49 @@ census header).
 them puts a call across a new boundary for no gain, and `spawn` is not
 independently meaningful.
 
-**2. `session-teardown.ts` (~450 lines).** `stopSession`, `stopIssue`,
-`hibernateSession`, `killSession`, `killStoppedSession`, `removeSessionRuntime`,
-`sessionRemovalSpecs`, `emitSessionExited`, `finalizeDeferredStopKill`. One job:
-end a session at each of its four distinct severities, and emit what each
-implies.
+**2. `session-teardown.ts` — MEASURED at 557 lines, 12 methods.** Prepared in
+detail below; the cut itself is mechanical from here.
 
-*Hazard:* these differ from each other only in what survives (row, transcript,
-resume ref, worktree). That table belongs in the module header or the next
-reader will collapse two of them. `hibernateSession` also consumes the terminal
-proof — keep it a **reader** of `terminal-proof.ts`, never a second judge.
+```
+ 128  stopSession                    99  hibernateSession
+  94  stopIssue                      48  tryAutoArchiveStoppedObserved
+  41  killSession                    39  removeSessionRuntime
+  39  emitSessionExited              25  parkArchivedSession
+  13  killStoppedSession             12  finalizeDeferredStopKill
+  12  maybeReapDraftIssue             7  sessionRemovalSpecs
+```
+
+Six of the twelve call each other and must move together: `stopSession`,
+`killStoppedSession`, `removeSessionRuntime`, `sessionRemovalSpecs`,
+`emitSessionExited`, `maybeReapDraftIssue`.
+
+**The 19 ports that cross the boundary** (measured, not guessed): autoContinue,
+broadcastSessions, bus, clients, daemonProjection, deps, listSessions, machines,
+now, rearmUnread, repository, rpc, sessions, setArchived, state, store,
+terminalProof, toMachine, view.
+
+**THE SURVIVAL TABLE — put this in the module header.** These four operations
+differ ONLY in what survives, and a reader who cannot see the difference will
+collapse two of them:
+
+| operation | process | worktree | branch | transcript | row | resume ref |
+| --- | --- | --- | --- | --- | --- | --- |
+| `hibernateSession` | killed | **kept** | kept | kept | kept | **required** — refuses without one rather than silently becoming a kill |
+| `stopSession` | killed | **freed** when safe | kept | kept | kept | kept |
+| `stopIssue` | all killed | freed | kept | kept | kept | kept |
+| `killSession` | killed | — | — | kept | **tombstoned** | — |
+
+**ORDERING CONTRACT inside `killSession`, load-bearing (#247):** the durable
+tombstone commits FIRST, live teardown after. A commit throw must leave the
+session fully alive — still in the map, clients attached, PTY not signalled —
+and propagate to the caller, rather than tearing down live state for a row the
+rolled-back transaction still holds. The remove change also commits in the SAME
+transaction as the tombstone ([spec:SP-3fe2]) so the durable change log can
+never say something the sessions table does not. Reversing either is invisible
+to types and to a passing build.
+
+*Hazard:* `hibernateSession` consumes the terminal proof — keep it a **reader**
+of `terminal-proof.ts`, never a second judge.
 
 **3. `session-revival.ts` (~260 lines).** `resumeSession`, `resurrectSession`,
 `finishResurrect`, `handoffSession`, `handoffs`, `findLiveByResume`. One job:
