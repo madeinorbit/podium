@@ -28,14 +28,14 @@
 import { randomUUID } from 'node:crypto'
 import { exemptFromBrakes, type MailSenderPrincipal, senderBrakeKey } from '@podium/commands'
 import {
+  type AgentPhase,
+  type Attribution,
   actorAgent,
   actorSystem,
   actorUser,
   asAgentIdentityId,
   asIssueId,
   FIRST_ADMIN_USER_ID,
-  type AgentPhase,
-  type Attribution,
   type IssueId,
   type IssueScope,
   type SessionId,
@@ -57,14 +57,12 @@ import type { NotificationFactsRepository } from '../../store/notification-facts
 import { NotificationArbiter } from '../../store/notification-facts'
 import type { IssueService } from '../issues/service'
 import type { InboxPrincipalReference } from '../sessions/inbox'
+import { DeliveryBrakes, SPAWN_BUDGET_PER_DAY } from './brakes'
 import { INLINE_BODY_MAX, MessageRenderer, principalOfRow } from './render'
+import { compareCursor, cursorOf, type DeliveryTarget, deliveryTargetKey } from './targets'
 
 /** Chain depth past which lifecycle clamps to wait (brake 3). */
 export const HOP_LIMIT = 5
-/** One wake per (sender, target-issue) per this window (brake 1). */
-export const WAKE_COOLDOWN_MS = 10 * 60_000
-/** Message-triggered spawns per issue per UTC day (brake 2). */
-export const SPAWN_BUDGET_PER_DAY = 10
 /** A pushed message becomes `delivered` only when its envelope echoes back as a
  *  turn in the target's transcript [POD-834 §04d]. If no echo confirms within
  *  this window the push was lost (drain refused, session died, an ESC ate it) and
@@ -340,8 +338,6 @@ export function senderFromPrincipal(principal: CommandPrincipal): MessageSender 
 /** How the target session presents at delivery time. */
 type TargetState = 'idle' | 'running' | 'parked'
 
-type DeliveryTarget = { kind: 'session' | 'issue'; id: string }
-
 /** The low-frequency sweep remains a bounded safety net while event coverage is
  * proven. One pass never revisits an unbounded historical queue. [spec:SP-c29e] */
 export const DELIVERY_RETRY_BACKSTOP_LIMIT = 100
@@ -368,15 +364,6 @@ export interface MessageDeliveryStats {
 const DELIVERY_TARGET_PAGE_LIMIT = 200
 const DELIVERY_RECONCILE_PAGE_LIMIT = 100
 
-function cursorOf(message: MessageRow): MessagePageCursor {
-  return {
-    createdAt: message.createdAt,
-    id: message.id,
-  }
-}
-
-const deliveryTargetKey = (target: DeliveryTarget): string => `${target.kind}:${target.id}`
-
 type ClampNote = { urgency?: MessageUrgency; lifecycle?: MessageLifecycle; reason: string }
 
 const URGENCY_ORDER: MessageUrgency[] = ['fyi', 'next-turn', 'interrupt']
@@ -393,12 +380,6 @@ export class MessageDeliveryService {
   /** Lost-echo requeues per message id [POD-853 stopgap]; in-memory is fine —
    *  a restart resets the count and the row simply earns its cap again. */
   private readonly requeueCounts = new Map<string, number>()
-  /** Last wake timestamp per sender+resolved-target brake key. This is a
-   * write-through cache over message_wake_cooldowns; cold reads are keyed. */
-  private readonly lastWakeAt = new Map<string, number>()
-  /** message-triggered spawns per issue for the current UTC day (brake 2) — a
-   *  cache over the `message.spawned` event ledger (restart-proof). */
-  private readonly spawnCount = new Map<string, { day: string; count: number }>()
   /** needs-attention already emitted per `${messageId}|${reason}` — the sweep
    *  re-attempts every 60s and must not spam the event log / notify path. */
   private readonly attentionEmitted = new Set<string>()
@@ -408,9 +389,21 @@ export class MessageDeliveryService {
    *  (POD-1397). Holds no state; owned rather than injected because its deps are
    *  a narrowing of this service's own. */
   private readonly render: MessageRenderer
+  /** Containment brakes 1 (wake cooldown) and 2 (spawn budget) — POD-1397.
+   *  Owns their state and their timers outright; this service supplies only the
+   *  keys it is the one able to resolve, and disposes it. */
+  private readonly brakes: DeliveryBrakes
 
   constructor(private readonly deps: MessageDeliveryDeps) {
     this.notificationArbiter = new NotificationArbiter(deps.notificationFacts, deps.now)
+    this.brakes = new DeliveryBrakes({
+      messages: deps.messages,
+      events: deps.events,
+      now: deps.now,
+      onCooldownElapsed: (targets) => {
+        for (const target of targets) this.queueDeliveryTarget(target)
+      },
+    })
     this.render = new MessageRenderer({
       issues: deps.issues,
       listSessions: () => deps.sessions.listSessions(),
@@ -441,15 +434,6 @@ export class MessageDeliveryService {
   /** Last resolved issue per session. This is the before-state needed for detach,
    * reassignment, inferred-cwd movement, and remove events. */
   private readonly sessionIssueTargets = new Map<string, string>()
-  /** One restart-recoverable wake-cooldown timer per sender+target brake key. */
-  private readonly wakeCooldownTimers = new Map<
-    string,
-    {
-      deadline: number
-      timer: ReturnType<typeof setTimeout>
-      targets: Map<string, DeliveryTarget>
-    }
-  >()
 
   /** Queue the session principal plus both sides of its issue-resolution change. */
   onSessionEligibilityChanged(
@@ -593,7 +577,7 @@ export class MessageDeliveryService {
       if (
         page.length === DELIVERY_TARGET_PAGE_LIMIT &&
         pageCursor &&
-        (!work.through || this.compareCursor(pageCursor, work.through) < 0)
+        (!work.through || compareCursor(pageCursor, work.through) < 0)
       ) {
         this.queueDeliveryTarget(work.target, work.preferred, pageCursor, work.through)
       }
@@ -663,8 +647,7 @@ export class MessageDeliveryService {
     this.deliveryTriggerTimer = null
     this.reconcileTimer = null
     this.retryBackstopTimer = null
-    for (const pending of this.wakeCooldownTimers.values()) clearTimeout(pending.timer)
-    this.wakeCooldownTimers.clear()
+    this.brakes.dispose()
     this.pendingDeliveryTargets.clear()
     this.activeBoundaryTargets.clear()
     this.deferredBoundaryTargets.clear()
@@ -696,7 +679,7 @@ export class MessageDeliveryService {
       this.coalescedTriggerCount += 1
       if (through) existing.through = through
       if (!after) existing.after = undefined
-      else if (existing.after && this.compareCursor(after, existing.after) < 0)
+      else if (existing.after && compareCursor(after, existing.after) < 0)
         existing.after = after
       else if (!existing.after) existing.after = after
       if (preferred) existing.preferred = preferred
@@ -723,10 +706,6 @@ export class MessageDeliveryService {
       }
     }, 0)
     this.deliveryTriggerTimer.unref?.()
-  }
-
-  private compareCursor(a: MessagePageCursor, b: MessagePageCursor): number {
-    return a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)
   }
 
   private prepareQueuedAttemptSafely(message: MessageRow, nowMs: number): boolean {
@@ -816,7 +795,7 @@ export class MessageDeliveryService {
       const issueKey =
         input.to.kind === 'issue' ? (toId ?? '') : this.issueForSession(targetSession)
       const key = `${this.senderKey(from)}|${issueKey ?? toId ?? ''}`
-      if (this.wakeCooldownHot(key)) {
+      if (this.brakes.isWakeHot(key)) {
         clamps.push({ lifecycle, reason: 'wake cooldown (1 per 10min per sender+issue)' })
         lifecycle = 'wait'
       }
@@ -1197,7 +1176,7 @@ export class MessageDeliveryService {
   private trySpawn(message: MessageRow, issueId: string | null): DeliveryOutcome {
     const key = issueId ?? 'no-issue'
     const day = this.deps.now().slice(0, 10)
-    const count = this.spawnCountFor(key, day)
+    const count = this.brakes.spawnCountFor(key, day)
     if (count >= SPAWN_BUDGET_PER_DAY) {
       this.emitTransition(message, 'message.spawn_budget_exhausted')
       this.needsAttention(
@@ -1212,11 +1191,11 @@ export class MessageDeliveryService {
       this.needsAttention(message, 'wake target is unresumable and spawn-on-wake is not wired')
       return { ok: true, queued: true, reason: 'unresumable', disposition: 'held' }
     }
-    this.spawnCount.set(key, { day, count: count + 1 })
+    this.brakes.chargeSpawn(key, day, count + 1)
     // A spawn attempt IS a wake — record it against the cooldown so the sweep
     // does not re-run the spawn seam every 60s.
     if (message.fromKind !== 'operator') {
-      this.recordWakeKey(`${this.senderKeyOfRow(message)}|${issueId ?? ''}`)
+      this.brakes.recordWake(`${this.senderKeyOfRow(message)}|${issueId ?? ''}`)
     }
     const r = this.deps.spawnOnWake.spawn({ issueId, message })
     if (r.ok && r.sessionId) {
@@ -1367,8 +1346,8 @@ export class MessageDeliveryService {
     }
     if (message.lifecycle === 'wake' && !exemptFromBrakes(principalOfRow(message))) {
       const key = this.wakeKeyOfRow(message)
-      if (this.wakeCooldownHot(key)) {
-        this.scheduleWakeCooldown(key, message)
+      if (this.brakes.isWakeHot(key)) {
+        this.scheduleWakeRetry(key, message)
         return false
       }
     }
@@ -1382,7 +1361,7 @@ export class MessageDeliveryService {
     const current = this.deps.messages.getMessage(message.id)
     if (!current || current.status !== 'queued' || current.injectedAt) return
     const key = this.wakeKeyOfRow(current)
-    if (this.wakeCooldownHot(key)) this.scheduleWakeCooldown(key, current)
+    if (this.brakes.isWakeHot(key)) this.scheduleWakeRetry(key, current)
   }
 
   /** Slow delivery backstop. Calendar expiry belongs exclusively to the fenced
@@ -1977,44 +1956,18 @@ export class MessageDeliveryService {
     return Date.parse(this.deps.now())
   }
 
-  /** Today's spawn count for an issue key — in-memory cache over the durable
-   *  event ledger (`message.spawned` from the wake seam, plus `agent.spawned`
-   *  rows that carry `budgetIssue` — the gate's budgeted agent spawns), so a
-   *  restart never resets brake 2. */
-  private spawnCountFor(key: string, day: string): number {
-    const entry = this.spawnCount.get(key)
-    if (entry?.day === day) return entry.count
-    let count = 0
-    try {
-      for (const e of this.deps.events.listEventsSince(0, {
-        kinds: ['message.spawned', 'agent.spawned'],
-        limit: 5000,
-      })) {
-        const p = e.payload as { spawnIssue?: string; budgetIssue?: string } | null
-        // agent.spawned rows only count when budgeted (operator spawns are free).
-        const k = e.kind === 'agent.spawned' ? p?.budgetIssue : (p?.spawnIssue ?? 'no-issue')
-        if (k !== undefined && e.ts.slice(0, 10) === day && k === key) count++
-      }
-    } catch {}
-    this.spawnCount.set(key, { day, count })
-    return count
-  }
-
   /** Brake 2 for DIRECT agent spawns (`podium agent spawn`) — the gate shares
-   *  the same per-issue daily budget as the spawn-on-wake seam, or a looping
-   *  agent could fork-bomb the host with full PTY sessions the wake budget
-   *  never sees [spec:SP-34d7 containment]. Consumes one unit when available. */
+   *  the same per-issue daily budget as the spawn-on-wake seam. Delegated: the
+   *  budget lives with the brake that enforces it, but the seam is on this
+   *  service because that is what the gate holds. */
   takeSpawnBudget(issueId: string | null): { ok: boolean; count: number } {
-    const key = issueId ?? 'no-issue'
-    const day = this.deps.now().slice(0, 10)
-    const count = this.spawnCountFor(key, day)
-    if (count >= SPAWN_BUDGET_PER_DAY) return { ok: false, count }
-    this.spawnCount.set(key, { day, count: count + 1 })
-    return { ok: true, count: count + 1 }
+    return this.brakes.takeSpawnBudget(issueId)
   }
 
   /** The cooldown key of a stored row — MUST mirror recordWake/send: session
-   *  targets resolve to their issue. */
+   *  targets resolve to their issue. Derived HERE, never inside the brake: this
+   *  service owns the session→issue resolution, and a key written by one
+   *  derivation and checked by another silently disables the brake. */
   private wakeKeyOfRow(m: MessageRow): string {
     const target =
       m.toKind === 'session'
@@ -2026,62 +1979,18 @@ export class MessageDeliveryService {
     return `${this.senderKeyOfRow(m)}|${issueKey ?? m.toId ?? ''}`
   }
 
-  private wakeCooldownHot(key: string): boolean {
-    const cutoff = this.nowMs() - WAKE_COOLDOWN_MS
-    const last = this.lastWakeAt.get(key)
-    if (last !== undefined) return last > cutoff
-    const attemptedAt = this.deps.messages.getWakeCooldown(key)
-    const parsed = attemptedAt ? Date.parse(attemptedAt) : 0
-    const derived = Number.isFinite(parsed) ? parsed : 0
-    this.lastWakeAt.set(key, derived)
-    return derived > cutoff
-  }
-
-  /** Arm one timer for every queued target sharing a sender+issue cooldown key.
-   *  The deadline comes from lastWakeAt, whose cold-path value is reconstructed
-   *  from durable message rows, so reconcileQueued() restores this after restart. */
-  private scheduleWakeCooldown(key: string, message: MessageRow): void {
+  /** Arm the brake's retry for this row's durable target. Resolving the row to
+   *  a target is this service's job; arming the timer is the brake's. */
+  private scheduleWakeRetry(key: string, message: MessageRow): void {
     const target = this.deliveryTargetOf(message)
     if (!target) return
-    const last = this.lastWakeAt.get(key)
-    if (last === undefined) return
-    const deadline = last + WAKE_COOLDOWN_MS
-    const existing = this.wakeCooldownTimers.get(key)
-    if (existing && existing.deadline === deadline) {
-      existing.targets.set(deliveryTargetKey(target), target)
-      return
-    }
-    if (existing) clearTimeout(existing.timer)
-    const targets = existing?.targets ?? new Map<string, DeliveryTarget>()
-    targets.set(deliveryTargetKey(target), target)
-    const timer = setTimeout(
-      () => {
-        const pending = this.wakeCooldownTimers.get(key)
-        if (!pending || pending.deadline !== deadline) return
-        this.wakeCooldownTimers.delete(key)
-        for (const retryTarget of pending.targets.values()) {
-          this.queueDeliveryTarget(retryTarget)
-        }
-      },
-      Math.max(1, deadline - this.nowMs()),
-    )
-    timer.unref?.()
-    this.wakeCooldownTimers.set(key, { deadline, timer, targets })
+    this.brakes.scheduleWakeRetry(key, target)
   }
 
   private recordWake(message: MessageRow, target: SessionMeta | undefined): void {
     if (exemptFromBrakes(principalOfRow(message))) return
     const issueKey = message.toKind === 'issue' ? message.toId : this.issueForSession(target)
-    this.recordWakeKey(`${this.senderKeyOfRow(message)}|${issueKey ?? message.toId ?? ''}`)
-  }
-
-  /** Durable write happens before queueText/spawn, so a crash or transport
-   * failure cannot erase the cooldown attempt. */
-  private recordWakeKey(key: string): void {
-    const attemptedAt = this.deps.now()
-    this.deps.messages.recordWakeCooldown(key, attemptedAt)
-    const parsed = Date.parse(attemptedAt)
-    this.lastWakeAt.set(key, Number.isFinite(parsed) ? parsed : this.nowMs())
+    this.brakes.recordWake(`${this.senderKeyOfRow(message)}|${issueKey ?? message.toId ?? ''}`)
   }
 
   /** Record a push toward a live PTY without claiming the agent saw it: stamps

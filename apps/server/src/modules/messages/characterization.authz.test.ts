@@ -22,8 +22,9 @@ import { TRPCError } from '@trpc/server'
 import { describe, expect, it } from 'vitest'
 import type { Capability } from '../../issue-authz'
 import type { MessageRow } from '../../store'
+import { WAKE_COOLDOWN_MS } from './brakes'
 import { mailHarness, OPERATOR } from './characterization-support'
-import { senderFromCapability, WAKE_COOLDOWN_MS } from './service'
+import { senderFromCapability } from './service'
 
 /** Assert a thrown TRPCError's code AND message verbatim. */
 async function rejectsWith(p: Promise<unknown>, code: string, message: string): Promise<void> {

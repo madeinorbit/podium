@@ -12,9 +12,9 @@
  */
 
 import { type ContractInput, type spawnAgentContract, UNADDRESSABLE } from '@podium/commands'
-import { checkIssueAccess } from '../../../issue-authz'
 import { attributionOf, onBehalfOfUser } from '../../../command-principal'
-import { SPAWN_BUDGET_PER_DAY } from '../service'
+import { checkIssueAccess } from '../../../issue-authz'
+import { SPAWN_BUDGET_PER_DAY } from '../brakes'
 import type { MailHandlerContext } from './context'
 
 export function spawnAgentHandler(

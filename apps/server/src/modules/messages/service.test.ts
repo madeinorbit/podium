@@ -3,8 +3,8 @@
 // state × axis table, clamp matrix, containment brakes (wake cooldown, spawn
 // budget, hop limit), pointer coalescing, and the queued→delivered ledger.
 
-import { asIssueId, asSessionId, FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
 import type { SessionMeta, SessionMetaInput } from '@podium/model'
+import { asIssueId, asSessionId, FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
 import { AGENT_RELAY_BLOCKING_TIMEOUT_MS } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import type { Capability } from '../../issue-authz'
@@ -12,6 +12,7 @@ import type { IssueRow, MessageRow } from '../../store'
 import { SessionStore } from '../../store'
 import { NotificationArbiter } from '../../store/notification-facts'
 import type { IssueService } from '../issues/service'
+import { SPAWN_BUDGET_PER_DAY, WAKE_COOLDOWN_MS } from './brakes'
 import { MessageGate } from './gate'
 import { INLINE_BODY_MAX, sanitizeBody } from './render'
 import {
@@ -21,9 +22,7 @@ import {
   MAX_ECHO_REQUEUES,
   MessageDeliveryService,
   NEXT_TURN_DELIVERY_BUDGET_MS,
-  SPAWN_BUDGET_PER_DAY,
   senderFromCapability,
-  WAKE_COOLDOWN_MS,
 } from './service'
 
 const ISSUE = {
