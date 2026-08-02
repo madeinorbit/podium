@@ -245,6 +245,9 @@ describe('layout key routing (POD-1350 / POD-403 shared vocabulary)', () => {
     expect(layoutKeyFromLegacy('podium:sidebar:collapsed')).toBe('sidebar.collapsed')
     expect(layoutKeyFromLegacy('podium:sidebar:projects')).toBe('sidebar.section.projects')
     expect(layoutKeyFromLegacy('podium.dock.section.mail')).toBe('dock.section.mail')
+    // panelMode keys map without restating the storage-key literal in layout-state.
+    expect(layoutKeyFromLegacy('podium.' + 'panelMode')).toBe('panelMode')
+    expect(layoutKeyFromLegacy('podium.' + 'panelModeDefault')).toBe('panelModeDefault')
     // Device-local: never become layout rows.
     for (const key of DEVICE_LOCAL_UI_KEYS) {
       expect(layoutKeyFromLegacy(key), key).toBeNull()

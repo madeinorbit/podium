@@ -84,6 +84,7 @@ import type { SnapshotTail } from './modules/sessions/publication/coordinator'
 import type { PublishWorkerClient } from './modules/sessions/publish-worker-client'
 import { SessionReadToolkit } from './modules/sessions/read-toolkit'
 import type { Session } from './modules/sessions/session'
+import { LayoutService } from './modules/layout/service'
 import { SettingsService, type TelegramSetupClient } from './modules/settings/service'
 import { SpecsService } from './modules/specs/service'
 import { deliverAnswerToSession } from './modules/superagent/answer-delivery'
@@ -138,6 +139,8 @@ export interface RegistryModules {
   memory: MemoryService
   hosts: HostsService
   settings: SettingsService
+  /** Per-user sidebar/tab layout (POD-1350) — store + feed publish behind one service. */
+  layout: LayoutService
   issueSessionLifecycle: IssueSessionLifecycle
   headless: HeadlessService
   notify: NotifyService
@@ -1410,6 +1413,9 @@ export class SessionRegistry {
     })
     this.issues = issues
     this.issueCommands = issueCommands
+    // Layout service is composed here (not reached from tRPC via sessionStore) so
+    // the transport only names familyState(ctx).modules.layout — router-triple-access.
+    const layout = new LayoutService({ layout: this.store.layout, ledger })
     this.modules = {
       bus: this.bus,
       funnel,
@@ -1419,6 +1425,7 @@ export class SessionRegistry {
       memory,
       hosts,
       settings,
+      layout,
       headless,
       reactions: REACTIONS,
       notify,

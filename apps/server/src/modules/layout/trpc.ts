@@ -3,6 +3,10 @@
  *
  * Writes run the contract-derived LIVE gate ({@link layoutAuthzFailure}) before
  * any store touch, then the handler. See POD-402 review gap 1.
+ *
+ * State is reached ONLY through {@link familyState} → `modules.layout` (the
+ * POD-314 seam). No `sessionStore` / `mods(ctx)` longhand in this file —
+ * `router-triple-access` counts those as transport reach-throughs.
  */
 
 import {
@@ -14,22 +18,17 @@ import {
 import { TRPCError } from '@trpc/server'
 import type { Context } from '../../trpc'
 import { t } from '../../trpc'
+import { familyState } from '../derived-family'
 import { layoutActor, layoutAuthzDeps, layoutAuthzFailure } from './authz'
-import { LayoutService } from './service'
 
 function nowIso(): string {
   return new Date().toISOString()
 }
 
-function layoutService(ctx: Context): LayoutService {
-  return new LayoutService({
-    layout: ctx.registry.sessionStore.layout,
-    // Ledger is on the registry composition; capture publishes userLayout rows.
-    ledger: ctx.registry.changeLedger,
-  })
-}
-
-function authorizeWrite(ctx: Context, name: string): { actor: NonNullable<ReturnType<typeof layoutActor>> } {
+function authorizeWrite(
+  ctx: Context,
+  name: string,
+): { actor: NonNullable<ReturnType<typeof layoutActor>> } {
   const deps = layoutAuthzDeps(ctx)
   const refusal = layoutAuthzFailure(name, deps)
   if (refusal) throw refusal
@@ -48,22 +47,20 @@ export function layoutFamilyProcedures() {
   return {
     /** Bootstrap snapshot for the calling principal (tRPC read path). */
     get: t.procedure.query(({ ctx }) => {
-      // Same member floor as writes — no admin may read another person's layout.
-      // Reuses layout.set's floor declaration so there is one policy object.
       const { actor } = authorizeWrite(ctx, layoutSetContract.name)
-      return layoutService(ctx).getSnapshot(actor)
+      return familyState(ctx).modules.layout.getSnapshot(actor)
     }),
 
     set: t.procedure.input(layoutSetInput).mutation(({ ctx, input }) => {
       const { actor } = authorizeWrite(ctx, layoutSetContract.name)
       const parsed = layoutSetContract.input.parse(input)
-      return layoutService(ctx).set(actor, parsed.values, nowIso())
+      return familyState(ctx).modules.layout.set(actor, parsed.values, nowIso())
     }),
 
     clear: t.procedure.input(layoutClearInput).mutation(({ ctx, input }) => {
       const { actor } = authorizeWrite(ctx, layoutClearContract.name)
       const parsed = layoutClearContract.input.parse(input)
-      return layoutService(ctx).clear(actor, parsed.keys)
+      return familyState(ctx).modules.layout.clear(actor, parsed.keys)
     }),
   }
 }

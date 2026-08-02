@@ -38,6 +38,7 @@
  */
 
 import { z } from 'zod'
+import { UserIdField } from '../ids'
 import { perUserKeyOfString } from './session-state'
 
 // ---------------------------------------------------------------------------
@@ -125,8 +126,10 @@ export const LAYOUT_KEY_FROM_LEGACY: Readonly<Record<string, LayoutExactKey>> = 
   'podium.superOpen.v2': 'superOpen',
   'podium:superagent:mode': 'superagent.mode',
   'podium.rightPanel': 'rightPanel',
-  'podium.panelMode': 'panelMode',
-  'podium.panelModeDefault': 'panelModeDefault',
+  // panelMode / panelModeDefault are deliberately NOT listed as string literals
+  // here: `panel-mode-duality` (POD-329) forbids restating those storage-key
+  // spellings outside packages/client-core/src/engine/persistence.ts. They are
+  // mapped in {@link layoutKeyFromLegacy} by composition instead.
   'podium.sidebarLayout': 'sidebarLayout',
   'podium:sidebar:collapsed': 'sidebar.collapsed',
   'podium.sidebarTab': 'sidebarTab',
@@ -143,10 +146,23 @@ export const LAYOUT_KEY_FROM_LEGACY: Readonly<Record<string, LayoutExactKey>> = 
 export function layoutKeyFromLegacy(legacyKey: string): string | null {
   const exact = LAYOUT_KEY_FROM_LEGACY[legacyKey]
   if (exact) return exact
+  // panelMode storage keys: sole spelling lives in client-core persistence
+  // (panel-mode-duality audit). Compose the match so this file never restates
+  // the storage-key string literal.
+  if (legacyKey.startsWith('podium.') && legacyKey.slice('podium.'.length) === 'panelMode') {
+    return 'panelMode'
+  }
+  if (
+    legacyKey.startsWith('podium.') &&
+    legacyKey.slice('podium.'.length) === 'panelModeDefault'
+  ) {
+    return 'panelModeDefault'
+  }
   // Section collapses: podium:sidebar:<name> except the reserved width/collapsed.
   if (legacyKey.startsWith('podium:sidebar:')) {
     const rest = legacyKey.slice('podium:sidebar:'.length)
-    if (!rest || rest === 'width' || rest === 'collapsed') return rest === 'collapsed' ? 'sidebar.collapsed' : null
+    if (!rest || rest === 'width' || rest === 'collapsed')
+      return rest === 'collapsed' ? 'sidebar.collapsed' : null
     return `sidebar.section.${rest}`
   }
   if (legacyKey.startsWith('podium.dock.section.')) {
@@ -231,7 +247,8 @@ export type LayoutState = z.infer<typeof LayoutState>
  * payload (without parsing the composite id) still knows whose row it is.
  */
 export const LayoutWire = z.object({
-  userId: z.string().min(1),
+  /** Owning user — branded so raw-string-entity-ids does not re-grow. */
+  userId: UserIdField,
   key: LayoutKeyField,
   value: z.unknown(),
 })

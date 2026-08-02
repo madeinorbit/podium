@@ -12,28 +12,29 @@ import {
   asUserId,
   layoutRowId,
   parseLayoutRowId,
+  type LayoutSnapshot,
   type UserId,
 } from '@podium/model'
 import {
   Authority,
   DeviceGradeNoAnchors,
   GrantEdgeVisibilityPolicy,
-  type ChangeLogStore,
   type FeedPrincipal,
   type VisibilityStatePort,
 } from '@podium/sync'
 import { describe, expect, it } from 'vitest'
 import { LayoutService } from './service'
-import type { UserLayoutRepository } from '../../store/user-layout'
 
 const ALICE: UserId = asUserId('user:alice')
 const BOB: UserId = asUserId('user:bob')
+
+type AuthorityStore = ConstructorParameters<typeof Authority>[0]['store']
 
 function humanPrincipal(userId: UserId): FeedPrincipal {
   return { kind: 'user', userId }
 }
 
-function memoryStore(): ChangeLogStore {
+function memoryStore(): AuthorityStore {
   const rows: {
     seq: number
     entity: string
@@ -43,7 +44,7 @@ function memoryStore(): ChangeLogStore {
   }[] = []
   let nextSeq = 1
   return {
-    appendChanges(batch) {
+    appendChanges(batch: ReadonlyArray<{ entity: string; entityId: string; op: string; payload: string | null }>) {
       const seqs: number[] = []
       for (const r of batch) {
         rows.push({ seq: nextSeq, ...r })
@@ -54,7 +55,7 @@ function memoryStore(): ChangeLogStore {
     },
     maxChangeSeq: () => nextSeq - 1,
     minChangeSeq: () => rows[0]?.seq ?? null,
-    changesSince: (cursor) => rows.filter((r) => r.seq > cursor),
+    changesSince: (cursor: number) => rows.filter((r) => r.seq > cursor),
     planChangePrune: () => ({ thresholdSeq: 0 }),
     pruneChangeBatch: () => 0,
     latestChangeStates: () => {
@@ -62,20 +63,18 @@ function memoryStore(): ChangeLogStore {
       for (const r of rows) latest.set(`${r.entity}/${r.entityId}`, r)
       return [...latest.values()]
     },
-  }
+  } as AuthorityStore
 }
 
-function memoryLayoutRepo(): UserLayoutRepository {
+/** Minimal layout store — only the methods LayoutService uses. */
+function memoryLayoutRepo() {
   const byUser = new Map<string, Map<string, unknown>>()
   return {
-    getSnapshot(userId) {
+    getSnapshot(userId: UserId): LayoutSnapshot {
       const m = byUser.get(userId)
       return m ? Object.fromEntries(m) : {}
     },
-    get(userId, key) {
-      return byUser.get(userId)?.get(key)
-    },
-    set(userId, key, value) {
+    set(userId: UserId, key: string, value: unknown, _updatedAt: string): void {
       let m = byUser.get(userId)
       if (!m) {
         m = new Map()
@@ -83,19 +82,16 @@ function memoryLayoutRepo(): UserLayoutRepository {
       }
       m.set(key, value)
     },
-    setMany(userId, values) {
-      for (const [k, v] of Object.entries(values)) this.set(userId, k, v)
+    setMany(userId: UserId, values: Record<string, unknown>, updatedAt: string): void {
+      for (const [k, v] of Object.entries(values)) this.set(userId, k, v, updatedAt)
     },
-    clear(userId, key) {
+    clear(userId: UserId, key: string): void {
       byUser.get(userId)?.delete(key)
     },
-    clearMany(userId, keys) {
+    clearMany(userId: UserId, keys: readonly string[]): void {
       for (const k of keys) this.clear(userId, k)
     },
-    keysFor(userId) {
-      return [...(byUser.get(userId)?.keys() ?? [])]
-    },
-  } as UserLayoutRepository
+  }
 }
 
 function build() {
@@ -120,7 +116,7 @@ function build() {
   })
   const repo = memoryLayoutRepo()
   const service = new LayoutService({
-    layout: repo,
+    layout: repo as never,
     ledger: {
       capture: (specs) => {
         authority.capture(
