@@ -694,6 +694,17 @@ const REPLICA_ROLE_DIR = 'packages/sync/src/replica/'
  */
 const REPLICA_NEUTRAL_PORTS: ReadonlySet<string> = new Set(['packages/sync/src/span.ts'])
 
+/**
+ * Package imports the replica role may take (POD-1251).
+ *
+ * `@podium/model` is L0 field vocabulary — change ops, target fields, provenance
+ * — not arbitration and not a storage adapter. The direction rule exists to keep
+ * merge policy and concrete adapters OUT; composing the change envelope from the
+ * model's one definition of those fields is exactly the opposite of restating
+ * them inside the role. A second package name here needs the same justification.
+ */
+const REPLICA_ALLOWED_PACKAGES: ReadonlySet<string> = new Set(['@podium/model'])
+
 /** Evaluation verbs. A call or a declaration either way — both are the same bug. */
 const REPLICA_FORBIDDEN_EVAL =
   /\b(canSee|maySee|mayView|isVisibleTo|visibleTo|evaluateVisibility|filterVisible|hasGrant|grantsFor|checkAccess|checkIssueAccess|authorize|resolveCapability|mergePolicy|resolveConflict|arbitrate|lastWriteWins|mergeFields|pickWinner)\s*\(/
@@ -825,6 +836,7 @@ function checkReplicaDirection(file: string, source: string): Violation[] {
       continue
     }
     if (isTest && ref.specifier === 'vitest') continue
+    if (REPLICA_ALLOWED_PACKAGES.has(ref.specifier)) continue
     violations.push({
       file,
       specifier: ref.specifier,

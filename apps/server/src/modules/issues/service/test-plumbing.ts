@@ -1,5 +1,5 @@
 import type { MetadataChange } from '@podium/protocol'
-import { Ledger, type LedgerDeps } from '@podium/sync'
+import { Ledger, type LedgerDeps, type StoredChangeRow } from '@podium/sync'
 import type { IssueDeps } from './types'
 
 /**
@@ -59,14 +59,9 @@ export function issueTestPlumbing(
  *  a plain array with an autoincrementing seq, enough for behavior tests that
  *  don't assert on durable SQL semantics. */
 export function memoryChangeLogStore(): LedgerDeps['repo'] {
-  type Row = {
-    seq: number
-    entity: string
-    entityId: string
-    op: 'upsert' | 'remove'
-    payload: string | null
-    eventTime: number
-  }
+  // Composed from {@link StoredChangeRow} + assigned seq — not a hand-restated
+  // change-row field list (POD-1251).
+  type Row = StoredChangeRow & { seq: number }
   const rows: Row[] = []
   let nextSeq = 1
   // NO FEED IDENTITY HERE. Main's Ledger minted `(feedId, epoch)` through this
