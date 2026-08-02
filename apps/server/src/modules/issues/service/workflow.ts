@@ -9,7 +9,7 @@ import {
 } from '@podium/model'
 import { formatIssueRef } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
-import { systemPrincipal } from '../../../command-principal'
+import type { CommandPrincipal } from '../../../command-principal'
 import { sessionsForIssue } from '../../../issue-util'
 import { buildAssistantMessages, parseAssistantJson } from '../../../issueAssistant'
 import { type LinearIssue, searchIssues } from '../../../linear'
@@ -24,24 +24,17 @@ import type { IssueCommentsMailModule } from './mail'
 import type { CreateIssueInput } from './types'
 
 /**
- * Who the worktree/integration comments below are stamped as (POD-1315).
- *
- * `addComment` now REQUIRES a principal, and these sites have no user to name:
- * `freeWorktreeKeepBranch`, `cleanup` and `integrate` take an issue ref and
- * nothing else, so the invoking human is already gone by the time this plane
- * runs. A system principal is the honest answer — `attributionOf` renders it as
- * `system:<job>`, matching the `author` these comments have always carried, and
- * leaves `onBehalfOf` null instead of defaulting to an operator (ADR 3
- * Amendment 1 D21.2). This is NOT a stand-in for a user: threading the real
- * caller down here is POD-1344, and until that lands nothing in this plane may
- * pretend to know one.
- */
-const automationPrincipal = (job: 'stop' | 'cleanup' | 'integrate') => systemPrincipal(job)
-
-/**
  * Git-workflow capability: worktree
  * start/cleanup, PR/merge actions, epic integration (#70), extra sessions,
  * Linear search and the LLM activity digest.
+ *
+ * `freeWorktreeKeepBranch`, `cleanup` and `integrate` take an explicit
+ * {@link CommandPrincipal} (POD-1344). The authenticated transport had the
+ * caller all along; this plane used to drop it and stamp `system:<job>` on the
+ * six addComment sites below (POD-1315's honest interim). Callers that truly
+ * have no human — tests and in-process jobs — still pass `systemPrincipal`,
+ * but every registry/tRPC and session-stop entry hands through the real
+ * principal so comments name who asked.
  */
 export class IssueGitWorkflowModule {
   constructor(
@@ -366,9 +359,14 @@ export class IssueGitWorkflowModule {
    * issue to be closed (unlike cleanup). Caller is responsible for the
    * unsaved-work guard (dirty tree without --force) and for ensuring no live
    * sessions still use this worktree.
+   *
+   * `principal` is who asked for the free (POD-1344) — stamped onto the audit
+   * comment. Author stays `system:stop` (job label); actor/onBehalfOf name the
+   * caller.
    */
   async freeWorktreeKeepBranch(
     id: string,
+    principal: CommandPrincipal,
     opts?: { force?: boolean },
   ): Promise<{ ok: boolean; output: string; issue: IssueWire; worktreeFreed: boolean }> {
     const row = this.store.rowOrThrow(id)
@@ -437,7 +435,7 @@ export class IssueGitWorkflowModule {
       row.id,
       'system:stop',
       `stop: freed worktree ${worktreePath}; branch '${branch}' kept for resume/inspect`,
-      automationPrincipal('stop'),
+      principal,
     )
     this.store.emitEvent('issue.worktree_freed', row.id, {
       seq: row.seq,
@@ -526,8 +524,14 @@ export class IssueGitWorkflowModule {
    * `git branch -d` — never --force / -D), so git itself is the last guard.
    * Never touches the repo ROOT checkout: worktreeRemove/branchDelete run
    * with the root as cwd but only ever name the issue's worktree/branch.
+   *
+   * `principal` is who asked for cleanup (POD-1344). Author stays
+   * `system:cleanup` (job label); actor/onBehalfOf name the caller.
    */
-  async cleanup(id: string): Promise<{ ok: boolean; output: string; issue: IssueWire }> {
+  async cleanup(
+    id: string,
+    principal: CommandPrincipal,
+  ): Promise<{ ok: boolean; output: string; issue: IssueWire }> {
     const row = this.store.rowOrThrow(id)
     const refuse = (output: string): { ok: boolean; output: string; issue: IssueWire } => ({
       ok: false,
@@ -564,7 +568,7 @@ export class IssueGitWorkflowModule {
         row.id,
         'system:cleanup',
         `cleanup: deleted merged branch '${branch}' (worktree was already removed)`,
-        automationPrincipal('cleanup'),
+        principal,
       )
       this.store.emitEvent('issue.cleaned', row.id, { seq: row.seq, worktreePath: null, branch })
       return { ok: true, output: `deleted branch ${branch}`, issue }
@@ -590,7 +594,7 @@ export class IssueGitWorkflowModule {
         row.id,
         'system:cleanup',
         `cleanup: worktree ${worktreePath} already gone; cleared recorded worktree/branch (${branch})`,
-        automationPrincipal('cleanup'),
+        principal,
       )
       this.store.emitEvent('issue.cleaned', row.id, {
         seq: row.seq,
@@ -636,7 +640,7 @@ export class IssueGitWorkflowModule {
         row.id,
         'system:cleanup',
         `cleanup: removed worktree ${worktreePath}; branch '${branch}' NOT deleted: ${why}`,
-        automationPrincipal('cleanup'),
+        principal,
       )
       return {
         ok: false,
@@ -650,7 +654,7 @@ export class IssueGitWorkflowModule {
       row.id,
       'system:cleanup',
       `cleanup: removed worktree ${worktreePath} and deleted merged branch '${branch}'`,
-      automationPrincipal('cleanup'),
+      principal,
     )
     this.store.emitEvent('issue.cleaned', row.id, { seq: row.seq, worktreePath, branch })
     return { ok: true, output: `removed ${worktreePath}; deleted branch ${branch}`, issue }
@@ -677,8 +681,14 @@ export class IssueGitWorkflowModule {
    * integrate comment — rebuild-every-run makes per-child "Integrated #N" markers
    * meaningless across resets, so run-summary-only is the correct dedup unit), plus
    * an issue.integration event {epicSeq, integrated, blockedAt?} per run.
+   *
+   * `principal` is who asked for the integrate (POD-1344). Author stays
+   * `system:integrate` (job label / dedup key); actor/onBehalfOf name the caller.
    */
-  async integrate(id: string): Promise<{ ok: boolean; output: string; issue: IssueWire }> {
+  async integrate(
+    id: string,
+    principal: CommandPrincipal,
+  ): Promise<{ ok: boolean; output: string; issue: IssueWire }> {
     const row = this.store.rowOrThrow(id)
     // Per-epic in-flight guard: two overlapping runs would interleave resets/rebases
     // in the SAME integration worktree. Re-entry refuses cleanly with zero repoOps.
@@ -691,7 +701,7 @@ export class IssueGitWorkflowModule {
     }
     this.integratingEpics.add(row.id)
     try {
-      return await this.integrateRun(row)
+      return await this.integrateRun(row, principal)
     } finally {
       this.integratingEpics.delete(row.id)
     }
@@ -701,6 +711,7 @@ export class IssueGitWorkflowModule {
 
   private async integrateRun(
     row: IssueRow,
+    principal: CommandPrincipal,
   ): Promise<{ ok: boolean; output: string; issue: IssueWire }> {
     const refuse = (output: string): { ok: boolean; output: string; issue: IssueWire } => ({
       ok: false,
@@ -802,12 +813,7 @@ export class IssueGitWorkflowModule {
       .filter((c) => c.author === 'system:integrate')
       .at(-1)
     if (prior?.body !== summary)
-      this.commentsMail().addComment(
-        row.id,
-        'system:integrate',
-        summary,
-        automationPrincipal('integrate'),
-      )
+      this.commentsMail().addComment(row.id, 'system:integrate', summary, principal)
     if (blockedAt != null) {
       this.attention().setNeedsHuman(row.id, `integration blocked at #${blockedAt}: ${blockedWhy}`)
     }

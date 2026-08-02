@@ -87,6 +87,27 @@ function _addCommentRefusesAnUnnamedCaller(svc: IssueService, id: string): void 
 }
 void _addCommentRefusesAnUnnamedCaller
 
+/**
+ * POD-1344 type-level guard: the three git-workflow methods that stamp audit
+ * comments take a REQUIRED principal. A default (or optional) is the POD-1315
+ * hazard shape — callers that still pass a principal would stay green while
+ * omission silently invents a job. These probes make that a compile error.
+ */
+function _gitWorkflowRefusesAnUnnamedCaller(svc: IssueService, id: string): void {
+  // @ts-expect-error POD-1344: cleanup without a principal must not compile.
+  void svc.cleanup(id)
+
+  // @ts-expect-error POD-1344: integrate without a principal must not compile.
+  void svc.integrate(id)
+
+  // @ts-expect-error POD-1344: freeWorktreeKeepBranch without a principal must not compile.
+  void svc.freeWorktreeKeepBranch(id)
+
+  // @ts-expect-error POD-1344: an explicit undefined is still not a principal.
+  void svc.cleanup(id, undefined)
+}
+void _gitWorkflowRefusesAnUnnamedCaller
+
 describe('addComment requires an explicit principal', () => {
   it('attributes the comment to the named human, never to the first admin', () => {
     const { store, svc, issue } = harness()

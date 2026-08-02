@@ -99,6 +99,8 @@ export interface IssueCommandDeps {
     issueId: string
     force?: boolean
     callerSessionId?: string
+    /** Who asked for the stop — stamped onto the free-worktree audit comment (POD-1344). */
+    principal: CommandPrincipal
   }): Promise<{
     ok: boolean
     reason?: string
