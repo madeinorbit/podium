@@ -52,9 +52,11 @@ when load drops is a host effect. A timeout whose elapsed time scales with load 
 effect even when it reproduces, because its protected assertions never ran.
 
 Typecheck evidence uses `bun run typecheck` with Turbo's normal input-keyed cache. `--force` is
-reserved for an install, a `bunfig`/linker change, or a base swap where the ordinary cache key may
-not observe the environmental change; it must not be used reflexively after each merge. Test lanes
-follow the same principle and do not bypass valid caches without a named reason.
+now refused: POD-1378 adds an environment fingerprint so installs, linker changes, and base swaps
+automatically invalidate the cache, while an uninstalled checkout fails closed. A genuinely
+missing cache input requires `bun run typecheck -- --uncached-because="<reason>"`; such a reason is
+evidence of a fingerprint defect to report, not routine lane syntax. Test lanes follow the same
+principle and do not bypass valid caches without a named reason.
 The POD-279 coordinator later stated that the full landing lane was green with no baseline
 failures, but supplied no candidate SHA, command list, exit codes, or counts that this report can
 audit. The coordinator separately directed this gate to run the three structural generators,
@@ -75,9 +77,14 @@ afterward and are not treated as a fix for ordinary worktree installation.
   green. Its historical full unit lane exited 1 with 5 failed files/10 failed tests: seven timed-out
   tests plus three POD-1315 principal-refusal failures. A TerminalView keyboard-fidelity `beforeAll`
   hook failed at file setup and skipped 13 tests, so it added a failed file but not an eleventh
-  failed test. The four timeout groups passed isolated with 72, 7, 1, and 13 tests; raw titles were
-  not retained for five rearchitecture-audit cases or one normalized-wire case, so the corrected
-  detached full-lane record remains pending after host load drains.
+  failed test. The recovered transcript names five `scripts/rearch-audit.test.ts` CLI-exit
+  timeouts: baseline match (20 seconds), unknown phase fails closed (20 seconds), nonzero/zero phase
+  gating (40 seconds), output flag cannot disable the gate (40 seconds), and output flag cannot
+  swallow the baseline write (20 seconds). The other two timeouts were normalized dependency
+  emission without membership scans (60 seconds) and the session-free live-scale residue benchmark
+  (300 seconds). All four affected files passed isolated with 72, 7, 1, and 13 tests. The recovered
+  transcript closes the count/title reconciliation; it does not turn the historical full lane
+  green.
   None of this work is in candidate `aba864a9` or can retroactively satisfy that candidate.
 - POD-1079 is `done`.
 - POD-1315 closed after this gate run, but its correction is not in candidate `aba864a9`, where
@@ -142,17 +149,20 @@ raising the timeout would not satisfy the gate.
 
 Every exact PID marker disappeared and every port was released. Immediately before and after these runs and the multi-instance lane, `/home/mgw/.podium/config.json` had unchanged mtime `1785657372` (`2026-08-02 09:56:12.911369050 +0200`). Because another live process rewrites that file periodically, the paired unchanged value is positive evidence that the isolated run did not interfere with the live instance. The live instance was never redeployed.
 
-At POD-1356 branch HEAD `9f4b35d3`, reviewer-run follow-up proved the correction with workspace
-resolution explicitly local to that branch. The socket-auth suite exited 0 (1 file/7 tests,
-including bad-cookie rejection). The browser restart proof used fresh short roots and explicit
-port 19926, authenticated through `/auth/login`, created a session, restarted only the isolated
-server, and preserved its terminal marker/grid: 1 test passed in 1.5 minutes. The live config mtime
-was unchanged at `1785661627`; ports 19924–19926 and all PID markers were clear afterward.
+At POD-1356 branch HEAD `9f4b35d3` (tree `3476e973`), both reviewer-run and child-owned final
+follow-up proved the correction with workspace resolution local to that branch. The socket-auth
+suite exited 0 (1 file/7 tests, including bad-cookie rejection). The reviewer browser proof used
+fresh short roots and port 19926: it authenticated through `/auth/login`, created a session,
+restarted only the isolated server, and preserved its terminal marker/grid (1 test passed in 1.5
+minutes). The child-owned final Playwright command repeated the proof on port 19933 with an explicit
+isolated password: 1 ran, 1 passed, 0 skipped. Both runs fully cleaned their state, ports, and PIDs;
+the live config mtime remained `1785661627`.
 
 The same helper exposes POD-1316's remaining non-auth defect. Its real-socket lane reached feed
-policy but exited 1 (1 file/1 test): stale wire 1 received 426 `scoping-requires-eviction`, then the
-test waited for an entity frame that policy deliberately withheld. The unchanged 20-second timeout
-is the symptom, not the repair target.
+policy but exited 1 (1 file/1 test) under the child-owned integration command: all three
+cookie-bearing sockets authenticated, stale wire 1 received 426 `scoping-requires-eviction`, then
+the test waited for an entity frame that policy deliberately withheld. The unchanged 20-second
+timeout is the symptom, not the repair target; reported host load was `43.96/54.56/76.02`.
 
 ## Deliberate-violation probes
 
