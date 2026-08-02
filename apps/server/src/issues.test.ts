@@ -10,11 +10,16 @@ import {
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { repoOpCommand } from '../../daemon/src/repo-op'
+import { userCommandPrincipal } from './command-principal'
 import { sessionsForIssue } from './issue-util'
 import { MODEL_CATALOG_VERSION } from './model-catalog'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { SessionStore } from './store'
+/** The fixture's caller. `addComment` requires a principal (POD-1315) — these
+ *  tests exercise the operator seam, so they say so rather than defaulting. */
+const AS_OPERATOR = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
+
 
 function harness(sessions: SessionMeta[] = []) {
   const store = new SessionStore(':memory:')
@@ -1634,7 +1639,7 @@ describe('IssueService field mutations (P1)', () => {
   it('addComment appends a comment; wire carries the count, comments() the bodies', () => {
     const { svc } = harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    const w = svc.addComment(a.id, 'mike', 'looks good')
+    const w = svc.addComment(a.id, 'mike', 'looks good', AS_OPERATOR)
     expect(w.commentCount).toBe(1)
     expect(w.comments).toBeUndefined()
     const thread = svc.comments(a.id)
@@ -1649,8 +1654,8 @@ describe('IssueService field mutations (P1)', () => {
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     svc.create({ repoPath: '/r', title: 'B', startNow: false })
     svc.create({ repoPath: '/r', title: 'C', startNow: false })
-    svc.addComment(a.id, 'mike', 'secret-body-marker')
-    svc.addComment(a.id, 'mike', 'second note')
+    svc.addComment(a.id, 'mike', 'secret-body-marker', AS_OPERATOR)
+    svc.addComment(a.id, 'mike', 'second note', AS_OPERATOR)
     const perIssueList = vi.spyOn(store.issues, 'listIssueComments')
     const perIssueCount = vi.spyOn(store.issues, 'countIssueComments')
     const batched = vi.spyOn(store.issues, 'countIssueCommentsByIssue')
@@ -2441,7 +2446,7 @@ describe('IssueService.resolveRef (display seq → internal id)', () => {
     const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
 
     // comment: stored against iss_… not the raw seq string
-    svc.addComment(String(a.seq), 'agent', 'hello')
+    svc.addComment(String(a.seq), 'agent', 'hello', AS_OPERATOR)
     expect(store.issues.listIssueComments(a.id).map((c) => c.body)).toContain('hello')
 
     // deps: edge rows carry internal ids so blocked/ready derive correctly

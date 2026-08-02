@@ -1,7 +1,7 @@
 import { asIssueId, asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
-import { FIRST_ADMIN_USER_ID } from './command-principal'
+import { FIRST_ADMIN_USER_ID, userCommandPrincipal } from './command-principal'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import {
@@ -14,6 +14,10 @@ import {
 } from './steward'
 import { SessionStore } from './store'
 import { NotificationArbiter } from './store/notification-facts'
+/** The fixture's caller. `addComment` requires a principal (POD-1315) — these
+ *  tests exercise the operator seam, so they say so rather than defaulting. */
+const AS_OPERATOR = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
+
 
 function harness(opts: { enabled?: boolean; sessions?: SessionMeta[]; seedCursor?: boolean } = {}) {
   const store = new SessionStore(':memory:')
@@ -354,7 +358,7 @@ describe('StewardService unblock handler', () => {
     const a = issues.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = issues.create({ repoPath: '/r', title: 'B', startNow: false })
     issues.addDep(b.id, a.id, 'blocks')
-    issues.addComment(a.id, 'agent', '[completion-note] shipped X')
+    issues.addComment(a.id, 'agent', '[completion-note] shipped X', AS_OPERATOR)
     issues.close(a.id)
     await steward.tick()
     const posted = stewardComments(issues, b.id)
@@ -412,7 +416,7 @@ describe('StewardService unblock handler', () => {
     const b = issues.create({ repoPath: '/r', title: 'B', startNow: false })
     // A steward comment for a DIFFERENT closer whose seq starts with a's seq
     // ('#15' contains '#1') — must not match a's marker 'Unblocked by #1:'.
-    issues.addComment(b.id, 'steward', 'Unblocked by #15: earlier thing')
+    issues.addComment(b.id, 'steward', 'Unblocked by #15: earlier thing', AS_OPERATOR)
     issues.addDep(b.id, a.id, 'blocks')
     issues.close(a.id)
     await steward.tick()
@@ -449,7 +453,7 @@ describe('StewardService unblock handler', () => {
     const b = issues.create({ repoPath: '/r', title: 'B', startNow: false })
     issues.update(b.id, { worktreePath: '/r/.worktrees/issue-2-b' })
     issues.addDep(b.id, a.id, 'blocks')
-    issues.addComment(a.id, 'agent', '[completion-note] shipped $(dangerous) X')
+    issues.addComment(a.id, 'agent', '[completion-note] shipped $(dangerous) X', AS_OPERATOR)
     issues.close(a.id)
     await steward.tick()
     expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
@@ -526,7 +530,12 @@ describe('StewardService parent-nudge handler', () => {
     })
     issues.create({ repoPath: '/r', title: 'Child 2', parentId: parent.id, startNow: false })
     issues.create({ repoPath: '/r', title: 'Child 3', parentId: parent.id, startNow: false })
-    issues.addComment(c1.id, 'agent', '[completion-note] shipped the widget\nsecond line ignored')
+    issues.addComment(
+      c1.id,
+      'agent',
+      '[completion-note] shipped the widget\nsecond line ignored',
+      AS_OPERATOR,
+    )
     issues.close(c1.id)
     await steward.tick()
     const posted = stewardComments(issues, parent.id)
@@ -683,7 +692,12 @@ describe('StewardService parent-nudge handler', () => {
       parentId: parent.id,
       startNow: false,
     })
-    issues.addComment(c1.id, 'agent', `[completion-note] ${'x'.repeat(500)}\nmore lines`)
+    issues.addComment(
+      c1.id,
+      'agent',
+      `[completion-note] ${'x'.repeat(500)}\nmore lines`,
+      AS_OPERATOR,
+    )
     issues.close(c1.id)
     await steward.tick()
     const body = stewardComments(issues, parent.id)[0]!.body
@@ -704,7 +718,7 @@ describe('StewardService child→review parent nudge', () => {
       parentId: parent.id,
       startNow: false,
     })
-    issues.addComment(c1.id, 'agent', '[completion-note] widget ready for review')
+    issues.addComment(c1.id, 'agent', '[completion-note] widget ready for review', AS_OPERATOR)
     issues.update(c1.id, { stage: 'in_progress' }) // backlog→in_progress: NOT a review transition
     issues.update(c1.id, { stage: 'review' }) // in_progress→review: fires
     await steward.tick()
@@ -1315,7 +1329,7 @@ describe('StewardService condition-clear fact retirement (POD-890)', () => {
       parentId: parent.id,
       startNow: false,
     })
-    issues.addComment(c1.id, 'agent', '[completion-note] widget ready for review')
+    issues.addComment(c1.id, 'agent', '[completion-note] widget ready for review', AS_OPERATOR)
 
     // Enter review → first parentnudge.
     issues.update(c1.id, { stage: 'review' })

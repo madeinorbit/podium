@@ -13,7 +13,11 @@ import { openDatabase } from '@podium/runtime/sqlite'
 import { Ledger } from '@podium/sync'
 import { describe, expect, it } from 'vitest'
 import { runIssueCli } from '../../cli/src/issue-cli'
-import { resolvePrincipal } from './command-principal'
+import { resolvePrincipal, userCommandPrincipal } from './command-principal'
+/** The fixture's caller. `addComment` requires a principal (POD-1315) — these
+ *  tests exercise the operator seam, so they say so rather than defaulting. */
+const AS_OPERATOR = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
+
 import { type Capability, OPERATOR } from './issue-authz'
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
@@ -248,7 +252,7 @@ describe('characterization: issue lifecycle equivalence across entry points (con
         startNow: false,
       })
       regA.issues.claim(a.id, asUserId('agent:test'))
-      regA.issues.addComment(a.id, 'agent:test', 'progress note')
+      regA.issues.addComment(a.id, 'agent:test', 'progress note', AS_OPERATOR)
       regA.issues.close(a.id, 'done')
 
       // (b) the ISSUE_COMMANDS table — the CLI/MCP path — over the command
@@ -505,7 +509,7 @@ describe('characterization: same-version DB reopen is a no-op (contract 5)', () 
       cwd: '/proj',
     })
     const issue = reg1.issues.create({ repoPath: '/repo', title: 'survive', startNow: false })
-    reg1.issues.addComment(issue.id, 'agent:test', 'durable note')
+    reg1.issues.addComment(issue.id, 'agent:test', 'durable note', AS_OPERATOR)
     reg1.issues.close(issue.id, 'done')
     reg1.modules.mutations.once('mut-char-1', 'issues.close', () => ({ ok: true }))
     store1.sync.enqueueMessage({ id: 'qm-char-1', sessionId, text: 'queued', queuedAt: 1000 })

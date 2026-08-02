@@ -354,6 +354,22 @@ export class IssueCommandCtx {
     return commandAccess(this.deps.issues)
   }
 
+  /**
+   * The authenticated principal, or a refusal (POD-1315).
+   *
+   * `IssueCaller.principal` is optional because non-production dispatchers may
+   * omit it, so every command that needs an identity must decide what an absent
+   * one means. The only safe answer is UNAUTHORIZED: an unauthenticated caller
+   * has no identity to act under, and the alternative — substituting one — is
+   * how `addComment` came to act as the first admin for anyone who omitted it.
+   */
+  requirePrincipal(): CommandPrincipal {
+    const principal = this.caller.principal
+    if (!principal)
+      throw new TRPCError({ code: 'UNAUTHORIZED', message: 'missing authenticated command principal' })
+    return principal
+  }
+
   private readerUser(): string {
     const principal = this.caller.principal
     const user = principal ? onBehalfOfUser(principal) : null
@@ -794,13 +810,7 @@ const defs = {
           !isOperator && ctx.caller.capability.actorSessionId
             ? ctx.caller.capability.actorSessionId
             : null
-        const principal = ctx.caller.principal
-        if (!principal)
-          throw new TRPCError({
-            code: 'UNAUTHORIZED',
-            message: 'missing authenticated command principal',
-          })
-        const attribution = attributionOf(principal)
+        const attribution = attributionOf(ctx.requirePrincipal())
         if (!attribution.onBehalfOf)
           throw new TRPCError({
             code: 'FORBIDDEN',
@@ -1042,7 +1052,7 @@ const defs = {
     target: targetId,
     handler: (ctx, input) =>
       ctx.withMutation(input.mutationId, () =>
-        ctx.commentsMail.addComment(input.id, input.author, input.body, ctx.caller.principal),
+        ctx.commentsMail.addComment(input.id, input.author, input.body, ctx.requirePrincipal()),
       ),
   }),
   depAdd: def('depAdd', {

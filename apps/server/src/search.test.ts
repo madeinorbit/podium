@@ -1,4 +1,4 @@
-import { resolvePrincipal } from './command-principal'
+import { resolvePrincipal, userCommandPrincipal } from './command-principal'
 import { FIRST_ADMIN_USER_ID, asIssueId, asUserId } from '@podium/model'
 import { SearchResultWire } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -10,6 +10,10 @@ import { appRouter } from './router'
 import { SessionStore } from './store'
 import { SuperagentService } from './modules/superagent'
 import { MEMORY_EXISTENCE_POLICY, MemoryVisibilityPolicy } from './modules/memory/visibility'
+/** The fixture's caller. `addComment` requires a principal (POD-1315) — these
+ *  tests exercise the operator seam, so they say so rather than defaulting. */
+const AS_OPERATOR = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
+
 
 const READER = { kind: 'user' as const, id: FIRST_ADMIN_USER_ID }
 
@@ -55,7 +59,7 @@ describe('MemoryService omni-search', () => {
       description: 'nothing relevant',
       startNow: false,
     })
-    registry.issues.addComment(commentIssue.id, 'operator', 'the capacitor comment trail')
+    registry.issues.addComment(commentIssue.id, 'operator', 'the capacitor comment trail', AS_OPERATOR)
 
     // Conversation row in the durable index.
     const { sessionId: conversationSessionId } = registry.modules.sessions.createSession({
