@@ -1,3 +1,4 @@
+import { asMachineId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol'
 import { createDaemonConnection, type DaemonConnection } from './connection-state'
 import type { DaemonOptions } from './daemon-options'
@@ -51,7 +52,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   })
   connection = createDaemonConnection({
     options: opts,
-    machineId: host.machineId,
+    machineId: asMachineId(host.machineId),
     identity: host.identity,
     receiveApplicationFrame: host.receive,
     sendApplicationFrame: (socket, message) =>

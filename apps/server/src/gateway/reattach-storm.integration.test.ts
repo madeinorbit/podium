@@ -43,13 +43,12 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asSessionId } from '@podium/model'
+import { asSessionId, type MachineId } from '@podium/model'
 import type { ControlMessage, ServerMessage } from '@podium/protocol'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
 import { startServer } from '../server'
 
-const MACHINE = 'local'
 const SESSIONS = 40
 const ROUNDS = 6
 const CLIENTS = 3
@@ -61,23 +60,25 @@ const geometry = { cols: 80, rows: 24 }
 describe('a daemon reattach storm', () => {
   let stateDir: string
   let handle: Awaited<ReturnType<typeof startServer>>
+  let machineId: MachineId
   let sessionIds: string[]
 
   beforeAll(async () => {
     stateDir = mkdtempSync(join(tmpdir(), 'podium-reattach-storm-'))
     process.env.PODIUM_STATE_DIR = stateDir
     handle = await startServer({ port: 0 })
+    machineId = handle.registry.sessionStore.hostMachineId
     // A session can only be created on an ONLINE machine, so the host has to be
     // attached before the fixture exists. This sink is superseded by the storm's
     // first round, which is exactly the reattach shape under test.
-    handle.registry.gateway.attachDaemon(MACHINE, () => {})
+    handle.registry.gateway.attachDaemon(machineId, () => {})
     sessionIds = Array.from(
       { length: SESSIONS },
       (_, i) =>
         handle.registry.modules.sessions.createSession({
           agentKind: 'shell',
           cwd: `/repo/w${i}`,
-          machineId: MACHINE,
+          machineId,
         }).sessionId,
     )
     handle.registry.modules.sessions.flushBroadcasts()
@@ -151,13 +152,13 @@ describe('a daemon reattach storm', () => {
       // in flight while the storm runs rather than neatly between rounds.
       let send: ((msg: ControlMessage) => void) | undefined
       for (let round = 0; round < ROUNDS; round++) {
-        if (send) handle.registry.gateway.detachDaemon(MACHINE, send)
+        if (send) handle.registry.gateway.detachDaemon(machineId, send)
         const current: (msg: ControlMessage) => void = () => {}
-        handle.registry.gateway.attachDaemon(MACHINE, current)
+        handle.registry.gateway.attachDaemon(machineId, current)
         send = current
         probes.push(fetch(health).then((r) => r.text()))
         for (const [i, sessionId] of sessionIds.entries()) {
-          handle.registry.gateway.routeDaemonFrame(MACHINE, {
+          handle.registry.gateway.routeDaemonFrame(machineId, {
             type: 'bind',
             sessionId: asSessionId(sessionId),
             cmd: 'sh',
@@ -245,24 +246,24 @@ describe('a daemon reattach storm', () => {
     const staleSend = (msg: ControlMessage): void => void stale.push(msg)
     const freshSend = (msg: ControlMessage): void => void fresh.push(msg)
 
-    handle.registry.gateway.attachDaemon(MACHINE, staleSend)
-    handle.registry.gateway.attachDaemon(MACHINE, freshSend) // reconnect wins the slot
-    handle.registry.gateway.detachDaemon(MACHINE, staleSend) // …then the late close arrives
-    expect(machines.hasDaemon(MACHINE)).toBe(true)
+    handle.registry.gateway.attachDaemon(machineId, staleSend)
+    handle.registry.gateway.attachDaemon(machineId, freshSend) // reconnect wins the slot
+    handle.registry.gateway.detachDaemon(machineId, staleSend) // …then the late close arrives
+    expect(machines.hasDaemon(machineId)).toBe(true)
 
     // Routed to the LIVE socket, and the counterfactual: the superseded sink must
     // receive nothing. Asserting only "fresh got it" would pass for a fan-out to
     // both, which is a different bug (a detached daemon still being written to).
     stale.length = 0
     fresh.length = 0
-    machines.toMachine(MACHINE, { type: 'inventoryRequest' })
+    machines.toMachine(machineId, { type: 'inventoryRequest' })
     expect(fresh).toEqual([{ type: 'inventoryRequest' }])
     expect(stale).toEqual([])
 
     // The instrument must be able to say YES: a close from the CURRENT socket
     // does detach. Without this, "hasDaemon stayed true" is equally satisfied by
     // a detach path that never removes anything.
-    handle.registry.gateway.detachDaemon(MACHINE, freshSend)
-    expect(machines.hasDaemon(MACHINE)).toBe(false)
+    handle.registry.gateway.detachDaemon(machineId, freshSend)
+    expect(machines.hasDaemon(machineId)).toBe(false)
   })
 })

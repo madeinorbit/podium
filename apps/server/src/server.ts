@@ -599,7 +599,6 @@ export async function startServer(
             const acceptor = createDaemonAcceptor({
               machines: registry.modules.machines,
               connectionId: `local-daemon-${randomUUID()}`,
-              instanceId,
             })
             const outcome = receiveDaemonFrame(acceptor, JSON.stringify(hello))
             if (outcome.kind !== 'established') {
