@@ -112,6 +112,47 @@ the protocol decision: current wire 2 receives scoped feed frames; stale wire 1 
 coordinator independently inspected the assertion change and the unchanged fail-closed auth gate.
 POD-1316 is therefore **met in the candidate**, not merely closed in the tracker.
 
+## Successor candidate and evidence limits
+
+The immutable `6fc75d09` refusal remains valid. POD-1384 has now closed after regeneration commit
+`7509f2b4`, which is the minimum successor tree that can satisfy the current-document criterion.
+Its evidence candidate `4b947e7d` contains that commit and reports all three generators exit 0:
+178 modules/286 edges/0 cycles, 52 constructor declarations with zero forward dependencies,
+deferred closures, or non-null late bindings, and 25 current reactions. The preserved negative
+suite passes 7/7. The graph delta adds the layout service and user-layout store plus their expected
+edges; the construction-order delta adds `layout | ledger`. Remaining changes are generated source
+locations and renumbering. This clears POD-1384 for a successor candidate only; it does not
+retroactively change the named `6fc75d09` result.
+
+There is **no complete same-SHA landing record** for either `7509f2b4` or `4b947e7d`. The POD-279
+coordinator has same-tree typecheck 22/22, client-auth 1 file/7 tests, wire goldens 1 file/90 tests,
+the three generators, both rearchitecture audits, and POD-1316 ancestry. The following were
+explicitly **not run** on those SHAs and are not cited as covered: session/issue/memory E2E,
+authenticated live-redeploy survival, multi-instance isolation, and the full unit lane. Earlier
+worker results on other commits remain different propositions. Heavy lanes are deliberately held
+until all hard blockers land, then must run once against the final named candidate under controlled
+load.
+
+POD-1395 records the repeated process gap: three integration points became stale because nothing
+requires generated composition artifacts to be current before merge. It is discovered work rather
+than a new gate blocker; a final candidate still must have current artifacts regardless of whether
+that enforcement improvement has shipped.
+
+### Machine state is not code evidence
+
+Three independently observed failures share one class:
+
+- POD-1343 let a worktree resolve workspace packages from a neighbouring checkout.
+- POD-1389 let the browser redeploy proof borrow warm `dist` artifacts; a cold checkout could not
+  discover the test until `@podium/model` was built.
+- POD-1393 makes the wire-golden corpus depend on agent CLIs installed on the host: the identical
+  command and commit passed 90/90 on the five-CLI host but failed 2 of 87 tests on a zero-CLI host.
+
+A result obtained only on the warm ludovico host therefore certifies the code only when the lane
+also proves its inputs are candidate-local and machine-neutral. The isolated cold-checkout and
+second-machine comparisons are the evidence that exposed this class; warm green alone is not.
+
+
 ## Historical candidate report — `aba864a9`
 
 
