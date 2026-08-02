@@ -34,7 +34,9 @@ export type SampleOverride = (opts: SampleOptions, path: string) => unknown
  * Schema identity → fixture value. Keys must be the same zod instances the
  * registry walks (exported singletons), not reconstructed clones.
  */
-export const SAMPLE_OVERRIDES: ReadonlyMap<z.ZodTypeAny, SampleOverride> = new Map([
+// Explicit Map type params: a heterogeneous array of [ZodEffects<…>, fn]
+// otherwise collapses key/value types and fails typecheck.
+export const SAMPLE_OVERRIDES = new Map<z.ZodTypeAny, SampleOverride>([
   // Closed isLayoutKey vocabulary (POD-1350 / POD-402). Path-derived samples
   // like "" / "entityId" / "key" fail the refine; pin the first exact key.
   [LayoutKeyField, () => FIXTURE_LAYOUT_KEY],
@@ -42,7 +44,7 @@ export const SAMPLE_OVERRIDES: ReadonlyMap<z.ZodTypeAny, SampleOverride> = new M
   // LayoutKeyField override does not reach them — pin a valid map.
   [
     LayoutSnapshot,
-    (opts) =>
+    (opts: SampleOptions) =>
       opts.mode === 'minimal'
         ? {}
         : { [FIXTURE_LAYOUT_KEY]: { unknownFixture: FIXTURE_LAYOUT_KEY } },
