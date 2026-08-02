@@ -1528,6 +1528,12 @@ export class SessionLifecycle {
       selfStop?: boolean
       /** Parent-close/issue-stop provenance; direct forced stops derive below. */
       stopReason?: 'self' | 'parent' | 'forced'
+      /**
+       * Who asked for the stop (POD-1344). Stamped onto the free-worktree audit
+       * comment. Absent only on genuinely caller-less paths (tests, in-process
+       * jobs) — those fall back to `systemPrincipal('stop')`.
+       */
+      principal?: CommandPrincipal
     },
     issues: SessionIssueWorkflowPort,
   ): Promise<{
@@ -1610,9 +1616,13 @@ export class SessionLifecycle {
         input.sessionId,
       )
       if (stillUsing.length === 0) {
-        const freed = await issues.freeWorktreeKeepBranch(issueId, {
-          force: input.force === true,
-        })
+        const freed = await issues.freeWorktreeKeepBranch(
+          issueId,
+          input.principal ?? systemPrincipal('stop'),
+          {
+            force: input.force === true,
+          },
+        )
         if (!freed.ok) {
           if (wasRunning && !input.selfStop) this.killStoppedSession(session)
           return {
@@ -1669,6 +1679,12 @@ export class SessionLifecycle {
       force?: boolean
       /** Session performing the stop (for self-stop deferral when it is a member). */
       callerSessionId?: string
+      /**
+       * Who asked for the stop (POD-1344). Stamped onto free-worktree audit
+       * comments. Absent only on genuinely caller-less paths — those fall back
+       * to `systemPrincipal('stop')`.
+       */
+      principal?: CommandPrincipal
     },
     issues: SessionIssueWorkflowPort,
   ): Promise<{
@@ -1685,6 +1701,7 @@ export class SessionLifecycle {
     const members = sessionsForIssue(issue.worktreePath ?? null, this.listSessions(), issue.id)
     const stopped: string[] = []
     let deferredKill = false
+    const principal = input.principal ?? systemPrincipal('stop')
     // Non-self members first (immediate kill). Self last so sibling stops + free
     // finish before the caller's deferred kill is armed after the relay reply.
     const ordered = [
@@ -1698,6 +1715,7 @@ export class SessionLifecycle {
           force: input.force,
           selfStop: input.callerSessionId === m.sessionId,
           stopReason: input.force ? 'forced' : 'parent',
+          principal,
         },
         issues,
       )
@@ -1719,7 +1737,7 @@ export class SessionLifecycle {
     if (wt) {
       const stillUsing = liveSessionsUsingWorktree(wt, this.listSessions())
       if (stillUsing.length === 0) {
-        const freed = await issues.freeWorktreeKeepBranch(input.issueId, {
+        const freed = await issues.freeWorktreeKeepBranch(input.issueId, principal, {
           force: input.force === true,
         })
         if (!freed.ok) {

@@ -1,4 +1,5 @@
 import type { IssueWire, SessionId } from '@podium/model'
+import type { CommandPrincipal } from '../../command-principal'
 
 /**
  * Narrow issue capability used only by the L3 issue/session application
@@ -12,6 +13,7 @@ export interface SessionIssueWorkflowPort {
   ): Promise<{ ok: boolean; output: string; worktreePath: string | null; issue: IssueWire }>
   freeWorktreeKeepBranch(
     issueId: string,
+    principal: CommandPrincipal,
     options: { force: boolean },
   ): Promise<{ ok: boolean; output: string; worktreeFreed: boolean }>
   rehome(

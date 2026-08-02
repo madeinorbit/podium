@@ -3,8 +3,9 @@
  * resume recreates worktree; unsaved guard + force.
  */
 
-import { asSessionId, FIRST_ADMIN_USER_ID, asMachineId} from '@podium/model'
+import { asSessionId, asUserId, FIRST_ADMIN_USER_ID, asMachineId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { systemPrincipal, userCommandPrincipal } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
 import type { ControlMessage } from '@podium/protocol'
 
@@ -291,10 +292,79 @@ describe('stopSession [spec:SP-9904]', () => {
       branch: 'issue/remote',
       machineId: asMachineId('machine-remote'),
     })
-    const freed = await reg.modules.issues.freeWorktreeKeepBranch(issue.id)
+    const freed = await reg.modules.issues.freeWorktreeKeepBranch(
+      issue.id,
+      systemPrincipal('stop'),
+    )
     expect(freed.ok).toBe(true)
     expect(seen.find((s) => s.op === 'status')?.machineId).toBe('machine-remote')
     expect(seen.find((s) => s.op === 'worktreeRemove')?.machineId).toBe('machine-remote')
+  })
+
+  it('freeWorktreeKeepBranch stamps the caller principal on the audit comment (POD-1344)', async () => {
+    const { reg, setRepoOp } = makeRegistry()
+    setRepoOp(async (op) => {
+      if (op === 'status') return { ok: true, output: '## issue/x\n' }
+      return { ok: true, output: '' }
+    })
+    const issue = reg.modules.issues.create({
+      repoPath: '/r',
+      title: 'Attributed free',
+      startNow: false,
+    })
+    reg.modules.issues.update(issue.id, {
+      worktreePath: '/r/.worktrees/issue-attr',
+      branch: 'issue/attr',
+    })
+    const alice = asUserId('user:alice')
+    const freed = await reg.modules.issues.freeWorktreeKeepBranch(
+      issue.id,
+      userCommandPrincipal(alice, 'member'),
+    )
+    expect(freed.ok).toBe(true)
+    // Actor lives on the store row (public comments() wire omits attribution fields).
+    const audit = reg.sessionStore.issues
+      .listIssueComments(issue.id)
+      .find((c) => c.author === 'system:stop')
+    expect(audit?.actor).toBe(alice)
+    expect(audit?.onBehalfOf).toBe(alice)
+  })
+
+  it('stopSession threads principal into the free-worktree audit comment (POD-1344)', async () => {
+    // Direct freeWorktreeKeepBranch tests can pass a principal without exercising
+    // the lifecycle stop path. Mutant that always stamps systemPrincipal('stop')
+    // in lifecycle stayed green against the direct-call test — this one pins the
+    // stopSession → freeWorktreeKeepBranch thread.
+    const { reg, setRepoOp } = makeRegistry()
+    setRepoOp(async (op) => {
+      if (op === 'status') return { ok: true, output: '## issue/x\n' }
+      return { ok: true, output: '' }
+    })
+    const issue = reg.modules.issues.create({
+      repoPath: '/r',
+      title: 'Stop attributes',
+      startNow: false,
+    })
+    const wt = '/r/.worktrees/issue-stop-attr'
+    reg.modules.issues.update(issue.id, { worktreePath: wt, branch: 'issue/stop-attr' })
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: wt,
+      issueId: issue.id,
+    })
+    bindLive(reg, sessionId, wt)
+    const alice = asUserId('user:alice')
+    const r = await reg.modules.issueSessionLifecycle.stopSession({
+      sessionId,
+      principal: userCommandPrincipal(alice, 'member'),
+    })
+    expect(r.ok).toBe(true)
+    expect(r.worktreeFreed).toBe(true)
+    const audit = reg.sessionStore.issues
+      .listIssueComments(issue.id)
+      .find((c) => c.author === 'system:stop')
+    expect(audit?.actor).toBe(alice)
+    expect(audit?.onBehalfOf).toBe(alice)
   })
 
   it('resurrect recreates a freed worktree from the preserved branch', async () => {

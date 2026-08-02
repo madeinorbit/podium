@@ -624,7 +624,7 @@ const defs = {
   cleanup: def('cleanup', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => ctx.gitWorkflow.cleanup(input.id),
+    handler: (ctx, input) => ctx.gitWorkflow.cleanup(input.id, ctx.requirePrincipal()),
   }),
   // Stop every session on the issue and free the worktree, keeping the branch
   // [spec:SP-9904]. Scope-gated like other issue writes (self/subtree free;
@@ -641,6 +641,7 @@ const defs = {
       }
       const r = await ctx.deps.stopIssueSessions({
         issueId: input.id,
+        principal: ctx.requirePrincipal(),
         ...(input.force ? { force: true } : {}),
         ...(ctx.caller.capability.actorSessionId
           ? { callerSessionId: ctx.caller.capability.actorSessionId }
@@ -662,7 +663,7 @@ const defs = {
   integrate: def('integrate', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => ctx.gitWorkflow.integrate(input.id),
+    handler: (ctx, input) => ctx.gitWorkflow.integrate(input.id, ctx.requirePrincipal()),
   }),
   addSession: def('addSession', {
     kind: 'mutation',

@@ -537,7 +537,9 @@ export const SESSION_COMMAND_HANDLERS = {
     if (!ctx.target(input.sessionId, 'sessions.stop')) {
       return Promise.resolve({ ok: false, reason: 'unknown session' })
     }
-    return ctx.sessions.stopSession(input)
+    // Thread the transport principal so free-worktree audit comments name the
+    // caller rather than system:stop (POD-1344).
+    return ctx.sessions.stopSession({ ...input, principal: ctx.principal })
   },
 
   /**
