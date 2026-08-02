@@ -20,9 +20,9 @@ The recursive Phase 4 subtree was re-derived rather than inferred from this issu
 The named implementation children and corrective work, including POD-1078, POD-1079, POD-1315,
 POD-1316, POD-1343, POD-1351, and POD-1356, are present by ancestry or direct tree inspection.
 At the frozen verdict, POD-1356 and five gate-created blocking children were open. POD-1384,
-POD-1389, and POD-1356 have since closed with their fixes landed. The current substantive gate
-grounds are POD-1385, POD-1390, and POD-1394. Therefore the “all Phase 4 children closed with
-evidence” criterion remains **refused**.
+POD-1389, POD-1356, and POD-1390 have since closed with their fixes landed. The current
+substantive gate grounds are POD-1385 and POD-1394. Therefore the “all Phase 4 children closed
+with evidence” criterion remains **refused**.
 
 ### Criterion verdicts
 
@@ -164,9 +164,29 @@ decompositions to land, the audit to exit 0 on the final named candidate, and th
 composition/construction/lifecycle evidence to remain green.
 
 
-There is **no complete same-SHA landing record** for `7509f2b4`, `4b947e7d`, or current
-integration `c9ff372f`. The POD-279 coordinator has same-tree typecheck 22/22, client-auth 1 file/7 tests, wire goldens 1 file/90 tests,
-the three generators, both rearchitecture audits, and POD-1316 ancestry. The following were
+POD-1390 is **cleared against current integration**. Merge `d8fba769` contains implementation
+`295992a4` and the strengthened shutdown assertion `2d05fcff`; the four-test file is unchanged in
+the merge and has no skipped or focused-only clause. Its focused post-fix run passes 4/4 with one
+named test each for byte-verbatim transcript persistence, prose-only indexing, discriminating
+omni-search over real HTTP, and quiet shutdown plus restart from the durable index.
+
+The transcript bytes cross the authenticated daemon socket through real ranged reads. The worker
+explicitly discloses the one boundary: the daemon conversation-change projection enters through
+the real gateway route in-process because the discovery worker cannot resolve workspaces in a
+Vitest fork (POD-1400); neither lake, index, nor store is seeded directly. Five restored production
+mutations make the clauses refuse: truncated mirror chunks; indexing non-prose; match-everything
+search; removing memory disposal; and suppressing shutdown noise without abandoning the outstanding
+read. The last mutant stays silent but releases only after 9.7 seconds and therefore fails the
+under-5-second assertion, preventing a quiet leak from being mistaken for clean shutdown.
+
+This clears the missing memory-specific E2E ground and the POD-1101-class late-write defect on the
+current tree. It does not replace the final gate obligation to run the complete session/issue/memory
+lane once on the eventual same-SHA candidate.
+
+
+There is **no complete same-SHA landing record yet** for current integration `d8fba769`. The
+POD-279 coordinator has earlier same-tree typecheck 22/22, client-auth 1 file/7 tests, wire
+goldens 1 file/90 tests, the three generators, both rearchitecture audits, and POD-1316 ancestry. The following were
 explicitly **not run** on those SHAs and are not cited as covered: session/issue/memory E2E,
 authenticated live-redeploy survival, multi-instance isolation, and the full unit lane. Earlier
 worker results on other commits remain different propositions. Heavy lanes are deliberately held
