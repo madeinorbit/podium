@@ -184,6 +184,38 @@ current tree. It does not replace the final gate obligation to run the complete 
 lane once on the eventual same-SHA candidate.
 
 
+POD-1394 **is not review-complete**. Its campaign at candidate `d8fba769` is the first
+candidate-wide run to mutate production code rather than detector fixtures. The runner enforces a
+clean tree, single anchor, moved hash, replacement grep-back, byte-identical restoration, restored
+anchor count, and clean final status. Local module identity passed 3/3, scratch state was isolated,
+nothing bound live port 18787, and the live config mtime remained unchanged.
+
+The campaign planted 19 mutants across the ten conditions. Seventeen were caught, with three
+mis-aims correctly re-aimed and one piped-exit instrument error rerun unpiped. Two production
+violations **survived**:
+
+- C3b removed session-expiry validation from the transport auth gate; 2 files/29 tests stayed green
+  because tests call only the store predicate, not `requestUserId` or `isRequestAuthed`
+  (POD-1410).
+- C6c raised the outbound presence queue bound from 64 to 1,000,000; 6 files/88 tests stayed green
+  because the apparent pressure test covers send failure/eviction, not queue depth (POD-1412).
+
+Those two proposed issues are now hard dependencies of POD-1394; only an operator can reparent them
+under it. After their fixes, the same production mutants must fail on a new named candidate. The
+campaign must also complete the compound clauses its summary does not mutation-prove: global
+sequence/feed epoch/healing and mid-session grant/revoke; live agent delegation and revoke-at-next-
+apply plus machine migration/fact scoping; subscription/join/invisible-target oracle equivalence
+including timing/drop/disconnect; the deliberately small tenant-visible floor; and SYSTEM scope and
+no-widening beyond attribution helpers.
+
+The committed artifact preserves the summary and runner but not the per-mutant JSON command/output/
+hash records, which remained in scratch storage. Before acceptance, the actual records—or an
+equivalent durable transcript containing every command, diagnostic, original/mutated/restored hash,
+and clean-tree result—must be committed or attached. The campaign also correctly records that
+`audit:scoped-feed` alone misses a real cross-principal leak and the shipped remove-for-eviction
+site; future gate runs must cite the running-object guards that actually caught those mutants.
+
+
 There is **no complete same-SHA landing record yet** for current integration `d8fba769`. The
 POD-279 coordinator has earlier same-tree typecheck 22/22, client-auth 1 file/7 tests, wire
 goldens 1 file/90 tests, the three generators, both rearchitecture audits, and POD-1316 ancestry. The following were
