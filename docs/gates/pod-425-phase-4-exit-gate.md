@@ -246,6 +246,26 @@ Review therefore remains **refused**. Re-request only after both blocker fixes a
 named candidate, the original campaign is rerun there, and the uncovered compound subclauses have
 their own production mutation-and-restore records.
 
+Post-review landing update: integration `777a4d5c` contains POD-1410 merge `bbd05a08` and POD-1412
+implementation `cb26d51f` by ancestry. The POD-279 coordinator reports rerunning the original C3b
+expiry-check deletion and seeing the guard refuse. For C6c, the coordinator independently raised
+`STREAM_QUEUE_MAX_FRAMES` to one million and, in a separate mutation with the constant left at 64,
+bypassed the bound at its call site; both mutations failed on the intended queue-bound behavior.
+The gate did not re-run those fresh landing checks. This clears the two survivor defects on current
+integration, but it does not retroactively change candidate `4b5c3a43`; the eventual campaign
+candidate must contain both fixes and re-run the complete set there.
+
+Boundary enforcement is currently not green evidence. The POD-279 coordinator reports
+`bun run lint:boundaries` red on integration because three POD-1385 extractions import
+`@podium/harness` from `apps/server` while the exemption is per-file and did not follow the moved
+code. No boundary-enforcement citation is accepted until that lane is green on the final candidate.
+The gate did not re-run the known-red lane.
+
+No banked lane requires merge sequencing or protection. Every prior result in this report is bound
+to its immutable named SHA and cannot be promoted to a later tree; the final session/issue/memory,
+authenticated redeploy, multi-instance, structural, and full-unit evidence is deliberately withheld
+until the coordinator names the post-blocker candidate.
+
 
 There is **no complete same-SHA landing record yet** for current integration `d8fba769`. The
 POD-279 coordinator has earlier same-tree typecheck 22/22, client-auth 1 file/7 tests, wire
