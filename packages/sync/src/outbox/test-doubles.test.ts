@@ -26,10 +26,16 @@ import { InMemoryOutboxStore, InMemoryUnitOfWork } from './test-doubles'
  * kernel simply reports what the double told it.
  *
  * The interleavings are DETERMINISTIC — a body parked on a gate we resolve, never
- * a sleep. POD-373's conformance suite is parameterised by instantiation, so
- * anything asserted here is a claim about what a real IndexedDB/SQLite adapter owes
- * too; see `docs/design/outbox-fake-vs-real-adapter.md` for the divergences
- * POD-374/375 must close, which THIS file cannot observe.
+ * a sleep.
+ *
+ * WHAT THIS FILE CANNOT SAY, and where that half lives. Everything here certifies
+ * the DOUBLE. A behaviour the double permits that a real transaction forbids would
+ * be a false green for the whole conformance suite, and nothing in this file can
+ * see it. `../conformance/store-fidelity.ts` carries the probes that survive the
+ * port and runs them against the in-memory, IndexedDB and SQLite instantiations
+ * alike; the concurrently-open-span probes below are the ones that do NOT survive
+ * it, because a durable unit of work serializes `transact` and parking a span would
+ * deadlock rather than fail.
  */
 
 const CLOSE: OutboxCommand = { name: 'issues.close', version: 1, delivery: 'offline-eligible' }
