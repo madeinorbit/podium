@@ -181,7 +181,7 @@
  */
 
 import { z } from 'zod'
-import { Attribution } from '../fields/attribution'
+import { StampedAttribution } from '../fields/attribution'
 import { IssueIdentity, IssueWorkspace } from '../fields/issue'
 import { Ownership } from '../fields/ownership'
 import { SessionIdentity, SessionNaming, SessionPlacement, SessionResume } from '../fields/session'
@@ -313,11 +313,12 @@ export type HandoffManifestV1 = z.infer<typeof HandoffManifestV1>
  *   - `owner` + `visibility` arrive from `Ownership`.
  *
  * `{at, by: Attribution}` is POD-365's own nesting IDIOM, not a shape invented
- * here: `SessionTombstone.deleted` and the issue-side site are spelled exactly
- * this way. (The idiom is hand-written at each of those sites — there is no
- * shared `{at, by}` schema to compose yet. Filed as a proposal rather than
- * invented here, because a fourth site is the evidence for one, and `Attribution`
- * itself — the part that carries the principal — IS composed.)
+ * here: `SessionTombstone.deleted` is spelled exactly this way. POD-1153 filed
+ * the idiom's promotion as a proposal rather than inventing it, because a fourth
+ * site is the evidence for one; POD-1156 then did it. `exported` IS the shared
+ * `StampedAttribution` instance now — same key set, same order, so the promotion
+ * moved no bytes — and the pairing it guarantees is the one thing the golden
+ * corpora cannot check, a restatement being byte-identical to them.
  *
  * `sourceMachineId` stays flat and stays OUT of the pair: per POD-364 §9 it and
  * the export time are DEVICE-level facts — which machine, when. `sourceMachineId`
@@ -341,16 +342,15 @@ export const HandoffManifestV2 = z.object({
   format: z.literal(2),
   ...HANDOFF_BUNDLE_CORE,
   /** WHEN the bundle was exported and WHO exported it, inseparably (ADR 9 D5
-   *  A3). `at` is THE export timestamp — v1's `exportedAt` moved in here rather
-   *  than being duplicated beside it, so this schema has exactly one spelling
-   *  of it. `by` is the shared {@link Attribution} instance: `actor` = the
-   *  minting agent/session, `onBehalfOf` = the human it acted for (`null` only
-   *  for the machine and system arms, which is a representable fact and never a
-   *  default). */
-  exported: z.object({
-    at: z.string(),
-    by: Attribution,
-  }),
+   *  A3) — the shared {@link StampedAttribution} instance (POD-1156), whose key
+   *  set and order are the ones this format already shipped, so composing it
+   *  moves no bytes. `at` is THE export timestamp — v1's `exportedAt` moved in
+   *  here rather than being duplicated beside it, so this schema has exactly one
+   *  spelling of it. `by` is the shared {@link Attribution} instance: `actor` =
+   *  the minting agent/session, `onBehalfOf` = the human it acted for (`null`
+   *  only for the machine and system arms, which is a representable fact and
+   *  never a default). */
+  exported: StampedAttribution,
   /** The ON-BEHALF-OF HUMAN of the minting principal (ADR 9 D5 A4) — the same
    *  person as `exported.by.onBehalfOf` for an agent-minted bundle.
    *

@@ -280,6 +280,13 @@ export const NeedsHuman = z.object({
       /** Structured suggested answers — the Tray's answer chips. Absent =
        *  free-form question. */
       options: z.array(z.string()).optional(),
+      /** WHEN. Deliberately NOT `StampedAttribution` (POD-1156): that shape's
+       *  `by` is the principal pair, and this object's `by` is already spoken
+       *  for by the asking session below. Composing it here would mean RENAMING
+       *  two keys on a persisted shape to remove a duplicated `z.string()` —
+       *  strictly the worse trade. The deviation is pinned by name in
+       *  `attribution-stamped.test.ts` so it stays a recorded decision rather
+       *  than the precedent a fourth site reads it as. */
       at: z.string(),
       /** The actor half, kept as the asking session because that is also the
        *  DELIVERY ADDRESS the registry routes the answer to. */
