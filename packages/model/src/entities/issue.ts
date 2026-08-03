@@ -165,7 +165,20 @@ const IssueWireCore = z.object({
   notesUpdatedAt: IssueText.shape.notesUpdatedAt,
   suggestedStage: IssueLifecycle.shape.suggestedStage,
   suggestedReason: IssueText.shape.suggestedReason,
-  blockedBy: z.array(IssueIdField),
+  // NOT the dependency graph, and no longer typed as if it were (POD-1144).
+  // This was `z.array(IssueIdField)` while the column behind it — written by
+  // `IssueService.refreshAssistant` — holds LLM-authored prose that is OFTEN A
+  // BRANCH NAME. The brand asserted an id space the values are not in, so the
+  // projection in `modules/issues/service/core.ts` could only reach the wire
+  // through a cast. Composing from the aggregate's own field deletes both the
+  // assertion and the cast: this is the SAME SCHEMA INSTANCE the aggregate
+  // calls `blockedByNotes` (`fields/issue.ts` D-2), asserted with `toBe` in
+  // `issue-composition.test.ts`, so the two can no longer drift apart.
+  //
+  // Real edges live in `issue_deps` by branded id (ADR 4 D7.1) and reach the
+  // wire as `deps` / `dependents` / `blocksDeps`. A value here NEVER resolves
+  // to an issue; every consumer renders it as prose or counts it.
+  blockedBy: IssueGraphRefs.shape.blockedByNotes,
   dependencyNote: IssueText.shape.dependencyNote,
   prUrl: IssueLinear.shape.prUrl,
   priority: IssueTriage.shape.priority,

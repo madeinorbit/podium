@@ -5058,7 +5058,6 @@
         "defaultAgent": "defaultAgent",
         "defaultModel": "defaultModel",
         "defaultEffort": "defaultEffort",
-        "blockedBy": [],
         "priority": 1,
         "type": "task",
         "pinned": true,
@@ -5076,6 +5075,7 @@
         "archived": true
       },
       "parseAdded": {
+        "blockedBy": [],
         "readAt": null,
         "origin": "human",
         "audience": "human",
@@ -5245,7 +5245,6 @@
         "defaultAgent": "defaultAgent",
         "defaultModel": "defaultModel",
         "defaultEffort": "defaultEffort",
-        "blockedBy": [],
         "priority": 1,
         "type": "task",
         "pinned": true,
@@ -5263,6 +5262,7 @@
         "archived": true
       },
       "parseAdded": {
+        "blockedBy": [],
         "readAt": null,
         "origin": "human",
         "audience": "human",
