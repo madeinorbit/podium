@@ -132,6 +132,34 @@ function classMemberDupes(file: string, clean: string): ShadowFinding[] {
   return findings
 }
 
+/** True when the function declaration starting at `n` is an overload SIGNATURE
+ *  (no body) rather than the implementation. A TypeScript overload set is two or
+ *  more signatures plus one implementation, all sharing a name — legal, and the
+ *  false positive that taught people to wave this gate through [POD-1355]. Only
+ *  the implementation is a real declaration, so only it is counted.
+ *
+ *  A signature may wrap across lines; walk forward until the parameter list
+ *  closes, then decide on whether a body brace opens on that line. */
+function isOverloadSignature(lines: readonly string[], n: number): boolean {
+  let depth = 0
+  let opened = false
+  for (let i = n; i < lines.length; i++) {
+    const line = lines[i] ?? ''
+    for (const ch of line) {
+      if (ch === '(') {
+        depth++
+        opened = true
+      } else if (ch === ')') {
+        depth--
+      }
+    }
+    // Parameter list closed: whatever else is on this line (a return type, then
+    // either `{` or nothing) decides signature vs implementation.
+    if (opened && depth === 0) return !/\{\s*$/.test(line)
+  }
+  return false
+}
+
 /** Duplicate top-level exported declarations in one module. */
 function moduleExportDupes(file: string, clean: string): ShadowFinding[] {
   const lines = clean.split('\n')
@@ -141,6 +169,7 @@ function moduleExportDupes(file: string, clean: string): ShadowFinding[] {
       lines[n] ?? '',
     )
     if (!m) continue
+    if (/^export\s+(?:declare\s+)?function\b/.test(lines[n] ?? '') && isOverloadSignature(lines, n)) continue
     const name = m[1] as string
     const at = seen.get(name) ?? []
     at.push(n + 1)
