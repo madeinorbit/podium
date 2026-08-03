@@ -14,6 +14,8 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import { z } from 'zod'
+import { IssueIdField } from '../ids'
 import { IssueWire } from './issue'
 import { IssueGitState } from './issue-vocabulary'
 import {
@@ -114,13 +116,34 @@ const COMPOSED: ReadonlyArray<readonly [string, Record<string, unknown>]> = [
 ] as const
 
 /**
+ * COMPOSED UNDER A DIFFERENT NAME — the third category, added by POD-1144.
+ *
+ * `[wireKey, groupKey, groupShape]`. The two lists above are name-keyed because
+ * the wire key and the vocabulary key normally agree; D-2's renames are the case
+ * where they do not. `blockedBy` was parked in NOT_COMPOSED on that basis, and
+ * the parking hid a defect: the wire field was `z.array(IssueIdField)` while the
+ * group's `blockedByNotes` is `z.array(z.string())`, so "not composed" was
+ * covering for two types that disagreed about whether the value is an id.
+ *
+ * Same NAME and same FACT are different questions. The fact is identical — this
+ * is the assistant's prose, from `refreshAssistant`, in both places — so it must
+ * be the same schema instance. The name still differs, and renaming the WIRE key
+ * is a wire change (golden corpus + the v1 legacy adapter) that POD-1145 owns.
+ * Until then the substitution is real and this list is where it is accounted for,
+ * rather than in an exception list that would let the types drift apart again.
+ */
+const COMPOSED_RENAMED: ReadonlyArray<readonly [string, string, Record<string, unknown>]> = [
+  ['blockedBy', 'blockedByNotes', IssueGraphRefs.shape],
+]
+
+/**
  * THE KEYS DELIBERATELY NOT COMPOSED, each with the class it belongs to. Pinned
  * as a SET so that "composed 43" cannot become "composed 43" while a key quietly
  * moves between the two lists — 43 + 35 must still be the whole wire.
  */
 const NOT_COMPOSED: Readonly<Record<string, string>> = {
-  // Renames POD-365 deliberately kept OFF the wire (D-2).
-  blockedBy: 'renamed to blockedByNotes on composition; wire keeps the old name',
+  // Renames POD-365 deliberately kept OFF the wire (D-2). `blockedBy` USED TO BE
+  // HERE and is now in COMPOSED_RENAMED — POD-1144 composed it; see that list.
   origin: 'renamed to intentOrigin on composition',
   draft: 'renamed to isDraftVessel on composition',
   // The IssueDocuments wrapper: op-stream documents, plain strings on the wire.
@@ -173,8 +196,11 @@ describe('IssueWire composes the shared field groups', () => {
     // Rule: a parameterised suite whose parameter list IS the thing under test
     // cannot notice its own coverage shrinking. Pin the membership, not a count.
     const composed = COMPOSED.map(([k]) => k)
+    const renamed = COMPOSED_RENAMED.map(([wireKey]) => wireKey)
     expect(new Set(composed).size, 'a key listed twice as composed').toBe(composed.length)
-    expect([...composed, ...Object.keys(NOT_COMPOSED)].sort()).toEqual(Object.keys(wire).sort())
+    expect([...composed, ...renamed, ...Object.keys(NOT_COMPOSED)].sort()).toEqual(
+      Object.keys(wire).sort(),
+    )
     // 44 since POD-362 composed `assignee`, which this list previously excluded
     // with the note "wire is still z.string() until the flip". This was the flip.
     // 45 since the POD-1246 catch-up composed `revision` — link 3 of ADR 2 D3's
@@ -187,6 +213,30 @@ describe('IssueWire composes the shared field groups', () => {
     // one and encodes identically. Only reference identity sees the drift.
     expect(groupShape[key], `IssueWire.${key} is not the shared definition`).toBeDefined()
     expect(wire[key]).toBe(groupShape[key])
+  })
+
+  it.each(COMPOSED_RENAMED)(
+    '%s IS the shared group member %s under another name',
+    (wireKey, groupKey, groupShape) => {
+      expect(groupShape[groupKey], `no group member named ${groupKey}`).toBeDefined()
+      expect(wire[wireKey]).toBe(groupShape[groupKey])
+    },
+  )
+
+  it('blockedBy is NOT branded — the id brand cannot be what guards it', () => {
+    // WHY THIS TEST IS AN IDENTITY ASSERTION AND NOT A PARSE ASSERTION, which is
+    // the whole reason POD-1144's defect survived review for two issues.
+    //
+    // `IssueId` is `z.string().min(1).brand<'IssueId'>()` — LENGTH-ONLY. So the
+    // wrong schema, `z.array(IssueIdField)`, accepts 'issue/1144-…' at RUNTIME
+    // just as happily as the right one. Every parse-based test passes under both,
+    // every golden fixture is byte-identical under both, and the lie was visible
+    // only to the type checker — which is exactly why the projection could reach
+    // the wire through a cast and nothing went red.
+    //
+    // Pinned so a later sweep cannot re-brand this field and call it a tightening.
+    expect(wire.blockedBy).not.toBe(IssueGraphRefs.shape.parentId)
+    expect(z.array(IssueIdField).safeParse(['issue/1144-not-an-id']).success).toBe(true)
   })
 
   it('leaves the uncomposed keys genuinely uncomposed', () => {

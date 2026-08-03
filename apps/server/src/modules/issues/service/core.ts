@@ -377,15 +377,11 @@ export class IssueStore {
       ...(issue.notesUpdatedAt ? { notesUpdatedAt: issue.notesUpdatedAt } : {}),
       ...(issue.suggestedStage ? { suggestedStage: issue.suggestedStage } : {}),
       ...(issue.suggestedReason ? { suggestedReason: issue.suggestedReason } : {}),
-      // A MODEL MISBRAND, not a POD-362 adapter cast — and it is being reported,
-      // not absorbed. `IssueWire.blockedBy` is `z.array(IssueIdField)`, but the
-      // value is `blockedByNotes`: LLM-authored PROSE that `store/types.ts`
-      // documents as "often BRANCH names rather than issue ids" and explicitly NOT
-      // the dependency graph (real edges live in issue_deps). So the brand on the
-      // wire field asserts an id space this value is not in. POD-308 owns the wire
-      // rename; branding cannot fix a field whose CONTENT is not an id, and
-      // widening the wire here would be a wire change this issue must not make.
-      blockedBy: issue.blockedByNotes as IssueId[],
+      // No cast (POD-1144 resolved POD-362's reported misbrand): the wire field
+      // now IS `IssueGraphRefs.shape.blockedByNotes`, so a branch name reaches
+      // the client as the string it is. Assign it straight — a cast reappearing
+      // here would mean the two types have drifted apart again.
+      blockedBy: issue.blockedByNotes,
       ...(issue.dependencyNote ? { dependencyNote: issue.dependencyNote } : {}),
       ...(issue.prUrl ? { prUrl: issue.prUrl } : {}),
       priority: issue.priority,

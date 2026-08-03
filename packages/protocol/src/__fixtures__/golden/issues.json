@@ -245,7 +245,6 @@
           "defaultAgent": "issue.defaultAgent",
           "defaultModel": "issue.defaultModel",
           "defaultEffort": "issue.defaultEffort",
-          "blockedBy": [],
           "priority": 1,
           "type": "task",
           "pinned": true,
@@ -264,6 +263,7 @@
         }
       },
       "parseAdded": {
+        "issue.blockedBy": [],
         "issue.readAt": null,
         "issue.origin": "human",
         "issue.audience": "human",
