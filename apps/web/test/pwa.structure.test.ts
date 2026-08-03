@@ -67,8 +67,10 @@ describe('PWA shell height + safe-area inset', () => {
     expect(desktopBlock).not.toContain('safe-area-inset-bottom')
   })
 
-  it('ChatView composer applies safe-area-inset-bottom exactly once', () => {
-    const src = readWeb('src/features/chat/ChatView.tsx')
+  it('the chat composer applies safe-area-inset-bottom exactly once', () => {
+    // The composer is its own component since POD-405; the inset lives with the
+    // bottommost UI element, which is what this rule is actually about.
+    const src = readWeb('src/features/chat/ChatComposer.tsx')
     const matches = [...src.matchAll(/safe-area-inset-bottom/g)]
     expect(matches.length).toBe(1)
   })

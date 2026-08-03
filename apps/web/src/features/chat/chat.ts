@@ -1,4 +1,4 @@
-import { type ChatBlock, type ChatRow, insertInCursorOrder } from '@podium/client-core/viewmodels'
+import { type ChatRow, insertInCursorOrder } from '@podium/client-core/viewmodels'
 import type { SessionId, TranscriptItem, TranscriptTag } from '@podium/model'
 
 /**
@@ -173,29 +173,10 @@ export function freshOlderPage(page: TranscriptItem[], held: TranscriptItem[]): 
   return page.filter((it) => !heldKeys.has(itemKey(it)))
 }
 
-/** Case-insensitive keyword match over everything a block shows. */
-export function blockMatches(block: ChatBlock, query: string): boolean {
-  const q = query.trim().toLowerCase()
-  if (!q) return false
-  const hay = [
-    block.item.text,
-    block.item.toolName ?? '',
-    block.item.toolInput ?? '',
-    block.result ?? block.item.toolResult ?? '',
-  ]
-    .join('\n')
-    .toLowerCase()
-  return hay.includes(q)
-}
-
-export function searchBlocks(blocks: ChatBlock[], query: string): number[] {
-  if (!query.trim()) return []
-  const hits: number[] = []
-  blocks.forEach((b, i) => {
-    if (blockMatches(b, query)) hits.push(i)
-  })
-  return hits
-}
+// Transcript SEARCH moved to the chat slice (`blockMatches` / `searchBlocks` in
+// @podium/client-core/viewmodels): it is pure, it is the same question mobile
+// asks, and the row that renders a hit is derived beside it, so the counter, the
+// scroll jump and the dimming cannot disagree about what a match is.
 
 /** DOM-measured position of one [data-block] child as ratios of scrollHeight. */
 export interface BlockOffset {

@@ -1,5 +1,6 @@
-import type { SessionId } from '@podium/model'
+import type { TranscriptAttribution } from '@podium/client-core/viewmodels'
 import { formatChurn, isImagePath, MACHINE_CONTEXT_RE } from '@podium/client-core/viewmodels'
+import type { SessionId } from '@podium/model'
 import { Clock, FileText, Image as ImageIcon, Mail as MailIcon } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
 import { memo, useMemo } from 'react'
@@ -10,9 +11,10 @@ import { isKnownRefPrefix, renderMarkdown } from '@/lib/markdown'
 import { activateRef } from '@/lib/ref-activation'
 import { cn } from '@/lib/utils'
 import { AskUserQuestionCard } from './AskUserQuestionCard'
+import { AttributionMark } from './AttributionMark'
 import type { ChatBlock } from './chat'
 import { MachineContextRow } from './MachineContextRow'
-import { envelopePrincipal, parseEnvelopeBatch, type ParsedEnvelope } from './message-envelope'
+import { envelopePrincipal, type ParsedEnvelope, parseEnvelopeBatch } from './message-envelope'
 import { SendUserFileBlock, SentImageThumb } from './SendUserFileBlock'
 import { ToolBlock } from './ToolBlock'
 
@@ -171,6 +173,7 @@ export const ChatBlockView = memo(function ChatBlockView({
   compact = false,
   ctxSeq = null,
   stickyOperator = false,
+  attribution,
 }: {
   block: ChatBlock
   index: number
@@ -197,6 +200,11 @@ export const ChatBlockView = memo(function ChatBlockView({
   /** True for an operator-authored row while the device-local sticky-prompt
    * preference is enabled. The row itself sticks; no duplicate header. */
   stickyOperator?: boolean
+  /** The row's ACTOR + ON-BEHALF-OF pair (doc §3.1.3 A3), derived once per
+   *  session by the chat slice and handed down. Passed in — never computed here
+   *  — so the object identity stays stable across renders and this memoized
+   *  component keeps skipping work. */
+  attribution?: TranscriptAttribution
 }): JSX.Element | null {
   const { item } = block
   // Delivered-message envelope (#237) [spec:SP-34d7 web]: an inter-agent /
@@ -382,17 +390,20 @@ export const ChatBlockView = memo(function ChatBlockView({
           {isUser && (
             <div className="transcript-you-label">
               You
+              {attribution && <AttributionMark attribution={attribution} />}
               {compact && <BlockClock ts={item.ts} />}
             </div>
           )}
           {item.role === 'system' && (
             <div className="transcript-header">
               <span className="transcript-role transcript-role--system">System</span>
+              {attribution && <AttributionMark attribution={attribution} />}
             </div>
           )}
           {isAnswer && (
             <div className="transcript-answer-label">
               {compact ? 'Super agent' : 'Answer'}
+              {attribution && <AttributionMark attribution={attribution} />}
               {compact && ctxSeq !== null && (
                 <span className="chat-ctx">· POD-{ctxSeq} context</span>
               )}
