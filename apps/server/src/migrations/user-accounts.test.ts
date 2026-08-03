@@ -175,19 +175,25 @@ describe('user-accounts migration: a first admin exists afterwards', () => {
     expect(row.created_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
   })
 
-  it('records that the admin authenticates with the EXISTING instance password', () => {
-    // The resolved fork: a SQL migration cannot read auth.json, so it records
-    // what is true rather than inventing a credential. Nobody is locked out and
-    // no secret is moved.
+  it('leaves NO instance-password marker behind — POD-1554 retired that source', () => {
+    // POD-1075 wrote a `source = 'instance-password'` marker with a NULL hash,
+    // meaning *this account authenticates with the shared secret in auth.json*.
+    // It was explicitly a bridge. POD-1554 retired it, and this suite runs the
+    // WHOLE chain, so the end state is what it asserts: the marker is gone.
+    //
+    // Deleting it is safe rather than lossy — such a row is NULL-hashed by
+    // construction, and the boot migration that moves the real hash keys on
+    // auth.json EXISTING, not on this row. Leaving it would be the harmful
+    // option: credentialFor now fails closed on an unknown source, so a
+    // surviving marker reads as NO CREDENTIAL with nothing explaining why.
     const db = preMigrationDb()
     runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
 
     const cred = db
       .prepare('SELECT user_id, source, password_hash FROM user_credentials WHERE user_id = ?')
-      .get(FIRST_ADMIN) as { user_id: string; source: string; password_hash: string | null }
+      .get(FIRST_ADMIN)
 
-    expect(cred.source).toBe('instance-password')
-    expect(cred.password_hash).toBeNull()
+    expect(cred).toBeUndefined()
   })
 
   it('exists on a FRESH database too — Phase 4 may assume an admin is present', () => {
