@@ -47,6 +47,8 @@ import type { PodiumClientApi } from '../../../api'
 import type { Store } from '../../../engine/types'
 import type { IssueNavigationModel } from '../issues'
 import { defineSlice } from '../publish'
+import { groupUnifiedWorkRows, splitPinnedWork, type UnifiedWorkGroup } from './folds'
+import { reposVisibleOnMachines } from './machine-scope'
 import { type SidebarSections, sidebarSections } from './nav'
 import type { UnifiedWorkRow } from './row-types'
 import { unifiedWorkList } from './rows'
@@ -65,6 +67,33 @@ export interface WorklistSlice {
   sections: SidebarSections
   allWorktreePaths: string[]
   work: UnifiedWorkRow[]
+  /**
+   * The PINNED section — rows that moved out of their project group (POD-166).
+   *
+   * Published rather than left to each consumer for the same reason `work` is:
+   * the split is a pure function of the rows, so two surfaces computing it
+   * separately can only ever agree by coincidence.
+   */
+  pinned: UnifiedWorkRow[]
+  /**
+   * THE PROJECT-GROUP STRUCTURE (POD-407) — the tree the sidebar renders: one
+   * group per repo, each with its open rows and its snoozed and closed folds.
+   *
+   * This is the "tree building comes from the slice, not the component" half of
+   * POD-331's brief. It used to be a `useMemo` inside `WorkSections`, which meant
+   * the rail, the command palette and mobile either re-derived it or did without.
+   *
+   * ONE CAVEAT, AND IT IS DELIBERATE. `groupUnifiedWorkRows` takes a second
+   * selection argument — whether the SELECTED closed row was folded at the moment
+   * it was clicked — which keeps a row in the lane it was clicked in. That latch
+   * is a transient property of one interaction on one screen, not of the world,
+   * so it is not store state and cannot be derived here. This slice therefore
+   * publishes the grouping for the unlatched case, which is the state the app is
+   * in except during the brief window after clicking a settled closed row; the
+   * one consumer holding such a latch re-groups for exactly that window and says
+   * so at the call site.
+   */
+  groups: UnifiedWorkGroup[]
   /** The clock this slice was derived against. Consumers that need `now` for
    *  their own time-dependent rendering read it HERE rather than starting a
    *  private interval, so a row and its timestamp can never disagree. */
@@ -102,8 +131,12 @@ export const worklistSlice = defineSlice<Store<PodiumClientApi>, WorklistSlice>(
   name: 'worklist',
   derive: (store) => {
     const issues = issuesOf(store)
+    // The repo/project tree is bounded by machine SEE before it is built (POD-407):
+    // repos and worktrees are per-machine facts and inherit that machine's scoping
+    // rather than carrying their own. See `machine-scope.ts` for why an unstamped
+    // row and an empty machine list both mean "not scoped", not "hide it".
     const sections = sidebarSections(
-      store.repos,
+      reposVisibleOnMachines(store.repos, store.machines),
       store.sessions,
       store.pins,
       store.coarseNow,
@@ -112,10 +145,22 @@ export const worklistSlice = defineSlice<Store<PodiumClientApi>, WorklistSlice>(
     const allWorktreePaths = [...sections.pinnedRepos, ...sections.repos].flatMap((repo) =>
       repo.worktrees.map((worktree) => worktree.path),
     )
+    const work = unifiedWorkList(
+      sections,
+      issues,
+      store.sessions,
+      allWorktreePaths,
+      store.coarseNow,
+    )
+    // Placement, once, for every reader. `splitPinnedWork` first: pinned rows
+    // leave their project group entirely, so grouping must see the remainder.
+    const { pinned, rest } = splitPinnedWork(work)
     return {
       sections,
       allWorktreePaths,
-      work: unifiedWorkList(sections, issues, store.sessions, allWorktreePaths, store.coarseNow),
+      work,
+      pinned,
+      groups: groupUnifiedWorkRows(rest, store.selectedIssueId, false, store.coarseNow),
       now: store.coarseNow,
     }
   },

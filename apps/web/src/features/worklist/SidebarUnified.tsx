@@ -17,10 +17,8 @@ import {
   ArrowDownToLine,
   ChevronDown,
   ChevronRight,
-  Circle,
   FolderPlus,
   Pin,
-  Plus,
   Search,
 } from 'lucide-react'
 import { LayoutGroup, MotionConfig, motion, useReducedMotion } from 'motion/react'
@@ -36,19 +34,14 @@ import { NEW_AGENTS } from '@/app/NewPanelMenu'
 import { useReplicaIssues, useSlice, useStoreSelector } from '@/app/store'
 import { GitStamp } from '@/components/GitStamp'
 import { IdSquare } from '@/components/IdSquare'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+import { DropdownMenu, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { issueIdTitle } from '@/features/issues/issue-card'
 import { NewIssueDialog } from '@/features/issues/NewIssueDialog'
 import { RepoScanFlow } from '@/features/setup/RepoScanFlow'
+import { NewAgentMenu } from './NewAgentMenu'
+import { closedFoldKey, issueRowFoldKey, snoozedFoldKey } from './fold-keys'
+import { inlineRenameEditor, useInlineRename } from './use-inline-rename'
 import { agentBrandText, agentFleetTileTint } from '@/lib/agent-tone'
 import {
   branchRollup,
@@ -60,8 +53,8 @@ import {
   isIssueDeferred,
   issueReturnedFromDefer,
   lastUsedMaps,
+  machineViewsFromWire,
   type MotionPhase,
-  machinesWithRepo,
   panelLabel,
   partitionStaleSessions,
   pendingDecisionLabel,
@@ -69,7 +62,7 @@ import {
   pickPaneSession,
   type RepoNavView,
   resolveDefaultAgent,
-  resolveTargetMachine,
+  resolveSpawnTargetMachine,
   rowAwaitsTuck,
   rowMotionPhase,
   rowMotionTiming,
@@ -85,6 +78,7 @@ import {
   splitPinnedWork,
   type UnifiedIssueRow as UnifiedIssueRowView,
   type UnifiedWorkRow,
+  usableMachines,
   type WorklistSlice,
   worklistSlice,
 } from '@/lib/derive'
@@ -347,11 +341,24 @@ export function useDefaultSpawn(sectionsOverride?: SidebarSections) {
       best === undefined || (byRepo.get(r.path) ?? 0) > (byRepo.get(best.path) ?? 0) ? r : best,
     undefined,
   )
-  // The spawn target is the repo's primary checkout on the default machine
-  // (MRU for this repo, then first online machine with the repo).
-  const defaultMachine = defaultRepo
-    ? resolveTargetMachine(defaultRepo, sessions, machines)
+  // Machines as THIS principal may act on them: `see` already applied by the
+  // server's per-principal projection, `use` read per-list (POD-407 / §3.1.4 M5).
+  // Everything below picks targets out of these views rather than out of the raw
+  // wire list, so an unauthorized machine is never a candidate in the first place.
+  const machineViews = machineViewsFromWire(machines)
+
+  // The spawn target is the repo's primary checkout on the default machine (MRU
+  // for this repo, then first ONLINE machine the principal may USE).
+  //
+  // `resolveSpawnTargetMachine`, not `resolveTargetMachine`: the latter gates on
+  // `online` alone, so it would happily resolve to a machine this principal has
+  // no `use` grant on — a silently retargeted spawn, exactly the failure M5
+  // forbids. The gated resolver applies `use` to the candidate set BEFORE the
+  // pick, and says which of no-repo / unauthorized / unreachable it refused with.
+  const spawnTarget = defaultRepo
+    ? resolveSpawnTargetMachine(defaultRepo, sessions, machineViews)
     : undefined
+  const defaultMachine = spawnTarget?.machineId
   const defaultTarget = defaultRepo ? spawnTargetForRepo(defaultRepo, defaultMachine) : undefined
   const defaultAgent = resolveDefaultAgent(agentSetting, sessions)
   // Menu repos read most-recently-used first (name tiebreak) — same order the
@@ -366,8 +373,32 @@ export function useDefaultSpawn(sectionsOverride?: SidebarSections) {
    *  Optimistic (#119): the store paints the 'starting' row + draft vessel
    *  instantly, so we navigate synchronously with the client-minted ids — no
    *  waiting on the create round-trip or its broadcast. */
+  /**
+   * Resolve where this spawn lands, or `null` to refuse it outright.
+   *
+   * DENIED IS NOT THE SAME AS NO TARGET (§3.1.4 M5). An `unauthorized` refusal
+   * must stop the spawn: falling through to the repo's primary checkout is the
+   * "silently retargeted" failure M5 names. Every other outcome keeps today's
+   * behaviour exactly — `no-repo` (nothing in the fleet holds this repo, the
+   * ordinary single-machine and local-daemon case) and `unreachable` (holders
+   * exist but none is online) both resolve to `undefined`, which
+   * `spawnTargetForRepo` turns into the repo's own main checkout as it always
+   * has. That split is what keeps single-user parity while closing the hole.
+   */
+  function resolveSpawnMachine(repo: RepoNavView, machineId?: string): string | undefined | null {
+    // An explicit pick is honoured only if it is still a machine this principal
+    // may USE. The menu never offers an unauthorized one, but the views can go
+    // stale between render and click (a grant revoked mid-menu).
+    if (machineId !== undefined)
+      return usableMachines(machineViews).some((m) => m.id === machineId) ? machineId : null
+    const { machineId: resolved, refusal } = resolveSpawnTargetMachine(repo, sessions, machineViews)
+    if (refusal === 'unauthorized') return null
+    return resolved
+  }
+
   function spawn(agentKind: AgentKind, repo: RepoNavView, machineId?: string): void {
-    const targetMachine = machineId ?? resolveTargetMachine(repo, sessions, machines)
+    const targetMachine = resolveSpawnMachine(repo, machineId)
+    if (targetMachine === null) return
     const { worktree: wt } = spawnTargetForRepo(repo, targetMachine)
     const { sessionId, issueId } = spawnDraftAgent({ target: wt, agentKind })
     setSelectedIssueId(issueId)
@@ -396,7 +427,9 @@ export function useDefaultSpawn(sectionsOverride?: SidebarSections) {
     defaultRepo,
     defaultTarget,
     menuRepos,
-    machines,
+    /** Machines with their verbs and availability — NOT the raw wire list. The
+     *  submenu renders `unauthorized` and `unreachable` as different things. */
+    machineViews,
     spawn,
     persistDefaultAgent,
   }
@@ -408,7 +441,7 @@ export function NewWorkRow({ sections }: { sections?: SidebarSections } = {}): J
     defaultRepo,
     defaultTarget,
     menuRepos,
-    machines,
+    machineViews,
     spawn,
     persistDefaultAgent,
   } = useDefaultSpawn(sections)
@@ -468,84 +501,15 @@ export function NewWorkRow({ sections }: { sections?: SidebarSections } = {}): J
               </button>
             }
           />
-          <DropdownMenuContent align="start" sideOffset={4} anchor={newAgentAnchorRef}>
-            {NEW_AGENTS.map(({ kind, label, Icon }) => (
-              <DropdownMenuSub key={kind}>
-                <DropdownMenuSubTrigger
-                  className="flex items-center gap-1.5"
-                  onClick={() => {
-                    if (!defaultRepo) return
-                    void persistDefaultAgent(kind)
-                    void spawn(kind, defaultRepo)
-                  }}
-                >
-                  <Icon size={14} aria-hidden="true" className="text-muted-foreground" />
-                  {label}
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent>
-                  {menuRepos.length === 0 && <DropdownMenuItem disabled>No repos</DropdownMenuItem>}
-                  {menuRepos.map((repo) => {
-                    const repoMachines = machinesWithRepo(repo, machines)
-                    if (repoMachines.length <= 1) {
-                      return (
-                        <DropdownMenuItem
-                          key={repo.path}
-                          onClick={() => {
-                            void persistDefaultAgent(kind)
-                            void spawn(kind, repo)
-                          }}
-                        >
-                          {repo.name}
-                        </DropdownMenuItem>
-                      )
-                    }
-                    return (
-                      <DropdownMenuSub key={repo.path}>
-                        <DropdownMenuSubTrigger
-                          onClick={() => {
-                            void persistDefaultAgent(kind)
-                            void spawn(kind, repo)
-                          }}
-                        >
-                          {repo.name}
-                        </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent>
-                          {repoMachines.map((machine) => (
-                            <DropdownMenuItem
-                              key={machine.id}
-                              disabled={!machine.online}
-                              onClick={() => {
-                                void persistDefaultAgent(kind)
-                                void spawn(kind, repo, machine.id)
-                              }}
-                            >
-                              <Circle
-                                size={6}
-                                className={
-                                  machine.online
-                                    ? 'fill-success text-success'
-                                    : 'text-muted-foreground/40'
-                                }
-                                aria-hidden="true"
-                              />
-                              <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
-                                {machine.name}
-                              </span>
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenuSubContent>
-                      </DropdownMenuSub>
-                    )
-                  })}
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
-            ))}
-            {/* New issue lives in this menu now — the top row is a single control. */}
-            <DropdownMenuItem onClick={() => setNewIssueOpen(true)}>
-              <Plus size={14} aria-hidden="true" className="text-muted-foreground" />
-              New task…
-            </DropdownMenuItem>
-          </DropdownMenuContent>
+          <NewAgentMenu
+            anchorRef={newAgentAnchorRef}
+            menuRepos={menuRepos}
+            machineViews={machineViews}
+            defaultRepo={defaultRepo}
+            onSpawn={spawn}
+            onPersistDefaultAgent={(kind) => void persistDefaultAgent(kind)}
+            onNewIssue={() => setNewIssueOpen(true)}
+          />
         </DropdownMenu>
       </div>
       {newIssueOpen && <NewIssueDialog onClose={() => setNewIssueOpen(false)} />}
@@ -758,7 +722,7 @@ function SnoozedIssueFold({
   renderRow: (row: TransitionWorkRow, animate: boolean) => JSX.Element
   settleTransition: (key: string, placement: string) => void
 }): JSX.Element {
-  const [collapsed, toggle] = useCollapsed(`podium:sidebar:snoozed-fold:${groupKey}`, true)
+  const [collapsed, toggle] = useCollapsed(snoozedFoldKey(groupKey), true)
   const contentId = useId()
   const visibleKeys = collapsed ? [] : rows.map((row) => row.key)
   const { arrivals, settle } = useArrivals(visibleKeys)
@@ -825,7 +789,7 @@ function ClosedIssueFold<T>({
   issueForRow: (row: T) => UnifiedIssueRowView
   onArchive: (id: string) => void
 }): JSX.Element {
-  const [collapsed, toggle] = useCollapsed(`podium:sidebar:closed-fold:${groupKey}`, true)
+  const [collapsed, toggle] = useCollapsed(closedFoldKey(groupKey), true)
   const contentId = useId()
   return (
     <div className="min-w-0" data-testid="closed-issue-fold">
@@ -947,6 +911,54 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
   const repoNavs: RepoNavView[] = [...sections.pinnedRepos, ...sections.repos]
   const allWorktreePaths = derivationOverride?.allWorktreePaths ?? published.allWorktreePaths
   const work = derivationOverride?.work ?? published.work
+  // Row PLACEMENT, published (POD-407): the pinned split and the project-group
+  // tree arrive derived rather than being rebuilt per consumer.
+  const pinned = derivationOverride?.pinned ?? published.pinned
+  const groups = derivationOverride?.groups ?? published.groups
+
+  /**
+   * EVICTION MOVES THE SELECTION ON, WITHOUT ANNOUNCING A DELETION (POD-407,
+   * readiness §3.1 item 2 / POD-1077).
+   *
+   * An entity that is unshared leaves this principal's slice with its `revision`
+   * unmoved: no `remove`, no tombstone, nothing that says "deleted". ADR 2 is
+   * explicit that `remove` cannot be reused for it, because the replica would
+   * render it as a deletion — and D5 already warns that soft-delete and tombstone
+   * "look identical from a distance and are not". So the row simply stops being
+   * there, and the correct UI response is silence: no toast, no tombstone, no
+   * deletion affordance, and above all NO RE-REQUEST of the id. Re-requesting is
+   * the heal loop ADR 2 names as the failure mode of a filtered feed, and it is
+   * also an existence oracle — a client that keeps asking learns the row is real
+   * but withheld.
+   *
+   * ABSENT FROM THE WORKLIST IS NOT THE TEST, and this is the whole subtlety. A
+   * finished issue decays out of the live list on a timer (`issueVisibleInSidebar`)
+   * and a tucked one folds away, while both still exist and are still legitimately
+   * selected. The test is absence from the REPLICA's issues — the row is not in
+   * this principal's slice at all.
+   *
+   * WHY A "HAVE I SEEN IT" LATCH AND NOT A LENGTH CHECK. A cold client restores
+   * `selectedIssueId` from the route before its first issue payload arrives, so
+   * "selected id not in the list" is ALSO what a normal reload looks like for a
+   * moment, and clearing there would wipe the selection on every reload. The
+   * obvious guard — ignore an empty list — is wrong in the case that matters
+   * most: unsharing someone's ONLY issue leaves exactly an empty list, which is
+   * the eviction that most needs handling.
+   *
+   * So the discriminator is whether this client ever OBSERVED the row present.
+   * Seen, then gone => evicted, clear. Never seen => still arriving, wait.
+   */
+  const seenSelected = useRef<string | null>(null)
+  useEffect(() => {
+    if (selectedIssueId === null) return
+    if (issues.some((issue) => issue.id === selectedIssueId)) {
+      seenSelected.current = selectedIssueId
+      return
+    }
+    if (seenSelected.current !== selectedIssueId) return
+    seenSelected.current = null
+    setSelectedIssueId(null)
+  }, [issues, selectedIssueId, setSelectedIssueId])
 
   // Switch-latency trace [POD-701]: a gesture that changes the focused SESSION
   // starts a trace at t0. Skipped for no-op switches (target already in pane A)
@@ -1049,6 +1061,8 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
 
   return {
     work,
+    pinned,
+    groups,
     sessions,
     issues,
     allWorktreePaths,
@@ -1072,6 +1086,8 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
 export function WorkSections({ derivation }: { derivation?: SidebarDerivation } = {}): JSX.Element {
   const {
     work,
+    pinned,
+    groups: publishedGroups,
     sessions,
     issues,
     allWorktreePaths,
@@ -1120,10 +1136,23 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
   const selectedWasFolded =
     selectedClosedPlacement?.issueId === selectedIssueId && selectedClosedPlacement.folded
 
-  const { pinned, rest } = useMemo(() => splitPinnedWork(work), [work])
+  // The pinned split and the project-group tree come from the PUBLISHED slice
+  // (POD-407) — derived once per snapshot for every reader, rather than once per
+  // consumer here. See `WorklistSlice.groups`.
+  //
+  // The one exception is the lane-stickiness latch: while a settled CLOSED row is
+  // selected and was folded when clicked, it must stay folded, and that latch is
+  // a property of this interaction on this screen, not of the world. So the
+  // grouping is recomputed for exactly that window and read straight off the
+  // slice the rest of the time. The condition is the whole cost — when no closed
+  // row is latched (the ordinary case, and every other consumer, always) this is
+  // a read.
   const targetGroups = useMemo(
-    () => groupUnifiedWorkRows(rest, selectedIssueId, selectedWasFolded, now),
-    [now, rest, selectedIssueId, selectedWasFolded],
+    () =>
+      selectedWasFolded
+        ? groupUnifiedWorkRows(splitPinnedWork(work).rest, selectedIssueId, true, now)
+        : publishedGroups,
+    [publishedGroups, selectedWasFolded, work, selectedIssueId, now],
   )
   const transitionTargets = useMemo<RowTransitionTarget<WorkPlacement>[]>(
     () => [
@@ -1904,26 +1933,14 @@ function UnifiedIssueRow({
   // its roster/subtask detail by default, so the list reads as one calm line per
   // task with the fleet glyph carrying "N agents". Pinned issues — the ones you
   // chose to watch — stay expanded. Per-issue toggles still persist and win.
-  const [collapsed, toggle] = useCollapsed(
-    `podium:sidebar:unified-issue:${issue.id}`,
-    !issue.pinned,
-  )
+  const [collapsed, toggle] = useCollapsed(issueRowFoldKey(issue.id), !issue.pinned)
   const [menuAnchor, setMenuAnchor] = useState<ContextMenuAnchor | null>(null)
-  const [editing, setEditing] = useState(false)
-  // Commit a rename: trim, and no-op on empty/whitespace or an unchanged title so
-  // an accidental double-click that changes nothing never fires a mutation (#170).
-  const commitRename = (name: string) => {
-    const next = name.trim()
-    if (next && next !== issue.title) onRenameIssue(issue.id, next)
-    setEditing(false)
-  }
-  const renameEditor = editing ? (
-    <SessionNameEditor
-      value={issue.title}
-      onCommit={commitRename}
-      onCancel={() => setEditing(false)}
-    />
-  ) : undefined
+  // The rename lifecycle and its commit policy live in `use-inline-rename.ts`;
+  // the row keeps only the slot it renders into.
+  const rename = useInlineRename(issue.title, (next) => onRenameIssue(issue.id, next))
+  const renameEditor = inlineRenameEditor(rename, ({ onCommit, onCancel }) => (
+    <SessionNameEditor value={issue.title} onCommit={onCommit} onCancel={onCancel} />
+  ))
   // Sessions earning visibility (multi-agent / remote spawn / native subagents)
   // render in the ADJACENT roster band (L2), never inside the issue tree. The
   // issue disclosure folds all detail while the compact fleet summary remains.
@@ -1987,7 +2004,7 @@ function UnifiedIssueRow({
       }}
       onRename={() => {
         setMenuAnchor(null)
-        setEditing(true)
+        rename.begin()
       }}
     />
   ) : null
@@ -2112,7 +2129,7 @@ function UnifiedIssueRow({
           )
         }
         onContextMenu={onContextMenu}
-        onDoubleClick={() => setEditing(true)}
+        onDoubleClick={() => rename.begin()}
         editor={renameEditor}
         titleHint={issueIdTitle(issue)}
         extras={

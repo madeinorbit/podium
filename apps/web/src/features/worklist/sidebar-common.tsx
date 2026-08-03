@@ -30,7 +30,6 @@ import {
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { type ContextMenuAnchor, SessionContextMenu } from '@/lib/SessionContextMenu'
 import { SnoozeControl } from '@/lib/SnoozeControl'
-import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
 
@@ -520,7 +519,23 @@ export function PanelRow({
   // Snooze control shows: on attention rows always (to snooze); elsewhere ONLY
   // when already snoozed — so worktree/pinned rows surface an un-snooze affordance
   // for a snoozed session, but never a plain "snooze" icon.
-  const now = useNow(60_000)
+  // THE SHARED COARSE CLOCK, not a per-row interval (POD-407, correcting the
+  // count POD-331 recorded).
+  //
+  // This is one row among many, so a private `useNow(60_000)` here was one timer
+  // PER ROW — but the cost is the lesser half. The worklist slice orders and
+  // folds these same sessions against `Store.coarseNow` (`isSnoozed`,
+  // `compareRecency`), so a row deciding its own snooze state on a separately
+  // phased clock can disagree with the list it sits in: the slice can have
+  // lapsed a snooze and reordered while this row still paints "snoozed", for up
+  // to a minute. Reading the same clock the derivation used is what makes a row
+  // and its placement unable to disagree — the reason `coarseNow` was put in the
+  // snapshot rather than read ambiently.
+  //
+  // Sub-minute timers are deliberately NOT on this clock: `WorkingTimer` in
+  // time-indicators.tsx ticks per second and keeps its own interval so the
+  // second-hand never re-renders the whole sidebar.
+  const now = useStoreSelector((s) => s.coarseNow)
   const snoozed = isSnoozed(session, now)
   // A timed snooze that has lapsed but isn't cleared yet → the session just came
   // back into the queue; mark it (compareRecency already lifts it by its deadline).

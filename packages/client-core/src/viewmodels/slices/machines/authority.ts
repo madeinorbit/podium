@@ -22,6 +22,7 @@
  */
 import {
   machinesWithRepo,
+  type MachineWire,
   resolveTargetMachine,
   type RecentSession,
   type RepoMachines,
@@ -94,6 +95,42 @@ export function usableMachines<M extends SelectableMachine>(
   views: readonly MachineView<M>[],
 ): M[] {
   return views.filter((v) => v.availability === 'available').map((v) => v.machine)
+}
+
+/**
+ * The verbs a CLIENT can read off `MachineWire`, for every surface that offers
+ * a code-execution affordance.
+ *
+ * `MachineWire.use` is optional and an omitted value means NOT EVALUATED — never
+ * "granted" (see its home in `@podium/model`). Reading an omission as *denied*
+ * per-machine would leave today's single-machine deployments with an empty
+ * picker, and single-user parity is the regression guard for the whole
+ * multi-user programme. So the reading is per-LIST, not per-machine: if ANY
+ * visible machine carries a `use` decision the server is evaluating scoping, and
+ * every machine in that list is then read strictly (an omitted `use` in a scoped
+ * list is denied). If NONE does, the list is unscoped and `use` is not being
+ * decided at all.
+ *
+ * This is safe because it is UX only — the Authority re-authorizes at apply (ADR
+ * 3 D8) — and it fails closed the moment the server starts answering the
+ * question.
+ *
+ * IT LIVES HERE, NOT BESIDE A FEATURE. It began in the automations composer; the
+ * worklist's new-agent submenu needs the identical reading, and two spellings of
+ * "may I run here" is precisely how one surface comes to offer a machine another
+ * refuses. `see` is `true` for everything in the list by construction: the
+ * server's per-principal projection already dropped what the principal cannot
+ * see, and a machine that arrived is a machine that is visible.
+ */
+export function machineViewsFromWire(
+  machines: readonly MachineWire[],
+): MachineView<MachineWire>[] {
+  const scoped = machines.some((m) => m.use !== undefined)
+  return machineViews(machines, (m) => ({
+    see: true,
+    use: scoped ? m.use === 'granted' : true,
+    manage: m.owned === true,
+  }))
 }
 
 /** Why a spawn target could not be resolved — never a bare `undefined`, so the
