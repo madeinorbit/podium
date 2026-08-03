@@ -398,6 +398,9 @@ export const machineRenameContract = {
   },
   serverRole: 'hub',
   cli: { summary: 'Rename a machine in the fleet' },
+  conflict: 'cmd',
+  conflictRule:
+    'Owner-or-admin edit of the name field alone; no precondition, and two concurrent renames resolve to the later Authority commit',
 } as const satisfies FleetCommandContract<typeof machineRenameInput>
 
 /**
@@ -439,6 +442,9 @@ export const machineShareContract = {
   },
   serverRole: 'hub',
   cli: { summary: 'Share machine access with a user' },
+  conflict: 'cmd',
+  conflictRule:
+    'Grant edge upsert on ROW.grantEdge, idempotent per (machine, grantee, verb); re-sharing an existing edge is a no-op rather than a duplicate',
 } as const satisfies FleetCommandContract<typeof machineShareInput>
 
 /** Revoke exactly one machine grant. The same owner-only authority applies. */
@@ -470,6 +476,9 @@ export const machineUnshareContract = {
   },
   serverRole: 'hub',
   cli: { summary: 'Remove a user’s machine access' },
+  conflict: 'cmd',
+  conflictRule:
+    'Grant edge removal on ROW.grantEdge, idempotent; unsharing an absent edge is a no-op rather than a rejection',
 } as const satisfies FleetCommandContract<typeof machineUnshareInput>
 
 /**
@@ -530,6 +539,9 @@ export const machineTransferOwnershipContract = {
   },
   serverRole: 'hub',
   cli: { summary: 'Transfer machine ownership to another user' },
+  conflict: 'cmd',
+  conflictRule:
+    'The enrollment ledger append IS the commit point (D19.4d) and orders concurrent transfers; machines.owner_user_id is a projection of it, never an independently merged field',
 } as const satisfies FleetCommandContract<typeof machineTransferOwnershipInput>
 
 /**
@@ -662,6 +674,9 @@ export const machineAdoptContract = {
   },
   serverRole: 'hub',
   cli: { summary: 'Give an owner to an unowned machine' },
+  conflict: 'cmd',
+  conflictRule:
+    'As machines.transferOwnership — the ledger append orders it and the machine row follows; grant edges surviving on the unowned row are dropped before the append',
 } as const satisfies FleetCommandContract<typeof machineAdoptInput>
 
 /**
@@ -698,6 +713,9 @@ export const machineRevokeContract = {
   },
   serverRole: 'hub',
   cli: { summary: 'Remove a machine from the fleet' },
+  conflict: 'cmd',
+  conflictRule:
+    'Removes the machine row and every surviving grant edge in one Authority commit; a second revoke of an already-revoked machine is a no-op',
 } as const satisfies FleetCommandContract<typeof machineRevokeInput>
 
 /**
@@ -774,6 +792,7 @@ export const machinePairingCodeContract = {
   },
   serverRole: 'hub',
   cli: { summary: 'Mint a pairing code for a new machine' },
+  conflict: 'n/a',
 } as const satisfies FleetCommandContract<typeof machinePairingCodeInput>
 
 // ---------------------------------------------------------------------------
@@ -816,6 +835,9 @@ export const repoAddContract = {
   },
   serverRole: 'core',
   cli: { summary: 'Register a repository path on a machine' },
+  conflict: 'cmd',
+  conflictRule:
+    'Idempotent registration keyed by (machineId, path); a concurrent duplicate registration collapses to one row rather than two',
 } as const satisfies FleetCommandContract<typeof repoAddInput>
 
 /**
@@ -854,6 +876,9 @@ export const repoAddManyContract = {
   },
   serverRole: 'core',
   cli: { summary: 'Register several repository paths at once' },
+  conflict: 'cmd',
+  conflictRule:
+    'As repos.add, applied per path; the batch is not atomic across paths and a path already registered is skipped rather than failing the batch',
 } as const satisfies FleetCommandContract<typeof repoAddManyInput>
 
 export const repoRemoveContract = {
@@ -886,6 +911,9 @@ export const repoRemoveContract = {
   },
   serverRole: 'core',
   cli: { summary: 'Deregister a repository path' },
+  conflict: 'cmd',
+  conflictRule:
+    'Idempotent deregistration keyed by (machineId, path); removing an already-removed row is a no-op',
 } as const satisfies FleetCommandContract<typeof repoRemoveInput>
 
 export const repoSetPrefixContract = {
@@ -918,6 +946,9 @@ export const repoSetPrefixContract = {
   },
   serverRole: 'core',
   cli: { summary: 'Set a repository’s nice-id prefix' },
+  conflict: 'cmd',
+  conflictRule:
+    'Server-wide uniqueness is the arbitration: a concurrent claim of the same prefix is REFUSED as a collision rather than merged, and the refusal is reported as one',
 } as const satisfies FleetCommandContract<typeof repoSetPrefixInput>
 
 // ---------------------------------------------------------------------------
@@ -981,6 +1012,7 @@ export const discoveryRefreshReposContract = {
   },
   serverRole: 'core',
   cli: { summary: 'Re-scan registered repositories on every online machine' },
+  conflict: 'single-writer',
 } as const satisfies FleetCommandContract<typeof discoveryRefreshReposInput>
 
 export const discoveryScanFolderContract = {
@@ -1013,6 +1045,7 @@ export const discoveryScanFolderContract = {
   errorConsistency: USE_ERRORS,
   serverRole: 'core',
   cli: { summary: 'Scan a folder on a machine for repositories' },
+  conflict: 'n/a',
 } as const satisfies FleetCommandContract<typeof discoveryScanFolderInput>
 
 export const discoveryScanMachineContract = {
@@ -1040,6 +1073,9 @@ export const discoveryScanMachineContract = {
   errorConsistency: USE_ERRORS,
   serverRole: 'core',
   cli: { summary: 'Discover repositories on a machine' },
+  conflict: 'cmd',
+  conflictRule:
+    'Auto-registers origin matches as repo rows, idempotent per (machineId, path) exactly as repos.add; a rescan of the same machine re-reports rather than duplicates',
 } as const satisfies FleetCommandContract<typeof discoveryScanMachineInput>
 
 // ---------------------------------------------------------------------------

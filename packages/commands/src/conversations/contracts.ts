@@ -148,6 +148,9 @@ export const conversationsSetMetaContract = {
   },
   attribution: CONVERSATION_ATTRIBUTION,
   errorConsistency: CONVERSATION_ERRORS,
+  conflict: 'cmd',
+  conflictRule:
+    'Whole-meta replace on the conversation registry row; no precondition on the wire, so the later Authority commit wins',
 } as const satisfies CommandContract<typeof conversationsSetMetaInput>
 
 export const CONVERSATION_CONTRACTS = { setMeta: conversationsSetMetaContract } as const

@@ -21,10 +21,18 @@
  * deliberate exceptions are `optimisticReducer` (ADR 3 D6: "absence is valid")
  * and `machineVerb` (only a contract that places work on owned compute has one) —
  * and both are checked by {@link classificationErrors} rather than trusted.
+ *
+ * `conflict` JOINED THAT RULE IN POD-1250, and it is the sharpest case of it: ADR
+ * 1 has no safe default merge policy to fall back to, so an absent class could not
+ * even be given the fail-closed reading `visibility` gets. The answer for a
+ * command with no replicated row is the WRITTEN `'n/a'` — see
+ * {@link ContractConflictClass}. `conflictRule` remains conditional, because it is
+ * required by exactly one class and forbidden by the rest; the union in
+ * {@link ConflictDeclaration} and a check in {@link classificationErrors} hold it.
  */
 
 import type { z } from 'zod'
-import type { ConflictClass } from './framework'
+import type { ConflictClass, ContractConflictClass } from './framework'
 
 // ---------------------------------------------------------------------------
 // D2 — resource / action policy
@@ -295,6 +303,57 @@ export type OptimisticReducer<In> = (args: {
 // ---------------------------------------------------------------------------
 
 /**
+ * THE CONFLICT VOCABULARY AS A CONTRACT ANSWERS IT — ADR 1's six arbitration
+ * classes, plus `'n/a'` for a command with no replicated row to arbitrate.
+ *
+ * WHY THE EXTRA MEMBER EXISTS, AND WHY IT IS NOT A LOOPHOLE. Making {@link
+ * CommandContractBase.conflict} required (POD-1250) asks the question of EVERY
+ * contract, and a large minority of this fleet are queries: `issues.list`,
+ * `mail.ledger`, `settings.secretPresence`. A query has no ADR 1 row, so each of
+ * the six classes would be a FABRICATION — and this file already refuses that
+ * trade in as many words at {@link MutatingCommandContractBase}, where it
+ * declines to key the requirement on `policy.action` because "deriving the
+ * requirement from `action` would force a conflict class onto a command that has
+ * no ADR 1 row, which is a fabricated arbitration rule". Requiring the field
+ * without offering an honest non-answer would fabricate at fifty sites instead of
+ * one.
+ *
+ * SPELLED `'n/a'` BECAUSE THE MATRIX ALREADY SPELLS IT THAT WAY. This is not a
+ * new concept invented for the command plane: `@podium/model`'s `ConflictRule`
+ * (`annotations/ownership.ts`) carries `'n/a'` for exactly this — the rows, like
+ * `instanceId` and `pairingToken`, that have no merge policy because nothing
+ * concurrent writes them. A contract and its matrix row are routinely read
+ * side by side, and giving the same fact two spellings is how a reader starts
+ * believing they are two facts. `ConflictClass` — this package's six-member
+ * subset — is what remains once the two rules with no COMMAND behind them
+ * (`'n/a'`, `'live-ephemeral'`) are dropped; this type puts the first one back
+ * for the contract that needs to say it out loud.
+ *
+ * IT MUST BE WRITTEN, never reached by omitting the field, and that is the whole
+ * value of the change: an absent field cannot distinguish a command that HAS no
+ * row from a command whose row nobody classified, because both spell themselves
+ * as a missing property. {@link CommandResource}'s own `'none'` member carries
+ * the identical note for the identical reason.
+ *
+ * `'n/a'` NEVER REACHES THE ENGINE. {@link ConflictClass} — the vocabulary
+ * `packages/sync/src/authority/arbitration.ts` resolves against — is deliberately
+ * NOT widened here, so no arbitration lookup can receive `'n/a'` and have to grow
+ * a branch that fails open. A mutation cannot smuggle one in either: {@link
+ * MutatingCommandContractBase} and {@link ConflictDeclaration} both narrow the
+ * field back to {@link ConflictClass}, so the moment a contract is declared as a
+ * mutation, `'n/a'` stops typechecking.
+ *
+ * The remaining hazard is a genuine mutation declared as a plain {@link
+ * CommandContract} with `'n/a'` — a family forgetting to name a mutating member.
+ * The type cannot catch that (it is the same gap the `satisfies
+ * MutatingCommandContract` seam has always had), so {@link classificationErrors}
+ * carries the semantic half: an `'n/a'` contract that CREATES entities, or that
+ * is queued on the client Outbox, is an error. Neither substitutes for the other
+ * (D15.2).
+ */
+export type { ContractConflictClass }
+
+/**
  * Everything about a contract that does NOT mention its schema type. Split out
  * because `In` appears in `optimisticReducer`'s argument, which makes TypeScript
  * treat the parameter as invariant: without this split a
@@ -337,20 +396,24 @@ export interface CommandContractBase {
   /**
    * ADR 1's conflict class for what this command writes — the arbitration rule,
    * declared on the contract so it travels with the command rather than living
-   * only in a doc table. Vocabulary is {@link ConflictClass} (six classes).
+   * only in a doc table. Vocabulary is {@link ContractConflictClass}: ADR 1's six
+   * classes, plus the WRITTEN `'n/a'` a non-mutating command answers with.
    *
-   * OPTIONAL ON THIS TYPE AND REQUIRED ON THE ISSUE FAMILY, the same split
-   * `visibility` already uses and for the same reason: making it required here
-   * cascades to every namespace at once, which is a change that deserves its own
-   * review rather than riding along inside a catch-up merge (POD-1250 owns it).
-   * Until then the ISSUE table enforces it at the `def()` seam, where a mutation
-   * whose contract omits it fails to compile.
+   * REQUIRED, like every other field here, and for the reason the file header
+   * gives (POD-1250). It was optional for exactly one release while POD-1246's
+   * catch-up merge was in flight, on the grounds that a required field on the
+   * shared base cascades to every namespace at once and deserved its own review
+   * rather than riding along inside 109 conflicts. This is that review.
    *
-   * There is no safe default. `arbitration.ts` is explicit that picking one
-   * silently "is how a class ends up with whole-aggregate LWW that nobody chose",
-   * so absence here means UNDECLARED, never "the usual one".
+   * There is no safe default, which is why the answer cannot be an ABSENCE.
+   * `arbitration.ts` is explicit that picking one silently "is how a class ends up
+   * with whole-aggregate LWW that nobody chose", so there is nothing for an
+   * omission to resolve TO — unlike `visibility`, which at least has `personal`
+   * to fail closed toward. `'n/a'` is a positive claim that this command writes
+   * no replicated row, not a way of declining to answer; see
+   * {@link ContractConflictClass}.
    */
-  readonly conflict?: ConflictClass
+  readonly conflict: ContractConflictClass
   /**
    * The command's own documented rule, REQUIRED when {@link conflict} is `'cmd'`.
    *
@@ -417,10 +480,15 @@ export type ConflictDeclaration =
  * {@link CommandContract} requires, plus a conflict class that is not optional.
  *
  * This is the type that makes the 43 issue declarations MECHANICAL rather than 43
- * separate judgements — omit one and the compiler names the site. `conflict` stays
- * optional on {@link CommandContractBase} itself because making it required there
- * cascades to every namespace at once, which deserves its own review rather than
- * riding along inside a catch-up merge (POD-1250 owns that).
+ * separate judgements — omit one and the compiler names the site.
+ *
+ * STILL LOAD-BEARING NOW THAT THE BASE REQUIRES THE FIELD (POD-1250), because the
+ * two types ask different questions. The base asks "what is the answer?" and
+ * accepts `'n/a'`; this asks "and it may not be `'n/a'`", since a command that
+ * mutates replicated state HAS a row by definition. Narrowing
+ * {@link ContractConflictClass} back to {@link ConflictClass} is the whole content
+ * of this interface, and it is what keeps `'n/a'` from becoming the shrug the
+ * absent field used to be.
  *
  * NOT KEYED ON `policy.action`, and the exception is the reason. `action` is an
  * AUTHORITY fact, not a mutation fact, and main says so in the one contract where
@@ -469,6 +537,75 @@ export type ContractInput<C extends { readonly input: z.ZodTypeAny }> = z.infer<
  * undeclared command would silently pre-authorize whoever next used that name.
  */
 export const MACHINE_USE_OFFLINE_EXCEPTIONS: readonly string[] = []
+
+/**
+ * {@link ContractConflictClass}'s members as a VALUE, so the runtime check in
+ * {@link classificationErrors} enumerates the same seven the type does.
+ *
+ * Kept in sync by construction rather than by discipline, in BOTH directions —
+ * `satisfies` catches a member that is not a class, and the exhaustiveness
+ * tripwire below catches a class that is not a member. Only the second one
+ * matters for safety: a class added to the type and forgotten here would pass the
+ * runtime lint silently while the type accepted it, which is exactly the
+ * "declared but unchecked" failure this file exists to prevent.
+ */
+export const CONTRACT_CONFLICT_CLASSES = [
+  'exp-rev',
+  'field-LWW',
+  'single-writer',
+  'append',
+  'cmd',
+  'op-stream',
+  'n/a',
+] as const satisfies readonly ContractConflictClass[]
+
+/**
+ * Compile-time proof that {@link CONTRACT_CONFLICT_CLASSES} lists EVERY member of
+ * {@link ContractConflictClass}. Resolves to `never` — making the declaration
+ * below unassignable, and naming this line — the moment a class is added to the
+ * union without being added to the list.
+ */
+type ExhaustiveConflictClasses =
+  Exclude<ContractConflictClass, (typeof CONTRACT_CONFLICT_CLASSES)[number]> extends never
+    ? true
+    : never
+const _conflictClassesAreExhaustive: ExhaustiveConflictClasses = true
+void _conflictClassesAreExhaustive
+
+/**
+ * Does this input schema have somewhere to put an expected revision?
+ *
+ * Structural, not nominal, and deliberately TOLERANT: it walks the wrappers the
+ * contract tables actually use (`.merge()` produces a plain object; `.optional()`
+ * and `.default()` wrap one) and answers `true` the moment it finds the key.
+ * Anything it cannot see into — a union, a lazy schema, a refinement — answers
+ * `true` as well, because this check exists to catch the contract that plainly
+ * has no such field, and a false accusation against an exotic schema would be
+ * paid for by whoever wrote the schema rather than by whoever made the mistake.
+ */
+function inputCarriesExpectedRevision(input: z.ZodTypeAny): boolean {
+  const seen = new Set<unknown>()
+  const walk = (schema: unknown, depth: number): boolean => {
+    if (schema === null || typeof schema !== 'object' || depth > 8 || seen.has(schema)) return true
+    seen.add(schema)
+    const def = (schema as { _def?: Record<string, unknown> })._def
+    if (def === undefined) return true
+    // `.optional()`, `.default()`, `.nullable()`, `.effects()` — one wrapped type.
+    const inner = def.innerType ?? def.schema
+    if (inner !== undefined) return walk(inner, depth + 1)
+    const shape = def.shape
+    if (typeof shape === 'function') {
+      const resolved = (shape as () => Record<string, unknown>)()
+      return Object.hasOwn(resolved, 'expectedRevision')
+    }
+    if (shape !== null && typeof shape === 'object') {
+      return Object.hasOwn(shape as Record<string, unknown>, 'expectedRevision')
+    }
+    // Not an object schema at all — nothing this check can say.
+    return true
+  }
+  return walk(input, 0)
+}
 
 export function classificationErrors(contract: AnyCommandContract): string[] {
   const errs: string[] = []
@@ -611,6 +748,66 @@ export function classificationErrors(contract: AnyCommandContract): string[] {
     at('a `secret` visibility class forces `online-sensitive` (ADR 3 D4 rule 1)')
   }
   if (contract.errorConsistency.note.trim() === '') at('errorConsistency.note is required')
+  // ---------------------------------------------------------------------
+  // ADR 1 — the conflict declaration, as a CLOSED PAIR (POD-1250)
+  // ---------------------------------------------------------------------
+  //
+  // The type already says all of this for anything written as a contract literal.
+  // These are the semantic half, for the objects that reach a registry without
+  // passing through `satisfies CommandContract` — fixtures, wire-decoded rows, and
+  // the derived families that build a contract programmatically. Same posture as
+  // `visibilityClassOf` beside the required `visibility` field: neither
+  // substitutes for the other (D15.2).
+  if (!CONTRACT_CONFLICT_CLASSES.includes(contract.conflict)) {
+    at(
+      `conflict must be one of ${CONTRACT_CONFLICT_CLASSES.join(' | ')} — there is no safe default (ADR 1 D4)`,
+    )
+  }
+  // The `cmd` pair. `arbitration.ts` THROWS on a `cmd` row with no rule rather
+  // than waving it through, so a bare `'cmd'` is a row the engine refuses to
+  // arbitrate — "otherwise it is a synonym for unchecked".
+  if (contract.conflict === 'cmd' && (contract.conflictRule ?? '').trim() === '') {
+    at('conflict `cmd` requires conflictRule — a `cmd` row with no rule is unarbitrable (ADR 1 D2)')
+  }
+  // And the other arm: a rule attached to a class nothing reads it for is a
+  // doc-shaped field that starts disagreeing with the behaviour it describes.
+  if (contract.conflict !== 'cmd' && contract.conflictRule !== undefined) {
+    at('conflictRule belongs to `cmd` rows only — no other class reads it')
+  }
+  // `exp-rev` MUST BE ABLE TO CARRY THE REVISION IT ARBITRATES ON.
+  //
+  // ADR 1 D3 / `arbitration.ts`: an `exp-rev` row rejects a mutating command that
+  // arrives without an expected revision — `'expected-revision-required'`, and it
+  // is default-closed, so it fires on EVERY call rather than on a race. A contract
+  // declaring `exp-rev` whose input has nowhere to put one is therefore not a
+  // subtle mismatch; it is a command that cannot succeed once POD-1247 wires the
+  // engine to these declarations. The issue family merges `EXPECTED_REVISION` into
+  // exactly the 24 inputs that declare the class, and this is what keeps the next
+  // namespace from declaring the class without the field.
+  if (contract.conflict === 'exp-rev' && !inputCarriesExpectedRevision(contract.input)) {
+    at(
+      'conflict `exp-rev` requires an `expectedRevision` on the input schema — without one the ' +
+        'Authority rejects every call as `expected-revision-required` (ADR 1 D3)',
+    )
+  }
+  // THE `'n/a'` GUARD, which is what keeps the written "no row" from becoming
+  // the shrug the absent field used to be. `'n/a'` is unfalsifiable from the
+  // contract alone — nothing here says whether a handler writes a row — so these
+  // check the two facts that PROVE one is written and contradict the claim.
+  if (contract.conflict === 'n/a') {
+    // ADR 9 D5 A4: a command that creates entities writes replicated rows, and a
+    // created row is arbitrated the first time a second writer reaches it.
+    if (contract.ownership.creates.length > 0) {
+      at(
+        'conflict `n/a` contradicts ownership.creates — a command that creates rows has an ADR 1 row',
+      )
+    }
+    // ADR 3 D9: the Outbox queues COMMANDS the authority has not yet seen, which
+    // is the mutation path by construction. A query is never queued there.
+    if (contract.exposure.includes('outbox')) {
+      at('conflict `n/a` contradicts `outbox` exposure — the Outbox queues mutations (ADR 3 D9)')
+    }
+  }
   return errs
 }
 

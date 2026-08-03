@@ -512,6 +512,7 @@ export const settingsUpdatePersonalContract = {
   attribution: SETTINGS_ATTRIBUTION,
   errorConsistency: CLOSED_VOCABULARY_ERRORS,
   cli: { summary: 'Write personal preference leaves by classified path' },
+  conflict: 'single-writer',
 } as const satisfies CommandContract<typeof settingsUpdatePersonalInput>
 
 // ---------------------------------------------------------------------------
@@ -567,6 +568,7 @@ export const settingsUpdateInstanceContract = {
   attribution: SETTINGS_ATTRIBUTION,
   errorConsistency: CLOSED_VOCABULARY_ERRORS,
   cli: { summary: 'Write instance preference leaves by classified path' },
+  conflict: 'field-LWW',
 } as const satisfies CommandContract<typeof settingsUpdateInstanceInput>
 
 // ---------------------------------------------------------------------------
@@ -617,6 +619,9 @@ export const settingsSetSecretContract = {
   attribution: SETTINGS_ATTRIBUTION,
   errorConsistency: CLOSED_VOCABULARY_ERRORS,
   cli: { summary: 'Replace a server-owned secret (online only)' },
+  conflict: 'cmd',
+  conflictRule:
+    'ROW.serverSecrets declared rule; the later Authority commit wins outright and a secret value is never field-merged',
 } as const satisfies CommandContract<typeof settingsSetSecretInput>
 
 // ---------------------------------------------------------------------------
@@ -662,6 +667,9 @@ export const settingsClearSecretContract = {
   attribution: SETTINGS_ATTRIBUTION,
   errorConsistency: CLOSED_VOCABULARY_ERRORS,
   cli: { summary: 'Clear a server-owned secret (online only)' },
+  conflict: 'cmd',
+  conflictRule:
+    'As settings.setSecret; idempotent, and clearing an absent secret is a no-op rather than a rejection',
 } as const satisfies CommandContract<typeof settingsClearSecretInput>
 
 // ---------------------------------------------------------------------------
@@ -771,6 +779,7 @@ export const settingsSecretPresenceContract = {
       'readiness §3.1.5, applied to an error toast as much as to a status code.',
   },
   cli: { summary: 'Show which server-owned secrets are configured (presence + fingerprint only)' },
+  conflict: 'n/a',
 } as const satisfies CommandContract<typeof settingsSecretPresenceInput>
 
 // ---------------------------------------------------------------------------
@@ -936,6 +945,9 @@ export const settingsTelegramSetupStartContract = {
       'is the presence bit the settings surface publishes anyway.',
   },
   cli: { summary: 'Mint a Telegram claim code bound to the calling principal' },
+  conflict: 'cmd',
+  conflictRule:
+    'Mints a single-use claim code for the binding ceremony; a concurrent start supersedes the outstanding code rather than leaving two valid ones',
 } as const satisfies CommandContract<typeof settingsTelegramSetupStartInput>
 
 /** The redeem is addressed by the handle the mint returned, never by a user or a
@@ -1029,6 +1041,9 @@ export const settingsTelegramSetupPollContract = {
       'ceremony is open" is a probe for whether an admin is mid-binding.',
   },
   cli: { summary: 'Redeem a pending Telegram claim code and bind the chat' },
+  conflict: 'cmd',
+  conflictRule:
+    'Binds the arriving chat to the polling user, once: an already-bound chat is refused rather than rebound, which is the fail-closed rule ROW.preferencesPersonal secretNote requires of the inbound Telegram edge',
 } as const satisfies CommandContract<typeof settingsTelegramSetupPollInput>
 
 // ---------------------------------------------------------------------------

@@ -235,6 +235,9 @@ export const approvalsApproveContract = {
   ownership: CREATES_NOTHING,
   attribution: APPROVAL_ATTRIBUTION,
   errorConsistency: APPROVAL_ERRORS,
+  conflict: 'cmd',
+  conflictRule:
+    'ROW.approvals declared rule: the FIRST decision settles the request, and a second decision on a settled request is refused rather than overwriting it',
 } as const satisfies CommandContract<typeof approvalsApproveInput>
 
 // ---------------------------------------------------------------------------
@@ -279,6 +282,9 @@ export const approvalsDenyContract = {
   ownership: CREATES_NOTHING,
   attribution: APPROVAL_ATTRIBUTION,
   errorConsistency: APPROVAL_ERRORS,
+  conflict: 'cmd',
+  conflictRule:
+    'As approvals.approve — first decision settles, and approve racing deny resolves to whichever the Authority commits first',
 } as const satisfies CommandContract<typeof approvalsDenyInput>
 
 // ---------------------------------------------------------------------------

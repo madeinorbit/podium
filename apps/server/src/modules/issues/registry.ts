@@ -1,6 +1,7 @@
 import {
   type CommandAction,
   type ConflictClass,
+  type ContractConflictClass,
   type ContractInput,
   defineCommands,
   ISSUE_CONTRACTS,
@@ -150,11 +151,13 @@ export interface IssueCommandDef<
   /** Merged from the contract by {@link def}: `policy.action`. */
   action: CommandAction
   /** Merged from the contract by {@link def}: the ADR 1 conflict class. Present
-   *  on every MUTATION (the {@link ContractDeclaresConflict} constraint is what
-   *  makes that total) and on no query. Declared here rather than only produced
-   *  by `def` so a reader — a test, an audit — can ASK a def for its class
-   *  instead of re-deriving it from the contract table. */
-  conflict?: ConflictClass
+   *  on EVERY def since POD-1250 made the field required on the contract base —
+   *  a mutation carries one of the six real classes (the {@link
+   *  ContractDeclaresConflict} constraint is what makes that total), and a query
+   *  carries the written `'n/a'`. Declared here rather than only produced by
+   *  `def` so a reader — a test, an audit — can ASK a def for its class instead
+   *  of re-deriving it from the contract table. */
+  conflict: ContractConflictClass
   /** Merged from the contract by {@link def}: the prose rule a `'cmd'` row must
    *  carry. Absent for every other class. */
   conflictRule?: string
@@ -168,7 +171,7 @@ export type AnyIssueCommandDef = {
   input: z.ZodTypeAny
   action: CommandAction
   target?: (input: Record<string, unknown>) => string | undefined
-  conflict?: ConflictClass
+  conflict: ContractConflictClass
   conflictRule?: string
   // biome-ignore lint/suspicious/noExplicitAny: the wildcard def erases per-command generics on purpose
   handler: (ctx: IssueCommandCtx, input: any) => any
@@ -196,9 +199,12 @@ export type AnyIssueCommandDef = {
  * memory test that can be silently incomplete — which is the exact failure this
  * work exists to end.
  *
- * Scoped to the issue table on purpose. `conflict` is OPTIONAL on
- * `CommandContractBase` so that requiring it does not cascade to every namespace
- * inside a catch-up merge; POD-1250 owns making it required everywhere.
+ * STILL SCOPED TO THE ISSUE TABLE, and still needed after POD-1250 made
+ * `conflict` required on `CommandContractBase` fleet-wide. That change makes
+ * every contract ANSWER; it cannot make a mutation answer with one of the six
+ * REAL classes, because nothing on the shared base knows which commands mutate.
+ * `'n/a'` satisfies the base and is rejected here — which is precisely the
+ * mutation-specific half this constraint exists to enforce.
  */
 type ContractDeclaresConflict<C> = C extends { readonly conflict: 'cmd' }
   ? C extends { readonly conflictRule: string }
@@ -206,7 +212,7 @@ type ContractDeclaresConflict<C> = C extends { readonly conflict: 'cmd' }
     : { readonly __cmdRowMustCarryAConflictRule: never }
   : C extends { readonly conflict: ConflictClass }
     ? unknown
-    : { readonly __mutationContractMustDeclareAConflictClass: never }
+    : { readonly __mutationContractMustDeclareARealConflictClassNotNA: never }
 
 function def<N extends IssueContractName, K extends IssueCommandKind, Out>(
   name: N,
@@ -221,11 +227,10 @@ function def<N extends IssueContractName, K extends IssueCommandKind, Out>(
     ...d,
     input: contract.input,
     action: contract.policy.action,
-    // Reads declare no conflict class, so the union member for a query contract
-    // has neither key. Narrowed with `in` rather than widened with a cast: the
-    // `ContractDeclaresConflict` constraint above is what requires a MUTATION to
-    // carry one, and a cast here would defeat exactly that tripwire.
-    ...('conflict' in contract ? { conflict: contract.conflict } : {}),
+    // Every contract declares a class since POD-1250, so this is an
+    // unconditional read — a query's is `'n/a'`. The `conflictRule` below stays
+    // conditional because it belongs to `cmd` rows alone.
+    conflict: contract.conflict,
     ...('conflictRule' in contract ? { conflictRule: contract.conflictRule } : {}),
   } as unknown as IssueCommandDef<K, (typeof ISSUE_CONTRACTS)[N]['input'], Out>
 }

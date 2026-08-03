@@ -178,6 +178,7 @@ export const perfReportContract = {
   ownership: CREATES_NOTHING,
   attribution: PERF_ATTRIBUTION,
   errorConsistency: PERF_ERRORS,
+  conflict: 'append',
 } as const satisfies CommandContract<typeof perfReportInput>
 
 // ---------------------------------------------------------------------------
@@ -227,6 +228,9 @@ export const perfResetContract = {
   ownership: CREATES_NOTHING,
   attribution: PERF_ATTRIBUTION,
   errorConsistency: PERF_ERRORS,
+  conflict: 'cmd',
+  conflictRule:
+    'Clears the rolling ring; idempotent, and a reset racing a report may drop that sample by design — the ring is instrumentation, not durable truth',
 } as const satisfies CommandContract<typeof perfResetInput>
 
 export const PERF_CONTRACTS = {

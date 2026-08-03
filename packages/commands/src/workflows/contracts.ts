@@ -307,6 +307,7 @@ export const workflowCreateContract = {
     note: 'Create takes a scope and a scopeRef, not a target workflow id. The scopeRef IS caller-supplied, but it names an issue/session/repo the caller must already be in, and the scope guard’s refusal predates this issue and names nothing the caller could not see.',
   },
   cli: { summary: 'Create a workflow and its first revision' },
+  conflict: 'append',
 } as const satisfies WorkflowCommandContract
 
 export const workflowReviseInput = z.object({
@@ -343,6 +344,7 @@ export const workflowReviseContract = {
   attribution: ATTRIBUTION,
   errorConsistency: CONSISTENT_ERRORS,
   cli: { positional: ['workflowId'], summary: 'Append a revision' },
+  conflict: 'append',
 } as const satisfies WorkflowCommandContract
 
 export const workflowForkInput = scopeInput.extend({
@@ -379,6 +381,7 @@ export const workflowForkContract = {
   attribution: ATTRIBUTION,
   errorConsistency: CONSISTENT_ERRORS,
   cli: { positional: ['revisionId'], summary: 'Copy a revision into a new workflow' },
+  conflict: 'append',
 } as const satisfies WorkflowCommandContract
 
 export const workflowPublishInput = z.object({ revisionId: z.string().min(1) })
@@ -407,6 +410,9 @@ export const workflowPublishContract = {
   attribution: ATTRIBUTION,
   errorConsistency: CONSISTENT_ERRORS,
   cli: { positional: ['revisionId'], summary: 'Publish a revision' },
+  conflict: 'cmd',
+  conflictRule:
+    'Flips a definition between personal and global; owner-or-admin only, idempotent, and a concurrent publish and unpublish resolve to the later Authority commit',
 } as const satisfies WorkflowCommandContract
 
 export const workflowAssignInput = z.object({
@@ -477,6 +483,9 @@ export const workflowAssignContract = {
   attribution: ATTRIBUTION,
   errorConsistency: CONSISTENT_ERRORS,
   cli: { summary: 'Bind a revision to a target' },
+  conflict: 'cmd',
+  conflictRule:
+    'One binding per (target, workflow); assigning replaces the target existing binding in a single Authority commit rather than accumulating two',
 } as const satisfies WorkflowCommandContract
 
 export const workflowProfileSaveInput = z.object({
@@ -566,6 +575,9 @@ export const workflowProfileSaveContract = {
     note: 'The profile id follows D20.2 like everything else. The MACHINE it names does not: readiness §3.1.4 M5 requires unauthorized to stay distinguishable from unreachable, because "denied" and "offline" otherwise produce the same empty result and an operator cannot tell a permissions problem from a dead machine. D20.2 and M5 pull in opposite directions on purpose and are decided separately.',
   },
   cli: { summary: 'Create or update an execution profile' },
+  conflict: 'cmd',
+  conflictRule:
+    'Upsert keyed by profile id; a run pins an immutable snapshot at start, so a concurrent save never mutates a run already in flight',
 } as const satisfies WorkflowCommandContract
 
 // ---------------------------------------------------------------------------
@@ -648,6 +660,9 @@ export const workflowCheckpointContract = {
       'is refused; either one closes it.',
   ),
   cli: { summary: 'Report step progress' },
+  conflict: 'cmd',
+  conflictRule:
+    'Advances ROW.workflowRuns, whose declared rule is cmd; a checkpoint against a step that is no longer current is refused rather than applied out of order',
 } as const satisfies WorkflowCommandContract
 
 export const workflowAssignStepInput = z.object({
@@ -686,6 +701,9 @@ export const workflowAssignStepContract = {
       'ever stops being a pure set.',
   ),
   cli: { positional: ['stepId', 'sessionId'], summary: 'Assign the current step' },
+  conflict: 'cmd',
+  conflictRule:
+    'Advances ROW.workflowRuns; assignment of a step already claimed by another principal is refused, so two claimants do not both proceed',
 } as const satisfies WorkflowCommandContract
 
 export const workflowSkipInput = z.object({
@@ -717,6 +735,9 @@ export const workflowSkipContract = {
       'by construction — the declaration records that it was decided, not that it was needed.',
   ),
   cli: { positional: ['stepId'], summary: 'Skip the current step' },
+  conflict: 'cmd',
+  conflictRule:
+    'Advances ROW.workflowRuns; skipping a step that is not current is refused, and a second skip of the same step is a no-op',
 } as const satisfies WorkflowCommandContract
 
 export const workflowRetryInput = z.object({
@@ -747,6 +768,9 @@ export const workflowRetryContract = {
       'return the first result instead of a second attempt.',
   ),
   cli: { positional: ['stepId'], summary: 'Reset a step for another attempt' },
+  conflict: 'cmd',
+  conflictRule:
+    'Advances ROW.workflowRuns; retry applies only to a step in a failed state, so a retry racing a late success is refused',
 } as const satisfies WorkflowCommandContract
 
 export const workflowAdoptInput = z.object({
@@ -793,6 +817,9 @@ export const workflowAdoptContract = {
       'unidentified adopt, which is a REFUSAL question and stays POD-731’s six-pin problem.',
   ),
   cli: { positional: ['revisionId'], summary: 'Adopt a revision mid-run' },
+  conflict: 'cmd',
+  conflictRule:
+    'Supersedes one run and starts another in a single Authority commit; a run already superseded cannot be adopted twice',
 } as const satisfies WorkflowCommandContract
 
 // ---------------------------------------------------------------------------

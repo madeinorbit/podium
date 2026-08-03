@@ -149,4 +149,7 @@ export const sessionHandoffContract: CommandContract<
     note: "Two caller-supplied ids and therefore two oracles to close. A sessionId that is absent or invisible throws this command's pinned `unknown session` — handoff is the one session write whose not-found path is a throw rather than `session not found`, pinned by POD-379, so the shared resolver's `absent` outcome maps onto it. A machineId that is invisible or never paired answers identically (`unknown machine '<id>'`), so the path cannot enumerate a colleague's fleet; a machine the principal CAN see but may not use says so, and one it may use but that is offline says `target machine is offline`. Denied, unreachable and nonexistent are three answers and only two of them may be told apart.",
   },
   cli: { summary: 'Move a resumable worktree session to another machine' },
+  conflict: 'cmd',
+  conflictRule:
+    'ROW.handoffBundle declared rule: the transfer is one Authority commit that moves placement and retires the source, and a handoff of a session already mid-handoff is refused rather than interleaved',
 }

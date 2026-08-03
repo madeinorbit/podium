@@ -189,6 +189,9 @@ export const setupCompleteContract = {
   ownership: CREATES_NOTHING,
   attribution: INSTANCE_ATTRIBUTION,
   errorConsistency: NO_TARGET,
+  conflict: 'cmd',
+  conflictRule:
+    'One-shot deployment bootstrap: a deployment already set up refuses a second complete rather than re-running it',
 } as const satisfies CommandContract<typeof setupCompleteInput>
 
 export const setupJoinInput = z.object({ code: z.string() })
@@ -225,6 +228,9 @@ export const setupJoinContract = {
   ownership: CREATES_NOTHING,
   attribution: INSTANCE_ATTRIBUTION,
   errorConsistency: NO_TARGET,
+  conflict: 'cmd',
+  conflictRule:
+    'One-shot: joining an already-joined deployment is refused, so a second join cannot repoint a live instance underneath its sessions',
 } as const satisfies CommandContract<typeof setupJoinInput>
 
 export const setupConnectInput = z.object({
@@ -254,6 +260,9 @@ export const setupConnectContract = {
   ownership: CREATES_NOTHING,
   attribution: INSTANCE_ATTRIBUTION,
   errorConsistency: NO_TARGET,
+  conflict: 'cmd',
+  conflictRule:
+    'One-shot pairing of this instance to its upstream; a concurrent connect is refused rather than merged, since two upstreams is not a mergeable state',
 } as const satisfies CommandContract<typeof setupConnectInput>
 
 export const setupSetChannelInput = z.object({ channel: z.enum(['stable', 'edge']) })
@@ -281,6 +290,9 @@ export const setupSetChannelContract = {
   ownership: CREATES_NOTHING,
   attribution: INSTANCE_ATTRIBUTION,
   errorConsistency: NO_TARGET,
+  conflict: 'cmd',
+  conflictRule:
+    'Single deployment-wide release channel; the later Authority commit wins and there is no per-user partition to merge',
 } as const satisfies CommandContract<typeof setupSetChannelInput>
 
 // ---------------------------------------------------------------------------
@@ -326,6 +338,9 @@ export const authSetPasswordContract = {
   ownership: CREATES_NOTHING,
   attribution: INSTANCE_ATTRIBUTION,
   errorConsistency: NO_TARGET,
+  conflict: 'cmd',
+  conflictRule:
+    'ROW.serverSecrets declared rule; the later Authority commit wins outright — a password is never merged, and the previous value is not recoverable from the new one',
 } as const satisfies CommandContract<typeof authSetPasswordInput>
 
 export const authClearPasswordInput = z.object({
@@ -362,6 +377,9 @@ export const authClearPasswordContract = {
   ownership: CREATES_NOTHING,
   attribution: INSTANCE_ATTRIBUTION,
   errorConsistency: NO_TARGET,
+  conflict: 'cmd',
+  conflictRule:
+    'As auth.setPassword; idempotent, and clearing an already-cleared password is a no-op',
 } as const satisfies CommandContract<typeof authClearPasswordInput>
 
 // ---------------------------------------------------------------------------
@@ -409,6 +427,9 @@ export const telemetrySetContract = {
   ownership: CREATES_NOTHING,
   attribution: INSTANCE_ATTRIBUTION,
   errorConsistency: NO_TARGET,
+  conflict: 'cmd',
+  conflictRule:
+    'One deployment-wide consent answer (there is no per-user telemetry partition); the later Authority commit wins',
 } as const satisfies CommandContract<typeof telemetrySetInput>
 
 export const telemetryResetIdInput = z.object({}).passthrough().optional()
@@ -446,6 +467,9 @@ export const telemetryResetIdContract = {
   ownership: CREATES_NOTHING,
   attribution: INSTANCE_ATTRIBUTION,
   errorConsistency: NO_TARGET,
+  conflict: 'cmd',
+  conflictRule:
+    'Mints a fresh anonymous id; two concurrent resets leave one id, and the previous one is deliberately unrecoverable',
 } as const satisfies CommandContract<typeof telemetryResetIdInput>
 
 // ---------------------------------------------------------------------------

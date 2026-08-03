@@ -38,7 +38,7 @@
  * re-poll, not data: the next visible tick re-proposes the same position.
  */
 
-import { READ_STREAM_IDS, isReadStreamId, MutationIdField } from '@podium/model'
+import { isReadStreamId, MutationIdField, READ_STREAM_IDS } from '@podium/model'
 import { z } from 'zod'
 import type {
   AttributionPolicy,
@@ -182,6 +182,9 @@ export const readPositionAdvanceContract = {
   errorConsistency: CURSOR_ERRORS,
   ...MONOTONIC,
   cli: { summary: 'Advance the calling user’s read position in an event stream' },
+  conflict: 'cmd',
+  conflictRule:
+    'MONOTONIC max(stored, proposed), executed by advanceReadPosition — the rule ROW.feedReadCursor names by this command. Under last-writer-wins a device writing before its hydration lands would move the marker backward and re-mark read events unread',
 } as const satisfies CommandContract<typeof readPositionAdvanceInput>
 
 // ---------------------------------------------------------------------------

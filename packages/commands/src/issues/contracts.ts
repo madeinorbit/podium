@@ -479,6 +479,7 @@ export const issueListContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: UNTARGETED_ERRORS,
+  conflict: 'n/a',
 } as const satisfies CommandContract
 
 export const issuePrimeContract = {
@@ -493,6 +494,7 @@ export const issuePrimeContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: UNTARGETED_ERRORS,
+  conflict: 'n/a',
 } as const satisfies CommandContract
 
 export const issueReadyContract = {
@@ -507,6 +509,7 @@ export const issueReadyContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: UNTARGETED_ERRORS,
+  conflict: 'n/a',
 } as const satisfies CommandContract
 
 export const issueBlockedContract = {
@@ -521,6 +524,7 @@ export const issueBlockedContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: UNTARGETED_ERRORS,
+  conflict: 'n/a',
 } as const satisfies CommandContract
 
 export const issueGraphContract = {
@@ -535,6 +539,7 @@ export const issueGraphContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: UNTARGETED_ERRORS,
+  conflict: 'n/a',
 } as const satisfies CommandContract
 
 export const issueEpicStatusContract = {
@@ -549,6 +554,7 @@ export const issueEpicStatusContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
+  conflict: 'n/a',
 } as const satisfies CommandContract
 
 export const issueChildrenContract = {
@@ -563,6 +569,7 @@ export const issueChildrenContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
+  conflict: 'n/a',
 } as const satisfies CommandContract
 
 export const issueTreeContract = {
@@ -577,6 +584,7 @@ export const issueTreeContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
+  conflict: 'n/a',
 } as const satisfies CommandContract
 
 export const issueDepReportContract = {
@@ -591,6 +599,7 @@ export const issueDepReportContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
+  conflict: 'n/a',
 } as const satisfies CommandContract
 
 export const issueCloseEligibleEpicsContract = {
@@ -605,6 +614,7 @@ export const issueCloseEligibleEpicsContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: UNTARGETED_ERRORS,
+  conflict: 'n/a',
 } as const satisfies CommandContract
 
 export const issueFindDuplicatesContract = {
@@ -619,6 +629,7 @@ export const issueFindDuplicatesContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: UNTARGETED_ERRORS,
+  conflict: 'n/a',
 } as const satisfies CommandContract
 
 export const issueStaleContract = {
@@ -633,6 +644,7 @@ export const issueStaleContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: UNTARGETED_ERRORS,
+  conflict: 'n/a',
 } as const satisfies CommandContract
 
 export const issueLintContract = {
@@ -647,6 +659,7 @@ export const issueLintContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: UNTARGETED_ERRORS,
+  conflict: 'n/a',
 } as const satisfies CommandContract
 
 export const issueDoctorContract = {
@@ -661,6 +674,7 @@ export const issueDoctorContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: UNTARGETED_ERRORS,
+  conflict: 'n/a',
 } as const satisfies CommandContract
 
 export const issuePreflightContract = {
@@ -675,6 +689,7 @@ export const issuePreflightContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: UNTARGETED_ERRORS,
+  conflict: 'n/a',
 } as const satisfies CommandContract
 
 export const issueSearchContract = {
@@ -689,6 +704,7 @@ export const issueSearchContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
+  conflict: 'n/a',
 } as const satisfies CommandContract
 
 export const issueCountContract = {
@@ -703,6 +719,7 @@ export const issueCountContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: UNTARGETED_ERRORS,
+  conflict: 'n/a',
 } as const satisfies CommandContract
 
 export const issueStatsContract = {
@@ -717,6 +734,7 @@ export const issueStatsContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: UNTARGETED_ERRORS,
+  conflict: 'n/a',
 } as const satisfies CommandContract
 
 export const issueOrphansContract = {
@@ -731,6 +749,7 @@ export const issueOrphansContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: UNTARGETED_ERRORS,
+  conflict: 'n/a',
 } as const satisfies CommandContract
 
 export const issueGetContract = {
@@ -745,6 +764,7 @@ export const issueGetContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
+  conflict: 'n/a',
 } as const satisfies CommandContract
 
 export const issueCommentsContract = {
@@ -759,6 +779,7 @@ export const issueCommentsContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
+  conflict: 'n/a',
 } as const satisfies CommandContract
 
 export const issueEventsContract = {
@@ -773,6 +794,7 @@ export const issueEventsContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: UNTARGETED_ERRORS,
+  conflict: 'n/a',
 } as const satisfies CommandContract
 
 export const issueMailPendingContract = {
@@ -787,6 +809,7 @@ export const issueMailPendingContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
+  conflict: 'n/a',
 } as const satisfies CommandContract
 
 export const issueSubscriptionListContract = {
@@ -801,6 +824,7 @@ export const issueSubscriptionListContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: UNTARGETED_ERRORS,
+  conflict: 'n/a',
 } as const satisfies CommandContract
 
 // -------------------------------------------------------------------------
@@ -1600,6 +1624,7 @@ export const issueLinearSearchContract = {
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: UNTARGETED_ERRORS,
+  conflict: 'n/a',
 } as const satisfies CommandContract
 
 /**
@@ -1765,15 +1790,27 @@ export const ISSUE_CONTRACT_LIST = Object.values(ISSUE_CONTRACTS)
  * THE TOTALITY TRIPWIRE FOR ADR 1's CONFLICT CLASSES — the mechanism that makes
  * the 43 declarations above enumerable by the compiler rather than remembered.
  *
+ * STILL LOAD-BEARING AFTER POD-1250, which made `conflict` required on
+ * `CommandContractBase` fleet-wide. That change asks every contract for an
+ * ANSWER; it cannot ask this family's mutations for a NON-`'n/a'` answer, because
+ * nothing on the shared base knows which commands mutate. The 25 reads below now
+ * declare `'n/a'` — a positive claim that they have no ADR 1 row, not a silence —
+ * and this tripwire is what still stops a mutation from joining them by writing
+ * the same three characters. The division of labour is unchanged: the base makes
+ * silence impossible, and this makes the wrong answer impossible.
+ *
  * Ported from main's registry, where it was a conditional on the def
  * (`K extends 'mutation' ? { concurrency: CommandConcurrency } : …`). Two halves,
  * because per-site and totality are different failures:
  *
- *   - Each mutating contract says `satisfies MutatingCommandContract`, so omitting
- *     `conflict` — or giving a `cmd` row no rule — fails AT THAT CONTRACT.
+ *   - Each mutating contract says `satisfies MutatingCommandContract`, so giving a
+ *     `cmd` row no rule — or, since POD-1250, answering `'n/a'` — fails AT THAT
+ *     CONTRACT. (Omitting `conflict` outright no longer reaches here at all: the
+ *     shared base requires it, so that mistake is caught one level down.)
  *   - The assignment below covers what the first half cannot see: a NEW command
  *     added with the weaker `satisfies CommandContract`. It reads the TABLE, so a
- *     member that declares nothing is a compile error naming the key.
+ *     member that answers `'n/a'` — the only answer the weaker type now permits
+ *     that this one does not — is a compile error naming the key.
  *
  * IT IS NOT DERIVED FROM `policy.action`, and the first attempt that was is worth
  * recording, because it typechecked and was INERT in both directions. `action` is
