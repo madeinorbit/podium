@@ -111,6 +111,12 @@ export function TranscriptFeed({
       ref={scrollerRef}
       onScroll={onScroll}
     >
+      {/* A short conversation sits ON the composer instead of stranded at the
+          top of an empty scrollport. An auto-margin spacer rather than
+          `justify-end`, which makes overflow past the START edge unreachable in
+          some engines: this collapses to zero the moment the feed overflows, so
+          the scroll math never sees it. */}
+      <div className="mt-auto" aria-hidden="true" />
       {phase === 'loading' && (
         <div
           className="mx-auto my-8 flex items-center gap-2 text-[13px] text-muted-foreground"
@@ -156,7 +162,7 @@ export function TranscriptFeed({
           )}
         </button>
       )}
-      {rows.map(({ row, index: idx }) =>
+      {rows.map(({ row, index: idx }, pos) =>
         // Absolute row index into `rows` keeps minimap/search and
         // [data-block] aligned even for the one-row sticky continuation.
         row.kind === 'tools' ? (
@@ -170,6 +176,14 @@ export function TranscriptFeed({
             dimmed={
               search.filtering && !row.blockIndices.some((bi) => blockMatches(blocks[bi]!, query))
             }
+            // The work line reads as LIVE only for the trailing run of a turn
+            // the agent is still working: the spinner and counting timer are the
+            // motion grammar's "an agent is computing", and a run that has
+            // already been overtaken by prose is finished whatever the session
+            // is doing now. MOUNT POSITION, not `idx`: `rows` is the bounded
+            // trailing window and `idx` is the ABSOLUTE index into the full row
+            // list, so the last mounted row is `pos === rows.length - 1`.
+            live={activity?.tone === 'working' && pos === rows.length - 1}
             sessionId={sessionId}
             cwd={cwd}
             openFile={openFile}

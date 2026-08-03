@@ -1,4 +1,8 @@
-import { buildMachineInventory, type MachineHarnessInventory, probeAllModels } from '@podium/harness'
+import {
+  buildMachineInventory,
+  type MachineHarnessInventory,
+  probeAllModels,
+} from '@podium/harness'
 import type { ControlMessage } from '@podium/protocol'
 import type { ControlHandlers, DaemonContext } from './context'
 
@@ -105,6 +109,10 @@ async function runModelProbe(
   let byAgent: Awaited<ReturnType<typeof probeAllModels>> = {}
   try {
     byAgent = await probeAllModels({
+      // The daemon's own home, so the CLI probes run with the same user install
+      // roots on PATH that spawnEnv makes authoritative for every spawned agent
+      // (POD-362) — a systemd unit's inherited PATH has no ~/.local/bin.
+      ...(ctx.homeDir ? { homeDir: ctx.homeDir } : {}),
       claude: {
         ...(process.env.ANTHROPIC_API_KEY ? { apiKey: process.env.ANTHROPIC_API_KEY } : {}),
         ...(ctx.homeDir ? { homeDir: ctx.homeDir } : {}),
