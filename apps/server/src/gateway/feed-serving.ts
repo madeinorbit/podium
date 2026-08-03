@@ -59,8 +59,18 @@
  * version and capabilities its `hello` announced — WITHOUT re-bootstrapping,
  * because its position is already correct.
  *
- * The 426 therefore fires at `hello` and not before, which is the only place it
- * can: a version nobody announced cannot be refused.
+ * A version-window 426 therefore fires at `hello` and not before, which is the
+ * only place it can: a version nobody announced cannot be refused.
+ *
+ * ON A PER-PRINCIPAL SERVER THE PRE-HELLO ATTACH SERVES NOTHING, which is the
+ * paragraph above's real behaviour on every deployment `relay.ts` builds, and
+ * worth stating because reading only the paragraph above is what produced
+ * POD-1625. The SCOPING refusal is not the version-window refusal and does not
+ * wait for `hello`: `WireFeedEdge.attach` refuses at attach, on the spot, when
+ * the authority's grade is `per-principal` and the offered wire cannot express
+ * `evict`. Wire 1 cannot. So the wire-1 attach is refused, no world is read, and
+ * `hello` performs the first and only bootstrap of the connection. See
+ * {@link renegotiate}.
  */
 
 import { principalRoutingId } from '@podium/protocol'
@@ -292,12 +302,27 @@ export class FeedServing {
     // dialect this peer never advertised — so it is served again, in the version
     // it named, and the publisher is re-armed at the new position.
     //
-    // The cost is one duplicated world per non-v1 connection, for the length of
-    // the rollout window, and it is bounded and self-cancelling: the day
-    // MIN_SUPPORTED_VERSION reaches 2 the pre-hello default rises with it and no
-    // supported peer changes version at hello any more. The alternative —
-    // bootstrapping only at `hello` — withholds the world from every peer that
-    // never sends one, which is what the pre-cutover code deliberately served.
+    // THE DUPLICATE WORLD THIS IMPLIES IS UNREACHABLE ON A SCOPED SERVER, and
+    // POD-1625 was filed on the belief that it was not. This comment used to
+    // accept "one duplicated world per non-v1 connection, bounded and
+    // self-cancelling the day MIN_SUPPORTED_VERSION reaches 2" — and at live
+    // corpus size that read as a second multi-megabyte frame and a second
+    // synchronous read of the whole visible world, on every connection.
+    //
+    // It is not what happens. `relay.ts` installs `GrantEdgeVisibilityPolicy`
+    // unconditionally, so `visibilityGrade()` is `per-principal`, and
+    // `WireFeedEdge.attach` refuses any wire that cannot express `evict` —
+    // wire 1 cannot. The pre-hello attach is therefore refused with a 426
+    // (`scoping-requires-eviction`) and serves NOTHING, so `hello` performs the
+    // first and only world read. Verified end to end over a real socket in
+    // `sync-e2e.test.ts`.
+    //
+    // The path below is kept because it is not dead by construction, only by
+    // policy: a device-unscoped authority (the audited allowlist — the oracle
+    // harness and fixtures) does admit a v1 peer at attach, and for that peer
+    // re-serving at its announced version is the correct answer. What must NOT
+    // be done instead is bootstrapping only at `hello`, which withholds the
+    // world from every peer that never sends one — the pre-cutover bug.
     if (this.servedVersion.get(peer.id) === peer.wireVersion) return null
     this.serveWorld(peer, principal, routingPrincipal)
     return null
