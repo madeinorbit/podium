@@ -116,7 +116,7 @@ smoke passed with `codex-cli 0.146.0`.
 - The production diff moves the existing `FIRST_ADMIN_USER_ID` legacy-binding migration input
   from `daemon.ts` to `host-runtime.ts`; it adds no production occurrence and never supplies a
   transport principal. New explicit uses are confined to authenticated/owned test fixtures.
-- `bun scripts/render-systemd.ts --check`: passed.
+- `bun run systemd:diff`: passed (generated dev-host units match the source renderer).
 - Changed issue-local source files pass scoped Biome checks.
 
 ## Open Phase-5 gates

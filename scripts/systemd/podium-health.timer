@@ -1,15 +1,13 @@
+# GENERATED from apps/cli/src/cli-systemd.ts by scripts/render-systemd.ts.
+# Do not hand-edit; rerun the renderer after changing the source.
 [Unit]
 Description=Probe Podium backend health every 45s (last-resort wedge recovery)
-# The 45s cadence is deliberately tight so a genuinely wedged /health is caught
-# quickly — the timer is NOT what prevents false kills. The in-script guards
-# (ActiveState check, 120s boot-age grace, two-probe confirmation) are what make
-# a false restart structurally impossible; see scripts/podium-health-probe.sh
-# and podium-health.service for the full rationale (POD-608).
 
 [Timer]
 OnBootSec=45s
 OnUnitActiveSec=45s
 AccuracySec=5s
+Unit=podium-health.service
 
 [Install]
 WantedBy=timers.target

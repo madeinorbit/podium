@@ -506,77 +506,37 @@ if [ -z "$JOIN" ]; then
 fi
 
 # `podium setup --join` above owns config + lifecycle setup through the same engine
-# as interactive setup. What remains here is the fallback unit and update timer.
+# as interactive setup. What remains here is copying the generated unit artifacts and enabling
+# the update timer. The release tarball contains the bytes rendered from cli-systemd.ts; this
+# installer deliberately carries no unit body of its own.
 UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"; mkdir -p "$UNIT_DIR"
-if [ -n "$JOIN_FALLBACK" ]; then
-  # Fallback unit — GENERATED from renderDaemonUnit() in apps/cli/src/cli-systemd.ts (the
-  # single source; regenerate with `bun scripts/render-systemd.ts`). Do not hand-edit: the
-  # lockstep test in apps/cli/src/cli-systemd.test.ts and `render-systemd.ts --check` (part
-  # of `bun run lint`) both fail on drift.
-  cat > "$TMP/podium-daemon.service" <<'EOF'
-[Unit]
-Description=Podium per-machine agent daemon
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=notify
-NotifyAccess=all
-WatchdogSec=30
-Environment=PODIUM_INSTANCE=default
-Environment=PATH=%h/.local/bin:%h/.bun/bin:%h/.opencode/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin
-ExecStart=%h/.local/bin/podium daemon
-Restart=always
-RestartSec=2
-# The daemon exits 78 when the server TERMINALLY rejected it (pairRejected/helloRejected):
-# restarting would just re-hammer the same rejected handshake, so don't (issue #19).
-# `podium status` explains the blocked state and how to re-pair.
-RestartPreventExitStatus=78
-# Two-tier scheduling (POD-598): hosts run heavily CPU-oversubscribed by agent/test
-# workloads; POD-594 measured this daemon's main thread runqueue-waiting 60% of wall
-# time with everything at default CPUWeight=100. Interactive Podium services get the
-# high tier; per-agent scopes get CPUWeight=50/IOWeight=100 (agent-bridge).
-CPUWeight=900
-IOWeight=500
-MemoryLow=2G
-
-[Install]
-WantedBy=default.target
-EOF
+copy_generated_unit() { # copy_generated_unit <default-artifact-name> <installed-name>
+  source="$DEST/systemd/$1"
+  target="$UNIT_DIR/$2"
+  [ -f "$source" ] || {
+    echo "podium: release is missing generated systemd artifact '$1'" >&2
+    exit 1
+  }
   if [ "$INSTANCE" = "default" ]; then
-    cp "$TMP/podium-daemon.service" "$UNIT_DIR/$DAEMON_UNIT"
+    cp "$source" "$target"
   else
-    sed -e "s/Environment=PODIUM_INSTANCE=default/Environment=PODIUM_INSTANCE=$INSTANCE/" \
-      -e "s#ExecStart=%h/.local/bin/podium daemon#ExecStart=%h/.local/bin/$COMMAND daemon#" \
-      "$TMP/podium-daemon.service" > "$UNIT_DIR/$DAEMON_UNIT"
+    # The body was rendered once at build time with the compatibility instance. These are the
+    # only instance-dependent fields; INSTANCE is validated above before it reaches this sed.
+    sed -e "s/Environment=PODIUM_INSTANCE=default/Environment=PODIUM_INSTANCE=$INSTANCE/g" \
+      -e "s#%h/.local/bin/podium#%h/.local/bin/$COMMAND#g" \
+      -e "s/podium-daemon.service/$DAEMON_UNIT/g" \
+      -e "s/podium-update-user.service/$UPDATE_UNIT/g" \
+      "$source" > "$target"
   fi
+}
+if [ -n "$JOIN_FALLBACK" ]; then
+  copy_generated_unit podium-daemon.service "$DAEMON_UNIT"
 fi
 # --- auto-update timer: `podium update` on a daily cadence, restart the daemon only when it
 #     actually swapped in a new bundle (exit 10). Opt out with --no-auto-update. ---
 if [ -n "$AUTO_UPDATE" ]; then
-  cat > "$UNIT_DIR/$UPDATE_UNIT" <<EOF
-[Unit]
-Description=Podium headless self-update
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=oneshot
-Environment=PODIUM_INSTANCE=$INSTANCE
-ExecStart=/usr/bin/env sh -c '%h/.local/bin/$COMMAND update; ec=\$?; [ "\$ec" = 10 ] && systemctl --user try-restart $DAEMON_UNIT; exit 0'
-EOF
-  cat > "$UNIT_DIR/$UPDATE_TIMER" <<EOF
-[Unit]
-Description=Podium headless self-update (daily)
-
-[Timer]
-OnCalendar=daily
-Persistent=true
-Unit=$UPDATE_UNIT
-
-[Install]
-WantedBy=default.target
-EOF
+  copy_generated_unit podium-update-user.service "$UPDATE_UNIT"
+  copy_generated_unit podium-update-user.timer "$UPDATE_TIMER"
 fi
 
 SUPERVISION="The daemon is running detached."

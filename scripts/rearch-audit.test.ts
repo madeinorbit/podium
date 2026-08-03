@@ -581,7 +581,7 @@ describe('inventory checks', () => {
     ).not.toThrow()
   })
 
-  it('static-systemd-units counts unit files only', () => {
+  it('static-systemd-units counts ungenerated unit files only', () => {
     const ctx = ctxOf({}, { 'scripts/systemd': ['README.md', 'a.service', 'b.timer', 'c.path'] })
     expect(countOf(ctx, 'static-systemd-units')).toBe(3)
   })
@@ -1106,6 +1106,9 @@ describe('against the live repo', () => {
       // ui-state module. Zero is the delivered state; a re-grown literal is a
       // baseline ratchet failure, not a silent skip.
       'web-storage-keys',
+      // POD-334 leaves generated dev outputs under scripts/systemd; the renderer-to-disk
+      // diff gate is the live anchor, while this deletion counter must stay at zero.
+      'static-systemd-units',
       // POD-332 put the mobile screens on the shared store and the published
       // slices, which deleted the 55-field adapter interface these two watch:
       // `MobileClientValue` and the two mobile-local superagent row types.

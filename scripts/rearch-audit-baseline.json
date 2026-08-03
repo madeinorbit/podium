@@ -30,7 +30,7 @@
     "send-turn-duplicate": 0,
     "session-shapes": 37,
     "state-dir-defs": 0,
-    "static-systemd-units": 11,
+    "static-systemd-units": 0,
     "superagent-shadow-types": 0,
     "unbranded-by-decision-ids": 17,
     "upstream-sync-forwarder": 0,

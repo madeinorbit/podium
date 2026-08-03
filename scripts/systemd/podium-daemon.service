@@ -1,15 +1,15 @@
+# GENERATED from apps/cli/src/cli-systemd.ts by scripts/render-systemd.ts.
+# Do not hand-edit; rerun the renderer after changing the source.
 [Unit]
 Description=Podium per-machine agent daemon (PTY attach, transcript tails, discovery, metrics)
 After=network-online.target podium-server.service
 Wants=network-online.target
-# Loose coupling on purpose: the daemon reconnects to the server with backoff, so it
-# can start before the server and survives a server restart without dropping agents.
+# Loose coupling on purpose: the daemon reconnects to the server with backoff, so it can start
+# before the server and survives a server restart without dropping agents.
 
 [Service]
-# Type=notify + WatchdogSec: the daemon exposes no HTTP surface, so the systemd
-# watchdog is the ONLY thing that catches a wedged-but-alive daemon — the documented
-# big-paste msg-loop wedge that previously needed a manual `systemctl restart`. The
-# pet rides the event loop (packages/runtime/src/sd-notify.ts); a stalled loop stops petting.
+# Type=notify + WatchdogSec: the daemon exposes no HTTP surface, so the systemd watchdog is the
+# only thing that catches a wedged-but-alive daemon.
 Type=notify
 NotifyAccess=all
 WatchdogSec=30
@@ -17,11 +17,9 @@ WorkingDirectory=/home/user/src/other/podium
 Environment=HOME=/home/user
 Environment=PATH=/home/user/.local/bin:/home/user/.opencode/bin:/home/user/.bun/bin:/usr/local/bin:/usr/bin:/bin
 Environment=PODIUM_PORT=18787
-# Bun runtime: the PTY backend is selected at runtime (@podium/harness) — Bun.Terminal
-# under Bun, node-pty under Node — so no native addon is loaded here on Bun. Run from SOURCE
-# (not the bun build --compile binary) so redeploy-on-main-change re-reads it like tsx did.
-# The abduco/tmux masters live in their own systemd --user scopes (spawnAbducoAgent), so they
-# survive this unit restarting — that's how live agents outlast a daemon redeploy.
+Environment=PODIUM_INSTANCE=default
+# Bun runtime: the PTY backend is selected at runtime (@podium/harness). Run from SOURCE so
+# redeploy-on-main-change re-reads it like tsx did.
 ExecStart=/home/user/.local/bin/bun --conditions=@podium/source scripts/daemon.ts
 Restart=always
 RestartSec=2

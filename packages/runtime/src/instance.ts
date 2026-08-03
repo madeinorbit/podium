@@ -107,7 +107,14 @@ export function instanceCommandName(instanceId: string = resolveInstanceId()): s
   return id === DEFAULT_INSTANCE_ID ? 'podium' : `podium-${id}`
 }
 
-export type InstanceServiceRole = 'server' | 'daemon' | 'janitor' | 'update'
+export type InstanceServiceRole =
+  | 'server'
+  | 'daemon'
+  | 'janitor'
+  | 'update'
+  | 'web'
+  | 'redeploy'
+  | 'health'
 
 export function instanceServiceName(
   role: InstanceServiceRole,
@@ -121,6 +128,16 @@ export function instanceServiceName(
 export function instanceUpdateTimerName(instanceId: string = resolveInstanceId()): string {
   const id = validateInstanceId(instanceId)
   return id === DEFAULT_INSTANCE_ID ? 'podium-update-user.timer' : `podium-${id}-update.timer`
+}
+
+/** Instance-scoped timer names used by the dev-host health supervisor. */
+export function instanceTimerName(
+  role: 'update' | 'health',
+  instanceId: string = resolveInstanceId(),
+): string {
+  if (role === 'update') return instanceUpdateTimerName(instanceId)
+  const id = validateInstanceId(instanceId)
+  return id === DEFAULT_INSTANCE_ID ? 'podium-health.timer' : `podium-${id}-health.timer`
 }
 
 /** Stable durable PTY/scope identity; default keeps pre-instance labels reattachable. */

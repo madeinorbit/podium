@@ -1601,6 +1601,17 @@ export const CHECKS: AuditCheck[] = [
       ctx
         .listDir('scripts/systemd')
         .filter((n) => /\.(service|timer|path|socket)$/.test(n))
+        // Unit files are durable generated outputs now. Count only an unmarked hand-authored
+        // file so the POD-334 debt stays at zero while the render-to-disk diff gate owns drift.
+        .filter((n) => {
+          try {
+            return !readFileSync(join(ctx.repoRoot, 'scripts/systemd', n), 'utf8').startsWith(
+              '# GENERATED from apps/cli/src/cli-systemd.ts',
+            )
+          } catch {
+            return true
+          }
+        })
         .map((n) => ({ file: `scripts/systemd/${n}`, line: 1, text: n })),
   },
   {

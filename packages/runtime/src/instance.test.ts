@@ -13,6 +13,7 @@ import {
   instanceInstallDir,
   instanceServiceName,
   instanceStateDir,
+  instanceTimerName,
   instanceUpdateTimerName,
   readInstanceStateIdentity,
   resolveInstanceId,
@@ -64,6 +65,7 @@ describe('instance namespaces', () => {
     expect(instanceServiceName('janitor', 'default')).toBe('podium-janitor.service')
     expect(instanceServiceName('update', 'default')).toBe('podium-update-user.service')
     expect(instanceUpdateTimerName('default')).toBe('podium-update-user.timer')
+    expect(instanceTimerName('health', 'default')).toBe('podium-health.timer')
     expect(durableSessionLabel('s1', 'default')).toBe('podium-s1')
 
     expect(instanceStateDir('blue', env)).toBe('/home/u/.local/state/podium/blue')
@@ -72,6 +74,7 @@ describe('instance namespaces', () => {
     expect(instanceServiceName('daemon', 'blue')).toBe('podium-blue-daemon.service')
     expect(instanceServiceName('janitor', 'blue')).toBe('podium-blue-janitor.service')
     expect(instanceUpdateTimerName('blue')).toBe('podium-blue-update.timer')
+    expect(instanceTimerName('health', 'blue')).toBe('podium-blue-health.timer')
     expect(durableSessionLabel('s1', 'blue')).toBe('podium-blue-s1')
   })
 
