@@ -631,9 +631,22 @@ memoized against a clock that had moved, so on a quiet system with no publishes
 an overnight snooze would never lapse. The answer is NOT a second cache key —
 that would make the wrong cache writable again, which §4a is explicit about —
 but `Store.coarseNow`. A new minute is a new snapshot, and the derivation stays
-a pure function of its source. One interval per runtime now replaces eleven
-per-component `useNow(60_000)` intervals that each ticked on their own phase, so
-two surfaces can no longer disagree about what time it is.
+a pure function of its source. The worklist surfaces now share ONE runtime clock
+instead of each starting a private `useNow(60_000)`, so they can no longer
+disagree about what time it is.
+
+> **CORRECTED, and the error is instructive enough to keep.** This paragraph
+> first said "one interval per runtime now replaces ELEVEN per-component
+> intervals". Both halves were wrong. Measured at `b120c56d` → `9f2522d9`:
+> **10 `useNow` call sites in `apps/web` before, 7 after — this change removed 3**
+> (the three in `SidebarUnified.tsx`). "Eleven" counted the `export function
+> useNow` DEFINITION as a call site; and reporting the whole population as the
+> number replaced turned a real 3-site change into a claimed tree-wide sweep.
+> The other 7 (`AgentPanel`, `SnoozeControl`, `sidebar-common`,
+> `SessionContextMenu`, `PhaseTimer`, `time-indicators`, `SinceStopTimer`) still
+> run their own intervals and are still available to whoever ports those
+> surfaces. Same habit as §6.4.1 and the as-of rule, in its fourth costume:
+> **count the noun you are about to name, and count it untruncated.**
 
 **Deleting that interval was SILENT across all 760 client-core tests.** A throw
 on the same line reddened 46, so the line runs constantly: an ASSERTION GAP, not
