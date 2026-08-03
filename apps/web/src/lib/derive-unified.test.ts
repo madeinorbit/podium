@@ -393,13 +393,11 @@ describe('isRowUnread (sidebar unread emphasis)', () => {
     issue: issue(over),
     sessions: [],
     activityAt: NOW,
-    rank: 0,
   })
   const wtRow = (sessions: SessionMeta[]): Extract<UnifiedWorkRow, { kind: 'worktree' }> => ({
     kind: 'worktree',
     worktree: navWt('/r/a/.worktrees/x', { isMain: false, sessions }),
     activityAt: NOW,
-    rank: 0,
   })
 
   it('an issue row follows the issue own server-derived unread flag', () => {
@@ -437,13 +435,11 @@ describe('rowUnreadEmphasized (#138: suppress unread while actively working)', (
     issue: issue(over),
     sessions,
     activityAt: NOW,
-    rank: 0,
   })
   const wtRow = (sessions: SessionMeta[]): Extract<UnifiedWorkRow, { kind: 'worktree' }> => ({
     kind: 'worktree',
     worktree: navWt('/r/a/.worktrees/x', { isMain: false, sessions }),
     activityAt: NOW,
-    rank: 0,
   })
 
   it('emphasizes an unread issue row with no working session', () => {
@@ -769,7 +765,6 @@ describe('groupUnifiedWorkRows', () => {
       }),
       sessions,
       activityAt: NOW,
-      rank: 4,
     })
     // A tuck is now a stamp on the ISSUE (POD-333) — server truth every client
     // reads — rather than an id in a per-browser set handed to the grouper.
@@ -831,7 +826,6 @@ describe('groupUnifiedWorkRows', () => {
       }),
       sessions: [],
       activityAt: NOW,
-      rank: 4,
     })
 
     const [group] = groupUnifiedWorkRows(
