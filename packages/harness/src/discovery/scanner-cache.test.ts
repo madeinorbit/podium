@@ -203,7 +203,11 @@ describe('scanAgentConversationsCached', () => {
     expect(first.conversations).toEqual([])
     expect(second.conversations).toEqual([])
     expect(calls.summarize).toBe(1)
-    expect(cache.getFresh(file, await stat(file), 'codex')).toBeNull()
+    // undefined, not null — the rewrite's getFresh is `AgentConversationSummary |
+    // undefined` and returns undefined for a negative entry. Second occurrence of
+    // the same main-side assertion; see cache.test.ts. The property (a
+    // negative-cached file never surfaces as a summary) is unchanged.
+    expect(cache.getFresh(file, await stat(file), 'codex')).toBeUndefined()
     expect(cache.listSummaries()).toEqual([])
     cache.close()
   })
