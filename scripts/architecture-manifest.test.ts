@@ -9,6 +9,7 @@ import {
   checkManifestEdge,
   checkManifestRole,
   duplicateFeatureOwners,
+  ERROR_LEVEL_MANIFEST_RULES,
   findHarnessBranching,
   type ImportRef,
   loadHarnessLiterals,
@@ -153,7 +154,10 @@ describe('checkManifestEdge — layer axiom', () => {
       'apps/server',
       value('@podium/server'),
     )
-    expect(v.map((x) => x.rule)).toEqual(['manifest-layer'])
+    // BOTH arms fire, and that is right: transcript declares a CLOSED dependency
+    // set (POD-335), so an app is out of the set as well as up the order. The
+    // layer message is asserted specifically so this stays a layer test.
+    expect(v.map((x) => x.rule)).toEqual(['manifest-layer', 'manifest-deps'])
     expect(v[0]?.message).toContain('imports UP')
   })
 
@@ -165,7 +169,7 @@ describe('checkManifestEdge — layer axiom', () => {
       'packages/sync',
       value('@podium/sync'),
     )
-    expect(v.map((x) => x.rule)).toEqual(['manifest-layer'])
+    expect(v.map((x) => x.rule)).toEqual(['manifest-layer', 'manifest-deps'])
     expect(v[0]?.message).toContain('undeclared same-layer import')
   })
 
@@ -230,7 +234,10 @@ describe('checkManifestEdge — test-file exemptions', () => {
       'apps/server',
       value('@podium/server'),
     )
-    expect(v.map((x) => x.rule)).toEqual(['manifest-layer'])
+    // `manifest-deps` joins it because model is the LEAF (`deps: []`), and the
+    // closed set is not test-exempt either — a leaf whose tests need a package is
+    // no longer a leaf.
+    expect(v.map((x) => x.rule)).toEqual(['manifest-layer', 'manifest-deps'])
     expect(v[0]?.message).toContain('imports UP')
   })
 
@@ -779,10 +786,16 @@ describe('MANIFEST_RULES drift', () => {
     }
   })
 
-  it('claims none of the legacy rule ids', () => {
-    // The legacy eight are the complement — if one ever lands in MANIFEST_RULES
-    // its grandfathered entries would be checked against manifest violations and
-    // read as dead.
+  it('the legacy eight are RETIRED — no source emits them any more', () => {
+    // POD-335's central claim, as a measurement rather than a note. Each of these
+    // was a `rule:` id some checker produced; the retirement is only real if
+    // nothing produces them, which is a different fact from "MANIFEST_RULES does
+    // not list them" and the one that would rot first. The replacements are
+    // asserted positively by the fixture suite.
+    const emitted = new Set([
+      ...ruleIdsIn('architecture-manifest.ts'),
+      ...ruleIdsIn('check-boundaries.ts'),
+    ])
     for (const legacy of [
       'agent-host-consumers',
       'no-app-to-app',
@@ -793,7 +806,8 @@ describe('MANIFEST_RULES drift', () => {
       'runtime-browser-safety',
       'server-role-tiers',
     ]) {
-      expect(MANIFEST_RULES.has(legacy), `'${legacy}' is a legacy rule`).toBe(false)
+      expect(MANIFEST_RULES.has(legacy), `'${legacy}' is a retired rule`).toBe(false)
+      expect(emitted.has(legacy), `'${legacy}' is still emitted — it was not retired`).toBe(false)
     }
   })
 })
@@ -829,11 +843,30 @@ describe('partitionAllowlist', () => {
     expect(legacy.map((e) => e.rule)).toEqual(['agent-host-consumers'])
   })
 
-  it('partitions the REAL allowlist with no entry lost or duplicated', () => {
-    const [manifest, legacy] = partitionAllowlist(BOUNDARY_ALLOWLIST)
-    expect(manifest.length + legacy.length).toBe(BOUNDARY_ALLOWLIST.length)
-    expect(manifest.length).toBeGreaterThan(0)
-    expect(legacy.length).toBeGreaterThan(0)
+  it('the REAL allowlist is EMPTY, and every manifest rule is error-level', () => {
+    // POD-335's end state, asserted rather than described. The two clauses are
+    // separate obligations: an empty array today is a state, and the error-level
+    // set is what stops the next entry from silently restoring the ratchet.
+    expect(BOUNDARY_ALLOWLIST).toEqual([])
+    for (const rule of MANIFEST_RULES) {
+      expect(ERROR_LEVEL_MANIFEST_RULES.has(rule), `${rule} is not error-level`).toBe(true)
+    }
+  })
+
+  it('REFUSES an allowlist entry for an error-level rule — the way back is shut', () => {
+    // The mutation this file could not otherwise observe: someone re-adds a row
+    // to scripts/boundary-allowlist.ts to make a red go away. It does not warn;
+    // it is reported as forbidden, and `main` exits 1 on a non-empty `stale`.
+    const readded = [
+      { rule: 'manifest-layer', file: 'apps/x/src/a.ts', count: 1, phase: 'POD-999', note: 'n' },
+    ]
+    const result = applyManifestPolicy(
+      [{ file: 'apps/x/src/a.ts', specifier: '@podium/y', rule: 'manifest-layer', message: 'm' }],
+      readded,
+    )
+    expect(result.warnings).toEqual([])
+    expect(result.errors).toHaveLength(1)
+    expect(result.stale[0]).toContain('is forbidden: this rule is error-level')
   })
 
   it('applies each family to its own violations without cross-family staleness', () => {

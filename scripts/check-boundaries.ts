@@ -198,13 +198,70 @@ export function loadModelExportNames(repoRoot: string): Set<string> {
   return names
 }
 
-const RUNTIME_HOME = 'packages/runtime'
-const RUNTIME_BARREL = `${RUNTIME_HOME}/src/index.ts`
-
-/** True for a Node builtin specifier — the only node-only import shape this
- *  repo's source uses (always `node:fs` style, never a bare `fs`). */
-function isNodeBuiltinSpecifier(specifier: string): boolean {
-  return specifier.startsWith('node:')
+/**
+ * Every cross-package `@podium/*` import must be a DECLARED dependency of the
+ * importing workspace (POD-1131).
+ *
+ * This closes a hole the other rules could not see. All of them reason about
+ * DECLARED edges — layer order, platform tags, leaf purity — so an import whose
+ * package.json entry is simply MISSING is invisible to the whole gate: there is no
+ * edge to judge. It resolves anyway under Bun's hoisted node_modules, so nothing
+ * fails locally, and then a scoped typecheck of some UNRELATED consumer reports
+ * TS2307 because no workspace symlink exists. POD-300 produced exactly that:
+ * import specifiers moved to `@podium/model`, the dependency lists did not, and
+ * `packages/harness` silently imported a package it never declared until an
+ * unrelated app's typecheck broke.
+ *
+ * Reads package.json rather than trusting the import graph, and uses readFileSync
+ * over shell grep because one NUL byte makes grep answer "no match".
+ */
+export function checkDeclaredDeps(repoRoot: string): Violation[] {
+  const violations: Violation[] = []
+  const manifests = new Map<string, { name?: string; deps: Set<string> }>()
+  for (const rootDir of ['apps', 'packages']) {
+    const root = join(repoRoot, rootDir)
+    if (!existsSync(root)) continue
+    for (const entry of readdirSync(root, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue
+      const ws = `${rootDir}/${entry.name}`
+      const pj = join(repoRoot, ws, 'package.json')
+      if (!existsSync(pj)) continue
+      const parsed = JSON.parse(readFileSync(pj, 'utf8')) as {
+        name?: string
+        dependencies?: Record<string, string>
+        devDependencies?: Record<string, string>
+      }
+      manifests.set(ws, {
+        name: parsed.name,
+        deps: new Set([
+          ...Object.keys(parsed.dependencies ?? {}),
+          ...Object.keys(parsed.devDependencies ?? {}),
+        ]),
+      })
+    }
+  }
+  const known = new Set([...manifests.values()].map((m) => m.name).filter(Boolean) as string[])
+  for (const [ws, { name, deps }] of manifests) {
+    const srcDir = join(repoRoot, ws, 'src')
+    if (!existsSync(srcDir)) continue
+    for (const abs of walk(srcDir)) {
+      const file = relative(repoRoot, abs).split(sep).join('/')
+      const source = readFileSync(abs, 'utf8')
+      for (const ref of extractImports(source)) {
+        const spec = ref.specifier
+        if (!spec.startsWith('@podium/')) continue
+        // Only workspace packages: a published @podium/* dep is a normal dep.
+        if (!known.has(spec) || spec === name || deps.has(spec)) continue
+        violations.push({
+          file,
+          specifier: spec,
+          rule: 'declared-deps',
+          message: `${file}: imports '${spec}' but ${ws}/package.json does not declare it — it resolves via hoisting today and breaks an unrelated workspace's typecheck tomorrow (POD-1131)`,
+        })
+      }
+    }
+  }
+  return violations
 }
 
 // ---- Rule 9 — host edge vs agent command relay (ADR 7 D2) -------------------
@@ -281,109 +338,6 @@ function resolveTsSibling(repoRoot: string, fromFile: string, specifier: string)
     if (existsSync(candidate)) return candidate
   }
   return null
-}
-
-/**
- * Rule 8b — the @podium/runtime root barrel may not VALUE-export a sibling
- * file that itself directly imports a Node builtin. One-hop check (not a full
- * transitive closure — see rule 8 in the file doc comment for why). Runs once
- * against the one file it targets, not per-file like the rest of checkFile's
- * rules, so it's a standalone function `runCheck` calls directly.
- */
-/**
- * Every cross-package `@podium/*` import must be a DECLARED dependency of the
- * importing workspace (POD-1131).
- *
- * This closes a hole the other rules could not see. All of them reason about
- * DECLARED edges — layer order, platform tags, leaf purity — so an import whose
- * package.json entry is simply MISSING is invisible to the whole gate: there is no
- * edge to judge. It resolves anyway under Bun's hoisted node_modules, so nothing
- * fails locally, and then a scoped typecheck of some UNRELATED consumer reports
- * TS2307 because no workspace symlink exists. POD-300 produced exactly that:
- * import specifiers moved to `@podium/model`, the dependency lists did not, and
- * `packages/harness` silently imported a package it never declared until an
- * unrelated app's typecheck broke.
- *
- * Reads package.json rather than trusting the import graph, and uses readFileSync
- * over shell grep because one NUL byte makes grep answer "no match".
- */
-export function checkDeclaredDeps(repoRoot: string): Violation[] {
-  const violations: Violation[] = []
-  const manifests = new Map<string, { name?: string; deps: Set<string> }>()
-  for (const rootDir of ['apps', 'packages']) {
-    const root = join(repoRoot, rootDir)
-    if (!existsSync(root)) continue
-    for (const entry of readdirSync(root, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue
-      const ws = `${rootDir}/${entry.name}`
-      const pj = join(repoRoot, ws, 'package.json')
-      if (!existsSync(pj)) continue
-      const parsed = JSON.parse(readFileSync(pj, 'utf8')) as {
-        name?: string
-        dependencies?: Record<string, string>
-        devDependencies?: Record<string, string>
-      }
-      manifests.set(ws, {
-        name: parsed.name,
-        deps: new Set([
-          ...Object.keys(parsed.dependencies ?? {}),
-          ...Object.keys(parsed.devDependencies ?? {}),
-        ]),
-      })
-    }
-  }
-  const known = new Set([...manifests.values()].map((m) => m.name).filter(Boolean) as string[])
-  for (const [ws, { name, deps }] of manifests) {
-    const srcDir = join(repoRoot, ws, 'src')
-    if (!existsSync(srcDir)) continue
-    for (const abs of walk(srcDir)) {
-      const file = relative(repoRoot, abs).split(sep).join('/')
-      const source = readFileSync(abs, 'utf8')
-      for (const ref of extractImports(source)) {
-        const spec = ref.specifier
-        if (!spec.startsWith('@podium/')) continue
-        // Only workspace packages: a published @podium/* dep is a normal dep.
-        if (!known.has(spec) || spec === name || deps.has(spec)) continue
-        violations.push({
-          file,
-          specifier: spec,
-          rule: 'declared-deps',
-          message: `${file}: imports '${spec}' but ${ws}/package.json does not declare it — it resolves via hoisting today and breaks an unrelated workspace's typecheck tomorrow (POD-1131)`,
-        })
-      }
-    }
-  }
-  return violations
-}
-
-export function checkRuntimeBarrelPurity(repoRoot: string): Violation[] {
-  const abs = join(repoRoot, RUNTIME_BARREL)
-  let source: string
-  try {
-    source = readFileSync(abs, 'utf8')
-  } catch {
-    return []
-  }
-  const violations: Violation[] = []
-  for (const ref of extractImports(source)) {
-    if (ref.typeOnly || !ref.specifier.startsWith('.')) continue
-    const targetAbs = resolveTsSibling(repoRoot, RUNTIME_BARREL, ref.specifier)
-    if (!targetAbs) continue
-    const targetSource = readFileSync(targetAbs, 'utf8')
-    const targetRel = relative(repoRoot, targetAbs).split(sep).join('/')
-    const nodeImport = extractImports(targetSource).find(
-      (r) => isNodeBuiltinSpecifier(r.specifier) && !r.typeOnly,
-    )
-    if (nodeImport) {
-      violations.push({
-        file: RUNTIME_BARREL,
-        specifier: ref.specifier,
-        rule: 'runtime-browser-safety',
-        message: `${RUNTIME_BARREL}: value-exports '${ref.specifier}' (${targetRel}), which directly imports Node builtin '${nodeImport.specifier}' — apps/web's bundle would inline it. Re-export only its types (export type {...}) or move it behind its own subpath.`,
-      })
-    }
-  }
-  return violations
 }
 
 /**

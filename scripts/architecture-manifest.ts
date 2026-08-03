@@ -501,6 +501,11 @@ export const SAME_LAYER_ALLOWED: ReadonlySet<string> = new Set<string>([
   // L2: terminal-client's DOM readiness check uses the shared,
   // pure composer extractor rather than carrying a second copy.
   'packages/terminal-client -> packages/composer',
+  // L1: the CLI's issue client RENDERS the shared command contracts (POD-311)
+  // rather than declaring its own command-name universe. Previously invisible to
+  // this set because the import is type-only and type-only used to skip the
+  // whole rule; it is a deliberate edge and now says so (POD-335).
+  'packages/issue-client -> packages/commands',
 ])
 
 /**
@@ -551,6 +556,19 @@ export function browserEntrypointsOf(workspace: string): string[] {
     .filter((s) => s === prefix || s.startsWith(`${prefix}/`))
     .sort()
 }
+
+/**
+ * Same-layer edges allowed ONLY as `import type` (POD-335).
+ *
+ * One entry, and it is the one legacy rule 1 named: `apps/web` imports the
+ * `AppRouter` TYPE from `apps/server` for its tRPC client. Erased at build, so
+ * there is no runtime dependency and no bundle consequence — but a RUNTIME
+ * import of the same specifier is still refused, which is the distinction the
+ * legacy rule made and this set preserves.
+ */
+export const SAME_LAYER_TYPE_ONLY_ALLOWED: ReadonlySet<string> = new Set<string>([
+  'apps/web -> apps/server',
+])
 
 export function tagsFor(workspace: string): WorkspaceTags | null {
   return MANIFEST[workspace] ?? null
@@ -606,7 +624,6 @@ export function checkManifestEdge(
   to: string,
   ref: ImportRef,
 ): Violation[] {
-  if (ref.typeOnly) return []
   const fromTags = tagsFor(from)
   const toTags = tagsFor(to)
   if (!fromTags || !toTags) return []
@@ -615,15 +632,41 @@ export function checkManifestEdge(
   const edge = `${from} -> ${to}`
   const testFile = isTestFile(file)
 
+  // TYPE-ONLY IS EXEMPT FROM PLATFORM, NOT FROM DIRECTION — and the split is
+  // inherited from the rules this replaces rather than invented. A type import is
+  // erased at build, so it cannot drag Node into a browser bundle (legacy rule 1
+  // sanctioned exactly one type-only app→app edge for that reason). But it is
+  // still a BUILD coupling: a package whose types need an app can no longer be
+  // built or typechecked without that app, which is an architectural fact
+  // erasure has no say over — legacy rule 4 exempted nothing, and legacy rule 1
+  // refused every type-only app→app edge except the one it named.
+  const typeOnlyAllowed = ref.typeOnly && SAME_LAYER_TYPE_ONLY_ALLOWED.has(edge)
+
   // Layer axiom: down is free, sideways must be declared, up is never allowed.
-  if (toTags.layer > fromTags.layer) {
+  //
+  // The UPWARD arm exempts a type-only edge between two PACKAGES and not one
+  // that reaches an APP, which is legacy rule 4's line exactly ("packages never
+  // import from apps", with no exemption of any kind) rather than a new one.
+  // Measured before choosing it: refusing every type-only upward edge surfaces
+  // eight `packages/terminal-client -> packages/client-core` imports of
+  // `@podium/client-core/socket-transport` — a real L2→L3 inversion that no
+  // legacy rule ever refused, and one that needs terminal-client restructured
+  // rather than a guardrail issue quietly widening its own scope. Recorded in
+  // docs/gates/pod-335-boundary-lint-end-state.md and filed, not swept.
+  const upwardExempt = ref.typeOnly && !to.startsWith('apps/')
+  if (toTags.layer > fromTags.layer && !upwardExempt) {
     violations.push({
       file,
       specifier: ref.specifier,
       rule: 'manifest-layer',
       message: `${file}: ${from} (${LAYER_NAMES[fromTags.layer]}) imports UP into ${to} (${LAYER_NAMES[toTags.layer]}) via '${ref.specifier}' — imports must point down the layer order`,
     })
-  } else if (toTags.layer === fromTags.layer && !SAME_LAYER_ALLOWED.has(edge) && !testFile) {
+  } else if (
+    toTags.layer === fromTags.layer &&
+    !SAME_LAYER_ALLOWED.has(edge) &&
+    !typeOnlyAllowed &&
+    !testFile
+  ) {
     violations.push({
       file,
       specifier: ref.specifier,
@@ -636,7 +679,7 @@ export function checkManifestEdge(
   // Tests are NOT exempt — a near-leaf whose tests need a package it may not
   // import is a near-leaf that can no longer be built or tested without it,
   // which is the same architectural fact the upward rule refuses.
-  if (fromTags.deps && !fromTags.deps.includes(to)) {
+  if (fromTags.deps && !fromTags.deps.includes(to) && !typeOnlyAllowed) {
     violations.push({
       file,
       specifier: ref.specifier,
@@ -651,7 +694,11 @@ export function checkManifestEdge(
   // barrel is not.
   if (toTags.consumers && !toTags.consumers.includes(from) && from !== to) {
     const open = toTags.openEntrypoints ?? []
-    if (!open.includes(ref.specifier) && !testFile) {
+    // A test is exempt only if it lives INSIDE the restricted workspace. Legacy
+    // rule 2 allowed `packages/harness`'s own tests to drive its own processes
+    // and nothing else; exempting every test file would have let an apps/server
+    // test take the capability its source may not.
+    if (!open.includes(ref.specifier) && !(testFile && file.startsWith(`${to}/`))) {
       violations.push({
         file,
         specifier: ref.specifier,
@@ -662,7 +709,12 @@ export function checkManifestEdge(
   }
 
   // Platform: a browser-safe workspace may only reach browser-safe or neutral.
-  if (fromTags.platform === 'browser-safe' && toTags.platform === 'node-only' && !testFile) {
+  if (
+    fromTags.platform === 'browser-safe' &&
+    toTags.platform === 'node-only' &&
+    !ref.typeOnly &&
+    !testFile
+  ) {
     violations.push({
       file,
       specifier: ref.specifier,
@@ -1198,11 +1250,6 @@ export const MANIFEST_RULES: ReadonlySet<string> = new Set([
   'authz-single-home',
   'harness-branching',
   'harness-classifier-boundary',
-  // Rule 12 (POD-307). A MANIFEST rule, not a legacy one, because it is the
-  // guard that replaces what `packages/sync`'s node-only tag used to provide:
-  // it has to run in `lint:architecture`, the BLOCKING step, or the retag would
-  // be protected only by a check CI is allowed to sail past.
-  'sync-browser-reach',
 ])
 
 /**
