@@ -1,11 +1,10 @@
-import type { SessionId } from '@podium/model'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import {
   parseServerOrigin,
   resolveServerConfig,
   type ServerConfig,
 } from '@podium/client-core/transport'
-import type { IssueStage, IssueType, IssueWire, TranscriptItem } from '@podium/model'
+import type { IssueStage, IssueType, IssueWire, SessionId, TranscriptItem } from '@podium/model'
 import { WIRE_VERSION } from '@podium/protocol'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 

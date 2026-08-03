@@ -17,8 +17,8 @@ import { worklistSlice } from '@podium/client-core/viewmodels'
 import { cleanup, render, screen } from '@testing-library/react'
 import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { useConnected, useIssues, useSessions } from './hooks'
 import { DEMO_ISSUES, DEMO_SESSIONS, demoEnabled } from './demoData'
+import { useConnected, useIssues, useSessions } from './hooks'
 import { MobileClientProvider } from './MobileClientProvider'
 
 /** The runtime opens a socket on start; nothing here is about the transport,

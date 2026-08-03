@@ -19,7 +19,7 @@
  */
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStore } from '@podium/client-core/react'
-import { createReplica } from '@podium/client-core/replica'
+import { createReplica, memoryStorage } from '@podium/client-core/replica'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import type { GitRepositoryWire, IssueWire, MachineWire, SessionMeta } from '@podium/model'
 import { render } from '@testing-library/react'
@@ -101,7 +101,13 @@ function stubApi(fixture: MobileStoreFixture): MobileTrpc {
  */
 export async function renderWithMobileStore(children: ReactNode, fixture: MobileStoreFixture = {}) {
   ;(globalThis as { WebSocket?: unknown }).WebSocket = SilentSocket
-  const replica = createReplica()
+  // EPHEMERAL, DECLARED RATHER THAN IMPLIED. `createReplica()` with no storage
+  // already falls back to memory, but saying so at the call site is what makes
+  // this root honest to the phase-2 client audit's `unattributed-store-read`
+  // item: a store that persists nothing adopts nothing, so there is no previous
+  // principal's slice for it to inherit. A root that PERSISTED would owe the
+  // attribution gate here, and this one must never quietly become that.
+  const replica = createReplica({ storage: memoryStorage() })
   replica.applySnapshot('sessions', fixture.sessions ?? [])
   replica.applySnapshot('issues', fixture.issues ?? [])
   const api = stubApi(fixture)
@@ -148,5 +154,10 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
       await Promise.resolve()
     })
   }
-  return { ...result, replica, api, emit: (event: string, payload: unknown) => hub?.emit(event, payload) }
+  return {
+    ...result,
+    replica,
+    api,
+    emit: (event: string, payload: unknown) => hub?.emit(event, payload),
+  }
 }

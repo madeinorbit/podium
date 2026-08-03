@@ -18,14 +18,15 @@
  *  - placement is asserted through the REFUSAL arm (a machine the principal may
  *    not use), because the grant arm passes identically with no gate at all.
  */
-import { asIssueId, asSessionId } from '@podium/model'
-import type { GitRepositoryWire, IssueWire, MachineWire, SessionMeta } from '@podium/model'
+
 import { useSlice } from '@podium/client-core/react'
 import {
   machineViewsFromWire,
   resolveSpawnTargetMachine,
   worklistSlice,
 } from '@podium/client-core/viewmodels'
+import type { GitRepositoryWire, IssueWire, MachineWire, SessionMeta } from '@podium/model'
+import { asIssueId, asSessionId } from '@podium/model'
 import { cleanup, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { useConnected, useIssues, useMobileStore, useSessions } from './hooks'
@@ -48,7 +49,9 @@ const REPO: GitRepositoryWire = {
   worktrees: [{ path: '/home/dev/podium-wt', branch: 'feature' }],
 } as unknown as GitRepositoryWire
 
-function issue(overrides: Omit<Partial<IssueWire>, 'id'> & { id: string; title: string }): IssueWire {
+function issue(
+  overrides: Omit<Partial<IssueWire>, 'id'> & { id: string; title: string },
+): IssueWire {
   return {
     seq: 1,
     stage: 'in_progress',

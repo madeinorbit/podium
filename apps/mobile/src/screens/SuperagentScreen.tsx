@@ -1,12 +1,14 @@
-import type { SessionId } from '@podium/model'
-import { mergeTranscriptItems, prependTranscriptItems } from '@podium/client-core/viewmodels'
-import type { TranscriptItem } from '@podium/model'
+import { useSlice } from '@podium/client-core/react'
+import {
+  mergeTranscriptItems,
+  prependTranscriptItems,
+  superagentSlice,
+} from '@podium/client-core/viewmodels'
+import type { SessionId, TranscriptItem } from '@podium/model'
 import { Eraser } from 'lucide-react-native'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { useSlice } from '@podium/client-core/react'
-import { superagentSlice } from '@podium/client-core/viewmodels'
 import { readTranscriptPage, useHub, useMobileStore } from '../client/hooks'
 import { Composer } from '../components/Composer'
 import { Icon } from '../components/Icon'

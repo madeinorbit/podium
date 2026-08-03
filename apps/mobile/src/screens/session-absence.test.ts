@@ -12,8 +12,9 @@
  * terminal pane into this lane; the render is covered by the Expo-web and
  * device passes (the device half is the human gate).
  */
-import { asSessionId } from '@podium/model'
+
 import type { SessionMeta } from '@podium/model'
+import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { SESSION_ABSENCE, sessionAbsence } from './session-absence'
 

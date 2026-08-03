@@ -116,9 +116,7 @@ export function InboxScreen() {
       subtitle={inboxSubtitle(groups.needsYou.length, groups.working.length, connected)}
       right={
         <>
-          {outboxSize > 0 ? (
-            <Text style={styles.queued}>{outboxSize} queued</Text>
-          ) : null}
+          {outboxSize > 0 ? <Text style={styles.queued}>{outboxSize} queued</Text> : null}
           <NewWorkButton />
           <HeaderButton label="Settings" onPress={() => router.push('/settings')}>
             <Icon as={Settings} size={17} color={color.textDim} />

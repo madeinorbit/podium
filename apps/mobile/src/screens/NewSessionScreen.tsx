@@ -1,7 +1,7 @@
 import { useSlice } from '@podium/client-core/react'
 import {
-  machineViewsFromWire,
   machinesWithRepo,
+  machineViewsFromWire,
   resolveDefaultAgent,
   resolveSpawnTargetMachine,
   spawnTargetForRepo,
@@ -213,7 +213,11 @@ export function NewSessionScreen() {
                       setMachineId(machine.id)
                       setCwd(worktree.path)
                     }}
-                    style={[styles.chip, active && styles.chipActive, !usable && styles.chipDisabled]}
+                    style={[
+                      styles.chip,
+                      active && styles.chipActive,
+                      !usable && styles.chipDisabled,
+                    ]}
                   >
                     <Text style={[styles.chipText, active && styles.chipTextActive]}>
                       {why ? `${machine.name} · ${why}` : machine.name}

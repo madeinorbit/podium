@@ -1,8 +1,8 @@
 import { useSlice } from '@podium/client-core/react'
 import {
   lastUsedMaps,
-  machineViewsFromWire,
   machinesWithRepo,
+  machineViewsFromWire,
   panelLabel,
   type RepoNavView,
   resolveSpawnTargetMachine,
@@ -76,7 +76,10 @@ export function NewWorkButton() {
    * checkout exactly as before — that split is what keeps single-user parity
    * while closing the hole.
    */
-  const resolveSpawnMachine = (repo: RepoNavView, machineId?: string): string | undefined | null => {
+  const resolveSpawnMachine = (
+    repo: RepoNavView,
+    machineId?: string,
+  ): string | undefined | null => {
     if (machineId !== undefined)
       return usableMachines(machineViews).some((m) => m.id === machineId) ? machineId : null
     const { machineId: resolved, refusal } = resolveSpawnTargetMachine(repo, sessions, machineViews)

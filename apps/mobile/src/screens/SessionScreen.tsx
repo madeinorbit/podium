@@ -1,5 +1,3 @@
-import { asSessionId } from '@podium/model'
-import type { SessionId } from '@podium/model'
 import { groupSessions, withoutShells } from '@podium/client-core/focus'
 import {
   agentBadge,
@@ -12,6 +10,7 @@ import {
   snoozeUntilTomorrow5am,
 } from '@podium/client-core/viewmodels'
 import type { TranscriptItem, WorkState } from '@podium/model'
+import { asSessionId } from '@podium/model'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { MoreVertical } from 'lucide-react-native'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -34,10 +33,10 @@ import { TaskPeekSheet } from '../components/TaskPeekSheet'
 import { type PendingTurn, TranscriptList } from '../components/TranscriptList'
 import { TrayCard, type TrayCardActions } from '../components/TrayCard'
 import { EmptyState } from '../components/ui'
-import { sessionAbsence } from './session-absence'
 import { TerminalPane } from '../terminal/TerminalPane'
 import { FLOW_SLATE, issueColorHex } from '../theme/issueColors'
 import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
+import { sessionAbsence } from './session-absence'
 
 const WORK_STATES: (WorkState | null)[] = [
   'planning',

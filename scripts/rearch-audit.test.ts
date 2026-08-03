@@ -3,8 +3,8 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { PER_USER_STATE_KEYS } from '../packages/model/src/aggregates/registry'
 import { RETAINED_REPRESENTATIONS } from '../packages/model/src/representations/registry'
-import { entityIdSites, MIN_ID_FIELD_SITES } from './entity-id-audit'
 import { CHANGE_ROW_KEYS } from './change-row-audit'
+import { entityIdSites, MIN_ID_FIELD_SITES } from './entity-id-audit'
 import {
   type AuditContext,
   type AuditResult,
@@ -18,9 +18,9 @@ import {
   isFrozenFile,
   isTestFile,
   loadContext,
-  phaseCloseItems,
   PUBLISH_COMPUTED_CONTROLS,
   PUBLISH_COMPUTED_PATTERN,
+  phaseCloseItems,
   publishComputedControlMisses,
   REGISTERED_RESIDUE,
   runAudit,
@@ -1047,6 +1047,16 @@ describe('against the live repo', () => {
       // ui-state module. Zero is the delivered state; a re-grown literal is a
       // baseline ratchet failure, not a silent skip.
       'web-storage-keys',
+      // POD-332 put the mobile screens on the shared store and the published
+      // slices, which deleted the 55-field adapter interface these two watch:
+      // `MobileClientValue` and the two mobile-local superagent row types.
+      // Exempt on the SAME terms as everything above and no looser — the
+      // 'the two POD-332 detectors still bind' suite below runs BOTH patterns
+      // end-to-end over planted controls (a re-declared interface, a re-declared
+      // `SuperagentThread`) and asserts they FIRE, so a widened root, a broken
+      // anchor or a typo'd pattern reds instead of reading as a deletion.
+      'mobile-client-value',
+      'superagent-shadow-types',
     ])
     for (const r of results) {
       if (ZERO_BY_DESIGN.has(r.id)) continue
@@ -1121,5 +1131,62 @@ describe('against the live repo', () => {
   it('maps every item to a phase issue in the rewrite plan', () => {
     const phases = new Set(results.map((r) => r.phase))
     for (const p of phases) expect(p).toMatch(/^POD-\d+$/)
+  })
+})
+
+/**
+ * THE ANCHOR BEHIND THE TWO POD-332 EXEMPTIONS.
+ *
+ * Both detectors now count zero because the code they watch is deleted, and the
+ * exemption above removes the only assertion that was watching THEM. So this
+ * watches the detectors: each is run over a planted control that is the exact
+ * shape it was written to find (copied from the declarations POD-332 deleted),
+ * and separately over a tree that does not contain it.
+ *
+ * A detector that no longer recognises the code it was written to find is
+ * broken whatever its count says — and a zero from a broken detector is
+ * indistinguishable from a zero from a finished deletion. That is the whole
+ * reason an exemption here has to come with a control.
+ */
+describe('the two POD-332 detectors still bind', () => {
+  const deleted = {
+    'apps/mobile/src/client/MobileClientProvider.tsx': [
+      'export interface MobileClientValue {',
+      '  sessions: SessionMeta[]',
+      '}',
+    ].join('\n'),
+    'apps/mobile/src/client/trpc.ts': [
+      'export interface SuperagentThread {',
+      "  kind: 'global' | 'btw' | 'concierge'",
+      '}',
+      'export interface SuperagentMessage {',
+      '  id: number',
+      '}',
+    ].join('\n'),
+  }
+
+  it('mobile-client-value FIRES on a re-declared adapter interface', () => {
+    const check = CHECKS.find((c) => c.id === 'mobile-client-value')
+    expect(check).toBeDefined()
+    const sites = check?.collect(ctxOf(deleted)) ?? []
+    expect(sites).toHaveLength(1)
+    expect(sites[0]?.file).toBe('apps/mobile/src/client/MobileClientProvider.tsx')
+  })
+
+  it('superagent-shadow-types FIRES on both re-declared row types', () => {
+    const check = CHECKS.find((c) => c.id === 'superagent-shadow-types')
+    expect(check).toBeDefined()
+    expect(check?.collect(ctxOf(deleted)) ?? []).toHaveLength(2)
+  })
+
+  it('and both report ZERO over a tree that does not carry them — the delivered state', () => {
+    // The negative, stated separately: together with the two positives above,
+    // zero on the live repo means "gone", not "the detector stopped looking".
+    const clean = ctxOf({
+      'apps/mobile/src/client/hooks.ts': 'export function useMobileStore() { return null }',
+    })
+    for (const id of ['mobile-client-value', 'superagent-shadow-types']) {
+      expect(CHECKS.find((c) => c.id === id)?.collect(clean) ?? [], id).toHaveLength(0)
+    }
   })
 })

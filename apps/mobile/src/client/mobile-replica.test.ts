@@ -668,7 +668,7 @@ describe('feed delivery through the assembled sink (POD-1241)', () => {
 // Every case below therefore asserts on the SECOND principal, not the first.
 
 describe('local persistence is per-principal on mobile (doc §3.2)', () => {
-  it('a user switch in a live process never adopts the previous principal\'s rows or cursor', async () => {
+  it("a user switch in a live process never adopts the previous principal's rows or cursor", async () => {
     const file = freshDatabaseFile()
     const device = legacyDevice({})
 
@@ -715,7 +715,7 @@ describe('local persistence is per-principal on mobile (doc §3.2)', () => {
     expect(again.replica.getCursor()).toBe(1)
   })
 
-  it('the AsyncStorage side-cache is namespaced too — a switch cannot read the other principal\'s keys', async () => {
+  it("the AsyncStorage side-cache is namespaced too — a switch cannot read the other principal's keys", async () => {
     const file = freshDatabaseFile()
     const device = legacyDevice({})
 

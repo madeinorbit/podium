@@ -1,4 +1,3 @@
-import type { SessionId } from '@podium/model'
 import { relativeTime } from '@podium/client-core/focus'
 import { useSlice } from '@podium/client-core/react'
 import {
@@ -21,7 +20,7 @@ import {
   type UnifiedWorkRow,
   worklistSlice,
 } from '@podium/client-core/viewmodels'
-import type { IssueWire, SessionMeta } from '@podium/model'
+import type { IssueWire, SessionId, SessionMeta } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { useRouter } from 'expo-router'
 import { ArrowDownToLine, ChevronDown, ChevronRight, Pin } from 'lucide-react-native'

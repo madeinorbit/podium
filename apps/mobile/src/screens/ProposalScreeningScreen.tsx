@@ -56,7 +56,7 @@ export function ProposalScreeningScreen() {
   const issues = useIssues()
   const trpc = useTrpc()
   const connected = useConnected()
-  const issueById = (id: string) => issues.find((issue) => issue.id === id)
+  const issueById = useCallback((id: string) => issues.find((issue) => issue.id === id), [issues])
   const insets = useSafeAreaInsets()
   const [deck, setDeck] = useState<Deck>(() => ({
     order: buildScreeningQueue(issues).map((issue) => issue.id),
@@ -124,7 +124,7 @@ export function ProposalScreeningScreen() {
       setOutcomes((o) => ({ ...o, [issue.id]: failure.outcome }))
       void run(issue, failure.outcome)
     },
-    [issues, run],
+    [issueById, run],
   )
 
   // Opened from a deep link / notification there is nothing to go back to, so

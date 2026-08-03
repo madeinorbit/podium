@@ -1,6 +1,5 @@
-import type { SessionId } from '@podium/model'
 import { latestPendingQuestion } from '@podium/client-core/viewmodels'
-import type { TranscriptItem } from '@podium/model'
+import type { SessionId, TranscriptItem } from '@podium/model'
 import { useEffect, useState } from 'react'
 import { readTranscriptPage, useTrpc } from '../client/hooks'
 
