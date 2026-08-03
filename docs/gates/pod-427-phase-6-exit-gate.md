@@ -1,6 +1,146 @@
 # POD-427 Phase 6 exit gate — client split verified
 
-**Gate run:** 2026-08-03
+## Second pass — 2026-08-03 — **PASS**
+
+**Candidate:** `06f1bb3bcf1f5812dcf594cab05feeb244f31912` (verified by `git rev-parse HEAD`, not by report)
+**Verdict:** **PASS. Phase 7 entry is unblocked, with one item recorded OUTSTANDING and not
+discharged: the mobile device smoke, which is a human gate no agent can sign.**
+
+The three holds of the first pass (POD-1533, POD-1534, POD-1535) are cleared. None of them was
+accepted on its closure report: each was re-proved here by planting the failing case into
+**production source**, watching the named check go red on the measured quantity, and reverting
+atomically. Seven mutations, seven refusals, worktree clean after each.
+
+**What this document does and does not certify.** It certifies the acceptance text of POD-427:
+the god-file split, the single ui-state owner, the render-count probe, offline-first behaviour,
+bundle limits, the sixteen multi-user probes, and children-closed-with-evidence. It does **not**
+certify that the mobile app was smoked on a device (§O5, human gate at POD-332), and it does
+**not** certify that the Playwright browser lane is green (it is not — POD-1532; the ruling that
+this gate's criteria do not name that lane is re-affirmed below, with the reasoning).
+
+### The three holds, re-proved rather than accepted
+
+| Hold | Planted into production source | Result |
+| --- | --- | --- |
+| **POD-1533** item 11 | `ownerId` **alone** into the rename payload (`engine/actions.ts:463`) | **exit 1** — `rename payload asserts attribution field 'ownerId': expected [ 'sessionId', 'name', 'ownerId' ] to not include 'ownerId'`. The first pass measured this exact mutant **silent at exit 0**. |
+| **POD-1533** second site | `origin: 'web-client'` alone into the spawn payload (`spawn-agent.ts:62`) | **exit 1 — 1 failed**. See the instrument note below. |
+| **POD-1534** item 3 | `'gateProbeUnrouted'` into `LAYOUT_EXACT_KEYS` (`model/user-state/layout-state.ts`) | **exit 1 — 2 failed**, including *"the totality check REFUSES a planted key with no declared home"*, naming the key. The first pass measured **51 passed, exit 0** for this same plant. |
+| **POD-1535** item 9 | `<SessionWatchers/>` replaced by `{null}` in `AgentPanel.tsx:555` | **exit 1** — *"renders the presence strip in the session header"*. The surface is mounted, not merely written. |
+| **POD-1535** the invariant | `watchersSummary('unknown')` returns `'Only you'` (`watchers.ts:100`) | **exit 1 — 2 failed** — *"expected 'Only you' to contain 'unknown'"*. "We do not know" cannot collapse into "nobody is here". |
+| **POD-1535** ephemerality | `forget()` made a no-op — presence retained across disconnect (`presence/room-presence.ts`) | **exit 1 — 2 failed** — *"reverts to unknown when the connection drops, and does not treat it as everyone leaving"*. A durable presence row is refused by test, as the brief requires. |
+| Items **1 + 13** | `principalKeyPrefix` → a shared `.principal.shared` namespace | **exit 1** on **both** platforms in one mutant: web **6 failed** (incl. *"a planted foreign cursor and collection are never adopted"*), mobile **3 failed** (incl. *"the AsyncStorage side-cache is namespaced too — a switch cannot read the other principal's keys"*). |
+
+Restoration confirmed: `git status --short` **empty** after every revert; the mutated suites run
+green as one batch — client-core actions/spawn/ui-state-audit/presence + web presence suites
+**8 files, 65 tests, exit 0**; `packages/client-core/src/replica/` **21 files, 264 tests, exit 0**.
+
+**POD-1534 is not a second tautology, and that was checked rather than assumed.** The replacement
+derives its reachable set by *routing the legacy vocabulary through `uiStateRoute`*
+(`reachableLayoutKeys`), never from `LAYOUT_EXACT_KEYS` — which is why planting a key into that
+list makes it fail rather than pass. The deleted assertion is gone, not amended, and
+`session-state.test.ts:238` now carries a comment saying why.
+
+**Instrument note, non-blocking (spawn site).** At `spawn-agent.test.ts` the per-field
+`not.toContain` loop sits **after** an exact `toHaveBeenCalledWith`, which already refuses any
+extra key — so the planted `origin` was caught by the equality, and the per-field loop is
+unreachable for an *added* field. The property is enforced (more strictly than the brief asks);
+the per-field clause is redundant there rather than load-bearing. It is load-bearing at
+`engine/actions.test.ts`, where the payload is inspected by key and the single-field mutant
+proved it. Recorded so no later reader mistakes the loop for the thing that fired.
+
+### The POD-1535 scope ruling — read independently, and agreed
+
+The coordinator ruled "build the surface" and flagged the ruling as contestable. Grading the
+document rather than the summary: `docs/multi-user-readiness.md` §5 assigns Phase 6
+"Scoped replica-side views; presence/cursor UI", and line 31's "the last part need not ship"
+attaches to *"eventually typing concurrently"* — the sentence's own last clause — which the same
+table then lists separately under **Deferred, unblocked: "Concurrent text editing. Reserved by
+the `op-stream` class."** Presence is not the deferred part. **The ruling executes a recorded
+human decision; it does not make one.** I read the sentence the same way.
+
+What shipped is presence with identity plus "which pane I am reading" as the room payload; a text
+cursor inside a shared document is explicitly out, reserved to ADR 7's `document` room kind, and
+the mobile presence surface is a filed follow-up. All three of those are written down in
+`docs/superpowers/specs/2026-08-03-session-presence-surface-design.md` with reasoning — which is
+what item 16 asks for, and it is satisfied here rather than defaulted.
+
+### Re-affirmed rulings on the known-outstanding items
+
+Each was re-checked against this gate's **literal** acceptance text, not against a sense of
+completeness. All four rulings from the first pass stand, unchanged:
+
+- **Playwright browser lane** (POD-1532; 143 of 164 failures are `ERR_CONNECTION_REFUSED` after
+  the relay stops answering — assertions that never ran) and **POD-1531** (three suites call
+  `settings.set`, replaced by `settings.updatePersonal`): **do not block.** POD-427's criteria
+  name god-file audits, a ui-state lint, a render-count probe, offline-first behaviour, mobile
+  smoke, bundle limits and the multi-user probes. They do not name that lane. **But no reader may
+  quote this gate as evidence the browser lane is green** — it is not, and POD-332's reading that
+  POD-293 must not close on a "Playwright green" criterion stands.
+- **`lint:shadowing`** (`packages/harness/src/registry.ts`) and **`audit:declared-consumers`**
+  (`packages/commands/src/contract.ts`): pre-existing, uncaused by Phase 6, unnamed by these
+  criteria. **Do not block.** Both should still close.
+- **POD-1530** (breaking wire rename, deferred to daylight) and **POD-1528** (mobile outbox shares
+  one partition): **do not block**; no criterion here names either.
+
+### O5 — mobile device smoke · OUTSTANDING, again, and stated plainly
+
+Unchanged and undischargeable by an agent: cold-start offline paint from the SQLite replica,
+reconnect drain, terminal-pane parity, and a **user switch** rather than only a cold start, on a
+real device. Held at POD-332. **This gate does not pass around it and does not fail for it:** it
+is recorded as not met, so nothing here may be read as evidence that mobile was smoked on a
+device. The automated half is green and cited (`test:mobile` 7 files / 58 tests, exit 0).
+
+### Second-pass evidence base
+
+Environment neutrality: the worktree arrived **uninstalled** (`ls node_modules/@podium` → no such
+file), which under this repo's hoisted linker would have resolved `@podium/*` to the **main
+checkout** and measured code that is not on this tree. Nothing was run before
+`bun install --frozen-lockfile` (1338 packages, **exit 0**), after which `node_modules/@podium`
+lists **25** workspace packages. Every exit code below is the real code of an unpiped command.
+
+Re-measured here at `06f1bb3b` (cheap, and each one is a criterion this gate names):
+
+```text
+render-count probe   apps/web/src/perf/slice-render-count.test.tsx, exit 0
+  [POD-330 worklist]     per publish: commits=2.2 worklistSlice=1 directSidebarSections=0
+  [POD-331 two-consumer] per publish: commits=3   worklistSlice=1 directSidebarSections=0
+god files            filesystem scan (find, node_modules excluded): engine.ts, connection.ts ABSENT
+derive.ts            apps/web/src/lib/derive.ts = 43 lines (the re-export shim, not a god file)
+not multi-tenancy    instance_id / instanceId across apps/web/src, apps/mobile/src,
+                     packages/client-core/src => 0 occurrences
+MobileClientValue    0 declarations; the 5 remaining hits are prose in comments and old plan docs
+```
+
+Cited from the integrator at the same SHA, per the 2026-07-17 evidence convention, and named with
+their config rather than as bare counts:
+
+| Lane | Result | Exit |
+| --- | --- | ---: |
+| `apps/web/src` + `packages/client-core/src` **[ROOT `vitest.config.ts`]** | 272 files / 2321 tests | 0 |
+| `packages/sync` + `model` + `commands` **[`vitest.unit.config.ts`]** | 101 files / 1703 tests | 0 |
+| `audit:rearch` | `32 items, 152 sites remaining (baseline exact)` | 0 |
+| `audit:god-objects`, `audit:router-mutations` | — | 0 |
+| `lint:boundaries` | OK, 6 allowlisted, 0 new | 0 |
+| `typecheck` | Tasks 22/22 | 0 |
+
+### Acceptance, graded literally
+
+- [x] **All Phase-6 children closed with evidence** — POD-328/329/330/331/332 and their subtrees
+      all `done`; POD-1533/1534/1535 `done` and re-proved above.
+- [x] **Every original verification item evidenced**, landing-run results cited by exit code and
+      attribution rather than re-derived — except **O5**, recorded OUTSTANDING above.
+- [x] **Every multi-user probe run, each guardrail shown to FIRE on planted bad code** — 8
+      mutations across the two passes plus the 7 above; the two that could not refuse in the first
+      pass are the two that were repaired and are now proved able to.
+- [x] **Ledger and as-built updated; open questions recorded with what shipped and why** — the
+      cross-boundary edge policy (`CROSS_BOUNDARY_POLICY = 'opaque'`, a required argument with no
+      default) and the presence scope decision, both written down with reasoning.
+- [x] **Gate unblocks Phase 7 entry.**
+
+---
+
+## First pass — 2026-08-03 — HOLD (superseded by the second pass above)
+
 **Candidate:** `f1b7cbb1e01e6f2867563a5f2286f10ffacdd337` (verified by `git rev-parse HEAD`, not by report)
 **Verdict:** **HOLD — the client split itself is delivered and mutation-proved, but three
 acceptance items are not met. Phase 7 entry is NOT unblocked by this document.**
@@ -338,6 +478,9 @@ specific judgement rather than a summary.
   Both should close, and neither makes a Phase-6 claim false.
 
 ## What must close before Phase 7 entry
+
+*(First-pass list. Items 1–3 CLOSED and re-proved in the second pass above; item 4 remains
+OUTSTANDING.)*
 
 1. **POD-1533** — repair the attribution guard to assert per-field, and require the
    single-field mutant RED before believing the repair.
