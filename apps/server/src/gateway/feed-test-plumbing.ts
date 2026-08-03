@@ -13,10 +13,17 @@
  * across a restart needs one it can predict.
  */
 
-import type { ConversationDiagnosticWire } from '@podium/model'
+import type { ConversationDiagnosticWire, UserId, UserRole } from '@podium/model'
 import { FIRST_ADMIN_USER_ID } from '@podium/model'
 import { type SubscriberId, SubscriptionRegistry } from '@podium/protocol'
-import { type Authority, type FeedIdentity, FeedIdentityRegistry, Ledger } from '@podium/sync'
+import {
+  type Authority,
+  type FeedIdentity,
+  FeedIdentityRegistry,
+  type FeedVisibilityPolicy,
+  Ledger,
+  type VisibilityAnchorPort,
+} from '@podium/sync'
 import { SessionStore } from '../store'
 import { type ClientPrincipal, userClientPrincipal } from './client-principal'
 import { FeedServing } from './feed-serving'
@@ -27,17 +34,33 @@ export interface FeedTestPlumbing {
   readonly authority: Authority
   readonly store: SessionStore
   readonly subscriptions: SubscriptionRegistry
-  readonly routingPrincipal: (peerId: string) => ClientPrincipal
+  readonly routingPrincipal: (peerId: string, user?: UserId, role?: UserRole) => ClientPrincipal
 }
 
 export function feedTestPlumbing(
   opts: {
     diagnostics?: () => ConversationDiagnosticWire[]
     onVisibilityChanged?: (subscriberIds: readonly SubscriberId[]) => void
+    /**
+     * The policy the Authority evaluates with. OMITTED keeps `Ledger`'s own
+     * default (`DeviceGradeUnscopedPolicy`), which is what every pre-POD-1497
+     * caller of this plumbing relies on — those suites are about framing, not
+     * about scoping, and forcing a scope on them would change what they test.
+     *
+     * A per-user suite passes `GrantEdgeVisibilityPolicy`, which is the class
+     * `relay.ts` installs. Passing the real class rather than a test-local
+     * stand-in is the whole point: a hand-written policy object here would
+     * certify the fixture's rules, not the product's (POD-1497).
+     */
+    visibility?: FeedVisibilityPolicy
+    /** Goes with `visibility` — D14.3's grant-row → per-principal derivation. */
+    anchors?: VisibilityAnchorPort
   } = {},
 ): FeedTestPlumbing {
   const store = new SessionStore(':memory:')
   const ledger = new Ledger({
+    ...(opts.visibility ? { visibility: opts.visibility } : {}),
+    ...(opts.anchors ? { anchors: opts.anchors } : {}),
     repo: store.sync,
     now: () => 1_000,
     transact: (fn) => store.transact(fn),
@@ -70,6 +93,7 @@ export function feedTestPlumbing(
     authority: ledger.authority,
     store,
     subscriptions,
-    routingPrincipal: (peerId) => userClientPrincipal(peerId, FIRST_ADMIN_USER_ID, 'admin'),
+    routingPrincipal: (peerId, user = FIRST_ADMIN_USER_ID, role = 'admin') =>
+      userClientPrincipal(peerId, user, role),
   }
 }
