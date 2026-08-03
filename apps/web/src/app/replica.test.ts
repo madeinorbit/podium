@@ -113,7 +113,7 @@ function issue(id: string, title = id): IssueWire {
     defaultAgent: 'claude-code',
     defaultModel: 'auto',
     defaultEffort: 'auto',
-    blockedBy: [],
+    blockedByNotes: [],
     priority: 2,
     type: 'task',
     pinned: false,

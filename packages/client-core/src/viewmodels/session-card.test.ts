@@ -39,7 +39,7 @@ function issue(
     defaultAgent: 'codex',
     defaultModel: 'auto',
     defaultEffort: 'auto',
-    blockedBy: [],
+    blockedByNotes: [],
     priority: 0,
     type: 'feature',
     pinned: false,

@@ -25,7 +25,7 @@ function issue(over: Partial<UnbrandIds<IssueNavigationModel>> = {}): IssueNavig
     branch: null,
     parentBranch: 'main',
     defaultAgent: 'codex',
-    blockedBy: [],
+    blockedByNotes: [],
     createdAt: '2026-07-01T00:00:00.000Z',
     updatedAt: '2026-07-23T10:00:00.000Z',
     archived: false,

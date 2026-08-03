@@ -42,7 +42,7 @@ function issue(over: Partial<IssueWireInput> = {}): IssueWire {
     branch: 'issue/1',
     parentBranch: 'main',
     defaultAgent: 'claude-code',
-    blockedBy: [],
+    blockedByNotes: [],
     createdAt: '2026-06-01T00:00:00.000Z',
     updatedAt: '2026-06-20T00:00:00.000Z',
     archived: false,

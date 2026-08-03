@@ -36,7 +36,7 @@ export type RefIssueLike = Pick<IssueWire, 'id' | 'seq' | 'title'> &
       | 'assignee'
       | 'ready'
       | 'blocked'
-      | 'blockedBy'
+      | 'blockedByNotes'
       | 'childCount'
       | 'childDoneCount'
       | 'parentId'

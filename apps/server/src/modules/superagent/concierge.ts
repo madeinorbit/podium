@@ -98,7 +98,7 @@ export function buildConciergeSeed(opts: {
     '',
     `Blocked: ${blocked.length}`,
     ...blocked.slice(0, 3).map((i) => {
-      const by = i.blockedBy.map((id) => `#${seqOf(id) ?? '?'}`).join(', ')
+      const by = i.blockedByNotes.map((id) => `#${seqOf(id) ?? '?'}`).join(', ')
       return `- ${issueLine(i)} — blocked by ${by || i.dependencyNote || '?'}`
     }),
     '',

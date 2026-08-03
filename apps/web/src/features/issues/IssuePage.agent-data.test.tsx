@@ -77,7 +77,7 @@ describe('IssuePage agent-saved data', () => {
     notes: 'A durable implementation note.',
     activityNotes: 'Runtime verification is still in progress.',
     notesUpdatedAt: '2026-07-14T12:00:00.000Z',
-    blockedBy: ['issue:#9'],
+    blockedByNotes: ['issue:#9'],
     dependencyNote: 'Wait for the upstream contract.',
     closedReason: 'done',
     supersededBy: 'issue:#99',

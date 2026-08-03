@@ -23,7 +23,7 @@ function issue(index: number): IssueWire {
     defaultAgent: 'codex',
     defaultModel: 'auto',
     defaultEffort: 'auto',
-    blockedBy: [],
+    blockedByNotes: [],
     priority: 2,
     type: 'task',
     pinned: false,

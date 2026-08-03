@@ -1746,7 +1746,7 @@ describe('IssueService assistant', () => {
    * POD-1144 — THE ASSISTANT'S NOTE IS NOT AN ISSUE ID, and the wire may no
    * longer claim it is.
    *
-   * `IssueWire.blockedBy` was `z.array(IssueIdField)` while this exact path —
+   * `IssueWire.blockedByNotes` (then still spelled `blockedBy`) was `z.array(IssueIdField)` while this exact path —
    * `refreshAssistant` writing the model's digest — puts BRANCH NAMES in it. The
    * projection could only reach the wire through a cast, and no runtime test
    * could see the problem because `IssueId` is `z.string().min(1).brand()`:
@@ -1757,7 +1757,7 @@ describe('IssueService assistant', () => {
    * the value arrives BYTE-INTACT — not coerced, not dropped, not resolved — and
    * that the REAL edge for the same issue is somewhere else entirely. The mutant
    * that proves it lives in `packages/model/src/entities/issue-composition.test.ts`:
-   * re-brand the wire field and 'blockedBy IS the shared group member
+   * re-brand the wire field and 'blockedByNotes IS the shared group member
    * blockedByNotes under another name' goes red, and this file stops typechecking.
    */
   it('carries an assistant BRANCH NAME to the wire verbatim, apart from the real edge', async () => {
@@ -1776,17 +1776,17 @@ describe('IssueService assistant', () => {
 
     // The note survives as written: a slash-bearing branch name and a bare
     // English phrase, in order, neither of which is an issue id.
-    expect(wire.blockedBy).toEqual(['issue/9-refactor-the-store', 'the daemon rollout'])
+    expect(wire.blockedByNotes).toEqual(['issue/9-refactor-the-store', 'the daemon rollout'])
     expect(wire.dependencyNote).toBe('needs the store split first')
 
     // The real edge is on `deps`, derived from issue_deps, and is NOT here. If
     // these two ever merge, the tracker starts lying about why work is blocked.
     expect(wire.deps.map((d) => d.id)).toContain(blocker.id)
-    expect(wire.blockedBy).not.toContain(blocker.id)
+    expect(wire.blockedByNotes).not.toContain(blocker.id)
     expect(wire.blocked).toBe(true)
 
     // Re-reading the persisted row must not "helpfully" repair it either.
-    expect(svc.get(c.id)?.blockedBy).toEqual([
+    expect(svc.get(c.id)?.blockedByNotes).toEqual([
       'issue/9-refactor-the-store',
       'the daemon rollout',
     ])

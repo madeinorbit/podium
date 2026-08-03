@@ -158,8 +158,8 @@ export function IssuesScreen() {
                 <Pill label={issue.type} />
                 <Pill label={`P${issue.priority}`} />
                 {issue.needsHuman ? <Pill label="needs human" toneKey="needsYou" /> : null}
-                {issue.blockedBy.length > 0 ? (
-                  <Pill label={`blocked by ${issue.blockedBy.length}`} toneKey="danger" />
+                {issue.blockedByNotes.length > 0 ? (
+                  <Pill label={`blocked by ${issue.blockedByNotes.length}`} toneKey="danger" />
                 ) : null}
                 <Text style={styles.repo} numberOfLines={1}>
                   {repoName(issue)}

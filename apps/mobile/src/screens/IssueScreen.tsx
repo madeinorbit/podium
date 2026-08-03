@@ -115,9 +115,10 @@ export function IssueScreen() {
             {issue.description.trim()}
           </Text>
         ) : null}
-        {issue.blockedBy.length > 0 ? (
+        {issue.blockedByNotes.length > 0 ? (
           <Text style={styles.blocked}>
-            Blocked by {issue.blockedBy.length} issue{issue.blockedBy.length > 1 ? 's' : ''}
+            Blocked by {issue.blockedByNotes.length} issue
+            {issue.blockedByNotes.length > 1 ? 's' : ''}
             {issue.dependencyNote ? ` — ${issue.dependencyNote}` : ''}
           </Text>
         ) : null}

@@ -218,7 +218,7 @@ it('IssueWire still parses with every id field empty', () => {
     defaultModel: 'auto',
     defaultEffort: 'auto',
     machineId: '',
-    blockedBy: [''],
+    blockedByNotes: [''],
     priority: 0,
     type: 'task',
     parentId: '',
