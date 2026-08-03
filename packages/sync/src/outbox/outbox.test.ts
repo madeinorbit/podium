@@ -292,7 +292,7 @@ describe('D9 invariants 1-3 — a definitive rejection is surfaced, parked and r
   })
 
   it('recovers by EDIT under a fresh mutationId, retiring the edited entry to cancelled', async () => {
-    const { outbox } = await harness(() => ({
+    const { outbox, events } = await harness(() => ({
       kind: 'rejected',
       refusal: { kind: 'invalid', details: ['comment'] },
     }))
@@ -310,7 +310,11 @@ describe('D9 invariants 1-3 — a definitive rejection is surfaced, parked and r
     })
     expect(fresh.mutationId).not.toBe(record.mutationId)
     expect(fresh.state).toBe('queued')
-    expect(state(outbox, record.mutationId)).toBe('cancelled')
+    // The old entry is GONE, not parked as a `cancelled` row (POD-785: keeping
+    // one leaked a permanent record per edit). What matters is that its id has
+    // left every surface and the cancellation was published.
+    expect(outbox.find(record.mutationId)).toBeUndefined()
+    expect(types(events)).toContain('cancelled')
     expect(outbox.deadLetters()).toEqual([])
   })
 
@@ -396,7 +400,9 @@ describe('D10 — age limit', () => {
     expect(reissued.mutationId).toBe('m-fresh')
     expect(reissued.state).toBe('queued')
     expect(reissued.input).toEqual({ issueId: 'POD-1', comment: 'shipping this' })
-    expect(state(outbox, record.mutationId)).toBe('cancelled')
+    // Retired, not tombstoned — the work continues under `m-fresh` (POD-785).
+    expect(outbox.find(record.mutationId)).toBeUndefined()
+    expect(outbox.deadLetters()).toEqual([])
   })
 })
 

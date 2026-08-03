@@ -202,6 +202,14 @@ export type OutboxEvent =
    *  renders. */
   | { readonly type: 'dead-lettered'; readonly record: DeadLetterRecord }
   | { readonly type: 'cancelled'; readonly mutationId: MutationId }
+  /**
+   * Collapsed into a later queued write that carries the same `collapseKey`
+   * (POD-785). Distinct from `cancelled`, which is a decision the user made about
+   * THIS entry, and from `retired`, which means the Authority's truth covers it.
+   * Subscribers that paint an optimistic overlay need it: the entry stops being
+   * pending without ever having been sent.
+   */
+  | { readonly type: 'superseded'; readonly mutationId: MutationId }
   /** Retired after covering truth landed (D9 invariant 1's second licence). */
   | { readonly type: 'retired'; readonly mutationId: MutationId }
   /**
