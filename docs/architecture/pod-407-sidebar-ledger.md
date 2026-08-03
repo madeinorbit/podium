@@ -94,21 +94,61 @@ It replaced **three**. Seven remained in `apps/web`, two of them in this surface
 | `lint:shadowing` false positive on function overloads | **POD-1521** — pre-existing, red on a clean tree |
 | `unified-sidebar.browser.e2e.ts` expects "New issue", UI says "New task…" | **POD-1523** — pre-existing label drift |
 
-## 6. Size
+## 6. Size — the decomposition half
 
-**`SidebarUnified.tsx` went 2,296 → 2,313. It got BIGGER, by 17 lines.**
+| | lines |
+|---|---|
+| `SidebarUnified.tsx` at the drift audit | ~1,092 |
+| at this issue's base (`434e4318`) | 2,296 |
+| after the contract commit | 2,313 (**bigger**) |
+| **after the decomposition commit** | **464** |
 
-Stating that plainly because the epic frames size as a review signal and it would be easy to quote
-the three new modules (330 lines, 194 of them non-comment) as if they had come out of the total. They
-did not, on net. What actually happened:
+The first commit closed the multi-user contract items and left the file larger
+than it found it; that was reported as such rather than dressed up. This is the
+half the acceptance criteria gate on.
 
-- the menu and rename bodies left (~90 lines);
-- the multi-user contract items came in — machine views and the gated spawn resolution, the evict
-  effect with its seen-latch, and the reasoning comments each carries.
+Nine modules, all moved **verbatim** — no logic rewritten, and no props
+interface restated (`audit:rearch` rejects hand-declared session field lists;
+the rows read `SessionMeta` and the nav models from their existing homes):
 
-So the extraction is real but the file is not smaller, and this is **nowhere near** the parent's
-~400-line target. The reason it is not is structural rather than effort: the bulk of the file is row
-RENDERING — `WorkRowShell` (~400), `UnifiedIssueRow` (~350), `WorkSections` (~390) — and none of that
-is the menu/rename structure this issue was scoped to extract. Decomposing those is the work that
-would actually move the number, it is not claimed here, and it should be scoped on its own rather
-than smuggled into a behaviour-parity issue.
+| module | lines | what |
+|---|---|---|
+| `UnifiedIssueRow.tsx` | 496 | the issue row, fleet summary, lineage flash |
+| `WorkRowShell.tsx` | 436 | row chrome: notch, tint channel, grip, label block |
+| `spawn-row.tsx` | 339 | `useDefaultSpawn` + `NewWorkRow` + `AppToolsRow` |
+| `work-folds.tsx` | 330 | section labels, snoozed/closed folds, placement types |
+| `use-unified-work.ts` | 279 | rows + selection actions (shared with the rail) |
+| `NewAgentMenu.tsx` | 221 | the agent→repo→machine submenu |
+| `UnifiedWorktreeRow.tsx` | 97 | worktree row + orphan provenance |
+| `use-inline-rename.ts` | 70 | the rename lifecycle and its commit policy |
+| `fold-keys.ts` / `derivation.ts` / `agent-icon.ts` | 82 | shared seams |
+
+`derivation.ts` exists because THREE surfaces read the slice — sidebar, rail and
+work hook — and leaving the type inside one of them meant the other two
+importing it from a consumer, which is how an import cycle starts. `agent-icon.ts`
+is the same shape for one function.
+
+Removed on the way through: dead store reads the file's size had been hiding —
+unused `repos`/`pins` selector fields in two hooks, a dead `useReplicaIssues()`
+subscription, and an unused `repoNavs`. Fewer subscriptions, no behaviour change.
+
+## 7. Runtime verification
+
+`tests/e2e/browser/sidebar-rename-spawn.browser.e2e.ts` — green twice in a row
+on chromium-desktop. It real-clicks the two flows the extraction moved: the
+inline rename (no-op blur writes nothing, then edit + Enter, **polling the
+server** rather than trusting the repaint) and the new-agent submenu's
+availability states.
+
+Three findings from getting there, recorded because each cost time:
+
+1. `issues.create` lands in `backlog`, and the sidebar is the ACTIVE work list —
+   a backlog row renders on the Tasks board and deliberately not in the aside.
+   The fixture moves the stage; the empty aside was not a broken sidebar.
+2. Before believing that, the repo-scoping pass from §1 was A/B'd by forcing
+   `reposVisibleOnMachines` to pass through: the aside was byte-identical, so
+   the filter was not the cause. Probe reverted and the file confirmed clean.
+3. The no-op and rename checks began as two specs; the second passed alone and
+   failed when run after the first — an ordering dependence on leftover sidebar
+   rows that would have read as a flake forever. They are now one spec over one
+   row, which is also the stronger assertion.
