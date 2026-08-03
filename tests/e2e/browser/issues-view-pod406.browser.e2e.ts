@@ -32,9 +32,8 @@ async function openShell(page: Page): Promise<void> {
 test.setTimeout(120_000)
 test('POD-406: real kanban drag, create-more property menu, context menu, and palette', async ({
   page,
-  testInfo,
   request,
-}) => {
+}, testInfo) => {
   test.skip(testInfo.project.name !== 'chromium-desktop', 'desktop-only IssuesView flow')
   await page.setViewportSize({ width: 1440, height: 900 })
   const repos = await rpc<string[]>(request, 'repos.list', undefined, 'get')
@@ -85,7 +84,7 @@ test('POD-406: real kanban drag, create-more property menu, context menu, and pa
   await expect(column('In Progress').locator(`[data-issue-id="${dragged.id}"]`)).toBeVisible()
 
   // Real create-more flow and a real property-menu click (P2 → P1).
-  await page.getByRole('button', { name: /New Task/ }).click()
+  await page.getByTestId('issues-new-task').click()
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByRole('heading', { name: 'New Task' })).toBeVisible()
   await dialog.getByRole('button', { name: /P2/ }).click()

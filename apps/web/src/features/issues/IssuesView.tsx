@@ -236,7 +236,12 @@ export function IssuesView(): JSX.Element {
             assignees={view.assignees}
           />
           <DisplayMenu display={display} onChange={updateDisplay} showLayout={!isMobile} />
-          <Button type="button" size="sm" onClick={() => setCreating({})}>
+          <Button
+            type="button"
+            size="sm"
+            data-testid="issues-new-task"
+            onClick={() => setCreating({})}
+          >
             + New Task
           </Button>
         </div>
