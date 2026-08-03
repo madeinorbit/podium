@@ -19,6 +19,9 @@ export {
   type ToolBatchRow,
   type ToolVerdict,
   toolBatchTitle,
+  toolCallPhrase,
+  toolRunElapsedMs,
+  toolRunFailures,
   toolVerdict,
 } from '@podium/client-core/viewmodels'
 

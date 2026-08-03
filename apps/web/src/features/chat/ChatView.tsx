@@ -1019,6 +1019,12 @@ export function ChatView({
           ref={scrollerRef}
           onScroll={onScroll}
         >
+          {/* A short conversation sits ON the composer instead of stranded at
+              the top of an empty scrollport. An auto-margin spacer rather than
+              `justify-end`, which makes overflow past the START edge unreachable
+              in some engines: this collapses to zero the moment the feed
+              overflows, so the scroll math never sees it. */}
+          <div className="mt-auto" aria-hidden="true" />
           {blocks.length === 0 && loadingTranscript && pending.length === 0 && (
             <div
               className="mx-auto my-8 flex items-center gap-2 text-[13px] text-muted-foreground"
@@ -1079,6 +1085,12 @@ export function ChatView({
                   query.trim() !== '' &&
                   !row.blockIndices.some((bi) => blockMatches(blocks[bi]!, query))
                 }
+                // The work line reads as LIVE only for the trailing run of a
+                // turn the agent is still working: the spinner and counting
+                // timer are the motion grammar's "an agent is computing", and a
+                // run that has already been overtaken by prose is finished
+                // whatever the session is doing now.
+                live={activity?.tone === 'working' && idx === rows.length - 1}
                 sessionId={sessionId}
                 cwd={cwd}
                 openFile={openFile}
