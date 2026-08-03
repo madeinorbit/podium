@@ -60,8 +60,6 @@ export interface EventMap {
       }
   /** A remote session asked its host to open a browser URL. [spec:SP-a43e] */
   'session.openUrl': SessionOpenUrlMessage
-  /** The session list changed in a way that was broadcast (post-fanout). */
-  'session.listChanged': { sessions: SessionMeta[] }
   /** One issue changed and was published (single-issue fast path, issue #22). */
   'issue.updated': { issue: IssueWire }
   /** An issue reached the closed stage. */

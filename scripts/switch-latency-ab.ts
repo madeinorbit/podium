@@ -66,9 +66,10 @@ const SWITCH_PHASES = [
   'feedBootstrap.total',
   'feedBootstrap.read',
   // Carried over from the pre-cutover contract; still emitted, still its own work.
+  // `publishIssues` / `publishIssuesSkipped` were dropped at POD-1574 with the
+  // session-list issue republish they measured — an arm run against a build from
+  // before that change will simply report them as absent.
   'sessionsBroadcast.total',
-  'sessionsBroadcast.publishIssues',
-  'sessionsBroadcast.publishIssuesSkipped',
 ] as const
 
 interface ArmReport {

@@ -125,10 +125,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         bag.repository.flushVolatileSessionCaptures()
       },
       generation: () => bag.repository.sessionsGeneration(),
-      issueGeneration: () => bag.issueProjectionGeneration,
-      listSessions: () => bag.listSessions(),
       schedulePublication: (options) => bag.publication.schedule(options),
-      publishIssues: (sessions) => bag.bus.emit('session.listChanged', { sessions }),
       flushDeltas: () => bag.funnel.flushDeltas(),
     })
     bag.browserOpen = new BrowserOpenGateway({

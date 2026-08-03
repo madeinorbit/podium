@@ -302,10 +302,22 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     // decidable: the reconcile appends its rows and a client learns of them the
     // same way it learns of everything else.
     const healed = ledger2.changesSince(cursorBefore) ?? []
-    const change = healed.find((c) => c.id === wire.id && c.op === 'upsert') as
-      | { value?: { title?: string } }
-      | undefined
+    const change = healed.find(
+      (c) => c.id === wire.id && c.op === 'upsert' && c.entity === 'issue',
+    ) as { value?: { title?: string } } | undefined
     expect(change?.value?.title).toBe('changed offline')
+
+    // POD-1574: boot reconciliation is what carries projection freshness now that
+    // the `issues.session-derived-projection` reaction is deleted. That reaction
+    // named `issueProjection` as the kind it reconciled, and it was the only
+    // place naming it outside the mutation path — so the boot reconcile's
+    // projection half is pinned HERE rather than left to prose. Asserted beside
+    // the `issue` row above, because a reconcile that healed only one of the two
+    // kinds would satisfy the assertion above on its own.
+    const projection = healed.find(
+      (c) => c.id === wire.id && c.op === 'upsert' && c.entity === 'issueProjection',
+    ) as { value?: { title?: string } } | undefined
+    expect(projection?.value?.title).toBe('changed offline')
   })
 })
 

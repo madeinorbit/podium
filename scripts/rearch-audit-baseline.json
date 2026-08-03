@@ -13,7 +13,7 @@
     "durable-host-sync-async-twins": 0,
     "instance-partitions": 0,
     "issue-shapes": 9,
-    "issue-wire-dirty-scoping-shims": 3,
+    "issue-wire-dirty-scoping-shims": 2,
     "issues-legacy-local-wire": 12,
     "legacy-wire-v1-adapter": 6,
     "local-placeholders": 3,

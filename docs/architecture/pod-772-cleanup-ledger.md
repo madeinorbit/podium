@@ -155,3 +155,23 @@ byte-for-byte indistinguishable from a dirty check that is working perfectly. An
 cannot say NO reports success. The correct-by-construction form is that a generation gate should not
 be expressible without a writer — or, failing that, that a gate which has never observed a change
 should be loud rather than quiet.
+
+**RESOLVED (POD-1574) — the gate was deleted, not repaired.** The two candidate outcomes were "the
+gate is vestigial" and "the reaction is real and the missing writer must be found". The model files
+decide it: `packages/model/src/projections/issue-projection.ts` states that a session change cannot
+dirty an `IssueProjection` *"because the data to do otherwise is not reachable from the signature"*,
+and `packages/model/src/entities/issue.ts` records POD-797 removing `sessions`, `sessionSummary`
+and `unread` from the legacy `IssueWire`. Neither representation has a session-derived field left,
+so there is no mutation a writer could correctly bump for. Removed: the `issueGeneration` /
+`listSessions` / `publishIssues` ports and both perf counters in
+`modules/sessions/publication/broadcast.ts`, their bindings in `session-wiring.ts`, the
+`issueProjectionGeneration` field in `lifecycle.ts`, the `session.listChanged` bus event and its
+only listener at `relay.ts`, and the `issues.session-derived-projection` entry in
+`composition/reactions.ts` (25 → 24 reactions). The one time the gate did open was redundant: boot
+reconciliation in `modules/issues/service/index.ts` already publishes the same `issue`,
+`issueProjection` and `issueDep` rows.
+
+That deletion leaves `IssuePublisher.publishIssues` (`modules/issues/publish.ts`) and its
+`publishIssueList` dependency (`relay.ts`) with no caller at all — the write-less full-list
+republish tail, whose remaining named clients (hub-mirror sets, staleness flips) POD-309 already
+retired. Separable, so filed rather than cascaded: **POD-1576**.

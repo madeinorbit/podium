@@ -119,28 +119,14 @@ export const REACTIONS = [
     principal: system(),
     scopeInvariant: 'Cursor maintenance is system-derived and performs no human-attributed write.',
   },
-  {
-    id: 'issues.session-derived-projection',
-    description: 'Reconcile issue projections after issue-relevant session list changes.',
-    trigger: 'session.listChanged',
-    durability: 'durable',
-    replay: {
-      mode: 'startup-reconcile',
-      sourceOfTruth: 'durable issue and session rows',
-      reauthorizeAtApply: true,
-    },
-    idempotency: { key: 'issue id + projection value hash', duplicatePolicy: 'deduplicate' },
-    ordering: 'Session event order; resulting change rows use global ledger sequence.',
-    retry: 'Issue boot reconciliation and the next session change retry the projection.',
-    failureOwner: 'issue publisher',
-    observability: {
-      registry: true,
-      events: ['session.listChanged', 'oplog.appended'],
-      metrics: [],
-    },
-    principal: system(),
-    scopeInvariant: 'Derived rows inherit issue ownership and visibility; actor remains system.',
-  },
+  // `issues.session-derived-projection` IS GONE (POD-1574). It declared a durable
+  // reaction reconciling issue projections after session-list changes; its
+  // trigger `session.listChanged` was emitted behind a generation gate that no
+  // writer ever advanced, so it fired at most once per process. It was deleted
+  // rather than repaired because there is no session-derived issue field left for
+  // it to reconcile — `IssueProjection` is a pure function of the issue's own row
+  // by construction, and POD-797 removed `sessions`/`sessionSummary`/`unread`
+  // from the legacy `IssueWire`.
   {
     id: 'sessions.auto-continue-settings',
     description: 'Re-arm retryable sessions when their owner enables auto-continue.',
