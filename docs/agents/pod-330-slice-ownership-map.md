@@ -647,9 +647,27 @@ item to **POD-332**.
 **Measured at:** `HEAD` of `issue/646-6-4f-issuepage-onto-issue-slices`, based on
 `2b637a2b`. `apps/web/src/features/issues/IssuePage.tsx` was **1,307** lines
 (the brief's 1,225 is stale) and `issue-page-properties.tsx` **821** (the brief's
-768 is stale). After: IssuePage **277**, properties gone, 20 modules under
-`features/issues/issue-page/`, largest **379**. Every module is under §4e's
-~400-line criterion, so no exception is claimed and none is owed.
+768 is stale). After: IssuePage **277**, properties gone, **19** modules under
+`features/issues/issue-page/`, largest **379** (`IssueProperties.tsx`). Every
+module is under §4e's ~400-line criterion, so no exception is claimed and none
+is owed.
+
+> **CORRECTION (kept visible, not silently edited).** This paragraph first said
+> **20** modules. It is 19. The twentieth item was `IssuePage.tsx` itself, which
+> is the parent SHELL and does not live under `issue-page/` — I read the count
+> off a `wc -l` whose argument list included the parent, then reported it against
+> the narrower noun "modules under `features/issues/issue-page/`".
+>
+> The same error POD-331 caught in its own `useNow` line an hour later, and the
+> same one that produced three undercounts of the browser-suite census between
+> us: **a number measured over one set, reported against a different noun.** The
+> arithmetic was never wrong; the SUBJECT was. It is worth writing down because
+> it survives review — 19 and 20 both read as plausible, and nobody re-counts a
+> number that is not surprising.
+>
+> The rule that catches it, and the one that caught this: count the noun you are
+> about to NAME, count it untruncated, and then re-run it over what you have
+> ALREADY published rather than only over the next sentence.
 
 The split is by QUESTION, per §4e's lesson rather than by size: the parent row
 owns the reparent decision, relations own cross-boundary edges, sessions own
