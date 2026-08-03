@@ -64,7 +64,8 @@ describe('POD-723 dirty-scoped issue wire rebuild', () => {
     const w2a = first.find((w) => w.id === i2)!
 
     // A session-driven change on issue 1's member only (no issue-side mutation, so
-    // the memo generation is stable — the classic publishIssues() re-derivation).
+    // the memo generation is stable — the re-derivation the deleted full-list
+    // republish path used to trigger; the memo property outlives that caller).
     sessions[0]!.workState = 'testing'
 
     const second = svc.allWire()
