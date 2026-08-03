@@ -1,4 +1,4 @@
-import type { Reporter, TestModule, Vitest } from 'vitest/reporters'
+import type { Reporter, TestModule, Vitest } from 'vitest/node'
 
 export const REAL_AGENT_CLIS = ['claude', 'codex', 'opencode', 'cursor', 'grok'] as const
 export type RealAgentCli = (typeof REAL_AGENT_CLIS)[number]

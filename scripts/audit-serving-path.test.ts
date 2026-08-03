@@ -61,6 +61,7 @@ describe('the shipped objects have one serving tail', () => {
         send: (message) => received.push(message),
       },
       DEVICE_GRADE_PRINCIPAL,
+      plumbing.routingPrincipal('peer'),
     )
     expect(refusal).toBeNull()
     // The ONLY input was a ledger commit. There is no feature, no publisher and

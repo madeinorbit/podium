@@ -24,6 +24,13 @@ import { backupDatabase } from './backup'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
 
 /**
+ * The `client` slot of drizzle's bun-sqlite config — bun:sqlite's real `Database`
+ * class. Named off drizzle's own signature rather than imported from `bun:sqlite`,
+ * which is unresolvable in any program without @types/bun (this one included).
+ */
+type DrizzleBunClient = Extract<Parameters<typeof drizzle>[0], { client: unknown }>['client']
+
+/**
  * One drizzle migration, bundled in memory (no disk read at runtime — the
  * compiled binary carries no drizzle/ folder). `name` is the migration folder
  * name (e.g. `20260715135845_baseline`); `sql` is the full `migration.sql`
@@ -169,7 +176,13 @@ export function runDrizzleMigrations(
   // drizzle cannot know that an old ledger name already performed the canonical
   // migration SQL, and replaying it could add the same column twice.
   migrate(
-    drizzle({ client }),
+    // `client` is @podium/runtime's deliberately narrow structural view of the
+    // bun:sqlite handle (packages/runtime/src/sqlite/bun.ts names only the methods
+    // we call, so that module stays importable under Node). drizzle's `client` slot
+    // names bun:sqlite's real `Database` class, which materializes only in a program
+    // that loads @types/bun — this file's own lane resolves `bun:sqlite` to `any`,
+    // the scripts typecheck lane does not (POD-1122). Same object at runtime.
+    drizzle({ client: client as unknown as DrizzleBunClient }),
     pending.map((m) => ({ name: m.name, timestamp: folderMillis(m.name), sql: m.sql })),
   )
   return pending.map((m) => m.name)

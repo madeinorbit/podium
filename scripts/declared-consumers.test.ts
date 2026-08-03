@@ -52,7 +52,7 @@ export interface Contract { readonly policy: CommandPolicy }
  * run uses.
  */
 function analyseSources(files: Record<string, string>): ReturnType<typeof analyse> {
-  const sources = { [DECL]: DECLARING_SOURCE, ...files }
+  const sources: Record<string, string> = { [DECL]: DECLARING_SOURCE, ...files }
   const options: ts.CompilerOptions = {
     target: ts.ScriptTarget.ES2022,
     module: ts.ModuleKind.ESNext,

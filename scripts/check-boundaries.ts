@@ -427,7 +427,8 @@ export function checkPrincipalFree(file: string, source: string): Violation[] {
 function targetWorkspace(file: string, specifier: string): string | null {
   if (specifier.startsWith('@podium/')) {
     const name = specifier.split('/').slice(0, 2).join('/')
-    if (name in APP_PACKAGES) return APP_PACKAGES[name]
+    const appPackage = APP_PACKAGES[name]
+    if (appPackage !== undefined) return appPackage
     return `packages/${name.slice('@podium/'.length)}`
   }
   if (specifier.startsWith('.')) {

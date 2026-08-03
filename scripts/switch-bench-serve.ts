@@ -29,3 +29,7 @@ const { startServer } = await import('../apps/server/src/server')
 const server = await startServer({ port: Number(process.env.PORT ?? 8877) })
 console.log(`switch-bench server on http://localhost:${server.port} state=${benchState}`)
 await new Promise(() => {})
+
+// Only a dynamic import above, so nothing marks this file as a module and its
+// top-level `await` would be a syntax error under `isolatedModules`.
+export {}

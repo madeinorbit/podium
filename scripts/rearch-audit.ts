@@ -36,7 +36,7 @@
  * Pure logic is exported for scripts/rearch-audit.test.ts.
  */
 
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { type Dirent, existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { changeRowRestatements } from './change-row-audit'
@@ -297,7 +297,7 @@ export function isFrozenFile(file: string): boolean {
 const SKIP_DIRS = new Set(['node_modules', 'dist', 'build', '.expo', 'coverage', 'target'])
 
 function* walk(dir: string): Generator<string> {
-  let entries: ReturnType<typeof readdirSync<{ withFileTypes: true }>>
+  let entries: Dirent[]
   try {
     entries = readdirSync(dir, { withFileTypes: true })
   } catch {
@@ -347,7 +347,7 @@ export function loadContext(repoRoot: string, roots = ['apps', 'packages']): Aud
 
 interface GrepOptions {
   /** Repo-relative path prefixes to scan. */
-  roots: string[]
+  roots: readonly string[]
   pattern: RegExp
   includeTests?: boolean
   includeFrozen?: boolean

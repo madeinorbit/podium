@@ -33,13 +33,14 @@ function migrationFolders(): string[] {
 
 function render(): string {
   const folders = migrationFolders()
-  if (folders.length === 0) {
+  const first = folders[0]
+  if (first === undefined) {
     throw new Error(`no migration folders found under ${DRIZZLE_DIR}`)
   }
-  if (!/_baseline$/.test(folders[0])) {
+  if (!/_baseline$/.test(first)) {
     throw new Error(
       `the first migration must be the baseline (folder name ending in '_baseline'); ` +
-        `got '${folders[0]}'. The baseline is stamped (not run) on existing databases, ` +
+        `got '${first}'. The baseline is stamped (not run) on existing databases, ` +
         `so it must sort first.`,
     )
   }

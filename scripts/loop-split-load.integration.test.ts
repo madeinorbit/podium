@@ -1,4 +1,4 @@
-import { FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asIssueId, FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
 import { WIRE_VERSION } from '@podium/protocol'
 import { startLoopMetrics } from '@podium/runtime/loop-metrics'
 import { describe, expect, it } from 'vitest'
@@ -16,7 +16,7 @@ const CLIENT_COUNT = 2
 function issueRow(seq: number): IssueRow {
   const timestamp = '2026-07-18T00:00:00.000Z'
   return {
-    id: `iss_load_${seq}`,
+    id: asIssueId(`iss_load_${seq}`),
     ownerUserId: FIRST_ADMIN_USER_ID,
     visibility: 'personal',
     createdByActor: FIRST_ADMIN_USER_ID,
@@ -55,9 +55,9 @@ function issueRow(seq: number): IssueRow {
     dueAt: null,
     deferUntil: null,
     closedReason: null,
+    closedAt: null,
     supersededBy: null,
     duplicateOf: null,
-    pinned: false,
     estimateMin: null,
     needsHuman: false,
     humanQuestion: null,
@@ -88,7 +88,7 @@ describe('loop split representative load [spec:SP-c29e]', () => {
       instanceId: 'default',
       publicationShadowCompare: true,
     })
-    const sessionIds: string[] = []
+    const sessionIds: SessionId[] = []
     let loop: ReturnType<typeof startLoopMetrics> | undefined
     try {
       for (let index = 0; index < SESSION_COUNT; index += 1) {
@@ -106,7 +106,7 @@ describe('loop split representative load [spec:SP-c29e]', () => {
       const clients: Array<{
         id: string
         publications: string[]
-        allowedSessionIds: string[]
+        allowedSessionIds: SessionId[]
       }> = []
       const sessionsPerWorld = Math.ceil(SESSION_COUNT / 4)
       for (let clientIndex = 0; clientIndex < CLIENT_COUNT; clientIndex += 1) {

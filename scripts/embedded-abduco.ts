@@ -6,8 +6,6 @@ import { dirname } from 'node:path'
 import abducoEmbedded from '../dist-bun/abduco.bin' with { type: 'file' }
 import { abducoSupported, defaultAbducoCachePath } from '../packages/pty/src/abduco-bin.js'
 
-declare const Bun: { file(path: string): { arrayBuffer(): Promise<ArrayBuffer> } }
-
 /**
  * In a `bun build --compile` binary the vendored abduco.c is not on disk, so the
  * runtime cc-build fallback in abduco-bin.ts cannot run. Instead we embed a prebuilt

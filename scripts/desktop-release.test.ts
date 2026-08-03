@@ -15,18 +15,17 @@ afterEach(() => {
   for (const path of scratch.splice(0)) rmSync(path, { recursive: true, force: true })
 })
 
-const releaseArtifacts = [
-  {
-    target: 'linux-x86_64' as const,
-    artifactName: 'Podium_0.2.0-edge.1_amd64.AppImage',
-    signature: 'LINUX-SIGNATURE',
-  },
-  {
-    target: 'darwin-aarch64' as const,
-    artifactName: 'Podium.app.tar.gz',
-    signature: 'MAC-SIGNATURE',
-  },
-]
+const linuxArtifact = {
+  target: 'linux-x86_64' as const,
+  artifactName: 'Podium_0.2.0-edge.1_amd64.AppImage',
+  signature: 'LINUX-SIGNATURE',
+}
+const macArtifact = {
+  target: 'darwin-aarch64' as const,
+  artifactName: 'Podium.app.tar.gz',
+  signature: 'MAC-SIGNATURE',
+}
+const releaseArtifacts = [linuxArtifact, macArtifact]
 
 describe('desktop release manifest', () => {
   it('publishes Linux and Apple Silicon updater artifacts to the rolling edge release', () => {
@@ -87,8 +86,8 @@ describe('desktop release manifest', () => {
         version: '0.2.0-edge.1',
         channel: 'edge',
         artifacts: [
-          releaseArtifacts[0],
-          { ...releaseArtifacts[1], signature: 'DIFFERENT-MAC-SIGNATURE' },
+          linuxArtifact,
+          { ...macArtifact, signature: 'DIFFERENT-MAC-SIGNATURE' },
         ],
       }),
     ).toThrow('darwin-aarch64 does not match')
@@ -98,7 +97,7 @@ describe('desktop release manifest', () => {
     const text = buildDesktopManifest({
       version: '0.2.0-edge.1',
       channel: 'edge',
-      artifacts: [releaseArtifacts[0]],
+      artifacts: [linuxArtifact],
     })
     expect(() =>
       validateDesktopManifest(text, {

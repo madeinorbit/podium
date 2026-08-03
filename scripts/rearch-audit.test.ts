@@ -1282,7 +1282,9 @@ describe('reexport-shims: the anchor behind its ZERO_BY_DESIGN exemption', () =>
     const missing = reexportShimControlMisses(
       String.raw`export\s+(?:type\s+)?(?:\*(?:\s+as\s+\w+)?|\{[^\n]*?\})\s+from\s*['"]([^'"]+)['"]\s*;?`,
     )
-    expect(missing).toContain(REEXPORT_SHIM_CONTROLS.wrapped[0])
+    const wrapped = REEXPORT_SHIM_CONTROLS.wrapped?.[0]
+    if (wrapped === undefined) throw new Error('REEXPORT_SHIM_CONTROLS.wrapped must carry a control')
+    expect(missing).toContain(wrapped)
   })
 
   it('collect THROWS when the scan sees no files, rather than reporting zero', () => {

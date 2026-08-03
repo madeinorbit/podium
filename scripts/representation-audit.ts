@@ -1045,7 +1045,12 @@ const PER_USER_ANCHOR_SOURCE = [
 ].join('\n')
 
 function assertPerUserAnchor(): void {
-  if (PER_USER_STATE_KEYS.length === 0) {
+  // Read through a widened alias: `PER_USER_STATE_KEYS` is an `as const` tuple, so
+  // the compiler folds its `.length` to a literal and would reject the emptiness
+  // check as unreachable. The check still has to run — it guards the case where a
+  // later edit empties the list and every per-user-singletons count silently zeroes.
+  const perUserStateKeys: readonly string[] = PER_USER_STATE_KEYS
+  if (perUserStateKeys.length === 0) {
     throw new Error(
       'representation-audit: PER_USER_STATE_KEYS loaded EMPTY from @podium/model. Every ' +
         'per-user-singletons count would be zero and the ratchet would read it as a deletion. ' +
