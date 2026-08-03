@@ -1,13 +1,11 @@
-import { shouldPinOnReset } from '@podium/client-core/viewmodels'
+import { blockMatches, searchBlocks, shouldPinOnReset } from '@podium/client-core/viewmodels'
 import type { TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
-  blockMatches,
   buildChatRows,
   type PendingItem,
   pairToolResults,
   reconcilePending,
-  searchBlocks,
   ticksFromOffsets,
   toolBatchTitle,
 } from '../src/features/chat/chat'
