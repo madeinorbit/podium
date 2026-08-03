@@ -194,8 +194,8 @@ export {
   AUTH_CONTRACT_NAMES,
   AUTH_CONTRACTS,
   type AuthContractName,
-  authClearPasswordContract,
-  authClearPasswordInput,
+  authSetLoginRequiredContract,
+  authSetLoginRequiredInput,
   authSetPasswordContract,
   authSetPasswordInput,
   SETUP_CONTRACT_NAMES,
@@ -236,14 +236,6 @@ export {
   WRITE_DELIVERY,
   WRITE_POLICY,
 } from './issues/cells'
-export {
-  READ_POSITION_CONTRACT_NAMES,
-  READ_POSITION_CONTRACTS,
-  type ReadPositionAdvanceInput,
-  type ReadPositionContractName,
-  readPositionAdvanceContract,
-  readPositionAdvanceInput,
-} from './read-position/contracts'
 export {
   ISSUE_COMMAND_NAMES,
   ISSUE_CONTRACT_LIST,
@@ -330,6 +322,14 @@ export {
   perfResetInput,
 } from './perf/contracts'
 export {
+  READ_POSITION_CONTRACT_NAMES,
+  READ_POSITION_CONTRACTS,
+  type ReadPositionAdvanceInput,
+  type ReadPositionContractName,
+  readPositionAdvanceContract,
+  readPositionAdvanceInput,
+} from './read-position/contracts'
+export {
   applyRedaction,
   applyRedactionWithReport,
   messageMentionsRedactedValue,
@@ -349,7 +349,6 @@ export {
   sessionHandoffInput,
   sessionHandoffOutput,
 } from './sessions/handoff'
-export * from './sessions/session-state-commands'
 export {
   RENAME_REJECTIONS,
   type SessionRenameInput,
@@ -358,6 +357,7 @@ export {
   sessionRenameInput,
   sessionRenameReducer,
 } from './sessions/rename'
+export * from './sessions/session-state-commands'
 export {
   CONTRACT_TIER,
   contractMatrixRow,

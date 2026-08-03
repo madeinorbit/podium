@@ -105,18 +105,20 @@ describe('credential material is not part of any wire projection (ADR 9 D1.2, AD
     ])
   })
 
-  it('names the credential source, and `instance-password` is one of them', () => {
-    // The decided fork: the upgrade cannot copy a scrypt hash out of auth.json
-    // inside a SQL migration, so the first admin's credential row records that
-    // it authenticates with the instance password that already exists.
-    expect([...CREDENTIAL_SOURCES]).toEqual(['instance-password', 'per-user-scrypt'])
-    const legacy = UserCredential.safeParse({
+  it('names ONE credential source — `instance-password` is retired (POD-1554)', () => {
+    // Every account now authenticates the same way: a per-account scrypt hash in
+    // its own row. The boot migration moved the last instance-password holder
+    // (the first admin) into one, so the model has no word for the indirection
+    // any more — and a row that still claims it must FAIL to parse rather than
+    // be admitted as some other kind of credential.
+    expect([...CREDENTIAL_SOURCES]).toEqual(['per-user-scrypt'])
+    const retired = UserCredential.safeParse({
       userId: asUserId('u'),
       source: 'instance-password',
       passwordHash: null,
       updatedAt: '2026-07-30T00:00:00.000Z',
     })
-    expect(legacy.success).toBe(true)
+    expect(retired.success).toBe(false)
   })
 
   it('makes `passwordHash` nullable but never ABSENT', () => {

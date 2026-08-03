@@ -1,7 +1,8 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { hasPassword, setPassword, verifyPassword } from '@podium/runtime/auth-store'
+import { FIRST_ADMIN_USER_ID } from '@podium/model'
+import { hashPassword, verifyPasswordHash } from '@podium/runtime/auth-store'
 import { loadConfig } from '@podium/runtime/config'
 import { encodeJoin } from '@podium/runtime/join'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -13,18 +14,50 @@ import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
 import { OPERATOR } from './test-support/capabilities'
 
-function caller() {
+/**
+ * ONE registry per test, memoised: `setup.complete`'s optional password is a CREDENTIAL ROW
+ * on the calling account now, so a second `caller()` with its own store would be a different
+ * instance and "keep the existing password" could not be expressed at all.
+ */
+let harness: ReturnType<typeof makeHarness> | undefined
+
+function makeHarness() {
   const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
-  return appRouter.createCaller({
-    registry,
-    repos,
-    superagent,
-    capability: OPERATOR,
-    principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
-  })
+  const users = registry.sessionStore.users
+  return {
+    users,
+    caller: appRouter.createCaller({
+      registry,
+      repos,
+      superagent,
+      users,
+      capability: OPERATOR,
+      principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+    }),
+  }
+}
+
+function caller() {
+  harness ??= makeHarness()
+  return harness.caller
+}
+
+/** The first admin's credential — what "a password is set" means after POD-1554. */
+function credentialHash(): string {
+  harness ??= makeHarness()
+  return harness.users.credentialFor(FIRST_ADMIN_USER_ID)?.passwordHash ?? ''
+}
+
+async function seedPassword(password: string): Promise<void> {
+  harness ??= makeHarness()
+  harness.users.setPasswordHash(
+    FIRST_ADMIN_USER_ID,
+    await hashPassword(password),
+    new Date().toISOString(),
+  )
 }
 
 const priorStateDir = process.env.PODIUM_STATE_DIR!
@@ -34,9 +67,11 @@ describe('setup tRPC', () => {
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'podium-setuprtr-'))
     process.env.PODIUM_STATE_DIR = dir
+    harness = undefined
   })
   afterEach(() => {
     process.env.PODIUM_STATE_DIR = priorStateDir
+    harness = undefined
     rmSync(dir, { recursive: true, force: true })
   })
 
@@ -87,26 +122,25 @@ describe('setup tRPC', () => {
   })
   it('sets the login password when one is supplied (network-exposed install)', async () => {
     await caller().setup.complete({ publicUrl: 'https://box.ts.net', password: 'launch-code' })
-    expect(hasPassword(dir)).toBe(true)
-    expect(await verifyPassword('launch-code', dir)).toBe(true)
+    expect(await verifyPasswordHash('launch-code', credentialHash())).toBe(true)
   })
   it('rejects a reachable setup without password acknowledgement', async () => {
     await expect(caller().setup.complete({ publicUrl: 'https://box.ts.net' })).rejects.toThrow()
-    expect(hasPassword(dir)).toBe(false)
+    expect(credentialHash()).toBe('')
   })
   it('keeps an existing password when the URL is set later (no re-ack needed)', async () => {
-    await setPassword('already-set', dir)
+    await seedPassword('already-set')
     // No password + no ack must NOT throw once one is already configured — it's "keep current".
     await caller().setup.complete({ publicUrl: 'https://relay.ts.net' })
     expect(loadConfig().publicUrl).toBe('https://relay.ts.net')
-    expect(await verifyPassword('already-set', dir)).toBe(true) // unchanged
+    expect(await verifyPasswordHash('already-set', credentialHash())).toBe(true) // unchanged
   })
   it('leaves auth open when no password is explicitly acknowledged', async () => {
     await caller().setup.complete({
       publicUrl: 'https://box.ts.net',
       acknowledgeNoPassword: true,
     })
-    expect(hasPassword(dir)).toBe(false)
+    expect(credentialHash()).toBe('')
   })
   it('join applies a pasted join code as a daemon config', async () => {
     const code = encodeJoin({ v: 1, serverUrl: 'wss://relay', pairCode: 'P1', name: 'box' })

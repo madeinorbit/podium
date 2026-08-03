@@ -3,7 +3,7 @@
  * DEPLOYMENT rather than any entity inside it.
  *
  *   setup.complete · setup.join · setup.connect · setup.setChannel
- *   auth.setPassword · auth.clearPassword
+ *   auth.setPassword · auth.setLoginRequired
  *   telemetry.set · telemetry.resetId
  *
  * They share a file because they share a subject: all eight write `config.json`
@@ -22,7 +22,7 @@
  * update channel; they are facts about the box.
  *
  * TWO ARE `secret`, and getting this wrong in the other direction is the trap.
- * `auth.setPassword` and `auth.clearPassword` write CREDENTIAL MATERIAL — the
+ * `auth.setPassword` and `auth.setLoginRequired` write CREDENTIAL MATERIAL — the
  * login password gating every human client — which ADR 1 classes `secret` with
  * `secret: 'secret-value'` (the `serverSecrets` row's shape) and which
  * `classificationErrors` then forces to `online-sensitive` delivery. Copying
@@ -299,17 +299,20 @@ export const authSetPasswordContract = {
   input: authSetPasswordInput,
   policy: {
     action: 'manage',
-    roleFloor: 'admin',
+    roleFloor: 'member',
     resource: 'secret',
     confirmation: 'none',
     rationale:
-      'Writes the credential gating every human client, so `resource: secret` — which forces ' +
-      '`online-sensitive` delivery through the lint — and `manage`/`admin`, because whoever holds ' +
-      'this holds the instance. NO CONFIRMATION FIELD, and that is not a gap: the confirmation is ' +
-      'IN THE INPUT and stronger than a dialog. `current` must verify when a password is already ' +
-      'set, which defends against a hijacked session in a way `confirmation: "confirm"` — a ' +
-      'client-side prompt — cannot. In open mode (no password yet) the check is skipped by design; ' +
-      'that is bootstrap, and the shipped behaviour is kept exactly.',
+      "MY OWN PASSWORD. The command writes the CALLING account's credential and no other, so the " +
+      'floor is `member`: every user may change their own password, and admin is not a ' +
+      'prerequisite for having one. It was `admin` when there was ONE password for the whole ' +
+      'instance and holding it meant holding the box (POD-1554 retired that). `resource: secret` ' +
+      'stays — it is still credential material, and it forces `online-sensitive` delivery through ' +
+      'the lint. NO CONFIRMATION FIELD, and that is not a gap: the confirmation is IN THE INPUT ' +
+      'and stronger than a dialog. `current` must verify when the caller already has a ' +
+      'credential, which defends against a hijacked session in a way `confirmation: "confirm"` — ' +
+      'a client-side prompt — cannot. A caller with no credential yet skips the check; that is ' +
+      'bootstrap, and the shipped behaviour is kept exactly.',
   },
   exposure: SERVED_ON,
   delivery: SECRET_DELIVERY,
@@ -328,28 +331,33 @@ export const authSetPasswordContract = {
   errorConsistency: NO_TARGET,
 } as const satisfies CommandContract<typeof authSetPasswordInput>
 
-export const authClearPasswordInput = z.object({
+export const authSetLoginRequiredInput = z.object({
+  /** `false` enters open mode — this instance serves everything with no login. */
+  required: z.boolean(),
   current: z.string(),
   acknowledgeNoPassword: z.literal(true).optional(),
 })
 
-export const authClearPasswordContract = {
-  name: 'auth.clearPassword',
+export const authSetLoginRequiredContract = {
+  name: 'auth.setLoginRequired',
   version: 1,
   visibility: SECRET,
-  input: authClearPasswordInput,
+  input: authSetLoginRequiredInput,
   policy: {
     action: 'manage',
     roleFloor: 'admin',
     resource: 'secret',
     confirmation: 'confirm',
     rationale:
-      'THE ONE COMMAND HERE THAT CARRIES A CONFIRMATION, and the asymmetry with `setPassword` is ' +
-      'deliberate. Setting a password is protective and reversible; CLEARING one leaves the instance ' +
-      'open to anyone who can reach it, which is destructive in ADR 3 D2’s sense even though it ' +
-      'deletes no data. The shipped procedure already demands an explicit `acknowledgeNoPassword` ' +
-      'and rejects the call without it, so `confirmation: "confirm"` records a gate that genuinely ' +
-      'exists rather than aspiring to one. `current` is still verified on top of it.',
+      'INSTANCE POLICY, AND THE ONE COMMAND HERE THAT CARRIES A CONFIRMATION. `admin`, unlike ' +
+      "`setPassword`'s `member`, and the split is the whole point of POD-1554: setting YOUR " +
+      "password is yours, turning login off is the INSTANCE's, and one user cannot decide it for " +
+      'everyone. Disabling login leaves the instance open to anyone who can reach it, which is ' +
+      'destructive in ADR 3 D2’s sense even though it deletes no data — hence ' +
+      '`confirmation: "confirm"` on top of the explicit `acknowledgeNoPassword` the procedure ' +
+      'already demands, and `current` verified on top of that. It writes a config flag rather than ' +
+      "deleting credentials, so re-enabling login restores every account's existing password " +
+      'instead of making everyone re-enrol.',
   },
   exposure: SERVED_ON,
   delivery: SECRET_DELIVERY,
@@ -357,12 +365,12 @@ export const authClearPasswordContract = {
     reviewed: true,
     inputPaths: ['current'],
     outputPaths: [],
-    note: '`current` is a live credential and is redacted. The acknowledgement flag is a boolean and the result is `{ enabled: false }`.',
+    note: '`current` is a live credential and is redacted. The acknowledgement flag and `required` are booleans, and the result is `{ loginRequired }`.',
   } satisfies RedactionPolicy,
   ownership: CREATES_NOTHING,
   attribution: INSTANCE_ATTRIBUTION,
   errorConsistency: NO_TARGET,
-} as const satisfies CommandContract<typeof authClearPasswordInput>
+} as const satisfies CommandContract<typeof authSetLoginRequiredInput>
 
 // ---------------------------------------------------------------------------
 // telemetry.*
@@ -463,7 +471,7 @@ export const SETUP_CONTRACT_NAMES = Object.keys(SETUP_CONTRACTS).sort() as Setup
 
 export const AUTH_CONTRACTS = {
   setPassword: authSetPasswordContract,
-  clearPassword: authClearPasswordContract,
+  setLoginRequired: authSetLoginRequiredContract,
 } as const
 export type AuthContractName = keyof typeof AUTH_CONTRACTS
 export const AUTH_CONTRACT_NAMES = Object.keys(AUTH_CONTRACTS).sort() as AuthContractName[]

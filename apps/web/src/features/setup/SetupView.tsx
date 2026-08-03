@@ -458,7 +458,8 @@ export function NetworkStep({
     trpc.auth.status
       .query()
       .then((s) => {
-        if (s.enabled) {
+        // The CALLER's own credential — "a password is already set" is per-account now.
+        if (s.hasOwnCredential) {
           setHasPassword(true)
           setAuthMode('keep')
         }

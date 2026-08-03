@@ -76,10 +76,10 @@ export const AUTH_COMMANDS_TRPC = {
       unknown
     >,
   },
-  clearPassword: {
-    contract: AUTH_CONTRACTS.clearPassword,
-    handler: ((svc, input) => svc.clearPassword(input)) satisfies InstanceHandler<
-      In<typeof AUTH_CONTRACTS.clearPassword>,
+  setLoginRequired: {
+    contract: AUTH_CONTRACTS.setLoginRequired,
+    handler: ((svc, input) => svc.setLoginRequired(input)) satisfies InstanceHandler<
+      In<typeof AUTH_CONTRACTS.setLoginRequired>,
       unknown
     >,
   },

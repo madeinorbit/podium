@@ -12,11 +12,25 @@
 import { derivedFamilyProcedures, type FamilyProcedures } from '../derived-family'
 import { AUTH_QUERIES, SETUP_QUERIES, TELEMETRY_QUERIES } from './queries'
 import { AUTH_COMMANDS_TRPC, SETUP_COMMANDS_TRPC, TELEMETRY_COMMANDS_TRPC } from './registry'
-import { InstanceService } from './service'
+import { type InstanceAccountStore, InstanceService } from './service'
 
+/**
+ * `auth.*` is per-ACCOUNT after POD-1554, so this service takes the users repository
+ * and the caller's id from `FamilyState` — the id `callerUserId(ctx)` already resolved.
+ * `users` is the ONE member FamilyState gained; the caller was always there.
+ */
 const instanceService = (state: {
   telemetry?: { emitter: { buildUsageReport: () => unknown } } | undefined
-}) => new InstanceService({ emitter: state.telemetry?.emitter as never })
+  users?: InstanceAccountStore | undefined
+  loginRequired?: (() => boolean) | undefined
+  caller: { userId: string }
+}) =>
+  new InstanceService({
+    emitter: state.telemetry?.emitter as never,
+    users: state.users,
+    callerUserId: state.caller.userId,
+    loginRequired: state.loginRequired,
+  })
 
 export type SetupProcedures = FamilyProcedures<typeof SETUP_COMMANDS_TRPC, typeof SETUP_QUERIES>
 export type AuthProcedures = FamilyProcedures<typeof AUTH_COMMANDS_TRPC, typeof AUTH_QUERIES>

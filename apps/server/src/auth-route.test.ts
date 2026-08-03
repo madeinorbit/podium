@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { FIRST_ADMIN_USER_ID } from '@podium/model'
-import { setPassword } from '@podium/runtime/auth-store'
+import { hashPassword } from '@podium/runtime/auth-store'
 import { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import {
@@ -19,8 +19,21 @@ let store: SessionStore
 
 function makeApp(opts: Parameters<typeof registerAuthRoute>[1] = {}) {
   const app = new Hono()
-  registerAuthRoute(app, { store: store.auth, authDir: dir, ...opts })
+  registerAuthRoute(app, { store: store.auth, users: store.users, ...opts })
   return app
+}
+
+/**
+ * "This instance requires a login" is now a CREDENTIAL ROW on the first admin, not a file.
+ * The tests below say `setPassword('hunter2')` for the same reason they always did — what
+ * changed is where it lands, and that `POST /auth/login` has one way to check it.
+ */
+async function setPassword(password: string): Promise<void> {
+  store.users.setPasswordHash(
+    FIRST_ADMIN_USER_ID,
+    await hashPassword(password),
+    new Date().toISOString(),
+  )
 }
 
 function cookieValue(res: Response): string | undefined {
@@ -55,7 +68,7 @@ describe('auth-route', () => {
   })
 
   test('status reports needsAuth=true once a password is set', async () => {
-    await setPassword('hunter2', dir)
+    await setPassword('hunter2')
     const res = await makeApp().request('/auth/status')
     expect(await res.json()).toEqual({ needsAuth: true, authed: false })
   })
@@ -70,7 +83,7 @@ describe('auth-route', () => {
   })
 
   test('login with the wrong password is rejected with 401 and sets no cookie', async () => {
-    await setPassword('hunter2', dir)
+    await setPassword('hunter2')
     const res = await makeApp().request('/auth/login', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -81,7 +94,7 @@ describe('auth-route', () => {
   })
 
   test('login with the right password sets an HttpOnly SameSite=Lax session cookie', async () => {
-    await setPassword('hunter2', dir)
+    await setPassword('hunter2')
     const res = await makeApp().request('/auth/login', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -97,7 +110,7 @@ describe('auth-route', () => {
   })
 
   test('the session cookie marks the client authed; logout clears it', async () => {
-    await setPassword('hunter2', dir)
+    await setPassword('hunter2')
     const app = makeApp()
     const login = await app.request('/auth/login', {
       method: 'POST',
@@ -129,7 +142,7 @@ describe('auth-route', () => {
   })
 
   test('a forged/random cookie does not authenticate', async () => {
-    await setPassword('hunter2', dir)
+    await setPassword('hunter2')
     const res = await makeApp().request('/auth/status', {
       headers: { cookie: 'podium_session=not-a-real-token' },
     })
@@ -137,7 +150,7 @@ describe('auth-route', () => {
   })
 
   test('the cookie sets Secure when the request arrives over https (proxy)', async () => {
-    await setPassword('hunter2', dir)
+    await setPassword('hunter2')
     const res = await makeApp().request('/auth/login', {
       method: 'POST',
       headers: {
@@ -150,7 +163,7 @@ describe('auth-route', () => {
   })
 
   test('repeated wrong passwords trip the login throttle (429)', async () => {
-    await setPassword('hunter2', dir)
+    await setPassword('hunter2')
     const app = makeApp({ throttle: { maxFailures: 3, lockoutMs: 60_000 } })
     const attempt = () =>
       app.request('/auth/login', {
@@ -166,7 +179,7 @@ describe('auth-route', () => {
   })
 
   test('a successful login resets the failure counter', async () => {
-    await setPassword('hunter2', dir)
+    await setPassword('hunter2')
     const app = makeApp({ throttle: { maxFailures: 3, lockoutMs: 60_000 } })
     const bad = () =>
       app.request('/auth/login', {
@@ -191,7 +204,7 @@ describe('auth-route', () => {
 describe('clientAuthGuard (HTTP surface gate)', () => {
   function guardedApp() {
     const app = new Hono()
-    app.use('/trpc/*', clientAuthGuard({ store: store.auth, authDir: dir }))
+    app.use('/trpc/*', clientAuthGuard({ store: store.auth, users: store.users }))
     app.get('/trpc/ping', (c) => c.text('pong'))
     app.options('/trpc/ping', (c) => c.body(null, 204))
     return app
@@ -214,20 +227,20 @@ describe('clientAuthGuard (HTTP surface gate)', () => {
   })
 
   test('blocks an unauthenticated request with 401 once a password is set', async () => {
-    await setPassword('hunter2', dir)
+    await setPassword('hunter2')
     const res = await guardedApp().request('/trpc/ping')
     expect(res.status).toBe(401)
   })
 
   test('allows a request carrying a valid session cookie', async () => {
-    await setPassword('hunter2', dir)
+    await setPassword('hunter2')
     const res = await guardedApp().request('/trpc/ping', { headers: { cookie: validCookie() } })
     expect(res.status).toBe(200)
     expect(await res.text()).toBe('pong')
   })
 
   test('lets CORS preflight (OPTIONS) through even without a cookie', async () => {
-    await setPassword('hunter2', dir)
+    await setPassword('hunter2')
     const res = await guardedApp().request('/trpc/ping', { method: 'OPTIONS' })
     expect(res.status).not.toBe(401)
   })
@@ -235,7 +248,7 @@ describe('clientAuthGuard (HTTP surface gate)', () => {
   const DAY = 24 * 60 * 60 * 1000
   function guardedAppAt(nowMs: number) {
     const app = new Hono()
-    app.use('/trpc/*', clientAuthGuard({ store: store.auth, authDir: dir, now: () => nowMs }))
+    app.use('/trpc/*', clientAuthGuard({ store: store.auth, users: store.users, now: () => nowMs }))
     app.get('/trpc/ping', (c) => c.text('pong'))
     return app
   }
@@ -243,7 +256,7 @@ describe('clientAuthGuard (HTTP surface gate)', () => {
   const HOUR = 60 * 60 * 1000
 
   test('renews a session not renewed in over a day, refreshing the cookie (same token)', async () => {
-    await setPassword('hunter2', dir)
+    await setPassword('hunter2')
     const nowMs = Date.UTC(2026, 0, 1)
     const token = 'rolling-token'
     // 28 days left of a 30-day TTL ⇒ last renewed ~2 days ago ⇒ due for a daily renewal.
@@ -264,7 +277,7 @@ describe('clientAuthGuard (HTTP surface gate)', () => {
   })
 
   test('does not renew a session renewed within the last day (no cookie churn)', async () => {
-    await setPassword('hunter2', dir)
+    await setPassword('hunter2')
     const nowMs = Date.UTC(2026, 0, 1)
     const token = 'fresh-token'
     // ~1 hour into the 30-day TTL ⇒ renewed within the day ⇒ no re-issue.

@@ -153,6 +153,31 @@ export const PodiumConfig = z.object({
    */
   features: z.record(z.string(), z.boolean()).optional(),
   /**
+   * INSTANCE LOGIN POLICY (POD-1554). `openMode: true` means *this instance serves
+   * everything without a login* — the loopback / all-in-one default, and a regime an
+   * operator can deliberately return to. Absent and `false` both mean login is required
+   * whenever any account has a credential.
+   *
+   * It lives HERE, and it is NOT credential deletion, which was the alternative. Deleting
+   * every credential would keep one source of truth, but it makes an ADMIN's instance-level
+   * choice destroy other people's passwords, and turning login back on would make everyone
+   * re-enrol. A flag is reversible: flip it back and every account's password still works.
+   *
+   * The cost — two pieces of state behind one question — is contained by there being ONE
+   * reader that joins them (`credentialsRequired()` in apps/server/src/server.ts, passed to
+   * every gate as `loginRequired`). Nothing else may read this key and conclude anything
+   * about whether a request needs a session.
+   *
+   * Config-file-and-command only: there is deliberately no `PODIUM_OPEN_MODE` env layer.
+   * "Serve with no authentication" is not something a stray environment variable should be
+   * able to turn on.
+   */
+  auth: z
+    .object({
+      openMode: z.boolean().optional(),
+    })
+    .optional(),
+  /**
    * Opt-in telemetry consent + identity [spec:SP-f933]. Lives HERE rather than
    * in the settings blob so `podium telemetry off` works whether or not the
    * server is running — and so a user can turn it off with a text editor.

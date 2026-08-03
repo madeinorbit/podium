@@ -14,7 +14,6 @@ import {
   PeerHelloReply,
   WIRE_VERSION,
 } from '@podium/protocol'
-import { applyEnvPassword, hasPassword } from '@podium/runtime/auth-store'
 import { loadConfig, resolveInstanceId } from '@podium/runtime/config'
 import { ensureInstanceStateIdentity } from '@podium/runtime/instance'
 import {
@@ -35,6 +34,7 @@ import { registerAssetRoute } from './file-asset-route'
 import { createDaemonAcceptor, receiveDaemonFrame } from './gateway/peer-handshake'
 import { attachWebSockets } from './gateway/ws-server'
 import { PairingManager } from './hub/pairing'
+import { applyEnvFirstAdminPassword, retireInstancePassword } from './instance-password-migration'
 import { IssueToolProvider } from './issue-mcp'
 import { registerMcpRoute } from './mcp-route'
 import { registerMaintenanceRoute } from './modules/maintenance/route'
@@ -176,9 +176,6 @@ export async function startServer(
 ): Promise<ServerHandle> {
   const instanceId = resolveInstanceId()
   ensureInstanceStateIdentity({ instanceId })
-  // Headless seam: a non-interactive deploy can set the login password via PODIUM_PASSWORD.
-  // One-shot (won't overwrite an existing one); must run before the open-exposure check below.
-  await applyEnvPassword()
   // Role composition (roles.ts): which optional module groups this process
   // activates. Explicit opts win; else the H1 shape, core + hub.
   const config = loadConfig()
@@ -190,6 +187,17 @@ export async function startServer(
   // reads the same file in its own process; all-in-one is handed it in memory.
   const hostMachineId = readOrCreateLocalMachineId()
   const store = new SessionStore(undefined, hostMachineId)
+  // RETIRING THE INSTANCE PASSWORD (POD-1554), before anything can serve a login and
+  // before the open-exposure check below. Order matters between these two: the legacy
+  // hash in auth.json is the operator's REAL password and wins, so it is moved into the
+  // first admin's credential first; the PODIUM_PASSWORD seam then finds a credential and
+  // stays the no-op it has always been on an instance that already has one.
+  await retireInstancePassword({ users: store.users })
+  await applyEnvFirstAdminPassword({ users: store.users })
+  // IS LOGIN REQUIRED — composed ONCE and passed to every gate, so the guard, the login
+  // route, the status route and the exposure warning cannot answer it differently.
+  const credentialsRequired = (): boolean =>
+    !loadConfig().auth?.openMode && store.users.hasPerUserCredentials()
   // Readiness gate [spec:SP-c29e]: a bloated change log is fully pruned in
   // bounded, yielding units before SessionRegistry constructs its Ledger and
   // folds/reconciles the retained rows. The server does not listen meanwhile.
@@ -377,7 +385,6 @@ export async function startServer(
   // login screen can load. Setup WRITES live under /trpc (setup.*), so they're covered by the
   // /trpc guard below. The /daemon link and /mcp keep their own credentials. Guards are
   // registered BEFORE their handlers so Hono runs them first.
-  const credentialsRequired = () => hasPassword() || store.users.hasPerUserCredentials()
   const requestPrincipal = (cookie: string | undefined) => {
     const userId =
       requestUserId(store.auth, cookie) ??
@@ -386,7 +393,11 @@ export async function startServer(
     const account = store.users.get(userId)
     return account ? userCommandPrincipal(userId, account.role) : undefined
   }
-  const guard = clientAuthGuard({ store: store.auth, users: store.users })
+  const guard = clientAuthGuard({
+    store: store.auth,
+    users: store.users,
+    loginRequired: credentialsRequired,
+  })
   app.use('/setup/*', cors())
   registerSetupRoute(app)
   // Human-client login (web/desktop UI). Same cross-origin reason as /setup: the desktop
@@ -399,6 +410,7 @@ export async function startServer(
     // One principal resolver for every human-client transport. The status route
     // reports this result; it does not recreate the open/dev bootstrap fallback.
     resolveUserId: (cookie) => requestPrincipal(cookie)?.user,
+    loginRequired: credentialsRequired,
   })
   app.use('/files/*', guard)
   registerAssetRoute(app, { readAsset: (a) => registry.modules.rpc.readAsset(a) })
@@ -512,9 +524,9 @@ export async function startServer(
   const host = resolveBindHost(opts)
   // If we're reachable off-box but no login password is set, the data plane is wide open
   // to anyone who can route to this host. Surface that loudly rather than failing silently.
-  if (!isLoopbackHost(host) && !hasPassword()) {
+  if (!isLoopbackHost(host) && !credentialsRequired()) {
     console.warn(
-      `[podium] server bound to ${host} (network-reachable) with NO login password set — ` +
+      `[podium] server bound to ${host} (network-reachable) with NO login required — ` +
         'anyone who can reach this host can control your agents and shell. ' +
         'Set a password in setup, or bind to 127.0.0.1.',
     )

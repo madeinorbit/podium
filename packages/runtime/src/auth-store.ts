@@ -16,19 +16,30 @@ function scrypt(
 }
 
 /**
- * Single-user client-access password for the human UI channel (web/desktop).
+ * THE CREDENTIAL FORMAT for every human login — and, until POD-1554, the home of the
+ * instance's ONE shared password.
  *
- * Distinct from the daemon credentials (`daemon.secret` / pairing tokens), which gate the
- * machine↔server channel and are unchanged. This gates the browser/desktop client surface
- * (/client WS, /trpc, /files, setup POST) when the server is reachable over a network.
+ * What remains here is the KDF: `hashPassword` / `verifyPasswordHash` produce and check the
+ * self-describing scrypt string stored in `user_credentials.password_hash`, one row per
+ * account. Distinct from the daemon credentials (`daemon.secret` / pairing tokens), which
+ * gate the machine↔server channel and are unchanged.
  *
  * We hash with **scrypt** (node:crypto) rather than argon2: it is portable across the Bun
  * runtime and the legacy node/tsx path, fully deterministic, and needs no native module.
- * The KDF strength is not the security-relevant factor here — the hash lives in a 0600
- * file in the user's home, the same trust boundary as the agent OAuth creds, so anyone who
- * can read it already owns the machine. Online brute-force is handled by the login throttle
- * (see auth-route). Only a non-empty hash is ever written; presence of the hash means
- * "auth required", absence means "open" (the user opted out at setup).
+ * The KDF strength is not the security-relevant factor here — the hash lives in the state
+ * directory in the user's home, the same trust boundary as the agent OAuth creds, so anyone
+ * who can read it already owns the machine. Online brute-force is handled by the login
+ * throttle (see auth-route).
+ *
+ * WHAT LEFT, AND WHY (POD-1554). `hasPassword` / `setPassword` / `clearPassword` /
+ * `verifyPassword` / `applyEnvPassword` are gone. They read and wrote ONE hash per instance
+ * in `auth.json`, and "presence of the hash means auth required" was the whole authentication
+ * policy of a single-operator product. Under real accounts that question is
+ * `users.hasPerUserCredentials()`, and *whose* password a call is about is a question
+ * `auth.json` could not even ask. The two functions below are the only readers left: they
+ * exist so the one-shot boot migration can move the legacy hash into the first admin's row
+ * and then delete the file. Nothing else may use them, and when no upgraded instance is left
+ * in the wild they go too.
  */
 
 const FILE = 'auth.json'
@@ -86,47 +97,54 @@ export async function verifyPasswordHash(password: string, stored: string): Prom
   return dk.length === expected.length && timingSafeEqual(dk, expected)
 }
 
-/** True when a client-access password is configured (auth required). */
-export function hasPassword(dir: string = stateDir()): boolean {
-  return Boolean(readFile(dir).passwordHash)
-}
-
-/** Set (or replace) the client-access password. Rejects an empty/whitespace password. */
-export async function setPassword(password: string, dir: string = stateDir()): Promise<void> {
-  if (!password?.trim()) {
-    throw new Error('password must not be empty')
-  }
-  const passwordHash = await hashPassword(password)
-  mkdirSync(dir, { recursive: true })
-  const next: AuthFile = { ...readFile(dir), passwordHash }
-  writeFileSync(authPath(dir), JSON.stringify(next), { mode: 0o600 })
-}
-
-/** Remove the client-access password (opt out of login). */
-export function clearPassword(dir: string = stateDir()): void {
-  const path = authPath(dir)
-  if (existsSync(path)) rmSync(path, { force: true })
+/**
+ * THE LEGACY INSTANCE PASSWORD, for the one-shot migration that retires it (POD-1554).
+ *
+ * Returns the scrypt string an upgraded instance still has in `auth.json`, or `undefined`
+ * on a box that never had one. The string is the SAME encoding `hashPassword` produces and
+ * `user_credentials.password_hash` stores, which is why the migration is a copy rather than
+ * a rehash — the operator's existing password keeps working, and at no point does the
+ * plaintext need to exist.
+ *
+ * The ONE caller is `retireInstancePassword` in apps/server. There is deliberately no
+ * `hasLegacyInstancePassword`: a boolean would invite a second policy reader, which is what
+ * `hasPassword` became.
+ */
+export function readLegacyInstancePasswordHash(dir: string = stateDir()): string | undefined {
+  return readFile(dir).passwordHash || undefined
 }
 
 /**
- * Headless seam: set the client password from `PODIUM_PASSWORD` when none is configured yet.
- * Lets a non-interactive deploy (the VPS, a container) enable auth without the setup UI. It
- * is deliberately one-shot — it never overwrites an already-set password, so leaving the env
- * var in place across restarts can't clobber a password the user later changed in the UI.
+ * `podium setup` CHOOSING A PASSWORD BEFORE THERE IS A DATABASE TO PUT IT IN.
+ *
+ * The interactive CLI setup asks for a login password on a box that has no server running
+ * and, on a fresh install, no store file yet — so it cannot write a credential row. It
+ * stages the hash here, and the FIRST BOOT's `retireInstancePassword` moves it into the
+ * first admin's credential and deletes the file, exactly as it does for an upgraded
+ * instance. Same one-shot, same verify-then-delete.
+ *
+ * `auth.json` is therefore a HANDOFF, not a credential store: nothing authenticates against
+ * it any more (`POST /auth/login` reads credential rows and nothing else), and it never
+ * survives a boot. The alternative — having `podium setup` start a server just to set a
+ * password — buys nothing and adds a failure mode to the one flow that must work on a
+ * fresh machine.
  */
-export async function applyEnvPassword(
-  env: NodeJS.ProcessEnv = process.env,
+export async function stagePasswordForFirstBoot(
+  password: string,
   dir: string = stateDir(),
 ): Promise<void> {
-  const pw = env.PODIUM_PASSWORD
-  if (!pw?.trim()) return
-  if (hasPassword(dir)) return
-  await setPassword(pw, dir)
+  if (!password?.trim()) throw new Error('password must not be empty')
+  const passwordHash = await hashPassword(password)
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(authPath(dir), JSON.stringify({ passwordHash } satisfies AuthFile), { mode: 0o600 })
 }
 
-/** Verify a candidate password. False when no password is set or it doesn't match. */
-export async function verifyPassword(password: string, dir: string = stateDir()): Promise<boolean> {
-  const stored = readFile(dir).passwordHash
-  if (!stored) return false
-  return verifyPasswordHash(password, stored)
+/**
+ * Delete `auth.json` once its hash has been VERIFIED to live in the first admin's credential
+ * row. Callers must not reach this before that check — see `retireInstancePassword`, which
+ * re-reads the row and compares before it calls this.
+ */
+export function deleteLegacyInstancePasswordFile(dir: string = stateDir()): void {
+  const path = authPath(dir)
+  if (existsSync(path)) rmSync(path, { force: true })
 }
