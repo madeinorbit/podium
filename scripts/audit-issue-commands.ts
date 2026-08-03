@@ -265,11 +265,49 @@ export function exposureMismatch(
     ]
   }
 
+  // Read one DECLARATION AT A TIME. A single lazy `name … exposure` regex over the
+  // whole file cannot do this: a contract that inherits its exposure by spreading a
+  // sibling (`{ ...issueShareContract, name: 'issues.unshare' }`) has no `exposure:`
+  // line of its own, so the scan runs past it and swallows the NEXT contract's name —
+  // which silently drops a real declaration and reports it as undeclared (POD-1314).
+  const blocks = new Map<string, { name?: string; exposure?: string; spread?: string }>()
+  const order: string[] = []
+  for (const m of contractsSource.matchAll(/export const (\w+)[^=]*=\s*\{([\s\S]*?)\n\}/g)) {
+    const constName = m[1] as string
+    const body = m[2] as string
+    order.push(constName)
+    blocks.set(constName, {
+      name: /name: 'issues\.(\w+)'/.exec(body)?.[1],
+      exposure: /^\s*exposure: (\w+),/m.exec(body)?.[1],
+      spread: /^\s*\.\.\.(\w+),/m.exec(body)?.[1],
+    })
+  }
+
+  const exposureOf = (constName: string, seen = new Set<string>()): string | undefined => {
+    if (seen.has(constName)) return undefined
+    seen.add(constName)
+    const block = blocks.get(constName)
+    if (!block) return undefined
+    if (block.exposure) return block.exposure
+    return block.spread ? exposureOf(block.spread, seen) : undefined
+  }
+
   const declared = new Set<string>()
-  for (const m of contractsSource.matchAll(
-    /name: 'issues\.(\w+)',[\s\S]*?exposure: (SERVED_EVERYWHERE|SERVED_ON_WIRE),/g,
-  )) {
-    if (m[2] === 'SERVED_EVERYWHERE') declared.add(m[1] as string)
+  for (const constName of order) {
+    const block = blocks.get(constName)
+    if (!block?.name) continue
+    const exposure = exposureOf(constName)
+    if (exposure === undefined) {
+      findings.push({
+        check: 'exposure-matches-reach',
+        where: CONTRACTS,
+        detail:
+          `\`issues.${block.name}\` (${constName}) declares no \`exposure\` and none can be resolved ` +
+          'through its spread — an unread declaration would silently drop out of this comparison',
+      })
+      continue
+    }
+    if (exposure === 'SERVED_EVERYWHERE') declared.add(block.name)
   }
   const reached = new Set(
     [...cliSource.matchAll(/\.issues\.(\w+)\b/g)].map((m) => m[1] as string),
@@ -327,10 +365,14 @@ export function auditIssueCommands(): Finding[] {
   ]
 }
 
+/** Counted as the probes run, so the summary line cannot drift from what ran. */
+const probeCounts = { planted: 0, clean: 0 }
+
 /** Each check, run against a fixture containing exactly what it hunts. */
 function probe(): Finding[] {
   const failures: Finding[] = []
   const expect = (name: string, found: Finding[]): void => {
+    probeCounts.planted += 1
     if (found.length === 0) {
       failures.push({
         check: 'instrument',
@@ -340,6 +382,7 @@ function probe(): Finding[] {
     }
   }
   const mustNotFire = (name: string, found: Finding[]): void => {
+    probeCounts.clean += 1
     if (found.length > 0) {
       failures.push({
         check: 'instrument',
@@ -408,10 +451,15 @@ function probe(): Finding[] {
 
   const CELLS_OK = "export const SERVED_EVERYWHERE: readonly TransportTag[] = ['trpc', 'relay', 'cli', 'mcp']"
   const contractsFixture = [
+    'export const shownContract = {',
     "  name: 'issues.shown',",
     '  exposure: SERVED_EVERYWHERE,',
+    '} as const',
+    '',
+    'export const hiddenContract = {',
     "  name: 'issues.hidden',",
     '  exposure: SERVED_ON_WIRE,',
+    '} as const',
   ].join('\n')
   // Reached but not declared.
   expect(
@@ -433,6 +481,39 @@ function probe(): Finding[] {
     'exposure-matches-reach',
     exposureMismatch(contractsFixture, CELLS_OK, 'client.issues.shown.query()\n'),
   )
+  // POD-1314: a contract that inherits its exposure by SPREADING a sibling must be
+  // read through the spread, and must not swallow the declaration that follows it.
+  const spreadFixture = [
+    contractsFixture,
+    '',
+    'export const spreadContract = {',
+    '  ...shownContract,',
+    "  name: 'issues.spread',",
+    '} as const',
+    '',
+    'export const afterContract = {',
+    "  name: 'issues.after',",
+    '  exposure: SERVED_EVERYWHERE,',
+    '} as const',
+  ].join('\n')
+  mustNotFire(
+    'exposure-matches-reach',
+    exposureMismatch(
+      spreadFixture,
+      CELLS_OK,
+      'client.issues.shown.query()\nclient.issues.spread.query()\nclient.issues.after.query()\n',
+    ),
+  )
+  // An exposure that can be resolved from NEITHER a field nor a spread is a finding,
+  // not a silent drop.
+  expect(
+    'exposure-matches-reach/unresolvable',
+    exposureMismatch(
+      [contractsFixture, '', 'export const orphanContract = {', "  name: 'issues.orphan',", '} as const'].join('\n'),
+      CELLS_OK,
+      'client.issues.shown.query()\n',
+    ),
+  )
 
   return failures
 }
@@ -449,8 +530,8 @@ function main(): void {
   }
   if (wants('--probe')) {
     console.log(
-      'issue-surface audit: all 11 probes found their planted fixtures, and all 4 checks stayed ' +
-        'silent on clean ones',
+      `issue-surface audit: all ${probeCounts.planted} probes found their planted fixtures, and ` +
+        `all ${probeCounts.clean} clean fixtures stayed silent`,
     )
     return
   }
