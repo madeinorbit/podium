@@ -160,15 +160,22 @@ describe('the live registry', () => {
    * shrinking — "39 passed" and "37 passed" read identically (POD-365's deleted
    * registry entry, POD-367 §6).
    */
-  it('covers exactly 45 retained representations: 27 session + 18 issue', () => {
+  it('covers exactly 46 retained representations: 28 session + 18 issue', () => {
     // 43 -> 44 at POD-1151, and the added one is NOT an inventory §3 shape that
     // went unnoticed: `StoredIssue` is NEW — the R1 side of the storage seam,
     // composed from `IssueAggregate` rather than restated, and the thing that let
     // `toWire` stop performing every R1<->R3 split inline. A registry that grows
     // is only a problem when the growth is a duplicate; this one is registered
     // precisely so `unregisteredRestatements` can tell the difference.
-    expect(RETAINED_REPRESENTATIONS).toHaveLength(45)
-    expect(RETAINED_REPRESENTATIONS.filter((r) => r.entity === 'session')).toHaveLength(27)
+    //
+    // 45 -> 46 at POD-1439: the main reconciliation carried main's
+    // `SessionStatusSubagent` (POD-1262) across. Registered rather than excluded
+    // because its subject is a DIFFERENT session from the one being read, so
+    // composing it from that aggregate would assert a containment that does not
+    // hold — growth that is not a duplicate, which is exactly what the registry
+    // is for.
+    expect(RETAINED_REPRESENTATIONS).toHaveLength(46)
+    expect(RETAINED_REPRESENTATIONS.filter((r) => r.entity === 'session')).toHaveLength(28)
     expect(RETAINED_REPRESENTATIONS.filter((r) => r.entity === 'issue')).toHaveLength(18)
   })
 

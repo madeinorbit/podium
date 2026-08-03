@@ -160,7 +160,11 @@ describe('ConversationDiscoveryCache', () => {
     first.close()
 
     const reopened = new ConversationDiscoveryCache(db)
-    expect(reopened.getFresh(file, fileStat, 'codex')).toBeNull()
+    // undefined, not null: the rewrite's getFresh is `AgentConversationSummary |
+    // undefined` and returns undefined for a negative entry. main asserted null
+    // against its own signature; the PROPERTY under test — an ignored file never
+    // surfaces as a summary — is unchanged.
+    expect(reopened.getFresh(file, fileStat, 'codex')).toBeUndefined()
     expect(reopened.listSummaries()).toEqual([])
     reopened.close()
   })
