@@ -333,8 +333,12 @@ export class AutomationsService {
       .listAllRuns()
       .filter((run) => run.automationId === id)
       .map((run) => run.id)
+    // The store TOMBSTONES rather than deletes (POD-1509) — the clock stays
+    // injected here rather than reaching into the store, so a test that freezes
+    // time still controls what a deletion is stamped with.
+    const deletedAt = this.now().toISOString()
     const removed = this.deps.ledger.commit({
-      write: () => this.deps.store.remove(id),
+      write: () => this.deps.store.remove(id, deletedAt),
       changes: (didRemove) =>
         didRemove
           ? [
@@ -347,8 +351,6 @@ export class AutomationsService {
             ]
           : [],
     }).result
-    if (removed) {
-    }
     return { removed }
   }
 

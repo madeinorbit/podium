@@ -1412,6 +1412,9 @@ export const automations = sqliteTable(
     lastRunAt: text('last_run_at'),
     createdAt: text('created_at').notNull(),
     sessionMode: text('session_mode').default('fresh').notNull(),
+    /** Ownership outlives the row (POD-1509): a removal cannot be scoped from
+     *  post-delete state, so `remove` stamps this instead of deleting. */
+    deletedAt: text('deleted_at'),
   },
   (table) => [check('automations_session_mode', sql`session_mode IN ('fresh', 'resume')`)],
 )
@@ -1429,6 +1432,8 @@ export const automationRuns = sqliteTable(
     sessionId: text('session_id'),
     outcome: text().notNull(),
     detail: text(),
+    /** Same tombstone, same reason — see `automations.deletedAt`. */
+    deletedAt: text('deleted_at'),
   },
   (table) => [
     index('idx_automation_runs_automation').on(table.automationId, table.firedAt),
