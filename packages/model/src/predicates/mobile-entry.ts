@@ -28,6 +28,41 @@ export const DESKTOP_PARAM = 'desktop'
 const PHONE_UA = /Android.+Mobile|iPhone|iPod/i
 const TABLET_UA = /iPad|Tablet/i
 
+/**
+ * Whether `search` carries `name` as a query KEY, valued or not.
+ *
+ * This is a hand-rolled `new URLSearchParams(search).has(name)` [POD-1124]:
+ * `URLSearchParams` is an ambient global, and this package is the L0 root —
+ * browser-safe, zod-only, and compiled from SOURCE under each consumer's
+ * compilerOptions, so leaning on it forced every lean-lib consumer to widen its
+ * own `lib` just to typecheck ours. Nothing here re-serialises the query; the
+ * callers below still append raw, which is what keeps `?server=wss://…` intact.
+ *
+ * Matching URLSearchParams means: a leading `?` is optional, empty segments are
+ * skipped, only the text before the first `=` is the key, `+` is a space, and a
+ * malformed escape (`%ZZ`) is left as written rather than throwing.
+ */
+function hasQueryKey(search: string, name: string): boolean {
+  const query = search.startsWith('?') ? search.slice(1) : search
+  for (const segment of query.split('&')) {
+    if (segment === '') continue
+    const eq = segment.indexOf('=')
+    const rawKey = eq === -1 ? segment : segment.slice(0, eq)
+    if (decodeQueryComponent(rawKey) === name) return true
+  }
+  return false
+}
+
+/** `+`-as-space plus percent-decoding, leaving malformed escapes as written. */
+function decodeQueryComponent(value: string): string {
+  const spaced = value.replace(/\+/g, ' ')
+  try {
+    return decodeURIComponent(spaced)
+  } catch {
+    return spaced
+  }
+}
+
 /** Whether this user agent is a phone (and not a tablet or a desktop). */
 export function isPhoneUserAgent(userAgent: string | undefined | null): boolean {
   const ua = userAgent ?? ''
@@ -56,7 +91,7 @@ export interface MobileEntryRequest {
 export function mobileEntryRedirect(req: MobileEntryRequest): string | null {
   if (!req.mobilePresent) return null
   if (req.pathname !== '/') return null
-  if (new URLSearchParams(req.search).has(DESKTOP_PARAM)) return null
+  if (hasQueryKey(req.search, DESKTOP_PARAM)) return null
   if (!isPhoneUserAgent(req.userAgent)) return null
   return '/mobile' + req.search
 }
@@ -70,10 +105,10 @@ export function mobileEntryRedirect(req: MobileEntryRequest): string | null {
  * a browser cannot probe for the Expo build, so it optimistically sends phones to
  * /mobile; if that build is missing, the bounce back carries the marker and the
  * next boot stays put. Raw-string append keeps `?server=wss://…` intact, which
- * re-serializing through URLSearchParams would percent-encode.
+ * re-serializing through a query builder would percent-encode.
  */
 export function desktopShellLocation(search: string): string {
-  if (new URLSearchParams(search).has(DESKTOP_PARAM)) return '/' + search
+  if (hasQueryKey(search, DESKTOP_PARAM)) return '/' + search
   const marker = `${DESKTOP_PARAM}=1`
   return '/' + (search ? `${search}&${marker}` : `?${marker}`)
 }
