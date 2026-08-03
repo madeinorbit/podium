@@ -27,7 +27,9 @@ import {
 import { FLOW_SLATE, issueColorHex } from '@/lib/issueColors'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
-import { useDefaultSpawn, useSidebarDerivation, useUnifiedWork } from './SidebarUnified'
+import { useSidebarDerivation } from './derivation'
+import { useDefaultSpawn } from './spawn-row'
+import { useUnifiedWork } from './use-unified-work'
 
 /** The rail sits on the collapsed aside's surface — corner badges punch out of
  *  this colour (the --card sidebar background). */
