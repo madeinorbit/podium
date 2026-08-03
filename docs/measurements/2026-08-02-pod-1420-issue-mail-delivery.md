@@ -95,6 +95,34 @@ though its data was not, and it is what prompted the `mail status` fix above.
 to make the two cases *read* differently. Making them unrepresentable needs a distinct status
 plus a migration — its own issue, not a schema change smuggled into this one.
 
+POD-279 then retracted, and reported that `delivered_to` had *mutated* under it with no write of
+its own. That is fully explained and closed by the fix above: only four statements write the
+column, all guarded on `status='queued'`, and `markInjected` stamps it while *leaving* the row
+`queued` — so an inbox pull's `markDelivered(id, NULL)` could still wipe it. There is no second
+eraser.
+
+## The real defect population, re-derived
+
+With the right instrument (receipts, not `delivered_to`), counting only what is judgeable —
+issue-addressed messages created since the receipts table began, with **no read receipt from any
+session**. 34 rows, of which **31 are still `queued`**, i.e. genuinely reached nobody:
+
+| | n | owner |
+|---|---|---|
+| **C.** the issue never had a session at all (7 backlog, 4 proposed, 2 done) | 13 | POD-1432 |
+| **B.** sessions exist but all parked — the wake never happens | 13 | POD-1432 |
+| **A.** a live session exists — the idle boundary never comes | 5 | POD-1174 |
+
+Nearly all are `urgency=fyi lifecycle=wait`. **Bucket C is the slice every framing so far had
+missed**: mail sent to an issue that has *never been started*. A coordinator addressing work that
+hasn't begun gets a hold no future event resolves — starting the issue doesn't re-attempt held
+mail. That doesn't outlive its issue; it *precedes* it. POD-1432 has been widened accordingly.
+
+Note what this says about the original brief: **none** of the 31 is a case of the sender being
+misled by a `delivered`/`queued` status. That framing came from the mutable column and does not
+survive. What survives is a ledger that couldn't be trusted (fixed here) and 31 messages with no
+reachable recipient (POD-1432 / POD-1174).
+
 ## Left open, deliberately
 
 - **fyi mail to a live session waits for an idle boundary that may not come.** 18 messages queued
