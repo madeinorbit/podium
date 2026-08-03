@@ -293,10 +293,24 @@ class IssueServiceRoot implements IssueTrackerCapabilities {
       console.warn('[podium:issues] boot draft sweep failed:', err)
     }
     try {
+      // The catch-up publish, and the one boot step whose cost scales with the
+      // install (POD-1597): every issue whose change-log baseline has aged out of
+      // retention re-stages here, and the server does not listen until it
+      // returns. Say so when it is slow rather than looking hung — the operator's
+      // only other signal is a port that has not opened yet.
+      const reconcileStart = performance.now()
+      const wire = store.allWire()
       store.deps.ledger.reconcile(
         'issue',
-        store.allWire().map((i) => ({ id: i.id, value: i })),
+        wire.map((i) => ({ id: i.id, value: i })),
       )
+      const reconcileMs = performance.now() - reconcileStart
+      if (reconcileMs > 2000) {
+        console.warn(
+          `[podium:issues] boot catch-up published ${wire.length} issue(s) in ` +
+            `${(reconcileMs / 1000).toFixed(1)}s`,
+        )
+      }
       const projections = store.allProjections()
       if (projections) store.deps.ledger.reconcile('issueProjection', projections)
       const depProjections = store.allDepProjections()

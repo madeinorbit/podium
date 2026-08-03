@@ -467,13 +467,41 @@ export class MessageDeliveryService {
    * cooldown key of session-addressed wakes. Recompute affected sessions and
    * queue their principals plus both old/new issues. */
   onIssueEligibilityChanged(issueId: string): void {
-    this.queueDeliveryTarget({ kind: 'issue', id: issueId })
+    this.onIssuesEligibilityChanged([issueId])
+  }
+
+  /**
+   * The BATCH form, and the one a change-log batch must call (POD-1597).
+   *
+   * Membership is a SET operation: which sessions resolve into which issue. Run
+   * per change it is O(changes x sessions x issues) — the boot catch-up publishes
+   * every issue at once (1272 changes over 1172 sessions over 1570 issue rows,
+   * measured on the live database) and spent 573 SECONDS here, synchronously,
+   * before the server would listen.
+   *
+   * The set of targets queued is unchanged; only the number of times each is
+   * queued is. Per change, a session fired when its own resolution named the
+   * changed issue on either side, or when it had drifted (`previous !==
+   * next`) — and the first fire updated `sessionIssueTargets`, so every later
+   * change in the same batch re-derived the SAME answer and re-queued the same
+   * coalescing key. One pass over sessions against the whole changed set decides
+   * the same thing once.
+   */
+  onIssuesEligibilityChanged(issueIds: readonly string[]): void {
+    const changed = new Set(issueIds)
+    if (changed.size === 0) return
+    for (const issueId of changed) this.queueDeliveryTarget({ kind: 'issue', id: issueId })
     for (const session of this.deps.sessions.listSessions()) {
       const previousIssueId = this.sessionIssueTargets.get(session.sessionId)
       const nextIssueId = this.issueForSession(session)
       if (
-        previousIssueId === issueId ||
-        nextIssueId === issueId ||
+        (previousIssueId !== undefined && changed.has(previousIssueId)) ||
+        (nextIssueId !== null && changed.has(nextIssueId)) ||
+        // Deliberately the same loose comparison the per-change form used:
+        // `undefined !== null` is TRUE, so a session that resolves to no issue
+        // at all is queued (its own principal, which `countPending` then drops
+        // when it has no mail). Tightening that here would change WHO is
+        // recomputed, which is not this change's business.
         previousIssueId !== nextIssueId
       ) {
         this.onSessionEligibilityChanged(session.sessionId, session)
