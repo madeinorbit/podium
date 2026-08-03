@@ -236,6 +236,14 @@ export interface IssueDeps {
     machineId: string
     startPoint?: string
   }): Promise<{ repoPath: string; startPoint?: string }>
+  /**
+   * Where this repository ALREADY is on `machineId`, by identity, or null (POD-1571).
+   *
+   * The paths that run AFTER a start — add-session and worktree recreate — must not
+   * clone anything, so they get the lookup-only resolver and keep requireMachineForRepo
+   * as the refusal. Optional so existing test deps literals stay valid.
+   */
+  findRepoOnMachine?(repoPath: string, machineId: string): string | null
   /** THE write funnel (modules/funnel): every mutation's store write + fan-out
    *  runs through it, so "durable before fan-out" holds by construction. */
   funnel: IssueFunnel

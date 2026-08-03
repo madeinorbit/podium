@@ -3212,9 +3212,7 @@ export class SessionsService {
     repoId: string | null
     prefix: string | null
   }> {
-    const existing = this.store.repos
-      .listRepos(targetMachineId)
-      .find((repo) => repo.repoId === sourceRepo.repoId)
+    const existing = this.repoOnMachineByIdentity(sourceRepo, targetMachineId)
     if (existing) return existing
     if (!sourceRepo.originUrl || !sourceRepo.repoId) {
       throw new Error('target machine lacks this repository and the source has no clone URL')
@@ -3272,6 +3270,43 @@ export class SessionsService {
     if (!source) throw new Error(`no registered repository at ${sourceRepoPath}`)
     if (source.machineId === targetMachineId) return source
     return this.ensureTargetRepo(source, targetMachineId)
+  }
+
+  /**
+   * The identity rule itself: which checkout on `targetMachineId` IS this repository.
+   *
+   * Origin-derived `repoId`, never the path — two machines have two layouts. A null
+   * repoId is NOT an identity: unidentified checkouts would all match each other, so
+   * they match nothing here and the caller falls back to refusing.
+   */
+  private repoOnMachineByIdentity<T extends { repoId: string | null }>(
+    sourceRepo: T,
+    targetMachineId: string,
+  ) {
+    if (!sourceRepo.repoId) return undefined
+    return this.store.repos
+      .listRepos(targetMachineId)
+      .find((repo) => repo.repoId === sourceRepo.repoId)
+  }
+
+  /**
+   * Where a source repository ALREADY lives on another machine, or null (POD-1571).
+   *
+   * The lookup-only half of `resolveRepoOnMachine`, for the call sites that must not
+   * create anything: adding a session to a started issue, and recreating its worktree,
+   * both need a repository that is already there — the worktree they are about to use
+   * is IN it. Returning null on absence is the point: the caller then guards against
+   * the source path and `requireMachineForRepo` still refuses, with its actionable
+   * message. A resolver that clones on absence would make that refusal impossible.
+   *
+   * One identity rule, shared with resolveRepoOnMachine via repoOnMachineByIdentity —
+   * fork it and the placement paths drift apart again, which is this bug.
+   */
+  findRepoOnMachine(sourceRepoPath: string, targetMachineId: string): string | null {
+    const source = this.store.repos.listRepos().find((repo) => repo.path === sourceRepoPath)
+    if (!source) return null
+    if (source.machineId === targetMachineId) return source.path
+    return this.repoOnMachineByIdentity(source, targetMachineId)?.path ?? null
   }
 
   /**

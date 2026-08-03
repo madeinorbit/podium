@@ -998,6 +998,95 @@ describe('IssueService.start', () => {
     expect(() => svc.addSession(created.id)).toThrow(/no repo registered/)
   })
 
+  /**
+   * POD-1571. `issue start` was converted to identity resolution (POD-1424); add-session
+   * and worktree-recreate were not, so they kept comparing the issue's SOURCE path
+   * against the target's registered paths. Live, on an issue pinned to a machine that
+   * keeps the repository at another path and was ALREADY running a session for it:
+   *   machine 'vmi3407763' has no repo registered at /home/mgw/src/other/podium
+   */
+  it('add-session guards against the path the repo has ON THE PIN, not the issue path', async () => {
+    const { svc, deps } = harness()
+    deps.requireMachineForRepo = vi.fn()
+    deps.findRepoOnMachine = vi.fn((repoPath: string, machineId: string) =>
+      repoPath === '/r' && machineId === 'mach-b' ? '/home/till/src/podium' : null,
+    )
+    const created = svc.create({
+      repoPath: '/r',
+      title: 'Remote',
+      startNow: false,
+      machineId: 'mach-b',
+    })
+    await svc.start(created.id)
+    ;(deps.requireMachineForRepo as ReturnType<typeof vi.fn>).mockClear()
+    svc.addSession(created.id)
+    expect(deps.requireMachineForRepo).toHaveBeenCalledWith('mach-b', '/home/till/src/podium')
+    expect(deps.spawnSession).toHaveBeenCalled()
+  })
+
+  it('add-session still REFUSES a machine that genuinely lacks the repository', async () => {
+    // The guard has to keep saying no: a resolver that made every repo exist would be
+    // worse than the bug. Absence resolves to the issue's own path, which is the path
+    // the actionable message names.
+    const { svc, deps } = harness()
+    deps.requireMachineForRepo = vi.fn()
+    deps.findRepoOnMachine = vi.fn(() => null)
+    const created = svc.create({
+      repoPath: '/r',
+      title: 'Remote',
+      startNow: false,
+      machineId: 'mach-b',
+    })
+    await svc.start(created.id)
+    ;(deps.requireMachineForRepo as ReturnType<typeof vi.fn>).mockImplementation(
+      (_m: string, p: string) => {
+        throw new Error(`machine 'laptop' has no repo registered at ${p}`)
+      },
+    )
+    expect(() => svc.addSession(created.id)).toThrow(/no repo registered at \/r/)
+    // …and an offline machine is still an offline machine.
+    ;(deps.requireMachineForRepo as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      throw new Error("machine 'laptop' is offline")
+    })
+    expect(() => svc.addSession(created.id)).toThrow(/is offline/)
+  })
+
+  it('worktree recreate resolves the repo on the pin and runs git THERE', async () => {
+    const { svc, deps } = harness()
+    deps.requireMachineForRepo = vi.fn()
+    deps.findRepoOnMachine = vi.fn(() => '/home/till/src/podium')
+    const created = svc.create({
+      repoPath: '/r',
+      title: 'Remote',
+      startNow: false,
+      machineId: 'mach-b',
+    })
+    await svc.start(created.id)
+    // The recorded worktree is gone — the recreate path.
+    deps.repoOp = vi.fn(async (op: string) =>
+      op === 'status'
+        ? { ok: false, output: 'cannot change to /w: no such file or directory' }
+        : { ok: true, output: '' },
+    ) as typeof deps.repoOp
+    await svc.ensureWorktree(created.id)
+    expect(deps.requireMachineForRepo).toHaveBeenCalledWith('mach-b', '/home/till/src/podium')
+    expect(deps.repoOp).toHaveBeenCalledWith(
+      'worktreeAddExisting',
+      '/home/till/src/podium',
+      expect.anything(),
+      'mach-b',
+    )
+  })
+
+  it('an unpinned issue never consults the cross-machine resolver', async () => {
+    const { svc, deps } = harness()
+    deps.findRepoOnMachine = vi.fn(() => null)
+    const created = svc.create({ repoPath: '/r', title: 'Local', startNow: false })
+    await svc.start(created.id)
+    svc.addSession(created.id)
+    expect(deps.findRepoOnMachine).not.toHaveBeenCalled()
+  })
+
   it('unpinned issues skip the machine pre-flight', async () => {
     const { svc, deps } = harness()
     deps.requireMachineForRepo = vi.fn(() => {
@@ -1308,7 +1397,9 @@ describe('IssueService.start', () => {
       await expect(svc.start(a.id, undefined, { model: 'opus' })).rejects.toThrow(
         /already started.*add-session/s,
       )
-      await expect(svc.start(a.id, undefined, { effort: 'high' })).rejects.toThrow(/already started/)
+      await expect(svc.start(a.id, undefined, { effort: 'high' })).rejects.toThrow(
+        /already started/,
+      )
       expect(deps.spawnSession).not.toHaveBeenCalled()
       // …while a plain re-start stays the no-op it has always been.
       expect((await svc.start(a.id)).seq).toBe(1)
