@@ -35,10 +35,39 @@ export default defineConfig({
   define: { __DEV__: 'false' },
   resolve: {
     conditions,
-    alias: {
-      'react-native': 'react-native-web',
-      'expo-sqlite': fileURLToPath(new URL('./test/expo-sqlite-absent.ts', import.meta.url)),
-    },
+    // Platform suffixes, as Metro and `expo export -p web` resolve them. A
+    // screen that imports `../terminal/TerminalPane` has only `.native.tsx` and
+    // `.web.tsx` on disk; without this the import is unresolvable and the
+    // failure names the module rather than the missing extension list.
+    extensions: ['.web.tsx', '.web.ts', '.tsx', '.ts', '.jsx', '.js', '.json'],
+    alias: [
+      { find: 'react-native', replacement: 'react-native-web' },
+      {
+        find: 'expo-sqlite',
+        replacement: fileURLToPath(new URL('./test/expo-sqlite-absent.ts', import.meta.url)),
+      },
+      // ONE COPY OF REACT, AND IT HAS TO BE THE ROOT'S.
+      //
+      // The workspace root and `apps/mobile` resolve different React versions,
+      // and `@testing-library/react` lives at the ROOT — externalized CJS, so a
+      // vite alias never rewrites what it requires. Left alone, a component test
+      // renders with the root's React while the component under test calls the
+      // app's, and every hook throws "Invalid hook call" — a failure about the
+      // harness that reads exactly like a failure about the component.
+      //
+      // So the app's imports are pointed at the root copy rather than the other
+      // way round. The exact-match regexes matter: a bare `'react'` alias is a
+      // PREFIX match and would rewrite `react-dom/client` and
+      // `react/jsx-runtime` with it.
+      {
+        find: /^react$/,
+        replacement: fileURLToPath(new URL('../../node_modules/react', import.meta.url)),
+      },
+      {
+        find: /^react-dom$/,
+        replacement: fileURLToPath(new URL('../../node_modules/react-dom', import.meta.url)),
+      },
+    ],
   },
   ssr: { resolve: { conditions } },
   test: {

@@ -2,7 +2,7 @@ import type { SessionId } from '@podium/model'
 import { MobileTerminalKeyboard, useTerminalSession } from '@podium/terminal-client-react'
 import { Mic } from 'lucide-react-native'
 import { Text, View } from 'react-native'
-import { useMobileClient } from '../client/MobileClientProvider'
+import { useConnected, useHub } from '../client/hooks'
 import { Icon } from '../components/Icon'
 import { color, font, mono } from '../theme/theme'
 
@@ -35,11 +35,12 @@ const MOBILE_APPEARANCE = {
 } as const
 
 export function TerminalPane({ sessionId }: { sessionId: SessionId }) {
-  const client = useMobileClient()
+  const hub = useHub()
+  const connected = useConnected()
   const { containerRef, toolbarRef, mountedRef, ready } = useTerminalSession({
-    hub: client.hub,
+    hub,
     sessionId,
-    enabled: client.connected,
+    enabled: connected,
     focusOnMount: true,
     appearance: MOBILE_APPEARANCE,
     test: new URLSearchParams(window.location.search).get('e2e') === '1',
@@ -47,8 +48,8 @@ export function TerminalPane({ sessionId }: { sessionId: SessionId }) {
 
   return (
     <View style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-      {!client.connected ? <Text style={statusStyle}>Connecting terminal…</Text> : null}
-      {client.connected && !ready ? <Text style={statusStyle}>Attaching terminal…</Text> : null}
+      {!connected ? <Text style={statusStyle}>Connecting terminal…</Text> : null}
+      {connected && !ready ? <Text style={statusStyle}>Attaching terminal…</Text> : null}
       {/* `minHeight: 0` (the desktop AgentPanel's `min-h-0`) lets this flex child
           SHRINK to the viewport. The old `minHeight: 260` floor meant a short
           phone screen could not contain the pane and the agent frame ran off the

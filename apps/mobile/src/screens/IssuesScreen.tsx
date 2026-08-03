@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router'
 import { ChevronRight, Layers, Plus } from 'lucide-react-native'
 import { useMemo, useState } from 'react'
 import { Pressable, SectionList, StyleSheet, Text, View } from 'react-native'
-import { useMobileClient } from '../client/MobileClientProvider'
+import { useIssues } from '../client/hooks'
 import { Icon } from '../components/Icon'
 import { IdSquare } from '../components/IdSquare'
 import { HeaderButton, Screen } from '../components/Screen'
@@ -33,14 +33,14 @@ const STAGE_LABEL: Record<IssueStage, string> = {
 
 export function IssuesScreen() {
   const router = useRouter()
-  const client = useMobileClient()
+  const issues = useIssues()
   const [showDone, setShowDone] = useState(false)
 
   // The board's population is the desktop board's population (POD-338): no
   // archived or tombstoned rows, no DRAFT vessels (the placeholder issue every
   // bare session lives in until it is titled — a session container, not work),
   // and no agent-audience decomposition at top level.
-  const board = useMemo(() => boardIssues(client.issues), [client.issues])
+  const board = useMemo(() => boardIssues(issues), [issues])
 
   const sections = useMemo(() => {
     const byStage = new Map<IssueStage, IssueWire[]>()
@@ -63,7 +63,7 @@ export function IssuesScreen() {
   // Proposals are inert until the operator decides [spec:SP-6144] — the deck
   // flow is the fast way through them, so the board leads with it whenever any
   // are waiting (POD-277).
-  const proposals = useMemo(() => buildScreeningQueue(client.issues), [client.issues])
+  const proposals = useMemo(() => buildScreeningQueue(issues), [issues])
 
   return (
     <Screen

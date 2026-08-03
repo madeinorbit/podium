@@ -1,10 +1,9 @@
-import type { SessionId } from '@podium/model'
 import { relativeTime } from '@podium/client-core/focus'
+import { useSlice } from '@podium/client-core/react'
 import {
   agentBadge,
   draftIssueLabel,
   formatClock,
-  groupUnifiedWorkRows,
   isDraftAgentVessel,
   type MotionPhase,
   pendingDecisionLabel,
@@ -17,20 +16,17 @@ import {
   rowWaitingCount,
   sessionDotTone,
   sessionTitle,
-  sidebarSections,
-  splitPinnedWork,
   type UnifiedIssueRow,
-  type UnifiedWorkGroup,
   type UnifiedWorkRow,
-  unifiedWorkList,
+  worklistSlice,
 } from '@podium/client-core/viewmodels'
-import type { IssueWire, SessionMeta } from '@podium/model'
+import type { IssueWire, SessionId, SessionMeta } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { useRouter } from 'expo-router'
 import { ArrowDownToLine, ChevronDown, ChevronRight, Pin } from 'lucide-react-native'
 import { useCallback, useMemo, useState } from 'react'
 import { Pressable, SectionList, StyleSheet, Text, View } from 'react-native'
-import { useMobileClient } from '../client/MobileClientProvider'
+import { useMobileStore, useSessions } from '../client/hooks'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { Icon } from '../components/Icon'
 import { IdSquare, type IdSquareState } from '../components/IdSquare'
@@ -40,7 +36,6 @@ import { BrailleSpinner, CountPill } from '../components/StatusGlyphs'
 import { TaskPeekSheet } from '../components/TaskPeekSheet'
 import { EmptyState, StatusDot } from '../components/ui'
 import { useCollapsed } from '../hooks/useCollapsed'
-import { useNow } from '../hooks/useNow'
 import { FLOW_SLATE, flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
 import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
@@ -48,12 +43,13 @@ import { color, font, mono, monoLabel, radius, sans, space } from '../theme/them
 /**
  * Work — the desktop sidebar, on the phone [POD-338].
  *
- * Not an approximation: the rows come from the SAME derivation the wide
- * sidebar runs (`sidebarSections` → `unifiedWorkList` → `splitPinnedWork` →
- * `groupUnifiedWorkRows`), so pinned band, project groups, manual sort order,
- * agent rosters, tuck-away, and the Snoozed / Closed folds all behave exactly
- * as they do at the desk. Only the row CHROME is native — one thumb-sized
- * two-line row per task, tapping through to the task screen.
+ * Not an approximation and no longer even a re-derivation: the rows come from
+ * the PUBLISHED worklist slice the wide sidebar reads (POD-331), so pinned band,
+ * project groups, manual sort order, agent rosters, tuck-away, and the Snoozed /
+ * Closed folds all behave exactly as they do at the desk — and cannot drift,
+ * because there is one derivation rather than one per platform. Only the row
+ * CHROME is native: one thumb-sized two-line row per task, tapping through to
+ * the task screen.
  */
 
 const SQUARE_STATE: Record<MotionPhase, IdSquareState> = {
@@ -114,19 +110,21 @@ interface WorkSection {
 
 export function WorkScreen() {
   const router = useRouter()
-  const client = useMobileClient()
-  const now = useNow(30_000)
+  const store = useMobileStore()
+  const sessionsAll = useSessions()
+  // THE SAME LIST THE DESKTOP SIDEBAR RENDERS, DERIVED ONCE (POD-331/POD-332).
+  // This screen used to call `sidebarSections` → `unifiedWorkList` →
+  // `splitPinnedWork` → `groupUnifiedWorkRows` itself, on a private
+  // `useNow(30_000)` clock. Two consequences, and the second is the one that
+  // mattered: the derivation ran per consumer, and the phone's clock was its
+  // own, so mobile and every other reader could disagree about whether a snooze
+  // had lapsed. The published slice derives once per snapshot and carries the
+  // clock it was derived against.
+  const { pinned, groups, allWorktreePaths, now } = useSlice(worklistSlice)
   const [peek, setPeek] = useState<IssueWire | null>(null)
   const [menuIssue, setMenuIssue] = useState<IssueWire | null>(null)
 
-  const { sections, allWorktreePaths, issueCount, agentCount } = useMemo(() => {
-    const nav = sidebarSections(client.repos, client.sessions, client.pins, now, client.issues)
-    const paths = [...nav.pinnedRepos, ...nav.repos].flatMap((repo) =>
-      repo.worktrees.map((worktree) => worktree.path),
-    )
-    const work = unifiedWorkList(nav, client.issues, client.sessions, paths, now)
-    const { pinned, rest } = splitPinnedWork(work)
-    const groups: UnifiedWorkGroup[] = groupUnifiedWorkRows(rest, null, false, now)
+  const { sections, issueCount, agentCount } = useMemo(() => {
     const list: WorkSection[] = []
     if (pinned.length > 0) {
       list.push({
@@ -152,7 +150,6 @@ export function WorkScreen() {
     const open = [...pinned, ...groups.flatMap((g) => g.rows)]
     return {
       sections: list,
-      allWorktreePaths: paths,
       issueCount: open.filter((row) => row.kind === 'issue').length,
       agentCount: new Set(
         open.flatMap((row) =>
@@ -163,14 +160,14 @@ export function WorkScreen() {
         ),
       ).size,
     }
-  }, [client.repos, client.sessions, client.pins, client.issues, now])
+  }, [pinned, groups])
 
   const openIssue = useCallback(
     (issue: IssueWire) => {
-      void client.markIssueRead(issue.id)
+      void store.markIssueRead(issue.id)
       router.push(`/issue/${encodeURIComponent(issue.id)}`)
     },
-    [client.markIssueRead, router],
+    [store.markIssueRead, router],
   )
 
   const menuActions = useMemo<SheetAction[]>(() => {
@@ -182,7 +179,7 @@ export function WorkScreen() {
       {
         label: issue.pinned ? 'Unpin' : 'Pin to top',
         onPress: () => {
-          void client.trpc.issues.update
+          void store.trpc.issues.update
             .mutate({ id: issue.id, patch: { pinned: !issue.pinned } })
             .catch(() => {})
         },
@@ -191,12 +188,12 @@ export function WorkScreen() {
         ? [
             {
               label: 'Bring back from Closed',
-              onPress: () => void client.setIssueTucked(issue.id, false),
+              onPress: () => void store.setIssueTucked(issue.id, false),
             },
           ]
         : []),
     ]
-  }, [menuIssue, openIssue, client.trpc, client.setIssueTucked])
+  }, [menuIssue, openIssue, store.trpc, store.setIssueTucked])
 
   const renderRow = (row: UnifiedWorkRow) => (
     <WorkRow
@@ -208,7 +205,7 @@ export function WorkScreen() {
       onLongPress={(issue) => setMenuIssue(issue)}
       onTuck={
         row.kind === 'issue' && rowAwaitsTuck(row, null, false, now)
-          ? () => void client.setIssueTucked(row.issue.id, true)
+          ? () => void store.setIssueTucked(row.issue.id, true)
           : undefined
       }
     />
@@ -269,7 +266,7 @@ export function WorkScreen() {
           />
         }
       />
-      <TaskPeekSheet issue={peek} sessions={client.sessions} onClose={() => setPeek(null)} />
+      <TaskPeekSheet issue={peek} sessions={sessionsAll} onClose={() => setPeek(null)} />
       <ActionSheet
         visible={menuIssue !== null}
         title={menuIssue ? `${issueDisplayRef(menuIssue)} ${menuIssue.title}` : ''}

@@ -216,8 +216,12 @@ const UNATTRIBUTABLE: { label: string; evidence: LegacyIdentityEvidence }[] = [
 
 async function open(args: {
   file: string
-  storage: StorageApi
+  storage: StorageApi & { keys?: () => string[] }
   evidence?: LegacyIdentityEvidence
+  /** WHO IS SIGNED IN. Omitted, the pre-identity default stands (the legacy
+   *  arm the cases above exercise); named, the store is opened under that
+   *  principal's namespace and nobody else's. */
+  principal?: string
   /** Defaults to a silent authority so cold-start cases cannot be rescued by a feed. */
   fetchChangesSince?: () => Promise<FeedChangesSinceReplyLenient>
 }) {
@@ -226,6 +230,8 @@ async function open(args: {
     openDatabase: () => openSqlite(args.file),
     deleteDatabase: () => rmSync(args.file, { force: true }),
     storage: args.storage,
+    ...(args.principal !== undefined ? { principal: args.principal } : {}),
+    ...(args.storage.keys !== undefined ? { enumerateKeys: args.storage.keys } : {}),
     evidence: args.evidence ?? SINGLE_ACCOUNT,
     fetchChangesSince: args.fetchChangesSince ?? SILENT_AUTHORITY,
     onDegraded: (message) => degradations.push(message),
@@ -644,5 +650,84 @@ describe('feed delivery through the assembled sink (POD-1241)', () => {
     )
     expect(opened.replica.rows('issues').map((r) => r.id)).toEqual(['i-delta'])
     expect(opened.replica.getCursor()).toBe(2)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// PER-PRINCIPAL LOCAL STATE ACROSS A USER SWITCH (POD-332, doc §3.1/§3.2)
+// ---------------------------------------------------------------------------
+//
+// WHY THIS IS A MOBILE CASE AND NOT A WEB ONE. The phone process is long-lived:
+// it is backgrounded and foregrounded rather than reloaded, so a user switch can
+// happen with the previous principal's engine still warm in the same process.
+// The failure it must not have is specific and silent — a cursor left by the
+// previous principal makes a NEW principal's empty slice look permanently
+// caught up, so `changesSince(N)` answers "nothing new" over a world that
+// person has never received, and no rung of the healing ladder detects it.
+//
+// Every case below therefore asserts on the SECOND principal, not the first.
+
+describe('local persistence is per-principal on mobile (doc §3.2)', () => {
+  it("a user switch in a live process never adopts the previous principal's rows or cursor", async () => {
+    const file = freshDatabaseFile()
+    const device = legacyDevice({})
+
+    // Alice, signed in, with durable rows and a cursor.
+    const alice = await open({ file, storage: device, principal: 'alice' })
+    seedIssue(alice.store, 'alice', { id: 'i-alice', title: 'alice private work' })
+    await alice.store.settled()
+    expect(alice.replica.rows('issues').map((r) => r.id)).toEqual(['i-alice'])
+    expect(alice.replica.getCursor()).toBe(1)
+
+    // BACKGROUND → FOREGROUND ACROSS A SWITCH. The process survives, so Alice's
+    // store is still open; Bob signs in and the engine is rebuilt on his
+    // namespace. Nothing is torn down first, which is exactly the case a
+    // reload-based test cannot reach.
+    const bob = await open({ file, storage: device, principal: 'bob' })
+
+    expect(bob.principal).toBe('bob')
+    expect(bob.replica.rows('issues')).toEqual([])
+    // THE SILENT ONE. A cursor is what makes an empty slice look caught up.
+    expect(bob.replica.getCursor()).toBeNull()
+    const hydrated = await bob.replica.hydrate()
+    expect(hydrated.issues).toEqual([])
+    expect(hydrated.cursor).toBeNull()
+
+    // And Alice's rows are not merely hidden from Bob's projection — they are
+    // under her own namespace, which is what makes the isolation structural
+    // rather than a filter someone could forget to apply.
+    expect(alice.replica.rows('issues').map((r) => r.id)).toEqual(['i-alice'])
+  })
+
+  it('and the same assertion PASSES for the same principal — so the case above is about identity, not emptiness', async () => {
+    // The failure proof. Without this, "Bob sees nothing" is indistinguishable
+    // from "a second open sees nothing", which would be a bug in the store
+    // rather than the isolation working.
+    const file = freshDatabaseFile()
+    const device = legacyDevice({})
+
+    const first = await open({ file, storage: device, principal: 'alice' })
+    seedIssue(first.store, 'alice', { id: 'i-alice', title: 'alice private work' })
+    await first.store.settled()
+
+    const again = await open({ file, storage: device, principal: 'alice' })
+    expect(again.replica.rows('issues').map((r) => r.id)).toEqual(['i-alice'])
+    expect(again.replica.getCursor()).toBe(1)
+  })
+
+  it("the AsyncStorage side-cache is namespaced too — a switch cannot read the other principal's keys", async () => {
+    const file = freshDatabaseFile()
+    const device = legacyDevice({})
+
+    await open({ file, storage: device, principal: 'alice' })
+    await open({ file, storage: device, principal: 'bob' })
+
+    // Both namespaces exist, each under its own root: no key is shared, so
+    // there is nothing for a new principal to inherit by accident.
+    const keys = device.keys()
+    expect(keys.some((k) => k.includes('principal.alice'))).toBe(true)
+    expect(keys.some((k) => k.includes('principal.bob'))).toBe(true)
+    expect(keys.some((k) => k.startsWith('podium.replica.issues'))).toBe(false)
+    expect(keys.some((k) => k.startsWith('podium.replica.cursor'))).toBe(false)
   })
 })

@@ -1,29 +1,42 @@
 /**
- * Mobile binding for the shared client store (arch-v2 P3, issue #192): the
- * hand-rolled useState metadata layer is gone — the Expo app runs the SAME
- * StoreProvider as the web (replica-backed entity reads, outboxed optimistic
- * mutations) so a cold offline start paints from local data and offline writes
- * replay on reconnect.
+ * THE MOBILE COMPOSITION ROOT — bootstrap, and nothing else (POD-332).
+ *
+ * The Expo app runs the SAME `StoreProvider` as the web (replica-backed entity
+ * reads, outboxed optimistic mutations), so a cold offline start paints from
+ * local data and offline writes replay on reconnect.
  *
  * READ PATH (POD-1241): KernelReplica + FeedAuthorityClient over the v2 feed,
  * with entity rows in SqliteSyncStore. WRITE PATH (POD-1220): the durable
  * outbox binding already on SQLite. AsyncStorage holds only side-cache
- * (ui-state, transcript windows) and the pre-migration legacy bridge.
+ * (ui-state, transcript windows) and the pre-migration legacy bridge — never
+ * per-user state, which is replicated rows read through the same slices and
+ * commands as the web (doc §3.3, POD-1076).
  *
- * `useMobileClient` keeps its existing shape: it is now a thin adapter over
- * the shared store (mobile-only extras — transcript paging, ask-user answers —
- * ride on the store's hub/trpc). Demo mode (`?demo=1`) stays a static fixture.
+ * WHAT THIS FILE STOPPED BEING. It used to also publish `MobileClientValue`: a
+ * 55-field object rebuilt in one `useMemo` with a 27-entry dependency array,
+ * re-exporting store fields under mobile-local names and re-deriving on the
+ * phone what the web read from a published slice. It is deleted. Screens read
+ * `@podium/client-core/react` (`useStore`, `useSlice`) through the thin typing
+ * seam in `./hooks`, so a slice fixed once is fixed on both platforms and the
+ * two can no longer disagree about the same list.
+ *
+ * Three facts survive that a store cannot answer — a fatal error, a storage
+ * degradation notice, and this principal's local erase. They live in `./shell`,
+ * which says why each one cannot come from a snapshot.
+ *
+ * Demo mode (`?demo=1`) is now a REAL store over an in-memory replica seeded
+ * with the fixtures, rather than a second hand-written value object: the design
+ * surface therefore exercises the same slices as the product.
  */
 
-import type { SpawnTarget } from '@podium/client-core'
 import { OUTBOX_COMMANDS, outboxCommandFor } from '@podium/client-core/engine'
-import { groupSessions, withoutShells } from '@podium/client-core/focus'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { type StoreNotices, StoreProvider, useStore } from '@podium/client-core/react'
 import {
   createAsyncStorageReplicaStorage,
   createKernelOutboxStorage,
   createKernelReplica,
+  createReplica,
   createSideCache,
   FeedAuthorityClient,
   FeedSink,
@@ -35,22 +48,8 @@ import {
 } from '@podium/client-core/replica'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import type { FeedSinkPort, SocketHub } from '@podium/client-core/socket-transport'
-import type { ServerConfig } from '@podium/client-core/transport'
-import type { RoutedUiState } from '@podium/client-core/ui-state'
-import type { PinState } from '@podium/client-core/viewmodels'
-import type {
-  AgentKind,
-  ConversationSummaryWire,
-  GitRepositoryWire,
-  IssueWire,
-  MachineWire,
-  SessionId,
-  SessionMeta,
-  TranscriptItem,
-  WorkState,
-} from '@podium/model'
-import { asSessionId } from '@podium/model'
-import type { FeedChangesSinceReplyLenient, HeadlessActivityEvent } from '@podium/protocol'
+import type { SessionId } from '@podium/model'
+import type { FeedChangesSinceReplyLenient } from '@podium/protocol'
 import {
   decideLegacyAdoption,
   LEGACY_STANDALONE_OUTBOX_KEY,
@@ -67,15 +66,7 @@ import type { OutboxAttribution, OutboxCommand } from '@podium/sync/outbox'
 import { type Cursor, Replica as KernelReplica, type ReplicaEvent } from '@podium/sync/replica'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as SQLite from 'expo-sqlite'
-import {
-  createContext,
-  type ReactNode,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-} from 'react'
+import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import { BootSplash } from '../components/BootSplash'
 import { fetchAuthStatus } from './auth'
 import {
@@ -85,151 +76,8 @@ import {
   DEMO_TRANSCRIPTS,
   demoEnabled,
 } from './demoData'
-import { type MobileTrpc, makeMobileTrpc, readServerConfig, type TranscriptPage } from './trpc'
-
-export interface MobileClientValue {
-  sessions: SessionMeta[]
-  issues: IssueWire[]
-  /** Repo registry + pin state — the Work list derives the desktop sidebar's
-   *  project groups from exactly these (POD-338). */
-  repos: GitRepositoryWire[]
-  machines: MachineWire[]
-  pins: PinState
-  conversations: ConversationSummaryWire[]
-  connected: boolean
-  cursor: number | null
-  error: string | null
-  /** Non-fatal things the user is owed (ADR 6 D4.4's never-silent posture):
-   *  storage degradation, and queued work a storage migration could not carry
-   *  across because it could not be attributed to this account. */
-  notice: string | null
-  serverConfig: ServerConfig
-  /** The app-wide transport hub; terminal views share it instead of opening another socket. */
-  hub: SocketHub | null
-  trpc: MobileTrpc
-  /** Principal-scoped UI preference store; no screen writes raw AsyncStorage. */
-  uiState: RoutedUiState
-  /** The same optimistic draft-issue launch used by desktop's New Agent control. */
-  spawnDraftAgent(args: { target: SpawnTarget; agentKind: AgentKind; firstPrompt?: string }): {
-    sessionId: SessionId
-    issueId: string
-  }
-  sessionById(sessionId: SessionId): SessionMeta | undefined
-  issueById(issueId: string): IssueWire | undefined
-  readTranscript(sessionId: SessionId, anchor?: string): Promise<TranscriptPage>
-  subscribeTranscript(
-    sessionId: SessionId,
-    since: string | undefined,
-    cb: (items: TranscriptItem[], meta: { reset: boolean }) => void,
-  ): () => void
-  subscribeHeadless(sessionId: SessionId, cb: (e: HeadlessActivityEvent) => void): () => void
-  /** Queue a chat message (offline-safe, idempotent; wakes a parked session). */
-  sendMessage(sessionId: SessionId, text: string): Promise<void>
-  answerQuestion(sessionId: SessionId, choices: { optionIndices: number[] }[]): Promise<void>
-  setArchived(sessionId: SessionId, archived: boolean): Promise<void>
-  setWorkState(sessionId: SessionId, workState: WorkState | null): Promise<void>
-  killSession(sessionId: SessionId): Promise<void>
-  continueSession(sessionId: SessionId): Promise<void>
-  renameSession(sessionId: SessionId, name: string): Promise<void>
-  snooze(sessionId: SessionId, until: string | null): Promise<void>
-  clearSnooze(sessionId: SessionId): Promise<void>
-  /** Tuck a finished issue into the Work list's Closed fold, or bring it back
-   *  (POD-333): server state, so the fold agrees across every client. */
-  setIssueTucked(id: string, tucked: boolean): Promise<void>
-  markIssueRead(id: string): Promise<void>
-  /** Round-robin triage order: needsYou, then idle, then working. */
-  focusSessionIds: string[]
-  outboxSize: number
-  /** Default sign-out policy: erase this principal's complete local namespace. */
-  eraseLocalData(): Promise<void>
-}
-
-const MobileClientContext = createContext<MobileClientValue | null>(null)
-
-/** Static fixture client for `?demo=1` — design/screenshot mode, no backend. */
-function demoValue(config: ServerConfig): MobileClientValue {
-  const sessions = DEMO_SESSIONS
-  const groups = groupSessions(withoutShells(sessions))
-  const noop = async () => {}
-  return {
-    sessions,
-    issues: DEMO_ISSUES,
-    repos: [],
-    machines: [],
-    pins: { panels: [], worktrees: [], repos: [] },
-    conversations: [],
-    connected: true,
-    cursor: null,
-    error: null,
-    notice: null,
-    serverConfig: config,
-    hub: null,
-    trpc: {
-      superagent: {
-        // The screen reads this thread's session transcript, so the demo thread
-        // must name a session DEMO_TRANSCRIPTS has rows for (POD-344).
-        listThreads: {
-          query: async () => [
-            {
-              id: 'global',
-              kind: 'global' as const,
-              podiumSessionId: DEMO_SUPER_SESSION,
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-              archived: false,
-            },
-          ],
-        },
-        history: { query: async () => [] },
-        sendTurn: { mutate: async () => ({ threadId: 'global' }) },
-        interruptTurn: { mutate: noop },
-        clear: { mutate: noop },
-      },
-      repos: { list: { query: async () => ['/home/dev/src/podium'] } },
-      // Demo mode has no backend: issue mutations resolve without changing the
-      // fixture, so screening/curation flows are drivable for design review.
-      issues: {
-        promote: { mutate: async () => ({}) },
-        start: { mutate: async () => ({}) },
-        close: { mutate: async () => ({}) },
-        update: { mutate: noop },
-        addComment: { mutate: noop },
-        clearNeedsHuman: { mutate: noop },
-        archive: { mutate: noop },
-      },
-    } as unknown as MobileTrpc,
-    uiState: {
-      get: () => null,
-      set: () => undefined,
-      subscribe: () => () => undefined,
-    },
-    spawnDraftAgent: () => ({ sessionId: asSessionId('demo-session'), issueId: 'demo-issue' }),
-    sessionById: (id) => sessions.find((s) => s.sessionId === id),
-    issueById: (id) => DEMO_ISSUES.find((i) => i.id === id),
-    readTranscript: async (sessionId) => ({
-      items: DEMO_TRANSCRIPTS[sessionId] ?? [],
-      hasMore: false,
-    }),
-    subscribeTranscript: () => () => {},
-    subscribeHeadless: () => () => {},
-    sendMessage: noop,
-    answerQuestion: noop,
-    setArchived: noop,
-    setWorkState: noop,
-    killSession: noop,
-    continueSession: noop,
-    renameSession: noop,
-    snooze: noop,
-    clearSnooze: noop,
-    setIssueTucked: noop,
-    markIssueRead: noop,
-    focusSessionIds: [...groups.needsYou, ...groups.idle, ...groups.working].map(
-      (s) => s.sessionId,
-    ),
-    outboxSize: 0,
-    eraseLocalData: noop,
-  }
-}
+import { type MobileShell, MobileShellProvider } from './shell'
+import { type MobileTrpc, makeMobileTrpc, readServerConfig } from './trpc'
 
 // ---------------------------------------------------------------------------
 // THE MOBILE REPLICA COMPOSITION ROOT (POD-1220 durable + POD-1241 wire v2)
@@ -492,10 +340,100 @@ export function MobileClientProvider({ children }: { children: ReactNode }) {
   return <LiveProvider>{children}</LiveProvider>
 }
 
+/**
+ * `?demo=1` — the design/screenshot surface, over a REAL store (POD-332).
+ *
+ * It used to be a second hand-written value object implementing the same 55
+ * fields with fixtures and no-ops, which meant the demo surface and the product
+ * surface could diverge silently: a screen ported to a slice would render from
+ * the slice in production and from the fixture object in demo, and only one of
+ * them was ever looked at.
+ *
+ * Now the fixtures are ROWS. A memory-backed replica is seeded with them and the
+ * ordinary `StoreProvider` runs over it, so every screen exercises the same
+ * slices, the same derivations and the same store actions it does in the
+ * product. What is stubbed is only the network: a tRPC surface that answers the
+ * handful of reads the fixture flows make and resolves mutations without
+ * changing the world.
+ *
+ * The boot enrichments (repos, pins, tab orders, superagent threads) fail
+ * harmlessly against that stub — the engine already runs every one of them
+ * detached and swallowed, because a cold offline boot must keep serving the
+ * replica instead of a connection error.
+ */
 function DemoProvider({ children }: { children: ReactNode }) {
   const config = useMemo(readServerConfig, [])
-  const value = useMemo(() => demoValue(config), [config])
-  return <MobileClientContext.Provider value={value}>{children}</MobileClientContext.Provider>
+  const trpc = useMemo(demoTrpc, [])
+  const routerWindow = useMemo(() => createMemoryRouterWindow(), [])
+  const createReplicaFn = useMemo(() => {
+    const replica = createReplica()
+    replica.applySnapshot('sessions', DEMO_SESSIONS)
+    replica.applySnapshot('issues', DEMO_ISSUES)
+    return () => replica
+  }, [])
+  return (
+    <StoreProvider
+      config={config}
+      api={trpc}
+      onFatalError={() => {}}
+      principal={asClientPrincipal(DEMO_PRINCIPAL)}
+      createReplicaFn={createReplicaFn}
+      routerWindow={routerWindow}
+    >
+      <MobileShellProvider value={DEMO_SHELL}>{children}</MobileShellProvider>
+    </StoreProvider>
+  )
+}
+
+/** The demo principal. Named rather than borrowed from a real id so nothing in
+ *  a demo run can land under a person's namespace. */
+const DEMO_PRINCIPAL = 'demo'
+
+const DEMO_SHELL: MobileShell = {
+  error: null,
+  notice: null,
+  eraseLocalData: async () => {},
+}
+
+/** The stubbed network for demo mode: the reads the fixture flows make, and
+ *  mutations that resolve without changing the fixture so screening and
+ *  curation flows stay drivable for design review. */
+function demoTrpc(): MobileTrpc {
+  const noop = async () => {}
+  return {
+    superagent: {
+      // The screen reads this thread's session transcript, so the demo thread
+      // must name a session DEMO_TRANSCRIPTS has rows for (POD-344).
+      listThreads: {
+        query: async () => [
+          { id: 'global', kind: 'global' as const, podiumSessionId: DEMO_SUPER_SESSION },
+        ],
+      },
+      sendTurn: { mutate: async () => ({ threadId: 'global' }) },
+      interruptTurn: { mutate: noop },
+      clear: { mutate: noop },
+    },
+    repos: { list: { query: async () => ['/home/dev/src/podium'] } },
+    sessions: {
+      transcriptRead: {
+        query: async ({ sessionId }: { sessionId: SessionId }) => ({
+          items: DEMO_TRANSCRIPTS[sessionId] ?? [],
+          hasMore: false,
+        }),
+      },
+      sendText: { mutate: noop },
+      answerAskUserQuestion: { mutate: noop },
+    },
+    issues: {
+      promote: { mutate: async () => ({}) },
+      start: { mutate: async () => ({}) },
+      close: { mutate: async () => ({}) },
+      update: { mutate: noop },
+      addComment: { mutate: noop },
+      clearNeedsHuman: { mutate: noop },
+      archive: { mutate: noop },
+    },
+  } as unknown as MobileTrpc
 }
 
 /**
@@ -584,6 +522,14 @@ function LiveProvider({ children }: { children: ReactNode }) {
     () => ({ error: (message) => setError(message), info: () => {} }),
     [],
   )
+  // The three composition-root facts no store snapshot can answer. Memoized on
+  // the values themselves so a shell consumer re-renders when one MOVES and not
+  // when the provider re-renders for another reason (see ./shell).
+  const erase = openedReplica?.erase
+  const shell = useMemo<MobileShell>(
+    () => ({ error, notice, eraseLocalData: erase ?? (async () => {}) }),
+    [error, notice, erase],
+  )
   if (!openedReplica) return <BootSplash />
   return (
     <StoreProvider
@@ -610,162 +556,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
       routerWindow={routerWindow}
     >
       <MobileHubAttach attachHub={openedReplica.attachHub} />
-      <LiveBridge
-        config={config}
-        error={error}
-        notice={notice}
-        eraseLocalData={openedReplica.erase}
-      >
-        {children}
-      </LiveBridge>
+      <MobileShellProvider value={shell}>{children}</MobileShellProvider>
     </StoreProvider>
   )
-}
-
-/** Adapts the shared store to the MobileClientValue the screens consume. */
-function LiveBridge({
-  config,
-  error,
-  notice,
-  eraseLocalData,
-  children,
-}: {
-  config: ServerConfig
-  error: string | null
-  notice: string | null
-  eraseLocalData: () => Promise<void>
-  children: ReactNode
-}) {
-  const store = useStore<MobileTrpc>()
-  const { hub, trpc, replica, sessions, issues, repos, machines, pins, conversations, outboxSize } =
-    store
-  const [connected, setConnected] = useState(() => hub.connectionHealth().status !== 'down')
-  useEffect(() => hub.onConnectionHealth((health) => setConnected(health.status !== 'down')), [hub])
-
-  const focusSessionIds = useMemo(() => {
-    const groups = groupSessions(withoutShells(sessions))
-    return [...groups.needsYou, ...groups.idle, ...groups.working].map((s) => s.sessionId)
-  }, [sessions])
-
-  const readTranscript = useCallback(
-    (sessionId: SessionId, anchor?: string) =>
-      trpc.sessions.transcriptRead.query({
-        sessionId,
-        ...(anchor ? { anchor } : {}),
-        direction: 'before',
-        limit: 80,
-      }),
-    [trpc],
-  )
-  const subscribeTranscript = useCallback(
-    (
-      sessionId: SessionId,
-      since: string | undefined,
-      cb: (items: TranscriptItem[], meta: { reset: boolean }) => void,
-    ) => hub.subscribeTranscript(sessionId, since, cb),
-    [hub],
-  )
-  const subscribeHeadless = useCallback(
-    (sessionId: SessionId, cb: (e: HeadlessActivityEvent) => void) =>
-      hub.subscribeHeadless(sessionId, cb),
-    [hub],
-  )
-  const sendMessage = useCallback(
-    async (sessionId: SessionId, text: string) => {
-      const trimmed = text.trim()
-      if (!trimmed) return
-      // Optimistic + outboxed via the shared store (survives offline reloads).
-      await store.resumeAndSend(sessionId, trimmed)
-    },
-    [store.resumeAndSend],
-  )
-  const answerQuestion = useCallback(
-    async (sessionId: SessionId, choices: { optionIndices: number[] }[]) => {
-      await trpc.sessions.answerAskUserQuestion.mutate({ sessionId, choices })
-    },
-    [trpc],
-  )
-
-  const value = useMemo<MobileClientValue>(
-    () => ({
-      sessions,
-      issues,
-      repos,
-      machines,
-      pins,
-      conversations,
-      connected,
-      cursor: replica.getCursor(),
-      error,
-      notice,
-      serverConfig: config,
-      hub,
-      trpc,
-      uiState: store.uiState,
-      spawnDraftAgent: store.spawnDraftAgent,
-      sessionById: (sessionId) => sessions.find((s) => s.sessionId === sessionId),
-      issueById: (issueId) => issues.find((i) => i.id === issueId),
-      focusSessionIds,
-      outboxSize,
-      eraseLocalData,
-      readTranscript,
-      subscribeTranscript,
-      subscribeHeadless,
-      sendMessage,
-      answerQuestion,
-      // Curation actions come straight from the shared store: optimistic
-      // replica apply + outboxed round-trip (mobile gains offline writes).
-      setArchived: store.archiveSession,
-      setWorkState: store.setWorkState,
-      killSession: store.killSession,
-      continueSession: store.continueSession,
-      renameSession: store.renameSession,
-      snooze: store.setSnooze,
-      clearSnooze: store.clearSnooze,
-      setIssueTucked: store.setIssueTucked,
-      markIssueRead: store.markIssueRead,
-    }),
-    [
-      sessions,
-      issues,
-      repos,
-      machines,
-      pins,
-      conversations,
-      connected,
-      replica,
-      error,
-      notice,
-      config,
-      hub,
-      trpc,
-      store.spawnDraftAgent,
-      focusSessionIds,
-      outboxSize,
-      store.uiState,
-      eraseLocalData,
-      readTranscript,
-      subscribeTranscript,
-      subscribeHeadless,
-      sendMessage,
-      answerQuestion,
-      store.archiveSession,
-      store.setWorkState,
-      store.killSession,
-      store.continueSession,
-      store.renameSession,
-      store.setSnooze,
-      store.clearSnooze,
-      store.setIssueTucked,
-      store.markIssueRead,
-    ],
-  )
-
-  return <MobileClientContext.Provider value={value}>{children}</MobileClientContext.Provider>
-}
-
-export function useMobileClient(): MobileClientValue {
-  const value = useContext(MobileClientContext)
-  if (!value) throw new Error('useMobileClient must be used inside MobileClientProvider')
-  return value
 }

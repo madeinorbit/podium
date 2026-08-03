@@ -1,11 +1,15 @@
-import type { SessionId } from '@podium/model'
-import { mergeTranscriptItems, prependTranscriptItems } from '@podium/client-core/viewmodels'
-import type { TranscriptItem } from '@podium/model'
+import { useSlice } from '@podium/client-core/react'
+import {
+  mergeTranscriptItems,
+  prependTranscriptItems,
+  superagentSlice,
+} from '@podium/client-core/viewmodels'
+import type { SessionId, TranscriptItem } from '@podium/model'
 import { Eraser } from 'lucide-react-native'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { useMobileClient } from '../client/MobileClientProvider'
+import { readTranscriptPage, useHub, useMobileStore } from '../client/hooks'
 import { Composer } from '../components/Composer'
 import { Icon } from '../components/Icon'
 import { Screen } from '../components/Screen'
@@ -36,15 +40,31 @@ import { color, font, mono, monoLabel, sans, space } from '../theme/theme'
 const THREAD_ID = 'global'
 
 export function SuperagentScreen() {
-  const client = useMobileClient()
-  const { trpc, subscribeHeadless, readTranscript, subscribeTranscript, answerQuestion } = client
+  const store = useMobileStore()
+  const trpc = store.trpc
+  const hub = useHub()
+  // The signed-in user's threads, from the store's published slice — the same
+  // one the desktop superagent column reads. The screen used to fetch the list
+  // itself on mount AND poll it on a 5s interval, which is a second copy of
+  // state the store already holds, with its own staleness.
+  //
+  // The slice keys on `store.superThreadId`, which is 'global' by default and
+  // which this screen never changes: one thread, always global, is the phone's
+  // whole superagent model (see the header). `threadById` is deliberately not
+  // used — the slice exposes no lookup that takes a bare id and goes looking,
+  // which is what makes another user's thread unaddressable from here
+  // (doc §3.1.6 S2).
+  const superagent = useSlice(superagentSlice)
   const insets = useSafeAreaInsets()
   const [items, setItems] = useState<TranscriptItem[]>([])
   const [liveText, setLiveText] = useState('')
   const [statusLabel, setStatusLabel] = useState<string | null>(null)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [podiumSid, setPodiumSid] = useState<SessionId | undefined>(undefined)
+  // The thread's headless session: the slice's answer, until a turn's ack hands
+  // back a fresher one (the FIRST turn learns its session from the ack alone).
+  const [ackedSid, setAckedSid] = useState<SessionId | undefined>(undefined)
+  const podiumSid = ackedSid ?? superagent.activeSessionId
   const [pendingTurns, setPendingTurns] = useState<PendingTurn[]>([])
   // Monotonic per-mount counter behind each optimistic row's id. Date.now()
   // alone collides when two sends land in the same millisecond.
@@ -56,23 +76,12 @@ export function SuperagentScreen() {
     loading: false,
   })
 
-  // The global thread's headless session id — the transcript source — plus the
-  // query-backed running flag, so opening the tab mid-turn shows the spinner.
+  // Opening the tab mid-turn shows the spinner: the thread carries a
+  // query-backed running flag for exactly this late-join case, because
+  // headlessActivity frames are ephemeral.
   useEffect(() => {
-    let alive = true
-    void trpc.superagent.listThreads
-      .query()
-      .then((list) => {
-        if (!alive) return
-        const thread = list.find((t) => t.id === THREAD_ID)
-        setPodiumSid(thread?.podiumSessionId)
-        if (thread?.turnRunning) setRunning(true)
-      })
-      .catch(() => {})
-    return () => {
-      alive = false
-    }
-  }, [trpc])
+    if (superagent.active?.turnRunning) setRunning(true)
+  }, [superagent.active?.turnRunning])
 
   // The conversation itself, read and streamed from the thread's headless
   // session exactly as SessionScreen does for a normal chat.
@@ -84,11 +93,11 @@ export function SuperagentScreen() {
     paging.current = { hasMore: false, loading: false }
     const attach = (since: string | undefined) => {
       if (!alive) return
-      unsubscribe = subscribeTranscript(podiumSid, since, (delta, meta) => {
+      unsubscribe = hub.subscribeTranscript(podiumSid, since, (delta, meta) => {
         setItems((prev) => (meta.reset ? delta : mergeTranscriptItems(prev, delta)))
       })
     }
-    readTranscript(podiumSid)
+    readTranscriptPage(trpc, podiumSid)
       .then((page) => {
         if (!alive) return
         setItems(page.items)
@@ -100,13 +109,13 @@ export function SuperagentScreen() {
       alive = false
       unsubscribe?.()
     }
-  }, [readTranscript, subscribeTranscript, podiumSid])
+  }, [trpc, hub, podiumSid])
 
   const loadOlder = useCallback(() => {
     const p = paging.current
     if (!podiumSid || !p.hasMore || p.loading || !p.head) return
     p.loading = true
-    readTranscript(podiumSid, p.head)
+    readTranscriptPage(trpc, podiumSid, p.head)
       .then((page) => {
         paging.current = { head: page.head, hasMore: page.hasMore, loading: false }
         setItems((prev) => prependTranscriptItems(prev, page.items))
@@ -114,14 +123,14 @@ export function SuperagentScreen() {
       .catch(() => {
         paging.current.loading = false
       })
-  }, [readTranscript, podiumSid])
+  }, [trpc, podiumSid])
 
   // Live turn activity: the in-progress assistant text and the turn boundaries.
   // The settled reply arrives on the transcript stream, so turn-end only has to
   // put the chrome back.
   useEffect(() => {
     if (!podiumSid) return
-    return subscribeHeadless(podiumSid, (event) => {
+    return hub.subscribeHeadless(podiumSid, (event) => {
       if (event.kind === 'turn-start') {
         setRunning(true)
         setLiveText('')
@@ -149,7 +158,7 @@ export function SuperagentScreen() {
         setStatusLabel(null)
       }
     })
-  }, [subscribeHeadless, podiumSid])
+  }, [hub, podiumSid])
 
   // headlessActivity frames are ephemeral, and the FIRST turn only learns its
   // session from the ack — so the subscription can attach after that turn's
@@ -158,21 +167,19 @@ export function SuperagentScreen() {
   // cannot race a turn that was just dispatched.
   useEffect(() => {
     if (!running) return
-    const id = setInterval(() => {
-      void trpc.superagent.listThreads
-        .query()
-        .then((list) => {
-          const thread = list.find((t) => t.id === THREAD_ID)
-          if (thread && !thread.turnRunning) {
-            setRunning(false)
-            setLiveText('')
-            setStatusLabel(null)
-          }
-        })
-        .catch(() => {})
-    }, 5000)
+    // Refresh the STORE's thread list rather than querying a private copy: the
+    // slice above then reports the flag, and one refetch serves every reader.
+    const id = setInterval(() => void store.refreshSuperThreads().catch(() => {}), 5000)
     return () => clearInterval(id)
-  }, [running, trpc])
+  }, [running, store.refreshSuperThreads])
+
+  useEffect(() => {
+    if (running && superagent.active?.turnRunning === false) {
+      setRunning(false)
+      setLiveText('')
+      setStatusLabel(null)
+    }
+  }, [running, superagent.active?.turnRunning])
 
   // The settled conversation IS the session transcript — see superagent-transcript.ts
   // for why the legacy buffer is not folded in.
@@ -194,7 +201,7 @@ export function SuperagentScreen() {
       void trpc.superagent.sendTurn
         .mutate({ threadId: THREAD_ID, text })
         .then((ack) => {
-          if (ack?.podiumSessionId) setPodiumSid(ack.podiumSessionId)
+          if (ack?.podiumSessionId) setAckedSid(ack.podiumSessionId)
         })
         .catch((e: unknown) => {
           const message = e instanceof Error ? e.message : String(e)
@@ -247,13 +254,14 @@ export function SuperagentScreen() {
       // session's transcript is no longer this thread's: forget it and let the
       // next turn's ack hand back a fresh session.
       setItems([])
-      setPodiumSid(undefined)
+      setAckedSid(undefined)
+      void store.refreshSuperThreads().catch(() => {})
       setPendingTurns([])
       setLiveText('')
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     }
-  }, [trpc])
+  }, [trpc, store.refreshSuperThreads])
 
   // The streaming answer rides the transcript as a live assistant item, so the
   // in-progress turn wears the same prose voice as the settled one.
@@ -312,7 +320,11 @@ export function SuperagentScreen() {
               onRetryPending={retry}
               onLoadOlder={loadOlder}
               onAnswer={async (choices) => {
-                if (podiumSid) await answerQuestion(podiumSid, choices)
+                if (podiumSid)
+                  await trpc.sessions.answerAskUserQuestion.mutate({
+                    sessionId: podiumSid,
+                    choices,
+                  })
               }}
             />
           )}

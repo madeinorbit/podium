@@ -1,8 +1,7 @@
-import type { SessionId } from '@podium/model'
 import { latestPendingQuestion } from '@podium/client-core/viewmodels'
-import type { TranscriptItem } from '@podium/model'
+import type { SessionId, TranscriptItem } from '@podium/model'
 import { useEffect, useState } from 'react'
-import { useMobileClient } from '../client/MobileClientProvider'
+import { readTranscriptPage, useTrpc } from '../client/hooks'
 
 /**
  * One-shot fetch of the session's latest unanswered AskUserQuestion, refetched
@@ -11,7 +10,7 @@ import { useMobileClient } from '../client/MobileClientProvider'
  * transcript subscription per card.
  */
 export function usePendingQuestion(sessionId: SessionId, enabled: boolean, revision?: string) {
-  const { readTranscript } = useMobileClient()
+  const trpc = useTrpc()
   const [item, setItem] = useState<TranscriptItem | null>(null)
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: `revision` intentionally re-triggers the fetch on phase changes
@@ -21,7 +20,7 @@ export function usePendingQuestion(sessionId: SessionId, enabled: boolean, revis
       return
     }
     let alive = true
-    readTranscript(sessionId)
+    readTranscriptPage(trpc, sessionId)
       .then((page) => {
         if (alive) setItem(latestPendingQuestion(page.items))
       })
@@ -31,7 +30,7 @@ export function usePendingQuestion(sessionId: SessionId, enabled: boolean, revis
     return () => {
       alive = false
     }
-  }, [readTranscript, sessionId, enabled, revision])
+  }, [trpc, sessionId, enabled, revision])
 
   return item
 }

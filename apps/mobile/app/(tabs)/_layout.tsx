@@ -1,14 +1,14 @@
 import { groupSessions, withoutShells } from '@podium/client-core/focus'
 import { Tabs } from 'expo-router'
 import type { ComponentProps } from 'react'
-import { useMobileClient } from '../../src/client/MobileClientProvider'
+import { useSessions } from '../../src/client/hooks'
 import { TabBar } from '../../src/components/TabBar'
 
 /** Tray keeps decisions first; Work mirrors the desktop sidebar's issue-first
  * navigation; Tasks is the full status board; Super Agent is chat-only. */
 export default function TabsLayout() {
-  const client = useMobileClient()
-  const needsYou = groupSessions(withoutShells(client.sessions)).needsYou.length
+  const sessions = useSessions()
+  const needsYou = groupSessions(withoutShells(sessions)).needsYou.length
 
   return (
     <Tabs

@@ -5,7 +5,8 @@ import { useRouter } from 'expo-router'
 import { Settings } from 'lucide-react-native'
 import { useMemo, useState } from 'react'
 import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
-import { useMobileClient } from '../client/MobileClientProvider'
+import { useConnected, useIssues, useMobileStore, useSessions } from '../client/hooks'
+import { useMobileShell } from '../client/shell'
 import { AskQuestionCard } from '../components/AskQuestionCard'
 import { Icon } from '../components/Icon'
 import { IdSquare } from '../components/IdSquare'
@@ -84,11 +85,15 @@ function AskCard({
 
 export function TrayScreen() {
   const router = useRouter()
-  const client = useMobileClient()
+  const store = useMobileStore()
+  const allSessions = useSessions()
+  const issues = useIssues()
+  const connected = useConnected()
+  const { error } = useMobileShell()
   const now = Date.now()
   const [lightbox, setLightbox] = useState<{ uri: string; label: string } | null>(null)
 
-  const sessions = useMemo(() => withoutShells(client.sessions), [client.sessions])
+  const sessions = useMemo(() => withoutShells(allSessions), [allSessions])
   const askSessions = useMemo(
     () => sessions.filter((s) => !s.archived && s.agentState?.phase === 'needs_user'),
     [sessions],
@@ -111,27 +116,27 @@ export function TrayScreen() {
   // [POD-198], it is dismissed from the Work list's Closed fold.
   const decisions = useMemo(
     () =>
-      deriveTrayItems(client.issues, sessions).filter(
+      deriveTrayItems(issues, sessions).filter(
         // A session's inline question card covers its issue's needsHuman card.
         (i) => !(i.kind === 'question' && askIssueIds.has(i.issue.id)),
       ),
-    [client.issues, askIssueIds],
+    [issues, askIssueIds],
   )
   const needsYouCount = askSessions.length + erroredSessions.length + decisions.length
 
   const issueFor = (session: SessionMeta): IssueWire | undefined =>
-    session.issueId ? client.issueById(session.issueId) : undefined
+    session.issueId ? issues.find((issue) => issue.id === session.issueId) : undefined
 
   const cardActions: TrayCardActions = {
-    onOfferAction: (session, prompt) => void client.sendMessage(session.sessionId, prompt),
+    onOfferAction: (session, prompt) => void store.resumeAndSend(session.sessionId, prompt),
     onOpenSession: (session) => router.push(`/session/${session.sessionId}`),
     onOpenIssue: (issue) => router.push(`/issue/${encodeURIComponent(issue.id)}`),
-    onResolve: (issue) => void client.trpc.issues.clearNeedsHuman.mutate({ id: issue.id }),
+    onResolve: (issue) => void store.trpc.issues.clearNeedsHuman.mutate({ id: issue.id }),
     onOpenArtifact: (issue, artifact: IssuePanelArtifact) => {
       const kind = artifactKind(artifact.entry ?? artifact.path)
       if (artifact.artifactId && kind === 'image') {
         setLightbox({
-          uri: `${client.serverConfig.httpOrigin}/files/artifact/${encodeURIComponent(issue.id)}/${encodeURIComponent(artifact.artifactId)}/${artifact.entry ?? ''}`,
+          uri: `${store.httpOrigin}/files/artifact/${encodeURIComponent(issue.id)}/${encodeURIComponent(artifact.artifactId)}/${artifact.entry ?? ''}`,
           label: artifact.title ?? artifact.path,
         })
       } else {
@@ -146,7 +151,7 @@ export function TrayScreen() {
     <Screen
       large
       title="Tray"
-      subtitle={client.connected ? 'all tasks · newest first' : 'reconnecting…'}
+      subtitle={connected ? 'all tasks · newest first' : 'reconnecting…'}
       right={
         <>
           {needsYouCount > 0 ? <CountPill count={needsYouCount} /> : null}
@@ -163,7 +168,7 @@ export function TrayScreen() {
         </>
       }
     >
-      {client.error ? <Text style={styles.error}>{client.error}</Text> : null}
+      {error ? <Text style={styles.error}>{error}</Text> : null}
       <View style={styles.queue}>
         <ScrollView contentContainerStyle={styles.queueContent}>
           {askSessions.map((session) => (
@@ -171,9 +176,14 @@ export function TrayScreen() {
               key={session.sessionId}
               session={session}
               issue={issueFor(session)}
-              issues={client.issues}
+              issues={issues}
               now={now}
-              onAnswer={(choices) => client.answerQuestion(session.sessionId, choices)}
+              onAnswer={async (choices) => {
+                await store.trpc.sessions.answerAskUserQuestion.mutate({
+                  sessionId: session.sessionId,
+                  choices,
+                })
+              }}
               onOpenSession={() => router.push(`/session/${session.sessionId}`)}
             />
           ))}
@@ -192,7 +202,7 @@ export function TrayScreen() {
                   accessibilityRole="button"
                   accessibilityLabel="Continue after error"
                   style={styles.continueBtn}
-                  onPress={() => void client.continueSession(session.sessionId)}
+                  onPress={() => void store.continueSession(session.sessionId)}
                 >
                   <Text style={styles.continueText}>Continue</Text>
                 </Pressable>
@@ -211,9 +221,9 @@ export function TrayScreen() {
             <TrayCard
               key={`${item.kind}:${item.issue.id}:${item.since}`}
               item={item}
-              issues={client.issues}
+              issues={issues}
               sessions={sessions}
-              httpOrigin={client.serverConfig.httpOrigin}
+              httpOrigin={store.httpOrigin}
               actions={cardActions}
               now={now}
             />

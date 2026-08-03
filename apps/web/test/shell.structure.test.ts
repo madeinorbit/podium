@@ -33,14 +33,37 @@ describe('web shell structure', () => {
     expect(src).not.toContain('ConnectScreen')
   })
 
+  // THE UNIT IS THE FEATURE, NOT THE FILE (POD-332, after POD-331/POD-407).
+  //
+  // These two cases used to grep `SidebarUnified.tsx` alone. That file has since
+  // been decomposed — `sidebarSections` moved behind the published worklist
+  // slice, `RepoScanFlow` into `spawn-row.tsx`, the group label into
+  // `work-folds.tsx` — so the greps went red while the CONTRACT they guard was
+  // intact and, worse, would have gone GREEN again on a file that had lost the
+  // behaviour and kept the word. A source-scan whose subject is one file
+  // measures where code lives; what these assert is that the FEATURE still
+  // composes these pieces, so they read the feature.
+  const readWorklist = () =>
+    [
+      'features/worklist/SidebarUnified.tsx',
+      'features/worklist/spawn-row.tsx',
+      'features/worklist/work-folds.tsx',
+      'features/worklist/use-unified-work.ts',
+    ]
+      .map(read)
+      .join('\n')
+
   it('sidebar renders always-on project groups and the pinned issue section (#41, POD-166/169)', () => {
-    const src = read('features/worklist/SidebarUnified.tsx')
+    const src = readWorklist()
     expect(src).toContain('sidebarSections')
     expect(src).toContain('groupUnifiedWorkRows')
     expect(src).toContain('ProjectGroupLabel')
     // Panel-pinning is retired (POD-169) — issue pinning renders its own section.
     expect(src).toContain('splitPinnedWork')
-    expect(src).not.toContain('setPinned')
+    // The negative invariant stays scoped to the component that must not regain
+    // it: widening a "must NOT contain" over more files only makes it stricter,
+    // but naming the file is what makes the failure legible.
+    expect(read('features/worklist/SidebarUnified.tsx')).not.toContain('setPinned')
   })
 
   it('workspace tabs keep the fixed actions outside the sortable scrolling strip', () => {
@@ -54,7 +77,8 @@ describe('web shell structure', () => {
 
   it('repo add flow uses the scan flow (#227)', () => {
     // AppToolsRow owns the scan flow; desktop composes it into the sidebar.
-    expect(read('features/worklist/SidebarUnified.tsx')).toContain('RepoScanFlow')
+    // AppToolsRow lives in `spawn-row.tsx` since POD-407.
+    expect(readWorklist()).toContain('RepoScanFlow')
   })
 
   it('initial store load does not block on a conversation scan', () => {
