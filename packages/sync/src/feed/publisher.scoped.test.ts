@@ -109,6 +109,12 @@ const batch = (throughSeq: number, changes: readonly ScopedChange[]): ScopedDeli
 const deltas = (frames: readonly ServerFrame[]): readonly DeltaFrame[] =>
   frames.filter((f): f is DeltaFrame => f.kind === 'delta')
 
+/** The change rows a drained frame actually carried, compared by value. */
+const rowsOf = (frames: readonly ServerFrame[]): { seq: number; entityId: string }[] =>
+  deltas(frames).flatMap((f) =>
+    f.changes.map((c) => ({ seq: c.seq, entityId: c.entityId })),
+  )
+
 /** What one connection saw: the ids it received, and where its position ended. */
 const seen = (frames: readonly ServerFrame[]) => ({
   ids: deltas(frames).flatMap((f) => f.changes.map((c) => c.entityId)),
@@ -373,5 +379,49 @@ describe('evict rides the ordinary frame (D14.1)', () => {
     // here would let a replica install content for an entity it just lost.
     const evicted = frame?.changes.find((c) => c.op === 'evict')
     expect(evicted && 'payload' in evicted).toBe(false)
+  })
+})
+
+describe('two agents of ONE identity under DIFFERENT delegations are different audiences', () => {
+  /**
+   * THE SLICE, NOT THE KEY (POD-1196).
+   *
+   * `principalRoutingId` is the publisher's AUDIENCE-EQUALITY test (`publishTo`
+   * skips any connection whose id differs), so an id that dropped the delegation
+   * would make these two connections one audience and deliver the broadly-scoped
+   * agent's evaluated rows to the narrowly-scoped one.
+   *
+   * Asserting the two ids differ would NOT catch that: a key-only test stays
+   * green if the key changes while the audience filter does not, and the filter
+   * is the half that leaks. So this asserts what each connection RECEIVES.
+   */
+  const NARROW = testAgent('agent-7', 'ada', 'del-narrow')
+  const BROAD = testAgent('agent-7', 'ada', 'del-broad')
+
+  it('delivers an evaluated slice ONLY to the delegation it was evaluated for', () => {
+    const publisher = feed()
+    const narrow = publisher.connect('narrow-1', 0, NARROW)
+    const broad = publisher.connect('broad-1', 0, BROAD)
+
+    // Evaluated for BROAD. NARROW must not see the row, and must not have its
+    // cursor moved by a range it was never evaluated against.
+    publisher.publish(BROAD, batch(1, [change(1, 's2')]))
+
+    expect(rowsOf(broad.drain())).toEqual([{ seq: 1, entityId: 's2' }])
+    expect(broad.drain()).toEqual([])
+    expect(narrow.drain()).toEqual([])
+  })
+
+  it('still treats two connections of the SAME delegation as one audience', () => {
+    // The complement: without this, "separate them" could be satisfied by
+    // separating every connection, which would break D9.4's two-tabs rule.
+    const publisher = feed()
+    const tab1 = publisher.connect('tab-1', 0, BROAD)
+    const tab2 = publisher.connect('tab-2', 0, BROAD)
+
+    publisher.publish(BROAD, batch(1, [change(1, 's2')]))
+
+    expect(rowsOf(tab1.drain())).toEqual([{ seq: 1, entityId: 's2' }])
+    expect(rowsOf(tab2.drain())).toEqual([{ seq: 1, entityId: 's2' }])
   })
 })
