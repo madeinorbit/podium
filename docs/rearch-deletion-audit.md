@@ -234,6 +234,69 @@ table is the defect.** The rule the rows apply:
   is recorded *and* filed, so the phase that owns the deletion inherits it
   instead of it riding along invisibly inside a larger number.
 
+### 2026-08-03 — POD-333 sweeps the named shims and re-cuts the unit (21 → 0)
+
+**A DELETION AND A UNIT CORRECTION IN ONE COMMIT, so read the two apart before
+trusting the number.** Baseline `9eea645d` reported `reexport-shims` at 21. The
+new baseline is 0, and that is *not* 21 deletions.
+
+**What was deleted (16 files, 2 blocks, 1 forward).** Sixteen cross-workspace
+re-export tombstones — `apps/server/src/{auth-store,issue-client,issue-commands}.ts`
+and thirteen under `apps/web/src` — each of which said in its own doc comment why
+it existed ("re-exported here so apps/server import sites stay stable",
+"Re-export shim (arch-v2 P3)", "Compatibility re-export"). Import sites moved to
+the real homes. Two republication BLOCKS inside otherwise legitimate barrels went
+with them (`packages/protocol/src/index.ts`'s branded-id block, which its own
+comment scheduled for deletion by POD-362/POD-363 — both since closed — and
+`packages/client-core/src/viewmodels/index.ts`'s "last residue of the deleted
+`derive.ts`"), plus one blanket forward beside real code
+(`apps/web/src/lib/derive.ts`).
+
+**What was a unit correction (5 sites, code unchanged).** The old unit was
+"app-level all-re-export file; `packages/*/src/**/index.ts` excluded" — LOCATION
+as a proxy for the thing. Both halves were wrong at the margin, in opposite
+directions. It counted `apps/server/src/index.ts` — the `@podium/server` package
+entrypoint whose whole job is publishing `startServer` and the `AppRouter` type —
+as debt, and it would have MISSED a shim written at `packages/x/src/index.ts`,
+which is the most natural place to put one. Finding 16 settled the criterion in
+prose ("package index barrels are legitimate public API; the deletion criterion
+is NAMED COMPATIBILITY SHIMS"); this commit settles it in the detector, which now
+reads WHERE THE RE-EXPORTS POINT. A barrel over its own directory re-exports
+modules that live where the barrel lives: nothing moved, so no import path is
+being held stable and there is nothing to delete. Five files change classification
+without changing a byte: `apps/daemon/src/index.ts`, `apps/server/src/index.ts`,
+its `modules/{messaging,superagent}/index.ts` barrels, and
+`apps/web/src/lib/motion/index.ts`.
+
+So: **21 = 16 real shims + 5 misclassified barrels**, and the new unit reports the
+16, which are now gone.
+
+**The widening paid, and can be shown to fail.** Reading the edge rather than the
+location also brought two *packages* barrels into view that the old unit could
+never have seen, and both were real: they are the two republication blocks listed
+above. A third form was added in the same pass — a blanket `export *` forward in a
+file that ALSO has real code — because `apps/web/src/lib/derive.ts` was exactly
+that shape, was a named compatibility shim by its own comment, and was invisible
+to a re-export-ONLY unit for two phases. It was found by a typecheck error, not
+by this audit. Each form was planted and observed to be counted before the code
+was deleted; the star-form and blanket-form cases are pinned in
+`scripts/rearch-audit.test.ts`.
+
+**The item is now ZERO_BY_DESIGN, and pays what a zero owes.** `collect` THROWS
+when its scan matches no files under `apps/` or `packages/`, and when its pattern
+stops matching its control strings. The controls are grouped by branch so the
+throw names which half died. One control is the WRAPPED form, and it is not
+decoration: this detector was line-based once, biome's lineWidth-100 wrap made a
+re-export invisible, and the count FELL while nothing had been deleted. Mutant
+run by hand and pinned as a test: removing the `\*(?:\s+as\s+\w+)?` branch makes
+`collect` throw naming both star controls, rather than reporting a serene zero.
+
+**A second, independent keeper.** Unlike the items above, this zero does not rest
+on the audit alone. `manifest-retired-path` (`scripts/architecture-manifest.ts`,
+error-level, no allowlist) refuses each retired path by name — both the file
+coming back and any import that resolves to it — so the audit reporting zero and
+the manifest refusing the paths would have to fail together.
+
 ### 2026-08-03 — POD-1525 teaches the vocabulary items the INLINE form (1 → 37, 3 → 9)
 
 **A NEW MEASUREMENT OF A WIDER UNIT, NOT 42 NEW RESTATEMENTS.** Same tree

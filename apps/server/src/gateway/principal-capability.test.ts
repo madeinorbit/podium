@@ -12,13 +12,13 @@ import {
   authorize,
   capabilityAttribution,
   type IssueScope,
+  type MachineId,
 } from '@podium/model'
 import {
   asCapabilityRef,
   asDelegationRef,
   asDeviceId,
   asUserId,
-  type MachineId,
   type Principal,
 } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
@@ -104,7 +104,7 @@ describe('capabilityFromPrincipal', () => {
     expect(capabilityAttribution(capability).onBehalfOf).toBe('usr-ada')
   })
 
-  it('carries no scope from the principal: the scope is the policy layer\'s input', () => {
+  it("carries no scope from the principal: the scope is the policy layer's input", () => {
     // There is no parameter through which a frame-supplied scope could arrive, and
     // the principal itself has none to copy (ADR 3 Am.1 D16.1).
     expect(Object.keys(agentPrincipal)).not.toContain('scope')

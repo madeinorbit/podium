@@ -1,5 +1,5 @@
+import type { MutationId } from '@podium/model'
 import { actorUser, asUserId } from '@podium/model'
-import type { MutationId } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { type EnqueueRequest, Outbox } from './outbox'
 import type { OutboxEvent, OutboxSubmitOutcome } from './ports'

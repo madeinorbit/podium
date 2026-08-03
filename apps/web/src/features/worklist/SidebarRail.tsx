@@ -10,12 +10,6 @@
  * control; this component fills the content below it.
  */
 
-import { GitBranch, Search } from 'lucide-react'
-import { type CSSProperties, Fragment, type JSX } from 'react'
-import { NEW_AGENTS } from '@/app/NewPanelMenu'
-import { useStoreSelector } from '@/app/store'
-import { IdSquare, type IdSquareBadge, idSquareLabel } from '@/components/IdSquare'
-import { agentBrandText } from '@/lib/agent-tone'
 import {
   groupUnifiedWorkRows,
   type MotionPhase,
@@ -23,7 +17,13 @@ import {
   rowStatusLine,
   rowWaitingCount,
   type UnifiedWorkRow,
-} from '@/lib/derive'
+} from '@podium/client-core/viewmodels'
+import { GitBranch, Search } from 'lucide-react'
+import { type CSSProperties, Fragment, type JSX } from 'react'
+import { NEW_AGENTS } from '@/app/NewPanelMenu'
+import { useStoreSelector } from '@/app/store'
+import { IdSquare, type IdSquareBadge, idSquareLabel } from '@/components/IdSquare'
+import { agentBrandText } from '@/lib/agent-tone'
 import { FLOW_SLATE, issueColorHex } from '@/lib/issueColors'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'

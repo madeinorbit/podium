@@ -15,8 +15,7 @@
  * matters, and a receipt horizon on the other side of the wire.
  */
 
-import { actorUser, asUserId } from '@podium/model'
-import { asSessionId, type MutationId } from '@podium/protocol'
+import { actorUser, asSessionId, asUserId, type MutationId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { InMemoryReplicaStore } from '../replica/memory-store'
 import type { OptimisticOverlayPort } from '../replica/overlay'

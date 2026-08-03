@@ -1,6 +1,5 @@
 import { useSlice } from '@podium/client-core/react'
 import {
-  machinesWithRepo,
   machineViewsFromWire,
   resolveDefaultAgent,
   resolveSpawnTargetMachine,
@@ -8,6 +7,7 @@ import {
   worklistSlice,
 } from '@podium/client-core/viewmodels'
 import type { AgentKind } from '@podium/model'
+import { machinesWithRepo } from '@podium/model'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useEffect, useMemo, useState } from 'react'
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'

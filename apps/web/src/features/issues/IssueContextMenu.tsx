@@ -1,5 +1,12 @@
 import { shallowEqual } from '@podium/client-core/store'
-import { ISSUE_STAGES, type IssueId, type IssueStage } from '@podium/model'
+import { reposToViews } from '@podium/client-core/viewmodels'
+import {
+  DEFER_NEXT_MESSAGE,
+  ISSUE_STAGES,
+  type IssueId,
+  type IssueStage,
+  snoozeUntil1h,
+} from '@podium/model'
 import {
   AlarmClock,
   AlarmClockOff,
@@ -26,7 +33,6 @@ import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
 import type { IssueViewModel } from '@/app/store'
 import { useStoreSelector } from '@/app/store'
-import { DEFER_NEXT_MESSAGE, reposToViews, snoozeUntil1h } from '@/lib/derive'
 import { issueAgentIcon } from '@/lib/issue-agents'
 import {
   type ContextMenuAnchor,

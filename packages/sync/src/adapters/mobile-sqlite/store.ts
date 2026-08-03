@@ -80,7 +80,7 @@
  * whole transaction back.
  */
 
-import type { MutationId } from '@podium/protocol'
+import type { MutationId } from '@podium/model'
 import type {
   OutboxApplyResult,
   OutboxRecordExpectation,
@@ -108,8 +108,8 @@ import {
   ENTITY_TABLE,
   META_TABLE,
   OUTBOX_TABLE,
-  readSchemaVersion,
   REPLICA_SCHEMA_VERSION,
+  readSchemaVersion,
   type StoredOutboxRecord,
 } from './schema'
 import { isQuotaError, type SqlDatabaseLike, type SqlValue } from './sql'

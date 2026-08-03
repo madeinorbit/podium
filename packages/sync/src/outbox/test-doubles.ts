@@ -5,7 +5,7 @@
  * suite is parameterised by instantiation and this is the instantiation CI runs.
  */
 
-import type { MutationId } from '@podium/protocol'
+import type { MutationId } from '@podium/model'
 import type {
   OutboxApplyResult,
   OutboxEnvelope,

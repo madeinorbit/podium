@@ -1,4 +1,10 @@
 import {
+  draftIssueLabel,
+  pickPaneSession,
+  resolveDefaultAgent,
+  sessionsForIssueNav,
+} from '@podium/client-core/viewmodels'
+import {
   asSessionId,
   type IssueWire,
   type IssueWireInput,
@@ -7,12 +13,6 @@ import {
 } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { filterBoardScope } from '@/features/issues/issues-display'
-import {
-  draftIssueLabel,
-  pickPaneSession,
-  resolveDefaultAgent,
-  sessionsForIssueNav,
-} from './derive'
 
 const NOW = Date.parse('2026-07-06T12:00:00.000Z')
 

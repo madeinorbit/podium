@@ -56,8 +56,14 @@
  * moving the table, not the commands that will do it.
  */
 
-import { actorUser, asUserId, type VisibilityClass } from '@podium/model'
-import { asSessionId, MetadataEntityKind, type MutationId } from '@podium/protocol'
+import {
+  actorUser,
+  asSessionId,
+  asUserId,
+  type MutationId,
+  type VisibilityClass,
+} from '@podium/model'
+import { MetadataEntityKind } from '@podium/protocol'
 import {
   BoundedSendQueue,
   type EntityRef,

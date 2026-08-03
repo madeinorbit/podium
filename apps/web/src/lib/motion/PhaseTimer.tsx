@@ -19,8 +19,8 @@
  */
 
 import { relativeTime } from '@podium/client-core/focus'
+import { formatClock, type MotionPhase } from '@podium/client-core/viewmodels'
 import type { JSX } from 'react'
-import { formatClock, type MotionPhase } from '@/lib/derive'
 import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
 import { BrailleSpinner } from './BrailleSpinner'

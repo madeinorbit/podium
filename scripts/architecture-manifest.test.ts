@@ -901,10 +901,18 @@ describe('manifest-retired-path (POD-333)', () => {
   it("refuses apps/web's `@/` alias form", () => {
     // Thirty of the POD-333 call sites used this form. A rule that understood
     // only relative specifiers would have read a serene zero over all of them.
+    //
+    // The specifier is ASSEMBLED rather than written out, and that is not
+    // squeamishness: this rule reads source TEXT, and string literals cannot be
+    // blanked the way comments can (extractImports needs them). A spelled-out
+    // `from '@/.../derive-tray'` in this file is indistinguishable from a real
+    // import, and the rule correctly flagged its own test — the same known
+    // limitation the harness axiom documents above.
+    const specifier = ['@/features/superagent', 'derive-tray'].join('/')
     expect(
       findRetiredImports(
         'apps/web/src/app/AppShell.tsx',
-        "import { trayCount } from '@/features/superagent/derive-tray'",
+        `import { trayCount } from '${specifier}'`,
       ),
     ).toHaveLength(1)
   })

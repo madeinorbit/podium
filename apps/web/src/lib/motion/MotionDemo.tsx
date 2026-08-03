@@ -1,6 +1,6 @@
+import type { MotionPhase } from '@podium/client-core/viewmodels'
 import type { JSX } from 'react'
 import { useState } from 'react'
-import type { MotionPhase } from '@/lib/derive'
 import { cn } from '@/lib/utils'
 import { PhaseTimer } from './PhaseTimer'
 import { StatusBadge, type StatusBadgeKind } from './StatusBadge'

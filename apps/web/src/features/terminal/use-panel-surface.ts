@@ -29,10 +29,10 @@ import {
   PANEL_MODE_DEFAULT_KEY,
   type PanelMode,
 } from '@podium/client-core/ui-state'
+import { defaultChatCapable } from '@podium/client-core/viewmodels'
 import type { SessionId, SessionMeta } from '@podium/model'
 import { useEffect, useRef, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
-import { defaultChatCapable } from '@/lib/derive'
 import {
   type PanelGates,
   type PanelSurface,

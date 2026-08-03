@@ -6,9 +6,9 @@
  */
 
 import { relativeTime } from '@podium/client-core/focus'
+import { isSessionWorking } from '@podium/client-core/viewmodels'
 import type { SessionMeta } from '@podium/model'
 import type { JSX } from 'react'
-import { isSessionWorking } from '@/lib/derive'
 import { useNow } from '@/lib/useNow'
 
 const HOUR_MS = 3_600_000

@@ -1,13 +1,12 @@
-import type { GitRepositoryWire, SessionMeta, SessionMetaInput } from '@podium/model'
-import { describe, expect, it } from 'vitest'
 import {
-  dedupeSessionsByResume,
   EMPTY_PINS,
   partitionStaleSessions,
   sessionsForWorktree,
   sidebarSections,
-  worktreeForCwd,
-} from './derive'
+} from '@podium/client-core/viewmodels'
+import type { GitRepositoryWire, SessionMeta, SessionMetaInput } from '@podium/model'
+import { dedupeSessionsByResume, worktreeForCwd } from '@podium/model'
+import { describe, expect, it } from 'vitest'
 
 const NOW = Date.parse('2026-06-21T12:00:00.000Z')
 

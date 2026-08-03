@@ -1,6 +1,6 @@
+import { filterIssueNav, issueNavList, subIssuesOf } from '@podium/client-core/viewmodels'
 import type { IssueWire, IssueWireInput, SessionMeta, SessionMetaInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { filterIssueNav, issueNavList, subIssuesOf } from './derive'
 
 const NOW = Date.parse('2026-06-29T12:00:00.000Z')
 

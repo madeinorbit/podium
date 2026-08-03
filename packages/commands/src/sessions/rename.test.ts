@@ -14,8 +14,13 @@
 // POD-1148 is what makes that a non-issue — there is one `ActorRef`, and the
 // Outbox's `OutboxActor` is an `Extract` over it, so an actor built here is the
 // same value the Outbox would have stored.
-import { actorAgent, actorUser, agentIdentityFromSessionId, asUserId } from '@podium/model'
-import { asSessionId } from '@podium/protocol'
+import {
+  actorAgent,
+  actorUser,
+  agentIdentityFromSessionId,
+  asSessionId,
+  asUserId,
+} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { classificationErrors } from '../contract'
 import {

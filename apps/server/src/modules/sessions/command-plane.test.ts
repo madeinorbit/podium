@@ -12,8 +12,9 @@
  * context the router builds, from the same composition root.
  */
 
+import type { MachineId } from '@podium/model'
 import { asSessionId, asUserId, type SessionId, type UserId } from '@podium/model'
-import type { MachineGrant, MachineId } from '@podium/protocol'
+import type { MachineGrant } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   type AgentCommandPrincipal,

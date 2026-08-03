@@ -489,6 +489,44 @@ export function upstreamRetirementControlMisses(patternSource: string): string[]
     .filter((control) => !re.test(control))
 }
 
+/**
+ * THE ANCHOR BEHIND `reexport-shims`'s ZERO_BY_DESIGN EXEMPTION (POD-333).
+ *
+ * The item reached zero: every named compatibility shim is deleted, and
+ * `manifest-retired-path` (scripts/architecture-manifest.ts) refuses the paths.
+ * From here its count can only ever be zero — which is also what a broken
+ * detector reports, so per docs/rearch-deletion-audit.md the detector has to
+ * watch itself.
+ *
+ * It has no surviving code to anchor on, so it anchors on the two facts its zero
+ * DEPENDS on: that the scan sees files at all, and that its regex still matches
+ * the shapes it was written to match. Both failures are real history here — this
+ * detector was formatting-fragile once already (a biome wrap made a re-export
+ * invisible to the line-based version and the count FELL), and its unit was
+ * silently narrow twice (package barrels counted as debt; a blanket forward
+ * beside real code not counted at all).
+ *
+ * The controls are grouped by the branch each exercises, so a throw can name
+ * which half died rather than just "something".
+ */
+export const REEXPORT_SHIM_CONTROLS: Readonly<Record<string, readonly string[]>> = {
+  // The plain named form, and the STAR form. Both are counted shapes.
+  named: ["export { a, b } from '@podium/model'", "export * from '@podium/client-core/focus'"],
+  // Type-only and star-as: the two spellings a narrower regex drops first.
+  qualified: ["export type { A } from '@podium/model'", "export * as ids from '@podium/model'"],
+  // THE FORMATTING BRANCH. biome (lineWidth 100) wraps a re-export as soon as
+  // one name is added, and a line-based test drops the file entirely — the
+  // count falls and the ratchet records a deletion that never happened.
+  wrapped: ["export {\n  a,\n  b,\n} from '@podium/client-core/viewmodels'"],
+}
+
+/** Controls `patternSource` FAILS to match. Empty means the anchor is intact. */
+export function reexportShimControlMisses(patternSource: string): string[] {
+  return Object.values(REEXPORT_SHIM_CONTROLS)
+    .flat()
+    .filter((control) => !new RegExp(patternSource, 'g').test(control))
+}
+
 /** The roots the snapshot fan-out lived in. Every one of its thirteen sites was
  *  in the server app; a home outside it would be a relocation, not a deletion. */
 export const PUBLISH_COMPUTED_ROOTS = ['apps/server/src'] as const
@@ -1101,34 +1139,106 @@ export const CHECKS: AuditCheck[] = [
   },
   {
     id: 'reexport-shims',
-    title: 'App-level re-export shims',
+    title: 'Named compatibility shims (cross-workspace re-export tombstones)',
     phase: 'POD-333',
-    unit: 'file whose every statement is a re-export (package barrels excluded)',
+    unit: 're-export-only file whose targets are ANOTHER workspace (a moved module’s tombstone); barrels over local siblings are public API and are not counted',
     collect: (ctx) => {
+      const REEXPORT_SOURCE = String.raw`export\s+(?:type\s+)?(?:\*(?:\s+as\s+\w+)?|\{[\s\S]*?\})\s+from\s*['"]([^'"]+)['"]\s*;?`
+      const missing = reexportShimControlMisses(REEXPORT_SOURCE)
+      if (missing.length > 0)
+        throw new Error(
+          `reexport-shims: the pattern no longer matches ${missing.length} of its control ` +
+            `strings (${missing.map((c) => JSON.stringify(c)).join(', ')}). The detector is ` +
+            'broken; fix it rather than recording a phantom zero.',
+        )
+      const scanned = ctx.files.filter(
+        (f) => f.file.startsWith('apps/') || f.file.startsWith('packages/'),
+      )
+      if (scanned.length === 0)
+        throw new Error(
+          'reexport-shims: the scan matched no files under apps/ or packages/. Its zero is a ' +
+            'phantom, not the shim sweep holding.',
+        )
       const sites: AuditSite[] = []
       for (const f of ctx.files) {
         if (f.isTest || isFrozenFile(f.file)) continue
-        // Barrels under `packages/*/src/**` are a legitimate public API surface,
-        // not debt: `protocol/src/messages/index.ts` re-exports the domain split
-        // precisely so `@podium/protocol`'s import path stays stable. Only
-        // APP-level all-re-export files are shims (a moved module's tombstone).
-        if (/^packages\/[^/]+\/src\/(?:.*\/)?index\.ts$/.test(f.file)) continue
         // STATEMENT-based, not line-based. A wrapped `export {\n a,\n} from 'x'`
         // has no single line carrying both `export` and `from`, so a per-line
         // test drops the file entirely — and since biome (lineWidth 100) wraps a
         // re-export as soon as one name is added, the count would FALL and the
         // ratchet would cheerfully record a deletion that never happened.
         const code = f.stripped
-        const REEXPORT =
-          /export\s+(?:type\s+)?(?:\*(?:\s+as\s+\w+)?|\{[\s\S]*?\})\s+from\s*['"][^'"]+['"]\s*;?/g
-        const count = code.match(REEXPORT)?.length ?? 0
-        if (count === 0) continue
-        if (code.replace(REEXPORT, '').trim().length === 0)
-          sites.push({
-            file: f.file,
-            line: 1,
-            text: `${count} re-exports, no other code`,
-          })
+        const REEXPORT = new RegExp(REEXPORT_SOURCE, 'g')
+        const matches = [...code.matchAll(REEXPORT)]
+        if (matches.length === 0) continue
+        // SECOND FORM — the blanket re-forward inside a real module (POD-333).
+        //
+        // `apps/web/src/lib/derive.ts` carried
+        // `export * from '@podium/client-core/viewmodels'` beside one genuinely
+        // web-side helper, with the comment "Existing `./derive` imports keep
+        // working through this shim". It is a named compatibility shim by the
+        // brief's own words, and the re-export-ONLY unit could not see it,
+        // because the file has other code. It went unmeasured for two phases and
+        // was found by a typecheck error, not by this audit.
+        //
+        // A STAR forward is the counted shape, not a named one: `export { a, b }
+        // from '@podium/x'` republishes a bounded, curated list — a decision per
+        // name — whereas `export *` makes the module's surface whatever the other
+        // workspace happens to export today, which is exactly the "import sites
+        // need not move" bargain. Narrowing to the star form is also what keeps
+        // this from flooding: several packages re-export a handful of named
+        // model types as part of a designed API.
+        const otherCode = code.replace(REEXPORT, '').trim().length !== 0
+        if (otherCode) {
+          const forwards = matches.filter(
+            (m) => !(m[1] ?? '').startsWith('.') && /export\s+\*/.test(m[0]),
+          )
+          if (forwards.length > 0) {
+            sites.push({
+              file: f.file,
+              line: 1,
+              text: `blanket re-forward of ${[...new Set(forwards.map((m) => m[1]))].join(', ')} beside real code`,
+            })
+          }
+          continue
+        }
+        // THE CRITERION IS WHERE THE RE-EXPORTS POINT, NOT WHERE THE FILE SITS
+        // (POD-333, finding 16).
+        //
+        // The item is named after COMPATIBILITY SHIMS: files kept so that import
+        // sites would not have to move when a symbol changed workspace. That is
+        // a statement about the EDGE, so the detector reads the edge.
+        //
+        // What this replaces, and why: the old rule was "app-level all-re-export
+        // files are shims, `packages/*/src/**/index.ts` are not". Both halves
+        // were wrong at the margin, in opposite directions. It counted
+        // `apps/server/src/index.ts` — the @podium/server package entrypoint,
+        // whose whole job is to publish `startServer` and the `AppRouter` type —
+        // as debt, and it would have MISSED a shim written at
+        // `packages/x/src/index.ts`, which is the most natural place to put one.
+        // Location was a proxy for the thing; the target is the thing.
+        //
+        // A barrel over its own directory (`./service`, `../roles`) re-exports
+        // modules that live where the barrel lives: nothing moved, so there is
+        // no import site being held stable and nothing to delete. A file whose
+        // every export comes from ANOTHER workspace is the tombstone of a module
+        // that left — exactly what Phase 7.1 deletes.
+        //
+        // Measured at 9eea645d: the old unit reported 21 sites, of which 16 were
+        // cross-workspace (deleted here) and 5 were local-sibling barrels
+        // (apps/daemon/src/index.ts, apps/server/src/index.ts and its messaging
+        // and superagent module barrels, apps/web/src/lib/motion/index.ts). The
+        // new unit reports exactly the 16. See the reconciliation entry in
+        // docs/rearch-deletion-audit.md.
+        const foreign = matches.filter((m) => !(m[1] ?? '').startsWith('.'))
+        if (foreign.length === 0) continue
+        sites.push({
+          file: f.file,
+          line: 1,
+          text: `${matches.length} re-exports, no other code; ${foreign.length} cross-workspace (${[
+            ...new Set(foreign.map((m) => m[1])),
+          ].join(', ')})`,
+        })
       }
       return sites
     },

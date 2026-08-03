@@ -57,7 +57,7 @@
  * `save` for why the rethrow was removed rather than faked.
  */
 
-import type { MutationId } from '@podium/protocol'
+import type { MutationId } from '@podium/model'
 import type {
   OutboxAttribution,
   OutboxCommand,

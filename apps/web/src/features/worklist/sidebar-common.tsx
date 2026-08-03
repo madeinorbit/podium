@@ -4,7 +4,18 @@
  * collapsible section header, the stale-sessions tuck-away, and the session
  * PanelRow used by every session list in the unified sidebar.
  */
+
+import {
+  agentBadge,
+  agentColorHex,
+  groupSessionsByParent,
+  isSessionWorking,
+  nativeSubagentCountOf,
+  nativeSubagentLabel,
+  sessionIssueLinkage,
+} from '@podium/client-core/viewmodels'
 import type { SessionMeta } from '@podium/model'
+import { isSnoozed, returnedFromSnooze } from '@podium/model'
 import { ChevronDown, ChevronRight, X } from 'lucide-react'
 import type {
   JSX,
@@ -16,18 +27,7 @@ import { useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { AttributionPair } from '@/features/issues/issue-page/AttributionPair'
-import {
-  agentBadge,
-  agentColorHex,
-  groupSessionsByParent,
-  isSessionWorking,
-  isSnoozed,
-  nativeSubagentCountOf,
-  nativeSubagentLabel,
-  returnedFromSnooze,
-  sessionDotClass,
-  sessionIssueLinkage,
-} from '@/lib/derive'
+import { sessionDotClass } from '@/lib/derive'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { type ContextMenuAnchor, SessionContextMenu } from '@/lib/SessionContextMenu'
 import { SnoozeControl } from '@/lib/SnoozeControl'

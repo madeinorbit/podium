@@ -33,7 +33,7 @@
  * Gating here is UX only — the Authority re-authorizes at apply (ADR 3 D8).
  * Nothing in this file DECIDES anything; it only declines to offer.
  */
-import type { MachineView } from '@podium/client-core/viewmodels'
+import type { MachineView, RepoNavView } from '@podium/client-core/viewmodels'
 import type { AgentKind, MachineWire } from '@podium/model'
 import { Circle, Lock, Plus } from 'lucide-react'
 import type { JSX, RefObject } from 'react'
@@ -45,7 +45,6 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
 } from '@/components/ui/dropdown-menu'
-import type { RepoNavView } from '@/lib/derive'
 
 /** The machines that hold one repo, as this principal may act on them. */
 function viewsForRepo(
@@ -94,9 +93,7 @@ function MachineItem({
         <Circle
           size={6}
           className={
-            availability === 'available'
-              ? 'fill-success text-success'
-              : 'text-muted-foreground/40'
+            availability === 'available' ? 'fill-success text-success' : 'text-muted-foreground/40'
           }
           aria-hidden="true"
         />

@@ -1,5 +1,4 @@
-import { actorUser, asUserId } from '@podium/model'
-import { asSessionId, type MutationId } from '@podium/protocol'
+import { actorUser, asSessionId, asUserId, type MutationId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   applyMutation,

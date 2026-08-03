@@ -1,7 +1,7 @@
 import { randomUUID } from '@podium/client-core/id'
 import { shallowEqual } from '@podium/client-core/store'
+import { isSessionWorking, motionPhase } from '@podium/client-core/viewmodels'
 import type { IssueId, SessionMeta } from '@podium/model'
-import type { IssueViewModel } from '@/app/store'
 import {
   Archive,
   ArchiveRestore,
@@ -15,10 +15,11 @@ import {
 } from 'lucide-react'
 import { type JSX, useState } from 'react'
 import { toast } from 'sonner'
+import type { IssueViewModel } from '@/app/store'
 import { useReplicaIssues, useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { OfferBar } from '@/features/chat/OfferBar'
-import { isSessionWorking, motionPhase, sessionDotClass } from '@/lib/derive'
+import { sessionDotClass } from '@/lib/derive'
 import { IssueContextMenu } from './IssueContextMenu'
 import { IssueCloseDialog, type IssueCloseReason } from './issue-lifecycle'
 import { isIssueStartable } from './issue-startable'

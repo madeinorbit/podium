@@ -1,15 +1,11 @@
-import { asRepoId, type SessionMeta, type SessionMetaInput, type UnbrandIds } from '@podium/model'
-import { describe, expect, it } from 'vitest'
 import {
   archivedSessionsForIssue,
   archivedSessionsForWorktreePath,
   branchRollup,
   deepAttentionSource,
   groupUnifiedWorkRows,
-  isIssueDeferred,
-  isRowUnread,
-  issueReturnedFromDefer,
   type IssueNavigationModel,
+  isRowUnread,
   issueVisibleInSidebar,
   mostUrgentSession,
   partitionUnifiedWork,
@@ -25,7 +21,16 @@ import {
   type UnifiedWorkRow,
   unifiedWorkList,
   type WorktreeNavView,
-} from './derive'
+} from '@podium/client-core/viewmodels'
+import {
+  asRepoId,
+  isIssueDeferred,
+  issueReturnedFromDefer,
+  type SessionMeta,
+  type SessionMetaInput,
+  type UnbrandIds,
+} from '@podium/model'
+import { describe, expect, it } from 'vitest'
 
 const NOW = Date.parse('2026-07-06T12:00:00.000Z')
 const HOUR = 3_600_000
@@ -401,8 +406,12 @@ describe('isRowUnread (sidebar unread emphasis)', () => {
   })
 
   it('an issue row follows the issue own server-derived unread flag', () => {
-    expect(isRowUnread(issueRow({ unread: true } as Partial<UnbrandIds<IssueNavigationModel>>))).toBe(true)
-    expect(isRowUnread(issueRow({ unread: false } as Partial<UnbrandIds<IssueNavigationModel>>))).toBe(false)
+    expect(
+      isRowUnread(issueRow({ unread: true } as Partial<UnbrandIds<IssueNavigationModel>>)),
+    ).toBe(true)
+    expect(
+      isRowUnread(issueRow({ unread: false } as Partial<UnbrandIds<IssueNavigationModel>>)),
+    ).toBe(false)
   })
 
   it('a worktree row is unread iff ANY of its sessions is unread', () => {
@@ -453,7 +462,9 @@ describe('rowUnreadEmphasized (#138: suppress unread while actively working)', (
   it('suppresses an unread issue row that has a currently-working session', () => {
     expect(
       rowUnreadEmphasized(
-        issueRow({ unread: true } as Partial<UnbrandIds<IssueNavigationModel>>, [working('a', '/w')]),
+        issueRow({ unread: true } as Partial<UnbrandIds<IssueNavigationModel>>, [
+          working('a', '/w'),
+        ]),
       ),
     ).toBe(false)
   })
@@ -469,7 +480,9 @@ describe('rowUnreadEmphasized (#138: suppress unread while actively working)', (
   it('leaves a read row un-emphasized regardless of working state', () => {
     expect(
       rowUnreadEmphasized(
-        issueRow({ unread: false } as Partial<UnbrandIds<IssueNavigationModel>>, [working('a', '/w')]),
+        issueRow({ unread: false } as Partial<UnbrandIds<IssueNavigationModel>>, [
+          working('a', '/w'),
+        ]),
       ),
     ).toBe(false)
   })

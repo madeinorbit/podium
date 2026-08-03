@@ -1,14 +1,18 @@
 import { withoutShells } from '@podium/client-core/focus'
-import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
-import { describe, expect, it } from 'vitest'
 import {
-  dedupeSessionsByResume,
-  isHeadlessSession,
   partitionWorkItems,
   sessionsForWorktree,
   sidebarSections,
+} from '@podium/client-core/viewmodels'
+import {
+  asSessionId,
+  dedupeSessionsByResume,
+  isHeadlessSession,
+  type SessionMeta,
+  type SessionMetaInput,
   withoutHeadless,
-} from './derive'
+} from '@podium/model'
+import { describe, expect, it } from 'vitest'
 
 function meta(over: Partial<SessionMetaInput>): SessionMeta {
   return {

@@ -1,18 +1,18 @@
 import { shallowEqual } from '@podium/client-core/store'
+import { hostMemoryView } from '@podium/client-core/viewmodels'
 import { CircleArrowUp, CloudUpload, MemoryStick } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { hostMemoryView } from '@/lib/derive'
 import { cn } from '@/lib/utils'
+import { machineNeedsUpdate, useServerAppVersion } from '@/lib/version-skew'
 import { ConnectionIndicator, describeHealth, useStableConnection } from './ConnectionIndicator'
 import { HealthPopover } from './HealthPopover'
 import { type HostInfoTab, HostInfoView, useHibernationSetting } from './HostMemoryView'
 import { LoadPanel } from './LoadPanel'
 import { OutboxRecoveryIndicator } from './OutboxRecovery'
 import { QuotaIndicator } from './QuotaIndicator'
-import { machineNeedsUpdate, useServerAppVersion } from '@/lib/version-skew'
 
 // Memory pressure → colors, reproducing the legacy `.mem-*` contract: the bar
 // fill is always tinted by severity; the icon stays neutral while `ok` and only

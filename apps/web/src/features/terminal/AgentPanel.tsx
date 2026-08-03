@@ -6,7 +6,9 @@ import { effectivePanelMode, type PanelMode } from '@podium/client-core/ui-state
 export { effectivePanelMode, effectivePanelMode as initialPanelMode, type PanelMode }
 
 import { attentionGroup } from '@podium/client-core/focus'
+import { isKnownWorktreePath, panelLabel, resumeCommand } from '@podium/client-core/viewmodels'
 import type { SessionId } from '@podium/model'
+import { isSnoozed } from '@podium/model'
 import { keySequence, type SpecialKey } from '@podium/terminal-client'
 import { ArrowSwipeKey, useTerminalSession, useVoiceInput } from '@podium/terminal-client-react'
 import {
@@ -42,7 +44,6 @@ import { ChatView } from '@/features/chat/ChatView'
 import { accumulateFileLinkPaths } from '@/features/chat/chat'
 import { OfferBar } from '@/features/chat/OfferBar'
 import { agentBrandDot } from '@/lib/agent-tone'
-import { isKnownWorktreePath, isSnoozed, panelLabel, resumeCommand } from '@/lib/derive'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { effectiveIssueColorHex } from '@/lib/issueColors'
 import { isKnownRefPrefix } from '@/lib/markdown'

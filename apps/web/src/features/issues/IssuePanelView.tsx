@@ -6,6 +6,7 @@ import {
   basename,
   issueForPanel,
   panelNonEmpty,
+  subIssuesOf,
 } from '@podium/client-core/viewmodels'
 import {
   asIssueId,
@@ -23,7 +24,6 @@ import { MediaLightbox } from '@/components/MediaLightbox'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { copyToClipboard } from '@/lib/clipboard'
-import { subIssuesOf } from '@/lib/derive'
 import { cn } from '@/lib/utils'
 import { DockSection } from './DockSection'
 import { IssueCompactControls } from './IssueCompactControls'

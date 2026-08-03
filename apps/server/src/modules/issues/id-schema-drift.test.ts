@@ -7,8 +7,6 @@ import {
   type RepoId as ModelRepoIdType,
   SessionId as ModelSessionId,
   type SessionId as ModelSessionIdType,
-} from '@podium/model'
-import {
   IssueId as ProtocolIssueId,
   type IssueId as ProtocolIssueIdType,
   MachineId as ProtocolMachineId,
@@ -17,7 +15,7 @@ import {
   type RepoId as ProtocolRepoIdType,
   SessionId as ProtocolSessionId,
   type SessionId as ProtocolSessionIdType,
-} from '@podium/protocol'
+} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 
 type MutuallyAssignable<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false

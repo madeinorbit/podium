@@ -1,11 +1,11 @@
 import { shallowEqual } from '@podium/client-core/store'
 import type { SessionMeta } from '@podium/model'
+import { isSnoozed, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/model'
 import { AlarmClock, AlarmClockOff } from 'lucide-react'
 import { type JSX, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
-import { isSnoozed, snoozeUntil1h, snoozeUntilTomorrow5am } from './derive'
 import { useNow } from './useNow'
 import { cn } from './utils'
 

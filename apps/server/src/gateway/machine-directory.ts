@@ -19,7 +19,7 @@
  * POD-1079 fills them in without touching the handshake.
  */
 
-import type { MachineId } from '@podium/protocol'
+import type { MachineId } from '@podium/model'
 import type {
   MachineDirectory,
   PairedMachine,
@@ -43,10 +43,12 @@ export interface MachineAuthenticator {
     token?: string
     hostname: string
     name?: string
-  }): { ok: true; machineId: string; name: string; token?: string; pairingGrant?: PairingGrant } | {
-    ok: false
-    reason: string
-  }
+  }):
+    | { ok: true; machineId: string; name: string; token?: string; pairingGrant?: PairingGrant }
+    | {
+        ok: false
+        reason: string
+      }
 }
 
 const resolved = (

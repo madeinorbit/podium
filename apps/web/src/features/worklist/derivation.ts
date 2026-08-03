@@ -6,8 +6,9 @@
  * to import it from the third. A shared type living inside one of its consumers
  * is how an import cycle starts.
  */
+
+import { type WorklistSlice, worklistSlice } from '@podium/client-core/viewmodels'
 import { useSlice } from '@/app/store'
-import { type WorklistSlice, worklistSlice } from '@/lib/derive'
 /**
  * The worklist derivation, as READ rather than as COMPUTED (POD-331).
  *

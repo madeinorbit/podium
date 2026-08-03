@@ -22,7 +22,9 @@ import {
   PUBLISH_COMPUTED_PATTERN,
   phaseCloseItems,
   publishComputedControlMisses,
+  REEXPORT_SHIM_CONTROLS,
   REGISTERED_RESIDUE,
+  reexportShimControlMisses,
   runAudit,
   type SourceFile,
   stripComments,
@@ -660,7 +662,14 @@ describe('diffBaseline', () => {
 // assert the codes against the real binary rather than trusting main().
 // ---------------------------------------------------------------------------
 
-describe('CLI exit codes', () => {
+// EVERY case here launches full-tree audit PROCESSES, so the watchdog is set on
+// the block rather than case by case. 90s, not the 20s default (POD-333): a
+// watchdog is not a detector, and sized just above the measured runtime it turns
+// machine load into a red test that asserted nothing. One full-tree audit is
+// ~17s wall clock on this repo (measured A/B at POD-333: 17.09s on the
+// pre-change detector, 16.3-17.2s after — the shim sweep did not move it), and
+// several cases launch two or three each.
+describe('CLI exit codes', { timeout: 90_000 }, () => {
   const script = new URL('./rearch-audit.ts', import.meta.url).pathname
 
   /** Run the audit for real; returns its exit code (never throws on non-zero). */
@@ -715,7 +724,7 @@ describe('CLI exit codes', () => {
   //
   // Each case launches full-tree audit processes; the full node lane can
   // saturate the 20s default.
-  const fullLaneAuditTimeout = 40_000
+  const fullLaneAuditTimeout = 90_000
   const repoRootForPhase = new URL('..', import.meta.url).pathname
 
   /** First phase with undeclared residue (must gate) and first clear phase. */
@@ -1018,6 +1027,23 @@ describe('against the live repo', () => {
       // deletion. Asserted in 'per-user-singletons ERRORS when its control
       // stops matching' below.
       'per-user-singletons',
+      // POD-333 swept the named compatibility shims: 16 cross-workspace
+      // tombstone FILES deleted, plus two republication BLOCKS inside otherwise
+      // legitimate barrels (packages/protocol/src/index.ts,
+      // packages/client-core/src/viewmodels/index.ts) and one blanket forward
+      // beside real code (apps/web/src/lib/derive.ts). The paths are refused
+      // going forward by `manifest-retired-path` in the architecture manifest,
+      // which is an ERROR-level rule with no allowlist, so this item's zero has
+      // a second, independent keeper.
+      //
+      // Exempt on the SAME terms as the four above and no looser: `collect`
+      // THROWS when its scan matches no files under apps/ or packages/, and when
+      // its pattern stops matching the control strings it was written to match —
+      // including the WRAPPED form, which is not decoration: this detector was
+      // line-based once, biome's lineWidth-100 wrap made a re-export invisible,
+      // and the count FELL while nothing was deleted. Asserted in
+      // 'reexport-shims ERRORS when its anchor stops matching' below.
+      'reexport-shims',
       // POD-324 deleted all four exported sync/async durable-host pairs. The
       // detector now proves its zero against both surviving source roots and a
       // synthetic sync+async control pair, throwing if either anchor disappears.
@@ -1188,5 +1214,74 @@ describe('the two POD-332 detectors still bind', () => {
     for (const id of ['mobile-client-value', 'superagent-shadow-types']) {
       expect(CHECKS.find((c) => c.id === id)?.collect(clean) ?? [], id).toHaveLength(0)
     }
+  })
+})
+
+/**
+ * THE ANCHOR BEHIND `reexport-shims`'s ZERO_BY_DESIGN EXEMPTION (POD-333).
+ *
+ * Same shape as the `upstream-sync-forwarder` and `publish-computed-fanout`
+ * guards above, for the same reason: the item is at zero, so its count can no
+ * longer distinguish "no shims remain" from "the detector stopped matching".
+ */
+describe('reexport-shims: the anchor behind its ZERO_BY_DESIGN exemption', () => {
+  const PATTERN = String.raw`export\s+(?:type\s+)?(?:\*(?:\s+as\s+\w+)?|\{[\s\S]*?\})\s+from\s*['"]([^'"]+)['"]\s*;?`
+
+  it('matches every control string it is written to match', () => {
+    expect(reexportShimControlMisses(PATTERN)).toEqual([])
+  })
+
+  it('reports the star branch when it is dropped', () => {
+    // The exact mutant run by hand at POD-333: removing `\*(?:\s+as\s+\w+)?`
+    // leaves both star spellings unmatched, and `export * from '@podium/x'` is
+    // the single most likely shape for a re-grown shim.
+    const missing = reexportShimControlMisses(
+      String.raw`export\s+(?:type\s+)?(?:\{[\s\S]*?\})\s+from\s*['"]([^'"]+)['"]\s*;?`,
+    )
+    expect(missing).toHaveLength(2)
+    expect(missing.join(' ')).toContain('export *')
+  })
+
+  it('reports the WRAPPED control when the pattern goes line-based', () => {
+    // The historical regression, restaged: `[^\n]` instead of `[\s\S]` cannot
+    // cross the newline biome inserts, so a wrapped re-export goes invisible and
+    // the count falls with nothing deleted.
+    const missing = reexportShimControlMisses(
+      String.raw`export\s+(?:type\s+)?(?:\*(?:\s+as\s+\w+)?|\{[^\n]*?\})\s+from\s*['"]([^'"]+)['"]\s*;?`,
+    )
+    expect(missing).toContain(REEXPORT_SHIM_CONTROLS.wrapped[0])
+  })
+
+  it('collect THROWS when the scan sees no files, rather than reporting zero', () => {
+    const check = CHECKS.find((c) => c.id === 'reexport-shims')
+    expect(() => check?.collect(ctxOf({ 'docs/notes.ts': 'export const a = 1' }))).toThrow(
+      /matched no files/,
+    )
+  })
+
+  it('collect still FINDS a re-grown shim — the anchor did not replace the detector', () => {
+    const check = CHECKS.find((c) => c.id === 'reexport-shims')
+    // (a) a cross-workspace tombstone FILE
+    const tombstone = check?.collect(
+      ctxOf({
+        'apps/web/src/lib/home.ts': "export * from '@podium/client-core/focus'",
+        'apps/web/src/lib/real.ts': 'export const a = 1',
+      }),
+    )
+    expect(tombstone).toHaveLength(1)
+    // (b) a blanket forward BESIDE real code — the form that went unmeasured
+    //     for two phases because the unit read re-export-ONLY files.
+    const hybrid = check?.collect(
+      ctxOf({
+        'apps/web/src/lib/derive.ts':
+          "export * from '@podium/client-core/viewmodels'\nexport function f() { return 1 }",
+      }),
+    )
+    expect(hybrid).toHaveLength(1)
+    // (c) NOT a barrel over local siblings — that is public API, not a shim.
+    const barrel = check?.collect(
+      ctxOf({ 'apps/server/src/index.ts': "export * from './relay'\nexport * from './server'" }),
+    )
+    expect(barrel).toEqual([])
   })
 })

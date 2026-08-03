@@ -1,33 +1,8 @@
-// Entity-pure predicates live in @podium/model (#194). The slices import them
-// directly; this barrel republishes the same BINDINGS (not new `export const`/
-// `export function` declarations — see scripts/check-boundaries.ts rule 7,
-// which flags exactly that shape) so existing
-// `@podium/client-core/viewmodels` call sites keep working unchanged. This is
-// the last residue of the deleted `derive.ts`: a re-export list on the barrel,
-// not a module of its own — there is nothing here to own.
-export {
-  agentCapabilityRejection,
-  DEFER_NEXT_MESSAGE,
-  dedupeSessionsByResume,
-  isHeadlessSession,
-  isIssueDeferred,
-  isSnoozed,
-  issueReturnedFromDefer,
-  lastUsedMachine,
-  machinesForRepo,
-  machinesForRepoOrClone,
-  machinesWithRepo,
-  normalizeOriginUrl,
-  onlineMachinesForRepoOrClone,
-  repoNameFromOrigin,
-  resolveTargetMachine,
-  resolveTargetMachineForAgent,
-  returnedFromSnooze,
-  snoozeUntil1h,
-  snoozeUntilTomorrow5am,
-  withoutHeadless,
-  worktreeForCwd,
-} from '@podium/model'
+// Entity-pure predicates live in @podium/model (#194) and are imported from
+// there. This barrel used to republish those bindings so existing
+// `@podium/client-core/viewmodels` call sites kept working after `derive.ts`
+// was deleted; POD-333 moved the call sites and deleted the republication. What
+// remains below is this package's own viewmodel surface.
 export * from './ask-question'
 export * from './board-scope'
 export * from './chat'

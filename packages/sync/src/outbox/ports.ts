@@ -5,7 +5,7 @@
  * imports IndexedDB or SQLite) and the whole lifecycle is testable in memory.
  */
 
-import type { MutationId } from '@podium/protocol'
+import type { MutationId } from '@podium/model'
 import type { SyncSpan } from '../span'
 import type { BackoffPolicy } from './limits'
 import type { AuthorityRefusal, OutboxRejectionReason } from './reasons'

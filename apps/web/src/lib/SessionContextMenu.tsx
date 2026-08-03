@@ -1,10 +1,14 @@
 import { shallowEqual } from '@podium/client-core/store'
+import { panelLabel, reposToViews } from '@podium/client-core/viewmodels'
 import {
   type AgentKind,
   type HandoffBlocker,
   type HandoffRejection,
   handoffAvailability,
+  isSnoozed,
   type SessionMeta,
+  snoozeUntil1h,
+  snoozeUntilTomorrow5am,
 } from '@podium/model'
 import {
   AlarmClock,
@@ -27,13 +31,6 @@ import { toast } from 'sonner'
 import { useReplicaIssues, useStoreSelector } from '@/app/store'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { useFeature } from '@/lib/use-feature'
-import {
-  isSnoozed,
-  panelLabel,
-  reposToViews,
-  snoozeUntil1h,
-  snoozeUntilTomorrow5am,
-} from './derive'
 import { useNow } from './useNow'
 import { sessionDisplayName } from './WorkerLabel'
 
