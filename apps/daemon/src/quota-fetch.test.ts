@@ -69,6 +69,58 @@ describe('makeQuotaFetcher', () => {
     expect(spy).toHaveBeenCalledTimes(2)
   })
 
+  it('serves the STALE value immediately once the TTL lapses and refreshes behind it', async () => {
+    // POD-1624: the whole cost of quota.summary is three live vendor HTTP calls
+    // (measured on ludovico: claude 239-479ms, codex 349-537ms, grok 535-1171ms,
+    // run concurrently). A plain TTL memo still makes ONE caller every 120s pay
+    // that latency in full — that caller is the top bar on a page load, which is
+    // exactly the freeze this issue is about. Past the TTL we must hand back the
+    // last good value at once and let the refetch land out of band.
+    let t = 1000
+    let release: (w: AgentQuotaWire) => void = () => {}
+    const spy = vi.fn(
+      () =>
+        new Promise<AgentQuotaWire>((resolve) => {
+          release = resolve
+        }),
+    )
+    const f = makeQuotaFetcher({
+      ttlMs: 100,
+      now: () => t,
+      fetchers: [{ agent: 'claude-code', fetch: spy }],
+    })
+    const cold = f.getAgentQuota() // nothing cached → must block
+    release({ ...wire('claude-code', 'ok'), fetchedAt: 'first' })
+    expect((await cold)[0]?.fetchedAt).toBe('first')
+
+    t = 1200 // TTL lapsed → stale, but a value exists
+    const stale = await f.getAgentQuota() // must NOT wait on the pending fetch
+    expect(stale[0]?.fetchedAt).toBe('first')
+    expect(spy).toHaveBeenCalledTimes(2) // refresh was kicked off behind it
+
+    release({ ...wire('claude-code', 'ok'), fetchedAt: 'second' })
+    await vi.waitFor(async () => expect((await f.getAgentQuota())[0]?.fetchedAt).toBe('second'))
+  })
+
+  it('collapses concurrent stale refreshes into one in-flight fetch', async () => {
+    let t = 1000
+    let calls = 0
+    const spy = vi.fn(async () => {
+      calls += 1
+      return { ...wire('claude-code', 'ok'), fetchedAt: `v${calls}` }
+    })
+    const f = makeQuotaFetcher({
+      ttlMs: 100,
+      now: () => t,
+      fetchers: [{ agent: 'claude-code', fetch: spy }],
+    })
+    await f.getAgentQuota()
+    t = 1200
+    await Promise.all([f.getAgentQuota(), f.getAgentQuota(), f.getAgentQuota()])
+    // three stale reads, one refresh — not a stampede of vendor calls
+    expect(spy).toHaveBeenCalledTimes(2)
+  })
+
   it('does not cache an errored fetcher (retries on the next call within TTL)', async () => {
     let t = 1000
     const spy = vi.fn(async () => {
