@@ -32,9 +32,9 @@
  */
 
 import type {
-  FeedBootstrapMessage,
+  FeedBootstrapMessageLenient,
   FeedChangeRow,
-  FeedDeltaMessage,
+  FeedDeltaMessageLenient,
   FeedRescopeMessage,
   FeedResyncRequiredMessage,
 } from '@podium/protocol'
@@ -78,7 +78,9 @@ function toEnvelope(change: WireChange): ChangeEnvelope {
 }
 
 /** A `feedDelta` as the kernel's rung-0 acceptance rule reads it. */
-export function toDeltaFrame(message: FeedDeltaMessage): Extract<ServerFrame, { kind: 'delta' }> {
+export function toDeltaFrame(
+  message: FeedDeltaMessageLenient,
+): Extract<ServerFrame, { kind: 'delta' }> {
   return {
     kind: 'delta',
     feedId: message.feedId,
@@ -130,7 +132,7 @@ export function toResyncFrame(
  * no kernel counterpart; the kernel's `BootstrapChunk` states the same claim by
  * being a bootstrap.
  */
-export function toBootstrapChunk(message: FeedBootstrapMessage): BootstrapChunk {
+export function toBootstrapChunk(message: FeedBootstrapMessageLenient): BootstrapChunk {
   return {
     feedId: message.feedId,
     epoch: message.epoch,

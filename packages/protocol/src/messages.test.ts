@@ -1275,3 +1275,84 @@ describe('headless harness frames (concierge unification, Phase A)', () => {
     expect(parseServerMessage(encode(text))).toEqual(text)
   })
 })
+
+/**
+ * POD-1608 — the v2 frames get the same per-element quarantine as v1.
+ *
+ * `parseServerMessageLenient` special-cased `metadataDelta` and nothing else, so
+ * `feedBootstrap` / `feedDelta` fell through to the STRICT `ServerMessage`
+ * schema. One row of a kind v2 has no arm for therefore threw, and the caller
+ * dropped the entire frame — on a bootstrap, that is the client's whole world.
+ * Measured in a browser against a live instance: a 21-row bootstrap carrying one
+ * `userReadPosition` row was dropped, the kernel replica stayed empty, and the
+ * task board rendered "No tasks." with zero console errors.
+ */
+describe('parseServerMessageLenient (wire v2 feed frames)', () => {
+  const repoRow = (seq: number) => ({
+    seq,
+    entity: 'repo',
+    entityId: 'repo_1',
+    op: 'upsert',
+    value: { id: 'repo_1', prefix: 'POD' },
+  })
+  const unarmedRow = (seq: number) => ({
+    seq,
+    entity: 'userReadPosition',
+    entityId: 'user:sole\nissueEvents',
+    op: 'upsert',
+    value: { userId: 'user:sole', streamId: 'issueEvents', lastEventId: 8 },
+  })
+  const bootstrap = (changes: unknown[]) =>
+    JSON.stringify({
+      type: 'feedBootstrap',
+      feedId: 'feed-01J',
+      epoch: 'epoch-01J',
+      fromSeq: 0,
+      seq: 9,
+      minAvailableSeq: 0,
+      last: true,
+      changes,
+    })
+
+  it('keeps the frame — and the rows beside it — when a row has no strict arm', () => {
+    const { message, dropped } = parseServerMessageLenient(bootstrap([unarmedRow(8), repoRow(9)]))
+    expect(dropped).toBe(0)
+    expect(message?.type).toBe('feedBootstrap')
+    // The un-armed row RIDES ALONG rather than being quarantined: dropping it
+    // would be an invisible cursor gap, which is the heal-loop D4 forbids.
+    expect(message?.type === 'feedBootstrap' && message.changes).toHaveLength(2)
+  })
+
+  it('quarantines only the invalid row of an ARMED kind — it can still say NO', () => {
+    const { message, dropped } = parseServerMessageLenient(
+      bootstrap([{ ...repoRow(8), value: { id: 7 } }, repoRow(9)]),
+    )
+    expect(dropped).toBe(1)
+    expect(message?.type === 'feedBootstrap' && message.changes).toHaveLength(1)
+  })
+
+  it('applies the same tolerance to feedDelta', () => {
+    const raw = JSON.stringify({
+      type: 'feedDelta',
+      feedId: 'feed-01J',
+      epoch: 'epoch-01J',
+      fromSeq: 7,
+      seq: 8,
+      minAvailableSeq: 0,
+      changes: [unarmedRow(8)],
+    })
+    const { message, dropped } = parseServerMessageLenient(raw)
+    expect(dropped).toBe(0)
+    expect(message?.type === 'feedDelta' && message.changes).toHaveLength(1)
+  })
+
+  it('still throws on a structurally broken feed envelope', () => {
+    // The envelope's own rules are NOT relaxed: a frame that certifies no range
+    // is the defect the v2 wire exists to make unrepresentable.
+    expect(() =>
+      parseServerMessageLenient(
+        JSON.stringify({ type: 'feedBootstrap', feedId: 'f', epoch: 'e', changes: [], last: true }),
+      ),
+    ).toThrow()
+  })
+})

@@ -6,15 +6,15 @@ import type {
   IssueDepProjection,
   IssueProjection,
   IssueWire,
-  ReadPositionWire,
   LayoutWire,
   MachineWire,
+  ReadPositionWire,
   RepoProjection,
   SessionId,
   SessionMeta,
   TranscriptItem,
 } from '@podium/model'
-import { readPositionRowId, layoutRowId } from '@podium/model'
+import { layoutRowId, readPositionRowId } from '@podium/model'
 import {
   type ApprovalWire,
   CAP_ISSUES_NORMALIZED,
@@ -118,9 +118,15 @@ export interface SocketHubOptions {
 }
 
 /** The frames the v2 wire carries. Narrowed off the parsed union rather than
- *  restated, so a new member of the family is a compile error here. */
+ *  restated, so a new member of the family is a compile error here.
+ *
+ *  Narrowed off the LENIENT union (POD-1608): the change-bearing members arrive
+ *  through `parseServerMessageLenient`, whose `changes` may hold a row for a kind
+ *  this build has no arm for. That row must reach the sink — the kernel ignores
+ *  it and advances past its seq — and narrowing off the strict union here would
+ *  have made the sink's own type reject what the parser is contracted to pass. */
 export type FeedServerFrame = Extract<
-  ServerMessage,
+  ServerMessageLenient,
   { type: 'feedDelta' | 'feedBootstrap' | 'feedRescope' | 'feedResyncRequired' }
 >
 
