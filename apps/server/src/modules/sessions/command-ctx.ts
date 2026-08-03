@@ -18,7 +18,7 @@ import {
   machineUseDecision,
   ownershipFromMachines,
 } from '../../machine-access'
-import { sessionSpawnerParentId } from '../../steward'
+import { spawnedByParentSessionId } from '@podium/model'
 import type { RegistryModules } from '../../relay'
 import {
   SessionCommandCtx,
@@ -68,10 +68,11 @@ export function sessionCommandCtx(
   const issues = modules.issues
   const commandSessions = sessionCommandServices(modules)
   const principal = resolvePrincipal(capability, {
-    // One parser for the `session:<id>` tag, and it brands what it extracts
-    // (POD-362) — see sessionSpawnerParentId for why the TAG stays raw.
+    // The ONE reader of the `session:<id>` tag, in `@podium/model` alongside
+    // the one writer (POD-1133). It brands what it extracts, so `parentSessionOf`
+    // hands back a `SessionId` with no cast here.
     parentSessionOf: (sessionId) =>
-      sessionSpawnerParentId(
+      spawnedByParentSessionId(
         sessions.listSessions().find((s) => s.sessionId === sessionId)?.spawnedBy,
       ),
     onBehalfOfFor: (sessionId) => sessions.sessionOwner(sessionId)?.owner ?? undefined,

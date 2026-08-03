@@ -21,6 +21,7 @@
  *    delegation — and neither half is reachable from payload.
  */
 
+import { isSpawnedBy } from '@podium/model'
 import { asIssueId, asSessionId, type IssueId, type SessionId } from '@podium/model'
 import {
   type AddressResolution,
@@ -296,7 +297,7 @@ export class MailAccess {
     const isOperator = caller.capability.scope.kind === 'all'
     const isParent =
       caller.capability.actorSessionId !== undefined &&
-      target.spawnedBy === `session:${caller.capability.actorSessionId}`
+      isSpawnedBy(target.spawnedBy, { kind: 'session', id: caller.capability.actorSessionId })
     if (!isOperator && !isParent) {
       throw new Error('target session has no issue; only its parent or the operator may message it')
     }

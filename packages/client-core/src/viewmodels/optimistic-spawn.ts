@@ -1,3 +1,4 @@
+import { spawnedByTag } from '@podium/model'
 import { isSortKey, sortKeyBetween, type AgentKind, type IssueId, type IssueWire, type RepoId, type SessionId, type SessionMeta } from '@podium/model'
 
 /**
@@ -64,7 +65,7 @@ export function optimisticStartingSession(args: OptimisticSpawnArgs): SessionMet
     readAt: args.nowIso,
     unread: false,
     issueId: args.issueId,
-    spawnedBy: 'user',
+    spawnedBy: spawnedByTag({ kind: 'user' }),
   }
 }
 

@@ -19,7 +19,13 @@
  * Depends on F1 and F3.
  * Platform-neutral: no DOM, no storage.
  */
-import { asSessionId, isHeadlessSession, isSnoozed, type SessionMeta } from '@podium/model'
+import {
+  isHeadlessSession,
+  isSnoozed,
+  type SessionId,
+  type SessionMeta,
+  spawnedByParentSessionId,
+} from '@podium/model'
 import { attentionGroup, compareRecency } from '../../../focus'
 import { isConsumedChild, sessionHasNativeSubagents } from '../../session-status'
 import { STALE_INACTIVE_MS } from '../../session-urgency'
@@ -119,10 +125,11 @@ export interface SessionGroup {
   consumed: SessionMeta[]
 }
 
-const spawnedByParentId = (s: SessionMeta): string | null => {
-  const m = /^session:(.+)$/.exec(s.spawnedBy ?? '')
-  return m?.[1] ?? null
-}
+/** The spawning parent, read through the ONE `spawnedBy` reader (POD-1133).
+ *  This used to be a local regex — the second of two hand-rolled parsers of a
+ *  tag that seven other sites rebuilt by hand to compare. */
+const spawnedByParentId = (s: SessionMeta): SessionId | undefined =>
+  spawnedByParentSessionId(s.spawnedBy)
 
 /**
  * Whether a sidebar issue/worktree row should expand to show nested session
@@ -156,20 +163,16 @@ export function sessionsNeedChildRows(sessions: SessionMeta[]): boolean {
 export function groupSessionsByParent(sessions: SessionMeta[]): SessionGroup[] {
   const byId = new Map(sessions.map((s) => [s.sessionId, s]))
   // Topmost listed ancestor (cycle-guarded); null = top-level.
-  const anchorOf = (s: SessionMeta): string | null => {
+  const anchorOf = (s: SessionMeta): SessionId | null => {
     let cur = s
-    let anchor: string | null = null
+    let anchor: SessionId | null = null
     const seen = new Set<string>([s.sessionId])
     for (;;) {
       const pid = spawnedByParentId(cur)
       if (!pid || seen.has(pid)) break
-      // NOT a POD-363 adapter cast, and deliberately left in place by it. `pid` is
-      // parsed out of the freeform `spawnedBy` tag, which has SIX producers, ONE
-      // parser and seven hand-rebuilt comparisons; branding it here would brand the
-      // parser's output at one of eight call sites and leave the other seven. The
-      // brand belongs on a shared spawnedBy constructor+parser, which is POD-1133 —
-      // so this stays a boundary cast until that lands, not a sweep target.
-      const parent = byId.get(asSessionId(pid))
+      // No cast: the shared reader returns a `SessionId`, so the brand is applied
+      // once where the tag is parsed rather than at each site that consumes it.
+      const parent = byId.get(pid)
       // A parent that is not in `sessions` is not listed — whether it was never
       // there, has not arrived, or is no longer VISIBLE to this principal. The
       // child stays top-level in all three cases, which is why an eviction

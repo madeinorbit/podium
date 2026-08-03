@@ -1,4 +1,4 @@
-import { asSessionId } from '@podium/model'
+import { asSessionId, spawnedByParentSessionId } from '@podium/model'
 import type { IssueComment, IssueWire, SessionId, SessionMeta, UserId } from '@podium/model'
 import type { PodiumSettings } from '@podium/runtime'
 import { sessionsForIssue } from './issue-util'
@@ -224,26 +224,11 @@ export const SESSION_PARENT_SUBS: Record<string, SessionParentSub> = {
   },
 }
 
-/**
- * Parse `session:<parentSessionId>` from a child's spawnedBy; else undefined.
- *
- * The TAG stays a raw string and is NOT converted to a key helper: `spawnedBy` is
- * one of the fields `packages/model/src/entities/session.ts` documents as
- * deliberately unbranded, on evidence — POD-360 found six produced arms, exactly
- * ONE consumer that parses it (this function) and SEVEN that rebuild the template
- * literal to compare, five of them gating parent-session authorization. A brand
- * would not fix that; changing the tag format silently would break the five.
- *
- * What POD-362 DOES do is brand what comes OUT: the extracted parent is a
- * SessionId, so every caller downstream is typed.
- */
-export function sessionSpawnerParentId(
-  spawnedBy: string | null | undefined,
-): SessionId | undefined {
-  if (!spawnedBy || !spawnedBy.startsWith('session:')) return undefined
-  const parentId = spawnedBy.slice('session:'.length)
-  return parentId.length > 0 ? asSessionId(parentId) : undefined
-}
+// The parent-session extraction that used to live here is now
+// `spawnedByParentSessionId` in `@podium/model` (POD-1133). It moved because it
+// was one of TWO hand-rolled parsers of the same tag — this one and the sidebar
+// grouping's regex — sitting alongside seven hand-built comparisons. One writer,
+// one reader, one comparison, all in the package that owns the field.
 
 /**
  * The subscription-event kind(s) a raw log event qualifies as, or [] if it is not
@@ -900,7 +885,7 @@ export class StewardService {
     // Prefer live meta; fall back to the event payload (session.exited stamps
     // spawnedBy so a race that drops the row still finds the parent).
     const spawnedBy = child?.spawnedBy ?? (last.payload as { spawnedBy?: string } | null)?.spawnedBy
-    const parentId = sessionSpawnerParentId(spawnedBy)
+    const parentId = spawnedByParentSessionId(spawnedBy)
     if (!parentId) return
     // Never self-wake (a mis-tagged spawnedBy).
     if (parentId === childSessionId) return

@@ -31,6 +31,7 @@
  * answer by the same path instead of by two coincidences.
  */
 
+import { type SpawnedByRef, spawnedByTag } from '@podium/model'
 import {
   type CommandDef,
   sessionCommandPlane,
@@ -236,9 +237,27 @@ export class SessionCommandCtx {
  * rather than hard-coding `'user'` at the tRPC seam is what makes the pair come
  * from the TRANSPORT on every path (D7.3) instead of from whichever router the
  * call happened to enter through.
+ *
+ * It maps the principal to a `SpawnedByRef` and lets `spawnedByTag` spell it
+ * (POD-1133) rather than borrowing `attributionOf(...).actor`, which is a
+ * DIFFERENT vocabulary that happens to agree on the agent arm: its user arm is a
+ * `UserId`, not the `'user'` role, so the two only coincided because this
+ * function special-cased the human. The switch is exhaustive over the three
+ * principal kinds.
  */
 export function spawnedByFor(principal: CommandPrincipal): string {
-  return principal.kind === 'user' ? 'user' : attributionOf(principal).actor
+  return spawnedByTag(spawnedByRefFor(principal))
+}
+
+function spawnedByRefFor(principal: CommandPrincipal): SpawnedByRef {
+  switch (principal.kind) {
+    case 'user':
+      return { kind: 'user' }
+    case 'agent':
+      return { kind: 'session', id: principal.agentSessionId }
+    case 'system':
+      return { kind: 'system', job: principal.job }
+  }
 }
 /** Binding authority from the already-resolved transport principal. There is no
  * payload parameter from which a caller could forge either identity half. */

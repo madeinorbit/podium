@@ -8,6 +8,7 @@
  * the daemon accepts the turn, progress streams to clients as
  * `headlessActivity` frames, and the canonical items arrive via the tail.
  */
+import { spawnedByTag } from '@podium/model'
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import type { SuperagentUserFocus } from '@podium/commands'
@@ -500,7 +501,7 @@ export class SuperagentService {
         agentKind: agent,
         cwd,
         title: thread.title ?? threadId,
-        spawnedBy: `superagent:${threadId}`,
+        spawnedBy: spawnedByTag({ kind: 'superagent', threadId }),
       }).sessionId
       this.store.superagent.updateSuperagentThreadBinding(threadId, {
         podiumSessionId: sessionId,
@@ -764,7 +765,7 @@ export class SuperagentService {
       resume: { kind: harnessResumeKind(agent.data), value: thread.harnessSessionId },
       conversationId: thread.harnessSessionId,
       ...(thread.title ? { title: thread.title } : {}),
-      spawnedBy: `superagent:${threadId}`,
+      spawnedBy: spawnedByTag({ kind: 'superagent', threadId }),
     })
     this.store.superagent.updateSuperagentThreadBinding(threadId, { terminalSessionId: sessionId })
     return { sessionId }

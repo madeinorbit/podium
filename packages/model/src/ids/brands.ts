@@ -85,12 +85,14 @@
  *     owns.
  *   - an ATTRIBUTION TAG that is not an id at all (`SessionMeta.spawnedBy`,
  *     `IssueWire.assignee`, `IssueWire.origin`): see
- *     `docs/rearch-branded-id-flip.md` §4. `spawnedBy` is a six-arm tagged
- *     union living unparsed in a freeform string; POD-360 found ONE consumer
- *     parses it and SEVEN rebuild the template literal to compare, FIVE of them
- *     gating parent-session authorization. A brand does not fix that — it still
- *     permits seven hand-built strings — so it needs a shared constructor AND
- *     parser (POD-1133), not a type.
+ *     `docs/rearch-branded-id-flip.md` §4. `spawnedBy` is a tagged union, and
+ *     POD-360 found ONE consumer parsed it and SEVEN rebuilt the template
+ *     literal to compare, FIVE of them gating parent-session authorization. A
+ *     brand does not fix that — it still permits seven hand-built strings — so
+ *     it needed a shared constructor AND parser, not a type. POD-1133 shipped
+ *     both as `SpawnedByRef` / `spawnedByTag` / `parseSpawnedBy` in
+ *     `fields/session.ts`; the WIRE field stays a string, unbranded, and every
+ *     site now goes through those.
  * `MachineId` used to be on this list, carved out at every field by ADR 1
  * Amendment 2 D16.2's ordering constraint. POD-318 retired `'local'` and
  * `'__local__'`, so the constraint is discharged: {@link MachineId} now REFUSES

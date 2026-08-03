@@ -16,6 +16,7 @@
  * `write` through the session-target gate. See the contract for the working.
  */
 
+import { isSpawnedBy } from '@podium/model'
 import type { awaitAgentContract, ContractInput } from '@podium/commands'
 import type { SessionMeta } from '@podium/model'
 import type { Capability } from '../../../issue-authz'
@@ -32,7 +33,7 @@ export async function awaitAgentHandler(
   const child = deps.listSessions().find((x) => x.sessionId === input.sessionId)
   const isParent =
     caller.capability.actorSessionId !== undefined &&
-    child?.spawnedBy === `session:${caller.capability.actorSessionId}`
+    isSpawnedBy(child?.spawnedBy, { kind: 'session', id: caller.capability.actorSessionId })
   if (!isParent) access.assertSessionTargetAccess(caller, input.sessionId, 'agent.await')
   const svc = deps.messages
   const timeoutMs = (input.timeoutSeconds ?? 30) * 1000

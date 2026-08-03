@@ -6,7 +6,6 @@ import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import {
   type StewardDeps,
-  sessionSpawnerParentId,
   subscriptionEventKinds,
   isAcceptedLiveTerminalEvent,
   StewardService,
@@ -1479,16 +1478,10 @@ describe('StewardService condition-clear fact retirement (POD-890)', () => {
   })
 })
 
-describe('sessionSpawnerParentId', () => {
-  it('extracts a session parent id and rejects other provenance', () => {
-    expect(sessionSpawnerParentId('session:parent-1')).toBe('parent-1')
-    expect(sessionSpawnerParentId('issue:iss_1')).toBeUndefined()
-    expect(sessionSpawnerParentId('user')).toBeUndefined()
-    expect(sessionSpawnerParentId('session:')).toBeUndefined()
-    expect(sessionSpawnerParentId(null)).toBeUndefined()
-    expect(sessionSpawnerParentId(undefined)).toBeUndefined()
-  })
-})
+// The parent-session extraction this file used to test moved to
+// `@podium/model` (POD-1133) and is covered by
+// `packages/model/src/fields/session.spawned-by.test.ts`, which pins the whole
+// arm set rather than just the session arm.
 
 /**
  * M4 / POD-904: session-spawner edge wakes a parked parent when its child

@@ -29,7 +29,8 @@ export function transcriptSessionIdForThread(
   if (thread?.podiumSessionId) return thread.podiumSessionId
   if (thread?.originSessionId) return thread.originSessionId
   // A `btw_<sessionId>` thread id CARRIES the origin session id in its tail; the
-  // brand is applied on extraction (POD-362), same shape as sessionSpawnerParentId.
+  // brand is applied on extraction (POD-362), same shape as the `spawnedBy`
+  // reader `spawnedByParentSessionId` in `@podium/model`.
   if (superagentThreadId.startsWith('btw_')) return asSessionId(superagentThreadId.slice(4))
   return undefined
 }

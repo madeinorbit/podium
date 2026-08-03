@@ -521,7 +521,7 @@ const SESSION_ROWS: readonly MatrixRow[] = [
     attribution: {
       actor: 'required',
       onBehalfOf: 'required',
-      note: '`spawnedBy` is the freeform ancestor of this pair (documented values `user` / `superagent:<id>` / `issue:<id>` / `session:<id>`) and carries at most the actor half. See INTERIM DEFECT.',
+      note: '`spawnedBy` is the ancestor of this pair and carries at most the actor half. It is no longer freeform: POD-1133 gave it the closed `SpawnedByRef` union in `fields/session.ts`, whose `spawnedByTag`/`parseSpawnedBy` are the only writer and reader of the tag. The on-behalf-of half still lives only in this pair. See INTERIM DEFECT.',
     },
     systemWriter: 'may-write',
     systemWriterRule: SYSTEM_WRITER_RULE,

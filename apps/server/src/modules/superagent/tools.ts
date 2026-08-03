@@ -4,6 +4,7 @@
  * harness allowlist, plus the concierge confirmed-gate wrapping.
  */
 
+import { spawnedByTag } from '@podium/model'
 import {
   asSessionId,
   isAgentKind,
@@ -97,7 +98,10 @@ export function buildSuperagentTools(
   const issues = modules.issues
   const rpc = modules.rpc
   // Session provenance (issue #60): thread-scoped when the executing thread is known.
-  const spawnedBy = threadId ? 'superagent:' + threadId : 'superagent'
+  const spawnedBy = spawnedByTag({
+    kind: 'superagent',
+    ...(threadId ? { threadId: asThreadId(threadId) } : {}),
+  })
   const ownerUserId = threadId
     ? store.superagent.getSuperagentThread(asThreadId(threadId))?.ownerUserId
     : undefined

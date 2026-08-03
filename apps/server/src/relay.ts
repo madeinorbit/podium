@@ -1,3 +1,4 @@
+import { isSpawnedBy } from '@podium/model'
 import { randomUUID } from 'node:crypto'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
@@ -101,7 +102,8 @@ import type { HeadlessService } from './modules/superagent/headless'
 import { dispatchWorkflowRpc } from './modules/workflows/rpc'
 import { WorkflowService } from './modules/workflows/service'
 import { inferRepoFromRoots } from './repo-registry'
-import { StewardService, sessionSpawnerParentId } from './steward'
+import { spawnedByParentSessionId } from '@podium/model'
+import { StewardService } from './steward'
 import { SessionStore } from './store'
 import { isGenericClaudeTitle, isTransientTitle } from './title-filter'
 
@@ -301,7 +303,7 @@ export class SessionRegistry {
     const principalForCapability = (capability: import('@podium/model').Capability) =>
       resolvePrincipal(capability, {
         parentSessionOf: (candidate) =>
-          sessionSpawnerParentId(this.store.sessions.getSession(asSessionId(candidate))?.spawnedBy),
+          spawnedByParentSessionId(this.store.sessions.getSession(asSessionId(candidate))?.spawnedBy),
         onBehalfOfFor: (candidate) =>
           this.store.sessions.getSession(asSessionId(candidate))?.ownerUserId,
       })
@@ -1428,7 +1430,7 @@ export class SessionRegistry {
           const fresh = op.target.kind === 'fresh' ? op.target : null
           const principal = resolvePrincipal(sessionsSvc.capabilityForSession(sessionId), {
             parentSessionOf: (candidate) =>
-              sessionSpawnerParentId(
+              spawnedByParentSessionId(
                 sessionsSvc.listSessions().find((session) => session.sessionId === candidate)
                   ?.spawnedBy,
               ),
@@ -1793,7 +1795,10 @@ export class SessionRegistry {
                 const isOperator = capability.scope.kind === 'all'
                 const isParent =
                   capability.actorSessionId !== undefined &&
-                  target.spawnedBy === `session:${capability.actorSessionId}`
+                  isSpawnedBy(target.spawnedBy, {
+                    kind: 'session',
+                    id: capability.actorSessionId,
+                  })
                 if (!isOperator && !isParent) {
                   throw new Error(
                     'target session has no issue; only its parent or the operator may read it',
@@ -1878,7 +1883,8 @@ export class SessionRegistry {
                   // asserts the agent got human OK [spec:SP-9904].
                   const isOperator = capability.scope.kind === 'all'
                   const isParent =
-                    actorSessionId !== undefined && target.spawnedBy === `session:${actorSessionId}`
+                    actorSessionId !== undefined &&
+                    isSpawnedBy(target.spawnedBy, { kind: 'session', id: actorSessionId })
                   if (!isOperator && !isParent && !overrideScope) {
                     throw new Error(
                       'target session has no issue and is outside your tree; re-run with --outside-scope to confirm human permission',

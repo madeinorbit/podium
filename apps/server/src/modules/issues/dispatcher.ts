@@ -20,7 +20,7 @@ import { z } from 'zod'
 import { resolvePrincipal } from '../../command-principal'
 import type { Capability } from '../../issue-authz'
 import type { IssueProc, IssueTrpc } from '../../issue-client'
-import { sessionSpawnerParentId } from '../../steward'
+import { spawnedByParentSessionId } from '@podium/model'
 import {
   commandAccess,
   type IssueCaller,
@@ -124,7 +124,7 @@ export class IssueCommandDispatcher {
           ...caller,
           principal: resolvePrincipal(caller.capability, {
             parentSessionOf: (sessionId) =>
-              sessionSpawnerParentId(
+              spawnedByParentSessionId(
                 this.deps.listSessions().find((session) => session.sessionId === sessionId)
                   ?.spawnedBy,
               ),
@@ -149,7 +149,7 @@ export class IssueCommandDispatcher {
   asIssueTrpc(capability: Capability, overrideScope?: boolean): IssueTrpc {
     const principal = resolvePrincipal(capability, {
       parentSessionOf: (sessionId) =>
-        sessionSpawnerParentId(
+        spawnedByParentSessionId(
           this.deps.listSessions().find((session) => session.sessionId === sessionId)?.spawnedBy,
         ),
     })

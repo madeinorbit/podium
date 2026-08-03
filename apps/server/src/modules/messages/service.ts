@@ -25,6 +25,7 @@
  *    operator is an invariant).
  */
 
+import { isSpawnedBy } from '@podium/model'
 import { randomUUID } from 'node:crypto'
 import {
   exemptFromBrakes,
@@ -1393,8 +1394,10 @@ export class MessageDeliveryService {
     // Parent → child: the sender spawned the target (spawnedBy provenance —
     // 'session:<id>' for session spawns, 'issue:<id>' for issue-agent spawns).
     if (target?.spawnedBy) {
-      if (from.sessionId && target.spawnedBy === `session:${from.sessionId}`) return 'parent'
-      if (from.issueId && target.spawnedBy === `issue:${from.issueId}`) return 'parent'
+      if (from.sessionId && isSpawnedBy(target.spawnedBy, { kind: 'session', id: from.sessionId }))
+        return 'parent'
+      if (from.issueId && isSpawnedBy(target.spawnedBy, { kind: 'issue', id: from.issueId }))
+        return 'parent'
     }
     return 'peer'
   }
