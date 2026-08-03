@@ -473,6 +473,26 @@ export function resolveLocalServerHost(env: EnvSource = process.env): string {
   return host.includes(':') && !host.startsWith('[') ? `[${host}]` : host
 }
 
+/**
+ * The base URL a LOCAL component dials to reach its server — `resolveLocalServerHost()`
+ * applied to a whole URL (POD-1607).
+ *
+ * POD-1585 fixed the bundled daemon's hard-coded `localhost`; every CLI verb still had
+ * its own copy of it (`podium issue`, `mail`, `session`, the janitor's `--server`, the
+ * health poll, the daemon's `ws://`). Bind `PODIUM_HOST` to a real interface — what the
+ * setup wizard tells you to do to reach Podium from another device — and loopback is not
+ * listening, so every one of those dials was refused while a browser reached the server
+ * fine. One builder rather than a dozen call sites deciding this independently.
+ */
+export function localServerUrl(port: number, env: EnvSource = process.env): string {
+  return `http://${resolveLocalServerHost(env)}:${port}`
+}
+
+/** The websocket form of {@link localServerUrl} — what the local daemon dials. */
+export function localServerWsUrl(port: number, env: EnvSource = process.env): string {
+  return `ws://${resolveLocalServerHost(env)}:${port}`
+}
+
 export function resolveHookPort(
   config: PodiumConfig = loadConfig(),
   env: EnvSource = process.env,

@@ -1,5 +1,5 @@
 import { ISSUE_COMMANDS, type IssueTrpc, makeRelayIssueClient } from '@podium/issue-client'
-import { resolveAgentRelay, resolvePort } from '@podium/runtime/config'
+import { localServerUrl, resolveAgentRelay, resolvePort } from '@podium/runtime/config'
 import type { z } from 'zod'
 import { makeOperatorIssueClient } from './operator-client'
 
@@ -250,7 +250,7 @@ export async function issueCliMain(argv: string[]): Promise<void> {
     )
   const client = relay
     ? makeRelayIssueClient(relay, { outsideScope })
-    : makeOperatorIssueClient(`http://localhost:${resolvePort()}`)
+    : makeOperatorIssueClient(localServerUrl(resolvePort()))
   try {
     console.log(await runIssueCli(argv, client, { defaultAuthor: relay ? 'agent' : 'operator' }))
   } catch (err) {

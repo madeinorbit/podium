@@ -10,7 +10,7 @@ import type {
   WorkflowStep,
   WorkflowWire,
 } from '@podium/protocol'
-import { resolveAgentRelay, resolvePort } from '@podium/runtime/config'
+import { localServerUrl, resolveAgentRelay, resolvePort } from '@podium/runtime/config'
 import { requestApproval } from './approval-cli'
 import { makeOperatorIssueClient } from './operator-client'
 
@@ -484,7 +484,7 @@ export async function workflowCliMain(argv: string[]): Promise<void> {
   const outsideScope = argv.includes('--outside-scope')
   const client = relayEndpoint
     ? makeRelayIssueClient(relayEndpoint, { outsideScope })
-    : makeOperatorIssueClient(`http://localhost:${resolvePort()}`)
+    : makeOperatorIssueClient(localServerUrl(resolvePort()))
   try {
     console.log(
       await runWorkflowCli(argv, {

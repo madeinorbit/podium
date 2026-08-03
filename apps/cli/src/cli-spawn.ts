@@ -7,7 +7,7 @@ import { type ChildProcess, spawn } from 'node:child_process'
 import { mkdirSync, openSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { PodiumConfig } from '@podium/runtime/config'
+import { localServerUrl, type PodiumConfig } from '@podium/runtime/config'
 import { liveRecord, logDir, type RunRole } from '@podium/runtime/run-registry'
 
 /** True when running inside a `bun build --compile` binary (execPath IS `podium`). */
@@ -65,7 +65,7 @@ export function spawnDetached(
   return child.pid ?? undefined
 }
 
-/** Poll http://localhost:<port>/health until it answers 200 or the budget runs out. */
+/** Poll the local server's <host>:<port>/health until it answers 200 or the budget runs out. */
 export async function waitForHealth(
   port: number,
   budgetMs = 15_000,
@@ -74,7 +74,7 @@ export async function waitForHealth(
   const deadline = Date.now() + budgetMs
   while (Date.now() < deadline) {
     try {
-      const res = await fetch(`http://localhost:${port}/health`)
+      const res = await fetch(`${localServerUrl(port)}/health`)
       if (res.ok) return true
     } catch {
       // not up yet
@@ -114,7 +114,7 @@ export async function startDetachedStack(
     serverUp = await waitForHealth(port)
   }
   if (roles.includes('janitor') && serverUp) {
-    spawnDetached('janitor', { port, serverUrl: `http://localhost:${port}` })
+    spawnDetached('janitor', { port, serverUrl: localServerUrl(port) })
   }
   if (roles.includes('daemon') && serverUp) {
     spawnDetached('daemon', { port, local: true })
@@ -144,7 +144,7 @@ export async function ensureDetachedUp(
     await waitForHealth(port)
   }
   if (down.includes('janitor')) {
-    spawnDetached('janitor', { port, serverUrl: `http://localhost:${port}` })
+    spawnDetached('janitor', { port, serverUrl: localServerUrl(port) })
   }
   if (down.includes('daemon')) {
     spawnDetached('daemon', { port, local: true })

@@ -8,6 +8,8 @@ import {
   configPath,
   inspectConfig,
   loadConfig,
+  localServerUrl,
+  localServerWsUrl,
   migrateConfig,
   migrateConfigFile,
   needsSetup,
@@ -179,6 +181,23 @@ describe('layered resolvers (#251): env → config.json → default', () => {
     // A bare IPv6 literal must be bracketed to be a legal URL authority.
     expect(resolveLocalServerHost({ PODIUM_HOST: 'fd00::1' })).toBe('[fd00::1]')
     expect(resolveLocalServerHost({ PODIUM_HOST: '[fd00::1]' })).toBe('[fd00::1]')
+  })
+  it('localServerUrl/localServerWsUrl: local dials follow the bound host (POD-1607)', () => {
+    // The CLI's own copies of the POD-1585 bug: every verb dialed a hard-coded
+    // `localhost` while the server bound PODIUM_HOST and nothing else.
+    expect(localServerUrl(18787, { PODIUM_HOST: '100.113.194.89' })).toBe(
+      'http://100.113.194.89:18787',
+    )
+    expect(localServerWsUrl(18787, { PODIUM_HOST: '100.113.194.89' })).toBe(
+      'ws://100.113.194.89:18787',
+    )
+    // Unset (the ordinary single-machine install) is unchanged: loopback.
+    expect(localServerUrl(18787, {})).toBe('http://localhost:18787')
+    expect(localServerWsUrl(23000, {})).toBe('ws://localhost:23000')
+    // A wildcard bind includes loopback, so the short local path stays.
+    expect(localServerUrl(18787, { PODIUM_HOST: '0.0.0.0' })).toBe('http://localhost:18787')
+    // IPv6 stays bracketed so the result is a legal URL authority.
+    expect(localServerUrl(18787, { PODIUM_HOST: 'fd00::1' })).toBe('http://[fd00::1]:18787')
   })
   it('named instances get stable distinct endpoint defaults with env/config overrides', () => {
     const env = { PODIUM_INSTANCE: 'blue' }
