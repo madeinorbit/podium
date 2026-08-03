@@ -6,7 +6,7 @@
 - **Consumers:** POD-387 (plane-port interfaces), POD-317 (gateway routing + framing)
 - **Inventory baseline:** integrated tip `ca361327` (issue/279-integration lineage); **not** the 2026-07-13 plan freeze
 - **Defining classification source today:** `packages/protocol/src/messages/message-class.ts` (`SERVER_|CLIENT_|CONTROL_|DAEMON_MESSAGE_CLASS` tables, each `satisfies Record<Union['type'], …>` total over its union)
-- **Amended by:** [Amendment 1 — identity-carrying presence and rooms on the stream plane](0007-plane-inventory-amendment-1.md) (2026-07-29, POD-1074): **D9** gives presence identity/room/payload (today's `visible` bit is the degenerate case); **D10** makes rooms a subscription concept *inside* the stream port with entity-reference ids; **D11** sets cursor-rate, funnel-free fan-out and its anti-starvation backpressure; **D12** forbids durable presence; **D13** makes the room primitive and ADR 2's scoped-feed routing **one** mechanism (POD-387/POD-317); **D14** gates joins on visibility; **D15** restates D1's fan-out cells as per-principal routing; **D16** extends this inventory. D1's three planes, D2–D5, D6's totality obligation, D7's eight handoff types and D8 are unchanged.
+- **Amended by:** [Amendment 1 — identity-carrying presence and rooms on the stream plane](0007-plane-inventory-amendment-1.md) (2026-07-29, POD-1074): **D9** gives presence identity/room/payload (today's `visible` bit is the degenerate case); **D10** makes rooms a subscription concept *inside* the stream port with entity-reference ids; **D11** sets cursor-rate, funnel-free fan-out and its anti-starvation backpressure; **D12** forbids durable presence; **D13** makes the room primitive and ADR 2's scoped-feed routing **one** mechanism (POD-387/POD-317); **D14** gates joins on visibility; **D15** restates D1's fan-out cells as per-principal routing; **D16** extends this inventory. D1's three planes, D2–D5, D6's totality obligation, D7's handoff family (ten types as of 2026-08-03) and D8 are unchanged.
 - **Related ADRs (forward refs only; no shared index in this leaf):**
 
 | ADR | Relationship |
@@ -249,7 +249,7 @@ Legend: **C/e** control·entity · **C/c** control·command · **C/h** control·
 | `approvalExecRequest` | C/c | |
 | `agentRelayResult` | C/c | **Agent relay only** |
 | `sessionOpenUrlCallback` `sessionOpenUrlDismiss` | C/c | Forwarded to owning daemon |
-| `handoffExportRequest` `handoffChunkReadRequest` `handoffImportChunk` `handoffImportRequest` | C/c | Handoff family (**D7**) |
+| `handoffExportRequest` `handoffChunkReadRequest` `handoffImportChunk` `handoffImportRequest` `handoffBindingFinalizeRequest` | C/c | Handoff family (**D7**) |
 | `workspaceExportRequest` `workspaceImportRequest` `workspaceCleanRequest` | C/c | Lazy workspace fetch; reuses handoff chunk frames for bytes |
 | `transcriptRead` `transcriptMirrorRead` | B | |
 
@@ -274,7 +274,7 @@ Legend: **C/e** control·entity · **C/c** control·command · **C/h** control·
 | `fileReadResult` `fileAssetResult` `fileWriteResult` `dirListResult` | C/c | |
 | `approvalExecResult` | C/c | |
 | `agentRelayRequest` | C/c | **Agent relay only** |
-| `handoffExportResult` `handoffChunkReadResult` `handoffImportChunkResult` `handoffImportResult` | C/c | |
+| `handoffExportResult` `handoffChunkReadResult` `handoffImportChunkResult` `handoffImportResult` `handoffBindingFinalizeResult` | C/c | |
 | `workspaceExportResult` `workspaceImportResult` `workspaceCleanResult` | C/c | |
 | `conversationsChanged` | C/e | Discovery → durable conversation registry |
 | `transcriptReadResult` `transcriptMirrorResult` | B | |
@@ -317,18 +317,19 @@ Wire value types: `packages/protocol/src/messages/workflows.ts`. Transport today
 
 ### D7 — Handoff family (classification test case)
 
-**Re-derived count:** `packages/protocol/src/messages/handoff.ts` defines **8** `z.literal` message types (four request/result pairs):
+**Re-derived count** (as of `issue/279-integration`, 2026-08-03): `packages/protocol/src/messages/handoff.ts` defines **10** `z.literal` message types (five request/result pairs):
 
 1. `handoffExportRequest` / `handoffExportResult`
 2. `handoffChunkReadRequest` / `handoffChunkReadResult`
 3. `handoffImportChunk` / `handoffImportChunkResult`
 4. `handoffImportRequest` / `handoffImportResult`
+5. `handoffBindingFinalizeRequest` / `handoffBindingFinalizeResult` — added by POD-644 (5.1e, Binding adoption across handoff) *after* this ADR was first written.
 
-**Decision.** All eight → **control · command**. Chunk frames use **bulk transfer mechanics** (offset/length, multi-MB caps, no oplog fan-out of chunk bytes) but remain command-class: directed, correlated RPCs in an export/import state machine — not a standing bulk subscription.
+**Decision.** All ten → **control · command**. Chunk frames use **bulk transfer mechanics** (offset/length, multi-MB caps, no oplog fan-out of chunk bytes) but remain command-class: directed, correlated RPCs in an export/import state machine — not a standing bulk subscription.
 
 Workspace export/import/clean (6 more types in `workspace.ts`) follow the same rule; byte transfer reuses handoff chunk frames under `fetchId`.
 
-**Note on drift wording:** POD-359 drift said “7 frames”; the defining source has **8** typed messages. Inventory uses the code.
+**Note on drift wording:** POD-359 drift said “7 frames”; a later correction here said “8”, and was itself overtaken when POD-644 added the binding-finalize pair. The defining source has **10** typed messages. Inventory uses the code — re-derive from `handoff.ts` rather than from this or any other prose.
 
 **Rejected:** classifying chunk frames as bulk plane (would split one state machine across two ports and lose requestId correlation as the primary contract).
 
@@ -359,7 +360,7 @@ stamped from the authenticated client transport; a payload identity is inert.
 
 | Source | Clause | Disposition |
 |--------|--------|-------------|
-| POD-359 DRIFT REFRESH (1)(3) | Handoff family; control-plane command-class with chunked bulk reads | **D7** — 8 types, all C/c with bulk mechanics on chunks |
+| POD-359 DRIFT REFRESH (1)(3) | Handoff family; control-plane command-class with chunked bulk reads | **D7** — 10 types, all C/c with bulk mechanics on chunks |
 | same | Messaging bus/webhook only, no tRPC | **D6.7** — external edge outside peer planes; agent mail remains tRPC/relay C/c |
 | same | Workflows | **D6.8** — tRPC control; no WS family on current tree |
 | same | Inventory against current main, not 07-13 | Baseline `ca361327`; counts re-derived from `message-class.ts` + unions (122) |
@@ -430,7 +431,7 @@ Host / harness (SEPARATE — D2)
 | Claim | Defining predicate / source | Result |
 |-------|----------------------------|--------|
 | 122 post-auth WS types | Sum of keys in four `*_MESSAGE_CLASS` tables | 26+15+38+43 = **122**; matches discriminatedUnion entry counts |
-| Handoff typed messages | `z.literal` in `handoff.ts` | **8** (not “7” from drift prose) |
+| Handoff typed messages | `z.literal` in `handoff.ts` | **10** as of 2026-08-03 (was 8; “7” in the original drift prose — re-derive, do not cite this row) |
 | Browser-open types | `browser-open.ts` literals | 4: open, callback, dismiss, result |
 | Handshake types | `daemon-handshake.ts` literals | 6 |
 | tRPC namespaces in `router.ts` | `^\s{2}(\w+):\s*t\.router\(` | **28** listed in D6.6 |
