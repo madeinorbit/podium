@@ -187,3 +187,70 @@ own `useState`, its own `.then(ok, err)` pair and its own label ladder. It is on
 `useLifecycleRunner` now, and the mutant that breaks the rejection path (M5) is
 killed by tests from BOTH the old and the new suite — which is the evidence that
 the four copies really were one rule.
+
+## 7. Runtime verification, and the browser lane's A/B
+
+### 7.1 The A/B, measured BEFORE the diff existed
+
+Three suites that touch this panel, run at `b120c56d` on `chromium-desktop` with
+the working tree clean: **1 passed, 5 failed.** Three distinct causes, none of
+them this issue's — filed as POD-1520 with the evidence:
+
+| suite | outcome at base | cause |
+|---|---|---|
+| `native-pane` :119 | pass | — |
+| `native-pane` :221, :393 | **fail** | stale colour expectation. Expected `color(srgb 0.135216 0.143451 0.175216)`, received `color(srgb 0.121725 0.153569 0.215686)`. The assertion is REACHED; the arithmetic no longer matches. |
+| `offer-layout` :11 | **fail** | its fixture (`PODIUM_E2E_OFFER`) is never enabled anywhere in the repo, so the row it waits for is never created. |
+| `ui-state-persistence` :25, :95 | **fail**, then **:95 passes alone** | load. The failing run was at load average ~75 on a shared host; :95 passes on the same tree run by itself (1 passed, 1.3m). Not counted as evidence for anything. |
+
+> **A suite that is red before you arrive is not your result, and it is not one
+> finding either.** Five failures, three causes. A fixer who treats the lane as
+> one bug will fix one and find it still red.
+
+And a landmine behind the fixture cause, which is the part worth carrying: the
+`FINISHED_DELEGATE` and `OFFER` fixture blocks call
+`sessions.onDaemonMessageFrom`, which POD-389 removed when it moved the daemon
+multiplexer to the gateway. Enabling either env — **the first thing anyone
+fixing "the env is never set" would do** — kills the harness at boot and every
+spec dies on `ERR_CONNECTION_REFUSED`, presenting as a broken environment rather
+than a broken fixture. Found by setting it and running, not by reading.
+
+### 7.2 What was real-clicked, and what was not
+
+`ui-state-persistence` :95 — *chat-versus-native mode switch persists across
+reload* — **passes with this diff present** (1 passed, 1.3m, chromium-desktop).
+That is the terminal↔chat arbitration verified end to end through real clicks on
+the mode segment plus a full page reload.
+
+`agent-panel-lifecycle.browser.e2e.ts` (new, this issue) — **passes** (1 passed,
+53.8s). Real clicks, in order: the panel opens LIVE with a terminal surface → the
+header's ⋯ menu → **Hibernate** → the panel arbitrates to PARKED (no terminal, the
+recovery action offered) → **Resume** → the server refuses the relaunch on this
+harness and the panel arbitrates to ENDED, stating what happened and still
+offering a way back.
+
+**What it does NOT verify, said plainly:** parked → LIVE. The in-process harness
+cannot relaunch a session at all — `resurrectSession` is refused with
+*"server-minted SessionBinding instruction is required"* regardless of how the
+fixture binds — so that edge is not reachable in a browser on this base. It is
+covered at the unit layer (`wakes a parked session from the banner and stays
+retryable when refused`). The spec's name and header say so rather than implying
+the round trip.
+
+> A spec that asserted parked → live here would be asserting the fixture.
+
+### 7.3 What this issue did NOT do
+
+- **`coarseNow`.** POD-331 publishes a coarse clock in the store snapshot and
+  `AgentPanel`'s `useNow(60_000)` is a candidate reader. Measured at this tip:
+  `grep -rn 'coarseNow' packages/client-core/src apps/web/src` returns nothing and
+  `apps/web` has ten `useNow` call sites — POD-331's *before* number. `2877d5a2`
+  is not an ancestor of `b120c56d`, so the field does not exist in this tree, and
+  getting it would mean merging their branch into this one, which POD-279's
+  fan-out rule forbids. The call site is left explicitly, feeding exactly one gate
+  (`showSnooze`) — which now has the three tests §5.1 added, so the swap will get
+  a red if it changes visible behaviour.
+- **The header and live-body JSX** (~400 of the remaining 941 lines). Presentation
+  with no second question in it; splitting would produce two files sharing one
+  decision.
+- **A published slice.** See §3.
