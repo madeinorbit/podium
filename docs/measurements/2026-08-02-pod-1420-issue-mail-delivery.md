@@ -69,6 +69,31 @@ Worth recording, because each was an assumed defect:
   never erase a push target again.
 - Every non-`delivered` send disposition now tells the sender the recipient does not have it yet.
   `queued` — the commonest send, fyi mail to a busy live session — was previously the silent one.
+- `podium mail status` no longer claims *"appeared in the target's transcript — the agent has it"*
+  for a row with no `delivered_to`. It now says **no recipient session was named**. A named
+  session still gets the confirming wording.
+
+## Postscript, 2026-08-03: the same inference, a third time
+
+POD-279 reported 26 overnight messages as having "reached no session", citing
+`status='delivered', delivered_to IS NULL` — the same reading corrected above. Checked:
+
+| | |
+|---|---|
+| rows with a read receipt | **26 of 26** |
+| reader was a session **on POD-279** | **26 of 26** |
+| worst created → read latency | **104 minutes** (not the 16 hours claimed — that was the query window span) |
+| POD-279 rows with `status='queued'`, all-time | **0** (a claimed "held 17→20" table has no basis) |
+
+Three readers — POD-1365, POD-279, and me for part of a day — have now drawn a non-route
+conclusion from this column. That frequency is itself the finding: the ambiguity is not a
+reporting nuisance, it manufactures false diagnoses. POD-279's design point was right even
+though its data was not, and it is what prompted the `mail status` fix above.
+
+**Not** repaired with a `NOT NULL` constraint: delivered-to-nobody is sometimes the truth
+(`suppressSelf` consumes a send whose only recipient was its own sender). The honest repair is
+to make the two cases *read* differently. Making them unrepresentable needs a distinct status
+plus a migration — its own issue, not a schema change smuggled into this one.
 
 ## Left open, deliberately
 
