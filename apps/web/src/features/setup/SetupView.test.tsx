@@ -86,7 +86,11 @@ beforeEach(() => {
     hint: 'Then paste the https URL it prints.',
   })
   trpcMock.complete.mockResolvedValue({ mode: 'all-in-one', publicUrl: 'https://box.ts.net' })
-  trpcMock.authStatus.mockResolvedValue({ enabled: false }) // no password by default (first run)
+  // POD-1554 made "a password is already set" PER-ACCOUNT: SetupView reads
+  // `hasOwnCredential` (SetupView.tsx:462), not the retired instance-wide
+  // `enabled`. Mocking the old key left hasPassword false and the "keep" radio
+  // unrendered.
+  trpcMock.authStatus.mockResolvedValue({ hasOwnCredential: false }) // first run
   // No kill switch by default → the telemetry sub-step asks.
   trpcMock.telemetryState.mockResolvedValue({
     usage: 'absent',
@@ -180,7 +184,7 @@ describe('SetupView', () => {
   })
 
   it('keeps the existing password when one is already set (no re-entry)', async () => {
-    trpcMock.authStatus.mockResolvedValue({ enabled: true }) // a password already exists
+    trpcMock.authStatus.mockResolvedValue({ hasOwnCredential: true }) // this account has a password
     const { container } = render(
       <SetupView httpOrigin="http://localhost:18787" onSaved={() => {}} />,
     )
