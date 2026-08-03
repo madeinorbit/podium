@@ -8,10 +8,20 @@
  * `replica.test.ts`, where a real store and a real outbox exist.
  */
 
-import { actorUser, asUserId } from '@podium/model'
-import { asSessionId } from '@podium/protocol'
+import { actorAgent, actorUser, asAgentIdentityId, asUserId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { agentActorOfSession } from '../outbox/records'
+
+/**
+ * An agent actor, built from `@podium/model` and NOT from the Outbox's
+ * `agentActorOfSession`. The direction lint forbids the Replica role reaching
+ * into `../outbox/` — the same rule that keeps `PendingAttribution.actor` typed
+ * `unknown` — and it applies to this test too. POD-1148 is what makes the
+ * detour harmless: there is one `ActorRef`, so an actor built here is the value
+ * the Outbox would have stored. The id is a session id because POD-1164 says
+ * the two brands name one string.
+ */
+const agentActor = (sessionId: string) => actorAgent(asAgentIdentityId(sessionId))
+
 import type { OptimisticEffect, PendingMutation } from './overlay'
 import { computeOverlay, type OverlayInputs } from './overlay-projection'
 import type { EntityRecord, ExitKind } from './types'
@@ -230,7 +240,7 @@ describe('provisional attribution for an optimistic create (readiness §3.1.3 A4
   const agentCreate = cmd(
     'm1',
     { kind: 'session.create', name: 'fresh' },
-    { onBehalfOf: 'user-mike', actor: agentActorOfSession(asSessionId('sess-9')) },
+    { onBehalfOf: 'user-mike', actor: agentActor('sess-9') },
   )
 
   it('owns the row by the ON-BEHALF-OF HUMAN with the agent as actor', () => {
@@ -240,7 +250,7 @@ describe('provisional attribution for an optimistic create (readiness §3.1.3 A4
     // If these were collapsed the row would flicker owners when the authoritative
     // row landed, which is the whole reason the pair is carried.
     expect(result.provisionalOwner).toBe('user-mike')
-    expect(result.provisionalActor).toEqual(agentActorOfSession(asSessionId('sess-9')))
+    expect(result.provisionalActor).toEqual(agentActor('sess-9'))
   })
 
   it('renders no visibility class and no grant — the type cannot express one', () => {
@@ -327,7 +337,7 @@ describe('provisional attribution for an optimistic create (readiness §3.1.3 A4
         cmd(
           'm2',
           { kind: 'session.create', name: 'again' },
-          { onBehalfOf: 'user-ada', actor: agentActorOfSession(asSessionId('sess-2')) },
+          { onBehalfOf: 'user-ada', actor: agentActor('sess-2') },
         ),
       ],
     })
@@ -385,7 +395,7 @@ describe('a reducer may PREDICT a refusal, and the projection must not swallow i
       { kind: 'session.rename', name },
       {
         onBehalfOf: 'user-mike',
-        actor: agentActorOfSession(asSessionId('sess-9')),
+        actor: agentActor('sess-9'),
       },
     )
   const byHuman = (id: string, name: string) =>
