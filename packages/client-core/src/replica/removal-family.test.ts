@@ -87,9 +87,13 @@ import {
 import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FeedServerFrame } from '../socket-transport'
+import { type ReferentState, resolveReferent } from '../viewmodels/session-ownership'
+import type { Replica as ClientReplica } from './contract'
 import { FeedAuthorityClient } from './feed/authority-client'
 import { PushedBootstrapSource } from './feed/bootstrap-source'
 import { FeedSink } from './feed/sink'
+import { createKernelReplica, createSideCache, type KernelCacheRead } from './kernel'
+import { memoryStorage } from './replica'
 
 const ALICE: ConformancePrincipal = { kind: 'user', userId: 'user:alice' }
 const BOB: ConformancePrincipal = { kind: 'user', userId: 'user:bob' }
@@ -283,6 +287,18 @@ function mobileBackend(): Backend {
 interface Client {
   readonly id: string
   readonly replica: Replica
+  /**
+   * The ENGINE's replica — the object the product actually renders from
+   * (POD-1510).
+   *
+   * `replica` above is the kernel; every case before this one asserted the
+   * distinction THERE, which is where it was already reachable. The cases that
+   * name `facade` are asserting the other half: that a surface holding only the
+   * client-core `Replica` contract can still tell a delete from a revoked share.
+   * Built here rather than in its own file so a change that collapses the two
+   * fails in the file whose subject is that they are different.
+   */
+  readonly facade: ClientReplica
   readonly sink: FeedSink
   readonly events: ReplicaEvent[]
   /**
@@ -333,6 +349,17 @@ describe.each(
       },
     })
     const port = authority.portFor(principal)
+    // Assembled in the SAME ORDER as the two shipped composition roots
+    // (`apps/web/src/lib/kernelReplica.ts`, `apps/mobile`): the facade comes
+    // first because the kernel Replica needs its `onKernelEvent`, so the facade
+    // takes the kernel's OWN exit record as a closure rather than a value. A
+    // test that handed the facade its own exit map here would be certifying its
+    // fixture instead of the wiring the product ships.
+    const facade = createKernelReplica({
+      cache: opened.cache as KernelCacheRead,
+      side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
+      exits: (entity, entityId) => replica.exitKind(entity, entityId),
+    })
     const replica = new Replica({
       store: opened.cache as never,
       authority: new FeedAuthorityClient({
@@ -371,12 +398,16 @@ describe.each(
         },
         bootstraps,
       }),
-      onEvent: (event) => events.push(event),
+      onEvent: (event) => {
+        events.push(event)
+        facade.onKernelEvent(event)
+      },
     })
     const sink = new FeedSink({ replica, bootstraps })
     const client: Client = {
       id,
       replica,
+      facade,
       sink,
       events,
       since: (mark, type) => events.slice(mark).filter((event) => event.type === type),
@@ -482,6 +513,90 @@ describe.each(
     expect((await backend.reopen('alice')).map((r) => `${r.entity}:${r.entityId}`)).toContain(
       'session:s1',
     )
+  })
+
+  // ── 2b. THE DISTINCTION REACHES THE PRODUCT'S READ MODEL ────────────────
+
+  /**
+   * Cases 1 and 2 assert on `client.replica` — the KERNEL. That is where the
+   * distinction has always been reachable, and it is not where the product
+   * reads. Web and mobile render from the client-core `Replica` facade, and
+   * until POD-1510 that contract had no way to ask: `rows()` is identical for a
+   * deleted row and an evicted one, so `resolveReferent` answered `pending` for
+   * every absent referent and `not-visible` was unreachable outside a test. The
+   * cross-boundary policy POD-646 shipped could not take effect.
+   *
+   * So this case asserts the END of the chain rather than a link in it: three
+   * ids that are all EQUALLY ABSENT from `rows()` must resolve to three
+   * different states through the pure viewmodel a surface actually calls.
+   */
+  it('lets the ENGINE read model tell a delete from a revoked share, and both from a gap', async () => {
+    for (const id of ['deleted', 'unshared', 'present']) {
+      authority.append({ entity: 'session', entityId: id, op: 'upsert', payload: session(id) })
+      authority.grant(BOB.userId, 'session', id)
+    }
+    const bob = await openClient(BOB, 'bob')
+    await online(bob)
+
+    const from = authority.head()
+    authority.append({ entity: 'session', entityId: 'deleted', op: 'remove' })
+    authority.revoke(BOB.userId, 'session', 'unshared')
+    bob.pushDelta(from)
+    await bob.replica.settled()
+
+    // The premise the whole case rests on: through `rows()` — the seam every
+    // surface renders from — these are INDISTINGUISHABLE. If this ever fails,
+    // the assertions below are testing something easier than the real problem.
+    const rows = bob.facade.rows('sessions')
+    const held = new Map(rows.map((row) => [(row as { id?: string }).id, row]))
+    expect(held.has('deleted')).toBe(false)
+    expect(held.has('unshared')).toBe(false)
+    expect(held.has('never-heard-of')).toBe(false)
+    expect(held.has('present')).toBe(true)
+
+    // The resolver the product calls, over the facade's exit record and nothing
+    // else. `'session'` is the AUTHORITY's singular entity name; the plural
+    // collection kind would answer `undefined` forever, which is the wiring
+    // mistake that looks done and restores nothing.
+    const resolve = (id: string): ReferentState =>
+      resolveReferent(
+        id,
+        (key) => held.get(key),
+        (key) => bob.facade.exitKind?.('session', key),
+      ).state
+
+    expect(resolve('deleted')).toBe('removed')
+    expect(resolve('unshared')).toBe('not-visible')
+    // Pairwise, because "both are terminal" is satisfied by collapsing them.
+    expect(resolve('deleted')).not.toBe(resolve('unshared'))
+    // THE REGRESSION THIS CHANGE COULD INTRODUCE. An id with no exit record must
+    // still read `pending` — a replica that answered `'removed'` for everything
+    // absent would pass both assertions above and render every not-yet-arrived
+    // reference as a deletion, which is the original defect wearing a new field.
+    expect(resolve('never-heard-of')).toBe('pending')
+    // And presence still wins over any stale exit record.
+    expect(resolve('present')).toBe('present')
+  })
+
+  it('answers undefined — never a guess — when no exit record is wired at all', async () => {
+    // The legacy TanStack replica implements no `exitKind`, and a facade built
+    // without the port is the same situation: the honest answer is "no exit
+    // record", which resolves `pending`. Asserted because the tempting default
+    // for an unwired port is `'removed'`, and that would make every eviction on
+    // the legacy path render as a deletion.
+    const opened = await backend.open('unwired')
+    const bare = createKernelReplica({
+      cache: opened.cache as KernelCacheRead,
+      side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
+    })
+    expect(bare.exitKind?.('session', 'anything')).toBeUndefined()
+    expect(
+      resolveReferent(
+        'anything',
+        () => undefined,
+        (id) => bare.exitKind?.('session', id),
+      ).state,
+    ).toBe('pending')
   })
 
   // ── 3. A WATERMARK-SKIPPED RANGE IS NOTHING AT ALL ──────────────────────

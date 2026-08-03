@@ -176,18 +176,13 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
   )
 
   // The chat's referent, resolved over a PARTIAL world. `exitKind` is optional
-  // on the replica seam (test fakes and pre-kernel replicas do not implement
-  // it), and its absence means "no exit record", which resolves to `pending` —
-  // never to a fabricated deletion.
+  // on the replica CONTRACT (POD-1510) — test fakes and the legacy TanStack
+  // replica do not implement it — and its absence means "no exit record", which
+  // resolves to `pending`, never to a fabricated deletion. The structural cast
+  // this used to carry is gone: the contract declares the method now, so the
+  // optional call is checked rather than asserted.
   const reference = useMemo(
-    () =>
-      chatSessionReference(sessionId, sessions, (id) =>
-        (
-          replica as {
-            exitKind?: (entity: string, id: string) => 'removed' | 'evicted' | undefined
-          }
-        )?.exitKind?.('session', id),
-      ),
+    () => chatSessionReference(sessionId, sessions, (id) => replica?.exitKind?.('session', id)),
     [sessionId, sessions, replica],
   )
   const session = reference.value
