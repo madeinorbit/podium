@@ -241,9 +241,13 @@ than of coverage.
 Per the Phase 6 exit-gate standard — a guard must be **seen to refuse**, not
 merely to exist.
 
-- Baseline at `9eea645d`, naming the config: `vitest.unit.config.ts` over
-  `packages/model` + `client-core` + `protocol` + `sync` = 198 files / 3000 tests
-  rc=0; `typecheck` 22/22 rc=0.
+- Baseline, measured here at `ca3ee456` (`9eea645d` plus this docs-only commit),
+  naming the config: `vitest.unit.config.ts` over `packages/model` +
+  `client-core` + `protocol` + `sync` = **198 files / 3000 tests rc=0**;
+  `typecheck` 22/22 rc=0. This matches the coordinator's stated baseline at
+  `9eea645d`. An earlier run of the same lane at `4cacb449` gave 197 / 2985; the
+  delta is exactly POD-1156's `attribution-stamped.test.ts` (+1 file / +15
+  tests), which is the only intervening commit touching these paths.
 - The two new tests above must be shown red before the change and green after —
   the delegation one is currently unreachable, so it must be demonstrated to fail
   against today's `relay.ts` behaviour.
