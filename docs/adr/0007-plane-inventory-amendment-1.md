@@ -36,7 +36,8 @@
 
 The plane stays. The inventory grows. Nothing in ADR 7's D1–D8 is overturned: three planes,
 command as a class inside control, host↔server separate from the agent relay, the D3–D5
-dual-delivery resolutions, D6's totality obligation, D7's **eight** handoff message types and
+dual-delivery resolutions, D6's totality obligation, D7's handoff message types (**ten** as of
+2026-08-03; this amendment said “eight” before POD-644 added the binding-finalize pair) and
 D8's browser-open classification all stand exactly as written. Rooms are a **subscription
 concept inside the stream port**, not a fourth plane (D10).
 
@@ -502,7 +503,7 @@ not ADR 7's; either shape is C/e, and neither may be S. When they land, D6.1/D6.
 
 **D16.4 — Unchanged by this amendment:** D6.3 (server→daemon), D6.4 (daemon→server), D6.5
 (handshake, 6 types), D6.6 (tRPC/HTTP), D6.7 (messaging substrate), D6.8 (workflows), **D7's
-eight handoff message types**, and **D8's browser-open classification**. Presence introduces no
+handoff message types** (ten as of 2026-08-03), and **D8's browser-open classification**. Presence introduces no
 daemon-side frame: a room is a server↔client concept, and the host edge stays governed by D2.
 
 **Rationale.** D6 is the pack's totality instrument, and its value is that it counts code rather
@@ -644,7 +645,7 @@ Checked on integration tip `2ddfec21`, 2026-07-29.
 | Default-closed classification rule | `docs/multi-user-readiness.md` §3.1.1 rule 1 |
 | Existence leaks and cross-boundary edges are deliberately open | `docs/multi-user-readiness.md` §3.1.2 |
 | Phase plan puts the scoped feed in Phase 2 and gateway rooms in Phase 4 | `docs/multi-user-readiness.md` §5 sequence table |
-| ADR 7 D7's handoff family is eight typed messages (unchanged here) | `docs/adr/0007-plane-inventory.md` D7; `packages/protocol/src/messages/handoff.ts` literals |
+| ADR 7 D7's handoff family is ten typed messages as of 2026-08-03 (unchanged here) | `docs/adr/0007-plane-inventory.md` D7; `packages/protocol/src/messages/handoff.ts` literals |
 
 ---
 
