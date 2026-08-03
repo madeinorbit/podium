@@ -686,6 +686,18 @@ backticks EXECUTE — use a quoted heredoc into a file and `--body "$(cat file)"
 whose substituted output is not re-evaluated. The same hazard once ran `git init`
 against a worktree; here it cost one word and very nearly cost the meaning.
 
+**And the SEND side fails silently too**, which closes the loop. It happened
+twice in this one thread, once in each direction. The second time, the
+substitution failed and the CLI **sent the message anyway, with the fragment
+removed** — nothing executed, and the send reported success. So a claim can be
+corrupted in transit, reported as delivered, and then silently repaired by an
+expert reader: **three consecutive steps, none of which announces a problem.**
+
+That is the same family as a `grep | head` reporting a subset as a census: the
+tool says it worked, and what it produced is less than what you asked for. The
+rule that covers both is one line — *count the noun you are about to name, and
+count it untruncated; send the body from a file, and read back what arrived.*
+
 ### 6.5 What remains after this commit
 
 - ~~The published worklist slice — POD-1502~~ — **DONE**, POD-331, at `0f760eef`.
