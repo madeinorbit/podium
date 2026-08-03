@@ -24,6 +24,7 @@ import {
   harnessSupportsMcp,
   manifestFor,
   transcriptRecordMapperFor,
+  transcriptRuntimeReaderFor,
 } from './registry.js'
 
 const CAPABILITY_FIELDS = [
@@ -174,6 +175,59 @@ describe('agent manifest registry', () => {
       expect(typeof transcriptRecordMapperFor(kind), kind).toBe(
         transcript.storage === 'file-chain' ? 'function' : 'undefined',
       )
+    }
+  })
+
+  /**
+   * THE MANIFEST, NOT A SWITCH, PICKS THE RUNTIME READER (POD-1598).
+   *
+   * `recordRuntimeForKind` used to switch on agentKind inside @podium/transcript to
+   * choose which parser read a record's model/effort/context — behaviour keyed on a
+   * harness, living outside that harness's adapter. Each manifest now declares its
+   * own reader and this accessor routes to it, so the routing itself is what has to
+   * stay right: feed each harness the record shape only IT emits and require the
+   * declared reader to produce that harness's facts.
+   */
+  it('routes each harness to ITS OWN declared transcript runtime reader', () => {
+    expect(
+      transcriptRuntimeReaderFor('claude-code')?.({
+        type: 'assistant',
+        effort: 'medium',
+        message: { model: 'claude-opus-4-8' },
+      }),
+    ).toEqual({ model: 'claude-opus-4-8', effort: 'medium' })
+
+    expect(
+      transcriptRuntimeReaderFor('codex')?.({
+        type: 'turn_context',
+        payload: { model: 'gpt-5.7-codex', reasoning_effort: 'high' },
+      }),
+    ).toEqual({ model: 'gpt-5.7-codex', effort: 'high' })
+
+    expect(transcriptRuntimeReaderFor('grok')?.({ model_id: 'grok-4.5' })).toEqual({
+      model: 'grok-4.5',
+    })
+
+    // Declared unsupported (SQLite rows, not native records) and unknown ⇒ no
+    // reader at all, rather than another harness's parser standing in.
+    expect(transcriptRuntimeReaderFor('opencode')).toBeUndefined()
+    expect(transcriptRuntimeReaderFor('not-a-kind')).toBeUndefined()
+    expect(transcriptRuntimeReaderFor('shell')).toBeUndefined()
+  })
+
+  it('declares recordRuntime on every manifest, as a reader or an explicit reason', () => {
+    for (const kind of BUILTIN_HARNESS_KINDS) {
+      const transcript = declaredValue(AGENT_MANIFESTS[kind].transcript)
+      if (!transcript) continue
+      expect(transcript.recordRuntime, `${kind} recordRuntime`).toBeDefined()
+      if (transcript.recordRuntime.supported) {
+        expect(typeof transcript.recordRuntime.value, kind).toBe('function')
+      } else {
+        expect(
+          transcript.recordRuntime.reason.length,
+          `${kind} recordRuntime reason`,
+        ).toBeGreaterThan(0)
+      }
     }
   })
 

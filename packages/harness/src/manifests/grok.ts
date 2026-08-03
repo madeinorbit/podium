@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { grokRecordToItems } from '@podium/transcript'
+import { grokRecordToItems, grokRuntime } from '@podium/transcript'
 import { grokSessionPaths, grokStateProvider, observeGrokState } from '../agent-state/grok.js'
 import { withStateChannel } from '../agent-state/types.js'
 import { createGrokConversationProvider } from '../discovery/providers/grok.js'
@@ -339,7 +339,7 @@ export const grokManifest: AgentManifest = {
 
   discovery: createGrokConversationProvider(),
 
-  transcript: supported(fileTranscript(chainPaths, grokRecordToItems)),
+  transcript: supported(fileTranscript(chainPaths, grokRecordToItems, grokRuntime)),
 
   handoffTranscript: unsupported('cross-machine handoff is not supported for grok sessions'),
 
