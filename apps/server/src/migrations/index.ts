@@ -22,6 +22,7 @@ import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator'
 import { backupDatabase } from './backup'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
+import { applySchemaRepairs, repairReason } from './repair'
 
 /**
  * The `client` slot of drizzle's bun-sqlite config — bun:sqlite's real `Database`
@@ -54,6 +55,31 @@ const MIGRATION_NAME_ALIASES = new Map<string, string>([
   ['20260722210552_session-spawn-failure', '20260724134702_session-spawn-failure'],
 ])
 
+/**
+ * THE OUT-OF-ORDER GUARD [POD-1621]. Names every pending migration that sorts
+ * BEFORE the highest already-applied name — the exact signature of a second
+ * lineage arriving late.
+ *
+ * Out-of-order on its own is harmless: two branches generate timestamps
+ * independently and merge, and most such migrations are additive. It becomes the
+ * POD-1621 hazard when the late migration REBUILDS a table (SQLite's
+ * create/copy/drop/rename pattern), because its column list was written without
+ * knowledge of anything the other lineage added. The ledger cannot see the loss:
+ * every migration ran exactly once.
+ *
+ * So the signature is worth surfacing on its own, before knowing whether damage
+ * followed — it is cheap, it is exact, and a boot log naming it turns "auth has
+ * been throwing for hours" into a five-minute diagnosis.
+ */
+export function outOfOrderPending(
+  appliedNames: Iterable<string>,
+  pendingNames: readonly string[],
+): string[] {
+  const highestApplied = [...appliedNames].sort((a, b) => a.localeCompare(b)).at(-1)
+  if (highestApplied === undefined) return []
+  return pendingNames.filter((name) => name.localeCompare(highestApplied) < 0)
+}
+
 function hasTable(db: SqlDatabase, name: string): boolean {
   return (
     db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`).get(name) !==
@@ -64,7 +90,8 @@ function hasTable(db: SqlDatabase, name: string): boolean {
 /**
  * The set of migration folder-names this DB has applied. drizzle skips by NAME,
  * so the apply decision is pure set membership — an out-of-order migration simply
- * applies, and nothing is skipped because a higher name is present.
+ * applies, and nothing is skipped because a higher name is present. That is what
+ * `outOfOrderPending` exists to make visible.
  */
 export function appliedDrizzleNames(db: SqlDatabase): Set<string> {
   if (!hasTable(db, LEDGER)) return new Set()
@@ -115,11 +142,27 @@ function hasAnyDataTable(db: SqlDatabase): boolean {
  * Returns the names applied in this run. Throws — without touching the schema —
  * when the DB has applied a migration this build does not define (downgrade
  * protection).
+ *
+ * Two POD-1621 additions bracket the apply. BEFORE: `outOfOrderPending` warns
+ * when a pending migration sorts earlier than one already applied. AFTER (and
+ * also when nothing is pending, which is the damaged database's own shape):
+ * `applySchemaRepairs` restores columns a past out-of-order rebuild dropped.
+ *
+ * The guard WARNS rather than refuses, deliberately. Refusing would have blocked
+ * the very landing that exposed this, and would block every honest merge of two
+ * branches whose timestamps interleave — a common, usually harmless event with
+ * no safe self-service recovery, which turns one bad boot into a fleet that
+ * cannot start. Warning plus an automatic repair leaves the failure mode as
+ * "upgrade proceeds, damage is named in the log and healed", which is strictly
+ * better than tonight's "upgrade proceeds, damage is silent".
+ *
+ * `skipSchemaRepair` exists for ONE caller: the reproduction test, which has to
+ * be able to construct the genuinely damaged database. Production never sets it.
  */
 export function runDrizzleMigrations(
   db: SqlDatabase,
   migrations: DrizzleMigration[],
-  opts: { dbPath?: string } = {},
+  opts: { dbPath?: string; skipSchemaRepair?: boolean } = {},
 ): string[] {
   const applied = appliedDrizzleNames(db)
 
@@ -146,7 +189,31 @@ export function runDrizzleMigrations(
     [...applied].map((name) => MIGRATION_NAME_ALIASES.get(name) ?? name),
   )
   const pending = ordered.filter((m) => !semanticallyApplied.has(m.name))
-  if (pending.length === 0) return []
+
+  // THE GUARD, before anything is applied — so the warning is in the log ABOVE
+  // the damage rather than after it. It WARNS and proceeds; it does not refuse.
+  // See this function's doc comment and the commit message for why.
+  const outOfOrder = outOfOrderPending(
+    applied,
+    pending.map((m) => m.name),
+  )
+  if (outOfOrder.length > 0) {
+    console.warn(
+      `[podium:server] out-of-order migrations: ${outOfOrder.join(', ')} sort BEFORE ` +
+        `migrations this database has already applied. They will be applied now. ` +
+        `If any of them REBUILDS a table (CREATE __new_x / INSERT SELECT / DROP / RENAME), ` +
+        `it can silently drop columns added by the other lineage — the ledger will still ` +
+        `read as complete. Verify the schema of any table they rebuild [POD-1621].`,
+    )
+  }
+
+  if (pending.length === 0) {
+    // Still repair: the POD-1621 database has EVERY migration applied and a
+    // wrong schema, so a boot with nothing pending is exactly the case that
+    // must heal itself.
+    if (opts.skipSchemaRepair !== true) reportRepairs(db)
+    return []
+  }
 
   // #43: snapshot before applying anything, but only when the DB already holds
   // real tables (a brand-new file is not worth backing up).
@@ -185,7 +252,17 @@ export function runDrizzleMigrations(
     drizzle({ client: client as unknown as DrizzleBunClient }),
     pending.map((m) => ({ name: m.name, timestamp: folderMillis(m.name), sql: m.sql })),
   )
+  // AFTER the migrations, never before: the rebuild that drops the column is
+  // itself one of the migrations that may have just run.
+  if (opts.skipSchemaRepair !== true) reportRepairs(db)
   return pending.map((m) => m.name)
+}
+
+/** Repairs known schema drift and says so — loudly, and only when it acted. */
+function reportRepairs(db: SqlDatabase): void {
+  for (const id of applySchemaRepairs(db)) {
+    console.warn(`[podium:server] repaired missing column ${id} — ${repairReason(id)}`)
+  }
 }
 
 /**
@@ -198,6 +275,7 @@ export function applyBaselineSchema(db: SqlDatabase): string[] {
 }
 
 export { backupDatabase } from './backup'
+export { applySchemaRepairs } from './repair'
 /** The other half of the backup story (ADR 2 D1): restore copies the file back
  *  AND re-mints the feed epoch in one step, so a rolled-back authority can never
  *  serve a cursor from the timeline it just abandoned. */
