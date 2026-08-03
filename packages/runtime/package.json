@@ -20,6 +20,7 @@
     "./time-budget": "./src/time-budget.ts",
     "./local-machine": "./src/local-machine.ts",
     "./auth-store": "./src/auth-store.ts",
+    "./session-mint": "./src/session-mint.ts",
     "./process-safety": "./src/process-safety.ts",
     "./sd-notify": "./src/sd-notify.ts",
     "./boot": "./src/boot.ts"

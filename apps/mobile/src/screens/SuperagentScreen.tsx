@@ -269,6 +269,7 @@ export function SuperagentScreen() {
     () => renderedTranscript(settled, liveText, running),
     [settled, liveText, running],
   )
+  const transcriptSession = podiumSid ? client.sessionById(podiumSid) : undefined
 
   const empty = rendered.length === 0 && pendingTurns.length === 0 && !running
 
@@ -316,6 +317,16 @@ export function SuperagentScreen() {
             <TranscriptList
               items={rendered}
               live={running}
+              collapseContext
+              assetContext={
+                podiumSid && transcriptSession
+                  ? {
+                      httpOrigin: client.serverConfig.httpOrigin,
+                      sessionId: podiumSid,
+                      cwd: transcriptSession.cwd,
+                    }
+                  : undefined
+              }
               pendingTurns={pendingTurns}
               onRetryPending={retry}
               onLoadOlder={loadOlder}

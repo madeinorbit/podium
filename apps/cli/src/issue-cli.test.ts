@@ -75,6 +75,35 @@ describe('runIssueCli', () => {
     expect(out).toContain('attached to #2 Side quest')
   })
 
+  /** POD-1545: the whole point is the single command, so these drive the real argv path
+   *  (parse → camelFlag → per-command zod) rather than the command's run() body. That
+   *  path is where `--model`/`--effort` were rejected outright — and where
+   *  `--force-unknown-model` was too, its schema key having been spelled kebab while
+   *  the parser hands every flag over camelCased. A run()-level test cannot see either. */
+  it('start accepts --model/--effort/--force-unknown-model in one command (POD-1545)', async () => {
+    const start = vi.fn(async () => ({ seq: 3, branch: 'issue/3-x', worktreePath: '/w' }))
+    const c = { issues: { start: { mutate: start } } } as any
+    await runIssueCli(['start', '--id', '3', '--model', 'claude-opus-5', '--effort', 'high'], c)
+    expect(start).toHaveBeenCalledWith({
+      id: '3',
+      defaultModel: 'claude-opus-5',
+      defaultEffort: 'high',
+    })
+    await runIssueCli(['start', '3', '--model', 'unlisted', '--force-unknown-model'], c)
+    expect(start).toHaveBeenLastCalledWith({
+      id: '3',
+      defaultModel: 'unlisted',
+      forceUnknownModel: true,
+    })
+  })
+
+  it('add-session accepts --force-unknown-model (POD-1545)', async () => {
+    const addSession = vi.fn(async () => ({ seq: 3 }))
+    const c = { issues: { addSession: { mutate: addSession } } } as any
+    await runIssueCli(['add-session', '3', '--force-unknown-model'], c)
+    expect(addSession).toHaveBeenCalledWith({ id: '3', forceUnknownModel: true })
+  })
+
   it('unknown flags are rejected, never silently dropped (#345)', async () => {
     await expect(runIssueCli(['update', '1', '--totally-bogus', 'x'], client)).rejects.toThrow(
       /unknown flag --totally-bogus/,

@@ -1,11 +1,21 @@
 import { execFileSync, spawnSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
 import {
   abducoAttachArgv,
   abducoCreateArgv,
   abducoHasSession,
+  abducoSocketHasSession,
   attachAbducoAgent,
   canScopeMaster,
   createAltScreenStripper,
@@ -101,6 +111,32 @@ describe('abduco command builders', () => {
       ['--user', 'stop', 'podium-1.scope'],
       ['--user', 'reset-failed', 'podium-1.scope'],
     ])
+  })
+})
+
+describe('abducoSocketHasSession', () => {
+  it('checks one configured socket without walking every abduco master', () => {
+    const root = mkdtempSync(join(tmpdir(), 'podium-abduco-sockets-'))
+    const dir = join(root, 'abduco', 'tester')
+    mkdirSync(dir, { recursive: true })
+    const socket = join(dir, 'podium-live@host')
+    writeFileSync(socket, '')
+    try {
+      chmodSync(socket, 0o600)
+      expect(
+        abducoSocketHasSession('podium-live', { ABDUCO_SOCKET_DIR: root }, 'tester'),
+      ).toBe(true)
+      // abduco marks a terminated application's socket with S_IXGRP.
+      chmodSync(socket, 0o610)
+      expect(
+        abducoSocketHasSession('podium-live', { ABDUCO_SOCKET_DIR: root }, 'tester'),
+      ).toBe(false)
+      expect(
+        abducoSocketHasSession('podium-other', { ABDUCO_SOCKET_DIR: root }, 'tester'),
+      ).toBe(false)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })
 

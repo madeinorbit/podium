@@ -22,6 +22,27 @@ describe('filterBoardIssues', () => {
     expect(filterBoardIssues(xs, { label: 'ui' }).map((i) => i.id)).toEqual(['a'])
     expect(filterBoardIssues(xs, { status: 'blocked' }).map((i) => i.id)).toEqual(['b'])
   })
+  it('matches the issue ref, however the user types it', () => {
+    const ys = [
+      makeIssue({ id: 'a', seq: 1234, displayRef: 'POD-1234', title: 'Login bug' }),
+      makeIssue({ id: 'b', seq: 7, displayRef: 'POD-7', title: 'Dark mode' }),
+    ]
+    const ids = (text: string): string[] => filterBoardIssues(ys, { text }).map((i) => i.id)
+    expect(ids('POD-1234')).toEqual(['a'])
+    expect(ids('pod-1234')).toEqual(['a'])
+    expect(ids('pod 1234')).toEqual(['a'])
+    expect(ids('1234')).toEqual(['a'])
+    expect(ids('#1234')).toEqual(['a'])
+    expect(ids('POD-9999')).toEqual([])
+  })
+
+  it('falls back to the #seq ref when the issue has no displayRef', () => {
+    const ys = [makeIssue({ id: 'a', seq: 42, title: 'Login bug' })]
+    expect(filterBoardIssues(ys, { text: '#42' }).map((i) => i.id)).toEqual(['a'])
+    expect(filterBoardIssues(ys, { text: '42' }).map((i) => i.id)).toEqual(['a'])
+    expect(filterBoardIssues(ys, { text: '43' })).toEqual([])
+  })
+
   it('filters by stage', () => {
     expect(filterBoardIssues(xs, { stage: 'review' }).map((i) => i.id)).toEqual(['b'])
   })

@@ -946,9 +946,10 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
    per the Carved Rule: depth goes inward, so the panel is engraved into the
    chassis rather than floated above it. */
 .transcript-you {
+  --transcript-you-bg: color-mix(in oklab, var(--background) 82%, black);
   border: 1px solid var(--border);
   border-radius: 9px;
-  background: color-mix(in oklab, var(--background) 82%, black);
+  background: var(--transcript-you-bg);
   padding: 10px 15px;
   box-shadow:
     inset 0 3px 7px -2px rgb(0 0 0 / 0.55),
@@ -969,6 +970,78 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
   text-transform: uppercase;
   color: var(--info);
   margin-bottom: 3px;
+}
+
+/* A sticky operator prompt is pinned over the very transcript it belongs to, so
+   a long one would blanket the whole feed (POD-1368). Cap the prompt body at a
+   fifth of the chat viewport — `--chat-viewport-h` is published by the chat
+   scroller — minus the row's own chrome (row padding, panel padding + border,
+   and the YOU label), so the whole engraved panel stays inside the budget.
+   Measured at 19.5% of an 800px chat and 19.4% of a 720px one. The floor keeps
+   the box legible on very short viewports, where the chrome alone outgrows the
+   fifth and the cap would otherwise leave no room for text at all. */
+.transcript-you-clamp {
+  /* row padding 24 + panel padding 20 + border 2 + label row ~18 = 64px, rounded
+     up so the row measures just under its share rather than just over. */
+  --transcript-prompt-chrome: 66px;
+}
+.transcript-you-clamp[data-clamped="true"] {
+  position: relative;
+  overflow: hidden;
+  max-height: max(
+    3rem,
+    calc(var(--chat-viewport-h, 100dvh) * 0.2 - var(--transcript-prompt-chrome))
+  );
+}
+/* Expanded is bounded too, and scrolls inside itself. A prompt taller than the
+   scrollport cannot pin its top — it scrolls away with the content, taking the
+   "Show less" control with it and leaving the reader walled in exactly as
+   before. Three fifths keeps the row pinnable, so the control stays reachable
+   and the conversation stays visible underneath. */
+.transcript-you-clamp:not([data-clamped="true"]) {
+  overflow-y: auto;
+  max-height: max(
+    8rem,
+    calc(var(--chat-viewport-h, 100dvh) * 0.6 - var(--transcript-prompt-chrome))
+  );
+}
+/* Mark the cut with an ellipsis over a fade into the panel, so the clamp reads
+   as "there is more" and never as a message that ends mid-sentence. */
+.transcript-you-clamp[data-clamped="true"]::after {
+  content: "…";
+  display: flex;
+  align-items: flex-end;
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 34px;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--transcript-you-bg));
+  color: var(--muted-foreground);
+  font-size: 15px;
+  line-height: 1;
+}
+/* The expand control rides in the label row: an expanded prompt runs taller
+   than the viewport, so a control under the text would be out of reach exactly
+   when the reader wants to collapse it again. */
+.transcript-you-more {
+  margin-left: auto;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: var(--muted-foreground);
+  transition: color 120ms ease;
+}
+.transcript-you-more:hover {
+  color: var(--text-strong, var(--foreground));
+}
+@media (prefers-reduced-motion: reduce) {
+  .transcript-you-more {
+    transition: none;
+  }
 }
 
 /* The final answer — flat like all agent prose, marked by the page's only

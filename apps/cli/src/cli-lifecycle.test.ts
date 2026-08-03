@@ -74,6 +74,18 @@ describe('renderStatus', () => {
     expect(out).toContain('○ janitor  down')
   })
 
+  it('reports a healthy server when its advisory run record is missing', () => {
+    const out = renderStatus({
+      live: [],
+      config: { mode: 'server', port: 18787 },
+      port: 18787,
+      serverHealthy: true,
+      nowMs: T0,
+    })
+    expect(out).toContain('● server  up :18787  (health)')
+    expect(out).not.toContain('○ server  down')
+  })
+
   it('prefers publicUrl for the URL line', () => {
     const out = renderStatus({
       live: [],

@@ -267,6 +267,30 @@ describe('ISSUE_COMMANDS registry', () => {
     })
   })
 
+  it('start maps --model/--effort to defaultModel/defaultEffort (POD-1545)', async () => {
+    const { client, calls } = mockClient({
+      start: { seq: 3, branch: 'issue/3-x', worktreePath: '/r/.worktrees/issue-3-x' },
+    })
+    await cmd('start').run(client, { id: '3', model: 'claude-opus-5', effort: 'high' })
+    expect(calls).toContainEqual({
+      path: 'start',
+      kind: 'mutate',
+      input: { id: '3', defaultModel: 'claude-opus-5', defaultEffort: 'high' },
+    })
+  })
+
+  it('start forwards --force-unknown-model (POD-1545: the key was kebab and never matched)', async () => {
+    const { client, calls } = mockClient({
+      start: { seq: 3, branch: 'issue/3-x', worktreePath: '/r/.worktrees/issue-3-x' },
+    })
+    await cmd('start').run(client, { id: '3', model: 'unlisted', forceUnknownModel: true })
+    expect(calls).toContainEqual({
+      path: 'start',
+      kind: 'mutate',
+      input: { id: '3', defaultModel: 'unlisted', forceUnknownModel: true },
+    })
+  })
+
   it('show surfaces defaultAgent/defaultModel/defaultEffort in the meta line and data', async () => {
     const { client } = mockClient({
       get: {
@@ -443,6 +467,8 @@ describe('ISSUE_COMMANDS registry', () => {
             model: 'grok-4.5',
             status: 'live',
             phase: 'working',
+            effort: 'high',
+            contextUsagePercent: 18.2,
             coordinator: true,
           },
           {
@@ -453,6 +479,8 @@ describe('ISSUE_COMMANDS registry', () => {
             model: 'gpt-5.6-sol',
             status: 'live',
             phase: 'idle',
+            effort: 'medium',
+            contextUsagePercent: 44,
           },
         ],
         children: [
@@ -525,16 +553,128 @@ describe('ISSUE_COMMANDS registry', () => {
     const revLine = lines.find((l) => l.includes('POD-10-B'))!
     const childSess = lines.find((l) => l.includes('POD-11-A'))!
     expect(implLine).toMatch(/session POD-10-A/)
-    expect(implLine).toContain('grok/grok-4.5')
+    expect(implLine).toContain('harness=grok model=grok-4.5 effort=high context=18.2%')
     expect(implLine).toContain('working')
     expect(implLine).toContain('coordinator')
     expect(implLine).toContain('Implementer')
-    expect(revLine).toContain('codex/gpt-5.6-sol')
+    expect(revLine).toContain('harness=codex model=gpt-5.6-sol effort=medium context=44%')
     expect(revLine).toContain('idle')
     expect(revLine).not.toContain('coordinator')
     expect(childSess).toContain('exited')
     expect(childSess.match(/^\s*/)![0].length).toBeGreaterThan(implLine.match(/^\s*/)![0].length)
     expect(out.data).toBe(treeData)
+  })
+
+  // POD-1342: a capped tree used to just stop, so the reader could not tell a
+  // real leaf from a cut-off branch. These pin the notice AND its rerun command.
+  it('tree footers the truncation, names the binding cap and a runnable rerun', async () => {
+    const leaf = {
+      seq: 11,
+      title: 'Child',
+      stage: 'backlog',
+      priority: 2,
+      needsHuman: false,
+      blocksDeps: [],
+      description: '',
+      closed: false,
+      blocked: false,
+      ready: true,
+      omittedChildren: 0,
+      children: [],
+      sessions: [],
+    }
+    const capped = (over: Record<string, unknown>) => ({
+      root: { ...leaf, seq: 10, title: 'Epic', children: [leaf] },
+      totalNodes: 100,
+      omitted: 7,
+      maxDepth: 3,
+      maxNodes: 100,
+      ...over,
+    })
+
+    // Node cap bit (totalNodes reached maxNodes) → --max-nodes is the lever.
+    const { client: nodeClient } = mockClient({ tree: capped({}) })
+    const byNodes = await cmd('tree').run(nodeClient, { id: '10' })
+    expect(byNodes.text).toContain('TRUNCATED')
+    expect(byNodes.text).toContain('7 child issues omitted')
+    expect(byNodes.text).toContain('node cap (--max-nodes 100)')
+    expect(byNodes.text).toContain('podium issue tree 10 --max-depth 6 --max-nodes 400')
+    // The rerun is a GUESS — the server stopped walking at the cap, so it cannot
+    // know the true size. The label must not promise completeness (POD-1342):
+    // a user who trusts 'Full tree' and gets a second silent truncation is back
+    // to the exact miss this footer exists to kill.
+    expect(byNodes.text).toContain('More:')
+    expect(byNodes.text).not.toContain('Full tree')
+
+    // ...and the guess must clear the lower bound the footer itself reports
+    // (shown + omitted), so a tight cap converges instead of doubling for ever.
+    const { client: tight } = mockClient({
+      tree: capped({ totalNodes: 2, omitted: 24, maxNodes: 2 }),
+    })
+    const nudged = await cmd('tree').run(tight, { id: '1113', maxNodes: 2 })
+    // Anchored to the More: line — the line above it also quotes a --max-nodes.
+    const suggested = Number(nudged.text.match(/More:.*--max-nodes (\d+)/)![1])
+    expect(suggested).toBeGreaterThan(2 + 24) // blind doubling would suggest 8
+
+    // Depth cap bit (node budget unspent) → --max-depth is the lever instead.
+    const { client: depthClient } = mockClient({ tree: capped({ totalNodes: 4 }) })
+    const byDepth = await cmd('tree').run(depthClient, { id: '10' })
+    expect(byDepth.text).toContain('depth cap (--max-depth 3)')
+    expect(byDepth.text).not.toContain('node cap')
+
+    // Nothing omitted → no footer at all.
+    const { client: whole } = mockClient({ tree: capped({ omitted: 0 }) })
+    expect((await cmd('tree').run(whole, { id: '10' })).text).not.toContain('TRUNCATED')
+
+    // The raised caps reach the proc (the footer's advice has to actually work).
+    const { client: raised, calls } = mockClient({ tree: capped({ omitted: 0 }) })
+    await cmd('tree').run(raised, { id: '10', maxDepth: 6, maxNodes: 400 })
+    expect(calls).toContainEqual({
+      path: 'tree',
+      kind: 'query',
+      input: { id: '10', maxDepth: 6, maxNodes: 400 },
+    })
+    // --max-depth 6 arrives as a number even though argv hands over a string.
+    expect(cmd('tree').args.parse({ id: '10', maxDepth: '6' })).toMatchObject({ maxDepth: 6 })
+  })
+
+  it('events footers the page limit with the exact --since cursor for the next page', async () => {
+    const page = (n: number, from = 0) =>
+      Array.from({ length: n }, (_, i) => ({
+        id: from + i + 1,
+        ts: 't',
+        kind: 'issue.closed',
+        subject: 'iss_a',
+        payload: {},
+      }))
+
+    // A full page is indistinguishable from "that was all" without the notice.
+    const { client, calls } = mockClient({ events: page(3) })
+    const out = await cmd('events').run(client, { since: 0, limit: 3, kind: 'issue.closed' })
+    expect(out.text).toContain('TRUNCATED: hit the 3-event limit')
+    expect(out.text).toContain('podium issue events --since 3 --kind issue.closed --limit 3')
+    expect(out.data).toEqual(page(3)) // --json consumers keep the bare row array
+    expect(calls).toContainEqual({
+      path: 'events',
+      kind: 'query',
+      input: { since: 0, kinds: ['issue.closed'], limit: 3 },
+    })
+
+    // Short page → no notice.
+    const { client: short } = mockClient({ events: page(2) })
+    expect((await cmd('events').run(short, { since: 0, limit: 3 })).text).not.toContain('TRUNCATED')
+
+    // No --limit: the CLI still sends one, so it knows the cap it must name.
+    const { client: dflt, calls: dfltCalls } = mockClient({ events: page(200) })
+    const capped = await cmd('events').run(dflt, { since: 0 })
+    expect(dfltCalls).toContainEqual({
+      path: 'events',
+      kind: 'query',
+      input: { since: 0, limit: 200 },
+    })
+    expect(capped.text).toContain('TRUNCATED: hit the 200-event limit')
+    expect(capped.text).toContain('podium issue events --since 200')
+    expect(capped.text).not.toContain('--limit') // not echoed when the user never set one
   })
 
   it('show lists sessions with kind/model/state/coordinator [spec:SP-99d3]', async () => {
@@ -555,6 +695,9 @@ describe('ISSUE_COMMANDS registry', () => {
           name: 'Lead',
           agentKind: 'grok',
           model: 'grok-4.5',
+          observedModel: 'grok-4.6-actual',
+          observedEffort: 'high',
+          contextUsagePercent: 12.5,
           status: 'live',
           agentState: { phase: 'working', since: 't', nativeSubagentCount: 0 },
         },
@@ -565,6 +708,9 @@ describe('ISSUE_COMMANDS registry', () => {
           agentKind: 'codex',
           model: 'gpt-5.6-sol',
           status: 'live',
+          observedModel: 'gpt-5.7-actual',
+          observedEffort: 'medium',
+          contextUsagePercent: 33.3,
           agentState: { phase: 'needs_user', since: 't', nativeSubagentCount: 0 },
         },
       ],
@@ -572,8 +718,12 @@ describe('ISSUE_COMMANDS registry', () => {
     const { client } = mockClient({ get: issue, comments: [] })
     const out = await cmd('show').run(client, { id: '7' })
     expect(out.text).toContain('sessions (2):')
-    expect(out.text).toMatch(/session POD-7-A grok\/grok-4\.5 working coordinator/)
-    expect(out.text).toMatch(/session POD-7-B codex\/gpt-5\.6-sol blocked/)
+    expect(out.text).toContain(
+      'session POD-7-A harness=grok model=grok-4.6-actual effort=high context=12.5% working coordinator',
+    )
+    expect(out.text).toContain(
+      'session POD-7-B harness=codex model=gpt-5.7-actual effort=medium context=33.3% blocked',
+    )
     expect(out.text).toContain('Lead')
     expect(out.text).toContain('Reviewer')
   })

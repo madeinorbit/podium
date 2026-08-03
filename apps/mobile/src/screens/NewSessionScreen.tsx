@@ -14,6 +14,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-
 import { useIssue, useMobileStore, useSessions } from '../client/hooks'
 import { Screen } from '../components/Screen'
 import { SectionHeader } from '../components/ui'
+import { sessionBackTarget, sessionHref } from '../lib/session-route'
 import { color, font, radius, sans, space } from '../theme/theme'
 
 const AGENT_KINDS: { key: AgentKind | undefined; label: string }[] = [
@@ -35,9 +36,14 @@ export function NewSessionScreen() {
   const store = useMobileStore()
   const sessions = useSessions()
   const { sections } = useSlice(worklistSlice)
-  const params = useLocalSearchParams<{ cwd?: string | string[]; issueId?: string | string[] }>()
+  const params = useLocalSearchParams<{
+    cwd?: string | string[]
+    issueId?: string | string[]
+    backTo?: string | string[]
+  }>()
   const presetCwd = param(params.cwd)
   const issueId = param(params.issueId)
+  const backTarget = sessionBackTarget(params.backTo)
 
   // Placement reads the principal's machine VIEWS, never the raw wire list, so
   // a machine this person lacks `use` on is not a candidate and not a chip
@@ -108,7 +114,7 @@ export function NewSessionScreen() {
           agentKind: resolveDefaultAgent(agentKind, sessions),
           ...(text ? { firstPrompt: text } : {}),
         })
-        router.replace(`/session/${created.sessionId}`)
+        router.replace(sessionHref(created.sessionId, backTarget))
         return
       }
 
@@ -122,7 +128,7 @@ export function NewSessionScreen() {
         ...(issueId ? { issueId } : { draftIssue: { repoPath: target.repoPath } }),
       })
       if (text) await store.resumeAndSend(created.sessionId, text)
-      router.replace(`/session/${created.sessionId}`)
+      router.replace(sessionHref(created.sessionId, backTarget))
     } catch (e) {
       setBusy(false)
       setError(e instanceof Error ? e.message : String(e))

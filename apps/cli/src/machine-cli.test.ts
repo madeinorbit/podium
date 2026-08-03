@@ -1,6 +1,7 @@
-import { asMachineId, type MachineWire } from '@podium/model'
-import { describe, expect, it } from 'vitest'
+import { asMachineId, type MachineWire, machineByRef } from '@podium/model'
+import { describe, expect, it, vi } from 'vitest'
 import {
+  lastSeenDescription,
   MachineCliError,
   type MachineClient,
   machineHelpText,
@@ -23,7 +24,12 @@ const ludovico: MachineWire = {
     arch: 'x64',
     podiumVersion: '0.1.2-edge.1',
     agents: [
-      { kind: 'claude-code', installed: true, version: '2.0.1', login: { state: 'in', account: 'a@example.com' } },
+      {
+        kind: 'claude-code',
+        installed: true,
+        version: '2.0.1',
+        login: { state: 'in', account: 'a@example.com' },
+      },
       { kind: 'codex', installed: true, version: '1.4.0', login: { state: 'out' } },
       { kind: 'grok', installed: false, login: { state: 'unknown' } },
     ],
@@ -113,6 +119,26 @@ describe('selectMachine', () => {
     expect(() => selectMachine([ludovico, quiet], 'quiet')).toThrow(MachineCliError)
     expect(() => selectMachine([ludovico, quiet], 'quiet')).toThrow(/visible: ludovico, quiet-box/u)
   })
+
+  it('id wins over a name that collides with a different machine id', () => {
+    const decoy: MachineWire = { ...ludovico, id: asMachineId('quiet-box'), name: 'decoy' }
+    expect(machineByRef([decoy, quiet], 'quiet-box')?.name).toBe('decoy')
+  })
+})
+
+describe('lastSeenDescription', () => {
+  it('is coarse on purpose and never invents a negative age', () => {
+    expect(lastSeenDescription('2026-08-02T11:59:30.000Z', NOW)).toContain('just now')
+    // Coarse: an hour-old machine reads "1h ago", not "1h 30m ago". Whether an offline
+    // host is worth waiting for does not turn on the minutes.
+    expect(lastSeenDescription('2026-08-02T10:30:00.000Z', NOW)).toContain('(1h ago)')
+    expect(lastSeenDescription('2026-07-22T12:00:00.000Z', NOW)).toContain('11d ago')
+    // A target clock ahead of ours must not render as "in the future" nonsense.
+    expect(lastSeenDescription('2026-08-03T12:00:00.000Z', NOW)).toBe(
+      'last seen 2026-08-03T12:00:00.000Z',
+    )
+    expect(lastSeenDescription('not-a-date', NOW)).toBe('last seen not-a-date')
+  })
 })
 
 describe('runMachineCli', () => {
@@ -122,6 +148,14 @@ describe('runMachineCli', () => {
     expect(bare).toBe(explicit)
     expect(bare).toContain('ludovico')
     expect(bare).toContain('quiet-box')
+  })
+
+  it('reads the fleet in ONE call, not a machine list plus an unscoped repo list', async () => {
+    const query = vi.fn(async () => ({ machines: [ludovico, quiet], repos }))
+    await runMachineCli([], { machines: { listWithRepos: { query } } }, NOW)
+    // Two calls would mean the paths came from repos.listDetailed, which returns every
+    // row on every machine regardless of who is asking.
+    expect(query).toHaveBeenCalledTimes(1)
   })
 
   it('shows one machine, and only that machine', async () => {
@@ -141,7 +175,9 @@ describe('runMachineCli', () => {
 
   it('rejects an unknown subcommand, an unknown option and a missing selector', async () => {
     const client = fakeClient([ludovico])
-    await expect(runMachineCli(['reboot'], client, NOW)).rejects.toThrow(/unknown command 'reboot'/u)
+    await expect(runMachineCli(['reboot'], client, NOW)).rejects.toThrow(
+      /unknown command 'reboot'/u,
+    )
     await expect(runMachineCli(['list', '--all'], client, NOW)).rejects.toThrow(
       /unknown option '--all'/u,
     )

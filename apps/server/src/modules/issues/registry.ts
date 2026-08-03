@@ -11,6 +11,7 @@ import { TRPCError } from '@trpc/server'
 import type { z } from 'zod'
 import { attributionOf } from '../../command-principal'
 import { checkIssueAccess } from '../../issue-authz'
+import { sessionsForIssue } from '../../issue-util'
 import type { IssueCaller, IssueCommandAccess, IssueCommandCtx } from './command-ctx'
 
 /**
@@ -259,6 +260,10 @@ const defs = {
             ctx.caller.capability.scope.kind === 'subtree'
               ? ctx.caller.capability.scope.rootId
               : null,
+          // Per-reader mail count [POD-1379]; server-stamped, never from input.
+          ...(ctx.caller.capability.actorSessionId
+            ? { sessionId: ctx.caller.capability.actorSessionId }
+            : {}),
         },
         (id) => ctx.mayReadIssue(id),
       ),
@@ -289,7 +294,15 @@ const defs = {
   }),
   tree: def('tree', {
     kind: 'query',
-    handler: (ctx, input) => ctx.reports.tree(input.id, {}, (id) => ctx.mayReadIssue(id)),
+    handler: (ctx, input) =>
+      ctx.reports.tree(
+        input.id,
+        {
+          ...(input.maxDepth != null ? { maxDepth: input.maxDepth } : {}),
+          ...(input.maxNodes != null ? { maxNodes: input.maxNodes } : {}),
+        },
+        (id) => ctx.mayReadIssue(id),
+      ),
   }),
   depReport: def('depReport', {
     kind: 'query',
@@ -340,7 +353,19 @@ const defs = {
   }),
   get: def('get', {
     kind: 'query',
-    handler: (ctx, input) => ctx.readIssue(input.id, () => ctx.reports.get(input.id)),
+    handler: (ctx, input) =>
+      ctx.readIssue(input.id, () => {
+        const issue = ctx.reports.get(input.id)
+        if (!issue) return null
+        // The issue's live sessions ride the read (ab75ab1e). `shell` panes are
+        // not agents on the issue, so they are not listed as such.
+        const sessions = sessionsForIssue(
+          issue.worktreePath,
+          ctx.deps.listSessions(),
+          issue.id,
+        ).filter((session) => session.agentKind !== 'shell')
+        return { ...issue, sessions }
+      }),
   }),
   /** Lazy comment fetch (#175) — bodies left IssueWire (commentCount rides it).
    *  A read (like get/list). Hub-mirrored issues have no local thread: their
@@ -525,6 +550,9 @@ const defs = {
       }
       return ctx.gitWorkflow.start(input.id, input.agentKind, {
         spawnedBy: ctx.spawnProvenance(),
+        // Explicit per-launch choice (POD-1545); persists onto the issue profile.
+        ...(input.defaultModel ? { model: input.defaultModel } : {}),
+        ...(input.defaultEffort ? { effort: input.defaultEffort } : {}),
         ...(input.forceUnknownModel ? { forceUnknownModel: true } : {}),
       })
     },
@@ -990,7 +1018,15 @@ const defs = {
       const markRead =
         ctx.caller.capability.scope.kind === 'subtree' &&
         ctx.reports.resolveRef(id) === ctx.caller.capability.scope.rootId
-      return ctx.commentsMail.mailInbox(id, { markRead })
+      // WHICH session is reading [POD-1379]: the mailbox is shared by every
+      // agent on the issue, so the read is consumed per reader. Server-stamped
+      // from the caller (mailIdentity pattern); client input never contributes.
+      return ctx.commentsMail.mailInbox(id, {
+        markRead,
+        ...(ctx.caller.capability.actorSessionId
+          ? { sessionId: ctx.caller.capability.actorSessionId }
+          : {}),
+      })
     },
   }),
   // Write, scoped to the caller's own subtree; the target issue lives behind the
@@ -1012,12 +1048,24 @@ const defs = {
       }
       ctx.requireReadableIssue(msg.issueId)
       checkIssueAccess(ctx.caller, ctx.access, 'mailClaim', 'write', msg.issueId)
-      return ctx.commentsMail.mailClaim(input.messageId, ctx.mailIdentity())
+      return ctx.commentsMail.mailClaim(input.messageId, ctx.mailIdentity(), {
+        // Claiming proves this reader has the message [POD-1379].
+        ...(ctx.caller.capability.actorSessionId
+          ? { sessionId: ctx.caller.capability.actorSessionId }
+          : {}),
+      })
     },
   }),
   mailPending: def('mailPending', {
     kind: 'query',
-    handler: (ctx, input) => ctx.commentsMail.mailPending(ctx.mailOwnIssue(input?.id)),
+    handler: (ctx, input) =>
+      ctx.commentsMail.mailPending(ctx.mailOwnIssue(input?.id), {
+        // The stop-hook nag is per READER [POD-1379]: each session on the issue
+        // is told once, and none of them can clear a peer's count.
+        ...(ctx.caller.capability.actorSessionId
+          ? { sessionId: ctx.caller.capability.actorSessionId }
+          : {}),
+      }),
   }),
 
   // ---- event subscriptions (event-subscriptions design, Phase B). Local-only

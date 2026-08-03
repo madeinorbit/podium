@@ -163,6 +163,7 @@ export interface SessionDurableState {
   agentColor: string | undefined
   observedModel: string | undefined
   observedEffort: string | undefined
+  contextUsagePercent: number | undefined
   queuedMessageCount: number
   handoffTarget: string | undefined
   conversationPodiumId: ConversationId | undefined
@@ -254,6 +255,8 @@ export class Session {
   /** The effort tier OBSERVED on assistant turns (transcript top-level `effort`),
    *  learned alongside observedModel. */
   observedEffort: string | undefined
+  /** Latest exact harness-reported context-window usage, if this harness exposes it. */
+  contextUsagePercent: number | undefined
   /** Count of durable queued messages awaiting delivery (queued_messages table).
    *  Transient mirror maintained by the registry (enqueue/deliver/boot) — the
    *  table is the truth; this exists so toMeta() stays synchronous. */
@@ -464,6 +467,14 @@ export class Session {
     return true
   }
 
+  setContextUsagePercent(percent: number): boolean {
+    if (!Number.isFinite(percent)) return false
+    const next = Math.min(100, Math.max(0, percent))
+    if (next === this.contextUsagePercent) return false
+    this.contextUsagePercent = next
+    return true
+  }
+
   private static readonly NO_COLOR = new Set(['default', 'none', 'reset', 'gray', 'grey'])
 
   setTitle(title: string): void {
@@ -535,6 +546,7 @@ export class Session {
       agentColor: this.agentColor,
       observedModel: this.observedModel,
       observedEffort: this.observedEffort,
+      contextUsagePercent: this.contextUsagePercent,
       queuedMessageCount: this.queuedMessageCount,
       handoffTarget: this.handoffTarget,
       conversationPodiumId: this.conversationPodiumId,
@@ -575,6 +587,7 @@ export class Session {
     this.agentColor = state.agentColor
     this.observedModel = state.observedModel
     this.observedEffort = state.observedEffort
+    this.contextUsagePercent = state.contextUsagePercent
     this.queuedMessageCount = state.queuedMessageCount
     if (!preserve.has('handoffTarget')) this.handoffTarget = state.handoffTarget
     this.conversationPodiumId = state.conversationPodiumId
@@ -698,6 +711,9 @@ export class Session {
       ...(this.agentColor ? { agentColor: this.agentColor } : {}),
       ...(this.observedModel ? { observedModel: this.observedModel } : {}),
       ...(this.observedEffort ? { observedEffort: this.observedEffort } : {}),
+      ...(this.contextUsagePercent !== undefined
+        ? { contextUsagePercent: this.contextUsagePercent }
+        : {}),
       ...(overlay.snoozedUntil !== undefined ? { snoozedUntil: overlay.snoozedUntil } : {}),
       ...(this.draftUpdatedAt !== undefined ? { draftUpdatedAt: this.draftUpdatedAt } : {}),
       ...(this.draftSyncEngine ? { draftSyncEngine: true } : {}),

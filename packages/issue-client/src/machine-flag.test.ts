@@ -86,6 +86,29 @@ describe('issue start --machine', () => {
       /no visible machine named 'm-there'/u,
     )
   })
+
+  it('resolves a name, an id and a hostname to the same machine', async () => {
+    for (const ref of ['quiet-box', 'm-there', 'quiet-box.example.net']) {
+      const c = client()
+      await command('start').run(c.trpc, { id: '7', machine: ref })
+      expect(c.updateMutate).toHaveBeenCalledWith({ id: '7', patch: { machineId: 'm-there' } })
+    }
+  })
+
+  it('says so when the transport cannot enumerate machines at all', async () => {
+    const c = client()
+    const trpc = { ...c.trpc, machines: undefined } as unknown as IssueTrpc
+    await expect(command('start').run(trpc, { id: '7', machine: 'quiet-box' })).rejects.toThrow(
+      /cannot resolve machine names/u,
+    )
+  })
+
+  it('names nothing visible when the fleet is empty, rather than a bare failure', async () => {
+    const c = client([])
+    await expect(command('start').run(c.trpc, { id: '7', machine: 'quiet-box' })).rejects.toThrow(
+      /no visible machine named 'quiet-box' — see `podium machine list`/u,
+    )
+  })
 })
 
 describe('issue create --machine', () => {
@@ -100,6 +123,14 @@ describe('issue create --machine', () => {
     expect(c.createMutate).toHaveBeenCalledWith(
       expect.objectContaining({ machineId: 'm-there', repoPath: '/r', title: 'T' }),
     )
+  })
+
+  it('refuses a near-miss without creating the issue', async () => {
+    const c = client()
+    await expect(
+      command('create').run(c.trpc, { repoPath: '/r', title: 'T', machine: 'quiet', start: false }),
+    ).rejects.toThrow(/no visible machine named 'quiet'/u)
+    expect(c.createMutate).not.toHaveBeenCalled()
   })
 
   it('sends no machineId when none was asked for', async () => {

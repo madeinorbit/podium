@@ -31,6 +31,7 @@ import { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/pro
 import type { AgentSession } from '@podium/pty'
 import {
   createSharedStatTick,
+  recordRuntimeForKind,
   type StatTick,
   type TranscriptTailer,
   tailTranscript,
@@ -181,8 +182,72 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   const pendingBindingHooks = new Map<string, Map<string, unknown>>()
   const liveConfirmationStates = new Map<
     string,
-    { signature: string; sequence: number; emitted: number; lastEmittedAt: number }
+    {
+      signature: string
+      sequence: number
+      attempted: number
+      emitted: number
+      lastAttemptedAt: number
+      lastEmittedAt: number
+    }
   >()
+
+  const liveConfirmationSignature = (
+    sessionId: string,
+    providerCursor: AgentObservation['providerCursor'],
+  ): string | undefined => {
+    const lease = causalLeases.get(sessionId)
+    if (!lease) return undefined
+    return JSON.stringify({
+      provider: lease.provider,
+      providerSessionId: lease.providerSessionId,
+      bindingVersion: lease.bindingVersion,
+      observerGeneration: lease.observerGeneration,
+      providerCursor,
+    })
+  }
+
+  const isLiveConfirmationDue = (
+    sessionId: string,
+    providerCursor: AgentObservation['providerCursor'],
+  ): boolean => {
+    const signature = liveConfirmationSignature(sessionId, providerCursor)
+    if (!signature) return false
+    const prior = liveConfirmationStates.get(sessionId)
+    return !(
+      prior?.signature === signature &&
+      prior.attempted >= 2 &&
+      Date.now() - prior.lastAttemptedAt < 60_000
+    )
+  }
+
+  const recordLiveConfirmationAttempt = (
+    sessionId: string,
+    providerCursor: AgentObservation['providerCursor'],
+  ): void => {
+    const signature = liveConfirmationSignature(sessionId, providerCursor)
+    if (!signature) return
+    const prior = liveConfirmationStates.get(sessionId)
+    const state =
+      prior?.signature === signature
+        ? prior
+        : {
+            signature,
+            sequence: 0,
+            attempted: 0,
+            emitted: 0,
+            lastAttemptedAt: 0,
+            lastEmittedAt: 0,
+          }
+    const now = Date.now()
+    const attempted =
+      state.attempted >= 2 && now - state.lastAttemptedAt >= 60_000 ? 1 : state.attempted + 1
+    liveConfirmationStates.set(sessionId, {
+      ...state,
+      attempted,
+      lastAttemptedAt: now,
+    })
+  }
 
   const emitLiveConfirmation = (
     sessionId: SessionId,
@@ -190,18 +255,20 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   ): void => {
     const lease = causalLeases.get(sessionId)
     if (!lease) return
-    const signature = JSON.stringify({
-      provider: lease.provider,
-      providerSessionId: lease.providerSessionId,
-      bindingVersion: lease.bindingVersion,
-      observerGeneration: lease.observerGeneration,
-      providerCursor,
-    })
+    const signature = liveConfirmationSignature(sessionId, providerCursor)
+    if (!signature) return
     const prior = liveConfirmationStates.get(sessionId)
     const state =
       prior?.signature === signature
         ? prior
-        : { signature, sequence: 0, emitted: 0, lastEmittedAt: 0 }
+        : {
+            signature,
+            sequence: 0,
+            attempted: 0,
+            emitted: 0,
+            lastAttemptedAt: 0,
+            lastEmittedAt: 0,
+          }
     const now = Date.now()
     if (state.emitted >= 2 && now - state.lastEmittedAt < 60_000) return
     const livePollSequence = state.sequence + 1
@@ -616,7 +683,11 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     const bound = observations.get(msg.sessionId)
     // Claude accepted one-release acks before bindingVersion existed. New
     // generic adapters require the exact binding fence.
-    if (msg.bindingVersion === undefined && bound?.adapter.capabilities.observationProtocol !== 'claude-causal') return
+    if (
+      msg.bindingVersion === undefined &&
+      bound?.adapter.capabilities.observationProtocol !== 'claude-causal'
+    )
+      return
     if (msg.bindingVersion !== undefined && msg.bindingVersion !== lease.bindingVersion) return
     cancelObservationAckDelivery(msg, msg.bindingVersion ?? lease.bindingVersion)
     bound?.observation.onObservationAck?.(msg)
@@ -696,6 +767,12 @@ export function createSessionObservers(deps: SessionObserversDeps) {
             )
               return
             const cursor = causal.acceptedCursor
+            // Stable Claude sessions used to capture and parse their transcript on
+            // every shared 700 ms stat tick, only to discard the confirmation here
+            // after the expensive work. Gate the capture itself so the proof rate
+            // limit also bounds filesystem/syscall load across the session fleet.
+            if (!isLiveConfirmationDue(msg.sessionId, cursor)) return
+            recordLiveConfirmationAttempt(msg.sessionId, cursor)
             const identity = parseClaudeTranscriptSegmentId(cursor.segmentId)
             if (!identity) return
             const capture = await captureTranscript(causal.transcriptPath, {
@@ -858,6 +935,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         ensureTranscriptTail(
           msg.sessionId,
           transcriptPath,
+          adapter.kind,
           transcriptRecordMapperFor(adapter.kind) ?? (() => []),
         )
       }
@@ -868,7 +946,8 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     const pendingClaudeSessionId = (pendingClaude?.[0] as Record<string, unknown> | undefined)
       ?.session_id
     if (
-      observations.get(msg.sessionId)?.adapter.capabilities.observationProtocol === 'claude-causal' &&
+      observations.get(msg.sessionId)?.adapter.capabilities.observationProtocol ===
+        'claude-causal' &&
       typeof pendingClaudeSessionId === 'string'
     ) {
       claudeCausal.get(msg.sessionId)?.stopConfirmationPoll?.()
@@ -909,6 +988,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   const ensureTranscriptTail = (
     sessionId: SessionId,
     path: string,
+    agentKind: string,
     recordToItems: (record: unknown) => TranscriptItem[],
   ): void => {
     const existing = tails.get(sessionId)
@@ -946,6 +1026,8 @@ export function createSessionObservers(deps: SessionObserversDeps) {
           // As do the observed model + effort (assistant `message.model` / `effort`).
           onModel: (model, effort) =>
             send({ type: 'agentModel', sessionId, model, ...(effort ? { effort } : {}) }),
+          recordRuntime: (record) => recordRuntimeForKind(agentKind, record),
+          onContextUsage: (percent) => send({ type: 'agentContext', sessionId, percent }),
           ...(deps.tailSeedGate ? { seedGate: deps.tailSeedGate } : {}),
           initialWindowBytes: TAIL_SEED_WINDOW_BYTES,
           maxInitialItems: TAIL_SEED_MAX_ITEMS,
@@ -1018,12 +1100,21 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   // session. Every per-agent difference is behind these five callbacks.
   const hostFor = (sessionId: SessionId, adapter: HarnessAdapter): HarnessObserverHost => ({
     tailFile: (path) =>
-      ensureTranscriptTail(sessionId, path, transcriptRecordMapperFor(adapter.kind) ?? (() => [])),
+      ensureTranscriptTail(
+        sessionId,
+        path,
+        adapter.kind,
+        transcriptRecordMapperFor(adapter.kind) ?? (() => []),
+      ),
     // Recording a resume ref marks the session resumable (→ hibernate button);
     // the first transcript frame marks it chat-capable (→ chat switcher + BTW
     // button). The kind comes off the adapter — never a literal.
     onResumeValue: (value, confidence) => {
-      if (adapter.capabilities.observationProtocol === 'codex-exact' && confidence === 'exact' && deps.onExactCodexBinding) {
+      if (
+        adapter.capabilities.observationProtocol === 'codex-exact' &&
+        confidence === 'exact' &&
+        deps.onExactCodexBinding
+      ) {
         void deps
           .onExactCodexBinding(sessionId, value)
           .catch((err) =>
@@ -1363,6 +1454,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       ensureTranscriptTail(
         sessionId,
         transcriptPath,
+        bound.adapter.kind,
         transcriptRecordMapperFor(bound.adapter.kind) ?? (() => []),
       )
     }
@@ -1372,7 +1464,9 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         sessionId,
         resume: { kind: bound.adapter.resumeKind, value: harnessSessionId },
         confidence: 'exact',
-        ...(bound.adapter.capabilities.observationProtocol === 'codex-exact' ? { ackRequested: true } : {}),
+        ...(bound.adapter.capabilities.observationProtocol === 'codex-exact'
+          ? { ackRequested: true }
+          : {}),
       })
       bound.observation.bindHookThread?.(harnessSessionId)
     }
@@ -1386,7 +1480,10 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     }
     // Commit/touched-file attribution [POD-98] happens before causal routing.
     gitCapture.onHookPayload(sessionId, fields)
-    if (bound.adapter.capabilities.observationProtocol === 'claude-causal' && causalLeases.has(sessionId)) {
+    if (
+      bound.adapter.capabilities.observationProtocol === 'claude-causal' &&
+      causalLeases.has(sessionId)
+    ) {
       const causal = claudeCausal.get(sessionId)
       if (!causal) {
         const starting = claudeStarting.get(sessionId)

@@ -945,18 +945,31 @@ export class SessionRegistry {
       repoOp: (op, cwd, args, machineId) => rpc.repoOp(op, cwd, args, machineId),
       requireMachineForRepo: (machineId, repoPath) =>
         machines.requireMachineForRepo(machineId, repoPath),
-      // POD-1386: the repoId-keyed resolver handoff already uses, so a machine-pinned
-      // start finds the repository on the target instead of demanding the source's path.
-      ensureRepoOnMachine: (machineId, repoPath) =>
-        sessionsSvc.workspace.resolveRepoOnMachine(repoPath, machineId),
-      // POD-1405: move the base commits when the target cannot reach them — our
-      // integration branches are on no shared remote, so a fetch cannot help it.
-      ensureRefOnMachine: (machineId, repoPath, ref) =>
-        sessionsSvc.workspace.ensureRefOnMachine({
+      // Machine-pinned start (POD-1386/POD-1405/POD-1424): resolve the repository on the
+      // target by IDENTITY — the repoId-keyed resolver handoff already uses, so a pin
+      // finds the repo instead of demanding the source's path — then materialise the
+      // start point there, because our integration branches are on no shared remote and
+      // a fetch cannot help the target reach them.
+      prepareMachineStart: async ({ repoPath, machineId, startPoint }) => {
+        const targetRepoPath = await sessionsSvc.workspace.resolveRepoOnMachine(
+          repoPath,
+          machineId,
+        )
+        if (!startPoint) return { repoPath: targetRepoPath }
+        // The start point that comes BACK may be a commit id rather than the branch name
+        // that went in: a bundled branch arrives as objects, not as a ref, so the name
+        // does not resolve on the target even though the commit does.
+        const ensured = await sessionsSvc.workspace.ensureRefOnMachine({
           targetMachineId: machineId,
-          targetRepoPath: repoPath,
-          ref,
-        }),
+          targetRepoPath,
+          ref: startPoint,
+        })
+        return { repoPath: targetRepoPath, startPoint: ensured.startPoint }
+      },
+      // The lookup-only half (POD-1571): add-session and worktree recreate need the
+      // repository the target ALREADY has, and must keep the refusal when it has none.
+      findRepoOnMachine: (repoPath, machineId) =>
+        sessionsSvc.workspace.findRepoOnMachine(repoPath, machineId),
       getSessionIssueId: (sessionId) => sessionsSvc.getSessionIssueId(sessionId),
       setSessionIssueId: (sessionId, issueId) => sessionsSvc.setSessionIssueId(sessionId, issueId),
       setSessionArchived: (sessionId, archived) => sessionsSvc.setArchived({ sessionId, archived }),

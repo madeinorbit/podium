@@ -107,10 +107,11 @@ const RELAY_BODY_MAX_BYTES = 1 * 1024 * 1024
  * this AWAITS `relay` before responding: the CLI blocks on the round-trip to the
  * server so the agent sees the actual result.
  *
- * `POST /agent/<sessionId>` with JSON `{ router?, proc, input?, outsideScope? }`
- * → `200 { ok, result?|error? }`. The legacy `/issue/<sessionId>` path is still
- * accepted (read-side tolerance for sessions spawned before the rename — the
- * daemon never emits it). Any other method/path → 404; bad JSON or a missing
+ * `POST /session/<sessionId>` with JSON `{ router?, proc, input?, outsideScope? }`
+ * → `200 { ok, result?|error? }`. The legacy `/issue/<sessionId>` and
+ * `/agent/<sessionId>` paths are still accepted (read-side tolerance for
+ * sessions spawned before each rename — the daemon never emits them; the caller
+ * is a session, not necessarily an agent). Any other method/path → 404; bad JSON or a missing
  * `proc` → 400; over-cap body → 413. `router` defaults to `'issues'`.
  *
  * TRUST MODEL: this endpoint is loopback-only (127.0.0.1) and UNAUTHENTICATED —
@@ -128,10 +129,12 @@ export function startAgentRelayServer(opts: {
   port?: number
 }): Promise<{ port: number; endpointFor(sessionId: SessionId): string; close(): Promise<void> }> {
   const server: Server = createServer((req, res) => {
-    // Accept both the new `/agent/<sid>` path and the legacy `/issue/<sid>` path:
-    // an in-flight session spawned before the rename keeps POSTing to `/issue/`
-    // after a daemon redeploy. Only `/agent/` is ever emitted (endpointFor).
-    const match = /^\/(?:issue|agent)\/([\w.-]+)(?:\/(open))?$/.exec(req.url ?? '')
+    // Accept the current `/session/<sid>` path and every legacy prefix it has
+    // carried (`/issue/`, then `/agent/`): an in-flight session keeps POSTing to
+    // whichever path was baked into its env at spawn time, so dropping an arm
+    // here strands every live session at the next daemon redeploy. Only
+    // `/session/` is ever emitted (endpointFor).
+    const match = /^\/(?:issue|agent|session)\/([\w.-]+)(?:\/(open))?$/.exec(req.url ?? '')
     if (!match || req.method !== 'POST') {
       res.writeHead(404)
       res.end()
@@ -217,7 +220,7 @@ export function startAgentRelayServer(opts: {
       }
       resolve({
         port: addr.port,
-        endpointFor: (sessionId) => `http://127.0.0.1:${addr.port}/agent/${sessionId}`,
+        endpointFor: (sessionId) => `http://127.0.0.1:${addr.port}/session/${sessionId}`,
         close: () => new Promise<void>((r) => server.close(() => r())),
       })
     }

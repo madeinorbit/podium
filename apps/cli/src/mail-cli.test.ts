@@ -130,15 +130,7 @@ describe('podium mail CLI (argv shape)', () => {
     try {
       const c = client()
       await runMailCli(
-        [
-          'send',
-          '--to',
-          '#845',
-          '--body',
-          'POD-845/925 verification probe',
-          '--expires-in',
-          '2m',
-        ],
+        ['send', '--to', '#845', '--body', 'POD-845/925 verification probe', '--expires-in', '2m'],
         c,
       )
       expect(c.messages.send.mutate).toHaveBeenCalledWith({
@@ -167,14 +159,20 @@ describe('podium mail CLI (argv shape)', () => {
 
   it('[POD-854] an accepted send tells the sender to query mail status (never a bare success)', async () => {
     const c = client({ send: { id: 'msg_9', ok: true, disposition: 'accepted' } })
-    const out = await runMailCli(['send', '--to', 's-abc', '--body', 'x', '--urgency', 'next-turn'], c)
+    const out = await runMailCli(
+      ['send', '--to', 's-abc', '--body', 'x', '--urgency', 'next-turn'],
+      c,
+    )
     expect(out).toContain('accepted')
     expect(out).toContain('podium mail status msg_9')
   })
 
   it('[POD-854] a blocking send confirmed delivered reports delivered', async () => {
     const c = client({ send: { id: 'msg_9', ok: true, disposition: 'delivered' } })
-    const out = await runMailCli(['send', '--to', 's-abc', '--body', 'x', '--urgency', 'interrupt'], c)
+    const out = await runMailCli(
+      ['send', '--to', 's-abc', '--body', 'x', '--urgency', 'interrupt'],
+      c,
+    )
     expect(out).toContain('delivered')
   })
 

@@ -6,7 +6,12 @@ import {
   machineByRef,
   type NameableMachine,
 } from '@podium/model'
-import { TITLE_RULE_TERSE } from '@podium/protocol'
+import {
+  ISSUE_EVENTS_DEFAULT_LIMIT,
+  ISSUE_TREE_DEFAULT_MAX_DEPTH,
+  ISSUE_TREE_DEFAULT_MAX_NODES,
+  TITLE_RULE_TERSE,
+} from '@podium/protocol'
 import { z } from 'zod'
 import type { IssueTrpc } from './client.js'
 
@@ -73,7 +78,7 @@ const idArg = z.union([z.string(), z.number()]).transform((v) => String(v))
 const cliBool = z.union([z.boolean(), z.enum(['true', 'false']).transform((v) => v === 'true')])
 
 /**
- * `--machine <name|id>` → the machine id the issue contracts take (POD-1386).
+ * `--machine <name|id>` → the machine id the issue contracts take (POD-1386 / POD-1424).
  *
  * A human names a machine; `issues.machine_id` stores an id. Resolution goes
  * through `machineByRef` (@podium/model) — the SAME exact-match rule
@@ -143,7 +148,7 @@ type ShowWire = IssueShowWire<ShowSession>
 /** Compact session fields the show/tree renderers need [spec:SP-99d3]. */
 /**
  * The tree/show session line as this client reads it: the shared
- * {@link IssueTreeSession} definition plus three VERSION-SKEW keys.
+ * {@link IssueTreeSession} definition plus five VERSION-SKEW keys.
  *
  * Inventory §2.1 #20 marks the old hand copy a drifted duplicate of #19, and it
  * was — it restated all eight shared keys. Those eight now come from
@@ -158,10 +163,18 @@ type ShowWire = IssueShowWire<ShowSession>
  * refactor, so the tolerance stays and is now documented as tolerance instead of
  * looking like part of the contract. Retiring it needs a version floor — out of
  * scope for POD-366.
+ *
+ * `observedModel`/`observedEffort` are the same kind of tolerance for POD-1262:
+ * a same-version server resolves observed-over-requested inside
+ * `toIssueTreeSession` and sends only `model`/`effort`, but a main-era server
+ * sends both halves and expects this client to pick. Reading them here keeps
+ * `podium issue tree` honest against both.
  */
 type ShowSession = IssueTreeSession & {
   name?: string
   title?: string
+  observedModel?: string
+  observedEffort?: string
   agentState?: { phase?: string }
 }
 
@@ -209,13 +222,17 @@ function formatSessionLine(
 ): string {
   const id = s.displayRef ?? s.sessionId
   const label = s.label ?? s.name ?? (s.title && s.title !== s.agentKind ? s.title : undefined)
-  const kindModel = s.model ? `${s.agentKind}/${s.model}` : s.agentKind
+  const model = s.observedModel ?? s.model
+  const effort = s.observedEffort ?? s.effort
   const isCoord =
     s.coordinator === true ||
     (opts?.coordinatorSessionId != null && opts.coordinatorSessionId === s.sessionId)
   const parts = [
     `session ${id}`,
-    kindModel,
+    `harness=${s.agentKind}`,
+    `model=${model ?? 'default'}`,
+    `effort=${effort ?? 'default'}`,
+    `context=${s.contextUsagePercent !== undefined ? `${s.contextUsagePercent}%` : 'unknown'}`,
     sessionStateLabel(s),
     isCoord ? 'coordinator' : null,
     label && label !== id ? `— ${label}` : null,
@@ -309,7 +326,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'show',
     summary:
-      'Show issues in full: show <id> [<id>...] or show --ids a,b,c. One call surveys many issues (each rendered like single show), including sessions currently on the issue (id/kind/model/state/coordinator) [spec:SP-99d3].',
+      'Show issues in full: show <id> [<id>...] or show --ids a,b,c. One call surveys many issues (each rendered like single show), including every agent currently on the issue with actual harness/model/effort/context/state/coordinator [spec:SP-99d3].',
     args: z.strictObject({ id: idArg.optional(), ids: z.string().optional() }),
     positionals: ['id'],
     restKey: 'ids',
@@ -365,14 +382,26 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'tree',
     summary:
-      'Whole epic in ONE call: tree <id> — the issue + all descendants (depth ≤3, ≤100 nodes) with stage/priority/assignee/branch/needs-human/blocking deps, a description snippet, and each issue’s sessions (id/kind/model/state/coordinator). Prefer this over per-child show when surveying an epic — check sessions before spawn [spec:SP-99d3].',
-    args: z.strictObject({ id: idArg }),
+      'Whole epic in ONE call: tree <id> [--max-depth n] [--max-nodes n] — the issue + all descendants (default depth ≤3, ≤100 nodes; raise with the flags) with stage/priority/assignee/branch/needs-human/blocking deps, a description snippet, and every agent’s actual harness/model/effort/context/state/coordinator. Prefer this over per-child show when surveying an epic — check sessions before spawn [spec:SP-99d3].',
+    args: z.strictObject({
+      id: idArg,
+      maxDepth: z.coerce.number().int().min(0).max(20).optional(),
+      maxNodes: z.coerce.number().int().min(1).max(1000).optional(),
+    }),
     positionals: ['id'],
     async run(c, a) {
-      const t = (await c.issues.tree.query({ id: a.id as string })) as {
+      const t = (await c.issues.tree.query({
+        id: a.id as string,
+        ...(a.maxDepth != null ? { maxDepth: a.maxDepth as number } : {}),
+        ...(a.maxNodes != null ? { maxNodes: a.maxNodes as number } : {}),
+      })) as {
         root: TreeNode
         totalNodes: number
         omitted: number
+        // Absent on older servers — fall back to the shared defaults so the
+        // footer still names a cap rather than `undefined`.
+        maxDepth?: number
+        maxNodes?: number
       }
       const out: string[] = []
       const walk = (n: TreeNode, depth: number): void => {
@@ -396,6 +425,28 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         if (n.omittedChildren > 0) out.push(`${'  '.repeat(depth + 1)}(+${n.omittedChildren} more)`)
       }
       walk(t.root, 0)
+      // A capped tree used to just end (POD-1342): nothing said the walk stopped
+      // early, so `(+3 more)` deep in the output was the only hint and an empty
+      // branch looked like a leaf. Name the cap that bit and the exact rerun.
+      const maxDepth = t.maxDepth ?? ISSUE_TREE_DEFAULT_MAX_DEPTH
+      const maxNodes = t.maxNodes ?? ISSUE_TREE_DEFAULT_MAX_NODES
+      if (t.omitted > 0) {
+        const hitNodes = t.totalNodes >= maxNodes
+        // The server stops walking AT the cap, so nobody knows the true subtree
+        // size — the raised caps are a guess and the rerun may truncate again.
+        // Hence `More:`, not `Full tree:`: a completeness promise this cannot
+        // keep would recreate the very silent miss this footer exists to kill.
+        // The guess is at least informed — `totalNodes + omitted` is a hard
+        // lower bound on the real size, so leaning on it converges in far fewer
+        // escalations than blind doubling. Both clamped to the proc's own input
+        // bounds so the suggested command is always one the server accepts.
+        const nextNodes = Math.min(1000, Math.max(maxNodes * 4, (t.totalNodes + t.omitted) * 2))
+        out.push(
+          '',
+          `TRUNCATED: ${t.totalNodes} nodes shown, ${t.omitted} child issue${t.omitted === 1 ? '' : 's'} omitted by the ${hitNodes ? `node cap (--max-nodes ${maxNodes})` : `depth cap (--max-depth ${maxDepth})`}.`,
+          `  More: podium issue tree ${a.id} --max-depth ${Math.min(20, maxDepth + 3)} --max-nodes ${nextNodes}`,
+        )
+      }
       return { text: out.join('\n'), data: t }
     },
   },
@@ -462,12 +513,14 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'start',
     summary:
-      'Start an issue: create its worktree+branch, claim it, spawn its agent. start <id> [--agent claude-code] [--machine <name|id>] [--force-unknown-model]. Model/effort come from the issue (set via create/update --model/--effort). --machine HOMES the issue on that machine (see `podium machine list`) — its worktree, branch and agent all live there from now on.',
+      "Start an issue: create its worktree+branch, claim it, spawn its agent. start <id> [--agent claude-code] [--model <slug>] [--effort low|medium|high] [--machine <name|id>] [--force-unknown-model]. --model/--effort take the same values as create/update and PERSIST onto the issue, so later sessions on it run the same; without them the issue's stored model/effort is used (`auto` = the CLI default). An unknown model or effort is refused before anything is created. --machine HOMES the issue on that machine (see `podium machine list`) — its worktree, branch and agent all live there from now on.",
     args: z.strictObject({
       id: idArg,
       agent: z.string().min(1).optional(),
+      model: z.string().min(1).optional(),
+      effort: z.string().min(1).optional(),
       machine: z.string().min(1).optional(),
-      'force-unknown-model': z.boolean().optional(),
+      forceUnknownModel: z.boolean().optional(),
     }),
     positionals: ['id'],
     async run(c, a) {
@@ -484,7 +537,9 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       const i = (await c.issues.start.mutate({
         id: a.id as string,
         ...(a.agent ? { agentKind: a.agent as string } : {}),
-        ...(a['force-unknown-model'] ? { forceUnknownModel: true } : {}),
+        ...(a.model ? { defaultModel: a.model as string } : {}),
+        ...(a.effort ? { defaultEffort: a.effort as string } : {}),
+        ...(a.forceUnknownModel ? { forceUnknownModel: true } : {}),
       })) as {
         seq: number
         worktreePath?: string | null
@@ -766,14 +821,14 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     args: z.strictObject({
       id: idArg,
       agent: z.string().optional(),
-      'force-unknown-model': z.boolean().optional(),
+      forceUnknownModel: z.boolean().optional(),
     }),
     positionals: ['id'],
     async run(c, a) {
       const i = (await c.issues.addSession.mutate({
         id: a.id as string,
         ...(a.agent ? { agentKind: a.agent as string } : {}),
-        ...(a['force-unknown-model'] ? { forceUnknownModel: true } : {}),
+        ...(a.forceUnknownModel ? { forceUnknownModel: true } : {}),
       })) as { seq: number }
       return { text: `session added to #${i.seq}`, data: i }
     },
@@ -1348,7 +1403,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'events',
-    summary: 'Event log since a cursor: events --since <id> [--kind a,b] [--limit n].',
+    summary: `Event log since a cursor: events --since <id> [--kind a,b] [--limit n]. Returns at most ${ISSUE_EVENTS_DEFAULT_LIMIT} events per call; page with --since <last id>.`,
     args: z.strictObject({
       since: z.coerce.number().int().min(0).default(0),
       kind: z.string().optional(),
@@ -1362,20 +1417,35 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
             .map((s) => s.trim())
             .filter(Boolean)
         : undefined
+      // Send the limit explicitly even when unset: a full page is how we detect
+      // truncation, so the CLI must KNOW the cap the server applied (POD-1342).
+      const limit = (a.limit as number | undefined) ?? ISSUE_EVENTS_DEFAULT_LIMIT
       const rows = (await c.issues.events.query({
         since: a.since as number,
         ...(kinds?.length ? { kinds } : {}),
         ...(a.repoPath ? { repoPath: a.repoPath as string } : {}),
-        ...(a.limit != null ? { limit: a.limit as number } : {}),
+        limit,
       })) as { id: number; ts: string; kind: string; subject: string; payload: unknown }[]
-      return {
-        text: rows.length
-          ? rows
-              .map((e) => `[${e.id}] ${e.ts} ${e.kind} ${e.subject} ${JSON.stringify(e.payload)}`)
-              .join('\n')
-          : '(no events)',
-        data: rows,
+      const lines = rows.map(
+        (e) => `[${e.id}] ${e.ts} ${e.kind} ${e.subject} ${JSON.stringify(e.payload)}`,
+      )
+      // A full page means there are probably more: without this the log simply
+      // stopped at 200 with no sign the tail was cut off.
+      if (rows.length >= limit) {
+        const next = [
+          `podium issue events --since ${rows[rows.length - 1]!.id}`,
+          kinds?.length ? `--kind ${kinds.join(',')}` : '',
+          a.limit != null ? `--limit ${limit}` : '',
+        ]
+          .filter(Boolean)
+          .join(' ')
+        lines.push(
+          '',
+          `TRUNCATED: hit the ${limit}-event limit; there may be more.`,
+          `  Next page: ${next}`,
+        )
       }
+      return { text: lines.length ? lines.join('\n') : '(no events)', data: rows }
     },
   },
   {

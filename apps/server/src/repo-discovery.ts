@@ -100,6 +100,19 @@ export function adjacentRootsFor(knownPaths: string[], cap = 12): string[] {
 export interface RepoDiscoveryDeps {
   listRepos(): RepoRow[]
   addRepo(path: string, machineId: string, originUrl?: string): Promise<void> | void
+  /** Deregister a path on a machine. Used ONLY by the moved-repo heal (POD-1498),
+   *  and only after {@link RepoDiscoveryDeps.pathExists} says the path is gone. */
+  removeRepo?(path: string, machineId: string): Promise<void> | void
+  /**
+   * Does `path` exist on THAT machine's filesystem, right now?
+   *
+   * This has to be a real probe of the machine, NOT an inference from scan results.
+   * A scan walks only a machine's registered ROOTS, so "the scan did not find it"
+   * also covers "it moved outside the scanned roots" — pruning on that inference
+   * would deregister healthy repos across the fleet. Absent (undefined) = we cannot
+   * tell, and the heal must then do nothing.
+   */
+  pathExists?(path: string, machineId: string): Promise<boolean>
   scanRepos(
     roots: string[],
     opts: { includeHome?: boolean; maxDepth?: number },
@@ -120,6 +133,80 @@ export class MachineRepoDiscovery {
   private readonly lastResults = new Map<string, MachineDiscoveryResult>()
 
   constructor(private readonly deps: RepoDiscoveryDeps) {}
+
+  /**
+   * Heal a repository that MOVED on its machine (POD-1498).
+   *
+   * THE STALE ROW BLOCKS ITS OWN REPLACEMENT. Auto-registration below refuses to add a
+   * second copy of an origin already registered on the machine — correct, so a backup
+   * clone never gets registered over the real one. But when the repo MOVES, the stale row
+   * is itself what makes that flag true, so the new path is demoted to a candidate and
+   * never registered, and nothing prunes a path that stopped existing. The server then
+   * serves a dead path forever. Measured on vmi3407763 after its home moved till -> mgw:
+   * `git -C /home/till/src/podium worktree add …` → "cannot change to … No such file or
+   * directory", on every placement.
+   *
+   * REPLACE, DO NOT JOIN. resolveRepoOnMachine matches by repoId and takes the FIRST row
+   * (listRepos is ORDER BY rowid ASC), so merely registering the new path would leave the
+   * old one winning. The row has to go.
+   *
+   * THE PREDICATE IS DELIBERATELY NARROW, because this is the one operation here that can
+   * DESTROY a registration:
+   *   1. the registered path is ABSENT — by a real liveness probe of that machine, never
+   *      by absence from scan results, which only tells you about scan COVERAGE; and
+   *   2. exactly ONE unregistered path on the same machine reports the SAME origin.
+   * Two candidates is ambiguity, not a move, and stays a candidate for a human to pick.
+   * No probe wired, or a probe that cannot answer, means do nothing.
+   */
+  private async healMovedRepos(
+    machineId: string,
+    rows: RepoRow[],
+    found: Map<string, { originUrl?: string | null }>,
+  ): Promise<boolean> {
+    const { removeRepo, pathExists } = this.deps
+    if (!removeRepo || !pathExists) return false
+
+    const here = rows.filter((r) => r.machineId === machineId)
+    const registeredHere = new Set(here.map((r) => normalizeRepoPath(r.path)))
+    let healed = false
+
+    for (const row of here) {
+      const origin = normalizeOriginUrl(row.originUrl)
+      if (!origin) continue
+      const rowPath = normalizeRepoPath(row.path)
+      // Still discovered where it was registered — nothing to heal, and no probe cost.
+      if (found.has(rowPath)) continue
+
+      // Exactly one same-origin NEWCOMER, or this is not an unambiguous move.
+      const newcomers = [...found.entries()].filter(
+        ([path, repo]) =>
+          normalizeOriginUrl(repo.originUrl ?? null) === origin && !registeredHere.has(path),
+      )
+      if (newcomers.length !== 1) continue
+      const [newPath, newRepo] = newcomers[0] as [string, { originUrl?: string | null }]
+
+      // ONLY NOW probe the machine. Ordering matters: the probe is a round trip, and
+      // asking about every registered repo on every scan would be both slow and noisy.
+      let stillThere: boolean
+      try {
+        stillThere = await pathExists(rowPath, machineId)
+      } catch {
+        // Cannot tell ⇒ do nothing. An unreachable machine must never look like a move.
+        continue
+      }
+      if (stillThere) continue
+
+      await removeRepo(rowPath, machineId)
+      await this.deps.addRepo(newPath, machineId, newRepo.originUrl ?? undefined)
+      registeredHere.delete(rowPath)
+      registeredHere.add(newPath)
+      healed = true
+      this.deps.log?.(
+        `repo moved on ${this.deps.machineName(machineId)}: ${rowPath} is gone, re-registered at ${newPath}`,
+      )
+    }
+    return healed
+  }
 
   /** Fire-and-forget connect trigger: delayed (reattach settles first), throttled
    *  per machine, never awaited by the attach path, shallow tiers only. */
@@ -167,7 +254,7 @@ export class MachineRepoDiscovery {
     opts: { deep: boolean; atPath?: string },
   ): Promise<MachineDiscoveryResult> {
     const startedAt = this.deps.now?.() ?? Date.now()
-    const rows = this.deps.listRepos()
+    let rows = this.deps.listRepos()
     const diagnostics: GitDiscoveryDiagnosticWire[] = []
     const found = new Map<string, GitRepositoryWire>()
 
@@ -209,6 +296,12 @@ export class MachineRepoDiscovery {
     // T3 — bounded home sweep, explicit scans only.
     if (opts.deep) {
       collect(await this.deps.scanRepos([], { includeHome: true, maxDepth: 4 }, machineId))
+    }
+
+    // Heal a moved repo BEFORE classifying (POD-1498): the stale row would otherwise
+    // make originAlreadyRegisteredHere true and demote its own replacement to a candidate.
+    if (await this.healMovedRepos(machineId, rows, found)) {
+      rows = this.deps.listRepos()
     }
 
     // Classify + auto-register origin matches.

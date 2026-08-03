@@ -10,12 +10,28 @@ const STATUS = {
   status: 'live',
   phase: 'working',
   machine: 'buildbox',
+  harness: 'claude-code',
   model: 'claude-opus-4-8',
   effort: 'high',
+  contextUsagePercent: 22.3,
   account: 'native:claude-code',
   error: null,
   draft: true,
   nativeSubagentCount: 2,
+  nativeSubagents: [{ id: 'native-1', type: 'Explore' }],
+  subagents: [
+    {
+      sessionId: 'child1',
+      displayRef: 'POD-7-B',
+      parentSessionId: 's1',
+      harness: 'codex',
+      model: 'gpt-5.7',
+      effort: 'medium',
+      contextUsagePercent: 10,
+      status: 'live',
+      phase: 'working',
+    },
+  ],
   issue: { seq: 7, stage: 'in_progress', title: 'T', todos: ['[ ] a'] },
   commits: ['abc123 feat: x'],
   files: ['## branch', ' M a.ts'],
@@ -82,8 +98,22 @@ function client(
 
 /** Two visible machines, so name resolution has something to get wrong. */
 const MACHINES = [
-  { id: 'm-here', name: 'ludovico', hostname: 'ludovico', online: true, lastSeenAt: NOW_ISO, use: 'granted' },
-  { id: 'm-there', name: 'quiet-box', hostname: 'quiet-box.example.net', online: true, lastSeenAt: NOW_ISO, use: 'granted' },
+  {
+    id: 'm-here',
+    name: 'ludovico',
+    hostname: 'ludovico',
+    online: true,
+    lastSeenAt: NOW_ISO,
+    use: 'granted',
+  },
+  {
+    id: 'm-there',
+    name: 'quiet-box',
+    hostname: 'quiet-box.example.net',
+    online: true,
+    lastSeenAt: NOW_ISO,
+    use: 'granted',
+  },
 ]
 
 describe('podium session CLI', () => {
@@ -199,13 +229,10 @@ describe('podium session stop [spec:SP-9904]', () => {
   })
 
   it('surfaces a refused stop (unsaved work)', async () => {
-    const c = client(
-      { ok: true },
-      ASK,
-      { ok: true, name: 'x' },
-      STATUS,
-      { ok: false, reason: 'refusing stop: unsaved changes' },
-    )
+    const c = client({ ok: true }, ASK, { ok: true, name: 'x' }, STATUS, {
+      ok: false,
+      reason: 'refusing stop: unsaved changes',
+    })
     await expect(runSessionCli(['stop', 's1'], c)).rejects.toThrow(/unsaved changes/)
   })
 
@@ -263,9 +290,14 @@ describe('podium session status/read (#237 read toolkit)', () => {
     const out = await runSessionCli(['status', 's1'], c)
     expect(c.sessions.status.query).toHaveBeenCalledWith({ ref: 's1' })
     expect(out).toContain('live/working')
-    expect(out).toContain('machine=buildbox model=claude-opus-4-8 effort=high')
-    expect(out).toContain('account=native:claude-code')
+    expect(out).toContain(
+      'runtime: harness=claude-code model=claude-opus-4-8 effort=high context=22.3%',
+    )
+    expect(out).toContain('placement: machine=buildbox account=native:claude-code')
     expect(out).toContain('nativeSubagentCount=2 draft=yes')
+    expect(out).toContain('native native-1 type=Explore')
+    expect(out).toContain('native 1 active (identity unavailable)')
+    expect(out).toContain('session POD-7-B parent=s1 harness=codex')
     expect(out).toContain('issue #7 [in_progress] T')
     expect(out).toContain('abc123 feat: x')
     expect(out).toContain('unacked messages: 2')
@@ -367,19 +399,61 @@ const hasBun = (() => {
   }
 })()
 
-describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !hasBun)('podium session real-binary smoke', () => {
-  it('renders help (status/read verbs included) without a server', () => {
-    const out = execFileSync('bun', [cliEntry, 'session', '--help'], { encoding: 'utf8' })
-    expect(out).toContain('podium session <command>')
-    expect(out).toContain('status <session-id|#issue>')
-    expect(out).toContain('read <session-id>')
-    expect(out).toContain('recap <session-id>')
-    expect(out).toContain('ask <session-id> --question')
+describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !hasBun)(
+  'podium session real-binary smoke',
+  () => {
+    it('renders help (status/read verbs included) without a server', () => {
+      const out = execFileSync('bun', [cliEntry, 'session', '--help'], { encoding: 'utf8' })
+      expect(out).toContain('podium session <command>')
+      expect(out).toContain('status <session-id|#issue>')
+      expect(out).toContain('read <session-id>')
+      expect(out).toContain('recap <session-id>')
+      expect(out).toContain('ask <session-id> --question')
+    })
+
+    it('fails fast on an unknown session command', () => {
+      expect(() =>
+        execFileSync('bun', [cliEntry, 'session', 'bogus'], { encoding: 'utf8', stdio: 'pipe' }),
+      ).toThrow()
+    })
+  },
+)
+
+/**
+ * `podium session handoff --to <machine>` — the cases main's POD-1424 block covered that
+ * the rewrite's own `handoff` describe (above) did not. The duplicate assertions were
+ * dropped with the duplicate implementation; these two are ported onto the strings the
+ * surviving implementation actually emits (POD-1579).
+ */
+describe('podium session handoff (additional coverage)', () => {
+  it('--json reports the machine it resolved to and where the session landed', async () => {
+    const out = await runSessionCli(['handoff', 's1', '--to', 'quiet-box', '--json'], client())
+    expect(JSON.parse(out)).toEqual({
+      command: 'handoff',
+      ok: true,
+      sessionId: 's1',
+      machineId: 'm-there',
+      newCwd: '/home/till/podium-repos/podium-abc/.worktrees/issue-7',
+    })
   })
 
-  it('fails fast on an unknown session command', () => {
-    expect(() =>
-      execFileSync('bun', [cliEntry, 'session', 'bogus'], { encoding: 'utf8', stdio: 'pipe' }),
-    ).toThrow()
+  it('accepts an id and a hostname for the same machine', async () => {
+    const byId = client()
+    await runSessionCli(['handoff', 's1', '--to', 'm-there'], byId)
+    expect(byId.sessions.handoff.mutate).toHaveBeenCalledWith({
+      sessionId: 's1',
+      machineId: 'm-there',
+    })
+    const byHost = client()
+    await runSessionCli(['handoff', 's1', '--to', 'quiet-box.example.net'], byHost)
+    expect(byHost.sessions.handoff.mutate).toHaveBeenCalledWith({
+      sessionId: 's1',
+      machineId: 'm-there',
+    })
+  })
+
+  it('lists handoff in the help', async () => {
+    const out = await runSessionCli(['--help'], client())
+    expect(out).toContain('handoff <session-id> --to <machine>')
   })
 })

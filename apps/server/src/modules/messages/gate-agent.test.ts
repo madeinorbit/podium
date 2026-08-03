@@ -27,7 +27,7 @@ const SENDER_ISSUE = { ...ISSUE, id: 'iss_b', seq: 212, worktreePath: '/wt/b' }
 function fakeIssues(
   created: Record<string, unknown>[] = [],
   /** Per-test overrides on the primary issue — e.g. homing it on a machine
-   *  (POD-1386). Applied to a COPY so one test cannot leak into the next. */
+   *  (POD-1386/POD-1424). Applied to a COPY so one test cannot leak into the next. */
   issueOverrides: Record<string, unknown> = {},
 ) {
   const byId = new Map<string, Record<string, unknown>>([
@@ -311,6 +311,18 @@ describe('agent spawn (gate)', () => {
         executionProfileId: 'prof_x',
       })
       expect(spawns).toHaveLength(1)
+    })
+
+    it('allows a spawn with no profile at all — it inherits the issue home', async () => {
+      // The counterfactual for the refusals above: an execution profile is the ONLY
+      // input that can name a machine independently of the issue, so every other
+      // caller is already correct and must not be caught by the guard.
+      const { gate, spawns } = harness({
+        issueOverrides: { machineId: 'machine-home', worktreePath: '/wt/a' },
+      })
+      await gate.dispatch(PARENT, true, 'spawnAgent', { issue: ISSUE.id, prompt: 'inherit' })
+      expect(spawns).toHaveLength(1)
+      expect(spawns[0]).toMatchObject({ machineId: 'machine-home' })
     })
   })
 
@@ -1103,3 +1115,4 @@ describe('mail dismiss — recipient-only clear', () => {
     ).rejects.toThrow(/only the recipient/)
   })
 })
+

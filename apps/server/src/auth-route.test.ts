@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { FIRST_ADMIN_USER_ID } from '@podium/model'
 import { hashPassword } from '@podium/runtime/auth-store'
+import { BREAK_GLASS_LABEL, mintBreakGlassSession } from '@podium/runtime/session-mint'
 import { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import {
@@ -13,6 +14,8 @@ import {
   requestUserId,
 } from './auth-route'
 import { SessionStore } from './store'
+
+const FAR_FUTURE = '2999-01-01T00:00:00.000Z'
 
 let dir: string
 let store: SessionStore
@@ -28,8 +31,8 @@ function makeApp(opts: Parameters<typeof registerAuthRoute>[1] = {}) {
  * The tests below say `setPassword('hunter2')` for the same reason they always did — what
  * changed is where it lands, and that `POST /auth/login` has one way to check it.
  */
-async function setPassword(password: string): Promise<void> {
-  store.users.setPasswordHash(
+async function setPassword(password: string, target: SessionStore = store): Promise<void> {
+  target.users.setPasswordHash(
     FIRST_ADMIN_USER_ID,
     await hashPassword(password),
     new Date().toISOString(),
@@ -347,6 +350,145 @@ describe('requestUserId / isRequestAuthed (auth gate)', () => {
     expect(requestUserId(store.auth, undefined, nowMs)).toBeUndefined()
     expect(requestUserId(store.auth, '', nowMs)).toBeUndefined()
     expect(isRequestAuthed(store.auth, undefined, nowMs)).toBe(false)
+  })
+})
+
+// POD-1376. `podium auth mint-session` writes the client_sessions row from OUTSIDE
+// apps/server (the CLI may not import it), so the mint SQL lives in @podium/runtime and
+// the two could drift apart silently — a mint that "succeeds" against a table shape the
+// guard no longer reads would hand the operator a token that is refused on every call.
+// This is the oracle for that: mint the way the CLI does, authenticate the way the server
+// does, against one real on-disk database.
+describe('break-glass session mint (@podium/runtime ⇄ clientAuthGuard)', () => {
+  let mintDir: string
+  let mintStore: SessionStore
+
+  beforeEach(() => {
+    mintDir = mkdtempSync(join(tmpdir(), 'podium-mint-'))
+    mintStore = new SessionStore(join(mintDir, 'podium.db'))
+  })
+  afterEach(() => {
+    mintStore.close()
+    rmSync(mintDir, { recursive: true, force: true })
+  })
+
+  function guarded() {
+    const app = new Hono()
+    app.use('/trpc/*', clientAuthGuard({ store: mintStore.auth, users: mintStore.users }))
+    app.get('/trpc/ping', (c) => c.text('pong'))
+    return app
+  }
+
+  test('a runtime-minted token authenticates against a password-protected surface', async () => {
+    await setPassword('hunter2', mintStore)
+    expect((await guarded().request('/trpc/ping')).status).toBe(401)
+
+    const minted = mintBreakGlassSession({ stateDir: mintDir })
+    const res = await guarded().request('/trpc/ping', {
+      headers: { cookie: `podium_session=${minted.token}` },
+    })
+    expect(res.status).toBe(200)
+    expect(await res.text()).toBe('pong')
+  })
+
+  // The sliding renewal exists so an actively-used BROWSER never gets logged out. Applied
+  // to a break-glass session it silently destroys the point of --ttl: any session whose
+  // remaining life is more than a day short of the 30-day TTL qualifies, which a 10-minute
+  // credential always is, so the first authenticated request promotes it to 30 days.
+  // Caught on the live instance: a `--ttl 5m` mint came back expiring in a month.
+  test('does not extend a short-lived break-glass session on use', async () => {
+    await setPassword('hunter2', mintStore)
+    const minted = mintBreakGlassSession({ stateDir: mintDir, ttlMs: 10 * 60_000 })
+
+    const res = await guarded().request('/trpc/ping', {
+      headers: { cookie: `podium_session=${minted.token}` },
+    })
+    expect(res.status).toBe(200)
+
+    const row = mintStore.auth.listClientSessions().find((s) => s.label === BREAK_GLASS_LABEL)
+    expect(row?.expiresAt).toBe(minted.expiresAt)
+    expect(res.headers.get('set-cookie')).toBeNull()
+  })
+
+  test('the minted row carries the break-glass label so it is revocable on its own', async () => {
+    await setPassword('hunter2', mintStore)
+    const minted = mintBreakGlassSession({ stateDir: mintDir })
+    mintStore.auth.createClientSession(hashToken('a-browser-login'), FIRST_ADMIN_USER_ID, FAR_FUTURE)
+
+    expect(mintStore.auth.deleteClientSessionsByLabel(BREAK_GLASS_LABEL)).toBe(1)
+
+    expect(
+      (
+        await guarded().request('/trpc/ping', {
+          headers: { cookie: `podium_session=${minted.token}` },
+        })
+      ).status,
+    ).toBe(401)
+    expect(
+      (
+        await guarded().request('/trpc/ping', {
+          headers: { cookie: 'podium_session=a-browser-login' },
+        })
+      ).status,
+    ).toBe(200)
+  })
+})
+
+// POD-1424. The expiry check had no test CALLER. Both gates — `isRequestAuthed` (the
+// /client WS upgrade gate, server.ts) and `clientAuthGuard` (the /trpc gate) — consult
+// store.isClientSessionValid, but every pre-existing case that exercises a REFUSAL does it
+// with a row that is ABSENT: never issued ('a forged/random cookie'), or revoked (logout,
+// the break-glass label sweep). An absent row is refused by any presence test, so all of
+// those stay green if a gate's consult is weakened from validity to mere presence
+// (`getClientSession(...) !== undefined`). Expiry is the only property that separates the
+// two, which makes the expired-BUT-PRESENT row the single case a store-level test cannot
+// reach — and it is precisely the case `podium auth mint-session` depends on, since an
+// operator TTL is a promise enforced by nothing else. Each refusal below is paired with the
+// same row before its expiry, so a gate that refuses everything cannot pass either.
+describe('session expiry at the gate', () => {
+  const AT = Date.UTC(2026, 5, 1, 12, 0, 0)
+  const TOKEN = 'ttl-bound-token'
+
+  /** A row that is present in the store and expired one second before `AT`. */
+  function expiredRow(): string {
+    store.auth.createClientSession(
+      hashToken(TOKEN),
+      FIRST_ADMIN_USER_ID,
+      new Date(AT - 1_000).toISOString(),
+    )
+    return `podium_session=${TOKEN}`
+  }
+
+  test('isRequestAuthed refuses a session row that is present but expired', () => {
+    expect(isRequestAuthed(store.auth, expiredRow(), AT)).toBe(false)
+  })
+
+  test('isRequestAuthed accepts that same row one second before it expires', () => {
+    // Counterfactual for the case above: same store, same cookie, only the clock moves.
+    // Without this, a gate hard-wired to `false` would satisfy the refusal test.
+    expect(isRequestAuthed(store.auth, expiredRow(), AT - 2_000)).toBe(true)
+  })
+
+  test('isRequestAuthed refuses a token that was never issued', () => {
+    expect(isRequestAuthed(store.auth, 'podium_session=never-minted', AT)).toBe(false)
+  })
+
+  test('clientAuthGuard 401s a session row that is present but expired', async () => {
+    await setPassword('hunter2')
+    const cookie = expiredRow()
+    const app = new Hono()
+    app.use('/trpc/*', clientAuthGuard({ store: store.auth, users: store.users, now: () => AT }))
+    app.get('/trpc/ping', (c) => c.text('pong'))
+    expect((await app.request('/trpc/ping', { headers: { cookie } })).status).toBe(401)
+  })
+
+  test('clientAuthGuard serves that same row one second before it expires', async () => {
+    await setPassword('hunter2')
+    const cookie = expiredRow()
+    const app = new Hono()
+    app.use('/trpc/*', clientAuthGuard({ store: store.auth, users: store.users, now: () => AT - 2_000 }))
+    app.get('/trpc/ping', (c) => c.text('pong'))
+    expect((await app.request('/trpc/ping', { headers: { cookie } })).status).toBe(200)
   })
 })
 

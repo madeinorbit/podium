@@ -16,14 +16,32 @@ export interface BoardFilter {
   deleted?: boolean
 }
 
+/** Alphanumerics only, lowercased — so `POD-1234`, `pod 1234` and `#1234` all
+ *  collapse onto the same needle as the issue's own ref. */
+const normalizeRef = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]/g, '')
+
+/**
+ * Does the query look like an issue ref for this issue? Matched on the
+ * punctuation-free forms, so `POD-1234`, `pod1234`, `#1234` and `1234` all find
+ * `POD-1234`. Gated on the query containing a digit: a bare `pod` is a word
+ * search, not a ref, and must not pull in the whole board.
+ */
+function matchesRef(issue: IssueViewModel, needle: string): boolean {
+  if (!/\d/.test(needle)) return false
+  const ref = issue.displayRef ?? `#${issue.seq}`
+  return normalizeRef(ref).includes(needle)
+}
+
 /**
  * Filter a board's issues by an AND-composed `BoardFilter`. Every set field
  * narrows the result; an empty filter passes everything through. Text matches
- * case-insensitively over title + description; `status` is derived from the
- * wire flags (`closed = stage === 'done' || closedReason`). Pure — no mutation.
+ * case-insensitively over title + description + the issue ref (`POD-1234`);
+ * `status` is derived from the wire flags
+ * (`closed = stage === 'done' || closedReason`). Pure — no mutation.
  */
 export function filterBoardIssues(issues: IssueViewModel[], f: BoardFilter): IssueViewModel[] {
   const text = f.text?.toLowerCase()
+  const refNeedle = text ? normalizeRef(text) : ''
   return issues.filter((i) => {
     // Deleted issues have their own recovery view; their prior archived bit must
     // not make them disappear from that view.
@@ -39,7 +57,12 @@ export function filterBoardIssues(issues: IssueViewModel[], f: BoardFilter): Iss
     if (f.status === 'ready' && !i.ready) return false
     if (f.status === 'blocked' && !i.blocked) return false
     if (f.status === 'deferred' && !i.deferred) return false
-    if (text && !`${i.title} ${i.description}`.toLowerCase().includes(text)) return false
+    if (
+      text &&
+      !`${i.title} ${i.description}`.toLowerCase().includes(text) &&
+      !matchesRef(i, refNeedle)
+    )
+      return false
     return true
   })
 }

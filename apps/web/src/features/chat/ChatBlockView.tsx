@@ -1,9 +1,16 @@
-import type { TranscriptAttribution } from '@podium/client-core/viewmodels'
-import { formatChurn, isImagePath, MACHINE_CONTEXT_RE } from '@podium/client-core/viewmodels'
+import {
+  envelopePrincipal,
+  formatChurn,
+  isImagePath,
+  MACHINE_CONTEXT_RE,
+  type ParsedEnvelope,
+  parseEnvelopeBatch,
+  type TranscriptAttribution,
+} from '@podium/client-core/viewmodels'
 import type { SessionId } from '@podium/model'
 import { Clock, FileText, Image as ImageIcon, Mail as MailIcon } from 'lucide-react'
-import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
-import { memo, useMemo } from 'react'
+import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
+import { memo, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { assetUrl } from '@/lib/asset-url'
 import { handleCodeCopyClick } from '@/lib/code-copy'
 import { resolveAgainstCwd } from '@/lib/file-path'
@@ -14,7 +21,6 @@ import { AskUserQuestionCard } from './AskUserQuestionCard'
 import { AttributionMark } from './AttributionMark'
 import type { ChatBlock } from './chat'
 import { MachineContextRow } from './MachineContextRow'
-import { envelopePrincipal, type ParsedEnvelope, parseEnvelopeBatch } from './message-envelope'
 import { SendUserFileBlock, SentImageThumb } from './SendUserFileBlock'
 import { ToolBlock } from './ToolBlock'
 
@@ -150,6 +156,85 @@ function BlockClock({ ts }: { ts?: string | undefined }): JSX.Element | null {
     <span className="chat-clk">
       {String(d.getHours()).padStart(2, '0')}:{String(d.getMinutes()).padStart(2, '0')}
     </span>
+  )
+}
+
+/** scrollHeight/clientHeight are integers rounded from fractional layout, so a
+ *  message that fits perfectly still reports a couple of pixels of "overflow"
+ *  (measured: 24 vs 22 for a single 21.59px line). Anything genuinely cut off
+ *  hides at least a line, so require more than half of one before offering to
+ *  expand — otherwise short prompts sprout a Read more that reveals nothing. */
+const PROMPT_OVERFLOW_SLACK_PX = 8
+
+/** A sticky operator prompt is pinned over the very transcript it belongs to,
+ *  so a long message would blanket the whole feed (POD-1368). Cap the prompt
+ *  body at a fraction of the chat viewport (`--chat-viewport-h`, published by
+ *  the scroller; the height math lives in `.transcript-you-clamp`) and offer a
+ *  "Read more" toggle when there is anything hidden. Clamping applies in normal
+ *  flow too, so the row's height never changes as it sticks and unsticks —
+ *  that would jitter the content below it at the stick boundary.
+ *
+ *  The toggle rides in the YOU label row rather than under the text: an
+ *  expanded prompt is taller than the viewport, so a control below the message
+ *  would scroll out of reach exactly when the reader wants to collapse it
+ *  again. The label row is the one part of a stuck prompt always on screen. */
+function ClampedPromptBody({
+  label,
+  forceOpen,
+  children,
+}: {
+  label: ReactNode
+  /** The active search match — the clamp yields, because a hit the reader
+   *  cannot see is worse than a prompt that briefly takes the whole column. */
+  forceOpen: boolean
+  children: ReactNode
+}): JSX.Element {
+  const [expanded, setExpanded] = useState(false)
+  const [overflowing, setOverflowing] = useState(false)
+  const ref = useRef<HTMLDivElement | null>(null)
+  const clamped = !expanded && !forceOpen
+
+  // Measure after every render (markdown height changes with content and with
+  // column width) and whenever the clamp box or its content resizes — late
+  // image/code layout settles after paint. While expanded the clamp is off and
+  // the comparison is vacuous, so the last clamped verdict is kept: the control
+  // must not vanish out from under the reader who just used it.
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const measure = (): void => {
+      if (el.dataset.clamped !== 'true') return
+      setOverflowing(el.scrollHeight - el.clientHeight > PROMPT_OVERFLOW_SLACK_PX)
+    }
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    for (const child of Array.from(el.children)) ro.observe(child)
+    return () => ro.disconnect()
+  })
+
+  return (
+    <>
+      <div className="transcript-you-label">
+        {label}
+        {overflowing && !forceOpen && (
+          <button
+            data-pressable
+            type="button"
+            data-testid="prompt-expand-toggle"
+            className="transcript-you-more"
+            aria-expanded={expanded}
+            onClick={() => setExpanded((v) => !v)}
+          >
+            {expanded ? 'Show less' : 'Read more'}
+          </button>
+        )}
+      </div>
+      <div className="transcript-you-clamp" data-clamped={clamped ? 'true' : undefined} ref={ref}>
+        {children}
+      </div>
+    </>
   )
 }
 
@@ -364,6 +449,77 @@ export const ChatBlockView = memo(function ChatBlockView({
   const isUser = item.role === 'user'
   const isAnswer = item.role === 'assistant' && !!item.answer
 
+  const turnBody = (
+    <>
+      <div
+        className="chat-md"
+        onClick={(e) => {
+          handleChatMdClick(e, sessionId, cwd, openFile)
+        }}
+        // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized by DOMPurify above
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+      {nextSplit && <div className="chat-next">{nextSplit.next}</div>}
+      {/* Attached media (POD-178): a turn's referenced files render as real
+        inline previews — images as clickable thumbnails (→ lightbox), other
+        files (artifacts, docs) as openable chips — instead of anonymous
+        "image"/"file" tag chips. Tags without a resolvable path (older
+        transcripts) keep the labelled chip. */}
+      {((item.toolPaths?.length ?? 0) > 0 || (item.tags?.length ?? 0) > 0) && (
+        <div className="mt-1.5 flex flex-wrap items-start gap-2">
+          {(item.toolPaths ?? []).map((p) => {
+            const abs = resolveAgainstCwd(cwd, p)
+            const name = p.split('/').pop() ?? p
+            const chip = (
+              <button
+                data-pressable
+                key={p}
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  openFile(sessionId, abs)
+                }}
+                className="inline-flex cursor-pointer items-center gap-1 rounded border border-input px-[7px] py-0.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                title={`Open ${p}`}
+              >
+                <FileText size={12} aria-hidden="true" />
+                {name}
+              </button>
+            )
+            if (isImagePath(p)) {
+              const url = assetUrl({ httpOrigin, sessionId, fileDir: cwd, src: abs })
+              if (url)
+                return (
+                  <SentImageThumb
+                    key={p}
+                    url={url}
+                    name={name}
+                    onOpen={() => onOpenImage(url)}
+                    fallback={chip}
+                  />
+                )
+            }
+            return chip
+          })}
+          {(item.toolPaths?.length ?? 0) === 0 &&
+            item.tags?.map((tag, i) => (
+              <span
+                key={`${tag.kind}-${i}`}
+                className="inline-flex items-center gap-1 rounded border border-input px-[7px] py-0.5 text-[11px] text-muted-foreground"
+              >
+                {tag.kind === 'image' ? (
+                  <ImageIcon size={12} aria-hidden="true" />
+                ) : (
+                  <FileText size={12} aria-hidden="true" />
+                )}
+                {tag.label ?? tag.kind}
+              </span>
+            ))}
+        </div>
+      )}
+    </>
+  )
+
   return (
     <>
       {envelopeRows}
@@ -387,7 +543,7 @@ export const ChatBlockView = memo(function ChatBlockView({
             isAnswer && 'transcript-answer',
           )}
         >
-          {isUser && (
+          {isUser && !stickyOperator && (
             <div className="transcript-you-label">
               You
               {attribution && <AttributionMark attribution={attribution} />}
@@ -410,71 +566,24 @@ export const ChatBlockView = memo(function ChatBlockView({
               {compact && <BlockClock ts={item.ts} />}
             </div>
           )}
-          <div
-            className="chat-md"
-            onClick={(e) => {
-              handleChatMdClick(e, sessionId, cwd, openFile)
-            }}
-            // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized by DOMPurify above
-            dangerouslySetInnerHTML={{ __html: html }}
-          />
-          {nextSplit && <div className="chat-next">{nextSplit.next}</div>}
-          {/* Attached media (POD-178): a turn's referenced files render as real
-            inline previews — images as clickable thumbnails (→ lightbox), other
-            files (artifacts, docs) as openable chips — instead of anonymous
-            "image"/"file" tag chips. Tags without a resolvable path (older
-            transcripts) keep the labelled chip. */}
-          {((item.toolPaths?.length ?? 0) > 0 || (item.tags?.length ?? 0) > 0) && (
-            <div className="mt-1.5 flex flex-wrap items-start gap-2">
-              {(item.toolPaths ?? []).map((p) => {
-                const abs = resolveAgainstCwd(cwd, p)
-                const name = p.split('/').pop() ?? p
-                const chip = (
-                  <button
-                    data-pressable
-                    key={p}
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      openFile(sessionId, abs)
-                    }}
-                    className="inline-flex cursor-pointer items-center gap-1 rounded border border-input px-[7px] py-0.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
-                    title={`Open ${p}`}
-                  >
-                    <FileText size={12} aria-hidden="true" />
-                    {name}
-                  </button>
-                )
-                if (isImagePath(p)) {
-                  const url = assetUrl({ httpOrigin, sessionId, fileDir: cwd, src: abs })
-                  if (url)
-                    return (
-                      <SentImageThumb
-                        key={p}
-                        url={url}
-                        name={name}
-                        onOpen={() => onOpenImage(url)}
-                        fallback={chip}
-                      />
-                    )
-                }
-                return chip
-              })}
-              {(item.toolPaths?.length ?? 0) === 0 &&
-                item.tags?.map((tag, i) => (
-                  <span
-                    key={`${tag.kind}-${i}`}
-                    className="inline-flex items-center gap-1 rounded border border-input px-[7px] py-0.5 text-[11px] text-muted-foreground"
-                  >
-                    {tag.kind === 'image' ? (
-                      <ImageIcon size={12} aria-hidden="true" />
-                    ) : (
-                      <FileText size={12} aria-hidden="true" />
-                    )}
-                    {tag.label ?? tag.kind}
-                  </span>
-                ))}
-            </div>
+          {isUser && stickyOperator ? (
+            <ClampedPromptBody
+              forceOpen={highlighted}
+              label={
+                <>
+                  You
+                  {/* Same label content as the non-sticky YOU row above — the
+                      clamp (POD-1368) only changes WHERE the label renders, so
+                      the attribution mark (doc §3.1.3 A3) rides along. */}
+                  {attribution && <AttributionMark attribution={attribution} />}
+                  {compact && <BlockClock ts={item.ts} />}
+                </>
+              }
+            >
+              {turnBody}
+            </ClampedPromptBody>
+          ) : (
+            turnBody
           )}
         </div>
       </div>

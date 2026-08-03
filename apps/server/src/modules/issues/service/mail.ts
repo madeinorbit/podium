@@ -79,12 +79,18 @@ export class IssueCommentsMailModule {
     return message
   }
 
-  /** List an issue's mailbox, marking the returned currently-unread messages read
-   *  (read-on-list; content is never destroyed). `wasUnread` carries the pre-read
-   *  status so the caller can render the unread marker. */
+  /** List an issue's mailbox, marking the returned messages read FOR THE READING
+   *  SESSION (read-on-list; content is never destroyed). `wasUnread` carries the
+   *  pre-read status so the caller can render the unread marker.
+   *
+   *  The mailbox is per ISSUE and several agents work one issue, so the read
+   *  state is per READER [POD-1379] [spec:SP-b11e]: it records a receipt for `sessionId` and
+   *  leaves every peer's unread status intact. The shared delivery ledger still
+   *  advances (it is what stops the push/retry sweep re-injecting a message the
+   *  issue has now pulled) — it just no longer decides who gets nagged. */
   mailInbox(
     issueId: string,
-    opts?: { markRead?: boolean },
+    opts?: { markRead?: boolean; sessionId?: string },
   ): Array<IssueMessageRow & { wasUnread: boolean }> {
     const id = this.store.resolveRef(issueId)
     this.store.rowOrThrow(id)
@@ -92,24 +98,46 @@ export class IssueCommentsMailModule {
     // issue's inbox (operator, other agents — reads are scope-free) must not
     // consume unread status or it silently suppresses stop-hook/prime delivery.
     const markRead = opts?.markRead !== false
+    const reader = opts?.sessionId
     const messages = this.store.deps.store.issues.listIssueMessages(id)
     const unreadIds = markRead ? messages.filter((m) => m.status === 'unread').map((m) => m.id) : []
-    if (unreadIds.length) {
+    // Per-reader unread [POD-1379]: what THIS session has not yet been shown,
+    // whatever a peer on the same shared issue mailbox already did to the row.
+    const ids = messages.map((m) => m.id)
+    const seen = reader
+      ? this.store.deps.store.messages.readReceipts(reader, ids)
+      : new Set<string>()
+    const mine = reader
+      ? this.store.deps.store.messages.selfSentIds(reader, ids)
+      : new Set<string>()
+    const wasUnread = (m: IssueMessageRow): boolean =>
+      reader ? !seen.has(m.id) && !mine.has(m.id) : m.status === 'unread'
+    // Everything this read puts in the reader's context, minus what it already
+    // had — the receipts are what the nag counts, so they are the whole point of
+    // the write, and re-reading an inbox must stay free.
+    const newReceipts = reader ? ids.filter((mid) => !seen.has(mid)) : []
+    if (markRead && (unreadIds.length || newReceipts.length)) {
       this.store.deps.funnel.run({
         write: () => {
-          // PER-USER read markers (POD-1076): `status` is the mail's shared
-          // delivery state, `read_at` is a fact about THIS reader.
-          this.store.deps.store.issues.markIssueMessagesRead(
-            this.store.broadcastViewer(),
-            id,
-            unreadIds,
-            this.store.now(),
-          )
-          // Unified substrate mirror (#237) [spec:SP-34d7]: the rows share ids —
-          // a recipient read consumes the queued status on BOTH tables, so the
-          // stop-hook/prime pending count (new source) stops nagging too.
-          for (const mid of unreadIds)
-            this.store.deps.store.messages.markDelivered(mid, null, this.store.now())
+          const at = this.store.now()
+          if (unreadIds.length) {
+            // PER-USER read markers (POD-1076): `status` is the mail's shared
+            // delivery state, `read_at` is a fact about THIS reader.
+            this.store.deps.store.issues.markIssueMessagesRead(
+              this.store.broadcastViewer(),
+              id,
+              unreadIds,
+              at,
+            )
+            // Unified substrate mirror (#237) [spec:SP-34d7]: the rows share ids —
+            // the pull advances the shared delivery ledger on BOTH tables so the
+            // sweep stops pushing what the issue has now read.
+            for (const mid of unreadIds)
+              this.store.deps.store.messages.markDelivered(mid, null, at)
+          }
+          if (reader)
+            for (const mid of newReceipts)
+              this.store.deps.store.messages.recordRead(mid, reader, at)
         },
       })
     }
@@ -118,12 +146,20 @@ export class IssueCommentsMailModule {
       ...(markRead && m.status === 'unread'
         ? { status: 'read' as const, readAt: this.store.now() }
         : {}),
-      wasUnread: m.status === 'unread',
+      wasUnread: wasUnread(m),
     }))
   }
 
-  /** Atomic claim (single guarded UPDATE): `claimed` is false when someone else won. */
-  mailClaim(messageId: string, claimedBy: string): { claimed: boolean; message: IssueMessageRow } {
+  /** Atomic claim (single guarded UPDATE): `claimed` is false when someone else won.
+   *  Claim stays what it always was — the OPT-IN "I will act on this" signal, one
+   *  winner. Delivery never depends on it [spec:SP-b11e]: an unclaimed message still
+   *  reaches every session on the issue exactly once. Claiming does prove the
+   *  claimer has the message, so it records that reader's receipt [POD-1379]. */
+  mailClaim(
+    messageId: string,
+    claimedBy: string,
+    opts?: { sessionId?: string },
+  ): { claimed: boolean; message: IssueMessageRow } {
     const claimed = this.store.deps.funnel.run({
       write: () => {
         const won = this.store.deps.store.issues.claimIssueMessage(
@@ -133,6 +169,9 @@ export class IssueCommentsMailModule {
         )
         // Keep the unified-substrate mirror row in step (#237) [spec:SP-34d7].
         if (won) this.store.deps.store.messages.markDelivered(messageId, null, this.store.now())
+        if (opts?.sessionId) {
+          this.store.deps.store.messages.recordRead(messageId, opts.sessionId, this.store.now())
+        }
         return won
       },
     })
@@ -152,13 +191,21 @@ export class IssueCommentsMailModule {
    *  rows only: a dual-written twin that has left `queued` must not resurrect
    *  the nag when the mirror lags. `senders` lets the stop-hook render the
    *  coalesced pointer ("N messages from X, Y"). */
-  mailPending(issueId: string): { unread: number; senders: string[] } {
+  mailPending(
+    issueId: string,
+    opts?: { sessionId?: string },
+  ): { unread: number; senders: string[] } {
     const id = this.store.resolveRef(issueId)
     this.store.rowOrThrow(id)
-    return countContextAwarePendingMail(this.store.deps.store, id, (fromIssue) => {
-      const issue = this.reports().get(fromIssue)
-      return issue ? `issue:#${issue.seq}` : fromIssue
-    })
+    return countContextAwarePendingMail(
+      this.store.deps.store,
+      id,
+      (fromIssue) => {
+        const issue = this.reports().get(fromIssue)
+        return issue ? `issue:#${issue.seq}` : fromIssue
+      },
+      opts?.sessionId,
+    )
   }
 
   /** The issue a mail message belongs to (router scope enforcement for mailClaim). */

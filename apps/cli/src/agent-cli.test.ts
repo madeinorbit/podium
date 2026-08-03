@@ -34,10 +34,43 @@ function client(over?: Partial<Record<'spawnAgent' | 'awaitAgent', unknown>>) {
         },
       ),
     },
+    sessions: {
+      status: {
+        query: vi.fn(async () => ({
+          sessionId: 'child1',
+          agentKind: 'codex',
+          harness: 'codex',
+          status: 'live',
+          phase: 'working',
+          machine: 'buildbox',
+          model: 'gpt-5.7',
+          effort: 'high',
+          contextUsagePercent: 31.4,
+          account: 'openai:team',
+          error: null,
+          draft: false,
+          nativeSubagentCount: 0,
+          nativeSubagents: [],
+          subagents: [],
+          issue: null,
+          commits: [],
+          files: [],
+          unackedMessages: 0,
+        })),
+      },
+    },
   } satisfies AgentClient
 }
 
 describe('podium agent spawn', () => {
+  it('status reports the observed runtime and context level', async () => {
+    const c = client()
+    const out = await runAgentCli(['status', 'child1'], c)
+    expect(c.sessions.status.query).toHaveBeenCalledWith({ ref: 'child1' })
+    expect(out).toContain('runtime: harness=codex model=gpt-5.7 effort=high context=31.4%')
+    expect(out).toContain('placement: machine=buildbox account=openai:team')
+  })
+
   it('requires --prompt and one of --issue/--new', async () => {
     const c = client()
     await expect(runAgentCli(['spawn', '--issue', '#228'], c)).rejects.toThrow(/--prompt/)
@@ -214,17 +247,20 @@ const hasBun = (() => {
   }
 })()
 
-describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !hasBun)('podium agent real-binary smoke', () => {
-  it('renders help without a server', () => {
-    const out = execFileSync('bun', [cliEntry, 'agent', '--help'], { encoding: 'utf8' })
-    expect(out).toContain('podium agent <command>')
-    expect(out).toContain('spawn --prompt')
-    expect(out).toContain('await <sessionId>')
-  })
+describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !hasBun)(
+  'podium agent real-binary smoke',
+  () => {
+    it('renders help without a server', () => {
+      const out = execFileSync('bun', [cliEntry, 'agent', '--help'], { encoding: 'utf8' })
+      expect(out).toContain('podium agent <command>')
+      expect(out).toContain('spawn --prompt')
+      expect(out).toContain('await <sessionId>')
+    })
 
-  it('fails fast on an unknown agent command', () => {
-    expect(() =>
-      execFileSync('bun', [cliEntry, 'agent', 'bogus'], { encoding: 'utf8', stdio: 'pipe' }),
-    ).toThrow()
-  })
-})
+    it('fails fast on an unknown agent command', () => {
+      expect(() =>
+        execFileSync('bun', [cliEntry, 'agent', 'bogus'], { encoding: 'utf8', stdio: 'pipe' }),
+      ).toThrow()
+    })
+  },
+)

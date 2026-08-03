@@ -270,6 +270,9 @@ export const DAEMON_PLANE_CLASS = {
   agentObserverLiveConfirmation: 'stream.live',
   agentObservationRebind: 'control.command',
   agentColor: 'stream.live',
+  // Harness-reported context-window usage (POD-1262): a runtime observation on the
+  // same stream as agentState/agentModel, not a durable fact about the session.
+  agentContext: 'stream.live',
   agentModel: 'stream.live',
   scanResult: 'control.command',
   conversationsChanged: 'control.entity',

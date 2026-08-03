@@ -103,14 +103,15 @@ export const RepoOp = z.enum([
   'log',
   'branches',
   'revParseVerify',
-  // OBJECT TRANSFER BETWEEN MACHINES (POD-1405), the object half of what handoff
+  // OBJECT TRANSFER BETWEEN MACHINES (POD-1405 / POD-1424), the object half of what handoff
   // does with a whole session package. A second machine cannot start work on a
   // branch whose base is on NO shared remote — our integration branches never
   // reach origin — so the commits have to move directly. `bundleCreate` writes a
   // delta bundle into the daemon's own handoff stage; `bundleFetch` reads one
   // that arrived there and fetches it into the target repository. Neither takes a
   // filesystem path from the caller: both derive it from an opaque token, so the
-  // server names a TRANSFER, never a location on someone else's disk.
+  // server names a TRANSFER, never a location on someone else's disk — a server able
+  // to name paths on another machine's disk is a traversal surface no validation closes.
   'bundleCreate',
   'bundleFetch',
   'worktreeAdd',

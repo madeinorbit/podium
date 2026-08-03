@@ -304,6 +304,15 @@ export async function startServer(
   const repoDiscovery = new MachineRepoDiscovery({
     listRepos: () => store.repos.listRepos(),
     addRepo: (path, machineId, originUrl) => store.repos.addRepo(path, machineId, originUrl),
+    removeRepo: (path, machineId) => store.repos.removeRepo(path, machineId),
+    // Liveness probed on the MACHINE (POD-1498), never inferred from scan coverage:
+    // browseDirs answers from that daemon's own filesystem, and a directory that is
+    // gone comes back without a listing. Any failure to answer is treated as "cannot
+    // tell" by the caller, which then declines to heal.
+    pathExists: async (path, machineId) => {
+      const res = await registry.modules.rpc.browseDirs(path, {}, machineId)
+      return Boolean(res.listing)
+    },
     scanRepos: (roots, opts, machineId) => registry.modules.rpc.scanRepos(roots, opts, machineId),
     machineName: (id) => registry.modules.machines.machineName(id),
     localMachineId: hostMachineId,

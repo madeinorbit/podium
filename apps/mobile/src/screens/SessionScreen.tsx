@@ -9,7 +9,7 @@ import {
 } from '@podium/client-core/viewmodels'
 import type { TranscriptItem, WorkState } from '@podium/model'
 import { asSessionId, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/model'
-import { useLocalSearchParams, useRouter } from 'expo-router'
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
 import { MoreVertical } from 'lucide-react-native'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
@@ -31,6 +31,7 @@ import { TaskPeekSheet } from '../components/TaskPeekSheet'
 import { type PendingTurn, TranscriptList } from '../components/TranscriptList'
 import { TrayCard, type TrayCardActions } from '../components/TrayCard'
 import { EmptyState } from '../components/ui'
+import { hasSessionBackTarget, sessionBackTarget, sessionHref } from '../lib/session-route'
 import { TerminalPane } from '../terminal/TerminalPane'
 import { FLOW_SLATE, issueColorHex } from '../theme/issueColors'
 import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
@@ -48,9 +49,14 @@ const WORK_STATES: (WorkState | null)[] = [
 export function SessionScreen() {
   // Route params are RAW URL values, so the type stays `string` and the brand is
   // applied once here — the DECODE EDGE for this screen (POD-362).
-  const params = useLocalSearchParams<{ sessionId: string | string[] }>()
+  const params = useLocalSearchParams<{
+    sessionId: string | string[]
+    backTo?: string | string[]
+  }>()
   const rawSessionId = Array.isArray(params.sessionId) ? params.sessionId[0] : params.sessionId
   const sessionId = rawSessionId ? asSessionId(rawSessionId) : undefined
+  const backTarget = sessionBackTarget(params.backTo)
+  const hasBackTarget = hasSessionBackTarget(params.backTo)
   const router = useRouter()
   const store = useMobileStore()
   const hub = useHub()
@@ -68,6 +74,23 @@ export function SessionScreen() {
   const [workMenuOpen, setWorkMenuOpen] = useState(false)
   // Chat is the default view; 'native' flips to the real PTY in place [POD-131].
   const [view, setView] = useState<'chat' | 'native'>('chat')
+  // Expo Router keeps covered screens mounted. Feed that visibility into the
+  // same active/inactive contract as the desktop panel deck so a covered PTY
+  // cannot resize the session and returning to it runs reveal recovery.
+  const [screenFocused, setScreenFocused] = useState(true)
+  useFocusEffect(
+    useCallback(() => {
+      setScreenFocused(true)
+      return () => setScreenFocused(false)
+    }, []),
+  )
+  const goBack = useCallback(() => {
+    if (hasBackTarget) {
+      router.dismissTo(backTarget)
+      return
+    }
+    router.replace('/work')
+  }, [backTarget, hasBackTarget, router])
   const [peekIssue, setPeekIssue] = useState<import('@podium/model').IssueWire | null>(null)
   const trpc = store.trpc
   // Scroll-back paging state. Refs, not state: paging must not retrigger the
@@ -158,11 +181,12 @@ export function SessionScreen() {
     if (focusSessionIds.length === 0) return
     const at = focusSessionIds.indexOf(sessionId)
     const next = focusSessionIds[(at + 1) % focusSessionIds.length]
-    if (next && next !== sessionId) router.replace(`/session/${next}`)
-  }, [focusSessionIds, router, sessionId])
+    if (next && next !== sessionId) router.replace(sessionHref(next, backTarget))
+  }, [backTarget, focusSessionIds, router, sessionId])
 
   const title = session ? sessionTitle(session) : 'Session'
   const issue = useIssue(session?.issueId)
+  const terminalActive = screenFocused && view === 'native'
   // The issue colour flows through the chrome; slate when the issue is uncoloured.
   const accent = issue ? (issueColorHex(issue.color) ?? FLOW_SLATE) : undefined
 
@@ -233,7 +257,7 @@ export function SessionScreen() {
       store.replica.exitKind?.('session', id),
     )
     return (
-      <Screen title="Session" onBack={() => router.back()}>
+      <Screen title="Session" onBack={goBack}>
         <EmptyState title={absence.title} body={absence.body} />
       </Screen>
     )
@@ -247,7 +271,7 @@ export function SessionScreen() {
           ? `${panelLabel(session.agentKind)} · ${agentBadge(session)?.label ?? session.status}${session.queuedMessageCount ? ` · ${session.queuedMessageCount} queued` : ''}`
           : undefined
       }
-      onBack={() => router.back()}
+      onBack={goBack}
       backLabel="Back"
       accent={accent}
       leading={
@@ -314,16 +338,22 @@ export function SessionScreen() {
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        {view === 'native' ? (
-          <View style={styles.terminalWrap}>
-            <TerminalPane sessionId={sessionId} />
+        {Platform.OS === 'web' ? (
+          <View style={[styles.terminalWrap, view !== 'native' && styles.hidden]}>
+            <TerminalPane sessionId={sessionId} active={terminalActive} />
           </View>
-        ) : loaded && items.length === 0 && pendingTurns.length === 0 ? (
+        ) : null}
+        {view === 'chat' && loaded && items.length === 0 && pendingTurns.length === 0 ? (
           <EmptyState fill title="No transcript yet" body="Send a message to get things moving." />
-        ) : (
+        ) : view === 'chat' ? (
           <TranscriptList
             items={items}
             live={session?.status === 'live'}
+            assetContext={{
+              httpOrigin: store.httpOrigin,
+              sessionId,
+              cwd: session.cwd,
+            }}
             pendingTurns={pendingTurns}
             onAnswer={async (choices) => {
               await trpc.sessions.answerAskUserQuestion.mutate({ sessionId, choices })
@@ -335,7 +365,7 @@ export function SessionScreen() {
               if (target) setPeekIssue(target)
             }}
           />
-        )}
+        ) : null}
         {(() => {
           const activity = chatActivity(session, false)
           if (!activity) return null
@@ -460,6 +490,9 @@ const styles = StyleSheet.create({
     minHeight: 0,
     overflow: 'hidden',
     backgroundColor: color.bgSunken,
+  },
+  hidden: {
+    display: 'none',
   },
   offerWrap: {
     paddingHorizontal: space.sm + 2,

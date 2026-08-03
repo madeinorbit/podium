@@ -6,7 +6,7 @@ import { createDaemonHostRuntime } from './host-runtime'
 import { bootstrapDaemonInstance } from './instance-bootstrap'
 
 export type { DurableBackend } from './control/context'
-export { agentRelayEnv } from './control/session'
+export { sessionRelayEnv } from './control/session'
 export { normalizeAgentKind } from './control/transcripts'
 export type {
   DaemonDiscoveryOptions,
@@ -19,7 +19,7 @@ export {
   noDurableBackendWarning,
   resolveDurableBackend,
 } from './durable-backend'
-export { controlFrameByteLength } from './frame-guards'
+export { controlFrameByteLength, payloadRejectionReply } from './frame-guards'
 export { createLimiter, createReattachGates } from './reattach-gates'
 
 export interface DaemonHandle {

@@ -19,16 +19,34 @@ export function countContextAwarePendingMail(
   store: Pick<SessionStore, 'messages' | 'issues'>,
   issueId: string,
   formatFromIssue: (fromIssue: string) => string = (id) => id,
+  /** The READING session [POD-1379]. Given one, the count is per-reader: it
+   *  never includes that session's own sends, never counts what it has already
+   *  seen, and — the data-loss half — a peer's read cannot clear it. Absent
+   *  (operator / UI peek), the issue-wide queued predicate stands. */
+  sessionId?: string,
 ): { unread: number; senders: string[] } {
   const target = { kind: 'issue' as const, id: issueId }
-  const queuedSenders = store.messages.listPendingSenders(target)
-  const queuedCount = store.messages.countPending(target)
+  const queuedSenders = sessionId
+    ? store.messages.listPendingSendersForSession(issueId, sessionId)
+    : store.messages.listPendingSenders(target)
+  const queuedCount = sessionId
+    ? store.messages.countPendingForSession(issueId, sessionId)
+    : store.messages.countPending(target)
   // Legacy fallback covers pre-substrate writers only. Shared ids: if a twin
   // exists on the substrate, trust that ledger (even when status is still
   // queued — those are already in `queuedCount` above).
-  const pureLegacy = store.issues
+  const legacyUnread = store.issues
     .listIssueMessages(issueId, { status: 'unread' })
     .filter((m) => !store.messages.getMessage(m.id))
+  // A pre-substrate row carries no sender session, so self-nag cannot be
+  // decided for it; the reader's own receipt still retires it.
+  const seen = sessionId
+    ? store.messages.readReceipts(
+        sessionId,
+        legacyUnread.map((m) => m.id),
+      )
+    : new Set<string>()
+  const pureLegacy = legacyUnread.filter((m) => !seen.has(m.id))
   const senders = [
     ...new Set(
       queuedSenders.map((m) => {

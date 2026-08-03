@@ -193,30 +193,31 @@ export interface IssueDeps {
    *  existing test deps literals stay valid. */
   requireMachineForRepo?(machineId: string, repoPath: string): void
   /**
-   * The SAME repository, as THAT machine has it — cloning it there if it has none
-   * (POD-1386). Returns the target's own checkout path, which is almost never the
+   * Prepare a machine-pinned start (POD-1424): put the right REPOSITORY on the target
+   * (resolved by repo IDENTITY, cloned on absence — POD-1386) and the right COMMITS in
+   * it (bundled directly, because a local-only base is on no shared remote — POD-1405).
+   * Returns the path the repository actually has on THAT machine, which is not the
    * source's: two machines have two layouts.
    *
-   * Resolution is by `repoId`, the origin-derived identity POD-318 shipped, never
-   * by path equality. `requireMachineForRepo` compares the SOURCE path literally
-   * against the target's registered paths, so before this existed a machine pin
-   * refused on every correctly-configured second machine — the repo was there, it
-   * simply lived somewhere else. Injected by the relay from `SessionWorkspace`,
-   * which is where handoff already does this; optional so existing test deps
-   * literals stay valid.
-   */
-  ensureRepoOnMachine?(machineId: string, sourceRepoPath: string): Promise<string>
-  /**
-   * Make `ref` resolvable on that machine, moving the commits if it cannot reach
-   * them any other way (POD-1405).
+   * The returned `startPoint` is what the target can ACTUALLY resolve — the branch name
+   * when it was already there, a commit id when the objects had to be shipped, since a
+   * bundle lands as objects and not as a ref.
    *
-   * `ensureRepoOnMachine` puts the right REPOSITORY on the target; this puts the
-   * right COMMITS in it. Both are needed because `worktree add <path> <startPoint>`
-   * fails on a start point the target cannot resolve, and our integration branches
-   * are on NO shared remote — so a clone plus fetch cannot produce them and the
-   * objects have to move machine-to-machine.
+   * Optional so existing test deps literals stay valid; absent = same-machine behaviour.
    */
-  ensureRefOnMachine?(machineId: string, repoPath: string, ref: string): Promise<void>
+  prepareMachineStart?(input: {
+    repoPath: string
+    machineId: string
+    startPoint?: string
+  }): Promise<{ repoPath: string; startPoint?: string }>
+  /**
+   * Where this repository ALREADY is on `machineId`, by identity, or null (POD-1571).
+   *
+   * The paths that run AFTER a start — add-session and worktree recreate — must not
+   * clone anything, so they get the lookup-only resolver and keep requireMachineForRepo
+   * as the refusal. Optional so existing test deps literals stay valid.
+   */
+  findRepoOnMachine?(repoPath: string, machineId: string): string | null
   /** THE write funnel (modules/funnel): every mutation's store write + fan-out
    *  runs through it, so "durable before fan-out" holds by construction. */
   funnel: IssueFunnel

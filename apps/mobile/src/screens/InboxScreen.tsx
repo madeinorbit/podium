@@ -16,6 +16,7 @@ import { SessionCard } from '../components/SessionCard'
 import { CountPill } from '../components/StatusGlyphs'
 import { EmptyState } from '../components/ui'
 import { usePendingQuestion } from '../hooks/usePendingQuestion'
+import { sessionHref } from '../lib/session-route'
 import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
 
 /**
@@ -46,7 +47,7 @@ function NeedsYouCard({
       model={model}
       issue={issue}
       agentColor={session.agentColor}
-      onPress={() => router.push(`/session/${session.sessionId}`)}
+      onPress={() => router.push(sessionHref(session.sessionId, '/'))}
     >
       {pending ? (
         <View style={styles.inlineQuestion}>
@@ -154,7 +155,7 @@ export function InboxScreen() {
               model={sessionCardModel(session, issueFor(session), now)}
               issue={issueFor(session)}
               agentColor={session.agentColor}
-              onPress={() => router.push(`/session/${session.sessionId}`)}
+              onPress={() => router.push(sessionHref(session.sessionId, '/'))}
             />
           )
         }

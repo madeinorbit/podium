@@ -28,6 +28,17 @@ const okBody = {
   },
 }
 
+const weeklyBody = {
+  config: {
+    creditUsagePercent: 42.5,
+    currentPeriod: {
+      type: 'USAGE_PERIOD_TYPE_WEEKLY',
+      start: '2026-07-20T00:00:00+00:00',
+      end: '2026-07-27T00:00:00+00:00',
+    },
+  },
+}
+
 function homeWithAuth(auth: unknown): string {
   const home = trackTmp('podium-gq-')
   mkdirSync(join(home, '.grok'), { recursive: true })
@@ -56,6 +67,34 @@ describe('parseGrokBilling', () => {
     })
     // July has 31 days → 31 * 24 * 60 = 44640 minutes
     expect(w[0]?.windowMinutes).toBe(44_640)
+  })
+
+  it('maps the credits response weekly pool to a second window', () => {
+    const w = parseGrokBilling({
+      config: {
+        ...okBody.config,
+        ...weeklyBody.config,
+      },
+    })
+    expect(w.map((window) => window.key)).toEqual(['monthly', 'weekly'])
+    expect(w[1]).toMatchObject({
+      key: 'weekly',
+      label: 'Weekly',
+      usedPercent: 42.5,
+      resetsAt: '2026-07-27T00:00:00+00:00',
+      windowMinutes: 10_080,
+    })
+  })
+
+  it('ignores a non-weekly current period for the weekly window', () => {
+    expect(
+      parseGrokBilling({
+        config: {
+          creditUsagePercent: 42,
+          currentPeriod: { type: 'USAGE_PERIOD_TYPE_MONTHLY' },
+        },
+      }),
+    ).toEqual([])
   })
 
   it('returns empty when config or limit is missing', () => {
@@ -103,15 +142,22 @@ describe('fetchGrokQuota', () => {
 
   it('returns ok windows + email on 200', async () => {
     const home = homeWithAuth(sampleAuth)
+    const fetchImpl = (async (input: string | URL) => {
+      const url = String(input)
+      return new Response(
+        JSON.stringify(url.includes('?format=credits') ? weeklyBody : okBody),
+        { status: 200 },
+      )
+    }) as typeof fetch
     const r = await fetchGrokQuota({
       homeDir: home,
       now,
-      fetchImpl: (async () =>
-        new Response(JSON.stringify(okBody), { status: 200 })) as typeof fetch,
+      fetchImpl,
     })
     expect(r.status).toBe('ok')
-    expect(r.windows.map((w) => w.key)).toEqual(['monthly'])
+    expect(r.windows.map((w) => w.key)).toEqual(['monthly', 'weekly'])
     expect(r.windows[0]?.usedPercent).toBe(3.2)
+    expect(r.windows[1]?.usedPercent).toBe(42.5)
     expect(r.account?.email).toBe('me@example.com')
   })
 

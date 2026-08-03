@@ -36,6 +36,7 @@ import { BrailleSpinner, CountPill } from '../components/StatusGlyphs'
 import { TaskPeekSheet } from '../components/TaskPeekSheet'
 import { EmptyState, StatusDot } from '../components/ui'
 import { useCollapsed } from '../hooks/useCollapsed'
+import { sessionHref } from '../lib/session-route'
 import { FLOW_SLATE, flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
 import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
@@ -201,7 +202,7 @@ export function WorkScreen() {
       allWorktreePaths={allWorktreePaths}
       now={now}
       onOpenIssue={openIssue}
-      onOpenSession={(sessionId) => router.push(`/session/${sessionId}`)}
+      onOpenSession={(sessionId) => router.push(sessionHref(sessionId, '/work'))}
       onLongPress={(issue) => setMenuIssue(issue)}
       onTuck={
         row.kind === 'issue' && rowAwaitsTuck(row, null, false, now)

@@ -13,6 +13,7 @@ import { Icon } from '../components/Icon'
 import { HeaderButton, Screen } from '../components/Screen'
 import { SessionCard } from '../components/SessionCard'
 import { EmptyState, Pill, SectionHeader } from '../components/ui'
+import { sessionHref } from '../lib/session-route'
 import { color, font, radius, sans, space } from '../theme/theme'
 
 export function IssueScreen() {
@@ -78,7 +79,7 @@ export function IssueScreen() {
   const addAgent = () => {
     const cwd = issue.worktreePath ?? issue.repoPath
     router.push(
-      `/new-session?issueId=${encodeURIComponent(issue.id)}&cwd=${encodeURIComponent(cwd)}`,
+      `/new-session?issueId=${encodeURIComponent(issue.id)}&cwd=${encodeURIComponent(cwd)}&backTo=${encodeURIComponent(`/issue/${encodeURIComponent(issue.id)}`)}`,
     )
   }
 
@@ -152,7 +153,11 @@ export function IssueScreen() {
             <SessionCard
               key={session.sessionId}
               model={sessionCardModel(session, undefined, now)}
-              onPress={() => router.push(`/session/${session.sessionId}`)}
+              onPress={() =>
+                router.push(
+                  sessionHref(session.sessionId, `/issue/${encodeURIComponent(issue.id)}`),
+                )
+              }
             />
           ))
         )}

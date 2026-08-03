@@ -5,10 +5,10 @@ import { homedir, hostname, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 import { harnessMcpConfigTransport, resolveCursorBin, resolveOpencodeBin } from '@podium/harness'
-import type { ControlMessage } from '@podium/protocol'
 import type { UsageBucketWire } from '@podium/model'
-import { buildHarnessExec } from '../harness-exec.js'
+import type { ControlMessage } from '@podium/protocol'
 import { bundleStagePath } from '../handoff-package'
+import { buildHarnessExec } from '../harness-exec.js'
 import { repoOpCommand } from '../repo-op'
 import { scanClaudeUsage } from '../usage-scan'
 import type { ControlHandlers, DaemonContext } from './context'
@@ -32,7 +32,12 @@ async function runRepoOp(
   const args = { ...(msg.args ?? {}) }
   if (msg.op === 'bundleCreate' || msg.op === 'bundleFetch') {
     if (!args.token) {
-      ctx.send({ type: 'repoOpResult', requestId: msg.requestId, ok: false, output: 'missing args' })
+      ctx.send({
+        type: 'repoOpResult',
+        requestId: msg.requestId,
+        ok: false,
+        output: 'missing args',
+      })
       return
     }
     const staged = bundleStagePath(ctx.homeDir ?? homedir(), args.token)

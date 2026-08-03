@@ -444,6 +444,80 @@ the authority-assigned per-entity monotonic `revision`. Not `expectedUpdatedAt`
    render. The replica **must not** drop the entry because the feed healed or
    the epoch bumped (ADR 2 D7 corollary).
 
+### D14 — Host-local agent scope is accident prevention, not adversarial security (POD-1402)
+
+**Decision: ACCEPT.** On a single-operator host, agent/operator scoping is an
+ergonomic and accident-prevention boundary. It is **not** a security boundary
+against a process that already runs as the operator's OS user with read/write
+access to the instance state dir.
+
+**What was observed (POD-1402).** A constrained agent session — refused
+operator-only commands over the agent relay — can still:
+
+```text
+podium auth mint-session --ttl 2m --print-only
+PODIUM_SESSION_TOKEN=$TOKEN env -u PODIUM_AGENT_RELAY podium issue promote …
+```
+
+and arrive at the Authority as the operator. The scope gate in issue authz is
+bypassed, not defeated: the caller simply presents a different principal.
+
+**Why this is not a new hole.** `podium auth mint-session` (POD-1376) mints a
+`client_sessions` row from **write access to `$PODIUM_STATE_DIR/podium.db`**.
+That access already lets a process forge the same row by hand (the pre-POD-1376
+break-glass documented in `docs/agents/driving-podium.md`), read transcripts,
+and touch every stored secret in the database. Minting lowers effort and
+discoverability (one documented verb in `podium help`); it does not enlarge the
+set of processes that could already act as the operator.
+
+**What the agent/operator split *is* for:**
+
+| Purpose | Holds? |
+|---|---|
+| Default-path accident prevention (delegate does not promote / reparent by typing the usual command) | Yes — relay-scoped CLI refuses operator-only ops |
+| Honest product ergonomics (shell = operator, harness = constrained; POD-1375) | Yes — identity comes from how the session is wired, not from "being careful" |
+| Containing an *adversarial* agent that shares the operator's OS user and state dir | **No** — and must not be sold as such |
+
+**Rejected alternative: ENFORCE on mint-session.** Options considered and
+rejected for single-operator Podium:
+
+| Option | Why rejected |
+|---|---|
+| Refuse when `PODIUM_AGENT_RELAY` / `PODIUM_SESSION_RELAY` is set | Cheap for the accidental case; useless against intent — the agent can `env -u` the variable (exactly the POD-1402 repro). Also contradicts POD-1375's premise that an env var must not be what decides who you are: the same variable is equally non-load-bearing as a *denial* of mint. |
+| Require the instance password | Real against a process that only has the scrypt hash in `auth.json`, but the same process can still INSERT a `client_sessions` row if it can write the DB — which is the mint's actual trust root. Raises effort again without a new boundary. Breaks the documented agent browser-driving path. |
+| Interactive TTY confirm | Same class as env refuse: blocks casual misuse, not a capable agent; breaks non-interactive operator scripts. |
+
+**Normative consequences:**
+
+1. **Document the trust root where mint is described** — CLI help, runtime
+   mint module, and agent-driving docs must state that local state-dir write
+   access ≡ operator ownership today, and that agent scope does not survive a
+   deliberate mint + direct `/trpc` call.
+2. **Do not design features that assume an adversarial co-resident agent is
+   contained** by relay scope, `issue-authz` subtree gates, or "agents cannot
+   mint." Those gates are for the default path and for honest mistakes.
+3. **Multi-user / multi-tenant (POD-1067 and successors) must reopen this.**
+   When "can write the state dir" stops meaning "is the sole owner," mint must
+   bind to an identity stronger than file mode (password step-up, OS keyring,
+   per-user DB, process isolation, etc.). That redesign is **out of scope**
+   for single-operator Podium and is a hard prerequisite of multi-user, not an
+   optional hardening of mint-session.
+4. **D7 still holds on the wire.** Once a call reaches a transport, principal
+   comes only from that transport's credential. The host-local mint is how a
+   co-resident process *obtains* an operator cookie; it does not let a remote
+   peer forge one without the cookie or state-dir access.
+
+**Binding code / docs (characterization at decision time):**
+
+- Trust argument + **instrument** `HOST_LOCAL_MINT_TRUST`:
+  `packages/runtime/src/session-mint.ts` (multi-user must flip
+  `assumesSingleOperator` / `mintBoundToIdentity` together)
+- Tripwire tests: `packages/runtime/src/session-mint.test.ts` (coherence +
+  `client_sessions` column pin reading `apps/server` schema)
+- Verb: `apps/cli/src/auth-cli.ts` (`podium auth mint-session`)
+- Agent use of the same path: `docs/agents/driving-podium.md` (auth section)
+- Decision record: `docs/decisions/1402-host-local-mint-trust.md`
+
 ---
 
 ## Security properties (normative checklist)
@@ -459,6 +533,10 @@ the authority-assigned per-entity monotonic `revision`. Not `expectedUpdatedAt`
    ([spec:SP-15aa]).
 8. **Agent channel ≠ host control channel** — relay exposure is not a back door
    for host frames (ADR 7).
+9. **Host-local agent scope is not adversarial containment** — co-resident
+   processes that can write the instance state dir can mint operator credentials
+   (D14 / POD-1402); do not build on a stronger model until multi-user isolation
+   lands.
 
 ---
 
@@ -521,6 +599,8 @@ No POD-359 drift item overturns findings 7–8; they remain the core of this ADR
   horizon (double-apply / double-type).
 - Phase 3 can audit "no hand-written mutations" and "every contract has
   policy + exposure + delivery + redaction".
+- Host-local trust is stated (D14): agent scope is accident prevention; builders
+  are not invited to treat co-resident agents as adversarially contained.
 
 **Negative / cost**
 
@@ -531,6 +611,8 @@ No POD-359 drift item overturns findings 7–8; they remain the core of this ADR
 - 14-day offline ceiling is stricter than "queue forever"; users offline
   longer must re-author (acceptable for local-topology product; amend D10–D11
   if multi-month offline becomes a goal).
+- D14 means product and multi-user work must not rely on relay scope alone for
+  isolation; real containment waits on process/identity boundaries (POD-1067+).
 
 **Neutral couplings**
 
@@ -564,10 +646,14 @@ descriptions when reconciled by POD-359.
 
 - POD-359 item 3; POD-749; POD-279 disposition findings 1, 7, 8
 - POD-311, POD-315, POD-316, POD-306, POD-351, POD-352, POD-372
+- POD-1375 (operator shell must not be agent-scoped); POD-1376 (host-local mint);
+  POD-1402 (D14 — agent can mint; accept as accident prevention)
 - `docs/rearchitecture-v3.md` §1 move 3 (command contracts)
 - `docs/spec/outbox-write-path.md`
+- `docs/agents/driving-podium.md` (agent mint path)
 - `packages/protocol/src/commands.ts`, `messages/mutations.ts`, `messages/message-class.ts`
 - `packages/domain/src/issue-authz.ts`
+- `packages/runtime/src/session-mint.ts`, `apps/cli/src/auth-cli.ts`
 - `packages/client-core/src/outbox.ts`
 - `apps/server/src/modules/sessions/service.ts` (`APPLIED_MUTATIONS_MAX_AGE_MS`)
 - Specs: [spec:SP-3fe2], [spec:SP-b85a], [spec:SP-edbb], [spec:SP-15aa],

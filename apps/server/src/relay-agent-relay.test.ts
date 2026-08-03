@@ -4,6 +4,7 @@ import type { ControlMessage } from '@podium/protocol'
 import { sessionTitleRule } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
+import { SessionStore } from './store'
 
 /**
  * The nudge's own opening sentence, taken from the source of truth rather than
@@ -35,12 +36,32 @@ describe('server agent relay handler (P1b)', () => {
   const machineId = 'm1'
   const repoPath = '/r'
   let registry: SessionRegistry
+  let store: SessionStore
   let A: { id: string; title: string }
   let B: { id: string }
   let sA: string
 
   beforeEach(() => {
-    registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    // Two machines with a checkout each, seeded through an injected store. Without
+    // this the default fixture has a daemon SOCKET but no machines ROW, so a fleet
+    // read comes back empty — and an empty array satisfies every per-row assertion
+    // below without executing one of them. This seeding is what lets those fail.
+    store = new SessionStore(':memory:')
+    store.machines.upsertMachine({
+      id: machineId,
+      name: 'ludovico',
+      hostname: 'ludovico.local',
+      tokenHash: 'hash-1',
+    })
+    store.machines.upsertMachine({
+      id: 'm2',
+      name: 'quiet-box',
+      hostname: 'quiet-box.example.net',
+      tokenHash: 'hash-2',
+    })
+    store.repos.addRepo('/home/a/src/podium', machineId)
+    store.repos.addRepo('/home/b/src/podium', 'm2')
+    registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
     registries.push(registry)
     // A is a subtree root with a worktree; a session runs INSIDE it → subtree cap rooted at A.
     // B is unrelated. (create + set worktreePath directly, as capabilityForSession's test does.)

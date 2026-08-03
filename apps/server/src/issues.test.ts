@@ -1147,127 +1147,142 @@ describe('IssueService.start', () => {
   })
 
   /**
-   * POD-1386 — the pin used to refuse on every correctly-configured second
-   * machine. `requireMachineForRepo` compares this issue's SOURCE repo path
-   * literally against the target's registered paths, and two machines have two
-   * layouts, so a repository that was present read as absent. Handoff never had
-   * that bug (it resolves by repoId and clones on absence); start now calls the
-   * same resolver.
+   * A machine-pinned start has to REACH the target before it builds anything (POD-1424).
+   *
+   * Two faults, one order. The repository must be resolved by IDENTITY — two machines
+   * have two layouts, so comparing the source path literally made a present repo read as
+   * absent and refused the pin on every correctly-configured second machine. And the
+   * start point must EXIST there, because our branches are on no shared remote, so a
+   * clone has nowhere to fetch them from.
    */
-  it('sites the worktree at the target machine’s OWN path for the same repository', async () => {
+  it('materialises the repo and the start point on the target BEFORE the worktree add', async () => {
     const { svc, deps, store } = harness()
-    // The same repository — SAME ORIGIN, therefore same repo_id — checked out
-    // somewhere else. That is the normal case, not an edge one: a second machine
-    // has a different user and a different home. Both rows are registered because
-    // the real resolver registers the target before returning, and the identity
-    // gate below reads the registry.
-    const origin = 'git@github.com:o/podium.git'
-    store.repos.addRepo('/r', 'mach-a', origin)
-    store.repos.addRepo('/home/other/src/podium', 'mach-b', origin)
-    deps.ensureRepoOnMachine = vi.fn(async () => '/home/other/src/podium')
-    deps.requireMachineForRepo = vi.fn()
-    const created = svc.create({
-      repoPath: '/r',
-      title: 'Remote',
-      startNow: false,
-      machineId: asMachineId('mach-b'),
-    })
-    await svc.start(created.id)
-
-    expect(deps.ensureRepoOnMachine).toHaveBeenCalledWith('mach-b', '/r')
-    // Every downstream path is the TARGET's, not the source's: the repo root the
-    // worktree is added in, and the worktree path sited under it.
-    expect(deps.repoOp).toHaveBeenCalledWith(
-      'worktreeAdd',
-      '/home/other/src/podium',
-      expect.objectContaining({
-        branch: 'issue/1-remote',
-        path: expect.stringContaining('/home/other/src/podium'),
-      }),
-      'mach-b',
-    )
-    // …and the pre-flight now sees the resolved path, so it can actually pass.
-    expect(deps.requireMachineForRepo).toHaveBeenCalledWith('mach-b', '/home/other/src/podium')
-    // The issue's home moved as a PAIR — leaving repoPath on the source while
-    // machineId points at the target is the state that cannot start.
-    expect(svc.get(created.id)?.machineId).toBe('mach-b')
-  })
-
-  /**
-   * POD-1405 — the target needs the COMMITS, not just the repository. Our
-   * integration branches never reach origin, so a freshly cloned repo on another
-   * machine cannot fetch the start point from anywhere.
-   */
-  it('materialises the parent branch on the target before creating the worktree', async () => {
-    const { svc, deps, store } = harness()
-    const origin = 'git@github.com:o/podium.git'
-    store.repos.addRepo('/r', 'mach-a', origin)
-    store.repos.addRepo('/home/other/src/podium', 'mach-b', origin)
-    deps.ensureRepoOnMachine = vi.fn(async () => '/home/other/src/podium')
-    deps.requireMachineForRepo = vi.fn()
     const order: string[] = []
-    deps.ensureRefOnMachine = vi.fn(async () => {
-      order.push('ensureRef')
+    // Two checkouts of the SAME repository, one per machine — the shape
+    // ensureTargetRepo produces. Identity is origin-derived, so the differing paths
+    // resolve to one repoId and the guard lets the move through.
+    store.repos.addRepo('/r', 'mach-a', 'https://example.test/podium.git')
+    store.repos.addRepo('/home/till/src/podium', 'mach-b', 'https://example.test/podium.git')
+    deps.requireMachineForRepo = vi.fn()
+    deps.prepareMachineStart = vi.fn(async ({ repoPath, machineId, startPoint }) => {
+      order.push(`prepare:${repoPath}:${machineId}:${startPoint}`)
+      // The target's path is NOT the source's — that is the whole point of resolving
+      // by identity rather than comparing paths.
+      return { repoPath: '/home/till/src/podium' }
     })
-    const realRepoOp = deps.repoOp
-    deps.repoOp = vi.fn(async (op: string, ...rest: unknown[]) => {
-      if (op === 'worktreeAdd') order.push('worktreeAdd')
-      return (realRepoOp as (...a: unknown[]) => Promise<{ ok: boolean; output: string }>)(
-        op,
-        ...rest,
-      )
+    deps.repoOp = vi.fn(async (op: string) => {
+      order.push(`repoOp:${op}`)
+      return { ok: true, output: '' }
     }) as typeof deps.repoOp
-
     const created = svc.create({
       repoPath: '/r',
       title: 'Remote',
       startNow: false,
-      parentBranch: 'integration/x',
-      machineId: asMachineId('mach-b'),
+      machineId: 'mach-b',
+      parentBranch: 'main',
     })
     await svc.start(created.id)
 
-    // The ref is materialised on the TARGET's own repo path, for the start point
-    // the worktree will actually be created from.
-    expect(deps.ensureRefOnMachine).toHaveBeenCalledWith(
+    // ORDER is the assertion: a worktree add that ran first would fail on exactly the
+    // start point this exists to provide.
+    expect(order[0]).toBe('prepare:/r:mach-b:main')
+    expect(order[1]).toBe('repoOp:worktreeAdd')
+    // …and the add must use the path the TARGET has, not the source's.
+    expect(deps.repoOp).toHaveBeenCalledWith(
+      'worktreeAdd',
+      '/home/till/src/podium',
+      expect.objectContaining({ startPoint: 'main' }),
       'mach-b',
-      '/home/other/src/podium',
-      'integration/x',
     )
-    // ORDER IS THE PROPERTY: a worktree add that runs first fails on a start
-    // point the target cannot resolve, which is the whole defect.
-    expect(order).toEqual(['ensureRef', 'worktreeAdd'])
+    // The offline pre-flight still runs, now against the RESOLVED path — which is the
+    // only path it could ever have been right about.
+    expect(deps.requireMachineForRepo).toHaveBeenCalledWith('mach-b', '/home/till/src/podium')
   })
 
-  it('does not reach for commits when the issue has no machine pin', async () => {
-    const { svc, deps } = harness()
-    deps.ensureRefOnMachine = vi.fn(async () => {})
-    const created = svc.create({
-      repoPath: '/r',
-      title: 'Local',
-      startNow: false,
-      parentBranch: 'integration/x',
-    })
-    await svc.start(created.id)
-    expect(deps.ensureRefOnMachine).not.toHaveBeenCalled()
-  })
-
-  it('leaves an issue alone when the target machine holds the repo at the same path', async () => {
-    const { svc, deps } = harness()
-    deps.ensureRepoOnMachine = vi.fn(async () => '/r')
+  it('moves repoPath ONTO the target with the worktree, so the pair stays consistent', async () => {
+    // POD-1461. Leaving repoPath on the source produced a row whose repoPath said one
+    // machine and whose worktreePath + machineId said another, and every later path
+    // derived from that pair went to the wrong host — observed as a stop that ran
+    // `git -C <source> worktree remove <target>/...` and died with Permission denied,
+    // orphaning the checkout on the target.
+    const { svc, deps, store } = harness()
+    // Two checkouts of the SAME repository, one per machine — the shape
+    // ensureTargetRepo produces. Identity is origin-derived, so the differing paths
+    // resolve to one repoId and the guard lets the move through.
+    store.repos.addRepo('/r', 'mach-a', 'https://example.test/podium.git')
+    store.repos.addRepo('/home/till/src/podium', 'mach-b', 'https://example.test/podium.git')
+    deps.requireMachineForRepo = vi.fn()
+    deps.prepareMachineStart = vi.fn(async () => ({ repoPath: '/home/till/src/podium' }))
     const created = svc.create({
       repoPath: '/r',
       title: 'Remote',
       startNow: false,
-      machineId: asMachineId('mach-b'),
+      machineId: 'mach-b',
+      parentBranch: 'main',
+    })
+    const started = await svc.start(created.id)
+    // The three fields that must agree, because the file-browser root, the sidebar
+    // worktree and the cwd of the next spawn all derive from them together.
+    expect(started.repoPath).toBe('/home/till/src/podium')
+    expect(started.worktreePath?.startsWith('/home/till/src/podium/')).toBe(true)
+    expect(started.machineId).toBe('mach-b')
+  })
+
+  it('starts from the commit id when the branch had to be SHIPPED to the target', async () => {
+    // A bundled branch arrives as OBJECTS, not as a ref: on vmi the commit resolved and
+    // FETCH_HEAD held it while `rev-parse issue/1424-…` still said "Needed a single
+    // revision". A branch name is machine-local; a commit id is not. So the worktree add
+    // must start from whatever the TARGET can resolve, which prepareMachineStart returns.
+    const { svc, deps, store } = harness()
+    store.repos.addRepo('/r', 'mach-a', 'https://example.test/podium.git')
+    store.repos.addRepo('/home/till/src/podium', 'mach-b', 'https://example.test/podium.git')
+    deps.requireMachineForRepo = vi.fn()
+    const sha = 'e348cfe3b3bc5a1af2712b1614ea25c1b320fe03'
+    deps.prepareMachineStart = vi.fn(async () => ({
+      repoPath: '/home/till/src/podium',
+      startPoint: sha,
+    }))
+    const created = svc.create({
+      repoPath: '/r',
+      title: 'Remote',
+      startNow: false,
+      machineId: 'mach-b',
+      parentBranch: 'issue/1424-local-only',
     })
     await svc.start(created.id)
     expect(deps.repoOp).toHaveBeenCalledWith(
       'worktreeAdd',
-      '/r',
-      expect.objectContaining({ branch: 'issue/1-remote' }),
+      '/home/till/src/podium',
+      expect.objectContaining({ startPoint: sha }),
       'mach-b',
     )
+  })
+
+  it('refuses a target that is a DIFFERENT repository, before building anything', async () => {
+    // The identity guard rehome applies: a target whose repoId differs would silently
+    // renumber the issue into another repo. It must refuse on this path too.
+    const { svc, deps } = harness()
+    deps.requireMachineForRepo = vi.fn()
+    deps.prepareMachineStart = vi.fn(async () => ({ repoPath: '/somewhere/entirely-else' }))
+    const created = svc.create({
+      repoPath: '/r',
+      title: 'Remote',
+      startNow: false,
+      machineId: 'mach-b',
+      parentBranch: 'main',
+    })
+    await expect(svc.start(created.id)).rejects.toThrow(/not the same repository/)
+    // Nothing may be built before the refusal.
+    expect(deps.repoOp).not.toHaveBeenCalled()
+  })
+
+  it('leaves an unpinned start completely untouched — no cross-machine work at all', () => {
+    const { svc, deps } = harness()
+    deps.prepareMachineStart = vi.fn()
+    const created = svc.create({ repoPath: '/r', title: 'Local', startNow: false })
+    return svc.start(created.id).then(() => {
+      expect(deps.prepareMachineStart).not.toHaveBeenCalled()
+    })
   })
 
   it('pre-flights the machine pin: a failing requireMachineForRepo aborts before any work', async () => {
@@ -1294,6 +1309,95 @@ describe('IssueService.start', () => {
       throw new Error("machine 'laptop' has no repo registered at /r")
     })
     expect(() => svc.addSession(created.id)).toThrow(/no repo registered/)
+  })
+
+  /**
+   * POD-1571. `issue start` was converted to identity resolution (POD-1424); add-session
+   * and worktree-recreate were not, so they kept comparing the issue's SOURCE path
+   * against the target's registered paths. Live, on an issue pinned to a machine that
+   * keeps the repository at another path and was ALREADY running a session for it:
+   *   machine 'vmi3407763' has no repo registered at /home/mgw/src/other/podium
+   */
+  it('add-session guards against the path the repo has ON THE PIN, not the issue path', async () => {
+    const { svc, deps } = harness()
+    deps.requireMachineForRepo = vi.fn()
+    deps.findRepoOnMachine = vi.fn((repoPath: string, machineId: string) =>
+      repoPath === '/r' && machineId === 'mach-b' ? '/home/till/src/podium' : null,
+    )
+    const created = svc.create({
+      repoPath: '/r',
+      title: 'Remote',
+      startNow: false,
+      machineId: 'mach-b',
+    })
+    await svc.start(created.id)
+    ;(deps.requireMachineForRepo as ReturnType<typeof vi.fn>).mockClear()
+    svc.addSession(created.id)
+    expect(deps.requireMachineForRepo).toHaveBeenCalledWith('mach-b', '/home/till/src/podium')
+    expect(deps.spawnSession).toHaveBeenCalled()
+  })
+
+  it('add-session still REFUSES a machine that genuinely lacks the repository', async () => {
+    // The guard has to keep saying no: a resolver that made every repo exist would be
+    // worse than the bug. Absence resolves to the issue's own path, which is the path
+    // the actionable message names.
+    const { svc, deps } = harness()
+    deps.requireMachineForRepo = vi.fn()
+    deps.findRepoOnMachine = vi.fn(() => null)
+    const created = svc.create({
+      repoPath: '/r',
+      title: 'Remote',
+      startNow: false,
+      machineId: 'mach-b',
+    })
+    await svc.start(created.id)
+    ;(deps.requireMachineForRepo as ReturnType<typeof vi.fn>).mockImplementation(
+      (_m: string, p: string) => {
+        throw new Error(`machine 'laptop' has no repo registered at ${p}`)
+      },
+    )
+    expect(() => svc.addSession(created.id)).toThrow(/no repo registered at \/r/)
+    // …and an offline machine is still an offline machine.
+    ;(deps.requireMachineForRepo as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      throw new Error("machine 'laptop' is offline")
+    })
+    expect(() => svc.addSession(created.id)).toThrow(/is offline/)
+  })
+
+  it('worktree recreate resolves the repo on the pin and runs git THERE', async () => {
+    const { svc, deps } = harness()
+    deps.requireMachineForRepo = vi.fn()
+    deps.findRepoOnMachine = vi.fn(() => '/home/till/src/podium')
+    const created = svc.create({
+      repoPath: '/r',
+      title: 'Remote',
+      startNow: false,
+      machineId: 'mach-b',
+    })
+    await svc.start(created.id)
+    // The recorded worktree is gone — the recreate path.
+    deps.repoOp = vi.fn(async (op: string) =>
+      op === 'status'
+        ? { ok: false, output: 'cannot change to /w: no such file or directory' }
+        : { ok: true, output: '' },
+    ) as typeof deps.repoOp
+    await svc.ensureWorktree(created.id)
+    expect(deps.requireMachineForRepo).toHaveBeenCalledWith('mach-b', '/home/till/src/podium')
+    expect(deps.repoOp).toHaveBeenCalledWith(
+      'worktreeAddExisting',
+      '/home/till/src/podium',
+      expect.anything(),
+      'mach-b',
+    )
+  })
+
+  it('an unpinned issue never consults the cross-machine resolver', async () => {
+    const { svc, deps } = harness()
+    deps.findRepoOnMachine = vi.fn(() => null)
+    const created = svc.create({ repoPath: '/r', title: 'Local', startNow: false })
+    await svc.start(created.id)
+    svc.addSession(created.id)
+    expect(deps.findRepoOnMachine).not.toHaveBeenCalled()
   })
 
   it('unpinned issues skip the machine pre-flight', async () => {
@@ -1436,6 +1540,204 @@ describe('IssueService.start', () => {
       effort: 'high',
       ownerUserId: FIRST_ADMIN_USER_ID,
       spawnedBy: `issue:${a.id}`,
+    })
+  })
+
+  /**
+   * POD-1545: `--model`/`--effort` on start. The failure this pins is a flag that is
+   * PARSED and then DROPPED — indistinguishable from success at the CLI, because start
+   * echoes its own arguments back. Every case therefore asserts on what reached
+   * spawnSession (what the session actually runs), not on the return value.
+   */
+  describe('start --model/--effort overrides [POD-1545]', () => {
+    it('an explicit flag beats the value stored on the issue', async () => {
+      const { svc, deps } = harness()
+      const a = svc.create({
+        repoPath: '/r',
+        title: 'A',
+        startNow: false,
+        defaultModel: 'sonnet',
+        defaultEffort: 'low',
+      })
+      await svc.start(a.id, undefined, { model: 'opus', effort: 'high' })
+      expect(deps.spawnSession).toHaveBeenCalledWith(
+        expect.objectContaining({ model: 'opus', effort: 'high' }),
+      )
+    })
+
+    it('one flag overrides only its own dimension; the other keeps the stored value', async () => {
+      const { svc, deps } = harness()
+      const a = svc.create({
+        repoPath: '/r',
+        title: 'A',
+        startNow: false,
+        defaultModel: 'sonnet',
+        defaultEffort: 'low',
+      })
+      await svc.start(a.id, undefined, { effort: 'high' })
+      expect(deps.spawnSession).toHaveBeenCalledWith(
+        expect.objectContaining({ model: 'sonnet', effort: 'high' }),
+      )
+    })
+
+    it('no flag leaves the stored value alone — a default never clobbers it', async () => {
+      const { svc, deps } = harness()
+      const a = svc.create({
+        repoPath: '/r',
+        title: 'A',
+        startNow: false,
+        defaultModel: 'sonnet',
+        defaultEffort: 'low',
+      })
+      await svc.start(a.id)
+      expect(deps.spawnSession).toHaveBeenCalledWith(
+        expect.objectContaining({ model: 'sonnet', effort: 'low' }),
+      )
+      expect(svc.get(a.id)?.defaultEffort).toBe('low')
+    })
+
+    it('neither flag nor stored value falls back to auto', async () => {
+      const { svc, deps } = harness()
+      const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+      await svc.start(a.id)
+      expect(deps.spawnSession).toHaveBeenCalledWith(
+        expect.objectContaining({ model: 'auto', effort: 'auto' }),
+      )
+    })
+
+    it('the flag PERSISTS onto the issue, so later spawns run what was chosen', async () => {
+      const { svc, deps } = harness()
+      const a = svc.create({
+        repoPath: '/r',
+        title: 'A',
+        startNow: false,
+        defaultModel: 'sonnet',
+        defaultEffort: 'low',
+      })
+      const started = await svc.start(a.id, undefined, { model: 'opus', effort: 'high' })
+      expect(started.defaultModel).toBe('opus')
+      expect(started.defaultEffort).toBe('high')
+      expect(svc.get(a.id)?.defaultModel).toBe('opus')
+      svc.addSession(a.id)
+      expect(deps.spawnSession).toHaveBeenLastCalledWith(
+        expect.objectContaining({ model: 'opus', effort: 'high' }),
+      )
+    })
+
+    /**
+     * The sanitizer in modelSelectionFor drops a stored model that is merely the
+     * inherited coding-role default when the harness differs. An EXPLICIT flag is not
+     * inherited, so it must survive that rule — otherwise `--model opus` on a codex
+     * issue silently spawns `auto`, the parsed-then-dropped failure exactly.
+     */
+    it('survives the legacy-defaults sanitizer that drops an inherited value', async () => {
+      const { svc, deps } = harness()
+      deps.getSettings = () =>
+        normalizeSettings({
+          roles: { coding: { accountId: 'native:claude-code', model: 'opus', effort: 'high' } },
+        })
+      const issue = svc.create({
+        repoPath: '/r',
+        title: 'Legacy Codex',
+        startNow: false,
+        defaultAgent: 'codex',
+        defaultModel: 'opus',
+        defaultEffort: 'high',
+      })
+      await svc.start(issue.id, undefined, { model: 'opus', effort: 'high' })
+      expect(deps.spawnSession).toHaveBeenLastCalledWith(
+        expect.objectContaining({ agentKind: 'codex', model: 'opus', effort: 'high' }),
+      )
+    })
+
+    it('an explicit flag survives an --agent switch that resets the stored profile', async () => {
+      const { svc, deps } = harness()
+      const a = svc.create({
+        repoPath: '/r',
+        title: 'A',
+        startNow: false,
+        defaultModel: 'sonnet',
+        defaultEffort: 'low',
+      })
+      await svc.start(a.id, 'codex', { effort: 'high' })
+      expect(deps.spawnSession).toHaveBeenLastCalledWith(
+        expect.objectContaining({ agentKind: 'codex', model: 'auto', effort: 'high' }),
+      )
+    })
+
+    it('refuses a nonsense effort with the valid set, before mutating any start state', async () => {
+      const { svc, deps, store } = harness()
+      store.settings.setModelCatalog({
+        version: MODEL_CATALOG_VERSION,
+        fetchedAt: 1_000_000,
+        byAgent: {
+          'claude-code': [
+            { value: 'claude-opus-5', label: 'Opus 5', efforts: ['low', 'medium', 'high'] },
+          ],
+        },
+      })
+      const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+      await expect(svc.start(a.id, undefined, { effort: 'banana' })).rejects.toThrow(
+        /unknown effort "banana".*"low", "medium", "high"/s,
+      )
+      expect(deps.repoOp).not.toHaveBeenCalled()
+      expect(deps.spawnSession).not.toHaveBeenCalled()
+      expect(svc.get(a.id)?.stage).toBe('backlog')
+      // …and the rejected value is NOT left on the issue.
+      expect(svc.get(a.id)?.defaultEffort).toBe('auto')
+    })
+
+    it('refuses a nonsense model and leaves the stored profile untouched', async () => {
+      const { svc, deps, store } = harness()
+      store.settings.setModelCatalog({
+        version: MODEL_CATALOG_VERSION,
+        fetchedAt: 1_000_000,
+        byAgent: { 'claude-code': [{ value: 'claude-opus-5', label: 'Opus 5' }] },
+      })
+      const a = svc.create({
+        repoPath: '/r',
+        title: 'A',
+        startNow: false,
+        defaultModel: 'claude-opus-5',
+      })
+      await expect(svc.start(a.id, undefined, { model: 'claude-opus-9' })).rejects.toThrow(
+        /unknown model "claude-opus-9"/,
+      )
+      expect(svc.get(a.id)?.defaultModel).toBe('claude-opus-5')
+      expect(deps.spawnSession).not.toHaveBeenCalled()
+    })
+
+    /** Found while verifying live: re-starting a started issue is a no-op, so the flag
+     *  was accepted and dropped and the CLI still printed `started #n`. */
+    it('refuses --model/--effort on an already-started issue instead of ignoring them', async () => {
+      const { svc, deps } = harness()
+      const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+      await svc.start(a.id)
+      ;(deps.spawnSession as ReturnType<typeof vi.fn>).mockClear()
+      await expect(svc.start(a.id, undefined, { model: 'opus' })).rejects.toThrow(
+        /already started.*add-session/s,
+      )
+      await expect(svc.start(a.id, undefined, { effort: 'high' })).rejects.toThrow(
+        /already started/,
+      )
+      expect(deps.spawnSession).not.toHaveBeenCalled()
+      // …while a plain re-start stays the no-op it has always been.
+      expect((await svc.start(a.id)).seq).toBe(1)
+      expect(deps.spawnSession).not.toHaveBeenCalled()
+    })
+
+    it('--force-unknown-model still lets an explicit unlisted model through', async () => {
+      const { svc, deps, store } = harness()
+      store.settings.setModelCatalog({
+        version: MODEL_CATALOG_VERSION,
+        fetchedAt: 1_000_000,
+        byAgent: { 'claude-code': [{ value: 'claude-opus-5', label: 'Opus 5' }] },
+      })
+      const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+      await svc.start(a.id, undefined, { model: 'claude-opus-6-preview', forceUnknownModel: true })
+      expect(deps.spawnSession).toHaveBeenCalledWith(
+        expect.objectContaining({ model: 'claude-opus-6-preview', forceUnknownModel: true }),
+      )
     })
   })
 
@@ -2164,6 +2466,11 @@ describe('IssueService.tree (issue #82)', () => {
     expect(capped.root.children.length).toBe(2)
     expect(capped.root.omittedChildren).toBe(3)
     expect(capped.omitted).toBe(3)
+    // The payload echoes the caps actually applied so the CLI truncation notice
+    // names the real cap instead of a duplicated guess (POD-1342).
+    expect(capped.maxNodes).toBe(3)
+    expect(capped.maxDepth).toBe(3) // untouched → the default
+    expect(t.maxNodes).toBe(100)
   })
 
   it('truncates descriptions to 300 chars and throws on an unknown ref', () => {
@@ -3645,6 +3952,161 @@ describe('IssueService agent mail (#103)', () => {
     // Slice 2 clear path: inbox pull consumes both surfaces.
     svc.mailInbox(a.id)
     expect(svc.mailPending(a.id)).toMatchObject({ unread: 0 })
+  })
+
+  // ---- PER-SESSION read state [POD-1379] ----
+  // The mailbox is per ISSUE; the READ state must not be. Several agents work
+  // one issue: one agent's inbox read must not consume a peer's unread status
+  // (the message is not merely hidden — its unread status was destroyed for
+  // everyone), and no session may be nagged about a message it sent itself.
+
+  /** Dual-written mail (substrate row + legacy mirror), as a real send lands it. */
+  function seedIssueMail(
+    store: SessionStore,
+    issueId: string,
+    id: string,
+    over: Partial<ReturnType<typeof substrateRow>> = {},
+  ) {
+    const row = { ...substrateRow(issueId, id, 'queued'), ...over }
+    store.issues.addIssueMessage({
+      id,
+      issueId,
+      fromAuthor: 'agent',
+      body: row.body,
+      createdAt: row.createdAt,
+      status: 'unread',
+      claimedBy: null,
+      readAt: null,
+      claimedAt: null,
+    })
+    store.messages.addMessage(row)
+    return row
+  }
+
+  it('never nags a session about a message it sent itself', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    seedIssueMail(store, a.id, 'msg_from_a', { fromSession: 'sA' })
+    // Same notion of self the delivery side uses (attemptDelivery excludes
+    // message.fromSession from the members it can target) [POD-1365].
+    expect(svc.mailPending(a.id, { sessionId: 'sA' }).unread).toBe(0)
+    expect(svc.mailPending(a.id, { sessionId: 'sB' }).unread).toBe(1)
+  })
+
+  it("a peer's inbox read leaves the other session's pending count intact", () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    seedIssueMail(store, a.id, 'msg_for_b', { fromSession: 'sSender' })
+    expect(svc.mailPending(a.id, { sessionId: 'sB' }).unread).toBe(1)
+    // The MUTATING surface: session A opens the shared mailbox.
+    svc.mailInbox(a.id, { sessionId: 'sA' })
+    expect(svc.mailPending(a.id, { sessionId: 'sA' }).unread).toBe(0)
+    expect(svc.mailPending(a.id, { sessionId: 'sB' }).unread).toBe(1)
+  })
+
+  it('the observed POD-1342 repro: A sends for B, is not nagged, and B keeps its mail', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    seedIssueMail(store, a.id, 'msg_handoff', { fromSession: 'sA' })
+    // A is never nagged about its own send…
+    expect(svc.mailPending(a.id, { sessionId: 'sA' }).unread).toBe(0)
+    // …and even when it opens the inbox anyway, B's handoff survives.
+    const seenByA = svc.mailInbox(a.id, { sessionId: 'sA' })
+    expect(seenByA.map((m) => m.body)).toEqual(['body-msg_handoff'])
+    expect(svc.mailPending(a.id, { sessionId: 'sB' }).unread).toBe(1)
+    const seenByB = svc.mailInbox(a.id, { sessionId: 'sB' })
+    expect(seenByB[0]).toMatchObject({ wasUnread: true })
+    expect(svc.mailPending(a.id, { sessionId: 'sB' }).unread).toBe(0)
+  })
+
+  it('nags each session exactly once: a second read of my own inbox is quiet', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    seedIssueMail(store, a.id, 'msg_once', { fromSession: 'sSender' })
+    expect(svc.mailInbox(a.id, { sessionId: 'sB' })[0]).toMatchObject({ wasUnread: true })
+    expect(svc.mailInbox(a.id, { sessionId: 'sB' })[0]).toMatchObject({ wasUnread: false })
+    expect(svc.mailPending(a.id, { sessionId: 'sB' }).unread).toBe(0)
+  })
+
+  it('claiming retires the message for the claimer only — peers still get it once', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    seedIssueMail(store, a.id, 'msg_claimed', { fromSession: 'sSender' })
+    // Claim is the OPT-IN "I will act on this" signal; delivery must not depend
+    // on it, so it retires the claimer's nag and nobody else's.
+    expect(svc.mailClaim('msg_claimed', 'issue:#1', { sessionId: 'sA' }).claimed).toBe(true)
+    expect(svc.mailPending(a.id, { sessionId: 'sA' }).unread).toBe(0)
+    expect(svc.mailPending(a.id, { sessionId: 'sB' }).unread).toBe(1)
+  })
+
+  it('a session that starts after mail was consumed does not inherit the backlog', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    seedIssueMail(store, a.id, 'msg_history', { fromSession: 'sSender' })
+    svc.mailInbox(a.id, { sessionId: 'sOld' })
+    store.sessions.upsertSession({
+      id: 'sNew',
+      agentKind: 'claude-code',
+      cwd: '/r',
+      title: 'fresh agent',
+      name: null,
+      archived: false,
+      workState: null,
+      originKind: 'spawn',
+      conversationId: null,
+      resumeKind: null,
+      resumeValue: null,
+      status: 'live',
+      exitCode: null,
+      durableLabel: 'podium-sNew',
+      // Started AFTER the message was sent and consumed.
+      createdAt: '2026-06-30T01:00:00.000Z',
+      lastActiveAt: '2026-06-30T01:00:00.000Z',
+      lastOutputAt: null,
+      lastInputAt: null,
+      lastResumedAt: null,
+      spawnedBy: null,
+      machineId: 'm1',
+      headless: false,
+      issueId: a.id,
+      readAt: null,
+    })
+    expect(svc.mailPending(a.id, { sessionId: 'sNew' }).unread).toBe(0)
+  })
+
+  it('still HOLDS undelivered mail for a session that starts later', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    // Nobody was live when it was sent: it is still queued, so the next session
+    // to arrive must be told about it even though it predates that session.
+    seedIssueMail(store, a.id, 'msg_held', { fromSession: 'sSender' })
+    store.sessions.upsertSession({
+      id: 'sLate',
+      agentKind: 'claude-code',
+      cwd: '/r',
+      title: 'late agent',
+      name: null,
+      archived: false,
+      workState: null,
+      originKind: 'spawn',
+      conversationId: null,
+      resumeKind: null,
+      resumeValue: null,
+      status: 'live',
+      exitCode: null,
+      durableLabel: 'podium-sLate',
+      createdAt: '2026-06-30T01:00:00.000Z',
+      lastActiveAt: '2026-06-30T01:00:00.000Z',
+      lastOutputAt: null,
+      lastInputAt: null,
+      lastResumedAt: null,
+      spawnedBy: null,
+      machineId: 'm1',
+      headless: false,
+      issueId: a.id,
+      readAt: null,
+    })
+    expect(svc.mailPending(a.id, { sessionId: 'sLate' }).unread).toBe(1)
   })
 })
 

@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
-import { type IssueTrpc, makeIssueClient, makeRelayIssueClient } from '@podium/issue-client'
+import { type IssueTrpc, makeRelayIssueClient } from '@podium/issue-client'
 import type {
   ApprovalOp,
   WorkflowGitObservation,
@@ -12,6 +12,7 @@ import type {
 } from '@podium/protocol'
 import { resolveAgentRelay, resolvePort } from '@podium/runtime/config'
 import { requestApproval } from './approval-cli'
+import { makeOperatorIssueClient } from './operator-client'
 
 type WorkflowClient = Pick<IssueTrpc, 'workflows'>
 type ArgValue = string | boolean
@@ -483,7 +484,7 @@ export async function workflowCliMain(argv: string[]): Promise<void> {
   const outsideScope = argv.includes('--outside-scope')
   const client = relayEndpoint
     ? makeRelayIssueClient(relayEndpoint, { outsideScope })
-    : makeIssueClient(`http://localhost:${resolvePort()}`)
+    : makeOperatorIssueClient(`http://localhost:${resolvePort()}`)
   try {
     console.log(
       await runWorkflowCli(argv, {

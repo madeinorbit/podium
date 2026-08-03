@@ -20,7 +20,7 @@
  */
 
 import { makeRelayIssueClient } from '@podium/issue-client'
-import { type AgentInventory, machineByRef, type MachineWire } from '@podium/model'
+import { type AgentInventory, type MachineWire, machineByRef } from '@podium/model'
 import { resolveAgentRelay } from '@podium/runtime/config'
 
 type Proc = { query(input?: unknown): Promise<unknown> }
@@ -104,7 +104,13 @@ export function lastSeenDescription(lastSeenAt: string, nowMs: number): string {
   const days = Math.floor(minutes / 1_440)
   const hours = Math.floor((minutes % 1_440) / 60)
   const relative =
-    days > 0 ? `${days}d ago` : hours > 0 ? `${hours}h ago` : minutes > 0 ? `${minutes}m ago` : 'just now'
+    days > 0
+      ? `${days}d ago`
+      : hours > 0
+        ? `${hours}h ago`
+        : minutes > 0
+          ? `${minutes}m ago`
+          : 'just now'
   return `last seen ${lastSeenAt} (${relative})`
 }
 
@@ -204,7 +210,11 @@ export async function runMachineCli(
     const machine = selectMachine(machines, selector)
     const machineRepos = repos.filter((repo) => repo.machineId === machine.id)
     return json
-      ? JSON.stringify({ command: 'machine show', ok: true, data: { machine, repos: machineRepos } })
+      ? JSON.stringify({
+          command: 'machine show',
+          ok: true,
+          data: { machine, repos: machineRepos },
+        })
       : machineBlock(machine, repos, nowMs)
   }
 

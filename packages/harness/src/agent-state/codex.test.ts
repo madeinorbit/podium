@@ -1470,6 +1470,7 @@ describe('foldCodexRolloutBootstrap', () => {
     const observations: AgentObservation[] = []
     let retryNow = 0
     const livePolls: unknown[] = []
+    let boundaryScans = 0
     const legacyEvents: unknown[] = []
     const rebinds: string[] = []
     const observation = observeCodexState({
@@ -1477,6 +1478,9 @@ describe('foldCodexRolloutBootstrap', () => {
       homeDir: resolve(livePath, '../../../../../..'),
       resumeValue: 'thread-poll',
       pollMs: 10,
+      onCausalBoundaryScan: () => {
+        boundaryScans += 1
+      },
       causal: {
         podiumSessionId: asSessionId('podium-poll'),
         providerSessionId: 'thread-poll',
@@ -1559,9 +1563,14 @@ describe('foldCodexRolloutBootstrap', () => {
         acceptedCursor: terminal.providerCursor,
       })
       await vi.waitFor(() => expect(livePolls.length).toBeGreaterThan(0))
+      const scansAtUnchangedEof = boundaryScans
       const afterTerminal = livePolls.length
-      await appendFile(livePath, event('agent_message', '2026-07-19T10:02:01.000Z'))
       await vi.waitFor(() => expect(livePolls.length).toBeGreaterThan(afterTerminal))
+      expect(boundaryScans).toBe(scansAtUnchangedEof)
+      const afterUnchangedPoll = livePolls.length
+      await appendFile(livePath, event('agent_message', '2026-07-19T10:02:01.000Z'))
+      await vi.waitFor(() => expect(boundaryScans).toBeGreaterThan(scansAtUnchangedEof))
+      await vi.waitFor(() => expect(livePolls.length).toBeGreaterThan(afterUnchangedPoll))
       const afterLateOutput = livePolls.length
       await appendFile(
         livePath,
@@ -1680,6 +1689,57 @@ describe('observeCodexState rollout pinning', () => {
     const found = await sessionFrom(home, cwd, 'sessA')
     expect(found.id).toBe('sessA')
     expect(found.path).toBe(older)
+  })
+
+  it('throttles an unbound filesystem fallback independently of the tail tick', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-codex-fallback-cadence-'))
+    await mkdir(join(home, '.codex', 'sessions'), { recursive: true })
+    let scans = 0
+    const obs = observeCodexState({
+      cwd: '/repo/missing',
+      homeDir: home,
+      startedAtMs: Date.now(),
+      pollMs: 10,
+      onFilesystemRolloutScan: () => {
+        scans++
+      },
+      onEvents: () => {},
+    })
+
+    try {
+      await vi.waitFor(() => expect(scans).toBe(1))
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 120))
+      expect(scans).toBe(1)
+    } finally {
+      obs.stop()
+    }
+  })
+
+  it('never corpus-scans an unbound Podium-owned Linux session', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-codex-linux-exact-only-'))
+    const procRoot = await mkdtemp(join(tmpdir(), 'podium-codex-empty-proc-'))
+    await mkdir(join(home, '.codex', 'sessions'), { recursive: true })
+    let scans = 0
+    const obs = observeCodexState({
+      cwd: '/repo/missing',
+      homeDir: home,
+      startedAtMs: Date.now(),
+      podiumSessionId: 'podium-linux-exact',
+      procRoot,
+      platform: 'linux',
+      pollMs: 10,
+      onFilesystemRolloutScan: () => {
+        scans++
+      },
+      onEvents: () => {},
+    })
+
+    try {
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 120))
+      expect(scans).toBe(0)
+    } finally {
+      obs.stop()
+    }
   })
 
   it('does not grab a cwd sibling on reattach without a resume value or start floor', async () => {
@@ -1846,6 +1906,7 @@ describe('observeCodexState native title (live /rename)', () => {
       homeDir: home,
       startedAtMs: 0,
       pollMs: 10,
+      nativeTitlePollMs: 10,
       onTitle: (title) => titles.push(title),
       onEvents: () => {},
     })
@@ -1882,13 +1943,45 @@ describe('observeCodexState native title (live /rename)', () => {
       homeDir: home,
       startedAtMs: 0,
       pollMs: 10,
+      nativeTitlePollMs: 10,
       onTitle: (title) => titles.push(title),
       onEvents: () => {},
     })
     try {
       await waitFor(() => titles.includes('Native Title'))
-      await new Promise((r) => setTimeout(r, 60))
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 60))
       expect(titles).toEqual(['Native Title'])
+    } finally {
+      obs.stop()
+    }
+  })
+
+  it('keeps targeted native-title reads off the 700ms tail cadence', async () => {
+    const id = 'uuid-throttled-title'
+    const cwd = '/repo/throttled-title'
+    const home = await mkdtemp(join(tmpdir(), 'podium-codex-throttled-title-'))
+    const dir = join(home, '.codex', 'sessions', '2026', '06', '16')
+    await mkdir(dir, { recursive: true })
+    await writeFile(
+      join(dir, `rollout-2026-06-16T16-11-26-${id}.jsonl`),
+      jsonl([{ type: 'session_meta', payload: { id, cwd } }]),
+    )
+    const readThreadState = vi.fn(async () => ({ id, title: 'Targeted Native Title' }))
+    const titles: string[] = []
+    const obs = observeCodexState({
+      cwd,
+      homeDir: home,
+      startedAtMs: 0,
+      pollMs: 10,
+      nativeTitlePollMs: 1_000,
+      readThreadState,
+      onTitle: (title) => titles.push(title),
+      onEvents: () => {},
+    })
+    try {
+      await waitFor(() => titles.includes('Targeted Native Title'))
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 120))
+      expect(readThreadState).toHaveBeenCalledTimes(1)
     } finally {
       obs.stop()
     }

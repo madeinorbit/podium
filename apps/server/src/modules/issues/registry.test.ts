@@ -389,6 +389,44 @@ describe('guardIssueCommand authorization matrix', () => {
   })
 })
 
+describe('issues.get session membership', () => {
+  it('returns every attached agent and excludes shell sessions', async () => {
+    const registry = new SessionRegistry()
+    try {
+      const issue = registry.issues.create({ repoPath: '/r', title: 'A', startNow: false })
+      registry.modules.sessions.attachDaemon('local', () => {})
+      const first = registry.modules.sessions.createSession({
+        agentKind: 'codex',
+        cwd: '/r',
+        issueId: issue.id,
+        model: 'gpt-5.7',
+      })
+      const second = registry.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/r',
+        issueId: issue.id,
+      })
+      registry.modules.sessions.createSession({
+        agentKind: 'shell',
+        cwd: '/r',
+        issueId: issue.id,
+      })
+      const shown = (await registry.issueCommands.dispatch(
+        { capability: OPERATOR },
+        'issues',
+        'get',
+        { id: issue.id },
+      )) as { sessions: { sessionId: string; agentKind: string }[] }
+      expect(shown.sessions.map((session) => session.sessionId).sort()).toEqual(
+        [first.sessionId, second.sessionId].sort(),
+      )
+      expect(shown.sessions.map((session) => session.agentKind)).not.toContain('shell')
+    } finally {
+      registry.dispose()
+    }
+  })
+})
+
 describe('issue spawn provenance', () => {
   it('stamps agent comment actor and human owner from the transport principal', async () => {
     const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
@@ -520,6 +558,90 @@ describe('issue spawn provenance', () => {
         { id: created.id, sessionId: null },
       )) as { coordinatorSessionId?: string }
       expect(cleared.coordinatorSessionId).toBeUndefined()
+    } finally {
+      registry.dispose()
+    }
+  })
+
+  // [POD-1365] The command RESPONSE carrying coordinatorSessionId (above) is not
+  // the thing mail routing reads. attemptDelivery calls issues().get(id) and looks
+  // at `issue.coordinatorSessionId` on that projection, so the field has to survive
+  // toWire() — which spreads it conditionally. A routing test that builds its own
+  // issue object cannot see this seam: it would stay green while the live server
+  // routed every message by recency, which is exactly the failure mode this pair of
+  // tests exists to separate (the defect is SILENT — mail reaches someone, nothing
+  // errors, no lane goes red).
+  it('exposes coordinatorSessionId on issues.get(), the projection mail routing reads', async () => {
+    const registry = new SessionRegistry()
+    try {
+      const issue = registry.issues.create({
+        repoPath: '/r',
+        title: 'Routing reads the projection',
+        startNow: false,
+      })
+
+      // Unset must be ABSENT, not null/'' — routing tests `typeof === 'string'`.
+      expect(registry.issues.get(issue.id)?.coordinatorSessionId).toBeUndefined()
+
+      await registry.issueCommands.dispatch({ capability: OPERATOR }, 'issues', 'setCoordinator', {
+        id: issue.id,
+        sessionId: 'sess_coord_wire',
+      })
+      expect(registry.issues.get(issue.id)?.coordinatorSessionId).toBe('sess_coord_wire')
+
+      // And it must go back to absent, or a stale coordinator keeps winning.
+      await registry.issueCommands.dispatch({ capability: OPERATOR }, 'issues', 'setCoordinator', {
+        id: issue.id,
+        sessionId: null,
+      })
+      expect(registry.issues.get(issue.id)?.coordinatorSessionId).toBeUndefined()
+    } finally {
+      registry.dispose()
+    }
+  })
+})
+
+/**
+ * The mailbox is per ISSUE, the read state is per READING SESSION [POD-1379].
+ * Dispatched through the real registry so the wire path is under test too: the
+ * reader is server-stamped from the caller's capability (actorSessionId), never
+ * passed by the client.
+ */
+describe('issue mail read state is per reading session [POD-1379]', () => {
+  it('a peer read leaves the other agent on the issue still pending, and no self-nag', async () => {
+    const registry = new SessionRegistry()
+    try {
+      const issue = registry.issues.create({ repoPath: '/r', title: 'Shared', startNow: false })
+      const agent = (sessionId: string) =>
+        ({
+          capability: {
+            role: 'worker' as const,
+            scope: { kind: 'subtree' as const, rootId: issue.id },
+            actorSessionId: sessionId,
+          },
+        }) as const
+      const pending = async (sessionId: string) =>
+        (await registry.issueCommands.dispatch(agent(sessionId), 'issues', 'mailPending', {})) as {
+          unread: number
+        }
+
+      // Session A mails ITS OWN issue, meaning it for session B (the POD-1342 move).
+      await registry.issueCommands.dispatch(agent('sA'), 'issues', 'mailSend', {
+        id: issue.id,
+        body: 'handing this to you',
+      })
+      expect((await pending('sA')).unread).toBe(0)
+      expect((await pending('sB')).unread).toBe(1)
+
+      // A opens the shared mailbox anyway — B's handoff must survive it.
+      await registry.issueCommands.dispatch(agent('sA'), 'issues', 'mailInbox', { id: issue.id })
+      expect((await pending('sB')).unread).toBe(1)
+
+      const inboxB = (await registry.issueCommands.dispatch(agent('sB'), 'issues', 'mailInbox', {
+        id: issue.id,
+      })) as Array<{ body: string; wasUnread: boolean }>
+      expect(inboxB).toMatchObject([{ body: 'handing this to you', wasUnread: true }])
+      expect((await pending('sB')).unread).toBe(0)
     } finally {
       registry.dispose()
     }

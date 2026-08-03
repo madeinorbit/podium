@@ -54,7 +54,12 @@ describe('agent relay hub', () => {
       timeoutMs: 1000,
       blockingTimeoutMs: 5000,
     })
-    const p = hub.relay({ sessionId: asSessionId('s1'), router: 'messages', proc: 'send', input: {} })
+    const p = hub.relay({
+      sessionId: asSessionId('s1'),
+      router: 'messages',
+      proc: 'send',
+      input: {},
+    })
     // Past the NORMAL 1000ms timeout — a normal proc would already be dead here.
     vi.advanceTimersByTime(1001)
     // A blocking proc is still pending, so its result still lands.
@@ -94,7 +99,7 @@ describe('agent relay server', () => {
     }
   })
 
-  it('POST /agent/<sessionId> relays and returns the result', async () => {
+  it('POST /session/<sessionId> relays and returns the result', async () => {
     const seen: any[] = []
     const srv = await startAgentRelayServer({
       port: 0,
@@ -104,8 +109,10 @@ describe('agent relay server', () => {
       },
     })
     try {
-      // endpointFor emits the new /agent/ path.
-      expect(srv.endpointFor(asSessionId('sX'))).toMatch(/\/agent\/sX$/)
+      // endpointFor emits the current /session/ path — the variable handed to a
+      // shell says "session", so the URL it names must too (the path is what a
+      // human reads to infer what authority the relay carries).
+      expect(srv.endpointFor(asSessionId('sX'))).toMatch(/\/session\/sX$/)
       const res = await fetch(srv.endpointFor(asSessionId('sX')), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -119,10 +126,16 @@ describe('agent relay server', () => {
     }
   })
 
-  // Read-side tolerance (one release): a session spawned before the rename keeps
-  // POSTing to the legacy /issue/<sid> path after a daemon redeploy. The server
-  // must still serve it, even though endpointFor only ever emits /agent/.
-  it('POST legacy /issue/<sessionId> is still served (read-side tolerance)', async () => {
+  // Read-side tolerance: a session spawned before a rename keeps POSTing to the
+  // path baked into its env at spawn time, and a daemon redeploy must not strand
+  // it. Every historical prefix stays served even though endpointFor only ever
+  // emits the current one. Dropping an arm here breaks every live session at the
+  // next restart — the failure this arm exists to prevent.
+  it.each([
+    'issue',
+    'agent',
+    'session',
+  ])('POST /%s/<sessionId> routes to the same relay handler', async (prefix) => {
     const seen: any[] = []
     const srv = await startAgentRelayServer({
       port: 0,
@@ -132,7 +145,7 @@ describe('agent relay server', () => {
       },
     })
     try {
-      const res = await fetch(`http://127.0.0.1:${srv.port}/issue/sLegacy`, {
+      const res = await fetch(`http://127.0.0.1:${srv.port}/${prefix}/sLegacy`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ proc: 'ready', input: { repoPath: '/r' } }),
@@ -146,7 +159,16 @@ describe('agent relay server', () => {
     }
   })
 
-  it('POST /agent/<sessionId>/open captures the raw URL without entering the command relay', async () => {
+  // The prefix and the optional `/open` group are orthogonal in the regex, so
+  // they cannot break independently — but the live case worth asserting rather
+  // than inferring is the LEGACY one: a session spawned before a rename has the
+  // old prefix baked into its env, so its browser shim POSTs `/agent/<sid>/open`
+  // after the redeploy that lands the rename.
+  it.each([
+    'issue',
+    'agent',
+    'session',
+  ])('POST /%s/<sessionId>/open captures the raw URL without entering the command relay', async (prefix) => {
     const opened: Array<{ sessionId: SessionId; url: string }> = []
     let relayCalls = 0
     const srv = await startAgentRelayServer({
@@ -163,7 +185,7 @@ describe('agent relay server', () => {
     try {
       const url =
         'https://auth.example/authorize?redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fcallback'
-      const response = await fetch(`${srv.endpointFor(asSessionId('sOpen'))}/open`, {
+      const response = await fetch(`http://127.0.0.1:${srv.port}/${prefix}/sOpen/open`, {
         method: 'POST',
         headers: { 'content-type': 'text/plain' },
         body: url,

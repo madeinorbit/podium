@@ -60,6 +60,29 @@ describe('CLI table ↔ server registry FIELD drift (#347)', () => {
     expect([...cliKeys].sort()).toEqual([...serverKeys].sort())
   })
 
+  /**
+   * POD-1545: `start` is the third WRITE command worth pinning field-by-field. It grew
+   * `defaultModel`/`defaultEffort` on the proc and `--model`/`--effort` on the CLI at
+   * the same moment BECAUSE nothing was watching the pair before — the reported symptom
+   * was `unknown flag --model` on a field the store had supported all along.
+   */
+  it('start: every server field is settable from the CLI, and vice versa', () => {
+    const serverKeys = shapeKeys(issueRegistry.defs.start.input)
+    // Intentional gaps — each must stay justified:
+    //  - mutationId/expectedRev/…: sync plumbing from `env`, supplied by transports.
+    for (const k of ['mutationId', 'expectedRev', 'origin']) serverKeys.delete(k)
+    // start's proc spells the harness `agentKind` (a one-shot override) where create's
+    // spells it `defaultAgent`; the CLI flag is `--agent` on both, and CLI_ALIASES maps
+    // it to `defaultAgent`. Normalise onto that so the pin compares like with like.
+    serverKeys.delete('agentKind')
+    serverKeys.add('defaultAgent')
+    const cliKeys = mapCliKeys(cliShape('start'))
+    //  - machine: the CLI resolves a machine NAME and writes the pin via a separate
+    //    issues.update before starting, so it is deliberately not a start input.
+    cliKeys.delete('machineId')
+    expect([...cliKeys].sort()).toEqual([...serverKeys].sort())
+  })
+
   it('attachSession: newSubissue accepts no origin (derived from the caller, #348)', () => {
     const input = issueRegistry.defs.attachSession.input as z.ZodObject<z.ZodRawShape>
     const sub = input.shape.newSubissue as z.ZodOptional<z.ZodObject<z.ZodRawShape>>

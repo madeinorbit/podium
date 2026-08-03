@@ -30,7 +30,7 @@ const RELAY_ALLOWED: Record<string, Set<string> | null> = {
   // stop = clean end + free worktree keep branch [spec:SP-9904]; self/subtree
   // free, outside needs --outside-scope (gated in the dispatch arm).
   // handoff = move a LIVE session to another machine (POD-642), exposed to agents
-  // by POD-1386. It is the one entry here that causes execution on a second
+  // by POD-1386/POD-1424. It is the one entry here that causes execution on a second
   // machine, and it is safe to carry for the reason the coordinator is built
   // around: `use` is asserted on BOTH machines before anything stops, and the
   // target is re-authorized at each apply point, so the relay grants reach to the
@@ -46,12 +46,17 @@ const RELAY_ALLOWED: Record<string, Set<string> | null> = {
     'stop',
     'handoff',
   ]),
-  // Read-only fleet enumeration (POD-1386): "what can I run on?". The answer is
-  // the SAME authorization projection the router serves — see-set filtered, `use`
-  // stamped per row — so this allowlist entry grants reach to a projection, not to
-  // the machines table. An agent that could not see a machine still cannot.
-  // `list` is byte-identical to the router's; `listWithRepos` adds the registered
-  // checkout paths, use-gated (see the arm in relay.ts for why they are not one proc).
+  // Read-only fleet enumeration (POD-1386/POD-1424): "what can I run on?". Before this
+  // a coordinating agent had no way to ask — it read the sqlite machines table directly,
+  // or `tailscale status`, which knows the network and nothing about Podium. The answer
+  // is the SAME authorization projection the router serves — see-set filtered, `use`
+  // stamped per row — so this allowlist entry grants reach to a projection, not to the
+  // machines table. An agent that could not see a machine still cannot.
+  // `list` is byte-identical to the router's machines.list, because a proc returning one
+  // shape over HTTP and another over the relay is a trap for every caller that can reach
+  // both. `listWithRepos` is a SECOND proc rather than a wider `list`, and it joins the
+  // registered checkout paths server-side, use-gated: relaying repos.listDetailed instead
+  // would hand over every row on every machine, unscoped.
   machines: new Set(['list', 'listWithRepos']),
   // Unified messaging (#237) [spec:SP-34d7]: podium mail, cross-harness child
   // spawn/bounded await, and the stop-hook's single-reminder query. Sender and

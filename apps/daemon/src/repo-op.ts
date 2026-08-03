@@ -86,17 +86,22 @@ export function repoOpCommand(op: RepoOp, args: Record<string, string> = {}): Re
       return { bin: 'git', argv: ['rev-parse', '--verify', `${ref}^{commit}`] }
     }
     /**
-     * Bundle `ref`, minus everything the target already proved it has (POD-1405).
+     * Bundle `ref`, minus everything the target already proved it holds
+     * (POD-1405 / POD-1424).
      *
-     * `out` is NOT caller-supplied: the exec layer derives it from an opaque
-     * transfer token inside the daemon's own stage directory, exactly as the
-     * chunk-read side already confines what it will read. A caller that could
-     * name the output path could write a file anywhere the daemon can write.
+     * `out` is NOT caller-supplied: the exec layer derives it from an opaque transfer
+     * token inside the daemon's own stage directory, exactly as the chunk-read side
+     * already confines what it will read. A caller able to name the output path could
+     * write a file anywhere the daemon can write.
      *
-     * Every base rides as `^<sha>` and both it and `ref` go through the
-     * leading-dash guard: `git bundle create` has no `--` that protects the rev
-     * slots, so a value like `--all` would otherwise parse as an option and
-     * bundle the entire repository.
+     * EVERY REV SLOT IS GUARDED. `git bundle create` has no `--` protecting its rev
+     * slots, so an unguarded '--all' parses as an OPTION and bundles the entire
+     * repository — the whole history, to another machine, from one crafted ref.
+     *
+     * Bases ride as `^<sha>`. They are the INTERSECTION the source can actually bundle
+     * from, computed by the caller: an unknown `^sha` aborts the whole bundle, so
+     * narrowing to what both sides hold is a correctness requirement, not an
+     * optimisation.
      */
     case 'bundleCreate': {
       const { out, ref, bases } = args
@@ -113,14 +118,13 @@ export function repoOpCommand(op: RepoOp, args: Record<string, string> = {}): Re
       }
     }
     /**
-     * Fetch a bundle that arrived in this daemon's stage into the repository,
-     * landing `ref` at the bundled tip (POD-1405).
+     * Fetch a bundle that arrived in this daemon's stage into the repository, landing
+     * `ref` at the bundled tip (POD-1405 / POD-1424).
      *
-     * `git fetch <file> <ref>` — the bundle is a positional, and `ref` is
-     * validated for the same reason as above. This deliberately does NOT create
-     * or move a branch: it makes the OBJECTS reachable so a later `worktree add`
-     * can resolve the start point. Deciding what branch should point where is the
-     * caller's business, not the transport's.
+     * The bundle is a positional after `--`, and `ref` is guarded for the same reason as
+     * above. This deliberately does NOT create or move a branch: it makes the OBJECTS
+     * reachable so a later `worktree add` can resolve its start point. What branch points
+     * where is the caller's business, not the transport's.
      */
     case 'bundleFetch': {
       const { bundle, ref } = args

@@ -660,11 +660,17 @@ export const grants = sqliteTable(
 // still one shared password, so every row an upgraded instance has names the
 // first admin, and `CLIENT_PRINCIPAL_GRADE` stays `'device'`. Per-user login is
 // Phase 3 (POD-315).
+//
+// `label` records WHY a row exists (POD-1376): 'login' = a browser sign-in,
+// 'upstream' = a node⇄hub provisioning token, 'break-glass' = a session minted
+// from local state-dir access by `podium auth mint-session`. Without it the
+// three are indistinguishable and revoking one class signs every device out too.
 export const clientSessions = sqliteTable('client_sessions', {
   tokenHash: text('token_hash').primaryKey(),
   userId: text('user_id').notNull(),
   createdAt: text('created_at').notNull(),
   expiresAt: text('expires_at').notNull(),
+  label: text().notNull().default('login'),
 })
 
 // TELEGRAM CHAT BINDING (POD-1080, ADR 3 Amendment 1 D22; ADR 1 matrix row
@@ -1164,6 +1170,24 @@ export const messageWakeCooldowns = sqliteTable('message_wake_cooldowns', {
   key: text().primaryKey(),
   attemptedAt: text('attempted_at').notNull(),
 })
+
+/** Per-READER receipts [POD-1379] [spec:SP-b11e]: one row per (message, session that has seen
+ *  it). `messages.status` stays the DELIVERY ledger (one pipeline per message);
+ *  this table is the per-session "already in my context" ledger, so several
+ *  agents on one issue each get the shared mailbox exactly once and no agent's
+ *  read consumes a peer's unread status. */
+export const messageReads = sqliteTable(
+  'message_reads',
+  {
+    messageId: text('message_id').notNull(),
+    sessionId: text('session_id').notNull(),
+    readAt: text('read_at').notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.messageId, table.sessionId], name: 'message_reads_pk' }),
+    index('idx_message_reads_session').on(table.sessionId),
+  ],
+)
 
 /** Durable janitor lease/fence and command idempotency [spec:SP-c29e]. */
 export const maintenanceLeases = sqliteTable('maintenance_leases', {

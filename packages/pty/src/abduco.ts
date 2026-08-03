@@ -1,6 +1,15 @@
 import { execFile, spawn, spawnSync, type SpawnOptions } from 'node:child_process'
-import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import {
+  closeSync,
+  existsSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+} from 'node:fs'
+import { tmpdir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { resolveAbducoBin } from './abduco-bin.js'
@@ -93,20 +102,34 @@ export function scopeReclaimArgvs(unit: string): string[][] {
   ]
 }
 
+/** Injection seam for {@link reclaimStaleScope}'s `systemctl` calls (tests pass a spy). */
+export type SystemctlRunner = (
+  file: string,
+  args: string[],
+  options: { timeout: number; env: NodeJS.ProcessEnv },
+) => Promise<unknown>
+
 /**
  * Free a stale scope squatting this label's unit name so the master can be (re)created
  * in its OWN scope. Guarded on there being NO live master for the label — we only ever
- * clear a zombie scope held open by orphaned grandchildren, never a live agent. Runs
- * only on the (re)spawn path, not per frame.
+ * clear a zombie scope held open by orphaned grandchildren, never a live agent. The
+ * liveness guard MUST use the direct socket index ({@link abducoSocketHasSession}): the
+ * global `abduco` listing connects to every master in turn, so one wedged historical
+ * session hangs the guard forever and no agent can ever (re)spawn. Runs only on the
+ * (re)spawn path, not per frame.
  * Best-effort: a missing unit or absent systemd just makes the commands no-ops.
  */
-async function reclaimStaleScope(label: string): Promise<void> {
-  if (await abducoHasSession(label)) return
+export async function reclaimStaleScope(
+  label: string,
+  env: NodeJS.ProcessEnv = liveEnv(),
+  run: SystemctlRunner = execFileAsync,
+): Promise<void> {
+  if (abducoSocketHasSession(label, env)) return
   for (const args of scopeReclaimArgvs(scopeUnitName(label))) {
     try {
-      await execFileAsync('systemctl', args, {
+      await run('systemctl', args, {
         timeout: 8000,
-        env: scopeEnv(liveEnv()),
+        env: scopeEnv(env),
       })
     } catch {
       // best-effort: no such unit / no systemd
@@ -216,6 +239,56 @@ function liveEnv(): NodeJS.ProcessEnv {
 const execFileAsync = promisify(execFile)
 
 /**
+ * Check one durable label directly in abduco's socket directory.
+ *
+ * Never use the global `abduco` listing on daemon recovery: listing connects to
+ * every master in lexical order, so one legacy master wedged while an old attach
+ * client was being torn down blocks the entire command forever. That turns one
+ * bad session into a fleet-wide reattach outage. The socket filename and mode are
+ * already abduco's authoritative index: S_IXGRP marks a terminated application;
+ * detached and attached live sessions both omit that bit.
+ */
+export function abducoSocketHasSession(
+  label: string,
+  env: NodeJS.ProcessEnv = process.env,
+  username?: string,
+): boolean {
+  const dirs: string[] = []
+  if (env.ABDUCO_SOCKET_DIR) {
+    let user = username
+    if (!user) {
+      try {
+        user = userInfo().username
+      } catch {
+        // Fall through to the non-user-specific compatibility candidates.
+      }
+    }
+    if (user) dirs.push(join(env.ABDUCO_SOCKET_DIR, 'abduco', user))
+    dirs.push(join(env.ABDUCO_SOCKET_DIR, 'abduco'), env.ABDUCO_SOCKET_DIR)
+  } else if (env.HOME) {
+    dirs.push(join(env.HOME, '.abduco'))
+  }
+
+  for (const dir of dirs) {
+    let names: string[]
+    try {
+      names = readdirSync(dir)
+    } catch {
+      continue
+    }
+    for (const name of names) {
+      if (name !== label && !name.startsWith(`${label}@`)) continue
+      try {
+        return (statSync(join(dir, name)).mode & 0o010) === 0
+      } catch {
+        // The master exited between readdir and stat; keep looking.
+      }
+    }
+  }
+  return false
+}
+
+/**
  * `abduco` with no args lists sessions and reaps stale sockets as a side effect.
  * Exit status varies by version, so parse whatever it printed, including stdout
  * attached to a non-zero exit.
@@ -234,13 +307,15 @@ async function listSessions(): Promise<AbducoSessionEntry[]> {
   }
 }
 
-/** Whether a live abduco master owns this label. */
+/**
+ * Whether a live abduco master owns this label. Answered from the socket index
+ * ({@link abducoSocketHasSession}), never the global `abduco` listing: on daemon
+ * recovery the listing connects to every master in lexical order, so one wedged
+ * legacy session turns into a fleet-wide reattach outage. Kept async because every
+ * caller awaits it and the previous implementation shelled out.
+ */
 export async function abducoHasSession(label: string): Promise<boolean> {
-  try {
-    return (await listSessions()).some((s) => s.name === label && s.alive)
-  } catch {
-    return false
-  }
+  return abducoSocketHasSession(label)
 }
 
 /**
@@ -470,7 +545,7 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
     // fails ("unit already exists") and the master falls into the daemon's cgroup —
     // where the next redeploy kills it (see scopeReclaimArgvs). Guarded on no live
     // master, so we only ever clear a zombie scope held open by orphaned grandchildren.
-    await reclaimStaleScope(opts.label)
+    await reclaimStaleScope(opts.label, liveEnv())
     try {
       await execCreate(
         'systemd-run',

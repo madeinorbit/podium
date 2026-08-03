@@ -8,7 +8,7 @@ import {
   runHeadlessTurn,
 } from '../headless-drivers.js'
 import type { ControlHandlers, DaemonContext } from './context'
-import { agentRelayEnv } from './session'
+import { sessionRelayEnv } from './session'
 
 // ---- Headless harness sessions (concierge unification, Phase A) ----
 function recordHeadlessAllocation(
@@ -70,7 +70,14 @@ function runHeadlessTurnRequest(
       ...(msg.sessionUuid ? { sessionUuid: msg.sessionUuid } : {}),
       ...(msg.timeoutMs ? { timeoutMs: msg.timeoutMs } : {}),
       env: {
-        ...agentRelayEnv(msg.sessionId, ctx.agentRelayEndpointFor(msg.sessionId), ctx.instanceId),
+        // A headless turn is always a harness (HarnessKind = AgentKind minus 'shell'),
+        // so it takes the agent-identity relay [POD-1375].
+        ...sessionRelayEnv(
+          msg.sessionId,
+          ctx.agentRelayEndpointFor(msg.sessionId),
+          ctx.instanceId,
+          msg.agent,
+        ),
         ...(ctx.homeDir ? { HOME: ctx.homeDir } : {}),
       },
       durableLabel: ctx.durableLabelFor(msg.sessionId),

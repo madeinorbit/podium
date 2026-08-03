@@ -16,17 +16,23 @@
  * (curated name slot); distinct from `--new "title"` which names the ISSUE.
  */
 
+import { makeRelayIssueClient } from '@podium/issue-client'
 import type { SessionId } from '@podium/model'
-import { makeIssueClient, makeRelayIssueClient } from '@podium/issue-client'
 import { resolveAgentRelay, resolvePort } from '@podium/runtime/config'
 import { MailCliError, parseMailArgs } from './mail-cli'
+import { makeOperatorIssueClient } from './operator-client'
+import { renderStatus, type StatusWire } from './session-cli'
 
 type Proc = { mutate(input?: unknown): Promise<unknown> }
+type Query = { query(input?: unknown): Promise<unknown> }
 
 export interface AgentClient {
   messages: {
     spawnAgent: Proc
     awaitAgent: Proc
+  }
+  sessions: {
+    status: Query
   }
 }
 
@@ -48,6 +54,9 @@ function helpText(): string {
     '  await <sessionId> [--timeout <seconds, default 30, max 300>]',
     '      Bounded wait: returns the child\'s ack or settle state, or "still',
     '      working" plus a status snapshot at the deadline. Never hangs.',
+    '  status <sessionId|issue-ref>',
+    '      Report actual harness/model/effort/context, phase, issue state, and',
+    '      every visible native or Podium child subagent.',
     '',
     'Drive a running child with `podium mail send --to <sessionId> …`;',
     'cancel = `podium mail send --urgency interrupt` (parent-grade).',
@@ -132,6 +141,13 @@ export async function runAgentCli(argv: string[], client: AgentClient): Promise<
         r,
       )
     }
+    case 'status': {
+      const ref = positionals[0]
+      if (!ref) throw new MailCliError('status needs a session id or issue ref')
+      if (positionals.length > 1) throw new MailCliError(`unexpected argument: ${positionals[1]}`)
+      const status = (await client.sessions.status.query({ ref })) as StatusWire
+      return done(renderStatus(status), status)
+    }
     case 'await': {
       const sessionId = positionals[0]
       if (!sessionId) throw new MailCliError('await needs a session id')
@@ -198,7 +214,7 @@ export async function agentCliMain(argv: string[]): Promise<void> {
   const outsideScope = argv.includes('--outside-scope')
   const client = (relay
     ? makeRelayIssueClient(relay, { outsideScope })
-    : makeIssueClient(`http://localhost:${resolvePort()}`)) as unknown as AgentClient
+    : makeOperatorIssueClient(`http://localhost:${resolvePort()}`)) as unknown as AgentClient
   try {
     console.log(await runAgentCli(argv, client))
   } catch (error) {

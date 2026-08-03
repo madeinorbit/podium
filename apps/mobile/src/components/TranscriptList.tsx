@@ -1,13 +1,18 @@
 import {
   buildChatRows,
   type ChatBlock,
+  envelopePrincipal,
   failLine,
   formatChurn,
   isAskUserQuestion,
   isChosenOption,
   latestPendingQuestion,
+  MACHINE_CONTEXT_RE,
+  machineContextLabel,
+  type ParsedEnvelope,
   pairToolResults,
   parseAskQuestions,
+  parseEnvelopeBatch,
   toolVerdict,
 } from '@podium/client-core/viewmodels'
 import type { TranscriptItem } from '@podium/model'
@@ -17,12 +22,16 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native'
+import type { TranscriptAssetContext } from '../lib/transcript-assets'
 import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
 import { AskQuestionCard } from './AskQuestionCard'
+import { RichMarkdown } from './RichMarkdown'
+import { SharedFiles } from './SharedFiles'
 
 function itemKey(item: TranscriptItem): string {
   return item.cursor ?? item.id
@@ -38,9 +47,22 @@ function itemKey(item: TranscriptItem): string {
  */
 interface Row {
   key: string
-  kind: 'user' | 'prose' | 'answer' | 'tools' | 'question' | 'receipt' | 'quiet' | 'pending'
+  kind:
+    | 'user'
+    | 'prose'
+    | 'answer'
+    | 'tools'
+    | 'question'
+    | 'receipt'
+    | 'quiet'
+    | 'pending'
+    | 'envelope'
+    | 'shared'
+    | 'recap'
+    | 'context'
   item: TranscriptItem
   blocks?: ChatBlock[]
+  envelope?: ParsedEnvelope
   /** Pre-formatted text for 'quiet' rows (system lines, churn durations). */
   quietText?: string
   /** Optimistic turn text for 'pending' rows (not yet echoed by the server). */
@@ -69,7 +91,7 @@ function shortTime(ts: string | undefined): string | undefined {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
-function buildRows(items: TranscriptItem[]): Row[] {
+function buildRows(items: TranscriptItem[], collapseContext: boolean): Row[] {
   const rows: Row[] = []
   for (const chatRow of buildChatRows(pairToolResults(items))) {
     if (chatRow.kind === 'tools') {
@@ -93,12 +115,22 @@ function buildRows(items: TranscriptItem[]): Row[] {
       })
       continue
     }
+    if (item.role === 'tool' && item.toolName === 'SendUserFile') {
+      rows.push({ key: itemKey(item), kind: 'shared', item })
+      continue
+    }
+
     if (item.role === 'tool') {
-      // Non-batchable tool without rich mobile rendering (SendUserFile): a quiet row.
+      // A stray non-batchable tool without dedicated rendering gets a quiet tool row.
       rows.push({ key: itemKey(item), kind: 'tools', item, blocks: [chatRow.block] })
       continue
     }
     if (item.role === 'system') {
+      if (item.systemKind === 'recap' && item.text.trim()) {
+        rows.push({ key: itemKey(item), kind: 'recap', item })
+        continue
+      }
+
       const quietText =
         item.systemKind === 'duration' && item.durationMs !== undefined
           ? `churned ${formatChurn(item.durationMs)}`
@@ -112,7 +144,30 @@ function buildRows(items: TranscriptItem[]): Row[] {
       continue
     }
     if (!item.text.trim()) continue
+    if (collapseContext && item.role === 'user' && MACHINE_CONTEXT_RE.test(item.text)) {
+      rows.push({ key: itemKey(item), kind: 'context', item })
+      continue
+    }
     if (item.role === 'user') {
+      const batch = parseEnvelopeBatch(item.text)
+      if (batch) {
+        for (const envelope of batch.envelopes) {
+          rows.push({
+            key: `${itemKey(item)}:message:${envelope.id}`,
+            kind: 'envelope',
+            item,
+            envelope,
+          })
+        }
+        if (batch.operatorText) {
+          rows.push({
+            key: `${itemKey(item)}:operator`,
+            kind: 'user',
+            item: { ...item, text: batch.operatorText },
+          })
+        }
+        continue
+      }
       rows.push({ key: itemKey(item), kind: 'user', item })
       continue
     }
@@ -120,9 +175,6 @@ function buildRows(items: TranscriptItem[]): Row[] {
   }
   return rows
 }
-
-/** POD-refs in message text become tappable (→ the task peek sheet). */
-const REF_RE = /\b(POD-\d+)\b/g
 
 function MessageText({
   text,
@@ -133,27 +185,87 @@ function MessageText({
   style: object
   onRefPress?: ((ref: string) => void) | undefined
 }) {
-  if (!onRefPress || !REF_RE.test(text)) {
-    return (
-      <Text style={style} selectable>
-        {text}
-      </Text>
-    )
-  }
-  const parts = text.split(REF_RE)
+  return <RichMarkdown text={text} textStyle={style} onRefPress={onRefPress} />
+}
+
+function EnvelopePrincipalLabel({
+  label,
+  onRefPress,
+}: {
+  label: string
+  onRefPress?: (ref: string) => void
+}) {
+  const principal = envelopePrincipal(label)
   return (
-    <Text style={style} selectable>
-      {parts.map((part, i) =>
-        /^POD-\d+$/.test(part) ? (
-          // biome-ignore lint/suspicious/noArrayIndexKey: split parts are positional
-          <Text key={`${part}:${i}`} style={styles.refLink} onPress={() => onRefPress(part)}>
-            {part}
+    <>
+      {principal.pre}
+      {principal.ref ? (
+        <Text
+          style={styles.envelopeRef}
+          onPress={onRefPress ? () => onRefPress(principal.ref as string) : undefined}
+        >
+          {principal.ref}
+        </Text>
+      ) : null}
+      {principal.post}
+    </>
+  )
+}
+
+function EnvelopeRow({
+  envelope,
+  onRefPress,
+}: {
+  envelope: ParsedEnvelope
+  onRefPress?: (ref: string) => void
+}) {
+  return (
+    <View style={styles.envelope}>
+      <View style={styles.envelopeHeader}>
+        <Text style={styles.envelopeKind}>Internal</Text>
+        <Text style={styles.envelopeRoute} numberOfLines={1}>
+          <EnvelopePrincipalLabel label={envelope.from} onRefPress={onRefPress} />
+          {' → '}
+          <EnvelopePrincipalLabel label={envelope.to} onRefPress={onRefPress} />
+        </Text>
+        {envelope.question ? <Text style={styles.envelopeQuestion}>question</Text> : null}
+        {envelope.expectsReply ? <Text style={styles.envelopeReply}>reply requested</Text> : null}
+      </View>
+      <Text style={styles.envelopeId}>{envelope.id}</Text>
+      <View style={styles.envelopeBody}>
+        <RichMarkdown text={envelope.body} onRefPress={onRefPress} />
+      </View>
+      {envelope.machineNote ? (
+        <Text style={styles.envelopeMachine}>{envelope.machineNote}</Text>
+      ) : null}
+    </View>
+  )
+}
+
+/** A machine-authored context block in headless sessions. Keep the transcript
+ * quiet by default, while preserving the complete source behind a disclosure. */
+function MachineContextDisclosure({ item }: { item: TranscriptItem }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <View>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={machineContextLabel(item.text)}
+        accessibilityState={{ expanded: open }}
+        onPress={() => setOpen((value) => !value)}
+        style={({ pressed }) => [styles.contextToggle, pressed && styles.contextPressed]}
+      >
+        <Text style={styles.contextGlyph}>{open ? '▾' : '▸'}</Text>
+        <Text style={styles.contextLabel}>{machineContextLabel(item.text)}</Text>
+      </Pressable>
+      {open ? (
+        <ScrollView style={styles.contextScroll} nestedScrollEnabled>
+          <Text selectable style={styles.contextBody}>
+            {item.text}
           </Text>
-        ) : (
-          part
-        ),
-      )}
-    </Text>
+        </ScrollView>
+      ) : null}
+    </View>
   )
 }
 
@@ -239,6 +351,8 @@ export function TranscriptList({
   onAnswer,
   onLoadOlder,
   onRefPress,
+  assetContext,
+  collapseContext = false,
   pendingTurns,
   onRetryPending,
 }: {
@@ -249,13 +363,17 @@ export function TranscriptList({
   onLoadOlder?: () => void
   /** Tap handler for POD-refs in message text (opens the task peek sheet). */
   onRefPress?: (ref: string) => void
+  /** Session-scoped server route context for transferred files and image previews. */
+  assetContext?: TranscriptAssetContext
+  /** Collapse machine-authored headless context blocks behind a disclosure row. */
+  collapseContext?: boolean
   /** Turns sent but not yet echoed by the server, appended at the tail. */
   pendingTurns?: readonly PendingTurn[]
   /** Send a rejected turn again (only failed rows expose the affordance). */
   onRetryPending?: (turn: PendingTurn) => void
 }) {
   const rows = useMemo(() => {
-    const built = buildRows(items)
+    const built = buildRows(items, collapseContext)
     for (const turn of pendingTurns ?? []) {
       built.push({
         key: `pending:${turn.id}`,
@@ -266,7 +384,7 @@ export function TranscriptList({
       })
     }
     return built
-  }, [items, pendingTurns])
+  }, [collapseContext, items, pendingTurns])
   const pending = useMemo(() => latestPendingQuestion(items), [items])
   const listRef = useRef<FlatList<Row>>(null)
   // Chronological (not inverted). Bottom-pinning is done by hand: scrollToEnd
@@ -311,6 +429,7 @@ export function TranscriptList({
                     style={styles.userText}
                     onRefPress={onRefPress}
                   />
+                  <SharedFiles item={row.item} context={assetContext} showHeader={false} />
                 </View>
               </View>
             )
@@ -374,6 +493,42 @@ export function TranscriptList({
                 <ToolsRun blocks={row.blocks ?? []} />
               </View>
             )
+          case 'shared':
+            return (
+              <View style={styles.rowWrap}>
+                <SharedFiles item={row.item} context={assetContext} />
+              </View>
+            )
+          case 'envelope':
+            return row.envelope ? (
+              <View style={styles.rowWrap}>
+                <EnvelopeRow envelope={row.envelope} onRefPress={onRefPress} />
+              </View>
+            ) : null
+          case 'context':
+            return (
+              <View style={styles.rowWrap}>
+                <MachineContextDisclosure item={row.item} />
+              </View>
+            )
+          case 'recap': {
+            const time = shortTime(row.item.ts)
+            return (
+              <View style={styles.rowWrap}>
+                <View style={styles.recap}>
+                  <View style={styles.answerLabelRow}>
+                    <Text style={styles.answerLabel}>Recap</Text>
+                    {time ? <Text style={styles.answerMeta}>{time}</Text> : null}
+                  </View>
+                  <MessageText
+                    text={row.item.text.trim()}
+                    style={styles.proseText}
+                    onRefPress={onRefPress}
+                  />
+                </View>
+              </View>
+            )
+          }
           case 'quiet':
             return (
               <View style={styles.rowWrap}>
@@ -397,10 +552,11 @@ export function TranscriptList({
                     onRefPress={onRefPress}
                   />
                 </View>
+                <SharedFiles item={row.item} context={assetContext} showHeader={false} />
               </View>
             )
           }
-          default:
+          default: {
             return (
               <View style={styles.rowWrap}>
                 <MessageText
@@ -408,8 +564,10 @@ export function TranscriptList({
                   style={styles.proseText}
                   onRefPress={onRefPress}
                 />
+                <SharedFiles item={row.item} context={assetContext} showHeader={false} />
               </View>
             )
+          }
         }
       }}
     />
@@ -427,6 +585,107 @@ const styles = StyleSheet.create({
   },
   rowWrap: {
     marginBottom: space.lg,
+  },
+  envelope: {
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: color.border,
+    borderLeftWidth: 3,
+    borderLeftColor: color.info,
+    borderRadius: radius.md,
+    backgroundColor: color.surface,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm + 2,
+  },
+  envelopeHeader: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 6,
+  },
+  envelopeKind: { ...monoLabel(font.micro), color: color.info },
+  envelopeRoute: {
+    ...sans(500),
+    flex: 1,
+    minWidth: 130,
+    color: color.textDim,
+    fontSize: font.tiny,
+  },
+  envelopeRef: { color: color.accentTint, textDecorationLine: 'underline' },
+  envelopeQuestion: {
+    ...monoLabel(8),
+    color: color.accent,
+    backgroundColor: color.accentSoft,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: radius.xs,
+  },
+  envelopeReply: {
+    ...monoLabel(8),
+    color: color.info,
+    backgroundColor: color.workingSoft,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: radius.xs,
+  },
+  envelopeId: {
+    ...mono(400),
+    color: color.textMicro,
+    fontSize: font.micro,
+    marginTop: 3,
+  },
+  envelopeBody: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: color.border,
+    marginTop: space.sm,
+    paddingTop: space.xs,
+  },
+  envelopeMachine: {
+    ...mono(400),
+    color: color.textMicro,
+    fontSize: font.micro,
+    lineHeight: 14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: color.border,
+    marginTop: space.sm,
+    paddingTop: space.xs,
+  },
+  contextToggle: {
+    minHeight: 28,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    paddingVertical: 4,
+  },
+  contextPressed: {
+    opacity: 0.6,
+  },
+  contextGlyph: {
+    ...mono(400),
+    width: 12,
+    color: color.textMicro,
+    fontSize: 10,
+  },
+  contextLabel: {
+    ...sans(600),
+    color: color.text,
+    fontSize: font.tiny,
+  },
+  contextScroll: {
+    maxHeight: 280,
+    marginTop: 4,
+    borderWidth: 1,
+    borderColor: color.border,
+    borderRadius: radius.md,
+    backgroundColor: color.bg,
+    paddingHorizontal: space.sm + 2,
+    paddingVertical: space.sm,
+  },
+  contextBody: {
+    ...mono(400),
+    color: color.textDim,
+    fontSize: 11,
+    lineHeight: 16,
   },
   // Operator turn — the ONLY elevated surface on the field.
   userWrap: {
@@ -510,10 +769,6 @@ const styles = StyleSheet.create({
     fontSize: font.body,
     lineHeight: 21,
   },
-  refLink: {
-    color: color.accentTint,
-    textDecorationLine: 'underline',
-  },
   // Tool run — muted mono one-liners.
   tools: {
     gap: 4,
@@ -576,6 +831,11 @@ const styles = StyleSheet.create({
     ...mono(400),
     color: color.textMicro,
     fontSize: font.tiny,
+  },
+  recap: {
+    borderTopWidth: 2,
+    borderTopColor: color.accentBorder,
+    paddingTop: space.md,
   },
   // Final answer — flat, marked by the page's only yellow: a keyline.
   answer: {

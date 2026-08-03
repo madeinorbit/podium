@@ -31,17 +31,26 @@ const LEGACY_MOBILE_KEYBOARD_THEME = {
  */
 const MOBILE_APPEARANCE = {
   fontSize: 10,
+  // Expo registers this exact static-face name. The shared desktop stack starts
+  // with `Geist Mono Variable`, which this bundle does not ship; leaving it in
+  // place made xterm measure/rasterize a browser fallback instead.
+  fontFamily: 'GeistMono_400Regular, ui-monospace, Menlo, monospace',
   lineHeight: 1.12,
 } as const
 
-export function TerminalPane({ sessionId }: { sessionId: SessionId }) {
+export function TerminalPane({ sessionId, active }: { sessionId: SessionId; active: boolean }) {
   const hub = useHub()
   const connected = useConnected()
   const { containerRef, toolbarRef, mountedRef, ready } = useTerminalSession({
     hub,
     sessionId,
     enabled: connected,
-    focusOnMount: true,
+    // Match the desktop AgentPanel lifecycle exactly: stay mounted while hidden,
+    // flip eligibility on the live session, and focus only after reveal/attach.
+    // This is what drives the shared reveal -> fit -> WebGL recovery sequence.
+    active,
+    focusOnMount: false,
+    focusWhenReady: true,
     appearance: MOBILE_APPEARANCE,
     test: new URLSearchParams(window.location.search).get('e2e') === '1',
   })

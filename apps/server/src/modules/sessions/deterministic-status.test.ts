@@ -41,6 +41,18 @@ it('captures spawn values instead of drifting issue defaults in row, meta, and s
     forceUnknownModel: true,
   })
 
+  registry.modules.sessions.onDaemonMessageFrom('local', {
+    type: 'agentModel',
+    sessionId: spawned.sessionId,
+    model: 'observed-model',
+    effort: 'xhigh',
+  })
+  registry.modules.sessions.onDaemonMessageFrom('local', {
+    type: 'agentContext',
+    sessionId: spawned.sessionId,
+    percent: 37.5,
+  })
+
   expect(spawned).toMatchObject({
     agentId: spawned.sessionId,
     harness: 'codex',
@@ -63,6 +75,9 @@ it('captures spawn values instead of drifting issue defaults in row, meta, and s
   expect(meta).toMatchObject({
     model: 'spawn-selected-model',
     effort: 'high',
+    observedModel: 'observed-model',
+    observedEffort: 'xhigh',
+    contextUsagePercent: 37.5,
     machineName: expect.any(String),
   })
 
@@ -86,8 +101,9 @@ it('captures spawn values instead of drifting issue defaults in row, meta, and s
   })
   const status = await toolkit.status(spawned.sessionId, 'operator')
   expect(status).toMatchObject({
-    model: 'spawn-selected-model',
-    effort: 'high',
+    model: 'observed-model',
+    effort: 'xhigh',
+    contextUsagePercent: 37.5,
     machine: expect.any(String),
     draft: false,
     nativeSubagentCount: 0,

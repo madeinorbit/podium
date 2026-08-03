@@ -1,5 +1,5 @@
-
 import { type IssueContractName, type LockCommandName } from '@podium/commands'
+import { SESSION_COOKIE } from '@podium/protocol'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 
 /** One issue procedure endpoint. Query and mutate are the same call over both
@@ -71,14 +71,99 @@ export interface IssueTrpc {
   machines?: { list: IssueProc }
 }
 
+/**
+ * True when `text` is a tRPC response envelope (single or batched). tRPC answers an
+ * ordinary procedure failure with a 4xx/5xx whose body IS an envelope — `{error:{message,
+ * code,data}}` — and that message ("issue is not proposed") is the whole point, so those
+ * must keep flowing to the link. What must NOT flow is a body from OUTSIDE tRPC, e.g. the
+ * auth guard's `{"error":"unauthorized"}` (apps/server/src/auth-route.ts:101).
+ *
+ * The discriminator is the TYPE of `result`/`error`, not its presence: the auth guard's
+ * `error` is a string, tRPC's is always an object.
+ */
+function isTrpcEnvelope(text: string): boolean {
+  let body: unknown
+  try {
+    body = JSON.parse(text)
+  } catch {
+    return false
+  }
+  const items = Array.isArray(body) ? body : [body]
+  if (items.length === 0) return false
+  return items.every((item) => {
+    if (!item || typeof item !== 'object') return false
+    const { result, error } = item as { result?: unknown; error?: unknown }
+    return (
+      (typeof result === 'object' && result !== null) ||
+      (typeof error === 'object' && error !== null)
+    )
+  })
+}
+
+/** The message for a response tRPC cannot parse. Names the status and the body, because
+ *  the body is where the real cause is; a 401 also names the fix.
+ *
+ *  The 401 has TWO cases and they need different advice. "Mint a session" is actively
+ *  misleading when a session was already sent — it tells the operator to do the thing they
+ *  just did, and never says the credential was rejected. `carriedCredential` splits them. */
+function describeNonEnvelope(status: number, text: string, carriedCredential: boolean): string {
+  const detail = text.trim() ? `: ${text.trim().slice(0, 500)}` : ''
+  if (status === 401 && carriedCredential)
+    return (
+      `HTTP 401 unauthorized${detail} — the session this CLI carried was rejected; it has ` +
+      'expired or been revoked. Mint a fresh one with `podium auth mint-session` ' +
+      '(`podium auth sessions` shows what the server still holds).'
+    )
+  if (status === 401)
+    return (
+      `HTTP 401 unauthorized${detail} — this Podium instance is password-protected and the ` +
+      'CLI carried no session. Mint one with `podium auth mint-session`, or set ' +
+      'PODIUM_SESSION_TOKEN to an existing session token.'
+    )
+  return `HTTP ${status} from the Podium server${detail}`
+}
+
+export interface IssueClientOptions {
+  /** A `podium_session` token (the same credential the browser login issues) sent as a
+   *  cookie on every call. Absent = no cookie, which is correct on an instance with no
+   *  password configured: `clientAuthGuard` passes those through. */
+  sessionToken?: string
+  /** Injected in tests. */
+  fetchImpl?: typeof fetch
+}
+
 /** Typed-transport tRPC client for the issue tracker. baseUrl e.g. http://localhost:18787
- *  (no trailing /trpc). Authorization isn't carried here: a caller who reaches /trpc is the
- *  operator (the login session gates that surface); constrained agents are relayed via their
- *  daemon. The wire shape is the server's AppRouter; this client is deliberately untyped
+ *  (no trailing /trpc).
+ *
+ *  AUTHORIZATION (POD-1376): this used to carry none, on the assumption that "a caller who
+ *  reaches /trpc is the operator (the login session gates that surface)". That assumption
+ *  was false on a password-protected instance — the surface IS reachable and answers 401,
+ *  so every direct/operator CLI call failed. `sessionToken` carries the operator's
+ *  credential; constrained agents still go through their daemon relay, which applies scope.
+ *
+ *  The wire shape is the server's AppRouter; this client is deliberately untyped
  *  against it (see IssueTrpc) — procedure names route by path exactly as before. */
-export function makeIssueClient(baseUrl: string): IssueTrpc {
+export function makeIssueClient(baseUrl: string, opts: IssueClientOptions = {}): IssueTrpc {
+  const doFetch = opts.fetchImpl ?? fetch
+  const guardedFetch: typeof fetch = async (input, init) => {
+    const headers = new Headers(init?.headers)
+    if (opts.sessionToken)
+      headers.set('cookie', `${SESSION_COOKIE}=${encodeURIComponent(opts.sessionToken)}`)
+    const res = await doFetch(input as never, { ...init, headers })
+    if (res.ok) return res
+    // Read once: a Response body can only be consumed once, so hand the link a fresh
+    // Response built from the same text rather than the drained original.
+    const text = await res.text().catch(() => '')
+    if (!isTrpcEnvelope(text))
+      throw new Error(describeNonEnvelope(res.status, text, Boolean(opts.sessionToken)))
+    return new Response(text, {
+      status: res.status,
+      statusText: res.statusText,
+      headers: res.headers,
+    })
+  }
   return createTRPCClient({
-    links: [httpBatchLink({ url: `${baseUrl}/trpc` })],
+    links: [httpBatchLink({ url: `${baseUrl}/trpc`, fetch: guardedFetch })],
   }) as unknown as IssueTrpc
 }
 

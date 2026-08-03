@@ -12,7 +12,7 @@ tip `2ddfec21`. Source proposal committed at
 |---|---|---|
 | 1 | [0001-authority-ownership.md](0001-authority-ownership.md) | Ownership matrix: home authority, writers, conflict rule, tombstones, offline + secret class per field/aggregate; InstanceId brand (sole decider) |
 | 2 | [0002-sync-protocol.md](0002-sync-protocol.md) | Delta feed, epochs, cursor-vs-revision, bootstrap/chunking, gap heal, wire-version negotiation; outbox-age inequality (value owned by ADR 3) |
-| 3 | [0003-command-security.md](0003-command-security.md) | Command contracts L1/L3, principal from transport, apply-time re-auth, three delivery classes, full outbox state machine (`sending`, dead-letter), redaction; outbox max age 14d |
+| 3 | [0003-command-security.md](0003-command-security.md) | Command contracts L1/L3, principal from transport, apply-time re-auth, three delivery classes, full outbox state machine (`sending`, dead-letter), redaction; outbox max age 14d; host-local agent scope = accident prevention (D14 / POD-1402) |
 | 4 | [0004-representation-policy.md](0004-representation-policy.md) | One semantic vocabulary; composed projections (storage/live/wire/ports); HandoffManifest as portable-export projection |
 | 5 | [0005-peer-topology.md](0005-peer-topology.md) | H1 local peer mesh (authority/console/machine), common framing + role-specific auth, reserved node-peer capabilities, federation seam S1–S5 (hub deferred, SP-0371) |
 | 6 | [0006-replica-storage.md](0006-replica-storage.md) | Transactional IndexedDB (web) / SQLite (mobile); outbox survives schema discard; localStorage/AsyncStorage = prefs/fallback only |

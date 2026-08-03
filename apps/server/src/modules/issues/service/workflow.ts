@@ -15,6 +15,7 @@ import { sessionsForIssue } from '../../../issue-util'
 import { buildAssistantMessages, parseAssistantJson } from '../../../issueAssistant'
 import { type LinearIssue, searchIssues } from '../../../linear'
 import { completeForRole } from '../../../llm-roles'
+import { LOCAL_PLACEHOLDER } from '../../../local-machine'
 import { assertModelSelectionValid } from '../../../model-validation'
 import type { IssueRow } from '../../../store'
 import { issueRefsPattern, probeGitState } from '../git-state'
@@ -91,15 +92,29 @@ export class IssueGitWorkflowModule {
   ): IssueWire | null {
     const row = this.store.rows.get(this.store.resolveRef(id))
     if (!row) return null
-    const repos = this.store.d.store.repos
-    const from = row.repoId ?? repos.resolveRepoIdForPath(row.repoPath)
-    const target = repos.resolveRepoIdForPath(to.repoPath)
-    if (!target || (from && from !== target)) return null
+    if (!this.isSameRepoIdentity(row, to.repoPath)) return null
     row.repoPath = to.repoPath
     return this.crud().update(id, {
       machineId: asMachineId(to.machineId),
       worktreePath: to.worktreePath,
     })
+  }
+
+  /**
+   * Is `toRepoPath` the SAME repository this issue already belongs to (POD-1461)?
+   *
+   * Identity is origin-derived via repoId, so it survives two machines having two
+   * layouts — /home/mgw/src/podium here, /home/till/src/podium there. Extracted from
+   * {@link rehome} so the machine-pinned START applies the same rule rather than a
+   * second copy: a target repo with a different identity would silently renumber the
+   * issue into another repo, and that must be refused on BOTH paths that move an issue
+   * between machines, not just the one that happened to be written first.
+   */
+  private isSameRepoIdentity(row: IssueRow, toRepoPath: string): boolean {
+    const repos = this.store.d.store.repos
+    const from = row.repoId ?? repos.resolveRepoIdForPath(row.repoPath)
+    const target = repos.resolveRepoIdForPath(toRepoPath)
+    return Boolean(target) && (!from || from === target)
   }
 
   private worktreePathFor(repoPath: string, branch: string): string {
@@ -108,28 +123,46 @@ export class IssueGitWorkflowModule {
     return `${repoPath}/.worktrees/${dir}`
   }
 
-  private modelSelectionFor(row: IssueRow, agentKind: string): { model: string; effort: string } {
+  /**
+   * The model/effort a spawn on this issue should actually run.
+   *
+   * `stored` is the issue's profile; the sanitizer drops a stored value that is merely
+   * the INHERITED coding-role default when the spawn is on a different harness, since
+   * one harness's slug is meaningless on another.
+   *
+   * `override` is an explicit per-launch choice (`issue start --model/--effort`,
+   * POD-1545) and bypasses the sanitizer entirely: an explicit value was not inherited
+   * from anything, so there is nothing to sanitize, and dropping it would be the
+   * parsed-then-silently-ignored failure this exists to avoid. Precedence, therefore:
+   * explicit flag > issue's stored value > `auto`.
+   */
+  private selectionFor(
+    agentKind: string,
+    stored: { agent: string; model: string; effort: string },
+    override?: { model?: string; effort?: string },
+  ): { model: string; effort: string } {
     const settings = this.store.d.getSettings()
     const coding = resolveRole(settings, 'coding')
-    const usesIssueProfile = agentKind === row.defaultAgent
+    const usesIssueProfile = agentKind === stored.agent
+    const inherited = (value: string, roleValue: string): string =>
+      usesIssueProfile && (agentKind === coding.harness || value !== roleValue) ? value : 'auto'
     return {
-      model:
-        usesIssueProfile &&
-        (agentKind === coding.harness || row.defaultModel !== settings.roles.coding.model)
-          ? row.defaultModel
-          : 'auto',
-      effort:
-        usesIssueProfile &&
-        (agentKind === coding.harness || row.defaultEffort !== settings.roles.coding.effort)
-          ? row.defaultEffort
-          : 'auto',
+      model: override?.model ?? inherited(stored.model, settings.roles.coding.model),
+      effort: override?.effort ?? inherited(stored.effort, settings.roles.coding.effort),
     }
   }
 
   async start(
     id: string,
     agentKind?: string,
-    opts?: { spawnedBy?: string; forceUnknownModel?: boolean },
+    opts?: {
+      spawnedBy?: string
+      forceUnknownModel?: boolean
+      /** Explicit per-launch model/effort (POD-1545). Beats the issue's stored value
+       *  and PERSISTS onto the issue, so every later spawn on it agrees. */
+      model?: string
+      effort?: string
+    },
   ): Promise<
     IssueWire &
       Partial<{
@@ -141,86 +174,109 @@ export class IssueGitWorkflowModule {
       }>
   > {
     const row = this.store.rowOrThrow(id)
-    if (row.worktreePath) return this.store.toWire(row) // already started
-    if (agentKind && agentKind !== row.defaultAgent) {
-      row.defaultAgent = agentKind
-      row.defaultModel = 'auto'
-      row.defaultEffort = 'auto'
+    if (row.worktreePath) {
+      // Starting a started issue is a deliberate no-op. But a caller who passed an
+      // explicit --model/--effort asked for something this no-op will not do, and
+      // accepting it in silence is the same failure one level up: the operator sees
+      // `started #n` and believes the choice landed. Refuse, and name what does work.
+      if (opts?.model || opts?.effort) {
+        throw new Error(
+          `#${row.seq} is already started — --model/--effort apply only to the session start spawns. ` +
+            `Use \`podium issue update --id ${row.seq} --model/--effort\` to change the issue's profile, ` +
+            `then \`podium issue add-session ${row.seq}\` to spawn a session that runs it.`,
+        )
+      }
+      return this.store.toWire(row)
     }
-    const selection = this.modelSelectionFor(row, row.defaultAgent)
+    // Switching harness at start discards the stored model/effort: they were chosen
+    // for the OLD harness and its slugs mean nothing on the new one.
+    const switching = Boolean(agentKind && agentKind !== row.defaultAgent)
+    const agent = agentKind ?? row.defaultAgent
+    const stored = {
+      agent,
+      model: switching ? 'auto' : row.defaultModel,
+      effort: switching ? 'auto' : row.defaultEffort,
+    }
+    const selection = this.selectionFor(agent, stored, {
+      ...(opts?.model ? { model: opts.model } : {}),
+      ...(opts?.effort ? { effort: opts.effort } : {}),
+    })
     // Reject an unavailable model/effort BEFORE mutating any start state (worktree,
-    // branch, stage) [spec:SP-cc60] — the issue's stored defaults are the selection.
+    // branch, stage, and the issue's own profile) [spec:SP-cc60]. Resolving the whole
+    // selection above rather than writing it to `row` first is what makes that true of
+    // the PROFILE too: a refused `--model` must not be left sitting on the issue for
+    // the next start to inherit silently.
     // Catalog is machine-keyed (POD-1123): validate against the issue's host.
     assertModelSelectionValid(
       this.store.d.store.settings.getModelCatalog(
         row.machineId ?? this.store.d.store.hostMachineId,
       ),
       {
-        agentKind: row.defaultAgent,
+        agentKind: agent,
         ...(selection.model ? { model: selection.model } : {}),
         ...(selection.effort ? { effort: selection.effort } : {}),
         ...(opts?.forceUnknownModel ? { force: true } : {}),
       },
     )
+    // Accepted — commit the selection to the issue. `--model`/`--effort` PERSIST here
+    // (documented as such in `start --help`), matching `--agent` above: the issue's
+    // profile is what add-session and every later respawn read, so a launch-only
+    // override would give one issue two answers to "what does this run at".
+    row.defaultAgent = agent
+    row.defaultModel = opts?.model ?? stored.model
+    row.defaultEffort = opts?.effort ?? stored.effort
     /**
-     * PLACE THE REPOSITORY BEFORE PLACING THE WORK (POD-1386).
+     * A machine-pinned start has to reach the target BEFORE the worktree add (POD-1424).
      *
-     * A machine pin used to go straight to `requireMachineForRepo`, which compares
-     * this issue's SOURCE repo path literally against the target's registered
-     * paths. Two machines have two layouts — `/home/a/src/podium` here,
-     * `/home/b/src/podium` there — so the pin refused on every correctly
-     * configured second machine with "no repo registered at …", even though the
-     * repository was present. Handoff never had that bug: it resolves by `repoId`
-     * and clones on absence. This calls the same resolver.
+     * Two things had to be true and neither was. The repository has to be resolved by
+     * IDENTITY, because two machines have two layouts and comparing the source path
+     * literally made a present repo read as absent; and the start point has to EXIST
+     * there, because `worktree add <path> <startPoint>` fails on a start point the
+     * target cannot resolve — and our own branches are on no shared remote, so a clone
+     * cannot fetch them.
      *
-     * The move is committed through `rehome`, not by assigning `row.repoPath`
-     * here, because repoPath and machineId have to travel together — the
-     * file-browser root, the sidebar's worktree and the cwd the next agent spawns
-     * into are all derived from the pair, and `rehome` is the guarded transition
-     * that already moves them as one (it also refuses a target whose repo IDENTITY
-     * differs, which would silently renumber the issue into another repo).
+     * ORDER IS THE PROPERTY. This runs first and the worktree add uses the path it
+     * returns: the repo path on the TARGET, which is not `row.repoPath`.
+     * requireMachineForRepo keeps its job and now runs AFTER, against the resolved path,
+     * so what it still catches — an offline machine — is exactly what it has an
+     * actionable message for.
      *
-     * `requireMachineForRepo` keeps its job and runs AFTER: by then the repo is
-     * registered on the target, so what it still catches — an offline machine —
-     * is the thing it gives an actionable message for.
+     * The move is committed through `rehome` rather than by assigning `row.repoPath`
+     * here, because repoPath and machineId have to travel together — the file-browser
+     * root, the sidebar's worktree and the cwd the next agent spawns into are all
+     * derived from the pair, and `rehome` is the guarded transition that already moves
+     * them as one.
      */
-    if (row.machineId && this.store.d.ensureRepoOnMachine) {
-      const targetRepoPath = await this.store.d.ensureRepoOnMachine(row.machineId, row.repoPath)
-      if (targetRepoPath !== row.repoPath) {
-        const moved = this.rehome(row.id, {
-          machineId: row.machineId,
-          repoPath: targetRepoPath,
-          // Not started yet, so there is no worktree to carry; `start` sites one
-          // below from the repo path this just moved to.
-          worktreePath: row.worktreePath ?? '',
-        })
-        if (!moved) {
-          throw new Error(
-            `machine ${row.machineId} has a repository at ${targetRepoPath} whose identity differs from this issue's — refusing to renumber the issue into another repo`,
-          )
-        }
-      }
+    let startRepoPath = row.repoPath
+    let startPoint = row.parentBranch
+    if (row.machineId && this.store.d.prepareMachineStart) {
+      const prepared = await this.store.d.prepareMachineStart({
+        repoPath: row.repoPath,
+        machineId: row.machineId,
+        ...(row.parentBranch ? { startPoint: row.parentBranch } : {}),
+      })
+      startRepoPath = prepared.repoPath
+      // A bundled branch lands as OBJECTS, not as a ref, so the branch name does not
+      // resolve on the target even though its commit does. prepareMachineStart hands
+      // back whatever the target can actually resolve — the name when it was already
+      // there, a commit id when it had to be shipped.
+      if (prepared.startPoint) startPoint = prepared.startPoint
     }
-    if (row.machineId) this.store.d.requireMachineForRepo?.(row.machineId, row.repoPath)
+    // Refuse a foreign repository BEFORE creating anything (POD-1461). The same identity
+    // rule rehome applies: a target whose repoId differs would renumber this issue into
+    // another repo. Checked here rather than after the add, so a refusal costs nothing.
+    if (startRepoPath !== row.repoPath && !this.isSameRepoIdentity(row, startRepoPath)) {
+      throw new Error(
+        `refusing to start on ${startRepoPath}: it is not the same repository as ${row.repoPath}`,
+      )
+    }
+    if (row.machineId) this.store.d.requireMachineForRepo?.(row.machineId, startRepoPath)
     const branch = this.store.slug(row.seq, row.title)
-    /**
-     * THE TARGET NEEDS THE COMMITS, NOT JUST THE REPOSITORY (POD-1405).
-     *
-     * `worktreeAdd` below passes `startPoint: row.parentBranch`, and a start point
-     * the target cannot resolve fails. Our integration branches never reach origin,
-     * so a freshly cloned repository over there CANNOT fetch them from anywhere —
-     * the objects have to move machine-to-machine. This is a no-op when the target
-     * already resolves the ref, which is every same-machine start and every start
-     * from a branch that IS on origin.
-     */
-    if (row.machineId && row.parentBranch && this.store.d.ensureRefOnMachine) {
-      await this.store.d.ensureRefOnMachine(row.machineId, row.repoPath, row.parentBranch)
-    }
-    const path = this.worktreePathFor(row.repoPath, branch)
+    const path = this.worktreePathFor(startRepoPath, branch)
     const res = await this.store.d.repoOp(
       'worktreeAdd',
-      row.repoPath,
-      { path, branch, startPoint: row.parentBranch },
+      startRepoPath,
+      { path, branch, ...(startPoint ? { startPoint } : {}) },
       row.machineId ?? undefined,
     )
     if (!res.ok) throw new Error(`worktree add failed: ${res.output}`)
@@ -245,6 +301,20 @@ export class IssueGitWorkflowModule {
     }
     row.branch = branch
     row.worktreePath = path
+    /**
+     * repoPath TRAVELS WITH the worktree (POD-1461).
+     *
+     * Leaving it on the source produced an inconsistent row — repoPath on one machine,
+     * worktreePath and machineId on another — and every later operation that derives a
+     * path from that pair then sent one machine's path to the other. Observed: stopping
+     * such a session ran `git -C <source>/podium worktree remove <target>/...` and died
+     * with "Permission denied", orphaning the checkout on the target.
+     *
+     * Handoff never had this bug because it commits through rehome, which moves the pair
+     * as one. This is the same move, so it obeys the same rule; the identity guard above
+     * is rehome's, applied before anything was built.
+     */
+    row.repoPath = startRepoPath
     row.stage = 'in_progress'
     // `assignee` is a branded `UserId` by POD-361's recorded decision ('free text
     // today, inventory §9'), and an `agent:<kind>` tag is not a user. The cast is
@@ -459,6 +529,17 @@ export class IssueGitWorkflowModule {
   }
 
   /**
+   * The issue's repository as the PINNED machine has it (POD-1571).
+   *
+   * Falls back to the issue's own path on absence, deliberately: that is what makes
+   * requireMachineForRepo still able to say NO, naming a path the user recognises.
+   */
+  private repoPathOnMachine(repoPath: string, machineId: string | null | undefined): string {
+    if (!machineId) return repoPath
+    return this.store.d.findRepoOnMachine?.(repoPath, machineId) ?? repoPath
+  }
+
+  /**
    * Ensure the issue's worktree exists on disk for the preserved branch
    * [spec:SP-9904]. Used on resume after stop freed the working copy.
    * Idempotent when the worktree is already present.
@@ -497,11 +578,16 @@ export class IssueGitWorkflowModule {
         issue: this.store.toWire(row),
       }
     }
-    const path = row.worktreePath ?? this.worktreePathFor(row.repoPath, row.branch)
-    if (row.machineId) this.store.d.requireMachineForRepo?.(row.machineId, row.repoPath)
+    // The repository is on the PINNED machine at that machine's path, which is not
+    // row.repoPath when the layouts differ (POD-1571). Resolve by identity first, then
+    // guard — and run the recreate itself against the resolved path, since `git -C
+    // <source path>` on the target names a directory that is not there.
+    const repoPath = this.repoPathOnMachine(row.repoPath, row.machineId)
+    const path = row.worktreePath ?? this.worktreePathFor(repoPath, row.branch)
+    if (row.machineId) this.store.d.requireMachineForRepo?.(row.machineId, repoPath)
     const res = await this.store.d.repoOp(
       'worktreeAddExisting',
-      row.repoPath,
+      repoPath,
       { path, branch: row.branch },
       machineId,
     )
@@ -908,7 +994,11 @@ export class IssueGitWorkflowModule {
     const row = this.store.rowOrThrow(id)
     if (!row.worktreePath) throw new Error('issue not started')
     const kind = agentKind ?? row.defaultAgent
-    const selection = this.modelSelectionFor(row, kind)
+    const selection = this.selectionFor(kind, {
+      agent: row.defaultAgent,
+      model: row.defaultModel,
+      effort: row.defaultEffort,
+    })
     // Reject an unavailable model/effort before spawning [spec:SP-cc60]. A 'shell'
     // session carries no model (addShell), so validation is a no-op there.
     assertModelSelectionValid(
@@ -922,7 +1012,15 @@ export class IssueGitWorkflowModule {
         ...(opts?.forceUnknownModel ? { force: true } : {}),
       },
     )
-    if (row.machineId) this.store.d.requireMachineForRepo?.(row.machineId, row.repoPath)
+    // Guard against the path the repository has ON THE PIN, not the issue's own
+    // (POD-1571): comparing the source path literally made a present repo read as
+    // absent and refused every add-session to a machine with a different layout.
+    if (row.machineId) {
+      this.store.d.requireMachineForRepo?.(
+        row.machineId,
+        this.repoPathOnMachine(row.repoPath, row.machineId),
+      )
+    }
     this.store.d.spawnSession({
       cwd: row.worktreePath,
       issueId: row.id,

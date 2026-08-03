@@ -12,7 +12,15 @@
  * every cross-session read is event-logged here (transcripts can carry secrets).
  */
 
-import type { SessionId, SessionMeta, SessionReadResult, SessionRecapResult, SessionStatusResult, TranscriptItem } from '@podium/model'
+import type {
+  SessionId,
+  SessionMeta,
+  SessionReadResult,
+  SessionRecapResult,
+  SessionStatusResult,
+  SessionStatusSubagent,
+  TranscriptItem,
+} from '@podium/model'
 import { resolveSessionIdentifier } from '@podium/protocol'
 import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
 import type { EventsRepository } from '../../store/events'
@@ -28,11 +36,17 @@ export const READ_TURN_CAP = 50
 export const RECAP_ITEM_CAP = 400
 export const RECAP_CHAR_CAP = 12_000
 
-/** The three read models now live in `@podium/model` so `apps/cli` can name
- *  them too (POD-366, inventory §2.1 #22). Re-exported here because this module
- *  is the server's read-toolkit entry point and its consumers import them from
- *  it — the definition moved, the import surface did not. */
-export type { SessionReadResult, SessionRecapResult, SessionStatusResult }
+/** The read models now live in `@podium/model` so `apps/cli` can name them too
+ *  (POD-366, inventory §2.1 #22). Re-exported here because this module is the
+ *  server's read-toolkit entry point and its consumers import them from it — the
+ *  definition moved, the import surface did not. `SessionStatusSubagent` and the
+ *  runtime keys ab75ab1e added to `SessionStatusResult` moved with them. */
+export type {
+  SessionReadResult,
+  SessionRecapResult,
+  SessionStatusResult,
+  SessionStatusSubagent,
+}
 
 export interface SessionReadToolkitDeps {
   listSessions(): SessionMeta[]
@@ -75,6 +89,41 @@ export type ReaderRef = SessionId | 'operator' | 'superagent' | `superagent:${st
 
 export class SessionReadToolkit {
   constructor(private readonly deps: SessionReadToolkitDeps) {}
+
+  private phaseOf(session: SessionMeta): string {
+    const phase = session.agentState?.phase
+    if (phase === 'needs_user') return 'blocked'
+    return phase ?? (session.busy ? 'working' : 'idle')
+  }
+
+  private subagentsOf(target: SessionMeta): SessionStatusSubagent[] {
+    const all = this.deps.listSessions()
+    const result: SessionStatusSubagent[] = []
+    const seen = new Set([target.sessionId])
+    const queue = [target.sessionId]
+    while (queue.length > 0) {
+      const parentSessionId = queue.shift()
+      if (!parentSessionId) break
+      for (const child of all) {
+        if (seen.has(child.sessionId)) continue
+        if (child.spawnedBy !== `session:${parentSessionId}`) continue
+        seen.add(child.sessionId)
+        queue.push(child.sessionId)
+        result.push({
+          sessionId: child.sessionId,
+          ...(child.displayRef ? { displayRef: child.displayRef } : {}),
+          parentSessionId,
+          harness: child.agentKind,
+          model: child.observedModel ?? child.model ?? null,
+          effort: child.observedEffort ?? child.effort ?? null,
+          contextUsagePercent: child.contextUsagePercent ?? null,
+          status: child.status,
+          phase: this.phaseOf(child),
+        })
+      }
+    }
+    return result
+  }
 
   /** Resolve a status ref — a session id/birth ref, or an issue ref
    *  (#N/seq/id) whose best member session (live preferred, else most recent
@@ -124,21 +173,24 @@ export class SessionReadToolkit {
       (t: { text: string; done: boolean }) => `[${t.done ? 'x' : ' '}] ${t.text}`,
     )
     const agentPhase = target.agentState?.phase
-    const phase =
-      agentPhase === 'needs_user' ? 'blocked' : (agentPhase ?? (target.busy ? 'working' : 'idle'))
+    const phase = this.phaseOf(target)
     const error = agentPhase === 'errored' ? (target.agentState?.error ?? null) : null
     return {
       sessionId: target.sessionId,
       agentKind: target.agentKind,
+      harness: target.agentKind,
       status: target.status,
       phase,
       machine: target.machineName || target.machineId || null,
-      model: target.model ?? null,
-      effort: target.effort ?? null,
+      model: target.observedModel ?? target.model ?? null,
+      effort: target.observedEffort ?? target.effort ?? null,
+      contextUsagePercent: target.contextUsagePercent ?? null,
       account: target.accountId ?? null,
       error,
       draft: target.draftUpdatedAt !== undefined,
       nativeSubagentCount: target.agentState?.nativeSubagentCount ?? 0,
+      nativeSubagents: target.agentState?.nativeSubagents ?? [],
+      subagents: this.subagentsOf(target),
       issue: issue ? { seq: issue.seq, stage: issue.stage, title: issue.title, todos } : null,
       commits: lines(log).slice(0, 5),
       // First porcelain -b line is the branch header — keep it (names the branch),

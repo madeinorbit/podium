@@ -14,8 +14,9 @@
  * dual-write mirror rows with the SAME ids).
  */
 
-import { makeIssueClient, makeRelayIssueClient } from '@podium/issue-client'
+import { makeRelayIssueClient } from '@podium/issue-client'
 import { resolveAgentRelay, resolvePort } from '@podium/runtime/config'
+import { makeOperatorIssueClient } from './operator-client'
 
 type MailProc = {
   mutate(input?: unknown): Promise<unknown>
@@ -337,7 +338,7 @@ export async function mailCliMain(argv: string[]): Promise<void> {
   const outsideScope = argv.includes('--outside-scope')
   const client = (relay
     ? makeRelayIssueClient(relay, { outsideScope })
-    : makeIssueClient(`http://localhost:${resolvePort()}`)) as unknown as MailClient
+    : makeOperatorIssueClient(`http://localhost:${resolvePort()}`)) as unknown as MailClient
   try {
     console.log(await runMailCli(argv, client))
   } catch (error) {

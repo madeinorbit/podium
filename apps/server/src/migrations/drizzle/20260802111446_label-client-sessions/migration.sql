@@ -1,0 +1,1 @@
+ALTER TABLE `client_sessions` ADD `label` text DEFAULT 'login' NOT NULL;

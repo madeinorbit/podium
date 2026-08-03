@@ -499,8 +499,8 @@ describe('MessageDeliveryService.send', () => {
     expect(sent[0]!.sessionId).toBe('sCoord')
     expect(r.message.deliveredTo).toBe('sCoord')
 
-    // fyi is unchanged — still the mail-nudge heuristic (most recently active when multi).
-    // Two idle live agents: multi-live picks most-recent (sOther), never the coordinator.
+    // fyi routes the same way [POD-1365] — the coordinator wins over the more
+    // recently active peer. Urgency decides how it surfaces, not who receives it.
     const idlePair = [
       session({
         sessionId: asSessionId('sCoord'),
@@ -522,8 +522,8 @@ describe('MessageDeliveryService.send', () => {
       { kind: 'superagent' },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'fyi note', urgency: 'fyi' },
     )
-    expect(hFyi.sent[0]!.sessionId).toBe('sOther')
-    expect(fyi.message.deliveredTo).toBe('sOther')
+    expect(hFyi.sent[0]!.sessionId).toBe('sCoord')
+    expect(fyi.message.deliveredTo).toBe('sCoord')
 
     // Coordinator set but not live → fall back to selectMailNudgeSession.
     const noCoordLive = [
@@ -549,6 +549,236 @@ describe('MessageDeliveryService.send', () => {
       { to: { kind: 'issue', id: ISSUE.id }, body: 'fallback', urgency: 'interrupt' },
     )
     expect(fall.message.deliveredTo).toBe('sNew')
+  })
+
+  // [POD-1365] Routing is by ROLE, not by urgency. The fan-out regression: worker
+  // status reports to a coordinator are correctly 'fyi' (they expect no reply), and
+  // routing skipped the coordinator branch for exactly that class — then fell through
+  // to selectMailNudgeSession, which picks the most-recently-active member: during a
+  // fan-out, systematically a worker mid-task. Urgency governs HOW mail surfaces,
+  // never WHO receives it.
+  it('routes fyi issue-addressed mail to the coordinator, not the busiest member', () => {
+    // The measured POD-279 shape: coordinator and worker both live, worker more
+    // recently active (they sat ~100ms apart on output recency).
+    const members = [
+      session({
+        sessionId: 'sCoord',
+        agentState: IDLE,
+        lastActiveAt: 't0',
+        issueId: ISSUE.id,
+      }),
+      session({
+        sessionId: 'sWorker',
+        agentState: IDLE,
+        lastActiveAt: 't9',
+        issueId: ISSUE.id,
+      }),
+    ]
+    const { svc, sent } = harness(members, {
+      coordinatorByIssue: new Map([[ISSUE.id, 'sCoord']]),
+    })
+    const r = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'lane green, gate passed', urgency: 'fyi' },
+    )
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!.sessionId).toBe('sCoord')
+    expect(r.message.deliveredTo).toBe('sCoord')
+  })
+
+  // [POD-1365] Routing by role must not reintroduce the POD-279 15× self-echo loop
+  // [spec:SP-a4ba]: a coordinator mailing its OWN issue is still excluded from its own
+  // issue's recipient resolution, even though it is the designated coordinator.
+  it('never routes a coordinator its own fyi mail to its own issue', () => {
+    const members = [
+      session({
+        sessionId: 'sCoord',
+        agentState: IDLE,
+        lastActiveAt: 't9',
+        issueId: ISSUE.id,
+      }),
+      session({
+        sessionId: 'sWorker',
+        agentState: IDLE,
+        lastActiveAt: 't0',
+        issueId: ISSUE.id,
+      }),
+    ]
+    const { svc, sent } = harness(members, {
+      coordinatorByIssue: new Map([[ISSUE.id, 'sCoord']]),
+    })
+    const r = svc.send(
+      { kind: 'agent', issueId: ISSUE.id, sessionId: 'sCoord' },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'note to the lane', urgency: 'fyi' },
+    )
+    expect(sent.map((s) => s.sessionId)).not.toContain('sCoord')
+    expect(r.message.deliveredTo).not.toBe('sCoord')
+  })
+
+  // [POD-1365] Measured in production: the coordinator preference was applied at SEND
+  // time only. A coordinator that is mid-turn cannot take an fyi immediately, so the row
+  // stays queued with NO recipient recorded — and the drain path (onSessionIdle) then
+  // hands the issue's pending mail to whichever OTHER member reaches idle first. On a
+  // fan-out the coordinator is busy by definition and a classifier/worker idles often,
+  // so this is not a race the coordinator sometimes loses: it loses every time. Three
+  // consecutive POD-279 sends (msg_546b389c, msg_fd3fb616, msg_2822086a) went to the
+  // same wrong session while the coordinator field was set and both sessions were live.
+  it('holds queued issue mail for a busy coordinator instead of draining it to a peer', () => {
+    const members = [
+      // The coordinator is mid-turn — the normal state of a fan-out coordinator.
+      session({ sessionId: 'sCoord', agentState: WORKING, lastActiveAt: 't0', issueId: ISSUE.id }),
+      session({ sessionId: 'sWorker', agentState: IDLE, lastActiveAt: 't9', issueId: ISSUE.id }),
+    ]
+    const { svc, store, sent } = harness(members, {
+      coordinatorByIssue: new Map([[ISSUE.id, 'sCoord']]),
+    })
+    const r = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'lane green', urgency: 'fyi' },
+    )
+    // Correct today: a busy coordinator cannot take it now, so it waits.
+    expect(r.message.status).toBe('queued')
+
+    // The peer reaches a turn boundary first. It must NOT swallow the coordinator's mail.
+    svc.onSessionIdle(session({ sessionId: 'sWorker', agentState: IDLE, issueId: ISSUE.id }))
+    expect(sent.map((s) => s.sessionId)).not.toContain('sWorker')
+    expect(store.messages.getMessage(r.message.id)!.deliveredTo).not.toBe('sWorker')
+
+    // It is still waiting, and the coordinator gets it at ITS next boundary.
+    svc.onSessionIdle(session({ sessionId: 'sCoord', agentState: IDLE, issueId: ISSUE.id }))
+    expect(sent.map((s) => s.sessionId)).toContain('sCoord')
+  })
+
+  // [POD-1365 / POD-1371] Coordinator preference is by ROLE, not by session STATUS.
+  // Status is a different axis from agent PHASE: an agent at its prompt is phase
+  // 'idle' and status 'live' — SessionStatus has no 'idle' member
+  // ('starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited'). Prefer the
+  // coordinator whenever it still exists as a non-exited member; only 'exited'
+  // falls through to the most-recently-active peer so a departed coordinator
+  // cannot strand mail. A parked (hibernated) coordinator HOLDS fyi mail for its
+  // next turn — default lifecycle is wait, so this does not spawn a process; the
+  // bug was picking a DIFFERENT recipient, not failing to wake [POD-1371].
+  it.each([
+    { status: 'live', wins: true },
+    { status: 'starting', wins: true },
+    { status: 'reconnecting', wins: true },
+    { status: 'hibernated', wins: true },
+    { status: 'exited', wins: false },
+  ])('coordinator with status $status receives issue mail: $wins', ({ status, wins }) => {
+    const members = [
+      session({
+        sessionId: 'sCoord',
+        status: status as SessionMeta['status'],
+        agentState: IDLE,
+        lastActiveAt: 't0',
+        issueId: ISSUE.id,
+      }),
+      // A live, more-recently-active peer — what recency would pick.
+      session({
+        sessionId: 'sWorker',
+        agentState: IDLE,
+        lastActiveAt: 't9',
+        issueId: ISSUE.id,
+      }),
+    ]
+    const { svc, sent, queued } = harness(members, {
+      coordinatorByIssue: new Map([[ISSUE.id, 'sCoord']]),
+    })
+    const r = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'lane status', urgency: 'fyi' },
+    )
+    if (wins) {
+      // Never the busier peer — that is the silent misroute this pins.
+      expect(r.message.deliveredTo).not.toBe('sWorker')
+      expect(sent.map((s) => s.sessionId)).not.toContain('sWorker')
+      expect(queued.map((s) => s.sessionId)).not.toContain('sWorker')
+      if (status === 'live') {
+        // Idle + live injects now.
+        expect(r.message.deliveredTo).toBe('sCoord')
+      } else {
+        // Non-live coordinator: fyi is HELD (lifecycle wait) for that role —
+        // no wake/spawn on every note. Row stays queued with no peer recipient.
+        expect(r.message.deliveredTo).toBeNull()
+        expect(r.message.status).toBe('queued')
+        expect(sent).toHaveLength(0)
+        expect(queued).toHaveLength(0)
+      }
+    } else {
+      expect(r.message.deliveredTo).toBe('sWorker')
+    }
+  })
+
+  // [POD-1371] lifecycle=wake on a parked coordinator uses the existing wake path
+  // (queueText → resurrect), still by ROLE — not the busier live peer.
+  it('wakes a hibernated coordinator for lifecycle=wake issue mail, not a live peer', () => {
+    const members = [
+      session({
+        sessionId: 'sCoord',
+        status: 'hibernated',
+        agentState: IDLE,
+        lastActiveAt: 't0',
+        issueId: ISSUE.id,
+      }),
+      session({
+        sessionId: 'sWorker',
+        agentState: IDLE,
+        lastActiveAt: 't9',
+        issueId: ISSUE.id,
+      }),
+    ]
+    const { svc, queued, sent } = harness(members, {
+      coordinatorByIssue: new Map([[ISSUE.id, 'sCoord']]),
+    })
+    const r = svc.send(
+      { kind: 'operator' },
+      {
+        to: { kind: 'issue', id: ISSUE.id },
+        body: 'wake the lane lead',
+        urgency: 'next-turn',
+        lifecycle: 'wake',
+      },
+    )
+    expect(sent.map((s) => s.sessionId)).not.toContain('sWorker')
+    expect(queued.map((s) => s.sessionId)).toContain('sCoord')
+    expect(queued.map((s) => s.sessionId)).not.toContain('sWorker')
+    expect(r.message.deliveredTo).toBe('sCoord')
+  })
+
+  // [POD-1371] Held mail for a hibernated coordinator must not drain to a peer
+  // that reaches idle first — same ownership rule as the live busy case (POD-1365),
+  // extended to parked coordinators.
+  it('holds issue mail for a hibernated coordinator instead of draining it to a peer', () => {
+    const members = [
+      session({
+        sessionId: 'sCoord',
+        status: 'hibernated',
+        agentState: IDLE,
+        lastActiveAt: 't0',
+        issueId: ISSUE.id,
+      }),
+      session({
+        sessionId: 'sWorker',
+        agentState: IDLE,
+        lastActiveAt: 't9',
+        issueId: ISSUE.id,
+      }),
+    ]
+    const { svc, store, sent, queued } = harness(members, {
+      coordinatorByIssue: new Map([[ISSUE.id, 'sCoord']]),
+    })
+    const r = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'lane green', urgency: 'fyi' },
+    )
+    expect(r.message.status).toBe('queued')
+    expect(r.message.deliveredTo).toBeNull()
+
+    svc.onSessionIdle(session({ sessionId: 'sWorker', agentState: IDLE, issueId: ISSUE.id }))
+    expect(sent.map((s) => s.sessionId)).not.toContain('sWorker')
+    expect(queued.map((s) => s.sessionId)).not.toContain('sWorker')
+    expect(store.messages.getMessage(r.message.id)!.deliveredTo).not.toBe('sWorker')
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('queued')
   })
 
   it('records queued→injected→delivered on the ledger and emits an event per transition', () => {
@@ -2135,6 +2365,37 @@ describe('readInbox (podium mail inbox)', () => {
     )
     svc.readInbox([{ kind: 'issue', id: ISSUE.id }], {})
     expect(store.messages.getMessage(r2.message.id)!.status).toBe('queued')
+  })
+
+  it("a peer's consuming read leaves the other members of the issue still pending [POD-1379]", () => {
+    const { svc, store } = harness([]) // no live member → the issue send stays queued
+    const r = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'for whoever picks this up' },
+    )
+    // s1 opens the SHARED issue mailbox — the mutating path.
+    svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: 's1' })
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('read')
+    expect(store.messages.countPendingForSession(ISSUE.id, 's1')).toBe(0)
+    // …and s2, who never saw it, still has it. The old issue-wide ledger
+    // destroyed its unread status here.
+    expect(store.messages.countPendingForSession(ISSUE.id, 's2')).toBe(1)
+    // The sender is never nagged about its own message [POD-1365 parity].
+    expect(store.messages.countPendingForSession(ISSUE.id, 'sX')).toBe(0)
+    // s2 reads it in turn, and is then quiet.
+    svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: 's2' })
+    expect(store.messages.countPendingForSession(ISSUE.id, 's2')).toBe(0)
+  })
+
+  it('a transcript echo retires the nag for the session that saw it, not for its peers', () => {
+    const { svc, store } = harness([session({ sessionId: 's1' })])
+    const r = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'pushed to the coordinator' },
+    )
+    store.messages.markDelivered(r.message.id, 's1', '2026-07-01T00:00:00.000Z')
+    expect(store.messages.countPendingForSession(ISSUE.id, 's1')).toBe(0)
+    expect(store.messages.countPendingForSession(ISSUE.id, 's2')).toBe(1)
   })
 })
 

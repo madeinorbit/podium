@@ -19,6 +19,7 @@ import {
   resolveInstallDir,
   resolvePort,
   resolveRunRecordMode,
+  resolveSessionRelay,
   resolveUpdateChannel,
   resolveUpdateFeed,
   resolveUpdateTarget,
@@ -242,6 +243,30 @@ describe('layered resolvers (#251): env → config.json → default', () => {
         PODIUM_NO_RELAY: '1',
         PODIUM_AGENT_RELAY: 'http://127.0.0.1:1/agent/s1',
         PODIUM_ISSUE_RELAY: 'http://127.0.0.1:1/issue/s1',
+      }),
+    ).toBeUndefined()
+  })
+  // POD-1375: the two resolvers answer different questions, and a shell's env is
+  // exactly the case that separates them — session relay bound, agent relay absent.
+  it('resolveSessionRelay reads a shell session (no agent relay), resolveAgentRelay does not', () => {
+    const shellEnv = { PODIUM_SESSION_RELAY: 'http://127.0.0.1:1/agent/s1' }
+    expect(resolveSessionRelay(shellEnv)).toBe('http://127.0.0.1:1/agent/s1')
+    expect(resolveAgentRelay(shellEnv)).toBeUndefined()
+  })
+  it('resolveSessionRelay falls back to the agent (then legacy) name for pre-split sessions', () => {
+    expect(resolveSessionRelay({ PODIUM_AGENT_RELAY: 'http://127.0.0.1:1/agent/s1' })).toBe(
+      'http://127.0.0.1:1/agent/s1',
+    )
+    expect(resolveSessionRelay({ PODIUM_ISSUE_RELAY: 'http://127.0.0.1:1/issue/s1' })).toBe(
+      'http://127.0.0.1:1/issue/s1',
+    )
+    expect(resolveSessionRelay({})).toBeUndefined()
+  })
+  it('resolveSessionRelay: PODIUM_NO_RELAY sheds an inherited relay → undefined', () => {
+    expect(
+      resolveSessionRelay({
+        PODIUM_NO_RELAY: '1',
+        PODIUM_SESSION_RELAY: 'http://127.0.0.1:1/agent/s1',
       }),
     ).toBeUndefined()
   })

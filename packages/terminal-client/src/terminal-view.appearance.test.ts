@@ -40,6 +40,11 @@ describe('TerminalView appearance', () => {
     expect(o.fontFamily).toBe('Iosevka, monospace')
     expect(o.lineHeight).toBe(1.4)
     expect((o.theme as { background?: string }).background).toBe('#0a1a3a')
+    expect(view.diagnosticSnapshot().font).toEqual({
+      family: 'Iosevka, monospace',
+      size: 16,
+      lineHeight: 1.4,
+    })
     view.dispose()
   })
 

@@ -95,6 +95,25 @@ export function ChatView({
     if (chat.gone) onLeave?.(sessionId)
   }, [chat.gone, onLeave, sessionId])
 
+  // Publish the scroller's own height so a sticky operator prompt can cap
+  // itself at a fraction of the chat viewport in CSS (POD-1368 — the clamp
+  // itself is `.transcript-you-clamp` in styles.css, driven by ChatBlockView).
+  // Setting a custom property here is loop-safe: the scroller is sized by its
+  // flex parent, so nothing it publishes can feed back into its own box.
+  const { scrollerRef } = chat
+  useEffect(() => {
+    const el = scrollerRef.current
+    if (!el) return
+    const publish = (): void => {
+      el.style.setProperty('--chat-viewport-h', `${el.clientHeight}px`)
+    }
+    publish()
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(publish)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [scrollerRef])
+
   return (
     <div className={cn('flex min-h-0 flex-1 flex-col', compact && 'chat-compact')}>
       {/* Search + tl;dr header — hidden in the compact superagent dock. */}

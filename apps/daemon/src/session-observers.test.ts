@@ -1241,11 +1241,30 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
     await writeFile(transcript, '')
     const sent: DaemonMessage[] = []
     const statTick = new ManualStatTick()
+    let captureCalls = 0
+    let forcePromptEvidence = false
     const observers = createSessionObservers({
       statTick,
       send: (message) => sent.push(message),
       onTranscriptDirty: vi.fn(),
       cwdTracker: { onHookCwd: vi.fn(async () => {}) },
+      captureClaudeTranscript: async (path, options) => {
+        captureCalls += 1
+        const capture = await captureClaudeTranscript(path, options)
+        if (!forcePromptEvidence || options?.promptScanStart === undefined) return capture
+        return {
+          ...capture,
+          prompts: [
+            {
+              offset: options.promptScanStart,
+              recordBoundary: options.promptScanStart + 1,
+              payloadFingerprint: 'later-prompt',
+              origin: 'human' as const,
+              hasAssistantOutputAfter: false,
+            },
+          ],
+        }
+      },
     })
     observers.initSessionObservers(
       {
@@ -1343,6 +1362,23 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       result: 'live_transition_accepted',
       acceptedCursor: working.observation.providerCursor,
     })
+    // A stale accepted cursor can have a later prompt and therefore produce no
+    // confirmation. Those failed proof attempts must still be bounded; otherwise
+    // every 700 ms tick rereads the same transcript suffix forever.
+    forcePromptEvidence = true
+    const capturesBeforeFailedProofs = captureCalls
+    for (const watcher of statTick.watchers) watcher()
+    await vi.waitFor(() => expect(captureCalls).toBe(capturesBeforeFailedProofs + 1))
+    for (const watcher of statTick.watchers) watcher()
+    await vi.waitFor(() => expect(captureCalls).toBe(capturesBeforeFailedProofs + 2))
+    for (const watcher of statTick.watchers) watcher()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(captureCalls).toBe(capturesBeforeFailedProofs + 2)
+    expect(sent.filter((m) => m.type === 'agentObserverLiveConfirmation')).toHaveLength(0)
+
+    forcePromptEvidence = false
+    const now = Date.now()
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(now + 60_001)
     for (const watcher of statTick.watchers) watcher()
     await vi.waitFor(() =>
       expect(sent.filter((m) => m.type === 'agentObserverLiveConfirmation')).toHaveLength(1),
@@ -1360,6 +1396,15 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
     await vi.waitFor(() =>
       expect(sent.filter((m) => m.type === 'agentObserverLiveConfirmation')).toHaveLength(2),
     )
+    nowSpy.mockRestore()
+
+    // Once two proofs for the same accepted cursor have been emitted, the
+    // one-minute rate limit must suppress the expensive transcript capture too,
+    // not merely suppress the outbound confirmation after rereading the file.
+    const capturesAfterTwoProofs = captureCalls
+    for (const watcher of statTick.watchers) watcher()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(captureCalls).toBe(capturesAfterTwoProofs)
 
     // A torn suffix and then a completed prompt-bearing suffix both emit zero proof.
     const confirmations = sent.filter((m) => m.type === 'agentObserverLiveConfirmation').length

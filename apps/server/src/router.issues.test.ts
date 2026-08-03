@@ -33,6 +33,20 @@ describe('issues router inputs (P1)', () => {
     expect(inputSchema('issues.depAdd').parse({ fromId: 'a', toId: 'b' }).type).toBeUndefined()
   })
 
+  // POD-1342: the CLI's truncation footer tells the reader to raise these, so
+  // they have to survive the wire — an id-only input would strip them silently.
+  it('tree accepts the raisable depth/node caps and rejects out-of-range ones', () => {
+    const schema = inputSchema('issues.tree')
+    expect(schema.parse({ id: 'a' })).toEqual({ id: 'a' })
+    expect(schema.parse({ id: 'a', maxDepth: 6, maxNodes: 400 })).toEqual({
+      id: 'a',
+      maxDepth: 6,
+      maxNodes: 400,
+    })
+    expect(() => schema.parse({ id: 'a', maxNodes: 0 })).toThrow()
+    expect(() => schema.parse({ id: 'a', maxDepth: 21 })).toThrow()
+  })
+
   it('close accepts an optional reason', () => {
     expect(inputSchema('issues.close').parse({ id: 'a' }).id).toBe('a')
     expect(inputSchema('issues.close').parse({ id: 'a', reason: 'duplicate' }).reason).toBe(
@@ -92,6 +106,27 @@ describe('issues.* subtree scope (P1a)', () => {
       overrideScope,
     })
   }
+
+  // POD-1342: the schema accepting the caps is not enough — the handler has to
+  // forward them, and the payload has to echo which caps it actually applied.
+  it('tree forwards the raised caps to the service and echoes them back', async () => {
+    const c = appRouter.createCaller({
+      registry,
+      repos: {} as never,
+      superagent: {} as never,
+      capability: OPERATOR,
+    })
+    for (let i = 0; i < 4; i++)
+      await c.issues.create({ repoPath: '/r', title: `k${i}`, parentId: A.id, startNow: false })
+    const capped = await c.issues.tree({ id: A.id, maxNodes: 3 })
+    expect(capped.totalNodes).toBe(3)
+    expect(capped.omitted).toBe(2)
+    expect(capped.maxNodes).toBe(3)
+    const whole = await c.issues.tree({ id: A.id })
+    expect(whole.totalNodes).toBe(5)
+    expect(whole.omitted).toBe(0)
+    expect(whole.maxNodes).toBe(100)
+  })
 
   it('worker may write inside its subtree', async () => {
     const c = callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: asIssueId(A.id) } })

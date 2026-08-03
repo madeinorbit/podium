@@ -1,10 +1,16 @@
-import { makeIssueClient, makeRelayIssueClient } from '@podium/issue-client'
+import { makeRelayIssueClient } from '@podium/issue-client'
 // The tier-1/2/3 session read models. These were three hand-copies here
 // (`StatusWire`, `RecapWire`, `ReadWire` — inventory §2.1 #22) because
 // `apps/cli` cannot import `apps/server`; `@podium/model` is the shared L0 home
 // they were missing (POD-366).
-import type { SessionId, SessionReadResult, SessionRecapResult, SessionStatusResult } from '@podium/model'
+import type {
+  SessionId,
+  SessionReadResult,
+  SessionRecapResult,
+  SessionStatusResult,
+} from '@podium/model'
 import { resolveAgentRelay, resolvePort } from '@podium/runtime/config'
+import { makeOperatorIssueClient } from './operator-client'
 
 type SessionResult = { ok: boolean; queued?: boolean; reason?: string; disposition?: string }
 type SessionProc = { mutate(input: Record<string, unknown>): Promise<SessionResult> }
@@ -36,7 +42,7 @@ export interface SessionControlClient {
     title: { mutate(input: Record<string, unknown>): Promise<TitleResult> }
     /** Clean end [spec:SP-9904] — no sessionId = stop the CALLING session. */
     stop: { mutate(input: Record<string, unknown>): Promise<StopResult> }
-    /** Move a live session to another machine (POD-1386 exposing POD-642's
+    /** Move a live session to another machine (POD-1386/POD-1424 exposing POD-642's
      *  `sessions.handoff`). Takes a `machineId`; the CLI resolves the name. */
     handoff: { mutate(input: Record<string, unknown>): Promise<HandoffResult> }
   }
@@ -50,6 +56,33 @@ export interface SessionControlClient {
  *  target — a per-machine fact no caller can compute. */
 type HandoffResult = { ok: boolean; newCwd?: string; reason?: string }
 
+/**
+ * What `podium session status` prints.
+ *
+ * The tier-1 read model itself is {@link SessionStatusResult} in @podium/model — the
+ * shared L0 home that retired this file's hand-copied `StatusWire` (POD-366). The
+ * runtime-status keys POD-1262 added on main are declared here as OPTIONAL extras
+ * rather than restoring the copy: they are produced by the server read toolkit and
+ * belong in the model projection, so this local widening collapses into
+ * `SessionStatusResult` the moment that projection carries them.
+ */
+export interface StatusWire extends SessionStatusResult {
+  /** The harness actually driving the session, when it differs from `agentKind`. */
+  harness?: string
+  contextUsagePercent?: number | null
+  nativeSubagents?: { id: string; type?: string }[]
+  subagents?: {
+    sessionId: string
+    displayRef?: string
+    parentSessionId: string
+    harness: string
+    model: string | null
+    effort: string | null
+    contextUsagePercent: number | null
+    status: string
+    phase: string
+  }[]
+}
 
 /** Tier-4 seance wire shape (modules/messages/gate `ask`). */
 interface AskWire {
@@ -62,12 +95,41 @@ interface AskWire {
   snapshot: { sessionId: SessionId; status: string; phase?: string; issueId?: string } | null
 }
 
+function contextLabel(percent: number | null | undefined): string {
+  return percent == null ? 'unknown' : `${percent}%`
+}
 
-function renderStatus(s: SessionStatusResult): string {
+/**
+ * The subagent fan-out under a session (POD-1262). Native subagents the harness
+ * reports by identity are named; the ones it only counts are reported as counted,
+ * because "3 active" and "3 active, unnamed" are different facts about the harness.
+ */
+function renderSubagents(s: StatusWire): string | null {
+  const lines: string[] = []
+  const native = s.nativeSubagents ?? []
+  for (const child of native) {
+    lines.push(`  native ${child.id}${child.type ? ` type=${child.type}` : ''}`)
+  }
+  const unseenNative = s.nativeSubagentCount - native.length
+  if (unseenNative > 0) lines.push(`  native ${unseenNative} active (identity unavailable)`)
+  for (const child of s.subagents ?? []) {
+    lines.push(
+      `  session ${child.displayRef ?? child.sessionId} parent=${child.parentSessionId} ` +
+        `harness=${child.harness} model=${child.model ?? 'default'} ` +
+        `effort=${child.effort ?? 'default'} context=${contextLabel(child.contextUsagePercent)} ` +
+        `${child.status}/${child.phase}`,
+    )
+  }
+  return lines.length ? `subagents:\n${lines.join('\n')}` : null
+}
+
+export function renderStatus(s: StatusWire): string {
   return [
-    `${s.sessionId} (${s.agentKind}) ${s.status}/${s.phase}`,
-    `placement: machine=${s.machine ?? 'unknown'} model=${s.model ?? 'default'} effort=${s.effort ?? 'default'} account=${s.account ?? 'default'}`,
+    `${s.sessionId} ${s.status}/${s.phase}`,
+    `runtime: harness=${s.harness ?? s.agentKind} model=${s.model ?? 'default'} effort=${s.effort ?? 'default'} context=${contextLabel(s.contextUsagePercent)}`,
+    `placement: machine=${s.machine ?? 'unknown'} account=${s.account ?? 'default'}`,
     `state: nativeSubagentCount=${s.nativeSubagentCount} draft=${s.draft ? 'yes' : 'no'}`,
+    renderSubagents(s),
     s.error
       ? `error: ${s.error.class} (${s.error.retryable ? 'retryable' : 'not retryable'})`
       : null,
@@ -166,8 +228,8 @@ function helpText(): string {
     '  continue <session-id> [--outside-scope]',
     '      Type continue only when the running session is in an errored phase.',
     '  status <session-id|#issue> [--outside-scope]',
-    '      Structured peek: phase, issue stage/todos, last commits, files touched,',
-    '      unacked message count. No transcript text (~200 tokens).',
+    '      Structured peek: actual runtime/context, visible subagents, phase, issue',
+    '      state, commits, files, and unacked messages. No transcript text.',
     '  read <session-id> [--turns N] [--cursor C] [--outside-scope]',
     '      Bounded raw-transcript window (newest first page; --cursor pages back).',
     '      Hard-capped per call; every read is event-logged.',
@@ -191,7 +253,7 @@ function helpText(): string {
     '  stop [<session-id>] [--force] [--outside-scope]',
     '      Cleanly end a session: stop its process, FREE the worktree, KEEP the branch',
     '      + transcript (reversible — resume recreates the worktree from the branch).',
-    '      No id = stop THIS session (an agent\'s last act when done). Refuses when the',
+    "      No id = stop THIS session (an agent's last act when done). Refuses when the",
     '      working tree has unsaved changes unless --force. Stopping a session outside',
     '      your issue subtree requires --outside-scope (human permission asserted).',
   ].join('\n')
@@ -321,7 +383,7 @@ export async function runSessionCli(
 
   // Read toolkit tiers 1–2 (#237) [spec:SP-34d7].
   if (command === 'status') {
-    const s = (await client.sessions.status.query({ ref: sessionId })) as SessionStatusResult
+    const s = (await client.sessions.status.query({ ref: sessionId })) as StatusWire
     return args.json === true ? JSON.stringify({ command, ok: true, data: s }) : renderStatus(s)
   }
   if (command === 'read') {
@@ -411,7 +473,9 @@ export async function sessionCliMain(argv: string[]): Promise<void> {
   const outsideScope = argv.includes('--outside-scope')
   const client = (relay
     ? makeRelayIssueClient(relay, { outsideScope })
-    : makeIssueClient(`http://localhost:${resolvePort()}`)) as unknown as SessionControlClient
+    : makeOperatorIssueClient(
+        `http://localhost:${resolvePort()}`,
+      )) as unknown as SessionControlClient
   try {
     console.log(await runSessionCli(argv, client, { hasRelay: Boolean(relay) }))
   } catch (error) {

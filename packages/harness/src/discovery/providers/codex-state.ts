@@ -23,6 +23,68 @@ export type CodexStateMetadataResult = {
   diagnostics: AgentConversationDiagnostic[]
 }
 
+/** Root-keyed wall-clock cache for discovery inventory. Codex updates token/accounting
+ * fields in state_*.sqlite continuously; those writes must not force a full threads
+ * table scan when the discovery scanner asks again. Live observer fields use the
+ * indexed single-thread reader below and are intentionally not served from here. */
+export function createTimedCodexStateMetadataReader(
+  read: (root: string) => Promise<CodexStateMetadataResult> = readCodexStateMetadata,
+  ttlMs = 5 * 60_000,
+  now: () => number = Date.now,
+): (root: string) => Promise<CodexStateMetadataResult> {
+  const entries = new Map<
+    string,
+    { expiresAt: number; value: Promise<CodexStateMetadataResult> }
+  >()
+  return (root: string) => {
+    const cached = entries.get(root)
+    const current = now()
+    if (cached && current < cached.expiresAt) return cached.value
+    const value = read(root).catch((error) => {
+      if (entries.get(root)?.value === value) entries.delete(root)
+      throw error
+    })
+    entries.set(root, { expiresAt: current + ttlMs, value })
+    return value
+  }
+}
+
+/**
+ * Read only the live observer fields for one known thread. Unlike the discovery
+ * inventory's `SELECT * FROM threads`, this indexed lookup never materializes
+ * unrelated threads or their multi-KB payload columns when another Codex process
+ * updates the shared state DB.
+ */
+export async function readCodexThreadMetadata(
+  root: string,
+  threadId: string,
+): Promise<CodexThreadMetadata | undefined> {
+  const statePath = await findLatestStateDatabase(root)
+  if (!statePath) return undefined
+
+  let db: SqlDatabase | undefined
+  try {
+    db = openDatabase(statePath, { readOnly: true })
+    const row = db
+      .prepare(
+        'SELECT id, rollout_path, substr(title, 1, 512) AS title FROM threads WHERE id = ? LIMIT 1',
+      )
+      .get(threadId)
+    if (!isRecord(row)) return undefined
+    const id = stringFromRow(row, 'id')
+    if (!id) return undefined
+    return {
+      id,
+      rolloutPath: resolveRolloutPath(root, stringFromRow(row, 'rollout_path')),
+      title: compactText(stringFromRow(row, 'title')),
+    }
+  } catch {
+    return undefined
+  } finally {
+    db?.close()
+  }
+}
+
 export async function readCodexStateMetadata(root: string): Promise<CodexStateMetadataResult> {
   const diagnostics: AgentConversationDiagnostic[] = []
   const byThreadId = new Map<string, CodexThreadMetadata>()
@@ -34,7 +96,22 @@ export async function readCodexStateMetadata(root: string): Promise<CodexStateMe
   let db: SqlDatabase | undefined
   try {
     db = openDatabase(statePath, { readOnly: true })
-    const threadRows = db.prepare('SELECT * FROM threads').all()
+    const threadRows = db
+      .prepare(`
+        SELECT
+          id,
+          rollout_path,
+          substr(title, 1, 512) AS title,
+          cwd,
+          archived,
+          created_at_ms,
+          updated_at_ms,
+          git_branch,
+          git_sha,
+          git_origin_url
+        FROM threads
+      `)
+      .all()
     const edgeRows = tableExists(db, 'thread_spawn_edges')
       ? db.prepare('SELECT * FROM thread_spawn_edges').all()
       : []
@@ -57,7 +134,6 @@ export async function readCodexStateMetadata(root: string): Promise<CodexStateMe
         id,
         rolloutPath,
         title: compactText(stringFromRow(row, 'title')),
-        preview: compactText(stringFromRow(row, 'preview')),
         cwd: stringFromRow(row, 'cwd'),
         archived: numberFromRow(row, 'archived') === 1,
         parentThreadId: parentByChild.get(id),

@@ -16,6 +16,8 @@ import {
 import {
   DELEGATION_RULE,
   formatIssueRef,
+  ISSUE_TREE_DEFAULT_MAX_DEPTH,
+  ISSUE_TREE_DEFAULT_MAX_NODES,
   LOCK_RULE,
   SPINOFF_RULE,
   TITLE_RULE,
@@ -177,8 +179,8 @@ export class IssueReportsModule {
     opts: { maxDepth?: number; maxNodes?: number } = {},
     mayRead: (id: string) => boolean = () => true,
   ): IssueTree {
-    const maxDepth = opts.maxDepth ?? 3
-    const maxNodes = opts.maxNodes ?? 100
+    const maxDepth = opts.maxDepth ?? ISSUE_TREE_DEFAULT_MAX_DEPTH
+    const maxNodes = opts.maxNodes ?? ISSUE_TREE_DEFAULT_MAX_NODES
     const rootRow = this.store.rowOrThrow(this.store.resolveRef(ref))
     if (!mayRead(rootRow.id)) throw new Error(`unknown issue ${ref}`)
     const byParent = new Map<string, IssueRow[]>()
@@ -218,6 +220,10 @@ export class IssueReportsModule {
       const sessions: IssueTreeSession[] = members.map((s) =>
         toIssueTreeSession({
           ...s,
+          // OBSERVED beats configured: what the harness is actually running is
+          // what a reader of the tree needs (ab75ab1e).
+          model: s.observedModel ?? s.model,
+          effort: s.observedEffort ?? s.effort,
           ...(row.coordinatorSessionId && row.coordinatorSessionId === s.sessionId
             ? { coordinator: true }
             : {}),
@@ -245,7 +251,7 @@ export class IssueReportsModule {
       }
     }
     const root = node(rootRow, 0)
-    return { root, totalNodes: count, omitted }
+    return { root, totalNodes: count, omitted, maxDepth, maxNodes }
   }
 
   /** Dependency status over a set of issues — an issue's subtree (id given,
@@ -620,7 +626,7 @@ export class IssueReportsModule {
   }
 
   prime(
-    opts: { repoPath?: string; boundIssueId?: string | null },
+    opts: { repoPath?: string; boundIssueId?: string | null; sessionId?: string },
     mayRead: (id: string) => boolean = () => true,
   ): string {
     const rules = [
@@ -691,7 +697,14 @@ export class IssueReportsModule {
         // delivered-as-transcript-turn (and any dual-written twin the substrate
         // already accounts for). Helper lives next to mailPending to avoid a
         // circular import through the inheritance chain.
-        const unreadMail = countContextAwarePendingMail(this.store.deps.store, me.id).unread
+        // Per-READER count [POD-1379]: a fresh/resumed agent is told about the
+        // mail IT has not seen, not about whatever a peer on the issue left.
+        const unreadMail = countContextAwarePendingMail(
+          this.store.deps.store,
+          me.id,
+          undefined,
+          opts.sessionId,
+        ).unread
         return [
           `You are working on ${this.niceRef(me)}: ${me.title}`,
           me.stage === 'backlog'

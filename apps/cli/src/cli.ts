@@ -150,6 +150,7 @@ export type LaunchPlan =
   | { kind: 'offer'; args: string[] }
   | { kind: 'agent'; args: string[] }
   | { kind: 'spec'; args: string[] }
+  | { kind: 'auth'; args: string[] }
   | { kind: 'worktree'; args: string[] }
   | { kind: 'workspace'; args: string[] }
   | { kind: 'lock'; args: string[] }
@@ -474,6 +475,7 @@ export function resolvePlan(
   if (argv[0] === 'offer') return { kind: 'offer', args: argv.slice(1) }
   if (argv[0] === 'agent') return { kind: 'agent', args: argv.slice(1) }
   if (argv[0] === 'spec') return { kind: 'spec', args: argv.slice(1) }
+  if (argv[0] === 'auth') return { kind: 'auth', args: argv.slice(1) }
   if (argv[0] === 'worktree') return { kind: 'worktree', args: argv.slice(1) }
   if (argv[0] === 'workspace') return { kind: 'workspace', args: argv.slice(1) }
   if (argv[0] === 'lock') return { kind: 'lock', args: argv.slice(1) }
@@ -619,6 +621,10 @@ export function helpText(enabledFeatures: ReadonlySet<FeatureId> = new Set()): s
     '  stop                  Stop managed podium processes',
     '  logs [component]      Show logs for managed processes',
     '',
+    'Access:',
+    '  auth mint-session     Mint this host’s operator session (password-protected instances)',
+    '  auth sessions         List client sessions by label; revoke-sessions to drop a class',
+    '',
     'Self-update:',
     '  update                Self-update from the configured channel feed',
     '  channel [stable|edge] Show or switch the update channel',
@@ -636,6 +642,7 @@ export function helpText(enabledFeatures: ReadonlySet<FeatureId> = new Set()): s
       ? ['  spec <command>        Read/maintain the living project spec (<repo>/pspec/)']
       : []),
     '  session <command>     Send turns to agent sessions; status/read for a peek',
+    '  machine <command>     List the machines this session can place work on',
     '  automation schedule --at <ISO> --message <text> [--session <id> | --fresh ...]',
     '                        Request a one-off session wake (agent sessions only)',
     '  mail <command>        Send/read/reply to agent messages (unified substrate)',
@@ -676,11 +683,12 @@ export async function resolveCliFeatures(
 ): Promise<ReadonlySet<FeatureId>> {
   let client = providedClient
   if (!client) {
-    const { makeIssueClient, makeRelayIssueClient } = await import('@podium/issue-client')
+    const { makeRelayIssueClient } = await import('@podium/issue-client')
+    const { makeOperatorIssueClient } = await import('./operator-client')
     const relay = resolveAgentRelay(env)
     client = (relay
       ? makeRelayIssueClient(relay)
-      : makeIssueClient(
+      : makeOperatorIssueClient(
           `http://localhost:${resolvePort(config, env)}`,
         )) as unknown as CliFeaturesClient
   }
@@ -1200,6 +1208,21 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
       await specCliMain(plan.args)
       return
     }
+    // `podium auth <command>`: the operator's own credential — mint/inspect/revoke the
+    // session the direct CLI carries on a password-protected instance [POD-1376].
+    case 'auth': {
+      const { authCliMain } = await import('./auth-cli')
+      try {
+        await authCliMain(plan.args, {
+          print: (line) => console.log(line),
+          printErr: (line) => console.error(line),
+        })
+      } catch (err) {
+        console.error(`podium auth: ${err instanceof Error ? err.message : String(err)}`)
+        process.exitCode = 1
+      }
+      return
+    }
     // `podium worktree [path]`: agent declares the worktree it's working in.
     case 'worktree': {
       const { worktreeCliMain } = await import('./worktree-cli')
@@ -1233,7 +1256,7 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
     }
     case 'status': {
       const { statusCommand } = await import('./cli-lifecycle')
-      statusCommand()
+      await statusCommand()
       return
     }
     case 'stop': {
