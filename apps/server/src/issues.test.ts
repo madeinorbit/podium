@@ -1298,6 +1298,23 @@ describe('IssueService.start', () => {
       expect(deps.spawnSession).not.toHaveBeenCalled()
     })
 
+    /** Found while verifying live: re-starting a started issue is a no-op, so the flag
+     *  was accepted and dropped and the CLI still printed `started #n`. */
+    it('refuses --model/--effort on an already-started issue instead of ignoring them', async () => {
+      const { svc, deps } = harness()
+      const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+      await svc.start(a.id)
+      ;(deps.spawnSession as ReturnType<typeof vi.fn>).mockClear()
+      await expect(svc.start(a.id, undefined, { model: 'opus' })).rejects.toThrow(
+        /already started.*add-session/s,
+      )
+      await expect(svc.start(a.id, undefined, { effort: 'high' })).rejects.toThrow(/already started/)
+      expect(deps.spawnSession).not.toHaveBeenCalled()
+      // …while a plain re-start stays the no-op it has always been.
+      expect((await svc.start(a.id)).seq).toBe(1)
+      expect(deps.spawnSession).not.toHaveBeenCalled()
+    })
+
     it('--force-unknown-model still lets an explicit unlisted model through', async () => {
       const { svc, deps, store } = harness()
       store.settings.setModelCatalog({

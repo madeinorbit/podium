@@ -127,7 +127,20 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
       }>
   > {
     const row = this.rowOrThrow(id)
-    if (row.worktreePath) return this.toWire(row) // already started
+    if (row.worktreePath) {
+      // Starting a started issue is a deliberate no-op. But a caller who passed an
+      // explicit --model/--effort asked for something this no-op will not do, and
+      // accepting it in silence is the same failure one level up: the operator sees
+      // `started #n` and believes the choice landed. Refuse, and name what does work.
+      if (opts?.model || opts?.effort) {
+        throw new Error(
+          `#${row.seq} is already started — --model/--effort apply only to the session start spawns. ` +
+            `Use \`podium issue update --id ${row.seq} --model/--effort\` to change the issue's profile, ` +
+            `then \`podium issue add-session ${row.seq}\` to spawn a session that runs it.`,
+        )
+      }
+      return this.toWire(row)
+    }
     // Switching harness at start discards the stored model/effort: they were chosen
     // for the OLD harness and its slugs mean nothing on the new one.
     const switching = Boolean(agentKind && agentKind !== row.defaultAgent)
