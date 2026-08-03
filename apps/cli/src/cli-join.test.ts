@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { loadConfig, saveConfig } from '@podium/runtime/config'
+import { CURRENT_CONFIG_VERSION, loadConfig, saveConfig } from '@podium/runtime/config'
 import { encodeJoin } from '@podium/runtime/join'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { applyJoinToken } from './cli-join'
@@ -23,10 +23,11 @@ describe('applyJoinToken', () => {
     const token = encodeJoin({ v: 1, serverUrl: 'wss://h', pairCode: 'P1', name: 'vps' })
     expect(applyJoinToken(token)).toEqual({ name: 'vps' })
     expect(loadConfig()).toEqual({
+      configVersion: CURRENT_CONFIG_VERSION,
       mode: 'daemon',
       serverUrl: 'wss://h',
       pairCode: 'P1',
-      pendingPersistence: 'systemd',
+      persistence: 'systemd',
     })
   })
   it('preserves the update channel across a join (#20 — install.sh --channel edge --join)', () => {

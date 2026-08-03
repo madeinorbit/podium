@@ -10,6 +10,7 @@ import {
   type AuditResult,
   baselineOf,
   CHECKS,
+  cliLaunchPlanControlMisses,
   DAEMON_COMPOSITION_ROOT,
   DAEMON_COMPOSITION_ROOT_MAX_LINES,
   diffBaseline,
@@ -1044,6 +1045,14 @@ describe('against the live repo', () => {
       // and the count FELL while nothing was deleted. Asserted in
       // 'reexport-shims ERRORS when its anchor stops matching' below.
       'reexport-shims',
+      // POD-333 replaced the two config-migration states in `resolvePlan` with a
+      // versioned config + one-shot migrations at load, so the launch matrix
+      // holds only real launch modes. Exempt on the SAME terms as the others and
+      // no looser: `collect` THROWS when its root matches no file and when its
+      // pattern stops matching its controls — one of which is the union-member
+      // spelling that went SILENT under the first draft of the re-anchored
+      // pattern. Asserted below.
+      'cli-launch-plan-debt',
       // POD-324 deleted all four exported sync/async durable-host pairs. The
       // detector now proves its zero against both surviving source roots and a
       // synthetic sync+async control pair, throwing if either anchor disappears.
@@ -1283,5 +1292,87 @@ describe('reexport-shims: the anchor behind its ZERO_BY_DESIGN exemption', () =>
       ctxOf({ 'apps/server/src/index.ts': "export * from './relay'\nexport * from './server'" }),
     )
     expect(barrel).toEqual([])
+  })
+})
+
+/**
+ * `cli-launch-plan-debt` was RE-ANCHORED at POD-333, from `repair-config` onto
+ * the two states the item is actually named after. Re-pointing a detector while
+ * your own phase is the one closing it is the move that deserves suspicion, so
+ * the new anchor is pinned against both spellings a re-grown state would take.
+ */
+describe('cli-launch-plan-debt: the re-anchored detector still says NO', () => {
+  const check = CHECKS.find((c) => c.id === 'cli-launch-plan-debt')
+
+  it('catches the reconcile VARIANT coming back', () => {
+    const sites = check?.collect(
+      ctxOf({
+        'apps/cli/src/cli.ts':
+          "export type LaunchPlan =\n  | { kind: 'reconcile-pending-persistence'; port: number }",
+      }),
+    )
+    expect(sites).toHaveLength(1)
+  })
+
+  it('catches the incomplete-headless-config REASON coming back as a union member', () => {
+    // THE CASE THAT WENT SILENT under the first draft of this pattern, which
+    // anchored on `reason:\s*` and on a trailing `|`. A third union member is
+    // the most likely way the state actually returns, and it matched neither.
+    const sites = check?.collect(
+      ctxOf({
+        'apps/cli/src/cli.ts':
+          "  | { kind: 'interactive-setup'; port: number; reason: 'explicit' | 'first-run' | 'incomplete-headless-config' }",
+      }),
+    )
+    expect(sites).toHaveLength(1)
+  })
+
+  it('does NOT flag repair-config — corruption is not versioning', () => {
+    // `podium setup --repair` backs up a config.json that will not PARSE (#21).
+    // A truncated file is not an old file, and a version field does not make one
+    // readable, so the command survives the migration work and must not be
+    // counted as its residue.
+    expect(
+      check?.collect(ctxOf({ 'apps/cli/src/cli.ts': "  | { kind: 'repair-config' }" })),
+    ).toEqual([])
+  })
+
+  it('does not count a mention in prose', () => {
+    // Comments are stripped before matching, which is what lets the pattern be a
+    // bare literal — this file and cli.ts both name the retired states in their
+    // own doc comments.
+    expect(
+      check?.collect(
+        ctxOf({
+          'apps/cli/src/cli.ts':
+            "// the old 'reconcile-pending-persistence' plan\nexport const a = 1",
+        }),
+      ),
+    ).toEqual([])
+  })
+})
+
+describe('cli-launch-plan-debt: the anchor behind its ZERO_BY_DESIGN exemption', () => {
+  const PATTERN = String.raw`'reconcile-pending-persistence'|'incomplete-headless-config'`
+
+  it('matches every control string it is written to match', () => {
+    expect(cliLaunchPlanControlMisses(PATTERN)).toEqual([])
+  })
+
+  it('reports the union-member control when the pattern over-anchors', () => {
+    // The exact first draft, restaged: anchoring the second literal on `reason:`
+    // and a trailing `|` misses it as a third union member — which is how the
+    // state would most naturally come back.
+    const missing = cliLaunchPlanControlMisses(
+      String.raw`kind:\s*'reconcile-pending-persistence'|reason:\s*'incomplete-headless-config'`,
+    )
+    expect(missing).toContain("reason: 'explicit' | 'first-run' | 'incomplete-headless-config'")
+  })
+
+  it('collect THROWS when its root matches no file, rather than reporting zero', () => {
+    const check = CHECKS.find((c) => c.id === 'cli-launch-plan-debt')
+    expect(() => check?.collect(ctxOf({ 'apps/cli/src/other.ts': 'export const a = 1' }))).toThrow(
+      /matched no file/,
+    )
   })
 })

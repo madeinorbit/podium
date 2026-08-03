@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { loadConfig, saveConfig } from './config'
+import { CURRENT_CONFIG_VERSION, loadConfig, saveConfig } from './config'
 import { encodeJoin } from './join'
 import {
   applyJoin,
@@ -56,10 +56,13 @@ describe('setup core', () => {
   it('applySetup persists mode + publicUrl (first run → all-in-one)', () => {
     applySetup({ publicUrl: 'https://box.ts.net' })
     expect(loadConfig()).toEqual({
+      configVersion: CURRENT_CONFIG_VERSION,
       mode: 'all-in-one',
       publicUrl: 'https://box.ts.net',
-      // Web setup can't start the backend itself — it records the intent (#20).
-      pendingPersistence: 'systemd',
+      // Web setup can't START the backend from inside the serving process, but
+      // it records the CHOICE — one field, not an intent beside a result
+      // (POD-333). The next `podium` invocation brings the split up.
+      persistence: 'systemd',
     })
   })
   it('applySetup preserves a relay-only `server` mode when the URL is set later', () => {
@@ -71,20 +74,20 @@ describe('setup core', () => {
     applySetup({ publicUrl: 'https://relay.ts.net', mode: 'server' })
     expect(loadConfig()).toMatchObject({ mode: 'server', publicUrl: 'https://relay.ts.net' })
   })
-  it('applySetup records no persistence intent when one was already fulfilled', () => {
+  it('applySetup does not overwrite a persistence the box already chose', () => {
     saveConfig({ mode: 'all-in-one', persistence: 'detached' })
     applySetup({ publicUrl: 'https://box.ts.net' })
-    expect(loadConfig().pendingPersistence).toBeUndefined()
     expect(loadConfig().persistence).toBe('detached')
   })
   it('applyJoin writes a daemon config from a join token', () => {
     const token = encodeJoin({ v: 1, serverUrl: 'wss://relay', pairCode: 'P1', name: 'box' })
     expect(applyJoin(token)).toEqual({ name: 'box' })
     expect(loadConfig()).toEqual({
+      configVersion: CURRENT_CONFIG_VERSION,
       mode: 'daemon',
       serverUrl: 'wss://relay',
       pairCode: 'P1',
-      pendingPersistence: 'systemd',
+      persistence: 'systemd',
     })
   })
   it('applyJoin PATCHES config: updateChannel/port/persistence survive; host fields drop (#20)', () => {
@@ -100,12 +103,13 @@ describe('setup core', () => {
     const token = encodeJoin({ v: 1, serverUrl: 'wss://relay', pairCode: 'P2' })
     applyJoin(token)
     expect(loadConfig()).toEqual({
+      configVersion: CURRENT_CONFIG_VERSION,
       mode: 'daemon',
       serverUrl: 'wss://relay',
       pairCode: 'P2', // fresh code replaces the stale one
       updateChannel: 'edge', // preserved
       port: 19999, // preserved
-      persistence: 'systemd', // preserved → no pendingPersistence recorded
+      persistence: 'systemd', // preserved, not re-decided
       // publicUrl dropped: a daemon box hosts nothing
     })
   })
@@ -137,6 +141,7 @@ describe('setup core', () => {
       const res = applyServerUrl('https://new.example')
       expect(res.serverUrl).toBe('wss://new.example') // http(s) is ws-ified
       expect(loadConfig()).toEqual({
+        configVersion: CURRENT_CONFIG_VERSION,
         mode: 'daemon',
         serverUrl: 'wss://new.example',
         updateChannel: 'edge',
@@ -150,6 +155,7 @@ describe('setup core', () => {
       const res = applyServerUrl(token)
       expect(res).toMatchObject({ serverUrl: 'wss://new.example', pairCode: 'P9' })
       expect(loadConfig()).toEqual({
+        configVersion: CURRENT_CONFIG_VERSION,
         mode: 'daemon',
         serverUrl: 'wss://new.example',
         pairCode: 'P9',
@@ -175,9 +181,15 @@ describe('setup core', () => {
 
   describe('consumePairCode (#19)', () => {
     it('drops the exact consumed code, preserving the rest of the config', () => {
-      saveConfig({ mode: 'daemon', serverUrl: 'wss://relay', pairCode: 'P1', persistence: 'systemd' })
+      saveConfig({
+        mode: 'daemon',
+        serverUrl: 'wss://relay',
+        pairCode: 'P1',
+        persistence: 'systemd',
+      })
       consumePairCode('P1')
       expect(loadConfig()).toEqual({
+        configVersion: CURRENT_CONFIG_VERSION,
         mode: 'daemon',
         serverUrl: 'wss://relay',
         persistence: 'systemd',

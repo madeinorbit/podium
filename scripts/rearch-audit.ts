@@ -527,6 +527,37 @@ export function reexportShimControlMisses(patternSource: string): string[] {
     .filter((control) => !new RegExp(patternSource, 'g').test(control))
 }
 
+/**
+ * THE ANCHOR BEHIND `cli-launch-plan-debt`'s ZERO_BY_DESIGN EXEMPTION (POD-333).
+ *
+ * Both states are gone from apps/cli/src/cli.ts, so there is no surviving code
+ * to anchor on and the count can only ever be zero — which is also what a broken
+ * detector reports. It therefore anchors on the two facts its zero depends on:
+ * that its root still resolves to a file, and that its pattern still matches the
+ * spellings a re-grown state would take.
+ *
+ * The controls are not hypothetical. The first draft of this pattern anchored
+ * the second literal on `reason:\s*` and on a trailing `|`, and a planted
+ * `reason: 'explicit' | 'first-run' | 'incomplete-headless-config' }` — the most
+ * likely way the state actually comes back — went SILENT.
+ */
+export const CLI_LAUNCH_PLAN_ROOTS: readonly string[] = ['apps/cli/src/cli.ts']
+
+export const CLI_LAUNCH_PLAN_CONTROLS: Readonly<Record<string, readonly string[]>> = {
+  variant: ["| { kind: 'reconcile-pending-persistence'; port: number }"],
+  reason: [
+    "reason: 'explicit' | 'first-run' | 'incomplete-headless-config'",
+    "reason: 'incomplete-headless-config'",
+  ],
+}
+
+/** Controls `patternSource` FAILS to match. Empty means the anchor is intact. */
+export function cliLaunchPlanControlMisses(patternSource: string): string[] {
+  return Object.values(CLI_LAUNCH_PLAN_CONTROLS)
+    .flat()
+    .filter((control) => !new RegExp(patternSource).test(control))
+}
+
 /** The roots the snapshot fan-out lived in. Every one of its thirteen sites was
  *  in the server app; a home outside it would be a relocation, not a deletion. */
 export const PUBLISH_COMPUTED_ROOTS = ['apps/server/src'] as const
@@ -1247,12 +1278,63 @@ export const CHECKS: AuditCheck[] = [
     id: 'cli-launch-plan-debt',
     title: 'CLI launch-plan config-migration debt',
     phase: 'POD-333',
-    unit: 'LaunchPlan variant that exists only to repair/migrate unversioned config',
-    collect: (ctx) =>
-      grep(ctx, {
-        roots: ['apps/cli/src/cli.ts'],
-        pattern: /\|\s*\{\s*kind:\s*'repair-config'/,
-      }),
+    unit: 'LaunchPlan variant or `reason` that exists only because the config is unversioned',
+    /**
+     * RE-ANCHORED at POD-333, and the reason matters more than the edit.
+     *
+     * The old pattern matched ONE literal: `| { kind: 'repair-config'`. That is
+     * not what the item is named after. `repair-config` backs up a config.json
+     * that will not PARSE (issue #21) — corruption, which is orthogonal to
+     * versioning: a truncated file is not an old file, and adding a version
+     * field does not make one readable. It is a real, documented operator
+     * command (`podium setup --repair`), and it survives.
+     *
+     * The variants that existed only because the config could not say which
+     * version it was are the two POD-333's brief names:
+     *
+     *   `reconcile-pending-persistence`  the web setup recorded a persistence
+     *                                    INTENT it could not fulfil, and the
+     *                                    launcher carried a state for the gap;
+     *   `incomplete-headless-config`     an `interactive-setup` reason meaning
+     *                                    "mode set, no persistence" — a shape
+     *                                    that was ambiguous between the desktop
+     *                                    sidecar and a box configured before the
+     *                                    persistence step existed.
+     *
+     * Both are gone: `configVersion` + CONFIG_MIGRATIONS in @podium/runtime
+     * resolve the history before the resolver sees the config, so absence is an
+     * answer. Re-anchoring an item onto the thing it is named after — while its
+     * own phase is the one closing it — is exactly the move that deserves
+     * suspicion, so the anchor is not merely narrowed to zero: it also matches
+     * the SHAPE of a re-grown state, and scripts/rearch-audit.test.ts plants
+     * both spellings and asserts they are caught.
+     */
+    collect: (ctx) => {
+      const CLI_LAUNCH_PLAN_PATTERN = String.raw`'reconcile-pending-persistence'|'incomplete-headless-config'`
+      const missing = cliLaunchPlanControlMisses(CLI_LAUNCH_PLAN_PATTERN)
+      if (missing.length > 0)
+        throw new Error(
+          `cli-launch-plan-debt: the pattern no longer matches ${missing.length} of its control ` +
+            `strings (${missing.map((c) => JSON.stringify(c)).join(', ')}). The detector is ` +
+            'broken; fix it rather than recording a phantom zero.',
+        )
+      if (!ctx.files.some((f) => CLI_LAUNCH_PLAN_ROOTS.includes(f.file)))
+        throw new Error(
+          `cli-launch-plan-debt: ${CLI_LAUNCH_PLAN_ROOTS.join(', ')} matched no file. Its zero ` +
+            'is a phantom, not the launch matrix holding.',
+        )
+      return grep(ctx, {
+        roots: [...CLI_LAUNCH_PLAN_ROOTS],
+        // Both literals, matched BARE. An earlier draft anchored the second one
+        // on `reason:\s*` and on a following `|`, and a planted
+        // `reason: 'explicit' | 'first-run' | 'incomplete-headless-config' }`
+        // — the most likely way the state actually comes back, as a third
+        // union member — went SILENT. Comments are stripped before matching, so
+        // a bare literal costs no false positives even though this file's own
+        // doc comments name both.
+        pattern: new RegExp(CLI_LAUNCH_PLAN_PATTERN),
+      })
+    },
   },
   {
     id: 'agent-kind-enums',

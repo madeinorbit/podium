@@ -171,10 +171,13 @@ export function applySetup(input: {
     ...prev,
     mode,
     publicUrl: input.publicUrl,
-    // Web setup can't start/persist the backend from inside the serving process — record
-    // the intent; the next `podium` invocation reconciles it (issue #20). A box that
-    // already chose a persistence keeps it.
-    ...(prev.persistence ? {} : { pendingPersistence: 'systemd' as const }),
+    // Web setup can't start the backend from inside the serving process (stopping
+    // the old one would kill the request in flight), but it CAN record the
+    // choice — and since POD-333 that is all there is to record. The next
+    // `podium` invocation sees a managed config whose backend is not up and
+    // brings it up; there is no separate "intent" field and no plan state for
+    // the gap (issue #20, retired). A box that already chose keeps its choice.
+    ...(prev.persistence ? {} : { persistence: 'systemd' as const }),
   }
   saveConfig(cfg)
   return cfg
@@ -198,9 +201,10 @@ export function applyJoin(token: string): { name: string; warning?: string } {
     mode: 'daemon',
     serverUrl: p.serverUrl,
     pairCode: p.pairCode,
-    // See applySetup: web/join-config surfaces can't start the backend themselves; record
-    // the intent for the next `podium` invocation. CLI setup overwrites it right after.
-    ...(prev.persistence ? {} : { pendingPersistence: 'systemd' as const }),
+    // See applySetup: web/join-config surfaces can't start the backend themselves,
+    // so they record the CHOICE and the next `podium` invocation brings it up.
+    // CLI setup overwrites it right after with the effective result.
+    ...(prev.persistence ? {} : { persistence: 'systemd' as const }),
   })
   const warning = ephemeralTunnelWarning(p.serverUrl)
   return { name: p.name ?? 'this machine', ...(warning ? { warning } : {}) }

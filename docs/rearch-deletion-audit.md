@@ -234,6 +234,53 @@ table is the defect.** The rule the rows apply:
   is recorded *and* filed, so the phase that owns the deletion inherits it
   instead of it riding along invisibly inside a larger number.
 
+### 2026-08-03 — POD-333 re-anchors `cli-launch-plan-debt` onto the states it is named after (1 → 0)
+
+**A RE-ANCHOR PLUS A DELETION, and the re-anchor is the part to scrutinise:**
+re-pointing a detector while your own phase is the one closing it is exactly the
+move this file warns about. So the argument, then the evidence.
+
+**The old anchor matched one literal:** `| { kind: 'repair-config'`. That is not
+what the item is named after. `podium setup --repair` backs up a `config.json`
+that will not PARSE (issue #21) — **corruption, which is orthogonal to
+versioning**. A truncated file is not an old file, and adding a version field
+does not make one readable. It is a real, documented operator command, it appears
+in `podium help`, and nothing about this phase removes its job. Correspondingly
+`migrateConfigFile` deliberately does NOT rewrite a corrupt file: doing so would
+destroy whatever the operator had, which is the whole reason `inspectConfig`
+separates `corrupt` from `missing`.
+
+**The variants that existed only because the config could not say which version
+it was** are the two the brief names, and both are now deleted:
+
+- `reconcile-pending-persistence` — the web setup recorded a persistence INTENT
+  it could not fulfil from inside the serving process, and the launcher carried a
+  state for the gap. `persistence` is now the single field, written at the moment
+  of the choice; the managed plans ENSURE rather than merely start, which is the
+  same act the deleted plan performed minus the config state that scheduled it.
+- `incomplete-headless-config` — an `interactive-setup` reason meaning "mode set,
+  no persistence", a shape that was ambiguous between the desktop sidecar and a
+  box configured before the persistence step existed. At v2 absence is an answer,
+  so there is nothing to guess.
+
+**The new anchor is not merely narrowed to zero.** It matches the SHAPE of a
+re-grown state, and both spellings were planted in production source and observed
+to be caught. One of them was NOT caught at first: the initial pattern anchored
+the second literal on `reason:\s*` and on a trailing `|`, and a planted
+`reason: 'explicit' | 'first-run' | 'incomplete-headless-config' }` — a third
+union member, the most likely way the state actually returns — went **silent**.
+That is recorded here rather than quietly fixed, because a re-anchor whose first
+draft had a hole is precisely the case where "the detector reports zero" would
+have meant nothing. Both spellings are now controls, pinned in
+`scripts/rearch-audit.test.ts`.
+
+**ZERO_BY_DESIGN, on the same terms as the items above and no looser:** `collect`
+THROWS when its root matches no file, and when its pattern stops matching its
+controls.
+
+Design, variant count and resolver order:
+`docs/architecture/pod-333-launch-plan-ledger.md`.
+
 ### 2026-08-03 — POD-333 sweeps the named shims and re-cuts the unit (21 → 0)
 
 **A DELETION AND A UNIT CORRECTION IN ONE COMMIT, so read the two apart before

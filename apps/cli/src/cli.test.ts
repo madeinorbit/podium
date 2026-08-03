@@ -1,3 +1,4 @@
+import { defaultInstancePorts } from '@podium/runtime/instance'
 import { describe, expect, it } from 'vitest'
 import {
   alreadyRunningMessage,
@@ -75,7 +76,8 @@ describe('resolveModePlan', () => {
 
 // ---------------------------------------------------------------------------
 // resolvePlan — the one pure launch resolver. These tests PIN current behavior
-// across the mode × persistence × pendingPersistence × TTY matrix (#251).
+// across the mode × persistence × TTY matrix (#251; POD-333 removed the
+// pendingPersistence axis — the config migration resolves it before the plan).
 // ---------------------------------------------------------------------------
 
 /** resolvePlan with quiet defaults: empty env, no TTY (the headless/systemd baseline). */
@@ -93,16 +95,22 @@ describe('resolvePlan — launch matrix', () => {
     expect(plan({ mode: 'all-in-one', persistence: 'systemd' })).toEqual({
       kind: 'systemd-managed',
       units: ['podium-server.service', 'podium-janitor.service', 'podium-daemon.service'],
+      mode: 'all-in-one',
+      port: 18787,
     })
   })
   it('systemd-recorded server box → server + janitor; daemon box → daemon only', () => {
     expect(plan({ mode: 'server', persistence: 'systemd' })).toEqual({
       kind: 'systemd-managed',
       units: ['podium-server.service', 'podium-janitor.service'],
+      mode: 'server',
+      port: 18787,
     })
     expect(plan({ mode: 'daemon', serverUrl: 'wss://relay', persistence: 'systemd' })).toEqual({
       kind: 'systemd-managed',
       units: ['podium-daemon.service'],
+      mode: 'daemon',
+      port: 18787,
     })
   })
   it('routes named managed instances only to their own units', () => {
@@ -115,6 +123,10 @@ describe('resolvePlan — launch matrix', () => {
         'podium-blue-janitor.service',
         'podium-blue-daemon.service',
       ],
+      mode: 'all-in-one',
+      // A named instance binds its OWN derived port, not the default one — the
+      // plan carries the port because ensuring the split may mean installing it.
+      port: defaultInstancePorts('blue').server,
     })
   })
   it('explicit janitor mode targets only the requested local server', () => {
@@ -127,6 +139,7 @@ describe('resolvePlan — launch matrix', () => {
   it('detached-recorded box, bare invocation → ensure the detached split is up', () => {
     expect(plan({ mode: 'all-in-one', persistence: 'detached' })).toEqual({
       kind: 'detached-managed',
+      mode: 'all-in-one',
       port: 18787,
     })
   })
@@ -148,31 +161,42 @@ describe('resolvePlan — launch matrix', () => {
       showSetupHint: false,
     })
   })
-  it('incomplete headless config (mode, no persistence) on a TTY → routed back into setup', () => {
-    expect(plan({ mode: 'all-in-one' }, [], {}, true)).toEqual({
-      kind: 'interactive-setup',
+  it('mode set with no persistence is UNMANAGED, not half-configured (POD-333)', () => {
+    // Pre-v2 this shape was ambiguous — "the desktop sidecar" or "configured
+    // before the persistence step existed" — and a TTY run was routed back into
+    // setup on the guess that it was the latter. The config version answers it:
+    // a v2 file that names no persistence is not headless-managed, so a bare
+    // `podium` hosts in this PID, TTY or not.
+    expect(plan({ mode: 'all-in-one' }, [], {}, true)).toMatchObject({
+      kind: 'in-process',
+      claimRole: 'all-in-one',
+    })
+    expect(plan({ mode: 'all-in-one' })).toMatchObject({ kind: 'in-process' })
+  })
+  it('a migrated web-setup config launches as a managed split, with no reconcile state', () => {
+    // v1 wrote `pendingPersistence` and the resolver had a plan variant for it.
+    // The migration folds it into `persistence` before the resolver runs, so
+    // what arrives here is an ordinary managed box.
+    expect(plan({ mode: 'all-in-one', persistence: 'systemd' })).toEqual({
+      kind: 'systemd-managed',
+      units: ['podium-server.service', 'podium-janitor.service', 'podium-daemon.service'],
+      mode: 'all-in-one',
       port: 18787,
-      reason: 'incomplete-headless-config',
+    })
+    expect(plan({ mode: 'server', persistence: 'detached' }, [], {}, true)).toEqual({
+      kind: 'detached-managed',
+      mode: 'server',
+      port: 18787,
     })
   })
-  it('pendingPersistence recorded by the web setup → reconcile (even without a TTY)', () => {
-    expect(plan({ mode: 'all-in-one', pendingPersistence: 'systemd' })).toEqual({
-      kind: 'reconcile-pending-persistence',
-      port: 18787,
-    })
-    // ...and reconcile wins over the setup gate on a TTY too.
-    expect(plan({ mode: 'server', pendingPersistence: 'detached' }, [], {}, true)).toEqual({
-      kind: 'reconcile-pending-persistence',
-      port: 18787,
+  it('client mode is never managed, whatever persistence says', () => {
+    expect(plan({ mode: 'client', serverUrl: 'wss://relay', persistence: 'systemd' })).toEqual({
+      kind: 'client',
+      serverUrl: 'wss://relay',
     })
   })
-  it('pendingPersistence with an unreconcilable mode falls through (mirrors the runtime check)', () => {
-    expect(
-      plan({ mode: 'client', serverUrl: 'wss://relay', pendingPersistence: 'systemd' }),
-    ).toEqual({ kind: 'client', serverUrl: 'wss://relay' })
-  })
-  it('pendingPersistence + an explicit subcommand is NOT reconciled (component run)', () => {
-    expect(plan({ mode: 'all-in-one', pendingPersistence: 'systemd' }, ['server'])).toMatchObject({
+  it('an explicit component subcommand runs in-process even on a managed box', () => {
+    expect(plan({ mode: 'all-in-one', persistence: 'systemd' }, ['server'])).toMatchObject({
       kind: 'in-process',
       claimRole: 'server',
     })
