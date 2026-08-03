@@ -9,7 +9,8 @@ import {
   type SubscriberId,
   type SubscriptionRegistry,
 } from './routing'
-import type { RescopeFrame, ScopedDeltaFrame } from './scoped-feed'
+import type { FeedDeltaMessage } from '../messages/feed'
+import type { RescopeFrame } from './scoped-feed'
 
 /**
  * THE CONTROL PORT — ADR 7 D1: the durable + directed-RPC port. It carries
@@ -87,8 +88,8 @@ export interface ControlPort {
   readonly planeClasses: readonly PlaneClass[]
   admitEntity(target: PlaneTarget, ref: EntityRef): boolean
   revokeEntity(target: PlaneTarget, ref: EntityRef): boolean
-  publishEntity(ref: EntityRef, frame: ScopedDeltaFrame): RouteOutcome
-  sendCertified(target: PlaneTarget, frame: ScopedDeltaFrame): RouteOutcome
+  publishEntity(ref: EntityRef, frame: FeedDeltaMessage): RouteOutcome
+  sendCertified(target: PlaneTarget, frame: FeedDeltaMessage): RouteOutcome
   rescope(target: PlaneTarget, frame: RescopeFrame): RouteOutcome
   sendCommand<P>(target: PlaneTarget, frame: CommandFrame<P>): CommandDisposition
   commandSemantics(frame: CommandFrame): CommandDeliverySemantics
@@ -104,7 +105,7 @@ export class ControlPlanePort implements ControlPort {
 
   constructor(
     private readonly registry: SubscriptionRegistry,
-    private readonly router: PlaneRouter<ScopedDeltaFrame | RescopeFrame>,
+    private readonly router: PlaneRouter<FeedDeltaMessage | RescopeFrame>,
     private readonly deps: ControlPortDeps,
   ) {
     if (router.registry !== registry) {
@@ -141,7 +142,7 @@ export class ControlPlanePort implements ControlPort {
   }
 
   /** Fan out one certified frame to every principal admitted to `ref`. */
-  publishEntity(ref: EntityRef, frame: ScopedDeltaFrame): RouteOutcome {
+  publishEntity(ref: EntityRef, frame: FeedDeltaMessage): RouteOutcome {
     assertCertified(frame)
     return this.router.publish(entityRoutingKey(ref), frame)
   }
@@ -152,7 +153,7 @@ export class ControlPlanePort implements ControlPort {
    * private-by-default this is the NORMAL path, not an exception, which is why
    * it is not a distinct message class.
    */
-  sendCertified(target: PlaneTarget, frame: ScopedDeltaFrame): RouteOutcome {
+  sendCertified(target: PlaneTarget, frame: FeedDeltaMessage): RouteOutcome {
     assertCertified(frame)
     this.registry.subscribe(principalRoutingKey(target.principal), {
       subscriberId: target.subscriberId,
@@ -200,7 +201,7 @@ export class ControlPlanePort implements ControlPort {
  * authority cannot filter without also certifying, because there is only one way
  * to send a frame (ADR 2 D13's rationale).
  */
-export function assertCertified(frame: ScopedDeltaFrame): void {
+export function assertCertified(frame: FeedDeltaMessage): void {
   if (frame.seq < frame.fromSeq) {
     throw new Error(`uncertified frame: seq ${frame.seq} below fromSeq ${frame.fromSeq}`)
   }

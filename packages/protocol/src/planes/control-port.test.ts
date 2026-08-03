@@ -24,15 +24,12 @@ import {
 
 const issueRef = (id: string): EntityRef => ({ kind: 'issue', id: asIssueId(id) })
 const sessionRef = (id: string): EntityRef => ({ kind: 'session', id: asSessionId(id) })
+import { type FeedDeltaMessage, isFeedWatermark } from '../messages/feed'
 import {
-  acceptsAtCursor,
   CHANGE_OP_SEMANTICS,
-  coalesceCertifiedRanges,
-  isWatermarkFrame,
   RESCOPE_PRESERVES_OUTBOX,
   type RescopeFrame,
   SCOPED_CHANGE_OPS,
-  type ScopedDeltaFrame,
 } from './scoped-feed'
 
 const user = (id: string): Principal => ({
@@ -52,7 +49,7 @@ const denyAll: VisibilityResolver = { canSee: () => false }
 
 const setup = (visibility: VisibilityResolver = allowAll, live = true) => {
   const registry = new SubscriptionRegistry()
-  const router = new PlaneRouter<ScopedDeltaFrame | RescopeFrame>(
+  const router = new PlaneRouter<FeedDeltaMessage | RescopeFrame>(
     registry,
     controlEntityDelivery(4),
   )
@@ -65,8 +62,9 @@ const setup = (visibility: VisibilityResolver = allowAll, live = true) => {
   return { registry, router, port, emit }
 }
 
-const frame = (fromSeq: number, seq: number, changes: ScopedDeltaFrame['changes'] = []) =>
+const frame = (fromSeq: number, seq: number, changes: FeedDeltaMessage['changes'] = []) =>
   ({
+    type: 'feedDelta',
     feedId: 'f',
     // An OPAQUE epoch (ADR 2 D1). It was `1` here, which the kernel's
     // `assertOpaqueEpoch` refuses outright as a counter — the port and the
@@ -76,7 +74,7 @@ const frame = (fromSeq: number, seq: number, changes: ScopedDeltaFrame['changes'
     seq,
     minAvailableSeq: 0,
     changes,
-  }) satisfies ScopedDeltaFrame
+  }) satisfies FeedDeltaMessage
 
 describe('the control port carries three classes and no more', () => {
   it('declares control · entity, command and handshake', () => {
@@ -91,7 +89,7 @@ describe('the control port carries three classes and no more', () => {
   it('refuses a router that is not the one registry, or not control · entity', () => {
     const registry = new SubscriptionRegistry()
     const other = new SubscriptionRegistry()
-    const foreign = new PlaneRouter<ScopedDeltaFrame>(other, controlEntityDelivery(2))
+    const foreign = new PlaneRouter<FeedDeltaMessage>(other, controlEntityDelivery(2))
     expect(
       () =>
         new ControlPlanePort(registry, foreign as never, {
@@ -101,7 +99,7 @@ describe('the control port carries three classes and no more', () => {
         }),
     ).toThrow(/one subscription registry/)
 
-    const streamRouter = new PlaneRouter<ScopedDeltaFrame>(
+    const streamRouter = new PlaneRouter<FeedDeltaMessage>(
       registry,
       streamLiveDelivery(2, () => 'k', 2),
     )
@@ -171,9 +169,12 @@ describe('the port carries a principal and evaluates no policy', () => {
     expect(port.admitEntity(target('alice'), ref)).toBe(true)
     expect(port.admitEntity(target('bob'), ref)).toBe(false)
 
+    // An `evict` row: this test's subject is ROUTING, and evict carries no
+    // payload (D14.1) so the fixture states nothing it does not mean. The v2
+    // wire types `value` per entity arm, where v1's port row typed it `unknown`.
     const outcome = port.publishEntity(
       ref,
-      frame(0, 5, [{ seq: 5, entity: 'issue', id: 'i1', op: 'upsert', value: {} }]),
+      frame(0, 5, [{ seq: 5, entity: 'issue', entityId: 'i1', op: 'evict' }]),
     )
     expect(outcome.delivered).toEqual([asSubscriberId('alice')])
     expect(router.queued(asSubscriberId('bob'))).toBe(0)
@@ -195,30 +196,32 @@ describe('watermarks — ADR 2 Amendment 1 D13 on the control port', () => {
     const conn = target('alice')
     const outcome = port.sendCertified(conn, frame(10, 42))
     expect(outcome.delivered).toEqual([asSubscriberId('alice')])
-    const [sent] = router.drain(asSubscriberId('alice')) as [ScopedDeltaFrame]
-    expect(isWatermarkFrame(sent)).toBe(true)
+    const [sent] = router.drain(asSubscriberId('alice')) as [FeedDeltaMessage]
+    expect(isFeedWatermark(sent)).toBe(true)
     expect(sent.fromSeq).toBe(10)
     expect(sent.seq).toBe(42)
   })
 
-  it('advances the cursor over a suppressed range, and rejects a gap', () => {
-    const cursor = { feedId: 'f', epoch: 'e-01J0', seq: 10 }
-    expect(acceptsAtCursor(cursor, frame(10, 42))).toBe(true)
-    // A lost frame is caught by the explicit lower bound — the whole point.
-    expect(acceptsAtCursor(cursor, frame(11, 42))).toBe(false)
-    expect(acceptsAtCursor({ ...cursor, epoch: 'e-01J1' }, frame(10, 42))).toBe(false)
-  })
+  // THE CURSOR-ACCEPTANCE CASE MOVED, IT DID NOT VANISH (POD-1196).
+  //
+  // `acceptsAtCursor` lived here and is deleted. The rule it encoded — accept
+  // iff `fromSeq === cursor` and feedId/epoch match — is the REPLICA's, not the
+  // port's, and the replica both implements it (`@podium/sync`'s `replica.ts`)
+  // and declares it as rows `D7-1-GAP` and the epoch-mismatch rung-4 row in
+  // `replica/transition-table.ts`. That table's totality test requires every
+  // declared row to be exercised by a real transition, so the rule is pinned
+  // harder there than a helper assertion pinned it here.
 
   it('refuses to send a frame that does not certify a well-formed range', () => {
     expect(() => assertCertified(frame(10, 9))).toThrow(/below fromSeq/)
     expect(() =>
-      assertCertified(frame(10, 20, [{ seq: 21, entity: 'issue', id: 'i', op: 'upsert' }])),
+      assertCertified(frame(10, 20, [{ seq: 21, entity: 'issue', entityId: 'i', op: 'upsert' }])),
     ).toThrow(/outside covered range/)
     expect(() =>
       assertCertified(
         frame(10, 20, [
-          { seq: 15, entity: 'issue', id: 'a', op: 'upsert' },
-          { seq: 12, entity: 'issue', id: 'b', op: 'upsert' },
+          { seq: 15, entity: 'issue', entityId: 'a', op: 'upsert' },
+          { seq: 12, entity: 'issue', entityId: 'b', op: 'upsert' },
         ]),
       ),
     ).toThrow(/non-decreasing/)
@@ -228,25 +231,22 @@ describe('watermarks — ADR 2 Amendment 1 D13 on the control port', () => {
     expect(() =>
       assertCertified(
         frame(10, 20, [
-          { seq: 12, entity: 'issue', id: 'a', op: 'evict' },
-          { seq: 12, entity: 'issue', id: 'b', op: 'evict' },
+          { seq: 12, entity: 'issue', entityId: 'a', op: 'evict' },
+          { seq: 12, entity: 'issue', entityId: 'b', op: 'evict' },
         ]),
       ),
     ).not.toThrow()
   })
 
-  it('coalesces watermark runs by range extension only (D13.2/D13.3)', () => {
-    const merged = coalesceCertifiedRanges(frame(0, 5), frame(5, 9))
-    expect(merged).toEqual(frame(0, 9))
-    // Non-adjacent ranges must not merge — that would invent contiguity.
-    expect(coalesceCertifiedRanges(frame(0, 5), frame(6, 9))).toBeNull()
-    // Two frames that both carry visible changes must never merge.
-    const withChange = frame(0, 5, [{ seq: 3, entity: 'issue', id: 'a', op: 'upsert' }])
-    const nextChange = frame(5, 9, [{ seq: 7, entity: 'issue', id: 'b', op: 'upsert' }])
-    expect(coalesceCertifiedRanges(withChange, nextChange)).toBeNull()
-    // A watermark may still extend a frame that carries changes.
-    expect(coalesceCertifiedRanges(withChange, frame(5, 9))?.seq).toBe(9)
-  })
+  // D13.2/D13.3 COALESCING MOVED TOO (POD-1196).
+  //
+  // `coalesceCertifiedRanges` merged two frames by range extension and guarded
+  // against merging across visible changes. It is deleted because the shipped
+  // path does it differently AND more strongly: `FeedPublisher` holds a single
+  // per-connection `watermarkThrough` slot whose lower bound is always that
+  // connection's `fromSeq`, so a non-contiguous merge is UNREPRESENTABLE rather
+  // than returned as `null`. Covered by `publisher.scoped.test.ts`'s
+  // "watermarks are free — D13.2 coalescing and D13.4 no-demotion".
 })
 
 describe('rescope and evict — and the prohibition on reusing remove', () => {
@@ -287,11 +287,16 @@ describe('rescope and evict — and the prohibition on reusing remove', () => {
     const { port, router } = setup()
     const ref = issueRef('i1')
     port.admitEntity(target('alice'), ref)
+    // The OP is this test's subject (D14.2: re-admission needs no new op), and
+    // `value` is `.optional()` on the arm because "present iff upsert" is a
+    // cross-field rule zod cannot state inside a discriminated union — it is
+    // enforced by `validateFeedDelta` and covered in `messages/feed.test.ts`.
+    // Omitted here rather than filled with a fake IssueWire the port never reads.
     const readmit = frame(9, 10, [
-      { seq: 10, entity: 'issue', id: 'i1', op: 'upsert', value: { id: 'i1' } },
+      { seq: 10, entity: 'issue', entityId: 'i1', op: 'upsert' },
     ])
     expect(port.publishEntity(ref, readmit).delivered).toEqual([asSubscriberId('alice')])
-    const [sent] = router.drain(asSubscriberId('alice')) as [ScopedDeltaFrame]
+    const [sent] = router.drain(asSubscriberId('alice')) as [FeedDeltaMessage]
     expect(sent.changes[0]?.op).toBe('upsert')
   })
 })
