@@ -28,6 +28,8 @@
  * the text checks.
  */
 
+import { asUserId } from '@podium/model'
+import { asCapabilityRef, asDeviceId } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { runtimeChecks, shippedKernel, type KernelUnderTest } from './audit-scoped-feed'
 import { Authority } from '../packages/sync/src/authority/authority'
@@ -50,7 +52,15 @@ describe('the instrument can say YES — three broken kernels, three catches', (
       ...kernel,
       Authority: class extends (Authority as never as new (deps: never) => Authority) {
         override subscribe(_principal: never, subscriber: never): () => void {
-          return super.subscribe({ kind: 'user', userId: 'ada' }, subscriber)
+          return super.subscribe(
+            {
+              kind: 'user',
+              user: asUserId('ada'),
+              device: asDeviceId('audit:scoped-feed'),
+              capability: asCapabilityRef('audit:scoped-feed'),
+            },
+            subscriber,
+          )
         }
       } as never as KernelUnderTest['Authority'],
     }))
