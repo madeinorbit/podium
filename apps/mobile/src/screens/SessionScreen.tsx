@@ -7,7 +7,6 @@ import {
   mergeTranscriptItems,
   panelLabel,
   prependTranscriptItems,
-  resolveReferent,
   sessionTitle,
   snoozeUntil1h,
   snoozeUntilTomorrow5am,
@@ -35,6 +34,7 @@ import { TaskPeekSheet } from '../components/TaskPeekSheet'
 import { type PendingTurn, TranscriptList } from '../components/TranscriptList'
 import { TrayCard, type TrayCardActions } from '../components/TrayCard'
 import { EmptyState } from '../components/ui'
+import { sessionAbsence } from './session-absence'
 import { TerminalPane } from '../terminal/TerminalPane'
 import { FLOW_SLATE, issueColorHex } from '../theme/issueColors'
 import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
@@ -47,31 +47,6 @@ const WORK_STATES: (WorkState | null)[] = [
   'icebox',
   null,
 ]
-
-/**
- * What an absent session says, per referent state. Four rows rather than a
- * connected/disconnected boolean, because "you may not see it" and "it was
- * deleted" need different words and different recovery — and neither is a
- * spinner (only `pending` is even about waiting, and it says so once).
- */
-const NOT_HERE: Record<
-  'present' | 'not-visible' | 'removed' | 'pending',
-  { title: string; body: string }
-> = {
-  present: { title: 'Session', body: '' },
-  'not-visible': {
-    title: 'You do not have access to this session.',
-    body: 'It exists, but it has not been shared with you. Ask its owner for access.',
-  },
-  removed: {
-    title: 'Session deleted.',
-    body: 'It was removed on the server.',
-  },
-  pending: {
-    title: 'Session not here yet.',
-    body: 'It has not arrived on this device. It may appear in a moment.',
-  },
-}
 
 export function SessionScreen() {
   // Route params are RAW URL values, so the type stays `string` and the brand is
@@ -257,12 +232,12 @@ export function SessionScreen() {
     // exact defect `resolveReferent` exists to prevent: an eviction rendered as
     // a deletion. `pending` says "not yet" without spinning forever, and every
     // state is terminal copy rather than a loader.
-    const resolution = resolveReferent(sessionId, () => session, (id) =>
+    const absence = sessionAbsence(sessionId, session, (id) =>
       store.replica.exitKind?.('session', id),
     )
     return (
       <Screen title="Session" onBack={() => router.back()}>
-        <EmptyState title={NOT_HERE[resolution.state].title} body={NOT_HERE[resolution.state].body} />
+        <EmptyState title={absence.title} body={absence.body} />
       </Screen>
     )
   }
