@@ -3367,6 +3367,29 @@ export class SessionsService {
     )
     const bases = verifiedCommonBundleBases(sourceVerified, targetVerified)
 
+    /**
+     * NOTHING TO SHIP IS NOT A FAILURE (POD-1542).
+     *
+     * The early return above asks whether the target resolves the ref by NAME, and a
+     * branch name is machine-local — a target that fetched the branch, or that received
+     * it from an earlier successful handoff, holds every commit while still having no
+     * ref by that name. Then the base intersection legitimately contains the tip itself,
+     * `git bundle create <ref> ^<tip>` has an empty commit set, and git refuses:
+     * "fatal: Refusing to create empty bundle." Measured 2026-08-03 placing POD-1127 onto
+     * vmi3407763, which is simply the state after any successful placement onto it.
+     *
+     * IT CANNOT SWALLOW A TRANSPORT FAILURE. `bases` only contains object ids the TARGET
+     * independently proved it holds (verifiedCommonBundleBases intersects against
+     * targetVerified). An unreachable daemon, an unreadable repo, or any failed
+     * revParseVerify yields no sha at all, so `sha` is absent, the bundle is built and
+     * every downstream failure still throws. This skips a transfer only on positive
+     * evidence that the commits are already there.
+     *
+     * Same guard shape as handoff-package/workspace-package, which skip their bundle when
+     * the tip is already a base.
+     */
+    if (bases.includes(sha)) return { transferred: false, startPoint: sha }
+
     // The token names a TRANSFER, never a location: each daemon derives its own path.
     const transferId = `ref-${randomUUID().replace(/-/gu, '')}`.slice(0, 40)
     const created = await this.rpc.repoOp(
