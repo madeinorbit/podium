@@ -1,6 +1,10 @@
 # One vocabulary for principal and scoped change
 
-POD-1196 design spec. Measured at integration tip `9eea645d`.
+POD-1196 design spec. Measured at integration tip `dac14c84`.
+
+Every count below was re-verified at `dac14c84` after POD-333 (16 compatibility
+shims deleted, ratchet 152 → 130), POD-335 (boundary lint end-state) and POD-1124
+landed. The census is unchanged by them.
 
 ## The problem
 
@@ -29,10 +33,12 @@ to put a `DelegatedScope`. `apps/server/src/modules/derived-family.ts:388`
 performs the same mapping a second time. The two vocabularies are already bridged
 by hand, lossily, in two places.
 
-## Census, as of `9eea645d`
+## Census, as of `dac14c84`
 
-Counting **reads**, not occurrences. Build output (`packages/protocol/dist`) is
-not a consumer.
+Counting **reads**, not occurrences, and disambiguated by **import source** —
+`ScopedChange` resolves to the kernel's in all 21 non-test reads and to
+protocol's in none, which a bare name grep would have conflated. Build output
+(`packages/protocol/dist`) is not a consumer.
 
 | Symbol | Home | Real consumers |
 | --- | --- | --- |
@@ -40,8 +46,10 @@ not a consumer.
 | `FeedPrincipal`, `principalIdOf`, `FeedVisibilityPolicy` | sync | publisher, scoping, ledger, `gateway/feed-serving.ts` — live |
 | `ScopedChange` | sync `authority/change-lifecycle.ts` | ledger, scoping, publisher, funnel, feed-serving — live |
 | `ScopedChange` | protocol `planes/scoped-feed.ts` | **zero importers**; referenced only inside `ScopedDeltaFrame` in its own file |
-| `ScopedDeltaFrame` | protocol | `control-port.ts` only — and `new ControlPort(` outside tests is **zero** |
-| `isWatermarkFrame`, `acceptsAtCursor`, `coalesceCertifiedRanges` | protocol | tests only |
+| `ScopedDeltaFrame` | protocol | 7 reads, **all inside `control-port.ts`** — and `new ControlPort(` outside tests is **zero** |
+| `isWatermarkFrame` | protocol | 0 non-test, 2 test |
+| `acceptsAtCursor` | protocol | 0 non-test, 4 test |
+| `coalesceCertifiedRanges` | protocol | 0 non-test, 5 test |
 
 ## Decisions
 
@@ -73,6 +81,14 @@ This preserves both invariants that were in tension:
 
 The server adapter reads POD-1075's delegation records; the conformance fixture
 supplies the test implementation.
+
+**Constraint: it stays a port — a narrow read, no policy.** `scopeOf` reports
+what a scope *is*. The moment it starts deciding what a scope *may see*, it has
+become a second visibility resolver beside the kernel's, which is the outcome
+this issue exists to prevent. A new interface is justified here only because
+something must supply the scope to the decision, and inventing it inline at each
+call site is how a second authorization surface gets born
+(`docs/multi-user-readiness.md` §3.2; POD-335 has just deleted two of those).
 
 ### D2 — Reason codes go private; `canSee` is the only outward seam
 
@@ -118,6 +134,47 @@ and ADR 3 Am1 makes the delegation part of the agent principal. Two tabs of one
 delegated agent remain one member; two differently-scoped agents were never one
 principal.
 
+**The types already contradict the routing.** Both sides model the scope as a
+field *separate* from the identity — that is why `scope` and `delegation` exist as
+their own members — yet both routing functions key on identity alone:
+
+```
+FeedPrincipal agent arm   { kind, sessionId, onBehalfOf, scope }      visibility.ts:108
+AgentPrincipal            { kind, agentIdentity, onBehalfOf, device,
+                            capability, delegation }                  principal.ts:91
+
+principalRoutingId   `agent:${p.agentIdentity}`      principal.ts:158
+principalIdOf        `agent:${principal.sessionId}`  visibility.ts:121
+```
+
+A routing key that discards a field the principal carries is a latent
+contradiction, independent of whether the two functions currently agree.
+
+**And the collision is reachable in production, not hypothetical.** The one
+production site that builds an `AgentPrincipal` is
+`handshake/strategies/agent-relay-delegation.ts:64`:
+
+```ts
+agentIdentity: asAgentIdentityId(resolution.leaf.agentIdentity),  // from the chain
+delegation: ref,                                                  // the credential
+```
+
+`resolveDelegationChain(ref)` maps a delegation reference onto a leaf agent, so
+**one `agentIdentity` is reachable through more than one delegation ref**. Two
+connections presenting different `delegationRef`s that resolve to the same leaf
+agent receive identical identities and different scopes. Keying on identity alone
+merges them.
+
+One correction to a claim worth recording, because it is easy to carry forward
+wrongly: POD-1164's result that `AgentIdentityId` and `SessionId` are the same
+string (`model/ids/brands.ts:242`, `model/fields/attribution.ts:41`,
+`sync/outbox/records.ts:72`) governs the **attribution actor** path, where the
+mint really is `asAgentIdentityId(sessionId)`. It does *not* govern the transport
+principal, whose identity comes from the delegation chain leaf as shown above.
+The fold of `principalIdOf` into `principalRoutingId` is therefore safe because
+both name the same agent, and the delegation suffix is what keeps it safe when
+the scope differs.
+
 ### D4 — `ScopedChange` stays in the kernel
 
 The kernel's `ScopedChange` (lifecycle phase 4) keeps the name; it has every real
@@ -132,7 +189,8 @@ Five symbols are deleted from `packages/protocol/src/planes/scoped-feed.ts`:
 `coalesceCertifiedRanges`.
 
 **The file itself stays, and most of it is well used.** Measured external
-references at `9eea645d`, excluding the file itself and `dist`:
+references at `dac14c84`, excluding the file itself and `dist` (unchanged from
+`9eea645d` — POD-333's shim deletions touched none of them):
 
 | Surviving symbol | External refs |
 | --- | --- |
@@ -224,10 +282,22 @@ Genuinely new coverage, both for behaviour that is currently unreachable:
    agent today, so no test can currently observe an agent's scoped slice. Needs a
    case where the human may read an entity and the agent was not spawned for it,
    asserting `outside-delegated-scope`.
-2. **D3's audience separation.** Two connections, same `agentIdentity`, different
-   `DelegationRef`, different scopes — assert they receive different slices. This
-   is the case a naive `principalIdOf` → `principalRoutingId` swap would break,
-   and nothing today would catch it.
+2. **D3's audience separation.** Two agent principals, same `agentIdentity`,
+   different `DelegationRef` and different scopes — assert they route to
+   different keys **and receive different slices**. This is the case a naive
+   `principalIdOf` → `principalRoutingId` swap would break, and nothing today
+   would catch it.
+
+   **This test must be shown to refuse.** After it is green, collapse the suffix
+   back to `agent:${agentIdentity}` and confirm a *named* test goes red. If that
+   mutant is silent, the test is asserting the key's shape rather than the
+   slice's separation and is worthless — that is the acceptance criterion, not
+   the test's existence. Revert from a byte-verified snapshot (md5 match plus a
+   grep for the probe string returning rc=1); never reverse-replace.
+
+   Assert on the **slice**, not only on the key. A test that compares two strings
+   would stay green if the key changed while the publisher's audience filter did
+   not, which is the half that actually leaks.
 
 `control-port.test.ts` loses the assertions covering the four deleted symbols.
 The D13.2/D13.3 rules they expressed are *not* dropped: they are already pinned
@@ -241,23 +311,30 @@ than of coverage.
 Per the Phase 6 exit-gate standard — a guard must be **seen to refuse**, not
 merely to exist.
 
-- Baseline, measured here at `ca3ee456` (`9eea645d` plus this docs-only commit),
-  naming the config: `vitest.unit.config.ts` over `packages/model` +
-  `client-core` + `protocol` + `sync` = **198 files / 3000 tests rc=0**;
-  `typecheck` 22/22 rc=0. This matches the coordinator's stated baseline at
-  `9eea645d`. An earlier run of the same lane at `4cacb449` gave 197 / 2985; the
-  delta is exactly POD-1156's `attribution-stamped.test.ts` (+1 file / +15
-  tests), which is the only intervening commit touching these paths.
+- Baseline at `dac14c84`, naming the config with every count. Coordinator's
+  figures, to be re-measured on this tree before the change lands:
+  `apps/web/src` + `client-core` + `model` = 311 files / 2963 tests rc=0 [ROOT
+  vitest config]; `apps/server/src` = 270 files / 3850 passed rc=0;
+  `lint:boundaries` OK, **0 allowlisted, 0 new** (POD-335 moved the manifest to
+  error level); `audit:rearch` "32 items, **130** sites remaining (baseline
+  exact)" (POD-333 moved it from 152); `typecheck` rc=0, 22/22.
+- History of this lane, so a later reader does not rediscover the drift as a
+  discrepancy: `vitest.unit.config.ts` over `model` + `client-core` + `protocol`
+  + `sync` measured 197 / 2985 at `4cacb449` and 198 / 3000 at `ca3ee456`; the
+  delta was exactly POD-1156's `attribution-stamped.test.ts` (+1 file / +15
+  tests). Both readings predate `dac14c84` and neither is the current baseline.
 - The two new tests above must be shown red before the change and green after —
   the delegation one is currently unreachable, so it must be demonstrated to fail
   against today's `relay.ts` behaviour.
 - **Deletion completeness:** confirm `packages/protocol/dist` no longer exports
   the four symbols, not only that the source is gone. This repo has been bitten
   by "git says gone, disk-scanning gates disagree".
-- Run `audit:rearch`: it must still read "32 items, 152 sites remaining (baseline
-  exact)", or move **down** if these sites were counted. Report which.
-- `lint:boundaries` must stay at "OK, 6 allowlisted, 0 new" — D1 moves a type
-  across a package boundary and this is the gate that would notice.
+- Run `audit:rearch`: it must still read "32 items, **130** sites remaining
+  (baseline exact)", or move **down** if these sites were counted. Report which.
+- `lint:boundaries` must stay at "OK, **0 allowlisted, 0 new**" — D1 moves a type
+  across a package boundary and this is the gate that would notice. POD-335 put
+  the manifest at error level, so there is no allowlist left to absorb a new
+  crossing.
 
 ## Risk
 
