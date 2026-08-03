@@ -1,8 +1,14 @@
 # POD-1604 — the mint root did not move when accounts landed
 
-**Status: BLOCKS THE MERGE TO MAIN.** Not because a test is red, but because the
-rewrite introduces a privilege gap that main does not have. Recorded here so the
-decision is made deliberately rather than by flipping a flag.
+**Status: KNOWN LIMITATION, hardening scheduled AFTER the merge** (operator
+decision, 2026-08-03). The finding below is accepted as accurate; the judgement is
+that it does not hold the merge, because Podium is not yet serving untrusted
+users and every account holder today is already a trusted colleague with host
+access. Recorded in full so the remedy is designed deliberately later rather than
+rediscovered.
+
+The tripwire in `session-mint.test.ts` stays RED until the mint is bound — it is
+telling the truth and must not be silenced to reach a green lane.
 
 ## What the tripwire says
 
