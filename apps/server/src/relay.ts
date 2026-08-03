@@ -458,9 +458,13 @@ export class SessionRegistry {
             .some((edge) => edge.grantee === userId && edge.verb === 'read')
         }
         if (ref.entity === 'conversation') {
-          const row = this.store.sessions
-            .loadSessions()
-            .find((candidate) => candidate.resumeValue === ref.entityId)
+          // BY QUERY, NEVER BY SCAN (POD-1614). This arm is evaluated once per
+          // conversation row of a bootstrap, so a `loadSessions().find(…)` here
+          // made the read O(conversation rows x sessions) — 18.9 s of blocked
+          // event loop on the live corpus, which is what force-closed the
+          // client's 10 s heartbeat mid-bootstrap and made the app take ~60 s
+          // and two dropped sockets to become usable.
+          const row = this.store.sessions.findSessionByResumeValue(ref.entityId)
           if (!row) return false
           if (row.ownerUserId === userId) return true
           return this.store.grants
