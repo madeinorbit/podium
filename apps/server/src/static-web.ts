@@ -2,6 +2,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs'
 import { extname, join, normalize, sep } from 'node:path'
 import { desktopShellLocation, mobileEntryRedirect } from '@podium/model'
 import type { Context, Hono } from 'hono'
+import { gradeWebBundle, injectBundleWarning } from './web-bundle-stamp'
 
 /**
  * Backend route prefixes that must never be shadowed by the SPA index.html.
@@ -51,6 +52,12 @@ export interface StaticWebOptions {
    *  (routes registered earlier, e.g. registerMobileRouting's fallback, own
    *  the absent case). */
   lazy?: boolean
+  /** Compare this dist's build stamp against the running server and warn in the
+   *  served HTML when they disagree (POD-1610). OPT-IN, not defaulted on: only
+   *  the apps/web dist carries a stamp, so defaulting it would put a permanent
+   *  "unstamped" banner on the Expo mobile shell, which is a different artefact
+   *  built by a different toolchain. */
+  stampCheck?: boolean
 }
 
 function contentType(p: string): string {
@@ -130,6 +137,19 @@ export function registerMobileRouting(
 }
 
 /**
+ * The SPA shell, with the stale-build warning folded in when it applies.
+ *
+ * Read per request rather than cached at registration: `lazy` dists appear after
+ * boot and every dev rebuild replaces this file, so a cached shell would serve a
+ * warning about a build that no longer exists (see `gradeWebBundle`, which caches
+ * the VERDICT on the stamp's mtime and so re-grades exactly when the stamp moves).
+ */
+function serveIndex(webDir: string, indexPath: string, stampCheck: boolean): string {
+  const html = readFileSync(indexPath, 'utf8')
+  return stampCheck ? injectBundleWarning(html, gradeWebBundle(webDir)) : html
+}
+
+/**
  * Serve the built web bundle for EXTERNAL clients (browser / phone / other desktop
  * app connecting to a running machine). The Tauri desktop window uses its own bundled
  * UI, not this route. Returns false (registers nothing) when no build is present, so a
@@ -152,14 +172,20 @@ export function registerWebStatic(app: Hono, webDir: string, opts: StaticWebOpti
     if (
       (filePath === webDir || filePath.startsWith(webDir + sep)) &&
       existsSync(filePath) &&
-      statSync(filePath).isFile()
+      statSync(filePath).isFile() &&
+      filePath !== indexPath
     ) {
       return new Response(readFileSync(filePath), {
         status: 200,
         headers: { 'Content-Type': contentType(filePath) },
       })
     }
-    return new Response(readFileSync(join(webDir, 'index.html'), 'utf8'), {
+    // index.html goes out through ONE path — the fallback — even when it was
+    // asked for by name. The service worker precaches `/index.html` explicitly,
+    // so a second, un-annotated route for the same file is how the stale-build
+    // warning (POD-1610) would be missing from precisely the installed PWA that
+    // most needs it.
+    return new Response(serveIndex(webDir, indexPath, opts.stampCheck === true), {
       status: 200,
       headers: { 'Content-Type': 'text/html; charset=utf-8' },
     })

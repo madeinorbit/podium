@@ -1,5 +1,6 @@
-import { WIRE_VERSION } from '@podium/protocol'
+import { WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { currentSkew, resetSkewNotice } from '@/app/skew-notice'
 import { checkServerVersion, forceReload } from './version-guard'
 
 const ORIGIN = 'https://relay.test'
@@ -159,5 +160,70 @@ describe('checkServerVersion', () => {
     const result = await checkServerVersion(ORIGIN)
     expect(result).toBe('ok')
     expect(reload).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * THE CHECK THE WIRE VERSION COULD NOT MAKE (POD-1610).
+ *
+ * The stale bundle and its server agreed on wire 2 for three days while failing
+ * to understand each other, because `WIRE_VERSION` is coarse on purpose. These
+ * cases pin the finer one — and, as importantly, pin the two ways it must NOT
+ * fire: on a matched pair, and on a server too old to advertise a digest at all.
+ */
+describe('checkServerVersion — schema digest', () => {
+  const matched = {
+    wireVersion: WIRE_VERSION,
+    minSupportedVersion: WIRE_VERSION,
+    appVersion: 'test',
+    wireSchemaDigest: wireSchemaDigest(),
+  }
+
+  beforeEach(() => {
+    resetSkewNotice()
+  })
+
+  it('CAN SAY NO: a matched pair does not reload and raises no notice', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse(matched)))
+    expect(await checkServerVersion(ORIGIN)).toBe('ok')
+    expect(reload).not.toHaveBeenCalled()
+    expect(currentSkew()).toBeNull()
+  })
+
+  it('says nothing when the server does not advertise a digest at all', async () => {
+    // An older server. Silence is not skew — treating it as skew would reload-loop
+    // every deployment that predates the field.
+    const { wireSchemaDigest: _omitted, ...noDigest } = matched
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse(noDigest)))
+    expect(await checkServerVersion(ORIGIN)).toBe('ok')
+    expect(currentSkew()).toBeNull()
+  })
+
+  it('hard-reloads on a digest mismatch, even at the same wire version', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(versionResponse({ ...matched, wireSchemaDigest: 'deadbeefdeadbeef' })),
+    )
+    expect(await checkServerVersion(ORIGIN)).toBe('reloaded')
+    expect(reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('raises a VISIBLE notice once reloading has failed twice', async () => {
+    store.set(COUNTER_KEY, '2')
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(versionResponse({ ...matched, wireSchemaDigest: 'deadbeefdeadbeef' })),
+    )
+    expect(await checkServerVersion(ORIGIN)).toBe('blocked')
+    // The whole point: 'blocked' used to be a console.error and nothing else.
+    const notice = currentSkew()
+    expect(notice?.source).toBe('boot-digest')
+    expect(notice?.message).toContain('does not match the server')
+    expect(notice?.message).toContain('bun run build')
   })
 })

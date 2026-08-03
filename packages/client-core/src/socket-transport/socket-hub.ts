@@ -118,13 +118,10 @@ export interface SocketHubOptions {
 }
 
 /** The frames the v2 wire carries. Narrowed off the parsed union rather than
- *  restated, so a new member of the family is a compile error here.
- *
- *  Narrowed off the LENIENT union (POD-1608): the change-bearing members arrive
- *  through `parseServerMessageLenient`, whose `changes` may hold a row for a kind
- *  this build has no arm for. That row must reach the sink — the kernel ignores
- *  it and advances past its seq — and narrowing off the strict union here would
- *  have made the sink's own type reject what the parser is contracted to pass. */
+ *  restated, so a new member of the family is a compile error here — and off the
+ *  LENIENT union since POD-1610, because the rows that reach a sink may include
+ *  kinds this build has no arm for (ignored downstream) and must no longer cost
+ *  the whole frame. */
 export type FeedServerFrame = Extract<
   ServerMessageLenient,
   { type: 'feedDelta' | 'feedBootstrap' | 'feedRescope' | 'feedResyncRequired' }
@@ -231,6 +228,33 @@ export interface ConnectionHealth {
 }
 
 /**
+ * WHAT THIS BUILD COULD NOT READ (POD-1610).
+ *
+ * A running tally, not an event log: the UI needs one persistent "this build and
+ * this server disagree" statement, and every further unreadable row is more of
+ * the same fact rather than a new one.
+ *
+ * The distinction between the two counters is the one that decides how bad it is.
+ * A QUARANTINED row is a row missing from an otherwise-applied frame — the app
+ * works, minus that entity. A REFUSED frame is the whole envelope thrown away,
+ * which on the bootstrap path means the app has NOTHING, and is precisely the
+ * shape of the outage this type was added for: a stale bundle whose console said
+ * "dropped an unparseable server message" while the user looked at an empty board.
+ */
+export interface WireSkew {
+  /** Rows the server sent that this build could not parse, dropped from otherwise
+   *  applied frames. */
+  quarantined: number
+  /** Whole frames refused — the envelope itself failed. The severe case. */
+  refusedFrames: number
+  /** The first failure's message, for the console and a bug report. Never UI copy:
+   *  a ZodError path is not something to put in front of a person. */
+  firstError?: string
+  /** Epoch ms of the first drop, so the UI can say when the disagreement started. */
+  since: number
+}
+
+/**
  * The hub's typed subscription seam [spec:SP-3fe2]: every event the hub fans
  * out, keyed by a CLOSED kind union. Payloads are tuples so multi-argument
  * legacy callbacks (`onSessionDraft`) ride the same seam without an adapter.
@@ -280,6 +304,9 @@ export interface HubEvents {
   /** Single-issue broadcast (fires alongside the full-list `issues` event). */
   issueUpdated: [issue: IssueWire]
   connectionHealth: [health: ConnectionHealth]
+  /** The server said something this build could not read. Fires on every drop,
+   *  carrying the running tally — see {@link WireSkew}. */
+  wireSkew: [skew: WireSkew]
   attention: [event: AttentionEvent]
   openUrl: [request: SessionOpenUrlMessage]
   openUrlResult: [result: SessionOpenUrlResultMessage]
@@ -354,6 +381,10 @@ export class SocketHub {
   private staleTimer: ReturnType<typeof setTimeout> | undefined
   private lastRttMs: number | null = null
   private health: ConnectionHealth = { status: 'ok', rttMs: null, since: Date.now() }
+  /** Null until the server says something this build cannot read; never cleared —
+   *  the disagreement is a property of the pair, and it does not heal by a later
+   *  frame happening to parse. */
+  private skew: WireSkew | null = null
   private readonly connections = new Map<SessionId, SessionConnection>()
   private readonly terminalAttachDenials = new Set<SessionId>()
   // Per-session structured transcript subscriptions. The hub is a thin
@@ -1132,13 +1163,55 @@ export class SocketHub {
         console.warn(
           `[podium] quarantined ${result.dropped} invalid item(s) in a ${msg?.type ?? '?'} message`,
         )
+        this.recordSkew({ quarantined: result.dropped })
       }
       if (!msg) return
       this.dispatchServerMessage(msg, { dropped: result.dropped })
     } catch (err) {
+      // A REFUSED frame — the envelope, not a row. On the bootstrap path this is
+      // the whole world, so it goes on the record as well as into the console:
+      // POD-1610 is the incident where the console line was the only trace and
+      // the user's evidence was a blank screen.
       console.warn('[podium] dropped an unparseable server message', err)
+      this.recordSkew({ refusedFrames: 1, error: err })
       return
     }
+  }
+
+  /**
+   * Fold one drop into the running tally and tell anyone watching.
+   *
+   * Emits on EVERY drop rather than only on the first: a UI that shows a count
+   * needs it to move, and a subscriber that mounts late (the banner renders after
+   * the first bootstrap fails, which is exactly when this fires) would otherwise
+   * see nothing until a second, unrelated failure.
+   */
+  private recordSkew(drop: {
+    quarantined?: number
+    refusedFrames?: number
+    error?: unknown
+  }): void {
+    const prior = this.skew
+    this.skew = {
+      quarantined: (prior?.quarantined ?? 0) + (drop.quarantined ?? 0),
+      refusedFrames: (prior?.refusedFrames ?? 0) + (drop.refusedFrames ?? 0),
+      firstError: prior?.firstError ?? (drop.error === undefined ? undefined : String(drop.error)),
+      since: prior?.since ?? Date.now(),
+    }
+    this.emit('wireSkew', this.skew)
+  }
+
+  /** The running tally of what this build could not read, or null if it has read
+   *  everything the server has sent. */
+  wireSkew(): WireSkew | null {
+    return this.skew
+  }
+
+  /** Subscribe to {@link wireSkew}, replaying the current tally if there is one —
+   *  a banner that mounts after the failure must still show it. */
+  onWireSkew(cb: (skew: WireSkew) => void): () => void {
+    if (this.skew) cb(this.skew)
+    return this.on('wireSkew', cb)
   }
 
   /**

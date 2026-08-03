@@ -13,6 +13,7 @@ import {
   MIN_SUPPORTED_VERSION,
   PeerHelloReply,
   WIRE_VERSION,
+  wireSchemaDigest,
 } from '@podium/protocol'
 import { loadConfig, resolveInstanceId } from '@podium/runtime/config'
 import { ensureInstanceStateIdentity } from '@podium/runtime/instance'
@@ -55,6 +56,7 @@ import { registerMobileRouting, registerWebStatic } from './static-web'
 import { SessionStore } from './store'
 import { wireTelemetry } from './telemetry'
 import { reportParkedUpstreamMutations } from './upstream-retirement'
+import { describeBundle, gradeWebBundle } from './web-bundle-stamp'
 
 /**
  * Thrown (as a rejection) by {@link startServer} when the chosen port is already
@@ -150,6 +152,16 @@ export function registerVersionRoute(
     c.json({
       wireVersion: WIRE_VERSION,
       minSupportedVersion: MIN_SUPPORTED_VERSION,
+      /**
+       * The structural fingerprint of THIS server's message schemas (POD-1610).
+       *
+       * Alongside `wireVersion`, never instead of it: the version answers "can we
+       * be served" and stays coarse on purpose, while this answers "were we built
+       * from the same source". A client compares it to its own and SAYS SO — it
+       * does not refuse, because a digest difference is a build-plumbing fact, not
+       * a protocol incompatibility, and the two must not be conflated (ADR 2 D4).
+       */
+      wireSchemaDigest: wireSchemaDigest(),
       appVersion: process.env.PODIUM_APP_VERSION ?? 'dev',
       instanceId: deps.instanceId,
       feedScoping: deps.visibilityGrade?.() ?? 'device-unscoped',
@@ -528,7 +540,14 @@ export async function startServer(
       webDir = ''
     }
   }
-  if (webDir) registerWebStatic(app, webDir)
+  if (webDir) {
+    registerWebStatic(app, webDir, { stampCheck: true })
+    // Say it at boot as well as in the page. The person who redeploys is looking
+    // at a terminal, not at the app — POD-1610 survived a night of rebuilding
+    // because nothing on the build path ever mentioned the web dist at all.
+    const bundle = describeBundle(gradeWebBundle(webDir))
+    if (bundle) console.warn(`[podium] ${bundle}`)
+  }
 
   const host = resolveBindHost(opts)
   // If we're reachable off-box but no login password is set, the data plane is wide open
