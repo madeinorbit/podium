@@ -21,6 +21,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { writeSystemdFiles } from '../apps/cli/src/cli-systemd'
 import { DISCOVERY_WORKER_ENTRY } from '../apps/daemon/src/discovery-worker-embed.js'
 import { PUBLISH_WORKER_ENTRY } from '../apps/server/src/modules/sessions/publish-worker-embed.js'
 import { abducoSupported, buildVendoredAbduco } from '../packages/pty/src/abduco-bin.js'
@@ -210,6 +211,8 @@ function main(): void {
     )
   }
   mkdirSync(headless, { recursive: true })
+  // Release units are generated from the same renderer used by runtime setup and the dev host.
+  writeSystemdFiles(`${headless}/systemd`, { profile: 'packaged', instanceId: 'default' })
   cpSync(webDist, `${headless}/web`, { recursive: true })
 
   // The one compiled binary, plus the launcher shim (below) that execs it as `podium-cli`.

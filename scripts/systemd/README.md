@@ -1,12 +1,13 @@
 # Podium dev-host systemd units (podium-host)
 
-The canonical copies of the user-level units that run Podium on the dev host.
-Install with:
+These files are generated copies of the source-based dev-host profile in
+`apps/cli/src/cli-systemd.ts`. Render them before installing:
 
 ```sh
-cp scripts/systemd/podium-*.{service,path} ~/.config/systemd/user/
+bun --conditions=@podium/source scripts/render-systemd.ts --profile dev
+cp scripts/systemd/podium-*.{service,timer,path} ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now podium-server podium-daemon podium-web podium-redeploy.path
+systemctl --user enable --now podium-server.service podium-daemon.service podium-web.service podium-redeploy.path podium-health.timer
 # verify the watchdog took: both should read "active (running)" with a Watchdog line
 systemctl --user status podium-server podium-daemon | grep -iE 'active|watchdog'
 ```
@@ -64,4 +65,6 @@ leaves the old deploy running instead of crash-looping the new one. The
 last-good HEAD lives in `.git/podium-redeploy-head`; deploys that touch no
 type-relevant file skip the typecheck entirely.
 
-The unit files hard-code `/home/user` paths — adjust when installing elsewhere.
+The dev profile defaults to this host’s `/home/user/src/other/podium` checkout. Pass `--output`
+and render with a named instance when the host runs a separate instance; generated unit names and
+`Environment=PODIUM_INSTANCE` stay in lockstep with the packaged profile.

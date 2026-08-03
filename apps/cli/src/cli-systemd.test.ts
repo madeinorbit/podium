@@ -1,7 +1,11 @@
-import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { renderDaemonUnit, renderJanitorUnit, renderServerUnit, userUnitDir } from './cli-systemd'
+import {
+  renderDaemonUnit,
+  renderJanitorUnit,
+  renderServerUnit,
+  renderSystemdFiles,
+  userUnitDir,
+} from './cli-systemd'
 
 describe('renderServerUnit', () => {
   it('is a Type=notify, watchdog, Restart=always user unit calling podium server', () => {
@@ -118,14 +122,41 @@ describe('renderJanitorUnit', () => {
   })
 })
 
-describe('install.sh fallback unit lockstep (#20)', () => {
-  it('the heredoc unit in install.sh is byte-identical to renderDaemonUnit()', () => {
-    // install.sh --join normally DELEGATES to `podium setup --join` (which renders the unit
-    // via renderDaemonUnit); its fallback heredoc must never drift from that source of truth.
-    const sh = readFileSync(fileURLToPath(new URL('../../../install.sh', import.meta.url)), 'utf8')
-    const m = sh.match(/cat > "\$TMP\/podium-daemon\.service" <<'EOF'\n([\s\S]*?)EOF\n/)
-    expect(m, 'install.sh no longer contains the fallback daemon-unit heredoc').toBeTruthy()
-    expect(m?.[1]).toBe(renderDaemonUnit())
+describe('systemd profile rendering', () => {
+  it('packages the daemon and daily update artifacts from the same source', () => {
+    const files = renderSystemdFiles({ profile: 'packaged', instanceId: 'default' }).units
+    expect(files['podium-daemon.service']).toBe(renderDaemonUnit())
+    expect(files['podium-server.service']).toBe(renderServerUnit())
+    expect(files['podium-update-user.service']).toContain('podium update')
+    expect(files['podium-update-user.timer']).toContain('Unit=podium-update-user.service')
+  })
+
+  it('keeps packaged units instance-scoped', () => {
+    const files = renderSystemdFiles({ profile: 'packaged', instanceId: 'blue', port: 23000 }).units
+    expect(files['podium-blue-server.service']).toContain('Environment=PODIUM_INSTANCE=blue')
+    expect(files['podium-blue-daemon.service']).toContain(
+      'ExecStart=%h/.local/bin/podium-blue daemon',
+    )
+    expect(files['podium-blue-janitor.service']).toContain(
+      'ExecStart=%h/.local/bin/podium-blue janitor --server http://localhost:23000',
+    )
+    expect(files['podium-blue-update.service']).toContain('%h/.local/bin/podium-blue update')
+    expect(files['podium-blue-update.timer']).toContain('Unit=podium-blue-update.service')
+  })
+
+  it('renders an instance-scoped dev profile, including redeploy and health units', () => {
+    const files = renderSystemdFiles({ profile: 'dev', instanceId: 'blue', port: 23000 }).units
+    expect(files['podium-blue-server.service']).toContain('Environment=PODIUM_INSTANCE=blue')
+    expect(files['podium-blue-server.service']).toContain('Environment=PODIUM_PORT=23000')
+    expect(files['podium-blue-daemon.service']).toContain(
+      'After=network-online.target podium-blue-server.service',
+    )
+    expect(files['podium-blue-redeploy.path']).toContain('Unit=podium-blue-redeploy.service')
+    expect(files['podium-blue-health.service']).toContain(
+      'Environment=PODIUM_HEALTH_UNIT=podium-blue-server.service',
+    )
+    expect(files['podium-blue-health.timer']).toContain('Unit=podium-blue-health.service')
+    expect(files['podium-blue-update.timer']).toContain('Unit=podium-blue-update.service')
   })
 })
 

@@ -8,6 +8,10 @@ export PODIUM_STATE_DIR="$HOME/.podium"
 
 # --- build a fake signed release into $WORK/release ---
 REL="$WORK/release"; mkdir -p "$REL/headless"
+# Build the packaged unit artifacts into the local release fixture. The installer consumes these
+# files exactly as it consumes a locally built headless tarball.
+bun --conditions=@podium/source "$ROOT/scripts/render-systemd.ts" \
+  --profile packaged --output "$REL/headless/systemd" >/dev/null
 # Stub binary: emulates the subcommands install.sh drives. `setup --join` mirrors the real
 # binary's installSystemd (writes the daemon unit) so the delegation path is observable;
 # PODIUM_STUB_JOIN_FAIL forces it to fail so the fallback path can be tested.

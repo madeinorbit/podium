@@ -1,21 +1,17 @@
+# GENERATED from apps/cli/src/cli-systemd.ts by scripts/render-systemd.ts.
+# Do not hand-edit; rerun the renderer after changing the source.
 [Unit]
-# The backend (podium-server, :18787) serves the built PWA bundles itself (registerWebStatic
-# over apps/web/dist and apps/mobile/dist under /mobile), on the same origin as /trpc,
-# /auth and the /client + /daemon WS. So there is NO separate web server / vite hop — the
-# TLS terminator (tailscale serve / caddy / nginx) points straight at :18787. This unit
-# only *builds* the bundles so dist stays fresh.
+# The backend serves the built PWA bundles itself; this unit only builds them.
 Description=Podium web build — rebuilds apps/web/dist and apps/mobile/dist (served by the backend). Runs at boot and on every redeploy.
 After=network-online.target
 
 [Service]
 Type=oneshot
-# Stay "active (exited)" after a successful build so status is legible; the redeploy runs
-# `systemctl restart podium-web` to re-build the content-hashed bundle (drives the in-app
-# PWA update prompt).
 RemainAfterExit=yes
 WorkingDirectory=/home/user/src/other/podium
 Environment=HOME=/home/user
 Environment=PATH=/home/user/.local/bin:/home/user/.opencode/bin:/home/user/.bun/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PODIUM_INSTANCE=default
 ExecStart=/usr/bin/env bash -lc 'bun run --filter @podium/web build && bun run --filter @podium/mobile build:web'
 
 [Install]

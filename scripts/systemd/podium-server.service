@@ -1,3 +1,5 @@
+# GENERATED from apps/cli/src/cli-systemd.ts by scripts/render-systemd.ts.
+# Do not hand-edit; rerun the renderer after changing the source.
 [Unit]
 Description=Podium coordinating server (relay + HTTP/tRPC + client/daemon WebSockets, :18787)
 After=network-online.target
@@ -6,13 +8,8 @@ Wants=network-online.target
 [Service]
 # Type=notify + WatchdogSec: the server pets the watchdog from its event loop.
 # 90s, not 30: boot can stall tens of seconds at LOW cpu on disk contention
-# (WAL checkpoint fsyncs on a large podium.db while the web build writes) —
-# observed 2026-07-03, one silent-stall kill at exactly 30s with only 8s CPU.
 # (packages/runtime/src/sd-notify.ts), so a wedged-but-alive coordinating loop stops petting and
-# systemd restarts it — Restart=always only fires on EXIT and can't see a stall.
-# NotifyAccess=all because the notifier (systemd-notify) is a child of the bun pid.
-# (sd-notify shells out to systemd-notify, so the watchdog is runtime-agnostic — verified
-# under Bun.)
+# systemd restarts it — Restart=always only fires on EXIT and cannot see a stall.
 Type=notify
 NotifyAccess=all
 WatchdogSec=90
@@ -20,17 +17,11 @@ WorkingDirectory=/home/user/src/other/podium
 Environment=HOME=/home/user
 Environment=PATH=/home/user/.local/bin:/home/user/.opencode/bin:/home/user/.bun/bin:/usr/local/bin:/usr/bin:/bin
 Environment=PODIUM_PORT=18787
-# Event-loop stall logging + starved-vs-busy classification (POD-600). Cheap
-# (a probe timer + one /proc read per second); the daemon gets the same flag
-# via a local drop-in.
+Environment=PODIUM_INSTANCE=default
+# Event-loop stall logging + starved-vs-busy classification (POD-600).
 Environment=PODIUM_LOOP_PROFILE=1
-# Run @podium/* from TypeScript SOURCE (--conditions=@podium/source), like Vite —
-# no build, no dist, no stale-dist trap. Bun runtime (runs TS natively); @podium/harness
-# is a shared dep. This process does NO PTY work (that's the daemon) — keeping per-agent
-# work out of here is what stops a misbehaving agent from starving the relay loop.
-# Persistence resolves to bun:sqlite (@podium/core/sqlite). Running from SOURCE (not the
-# `bun build --compile` binary) preserves redeploy-on-main-change: a restart re-reads the
-# updated source, exactly like tsx did.
+# Run @podium/* from TypeScript SOURCE (--conditions=@podium/source), like Vite — no build,
+# no dist, no stale-dist trap. Bun runs TS natively and this process does no PTY work.
 ExecStart=/home/user/.local/bin/bun --conditions=@podium/source scripts/server.ts
 Restart=always
 RestartSec=2
