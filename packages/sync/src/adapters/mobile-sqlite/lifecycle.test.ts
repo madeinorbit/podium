@@ -28,8 +28,8 @@
  * structural probe carrying a positive control so it cannot pass by finding nothing.
  */
 
+import type { MutationId } from '@podium/model'
 import { actorUser, asUserId } from '@podium/model'
-import type { MutationId } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { OutboxRecord } from '../../outbox/records'
 import type { Cursor } from '../../replica/types'

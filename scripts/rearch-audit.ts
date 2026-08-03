@@ -489,6 +489,75 @@ export function upstreamRetirementControlMisses(patternSource: string): string[]
     .filter((control) => !re.test(control))
 }
 
+/**
+ * THE ANCHOR BEHIND `reexport-shims`'s ZERO_BY_DESIGN EXEMPTION (POD-333).
+ *
+ * The item reached zero: every named compatibility shim is deleted, and
+ * `manifest-retired-path` (scripts/architecture-manifest.ts) refuses the paths.
+ * From here its count can only ever be zero — which is also what a broken
+ * detector reports, so per docs/rearch-deletion-audit.md the detector has to
+ * watch itself.
+ *
+ * It has no surviving code to anchor on, so it anchors on the two facts its zero
+ * DEPENDS on: that the scan sees files at all, and that its regex still matches
+ * the shapes it was written to match. Both failures are real history here — this
+ * detector was formatting-fragile once already (a biome wrap made a re-export
+ * invisible to the line-based version and the count FELL), and its unit was
+ * silently narrow twice (package barrels counted as debt; a blanket forward
+ * beside real code not counted at all).
+ *
+ * The controls are grouped by the branch each exercises, so a throw can name
+ * which half died rather than just "something".
+ */
+export const REEXPORT_SHIM_CONTROLS: Readonly<Record<string, readonly string[]>> = {
+  // The plain named form, and the STAR form. Both are counted shapes.
+  named: ["export { a, b } from '@podium/model'", "export * from '@podium/client-core/focus'"],
+  // Type-only and star-as: the two spellings a narrower regex drops first.
+  qualified: ["export type { A } from '@podium/model'", "export * as ids from '@podium/model'"],
+  // THE FORMATTING BRANCH. biome (lineWidth 100) wraps a re-export as soon as
+  // one name is added, and a line-based test drops the file entirely — the
+  // count falls and the ratchet records a deletion that never happened.
+  wrapped: ["export {\n  a,\n  b,\n} from '@podium/client-core/viewmodels'"],
+}
+
+/** Controls `patternSource` FAILS to match. Empty means the anchor is intact. */
+export function reexportShimControlMisses(patternSource: string): string[] {
+  return Object.values(REEXPORT_SHIM_CONTROLS)
+    .flat()
+    .filter((control) => !new RegExp(patternSource, 'g').test(control))
+}
+
+/**
+ * THE ANCHOR BEHIND `cli-launch-plan-debt`'s ZERO_BY_DESIGN EXEMPTION (POD-333).
+ *
+ * Both states are gone from apps/cli/src/cli.ts, so there is no surviving code
+ * to anchor on and the count can only ever be zero — which is also what a broken
+ * detector reports. It therefore anchors on the two facts its zero depends on:
+ * that its root still resolves to a file, and that its pattern still matches the
+ * spellings a re-grown state would take.
+ *
+ * The controls are not hypothetical. The first draft of this pattern anchored
+ * the second literal on `reason:\s*` and on a trailing `|`, and a planted
+ * `reason: 'explicit' | 'first-run' | 'incomplete-headless-config' }` — the most
+ * likely way the state actually comes back — went SILENT.
+ */
+export const CLI_LAUNCH_PLAN_ROOTS: readonly string[] = ['apps/cli/src/cli.ts']
+
+export const CLI_LAUNCH_PLAN_CONTROLS: Readonly<Record<string, readonly string[]>> = {
+  variant: ["| { kind: 'reconcile-pending-persistence'; port: number }"],
+  reason: [
+    "reason: 'explicit' | 'first-run' | 'incomplete-headless-config'",
+    "reason: 'incomplete-headless-config'",
+  ],
+}
+
+/** Controls `patternSource` FAILS to match. Empty means the anchor is intact. */
+export function cliLaunchPlanControlMisses(patternSource: string): string[] {
+  return Object.values(CLI_LAUNCH_PLAN_CONTROLS)
+    .flat()
+    .filter((control) => !new RegExp(patternSource).test(control))
+}
+
 /** The roots the snapshot fan-out lived in. Every one of its thirteen sites was
  *  in the server app; a home outside it would be a relocation, not a deletion. */
 export const PUBLISH_COMPUTED_ROOTS = ['apps/server/src'] as const
@@ -1163,10 +1232,26 @@ export const CHECKS: AuditCheck[] = [
   },
   {
     id: 'reexport-shims',
-    title: 'App-level re-export shims',
+    title: 'Named compatibility shims (cross-workspace re-export tombstones)',
     phase: 'POD-333',
-    unit: 'file whose every statement is a re-export (package barrels excluded)',
+    unit: 're-export-only file whose targets are ANOTHER workspace (a moved module’s tombstone); barrels over local siblings are public API and are not counted',
     collect: (ctx) => {
+      const REEXPORT_SOURCE = String.raw`export\s+(?:type\s+)?(?:\*(?:\s+as\s+\w+)?|\{[\s\S]*?\})\s+from\s*['"]([^'"]+)['"]\s*;?`
+      const missing = reexportShimControlMisses(REEXPORT_SOURCE)
+      if (missing.length > 0)
+        throw new Error(
+          `reexport-shims: the pattern no longer matches ${missing.length} of its control ` +
+            `strings (${missing.map((c) => JSON.stringify(c)).join(', ')}). The detector is ` +
+            'broken; fix it rather than recording a phantom zero.',
+        )
+      const scanned = ctx.files.filter(
+        (f) => f.file.startsWith('apps/') || f.file.startsWith('packages/'),
+      )
+      if (scanned.length === 0)
+        throw new Error(
+          'reexport-shims: the scan matched no files under apps/ or packages/. Its zero is a ' +
+            'phantom, not the shim sweep holding.',
+        )
       const sites: AuditSite[] = []
       for (const f of ctx.files) {
         if (f.isTest || isFrozenFile(f.file)) continue
@@ -1193,16 +1278,77 @@ export const CHECKS: AuditCheck[] = [
         // re-export as soon as one name is added, the count would FALL and the
         // ratchet would cheerfully record a deletion that never happened.
         const code = f.stripped
-        const REEXPORT =
-          /export\s+(?:type\s+)?(?:\*(?:\s+as\s+\w+)?|\{[\s\S]*?\})\s+from\s*['"][^'"]+['"]\s*;?/g
-        const count = code.match(REEXPORT)?.length ?? 0
-        if (count === 0) continue
-        if (code.replace(REEXPORT, '').trim().length === 0)
-          sites.push({
-            file: f.file,
-            line: 1,
-            text: `${count} re-exports, no other code`,
-          })
+        const REEXPORT = new RegExp(REEXPORT_SOURCE, 'g')
+        const matches = [...code.matchAll(REEXPORT)]
+        if (matches.length === 0) continue
+        // SECOND FORM — the blanket re-forward inside a real module (POD-333).
+        //
+        // `apps/web/src/lib/derive.ts` carried
+        // `export * from '@podium/client-core/viewmodels'` beside one genuinely
+        // web-side helper, with the comment "Existing `./derive` imports keep
+        // working through this shim". It is a named compatibility shim by the
+        // brief's own words, and the re-export-ONLY unit could not see it,
+        // because the file has other code. It went unmeasured for two phases and
+        // was found by a typecheck error, not by this audit.
+        //
+        // A STAR forward is the counted shape, not a named one: `export { a, b }
+        // from '@podium/x'` republishes a bounded, curated list — a decision per
+        // name — whereas `export *` makes the module's surface whatever the other
+        // workspace happens to export today, which is exactly the "import sites
+        // need not move" bargain. Narrowing to the star form is also what keeps
+        // this from flooding: several packages re-export a handful of named
+        // model types as part of a designed API.
+        const otherCode = code.replace(REEXPORT, '').trim().length !== 0
+        if (otherCode) {
+          const forwards = matches.filter(
+            (m) => !(m[1] ?? '').startsWith('.') && /export\s+\*/.test(m[0]),
+          )
+          if (forwards.length > 0) {
+            sites.push({
+              file: f.file,
+              line: 1,
+              text: `blanket re-forward of ${[...new Set(forwards.map((m) => m[1]))].join(', ')} beside real code`,
+            })
+          }
+          continue
+        }
+        // THE CRITERION IS WHERE THE RE-EXPORTS POINT, NOT WHERE THE FILE SITS
+        // (POD-333, finding 16).
+        //
+        // The item is named after COMPATIBILITY SHIMS: files kept so that import
+        // sites would not have to move when a symbol changed workspace. That is
+        // a statement about the EDGE, so the detector reads the edge.
+        //
+        // What this replaces, and why: the old rule was "app-level all-re-export
+        // files are shims, `packages/*/src/**/index.ts` are not". Both halves
+        // were wrong at the margin, in opposite directions. It counted
+        // `apps/server/src/index.ts` — the @podium/server package entrypoint,
+        // whose whole job is to publish `startServer` and the `AppRouter` type —
+        // as debt, and it would have MISSED a shim written at
+        // `packages/x/src/index.ts`, which is the most natural place to put one.
+        // Location was a proxy for the thing; the target is the thing.
+        //
+        // A barrel over its own directory (`./service`, `../roles`) re-exports
+        // modules that live where the barrel lives: nothing moved, so there is
+        // no import site being held stable and nothing to delete. A file whose
+        // every export comes from ANOTHER workspace is the tombstone of a module
+        // that left — exactly what Phase 7.1 deletes.
+        //
+        // Measured at 9eea645d: the old unit reported 21 sites, of which 16 were
+        // cross-workspace (deleted here) and 5 were local-sibling barrels
+        // (apps/daemon/src/index.ts, apps/server/src/index.ts and its messaging
+        // and superagent module barrels, apps/web/src/lib/motion/index.ts). The
+        // new unit reports exactly the 16. See the reconciliation entry in
+        // docs/rearch-deletion-audit.md.
+        const foreign = matches.filter((m) => !(m[1] ?? '').startsWith('.'))
+        if (foreign.length === 0) continue
+        sites.push({
+          file: f.file,
+          line: 1,
+          text: `${matches.length} re-exports, no other code; ${foreign.length} cross-workspace (${[
+            ...new Set(foreign.map((m) => m[1])),
+          ].join(', ')})`,
+        })
       }
       return sites
     },
@@ -1211,12 +1357,63 @@ export const CHECKS: AuditCheck[] = [
     id: 'cli-launch-plan-debt',
     title: 'CLI launch-plan config-migration debt',
     phase: 'POD-333',
-    unit: 'LaunchPlan variant that exists only to repair/migrate unversioned config',
-    collect: (ctx) =>
-      grep(ctx, {
-        roots: ['apps/cli/src/cli.ts'],
-        pattern: /\|\s*\{\s*kind:\s*'repair-config'/,
-      }),
+    unit: 'LaunchPlan variant or `reason` that exists only because the config is unversioned',
+    /**
+     * RE-ANCHORED at POD-333, and the reason matters more than the edit.
+     *
+     * The old pattern matched ONE literal: `| { kind: 'repair-config'`. That is
+     * not what the item is named after. `repair-config` backs up a config.json
+     * that will not PARSE (issue #21) — corruption, which is orthogonal to
+     * versioning: a truncated file is not an old file, and adding a version
+     * field does not make one readable. It is a real, documented operator
+     * command (`podium setup --repair`), and it survives.
+     *
+     * The variants that existed only because the config could not say which
+     * version it was are the two POD-333's brief names:
+     *
+     *   `reconcile-pending-persistence`  the web setup recorded a persistence
+     *                                    INTENT it could not fulfil, and the
+     *                                    launcher carried a state for the gap;
+     *   `incomplete-headless-config`     an `interactive-setup` reason meaning
+     *                                    "mode set, no persistence" — a shape
+     *                                    that was ambiguous between the desktop
+     *                                    sidecar and a box configured before the
+     *                                    persistence step existed.
+     *
+     * Both are gone: `configVersion` + CONFIG_MIGRATIONS in @podium/runtime
+     * resolve the history before the resolver sees the config, so absence is an
+     * answer. Re-anchoring an item onto the thing it is named after — while its
+     * own phase is the one closing it — is exactly the move that deserves
+     * suspicion, so the anchor is not merely narrowed to zero: it also matches
+     * the SHAPE of a re-grown state, and scripts/rearch-audit.test.ts plants
+     * both spellings and asserts they are caught.
+     */
+    collect: (ctx) => {
+      const CLI_LAUNCH_PLAN_PATTERN = String.raw`'reconcile-pending-persistence'|'incomplete-headless-config'`
+      const missing = cliLaunchPlanControlMisses(CLI_LAUNCH_PLAN_PATTERN)
+      if (missing.length > 0)
+        throw new Error(
+          `cli-launch-plan-debt: the pattern no longer matches ${missing.length} of its control ` +
+            `strings (${missing.map((c) => JSON.stringify(c)).join(', ')}). The detector is ` +
+            'broken; fix it rather than recording a phantom zero.',
+        )
+      if (!ctx.files.some((f) => CLI_LAUNCH_PLAN_ROOTS.includes(f.file)))
+        throw new Error(
+          `cli-launch-plan-debt: ${CLI_LAUNCH_PLAN_ROOTS.join(', ')} matched no file. Its zero ` +
+            'is a phantom, not the launch matrix holding.',
+        )
+      return grep(ctx, {
+        roots: [...CLI_LAUNCH_PLAN_ROOTS],
+        // Both literals, matched BARE. An earlier draft anchored the second one
+        // on `reason:\s*` and on a following `|`, and a planted
+        // `reason: 'explicit' | 'first-run' | 'incomplete-headless-config' }`
+        // — the most likely way the state actually comes back, as a third
+        // union member — went SILENT. Comments are stripped before matching, so
+        // a bare literal costs no false positives even though this file's own
+        // doc comments name both.
+        pattern: new RegExp(CLI_LAUNCH_PLAN_PATTERN),
+      })
+    },
   },
   {
     id: 'agent-kind-enums',

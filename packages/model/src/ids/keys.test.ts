@@ -166,22 +166,9 @@ describe('subjectResourceKey — the grants-edge key (ADR 9 D2)', () => {
   })
 })
 
-describe('the two legacy shapes (moved verbatim from @podium/protocol)', () => {
-  it('machineScopedKey round-trips and rejects a malformed key', () => {
-    const key = machineScopedKey(asMachineId('m\n1'), 'native\\id')
-    expect(parseMachineScopedKey(key)).toEqual({ machineId: 'm\n1', nativeId: 'native\\id' })
-    expect(() => parseMachineScopedKey('no-separator')).toThrow(/malformed machine-scoped key/)
-    expect(() => parseMachineScopedKey('\nnative')).toThrow(/malformed machine-scoped key/)
-  })
-
-  it('resumeKey round-trips EVERY constructor output, including an empty kind', () => {
-    // ResumeRef allows an empty kind, so `:value` is a legitimate constructor
-    // output and the parser must accept it — unlike machineScopedKey, whose
-    // machineId half may not be empty.
-    expect(parseResumeKey(resumeKey('', 'v'))).toEqual({ kind: '', value: 'v' })
-    expect(parseResumeKey(resumeKey('codex-thread', 'a:b'))).toEqual({
-      kind: 'codex-thread',
-      value: 'a:b',
-    })
-  })
-})
+// The two legacy composite-key shapes (machineScopedKey, resumeKey) are pinned
+// in legacy-shapes.test.ts beside this file: hostile-part round-trips, the
+// non-collision property the ad-hoc concat lacked, strict escaping, and the
+// literal pre-helper concatenations. This file used to carry a two-case subset
+// of that; POD-333 removed the subset rather than keeping two partial pins of
+// one behaviour in one directory.

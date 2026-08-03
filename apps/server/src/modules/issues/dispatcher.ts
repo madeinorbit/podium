@@ -16,11 +16,11 @@
  */
 
 import { ISSUE_COMMAND_NAMES, type IssueContractName } from '@podium/commands'
+import type { IssueProc, IssueTrpc } from '@podium/issue-client'
+import { spawnedByParentSessionId } from '@podium/model'
 import { z } from 'zod'
 import { resolvePrincipal } from '../../command-principal'
 import type { Capability } from '../../issue-authz'
-import type { IssueProc, IssueTrpc } from '../../issue-client'
-import { spawnedByParentSessionId } from '@podium/model'
 import {
   commandAccess,
   type IssueCaller,

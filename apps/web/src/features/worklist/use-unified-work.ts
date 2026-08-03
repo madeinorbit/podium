@@ -13,18 +13,23 @@
  */
 import { beginSwitch } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
-import { asSessionId, type IssueColorSlot, type IssueId, type SessionId } from '@podium/model'
-import { useEffect, useRef } from 'react'
-import { useReplicaIssues, useSlice, useStoreSelector } from '@/app/store'
 import {
   type IssueNavigationModel,
-  issueReturnedFromDefer,
   pickPaneSession,
   type RepoNavView,
   sessionsForIssueNav,
   sessionsForWorktree,
   worklistSlice,
-} from '@/lib/derive'
+} from '@podium/client-core/viewmodels'
+import {
+  asSessionId,
+  type IssueColorSlot,
+  type IssueId,
+  issueReturnedFromDefer,
+  type SessionId,
+} from '@podium/model'
+import { useEffect, useRef } from 'react'
+import { useReplicaIssues, useSlice, useStoreSelector } from '@/app/store'
 import type { SidebarDerivation } from './derivation'
 
 /**

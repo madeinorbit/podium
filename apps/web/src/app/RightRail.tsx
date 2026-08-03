@@ -1,7 +1,7 @@
+import { aggregateMotionPhase, type MotionPhase, motionPhase } from '@podium/client-core/viewmodels'
 import type { IssueColorSlot } from '@podium/model'
 import type { JSX } from 'react'
 import { IdSquare, type IdSquareBadge, idSquareLabel } from '@/components/IdSquare'
-import { aggregateMotionPhase, type MotionPhase, motionPhase } from '@/lib/derive'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { RIGHT_PANELS } from './RightDock'

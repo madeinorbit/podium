@@ -59,7 +59,7 @@
  * `SyncCommitConflict` and aborts the whole span.
  */
 
-import type { MutationId } from '@podium/protocol'
+import type { MutationId } from '@podium/model'
 import type {
   OutboxApplyResult,
   OutboxRecordExpectation,
@@ -67,7 +67,6 @@ import type {
   OutboxStorePort,
 } from '../../outbox/ports'
 import type { OutboxRecord } from '../../outbox/records'
-import { mergeScrubReports, planSecretScrub, type SecretScrubReport } from '../secret-scrub'
 import type {
   CacheMutation,
   OwnedSyncSpan,
@@ -79,6 +78,7 @@ import type {
 import { ReplicaStoreCorruptError } from '../../replica/ports'
 import type { Cursor, EntityRecord } from '../../replica/types'
 import { SyncCommitConflict } from '../../span'
+import { mergeScrubReports, planSecretScrub, type SecretScrubReport } from '../secret-scrub'
 import {
   type IdbDatabaseLike,
   type IdbFactoryLike,

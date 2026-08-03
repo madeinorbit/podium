@@ -1,8 +1,9 @@
+import { isSessionWorking } from '@podium/client-core/viewmodels'
 import type { SessionMeta } from '@podium/model'
-import { useStoreSelector } from '@/app/store'
-import type { IssueViewModel } from '@/app/store'
 import { AlertTriangle, GitBranch, GitCommit, MessageCircleQuestion, Users } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
+import type { IssueViewModel } from '@/app/store'
+import { useStoreSelector } from '@/app/store'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -13,7 +14,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { isSessionWorking } from '@/lib/derive'
 
 export type IssueCloseReason = 'done' | 'wontfix'
 

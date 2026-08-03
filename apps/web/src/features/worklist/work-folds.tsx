@@ -1,13 +1,13 @@
-import { issueDisplayRef } from '@podium/protocol'
-import { Archive, ChevronRight, Pin } from 'lucide-react'
-import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
-import { useId } from 'react'
+import { relativeTime } from '@podium/client-core/focus'
 import type {
   IssueNavigationModel,
   UnifiedIssueRow as UnifiedIssueRowView,
   UnifiedWorkRow,
-} from '@/lib/derive'
-import { relativeTime } from '@/lib/home'
+} from '@podium/client-core/viewmodels'
+import { issueDisplayRef } from '@podium/protocol'
+import { Archive, ChevronRight, Pin } from 'lucide-react'
+import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
+import { useId } from 'react'
 import { type RowTransitionItem, useArrivals } from '@/lib/motion'
 import { cn } from '@/lib/utils'
 import { closedFoldKey, snoozedFoldKey } from './fold-keys'

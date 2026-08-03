@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { OPERATOR } from './issue-authz'
+
 import { SessionRegistry } from './relay'
+import { OPERATOR } from './test-support/capabilities'
 
 // The in-process MCP reaches the tracker through the command registry's derived
 // IssueTrpc client (IssueCommandDispatcher.asIssueTrpc — the typed replacement for

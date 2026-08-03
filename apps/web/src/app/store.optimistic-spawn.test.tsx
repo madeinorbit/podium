@@ -1,4 +1,5 @@
 import { asClientPrincipal } from '@podium/client-core/principal'
+import { optimisticDraftIssue } from '@podium/client-core/viewmodels'
 import {
   asIssueId,
   asSessionId,
@@ -12,7 +13,6 @@ import type { SyncChangesSinceResult } from '@podium/protocol'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { optimisticDraftIssue } from './optimistic-spawn'
 
 /** These suites predate multi-user; they exercise ONE signed-in operator, which
  *  is what the shipped single-admin install is. */

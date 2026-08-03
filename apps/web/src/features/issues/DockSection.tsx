@@ -1,8 +1,8 @@
+import type { UiState } from '@podium/client-core/replica'
 import { DOCK_SECTION_KEY_PREFIX } from '@podium/client-core/ui-state'
 import { ChevronRight } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useCallback, useState } from 'react'
-import type { UiState } from '@/app/replica'
 import { useStoreSelector } from '@/app/store'
 import { cn } from '@/lib/utils'
 

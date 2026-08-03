@@ -32,6 +32,8 @@
  */
 
 import { shallowEqual } from '@podium/client-core'
+import { relativeTime } from '@podium/client-core/focus'
+import { artifactKind, artifactUrl, basename } from '@podium/client-core/viewmodels'
 import type { IssuePanelArtifact } from '@podium/model'
 import { FileText, Play } from 'lucide-react'
 import type { JSX } from 'react'
@@ -40,8 +42,6 @@ import { type IssueViewModel, useStoreSelector } from '@/app/store'
 import { MediaLightbox } from '@/components/MediaLightbox'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
-import { artifactKind, artifactUrl, basename } from '@/lib/dock-panel'
-import { relativeTime } from '@/lib/home'
 import { cn } from '@/lib/utils'
 import type { IssuePageCommands } from '../issue-page-commands'
 import { AttributionPair } from './AttributionPair'

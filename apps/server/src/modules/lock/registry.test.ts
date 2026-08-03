@@ -1,8 +1,9 @@
 import { LOCK_COMMAND_NAMES } from '@podium/commands'
 import { asSessionId, type SessionId } from '@podium/model'
 import { afterAll, describe, expect, it } from 'vitest'
-import { OPERATOR } from '../../issue-authz'
+
 import { SessionRegistry } from '../../relay'
+import { OPERATOR } from '../../test-support/capabilities'
 import { lockRegistry } from './registry'
 
 /**
@@ -57,7 +58,10 @@ describe('lock registry', () => {
       lock: { holder: { sessionId: SessionId | null; label: string } }
     }
     expect(r.granted).toBe(true)
-    expect(r.lock.holder).toMatchObject({ sessionId: asSessionId('sess_agent'), label: 'session:sess_agent' })
+    expect(r.lock.holder).toMatchObject({
+      sessionId: asSessionId('sess_agent'),
+      label: 'session:sess_agent',
+    })
   })
 
   it('viewers are role-gated out of writes but may read status', async () => {

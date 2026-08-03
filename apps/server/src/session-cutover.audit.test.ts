@@ -36,12 +36,13 @@
 import {
   commandVisibility,
   SESSION_STATE_COMMAND_TABLES,
-  sessionStateCommand,
   sessionCommandPlane,
+  sessionHandoffContract,
+  sessionStateCommand,
 } from '@podium/commands'
-import { sessionHandoffContract } from '@podium/commands'
+import type { MachineId } from '@podium/model'
 import { asSessionId, asUserId, SOLE_USER_ID, type UserId } from '@podium/model'
-import type { MachineGrant, MachineId } from '@podium/protocol'
+import type { MachineGrant } from '@podium/protocol'
 
 import { afterEach, describe, expect, it } from 'vitest'
 import {
@@ -49,7 +50,7 @@ import {
   type CommandPrincipal,
   FIRST_ADMIN_USER_ID,
 } from './command-principal'
-import { OPERATOR } from './issue-authz'
+
 import type { MachineOwnershipIndex, MachineOwnershipRow } from './machine-access'
 import { ownershipFromMachines } from './machine-access'
 import { sessionCommandCtx, sessionCommandServices } from './modules/sessions/command-ctx'
@@ -65,13 +66,14 @@ import {
   messageOf,
   type Oracle,
 } from './modules/sessions/oracle-support'
+import type { SessionVisibility } from './modules/sessions/session-access'
 import {
   SessionStateRegistry,
   soleHumanSessionStatePrincipal,
 } from './modules/sessions/session-state/registry'
-import type { SessionVisibility } from './modules/sessions/session-access'
 import { sessionSurfaceManifest } from './modules/sessions/trpc'
 import { appRouter } from './router'
+import { OPERATOR } from './test-support/capabilities'
 
 afterEach(() => disposeOracles())
 

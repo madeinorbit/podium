@@ -17,9 +17,10 @@
  * the current working stretch, so a waiting→working resume continues the count
  * instead of resetting (the caller decides when a run truly restarts).
  */
+
+import { relativeTime } from '@podium/client-core/focus'
+import { formatClock, type MotionPhase } from '@podium/client-core/viewmodels'
 import type { JSX } from 'react'
-import { formatClock, type MotionPhase } from '@/lib/derive'
-import { relativeTime } from '@/lib/home'
 import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
 import { BrailleSpinner } from './BrailleSpinner'

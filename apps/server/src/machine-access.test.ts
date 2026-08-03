@@ -8,8 +8,9 @@
  * be the answer the fixture gives to everything.
  */
 
+import type { MachineId } from '@podium/model'
 import { asSessionId, asUserId, type SessionId, type UserId } from '@podium/model'
-import type { MachineGrant, MachineId, MachineVerb } from '@podium/protocol'
+import type { MachineGrant, MachineVerb } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import {
   type AgentCommandPrincipal,
@@ -23,9 +24,9 @@ import {
   canSeeMachine,
   checkMachineUse,
   isMachineOwner,
-  machineAccessMessage,
   type MachineOwnershipIndex,
   type MachineOwnershipRow,
+  machineAccessMessage,
   machineUseDecision,
   machineVerbsFor,
   ownershipFromMachines,
@@ -170,13 +171,18 @@ describe('the retired sentinels get no arm of their own (POD-318)', () => {
   // two literals name nothing at all. What replaces the arm is the plain rule.
   const noRows = ownershipTable(new Map())
 
-  it.each(['local', '__local__', 'localhost', 'local-2', 'Local', '__local', 'box'])(
-    'no row means absent, for %s exactly like any other unknown id',
-    (unknown) => {
-      expect(checkMachineUse(user(OWNER), unknown, noRows)).toBe('absent')
-      expect(checkMachineUse(user(COLLEAGUE), unknown, noRows)).toBe('absent')
-    },
-  )
+  it.each([
+    'local',
+    '__local__',
+    'localhost',
+    'local-2',
+    'Local',
+    '__local',
+    'box',
+  ])('no row means absent, for %s exactly like any other unknown id', (unknown) => {
+    expect(checkMachineUse(user(OWNER), unknown, noRows)).toBe('absent')
+    expect(checkMachineUse(user(COLLEAGUE), unknown, noRows)).toBe('absent')
+  })
 
   it('the HOST is usable because it has a real owned row, not because of its id', () => {
     // The counterfactual for the assertion above: the same gate says YES here,
@@ -540,7 +546,7 @@ describe('isMachineOwner: the one predicate behind both the transfer gate and th
     expect(isMachineOwner(systemPrincipal('steward'), 'laptop', ownership)).toBe(false)
   })
 
-  it("an agent is the owner exactly when ITS HUMAN is — never on its own account", () => {
+  it('an agent is the owner exactly when ITS HUMAN is — never on its own account', () => {
     const ownership = ownershipFromMachines({
       ownershipRows: () => [{ id: 'laptop', ownerUserId: OWNER }],
     })

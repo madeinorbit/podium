@@ -1,5 +1,16 @@
+import type { SpawnTarget } from '@podium/client-core'
 import { shallowEqual } from '@podium/client-core/store'
+import {
+  lastUsedMaps,
+  panelLabel,
+  type RepoNavView,
+  reposToViews,
+  resolveDefaultAgent,
+  spawnTargetForRepo,
+  worklistSlice,
+} from '@podium/client-core/viewmodels'
 import type { AgentKind, IssueId, IssueWire, SessionId } from '@podium/model'
+import { isSnoozed, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/model'
 import { resolveRole } from '@podium/runtime'
 import type { JSX } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -9,18 +20,6 @@ import { STAGE_LABELS } from '@/features/issues/issue-card'
 import { paletteIssueMenuData } from '@/features/issues/issue-menu-palette'
 import { issueMenuPaletteCommands } from '@/features/issues/issue-menu-palette-commands'
 import { NewIssueDialog } from '@/features/issues/NewIssueDialog'
-import {
-  isSnoozed,
-  lastUsedMaps,
-  panelLabel,
-  type RepoNavView,
-  reposToViews,
-  resolveDefaultAgent,
-  snoozeUntil1h,
-  snoozeUntilTomorrow5am,
-  spawnTargetForRepo,
-  worklistSlice,
-} from '@/lib/derive'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { sessionMenuEligibility } from '@/lib/SessionContextMenu'
 import { useFeature } from '@/lib/use-feature'
@@ -33,7 +32,6 @@ import {
   type PaletteCommand,
   type PaletteGroupId,
 } from './command-palette'
-import type { SpawnTarget } from './spawn-agent'
 import { useReplicaIssues, useSlice, useStoreSelector } from './store'
 
 const GROUP_LABELS: Record<PaletteGroupId, string> = {

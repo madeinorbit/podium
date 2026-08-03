@@ -14,8 +14,8 @@
 import { asSessionId, isAgentKind } from '@podium/model'
 import {
   type ApprovalOp,
-  type FeatureId,
   FEATURES,
+  type FeatureId,
   type LocalDaemonLink,
   resolveFeatureState,
 } from '@podium/protocol'
@@ -117,11 +117,7 @@ export type DaemonAuthKind =
  *
  *  - utility subcommands (`update`, `issue`, `status`, …) — argv parsing (incl. their
  *    usage errors) is folded in so `main()` needs no other dispatch;
- *  - `reconcile-pending-persistence` — a web setup on a headless box recorded a
- *    persistence INTENT it couldn't fulfill itself (issue #20);
- *  - `interactive-setup` — TTY-gated; `reason: 'incomplete-headless-config'` is the box
- *    configured before the persistence step existed (mode set, no `persistence`), routed
- *    back into setup so it never silently runs in-process;
+ *  - `interactive-setup` — TTY-gated: an explicit `podium setup`, or a first run;
  *  - `client` — nothing to run locally, just point at the server;
  *  - `systemd-managed` / `detached-managed` — a bare `podium` on a headless-managed
  *    install ensures the split is up and reports status, never hosts in this PID;
@@ -164,15 +160,13 @@ export type LaunchPlan =
   | { kind: 'logs'; args: string[] }
   /** Malformed invocation: print `message` to stderr and exit 2. */
   | { kind: 'usage-error'; message: string }
-  | { kind: 'reconcile-pending-persistence'; port: number }
-  | {
-      kind: 'interactive-setup'
-      port: number
-      reason: 'explicit' | 'first-run' | 'incomplete-headless-config'
-    }
+  | { kind: 'interactive-setup'; port: number; reason: 'explicit' | 'first-run' }
   | { kind: 'client'; serverUrl: string | undefined }
-  | { kind: 'systemd-managed'; units: string[] }
-  | { kind: 'detached-managed'; port: number }
+  /** Headless-managed install: this box runs the backend as INDEPENDENT processes.
+   *  `mode` and `port` travel with the plan because ENSURING the split is up may
+   *  mean installing it — see the executor. */
+  | { kind: 'systemd-managed'; units: string[]; mode: PodiumMode; port: number }
+  | { kind: 'detached-managed'; mode: PodiumMode; port: number }
   | {
       kind: 'in-process'
       port: number
@@ -506,46 +500,22 @@ export function resolvePlan(
   const forceSetup = argv[0] === 'setup' || argv.includes('--reconfigure')
   const explicitSub = (SUBCOMMANDS as string[]).includes(argv[0] ?? '') || argv[0] === 'all'
   const bareInvocation = !explicitSub
-  // MIGRATION DEBT: a box configured before the persistence step existed (mode set, no
-  // `persistence`) — or one written by the web setup — would otherwise fall through to the
-  // in-process path. On a TTY, route a bare `podium` back into setup so it completes the
-  // split (pick persistence + start). Non-TTY keeps the in-process fallback (the desktop
-  // sidecar, which sets no persistence).
-  const incompleteHeadlessConfig =
-    bareInvocation &&
-    !!config.mode &&
-    config.mode !== 'client' &&
-    !config.persistence &&
-    !config.pendingPersistence
-
-  // A web setup on a headless box recorded a persistence INTENT it couldn't fulfill itself
-  // (the serving process can't self-daemonize — issue #20). Reconcile it here, non-
-  // interactively — works over SSH without a TTY. The mode guard mirrors
-  // reconcilePendingPersistence's own precondition, so executing the plan can't no-op
-  // (a pendingPersistence with mode unset/'client' falls through, as it always did).
-  if (
-    !forceSetup &&
-    bareInvocation &&
-    !config.persistence &&
-    config.pendingPersistence &&
-    (config.mode === 'all-in-one' || config.mode === 'server' || config.mode === 'daemon')
-  ) {
-    return { kind: 'reconcile-pending-persistence', port }
-  }
+  // NO MIGRATION STATES HERE (POD-333). This resolver used to carry two, both of
+  // them questions about the config's HISTORY rather than about how to launch:
+  // `reconcile-pending-persistence` (the web setup recorded an intent it could
+  // not fulfil) and `incomplete-headless-config` (a box configured before the
+  // persistence step existed, so "no persistence" might have meant "not yet
+  // asked" rather than "not managed"). Both are answered before the resolver
+  // sees the config now: `configVersion` + the one-shot migrations in
+  // @podium/runtime/config fold the intent into `persistence` and stamp the
+  // file, so absent persistence means exactly one thing — this box is not
+  // headless-managed. Every branch below is a real launch mode.
 
   // Interactive setup gate (same predicate as cli-setup's shouldRunCliSetup): it's THE
   // interactive command, so the only gate is a TTY — headless/systemd/piped runs must
   // never block on a prompt, and fall through to serving the web UI instead.
-  if ((forceSetup || modePlan.showSetupHint || incompleteHeadlessConfig) && tty) {
-    return {
-      kind: 'interactive-setup',
-      port,
-      reason: forceSetup
-        ? 'explicit'
-        : incompleteHeadlessConfig
-          ? 'incomplete-headless-config'
-          : 'first-run',
-    }
+  if ((forceSetup || modePlan.showSetupHint) && tty) {
+    return { kind: 'interactive-setup', port, reason: forceSetup ? 'explicit' : 'first-run' }
   }
 
   if (!forceSetup && modePlan.mode === 'client') {
@@ -572,9 +542,9 @@ export function resolvePlan(
                 instanceServiceName('janitor', instanceId),
                 instanceServiceName('daemon', instanceId),
               ]
-      return { kind: 'systemd-managed', units }
+      return { kind: 'systemd-managed', units, mode: modePlan.mode, port }
     }
-    return { kind: 'detached-managed', port }
+    return { kind: 'detached-managed', mode: modePlan.mode, port }
   }
 
   // In-process hosting. `forceSetup` here is the headless `podium setup` fallback: serve
@@ -708,11 +678,11 @@ export async function resolveCliFeatures(
   if (!client) {
     const { makeIssueClient, makeRelayIssueClient } = await import('@podium/issue-client')
     const relay = resolveAgentRelay(env)
-    client = (
-      relay
-        ? makeRelayIssueClient(relay)
-        : makeIssueClient(`http://localhost:${resolvePort(config, env)}`)
-    ) as unknown as CliFeaturesClient
+    client = (relay
+      ? makeRelayIssueClient(relay)
+      : makeIssueClient(
+          `http://localhost:${resolvePort(config, env)}`,
+        )) as unknown as CliFeaturesClient
   }
   try {
     const features = client.features
@@ -987,6 +957,25 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
   }
   process.env.PODIUM_INSTANCE = selection.instanceId
   const argv = selection.argv
+
+  // ONE-SHOT CONFIG MIGRATIONS, before anything reads the config (POD-333).
+  //
+  // Here rather than in `loadConfig` because the loader runs in every process —
+  // server, daemon, janitor, each CLI invocation — and a loader that wrote would
+  // have all of them racing to save the same result on every boot. This is the
+  // one invocation a human ran, and it runs AFTER selectInstance so a named
+  // instance migrates its own file rather than the default one's.
+  //
+  // Everything downstream (including a config the migration did not persist,
+  // because the file was corrupt or read-only) still sees the migrated SHAPE:
+  // `loadConfig` migrates in memory regardless. The write is an optimisation and
+  // a courtesy to anyone reading config.json by hand, not a correctness step.
+  const { migrateConfigFile } = await import('@podium/runtime/config')
+  const migrations = migrateConfigFile()
+  if (migrations.length > 0) {
+    console.error(`[podium] config upgraded: ${migrations.join('; ')}`)
+  }
+
   const config = loadConfig()
 
   // Crash net BEFORE anything else (mirror scripts/daemon.ts, audit P0-1).
@@ -1262,16 +1251,6 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
       process.exit(2)
       return
     }
-    case 'reconcile-pending-persistence': {
-      const { reconcilePendingPersistence } = await import('./cli-setup')
-      // The plan is only emitted when reconcilePendingPersistence's own precondition
-      // holds (resolvePlan mirrors it), so `res` is always defined here in practice.
-      const res = await reconcilePendingPersistence(plan.port)
-      if (res) console.log(res.message)
-      const { statusCommand } = await import('./cli-lifecycle')
-      statusCommand()
-      return
-    }
     case 'interactive-setup': {
       const { runCliSetup } = await import('./cli-setup')
       const { createInterface } = await import('node:readline/promises')
@@ -1288,11 +1267,30 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
       return
     }
     case 'systemd-managed': {
+      // ENSURE, not just start. This absorbs what the retired
+      // `reconcile-pending-persistence` plan did (POD-333): a box whose web
+      // setup chose systemd could not install the units from inside the serving
+      // process, so `systemctl start` here has nothing to start. Installing on
+      // that failure is the same act the old plan performed, minus the config
+      // state that used to schedule it — and it is idempotent on a box whose
+      // units already exist, because that box takes the first branch.
+      const { execFileSync } = await import('node:child_process')
+      let started = false
       try {
-        const { execFileSync } = await import('node:child_process')
         execFileSync('systemctl', ['--user', 'start', ...plan.units], { stdio: 'ignore' })
-      } catch (e) {
-        console.error(`podium: could not start systemd units — ${(e as Error).message}`)
+        started = true
+      } catch {
+        // Fall through to install — the units are missing, masked, or broken.
+      }
+      if (!started) {
+        const { installSystemd } = await import('./cli-systemd')
+        const res = installSystemd(plan.mode, plan.port)
+        if (res.ok) {
+          console.log('Installed + started the systemd units for this instance.')
+        } else {
+          console.error(`podium: could not start or install the systemd units — ${res.reason}`)
+          if (res.remedy) console.error(res.remedy)
+        }
       }
       const { statusCommand } = await import('./cli-lifecycle')
       statusCommand()

@@ -74,16 +74,17 @@ import {
   systemPrincipal,
   userCommandPrincipal,
 } from './command-principal'
-import { checkIssueAccess, OPERATOR } from './issue-authz'
+import { checkIssueAccess } from './issue-authz'
 import {
   canSeeMachine,
   checkMachineUse,
   checkMachineVerb,
-  machineAccessMessage,
   type MachineOwnershipIndex,
   type MachineOwnershipRow,
+  machineAccessMessage,
   machineVerbsFor,
 } from './machine-access'
+import { OPERATOR } from './test-support/capabilities'
 
 // ---------------------------------------------------------------------------
 // The cast

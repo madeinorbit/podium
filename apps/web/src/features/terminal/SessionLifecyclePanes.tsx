@@ -13,12 +13,12 @@
  */
 
 import { shallowEqual } from '@podium/client-core/store'
+import { exitedRecovery } from '@podium/client-core/viewmodels'
 import type { SessionId, SessionMeta } from '@podium/model'
 import { Moon, RotateCcw } from 'lucide-react'
 import { type JSX, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
-import { exitedRecovery } from '@/lib/derive'
 import { type LifecycleAction, recoveryAction } from './lifecycle-actions'
 
 /**

@@ -10,6 +10,7 @@
  * envelope peer without a second auth path (POD-308).
  */
 
+import type { MachineId } from '@podium/model'
 import {
   type AcceptorStep,
   type CapabilityRef,
@@ -22,7 +23,6 @@ import {
   helloFromLegacyDaemonFrame,
   isLegacyDaemonFrame,
   legacyReplyFor,
-  type MachineId,
   type MachinePrincipal,
   type PeerHelloReply,
   type UserId,

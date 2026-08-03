@@ -1,15 +1,16 @@
-import { FIRST_ADMIN_USER_ID, resolvePrincipal } from './command-principal'
+import type { IssueProc, IssueTrpc } from '@podium/issue-client'
+import { makeRelayIssueClient } from '@podium/issue-client'
 import { asIssueId, asSessionId, type IssueId } from '@podium/model'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { runIssueCli } from '../../cli/src/issue-cli'
 import { createAgentRelayHub, startAgentRelayServer } from '../../daemon/src/agent-relay'
-import { OPERATOR } from './issue-authz'
-import type { IssueProc, IssueTrpc } from './issue-client'
-import { makeRelayIssueClient } from './issue-client'
+import { FIRST_ADMIN_USER_ID, resolvePrincipal } from './command-principal'
+
 import { IssueToolProvider } from './issue-mcp'
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
+import { OPERATOR } from './test-support/capabilities'
 
 type LifecycleName = 'archive' | 'depRemove' | 'reparent' | 'supersede' | 'duplicate'
 

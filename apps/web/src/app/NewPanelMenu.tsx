@@ -1,6 +1,14 @@
+import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
-import type { RecentFileEntry } from '@podium/client-core/viewmodels'
+import type { RecentFileEntry, RepoView, WorktreeView } from '@podium/client-core/viewmodels'
+import { reposToViews } from '@podium/client-core/viewmodels'
 import type { AgentKind, IssueId, MachineWire, SessionId } from '@podium/model'
+import {
+  agentCapabilityRejection,
+  machinesForRepoOrClone,
+  onlineMachinesForRepoOrClone,
+  resolveTargetMachineForAgent,
+} from '@podium/model'
 import { Circle, FileText, SquarePlus, SquareTerminal } from 'lucide-react'
 import type React from 'react'
 import { type JSX, useEffect, useMemo, useRef, useState } from 'react'
@@ -17,14 +25,6 @@ import {
 import { Input } from '@/components/ui/input'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
-  agentCapabilityRejection,
-  machinesForRepoOrClone,
-  onlineMachinesForRepoOrClone,
-  reposToViews,
-  resolveTargetMachineForAgent,
-} from '@/lib/derive'
-import { relativeTime } from '@/lib/home'
-import {
   ClaudeCodeIcon,
   CursorIcon,
   GrokIcon,
@@ -33,7 +33,6 @@ import {
 } from '@/lib/icons/AgentIcons'
 import { type ConversationHit, useConversationSearch } from '@/lib/useConversationSearch'
 import { useStoreSelector } from './store'
-import type { RepoView, WorktreeView } from './types'
 
 type IconComponent = React.ComponentType<Record<string, unknown>>
 

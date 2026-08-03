@@ -1,3 +1,4 @@
+import { isUnstartedSession, panelLabel } from '@podium/client-core/viewmodels'
 import type { AgentKind, SessionMeta } from '@podium/model'
 import { SquareChevronRight } from 'lucide-react'
 import type React from 'react'
@@ -10,7 +11,6 @@ import {
   OpenAIcon,
   OpenCodeIcon,
 } from '@/lib/icons/AgentIcons'
-import { isUnstartedSession, panelLabel } from './derive'
 
 /**
  * Strip a leading status/spinner glyph from a live terminal title. Claude Code

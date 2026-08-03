@@ -77,11 +77,7 @@ function control(opts: {
   let ctl!: SessionClientControl
   const inbox = {
     handleControllerInput: vi.fn(),
-    requestControl: (
-      principal: ClientPrincipal,
-      client: ClientConn,
-      sessionId: SessionId,
-    ) => {
+    requestControl: (principal: ClientPrincipal, client: ClientConn, sessionId: SessionId) => {
       // Mirror production: policy gate then transfer.
       if (!ctl.authorizeDrive(principal, sessionId)) {
         client.send({ type: 'terminalOutcome', sessionId, outcome: 'unauthorized' })
@@ -105,10 +101,11 @@ function control(opts: {
     pushPriorities: vi.fn(),
     setDraft: vi.fn(),
     editDraft: vi.fn(),
-    // sessionOwner undefined means "no ownership port" → open attach (fixtures).
-    // A function that returns undefined means session is absent/invisible.
-    sessionOwner:
-      opts.owner === undefined && !('owner' in opts) ? undefined : () => opts.owner,
+    // Both authorization ports are REQUIRED (POD-333). A fixture that omitted
+    // `sessionOwner` used to get an OPEN attach; now it must say who the owner
+    // is, and `owner: undefined` means "absent or invisible" — which denies,
+    // rather than skipping the check.
+    sessionOwner: () => opts.owner,
     machineUseFor: () => opts.machineUse ?? 'granted',
     sessionOccupancyCount: () => opts.occupancy,
   } as never)
@@ -116,6 +113,38 @@ function control(opts: {
 }
 
 describe('POD-1081 attach + take-control policy', () => {
+  it('FAILS CLOSED when no owner can be resolved — even for the admin (POD-333)', () => {
+    // The half-migration this replaced: `sessionOwner` and `machineUseFor` were
+    // OPTIONAL ports, and an unwired `sessionOwner` returned `true` from
+    // authorizeAttach outright while `machineUseFor` defaulted to `'granted'`.
+    // Production wired both, so nothing was exposed — but a gate that is skipped
+    // when a dependency is missing is one refactor from being an unwired gate,
+    // and docs/multi-user-readiness.md §3.1.4 M4 requires the opposite default.
+    //
+    // Both ports are required now (a fixture that omits one is a TYPE error:
+    // TS2739, which is how the last fixture in this file was found). This pins
+    // the RUNTIME half: an owner that cannot be resolved denies, and it denies
+    // the instance admin too — "unknown owner, but you're an admin" is exactly
+    // the operator-fallback being deleted.
+    const session = makeSession()
+    const ctl = control({ session, owner: undefined, machineUse: 'granted' })
+    const admin = makeClient('c-admin', OWNER, 'admin')
+    ctl.onFrame(admin.principal, admin, { type: 'attach', sessionId: SESSION })
+    expect(admin.sent).toContainEqual({
+      type: 'terminalOutcome',
+      sessionId: SESSION,
+      outcome: 'unauthorized',
+    })
+    expect(session.terminal.clientCount).toBe(0)
+  })
+
+  it('denies DRIVE with an unresolvable owner, so requestControl cannot bypass attach', () => {
+    const session = makeSession()
+    const ctl = control({ session, owner: undefined, machineUse: 'granted' })
+    const admin = makeClient('c-admin2', OWNER, 'admin')
+    expect(ctl.authorizeDrive(admin.principal, SESSION)).toBe(false)
+  })
+
   it('denies attach when the principal cannot see the session', () => {
     const session = makeSession()
     const ctl = control({
@@ -337,12 +366,7 @@ describe('POD-1081 two-principal identity (not "the only connection")', () => {
     } as never)
 
     expect(handleControllerInput).toHaveBeenCalledTimes(1)
-    expect(handleControllerInput).toHaveBeenCalledWith(
-      owner.principal,
-      owner,
-      SESSION,
-      'eA==',
-    )
+    expect(handleControllerInput).toHaveBeenCalledWith(owner.principal, owner, SESSION, 'eA==')
     // Exactly four args — forged attribution is not threaded.
     expect(handleControllerInput.mock.calls[0]).toHaveLength(4)
     expect(session.terminal.lastInputAttribution).toEqual({
@@ -409,6 +433,10 @@ describe('POD-1081 agent control drops at next apply (no reaper)', () => {
       pushPriorities: vi.fn(),
       setDraft: vi.fn(),
       editDraft: vi.fn(),
+      // Stated, not defaulted (POD-333): this case is about input attribution
+      // after a revoke, so it grants both — but it has to SAY so.
+      sessionOwner: () => ({ owner: OWNER, grants: [] }),
+      machineUseFor: () => 'granted',
     })
 
     // Still authorized — input lands.

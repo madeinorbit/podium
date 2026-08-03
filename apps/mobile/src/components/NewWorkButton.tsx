@@ -1,7 +1,6 @@
 import { useSlice } from '@podium/client-core/react'
 import {
   lastUsedMaps,
-  machinesWithRepo,
   machineViewsFromWire,
   panelLabel,
   type RepoNavView,
@@ -11,6 +10,7 @@ import {
   worklistSlice,
 } from '@podium/client-core/viewmodels'
 import type { AgentKind } from '@podium/model'
+import { machinesWithRepo } from '@podium/model'
 import { useRouter } from 'expo-router'
 import { Plus } from 'lucide-react-native'
 import { useMemo, useState } from 'react'

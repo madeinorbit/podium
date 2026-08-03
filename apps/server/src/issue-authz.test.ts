@@ -1,7 +1,8 @@
-import { FIRST_ADMIN_USER_ID, asIssueId } from '@podium/model'
+import { asIssueId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { authorize, type Capability, OPERATOR } from './issue-authz'
+import { authorize, type Capability } from './issue-authz'
 import { issueRegistry } from './modules/issues/registry'
+import { OPERATOR } from './test-support/capabilities'
 
 describe('OPERATOR', () => {
   it('is an unconstrained admin over all issues', () => {

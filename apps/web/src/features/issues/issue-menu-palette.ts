@@ -1,6 +1,6 @@
+import { reposToViews } from '@podium/client-core/viewmodels'
 import type { MachineWire, SessionMeta } from '@podium/model'
 import type { IssueViewModel } from '@/app/store'
-import { reposToViews } from '@/lib/derive'
 import { handoffRejectionText } from '@/lib/SessionContextMenu'
 import { issueHandoffAvailability, issueMenuEligibility } from './issue-context-menu'
 import { createIssueMenuData, type IssueMenuData } from './issue-menu-config'

@@ -34,8 +34,9 @@
 import { ISSUE_COMMAND_NAMES, ISSUE_CONTRACTS } from '@podium/commands'
 import { ISSUE_COMMANDS } from '@podium/issue-client'
 import { afterAll, describe, expect, it } from 'vitest'
-import { OPERATOR } from '../../issue-authz'
+
 import { SessionRegistry } from '../../relay'
+import { OPERATOR } from '../../test-support/capabilities'
 
 const registries: SessionRegistry[] = []
 const fresh = (): SessionRegistry => {

@@ -1,8 +1,8 @@
 import { asIssueId, asSessionId, asUserId, type IssueWire } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from '../command-principal'
-import { OPERATOR } from '../issue-authz'
-import { IssueAttachOrchestrator, type IssueAttachInput } from './issue-attach-orchestrator'
+import { OPERATOR } from '../test-support/capabilities'
+import { type IssueAttachInput, IssueAttachOrchestrator } from './issue-attach-orchestrator'
 
 const RESULT = {
   id: asIssueId('iss_target'),

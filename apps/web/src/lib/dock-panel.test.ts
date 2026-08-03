@@ -1,15 +1,4 @@
 import {
-  asArtifactId,
-  asIssueId,
-  asSessionId,
-  type IssueWire,
-  type IssueWireInput,
-  type SessionMeta,
-  type SessionMetaInput,
-} from '@podium/model'
-import { describe, expect, it } from 'vitest'
-import type { FileTab } from '@/app/store'
-import {
   artifactKind,
   artifactUrl,
   basename,
@@ -21,7 +10,18 @@ import {
   resolveActiveWorktree,
   subissuesWithPanels,
   worktreeAssetUrl,
-} from './dock-panel'
+} from '@podium/client-core/viewmodels'
+import {
+  asArtifactId,
+  asIssueId,
+  asSessionId,
+  type IssueWire,
+  type IssueWireInput,
+  type SessionMeta,
+  type SessionMetaInput,
+} from '@podium/model'
+import { describe, expect, it } from 'vitest'
+import type { FileTab } from '@/app/store'
 
 function sess(id: string, cwd: string, over: Partial<SessionMetaInput> = {}): SessionMeta {
   return {

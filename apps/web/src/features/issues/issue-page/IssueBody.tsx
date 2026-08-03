@@ -3,6 +3,8 @@
  * description, the agent brief, and the long-form spec fields. Split out of
  * IssuePage.tsx (POD-646); the editors and their commit semantics are unchanged.
  */
+
+import { relativeTime } from '@podium/client-core/focus'
 import { isPendingSync, isUpstreamStale, isViaHub } from '@podium/model'
 import { Pin, Plus } from 'lucide-react'
 import type { JSX } from 'react'
@@ -11,7 +13,6 @@ import type { IssueViewModel } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import { relativeTime } from '@/lib/home'
 import { cn } from '@/lib/utils'
 import { STAGE_LABELS } from '../issue-card'
 import { StageGlyph } from '../issue-glyphs'

@@ -1,11 +1,11 @@
-import type { SessionId, SessionMeta } from '@podium/model'
-import { issueDisplayRef } from '@podium/protocol'
-import type { JSX } from 'react'
 import {
   type IssueNavigationModel,
   partitionStaleSessions,
   type UnifiedWorkRow,
-} from '@/lib/derive'
+} from '@podium/client-core/viewmodels'
+import type { SessionId, SessionMeta } from '@podium/model'
+import { issueDisplayRef } from '@podium/protocol'
+import type { JSX } from 'react'
 import { AgentRosterBand, GroupedSessionRows, PanelRow, StaleSection } from './sidebar-common'
 
 /** Provenance whisper for an orphaned session (L6): a session whose issue was

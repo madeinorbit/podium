@@ -1,4 +1,4 @@
-import { asSessionId } from '@podium/protocol'
+import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 
 import {

@@ -26,8 +26,8 @@
  * between `setWritesDenied` and `failNextCommit`.
  */
 
+import type { MutationId } from '@podium/model'
 import { actorUser, asUserId } from '@podium/model'
-import type { MutationId } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { OutboxRecord } from '../../outbox/records'
 import type { Cursor } from '../../replica/types'

@@ -34,8 +34,8 @@
  *     come back byte-identical.
  */
 
+import type { MutationId } from '@podium/model'
 import { actorUser, asUserId, SETTINGS_SECRET_PATHS } from '@podium/model'
-import type { MutationId } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { OutboxRecord } from '../outbox/records'
 import type { IdbDatabaseLike, IdbFactoryLike } from './indexeddb/idb'

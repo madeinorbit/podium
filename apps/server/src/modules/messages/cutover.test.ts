@@ -21,13 +21,14 @@
  * pattern is wrong produce the same green.
  */
 
-import { asSessionId } from '@podium/model'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import type { TransportTag } from '@podium/commands'
+import { asSessionId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
+import { OPERATOR } from '../../test-support/capabilities'
 import { disposeOracles, makeOracle, ptyFrames, waitFor } from '../sessions/oracle-support'
-import { mailHarness, OPERATOR } from './characterization-support'
+import { mailHarness } from './characterization-support'
 import { mailPolicy } from './handlers/context'
 import { MAIL_COMMANDS } from './registry'
 

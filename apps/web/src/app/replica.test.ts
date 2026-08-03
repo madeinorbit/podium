@@ -1,14 +1,14 @@
-import { asSessionId } from '@podium/model'
-import type { IssueWire, SessionId, SessionMeta, TranscriptItem } from '@podium/model'
-import { beforeEach, describe, expect, it } from 'vitest'
-import { OUTBOX_LS_KEY, Outbox, type OutboxEntry } from './outbox'
 import {
   COLD_CURSOR,
   createReplica,
   REPLICA_TRANSCRIPT_CONVERSATION_CAP,
   REPLICA_TRANSCRIPT_ITEM_CAP,
   type ReplicaInit,
-} from './replica'
+} from '@podium/client-core/replica'
+import type { IssueWire, SessionId, SessionMeta, TranscriptItem } from '@podium/model'
+import { asSessionId } from '@podium/model'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { OUTBOX_LS_KEY, Outbox, type OutboxEntry } from './outbox'
 
 // ---------------------------------------------------------------------------
 // Replica adapter (docs/spec/thin-client-replica.md): persisted entity
@@ -418,7 +418,12 @@ describe('replica adapter', () => {
 // ---------------------------------------------------------------------------
 
 function entry(mutationId: string, queuedAt = 1): OutboxEntry {
-  return { mutationId, kind: 'rename', input: { sessionId: asSessionId('s1'), name: mutationId }, queuedAt }
+  return {
+    mutationId,
+    kind: 'rename',
+    input: { sessionId: asSessionId('s1'), name: mutationId },
+    queuedAt,
+  }
 }
 
 describe('replica outbox storage', () => {

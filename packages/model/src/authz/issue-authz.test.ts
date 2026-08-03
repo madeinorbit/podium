@@ -1,13 +1,24 @@
 import { describe, expect, it } from 'vitest'
+import { FIRST_ADMIN_USER_ID } from '../identity/user'
 import { asIssueId, asSessionId, asUserId } from '../ids/brands'
-import {
-  type AuthDecision,
-  authorize,
-  type Capability,
-  type IssueScope,
-  OPERATOR,
-} from './issue-authz'
+import { type AuthDecision, authorize, type Capability, type IssueScope } from './issue-authz'
 
+/**
+ * The unconstrained admin capability, CONSTRUCTED HERE.
+ *
+ * It used to be `OPERATOR`, exported from this module. POD-333 deleted that
+ * export — no production code read it, and a model-level export nothing in the
+ * model constructs is a shim — and moved the fixture to
+ * apps/server/src/test-support/capabilities.ts for the server suites. This file
+ * tests `authorize()` itself, so it builds its own subject rather than importing
+ * one from a layer above.
+ */
+const UNCONSTRAINED_ADMIN: Capability = {
+  role: 'admin',
+  scope: { kind: 'all' },
+  actorUser: FIRST_ADMIN_USER_ID,
+  onBehalfOf: FIRST_ADMIN_USER_ID,
+}
 const cap = (scope: IssueScope, role: Capability['role'] = 'worker'): Capability => ({
   role,
   scope,
@@ -21,7 +32,7 @@ describe('authorize — role gate', () => {
   })
 
   it('leaves the operator unconstrained', () => {
-    expect(authorize(OPERATOR, 'manage', { id: 'i1' })).toBe('allow')
+    expect(authorize(UNCONSTRAINED_ADMIN, 'manage', { id: 'i1' })).toBe('allow')
   })
 })
 
@@ -40,8 +51,10 @@ describe('authorize — scope gate', () => {
    */
   it('reads are scope-free for the scopes that name no person', () => {
     expect(authorize(cap({ kind: 'none' }), 'read', { id: 'i1' })).toBe('allow')
-    expect(authorize(cap({ kind: 'subtree', rootId: asIssueId('root') }), 'read', { id: 'i1' })).toBe('allow')
-    expect(authorize(OPERATOR, 'read', { id: 'i1' })).toBe('allow')
+    expect(
+      authorize(cap({ kind: 'subtree', rootId: asIssueId('root') }), 'read', { id: 'i1' }),
+    ).toBe('allow')
+    expect(authorize(UNCONSTRAINED_ADMIN, 'read', { id: 'i1' })).toBe('allow')
     // The counterfactual that stops this reading as "reads are still ungated":
     // the SAME read, under a scope that does name a person, is refused.
     expect(
@@ -245,9 +258,9 @@ describe('self scope (per-user state)', () => {
 
   it('DENIES writing another principal’s row — the self-scoping property', () => {
     expect(authorize(alice, 'write', { kind: 'per-user-row', userId: 'bob' })).toBe('forbidden')
-    expect(authorize(alice, 'write', { kind: 'per-user-row', userId: 'bob' }, { override: true })).toBe(
-      'forbidden',
-    )
+    expect(
+      authorize(alice, 'write', { kind: 'per-user-row', userId: 'bob' }, { override: true }),
+    ).toBe('forbidden')
   })
 
   it('cannot write a SHARED entity — a self capability is not a weak owner-or-grant', () => {
@@ -259,20 +272,24 @@ describe('self scope (per-user state)', () => {
 
   it('an admin ROLE does not widen a self scope — role and scope are independent gates', () => {
     const adminSelf = cap({ kind: 'self', userId: asUserId('alice') }, 'admin')
-    expect(authorize(adminSelf, 'manage', { kind: 'per-user-row', userId: 'bob' })).toBe('forbidden')
+    expect(authorize(adminSelf, 'manage', { kind: 'per-user-row', userId: 'bob' })).toBe(
+      'forbidden',
+    )
     // The counterfactual: the same admin capability CAN manage its own row, so the
     // denial above is the scope talking and not a blanket refusal.
     expect(authorize(adminSelf, 'manage', { kind: 'per-user-row', userId: 'alice' })).toBe('allow')
   })
 })
 
-describe('OPERATOR keeps its unconstrained reach across the new target kinds', () => {
+describe('the unconstrained admin capability keeps its reach across the new target kinds', () => {
   it('writes an owned entity it does not own, and any per-user row', () => {
     // Today's single shared password resolves to admin/all, and POD-380 must not
     // change that: the migration is behaviour-preserving. `scope: 'all'`
     // short-circuits before target kind is read.
-    expect(authorize(OPERATOR, 'write', session('somebody-else'))).toBe('allow')
-    expect(authorize(OPERATOR, 'write', { kind: 'per-user-row', userId: 'bob' })).toBe('allow')
+    expect(authorize(UNCONSTRAINED_ADMIN, 'write', session('somebody-else'))).toBe('allow')
+    expect(authorize(UNCONSTRAINED_ADMIN, 'write', { kind: 'per-user-row', userId: 'bob' })).toBe(
+      'allow',
+    )
   })
 
   /**
@@ -307,14 +324,17 @@ describe('OPERATOR keeps its unconstrained reach across the new target kinds', (
    * one unconstrained capability".
    */
   it('is the FIRST ADMIN’s reach, and the scope — not the role — is what is unconstrained', () => {
-    expect(OPERATOR.role).toBe('admin')
-    expect(OPERATOR.scope).toEqual({ kind: 'all' })
+    expect(UNCONSTRAINED_ADMIN.role).toBe('admin')
+    expect(UNCONSTRAINED_ADMIN.scope).toEqual({ kind: 'all' })
 
     // The counterfactual that keeps the short-circuit honest: the SAME admin
     // role, scoped to what it owns, does NOT reach somebody else's entity. So
     // the reach above is the scope talking, and flipping `resolvePrincipal` to
     // mint an `owned` scope is all that stands between here and a scoped admin.
-    const scopedAdmin: Capability = { role: 'admin', scope: { kind: 'owned', userId: asUserId('user:sole') } }
+    const scopedAdmin: Capability = {
+      role: 'admin',
+      scope: { kind: 'owned', userId: asUserId('user:sole') },
+    }
     expect(authorize(scopedAdmin, 'write', session('somebody-else'))).toBe('forbidden')
     expect(authorize(scopedAdmin, 'write', session('user:sole'))).toBe('allow')
   })

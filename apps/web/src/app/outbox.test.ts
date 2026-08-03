@@ -1,8 +1,8 @@
-import { asSessionId } from '@podium/model'
+import { createReplica } from '@podium/client-core/replica'
 import type { SessionId } from '@podium/model'
+import { asSessionId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createOutbox, type Outbox, type OutboxEntry, type OutboxStorage } from './outbox'
-import { createReplica } from './replica'
 
 // ---------------------------------------------------------------------------
 // Outbox (docs/spec/outbox-write-path.md §2.3): durable FIFO of covered
@@ -47,7 +47,9 @@ function replicaBacking(): OutboxStorage {
 }
 
 const outboxes: Outbox<Kinds>[] = []
-function make(init: { isOnline?: () => boolean; retryMs?: number; storage?: OutboxStorage } = {}): Outbox<Kinds> {
+function make(
+  init: { isOnline?: () => boolean; retryMs?: number; storage?: OutboxStorage } = {},
+): Outbox<Kinds> {
   const { executors } = makeExecutors()
   const ob = createOutbox<Kinds>({
     executors,
@@ -83,7 +85,11 @@ describe('outbox', () => {
     const b = ob.enqueue('snoozeClear', { sessionId: asSessionId('s2') })
     await ob.drain()
     expect(calls.map((c) => c.kind)).toEqual(['rename', 'snoozeClear'])
-    expect(calls[0]?.input).toEqual({ sessionId: asSessionId('s1'), name: 'one', mutationId: a.mutationId })
+    expect(calls[0]?.input).toEqual({
+      sessionId: asSessionId('s1'),
+      name: 'one',
+      mutationId: a.mutationId,
+    })
     expect(calls[1]?.input).toEqual({ sessionId: asSessionId('s2'), mutationId: b.mutationId })
     expect(ob.size()).toBe(0)
   })

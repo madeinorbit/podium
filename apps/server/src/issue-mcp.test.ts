@@ -1,5 +1,5 @@
+import type { IssueTrpc } from '@podium/issue-client'
 import { describe, expect, it, vi } from 'vitest'
-import type { IssueTrpc } from './issue-client'
 import { CompositeMcpProvider, IssueToolProvider } from './issue-mcp'
 import type { McpToolProvider } from './mcp-route'
 

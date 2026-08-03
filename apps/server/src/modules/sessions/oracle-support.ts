@@ -40,11 +40,12 @@ import { attachTestClient } from '../../test-support/client-transport'
 
 import { FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
 import { type ControlMessage, type ServerMessage, WIRE_VERSION } from '@podium/protocol'
-import { OPERATOR } from '../../issue-authz'
+
 import { SessionRegistry } from '../../relay'
 import { RepoRegistry } from '../../repo-registry'
 import { appRouter } from '../../router'
 import { SessionStore } from '../../store'
+import { OPERATOR } from '../../test-support/capabilities'
 import { SuperagentService } from '../superagent'
 
 // ---------------------------------------------------------------------------

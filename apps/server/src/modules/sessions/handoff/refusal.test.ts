@@ -9,13 +9,13 @@
  * the ownership index rather than by a stubbed gate.
  */
 
+import type { MachineId } from '@podium/model'
 import { asSessionId, asUserId, FIRST_ADMIN_USER_ID, type UserId } from '@podium/model'
-import type { MachineId } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import type { CommandPrincipal } from '../../../command-principal'
 import type { MachineOwnershipIndex, MachineOwnershipRow } from '../../../machine-access'
 import { machineUseGateFor } from './access'
-import { handoffRefusalOf, HandoffRefusalError, refusalForMachineAccess } from './refusal'
+import { HandoffRefusalError, handoffRefusalOf, refusalForMachineAccess } from './refusal'
 
 const COLLEAGUE: UserId = asUserId('colleague')
 
@@ -36,7 +36,12 @@ const ownership: MachineOwnershipIndex = {
   rowFor: (machineId): MachineOwnershipRow | undefined => {
     const rows: Record<string, MachineOwnershipRow> = {
       mine: { machine: 'mine' as MachineId, owner: FIRST_ADMIN_USER_ID, grants: [] },
-      theirs: { machine: 'theirs' as MachineId, owner: COLLEAGUE, grants: [], name: 'their-laptop' },
+      theirs: {
+        machine: 'theirs' as MachineId,
+        owner: COLLEAGUE,
+        grants: [],
+        name: 'their-laptop',
+      },
       shared: {
         machine: 'shared' as MachineId,
         owner: COLLEAGUE,

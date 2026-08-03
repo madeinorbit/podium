@@ -1,11 +1,11 @@
 import { shallowEqual } from '@podium/client-core/store'
+import { resolveActiveWorktree } from '@podium/client-core/viewmodels'
 import { issueDisplayRef } from '@podium/protocol'
 import { PanelRight, X } from 'lucide-react'
 import { type JSX, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useStoreSelector } from '@/app/store'
 import { IssuePanelView } from '@/features/issues/IssuePanelView'
-import { resolveActiveWorktree } from '@/lib/dock-panel'
 import { cn } from '@/lib/utils'
 import { finishPeekClose, nextPeekPhase, PEEK_CLOSED, type PeekPhase } from './issue-peek-phase'
 

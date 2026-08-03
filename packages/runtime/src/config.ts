@@ -71,9 +71,39 @@ export { resolveInstanceId, selectInstance } from './instance'
 export const PodiumMode = z.enum(['all-in-one', 'daemon', 'client', 'server'])
 export type PodiumMode = z.infer<typeof PodiumMode>
 
+/**
+ * THE CONFIG SCHEMA VERSION — bumped by any migration below.
+ *
+ * Why a version field exists at all (POD-333): without one, "the config does not
+ * say X" is ambiguous between *this deployment does not want X* and *this file
+ * predates X*, and the CLI resolved that ambiguity by carrying MIGRATION STATES
+ * IN THE LAUNCH PLAN. Two of `LaunchPlan`'s variants existed only to repair a
+ * config shape — `reconcile-pending-persistence` and `interactive-setup`'s
+ * `incomplete-headless-config` reason — so every reader of the launch matrix had
+ * to know the history of the config format to know which branches were real.
+ *
+ * With a version, absence is an answer: a v2 config that names no `persistence`
+ * is a box that is not headless-managed (the desktop sidecar), full stop. A
+ * pre-v2 file that names none is migrated ONCE, at load, and then it is a v2
+ * config like any other. A config is either current or migrated; it is never
+ * special-cased downstream.
+ *
+ * v1 = the unversioned original (no `configVersion` key).
+ * v2 = `pendingPersistence` folded into `persistence` — see CONFIG_MIGRATIONS.
+ */
+export const CURRENT_CONFIG_VERSION = 2
+
 /** Persisted install config — the single source of truth shared by the CLI and the
  *  (later) Tauri shell. `serverUrl` is a ws://|wss:// relay URL for daemon/client modes. */
 export const PodiumConfig = z.object({
+  /**
+   * Schema version. OPTIONAL, and absent means v1 — the unversioned original.
+   * It is stamped by {@link saveConfig}, so the only files without it are ones
+   * written before POD-333, which is exactly the population the migrations
+   * target. A required field with a default would make every legacy file claim
+   * to be current, which is the failure this field exists to prevent.
+   */
+  configVersion: z.number().int().positive().optional(),
   mode: PodiumMode.optional(),
   serverUrl: z.string().optional(),
   port: z.number().int().positive().optional(),
@@ -95,17 +125,17 @@ export const PodiumConfig = z.object({
    * How the headless backend is kept running, chosen at setup (docs/internal/superpowers/specs/
    * 2026-07-06-headless-process-model-design.md): `systemd` = supervised `--user` units that
    * survive reboot; `detached` = setsid spawn-and-forget (survives logout, dies on reboot).
-   * Absent = not a headless-managed install (e.g. the desktop sidecar) or pre-dates the choice.
+   * ABSENT = not a headless-managed install: the desktop sidecar, or a plain
+   * foreground run. Since v2 that is the field's ONLY meaning — "pre-dates the
+   * choice" was the second meaning, and it is what {@link CONFIG_MIGRATIONS}
+   * removes.
+   *
+   * It records the CHOICE, not whether the backend is currently up under it.
+   * Liveness is a run-registry question and is answered there; conflating the
+   * two is what produced `pendingPersistence` (v1), a second field meaning
+   * "chosen but not yet applied".
    */
   persistence: z.enum(['systemd', 'detached']).optional(),
-  /**
-   * Persistence INTENT recorded by a setup surface that cannot start/persist the backend
-   * itself — the web `setup.complete`/`setup.join` run inside the serving process, which
-   * can't safely self-daemonize (stopping the old backend would kill the process handling
-   * the request). The next `podium` invocation reconciles it: starts the backend under this
-   * persistence and replaces the field with `persistence` (issue #20).
-   */
-  pendingPersistence: z.enum(['systemd', 'detached']).optional(),
   // RETIRED at POD-309 (ADR 5 D8 "Retirement"): `upstream: { url, token }` named the hub
   // a NODE dialed. Federation is deferred ([spec:SP-0371]), the dialer is deleted, and a
   // config key nothing reads is a promise the binary does not keep. The key is NOT
@@ -170,6 +200,116 @@ export interface ConfigInspection {
   config: PodiumConfig
   /** The JSON/zod failure, when corrupt. */
   error?: string
+  /**
+   * Migrations applied to reach {@link CURRENT_CONFIG_VERSION}, in order, by
+   * `describe`. Empty on a current file. The CLI entry point persists the result
+   * once when this is non-empty — see {@link migrateConfig} on why the WRITE is
+   * not done here.
+   */
+  migrated: string[]
+}
+
+// ---------------------------------------------------------------------------
+// One-shot migrations (POD-333)
+// ---------------------------------------------------------------------------
+
+/**
+ * One step from version `to - 1` to `to`, applied to the RAW parsed JSON.
+ *
+ * Raw, not a `PodiumConfig`: zod strips unknown keys, so a migration reading a
+ * key the current schema no longer declares (`pendingPersistence` is exactly
+ * that) would find it already gone if it ran after parsing. Migrations run
+ * BEFORE validation for that reason, and the result is validated afterwards —
+ * so a migration that produces a malformed config fails loudly at the same place
+ * a hand-edited one does.
+ */
+export interface ConfigMigration {
+  /** The version this step produces. */
+  to: number
+  /**
+   * One line for the load-time log and the ledger.
+   *
+   * It names WHAT THE VERSION MEANS, not the edit performed — because a step
+   * legitimately runs on a config it does not change. A v1 desktop-sidecar
+   * config has no `pendingPersistence` to fold, but it is still migrated: at v2
+   * its absent `persistence` stops being ambiguous and starts meaning
+   * "unmanaged". Phrased as the edit ("folded pendingPersistence into
+   * persistence"), the load-time message told that box something untrue about
+   * itself.
+   */
+  describe: string
+  apply(raw: Record<string, unknown>): Record<string, unknown>
+}
+
+export const CONFIG_MIGRATIONS: readonly ConfigMigration[] = [
+  {
+    to: 2,
+    describe: 'v2: persistence is one field, and absent means not headless-managed',
+    /**
+     * v1 recorded a persistence INTENT separately from the persistence itself:
+     * the web setup (`setup.complete` / `setup.join`) runs inside the serving
+     * process and cannot self-daemonize — stopping the old backend would kill
+     * the request in flight — so it wrote `pendingPersistence` and left the next
+     * `podium` invocation to "reconcile" it (issue #20).
+     *
+     * The split was the mistake. `persistence` is the operator's CHOICE, and it
+     * was chosen the moment the web setup wrote it down; whether a backend is
+     * currently running under that choice is a RUN-REGISTRY question, and the
+     * managed launch paths already answer it. Two fields for one fact meant the
+     * launch resolver had to branch on which of them was set, which is the
+     * migration state POD-333 deletes.
+     *
+     * `persistence` wins if both are somehow present: it is the fulfilled one.
+     */
+    apply(raw) {
+      const { pendingPersistence, ...rest } = raw
+      if (typeof rest.persistence === 'string') return rest
+      if (pendingPersistence === 'systemd' || pendingPersistence === 'detached') {
+        return { ...rest, persistence: pendingPersistence }
+      }
+      return rest
+    },
+  },
+]
+
+/**
+ * Bring a raw config object up to {@link CURRENT_CONFIG_VERSION}, in order.
+ *
+ * PURE, and it does not write. The write is the caller's, and deliberately: this
+ * runs on every `loadConfig` in every process — server, daemon, janitor, each
+ * CLI invocation — and a loader that rewrites the file would have N processes
+ * racing to save the same result on every boot. The CLI entry point persists it
+ * once (`migrateConfigFile`); everyone else gets the migrated shape in memory
+ * and never has to know which version the file is at.
+ *
+ * Idempotent by construction: a config already at the current version applies no
+ * steps, and re-running a step on its own output is a no-op (asserted in
+ * config.test.ts, because "the migration ran twice" is the normal outcome of the
+ * in-memory design above).
+ */
+export function migrateConfig(raw: unknown): {
+  config: Record<string, unknown>
+  applied: string[]
+} {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { config: {}, applied: [] }
+  }
+  let config = { ...(raw as Record<string, unknown>) }
+  // Absent = v1, the unversioned original. A non-numeric value is treated the
+  // same rather than trusted: a hand-edited `"configVersion": "2"` must not skip
+  // migrations by claiming to be current.
+  const from = typeof config.configVersion === 'number' ? config.configVersion : 1
+  const applied: string[] = []
+  for (const migration of CONFIG_MIGRATIONS) {
+    if (migration.to <= from) continue
+    config = migration.apply(config)
+    applied.push(migration.describe)
+  }
+  // A file from a NEWER Podium keeps its own version rather than being stamped
+  // backwards: downgrading the number would make the next run of the old binary
+  // re-apply migrations it already has.
+  config.configVersion = Math.max(from, CURRENT_CONFIG_VERSION)
+  return { config, applied }
 }
 
 /**
@@ -180,12 +320,17 @@ export interface ConfigInspection {
 export function inspectConfig(path = configPath()): ConfigInspection {
   assertInstanceStateIdentity(resolveInstanceId(), dirname(path))
   try {
-    return { state: 'ok', config: PodiumConfig.parse(JSON.parse(readFileSync(path, 'utf8'))) }
+    // Migrate BEFORE validating: zod strips unknown keys, so a step reading a
+    // field the current schema no longer declares must see the raw object.
+    const { config, applied } = migrateConfig(JSON.parse(readFileSync(path, 'utf8')))
+    return { state: 'ok', config: PodiumConfig.parse(config), migrated: applied }
   } catch (err) {
     // Read directly instead of preflighting with existsSync: besides removing a
     // TOCTOU window, this keeps config reads reliable in syscall-emulated Linux
     // environments where statx may be unavailable while open/read still works.
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return { state: 'missing', config: {} }
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      return { state: 'missing', config: {}, migrated: [] }
+    }
     // A ZodError's message is the full issues array as JSON — condense it to
     // one `path: message` line per issue so boot logs stay readable.
     const error =
@@ -194,7 +339,7 @@ export function inspectConfig(path = configPath()): ConfigInspection {
         : err instanceof Error
           ? err.message
           : String(err)
-    return { state: 'corrupt', config: {}, error }
+    return { state: 'corrupt', config: {}, error, migrated: [] }
   }
 }
 
@@ -215,7 +360,10 @@ export function loadConfig(path = configPath()): PodiumConfig {
  *  daemon/client mode without a serverUrl, which would exit-2 crash-loop at boot under
  *  Restart=always; catch it at SAVE time instead (#21). */
 export function saveConfig(config: PodiumConfig, path = configPath()): void {
-  const parsed = PodiumConfig.parse(config)
+  // Stamp the version on every write, so a file this binary has touched is never
+  // re-migrated. Callers do not pass it — a caller that had to remember would
+  // eventually forget, and the forgotten case is silent.
+  const parsed = PodiumConfig.parse({ ...config, configVersion: CURRENT_CONFIG_VERSION })
   ensureInstanceStateIdentity({ dir: dirname(path) })
   if ((parsed.mode === 'daemon' || parsed.mode === 'client') && !parsed.serverUrl) {
     throw new Error(
@@ -225,6 +373,25 @@ export function saveConfig(config: PodiumConfig, path = configPath()): void {
   }
   mkdirSync(dirname(path), { recursive: true })
   writeFileSync(path, `${JSON.stringify(parsed, null, 2)}\n`)
+}
+
+/**
+ * Persist a migrated config ONCE, at the CLI entry point.
+ *
+ * Separate from `loadConfig` on purpose — see {@link migrateConfig}: the loader
+ * runs in every process, and a loader that wrote would have the server, the
+ * daemon, the janitor and every CLI invocation racing to save the same result on
+ * every boot. Here the write happens on the one invocation a human ran.
+ *
+ * Returns the migrations applied, or [] when the file was already current (or
+ * missing, or corrupt — a corrupt file is not an old file, and rewriting it
+ * would destroy whatever the operator had).
+ */
+export function migrateConfigFile(path = configPath()): string[] {
+  const res = inspectConfig(path)
+  if (res.state !== 'ok' || res.migrated.length === 0) return []
+  saveConfig(res.config, path)
+  return res.migrated
 }
 
 /** True until a deployment mode has been chosen. */

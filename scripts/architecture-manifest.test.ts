@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -11,11 +11,14 @@ import {
   duplicateFeatureOwners,
   ERROR_LEVEL_MANIFEST_RULES,
   findHarnessBranching,
+  findRetiredFile,
+  findRetiredImports,
   type ImportRef,
   loadHarnessLiterals,
   MANIFEST,
   MANIFEST_RULES,
   partitionAllowlist,
+  RETIRED_MODULES,
   SAME_LAYER_ALLOWED,
   stripComments,
   tagsFor,
@@ -948,6 +951,96 @@ describe('BOUNDARY_ALLOWLIST integrity', () => {
       // is debt with no owner, which is how allowlists become permanent.
       expect(e.phase, `${e.rule} ${e.file} has no phase`).toMatch(/^POD-\d+$/)
       expect(e.note.length, `${e.rule} ${e.file} has no note`).toBeGreaterThan(0)
+    }
+  })
+})
+
+describe('manifest-retired-path (POD-333)', () => {
+  const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+
+  it('refuses a relative import that resolves to a retired path', () => {
+    const v = findRetiredImports(
+      'apps/web/src/features/x/Panel.tsx',
+      "import { relativeTime } from '../../lib/home'",
+    )
+    expect(v).toHaveLength(1)
+    expect(v[0]?.rule).toBe('manifest-retired-path')
+    // The message must NAME the replacement: a lint that only says "no" makes
+    // re-creating the shim the path of least resistance again.
+    expect(v[0]?.message).toContain('@podium/client-core/focus')
+  })
+
+  it("refuses apps/web's `@/` alias form", () => {
+    // Thirty of the POD-333 call sites used this form. A rule that understood
+    // only relative specifiers would have read a serene zero over all of them.
+    //
+    // The specifier is ASSEMBLED rather than written out, and that is not
+    // squeamishness: this rule reads source TEXT, and string literals cannot be
+    // blanked the way comments can (extractImports needs them). A spelled-out
+    // `from '@/.../derive-tray'` in this file is indistinguishable from a real
+    // import, and the rule correctly flagged its own test — the same known
+    // limitation the harness axiom documents above.
+    const specifier = ['@/features/superagent', 'derive-tray'].join('/')
+    expect(
+      findRetiredImports(
+        'apps/web/src/app/AppShell.tsx',
+        `import { trayCount } from '${specifier}'`,
+      ),
+    ).toHaveLength(1)
+  })
+
+  it('refuses a TYPE-ONLY import, unlike the layer and platform rules', () => {
+    // Those exempt type imports because an erased import creates no runtime
+    // dependency. That reasoning does not transfer: the path is gone either way,
+    // and a type import is just as much a reason to re-create the shim.
+    expect(
+      findRetiredImports('apps/web/src/lib/x.ts', "import type { UiState } from '../app/replica'"),
+    ).toHaveLength(1)
+  })
+
+  it('refuses the retired FILE coming back, and does not double-report its own imports', () => {
+    expect(findRetiredFile('apps/web/src/lib/home.ts')).toHaveLength(1)
+    // A restored shim would import its own real home; that import is not the
+    // violation, the file is, and reporting both would inflate the count.
+    expect(
+      findRetiredImports('apps/web/src/lib/home.ts', "export * from '@podium/client-core/focus'"),
+    ).toHaveLength(0)
+  })
+
+  it('ignores a live path that merely shares a basename', () => {
+    // `types`, `router` and `replica` are among the most common module names in
+    // this repo — packages/sync alone has three. A rule keyed on the basename
+    // would flag them all; this one resolves the full path.
+    expect(
+      findRetiredImports(
+        'packages/sync/src/replica/ports.ts',
+        "import type { Cursor } from './types'",
+      ),
+    ).toEqual([])
+    expect(
+      findRetiredImports('apps/server/src/store/sessions.ts', "import type { X } from './types'"),
+    ).toEqual([])
+  })
+
+  it('is error-level and declared in MANIFEST_RULES', () => {
+    expect(MANIFEST_RULES.has('manifest-retired-path')).toBe(true)
+    // Error level is what stops an allowlist entry from re-blessing a shim:
+    // unlike the layer rules there is no migration here to ratchet down.
+    expect(ERROR_LEVEL_MANIFEST_RULES.has('manifest-retired-path')).toBe(true)
+  })
+
+  it('names only paths that are actually GONE from the tree', () => {
+    // The failure this catches: someone adds an entry for a file that still
+    // exists, the rule reports it on every run, and the entry gets deleted
+    // rather than the file. Assert the invariant instead.
+    for (const m of RETIRED_MODULES) {
+      for (const ext of ['.ts', '.tsx']) {
+        expect(existsSync(join(REPO_ROOT, m.path + ext)), `${m.path}${ext} still exists`).toBe(
+          false,
+        )
+      }
+      expect(m.home.length).toBeGreaterThan(0)
+      expect(m.retiredBy).toMatch(/^POD-\d+$/)
     }
   })
 })

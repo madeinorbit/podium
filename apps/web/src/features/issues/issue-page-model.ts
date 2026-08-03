@@ -4,13 +4,14 @@
  * "what to show" derivations — everything IssuePage renders but none of the
  * JSX. Extracted verbatim from IssuePage.tsx; behavior is unchanged.
  */
-import { type IssueId, type UserId } from '@podium/model'
+
 import { shallowEqual } from '@podium/client-core'
+import { subIssuesOf } from '@podium/client-core/viewmodels'
+import type { IssueId, UserId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { useEffect, useState } from 'react'
 import { type IssueViewModel, useReplicaIssues, useStoreSelector } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
-import { subIssuesOf } from '@/lib/derive'
 import type { PropertyOption } from '@/lib/PropertyMenu'
 import {
   type ActivityComment,

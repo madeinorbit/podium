@@ -20,6 +20,7 @@
  *   all.
  */
 
+import type { MutationId, SessionId } from '@podium/model'
 import {
   type ActorRef,
   type AgentActor,
@@ -27,7 +28,6 @@ import {
   agentIdentityFromSessionId,
   sessionIdFromAgentIdentity,
 } from '@podium/model'
-import type { MutationId, SessionId } from '@podium/protocol'
 import type { OutboxRejectionReason, RecoveryPlan } from './reasons'
 import type { OutboxState } from './states'
 

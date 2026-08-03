@@ -2,12 +2,13 @@ import { asSessionId, FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { MutationLedger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
-import { OPERATOR } from './issue-authz'
+
 import type { IssueCommandDeps } from './modules/issues/command-ctx'
 import { IssueCommandDispatcher } from './modules/issues/dispatcher'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { SessionStore } from './store'
+import { OPERATOR } from './test-support/capabilities'
 
 /**
  * issues.answerQuestion end-to-end over the command dispatcher (issue #53):

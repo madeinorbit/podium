@@ -1,8 +1,8 @@
 import { shallowEqual } from '@podium/client-core/store'
+import { type FileScope, scopeKey } from '@podium/client-core/viewmodels'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { useStoreSelector } from '@/app/store'
-import { type FileScope, scopeKey } from '@/lib/file-scope'
 import { canSave } from './editor-save'
 
 export interface FileDocument {

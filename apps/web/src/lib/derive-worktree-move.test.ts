@@ -1,7 +1,7 @@
+import { planWorktreeMoves } from '@podium/client-core/viewmodels'
 import type { SessionMeta } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { planWorktreeMoves } from './derive'
 
 const ROOTS = ['/repo', '/repo/.worktrees/feat']
 const at = (id: string, cwd: string): SessionMeta =>

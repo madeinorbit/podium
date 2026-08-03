@@ -27,7 +27,7 @@
  * replica arbitrating.
  */
 
-import type { MutationId } from '@podium/protocol'
+import type { MutationId } from '@podium/model'
 import { Outbox } from '../outbox/outbox'
 import type { OutboxEvent } from '../outbox/ports'
 import type { OutboxAttribution, OutboxRecord } from '../outbox/records'
@@ -249,10 +249,7 @@ export const sliceOf = (client: ConformanceClient): readonly string[] =>
     .sort()
 
 /** The next certified frame for this client, derived from its CURRENT cursor. */
-export function nextFrame(
-  authority: ConformanceAuthority,
-  client: ConformanceClient,
-): DeltaFrame {
+export function nextFrame(authority: ConformanceAuthority, client: ConformanceClient): DeltaFrame {
   const cursor = client.replica.cursor
   return authority.frameFor(client.principal, cursor?.seq ?? 0)
 }

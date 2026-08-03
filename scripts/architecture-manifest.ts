@@ -763,6 +763,181 @@ export function checkManifestRole(file: string, ref: ImportRef): Violation | nul
 }
 
 // ---------------------------------------------------------------------------
+// Retired module paths (POD-333)
+// ---------------------------------------------------------------------------
+
+/**
+ * A module path that was DELETED and must not come back.
+ *
+ * Phase 7.1 deleted the named compatibility shims — files whose entire content
+ * was a re-export, kept so that import sites would not have to move when a
+ * module changed workspace. Deleting them is not durable on its own: the next
+ * person to move a symbol has the same incentive the last one had, and a
+ * one-line `export * from '@podium/x'` is the cheapest way to avoid touching
+ * fifty call sites. So the paths are declared dead HERE, and the manifest
+ * refuses both halves of the resurrection:
+ *
+ *  1. the FILE reappearing at the retired path, and
+ *  2. any import that RESOLVES to it.
+ *
+ * (2) matters more than (1) and is the reason this is a manifest rule rather
+ * than a `.gitignore` entry: a shim is only worth writing if something imports
+ * it, so the import edge is the load-bearing half. It also catches the subtler
+ * shape — a retired path re-created under a different name in the same
+ * directory would pass a file-existence check while restoring the same
+ * indirection.
+ *
+ * ERROR LEVEL, deliberately: unlike the layer and platform rules there is no
+ * migration to ratchet down. Every entry here is a file that does not exist and
+ * a `home` that does, so the correct count is zero forever and an allowlist
+ * entry could only ever bless a regression.
+ *
+ * `home` is not decoration — it is what the failure message tells the author to
+ * import instead, which is the difference between a lint that blocks and a lint
+ * that teaches.
+ */
+export interface RetiredModule {
+  /** Repo-relative module path, WITHOUT extension. */
+  path: string
+  /** The specifier to import instead. */
+  home: string
+  /** The issue that retired it, so the message can be traced to a decision. */
+  retiredBy: string
+}
+
+export const RETIRED_MODULES: readonly RetiredModule[] = [
+  // apps/server — moved out to shared packages during Phase 3 step 4.
+  {
+    path: 'apps/server/src/auth-store',
+    home: '@podium/runtime/auth-store',
+    retiredBy: 'POD-333',
+  },
+  { path: 'apps/server/src/issue-client', home: '@podium/issue-client', retiredBy: 'POD-333' },
+  { path: 'apps/server/src/issue-commands', home: '@podium/issue-client', retiredBy: 'POD-333' },
+
+  // apps/web — moved into @podium/client-core / @podium/terminal-client-react
+  // so the phone and the desktop share one implementation (arch-v2 P3, POD-338).
+  {
+    path: 'apps/web/src/app/optimistic-spawn',
+    home: '@podium/client-core/viewmodels',
+    retiredBy: 'POD-333',
+  },
+  {
+    path: 'apps/web/src/app/replica',
+    home: '@podium/client-core/replica (and /react for useReplicaRows)',
+    retiredBy: 'POD-333',
+  },
+  { path: 'apps/web/src/app/router', home: '@podium/client-core/router', retiredBy: 'POD-333' },
+  { path: 'apps/web/src/app/spawn-agent', home: '@podium/client-core', retiredBy: 'POD-333' },
+  {
+    path: 'apps/web/src/app/types',
+    home: '@podium/client-core/viewmodels (and @podium/model for the wire types)',
+    retiredBy: 'POD-333',
+  },
+  {
+    path: 'apps/web/src/features/files/file-panel-mode',
+    home: '@podium/client-core/ui-state',
+    retiredBy: 'POD-333',
+  },
+  {
+    path: 'apps/web/src/features/superagent/derive-tray',
+    home: '@podium/client-core/viewmodels',
+    retiredBy: 'POD-333',
+  },
+  {
+    path: 'apps/web/src/features/terminal/ArrowSwipeKey',
+    home: '@podium/terminal-client-react',
+    retiredBy: 'POD-333',
+  },
+  {
+    path: 'apps/web/src/lib/dock-panel',
+    home: '@podium/client-core/viewmodels',
+    retiredBy: 'POD-333',
+  },
+  {
+    path: 'apps/web/src/lib/file-scope',
+    home: '@podium/client-core/viewmodels',
+    retiredBy: 'POD-333',
+  },
+  { path: 'apps/web/src/lib/home', home: '@podium/client-core/focus', retiredBy: 'POD-333' },
+  {
+    path: 'apps/web/src/lib/hooks/use-mark-read-on-view',
+    home: '@podium/client-core/react',
+    retiredBy: 'POD-333',
+  },
+  { path: 'apps/web/src/lib/voice', home: '@podium/terminal-client-react', retiredBy: 'POD-333' },
+]
+
+const RETIRED_BY_PATH: ReadonlyMap<string, RetiredModule> = new Map(
+  RETIRED_MODULES.map((m) => [m.path, m]),
+)
+
+/**
+ * Resolve an import specifier to a repo-relative module path (no extension), or
+ * null when it names a package rather than a file.
+ *
+ * `@/` is apps/web's tsconfig alias for `apps/web/src`. It is resolved here
+ * rather than skipped because HALF the retired web shims were imported through
+ * it — a check that only understood relative specifiers would have reported a
+ * serene zero while thirty call sites still pointed at the old paths. (Measured:
+ * the POD-333 codemod's first pass rewrote 41 files via relative specifiers and
+ * left 30 aliased ones behind, and typecheck — not this rule — is what caught
+ * them.)
+ */
+export function resolveModulePath(file: string, specifier: string): string | null {
+  if (specifier.startsWith('@/')) return `apps/web/src/${specifier.slice(2)}`
+  if (!specifier.startsWith('.')) return null
+  const abs = resolve('/', dirname(file), specifier)
+  return relative('/', abs)
+    .split(sep)
+    .join('/')
+    .replace(/\.(tsx?|jsx?)$/, '')
+}
+
+/**
+ * Flag imports that resolve to a retired module path.
+ *
+ * Type-only imports are NOT exempt, unlike the layer and platform rules. Those
+ * two exempt them because an erased import creates no runtime dependency and
+ * cannot drag Node code into a browser bundle — both are statements about what
+ * the BUILD produces. This rule is about a path that no longer exists, and a
+ * `import type { X } from './replica'` is just as broken (and just as much of a
+ * reason to re-create the shim) as a value import.
+ */
+export function findRetiredImports(file: string, source: string): Violation[] {
+  const self = file.replace(/\.(tsx?)$/, '')
+  if (RETIRED_BY_PATH.has(self)) return [] // reported by the file rule below
+  const violations: Violation[] = []
+  for (const ref of extractImports(source)) {
+    const resolved = resolveModulePath(file, ref.specifier)
+    if (!resolved) continue
+    const retired = RETIRED_BY_PATH.get(resolved)
+    if (!retired) continue
+    violations.push({
+      file,
+      specifier: ref.specifier,
+      rule: 'manifest-retired-path',
+      message: `${file}: '${ref.specifier}' resolves to ${retired.path}, retired by ${retired.retiredBy} — import ${retired.home} instead. That path was a compatibility shim; re-pointing imports at a re-export is what the retirement removed.`,
+    })
+  }
+  return violations
+}
+
+/** Flag a retired module path that has been re-created as a file. */
+export function findRetiredFile(file: string): Violation[] {
+  const retired = RETIRED_BY_PATH.get(file.replace(/\.(tsx?)$/, ''))
+  if (!retired) return []
+  return [
+    {
+      file,
+      specifier: retired.path,
+      rule: 'manifest-retired-path',
+      message: `${file} was retired by ${retired.retiredBy} and must not come back — its exports live at ${retired.home}. If something here genuinely needs a new home, give it a real one rather than restoring the shim.`,
+    },
+  ]
+}
+
+// ---------------------------------------------------------------------------
 // Harness axiom
 // ---------------------------------------------------------------------------
 
@@ -1240,6 +1415,7 @@ export const MANIFEST_RULES: ReadonlySet<string> = new Set([
   'authz-single-home',
   'harness-branching',
   'harness-classifier-boundary',
+  'manifest-retired-path',
 ])
 
 /**

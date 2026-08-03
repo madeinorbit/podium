@@ -9,7 +9,7 @@ import {
 import type { ControlMessage } from '@podium/protocol'
 import { Hono } from 'hono'
 import { afterEach, describe, expect, it } from 'vitest'
-import { OPERATOR } from './issue-authz'
+
 import { IssueToolProvider } from './issue-mcp'
 import { registerMcpRoute } from './mcp-route'
 import {
@@ -22,6 +22,7 @@ import {
 } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
+import { OPERATOR } from './test-support/capabilities'
 
 const registries: SessionRegistry[] = []
 afterEach(() => {

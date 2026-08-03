@@ -1,3 +1,4 @@
+import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
 import type { MachineWire } from '@podium/model'
 import type { JSX } from 'react'
@@ -14,12 +15,11 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { machineNeedsUpdate, useServerAppVersion } from '@/lib/version-skew'
 import { RepoScanFlow } from '@/features/setup/RepoScanFlow'
 import { NetworkStep } from '@/features/setup/SetupView'
-import { relativeTime } from '@/lib/home'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { cn } from '@/lib/utils'
+import { machineNeedsUpdate, useServerAppVersion } from '@/lib/version-skew'
 
 /**
  * Settings → Machines panel.

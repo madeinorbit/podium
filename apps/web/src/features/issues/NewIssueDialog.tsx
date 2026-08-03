@@ -1,5 +1,6 @@
 import { shallowEqual } from '@podium/client-core/store'
-import { ISSUE_STAGES, IssueType, type IssueStage, type UserId } from '@podium/model'
+import { repoUsageAt } from '@podium/client-core/viewmodels'
+import { ISSUE_STAGES, type IssueStage, IssueType, type UserId } from '@podium/model'
 import { resolveRole } from '@podium/runtime'
 import { FolderGit2, GitBranch, Plus } from 'lucide-react'
 import type { ComponentProps, JSX, ReactNode } from 'react'
@@ -19,7 +20,6 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { AUTO } from '@/lib/agent-models'
-import { repoUsageAt } from '@/lib/derive'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import {
   issueAgentDefaultLabel,

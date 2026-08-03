@@ -65,7 +65,14 @@
  *   (ADR 2 D7).
  */
 
-import type { MutationId } from '@podium/protocol'
+import type { MutationId } from '@podium/model'
+import {
+  type BackoffPolicy,
+  backoffDelayMs,
+  isDefinitiveFailure,
+  resolveMaxAgeMs,
+  TRANSIENT_BACKOFF,
+} from './limits'
 import type {
   OutboxConfig,
   OutboxEnvelope,
@@ -77,13 +84,6 @@ import type {
   SyncSpan,
 } from './ports'
 import {
-  type BackoffPolicy,
-  backoffDelayMs,
-  isDefinitiveFailure,
-  resolveMaxAgeMs,
-  TRANSIENT_BACKOFF,
-} from './limits'
-import {
   MAX_AGE_REASON,
   normalizeRefusal,
   type OutboxRejectionReason,
@@ -94,10 +94,10 @@ import {
 import {
   belongsTo,
   CONFIRMED,
+  collapseKeyOf,
   confirmationOf,
   type DeadLetterRecord,
   ENQUEUEABLE_DELIVERY,
-  collapseKeyOf,
   type EnvelopeConfirmation,
   type OutboxAttribution,
   type OutboxCommand,

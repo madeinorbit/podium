@@ -1,11 +1,18 @@
 /**
- * Re-export shim (issue #15 Phase 4): the pure view-model derivations moved to
- * @podium/client-core/viewmodels (platform-neutral, shared with the rewritten
- * mobile app). Existing `./derive` imports keep working through this shim.
- * Only the css-classname helpers — which depend on tailwind-merge via cn() —
- * stay web-side.
+ * The web-side status-dot classname helper.
+ *
+ * This module used to also carry `export * from '@podium/client-core/viewmodels'`
+ * — a compatibility forward, so that `./derive` imports kept working after the
+ * pure derivations moved to the platform-neutral package. POD-333 deleted the
+ * forward and moved the call sites; what is left is the one thing that could
+ * never move, because it depends on tailwind-merge via `cn()`.
+ *
+ * Worth noting for the next person tempted to re-add the line: a blanket
+ * re-forward in a file that ALSO has real code is the shape the deletion audit
+ * missed for two phases, because `reexport-shims` counted re-export-ONLY files.
+ * It is counted now (see scripts/rearch-audit.ts) — but the cheaper reason not
+ * to write one is that it makes this module's export surface unbounded.
  */
-export * from '@podium/client-core/viewmodels'
 
 import { type DotTone, sessionDotTone } from '@podium/client-core/viewmodels'
 import type { SessionMeta } from '@podium/model'

@@ -15,8 +15,8 @@
  * cannot tell a working default from a gate nobody supplied evidence to.
  */
 
+import type { MutationId } from '@podium/model'
 import { actorUser, asUserId } from '@podium/model'
-import type { MutationId } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import type { OutboxAttribution, OutboxCommand, OutboxRecord } from '../../outbox/records'
 import {

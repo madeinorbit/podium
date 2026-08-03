@@ -1,14 +1,4 @@
 import { shallowEqual } from '@podium/client-core/store'
-import type { AgentKind } from '@podium/model'
-import { nativeAccountId, resolveRole } from '@podium/runtime'
-import { ChevronDown, FolderPlus, Search } from 'lucide-react'
-import type { JSX } from 'react'
-import { useEffect, useRef, useState } from 'react'
-import { useReplicaIssues, useSlice, useStoreSelector } from '@/app/store'
-import { DropdownMenu, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { NewIssueDialog } from '@/features/issues/NewIssueDialog'
-import { RepoScanFlow } from '@/features/setup/RepoScanFlow'
-import { agentBrandText } from '@/lib/agent-tone'
 import {
   lastUsedMaps,
   machineViewsFromWire,
@@ -20,7 +10,17 @@ import {
   spawnTargetForRepo,
   usableMachines,
   worklistSlice,
-} from '@/lib/derive'
+} from '@podium/client-core/viewmodels'
+import type { AgentKind } from '@podium/model'
+import { nativeAccountId, resolveRole } from '@podium/runtime'
+import { ChevronDown, FolderPlus, Search } from 'lucide-react'
+import type { JSX } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useReplicaIssues, useSlice, useStoreSelector } from '@/app/store'
+import { DropdownMenu, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { NewIssueDialog } from '@/features/issues/NewIssueDialog'
+import { RepoScanFlow } from '@/features/setup/RepoScanFlow'
+import { agentBrandText } from '@/lib/agent-tone'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { agentIconFor } from './agent-icon'

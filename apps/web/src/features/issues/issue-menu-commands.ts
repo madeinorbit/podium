@@ -1,5 +1,5 @@
+import { DEFER_NEXT_MESSAGE, snoozeUntil1h } from '@podium/model'
 import type { Trpc } from '@/app/trpc'
-import { DEFER_NEXT_MESSAGE, snoozeUntil1h } from '@/lib/derive'
 import { deferDateFromNow, toggleLabelAcross } from './issue-context-menu'
 import type { IssueMenuConfig, IssueMenuData } from './issue-menu-config'
 import { stageValue } from './issue-menu-config'

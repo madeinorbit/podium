@@ -1,13 +1,13 @@
 import { relativeTime } from '@podium/client-core'
+import { offerKey, type TrayItem } from '@podium/client-core/viewmodels'
 import type { IssueGitState, SessionMeta } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
-import type { IssueViewModel } from '@/app/store'
 import { type CSSProperties, type JSX, useState } from 'react'
+import type { IssueViewModel } from '@/app/store'
 import { OfferArtifactStrip } from '@/features/chat/OfferArtifactStrip'
 import { composeOfferPrompt } from '@/features/chat/OfferBar'
 import { effectiveIssueColorHex } from '@/lib/issueColors'
 import { cn } from '@/lib/utils'
-import { offerKey, type TrayItem } from './derive-tray'
 
 /** No-colour cards should recede behind user-selected identity colours. This is
  * intentionally local to the tray: other flow surfaces keep their established
@@ -157,11 +157,7 @@ export function TrayCard({
       : (issue.memberSessionIds ?? [])
           .map((id) => sessions.find((s) => s.sessionId === id))
           .find(
-            (s) =>
-              s !== undefined &&
-              !s.archived &&
-              s.agentKind !== 'shell' &&
-              s.headless !== true,
+            (s) => s !== undefined && !s.archived && s.agentKind !== 'shell' && s.headless !== true,
           )
   const ago = relativeTime(item.since, now)
   // §2.3-v3 tint tiers: offer/review 16%/.55, question 9%/.38.

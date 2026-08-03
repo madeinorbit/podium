@@ -1,3 +1,4 @@
+import type { MotionPhase } from '@podium/client-core/viewmodels'
 import { ArrowDownToLine, ChevronDown, ChevronRight } from 'lucide-react'
 import { motion, useReducedMotion } from 'motion/react'
 import type {
@@ -7,7 +8,6 @@ import type {
   ReactNode,
   PointerEvent as ReactPointerEvent,
 } from 'react'
-import type { MotionPhase } from '@/lib/derive'
 import { FLOW_SLATE } from '@/lib/issueColors'
 import { usePhaseMorph } from '@/lib/motion'
 import { cn } from '@/lib/utils'

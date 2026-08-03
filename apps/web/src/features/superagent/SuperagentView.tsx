@@ -1,19 +1,19 @@
-import { type SessionId } from '@podium/model'
 import { randomUUID } from '@podium/client-core/id'
 import { shallowEqual } from '@podium/client-core/store'
+import type { TrayItem } from '@podium/client-core/viewmodels'
+import { offerKey, reposToViews, superagentSlice, trayCount } from '@podium/client-core/viewmodels'
+import type { SessionId } from '@podium/model'
+import { useVoiceInput } from '@podium/terminal-client-react'
 import { ChevronDown, Eraser, Mic, PanelRightClose, Send, SquareTerminal } from 'lucide-react'
 import type { JSX, PointerEvent as ReactPointerEvent } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { superagentSlice } from '@podium/client-core/viewmodels'
 import { useReplicaIssues, useSlice, useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { ChatView } from '@/features/chat/ChatView'
 import { BlockCaret } from '@/lib/BlockCaret'
-import { reposToViews } from '@/lib/derive'
 import { useConversationSearch } from '@/lib/useConversationSearch'
 import { cn } from '@/lib/utils'
-import { useVoiceInput } from '@/lib/voice'
 import {
   readSectionOpen,
   readTrayHeight,
@@ -23,8 +23,6 @@ import {
   TRAY_MIN_HEIGHT,
   TRAY_OPEN_KEY,
 } from './column-state'
-import type { TrayItem } from './derive-tray'
-import { offerKey, trayCount } from './derive-tray'
 import { CountPill, SectionBar, UnreadDot } from './SectionBar'
 import { Tray } from './Tray'
 import type { TrayActions } from './TrayCard'

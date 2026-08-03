@@ -22,14 +22,13 @@
  *     that no session lookup could match, and every consumer walks sessions.
  */
 
-import { Attribution, actorUser, asUserId } from '@podium/model'
-import { asSessionId } from '@podium/protocol'
+import { Attribution, actorUser, asSessionId, asUserId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
-  type OutboxAttribution,
   actorSessionIdOf,
   agentActorOfSession,
   isDelegated,
+  type OutboxAttribution,
 } from './records'
 
 const ADA = asUserId('u-ada')
@@ -43,7 +42,10 @@ const delegated: OutboxAttribution = {
 
 describe('the outbox pair is the model field schema, narrowed', () => {
   it('parses a human-authored pair as the durable `Attribution`', () => {
-    expect(Attribution.parse(human)).toEqual({ actor: { kind: 'user', id: 'u-ada' }, onBehalfOf: 'u-ada' })
+    expect(Attribution.parse(human)).toEqual({
+      actor: { kind: 'user', id: 'u-ada' },
+      onBehalfOf: 'u-ada',
+    })
   })
 
   it('parses a delegated pair as the durable `Attribution`, agent arm and all', () => {

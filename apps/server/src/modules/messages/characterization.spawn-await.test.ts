@@ -13,8 +13,9 @@
 
 import { asIssueId, asMachineId, asSessionId, type SessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import { OPERATOR } from '../../test-support/capabilities'
 import { SPAWN_BUDGET_PER_DAY } from './brakes'
-import { mailHarness, OPERATOR, phaseState } from './characterization-support'
+import { mailHarness, phaseState } from './characterization-support'
 import { MessageGate } from './gate'
 
 // ---------------------------------------------------------------------------
@@ -233,7 +234,9 @@ describe('characterization: machine placement and the unreachable arm (S2)', () 
       prompt: 'p',
     })) as { machine: string | null }
     expect(r.machine).toBe('Builder')
-    expect(h.events(['agent.spawned'])[0]!.payload).toMatchObject({ machineId: asMachineId('machine-b') })
+    expect(h.events(['agent.spawned'])[0]!.payload).toMatchObject({
+      machineId: asMachineId('machine-b'),
+    })
   })
 
   it('propagates an UNREACHABLE machine as the spawn seam’s own error, spawning nothing', async () => {

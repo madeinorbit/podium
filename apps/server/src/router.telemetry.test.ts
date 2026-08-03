@@ -1,4 +1,3 @@
-import { resolvePrincipal } from './command-principal'
 /**
  * `telemetry.*` tRPC tests [spec:SP-f933].
  *
@@ -11,11 +10,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { loadConfig, saveConfig } from '@podium/runtime/config'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { OPERATOR } from './issue-authz'
+import { resolvePrincipal } from './command-principal'
+
 import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
+import { OPERATOR } from './test-support/capabilities'
 
 function caller(telemetry?: { emitter: { buildUsageReport: () => unknown } }) {
   const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
@@ -25,7 +26,8 @@ function caller(telemetry?: { emitter: { buildUsageReport: () => unknown } }) {
     registry,
     repos,
     superagent,
-    capability: OPERATOR, principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+    capability: OPERATOR,
+    principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
     ...(telemetry ? { telemetry: telemetry as never } : {}),
   })
 }

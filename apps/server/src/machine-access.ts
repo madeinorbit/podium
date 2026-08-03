@@ -66,14 +66,8 @@
  * this principal is concerned there is nothing at all.
  */
 
-import type { MachineUseDecision } from '@podium/model'
-import type {
-  MachineGrant,
-  MachineId,
-  MachineVerb,
-  ResolvedMachine,
-  UserId,
-} from '@podium/protocol'
+import type { MachineId, MachineUseDecision } from '@podium/model'
+import type { MachineGrant, MachineVerb, ResolvedMachine, UserId } from '@podium/protocol'
 import { machineUseAllowed } from '@podium/protocol'
 import type { CommandPrincipal } from './command-principal'
 import { onBehalfOfUser } from './command-principal'
@@ -92,10 +86,7 @@ import { onBehalfOfUser } from './command-principal'
  * handshake's own passthrough and nothing here may read it. That narrowing is
  * real; the four keys it keeps are not this module's to define.
  */
-export type MachineOwnershipRow = Pick<
-  ResolvedMachine,
-  'machine' | 'owner' | 'grants' | 'name'
->
+export type MachineOwnershipRow = Pick<ResolvedMachine, 'machine' | 'owner' | 'grants' | 'name'>
 
 /**
  * Where ownership facts come from. Consulted LIVE at every decision (D16.1):
@@ -154,7 +145,6 @@ export interface MachineGrantSource {
 export interface MachineRowSource extends MachineGrantSource {
   ownershipRows(): { id: string; name?: string; ownerUserId: string | null }[]
 }
-
 
 /** The verbs a machine grant can carry, as a runtime membership test. A stored
  *  verb this build does not know (`read`/`write` belong to other classes, and a

@@ -41,12 +41,13 @@
  * and is recorded as an open gap in the ledger.
  */
 
-import { OPERATOR, asSessionId, asUserId } from '@podium/model'
+import { asSessionId, asUserId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
-import { FIRST_ADMIN_USER_ID, type CommandPrincipal } from '../../command-principal'
+import { type CommandPrincipal, FIRST_ADMIN_USER_ID } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
 import { SessionStore } from '../../store'
-import { renameOnTargetPath, type RenameServices } from './rename-target-path'
+import { OPERATOR } from '../../test-support/capabilities'
+import { type RenameServices, renameOnTargetPath } from './rename-target-path'
 
 const registries: SessionRegistry[] = []
 afterEach(() => {

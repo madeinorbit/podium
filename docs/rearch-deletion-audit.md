@@ -234,6 +234,116 @@ table is the defect.** The rule the rows apply:
   is recorded *and* filed, so the phase that owns the deletion inherits it
   instead of it riding along invisibly inside a larger number.
 
+### 2026-08-03 — POD-333 re-anchors `cli-launch-plan-debt` onto the states it is named after (1 → 0)
+
+**A RE-ANCHOR PLUS A DELETION, and the re-anchor is the part to scrutinise:**
+re-pointing a detector while your own phase is the one closing it is exactly the
+move this file warns about. So the argument, then the evidence.
+
+**The old anchor matched one literal:** `| { kind: 'repair-config'`. That is not
+what the item is named after. `podium setup --repair` backs up a `config.json`
+that will not PARSE (issue #21) — **corruption, which is orthogonal to
+versioning**. A truncated file is not an old file, and adding a version field
+does not make one readable. It is a real, documented operator command, it appears
+in `podium help`, and nothing about this phase removes its job. Correspondingly
+`migrateConfigFile` deliberately does NOT rewrite a corrupt file: doing so would
+destroy whatever the operator had, which is the whole reason `inspectConfig`
+separates `corrupt` from `missing`.
+
+**The variants that existed only because the config could not say which version
+it was** are the two the brief names, and both are now deleted:
+
+- `reconcile-pending-persistence` — the web setup recorded a persistence INTENT
+  it could not fulfil from inside the serving process, and the launcher carried a
+  state for the gap. `persistence` is now the single field, written at the moment
+  of the choice; the managed plans ENSURE rather than merely start, which is the
+  same act the deleted plan performed minus the config state that scheduled it.
+- `incomplete-headless-config` — an `interactive-setup` reason meaning "mode set,
+  no persistence", a shape that was ambiguous between the desktop sidecar and a
+  box configured before the persistence step existed. At v2 absence is an answer,
+  so there is nothing to guess.
+
+**The new anchor is not merely narrowed to zero.** It matches the SHAPE of a
+re-grown state, and both spellings were planted in production source and observed
+to be caught. One of them was NOT caught at first: the initial pattern anchored
+the second literal on `reason:\s*` and on a trailing `|`, and a planted
+`reason: 'explicit' | 'first-run' | 'incomplete-headless-config' }` — a third
+union member, the most likely way the state actually returns — went **silent**.
+That is recorded here rather than quietly fixed, because a re-anchor whose first
+draft had a hole is precisely the case where "the detector reports zero" would
+have meant nothing. Both spellings are now controls, pinned in
+`scripts/rearch-audit.test.ts`.
+
+**ZERO_BY_DESIGN, on the same terms as the items above and no looser:** `collect`
+THROWS when its root matches no file, and when its pattern stops matching its
+controls.
+
+Design, variant count and resolver order:
+`docs/architecture/pod-333-launch-plan-ledger.md`.
+
+### 2026-08-03 — POD-333 sweeps the named shims and re-cuts the unit (21 → 0)
+
+**A DELETION AND A UNIT CORRECTION IN ONE COMMIT, so read the two apart before
+trusting the number.** Baseline `9eea645d` reported `reexport-shims` at 21. The
+new baseline is 0, and that is *not* 21 deletions.
+
+**What was deleted (16 files, 2 blocks, 1 forward).** Sixteen cross-workspace
+re-export tombstones — `apps/server/src/{auth-store,issue-client,issue-commands}.ts`
+and thirteen under `apps/web/src` — each of which said in its own doc comment why
+it existed ("re-exported here so apps/server import sites stay stable",
+"Re-export shim (arch-v2 P3)", "Compatibility re-export"). Import sites moved to
+the real homes. Two republication BLOCKS inside otherwise legitimate barrels went
+with them (`packages/protocol/src/index.ts`'s branded-id block, which its own
+comment scheduled for deletion by POD-362/POD-363 — both since closed — and
+`packages/client-core/src/viewmodels/index.ts`'s "last residue of the deleted
+`derive.ts`"), plus one blanket forward beside real code
+(`apps/web/src/lib/derive.ts`).
+
+**What was a unit correction (5 sites, code unchanged).** The old unit was
+"app-level all-re-export file; `packages/*/src/**/index.ts` excluded" — LOCATION
+as a proxy for the thing. Both halves were wrong at the margin, in opposite
+directions. It counted `apps/server/src/index.ts` — the `@podium/server` package
+entrypoint whose whole job is publishing `startServer` and the `AppRouter` type —
+as debt, and it would have MISSED a shim written at `packages/x/src/index.ts`,
+which is the most natural place to put one. Finding 16 settled the criterion in
+prose ("package index barrels are legitimate public API; the deletion criterion
+is NAMED COMPATIBILITY SHIMS"); this commit settles it in the detector, which now
+reads WHERE THE RE-EXPORTS POINT. A barrel over its own directory re-exports
+modules that live where the barrel lives: nothing moved, so no import path is
+being held stable and there is nothing to delete. Five files change classification
+without changing a byte: `apps/daemon/src/index.ts`, `apps/server/src/index.ts`,
+its `modules/{messaging,superagent}/index.ts` barrels, and
+`apps/web/src/lib/motion/index.ts`.
+
+So: **21 = 16 real shims + 5 misclassified barrels**, and the new unit reports the
+16, which are now gone.
+
+**The widening paid, and can be shown to fail.** Reading the edge rather than the
+location also brought two *packages* barrels into view that the old unit could
+never have seen, and both were real: they are the two republication blocks listed
+above. A third form was added in the same pass — a blanket `export *` forward in a
+file that ALSO has real code — because `apps/web/src/lib/derive.ts` was exactly
+that shape, was a named compatibility shim by its own comment, and was invisible
+to a re-export-ONLY unit for two phases. It was found by a typecheck error, not
+by this audit. Each form was planted and observed to be counted before the code
+was deleted; the star-form and blanket-form cases are pinned in
+`scripts/rearch-audit.test.ts`.
+
+**The item is now ZERO_BY_DESIGN, and pays what a zero owes.** `collect` THROWS
+when its scan matches no files under `apps/` or `packages/`, and when its pattern
+stops matching its control strings. The controls are grouped by branch so the
+throw names which half died. One control is the WRAPPED form, and it is not
+decoration: this detector was line-based once, biome's lineWidth-100 wrap made a
+re-export invisible, and the count FELL while nothing had been deleted. Mutant
+run by hand and pinned as a test: removing the `\*(?:\s+as\s+\w+)?` branch makes
+`collect` throw naming both star controls, rather than reporting a serene zero.
+
+**A second, independent keeper.** Unlike the items above, this zero does not rest
+on the audit alone. `manifest-retired-path` (`scripts/architecture-manifest.ts`,
+error-level, no allowlist) refuses each retired path by name — both the file
+coming back and any import that resolves to it — so the audit reporting zero and
+the manifest refusing the paths would have to fail together.
+
 ### 2026-08-03 — POD-1525 teaches the vocabulary items the INLINE form (1 → 37, 3 → 9)
 
 **A NEW MEASUREMENT OF A WIDER UNIT, NOT 42 NEW RESTATEMENTS.** Same tree

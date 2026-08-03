@@ -24,7 +24,6 @@ export {
   type IssueAction,
   type IssueRole,
   type IssueScope,
-  OPERATOR,
 } from '@podium/model'
 
 /**

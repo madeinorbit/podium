@@ -30,14 +30,13 @@
  */
 
 import type { AgentKind, IssueId, IssueWire, SessionId, SessionMeta } from '@podium/model'
-import { asIssueId, asSessionId } from '@podium/model'
+import { asIssueId, asSessionId, dedupeSessionsByResume } from '@podium/model'
 import type { PodiumClientApi } from '../api'
 import { randomUUID } from '../id'
 import type { OutboxEntry } from '../outbox'
 import type { IssueProjectionRow } from '../replica/contract'
 import { assertSpawnPlacement, createDraftAgent, type SpawnTarget } from '../spawn-agent'
 import {
-  dedupeSessionsByResume,
   optimisticDraftIssue,
   optimisticDraftSortKey,
   optimisticStartingSession,

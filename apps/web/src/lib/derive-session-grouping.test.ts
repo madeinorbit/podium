@@ -1,15 +1,16 @@
 // Cross-harness child grouping (#237) [spec:SP-34d7 web]: sessions spawned by
 // another session nest under their spawner in the sidebar; consumed (exited)
 // children auto-tuck behind a disclosure. M6 also expands for native counts.
-import type { SessionMeta, SessionMetaInput } from '@podium/model'
-import { describe, expect, it } from 'vitest'
+
 import {
   groupSessionsByParent,
   isConsumedChild,
   nativeSubagentLabel,
   sessionIssueLinkage,
   sessionsNeedChildRows,
-} from './derive'
+} from '@podium/client-core/viewmodels'
+import type { SessionMeta, SessionMetaInput } from '@podium/model'
+import { describe, expect, it } from 'vitest'
 
 function sess(id: string, over: Partial<SessionMetaInput> = {}): SessionMeta {
   return {

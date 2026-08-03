@@ -5,8 +5,8 @@
  * performed by the kernel state machine against the replica's IndexedDB store.
  */
 
+import type { MutationId } from '@podium/model'
 import { actorUser, asUserId } from '@podium/model'
-import type { MutationId } from '@podium/protocol'
 import {
   Outbox as KernelOutbox,
   OUTBOX_MAX_AGE_MS,

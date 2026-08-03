@@ -1,4 +1,3 @@
-import { resolvePrincipal } from './command-principal'
 /**
  * POD-168 — manual order via persisted sortKey (POD-100 §4):
  * create mints a key ABOVE its sibling scope's minimum ("new at top" R2),
@@ -7,16 +6,19 @@ import { resolvePrincipal } from './command-principal'
  * Exercised through the tRPC command layer, same as the create-provenance suite.
  */
 import { describe, expect, it } from 'vitest'
-import { OPERATOR } from './issue-authz'
+import { resolvePrincipal } from './command-principal'
+
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
+import { OPERATOR } from './test-support/capabilities'
 
 const ctx = (registry: SessionRegistry) =>
   appRouter.createCaller({
     registry,
     repos: {} as never,
     superagent: {} as never,
-    capability: OPERATOR, principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined })
+    capability: OPERATOR,
+    principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
   })
 
 describe('sortKey minting on create (POD-168)', () => {

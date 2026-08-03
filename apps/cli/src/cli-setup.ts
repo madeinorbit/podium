@@ -275,10 +275,18 @@ async function persistenceStep(
   io.print(res.message)
 }
 
-/** Record the EFFECTIVE persistence and clear any recorded intent — it's fulfilled now. */
+/**
+ * Record the EFFECTIVE persistence — which is not always the one asked for:
+ * `startBackendEngine` falls back to detached when systemd is unavailable, and
+ * the config must say what actually happened.
+ *
+ * There is no separate intent to clear any more. v1 kept `pendingPersistence`
+ * beside this field and this function deleted it; POD-333 folded the two into
+ * one (see CONFIG_MIGRATIONS in @podium/runtime/config), so a write here is the
+ * whole story.
+ */
 function savePersistence(persistence: 'systemd' | 'detached'): void {
-  const { pendingPersistence: _fulfilled, ...rest } = loadConfig()
-  saveConfig({ ...rest, persistence })
+  saveConfig({ ...loadConfig(), persistence })
 }
 
 /**
@@ -298,28 +306,6 @@ export async function runJoinSetup(
   const result = await startBackend({ persistence, mode: 'daemon', port })
   savePersistence(result.effectivePersistence)
   return { name, ...(warning ? { warning } : {}), result }
-}
-
-/**
- * Reconcile a recorded-but-unfulfilled persistence intent (issue #20): the web setup
- * (`setup.complete` / `setup.join`) cannot start or persist the backend from inside the
- * serving process, so it records `pendingPersistence`; the next `podium` invocation lands
- * here, starts the backend under that persistence (non-interactive — safe headless), and
- * records the effective result. Returns undefined when there is nothing to reconcile.
- */
-export async function reconcilePendingPersistence(
-  port: number,
-  deps: SetupDeps = {},
-): Promise<StartBackendResult | undefined> {
-  const config = loadConfig()
-  const pending = config.pendingPersistence
-  if (!pending || config.persistence) return undefined
-  const mode = config.mode
-  if (mode !== 'all-in-one' && mode !== 'server' && mode !== 'daemon') return undefined
-  const startBackend = deps.startBackend ?? startBackendEngine
-  const result = await startBackend({ persistence: pending, mode, port })
-  savePersistence(result.effectivePersistence)
-  return result
 }
 
 /**

@@ -1,15 +1,20 @@
 // apps/web/src/MarkdownFilePanel.tsx
-import { asSessionId } from '@podium/model'
+
 import type { EditorView } from '@codemirror/view'
 import { EditorView as CMView } from '@codemirror/view'
+import {
+  MD_MODE_MAP_KEY,
+  readFilePanelMode,
+  writeFilePanelMode,
+} from '@podium/client-core/ui-state'
+import { type FileScope, scopeKey } from '@podium/client-core/viewmodels'
+import { asSessionId } from '@podium/model'
 import { Columns2, Eye, Pencil, Save, X } from 'lucide-react'
 import { type JSX, useEffect, useId, useRef, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
-import { type FileScope, scopeKey } from '@/lib/file-scope'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { canSave } from './editor-save'
-import { MD_MODE_MAP_KEY, readFilePanelMode, writeFilePanelMode } from './file-panel-mode'
 import { MarkdownPreview } from './MarkdownPreview'
 import { SourceEditor } from './SourceEditor'
 import { type BlockPos, lineForTop, topForLine } from './scroll-sync'

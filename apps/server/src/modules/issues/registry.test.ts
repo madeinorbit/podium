@@ -2,8 +2,9 @@ import { ISSUE_COMMAND_NAMES, ISSUE_CONTRACTS } from '@podium/commands'
 import { asIssueId, asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
-import { OPERATOR } from '../../issue-authz'
+
 import { SessionRegistry } from '../../relay'
+import { OPERATOR } from '../../test-support/capabilities'
 import { guardIssueCommand, issueRegistry } from './registry'
 
 /**

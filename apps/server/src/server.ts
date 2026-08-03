@@ -14,6 +14,7 @@ import {
   PeerHelloReply,
   WIRE_VERSION,
 } from '@podium/protocol'
+import { applyEnvPassword, hasPassword } from '@podium/runtime/auth-store'
 import { loadConfig, resolveInstanceId } from '@podium/runtime/config'
 import { ensureInstanceStateIdentity } from '@podium/runtime/instance'
 import {
@@ -26,14 +27,13 @@ import { prepareLedgerBoot } from '@podium/sync'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { clientAuthGuard, registerAuthRoute, requestUserId } from './auth-route'
-import { applyEnvPassword, hasPassword } from './auth-store'
 import { createCloudRuntimeProviderFromEnv } from './cloud-runtime'
 import { userCommandPrincipal } from './command-principal'
+import { openEnrollmentLedger } from './enrollment-ledger'
 import { registerArtifactRoute } from './file-artifact-route'
 import { registerAssetRoute } from './file-asset-route'
 import { createDaemonAcceptor, receiveDaemonFrame } from './gateway/peer-handshake'
 import { attachWebSockets } from './gateway/ws-server'
-import { openEnrollmentLedger } from './enrollment-ledger'
 import { PairingManager } from './hub/pairing'
 import { IssueToolProvider } from './issue-mcp'
 import { registerMcpRoute } from './mcp-route'

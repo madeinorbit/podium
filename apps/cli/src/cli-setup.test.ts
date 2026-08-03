@@ -1,16 +1,10 @@
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { loadConfig, saveConfig } from '@podium/runtime/config'
+import { CURRENT_CONFIG_VERSION, loadConfig, saveConfig } from '@podium/runtime/config'
 import { encodeJoin } from '@podium/runtime/join'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  reconcilePendingPersistence,
-  repairConfig,
-  runCliSetup,
-  runJoinSetup,
-  shouldRunCliSetup,
-} from './cli-setup'
+import { repairConfig, runCliSetup, runJoinSetup, shouldRunCliSetup } from './cli-setup'
 
 const priorStateDir = process.env.PODIUM_STATE_DIR!
 
@@ -155,8 +149,6 @@ describe('runCliSetup', () => {
       expect(loadConfig().mode).toBe('daemon')
       expect(loadConfig().serverUrl).toBe('wss://relay.example')
       expect(loadConfig().persistence).toBe('detached')
-      // The intent was fulfilled in-flow — no leftover pendingPersistence (#20).
-      expect(loadConfig().pendingPersistence).toBeUndefined()
       // The join now STARTS the daemon rather than telling the user to restart.
       expect(startBackend).toHaveBeenCalledWith({
         persistence: 'detached',
@@ -233,6 +225,7 @@ describe('runCliSetup', () => {
         port: 18787,
       })
       expect(loadConfig()).toEqual({
+        configVersion: CURRENT_CONFIG_VERSION,
         mode: 'daemon',
         serverUrl: 'wss://relay.example',
         pairCode: 'P1',
@@ -246,7 +239,6 @@ describe('runCliSetup', () => {
         startBackend: async () => ({ effectivePersistence: 'detached', message: 'fallback' }),
       })
       expect(loadConfig().persistence).toBe('detached')
-      expect(loadConfig().pendingPersistence).toBeUndefined()
     })
     it('throws on a malformed token without touching config', async () => {
       saveConfig({ updateChannel: 'edge' })
@@ -258,45 +250,7 @@ describe('runCliSetup', () => {
           })),
         }),
       ).rejects.toThrow()
-      expect(loadConfig()).toEqual({ updateChannel: 'edge' })
-    })
-  })
-
-  describe('reconcilePendingPersistence — web setup finished, next `podium` starts the backend (#20)', () => {
-    it('starts the backend under the recorded intent and flips it to persistence', async () => {
-      // What the web setup.complete leaves behind on a headless box.
-      saveConfig({
-        mode: 'all-in-one',
-        publicUrl: 'https://box.ts.net',
-        pendingPersistence: 'systemd',
-      })
-      const startBackend = vi.fn(async (o: { persistence: 'systemd' | 'detached' }) => ({
-        effectivePersistence: o.persistence,
-        message: 'up',
-      }))
-      const res = await reconcilePendingPersistence(18787, { startBackend })
-      expect(res?.message).toBe('up')
-      expect(startBackend).toHaveBeenCalledWith({
-        persistence: 'systemd',
-        mode: 'all-in-one',
-        port: 18787,
-      })
-      expect(loadConfig()).toEqual({
-        mode: 'all-in-one',
-        publicUrl: 'https://box.ts.net',
-        persistence: 'systemd',
-      })
-    })
-    it('no-ops when nothing is pending or persistence is already set', async () => {
-      const startBackend = vi.fn(async () => ({
-        effectivePersistence: 'systemd' as const,
-        message: '',
-      }))
-      saveConfig({ mode: 'all-in-one', persistence: 'detached' })
-      expect(await reconcilePendingPersistence(18787, { startBackend })).toBeUndefined()
-      saveConfig({ mode: 'all-in-one' })
-      expect(await reconcilePendingPersistence(18787, { startBackend })).toBeUndefined()
-      expect(startBackend).not.toHaveBeenCalled()
+      expect(loadConfig()).toEqual({ configVersion: CURRENT_CONFIG_VERSION, updateChannel: 'edge' })
     })
   })
 

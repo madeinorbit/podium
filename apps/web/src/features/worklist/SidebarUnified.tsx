@@ -1,14 +1,13 @@
-import { asIssueId } from '@podium/model'
-import { LayoutGroup, MotionConfig, motion, useReducedMotion } from 'motion/react'
-import type { CSSProperties, JSX, PointerEvent as ReactPointerEvent } from 'react'
-import { useEffect, useId, useMemo, useState } from 'react'
 import {
   groupUnifiedWorkRows,
-  isIssueDeferred,
   rowAwaitsTuck,
   splitPinnedWork,
   type UnifiedIssueRow as UnifiedIssueRowView,
-} from '@/lib/derive'
+} from '@podium/client-core/viewmodels'
+import { asIssueId, isIssueDeferred } from '@podium/model'
+import { LayoutGroup, MotionConfig, motion, useReducedMotion } from 'motion/react'
+import type { CSSProperties, JSX, PointerEvent as ReactPointerEvent } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
 import { issueColorHex } from '@/lib/issueColors'
 import { type RowTransitionTarget, useRowTransitions } from '@/lib/motion'
 import { cn } from '@/lib/utils'

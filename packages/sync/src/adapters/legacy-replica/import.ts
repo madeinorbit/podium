@@ -69,7 +69,7 @@
  * handful of entries costs nothing; under-serialising corrupts a rename.
  */
 
-import type { MutationId } from '@podium/protocol'
+import type { MutationId } from '@podium/model'
 import type { OutboxAttribution, OutboxCommand, OutboxRecord } from '../../outbox/records'
 import {
   isLegacyReplicaStateKey,
@@ -170,9 +170,7 @@ function isLegacyEntry(row: unknown): row is LegacyOutboxEntry {
   if (!row || typeof row !== 'object') return false
   const e = row as LegacyOutboxEntry
   return (
-    typeof e.mutationId === 'string' &&
-    typeof e.kind === 'string' &&
-    typeof e.queuedAt === 'number'
+    typeof e.mutationId === 'string' && typeof e.kind === 'string' && typeof e.queuedAt === 'number'
   )
 }
 
@@ -200,11 +198,7 @@ export function readLegacyReplica(
   // FIFO across the three outbox homes, in the order a drain would have seen
   // them: the pre-replica blob is the oldest intent in the store, and the
   // awaiting-truth stage is by construction later than anything still queued.
-  for (const key of [
-    LEGACY_STANDALONE_OUTBOX_KEY,
-    LEGACY_OUTBOX_KEY,
-    LEGACY_OUTBOX_AWAITING_KEY,
-  ]) {
+  for (const key of [LEGACY_STANDALONE_OUTBOX_KEY, LEGACY_OUTBOX_KEY, LEGACY_OUTBOX_AWAITING_KEY]) {
     const raw = safeGet(source, key)
     if (raw === null) continue
     const rows = decodeCollectionBlob(raw)
@@ -218,7 +212,11 @@ export function readLegacyReplica(
     }
     for (const row of rows) {
       if (!isLegacyEntry(row)) {
-        rejected.push({ key, reason: 'malformed-entry', detail: 'missing mutationId/kind/queuedAt' })
+        rejected.push({
+          key,
+          reason: 'malformed-entry',
+          detail: 'missing mutationId/kind/queuedAt',
+        })
         continue
       }
       const command = options.resolveCommand(row.kind)

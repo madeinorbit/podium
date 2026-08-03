@@ -1,21 +1,9 @@
-import type { IssueColorSlot, IssueId, SessionId, SessionMeta } from '@podium/model'
-import { issueDisplayRef } from '@podium/protocol'
-import { AlarmClock, Pin } from 'lucide-react'
-import type { JSX, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
-import { useState } from 'react'
-import { GitStamp } from '@/components/GitStamp'
-import { IdSquare } from '@/components/IdSquare'
-import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
-import { issueIdTitle } from '@/features/issues/issue-card'
-import { agentFleetTileTint } from '@/lib/agent-tone'
 import {
   branchRollup,
   draftIssueLabel,
   type IssueNavigationModel,
   isCoordinatorSession,
   isDraftAgentVessel,
-  isIssueDeferred,
-  issueReturnedFromDefer,
   partitionStaleSessions,
   pendingDecisionLabel,
   pendingDecisionTitle,
@@ -27,7 +15,18 @@ import {
   rowWaitingCount,
   sessionsNeedChildRows,
   type UnifiedIssueRow as UnifiedIssueRowView,
-} from '@/lib/derive'
+} from '@podium/client-core/viewmodels'
+import type { IssueColorSlot, IssueId, SessionId, SessionMeta } from '@podium/model'
+import { isIssueDeferred, issueReturnedFromDefer } from '@podium/model'
+import { issueDisplayRef } from '@podium/protocol'
+import { AlarmClock, Pin } from 'lucide-react'
+import type { JSX, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
+import { useState } from 'react'
+import { GitStamp } from '@/components/GitStamp'
+import { IdSquare } from '@/components/IdSquare'
+import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
+import { issueIdTitle } from '@/features/issues/issue-card'
+import { agentFleetTileTint } from '@/lib/agent-tone'
 import { issueColorHex } from '@/lib/issueColors'
 import { PhaseTimer } from '@/lib/motion'
 import type { ContextMenuAnchor } from '@/lib/SessionContextMenu'

@@ -1,4 +1,3 @@
-import { asSessionId, type SessionId } from '@podium/model'
 import {
   closestCenter,
   DndContext,
@@ -17,11 +16,7 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import { beginSwitch } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
-import { Archive, Columns2, FileText, Lock, Plus, X } from 'lucide-react'
-import { type JSX, useEffect, useRef, useState } from 'react'
-import { Button } from '@/components/ui/button'
-import { AgentPanel } from '@/features/terminal/AgentPanel'
-import { useWarmSet } from '@/features/terminal/use-warm-set'
+import type { WorktreeView } from '@podium/client-core/viewmodels'
 import {
   archivedSessionsForIssue,
   archivedSessionsForWorktreePath,
@@ -31,7 +26,13 @@ import {
   reposToViews,
   sessionsForIssueNav,
   sessionsForWorktree,
-} from '@/lib/derive'
+} from '@podium/client-core/viewmodels'
+import { asSessionId, type SessionId } from '@podium/model'
+import { Archive, Columns2, FileText, Lock, Plus, X } from 'lucide-react'
+import { type JSX, useEffect, useRef, useState } from 'react'
+import { Button } from '@/components/ui/button'
+import { AgentPanel } from '@/features/terminal/AgentPanel'
+import { useWarmSet } from '@/features/terminal/use-warm-set'
 import { AgentStatusGlyph } from '@/lib/motion'
 import { type ContextMenuAnchor, SessionContextMenu } from '@/lib/SessionContextMenu'
 import { useFeature } from '@/lib/use-feature'
@@ -41,7 +42,6 @@ import { NewPanelMenu } from './NewPanelMenu'
 import { PanelDeck } from './PanelDeck'
 import { composeDeck, type DeckTab } from './panel-deck'
 import { useReplicaIssues, useStoreSelector } from './store'
-import type { WorktreeView } from './types'
 import { closeWorkspaceTab } from './workspace-close'
 import { fileTabsForWorkspace } from './workspace-tabs'
 

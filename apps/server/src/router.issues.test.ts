@@ -1,10 +1,11 @@
-import { FIRST_ADMIN_USER_ID, resolvePrincipal } from './command-principal'
 import { asIssueId, asSessionId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { type Capability, OPERATOR } from './issue-authz'
+import { FIRST_ADMIN_USER_ID, resolvePrincipal } from './command-principal'
+import type { Capability } from './issue-authz'
 import { issueRegistry } from './modules/issues/registry'
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
+import { OPERATOR } from './test-support/capabilities'
 
 function inputSchema(path: string) {
   // tRPC stores the parsed input parser on the procedure's _def.

@@ -1,9 +1,10 @@
-import { FIRST_ADMIN_USER_ID, resolvePrincipal } from './command-principal'
 import { asSessionId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
-import { type Capability, OPERATOR } from './issue-authz'
+import { FIRST_ADMIN_USER_ID, resolvePrincipal } from './command-principal'
+import type { Capability } from './issue-authz'
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
+import { OPERATOR } from './test-support/capabilities'
 
 // The gate only exercises `issues.*`, which touches `ctx.registry.issues` (an in-memory
 // :memory: store). `repos`/`superagent` are unused on this path, so they're stubbed —

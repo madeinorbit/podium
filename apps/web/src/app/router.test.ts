@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest'
 import {
   createRouter,
   parseRoute,
@@ -6,7 +5,8 @@ import {
   type RouteState,
   routeDefaults,
   routePath,
-} from './router'
+} from '@podium/client-core/router'
+import { describe, expect, it } from 'vitest'
 
 // ---------------------------------------------------------------------------
 // URL router (issue #15 Phase 4): URL → view mapping, back/forward via a

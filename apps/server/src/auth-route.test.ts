@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { FIRST_ADMIN_USER_ID } from '@podium/model'
+import { setPassword } from '@podium/runtime/auth-store'
 import { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import {
@@ -11,7 +12,6 @@ import {
   registerAuthRoute,
   requestUserId,
 } from './auth-route'
-import { setPassword } from './auth-store'
 import { SessionStore } from './store'
 
 let dir: string

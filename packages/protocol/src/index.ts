@@ -2,40 +2,17 @@
  * @podium/protocol — wire types + codecs for agent/terminal sessions.
  */
 export * from './delegation'
+// Branded entity ids and the two legacy composite-key helpers live in
+// @podium/model (POD-361) — the L0 root, where a brand is reachable from every
+// layer, which is what let the entity schemas adopt them. They are NOT
+// republished here: POD-362 and POD-363 re-pointed the server, daemon, clients
+// and CLI at @podium/model, and POD-333 re-pointed the remainder and deleted the
+// compatibility block those issues left behind. `planes/routing` still
+// re-exports model's `EntityRef`, which is a wire type this package defines its
+// routing over rather than a held-open import path.
+export * from './edge'
 export * from './features'
 export * from './handshake'
-// Branded entity ids and the two legacy composite-key helpers moved to
-// @podium/model (POD-361) — the L0 root, where a brand is reachable from every
-// layer, which is what let the entity schemas adopt them. Re-exported HERE, in
-// the barrel, rather than from a `src/ids.ts` tombstone: an all-re-export file is
-// debt the deletion audit counts, and a barrel is the legitimate way to keep
-// `@podium/protocol`'s import path stable. The surface is exactly what `ids.ts`
-// exported before the move. POD-361's ADDITIONS (field-position schemas, UserId,
-// tier-2 brands, the two new key shapes) stay model-only except EntityRef:
-// planes/routing re-exports model EntityRef (POD-1134 deleted the weak local
-// copy). POD-362 / POD-363 re-point remaining consumers at @podium/model and
-// delete this block.
-export {
-  asConversationId,
-  asIssueId,
-  asMachineId,
-  asMutationId,
-  asRepoId,
-  asSessionId,
-  asThreadId,
-  ConversationId,
-  IssueId,
-  MachineId,
-  machineScopedKey,
-  MutationId,
-  parseMachineScopedKey,
-  parseResumeKey,
-  RepoId,
-  resumeKey,
-  SessionId,
-  ThreadId,
-} from '@podium/model'
-export * from './edge'
 export * from './maintenance'
 export * from './messages'
 export * from './perf'

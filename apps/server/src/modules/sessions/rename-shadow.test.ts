@@ -43,15 +43,16 @@
  */
 
 import { isExposedOn, sessionStateCommand } from '@podium/commands'
-import { asSessionId, OPERATOR, SOLE_USER_ID } from '@podium/model'
+import { asSessionId, SOLE_USER_ID } from '@podium/model'
 
 import { afterEach, describe, expect, it } from 'vitest'
-import { FIRST_ADMIN_USER_ID, type CommandPrincipal } from '../../command-principal'
+import { type CommandPrincipal, FIRST_ADMIN_USER_ID } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
 import { SessionStore } from '../../store'
-import { MIGRATED_COMMANDS, renamePath, RENAME_PATH_ENV } from './rename-adapter'
+import { OPERATOR } from '../../test-support/capabilities'
+import { MIGRATED_COMMANDS, RENAME_PATH_ENV, renamePath } from './rename-adapter'
+import { type RenameServices, renameOnTargetPath } from './rename-target-path'
 import { SessionStateRegistry, soleHumanSessionStatePrincipal } from './session-state/registry'
-import { renameOnTargetPath, type RenameServices } from './rename-target-path'
 import { sessionSurfaceManifest } from './trpc'
 
 const registries: SessionRegistry[] = []

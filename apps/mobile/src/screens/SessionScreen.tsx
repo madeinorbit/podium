@@ -6,11 +6,9 @@ import {
   panelLabel,
   prependTranscriptItems,
   sessionTitle,
-  snoozeUntil1h,
-  snoozeUntilTomorrow5am,
 } from '@podium/client-core/viewmodels'
 import type { TranscriptItem, WorkState } from '@podium/model'
-import { asSessionId } from '@podium/model'
+import { asSessionId, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/model'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { MoreVertical } from 'lucide-react-native'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
