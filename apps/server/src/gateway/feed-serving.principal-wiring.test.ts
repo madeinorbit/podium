@@ -61,7 +61,9 @@ import {
   type ServerMessage,
   WIRE_VERSION,
 } from '@podium/protocol'
-import { GrantEdgeVisibilityPolicy, type VisibilityStatePort } from '@podium/sync'
+import { GrantEdgeVisibilityPolicy, type VisibilityStatePort,
+  NoDelegationsGranted,
+} from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
 import { attachTestClient } from '../test-support/client-transport'
 import { ClientMux } from './client-mux'
@@ -88,7 +90,7 @@ function issueOwnershipPolicy(owners: Map<string, UserId>, grants: Map<string, U
     },
     keyedUserOf: () => null,
   }
-  return new GrantEdgeVisibilityPolicy(port)
+  return new GrantEdgeVisibilityPolicy(port, new NoDelegationsGranted())
 }
 
 interface Socket {

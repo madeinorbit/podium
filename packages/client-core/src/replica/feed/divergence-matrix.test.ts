@@ -37,7 +37,7 @@
  * should be read as the second-account check.
  */
 
-import { ConformanceAuthority, type ConformancePrincipal } from '@podium/sync'
+import { ConformanceAuthority, type ConformancePrincipal, conformanceUser } from '@podium/sync'
 import { type IdbFactoryLike, IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import {
   type BootstrapChunk,
@@ -52,8 +52,8 @@ import { FeedAuthorityClient } from './authority-client'
 import { PushedBootstrapSource } from './bootstrap-source'
 import { FeedSink } from './sink'
 
-const ALICE: ConformancePrincipal = { kind: 'user', userId: 'user:alice' }
-const BOB: ConformancePrincipal = { kind: 'user', userId: 'user:bob' }
+const ALICE: ConformancePrincipal = conformanceUser('user:alice')
+const BOB: ConformancePrincipal = conformanceUser('user:bob')
 
 /**
  * Kernel `DeltaFrame` → the v2 WIRE message.

@@ -36,15 +36,24 @@
  * unit test with no server, no socket and no clock.
  */
 
+import {
+  asAgentIdentityId,
+  asCapabilityRef,
+  asDelegationRef,
+  asDeviceId,
+  asUserId,
+} from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
+import { type Principal } from '@podium/protocol'
 import { Authority } from './authority'
 import type { ChangeLogReadRow, StagedChangeSpec } from './change-lifecycle'
 import type { ChangeLogStore } from '../change-log'
 import {
   GrantEdgeVisibilityPolicy,
   type EntityRef,
-  type FeedPrincipal,
   type VisibilityAnchorPort,
+  type DelegatedScope,
+  type DelegationScopePort,
   type VisibilityStatePort,
 } from '../feed/visibility'
 import type { VisibilityClass } from '@podium/model'
@@ -108,16 +117,25 @@ function state() {
     { audience: readonly string[]; subjects: readonly EntityRef[] }
   >()
 
-  const port: VisibilityStatePort & VisibilityAnchorPort = {
+  const scopes = new Map<string, DelegatedScope>()
+
+  const port: VisibilityStatePort & VisibilityAnchorPort & DelegationScopePort = {
     classOf: (entity) => classes.get(entity) ?? null,
     mayRead: (user, ref) => grants.get(user)?.has(key(ref)) === true,
     keyedUserOf: (ref) => keyedUsers.get(key(ref)) ?? null,
     visibilityEdge: (ref) => edges.get(key(ref)) ?? null,
     currentValueOf: (ref) => values.get(key(ref)),
+    // DEFAULT-CLOSED for a delegation nobody minted: an empty key set. `all`
+    // here would make every A2 case pass without the scope doing any work.
+    scopeOf: (delegation) => scopes.get(delegation) ?? { kind: 'entities', keys: new Set() },
   }
 
   return {
     port,
+    /** Mint a delegation with what it was spawned for (ADR 9 D5 A2). */
+    delegate(delegation: string, scope: DelegatedScope) {
+      scopes.set(delegation, scope)
+    },
     grant(user: string, ref: EntityRef) {
       const set = grants.get(user) ?? new Set<string>()
       set.add(key(ref))
@@ -151,21 +169,28 @@ function build(rescopeThreshold = 32) {
     store: memoryStore(),
     now: () => 1,
     transact: (fn) => fn(),
-    visibility: new GrantEdgeVisibilityPolicy(tables.port),
+    visibility: new GrantEdgeVisibilityPolicy(tables.port, tables.port),
     anchors: tables.port,
     rescopeThreshold,
   })
   return { authority, tables }
 }
 
-const ADA: FeedPrincipal = { kind: 'user', userId: 'ada' }
-const GRACE: FeedPrincipal = { kind: 'user', userId: 'grace' }
-const ANON: FeedPrincipal = { kind: 'user', userId: 'anonymous' }
+const testUser = (id: string): Principal => ({
+  kind: 'user',
+  user: asUserId(id),
+  device: asDeviceId(`dev:${id}`),
+  capability: asCapabilityRef(`cap:${id}`),
+})
+
+const ADA: Principal = testUser('ada')
+const GRACE: Principal = testUser('grace')
+const ANON: Principal = testUser('anonymous')
 
 const ref = (entityId: string): EntityRef => ({ entity: 'session', entityId })
 
 /** Collect one principal's deliveries. Records the RANGE as well as the rows. */
-function collect(authority: Authority, principal: FeedPrincipal) {
+function collect(authority: Authority, principal: Principal) {
   const seen: { throughSeq: number; ids: string[]; ops: string[]; kind: string }[] = []
   authority.subscribe(principal, (delivery) => {
     seen.push(
@@ -267,7 +292,7 @@ describe('the CLASS rules refuse, and each refusal is distinguishable', () => {
     // returns the same answer for "deliberately personal" and "never classified"
     // cannot tell a decision from an omission. Here they are different reasons.
     const { authority, tables } = build()
-    const policy = new GrantEdgeVisibilityPolicy(tables.port)
+    const policy = new GrantEdgeVisibilityPolicy(tables.port, tables.port)
     tables.grant('ada', { entity: 'conversation', entityId: 'c1' })
 
     // Granted, and STILL refused, because the kind carries no declaration.
@@ -287,7 +312,7 @@ describe('the CLASS rules refuse, and each refusal is distinguishable', () => {
 
   it('a SECRET never replicates, grant or no grant (ADR 1 D6)', () => {
     const { tables } = build()
-    const policy = new GrantEdgeVisibilityPolicy(tables.port)
+    const policy = new GrantEdgeVisibilityPolicy(tables.port, tables.port)
     tables.classify('session', 'secret')
     tables.grant('ada', ref('s1'))
 
@@ -299,7 +324,7 @@ describe('the CLASS rules refuse, and each refusal is distinguishable', () => {
 
   it('PER-USER STATE is visible only to the user in its key, and a grant cannot widen it', () => {
     const { tables } = build()
-    const policy = new GrantEdgeVisibilityPolicy(tables.port)
+    const policy = new GrantEdgeVisibilityPolicy(tables.port, tables.port)
     tables.classify('session', 'per-user-state')
     tables.keyTo(ref('readAt'), 'ada')
     // Grace holds an explicit grant and still may not see it: per-user state is
@@ -317,7 +342,7 @@ describe('the CLASS rules refuse, and each refusal is distinguishable', () => {
     // Without this, "everything is refused" would satisfy every case above, and a
     // policy that refused unconditionally would look correct.
     const { tables } = build()
-    const policy = new GrantEdgeVisibilityPolicy(tables.port)
+    const policy = new GrantEdgeVisibilityPolicy(tables.port, tables.port)
     tables.classify('session', 'deployment-substrate')
 
     expect(policy.decide(ANON, ref('lock-1'))).toEqual({ visible: true, reason: 'substrate' })
@@ -325,14 +350,18 @@ describe('the CLASS rules refuse, and each refusal is distinguishable', () => {
 
   it("an agent sees its human's grants INTERSECTED with its own scope, never unioned", () => {
     const { tables } = build()
-    const policy = new GrantEdgeVisibilityPolicy(tables.port)
+    const policy = new GrantEdgeVisibilityPolicy(tables.port, tables.port)
     tables.grant('ada', ref('in-scope'))
     tables.grant('ada', ref('out-of-scope'))
-    const agent: FeedPrincipal = {
+    // The scope lives on the PORT now, keyed by the ref the principal carries.
+    tables.delegate('del-sess-1', { kind: 'entities', keys: new Set(['session:in-scope']) })
+    const agent: Principal = {
       kind: 'agent',
-      sessionId: 'sess-1',
-      onBehalfOf: 'ada',
-      scope: { kind: 'entities', keys: new Set(['session:in-scope']) },
+      agentIdentity: asAgentIdentityId('sess-1'),
+      onBehalfOf: asUserId('ada'),
+      device: asDeviceId('dev:sess-1'),
+      capability: asCapabilityRef('cap:sess-1'),
+      delegation: asDelegationRef('del-sess-1'),
     }
 
     expect(policy.decide(agent, ref('in-scope')).visible).toBe(true)

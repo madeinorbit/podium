@@ -21,12 +21,13 @@
  */
 
 import type { MetadataEntityKind } from '@podium/protocol'
+import { type Principal } from '@podium/protocol'
 import type {
   ArbitrationAttempt,
   ArbitrationRejection,
   ArbitrationRequest,
 } from './arbitration'
-import type { FeedPrincipal, FeedScopingGrade } from '../feed/visibility'
+import type { FeedScopingGrade } from '../feed/visibility'
 import type {
   ChangeLogReadRow,
   ChangeLogWriteRow,
@@ -162,7 +163,7 @@ export interface AuthorityPort {
    * An optional parameter would make the unscoped read the default, and the
    * default is the one every new call site takes.
    */
-  changesSince(cursor: number | null, principal: FeedPrincipal): ScopedDelivery | null
+  changesSince(cursor: number | null, principal: Principal): ScopedDelivery | null
 
   /** The highest seq ever assigned. 0 before any change. */
   cursor(): number
@@ -186,7 +187,7 @@ export interface AuthorityPort {
    * answers that cannot disagree. A composition that read the world from
    * somewhere else would be the second read path the cutover deleted.
    */
-  bootstrap(principal: FeedPrincipal): ScopedBootstrap
+  bootstrap(principal: Principal): ScopedBootstrap
 
   /**
    * Subscribe to the ORDERED delta pipe, AS ONE PRINCIPAL. Returns an
@@ -203,7 +204,7 @@ export interface AuthorityPort {
    * subscription would be the read-side leak in a system whose feed is otherwise
    * per-principal.
    */
-  subscribe(principal: FeedPrincipal, subscriber: ChangeSubscriber): () => void
+  subscribe(principal: Principal, subscriber: ChangeSubscriber): () => void
 }
 
 /** One write, as the funnel takes it. */

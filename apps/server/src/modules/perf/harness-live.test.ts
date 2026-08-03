@@ -1,3 +1,10 @@
+import {
+  asAgentIdentityId,
+  asCapabilityRef,
+  asDelegationRef,
+  asDeviceId,
+  asUserId,
+} from '@podium/protocol'
 import { attachTestClient } from '../../test-support/client-transport'
 
 /**
@@ -166,7 +173,7 @@ describe('switch-latency harness observes the delta-feed path [POD-736]', () => 
     expect(perf.snapshot().byPrincipal[LIVE.digest]).toBeDefined()
     // The device-grade principal's id is `user:device:shared-instance-password`.
     // The digest must not contain it, nor the `user:` / `agent:` prefix that
-    // `principalIdOf` uses — for an AGENT principal that prefix is followed by a
+    // `principalRoutingId` uses — for an AGENT principal that prefix is followed by a
     // session id, and that is the leak this guards.
     expect(LIVE.digest).not.toContain('device:')
     expect(LIVE.digest).not.toContain('user:')
@@ -176,9 +183,11 @@ describe('switch-latency harness observes the delta-feed path [POD-736]', () => 
     // assertion above and merge every principal into one partition.
     const other = perfPrincipal({
       kind: 'agent',
-      sessionId: 'sess-someone-else',
-      onBehalfOf: 'u1',
-      scope: { kind: 'all' },
+      agentIdentity: asAgentIdentityId('sess-someone-else'),
+      onBehalfOf: asUserId('u1'),
+      device: asDeviceId('dev:sess-someone-else'),
+      capability: asCapabilityRef('cap:sess-someone-else'),
+      delegation: asDelegationRef('del-someone-else'),
     })
     expect(other.digest).not.toBe(LIVE.digest)
     expect(other.digest).not.toContain('sess-someone-else')

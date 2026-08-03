@@ -38,13 +38,20 @@
  * pass against exactly the broken implementation this issue exists to avoid.
  */
 
+import {
+  asAgentIdentityId,
+  asCapabilityRef,
+  asDelegationRef,
+  asDeviceId,
+  asUserId,
+} from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import type { ScopedChange } from '../authority/change-lifecycle'
 import type { ScopedDelivery } from '../authority/scoping'
 import type { DeltaFrame, ServerFrame } from '../replica/types'
 import { FeedIdentityRegistry, type FeedIdentity, type FeedIdentityStore } from './identity'
 import { FeedPublisher } from './publisher'
-import type { FeedPrincipal } from './visibility'
+import type { Principal } from '@podium/protocol'
 
 const ULIDS = ['01JQ0P8Z3M4N5R6T7V8W9XAYBZ', '01JQ0P9Q1C2D3E4F5G6H7J8K9M']
 
@@ -64,14 +71,26 @@ function feed(maxBytes = 10_000): FeedPublisher {
   })
 }
 
-const ADA: FeedPrincipal = { kind: 'user', userId: 'ada' }
-const GRACE: FeedPrincipal = { kind: 'user', userId: 'grace' }
-const AGENT: FeedPrincipal = {
+const testUser = (id: string): Principal => ({
+  kind: 'user',
+  user: asUserId(id),
+  device: asDeviceId(`dev:${id}`),
+  capability: asCapabilityRef(`cap:${id}`),
+})
+
+/** An agent under a NAMED delegation. Its scope lives on the port, not here. */
+const testAgent = (identity: string, onBehalfOf: string, delegation: string): Principal => ({
   kind: 'agent',
-  sessionId: 'sess-1',
-  onBehalfOf: 'ada',
-  scope: { kind: 'entities', keys: new Set(['session:a']) },
-}
+  agentIdentity: asAgentIdentityId(identity),
+  onBehalfOf: asUserId(onBehalfOf),
+  device: asDeviceId(`dev:${identity}`),
+  capability: asCapabilityRef(`cap:${identity}`),
+  delegation: asDelegationRef(delegation),
+})
+
+const ADA: Principal = testUser('ada')
+const GRACE: Principal = testUser('grace')
+const AGENT: Principal = testAgent('sess-1', 'ada', 'del-sess-1')
 
 const change = (seq: number, entityId: string): ScopedChange => ({
   seq,

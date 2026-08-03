@@ -47,6 +47,7 @@
  * code until the flip). Where a property is bounded by that, it says so.
  */
 
+import { type Principal } from '@podium/protocol'
 import {
   placementDecision,
   resolveAddress,

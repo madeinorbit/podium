@@ -10,13 +10,20 @@
  * connection's position from advancing.
  */
 
+import {
+  asAgentIdentityId,
+  asCapabilityRef,
+  asDelegationRef,
+  asDeviceId,
+  asUserId,
+} from '@podium/protocol'
 import { asMutationId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { ScopedChange } from '../authority/change-lifecycle'
 import type { DeltaFrame, ServerFrame } from '../replica/types'
 import { FeedIdentityRegistry, type FeedIdentityStore } from './identity'
 import { FeedPublisher, type FeedRetentionPort } from './publisher'
-import type { FeedPrincipal } from './visibility'
+import type { Principal } from '@podium/protocol'
 
 const ULIDS = [
   '01JQ0P8Z3M4N5R6T7V8W9XAYBZ',
@@ -68,7 +75,12 @@ const deltas = (frames: readonly ServerFrame[]): readonly DeltaFrame[] =>
   frames.filter((f): f is DeltaFrame => f.kind === 'delta')
 
 /** These cases are about FRAMING, so they all stand for one principal. */
-const ALICE: FeedPrincipal = { kind: 'user', userId: 'alice' }
+const ALICE: Principal = {
+  kind: 'user',
+  user: asUserId('alice'),
+  device: asDeviceId('dev:alice'),
+  capability: asCapabilityRef('cap:alice'),
+}
 
 /**
  * Publish an already-evaluated slice.

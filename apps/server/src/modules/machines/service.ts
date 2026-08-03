@@ -1,3 +1,4 @@
+import { type Principal } from '@podium/protocol'
 import { randomUUID } from 'node:crypto'
 import {
   type AgentKind,

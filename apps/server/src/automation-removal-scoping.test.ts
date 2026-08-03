@@ -38,8 +38,9 @@
  * could pass against a subscription that receives nothing at all.
  */
 
+import { asCapabilityRef, asDeviceId, type Principal } from '@podium/protocol'
 import { asAutomationRunId, asUserId, SOLE_USER_ID } from '@podium/model'
-import type { FeedPrincipal, Ledger, ScopedDelivery } from '@podium/sync'
+import type { Ledger, ScopedDelivery } from '@podium/sync'
 import { describe, expect, it } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
 import { SessionRegistry } from './relay'
@@ -56,9 +57,11 @@ const OWNER = asUserId(SOLE_USER_ID)
 
 /** The principal a real connection is served under — `relay.ts` builds this same
  *  shape from the authenticated transport, never from a payload. */
-const feedPrincipalFor = (userId: string): FeedPrincipal => ({
+const feedPrincipalFor = (userId: string): Principal => ({
   kind: 'user',
-  userId: asUserId(userId),
+  user: asUserId(userId),
+  device: asDeviceId(`dev:${userId}`),
+  capability: asCapabilityRef(`cap:${userId}`),
 })
 
 interface Row {
@@ -74,7 +77,7 @@ const ledgerOf = (reg: SessionRegistry): Ledger => (reg as unknown as { ledger: 
 /** Every row this principal was actually DELIVERED, flattened across batches. A
  *  watermark (`changes: []`) contributes nothing, which is precisely the bug's
  *  signature — the range is certified and the row is absent. */
-function deliveriesFor(reg: SessionRegistry, principal: FeedPrincipal): Row[] {
+function deliveriesFor(reg: SessionRegistry, principal: Principal): Row[] {
   const seen: Row[] = []
   ledgerOf(reg).authority.subscribe(principal, (delivery: ScopedDelivery) => {
     if (delivery.kind !== 'batch') return

@@ -57,11 +57,11 @@ import {
   GrantEdgeVisibilityPolicy,
   assertOpaqueEpoch,
 } from '../feed'
-import { ConformanceAuthority, FIRST_EPOCH, humanOf } from './authority'
+import { ConformanceAuthority, conformanceUser, FIRST_EPOCH, requireHuman } from './authority'
 import type { ConformancePrincipal } from './authority'
 
-const ADA: ConformancePrincipal = { kind: 'user', userId: 'ada' }
-const GRACE: ConformancePrincipal = { kind: 'user', userId: 'grace' }
+const ADA: ConformancePrincipal = conformanceUser('ada')
+const GRACE: ConformancePrincipal = conformanceUser('grace')
 
 describe('the guard fires FIRST: the shipped modules are present and non-trivial', () => {
   it('the shipped feed modules import as real constructors, not as empty objects', () => {
@@ -122,11 +122,11 @@ const FEED_ID_OF = (authority: ConformanceAuthority): string =>
 describe('backpressure is produced by the SHIPPED queue (ADR 2 D9)', () => {
   it('the fixture DELEGATES to BoundedSendQueue', () => {
     const authority = new ConformanceAuthority()
-    expect(authority.sendQueueFor(humanOf(ADA))).toBeInstanceOf(BoundedSendQueue)
+    expect(authority.sendQueueFor(requireHuman(ADA))).toBeInstanceOf(BoundedSendQueue)
     // Stable per principal, or a case could never overflow one: a fresh queue per
     // call is empty every time, and the demotion would be unreachable while every
     // assertion about it still passed.
-    expect(authority.sendQueueFor(humanOf(ADA))).toBe(authority.sendQueueFor(humanOf(ADA)))
+    expect(authority.sendQueueFor(requireHuman(ADA))).toBe(authority.sendQueueFor(requireHuman(ADA)))
   })
 
   it('a demotion is REACHED by overflowing, and the frame comes from the queue', () => {
@@ -136,7 +136,7 @@ describe('backpressure is produced by the SHIPPED queue (ADR 2 D9)', () => {
 
     let demotion = null
     for (let i = 0; demotion === null && i < 10; i += 1) {
-      demotion = authority.offerTo(humanOf(ADA), authority.frameFor(ADA, 0))
+      demotion = authority.offerTo(requireHuman(ADA), authority.frameFor(ADA, 0))
     }
 
     expect(demotion).not.toBeNull()
@@ -155,10 +155,10 @@ describe('backpressure is produced by the SHIPPED queue (ADR 2 D9)', () => {
     const authority = new ConformanceAuthority()
     authority.append({ entity: 'issue', entityId: 'ADA-1', op: 'upsert', payload: { n: 1 } })
     authority.policy.grant('ada', 'issue', 'ADA-1')
-    const queue = authority.sendQueueFor(humanOf(ADA))
+    const queue = authority.sendQueueFor(requireHuman(ADA))
 
     for (let i = 0; i < 10; i += 1) {
-      authority.offerTo(humanOf(ADA), authority.frameFor(ADA, 0))
+      authority.offerTo(requireHuman(ADA), authority.frameFor(ADA, 0))
       queue.drain()
     }
     expect(queue.isDemoted()).toBe(false)
@@ -176,7 +176,7 @@ describe('visibility is DECIDED by the shipped policy (POD-1077, ADR 9 D2/D3/D4)
     // this whole file exists to catch.
     authority.policy.grant('ada', 'issue', 'ADA-1')
     expect(authority.policy.canSee(ADA, 'issue', 'ADA-1')).toBe(
-      authority.policy.evaluator.mayDeliver(ADA, { entity: 'issue', entityId: 'ADA-1' }),
+      authority.policy.evaluator.decide(ADA, { entity: 'issue', entityId: 'ADA-1' }).visible,
     )
   })
 

@@ -57,6 +57,14 @@
  */
 
 import {
+  asAgentIdentityId,
+  asCapabilityRef,
+  asDelegationRef,
+  asDeviceId,
+  type Principal,
+  principalRoutingId,
+} from '@podium/protocol'
+import {
   actorUser,
   asSessionId,
   asUserId,
@@ -66,16 +74,18 @@ import {
 import { MetadataEntityKind } from '@podium/protocol'
 import {
   BoundedSendQueue,
+  type DelegatedScope,
+  type DelegationScopePort,
   type EntityRef,
   type EpochBumpCause,
   type FeedIdentity,
   FeedIdentityRegistry,
   type FeedIdentityStore,
-  type FeedPrincipal,
   GrantEdgeVisibilityPolicy,
   type VisibilityStatePort,
 } from '../feed'
 import type { OutboxEnvelope, OutboxSubmitOutcome, OutboxSubmitPort } from '../outbox/ports'
+import { humanOf as kernelHumanOf } from '../feed/visibility'
 import { agentActorOfSession, type OutboxAttribution, type UserRef } from '../outbox/records'
 import type { AuthorityReadPort } from '../replica/ports'
 import type {
@@ -123,14 +133,40 @@ export const keyOf = (entity: string, entityId: string): EntityKey => `${entity}
  *
  * It was a local union until POD-1077, which is the same "certifying the fixture"
  * hazard one field down: a suite whose principal is its own shape can be scoped
- * by rules the product does not have. Aliasing the shipped `FeedPrincipal` means
+ * by rules the product does not have. Aliasing the shipped `Principal` means
  * the delegation arm the suite exercises is the one the kernel evaluates.
  *
  * An agent is `(actorSessionId, onBehalfOf, scope)` and never a copied capability
  * (readiness §3.1.3 A1); its `scope` is what it was SPAWNED FOR (A2), and its
  * human is a CEILING rather than the same set.
  */
-export type ConformancePrincipal = FeedPrincipal
+export type ConformancePrincipal = Principal
+
+/**
+ * Build the two principal shapes this suite uses, so no test restates the
+ * transport fields (`device`, `capability`) that it does not care about and
+ * cannot get wrong here.
+ */
+export const conformanceUser = (id: string): ConformancePrincipal => ({
+  kind: 'user',
+  user: asUserId(id),
+  device: asDeviceId(`dev:${id}`),
+  capability: asCapabilityRef(`cap:${id}`),
+})
+
+export const conformanceAgent = (
+  agentIdentity: string,
+  onBehalfOf: string,
+  delegation: string,
+): ConformancePrincipal => ({
+  kind: 'agent',
+  agentIdentity: asAgentIdentityId(agentIdentity),
+  onBehalfOf: asUserId(onBehalfOf),
+  device: asDeviceId(`dev:${agentIdentity}`),
+  capability: asCapabilityRef(`cap:${agentIdentity}`),
+  // The REF only. What it was minted for lives in StubVisibilityPolicy.
+  delegation: asDelegationRef(delegation),
+})
 
 /**
  * A stable identity string for one principal.
@@ -141,26 +177,51 @@ export type ConformancePrincipal = FeedPrincipal
  * an all-green probe measuring nothing. Keyed by value rather than by object
  * identity, so a principal rebuilt from a literal still reaches its own transport.
  */
-export const idOf = (principal: ConformancePrincipal): string =>
-  principal.kind === 'user' ? `user:${principal.userId}` : `agent:${principal.sessionId}`
+export const idOf = (principal: ConformancePrincipal): string => principalRoutingId(principal)
 
-/** The human at the root of the chain. Every principal has exactly one. */
-export const humanOf = (principal: ConformancePrincipal): UserRef =>
-  principal.kind === 'user' ? principal.userId : principal.onBehalfOf
+/**
+ * The human at the root of the chain, or `null` where there is none.
+ *
+ * Re-exported from the kernel rather than restated (POD-1196): a fixture with its
+ * own notion of "whose is this?" is a fixture that can be scoped by a rule the
+ * product does not have, which is the hazard this file's own header describes.
+ */
+export const humanOf = kernelHumanOf
+
+/**
+ * The human, REQUIRED. Throws for a machine or system principal.
+ *
+ * Every fixture call site here is a per-human table lookup (a storage view, an
+ * outbox owner, a grant set), and those are meaningless without one. Throwing
+ * says so; defaulting to some placeholder user would silently file one
+ * principal's rows under another's, which is the leak this suite exists to
+ * detect (`docs/multi-user-readiness.md` §3.1).
+ */
+export const requireHuman = (principal: ConformancePrincipal): UserRef => {
+  const human = kernelHumanOf(principal)
+  if (human === null) throw new Error(`a ${principal.kind} principal has no human`)
+  return human
+}
 
 /** The attribution PAIR this principal's writes are stamped with (A3 / ADR 3 D17). */
 export const attributionOf = (principal: ConformancePrincipal): OutboxAttribution =>
   principal.kind === 'user'
-    ? { actor: actorUser(asUserId(principal.userId)), onBehalfOf: asUserId(principal.userId) }
-    : {
-        // `FeedPrincipal` still carries raw strings (POD-1075 owns that flip), so
+    ? { actor: actorUser(asUserId(principal.user)), onBehalfOf: asUserId(principal.user) }
+    : principal.kind !== 'agent'
+      ? // A machine or system principal writes nothing in this suite; it has no
+        // human, and D14.2/D21 forbid inventing one.
+        (() => {
+          throw new Error(`no attribution for a ${principal.kind} principal`)
+        })()
+      : {
+        // `Principal` still carries raw strings (POD-1075 owns that flip), so
         // this fixture is where they enter the branded space. `asSessionId` then
         // `agentActorOfSession` rather than a cast to the actor brand: POD-1164's
         // rule is that the reclassification is always NAMED, so no call site can
         // invent a second agent id space by accident.
-        actor: agentActorOfSession(asSessionId(principal.sessionId)),
-        onBehalfOf: asUserId(principal.onBehalfOf),
-      }
+          actor: agentActorOfSession(asSessionId(principal.agentIdentity)),
+          onBehalfOf: asUserId(principal.onBehalfOf),
+        }
 
 /**
  * The visibility TABLES: a grant set per HUMAN, plus the declared classes.
@@ -176,7 +237,31 @@ export const attributionOf = (principal: ConformancePrincipal): OutboxAttributio
  * what a deployment's tables would own. `binding.test.ts` asserts the delegation
  * by object identity, so it cannot quietly grow its own predicate again.
  */
-export class StubVisibilityPolicy implements VisibilityStatePort {
+export class StubVisibilityPolicy implements VisibilityStatePort, DelegationScopePort {
+  /**
+   * What each delegation was minted for (ADR 9 D5 A2), keyed by its ref.
+   *
+   * It moved OFF the principal (POD-1196): the transport principal carries an
+   * opaque `delegation` the ports must never inspect, so the ceiling lives here
+   * and is resolved live on every decide.
+   */
+  private readonly scopes = new Map<string, DelegatedScope>()
+
+  /** Test seam: mint a delegation with a scope. */
+  delegate(delegation: string, scope: DelegatedScope): void {
+    this.scopes.set(delegation, scope)
+  }
+
+  /**
+   * DEFAULT-CLOSED for an unknown ref: an empty key set, so an agent presenting a
+   * delegation this fixture never minted sees NOTHING. Returning `all` would make
+   * every A2 assertion pass by accident, which is the shape of fixture bug that
+   * certifies itself.
+   */
+  scopeOf(delegation: string): DelegatedScope {
+    return this.scopes.get(delegation) ?? { kind: 'entities', keys: new Set() }
+  }
+
   private readonly grants = new Map<UserRef, Set<EntityKey>>()
   /** Every key the authority has ever created, visible or not. Backs the no-oracle case. */
   private readonly existing = new Set<EntityKey>()
@@ -194,7 +279,7 @@ export class StubVisibilityPolicy implements VisibilityStatePort {
   ])
 
   /** The kernel's evaluator, over THIS fixture's tables. */
-  readonly evaluator = new GrantEdgeVisibilityPolicy(this)
+  readonly evaluator = new GrantEdgeVisibilityPolicy(this, this)
 
   classOf(entity: string): VisibilityClass | null {
     return this.classes.get(entity) ?? null
@@ -244,15 +329,15 @@ export class StubVisibilityPolicy implements VisibilityStatePort {
    * invented a kind fails loudly instead of being silently classified.
    */
   canSee(principal: ConformancePrincipal, entity: string, entityId: string): boolean {
-    return this.evaluator.mayDeliver(principal, {
+    return this.evaluator.decide(principal, {
       entity: MetadataEntityKind.parse(entity),
       entityId,
-    })
+    }).visible
   }
 
   /** What the principal's slice IS, right now. Used by bootstrap and by the exact-slice bound. */
   visibleKeys(principal: ConformancePrincipal): readonly EntityKey[] {
-    const human = this.grants.get(humanOf(principal)) ?? new Set<EntityKey>()
+    const human = this.grants.get(requireHuman(principal)) ?? new Set<EntityKey>()
     // Filtered through the same evaluator as the live path, so the bootstrap
     // slice and the delta slice cannot disagree — a second predicate here is
     // exactly how a replica installs a snapshot its deltas then contradict.

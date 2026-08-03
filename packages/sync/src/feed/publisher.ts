@@ -78,7 +78,7 @@ import type {
 } from '../replica/types'
 import type { FeedIdentity, FeedIdentityRegistry } from './identity'
 import { BoundedSendQueue, type SendQueueConfig } from './send-queue'
-import { type FeedPrincipal, principalIdOf } from './visibility'
+import { type Principal, principalRoutingId } from '@podium/protocol'
 
 /**
  * The retention floor, read live (ADR 2 D5).
@@ -103,7 +103,7 @@ export interface FeedPublisherDeps {
 export interface FeedConnection {
   readonly id: string
   /** WHO this connection stands for (ADR 3 D7 — authenticated transport only). */
-  readonly principal: FeedPrincipal
+  readonly principal: Principal
   /** Frames ready to go out, oldest first. Empties the queue. */
   drain(): readonly ServerFrame[]
   /** ADR 2 D9 — demoted by backpressure and awaiting a re-bootstrap. */
@@ -117,7 +117,7 @@ export interface FeedConnection {
 
 interface ConnectionState {
   readonly id: string
-  readonly principal: FeedPrincipal
+  readonly principal: Principal
   readonly queue: BoundedSendQueue
   /** The exclusive lower bound of the NEXT frame — this connection's certified position. */
   fromSeq: number
@@ -205,7 +205,7 @@ export class FeedPublisher {
    * else's. `publisher.scoped.test.ts` asserts this arity, replacing the
    * `publisher.unscoped.test.ts` assertion that it was 2.
    */
-  connect(id: string, fromSeq: number, principal: FeedPrincipal): FeedConnection {
+  connect(id: string, fromSeq: number, principal: Principal): FeedConnection {
     const state: ConnectionState = {
       id,
       principal,
@@ -264,7 +264,7 @@ export class FeedPublisher {
    * `publisher.scoped.test.ts` asserts its absence, because a caller-supplied
    * rescope is an oracle for what that caller cannot see.
    */
-  publish(principal: FeedPrincipal, delivery: ScopedDelivery): void {
+  publish(principal: Principal, delivery: ScopedDelivery): void {
     this.publishTo([...this.connections.keys()], principal, delivery)
   }
 
@@ -276,15 +276,15 @@ export class FeedPublisher {
    */
   publishTo(
     connectionIds: readonly string[],
-    principal: FeedPrincipal,
+    principal: Principal,
     delivery: ScopedDelivery,
   ): void {
-    const audience = principalIdOf(principal)
+    const audience = principalRoutingId(principal)
     this.published = Math.max(this.published, delivery.throughSeq)
     for (const id of connectionIds) {
       const state = this.connections.get(id)
       if (!state) continue
-      if (principalIdOf(state.principal) !== audience) continue
+      if (principalRoutingId(state.principal) !== audience) continue
       if (delivery.kind === 'rescope') {
         rescopeTo(state, this.identity(), delivery.reason)
         continue

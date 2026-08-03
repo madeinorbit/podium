@@ -61,7 +61,13 @@
  */
 
 import type { VisibilityClass } from '@podium/model'
-import type { MetadataEntityKind } from '@podium/protocol'
+import { asCapabilityRef, asDeviceId, asUserId } from '@podium/protocol'
+import type {
+  DelegationRef,
+  MetadataEntityKind,
+  Principal,
+  VisibilityResolver,
+} from '@podium/protocol'
 import type { UserRef } from '../outbox/records'
 
 /**
@@ -96,29 +102,52 @@ export type DelegatedScope =
   | { readonly kind: 'entities'; readonly keys: ReadonlySet<EntityKey> }
 
 /**
- * WHO a connection stands for (ADR 3 D7: from the authenticated transport only,
- * never from a payload).
+ * WHAT A DELEGATION WAS MINTED FOR — the A2 ceiling, supplied to the decision
+ * (ADR 9 D5 A2).
  *
- * The agent arm carries `onBehalfOf` AND `scope` as separate fields, never one
- * collapsed capability: A1 needs the human to re-resolve against, A2 needs the
- * agent's own ceiling, and a single merged id can express neither.
+ * A PORT, and narrow on purpose: it reports what a scope IS, never what a scope
+ * MAY SEE. The moment it decides, it has become a second visibility resolver
+ * beside {@link GrantEdgeVisibilityPolicy} — which is the outcome POD-1196
+ * exists to prevent (`docs/multi-user-readiness.md` §3.2; POD-335 deleted two
+ * such surfaces).
+ *
+ * It exists at all because something must SUPPLY the scope to the decision, and
+ * resolving it inline at each call site is how a second authorization surface
+ * gets born. Consulted LIVE on every evaluation: a scope cached at admission
+ * survives the revocation of the delegation that issued it (D5 A1), which is the
+ * whole reason A1 says "resolved live" rather than "resolved once".
+ *
+ * WHY THE SCOPE IS NOT A FIELD ON THE PRINCIPAL. It used to be — `FeedPrincipal`
+ * carried `scope` inline. But the transport principal (ADR 3's) deliberately
+ * carries `delegation` as an OPAQUE ref the ports must never inspect, so the
+ * ceiling cannot ride along with it. Resolving the ref here is what lets one
+ * principal type serve both the ports and the policy without either giving up
+ * its defining property.
  */
-export type FeedPrincipal =
-  | { readonly kind: 'user'; readonly userId: UserRef }
-  | {
-      readonly kind: 'agent'
-      readonly sessionId: string
-      readonly onBehalfOf: UserRef
-      readonly scope: DelegatedScope
-    }
+export interface DelegationScopePort {
+  scopeOf(delegation: DelegationRef): DelegatedScope
+}
 
-/** The human at the root of the chain. Every principal has exactly one. */
-export const humanOf = (principal: FeedPrincipal): UserRef =>
-  principal.kind === 'user' ? principal.userId : principal.onBehalfOf
-
-/** A stable id for one principal — used to key per-connection state and audiences. */
-export const principalIdOf = (principal: FeedPrincipal): string =>
-  principal.kind === 'user' ? `user:${principal.userId}` : `agent:${principal.sessionId}`
+/**
+ * The human at the root of the chain, or `null` for a principal that has none.
+ *
+ * NULLABLE, now that machine and system principals are representable: ADR 3
+ * Amendment 1 D14.2/D21 gives a system job NO user and never assigns one, and
+ * ADR 9 D8 S5 forbids defaulting `onBehalfOf` to an operator or to a row's
+ * owner. Returning a placeholder here would be exactly that defaulting, one
+ * layer down.
+ */
+export const humanOf = (principal: Principal): UserRef | null => {
+  switch (principal.kind) {
+    case 'user':
+      return principal.user
+    case 'agent':
+      return principal.onBehalfOf
+    case 'machine':
+    case 'system':
+      return null
+  }
+}
 
 /**
  * Why a row was or was not delivered.
@@ -266,9 +295,34 @@ export interface FeedVisibilityPolicy {
    * unreachable.
    */
   readonly grade: FeedScopingGrade
-  decide(principal: FeedPrincipal, ref: EntityRef): VisibilityDecision
-  mayDeliver(principal: FeedPrincipal, ref: EntityRef): boolean
+  decide(principal: Principal, ref: EntityRef): VisibilityDecision
 }
+
+/**
+ * THE ONE OUTWARD-FACING SEAM (ADR 7 Amendment 1 D14.3).
+ *
+ * `canSee` returns a bare boolean because refusal and nonexistence must be
+ * indistinguishable to a caller — there is no reason code to leak. The kernel's
+ * richer {@link VisibilityDecision} stays INSIDE the authority, where a test, a
+ * gate and an operator's telemetry can still tell `unclassified` from
+ * `personal-not-granted`. Both properties survive; neither layer gives one up,
+ * which is what made this a reconciliation rather than a choice between them.
+ *
+ * `=== true` is not defensive noise: ADR 9 D4 makes the port treat anything
+ * other than an explicit `true` as "no", and spelling it out is what keeps a
+ * later refactor returning a truthy non-boolean from reading as an admission.
+ */
+export const kernelVisibilityResolver = (policy: FeedVisibilityPolicy): VisibilityResolver => ({
+  canSee: (principal, entity) =>
+    policy.decide(principal, {
+      // The one lossy step at this seam, and it fails CLOSED: protocol types the
+      // kind as a bare `string` (it must, being L0) while the kernel narrows it.
+      // A kind the kernel cannot classify reaches `classOf`, which returns null,
+      // and is refused as `unclassified` — the default-closed path.
+      entity: entity.kind as MetadataEntityKind,
+      entityId: entity.id,
+    }).visible === true,
+})
 
 /**
  * ADR 9's rules, in order, over an injected state port.
@@ -284,9 +338,12 @@ export class GrantEdgeVisibilityPolicy implements FeedVisibilityPolicy {
    *  is reachable, and each one is an `evict` the moment the state moves. */
   readonly grade = 'per-principal' as const
 
-  constructor(private readonly state: VisibilityStatePort) {}
+  constructor(
+    private readonly state: VisibilityStatePort,
+    private readonly delegations: DelegationScopePort,
+  ) {}
 
-  decide(principal: FeedPrincipal, ref: EntityRef): VisibilityDecision {
+  decide(principal: Principal, ref: EntityRef): VisibilityDecision {
     const declared = this.state.classOf(ref.entity)
     if (declared === null) return { visible: false, reason: 'unclassified' }
 
@@ -295,6 +352,13 @@ export class GrantEdgeVisibilityPolicy implements FeedVisibilityPolicy {
     if (declared === 'secret') return { visible: false, reason: 'secret-never-replicates' }
 
     const human = humanOf(principal)
+    if (human === null) {
+      // A machine or system principal has no human to hold a grant, so there is
+      // nothing for the grant model to evaluate. Not "refused for want of a
+      // human" — outside the model entirely, and the feed does not serve it.
+      // Default-closed (ADR 9 D4) rather than given a bypass.
+      return { visible: false, reason: 'personal-not-granted' }
+    }
 
     if (declared === 'per-user-state') {
       // ADR 9 D3: never shared and never grantable. The only admissible answer is
@@ -318,21 +382,22 @@ export class GrantEdgeVisibilityPolicy implements FeedVisibilityPolicy {
     return this.underDelegation(principal, ref, 'granted')
   }
 
-  mayDeliver(principal: FeedPrincipal, ref: EntityRef): boolean {
-    return this.decide(principal, ref).visible
-  }
-
   /**
    * A2's ceiling, applied LAST — the human's answer intersected with what this
    * agent was spawned for. Never a union: an agent may only ever see less.
+   *
+   * Resolved through the port on EVERY call, never read off the principal and
+   * never memoised. A1's "resolved live" is the whole point: a cached ceiling
+   * outlives the delegation that granted it, and the agent keeps its reach after
+   * the revoke.
    */
   private underDelegation(
-    principal: FeedPrincipal,
+    principal: Principal,
     ref: EntityRef,
     reason: VisibilityReason,
   ): VisibilityDecision {
-    if (principal.kind === 'user') return { visible: true, reason }
-    const scope = principal.scope
+    if (principal.kind !== 'agent') return { visible: true, reason }
+    const scope = this.delegations.scopeOf(principal.delegation)
     if (scope.kind === 'all') return { visible: true, reason }
     return scope.keys.has(keyOfRef(ref))
       ? { visible: true, reason }
@@ -366,9 +431,15 @@ export class GrantEdgeVisibilityPolicy implements FeedVisibilityPolicy {
  * the declared allowlist, so a second site cannot appear quietly; when per-user
  * login lands, deleting this export is what forces every site to name a real one.
  */
-export const DEVICE_GRADE_PRINCIPAL: FeedPrincipal = {
+export const DEVICE_GRADE_PRINCIPAL: Principal = {
   kind: 'user',
-  userId: 'device:shared-instance-password',
+  user: asUserId('device:shared-instance-password'),
+  // `device` names the BINDING, not an identity (ADR 3 Am1 D14.1). There is one
+  // binding here by construction: that is what device-grade MEANS.
+  device: asDeviceId('device:shared-instance'),
+  // Opaque and never inspected — the ports carry it, nothing reads a scope out
+  // of it. Named rather than blank so it is greppable when login lands.
+  capability: asCapabilityRef('cap:device-grade'),
 }
 
 /**
@@ -388,10 +459,6 @@ export class DeviceGradeUnscopedPolicy implements FeedVisibilityPolicy {
   decide(): VisibilityDecision {
     return { visible: true, reason: 'substrate' }
   }
-
-  mayDeliver(): boolean {
-    return true
-  }
 }
 
 /**
@@ -403,6 +470,25 @@ export class DeviceGradeUnscopedPolicy implements FeedVisibilityPolicy {
  * "absent" and "declares that nothing is grantable here" are different claims and
  * only the second one is checkable.
  */
+/**
+ * The delegation port for a transport that mints no delegations.
+ *
+ * DEFAULT-CLOSED and NAMED, not absent: an agent presenting a ref this
+ * deployment never minted is scoped to nothing, which is the safe answer and a
+ * checkable claim. Returning `{kind:'all'}` would make every agent omniscient
+ * the day one connects — the exact widening ADR 9 D5 A2 exists to prevent — and
+ * omitting the port entirely would make the policy's constructor optional, so a
+ * composition root that forgot it would look identical to one that meant it.
+ *
+ * Delete this the day real delegation records are wired: every site then has to
+ * name a port that can actually resolve a ref.
+ */
+export class NoDelegationsGranted implements DelegationScopePort {
+  scopeOf(): DelegatedScope {
+    return { kind: 'entities', keys: new Set() }
+  }
+}
+
 export class DeviceGradeNoAnchors implements VisibilityAnchorPort {
   visibilityEdge(): null {
     return null

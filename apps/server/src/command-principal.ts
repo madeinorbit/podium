@@ -54,6 +54,7 @@
  * cached decision.
  */
 
+import { type Principal } from '@podium/protocol'
 import type { Capability, SessionId, UserRole } from '@podium/model'
 import { FIRST_ADMIN_USER_ID, type UserId } from '@podium/model'
 

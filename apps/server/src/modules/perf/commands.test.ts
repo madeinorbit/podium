@@ -4,16 +4,17 @@
  * trace body.
  */
 
+import { asCapabilityRef, asDeviceId } from '@podium/protocol'
+import { type Principal } from '@podium/protocol'
 import { asSessionId, asUserId } from '@podium/model'
 import type { ClientSwitchTrace } from '@podium/protocol'
-import type { FeedPrincipal } from '@podium/sync'
 import { describe, expect, it } from 'vitest'
 import { PERF_COMMANDS_TRPC } from './commands'
 import { perfPrincipal } from './principal'
 import { PerfRegistry } from './registry'
 
-const ALICE: FeedPrincipal = { kind: 'user', userId: asUserId('user:alice') }
-const BOB: FeedPrincipal = { kind: 'user', userId: asUserId('user:bob') }
+const ALICE: Principal = { kind: 'user', user: asUserId('user:alice'), device: asDeviceId('dev'), capability: asCapabilityRef('cap') }
+const BOB: Principal = { kind: 'user', user: asUserId('user:bob'), device: asDeviceId('dev'), capability: asCapabilityRef('cap') }
 
 function trace(switchId: string, sessionId: string): ClientSwitchTrace {
   return {
