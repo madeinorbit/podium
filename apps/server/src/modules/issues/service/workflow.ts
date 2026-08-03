@@ -12,12 +12,11 @@ import { formatIssueRef } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
 import type { CommandPrincipal } from '../../../command-principal'
 import { sessionsForIssue } from '../../../issue-util'
-import { buildAssistantMessages, parseAssistantJson } from '../../../issueAssistant'
 import { type LinearIssue, searchIssues } from '../../../linear'
-import { completeForRole } from '../../../llm-roles'
 import { assertModelSelectionValid } from '../../../model-validation'
 import type { IssueRow } from '../../../store'
 import { issueRefsPattern, probeGitState } from '../git-state'
+import { IssueAssistantDigestModule } from './assistant'
 import type { IssueAttentionModule } from './attention'
 import type { IssueStore } from './core'
 import type { IssueCrudModule } from './crud'
@@ -38,12 +37,19 @@ import type { CreateIssueInput } from './types'
  * principal so comments name who asked.
  */
 export class IssueGitWorkflowModule {
+  /** The activity digest, reached only through its own module (POD-1606). */
+  private readonly assistant: IssueAssistantDigestModule
+
   constructor(
     readonly store: IssueStore,
     private readonly crud: () => Pick<IssueCrudModule, 'update' | 'create' | 'close' | 'defer'>,
     private readonly commentsMail: () => Pick<IssueCommentsMailModule, 'addComment'>,
     private readonly attention: () => Pick<IssueAttentionModule, 'setNeedsHuman'>,
   ) {
+    // The activity digest is a SECOND job that shared this owner only because both
+    // are triggered by session activity (POD-1606). Assigned here rather than at the
+    // declaration so it is an injected collaborator, not owned state.
+    this.assistant = new IssueAssistantDigestModule(store)
     // Capability methods are also handed to lifecycle ports as callbacks. Keep
     // the module as the receiver so its per-instance timers and git-attribution
     // maps can never fall through to undefined or leak into module-global state.
@@ -1059,27 +1065,11 @@ export class IssueGitWorkflowModule {
     }
   }
 
-  private assistantTimers = new Map<string, ReturnType<typeof setTimeout>>()
-
+  /** Debounced LLM activity digest — see {@link IssueAssistantDigestModule} for why
+   *  it is not part of this module's git debounce. Delegated so the registry, the
+   *  session-wiring port and every caller keep the same method on the same object. */
   onSessionActivity(sessionId: SessionId): void {
-    if (!this.store.d.getSettings().issues?.assistantEnabled) return
-    const sess = this.store.d.listSessions().find((s) => s.sessionId === sessionId)
-    if (!sess) return
-    const row = [...this.store.rows.values()].find(
-      (r) =>
-        r.worktreePath &&
-        (sess.cwd === r.worktreePath || sess.cwd.startsWith(`${r.worktreePath}/`)),
-    )
-    if (!row) return
-    const prev = this.assistantTimers.get(row.id)
-    if (prev) clearTimeout(prev)
-    this.assistantTimers.set(
-      row.id,
-      setTimeout(() => {
-        this.assistantTimers.delete(row.id)
-        void this.refreshAssistant(row.id).catch(() => {})
-      }, 120_000),
-    )
+    this.assistant.onSessionActivity(sessionId)
   }
 
   // ── git-state probes [POD-98] ─────────────────────────────────────────────
@@ -1253,67 +1243,8 @@ export class IssueGitWorkflowModule {
     return seen ? { commits, touched } : {}
   }
 
-  async refreshAssistant(id: string): Promise<IssueWire> {
-    const row = this.store.rowOrThrow(id)
-    if (!row.worktreePath) return this.store.toWire(row)
-    const settings = this.store.d.getSettings()
-    const members = sessionsForIssue(row.worktreePath, this.store.d.listSessions(), row.id).map(
-      (s) => ({
-        agentKind: s.agentKind,
-        phase: s.agentState?.phase ?? 'shell',
-        tail: '',
-      }),
-    )
-    const [status, log] = await Promise.all([
-      this.store.d.repoOp('status', row.worktreePath).catch(() => ({ ok: false, output: '' })),
-      this.store.d.repoOp('log', row.worktreePath).catch(() => ({ ok: false, output: '' })),
-    ])
-    const others = [...this.store.rows.values()]
-      .filter(
-        (r) =>
-          r.id !== row.id && this.store.inRepoScope(r, row.repoPath) && !r.archived && !r.deletedAt,
-      )
-      .map((r) => ({ seq: r.seq, title: r.title, stage: r.stage, branch: r.branch }))
-    const ctx = {
-      issue: {
-        title: row.title,
-        description: row.description,
-        stage: row.stage,
-        branch: row.branch,
-        ...(row.prUrl ? { prUrl: row.prUrl } : {}),
-      },
-      gitStatus: status.output,
-      gitLog: log.output,
-      members,
-      otherIssues: others,
-    }
-    let result = null as ReturnType<typeof parseAssistantJson>
-    try {
-      // The shared one-shot primitive (SP-6454): resolves the 'background' role's
-      // backend + account, runs one completion, parses into structured data.
-      const resp = await completeForRole(
-        {
-          settings,
-          // POD-419: the provider's key, resolved at the moment of use out of
-          // the server-only store — `settings.apiKeys` no longer carries any.
-          apiKey: (provider) => this.store.d.store.secrets.apiKeyFor(provider),
-          llm: this.store.d.llm,
-        },
-        { role: 'background', messages: buildAssistantMessages(ctx), parse: parseAssistantJson },
-      )
-      result = resp.data
-    } catch {
-      result = null
-    }
-    if (!result) return this.store.toWire(row) // leave prior state intact on any LLM/parse failure
-    row.activityNotes = result.activityNotes || row.activityNotes
-    row.notesUpdatedAt = this.store.now()
-    row.blockedBy = result.blockedBy
-    row.dependencyNote = result.dependencyNote || null
-    // Trust the model's stage when valid and different from current; else clear the suggestion.
-    const digestStage = result.suggestedStage
-    row.suggestedStage = digestStage && digestStage !== row.stage ? digestStage : null
-    row.suggestedReason = row.suggestedStage ? result.suggestedReason : null
-    return this.store.persistRow(row)
+  /** The LLM activity digest — see {@link IssueAssistantDigestModule}. */
+  refreshAssistant(id: string): Promise<IssueWire> {
+    return this.assistant.refreshAssistant(id)
   }
 }

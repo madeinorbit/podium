@@ -290,6 +290,13 @@ export const DURABLE_STORES: readonly DurableStore[] = [
 
   // -- §8 Messaging & superagent --------------------------------------------
   { store: 'messages', kind: 'drizzle-table', row: 'messages-substrate' },
+  {
+    store: 'message_reads',
+    kind: 'drizzle-table',
+    row: null,
+    notEntityState:
+      'PER-READER delivery bookkeeping (POD-1379, [spec:SP-b11e]): one `(message_id, session_id)` row saying that this SESSION has been shown that message, so the mailbox nag stops counting it. Deliberately not the `issue-message-read-at` class, which is a PERSON’s read marker keyed `(user_id, issue_message_id)` — the key here is a session, and a session is not a user: several agent sessions read one issue mailbox and each must be nagged independently, which is the bug that made this table exist (consuming `messages.status`, the ledger SHARED by every session on the issue, destroyed the unread state for all of them). It has no owner, no wire projection and no reader outside the counting predicate; it is the per-reader half of the `messages` delivery ledger, and it dies with the session whose id keys it.',
+  },
   { store: 'messaging_issue_topics', kind: 'drizzle-table', row: 'messaging-issue-topics' },
   { store: 'superagent_threads', kind: 'drizzle-table', row: 'superagent-state' },
   { store: 'superagent_messages', kind: 'drizzle-table', row: 'superagent-state' },
@@ -334,7 +341,27 @@ export const DURABLE_STORES: readonly DurableStore[] = [
 
   // -- §1 Identity & deployment scope ---------------------------------------
   { store: 'machines', kind: 'drizzle-table', row: 'machine' },
-  { store: 'client_sessions', kind: 'drizzle-table', row: 'per-user-client-session' },
+  {
+    store: 'client_sessions',
+    kind: 'drizzle-table',
+    row: 'per-user-client-session',
+    // The mint INSERTs the row, `listSessions`/`revoke` read and delete it. It
+    // became a declared write site at the POD-1439 reconciliation, when the mint
+    // started writing `user_id` (POD-1079, NOT NULL with no default). Whether
+    // filesystem access SHOULD be a sufficient root for that write is the open
+    // security question in POD-1604 (the POD-1402 tripwire) and is not settled
+    // here; this entry records only that this module is the writer, which is
+    // true under either answer.
+    writeSites: ['packages/runtime/src/session-mint.ts'],
+  },
+  {
+    store: '<stateDir>/cli-session.json',
+    kind: 'filesystem',
+    row: null,
+    notEntityState:
+      'The CLI’s local cache of ONE minted credential, written owner-readable (0600) so a later `podium` invocation can present it. Not an entity class: the durable truth is the `client_sessions` row above, this file is a copy of the plaintext token that row only stores hashed. Deleting it costs a re-mint and loses nothing else, every read treats missing/malformed/expired alike as "no credential", and `PODIUM_SESSION_TOKEN` overrides it entirely.',
+    writeSites: ['packages/runtime/src/session-mint.ts'],
+  },
   { store: 'users', kind: 'drizzle-table', row: 'user-account' },
   { store: 'user_credentials', kind: 'drizzle-table', row: 'account-credential' },
   { store: 'grants', kind: 'drizzle-table', row: 'grant-edge' },

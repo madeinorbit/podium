@@ -574,6 +574,14 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
       'The issues aggregate: the `issues` table and its child tables (`issue_labels`, `issue_deps`, `issue_comments`, `issue_messages`) behind 39 query methods and zero fields. A repository with no state cannot be a god of anything — its length is the number of queries the aggregate answers. Splitting by child table would put a single aggregate transaction across several objects, which is the one thing an aggregate boundary exists to prevent.',
   },
   {
+    file: 'apps/server/src/store/messages.ts',
+    kind: 'operation-surface',
+    budget: 750,
+    review: 'POD-1606 / POD-1379 (per-reader ledger) / POD-1385',
+    argument:
+      'The messages aggregate: the unified `messages` table [spec:SP-34d7] plus `message_reads`, its per-reader satellite, behind 33 query methods and zero mutable fields (`db` is injected; the one static readonly is a shared SQL predicate string, not state). It crossed the 600-line screen at the main reconciliation, and the growth is one coherent addition rather than a second job: POD-1379 / [spec:SP-b11e] added the per-READER ledger because `messages.status` is the DELIVERY pipeline shared by every session on an issue, so one agent reading an issue mailbox consumed the unread status for all of them. `message_reads` cannot be owned elsewhere — `countPendingForSession` and `listPendingSendersForSession` join it against `messages` inside a single SQL predicate (`PENDING_FOR_SESSION`), so separating it would split one query across two repositories. Its length is the number of questions the aggregate answers, and with no state between the methods no subset of them can be lifted out and mean anything alone.',
+  },
+  {
     file: 'apps/server/src/store/sessions.ts',
     kind: 'operation-surface',
     budget: 900,
@@ -670,16 +678,15 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
     file: 'apps/server/src/modules/issues/service/workflow.ts',
     kind: 'cohesive-owner',
     budget: 1300,
-    review: 'POD-1385 / POD-320',
+    review: 'POD-1385 / POD-320 / POD-1606 (re-review after the main reconciliation)',
     protectedState: [
       'integratingEpics',
-      'assistantTimers',
       'gitRefreshes',
       'gitCommitsBySession',
       'gitTouchedBySession',
     ],
     argument:
-      'The git-workflow capability of the POD-320 composition: branch/worktree lifecycle and the per-session git projection. Its five fields are one debounce mechanism over one subject — `gitRefreshes` holds the in-flight refresh per repo, and `gitCommitsBySession`/`gitTouchedBySession` are the per-session accumulations that refresh coalesces and publishes. Splitting the accumulators from the debounce would let a refresh publish a half-accumulated projection, a race with no local test that could catch it.',
+      'The git-workflow capability of the POD-320 composition: branch/worktree lifecycle and the per-session git projection. Its git fields are one debounce mechanism over one subject — `gitRefreshes` holds the in-flight refresh per repo, and `gitCommitsBySession`/`gitTouchedBySession` are the per-session accumulations that refresh coalesces and publishes. Splitting the accumulators from the debounce would let a refresh publish a half-accumulated projection, a race with no local test that could catch it. `integratingEpics` is the in-flight guard for the epic merge, the one git action that must not run twice concurrently. POD-1606 re-reviewed this after the main reconciliation (POD-1439) pushed it past 1300 and found a SECOND job rather than more of the same one: `assistantTimers` debounced an LLM ACTIVITY DIGEST, not a git probe, and neither it nor `refreshAssistant` touched any of the four fields above — two debounces over two subjects sharing an owner because both happened to be triggered by session activity, which is a trigger in common, not state. The digest now lives in `issues/service/assistant.ts` behind the same `IssueStore` port the capabilities already compose over, with one-line delegates left here for its callers. The budget is UNCHANGED at 1300 and the file sits under it after the cut.',
   },
   {
     file: 'apps/server/src/steward.ts',
