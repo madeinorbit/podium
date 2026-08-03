@@ -496,6 +496,6 @@ export const AgentModelMessage = z.object({
 // transcript. Harnesses without a reliable numerator + window do not emit it.
 export const AgentContextMessage = z.object({
   type: z.literal('agentContext'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   percent: z.number().finite().min(0).max(100),
 })

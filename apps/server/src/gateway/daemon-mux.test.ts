@@ -155,7 +155,11 @@ describe('machine scope and the writer class', () => {
     const sessionFrames = (Object.keys(DAEMON_FRAME_PORTS) as DaemonMessage['type'][]).filter(
       (t) => DAEMON_FRAME_PORTS[t].length === 1 && DAEMON_FRAME_PORTS[t][0] === 'sessions',
     )
-    expect(sessionFrames.length).toBe(20)
+    // 21 since the catch-up merge, not 20: main's `agentContext` (POD-1262, the
+    // exact harness-reported context-window reading) is session-owned like every
+    // other frame in this set. Counted rather than derived so a frame that joins
+    // the set has to be acknowledged HERE — which is how this one was noticed.
+    expect(sessionFrames.length).toBe(21)
     for (const type of sessionFrames) {
       const { ports, calls } = fakePorts()
       muxWith(ports).routeDaemonFrame(PRINCIPAL, sampleFrame(type))

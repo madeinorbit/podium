@@ -69,6 +69,9 @@ export interface MessageMailboxDeps {
     | 'listSettleNotifiable'
     | 'markRead'
     | 'markReminded'
+    // The per-reader ledger the nag counts [POD-1379] — distinct from `markRead`,
+    // which moves the SHARED delivery status for the message as a whole.
+    | 'recordRead'
   >
   issues: Pick<IssueService, 'resolveRef' | 'has'>
   notificationArbiter: Pick<NotificationArbiter, 'retire'>
@@ -406,6 +409,10 @@ export class MessageMailbox {
     if (opts?.consume === undefined) return rows
     const at = this.deps.now()
     return rows.map((m) => {
+      // Per-READER receipt first [POD-1379]: this session has now been shown the
+      // row whatever a peer on the same issue mailbox already did to the shared
+      // delivery ledger — otherwise a message a peer consumed keeps nagging.
+      if (opts.consume) this.deps.messages.recordRead(m.id, opts.consume, at)
       if ((m.status !== 'queued' && m.status !== 'delivered') || m.toKind === 'operator') return m
       if (!this.deps.messages.markRead(m.id, opts.consume ?? null, at)) return m
       this.retireNotificationFact(m, at)
@@ -431,6 +438,8 @@ export class MessageMailbox {
     const message = this.deps.messages.getMessage(messageId)
     if (!message) throw new Error('unknown message ' + messageId)
     const at = this.deps.now()
+    // Clearing it is seeing it, for this reader [POD-1379].
+    if (consume) this.deps.messages.recordRead(message.id, consume, at)
     if (message.status === 'queued' || message.status === 'delivered') {
       this.deps.messages.markRead(message.id, consume, at)
       if (message.toKind === 'issue' && message.toId) {

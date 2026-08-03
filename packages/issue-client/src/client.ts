@@ -145,7 +145,13 @@ export interface IssueClientOptions {
  *  against it (see IssueTrpc) — procedure names route by path exactly as before. */
 export function makeIssueClient(baseUrl: string, opts: IssueClientOptions = {}): IssueTrpc {
   const doFetch = opts.fetchImpl ?? fetch
-  const guardedFetch: typeof fetch = async (input, init) => {
+  // The CALL SIGNATURE, not `typeof fetch`: under Bun's lib types the global also
+  // carries a `preconnect` method, and a wrapper is not obliged to reimplement it —
+  // `httpBatchLink` only ever calls this.
+  const guardedFetch = async (
+    input: Parameters<typeof fetch>[0],
+    init?: Parameters<typeof fetch>[1],
+  ): Promise<Response> => {
     const headers = new Headers(init?.headers)
     if (opts.sessionToken)
       headers.set('cookie', `${SESSION_COOKIE}=${encodeURIComponent(opts.sessionToken)}`)

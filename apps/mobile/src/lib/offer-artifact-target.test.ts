@@ -1,4 +1,4 @@
-import type { IssuePanelArtifact, IssueWire } from '@podium/protocol'
+import { asArtifactId, asMachineId, type IssuePanelArtifact, type IssueWire } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { offerArtifactTarget } from './offer-artifact-target'
 
@@ -27,7 +27,7 @@ describe('offerArtifactTarget', () => {
       offerArtifactTarget({
         httpOrigin: 'http://podium.test/',
         issue: issue(),
-        artifact: artifact('evidence/mobile shot.png', { artifactId: 'art_1' }),
+        artifact: artifact('evidence/mobile shot.png', { artifactId: asArtifactId('art_1') }),
       }),
     ).toEqual({
       kind: 'image',
@@ -43,7 +43,7 @@ describe('offerArtifactTarget', () => {
         httpOrigin: 'http://podium.test',
         issue: issue(),
         artifact: artifact('evidence/report.html', {
-          artifactId: 'art_2',
+          artifactId: asArtifactId('art_2'),
           entry: 'shots/mobile final.png',
           title: 'Mobile final',
         }),
@@ -60,7 +60,7 @@ describe('offerArtifactTarget', () => {
     expect(
       offerArtifactTarget({
         httpOrigin: 'http://podium.test',
-        issue: issue({ machineId: 'machine 1' }),
+        issue: issue({ machineId: asMachineId('machine 1') }),
         artifact: artifact('evidence/legacy.png'),
       }),
     ).toMatchObject({
@@ -75,7 +75,7 @@ describe('offerArtifactTarget', () => {
       offerArtifactTarget({
         httpOrigin: 'http://podium.test',
         issue: issue(),
-        artifact: artifact('notes/review.md', { artifactId: 'art_3' }),
+        artifact: artifact('notes/review.md', { artifactId: asArtifactId('art_3') }),
       }),
     ).toMatchObject({ kind: 'file', previewable: false })
   })

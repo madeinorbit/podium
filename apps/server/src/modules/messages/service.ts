@@ -453,16 +453,12 @@ export class MessageDeliveryService {
    *  decide" path. */
   private mayDrainIssueMail(issueId: string, session?: SessionMeta): SessionMeta | undefined {
     if (!session) return undefined
-    const coordinatorId = this.deps.issues().get(issueId)?.coordinatorSessionId
+    const coordinatorId = this.deps.issues.get(issueId)?.coordinatorSessionId
     if (typeof coordinatorId !== 'string' || coordinatorId === session.sessionId) return session
-    const coordinatorOwns = this.deps
-      .sessions()
+    const coordinatorOwns = this.deps.sessions
       .listSessions()
       .some(
-        (s) =>
-          s.sessionId === coordinatorId &&
-          s.agentKind !== 'shell' &&
-          s.status !== 'exited',
+        (s) => s.sessionId === coordinatorId && s.agentKind !== 'shell' && s.status !== 'exited',
       )
     return coordinatorOwns ? undefined : session
   }
