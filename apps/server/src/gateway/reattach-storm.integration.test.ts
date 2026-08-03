@@ -213,12 +213,35 @@ describe('a daemon reattach storm', () => {
       // …and the fan-out actually reached them. "Socket still open" alone would
       // pass for a client that received nothing, which is starvation by another
       // name. Every client must see the storm's settled state: all sessions live.
+      //
+      // IDENTIFY THE SETTLED FRAME BY WHAT MARKS IT, NOT BY COUNT. The session
+      // COUNT is 40 for the whole test — before the storm as well as after — so a
+      // count-only predicate matches the CONNECT-TIME snapshot, which correctly
+      // reports every session as `starting` because publication is coalesced and
+      // that snapshot is emitted before the storm's first `bind` lands. Grading it
+      // was reading correct product output against the wrong question, and it is a
+      // race, not a constant: measured, a pre-storm `setTimeout(50)` made the old
+      // form fail 3/3, while a warm run with no yield passed 6/6, which is exactly
+      // why setup cost (POD-1509's extra MIGRATION) appeared to move it.
+      //
+      // Measured, the client receives exactly TWO `sessionsChanged` frames —
+      // 40/starting then 40/live — and `status` is the only field that separates
+      // them (`clientCount` moves too, but only for the one session in the
+      // presence room). So the wait is the ordering fence, and a client that never
+      // reaches the settled state fails by exhausting the watchdog-scale timeout:
+      // the same liveness shape the /health probes above use, by design.
       for (const client of clients) {
         const settled = await client.nextMatching(
-          (m) => m.type === 'sessionsChanged' && m.sessions.length === SESSIONS,
+          (m) => m.type === 'sessionsChanged' && m.sessions.every((s) => s.status === 'live'),
         )
         if (settled.type !== 'sessionsChanged') throw new Error('expected sessionsChanged')
-        expect(settled.sessions.every((s) => s.status === 'live')).toBe(true)
+        // NOT implied by the wait, which an empty or short snapshot satisfies
+        // vacuously: the settled frame must carry EVERY session. A client fed a
+        // subset has been starved, and that is convergence reported rather than
+        // reached.
+        expect(settled.sessions, 'the settled snapshot reached a client short').toHaveLength(
+          SESSIONS,
+        )
       }
       for (const client of clients) {
         expect(
