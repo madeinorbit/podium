@@ -50,6 +50,14 @@ vi.mock('@/lib/hooks/use-session-guard', () => ({
   useSessionGuard: () => ({ guardedKill: vi.fn(), guardedArchive: vi.fn() }),
 }))
 
+// The presence seam [POD-1535]: the header's watcher strip reads the hub off
+// the client-core StoreProvider, which this focused render doesn't mount. The
+// stub still renders the strip, so "the panel calls the seam at all" stays
+// assertable below.
+vi.mock('@podium/client-core/react', async () =>
+  (await import('./test-support/presence-mock')).presenceSeamStub(),
+)
+
 // Voice touches browser speech APIs that are flaky under happy-dom — stub it.
 vi.mock('@/lib/voice', () => ({
   useVoiceInput: () => ({ supported: false, listening: false, toggle: vi.fn() }),
@@ -313,5 +321,23 @@ describe('AgentPanel active wiring', () => {
     // The whole cycle reused ONE terminal: no second mount, no dispose.
     expect(mountSessionMock).toHaveBeenCalledTimes(1)
     expect(dispose).not.toHaveBeenCalled()
+  })
+
+  // POD-1535. The Phase-6 exit gate's finding was not that presence was wrong
+  // — it was that NOTHING CALLED IT. So this asserts the caller, in the header,
+  // in the rendered panel: delete `<SessionWatchers/>` from AgentPanel and this
+  // is what goes red.
+  it('renders the presence strip in the session header', async () => {
+    await act(async () => {
+      root.render(<AgentPanel sessionId={asSessionId('s1')} active />)
+    })
+    await flush()
+    const header = container.querySelector('[data-testid="agent-panel-header"]')
+    const strip = header?.querySelector('[data-testid="session-watchers"]')
+    expect(strip).not.toBeNull()
+    // The stub has no hub, so the honest answer is "unknown" — and it must
+    // never be rendered as a count of nobody.
+    expect(strip?.getAttribute('data-presence-status')).toBe('unknown')
+    expect(strip?.textContent).toBe('')
   })
 })

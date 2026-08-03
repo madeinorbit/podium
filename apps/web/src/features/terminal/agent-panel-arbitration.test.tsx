@@ -44,6 +44,12 @@ const mountSessionMock = vi.fn((_el: unknown, _opts: { active?: boolean }) => ({
   dispose,
 }))
 
+// The presence seam [POD-1535]: the header's watcher strip reads the hub off
+// the client-core StoreProvider, which these focused renders don't mount.
+vi.mock('@podium/client-core/react', async () =>
+  (await import('./test-support/presence-mock')).presenceSeamStub(),
+)
+
 vi.mock('@podium/terminal-client', async (orig) => {
   const real = (await orig()) as Record<string, unknown>
   return {
