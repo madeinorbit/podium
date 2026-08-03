@@ -25,34 +25,18 @@
  * The refusals are shown rather than dropped: an empty offer list with no
  * explanation IS the M5 defect restated.
  */
-import { machineViews, placementOptions, profilePlacement } from '@podium/client-core/viewmodels'
+import {
+  machineViewsFromWire,
+  placementOptions,
+  profilePlacement,
+} from '@podium/client-core/viewmodels'
 import { AgentKind } from '@podium/model'
-import type { MachineWire } from '@podium/model'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import type { WorkflowsSource } from './use-workflows'
-import { workflowCommands, type WorkflowRights } from './workflow-commands'
+import { type WorkflowRights, workflowCommands } from './workflow-commands'
 import { CommandButton, Empty, Field } from './workflow-ui'
-
-/**
- * The three verbs, read off the wire the authority sent.
- *
- * ABSENT MEANS NOT EVALUATED, and not-evaluated is the SINGLE-OPERATOR world
- * this build still runs in — where one principal owns every machine and there is
- * no grant to consult. Reading absence as `use: false` there would empty the
- * list on every existing install; reading it as a per-row `granted` once grants
- * exist would be a decorative check. So absence follows the wire's own documented
- * reading: `see` is implied by the row being present at all, and `use` is
- * whatever the authority decided when it decided anything.
- */
-function grantsOf(machine: MachineWire): { see: boolean; use: boolean; manage: boolean } {
-  return {
-    see: true,
-    use: machine.use === undefined ? true : machine.use === 'granted',
-    manage: machine.owned === true,
-  }
-}
 
 const PLACEMENT_WORDS: Record<string, string> = {
   available: 'available',
@@ -70,7 +54,7 @@ export function ExecutionProfiles({
   rights: WorkflowRights
 }): JSX.Element {
   const machines = useStoreSelector((s) => s.machines)
-  const views = machineViews(machines, grantsOf)
+  const views = machineViewsFromWire(machines)
   const options = placementOptions(views)
 
   const [name, setName] = useState('')
@@ -97,7 +81,11 @@ export function ExecutionProfiles({
               {source.profiles.map((profile) => {
                 const placement = profilePlacement(profile, views)
                 return (
-                  <div key={profile.id} className="rounded-lg border p-3" data-profile-id={profile.id}>
+                  <div
+                    key={profile.id}
+                    className="rounded-lg border p-3"
+                    data-profile-id={profile.id}
+                  >
                     <div className="text-sm font-medium">{profile.name}</div>
                     <div className="mt-1 text-xs text-muted-foreground">
                       {profile.harness} · {profile.model} · {profile.effort}

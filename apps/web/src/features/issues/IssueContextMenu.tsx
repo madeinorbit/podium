@@ -1,6 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
 import { ISSUE_STAGES, type IssueId, type IssueStage } from '@podium/model'
-import { issueDisplayRef } from '@podium/protocol'
 import {
   AlarmClock,
   AlarmClockOff,
@@ -22,13 +21,13 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
-import { type JSX, type ReactNode, useEffect, useRef, useState } from 'react'
+import { Fragment, type JSX, type ReactNode, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
 import type { IssueViewModel } from '@/app/store'
 import { useStoreSelector } from '@/app/store'
 import { DEFER_NEXT_MESSAGE, reposToViews, snoozeUntil1h } from '@/lib/derive'
-import { issueAgentOptions } from '@/lib/issue-agents'
+import { issueAgentIcon } from '@/lib/issue-agents'
 import {
   type ContextMenuAnchor,
   handoffBlockerText,
@@ -37,7 +36,6 @@ import {
 } from '@/lib/SessionContextMenu'
 import { useFeature } from '@/lib/use-feature'
 import { sessionDisplayName } from '@/lib/WorkerLabel'
-import { STAGE_LABELS } from './issue-card'
 import {
   deferDateFromNow,
   type IssueMenuSurface,
@@ -47,20 +45,18 @@ import {
 } from './issue-context-menu'
 import { PriorityGlyph, StageGlyph } from './issue-glyphs'
 import type { IssueCloseReason } from './issue-lifecycle'
+import {
+  createIssueMenuData,
+  type IssueMenuConfig,
+  type IssueMenuIcon,
+  type IssueMenuOption,
+  type IssueMenuSubmenu,
+  issueMenuEntries,
+  issueMenuEntryLabel,
+} from './issue-menu-config'
 import { isIssueStartable } from './issue-startable'
 
-/** Which flat second-level flyout is open (SessionContextMenu-style, no nesting). */
-type SubKind = 'stage' | 'priority' | 'agent' | 'labels' | 'duplicate' | 'defer' | 'handoff'
-
-/**
- * Right-click context menu for issue cards/rows — the same actions the issue
- * page and bulk action bar expose (open, stage, priority, assign agent, labels,
- * close, defer, duplicate, pin, delete), reachable in place. Cloned from
- * SessionContextMenu: cursor-anchored portal, viewport-clamped, dismissed on
- * outside click / Escape / scroll. `issues` is the right-click target set —
- * one issue, or the whole multi-selection (bulk-bar semantics); items are
- * gated by the pure `issueMenuEligibility`.
- */
+/** A cursor-anchored menu whose tree is projected from issue-menu-config.ts. */
 export function IssueContextMenu({
   issues,
   allIssues,
@@ -71,21 +67,13 @@ export function IssueContextMenu({
   onRequestClose,
   surface = 'board',
 }: {
-  /** The issues the menu acts on (the clicked issue, or the multi-selection). */
   issues: IssueViewModel[]
-  /** Board scope — supplies the label pool and duplicate-target siblings. */
   allIssues: IssueViewModel[]
   anchor: ContextMenuAnchor
   onClose: () => void
-  /** Open the issue page for a single target. */
   onOpen: (id: IssueId) => void
-  /** Start an inline rename for a single target (#170). When omitted (e.g. the
-   *  board, which has no in-place editor) the Rename item is not offered. */
   onRename?: (id: string) => void
-  /** Compact/full-detail hosts can replace the menu's immediate close with the
-   * shared lifecycle guard while board rows retain their existing behavior. */
   onRequestClose?: (reason: IssueCloseReason) => void
-  /** Host surface — gates per-surface items like "Duplicate of…" (POD-169). */
   surface?: IssueMenuSurface
 }): JSX.Element | null {
   const { trpc, markIssueRead, markIssueUnread, sessions, repos, machines } = useStoreSelector(
@@ -102,10 +90,8 @@ export function IssueContextMenu({
   const handoffEnabled = useFeature('session-handoff')
   const ref = useRef<HTMLDivElement | null>(null)
   const [pos, setPos] = useState<ContextMenuAnchor>(anchor)
-  const [sub, setSub] = useState<{ kind: SubKind; top: number } | null>(null)
+  const [sub, setSub] = useState<{ kind: IssueMenuSubmenu; top: number } | null>(null)
 
-  // Clamp into the viewport once the menu has measured its real size, so a
-  // right-click near the bottom/right edge doesn't open a clipped menu.
   useEffect(() => {
     const el = ref.current
     if (!el) return
@@ -137,25 +123,24 @@ export function IssueContextMenu({
 
   const first = issues[0]
   if (!first) return null
-  const elig = issueMenuEligibility(issues, surface)
-  const ids = issues.map((i) => i.id)
-  // Single-issue only: the issue-row handoff picture — the chosen agent session's
-  // availability, or an issue-level reason. Always shown with its reason (POD-850),
-  // matching the session-row menu; a hidden item hid POD-779's stuck handoff.
+  const eligibility = issueMenuEligibility(issues, surface)
+  const ids = issues.map((issue) => issue.id)
   const handoff =
     issues.length === 1
       ? issueHandoffAvailability(first, sessions, reposToViews(repos), machines)
       : null
   const handoffSession = handoff && 'session' in handoff ? handoff.session : null
-  // The submenu's rows: every candidate machine, eligible or not, when a subject
-  // exists and can move. Empty otherwise (a blocker renders inline on the trigger).
   const handoffCandidates =
     handoff && 'availability' in handoff && !handoff.availability.blocker
       ? handoff.availability.candidates
       : []
+  const handoffBlocker =
+    handoff && 'blocker' in handoff
+      ? issueHandoffBlockerText(handoff.blocker)
+      : handoff && 'availability' in handoff && handoff.availability.blocker && handoffSession
+        ? handoffBlockerText(handoff.availability.blocker, handoffSession.agentKind)
+        : undefined
 
-  // Fire-and-close: failures toast (the issuesChanged broadcast reconciles the
-  // board on success, so no success handling is needed).
   const run = (fn: () => Promise<unknown>): void => {
     fn().catch((e) => toast.error(e instanceof Error ? e.message : String(e)))
     onClose()
@@ -164,8 +149,6 @@ export function IssueContextMenu({
   const handoffTo = (machineId: string, machineName: string): void => {
     if (!handoffSession) return
     onClose()
-    // Same two lines as the session menu: the moving session's pane narrates the
-    // move itself, so this only has to reach an operator looking elsewhere.
     void trpc.sessions.handoff.mutate({ sessionId: handoffSession.sessionId, machineId }).then(
       () => toast.success(`${sessionDisplayName(handoffSession)} resumed on ${machineName}`),
       (error: unknown) =>
@@ -199,12 +182,7 @@ export function IssueContextMenu({
   }
   const defer = (until: string | null): void =>
     run(() => trpc.issues.defer.mutate({ id: first.id, until }))
-  // Unsnooze via the dedicated route (issue #133): ends the snooze and floats the
-  // issue back to the TOP of WORK with the "Unsnoozed" tag, unlike defer(null) which
-  // clears it silently into the middle of the list.
   const undefer = (): void => run(() => trpc.issues.undefer.mutate({ id: first.id }))
-  // Rename (#170): the host's inline editor. Hosts without one (e.g. the board)
-  // pass no onRename and get no Rename item — the prompt() fallback is gone (POD-169).
   const rename = (): void => {
     onRename?.(first.id)
     onClose()
@@ -213,8 +191,8 @@ export function IssueContextMenu({
     run(() => trpc.issues.duplicate.mutate({ id: first.id, canonicalId }))
   const del = (): void => {
     const n = ids.length
-    const sessions = new Set(issues.flatMap((issue) => issue.memberSessionIds ?? []))
-    const sessionCount = sessions.size
+    const sessionIds = new Set(issues.flatMap((issue) => issue.memberSessionIds ?? []))
+    const sessionCount = sessionIds.size
     const message = `Delete ${n} task${n > 1 ? 's' : ''} and ${sessionCount} session${sessionCount === 1 ? '' : 's'}? Tasks and sessions can be restored; running processes will be stopped.`
     if (!window.confirm(message)) return
     run(() => Promise.all(ids.map((id) => trpc.issues.delete.mutate({ id }))))
@@ -222,217 +200,292 @@ export function IssueContextMenu({
   const restore = (): void =>
     run(() => Promise.all(ids.map((id) => trpc.issues.restore.mutate({ id }))))
 
-  // Label pool / duplicate targets come from the whole board scope.
-  const labelPool = [
-    ...new Set([...allIssues.flatMap((i) => i.labels), ...issues.flatMap((i) => i.labels)]),
-  ].sort()
-  const targetSet = new Set(ids)
-  const dupMates = allIssues
-    .filter((i) => !i.deletedAt && i.repoPath === first.repoPath && !targetSet.has(i.id))
-    .sort((a, b) => a.seq - b.seq)
+  const menuData = createIssueMenuData({
+    issues,
+    allIssues,
+    eligibility,
+    surface,
+    renameEnabled: onRename !== undefined,
+    handoffEnabled: handoffEnabled && handoff !== null,
+    handoff: handoff
+      ? {
+          sessionId: handoffSession?.sessionId,
+          blocker: handoffBlocker,
+          options:
+            handoffCandidates.length === 0
+              ? [
+                  {
+                    id: 'none',
+                    label: 'No other machine has this repo',
+                    disabled: true,
+                    empty: true,
+                  },
+                ]
+              : handoffCandidates.map(({ machine, rejection }) => ({
+                  id: machine.id,
+                  value: machine.id,
+                  label: machine.name,
+                  disabled: rejection !== undefined,
+                  hint:
+                    rejection && handoffSession
+                      ? handoffRejectionText(rejection, handoffSession.agentKind)
+                      : undefined,
+                })),
+        }
+      : undefined,
+  })
+  if (!menuData) return null
+  const entries = issueMenuEntries(menuData)
 
   const itemCls =
     'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] hover:bg-accent hover:text-accent-foreground'
+  const disabledCls =
+    'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] opacity-60'
+  const leafHover = { onMouseEnter: () => setSub(null) }
 
-  /** A first-level item that opens a flat second-level flyout on hover/click. */
-  const subTrigger = (kind: SubKind, icon: ReactNode, label: string): JSX.Element => (
+  const runAction = (action: Extract<IssueMenuConfig, { kind: 'action' }>['id']): void => {
+    switch (action) {
+      case 'open':
+        onOpen(first.id)
+        onClose()
+        return
+      case 'rename':
+        rename()
+        return
+      case 'markUnread':
+        run(() => markIssueUnread(first.id))
+        return
+      case 'markRead':
+        run(() => markIssueRead(first.id))
+        return
+      case 'closeDone':
+        close('done')
+        return
+      case 'closeWontfix':
+        close('wontfix')
+        return
+      case 'pin':
+        run(() => trpc.issues.update.mutate({ id: first.id, patch: { pinned: !first.pinned } }))
+        return
+      case 'archive':
+        run(() => trpc.issues.update.mutate({ id: first.id, patch: { archived: !first.archived } }))
+        return
+      case 'restore':
+        restore()
+        return
+      case 'delete':
+        del()
+        return
+    }
+  }
+
+  const runSubmenu = (kind: IssueMenuSubmenu, value: string): void => {
+    switch (kind) {
+      case 'stage':
+        if ((ISSUE_STAGES as readonly string[]).includes(value)) setStage(value as IssueStage)
+        return
+      case 'priority': {
+        const priority = Number(value)
+        if (Number.isInteger(priority) && priority >= 0 && priority <= 4) setPriority(priority)
+        return
+      }
+      case 'agent':
+        assignAgent(value)
+        return
+      case 'labels':
+        toggleLabel(value)
+        return
+      case 'handoff': {
+        const target = handoffCandidates.find((candidate) => candidate.machine.id === value)
+        if (target && !target.rejection) handoffTo(target.machine.id, target.machine.name)
+        return
+      }
+      case 'defer':
+        if (value === 'hour') defer(snoozeUntil1h(Date.now()))
+        else if (value === 'tomorrow') defer(deferDateFromNow(Date.now(), 1))
+        else if (value === 'week') defer(deferDateFromNow(Date.now(), 7))
+        else if (value === 'next-message') defer(DEFER_NEXT_MESSAGE)
+        else if (value === 'undefer') undefer()
+        return
+      case 'duplicate':
+        duplicateOf(value)
+        return
+    }
+  }
+
+  const renderIcon = (icon: IssueMenuIcon): ReactNode => {
+    const props = { size: 14, 'aria-hidden': true }
+    switch (icon) {
+      case 'alarm-clock':
+        return <AlarmClock {...props} />
+      case 'alarm-clock-off':
+        return <AlarmClockOff {...props} />
+      case 'archive':
+        return <Archive {...props} />
+      case 'archive-restore':
+        return <ArchiveRestore {...props} />
+      case 'arrow-right-left':
+        return <ArrowRightLeft {...props} />
+      case 'agent':
+        return <Bot {...props} />
+      case 'check':
+        return <Check {...props} />
+      case 'copy':
+        return <Copy {...props} />
+      case 'external-link':
+        return <ExternalLink {...props} />
+      case 'mail':
+        return <Mail {...props} />
+      case 'mail-open':
+        return <MailOpen {...props} />
+      case 'pencil':
+        return <Pencil {...props} />
+      case 'pin':
+        return <Pin {...props} />
+      case 'pin-off':
+        return <PinOff {...props} />
+      case 'play':
+        return <Play {...props} />
+      case 'tag':
+        return <Tag {...props} />
+      case 'trash':
+        return <Trash2 {...props} />
+      case 'x':
+        return <X {...props} />
+    }
+  }
+
+  const entryIcon = (entry: IssueMenuConfig): ReactNode => {
+    if (entry.kind === 'submenu') {
+      if (entry.id === 'stage') return <StageGlyph stage={first.stage} />
+      if (entry.id === 'priority') return <PriorityGlyph priority={first.priority} />
+      if (entry.id === 'agent') return renderIcon(isIssueStartable(first) ? 'play' : 'agent')
+    }
+    if (entry.kind === 'action' && entry.id === 'pin') {
+      return renderIcon(first.pinned ? 'pin-off' : 'pin')
+    }
+    if (entry.kind === 'action' && entry.id === 'archive') {
+      return renderIcon(first.archived ? 'archive-restore' : 'archive')
+    }
+    return renderIcon(entry.icon)
+  }
+
+  const optionIcon = (
+    entry: Extract<IssueMenuConfig, { kind: 'submenu' }>,
+    option: IssueMenuOption,
+  ): ReactNode => {
+    if (entry.id === 'stage' && option.value)
+      return <StageGlyph stage={option.value as IssueStage} />
+    if (entry.id === 'priority' && option.value)
+      return <PriorityGlyph priority={Number(option.value)} />
+    if (entry.id === 'agent') return issueAgentIcon(option.value || first.defaultAgent)
+    return option.icon ? renderIcon(option.icon) : null
+  }
+
+  const submenuItems = new Map<IssueMenuSubmenu, JSX.Element[]>()
+  for (const entry of entries) {
+    if (entry.kind !== 'submenu') continue
+    submenuItems.set(
+      entry.id,
+      entry.options(menuData).map((option) =>
+        option.empty ? (
+          <span key={option.id} className="px-2 py-1.5 text-[13px] text-muted-foreground">
+            {option.label}
+          </span>
+        ) : (
+          <button
+            data-pressable
+            key={option.id}
+            type="button"
+            role="menuitem"
+            disabled={option.disabled}
+            className={option.disabled ? disabledCls : itemCls}
+            onClick={() => option.value !== undefined && runSubmenu(entry.id, option.value)}
+          >
+            {entry.id === 'labels' && (
+              <Check
+                size={13}
+                aria-hidden="true"
+                className={option.checked ? undefined : 'invisible'}
+              />
+            )}
+            {optionIcon(entry, option)}
+            <span className="min-w-0 flex-1 truncate">{option.label}</span>
+            {option.hint && (
+              <span className="ml-auto pl-2 text-[11px] text-muted-foreground">{option.hint}</span>
+            )}
+          </button>
+        ),
+      ),
+    )
+  }
+
+  const subTrigger = (entry: Extract<IssueMenuConfig, { kind: 'submenu' }>): JSX.Element => (
     <button
       data-pressable
       type="button"
       role="menuitem"
       aria-haspopup="menu"
-      aria-expanded={sub?.kind === kind}
+      aria-expanded={sub?.kind === entry.id}
       className={itemCls}
-      onMouseEnter={(e) => setSub({ kind, top: e.currentTarget.offsetTop })}
-      onClick={(e) => setSub({ kind, top: e.currentTarget.offsetTop })}
+      onMouseEnter={(e) => setSub({ kind: entry.id, top: e.currentTarget.offsetTop })}
+      onClick={(e) => setSub({ kind: entry.id, top: e.currentTarget.offsetTop })}
     >
-      {icon} {label}
+      {entryIcon(entry)} {issueMenuEntryLabel(entry, menuData)}
       <ChevronRight size={13} aria-hidden="true" className="ml-auto text-muted-foreground" />
     </button>
   )
-  /** Plain (leaf) items retract any open flyout when hovered. */
-  const leafHover = { onMouseEnter: () => setSub(null) }
 
-  const subItems: Record<SubKind, JSX.Element[]> = {
-    stage: ISSUE_STAGES.map((s) => (
-      <button
-        data-pressable
-        key={s}
-        type="button"
-        role="menuitem"
-        className={itemCls}
-        onClick={() => setStage(s)}
-      >
-        <StageGlyph stage={s} />
-        {STAGE_LABELS[s]}
-      </button>
-    )),
-    priority: [0, 1, 2, 3, 4].map((p) => (
-      <button
-        data-pressable
-        key={p}
-        type="button"
-        role="menuitem"
-        className={itemCls}
-        onClick={() => setPriority(p)}
-      >
-        <PriorityGlyph priority={p} />P{p}
-      </button>
-    )),
-    agent: issueAgentOptions(first.defaultAgent).map((o) => (
-      <button
-        data-pressable
-        key={o.value || '__default__'}
-        type="button"
-        role="menuitem"
-        className={itemCls}
-        onClick={() => assignAgent(o.value)}
-      >
-        {o.icon}
-        {o.label}
-      </button>
-    )),
-    labels:
-      labelPool.length === 0
-        ? [
-            <span key="none" className="px-2 py-1.5 text-[13px] text-muted-foreground">
-              No labels
-            </span>,
-          ]
-        : labelPool.map((l) => {
-            const allHave = issues.every((i) => i.labels.includes(l))
-            return (
-              <button
-                data-pressable
-                key={l}
-                type="button"
-                role="menuitem"
-                className={itemCls}
-                onClick={() => toggleLabel(l)}
-              >
-                <Check size={13} aria-hidden="true" className={allHave ? undefined : 'invisible'} />
-                {l}
-              </button>
-            )
-          }),
-    duplicate:
-      dupMates.length === 0
-        ? [
-            <span key="none" className="px-2 py-1.5 text-[13px] text-muted-foreground">
-              No sibling issues
-            </span>,
-          ]
-        : dupMates.map((i) => (
-            <button
-              data-pressable
-              key={i.id}
-              type="button"
-              role="menuitem"
-              className={itemCls}
-              onClick={() => duplicateOf(i.id)}
-            >
-              <span className="text-muted-foreground tabular-nums">{issueDisplayRef(i)}</span>
-              <span className="min-w-0 flex-1 truncate">{i.title}</span>
-            </button>
-          )),
-    defer: [
-      <button
-        data-pressable
-        key="hour"
-        type="button"
-        role="menuitem"
-        className={itemCls}
-        onClick={() => defer(snoozeUntil1h(Date.now()))}
-      >
-        <AlarmClock size={14} aria-hidden="true" /> For 1 hour
-      </button>,
-      <button
-        data-pressable
-        key="tomorrow"
-        type="button"
-        role="menuitem"
-        className={itemCls}
-        onClick={() => defer(deferDateFromNow(Date.now(), 1))}
-      >
-        <AlarmClock size={14} aria-hidden="true" /> Until tomorrow
-      </button>,
-      <button
-        data-pressable
-        key="week"
-        type="button"
-        role="menuitem"
-        className={itemCls}
-        onClick={() => defer(deferDateFromNow(Date.now(), 7))}
-      >
-        <AlarmClock size={14} aria-hidden="true" /> For a week
-      </button>,
-      <button
-        data-pressable
-        key="next-message"
-        type="button"
-        role="menuitem"
-        className={itemCls}
-        onClick={() => defer(DEFER_NEXT_MESSAGE)}
-      >
-        <AlarmClock size={14} aria-hidden="true" /> Until next message
-      </button>,
-      ...(elig.canUndefer
-        ? [
-            <button
-              data-pressable
-              key="undefer"
-              type="button"
-              role="menuitem"
-              className={itemCls}
-              onClick={() => undefer()}
-            >
-              <AlarmClockOff size={14} aria-hidden="true" /> Unsnooze
-            </button>,
-          ]
-        : []),
-    ],
-    // [spec:SP-3f7a] same candidate list as SessionContextMenu: eligible machines
-    // click through; ineligible ones are shown disabled with their reason.
-    handoff: [
-      ...(handoffCandidates.length === 0
-        ? [
-            <div key="none" className="px-2 py-1.5 text-[11px] text-muted-foreground">
-              No other machine has this repo
-            </div>,
-          ]
-        : []),
-      ...handoffCandidates.map(({ machine, rejection }) =>
-        rejection ? (
+  let previousSection = 'main'
+  const renderedEntries = entries.map((entry) => {
+    const separator = entry.section !== previousSection
+    previousSection = entry.section
+    if (entry.kind === 'submenu' && entry.id === 'handoff' && menuData.handoff?.blocker) {
+      return (
+        <Fragment key={entry.id}>
+          {separator && <hr className="my-1 h-px border-0 bg-border" />}
           <button
             data-pressable
-            key={machine.id}
             type="button"
             role="menuitem"
             disabled
-            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] opacity-60"
+            className={`${disabledCls} flex-col items-stretch gap-0.5`}
+            {...leafHover}
           >
-            <span className="size-2 rounded-full bg-muted-foreground" aria-hidden="true" />
-            {machine.name}
-            <span className="ml-auto pl-2 text-[11px] text-muted-foreground">
-              {handoffSession ? handoffRejectionText(rejection, handoffSession.agentKind) : ''}
+            <span className="flex items-center gap-2">
+              {entryIcon(entry)} {issueMenuEntryLabel(entry, menuData)}
+            </span>
+            <span className="pl-6 text-[11px] text-muted-foreground">
+              {menuData.handoff.blocker}
             </span>
           </button>
+        </Fragment>
+      )
+    }
+    return (
+      <Fragment key={entry.kind === 'action' ? entry.id : entry.id}>
+        {separator && <hr className="my-1 h-px border-0 bg-border" />}
+        {entry.kind === 'submenu' ? (
+          subTrigger(entry)
         ) : (
           <button
             data-pressable
-            key={machine.id}
             type="button"
             role="menuitem"
-            className={itemCls}
-            onClick={() => handoffTo(machine.id, machine.name)}
+            className={
+              entry.id === 'delete'
+                ? `${itemCls} text-destructive hover:bg-destructive/10 hover:text-destructive`
+                : itemCls
+            }
+            {...leafHover}
+            onClick={() => runAction(entry.id)}
           >
-            <span className="size-2 rounded-full bg-live" aria-hidden="true" />
-            {machine.name}
+            {entryIcon(entry)} {issueMenuEntryLabel(entry, menuData)}
           </button>
-        ),
-      ),
-    ],
-  }
+        )}
+      </Fragment>
+    )
+  })
 
   return createPortal(
     <div
@@ -441,7 +494,6 @@ export function IssueContextMenu({
       aria-label="Task actions"
       className="fixed z-[60] min-w-[200px] rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10"
       style={{ left: pos.x, top: pos.y }}
-      // The host opens this on contextmenu; suppress a nested browser menu.
       onContextMenu={(e) => e.preventDefault()}
     >
       {issues.length > 1 && (
@@ -449,225 +501,18 @@ export function IssueContextMenu({
           {issues.length} issues selected
         </div>
       )}
-      {elig.canOpen && (
-        <button
-          data-pressable
-          type="button"
-          role="menuitem"
-          className={itemCls}
-          {...leafHover}
-          onClick={() => {
-            onOpen(first.id)
-            onClose()
-          }}
-        >
-          <ExternalLink size={14} aria-hidden="true" /> Open
-        </button>
-      )}
-      {elig.canRename && onRename && (
-        <button
-          data-pressable
-          type="button"
-          role="menuitem"
-          className={itemCls}
-          {...leafHover}
-          onClick={rename}
-        >
-          <Pencil size={14} aria-hidden="true" /> Rename
-        </button>
-      )}
-      {/* Email-style read toggle (#138): mark a read row unread (or an unread one
-          read) — mutually exclusive, single-target. Store actions are optimistic. */}
-      {elig.canMarkUnread && (
-        <button
-          data-pressable
-          type="button"
-          role="menuitem"
-          className={itemCls}
-          {...leafHover}
-          onClick={() => run(() => markIssueUnread(first.id))}
-        >
-          <Mail size={14} aria-hidden="true" /> Mark as unread
-        </button>
-      )}
-      {elig.canMarkRead && (
-        <button
-          data-pressable
-          type="button"
-          role="menuitem"
-          className={itemCls}
-          {...leafHover}
-          onClick={() => run(() => markIssueRead(first.id))}
-        >
-          <MailOpen size={14} aria-hidden="true" /> Mark as read
-        </button>
-      )}
-      {elig.canSetStage && subTrigger('stage', <StageGlyph stage={first.stage} />, 'Set stage')}
-      {elig.canSetPriority &&
-        subTrigger('priority', <PriorityGlyph priority={first.priority} />, 'Set priority')}
-      {/* ONE agent entry (POD-169 consolidation of POD-110's pair): a startable
-          issue reads "Run now" (Play), a started one "Assign agent" (Bot); both
-          open the same agent flyout, whose first option is the default agent —
-          the old one-click Run-now path. */}
-      {elig.canAssignAgent &&
-        subTrigger(
-          'agent',
-          isIssueStartable(first) ? (
-            <Play size={14} aria-hidden="true" />
-          ) : (
-            <Bot size={14} aria-hidden="true" />
-          ),
-          isIssueStartable(first) ? 'Run now' : 'Assign agent',
-        )}
-      {elig.canSetLabels && subTrigger('labels', <Tag size={14} aria-hidden="true" />, 'Labels')}
-      {/* [spec:SP-3f7a] When enabled, issue-row handoff shows for a single issue,
-          including the reason when it can't move (POD-850). */}
-      {handoffEnabled &&
-        handoff &&
-        (() => {
-          const reason =
-            'blocker' in handoff
-              ? issueHandoffBlockerText(handoff.blocker)
-              : handoff.availability.blocker && handoffSession
-                ? handoffBlockerText(handoff.availability.blocker, handoffSession.agentKind)
-                : null
-          return reason ? (
-            <button
-              data-pressable
-              type="button"
-              role="menuitem"
-              disabled
-              className="flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left text-[13px] opacity-60"
-              {...leafHover}
-            >
-              <span className="flex items-center gap-2">
-                <ArrowRightLeft size={14} aria-hidden="true" /> Handoff
-              </span>
-              <span className="pl-6 text-[11px] text-muted-foreground">{reason}</span>
-            </button>
-          ) : (
-            subTrigger('handoff', <ArrowRightLeft size={14} aria-hidden="true" />, 'Handoff')
-          )
-        })()}
-
-      {(elig.canClose || elig.canDefer || elig.canUndefer) && (
-        <hr className="my-1 h-px border-0 bg-border" />
-      )}
-      {elig.canClose && (
-        <button
-          data-pressable
-          type="button"
-          role="menuitem"
-          className={itemCls}
-          {...leafHover}
-          onClick={() => close('done')}
-        >
-          <Check size={14} aria-hidden="true" /> Close (done)
-        </button>
-      )}
-      {elig.canClose && (
-        <button
-          data-pressable
-          type="button"
-          role="menuitem"
-          className={itemCls}
-          {...leafHover}
-          onClick={() => close('wontfix')}
-        >
-          <X size={14} aria-hidden="true" /> Close (wontfix)
-        </button>
-      )}
-      {(elig.canDefer || elig.canUndefer) &&
-        subTrigger('defer', <AlarmClock size={14} aria-hidden="true" />, 'Snooze / defer')}
-
-      {(elig.canPin ||
-        elig.canArchive ||
-        elig.canUnarchive ||
-        elig.canDuplicate ||
-        elig.canRestore ||
-        elig.canDelete) && <hr className="my-1 h-px border-0 bg-border" />}
-      {elig.canPin && (
-        <button
-          data-pressable
-          type="button"
-          role="menuitem"
-          className={itemCls}
-          {...leafHover}
-          onClick={() =>
-            run(() => trpc.issues.update.mutate({ id: first.id, patch: { pinned: !first.pinned } }))
-          }
-        >
-          {first.pinned ? (
-            <PinOff size={14} aria-hidden="true" />
-          ) : (
-            <Pin size={14} aria-hidden="true" />
-          )}
-          {first.pinned ? 'Unpin' : 'Pin'}
-        </button>
-      )}
-      {(elig.canArchive || elig.canUnarchive) && (
-        <button
-          data-pressable
-          type="button"
-          role="menuitem"
-          className={itemCls}
-          {...leafHover}
-          onClick={() =>
-            run(() =>
-              trpc.issues.update.mutate({
-                id: first.id,
-                patch: { archived: !first.archived },
-              }),
-            )
-          }
-        >
-          {first.archived ? (
-            <ArchiveRestore size={14} aria-hidden="true" />
-          ) : (
-            <Archive size={14} aria-hidden="true" />
-          )}
-          {first.archived ? 'Unarchive' : 'Archive'}
-        </button>
-      )}
-      {elig.canDuplicate &&
-        subTrigger('duplicate', <Copy size={14} aria-hidden="true" />, 'Duplicate of')}
-      {elig.canRestore && (
-        <button
-          data-pressable
-          type="button"
-          role="menuitem"
-          className={itemCls}
-          {...leafHover}
-          onClick={restore}
-        >
-          <ArchiveRestore size={14} aria-hidden="true" /> Restore
-        </button>
-      )}
-      {elig.canDelete && (
-        <button
-          data-pressable
-          type="button"
-          role="menuitem"
-          className={`${itemCls} text-destructive hover:bg-destructive/10 hover:text-destructive`}
-          {...leafHover}
-          onClick={del}
-        >
-          <Trash2 size={14} aria-hidden="true" /> Delete
-        </button>
-      )}
-
+      {renderedEntries}
       {sub && (
         <div
           role="menu"
           aria-label={sub.kind === 'handoff' ? 'Handoff targets' : `${sub.kind} options`}
           className="absolute left-full z-[61] max-h-[60vh] min-w-[180px] overflow-y-auto rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10"
           style={{
-            // Flip to the left edge when the flyout would leave the viewport.
             ...(pos.x + 400 > window.innerWidth ? { left: 'auto', right: '100%' } : {}),
             top: Math.max(-pos.y + 8, Math.min(sub.top - 4, window.innerHeight - pos.y - 60)),
           }}
         >
-          {subItems[sub.kind]}
+          {submenuItems.get(sub.kind)}
         </div>
       )}
     </div>,
