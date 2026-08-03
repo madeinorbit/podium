@@ -20,6 +20,7 @@ import type { GrantRow } from '../../store/grants'
 import { type InboxPrincipalReference, inboxPrincipalFromCommand } from './inbox'
 import { assertMayCommandSession, resolveSessionTarget } from './session-access'
 import type { Session } from './session'
+import type { SessionOwnerMemo } from './session-state/service'
 
 export interface SessionAuthzPorts {
   clientControl: any
@@ -184,25 +185,56 @@ export class SessionAuthz {
    * that answer is given; POD-1070 ownership work replaces it here rather than
    * in eleven handlers.
    */
-  sessionOwner(sessionId: SessionId): { owner: UserId; grants: string[] } | undefined {
+  sessionOwner(
+    sessionId: SessionId,
+    /** Per-pass read-through memo [POD-1618]. Absent = look everything up, the
+     *  behaviour every single-session caller keeps. */
+    memo?: SessionOwnerMemo,
+  ): { owner: UserId; grants: string[] } | undefined {
     const live = this.ports.sessions.get(sessionId)
     const durable = live ?? this.ports.store.sessions.getSession(sessionId)
     if (!durable) return undefined
     const issueId = durable.issueId ?? undefined
     const resourceKind = issueId ? 'issue' : 'session'
     const resourceId = issueId ?? sessionId
+    // Both lookups below repeat per session in a full-list pass and collapse to
+    // a handful of distinct keys: every session on one issue asks for the SAME
+    // issue row and the SAME grant edges [POD-1618].
     const parentOwner = issueId
-      ? (this.ports.store.issues.getIssue(issueId)?.ownerUserId ?? durable.ownerUserId)
+      ? (this.memoIssueOwner(issueId, memo) ?? durable.ownerUserId)
       : durable.ownerUserId
     if (!parentOwner) return undefined
-    const grants = [
+    const grants = this.memoGrantees(resourceKind, resourceId, memo)
+    return { owner: parentOwner, grants }
+  }
+
+  private memoIssueOwner(issueId: string, memo?: SessionOwnerMemo): UserId | undefined {
+    if (!memo) return this.ports.store.issues.getIssue(issueId)?.ownerUserId ?? undefined
+    if (!memo.issues.has(issueId)) {
+      memo.issues.set(issueId, this.ports.store.issues.getIssue(issueId))
+    }
+    return (memo.issues.get(issueId) as { ownerUserId?: UserId } | null)?.ownerUserId ?? undefined
+  }
+
+  private memoGrantees(
+    resourceKind: string,
+    resourceId: string,
+    memo?: SessionOwnerMemo,
+  ): string[] {
+    const compute = (): string[] => [
       ...new Set(
         (this.ports.store.grants.listForResource(resourceKind, resourceId) as GrantRow[])
           .filter((edge) => edge.verb === 'read' || edge.verb === 'write' || edge.verb === 'manage')
           .map((edge) => edge.grantee),
       ),
     ]
-    return { owner: parentOwner, grants }
+    if (!memo) return compute()
+    const key = `${resourceKind}:${resourceId}`
+    const hit = memo.grants.get(key)
+    if (hit !== undefined) return hit
+    const value = compute()
+    memo.grants.set(key, value)
+    return value
   }
 
   /**
