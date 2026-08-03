@@ -1,5 +1,6 @@
-import { asIssueId, asSessionId } from '@podium/model'
+import { asIssueId, asSessionId, ROW, type VisibilityClass, visibilityClassOf } from '@podium/model'
 import type { SessionRow, SessionStore } from '../../store'
+import { mayReadOwned } from '../../issue-authz'
 import type { MemoryReader } from './types'
 
 export const INDEXED_MEMORY_DOCUMENT_CLASSES = [
@@ -12,14 +13,39 @@ export const INDEXED_MEMORY_DOCUMENT_CLASSES = [
 ] as const
 export type MemoryDocumentClass = (typeof INDEXED_MEMORY_DOCUMENT_CLASSES)[number]
 
-export const MEMORY_DOCUMENT_VISIBILITY = {
-  session: 'personal',
-  issue: 'personal',
-  conversation: 'personal',
-  transcript: 'personal',
-  'superagent-thread': 'personal',
-  setting: 'deployment-substrate',
-} as const satisfies Record<MemoryDocumentClass, 'personal' | 'deployment-substrate'>
+/**
+ * Each memory document class, mapped to THE MATRIX ROW that classifies it — not
+ * to a visibility class this module decides for itself (POD-335).
+ *
+ * The previous shape was a literal `{ session: 'personal', …, setting:
+ * 'deployment-substrate' }`, which is a SECOND classification: ADR 1's ownership
+ * matrix already declares every one of these, and nothing checked the two
+ * against each other. They happened to agree — verified row by row when this was
+ * flipped, all six identical — and that is exactly the state a drift begins in.
+ * `authz-single-home` in the architecture manifest now fails the build on the
+ * literal form (docs/multi-user-readiness.md §3.1.1 rule 2).
+ *
+ * The row ids are a typed edge (`MatrixRowId`), so a row renamed out from under
+ * this map is a compile error rather than a silent fallback, and
+ * `visibilityClassOf` is total and default-closed — an unclassified row resolves
+ * `personal`, never tenant-visible.
+ */
+const MEMORY_DOCUMENT_MATRIX_ROW = {
+  session: ROW.sessionIdentity,
+  issue: ROW.issueCore,
+  conversation: ROW.conversationRegistry,
+  transcript: ROW.segments,
+  'superagent-thread': ROW.superagentState,
+  setting: ROW.preferencesInstance,
+} as const satisfies Record<MemoryDocumentClass, (typeof ROW)[keyof typeof ROW]>
+
+export const MEMORY_DOCUMENT_VISIBILITY: Record<MemoryDocumentClass, VisibilityClass> =
+  Object.fromEntries(
+    INDEXED_MEMORY_DOCUMENT_CLASSES.map((cls) => [
+      cls,
+      visibilityClassOf(MEMORY_DOCUMENT_MATRIX_ROW[cls]),
+    ]),
+  ) as Record<MemoryDocumentClass, VisibilityClass>
 
 /** One switch for the unresolved existence-leak decision (POD-1070 / ADR 9). */
 export const MEMORY_EXISTENCE_POLICY = {
@@ -41,7 +67,7 @@ export type MemoryDocumentRef =
 export class MemoryVisibilityPolicy {
   constructor(private readonly store: SessionStore) {}
 
-  classOf(value: string): (typeof MEMORY_DOCUMENT_VISIBILITY)[MemoryDocumentClass] | undefined {
+  classOf(value: string): VisibilityClass | undefined {
     return Object.hasOwn(MEMORY_DOCUMENT_VISIBILITY, value)
       ? MEMORY_DOCUMENT_VISIBILITY[value as MemoryDocumentClass]
       : undefined
@@ -62,7 +88,11 @@ export class MemoryVisibilityPolicy {
       case 'issue': {
         const row = 'id' in ref ? this.store.issues.getIssue(asIssueId(String(ref.id))) : undefined
         if (!row) return false
-        return row.ownerUserId === userId || this.hasReadGrant(userId, 'issue', row.id)
+        return mayReadOwned(userId, {
+          id: row.id,
+          owner: row.ownerUserId,
+          grants: this.readGranteesOf('issue', row.id),
+        })
       }
       case 'conversation':
       case 'transcript':
@@ -90,8 +120,15 @@ export class MemoryVisibilityPolicy {
     const owner = issueId
       ? (this.store.issues.getIssue(issueId)?.ownerUserId ?? row.ownerUserId)
       : row.ownerUserId
-    if (owner === userId) return true
-    return this.hasReadGrant(userId, issueId ? 'issue' : 'session', issueId ?? row.id)
+    // The owner-or-grant rule itself comes from `@podium/model`'s `authorize`
+    // (POD-335). What stays here is the RESOLUTION — which row carries the
+    // owner, and which resource the grants hang off — which is this module's
+    // own knowledge and not a second authorization surface.
+    return mayReadOwned(userId, {
+      id: issueId ?? row.id,
+      owner,
+      grants: this.readGranteesOf(issueId ? 'issue' : 'session', issueId ?? row.id),
+    })
   }
 
   private mayReadNativeConversation(userId: string, machineId: string, nativeId: string): boolean {
@@ -108,13 +145,20 @@ export class MemoryVisibilityPolicy {
     })
   }
 
-  private hasReadGrant(userId: string, resourceKind: string, resourceId: string): boolean {
+  /**
+   * The grantees whose edge on this resource admits READING it.
+   *
+   * A LOOKUP, not a decision. The previous form asked "does this user hold a
+   * read-ish grant" and answered it here, which meant this module carried its
+   * own view of which verbs imply read — including, silently, that `use` does
+   * not, a rule ADR 9 D6 M2 states for a reason and that belonged nowhere near
+   * a search index. Returning the grantee list hands `authorize` the FACT and
+   * leaves it the decision.
+   */
+  private readGranteesOf(resourceKind: string, resourceId: string): string[] {
     return this.store.grants
       .listForResource(resourceKind, resourceId)
-      .some(
-        (edge) =>
-          edge.grantee === userId &&
-          (edge.verb === 'read' || edge.verb === 'write' || edge.verb === 'manage'),
-      )
+      .filter((edge) => edge.verb === 'read' || edge.verb === 'write' || edge.verb === 'manage')
+      .map((edge) => edge.grantee)
   }
 }

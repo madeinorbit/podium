@@ -5,37 +5,37 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   deriveRepoId,
   isPathFallbackRepoId,
-  normalizeOriginUrl,
+  canonicalizeRepoOrigin,
   readLocalOriginUrl,
 } from './repo-id'
 
-describe('normalizeOriginUrl', () => {
+describe('canonicalizeRepoOrigin', () => {
   it('normalizes ssh scp-style, ssh:// and https:// spellings identically', () => {
     const expected = 'github.com/owner/repo'
-    expect(normalizeOriginUrl('git@github.com:owner/repo.git')).toBe(expected)
-    expect(normalizeOriginUrl('ssh://git@github.com/owner/repo.git')).toBe(expected)
-    expect(normalizeOriginUrl('https://github.com/owner/repo.git')).toBe(expected)
-    expect(normalizeOriginUrl('https://github.com/owner/repo')).toBe(expected)
-    expect(normalizeOriginUrl('https://user:pass@github.com/owner/repo.git/')).toBe(expected)
+    expect(canonicalizeRepoOrigin('git@github.com:owner/repo.git')).toBe(expected)
+    expect(canonicalizeRepoOrigin('ssh://git@github.com/owner/repo.git')).toBe(expected)
+    expect(canonicalizeRepoOrigin('https://github.com/owner/repo.git')).toBe(expected)
+    expect(canonicalizeRepoOrigin('https://github.com/owner/repo')).toBe(expected)
+    expect(canonicalizeRepoOrigin('https://user:pass@github.com/owner/repo.git/')).toBe(expected)
   })
 
   it('lowercases host, keeps only non-default ports', () => {
-    expect(normalizeOriginUrl('https://GitHub.COM/Owner/Repo')).toBe('github.com/Owner/Repo')
-    expect(normalizeOriginUrl('https://git.example.com:443/o/r')).toBe('git.example.com/o/r')
-    expect(normalizeOriginUrl('ssh://git@git.example.com:22/o/r.git')).toBe('git.example.com/o/r')
-    expect(normalizeOriginUrl('ssh://git@git.example.com:2222/o/r.git')).toBe(
+    expect(canonicalizeRepoOrigin('https://GitHub.COM/Owner/Repo')).toBe('github.com/Owner/Repo')
+    expect(canonicalizeRepoOrigin('https://git.example.com:443/o/r')).toBe('git.example.com/o/r')
+    expect(canonicalizeRepoOrigin('ssh://git@git.example.com:22/o/r.git')).toBe('git.example.com/o/r')
+    expect(canonicalizeRepoOrigin('ssh://git@git.example.com:2222/o/r.git')).toBe(
       'git.example.com:2222/o/r',
     )
-    expect(normalizeOriginUrl('http://example.com:8080/o/r')).toBe('example.com:8080/o/r')
+    expect(canonicalizeRepoOrigin('http://example.com:8080/o/r')).toBe('example.com:8080/o/r')
   })
 
   it('returns null for empty/unparseable input', () => {
-    expect(normalizeOriginUrl('')).toBeNull()
-    expect(normalizeOriginUrl('   ')).toBeNull()
-    expect(normalizeOriginUrl(null)).toBeNull()
-    expect(normalizeOriginUrl(undefined)).toBeNull()
-    expect(normalizeOriginUrl('/just/a/path')).toBeNull()
-    expect(normalizeOriginUrl('https://hostonly.example.com')).toBeNull()
+    expect(canonicalizeRepoOrigin('')).toBeNull()
+    expect(canonicalizeRepoOrigin('   ')).toBeNull()
+    expect(canonicalizeRepoOrigin(null)).toBeNull()
+    expect(canonicalizeRepoOrigin(undefined)).toBeNull()
+    expect(canonicalizeRepoOrigin('/just/a/path')).toBeNull()
+    expect(canonicalizeRepoOrigin('https://hostonly.example.com')).toBeNull()
   })
 })
 

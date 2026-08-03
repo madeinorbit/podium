@@ -1,7 +1,7 @@
 import { dirname } from 'node:path'
 import type { GitDiscoveryDiagnosticWire, GitRepositoryWire } from '@podium/model'
 import type { ScanReposResult } from './relay'
-import { normalizeOriginUrl } from './repo-id'
+import { canonicalizeRepoOrigin } from './repo-id'
 import { normalizeRepoPath } from './store'
 
 /**
@@ -217,7 +217,7 @@ export class MachineRepoDiscovery {
     )
     const byOrigin = new Map<string, RepoRow[]>()
     for (const row of rows) {
-      const origin = normalizeOriginUrl(row.originUrl)
+      const origin = canonicalizeRepoOrigin(row.originUrl)
       if (!origin) continue
       const list = byOrigin.get(origin) ?? []
       list.push(row)
@@ -231,13 +231,13 @@ export class MachineRepoDiscovery {
     // registered over the real one).
     const foundByOrigin = new Map<string, number>()
     for (const repo of found.values()) {
-      const origin = normalizeOriginUrl(repo.originUrl ?? null)
+      const origin = canonicalizeRepoOrigin(repo.originUrl ?? null)
       if (origin) foundByOrigin.set(origin, (foundByOrigin.get(origin) ?? 0) + 1)
     }
 
     const repos: DiscoveredRepo[] = []
     for (const [path, repo] of found) {
-      const origin = normalizeOriginUrl(repo.originUrl ?? null)
+      const origin = canonicalizeRepoOrigin(repo.originUrl ?? null)
       const elsewhere = (origin ? (byOrigin.get(origin) ?? []) : []).filter(
         (r) => r.machineId !== machineId,
       )
@@ -247,7 +247,7 @@ export class MachineRepoDiscovery {
       // path) — a second copy must never be auto-added next to it.
       const originAlreadyRegisteredHere =
         origin !== null &&
-        rows.some((r) => r.machineId === machineId && normalizeOriginUrl(r.originUrl) === origin)
+        rows.some((r) => r.machineId === machineId && canonicalizeRepoOrigin(r.originUrl) === origin)
       let status: DiscoveredRepo['status']
       if (registeredHere.has(path)) {
         status = 'registered'

@@ -101,6 +101,9 @@ import { isCompositionRoot, ROLE_RANK, serverRoleOf } from '../apps/server/src/r
 import {
   applyAllowlist,
   applyManifestPolicy,
+  BROWSER_ENTRYPOINTS,
+  browserEntrypointsOf,
+  checkAuthzSingleHome,
   checkManifestEdge,
   checkManifestRole,
   clauseIsTypeOnly,
@@ -109,6 +112,7 @@ import {
   type ImportRef,
   isTestFile,
   loadHarnessLiterals,
+  MANIFEST,
   partitionAllowlist,
   stripComments,
   tagsFor,
@@ -126,35 +130,6 @@ export type { ImportRef, Violation }
 export { clauseIsTypeOnly, extractImports, stripComments, workspaceOf }
 
 // ---------------------------------------------------------------------------
-// Grandfathered violations. Do NOT add entries — fix the dependency instead.
-// ---------------------------------------------------------------------------
-
-/**
- * Rule 2's targets: the packages that drive real agent PROCESSES, and who may
- * import each. The machine host (apps/daemon) and the build/compose tier
- * (scripts/) may; nothing else may — servers read transcripts through
- * `@podium/transcript` instead.
- *
- * `packages/pty` is the PTY kernel split out of agent-bridge (POD-396). It is
- * listed here for the same reason agent-bridge is: importing it means spawning
- * PTYs, which is a host capability, not a general-purpose one. agent-bridge may
- * reach it (its real-`claude` harness smoke drives a session through it), and
- * POD-397's `packages/harness` is registered the same way.
- */
-const AGENT_HOST_CONSUMERS: Record<string, ReadonlySet<string>> = {
-  'packages/pty': new Set(['apps/daemon', 'scripts', 'packages/pty']),
-  'packages/harness': new Set(['apps/daemon', 'scripts', 'packages/harness']),
-}
-
-/**
- * The one allowed app→app edge: apps/web imports the `AppRouter` *type* from
- * apps/server for its tRPC client. Type-only — erased at build; there is no
- * runtime dependency. Any runtime import of @podium/server from apps/web (or
- * any other app→app import) is a violation.
- */
-const APP_TO_APP_TYPE_ONLY_ALLOWED = new Set<string>(['apps/web -> @podium/server'])
-
-// ---------------------------------------------------------------------------
 // Workspace map
 // ---------------------------------------------------------------------------
 
@@ -167,70 +142,6 @@ const APP_PACKAGES: Record<string, string> = {
   '@podium/web': 'apps/web',
 }
 
-// The TRUE leaf is @podium/model (L0): zod-only, zero workspace deps. Since
-// POD-300 @podium/protocol is no longer a leaf — it holds only frames and
-// imports its entity schemas from model. That single edge is declared in
-// RESTRICTED_PACKAGE_DEPS below, so protocol still cannot reach anything else.
-const LEAF_PACKAGES = new Set<string>(['packages/model'])
-
-/**
- * Near-leaf packages: may import ONLY the listed workspace packages (plus node
- * builtins/external deps). `@podium/transcript` is pure parsing/paging over
- * protocol types — it must never grow IO/harness dependencies. `@podium/runtime`
- * is node-runtime plumbing (config, sqlite shims, git, connectivity,
- * auth-store, …) — it may reach into the pure leaves (protocol, model) but
- * must never depend on another app or a non-leaf package.
- */
-const RESTRICTED_PACKAGE_DEPS: Record<string, ReadonlySet<string>> = {
-  // L1 wire/frames. Since POD-300 the entity schemas live in L0 @podium/model
-  // and protocol imports them; that is its ONLY workspace edge.
-  'packages/protocol': new Set(['packages/model']),
-  'packages/transcript': new Set(['packages/protocol', 'packages/model']),
-  // Pure harness composer adapters (POD-859): prompt-draft extraction + keystroke
-  // injection, shared by the web fallback and the daemon engine. Must stay pure —
-  // only model's AgentKind enum, never IO or harness packages.
-  'packages/composer': new Set(['packages/protocol', 'packages/model']),
-  'packages/runtime': new Set(['packages/protocol', 'packages/model']),
-  // The issue-client seam (IssueTrpc + the CLI's rendering table) sits between
-  // apps/cli and apps/server — it must never import app code or IO packages.
-  //
-  // `packages/commands` was added by POD-311, and it is the point of that issue
-  // rather than a concession to it: the CLI table stopped declaring its own
-  // command-name universe and now RENDERS the shared L1 contracts. The direction
-  // is still downward — `@podium/commands` is L1 contracts-only, forbidden from
-  // importing a service, an app or any IO — so this widens what the seam may read,
-  // not what it may reach.
-  'packages/issue-client': new Set(['packages/commands', 'packages/protocol', 'packages/model']),
-  // The node⇄hub sync layer (issue #196: oplog, upstream dialer/forwarder,
-  // transcript mirror) — sqlite/config plumbing comes from @podium/runtime;
-  // apps/server injects its store repositories through narrow interfaces
-  // instead of this package importing apps/server.
-  //
-  // `packages/commands` was added by POD-311 for ONE consumer — the upstream
-  // forwarder's optimistic-patch characterization, which enumerates the issue
-  // command vocabulary and previously read that list from `@podium/protocol`,
-  // where it was a hand-maintained array. Folding the array into the contract
-  // table moved the import; it did not create a new reach. `@podium/commands` is
-  // L1 contracts-only (no service, no IO), so the direction is unchanged.
-  //
-  // THIS DOES NOT WEAKEN THE ONE RULE THAT MATTERS HERE. What must never see the
-  // command vocabulary is the REPLICA ROLE — a replica that can interpret a
-  // command is a replica that can arbitrate (ADR 2 Amendment 1 D12.7) — and that
-  // is rule 10 below, a separate, stricter check over `packages/sync/src/replica/`
-  // which admits nothing outside its own directory but `span.ts`. Rule 10 is what
-  // holds the line; this table never did.
-  'packages/sync': new Set([
-    'packages/commands',
-    'packages/protocol',
-    'packages/runtime',
-    'packages/model',
-  ]),
-  // Opt-in telemetry [spec:SP-f933]: the schema needs model's AgentKind enum
-  // and consent/queue need runtime's config + state dir. It must never reach an
-  // app — apps/server constructs the emitter and injects its gauges.
-  'packages/telemetry': new Set(['packages/protocol', 'packages/runtime', 'packages/model']),
-}
-
 // ---------------------------------------------------------------------------
 // Rules
 // ---------------------------------------------------------------------------
@@ -240,41 +151,6 @@ const SERVER_SRC = 'apps/server/src/'
 /** apps/server/src-relative posix path of `file`, or null when outside it. */
 function serverSrcRel(file: string): string | null {
   return file.startsWith(SERVER_SRC) ? file.slice(SERVER_SRC.length) : null
-}
-
-/**
- * Rule 6 — server role tiers (core → hub → cloud; manifest in
- * apps/server/src/roles.ts): a server-src file may only import files of its
- * own role rank or below. Exemptions per the manifest: composition roots and
- * test files may reach UP into hub (they assemble/inject hub modules) — but
- * `cloud/` is unreachable for everyone: the private cloud module composes in
- * exclusively through the plugins.ts seam, so an OSS import of it is always
- * a violation, exemptions included.
- */
-function checkServerRoleTiers(file: string, ref: ImportRef): Violation | null {
-  const fromRel = serverSrcRel(file)
-  if (fromRel === null || !ref.specifier.startsWith('.')) return null
-  const abs = resolve('/', dirname(file), ref.specifier)
-  const toRel = serverSrcRel(relative('/', abs).split(sep).join('/'))
-  if (toRel === null) return null
-  const fromRole = serverRoleOf(fromRel)
-  const toRole = serverRoleOf(toRel)
-  if (toRole === 'cloud' && fromRole !== 'cloud') {
-    return {
-      file,
-      specifier: ref.specifier,
-      rule: 'server-role-tiers',
-      message: `${file}: nothing in the OSS tree may import cloud code ('${ref.specifier}') — the private cloud module composes via the plugins.ts seam only`,
-    }
-  }
-  if (ROLE_RANK[toRole] <= ROLE_RANK[fromRole]) return null
-  if (isCompositionRoot(fromRel) || isTestFile(file)) return null
-  return {
-    file,
-    specifier: ref.specifier,
-    rule: 'server-role-tiers',
-    message: `${file}: ${fromRole} must not import ${toRole} code ('${ref.specifier}') — see apps/server/src/roles.ts`,
-  }
 }
 
 const MODEL_HOME = 'packages/model'
@@ -322,35 +198,6 @@ export function loadModelExportNames(repoRoot: string): Set<string> {
   return names
 }
 
-/**
- * Rule 7 — @podium/model is the single home for the predicates it exports.
- * Any packages/* file outside @podium/model itself (and outside tests, which
- * legitimately construct fixture doubles) that DECLARES a top-level
- * function/const under the same name is almost certainly a redefinition.
- */
-function checkModelRedefinition(
-  file: string,
-  source: string,
-  modelExportNames: ReadonlySet<string>,
-): Violation[] {
-  if (modelExportNames.size === 0) return []
-  if (!file.startsWith('packages/') || file.startsWith(`${MODEL_HOME}/`)) return []
-  if (isTestFile(file)) return []
-  const violations: Violation[] = []
-  for (const m of stripComments(source).matchAll(TOP_LEVEL_DECL_RE)) {
-    const name = m[1]
-    if (name && modelExportNames.has(name)) {
-      violations.push({
-        file,
-        specifier: name,
-        rule: 'model-single-home',
-        message: `${file}: redefines '${name}', which @podium/model already exports — import it from '@podium/model' instead (re-exporting the imported binding is fine; declaring a new one under the same name is not)`,
-      })
-    }
-  }
-  return violations
-}
-
 const RUNTIME_HOME = 'packages/runtime'
 const RUNTIME_BARREL = `${RUNTIME_HOME}/src/index.ts`
 
@@ -358,21 +205,6 @@ const RUNTIME_BARREL = `${RUNTIME_HOME}/src/index.ts`
  *  repo's source uses (always `node:fs` style, never a bare `fs`). */
 function isNodeBuiltinSpecifier(specifier: string): boolean {
   return specifier.startsWith('node:')
-}
-
-/**
- * Rule 8a — apps/web may import ONLY the bare `@podium/runtime` specifier,
- * never a subpath. See rule 8 in the file doc comment.
- */
-function checkWebRuntimeSubpath(file: string, ref: ImportRef): Violation | null {
-  if (file !== 'apps/web' && !file.startsWith('apps/web/')) return null
-  if (!ref.specifier.startsWith('@podium/runtime/')) return null
-  return {
-    file,
-    specifier: ref.specifier,
-    rule: 'runtime-browser-safety',
-    message: `${file}: apps/web may not import a @podium/runtime subpath ('${ref.specifier}') — every subpath is node-only by convention; only the browser-safe root barrel ('@podium/runtime') is allowed here`,
-  }
 }
 
 // ---- Rule 9 — host edge vs agent command relay (ADR 7 D2) -------------------
@@ -903,18 +735,9 @@ function checkReplicaDirection(file: string, source: string): Violation[] {
  * because a rule permitting a specifier Node cannot resolve is a rule that
  * permits nothing.
  */
-export const SYNC_BROWSER_ENTRYPOINTS: ReadonlyMap<string, string> = new Map([
-  ['@podium/sync/replica', 'packages/sync/src/replica/index.ts'],
-  ['@podium/sync/outbox', 'packages/sync/src/outbox/index.ts'],
-  ['@podium/sync/span', 'packages/sync/src/span.ts'],
-  ['@podium/sync/adapters/indexeddb', 'packages/sync/src/adapters/indexeddb/index.ts'],
-  ['@podium/sync/adapters/mobile-sqlite', 'packages/sync/src/adapters/mobile-sqlite/index.ts'],
-  ['@podium/sync/adapters/legacy-replica', 'packages/sync/src/adapters/legacy-replica/index.ts'],
-])
-
-/** npm specifiers (b) knows are node-only. Short and explicit — see the note
- *  above on what this deliberately does not attempt. */
-const SYNC_BROWSER_FORBIDDEN_NPM: ReadonlySet<string> = new Set([
+/** npm specifiers the closure check knows are node-only. Short and explicit —
+ *  see the note above on what this deliberately does not attempt. */
+const BROWSER_FORBIDDEN_NPM: ReadonlySet<string> = new Set([
   'ws',
   'better-sqlite3',
   'drizzle-orm',
@@ -922,26 +745,31 @@ const SYNC_BROWSER_FORBIDDEN_NPM: ReadonlySet<string> = new Set([
 ])
 
 /**
- * Rule 12a — a browser-safe workspace may reach @podium/sync only through a
- * declared browser entrypoint.
+ * Rule `manifest-browser-reach` (a) — a browser-safe workspace may reach a
+ * NEUTRAL workspace only through a declared browser entrypoint.
+ *
+ * POD-335 generalised this from `@podium/sync` to every neutral workspace, which
+ * is what retires legacy rule 8a: "apps/web may import only the bare
+ * @podium/runtime specifier, never a subpath" is the same sentence with the
+ * subject widened, and `@podium/runtime` is now one row of
+ * {@link BROWSER_ENTRYPOINTS} rather than a rule of its own.
  */
-export function checkSyncBrowserReach(file: string, ref: ImportRef): Violation | null {
-  if (ref.typeOnly) return null
-  if (isTestFile(file)) return null
+export function checkBrowserReach(file: string, ref: ImportRef): Violation | null {
+  if (ref.typeOnly || isTestFile(file)) return null
   const spec = ref.specifier
-  if (spec !== '@podium/sync' && !spec.startsWith('@podium/sync/')) return null
+  if (!spec.startsWith('@podium/')) return null
+  const to = podiumWorkspaceOf(spec)
+  if (tagsFor(to)?.platform !== 'neutral') return null
   const from = workspaceOf(file)
+  if (from === to) return null
   if (tagsFor(from)?.platform !== 'browser-safe') return null
-  if (SYNC_BROWSER_ENTRYPOINTS.has(spec)) return null
-  const allowed = [...SYNC_BROWSER_ENTRYPOINTS.keys()].sort().join(', ')
+  if (BROWSER_ENTRYPOINTS.has(spec)) return null
+  const allowed = browserEntrypointsOf(to)
   return {
     file,
     specifier: spec,
-    rule: 'sync-browser-reach',
-    message:
-      spec === '@podium/sync'
-        ? `${file}: browser-safe ${from} imports the @podium/sync BARREL — it value-exports the Authority, the Ledger and the SQLite repository, so a browser bundle would inline Node code. Import a declared browser entrypoint instead: ${allowed}.`
-        : `${file}: browser-safe ${from} imports '${spec}', which is not a declared browser entrypoint of @podium/sync. Declared: ${allowed}. Adding one is a decision — declare it in SYNC_BROWSER_ENTRYPOINTS (scripts/check-boundaries.ts) and its closure is then held to no-Node.`,
+    rule: 'manifest-browser-reach',
+    message: `${file}: browser-safe ${from} imports '${spec}', which is not a declared browser entrypoint of ${to}. ${to} is tagged NEUTRAL — it has a browser half and a node-only half — so only its declared surface is reachable from a bundle. Declared: ${allowed.length > 0 ? allowed.join(', ') : 'none'}. Adding one is a decision: declare it in BROWSER_ENTRYPOINTS (scripts/architecture-manifest.ts) and its whole import closure is then held to no-Node.`,
   }
 }
 
@@ -961,13 +789,24 @@ function resolveRelativeModule(repoRoot: string, fromFile: string, spec: string)
 }
 
 /**
- * Rule 12b — the transitive closure of every declared browser entrypoint is
- * Node-free. Runs over the declared set rather than per-file (same shape as
- * rules 8b and 9).
+ * Rule `manifest-browser-reach` (b) — the transitive closure of every declared
+ * browser entrypoint is Node-free.
+ *
+ * Runs over the declared set rather than per-file. This is the half that makes a
+ * declaration mean something: (a) alone would be satisfied by an entrypoint that
+ * re-exports the Authority, and a list nobody verifies is mechanism-presence,
+ * not coverage. It also SUBSUMES legacy rule 8b, which checked the same property
+ * one hop deep and said so in its own doc — a barrel re-exporting a file that
+ * re-exports a node-tainted file slipped through it and does not slip through
+ * this.
+ *
+ * An entrypoint whose graph cannot be WALKED is reported too: an unresolvable
+ * import silently truncates the closure, and a truncated closure is green for
+ * the wrong reason.
  */
-export function checkSyncBrowserGraphAll(repoRoot: string): Violation[] {
+export function checkBrowserGraphAll(repoRoot: string): Violation[] {
   const violations: Violation[] = []
-  for (const [specifier, entry] of SYNC_BROWSER_ENTRYPOINTS) {
+  for (const [specifier, entry] of BROWSER_ENTRYPOINTS) {
     const seen = new Set<string>()
     const queue: string[] = [entry]
     while (queue.length > 0) {
@@ -981,8 +820,8 @@ export function checkSyncBrowserGraphAll(repoRoot: string): Violation[] {
         violations.push({
           file: entry,
           specifier,
-          rule: 'sync-browser-reach',
-          message: `${entry}: declared browser entrypoint of '${specifier}' does not exist — a missing entry makes the closure check vacuously green. Create it or remove the row from SYNC_BROWSER_ENTRYPOINTS.`,
+          rule: 'manifest-browser-reach',
+          message: `${entry}: declared browser entrypoint of '${specifier}' does not exist — a missing entry makes the closure check vacuously green. Create it or remove the row from BROWSER_ENTRYPOINTS.`,
         })
         continue
       }
@@ -995,7 +834,7 @@ export function checkSyncBrowserGraphAll(repoRoot: string): Violation[] {
             violations.push({
               file,
               specifier: spec,
-              rule: 'sync-browser-reach',
+              rule: 'manifest-browser-reach',
               message: `${file}: reachable from browser entrypoint '${specifier}' and imports '${spec}', which resolves to no file here. An unresolvable import TRUNCATES the closure, so the no-Node claim would be green for the wrong reason.`,
             })
             continue
@@ -1007,15 +846,15 @@ export function checkSyncBrowserGraphAll(repoRoot: string): Violation[] {
           spec.startsWith('node:') ||
           spec.startsWith('bun:') ||
           spec.startsWith('@podium/runtime/') ||
-          SYNC_BROWSER_FORBIDDEN_NPM.has(spec) ||
+          BROWSER_FORBIDDEN_NPM.has(spec) ||
           (spec.startsWith('@podium/') &&
             tagsFor(podiumWorkspaceOf(spec))?.platform === 'node-only')
         if (bad) {
           violations.push({
             file,
             specifier: spec,
-            rule: 'sync-browser-reach',
-            message: `${file}: reachable from browser entrypoint '${specifier}' and imports '${spec}' — a browser bundle would inline Node code. @podium/sync is tagged NEUTRAL on the strength of this closure staying Node-free (POD-307); move the dependency behind a port the composition root injects.`,
+            rule: 'manifest-browser-reach',
+            message: `${file}: reachable from browser entrypoint '${specifier}' and imports '${spec}' — a browser bundle would inline Node code. The workspace is tagged NEUTRAL on the strength of this closure staying Node-free; move the dependency behind a port the composition root injects.`,
           })
         }
       }
@@ -1051,106 +890,27 @@ export function checkSessionBindingFieldAccess(file: string, source: string): Vi
   return violations
 }
 
-export function checkFile(
-  file: string,
-  source: string,
-  modelExportNames: ReadonlySet<string> = new Set(),
-): Violation[] {
-  const violations: Violation[] = [
-    ...checkModelRedefinition(file, source, modelExportNames),
+/**
+ * Check one file against the rules that are NOT the architecture manifest.
+ *
+ * POD-335 emptied most of this. What used to live here — app→app, agent-host
+ * consumers, leaf/near-leaf allow-lists, packages-never-apps, cli-no-apps,
+ * server role tiers, model single-home and runtime browser-safety — are now
+ * MANIFEST constraints derived from workspace tags, one retirement per
+ * documented equivalent (docs/gates/pod-335-boundary-lint-end-state.md).
+ *
+ * What remains is the set of rules that are NOT dependency-matrix facts: they
+ * are about the SHAPE of code inside one place (a replica that must not
+ * arbitrate, a kernel that must not name a database, a UI that must not touch
+ * storage directly), and no tag on a workspace could express them.
+ */
+export function checkFile(file: string, source: string): Violation[] {
+  return [
     ...checkReplicaDirection(file, source),
     ...checkSyncKernelPurity(file, source),
     ...checkSessionBindingFieldAccess(file, source),
     ...checkUiStorageOwnership(file, source),
   ]
-  const from = workspaceOf(file)
-  for (const ref of extractImports(source)) {
-    // Rule 6 first: role tiers are same-workspace edges (apps/server internal),
-    // which the cross-workspace rules below deliberately skip.
-    const roleViolation = checkServerRoleTiers(file, ref)
-    if (roleViolation) {
-      violations.push(roleViolation)
-      continue
-    }
-    // Rule 8a: apps/web may only bare-import @podium/runtime, never a subpath.
-    const webRuntimeViolation = checkWebRuntimeSubpath(file, ref)
-    if (webRuntimeViolation) {
-      violations.push(webRuntimeViolation)
-      continue
-    }
-    const to = targetWorkspace(file, ref.specifier)
-    if (to === null || to === from) continue
-
-    // Rule 4: packages never import from apps.
-    if (from.startsWith('packages/') && to.startsWith('apps/')) {
-      violations.push({
-        file,
-        specifier: ref.specifier,
-        rule: 'packages-no-apps',
-        message: `${file}: packages must never import from apps (imports '${ref.specifier}')`,
-      })
-      continue
-    }
-
-    // Rule 3: protocol and core are leaf packages.
-    if (LEAF_PACKAGES.has(from) && (to.startsWith('packages/') || to.startsWith('apps/'))) {
-      violations.push({
-        file,
-        specifier: ref.specifier,
-        rule: 'leaf-package',
-        message: `${file}: ${from} is a leaf package and must not import workspace package '${ref.specifier}'`,
-      })
-      continue
-    }
-
-    // Rule 3b: near-leaf packages with an explicit allowed-deps list.
-    const restricted = RESTRICTED_PACKAGE_DEPS[from]
-    if (
-      restricted &&
-      (to.startsWith('packages/') || to.startsWith('apps/')) &&
-      !restricted.has(to)
-    ) {
-      violations.push({
-        file,
-        specifier: ref.specifier,
-        rule: 'restricted-package-deps',
-        message: `${file}: ${from} may only import ${[...restricted].join(', ')} among workspace packages (imports '${ref.specifier}')`,
-      })
-      continue
-    }
-
-    // Rule 1: no app→app imports (grandfathered: web→server type-only).
-    // Test files are exempt: e2e tests legitimately compose several apps
-    // (e.g. apps/server/src/agent-relay-e2e.test.ts drives daemon code) and
-    // are never shipped, so they don't create a runtime dependency edge.
-    if (from.startsWith('apps/') && to.startsWith('apps/') && !isTestFile(file)) {
-      const edge = `${from} -> @podium/${to.slice('apps/'.length)}`
-      if (APP_TO_APP_TYPE_ONLY_ALLOWED.has(edge) && ref.typeOnly) continue
-      violations.push({
-        file,
-        specifier: ref.specifier,
-        rule: 'no-app-to-app',
-        message: APP_TO_APP_TYPE_ONLY_ALLOWED.has(edge)
-          ? `${file}: runtime import of '${ref.specifier}' — only type-only imports of @podium/server are allowed from apps/web`
-          : `${file}: app→app import of '${ref.specifier}' is forbidden`,
-      })
-      continue
-    }
-
-    // Rule 2: agent-host importers are restricted — the machine host and the
-    // build tier may drive agent processes; nothing else may.
-    const hostAllowed = AGENT_HOST_CONSUMERS[to]
-    if (hostAllowed) {
-      if (hostAllowed.has(from)) continue
-      violations.push({
-        file,
-        specifier: ref.specifier,
-        rule: 'agent-host-consumers',
-        message: `${file}: '${ref.specifier}' may only be imported by ${[...hostAllowed].sort().join(', ')}, or its own tests (Phase 3 extracts @podium/transcript for the grandfathered server cases)`,
-      })
-    }
-  }
-  return violations
 }
 
 // ---------------------------------------------------------------------------
@@ -1263,19 +1023,152 @@ export function checkUiStorageOwnership(file: string, source: string): Violation
   ]
 }
 
+/**
+ * Rule `feature-single-home` — a workspace's OWNED features have exactly one
+ * definition site (POD-335, generalising legacy rule 7).
+ *
+ * The manifest's `features` tag has always declared ownership and the unit tests
+ * have always asserted it is exclusive; what it lacked was an ENFORCEMENT ARM
+ * over source. Legacy rule 7 was that arm for one workspace, hard-coded:
+ * `@podium/model` is the single home for the predicates it exports, and no
+ * `packages/*` file may DECLARE a top-level binding under the same name.
+ *
+ * TWO THINGS CHANGE HERE, and both make it stricter rather than merely tidier:
+ *
+ *  1. The home is read from the MANIFEST (`featureHome`) instead of a constant,
+ *     so moving a feature moves its rule with it.
+ *  2. `apps/*` is held to it too. Rule 7 only ever looked at `packages/*`, which
+ *     is the wrong half: a server module re-declaring `issueStageOf` is exactly
+ *     as much a second definition as a client one, and rather more likely.
+ *
+ * Re-EXPORTING the home's binding stays fine and is encouraged — the pattern is
+ * `export { x } from '@podium/model'`, which declares nothing. Only a NEW
+ * declaration under an owned name is flagged.
+ */
+const FEATURE_SINGLE_HOME_WORKSPACE = 'packages/model'
+
+export function checkFeatureSingleHome(
+  file: string,
+  source: string,
+  ownedNames: ReadonlySet<string>,
+): Violation[] {
+  if (ownedNames.size === 0) return []
+  if (!file.startsWith('packages/') && !file.startsWith('apps/')) return []
+  if (file.startsWith(`${FEATURE_SINGLE_HOME_WORKSPACE}/`)) return []
+  if (isTestFile(file)) return []
+  const home = tagsFor(FEATURE_SINGLE_HOME_WORKSPACE)
+  const violations: Violation[] = []
+  for (const m of stripComments(source).matchAll(TOP_LEVEL_DECL_RE)) {
+    const name = m[1]
+    if (name && ownedNames.has(name)) {
+      violations.push({
+        file,
+        specifier: name,
+        rule: 'feature-single-home',
+        message: `${file}: redefines '${name}', which ${FEATURE_SINGLE_HOME_WORKSPACE} already exports. That workspace OWNS ${(home?.features ?? []).join(', ')} in the architecture manifest, and ownership is exclusive — import the binding from '@podium/model' instead. Re-exporting the imported binding is fine; declaring a new one under the same name is a second definition that is free to drift.`,
+      })
+    }
+  }
+  return violations
+}
+
+/**
+ * Rule `manifest-open-entrypoint` — the declared open surface of a
+ * capability-restricted workspace stays narrow and ENUMERABLE (POD-335).
+ *
+ * `packages/harness` restricts its consumers to the machine host and the build
+ * tier, and declares one open entrypoint (`@podium/harness/metadata`) that
+ * anyone may import. This rule is what keeps that declaration from becoming the
+ * hole it would otherwise be:
+ *
+ *  (a) NO STAR RE-EXPORT. `export * from './registry.js'` in an open entrypoint
+ *      would re-open the whole package in one line, silently, and the diff would
+ *      look like a tidy-up.
+ *  (b) NO PROCESS-DRIVING EXPORT NAME, and no direct import of a process API.
+ *
+ * WHY THIS IS A SURFACE CHECK AND NOT A CLOSURE CHECK, stated rather than left
+ * to be discovered: the metadata functions resolve through `AGENT_MANIFESTS`,
+ * and the manifests' own closure legitimately reaches `node:child_process`, so a
+ * transitive walk would refuse the entire surface and prove nothing about it.
+ * What is provable is that the surface cannot WIDEN without someone editing an
+ * explicit named list — which is precisely the review checkpoint the exception
+ * exists to force. The complementary guarantee comes from
+ * `manifest-consumers`: everything except the named entrypoints is still shut.
+ */
+const PROCESS_DRIVING_EXPORT_RE =
+  /\b(launch|spawn|exec|execute|probe|attach|detach|kill|terminate|write|send|drive|resume|start|stop)[A-Z]\w*/
+
+const PROCESS_API_SPECIFIERS = /^(?:node:child_process|node-pty|execa|@podium\/pty)/
+
+export function checkOpenEntrypoints(repoRoot: string): Violation[] {
+  const violations: Violation[] = []
+  for (const [workspace, tags] of Object.entries(MANIFEST)) {
+    for (const specifier of tags.openEntrypoints ?? []) {
+      const rel = specifier.slice(specifier.indexOf('/', '@podium/'.length) + 1)
+      const file = `${workspace}/src/${rel}.ts`
+      let source: string
+      try {
+        source = readFileSync(join(repoRoot, file), 'utf8')
+      } catch {
+        violations.push({
+          file,
+          specifier,
+          rule: 'manifest-open-entrypoint',
+          message: `${file}: declared open entrypoint '${specifier}' of ${workspace} does not exist — a missing module makes this check vacuously green. Create it or remove the entry from openEntrypoints in scripts/architecture-manifest.ts.`,
+        })
+        continue
+      }
+      const stripped = stripComments(source)
+      if (/\bexport\s*\*\s*from\b/.test(stripped)) {
+        violations.push({
+          file,
+          specifier,
+          rule: 'manifest-open-entrypoint',
+          message: `${file}: an open entrypoint may not \`export *\` — that re-opens the whole capability-restricted package in one line. List every export by name, so widening the surface is an edit someone has to make deliberately.`,
+        })
+      }
+      for (const m of stripped.matchAll(/\b([A-Za-z_$][\w$]*)\s*(?:,|\}|$)/gm)) {
+        const name = m[1] ?? ''
+        if (PROCESS_DRIVING_EXPORT_RE.test(name)) {
+          violations.push({
+            file,
+            specifier,
+            rule: 'manifest-open-entrypoint',
+            message: `${file}: exports '${name}' from the open entrypoint '${specifier}'. The open surface carries FACTS ABOUT SOFTWARE ("what is this CLI, what can it do, what did it write"), never ACTIONS ON A HOST. An action belongs on the machine host (apps/daemon), which is what ${workspace}'s consumer restriction names.`,
+          })
+        }
+      }
+      for (const ref of extractImports(stripped)) {
+        if (PROCESS_API_SPECIFIERS.test(ref.specifier) && !ref.typeOnly) {
+          violations.push({
+            file,
+            specifier: ref.specifier,
+            rule: 'manifest-open-entrypoint',
+            message: `${file}: the open entrypoint '${specifier}' directly imports the process API '${ref.specifier}'. That is the capability the consumer restriction exists to contain.`,
+          })
+        }
+      }
+    }
+  }
+  return violations
+}
+
 /** Check one file against the MANIFEST rules (layer, platform, role, harness). */
 export function checkManifestFile(
   file: string,
   source: string,
   harnessLiterals: readonly string[] = [],
+  ownedNames: ReadonlySet<string> = new Set(),
 ): Violation[] {
   const violations: Violation[] = [
     ...findHarnessBranching(file, source, harnessLiterals),
     ...checkHarnessClassifierBoundary(file, source),
     // POD-329 ownership also runs under the architecture-manifest path so
-    // `lint:architecture` (`--manifest-only`) cannot sail past a new raw-storage
-    // call while legacy `lint:boundaries` is continue-on-error.
+    // `lint:architecture` cannot sail past a new raw-storage call.
     ...checkUiStorageOwnership(file, source),
+    // POD-335 — the feature-ownership arm and the multi-user guardrail.
+    ...checkFeatureSingleHome(file, source, ownedNames),
+    ...checkAuthzSingleHome(file, source),
   ]
   const from = workspaceOf(file)
   for (const ref of extractImports(source)) {
@@ -1285,11 +1178,10 @@ export function checkManifestFile(
       violations.push(roleViolation)
       continue
     }
-    // Rule 12a — the guard that replaces what packages/sync's node-only tag used
-    // to give the platform rule for free.
-    const syncReach = checkSyncBrowserReach(file, ref)
-    if (syncReach) {
-      violations.push(syncReach)
+    // The declared browser surface of every NEUTRAL workspace.
+    const browserReach = checkBrowserReach(file, ref)
+    if (browserReach) {
+      violations.push(browserReach)
       continue
     }
     const to = targetWorkspace(file, ref.specifier)
@@ -1349,16 +1241,16 @@ export function runCheck(repoRoot: string): {
       const file = relative(repoRoot, abs).split(sep).join('/')
       const source = readFileSync(abs, 'utf8')
       workspaces.add(workspaceOf(file))
-      violations.push(...checkFile(file, source, modelExportNames))
+      violations.push(...checkFile(file, source))
       violations.push(...checkPrincipalFree(file, source))
-      manifest.push(...checkManifestFile(file, source, harnessLiterals))
+      manifest.push(...checkManifestFile(file, source, harnessLiterals, modelExportNames))
     }
   }
-  violations.push(...checkRuntimeBarrelPurity(repoRoot))
   violations.push(...checkDeclaredDeps(repoRoot))
   violations.push(...checkHostEdgeSeparationAll(repoRoot))
   manifest.push(...checkManifestCoverage(workspaces))
-  manifest.push(...checkSyncBrowserGraphAll(repoRoot))
+  manifest.push(...checkBrowserGraphAll(repoRoot))
+  manifest.push(...checkOpenEntrypoints(repoRoot))
   return { violations, manifest }
 }
 

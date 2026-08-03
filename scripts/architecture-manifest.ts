@@ -1110,7 +1110,7 @@ function importsAnAuthzHome(source: string): boolean {
  * the grant edge, and the matrix resolver.
  */
 const AUTHZ_HOME_VOCABULARY_RE =
-  /\b(?:authorize|Capability|IssueScope|IssueAction|IssueRole|AuthTarget|AuthDecision|IssueAccessIndex|OPERATOR|visibilityClassOf|VisibilityClass|grantVerbsOf|GrantEdge|GrantVerb|evaluateVisibility|checkIssueAccess)\b/
+  /\b(?:authorize|Capability|IssueScope|IssueAction|IssueRole|AuthTarget|AuthDecision|IssueAccessIndex|OPERATOR|visibilityClassOf|VisibilityClass|grantVerbsOf|GrantEdge|GrantVerb|evaluateVisibility|checkIssueAccess|mayReadOwned)\b/
 
 /**
  * Rule `authz-single-home` — identity, authorization and visibility resolution

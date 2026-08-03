@@ -22,17 +22,25 @@
 import { SessionIdField, asUserId } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
+import { mayReadOwned } from '../../issue-authz'
 import type { FamilyState } from '../derived-family'
 import { defineQuery } from '../query-table'
 
 const q = defineQuery<FamilyState>()
 
+// THE decision comes from the model (POD-335). This used to spell the rule out
+// here — `owner === caller.userId || grants.includes(caller.userId)` — which is
+// a second authorization surface (docs/multi-user-readiness.md §3.2) and, over
+// an absent owner and an absent caller, compared `undefined === undefined` and
+// answered ALLOW. `mayReadOwned` refuses an unowned entity by construction.
 function mayReadSession(state: FamilyState, sessionId: string): boolean {
   const target = state.modules.sessions.sessionOwner(sessionId as never)
-  return (
-    target !== undefined &&
-    (target.owner === state.caller.userId || target.grants.includes(state.caller.userId))
-  )
+  if (target === undefined) return false
+  return mayReadOwned(state.caller.userId, {
+    id: sessionId,
+    owner: target.owner,
+    grants: target.grants,
+  })
 }
 
 function assertMayReadSession(state: FamilyState, sessionId: string): void {

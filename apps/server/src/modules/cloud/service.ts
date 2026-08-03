@@ -44,7 +44,7 @@ import {
   toCloudAgentSourceSession,
 } from '../../cloud-runtime'
 import type { RegistryModules, SessionRegistry } from '../../relay'
-import { normalizeOriginUrl } from '../../repo-id'
+import { canonicalizeRepoOrigin } from '../../repo-id'
 import type { RepoRegistry } from '../../repo-registry'
 
 export interface CloudServiceDeps {
@@ -246,7 +246,7 @@ export class CloudService {
 /** origin URL → `{ provider, owner, name }`, or null when it is not a GitHub
  *  remote. Moved verbatim from `router.ts`. */
 function githubRepoFromOrigin(originUrl: string | null | undefined): CloudRepoRequest | null {
-  const normalized = normalizeOriginUrl(originUrl)
+  const normalized = canonicalizeRepoOrigin(originUrl)
   const match = normalized?.match(/^github\.com\/([^/]+)\/([^/]+)$/)
   const owner = match?.[1]
   const name = match?.[2]

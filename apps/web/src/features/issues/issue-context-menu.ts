@@ -82,7 +82,7 @@ export function resolveIssueHandoffSession<M extends HandoffMachine>(
 }
 
 /** Closed = a close reason is recorded (server: isClosed ⇔ closedReason != null). */
-export function isIssueClosed(issue: IssueViewModel): boolean {
+export function issueHasCloseReason(issue: IssueViewModel): boolean {
   return issue.closedReason != null
 }
 
@@ -121,7 +121,7 @@ export function issueMenuEligibility(
   const any = issues.length > 0
   const single = issues.length === 1
   const first = issues[0]
-  const openSingle = single && first !== undefined && !isIssueClosed(first)
+  const openSingle = single && first !== undefined && !issueHasCloseReason(first)
   const hasDeleted = issues.some((i) => !!i.deletedAt)
   const activeAny = any && !hasDeleted
   return {

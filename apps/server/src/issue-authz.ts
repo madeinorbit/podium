@@ -7,7 +7,13 @@
  * TRPCError.
  */
 
-import { authorize, type Capability, type IssueAccessIndex, type IssueAction } from '@podium/model'
+import {
+  asUserId,
+  authorize,
+  type Capability,
+  type IssueAccessIndex,
+  type IssueAction,
+} from '@podium/model'
 import { TRPCError } from '@trpc/server'
 
 export {
@@ -73,4 +79,42 @@ export function checkIssueAccess(
   if (decision === 'forbidden') {
     throw new TRPCError({ code: 'FORBIDDEN', message: `not allowed to '${proc}' issues` })
   }
+}
+
+/**
+ * OWNER-OR-GRANT READ, decided by the model (POD-335).
+ *
+ * The ONE server-side entry point for "may this person read this owned entity".
+ * It exists because two modules had grown their own answer to that question —
+ * `modules/sessions/queries.ts` and `modules/memory/visibility.ts` — and
+ * docs/multi-user-readiness.md §3.2 is explicit that owner/grant scopes are to
+ * be added to the closed `IssueScope` set *"rather than inventing a parallel
+ * check"*. `authz-single-home` in the architecture manifest now fails the build
+ * on the parallel form; this is what it points people at.
+ *
+ * The duplicates were not merely untidy. Both spelled the rule as
+ * `owner === userId || grants.includes(userId)` over a possibly-ABSENT owner, so
+ * an unowned row plus an unauthenticated reader compared `undefined ===
+ * undefined` and read as ALLOW. `authorize` refuses an unowned entity outright
+ * (§3.1.1 default-closed; §3.1.4 M4's all-in-one case), and refuses it without
+ * an override, so routing through it fixes an ambient-access hole in the same
+ * move that removes the copy.
+ *
+ * `viewer` is the narrowest role that admits `read`, so the decision here is
+ * governed entirely by ownership and grants — the role gate contributes nothing
+ * it could accidentally widen.
+ */
+export function mayReadOwned(
+  userId: string | undefined,
+  entity: { id: string; owner: string | null | undefined; grants?: readonly string[] },
+): boolean {
+  if (userId === undefined) return false
+  return (
+    authorize({ role: 'viewer', scope: { kind: 'owned', userId: asUserId(userId) } }, 'read', {
+      kind: 'owned',
+      id: entity.id,
+      owner: entity.owner ?? null,
+      grants: entity.grants,
+    }) === 'allow'
+  )
 }

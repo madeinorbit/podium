@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   contextMenuTargets,
   deferDateFromNow,
-  isIssueClosed,
+  issueHasCloseReason,
   issueHandoffAvailability,
   issueMenuEligibility,
   resolveIssueHandoffSession,
@@ -171,10 +171,10 @@ describe('issueMenuEligibility', () => {
   })
 })
 
-describe('isIssueClosed', () => {
+describe('issueHasCloseReason', () => {
   it('closed ⇔ closedReason present', () => {
-    expect(isIssueClosed(makeIssue())).toBe(false)
-    expect(isIssueClosed(makeIssue({ closedReason: 'wontfix' }))).toBe(true)
+    expect(issueHasCloseReason(makeIssue())).toBe(false)
+    expect(issueHasCloseReason(makeIssue({ closedReason: 'wontfix' }))).toBe(true)
   })
 })
 
