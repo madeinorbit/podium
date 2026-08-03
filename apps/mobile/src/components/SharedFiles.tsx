@@ -1,5 +1,5 @@
 import { isImagePath } from '@podium/client-core/viewmodels'
-import type { TranscriptItem } from '@podium/protocol'
+import type { TranscriptItem } from '@podium/model'
 import { FileText, X } from 'lucide-react-native'
 import { useState } from 'react'
 import { Image, Linking, Modal, Pressable, StyleSheet, Text, View } from 'react-native'

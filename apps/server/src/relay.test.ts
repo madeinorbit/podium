@@ -1044,8 +1044,25 @@ describe('SessionRegistry', () => {
     expect(daemon).toContainEqual(
       expect.objectContaining({ type: 'reattach', sessionId: id, durableLabel: `podium-${id}` }),
     )
-    expect(daemon.findIndex((m) => m.type === 'reattach')).toBeLessThan(
-      daemon.findIndex((m) => m.type === 'sessionPriority'),
+    /**
+     * PRIORITIES LEAD, THEN THE PROBES — and this assertion is INVERTED from the
+     * one main carried (`reattach` before `sessionPriority`), deliberately.
+     *
+     * `SessionMachineReconciler.onAttached` now resets and pushes the whole
+     * priority map BEFORE it fans out the reattach probes, and the two comments
+     * there are the reason: a freshly-connected daemon "knows no session's relay
+     * priority", and "the daemon gates its spawn fan-out, so the order we send in
+     * decides who reattaches soonest" (POD-612). Probing first would make that
+     * gate schedule the fan-out against default priorities, so the focused
+     * session would not be the one that comes back typable first. The frame is
+     * safe ahead of the bind: the daemon's handler only records the tier against
+     * the id (`outputScheduler.setPriority`) and never looks the session up.
+     *
+     * Kept as an ORDERING assertion rather than dropped, so a regression that
+     * flips the two back still fails here.
+     */
+    expect(daemon.findIndex((m) => m.type === 'sessionPriority')).toBeLessThan(
+      daemon.findIndex((m) => m.type === 'reattach'),
     )
     // The daemon found the master alive → bind → the session comes back live and
     // the stale exit is cleared. Without the fix it would stay 'exited' forever.

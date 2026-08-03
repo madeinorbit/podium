@@ -269,7 +269,11 @@ export function SuperagentScreen() {
     () => renderedTranscript(settled, liveText, running),
     [settled, liveText, running],
   )
-  const transcriptSession = podiumSid ? client.sessionById(podiumSid) : undefined
+  // POD-332 retired `MobileClientValue` (and with it `client.sessionById`): every
+  // screen reads the same store and the same published slices as the web.
+  const transcriptSession = podiumSid
+    ? store.sessions.find((s) => s.sessionId === podiumSid)
+    : undefined
 
   const empty = rendered.length === 0 && pendingTurns.length === 0 && !running
 
@@ -321,7 +325,7 @@ export function SuperagentScreen() {
               assetContext={
                 podiumSid && transcriptSession
                   ? {
-                      httpOrigin: client.serverConfig.httpOrigin,
+                      httpOrigin: store.httpOrigin,
                       sessionId: podiumSid,
                       cwd: transcriptSession.cwd,
                     }

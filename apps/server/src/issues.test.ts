@@ -1178,7 +1178,7 @@ describe('IssueService.start', () => {
       repoPath: '/r',
       title: 'Remote',
       startNow: false,
-      machineId: 'mach-b',
+      machineId: asMachineId('mach-b'),
       parentBranch: 'main',
     })
     await svc.start(created.id)
@@ -1217,7 +1217,7 @@ describe('IssueService.start', () => {
       repoPath: '/r',
       title: 'Remote',
       startNow: false,
-      machineId: 'mach-b',
+      machineId: asMachineId('mach-b'),
       parentBranch: 'main',
     })
     const started = await svc.start(created.id)
@@ -1246,7 +1246,7 @@ describe('IssueService.start', () => {
       repoPath: '/r',
       title: 'Remote',
       startNow: false,
-      machineId: 'mach-b',
+      machineId: asMachineId('mach-b'),
       parentBranch: 'issue/1424-local-only',
     })
     await svc.start(created.id)
@@ -1268,7 +1268,7 @@ describe('IssueService.start', () => {
       repoPath: '/r',
       title: 'Remote',
       startNow: false,
-      machineId: 'mach-b',
+      machineId: asMachineId('mach-b'),
       parentBranch: 'main',
     })
     await expect(svc.start(created.id)).rejects.toThrow(/not the same repository/)
@@ -1328,7 +1328,7 @@ describe('IssueService.start', () => {
       repoPath: '/r',
       title: 'Remote',
       startNow: false,
-      machineId: 'mach-b',
+      machineId: asMachineId('mach-b'),
     })
     await svc.start(created.id)
     ;(deps.requireMachineForRepo as ReturnType<typeof vi.fn>).mockClear()
@@ -1348,7 +1348,7 @@ describe('IssueService.start', () => {
       repoPath: '/r',
       title: 'Remote',
       startNow: false,
-      machineId: 'mach-b',
+      machineId: asMachineId('mach-b'),
     })
     await svc.start(created.id)
     ;(deps.requireMachineForRepo as ReturnType<typeof vi.fn>).mockImplementation(
@@ -1372,7 +1372,7 @@ describe('IssueService.start', () => {
       repoPath: '/r',
       title: 'Remote',
       startNow: false,
-      machineId: 'mach-b',
+      machineId: asMachineId('mach-b'),
     })
     await svc.start(created.id)
     // The recorded worktree is gone — the recreate path.
@@ -1668,6 +1668,7 @@ describe('IssueService.start', () => {
     it('refuses a nonsense effort with the valid set, before mutating any start state', async () => {
       const { svc, deps, store } = harness()
       store.settings.setModelCatalog({
+        machineId: store.hostMachineId,
         version: MODEL_CATALOG_VERSION,
         fetchedAt: 1_000_000,
         byAgent: {
@@ -1690,6 +1691,7 @@ describe('IssueService.start', () => {
     it('refuses a nonsense model and leaves the stored profile untouched', async () => {
       const { svc, deps, store } = harness()
       store.settings.setModelCatalog({
+        machineId: store.hostMachineId,
         version: MODEL_CATALOG_VERSION,
         fetchedAt: 1_000_000,
         byAgent: { 'claude-code': [{ value: 'claude-opus-5', label: 'Opus 5' }] },
@@ -1729,6 +1731,7 @@ describe('IssueService.start', () => {
     it('--force-unknown-model still lets an explicit unlisted model through', async () => {
       const { svc, deps, store } = harness()
       store.settings.setModelCatalog({
+        machineId: store.hostMachineId,
         version: MODEL_CATALOG_VERSION,
         fetchedAt: 1_000_000,
         byAgent: { 'claude-code': [{ value: 'claude-opus-5', label: 'Opus 5' }] },
@@ -3963,7 +3966,7 @@ describe('IssueService agent mail (#103)', () => {
   /** Dual-written mail (substrate row + legacy mirror), as a real send lands it. */
   function seedIssueMail(
     store: SessionStore,
-    issueId: string,
+    issueId: IssueId,
     id: string,
     over: Partial<ReturnType<typeof substrateRow>> = {},
   ) {
@@ -3976,7 +3979,8 @@ describe('IssueService agent mail (#103)', () => {
       createdAt: row.createdAt,
       status: 'unread',
       claimedBy: null,
-      readAt: null,
+      // No `readAt` on the mirror row: POD-1379 moved read state off the message
+      // and onto a per-(reader, message) row, which is what these cases pin.
       claimedAt: null,
     })
     store.messages.addMessage(row)
@@ -3986,66 +3990,67 @@ describe('IssueService agent mail (#103)', () => {
   it('never nags a session about a message it sent itself', () => {
     const { svc, store } = harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    seedIssueMail(store, a.id, 'msg_from_a', { fromSession: 'sA' })
+    seedIssueMail(store, a.id, 'msg_from_a', { fromSession: asSessionId('sA') })
     // Same notion of self the delivery side uses (attemptDelivery excludes
     // message.fromSession from the members it can target) [POD-1365].
-    expect(svc.mailPending(a.id, { sessionId: 'sA' }).unread).toBe(0)
-    expect(svc.mailPending(a.id, { sessionId: 'sB' }).unread).toBe(1)
+    expect(svc.mailPending(a.id, { sessionId: asSessionId('sA') }).unread).toBe(0)
+    expect(svc.mailPending(a.id, { sessionId: asSessionId('sB') }).unread).toBe(1)
   })
 
   it("a peer's inbox read leaves the other session's pending count intact", () => {
     const { svc, store } = harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    seedIssueMail(store, a.id, 'msg_for_b', { fromSession: 'sSender' })
-    expect(svc.mailPending(a.id, { sessionId: 'sB' }).unread).toBe(1)
+    seedIssueMail(store, a.id, 'msg_for_b', { fromSession: asSessionId('sSender') })
+    expect(svc.mailPending(a.id, { sessionId: asSessionId('sB') }).unread).toBe(1)
     // The MUTATING surface: session A opens the shared mailbox.
-    svc.mailInbox(a.id, { sessionId: 'sA' })
-    expect(svc.mailPending(a.id, { sessionId: 'sA' }).unread).toBe(0)
-    expect(svc.mailPending(a.id, { sessionId: 'sB' }).unread).toBe(1)
+    svc.mailInbox(a.id, { sessionId: asSessionId('sA') })
+    expect(svc.mailPending(a.id, { sessionId: asSessionId('sA') }).unread).toBe(0)
+    expect(svc.mailPending(a.id, { sessionId: asSessionId('sB') }).unread).toBe(1)
   })
 
   it('the observed POD-1342 repro: A sends for B, is not nagged, and B keeps its mail', () => {
     const { svc, store } = harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    seedIssueMail(store, a.id, 'msg_handoff', { fromSession: 'sA' })
+    seedIssueMail(store, a.id, 'msg_handoff', { fromSession: asSessionId('sA') })
     // A is never nagged about its own send…
-    expect(svc.mailPending(a.id, { sessionId: 'sA' }).unread).toBe(0)
+    expect(svc.mailPending(a.id, { sessionId: asSessionId('sA') }).unread).toBe(0)
     // …and even when it opens the inbox anyway, B's handoff survives.
-    const seenByA = svc.mailInbox(a.id, { sessionId: 'sA' })
+    const seenByA = svc.mailInbox(a.id, { sessionId: asSessionId('sA') })
     expect(seenByA.map((m) => m.body)).toEqual(['body-msg_handoff'])
-    expect(svc.mailPending(a.id, { sessionId: 'sB' }).unread).toBe(1)
-    const seenByB = svc.mailInbox(a.id, { sessionId: 'sB' })
+    expect(svc.mailPending(a.id, { sessionId: asSessionId('sB') }).unread).toBe(1)
+    const seenByB = svc.mailInbox(a.id, { sessionId: asSessionId('sB') })
     expect(seenByB[0]).toMatchObject({ wasUnread: true })
-    expect(svc.mailPending(a.id, { sessionId: 'sB' }).unread).toBe(0)
+    expect(svc.mailPending(a.id, { sessionId: asSessionId('sB') }).unread).toBe(0)
   })
 
   it('nags each session exactly once: a second read of my own inbox is quiet', () => {
     const { svc, store } = harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    seedIssueMail(store, a.id, 'msg_once', { fromSession: 'sSender' })
-    expect(svc.mailInbox(a.id, { sessionId: 'sB' })[0]).toMatchObject({ wasUnread: true })
-    expect(svc.mailInbox(a.id, { sessionId: 'sB' })[0]).toMatchObject({ wasUnread: false })
-    expect(svc.mailPending(a.id, { sessionId: 'sB' }).unread).toBe(0)
+    seedIssueMail(store, a.id, 'msg_once', { fromSession: asSessionId('sSender') })
+    expect(svc.mailInbox(a.id, { sessionId: asSessionId('sB') })[0]).toMatchObject({ wasUnread: true })
+    expect(svc.mailInbox(a.id, { sessionId: asSessionId('sB') })[0]).toMatchObject({ wasUnread: false })
+    expect(svc.mailPending(a.id, { sessionId: asSessionId('sB') }).unread).toBe(0)
   })
 
   it('claiming retires the message for the claimer only — peers still get it once', () => {
     const { svc, store } = harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    seedIssueMail(store, a.id, 'msg_claimed', { fromSession: 'sSender' })
+    seedIssueMail(store, a.id, 'msg_claimed', { fromSession: asSessionId('sSender') })
     // Claim is the OPT-IN "I will act on this" signal; delivery must not depend
     // on it, so it retires the claimer's nag and nobody else's.
-    expect(svc.mailClaim('msg_claimed', 'issue:#1', { sessionId: 'sA' }).claimed).toBe(true)
-    expect(svc.mailPending(a.id, { sessionId: 'sA' }).unread).toBe(0)
-    expect(svc.mailPending(a.id, { sessionId: 'sB' }).unread).toBe(1)
+    expect(svc.mailClaim('msg_claimed', 'issue:#1', { sessionId: asSessionId('sA') }).claimed).toBe(true)
+    expect(svc.mailPending(a.id, { sessionId: asSessionId('sA') }).unread).toBe(0)
+    expect(svc.mailPending(a.id, { sessionId: asSessionId('sB') }).unread).toBe(1)
   })
 
   it('a session that starts after mail was consumed does not inherit the backlog', () => {
     const { svc, store } = harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    seedIssueMail(store, a.id, 'msg_history', { fromSession: 'sSender' })
-    svc.mailInbox(a.id, { sessionId: 'sOld' })
+    seedIssueMail(store, a.id, 'msg_history', { fromSession: asSessionId('sSender') })
+    svc.mailInbox(a.id, { sessionId: asSessionId('sOld') })
     store.sessions.upsertSession({
-      id: 'sNew',
+      id: asSessionId('sNew'),
+      ownerUserId: FIRST_ADMIN_USER_ID,
       agentKind: 'claude-code',
       cwd: '/r',
       title: 'fresh agent',
@@ -4066,12 +4071,11 @@ describe('IssueService agent mail (#103)', () => {
       lastInputAt: null,
       lastResumedAt: null,
       spawnedBy: null,
-      machineId: 'm1',
+      machineId: asMachineId('m1'),
       headless: false,
       issueId: a.id,
-      readAt: null,
     })
-    expect(svc.mailPending(a.id, { sessionId: 'sNew' }).unread).toBe(0)
+    expect(svc.mailPending(a.id, { sessionId: asSessionId('sNew') }).unread).toBe(0)
   })
 
   it('still HOLDS undelivered mail for a session that starts later', () => {
@@ -4079,9 +4083,10 @@ describe('IssueService agent mail (#103)', () => {
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     // Nobody was live when it was sent: it is still queued, so the next session
     // to arrive must be told about it even though it predates that session.
-    seedIssueMail(store, a.id, 'msg_held', { fromSession: 'sSender' })
+    seedIssueMail(store, a.id, 'msg_held', { fromSession: asSessionId('sSender') })
     store.sessions.upsertSession({
-      id: 'sLate',
+      id: asSessionId('sLate'),
+      ownerUserId: FIRST_ADMIN_USER_ID,
       agentKind: 'claude-code',
       cwd: '/r',
       title: 'late agent',
@@ -4101,12 +4106,11 @@ describe('IssueService agent mail (#103)', () => {
       lastInputAt: null,
       lastResumedAt: null,
       spawnedBy: null,
-      machineId: 'm1',
+      machineId: asMachineId('m1'),
       headless: false,
       issueId: a.id,
-      readAt: null,
     })
-    expect(svc.mailPending(a.id, { sessionId: 'sLate' }).unread).toBe(1)
+    expect(svc.mailPending(a.id, { sessionId: asSessionId('sLate') }).unread).toBe(1)
   })
 })
 

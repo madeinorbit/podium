@@ -1,5 +1,5 @@
 import { artifactKind, artifactUrl, basename } from '@podium/client-core/viewmodels/dock-panel'
-import type { IssuePanelArtifact, IssueWire } from '@podium/protocol'
+import type { IssuePanelArtifact, IssueWire } from '@podium/model'
 
 /** Resolve one offer artifact exactly once for both its thumbnail and tap target. */
 export function offerArtifactTarget(args: {

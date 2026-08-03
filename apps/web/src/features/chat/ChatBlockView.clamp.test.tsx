@@ -1,4 +1,4 @@
-import type { TranscriptItem } from '@podium/protocol'
+import { asSessionId, type TranscriptItem } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -26,7 +26,7 @@ function mount(text: string, stickyOperator: boolean, highlighted = false): void
         index={0}
         highlighted={highlighted}
         dimmed={false}
-        sessionId="s1"
+        sessionId={asSessionId('s1')}
         cwd="/r"
         openFile={() => {}}
         httpOrigin="http://x"

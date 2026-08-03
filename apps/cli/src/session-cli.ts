@@ -61,28 +61,13 @@ type HandoffResult = { ok: boolean; newCwd?: string; reason?: string }
  *
  * The tier-1 read model itself is {@link SessionStatusResult} in @podium/model — the
  * shared L0 home that retired this file's hand-copied `StatusWire` (POD-366). The
- * runtime-status keys POD-1262 added on main are declared here as OPTIONAL extras
- * rather than restoring the copy: they are produced by the server read toolkit and
- * belong in the model projection, so this local widening collapses into
- * `SessionStatusResult` the moment that projection carries them.
+ * runtime-status keys POD-1262 added on main were briefly re-declared here as
+ * optional extras; that widening has now collapsed, exactly as it said it would,
+ * because the projection carries them (`harness`, `contextUsagePercent`,
+ * `nativeSubagents`, `subagents`). The name survives only as the local spelling
+ * this file's renderers already use.
  */
-export interface StatusWire extends SessionStatusResult {
-  /** The harness actually driving the session, when it differs from `agentKind`. */
-  harness?: string
-  contextUsagePercent?: number | null
-  nativeSubagents?: { id: string; type?: string }[]
-  subagents?: {
-    sessionId: string
-    displayRef?: string
-    parentSessionId: string
-    harness: string
-    model: string | null
-    effort: string | null
-    contextUsagePercent: number | null
-    status: string
-    phase: string
-  }[]
-}
+export type StatusWire = SessionStatusResult
 
 /** Tier-4 seance wire shape (modules/messages/gate `ask`). */
 interface AskWire {

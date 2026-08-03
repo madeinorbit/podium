@@ -136,7 +136,12 @@ export const epicStatusInput = byIssueId
 
 export const childrenInput = z.object({ id: IssueIdField, recursive: z.boolean().optional() })
 
-export const treeInput = byIssueId
+// The depth/node caps are callable (POD-1342): the CLI's truncation footer
+// tells the reader to raise them, so they have to be raisable over the wire.
+export const treeInput = byIssueId.extend({
+  maxDepth: z.number().int().min(0).max(20).optional(),
+  maxNodes: z.number().int().min(1).max(1000).optional(),
+})
 
 export const depReportInput = z.object({
   id: IssueIdField.optional(),
@@ -243,6 +248,11 @@ export const createInput = z.object({
 export const startInput = z.object({
   id: IssueIdField,
   agentKind: z.string().optional(),
+  // POD-1545: choose model/effort in the SAME command that starts the issue.
+  // Same vocabulary as create/update (`auto` keeps its meaning); validated
+  // against the model catalog and then persisted onto the issue by the service.
+  defaultModel: z.string().min(1).optional(),
+  defaultEffort: z.string().min(1).optional(),
   forceUnknownModel: z.boolean().optional(),
 })
 

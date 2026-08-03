@@ -29,6 +29,32 @@
       "encoded": "{\"type\":\"agentColor\",\"sessionId\":\"sessionId\",\"color\":\"color\"}"
     },
     {
+      "schema": "AgentContextMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "agentContext",
+        "sessionId": "sessionId",
+        "percent": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"agentContext\",\"sessionId\":\"sessionId\",\"percent\":1}"
+    },
+    {
+      "schema": "AgentContextMessage",
+      "variant": "full",
+      "wire": {
+        "type": "agentContext",
+        "sessionId": "sessionId",
+        "percent": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"agentContext\",\"sessionId\":\"sessionId\",\"percent\":1}"
+    },
+    {
       "schema": "AgentExitMessage",
       "variant": "minimal",
       "wire": {

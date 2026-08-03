@@ -70,6 +70,10 @@ export interface IssueTree<S = IssueTreeSession> {
   totalNodes: number
   /** Total children omitted across the tree by the depth/node cap. */
   omitted: number
+  /** The caps actually applied to this walk, so a caller rendering a truncation
+   *  notice can name them without duplicating the server's defaults (POD-1342). */
+  maxDepth: number
+  maxNodes: number
 }
 
 /**

@@ -36,11 +36,23 @@ function makeRig(
   afterFetch: Record<string, string> = {},
 ) {
   const store = new SessionStore(':memory:')
-  store.machines.upsertMachine({ id: 'src', name: 'src', hostname: 'src', tokenHash: 'x' })
-  store.machines.upsertMachine({ id: 'tgt', name: 'tgt', hostname: 'tgt', tokenHash: 'y' })
+  store.machines.upsertMachine({
+    id: 'src',
+    name: 'src',
+    hostname: 'src',
+    tokenHash: 'x',
+    ownerUserId: null,
+  })
+  store.machines.upsertMachine({
+    id: 'tgt',
+    name: 'tgt',
+    hostname: 'tgt',
+    tokenHash: 'y',
+    ownerUserId: null,
+  })
   store.repos.addRepo(SOURCE, 'src')
   store.repos.addRepo(TARGET, 'tgt')
-  const reg = new SessionRegistry(store)
+  const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
   const calls: OpCall[] = []
   const rpc = {
     repoOp: (op: string, cwd: string, args: Record<string, string> = {}, machineId?: string) => {
@@ -55,11 +67,9 @@ function makeRig(
             : { ok: false, output: 'Needed a single revision' },
         )
       }
-      if (op === 'bundleCreate')
-        return Promise.resolve({
-          ok: true,
-          output: JSON.stringify({ path: '/s/b.bundle', sizeBytes: 4 }),
-        })
+      // "<sizeBytes>\t<stagePath>" — what the daemon's repoOp actually answers for
+      // bundleCreate (control/exec.ts); the path is the SOURCE daemon's own.
+      if (op === 'bundleCreate') return Promise.resolve({ ok: true, output: '4\t/s/b.bundle' })
       if (op === 'bundleFetch') {
         // What the fetch DOES: the objects become resolvable on the target.
         for (const [key, sha] of Object.entries(afterFetch)) known[key] = sha
@@ -72,7 +82,9 @@ function makeRig(
     handoffWriteChunk: (_id: string, offset: number, data: Buffer) =>
       Promise.resolve({ ok: true, sizeBytes: offset + data.length }),
   }
-  ;(reg.modules.sessions as unknown as { rpc: unknown }).rpc = rpc
+  // The repo ops live on SessionWorkspace's ports in the module split, so the
+  // stub goes where the code under test actually reads it from.
+  ;(reg.modules.sessions.workspace as unknown as { ports: { rpc: unknown } }).ports.rpc = rpc
   return { reg, calls }
 }
 
@@ -92,7 +104,7 @@ afterEach(() => {
 })
 
 const call = (reg: SessionRegistry, ref = REF) =>
-  reg.modules.sessions.ensureRefOnMachine({
+  reg.modules.sessions.workspace.ensureRefOnMachine({
     sourceRepoPath: SOURCE,
     targetRepoPath: TARGET,
     targetMachineId: 'tgt',

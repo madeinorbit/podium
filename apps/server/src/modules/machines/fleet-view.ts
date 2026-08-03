@@ -9,7 +9,7 @@
  * decision lives.
  */
 
-import type { MachineWire } from '@podium/protocol'
+import type { MachineWire } from '@podium/model'
 
 /**
  * What a principal may do with a machine beyond seeing that it exists: `use` is the
@@ -78,7 +78,10 @@ export function fleetViewFor(
   allRepos: readonly { machineId: string; path: string }[],
 ): FleetView {
   const scoped = machinesWithUse(machines)
-  const usable = new Set(scoped.filter((m) => m.use === 'granted').map((m) => m.id))
+  // `Set<string>`, not the inferred `Set<MachineId>`: the repo rows this is asked
+  // about carry an unbranded `machineId` (the store has not branded that column),
+  // and membership is the only question being put to the set.
+  const usable = new Set<string>(scoped.filter((m) => m.use === 'granted').map((m) => m.id))
   return {
     machines: scoped,
     repos: allRepos

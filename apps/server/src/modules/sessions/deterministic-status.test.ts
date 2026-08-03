@@ -41,13 +41,13 @@ it('captures spawn values instead of drifting issue defaults in row, meta, and s
     forceUnknownModel: true,
   })
 
-  registry.modules.sessions.onDaemonMessageFrom('local', {
+  registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
     type: 'agentModel',
     sessionId: spawned.sessionId,
     model: 'observed-model',
     effort: 'xhigh',
   })
-  registry.modules.sessions.onDaemonMessageFrom('local', {
+  registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
     type: 'agentContext',
     sessionId: spawned.sessionId,
     percent: 37.5,
