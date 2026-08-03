@@ -352,6 +352,18 @@ describe('RETIRED model-single-home -> feature-single-home', () => {
     ).toEqual([])
   })
 
+  it('still sees a declaration a block comment left indented (POD-755)', () => {
+    // stripComments blanks a comment IN PLACE, so a comment closed with no space
+    // before `export` leaves spaces there. A `^export`-anchored matcher missed it.
+    expect(
+      checkFeatureSingleHome(
+        'packages/client-core/src/viewmodels.ts',
+        `/*c*/export function isIssueClosed(i: I) { return false }`,
+        owned,
+      ).map((x) => x.specifier),
+    ).toEqual(['isIssueClosed'])
+  })
+
   it('never accuses the home itself', () => {
     expect(
       checkFeatureSingleHome(
