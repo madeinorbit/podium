@@ -230,7 +230,6 @@ export class SessionLifecycle {
   readonly workspace!: SessionWorkspace
   readonly view!: SessionView
   readonly repository!: SessionRepository
-  private issueProjectionGeneration = 0
   readonly broadcasts!: SessionBroadcastCoordinator
   private readonly browserOpen!: BrowserOpenGateway
   private readonly bindingReceipts!: SessionBindingReceipts

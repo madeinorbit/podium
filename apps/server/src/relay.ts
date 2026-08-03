@@ -1046,9 +1046,13 @@ export class SessionRegistry {
           console.warn('[podium] wake-on-queue failed for ' + sessionId + ':', err)
         })
     })
-    this.bus.on('session.listChanged', () => {
-      publisher.publishIssues(issues.allWire(), issues.allProjections())
-    })
+    // The `session.listChanged` republish tail is GONE (POD-1574). It re-derived
+    // every issue's payload whenever the session list moved, gated by a dirty
+    // check that no writer ever advanced. Neither `IssueWire` (POD-797 removed
+    // `sessions`/`sessionSummary`/`unread`) nor `IssueProjection` (never had one)
+    // carries a session-derived field, so the tail had nothing to reconcile — and
+    // the one time the gate did open, boot reconciliation had already published
+    // the same rows (modules/issues/service/index.ts).
     const locks = new LockService({
       locks: this.store.locks,
       transact: (fn) => this.store.transact(fn),

@@ -99,9 +99,13 @@ export interface PerfOpSummary {
  * `PHASE_MIGRATION.sessionsBroadcast.X` sample recorded after it.*
  *
  * `sessionsBroadcast.publishIssues` and `.publishIssuesSkipped` are absent ON
- * PURPOSE and that absence is a claim: those two name work that still runs under
- * its own name (the issue-projection rebuild), so they are CARRIED OVER rather
- * than migrated and a map entry would assert a rename that did not happen.
+ * PURPOSE, but the reason CHANGED at POD-1574 and the distinction matters to a
+ * baseline reader. They used to be absent because they named work that still ran
+ * under its own name; they are now absent because that work is DELETED, not
+ * renamed — the session-list issue republish had nothing to reconcile once the
+ * issue representations stopped carrying session-derived fields. A map entry
+ * would still be wrong: it would send a reader to a successor phase, and these
+ * two have no successor. No sample bearing either name is emitted any more.
  */
 export const PHASE_MIGRATION: Readonly<Record<string, string>> = {
   /** Building the payload a client gets → evaluating the principal's slice. */
