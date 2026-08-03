@@ -12,11 +12,12 @@
  * succeeding under a ceiling that allows it.
  */
 
-import { asIssueId, asSessionId, asMachineId} from '@podium/model'
+import { asIssueId, asMachineId, asSessionId } from '@podium/model'
 import type { TRPCError } from '@trpc/server'
 import { describe, expect, it } from 'vitest'
 import type { Capability } from '../../issue-authz'
-import { mailHarness, OPERATOR } from './characterization-support'
+import { OPERATOR } from '../../test-support/capabilities'
+import { mailHarness } from './characterization-support'
 import { applyAuthFromCeiling } from './handlers/context'
 
 /** A ceiling that hides exactly the named issue ids from the delegating human. */
@@ -272,10 +273,15 @@ describe('spawnAgent places work on OWNED COMPUTE and fails closed', () => {
     const h = mailHarness({ machines: machines({ use: false, reachable: true }) })
     const issue = withMachine(h)
     await expect(
-      h.gate.dispatch(h.agentCap(asIssueId(issue.id), asSessionId('sMe')), undefined, 'spawnAgent', {
-        issue: issue.id,
-        prompt: 'go',
-      }),
+      h.gate.dispatch(
+        h.agentCap(asIssueId(issue.id), asSessionId('sMe')),
+        undefined,
+        'spawnAgent',
+        {
+          issue: issue.id,
+          prompt: 'go',
+        },
+      ),
     ).rejects.toThrow(/not allowed to run agents on machine mac_alices_laptop/)
     // Never silently retargeted: no session was created anywhere.
     expect(h.gateSpawns).toEqual([])
@@ -288,10 +294,15 @@ describe('spawnAgent places work on OWNED COMPUTE and fails closed', () => {
     const b = withMachine(offline)
     const message = async (h: ReturnType<typeof mailHarness>, id: string): Promise<string> => {
       try {
-        await h.gate.dispatch(h.agentCap(asIssueId(id), asSessionId('sMe')), undefined, 'spawnAgent', {
-          issue: id,
-          prompt: 'go',
-        })
+        await h.gate.dispatch(
+          h.agentCap(asIssueId(id), asSessionId('sMe')),
+          undefined,
+          'spawnAgent',
+          {
+            issue: id,
+            prompt: 'go',
+          },
+        )
         return 'no error'
       } catch (e) {
         return (e as Error).message
@@ -307,10 +318,15 @@ describe('spawnAgent places work on OWNED COMPUTE and fails closed', () => {
   it('spawns when the principal holds `use` — the instrument can say yes', async () => {
     const h = mailHarness({ machines: machines({ use: true, reachable: true }) })
     const issue = withMachine(h)
-    const r = (await h.gate.dispatch(h.agentCap(asIssueId(issue.id), asSessionId('sMe')), undefined, 'spawnAgent', {
-      issue: issue.id,
-      prompt: 'go',
-    })) as { ok: boolean; machine: string | null }
+    const r = (await h.gate.dispatch(
+      h.agentCap(asIssueId(issue.id), asSessionId('sMe')),
+      undefined,
+      'spawnAgent',
+      {
+        issue: issue.id,
+        prompt: 'go',
+      },
+    )) as { ok: boolean; machine: string | null }
     expect(r.ok).toBe(true)
     expect(h.gateSpawns).toHaveLength(1)
     expect(h.gateSpawns[0]?.machineId).toBe('mac_alices_laptop')
@@ -359,16 +375,11 @@ describe('a wake refuses to start a process without `use` on the target machine 
   it('dead-letters a wake to a parked session when the sender may not USE its machine', async () => {
     const h = mailHarness({ machines: machines({ use: false, reachable: true }) })
     const issue = parkedOnAlice(h)
-    const r = (await h.gate.dispatch(
-      h.agentCap(issue.id, asSessionId('sMe')),
-      undefined,
-      'send',
-      {
-        to: 'sParked',
-        body: 'wake up',
-        lifecycle: 'wake',
-      },
-    )) as { ok: boolean; disposition: string; reason?: string }
+    const r = (await h.gate.dispatch(h.agentCap(issue.id, asSessionId('sMe')), undefined, 'send', {
+      to: 'sParked',
+      body: 'wake up',
+      lifecycle: 'wake',
+    })) as { ok: boolean; disposition: string; reason?: string }
 
     expect(r.ok).toBe(false)
     expect(r.disposition).toBe('dead_letter')
@@ -386,12 +397,11 @@ describe('a wake refuses to start a process without `use` on the target machine 
     const issue = parkedOnAlice(h)
     // timeoutSeconds:0 — ask always awaits the ack bound; the question row is
     // already dead-lettered before the wait, so a zero window returns immediately.
-    const r = (await h.gate.dispatch(
-      h.agentCap(issue.id, asSessionId('sMe')),
-      undefined,
-      'ask',
-      { sessionId: asSessionId('sParked'), question: 'still there?', timeoutSeconds: 0 },
-    )) as { answered: boolean; questionId: string }
+    const r = (await h.gate.dispatch(h.agentCap(issue.id, asSessionId('sMe')), undefined, 'ask', {
+      sessionId: asSessionId('sParked'),
+      question: 'still there?',
+      timeoutSeconds: 0,
+    })) as { answered: boolean; questionId: string }
 
     expect(r.answered).toBe(false)
     expect(h.svc.message(r.questionId)?.status).toBe('dead_letter')
@@ -406,11 +416,16 @@ describe('a wake refuses to start a process without `use` on the target machine 
     const b = parkedOnAlice(offline)
 
     const wake = async (h: ReturnType<typeof mailHarness>, issueId: string) => {
-      const r = (await h.gate.dispatch(h.agentCap(asIssueId(issueId), asSessionId('sMe')), undefined, 'send', {
-        to: 'sParked',
-        body: 'wake',
-        lifecycle: 'wake',
-      })) as Record<string, unknown>
+      const r = (await h.gate.dispatch(
+        h.agentCap(asIssueId(issueId), asSessionId('sMe')),
+        undefined,
+        'send',
+        {
+          to: 'sParked',
+          body: 'wake',
+          lifecycle: 'wake',
+        },
+      )) as Record<string, unknown>
       // Per-row id differs for any two sends; everything else must match.
       const { id: _id, ...rest } = r
       return rest
@@ -432,16 +447,11 @@ describe('a wake refuses to start a process without `use` on the target machine 
   it('wakes when the principal holds `use` — the instrument can say yes', async () => {
     const h = mailHarness({ machines: machines({ use: true, reachable: true }) })
     const issue = parkedOnAlice(h)
-    const r = (await h.gate.dispatch(
-      h.agentCap(issue.id, asSessionId('sMe')),
-      undefined,
-      'send',
-      {
-        to: 'sParked',
-        body: 'wake up',
-        lifecycle: 'wake',
-      },
-    )) as { ok: boolean; disposition: string }
+    const r = (await h.gate.dispatch(h.agentCap(issue.id, asSessionId('sMe')), undefined, 'send', {
+      to: 'sParked',
+      body: 'wake up',
+      lifecycle: 'wake',
+    })) as { ok: boolean; disposition: string }
 
     expect(r.ok).toBe(true)
     expect(r.disposition).not.toBe('dead_letter')
@@ -451,16 +461,11 @@ describe('a wake refuses to start a process without `use` on the target machine 
   it('a wait-lifecycle message to a parked session does NOT need use — no process starts', async () => {
     const h = mailHarness({ machines: machines({ use: false, reachable: true }) })
     const issue = parkedOnAlice(h)
-    const r = (await h.gate.dispatch(
-      h.agentCap(issue.id, asSessionId('sMe')),
-      undefined,
-      'send',
-      {
-        to: 'sParked',
-        body: 'parked note',
-        lifecycle: 'wait',
-      },
-    )) as { ok: boolean; disposition: string; id: string }
+    const r = (await h.gate.dispatch(h.agentCap(issue.id, asSessionId('sMe')), undefined, 'send', {
+      to: 'sParked',
+      body: 'parked note',
+      lifecycle: 'wait',
+    })) as { ok: boolean; disposition: string; id: string }
 
     expect(r.ok).toBe(true)
     expect(r.disposition).toBe('queued')
@@ -473,16 +478,11 @@ describe('a wake refuses to start a process without `use` on the target machine 
     const issue = h.createIssue({ title: 'empty' })
     h.issues.update(issue.id, { machineId: asMachineId('mac_alices_laptop') })
     // No sessions on the issue → wake tries trySpawn on the issue machine.
-    const r = (await h.gate.dispatch(
-      h.agentCap(issue.id, asSessionId('sMe')),
-      true,
-      'send',
-      {
-        to: issue.id,
-        body: 'spin someone up',
-        lifecycle: 'wake',
-      },
-    )) as { ok: boolean; disposition: string; reason?: string }
+    const r = (await h.gate.dispatch(h.agentCap(issue.id, asSessionId('sMe')), true, 'send', {
+      to: issue.id,
+      body: 'spin someone up',
+      lifecycle: 'wake',
+    })) as { ok: boolean; disposition: string; reason?: string }
 
     expect(r).toMatchObject({
       ok: false,
@@ -554,16 +554,11 @@ describe('a wake refuses to start a process without `use` on the target machine 
     h.transport.reason = 'no resume ref'
     h.transport.failSessions = ['sUnresumable']
 
-    const r = (await h.gate.dispatch(
-      h.agentCap(issue.id, asSessionId('sMe')),
-      undefined,
-      'send',
-      {
-        to: 'sUnresumable',
-        body: 'resurrect elsewhere',
-        lifecycle: 'wake',
-      },
-    )) as { ok: boolean; disposition: string; reason?: string }
+    const r = (await h.gate.dispatch(h.agentCap(issue.id, asSessionId('sMe')), undefined, 'send', {
+      to: 'sUnresumable',
+      body: 'resurrect elsewhere',
+      lifecycle: 'wake',
+    })) as { ok: boolean; disposition: string; reason?: string }
 
     expect(r).toMatchObject({
       ok: false,
@@ -619,11 +614,16 @@ describe('sender identity is stamped from the capability and cannot be influence
       { kind: 'operator' },
       { to: { kind: 'issue', id: mine.id }, body: 'ping' },
     )
-    const r = (await h.gate.dispatch(h.agentCap(mine.id, asSessionId('sMine')), undefined, 'reply', {
-      id: original.message.id,
-      body: 'pong',
-      ...IMPERSONATION_PAYLOAD,
-    })) as { id: string }
+    const r = (await h.gate.dispatch(
+      h.agentCap(mine.id, asSessionId('sMine')),
+      undefined,
+      'reply',
+      {
+        id: original.message.id,
+        body: 'pong',
+        ...IMPERSONATION_PAYLOAD,
+      },
+    )) as { id: string }
     const row = h.svc.message(r.id)
     expect(row?.fromKind).toBe('agent')
     expect(row?.fromIssue).toBe(mine.id)

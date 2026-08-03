@@ -27,9 +27,10 @@ import { asAgentIdentityId, asMachineId, asUserId, type MachineId } from '@podiu
 import type { ControlMessage, UserId } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { userCommandPrincipal } from '../../command-principal'
-import { OPERATOR } from '../../issue-authz'
+
 import { SessionRegistry } from '../../relay'
 import { SessionStore } from '../../store'
+import { OPERATOR } from '../../test-support/capabilities'
 import { machineUseGateFor } from './handoff/access'
 import { MUST_NOT_CHANGE, messageOf, waitFor, willChange } from './oracle-support'
 

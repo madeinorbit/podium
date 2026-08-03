@@ -203,13 +203,15 @@ export function capabilityAttribution(cap: Capability): AttributionPair {
   }
 }
 
-/** The human operator (and, for now, the trusted in-process MCP): unconstrained. */
-export const OPERATOR: Capability = {
-  role: 'admin',
-  scope: { kind: 'all' },
-  actorUser: FIRST_ADMIN_USER_ID,
-  onBehalfOf: FIRST_ADMIN_USER_ID,
-}
+// `OPERATOR` — the unconstrained admin capability — is GONE from this layer
+// (POD-333). Under one shared password it was the answer to "who is calling?",
+// and `resolvePrincipal` minted it; once principals became (user, device,
+// capability) no production code constructed or read it, and a model-level
+// export nothing in the model constructs is a shim. It survives as a TEST
+// FIXTURE at apps/server/src/test-support/capabilities.ts, where the reason it
+// is dangerous to reach for — `scope: 'all'` short-circuits `authorize()`, which
+// is how POD-351 lost a class of revocation coverage — is written down beside
+// it. The identity half keeps its own name: `FIRST_ADMIN_USER_ID` (ADR 9 D1.5).
 
 // The per-procedure action/target tables (PROC_ACTION / SCOPED_TARGET) are GONE
 // (#248 [spec:SP-3fe2]): a command's required action and its target extractor

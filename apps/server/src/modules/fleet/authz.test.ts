@@ -32,12 +32,13 @@ import { describe, expect, it } from 'vitest'
 import { type CommandPrincipal, systemPrincipal } from '../../command-principal'
 import { openEnrollmentLedger } from '../../enrollment-ledger'
 import { PairingManager } from '../../hub/pairing'
-import { OPERATOR } from '../../issue-authz'
+
 import type { MachineOwnershipIndex, MachineOwnershipRow } from '../../machine-access'
 import { SessionRegistry } from '../../relay'
 import { RepoRegistry } from '../../repo-registry'
 import { appRouter } from '../../router'
 import { SessionStore } from '../../store'
+import { OPERATOR } from '../../test-support/capabilities'
 import { SuperagentService } from '../superagent'
 import { FLEET_TARGETS, type FleetAuthzDeps, fleetAuthzFailure, roleSatisfiesFloor } from './authz'
 
@@ -237,7 +238,9 @@ describe('the machine verb is read from the contract, per command', () => {
 
     // The owner: admitted. Assert this FIRST — without it the three refusals
     // below are satisfied by a gate that refuses everyone.
-    expect(fleetAuthzFailure('machines.transferOwnership', input, deps(user(OWNER)))).toBeUndefined()
+    expect(
+      fleetAuthzFailure('machines.transferOwnership', input, deps(user(OWNER))),
+    ).toBeUndefined()
 
     // A manage grantee holds every other manage-family command on this machine…
     const manage = deps(user(COLLEAGUE), { grants: [{ subject: COLLEAGUE, verb: 'manage' }] })
@@ -307,7 +310,9 @@ describe('the machine verb is read from the contract, per command', () => {
       'NOT_FOUND',
     )
     // Non-vacuity: the SAME command on an owned machine admits its owner.
-    expect(fleetAuthzFailure('machines.transferOwnership', input, deps(user(OWNER)))).toBeUndefined()
+    expect(
+      fleetAuthzFailure('machines.transferOwnership', input, deps(user(OWNER))),
+    ).toBeUndefined()
   })
 
   // -------------------------------------------------------------------------
@@ -808,7 +813,10 @@ describe('the derived fleet router actually calls the gate', () => {
 describe('a paired machine belongs to whoever minted its code', () => {
   function service() {
     const store = new SessionStore(':memory:')
-    const registry = new SessionRegistry(store, undefined, { instanceId: 'default', pairing: new PairingManager() })
+    const registry = new SessionRegistry(store, undefined, {
+      instanceId: 'default',
+      pairing: new PairingManager(),
+    })
     return { store, machines: registry.modules.machines }
   }
 

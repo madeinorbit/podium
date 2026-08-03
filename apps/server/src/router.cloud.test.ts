@@ -1,13 +1,13 @@
-import { resolvePrincipal } from './command-principal'
 import type { SessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import type { CloudAgentRequest, CloudRuntime, CloudRuntimeProvider } from './cloud-runtime'
-import { OPERATOR } from './issue-authz'
+import { resolvePrincipal } from './command-principal'
+import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
-import { SuperagentService } from './modules/superagent'
+import { OPERATOR } from './test-support/capabilities'
 
 const geometry = { cols: 80, rows: 24 }
 
@@ -29,7 +29,14 @@ function caller(
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, onDaemon)
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
-  const call = appRouter.createCaller({ registry, repos, superagent, cloud, capability: OPERATOR, principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }) })
+  const call = appRouter.createCaller({
+    registry,
+    repos,
+    superagent,
+    cloud,
+    capability: OPERATOR,
+    principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+  })
   return { call, registry }
 }
 
@@ -166,7 +173,10 @@ describe('cloud router', () => {
       cwd: '/workspace/podium',
       spawnedBy: 'user',
     })
-    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, bind(sessionId, '/workspace/podium', 'claude-code'))
+    registry.gateway.routeDaemonFrame(
+      registry.sessionStore.hostMachineId,
+      bind(sessionId, '/workspace/podium', 'claude-code'),
+    )
     registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
@@ -181,9 +191,9 @@ describe('cloud router', () => {
 
     expect(runtime.id).toBe('cloud-runtime-1')
     expect(daemon).toContainEqual({ type: 'kill', sessionId, durableLabel: 'podium-' + sessionId })
-    expect(registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.status).toBe(
-      'hibernated',
-    )
+    expect(
+      registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.status,
+    ).toBe('hibernated')
     expect(cloud.createdAgents.at(-1)).toMatchObject({
       sourceSession: {
         sessionId,

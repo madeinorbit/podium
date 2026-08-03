@@ -4,11 +4,12 @@ import { join } from 'node:path'
 import { hasPassword, setPassword, verifyPassword } from '@podium/runtime/auth-store'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { resolvePrincipal } from './command-principal'
-import { OPERATOR } from './issue-authz'
+
 import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
+import { OPERATOR } from './test-support/capabilities'
 
 function caller() {
   const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })

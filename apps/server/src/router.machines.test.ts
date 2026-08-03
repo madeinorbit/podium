@@ -1,12 +1,13 @@
-import { resolvePrincipal } from './command-principal'
 import { describe, expect, it } from 'vitest'
+import { resolvePrincipal } from './command-principal'
 import { PairingManager } from './hub/pairing'
-import { OPERATOR } from './issue-authz'
+
 import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
 import { SessionStore } from './store'
+import { OPERATOR } from './test-support/capabilities'
 
 function machineCaller() {
   const store = new SessionStore(':memory:')
@@ -15,16 +16,27 @@ function machineCaller() {
     id: 'm1',
     name: 'machine-one',
     hostname: 'host-one',
-    tokenHash: 'h1', ownerUserId: 'user:sole' })
+    tokenHash: 'h1',
+    ownerUserId: 'user:sole',
+  })
   // Pairing is a hub-role capability, injected the way server assembly does it.
-  const registry = new SessionRegistry(store, undefined, { instanceId: 'default', pairing: new PairingManager() })
+  const registry = new SessionRegistry(store, undefined, {
+    instanceId: 'default',
+    pairing: new PairingManager(),
+  })
   registry.modules.machines.ensureHostMachine('machine-under-test')
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
   return {
     registry,
-    call: appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR, principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }) }),
+    call: appRouter.createCaller({
+      registry,
+      repos,
+      superagent,
+      capability: OPERATOR,
+      principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+    }),
   }
 }
 
@@ -77,7 +89,9 @@ describe('sessions.create with machineId', () => {
       id: 'm2',
       name: 'machine-two',
       hostname: 'host-two',
-      tokenHash: 'h2', ownerUserId: 'user:sole' })
+      tokenHash: 'h2',
+      ownerUserId: 'user:sole',
+    })
     store.machines.setMachineInventory(
       'm2',
       JSON.stringify({
@@ -91,7 +105,13 @@ describe('sessions.create with machineId', () => {
     registry.gateway.attachDaemon('m2', () => {})
     const repos = new RepoRegistry(registry, registry.sessionStore)
     const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
-    const call = appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR, principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }) })
+    const call = appRouter.createCaller({
+      registry,
+      repos,
+      superagent,
+      capability: OPERATOR,
+      principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+    })
 
     const { sessionId } = await call.sessions.create({
       agentKind: 'claude-code',
@@ -111,7 +131,13 @@ describe('sessions.create with machineId', () => {
     registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
     const repos = new RepoRegistry(registry, registry.sessionStore)
     const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
-    const call = appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR, principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }) })
+    const call = appRouter.createCaller({
+      registry,
+      repos,
+      superagent,
+      capability: OPERATOR,
+      principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+    })
 
     const { sessionId } = await call.sessions.create({
       agentKind: 'claude-code',

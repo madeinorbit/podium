@@ -50,7 +50,7 @@ import {
   type CommandPrincipal,
   FIRST_ADMIN_USER_ID,
 } from './command-principal'
-import { OPERATOR } from './issue-authz'
+
 import type { MachineOwnershipIndex, MachineOwnershipRow } from './machine-access'
 import { ownershipFromMachines } from './machine-access'
 import { sessionCommandCtx, sessionCommandServices } from './modules/sessions/command-ctx'
@@ -73,6 +73,7 @@ import {
 } from './modules/sessions/session-state/registry'
 import { sessionSurfaceManifest } from './modules/sessions/trpc'
 import { appRouter } from './router'
+import { OPERATOR } from './test-support/capabilities'
 
 afterEach(() => disposeOracles())
 

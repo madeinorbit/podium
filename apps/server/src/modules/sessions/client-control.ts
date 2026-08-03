@@ -6,9 +6,9 @@ import type { SessionsClientFrame } from '../../gateway/client-frame-routing'
 import type { ClientPrincipal } from '../../gateway/client-principal'
 import { feedPrincipalOf } from '../../gateway/client-principal'
 import type { ClientConn } from '../../gateway/client-registry'
+import type { MachineListing } from '../machines/service'
 import { perfPrincipal } from '../perf/principal'
 import { perf } from '../perf/registry'
-import type { MachineListing } from '../machines/service'
 import type { SessionInbox } from './inbox'
 import type { SessionPublicationCoordinator } from './publication/coordinator'
 import type { Session } from './session'
@@ -37,14 +37,25 @@ export interface SessionClientControlPorts {
   /**
    * Session ownership + grants (from store). Undefined ⇒ session does not exist
    * (or is invisible — same answer per the consistent-error rule).
+   *
+   * REQUIRED, and that is the point (POD-333). It and `machineUseFor` were
+   * optional, with `if (!this.ports.sessionOwner) return true` and
+   * `?? 'granted'` behind them — convenience for unit fixtures that had no
+   * machine table, and a gate that fails OPEN for anyone who forgets to wire it.
+   * Production wired both, so nothing was exposed; but "the check is skipped
+   * when a dependency is missing" is the shape docs/multi-user-readiness.md
+   * §3.1.4 M4/M5 rules out, and an optional authorization port is one refactor
+   * away from being an unwired one. A fixture that does not care now says so
+   * explicitly — see the test helpers in session-control-identity.test.ts.
    */
-  sessionOwner?(sessionId: SessionId): { owner: UserId; grants: string[] } | undefined
+  sessionOwner(sessionId: SessionId): { owner: UserId; grants: string[] } | undefined
   /**
-   * Machine `use` for this principal on the session's host. Defaults to
-   * `granted` when uninjected so unit fixtures without a machine table keep
-   * working; production always wires the real gate.
+   * Machine `use` for this principal on the session's host. REQUIRED — see
+   * `sessionOwner` above. `MachineUseDecision` deliberately has no `'unknown'`
+   * member (packages/model), and an optional port with a permissive default was
+   * that member by another route.
    */
-  machineUseFor?(
+  machineUseFor(
     principal: ClientPrincipal,
     sessionId: SessionId,
   ): SessionControlContext['machineUse']
@@ -227,24 +238,20 @@ export class SessionClientControl {
     session: Session | undefined,
   ): boolean {
     if (!session) return false
-    const owner = this.ports.sessionOwner?.(sessionId)
-    // No ownership port (legacy unit fixtures): keep today's open attach so
-    // incident tests stay focused on controller gating rather than multi-user
-    // policy. Production always injects sessionOwner.
-    if (!this.ports.sessionOwner) return true
+    const owner = this.ports.sessionOwner(sessionId)
+    // No resolvable owner ⇒ denied. Not "unknown, probably fine": a session
+    // whose owner cannot be resolved is indistinguishable from one that does not
+    // exist, which is also the consistent-error rule (§3.1.5).
     if (!owner) return false
-    const machineUse = this.ports.machineUseFor?.(principal, sessionId) ?? 'granted'
-    const ctx = contextFromOwnership(owner, machineUse)
+    const ctx = contextFromOwnership(owner, this.ports.machineUseFor(principal, sessionId))
     return mayWatch(controlSubjectFromClient(principal), ctx) === true
   }
 
   /** Drive rights for requestControl — owner / write grantee / admin + machine use. */
   authorizeDrive(principal: ClientPrincipal, sessionId: SessionId): boolean {
-    const owner = this.ports.sessionOwner?.(sessionId)
-    if (!this.ports.sessionOwner) return true
+    const owner = this.ports.sessionOwner(sessionId)
     if (!owner) return false
-    const machineUse = this.ports.machineUseFor?.(principal, sessionId) ?? 'granted'
-    const ctx = contextFromOwnership(owner, machineUse)
+    const ctx = contextFromOwnership(owner, this.ports.machineUseFor(principal, sessionId))
     return mayDrive(controlSubjectFromClient(principal), ctx) === true
   }
 }

@@ -14,13 +14,13 @@ import {
   asSessionId,
   asUserId,
   FIRST_ADMIN_USER_ID,
-  OPERATOR,
   type SessionId,
   type UserId,
 } from '@podium/model'
 import type { ControlMessage, ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentCommandPrincipal } from '../../command-principal'
+import { OPERATOR } from '../../test-support/capabilities'
 import { mailHarness } from '../messages/characterization-support'
 import {
   disposeOracles,

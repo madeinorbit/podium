@@ -1,15 +1,16 @@
-import { resolvePrincipal, userCommandPrincipal } from './command-principal'
-import { FIRST_ADMIN_USER_ID, asIssueId, asUserId } from '@podium/model'
+import { asIssueId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { SearchResultWire } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
-import { OPERATOR } from './issue-authz'
+import { resolvePrincipal, userCommandPrincipal } from './command-principal'
+import { MEMORY_EXISTENCE_POLICY, MemoryVisibilityPolicy } from './modules/memory/visibility'
+import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
 import { SessionStore } from './store'
-import { SuperagentService } from './modules/superagent'
-import { MEMORY_EXISTENCE_POLICY, MemoryVisibilityPolicy } from './modules/memory/visibility'
+import { OPERATOR } from './test-support/capabilities'
+
 /** The fixture's caller. `addComment` requires a principal (POD-1315) — these
  *  tests exercise the operator seam, so they say so rather than defaulting. */
 const AS_OPERATOR = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')

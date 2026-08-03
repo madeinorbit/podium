@@ -18,10 +18,11 @@
  * envelope has to discriminate rather than merely refuse.
  */
 
-import { OPERATOR, SOLE_USER_ID, asSessionId, asUserId, type SessionId } from '@podium/model'
+import { asSessionId, asUserId, type SessionId, SOLE_USER_ID } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../../../relay'
 import { SessionStore } from '../../../store'
+import { OPERATOR } from '../../../test-support/capabilities'
 import {
   type SessionStatePrincipal,
   SessionStateRegistry,

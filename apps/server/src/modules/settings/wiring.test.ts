@@ -37,11 +37,12 @@ import { resolvePrincipal } from '../../command-principal'
 import { FIRST_ADMIN_USER_ID, type UserRole } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { PairingManager } from '../../hub/pairing'
-import { OPERATOR } from '../../issue-authz'
+
 import { SessionRegistry } from '../../relay'
 import { RepoRegistry } from '../../repo-registry'
 import { appRouter } from '../../router'
 import { SessionStore } from '../../store'
+import { OPERATOR } from '../../test-support/capabilities'
 import { SuperagentService } from '../superagent'
 import { SECRET_SURFACE_ABSENT } from './authz'
 
@@ -49,7 +50,10 @@ const SECRET = 'sk-ant-real-material-do-not-log'
 
 function harness(role: UserRole | undefined) {
   const store = new SessionStore(':memory:')
-  const registry = new SessionRegistry(store, undefined, { instanceId: 'default', pairing: new PairingManager() })
+  const registry = new SessionRegistry(store, undefined, {
+    instanceId: 'default',
+    pairing: new PairingManager(),
+  })
   registry.modules.machines.ensureHostMachine('machine-under-test')
 
   // Override only after boot has loaded the real migration account. The command
@@ -61,7 +65,13 @@ function harness(role: UserRole | undefined) {
   const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
   return {
     store,
-    call: appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR, principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }) }),
+    call: appRouter.createCaller({
+      registry,
+      repos,
+      superagent,
+      capability: OPERATOR,
+      principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+    }),
     audit: () => store.settingsAudit.list(),
   }
 }

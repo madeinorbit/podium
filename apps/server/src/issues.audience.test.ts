@@ -1,4 +1,4 @@
-import { resolvePrincipal } from './command-principal'
+import type { IssueWire } from '@podium/model'
 /**
  * #198 — origin is derived from the caller (deterministic, unforgeable) and
  * audience is agent-declared, and the orphan-internal warning fires when an
@@ -8,12 +8,13 @@ import { resolvePrincipal } from './command-principal'
  * SP-6144: agent-created top-level issues are human-facing proposals, inert until
  * an operator promotes them. needsHuman remains reserved for actual questions.
  */
-import { FIRST_ADMIN_USER_ID, asSessionId } from '@podium/model'
-import type { IssueWire } from '@podium/model'
+import { asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { type Capability, OPERATOR } from './issue-authz'
+import { resolvePrincipal } from './command-principal'
+import type { Capability } from './issue-authz'
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
+import { OPERATOR } from './test-support/capabilities'
 
 const ctx = (registry: SessionRegistry, rawCapability: Capability) => {
   const capability: Capability =

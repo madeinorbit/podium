@@ -28,14 +28,11 @@
 
 import { asSessionId, SOLE_USER_ID } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import { OPERATOR } from '../../test-support/capabilities'
 import { WAKE_COOLDOWN_MS } from './brakes'
-import { mailHarness, OPERATOR, phaseState } from './characterization-support'
+import { mailHarness, phaseState } from './characterization-support'
 import { INLINE_BODY_MAX } from './render'
-import {
-  ECHO_CONFIRM_WINDOW_MS,
-  HOP_LIMIT,
-  MAX_ECHO_REQUEUES,
-} from './service'
+import { ECHO_CONFIRM_WINDOW_MS, HOP_LIMIT, MAX_ECHO_REQUEUES } from './service'
 
 const kinds = (h: ReturnType<typeof mailHarness>): string[] => h.events().map((e) => e.kind)
 
@@ -537,14 +534,18 @@ describe('characterization: delivered (echo) vs read (inbox) (D6)', () => {
     expect(h.svc.message(id)!.status).toBe('queued')
 
     // An assistant turn quoting the id must never self-confirm.
-    h.svc.onTranscriptDelta(asSessionId('s1'), [{ role: 'assistant', text: `podium message ${id}` }])
+    h.svc.onTranscriptDelta(asSessionId('s1'), [
+      { role: 'assistant', text: `podium message ${id}` },
+    ])
     expect(h.svc.message(id)!.status).toBe('queued')
     // Nor may a DIFFERENT session's transcript quoting the id confirm it (the
     // operator pasting it elsewhere) — that would strand the real target.
     h.svc.onTranscriptDelta(asSessionId('sOther'), [{ role: 'user', text: `podium message ${id}` }])
     expect(h.svc.message(id)!.status).toBe('queued')
 
-    h.svc.onTranscriptDelta(asSessionId('s1'), [{ role: 'user', text: `[podium message ${id} · from x]` }])
+    h.svc.onTranscriptDelta(asSessionId('s1'), [
+      { role: 'user', text: `[podium message ${id} · from x]` },
+    ])
     const delivered = h.svc.message(id)!
     expect(delivered.status).toBe('delivered')
     expect(delivered.deliveredAt).toBe(h.now())
@@ -563,7 +564,9 @@ describe('characterization: delivered (echo) vs read (inbox) (D6)', () => {
     const id = r.message.id
     expect(h.svc.message(id)!.status).toBe('queued')
 
-    const rows = h.svc.readInbox([{ kind: 'issue', id: iss.id }], { consume: asSessionId('sReader') })
+    const rows = h.svc.readInbox([{ kind: 'issue', id: iss.id }], {
+      consume: asSessionId('sReader'),
+    })
     expect(rows.map((m) => m.status)).toEqual(['read'])
     const read = h.svc.message(id)!
     expect(read).toMatchObject({ status: 'read', readAt: h.now(), deliveredTo: 'sReader' })
@@ -861,10 +864,16 @@ describe('characterization: who owes a reply, and the single redelivery (D9)', (
       // The settle notice only fires for messages the recipient DEMONSTRABLY
       // has: the query is gated on status delivered/read, so an enveloped push
       // still awaiting its echo is deliberately not notifiable yet.
-      h.svc.onTranscriptDelta(asSessionId('sTo'), [{ role: 'user', text: `podium message ${sent.message.id}` }])
+      h.svc.onTranscriptDelta(asSessionId('sTo'), [
+        { role: 'user', text: `podium message ${sent.message.id}` },
+      ])
     }
     h.pushes.length = 0
-    h.svc.systemAckFallback(asSessionId('sTo'), { outcome: 'finished', issueSeq: to.seq, issueStage: 'review' })
+    h.svc.systemAckFallback(asSessionId('sTo'), {
+      outcome: 'finished',
+      issueSeq: to.seq,
+      issueStage: 'review',
+    })
     // ONE notice PER MESSAGE — a group notice referencing only the latest would
     // leave the others unmarked and re-fire them next settle (the loop that sent
     // one message 7 notices in 33 minutes).
@@ -978,7 +987,9 @@ describe('characterization: urgency-gated blocking send (D11)', () => {
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     echoOnce = () => {
       const row = h.svc.inbox([{ kind: 'session', id: 's1' }]).at(-1)!
-      h.svc.onTranscriptDelta(asSessionId('s1'), [{ role: 'user', text: `podium message ${row.id}` }])
+      h.svc.onTranscriptDelta(asSessionId('s1'), [
+        { role: 'user', text: `podium message ${row.id}` },
+      ])
     }
     const r = (await h.gate.dispatch(h.agentCap(iss.id, asSessionId('sFrom')), undefined, 'send', {
       to: 's1',
@@ -1036,9 +1047,14 @@ describe('characterization: sender-queryable status (D12)', () => {
       { kind: 'agent', issueId: from.id, sessionId: asSessionId('sFrom') },
       { to: { kind: 'session', id: 'sTo' }, body: 'x', urgency: 'next-turn' },
     )
-    const wire = (await h.gate.dispatch(h.agentCap(from.id, asSessionId('sFrom')), undefined, 'status', {
-      id: r.message.id,
-    })) as Record<string, unknown>
+    const wire = (await h.gate.dispatch(
+      h.agentCap(from.id, asSessionId('sFrom')),
+      undefined,
+      'status',
+      {
+        id: r.message.id,
+      },
+    )) as Record<string, unknown>
     expect(wire).toMatchObject({
       id: r.message.id,
       from: `issue:#${from.seq}`,

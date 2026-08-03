@@ -46,7 +46,7 @@
 
 import { afterEach, describe, expect, it } from 'vitest'
 import { FIRST_ADMIN_USER_ID } from '../../command-principal'
-import { OPERATOR } from '../../issue-authz'
+import { OPERATOR } from '../../test-support/capabilities'
 import { disposeOracles, MUST_NOT_CHANGE, makeOracle, willChange } from './oracle-support'
 
 afterEach(() => disposeOracles())

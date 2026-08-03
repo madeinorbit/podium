@@ -19,10 +19,11 @@ import { resolvePrincipal, userCommandPrincipal } from './command-principal'
  *  tests exercise the operator seam, so they say so rather than defaulting. */
 const AS_OPERATOR = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
 
-import { type Capability, OPERATOR } from './issue-authz'
+import type { Capability } from './issue-authz'
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
 import { SessionStore } from './store'
+import { OPERATOR } from './test-support/capabilities'
 import { attachTestClient } from './test-support/client-transport'
 
 /**
