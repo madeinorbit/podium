@@ -60,3 +60,39 @@ once? Measure a SECOND boot of the same already-migrated directory.
 Logged-in behaviour. The upgraded instance correctly demands the operator's
 password, which I do not have. It is running at `http://ludovico:18902` for a
 human to carry on from.
+
+---
+
+# Addendum — terminal and session coverage (2026-08-03, integration 14c72b4a)
+
+The gap named in the earlier report ("PTY terminals under real use") is now
+partly closed. Measured on the fresh-database instance with a daemon attached.
+
+**Sessions are real and they persist.** Five live rows in `sessions` after
+click-driving the UI — three `claude-code`, two `shell`, all `status = live`,
+each with a real `cwd`.
+
+**The terminals are real PTYs.** Each shell session has its own abduco process:
+
+    abduco -n podium-rewrite-smoke-96882054-…  /bin/bash
+    abduco -n podium-rewrite-smoke-5c092cdc-…  /bin/bash
+
+Note the instance-scoped name — the test instance's terminals are namespaced
+away from the live install's, which is what makes this safe to run beside it.
+
+**The Shell panel binds to a worktree, correctly.** Opened with no session it
+says "No active worktree" and refuses; after an agent session exists it attaches
+to `~/src/other/podium` and starts a shell. That is a guard, not a defect.
+
+**One UX observation, not yet an issue.** Open panels do not survive a page
+reload — after `goto` the app returns to "No panel — use + to start one" while
+the underlying sessions are still live server-side. Whether panel layout is meant
+to be per-tab state or restored is a product question, so it is recorded rather
+than filed.
+
+**Live data is real.** The toolbar renders machine memory (`ludovico MEM 66%`)
+and agent quota (`CC 67% · CX 78% · GR 100%`) matching the actual quota at the
+time — the read path is wired end to end, not stubbed.
+
+**Still not exercised:** sustained multi-agent load, the mobile client, and a
+second machine running the new code.
