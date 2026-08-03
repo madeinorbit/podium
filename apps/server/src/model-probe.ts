@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
@@ -144,11 +144,38 @@ export function parseModels(kind: ProbeableAgent, out: string): ModelChoice[] {
 /** Runs a probe argv → stdout. Injectable so tests never shell out. */
 export type ProbeExec = (argv: readonly string[], timeoutMs: number) => Promise<string>
 
+/**
+ * The PATH a probe runs with: the same user install roots the daemon makes
+ * authoritative for every spawned agent (`spawnEnv` in apps/daemon), prepended to
+ * the inherited one.
+ *
+ * The server process inherits a NON-LOGIN PATH (a systemd unit's, or a detached
+ * install's), which on a normal machine does not contain ~/.local/bin — where
+ * install.sh puts codex/grok/claude. Without this, every CLI probe ENOENTs and the
+ * catalog silently degrades to [] for that agent, so the web falls back to its tiny
+ * static list while the very same agent spawns fine (the daemon fixes its own PATH).
+ */
+export function probePath(env: NodeJS.ProcessEnv = process.env): string {
+  const home = env.HOME || homedir()
+  return [
+    join(home, '.local', 'bin'),
+    join(home, '.bun', 'bin'),
+    join(home, '.opencode', 'bin'),
+    ...(env.PATH ?? '').split(delimiter),
+  ]
+    .filter((entry, index, entries) => entry && entries.indexOf(entry) === index)
+    .join(delimiter)
+}
+
 const defaultExec: ProbeExec = async (argv, timeoutMs) => {
   const [cmd, ...args] = argv
   const { stdout } = await execFileAsync(cmd as string, args, {
     timeout: timeoutMs,
-    maxBuffer: 1024 * 1024,
+    // `codex debug models` embeds each model's full base instructions — ~300KB today
+    // and growing with every model added. 1MB was one release away from truncating
+    // the catalog into a parse failure (→ [] → the static fallback list).
+    maxBuffer: 16 * 1024 * 1024,
+    env: { ...process.env, PATH: probePath() },
   })
   return stdout
 }

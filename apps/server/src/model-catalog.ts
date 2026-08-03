@@ -1,9 +1,11 @@
 import type { ModelChoice } from './model-probe'
 
-/** Bumped whenever the probe's output SHAPE changes (e.g. per-model `efforts` added),
- *  so a persisted snapshot from an older build is ignored and re-probed instead of
- *  served stale within its TTL. */
-export const MODEL_CATALOG_VERSION = 2
+/** Bumped whenever the probe's output SHAPE changes (e.g. per-model `efforts` added)
+ *  OR a probe fix means an older snapshot's CONTENT is wrong (v3: the CLI probes ran
+ *  without the user install roots on PATH, so every CLI agent persisted an empty
+ *  list), so a persisted snapshot from an older build is ignored and re-probed
+ *  instead of served stale within its TTL. */
+export const MODEL_CATALOG_VERSION = 3
 
 export interface ModelCatalogSnapshot {
   /** Live models keyed by agent kind (grok/cursor/opencode). Absent agents fall

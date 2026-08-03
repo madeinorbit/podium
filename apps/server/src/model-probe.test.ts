@@ -8,6 +8,7 @@ import {
   probeAgentModels,
   probeAllModels,
   probeClaudeModels,
+  probePath,
 } from './model-probe'
 
 const GROK = `You are logged in with grok.com.
@@ -213,6 +214,31 @@ describe('probe (injected exec — no shelling out)', () => {
     ])
     expect(byAgent['claude-code']?.[0]?.value).toBe('claude-sonnet-5')
     expect(byAgent.codex?.length).toBe(2)
+  })
+
+  // The server runs with a non-login PATH (systemd/detached install) that lacks
+  // ~/.local/bin, where install.sh puts codex/grok/claude — so every CLI probe
+  // ENOENTed and the whole catalog silently degraded to the static fallback list.
+  it('probePath prepends the user install roots the daemon also makes authoritative', () => {
+    const path = probePath({ HOME: '/home/u', PATH: '/usr/bin:/bin' })
+    expect(path.split(':')).toEqual([
+      '/home/u/.local/bin',
+      '/home/u/.bun/bin',
+      '/home/u/.opencode/bin',
+      '/usr/bin',
+      '/bin',
+    ])
+  })
+
+  it('probePath keeps a custom entry once, without reordering the inherited PATH', () => {
+    const path = probePath({ HOME: '/home/u', PATH: '/opt/tools:/home/u/.local/bin:/usr/bin' })
+    expect(path.split(':')).toEqual([
+      '/home/u/.local/bin',
+      '/home/u/.bun/bin',
+      '/home/u/.opencode/bin',
+      '/opt/tools',
+      '/usr/bin',
+    ])
   })
 
   it('omits claude-code when the OAuth call yields nothing (static fallback)', async () => {
