@@ -1,5 +1,6 @@
 import { writeFileSync } from 'node:fs'
-import type { SessionMeta } from '@podium/model'
+import { asMachineId, asSessionId } from '@podium/model'
+import type { SessionId, SessionMeta } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import {
   createViewKey,
@@ -14,17 +15,17 @@ function required(name: string): string {
 }
 
 const count = Number(process.env.PODIUM_ACCEPTANCE_SESSION_COUNT ?? 20_000)
-const sessionIds: string[] = []
+const sessionIds: SessionId[] = []
 const sessions: SessionMeta[] = []
 for (let index = 0; index < count; index += 1) {
-  const sessionId = `process-worker-${index}`
+  const sessionId = asSessionId(`process-worker-${index}`)
   sessionIds.push(sessionId)
   sessions.push({
     sessionId,
     agentKind: 'shell',
     cwd: `/process-worker/${index}`,
     title: sessionId,
-    machineId: 'local',
+    machineId: asMachineId('local'),
     machineName: 'Local',
     status: 'live',
     geometry: { cols: 80, rows: 24 },

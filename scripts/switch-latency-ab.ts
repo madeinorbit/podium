@@ -38,6 +38,8 @@
  * Env: BENCH_SESSIONS (588), BENCH_ISSUES (800), BENCH_CYCLES (250).
  */
 
+import { asIssueId } from '@podium/model'
+import type { SessionId } from '@podium/model'
 import type { IssueRow } from '../apps/server/src/store'
 import type { PerfPrincipalSlice, PerfSnapshot } from '@podium/protocol'
 
@@ -91,7 +93,7 @@ interface ArmReport {
 function issueRow(seq: number): IssueRow {
   const timestamp = '2026-07-18T00:00:00.000Z'
   return {
-    id: `iss_bench_${seq}`,
+    id: asIssueId(`iss_bench_${seq}`),
     repoPath: '/switch-latency-bench',
     seq,
     title: `Bench issue ${seq}`,
@@ -125,10 +127,13 @@ function issueRow(seq: number): IssueRow {
     notes: null,
     dueAt: null,
     deferUntil: null,
+    closedAt: null,
     closedReason: null,
     supersededBy: null,
     duplicateOf: null,
-    pinned: false,
+    // No `pinned` — POD-1076 moved it (with readAt/tuckedAt) out of IssueRow
+    // and into per-user `(userId, issueId)` rows. This fixture kept setting it
+    // for however long, unchecked; the gate is what surfaced it.
     estimateMin: null,
     needsHuman: false,
     humanQuestion: null,
@@ -184,7 +189,7 @@ async function runArm(label: string): Promise<ArmReport> {
     for (let seq = 1; seq <= ISSUE_COUNT; seq += 1) store.issues.upsertIssue(issueRow(seq))
   })
   const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
-  const sessionIds: string[] = []
+  const sessionIds: SessionId[] = []
   try {
     for (let index = 0; index < SESSION_COUNT; index += 1) {
       sessionIds.push(
