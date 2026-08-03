@@ -1,11 +1,11 @@
-import { describe, expect, it } from 'vitest'
-import type { UiState } from '@/app/replica'
+import type { UiState } from '@podium/client-core/replica'
 import {
   FILE_MODE_MAP_CAP,
   HTML_MODE_MAP_KEY,
   readFilePanelMode,
   writeFilePanelMode,
-} from './file-panel-mode'
+} from '@podium/client-core/ui-state'
+import { describe, expect, it } from 'vitest'
 
 /** Minimal in-memory UiState. */
 function makeUi(seed: Record<string, string> = {}): { ui: UiState; data: Map<string, string> } {

@@ -1,5 +1,6 @@
-import type { IssueId } from '@podium/model'
+import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
+import type { IssueId } from '@podium/model'
 import { formatLong, truncateTitle } from '@podium/protocol'
 import { Copy, ExternalLink, GripVertical, PanelRight, Play, User, X } from 'lucide-react'
 import {
@@ -16,7 +17,6 @@ import { useReplicaIssues, useStoreSelector } from '@/app/store'
 import { StageChip } from '@/features/issues/IssuePanelView'
 import { isIssueStartable } from '@/features/issues/issue-startable'
 import { copyToClipboard } from '@/lib/clipboard'
-import { relativeTime } from '@/lib/home'
 import { setKnownRefPrefixes } from '@/lib/markdown'
 import {
   closeMiniview,

@@ -20,13 +20,13 @@
  * they cross both halves of the cutover.
  */
 
-import { FIRST_ADMIN_USER_ID } from '@podium/model'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { makeIssueClient } from '@podium/issue-client'
+import { FIRST_ADMIN_USER_ID } from '@podium/model'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { runWorkflowCli, type WorkflowCliDeps } from '../../cli/src/workflow-cli'
-import { makeIssueClient } from './issue-client'
 import { startServer } from './server'
 
 const priorStateDir = process.env.PODIUM_STATE_DIR!

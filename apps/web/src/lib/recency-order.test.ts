@@ -1,3 +1,4 @@
+import { compareRecency, groupSessions } from '@podium/client-core/focus'
 import {
   type AgentRuntimeState,
   asSessionId,
@@ -7,7 +8,6 @@ import {
 } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { partitionWorkItems, sortSessionsForSidebar } from './derive'
-import { compareRecency, groupSessions } from './home'
 
 const needsUser = (since: string): AgentRuntimeState => ({
   phase: 'needs_user',

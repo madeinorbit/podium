@@ -1,3 +1,4 @@
+import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
 import type { IssueWire } from '@podium/model'
 import { ChevronDown, ChevronRight, GitBranch, RefreshCw } from 'lucide-react'
@@ -6,7 +7,6 @@ import { useCallback, useEffect, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { GitStamp } from '@/components/GitStamp'
 import { Button } from '@/components/ui/button'
-import { relativeTime } from '@/lib/home'
 import {
   diffLineKind,
   entryBadge,

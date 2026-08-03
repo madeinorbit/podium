@@ -1,6 +1,6 @@
+import type { FileScope } from '@podium/client-core/viewmodels'
 import type { SessionId } from '@podium/model'
 import { resolveAgainstCwd } from './file-path'
-import type { FileScope } from './file-scope'
 
 /**
  * Build a URL that serves a markdown-relative asset (image) through the server's

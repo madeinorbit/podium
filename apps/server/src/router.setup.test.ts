@@ -1,23 +1,29 @@
-import { resolvePrincipal } from './command-principal'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { hasPassword, setPassword, verifyPassword } from '@podium/runtime/auth-store'
 import { loadConfig } from '@podium/runtime/config'
 import { encodeJoin } from '@podium/runtime/join'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { hasPassword, setPassword, verifyPassword } from './auth-store'
+import { resolvePrincipal } from './command-principal'
 import { OPERATOR } from './issue-authz'
+import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
-import { SuperagentService } from './modules/superagent'
 
 function caller() {
   const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
-  return appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR, principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }) })
+  return appRouter.createCaller({
+    registry,
+    repos,
+    superagent,
+    capability: OPERATOR,
+    principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+  })
 }
 
 const priorStateDir = process.env.PODIUM_STATE_DIR!

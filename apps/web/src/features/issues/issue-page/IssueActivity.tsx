@@ -10,6 +10,8 @@
  * there is deliberately no per-comment visibility affordance here, and adding
  * one would invent a policy the doc settles the other way.
  */
+
+import { relativeTime } from '@podium/client-core/focus'
 import {
   ArrowRight,
   CheckCircle2,
@@ -30,7 +32,6 @@ import type { JSX } from 'react'
 import type { IssueViewModel } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
-import { relativeTime } from '@/lib/home'
 import { cn } from '@/lib/utils'
 import type { ActivityItem, IssueEventIcon } from '../issue-events'
 import type { IssueMailMessage, IssuePageCommands } from '../issue-page-commands'

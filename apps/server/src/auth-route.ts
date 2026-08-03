@@ -1,9 +1,14 @@
 import { createHash, randomBytes } from 'node:crypto'
+import { asUserId, FIRST_ADMIN_USER_ID, type UserId, type UserRole } from '@podium/model'
 import { SESSION_COOKIE } from '@podium/protocol'
+import {
+  hashPassword,
+  hasPassword,
+  verifyPassword,
+  verifyPasswordHash,
+} from '@podium/runtime/auth-store'
 import type { Context, Hono, MiddlewareHandler } from 'hono'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
-import { FIRST_ADMIN_USER_ID, asUserId, type UserId, type UserRole } from '@podium/model'
-import { hashPassword, hasPassword, verifyPassword, verifyPasswordHash } from './auth-store'
 
 /** The subset of the store the auth surface needs (the human-UI login sessions). */
 export interface ClientSessionStore {

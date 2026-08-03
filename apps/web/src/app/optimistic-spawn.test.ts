@@ -1,11 +1,11 @@
-import { IssueWire, SessionMeta, asIssueId, asRepoId, asSessionId } from '@podium/model'
-import { describe, expect, it } from 'vitest'
 import {
   mergeOptimistic,
   optimisticDraftIssue,
   optimisticDraftSortKey,
   optimisticStartingSession,
-} from './optimistic-spawn'
+} from '@podium/client-core/viewmodels'
+import { asIssueId, asRepoId, asSessionId, IssueWire, SessionMeta } from '@podium/model'
+import { describe, expect, it } from 'vitest'
 
 describe('optimisticStartingSession', () => {
   const base = {

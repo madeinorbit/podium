@@ -1,3 +1,4 @@
+import { withoutShells } from '@podium/client-core/focus'
 import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
@@ -8,7 +9,6 @@ import {
   sidebarSections,
   withoutHeadless,
 } from './derive'
-import { withoutShells } from './home'
 
 function meta(over: Partial<SessionMetaInput>): SessionMeta {
   return {

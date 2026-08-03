@@ -1,6 +1,6 @@
+import { createReplica, type ReplicaInit } from '@podium/client-core/replica'
 import { readStoredView } from '@podium/client-core/ui-state'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { createReplica, type ReplicaInit } from './replica'
 
 // ---------------------------------------------------------------------------
 // ONE UI persistence mechanism (issue #15 Phase 4): the replica's versioned

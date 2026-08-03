@@ -19,6 +19,12 @@
  * shipped function; there is no logic in this file, deliberately.
  */
 
+import {
+  hasPassword,
+  clearPassword as storeClearPassword,
+  setPassword as storeSetPassword,
+  verifyPassword,
+} from '@podium/runtime/auth-store'
 import { loadConfig } from '@podium/runtime/config'
 import {
   applyJoin,
@@ -38,12 +44,6 @@ import {
   shouldAskForConsent,
 } from '@podium/telemetry'
 import { TRPCError } from '@trpc/server'
-import {
-  hasPassword,
-  clearPassword as storeClearPassword,
-  setPassword as storeSetPassword,
-  verifyPassword,
-} from '../../auth-store'
 
 /** The one optional dependency that is genuinely per-request rather than
  *  process-wide: the telemetry emitter, present only when the server was

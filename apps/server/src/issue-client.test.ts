@@ -1,6 +1,6 @@
 import { createServer } from 'node:http'
+import { makeIssueClient, makeRelayIssueClient } from '@podium/issue-client'
 import { describe, expect, it } from 'vitest'
-import { makeIssueClient, makeRelayIssueClient } from './issue-client'
 
 describe('makeIssueClient', () => {
   it('builds a client (smoke)', () => {
@@ -23,10 +23,17 @@ describe('makeRelayIssueClient', () => {
     await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r))
     const port = (srv.address() as any).port
     try {
-      const client = makeRelayIssueClient(`http://127.0.0.1:${port}/issue/s1`, { outsideScope: true })
+      const client = makeRelayIssueClient(`http://127.0.0.1:${port}/issue/s1`, {
+        outsideScope: true,
+      })
       const rows = await (client as any).issues.ready.query({ repoPath: '/r' })
       expect(rows).toEqual([{ seq: 1, title: 'X' }])
-      expect(received[0]).toEqual({ router: 'issues', proc: 'ready', input: { repoPath: '/r' }, outsideScope: true })
+      expect(received[0]).toEqual({
+        router: 'issues',
+        proc: 'ready',
+        input: { repoPath: '/r' },
+        outsideScope: true,
+      })
     } finally {
       srv.close()
     }
@@ -41,7 +48,9 @@ describe('makeRelayIssueClient', () => {
     const port = (srv.address() as any).port
     try {
       const client = makeRelayIssueClient(`http://127.0.0.1:${port}/issue/s1`)
-      await expect((client as any).issues.update.mutate({ id: 'B' })).rejects.toThrow(/outside your subtree/)
+      await expect((client as any).issues.update.mutate({ id: 'B' })).rejects.toThrow(
+        /outside your subtree/,
+      )
     } finally {
       srv.close()
     }

@@ -1,10 +1,10 @@
+import { deriveTrayItems, workingSessionCount } from '@podium/client-core/viewmodels'
 import type { SessionMeta } from '@podium/model'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useState } from 'react'
 import type { IssueViewModel } from '@/app/store'
 import { BrailleSpinner } from '@/lib/motion'
 import { cn } from '@/lib/utils'
-import { deriveTrayItems, workingSessionCount } from './derive-tray'
 import { itemKey, type TrayActions, TrayCard } from './TrayCard'
 
 /** Card keys this app session has already shown. A card runs its arrival

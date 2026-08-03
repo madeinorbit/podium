@@ -1,9 +1,9 @@
+import { artifactKind, artifactUrl, basename } from '@podium/client-core/viewmodels'
 import type { IssuePanelArtifact, SessionMeta, SessionOffer } from '@podium/model'
 import { FileText, Play } from 'lucide-react'
 import { type JSX, useState } from 'react'
 import { useReplicaIssues, useStoreSelector } from '@/app/store'
 import { MediaLightbox } from '@/components/MediaLightbox'
-import { artifactKind, artifactUrl, basename } from '@/lib/dock-panel'
 import { resolveOfferArtifacts } from './offer-artifacts'
 
 /** How many thumbnails an offer shows before collapsing into a "+N" chip. */

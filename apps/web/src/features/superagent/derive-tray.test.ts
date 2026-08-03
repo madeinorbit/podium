@@ -1,8 +1,12 @@
-import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
+import {
+  deriveTrayItems as deriveTrayItemsCore,
+  offerKey,
+  workingSessionCount,
+} from '@podium/client-core/viewmodels'
+import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
-import { deriveTrayItems as deriveTrayItemsCore, offerKey, workingSessionCount } from './derive-tray'
 
 const session = (over: Partial<SessionMetaInput>): SessionMeta =>
   ({
@@ -16,8 +20,10 @@ const session = (over: Partial<SessionMetaInput>): SessionMeta =>
     ...over,
   }) as SessionMeta
 
-
-const deriveTrayItems = (issues: ReturnType<typeof makeIssue>[], dismissed?: ReadonlySet<string>) => {
+const deriveTrayItems = (
+  issues: ReturnType<typeof makeIssue>[],
+  dismissed?: ReadonlySet<string>,
+) => {
   const sessions = issues.flatMap((issue) => issue.sessions ?? [])
   // Membership moves to `memberSessionIds`; `sessions` is EMPTIED rather than
   // dropped because this tree's `IssueWire` still declares it required, and the

@@ -1,6 +1,6 @@
+import type { UiState } from '@podium/client-core/replica'
 import { STICKY_PROMPTS_KEY } from '@podium/client-core/ui-state'
 import { useSyncExternalStore } from 'react'
-import type { UiState } from '@/app/replica'
 import { useStoreSelector } from '@/app/store'
 
 export { STICKY_PROMPTS_KEY }

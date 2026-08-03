@@ -1,11 +1,11 @@
 import { shallowEqual } from '@podium/client-core/store'
+import { basename } from '@podium/client-core/viewmodels'
 import { ChevronDown, ChevronRight, Folder, FolderOpen, RefreshCw } from 'lucide-react'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useState } from 'react'
 import { formatAppError } from '@/app/AppErrorPage'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
-import { basename } from '@/lib/dock-panel'
 import { FileTypeIcon } from './file-icon'
 
 type Entry = { name: string; isDir: boolean }

@@ -1,5 +1,5 @@
+import type { FileScope } from '@podium/client-core/viewmodels'
 import type { JSX } from 'react'
-import type { FileScope } from '@/lib/file-scope'
 import { fileKindForPath } from './file-kind'
 import { HtmlFilePanel } from './HtmlFilePanel'
 import { MarkdownFilePanel } from './MarkdownFilePanel'

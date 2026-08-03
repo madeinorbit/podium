@@ -1,7 +1,7 @@
+import type { IssueTrpc } from '@podium/issue-client'
+import { ISSUE_COMMANDS, type IssueCommand } from '@podium/issue-client'
 import type { ThreadId } from '@podium/model'
 import type { z } from 'zod'
-import type { IssueTrpc } from './issue-client'
-import { ISSUE_COMMANDS, type IssueCommand } from './issue-commands'
 import type { McpToolProvider } from './mcp-route'
 
 /** Minimal JSON Schema for the flat z.object arg schemas the registry uses. */

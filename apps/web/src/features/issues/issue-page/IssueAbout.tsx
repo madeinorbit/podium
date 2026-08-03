@@ -22,9 +22,10 @@
  * never said so would be a claim the server did not make, and on a visibility
  * field that is the worst possible place to guess.
  */
+
+import { relativeTime } from '@podium/client-core/focus'
 import type { JSX } from 'react'
 import type { IssueViewModel } from '@/app/store'
-import { relativeTime } from '@/lib/home'
 
 /** One About line: a label, the value to show, and an optional hover title.
  *  Returning an empty string means "this row has nothing to say" and the row is

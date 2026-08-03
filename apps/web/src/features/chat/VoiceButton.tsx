@@ -1,8 +1,8 @@
+import type { useVoiceInput } from '@podium/terminal-client-react'
 import { Mic } from 'lucide-react'
 import type { JSX } from 'react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import type { useVoiceInput } from '@/lib/voice'
 
 /**
  * VOICE INPUT (POD-405) — the mic affordance, and nothing else.

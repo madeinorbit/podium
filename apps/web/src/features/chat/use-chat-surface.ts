@@ -24,12 +24,12 @@ import {
   visibleOffer,
 } from '@podium/client-core/viewmodels'
 import type { SessionId, SessionMeta } from '@podium/model'
+import { useVoiceInput } from '@podium/terminal-client-react'
 import type { RefObject } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { useStickyPromptsPreference } from '@/lib/sticky-prompts'
-import { useVoiceInput } from '@/lib/voice'
 import type { PendingItem, QueuedChatMessage } from './chat'
 import { parseEnvelopeBatch } from './message-envelope'
 import { type UseAttachmentsResult, useAttachments } from './use-attachments'

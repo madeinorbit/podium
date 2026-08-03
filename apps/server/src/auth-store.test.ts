@@ -1,14 +1,14 @@
 import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import {
   applyEnvPassword,
   clearPassword,
   hasPassword,
   setPassword,
   verifyPassword,
-} from './auth-store'
+} from '@podium/runtime/auth-store'
+import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 
 let dir: string
 

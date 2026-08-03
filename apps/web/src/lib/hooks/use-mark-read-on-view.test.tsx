@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
+
+import { useMarkReadOnView } from '@podium/client-core/react'
 import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { cleanup, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { useMarkReadOnView } from './use-mark-read-on-view'
 
 // #138: simply VIEWING a session should clear its unread nag. The explicit
 // switch handlers miss the session that's already the open pane (the coordinator

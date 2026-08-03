@@ -1,4 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
+import { issueForCwd, resolveActiveWorktree } from '@podium/client-core/viewmodels'
 import {
   CircleDot,
   FolderTree,
@@ -16,7 +17,6 @@ import { GitPanelView } from '@/features/git/GitPanelView'
 import { IssuePanelView } from '@/features/issues/IssuePanelView'
 import { MessageLedgerView } from '@/features/messages/MessageLedgerView'
 import { DockShellPanel } from '@/features/terminal/DockShellPanel'
-import { issueForCwd, resolveActiveWorktree } from '@/lib/dock-panel'
 import type { RightPanelTab } from './shell-state'
 import { useReplicaIssues, useStoreSelector } from './store'
 

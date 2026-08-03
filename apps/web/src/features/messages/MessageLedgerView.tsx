@@ -5,12 +5,13 @@
  * a send, and the ack link. Scoped to the active session and/or its issue;
  * lives in the right dock next to the issue panel.
  */
+
+import { relativeTime } from '@podium/client-core/focus'
 import { Mail as MailIcon, RefreshCw } from 'lucide-react'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
-import { relativeTime } from '@/lib/home'
 import { cn } from '@/lib/utils'
 import {
   clampSummary,

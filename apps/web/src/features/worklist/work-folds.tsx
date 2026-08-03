@@ -1,3 +1,4 @@
+import { relativeTime } from '@podium/client-core/focus'
 import { issueDisplayRef } from '@podium/protocol'
 import { Archive, ChevronRight, Pin } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
@@ -7,7 +8,6 @@ import type {
   UnifiedIssueRow as UnifiedIssueRowView,
   UnifiedWorkRow,
 } from '@/lib/derive'
-import { relativeTime } from '@/lib/home'
 import { type RowTransitionItem, useArrivals } from '@/lib/motion'
 import { cn } from '@/lib/utils'
 import { closedFoldKey, snoozedFoldKey } from './fold-keys'

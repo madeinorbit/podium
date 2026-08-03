@@ -1,5 +1,19 @@
+import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
-import { asIssueId, type IssueComment, type IssueId, type IssueStage, type IssueWire } from '@podium/model'
+import {
+  artifactKind,
+  artifactUrl,
+  basename,
+  issueForPanel,
+  panelNonEmpty,
+} from '@podium/client-core/viewmodels'
+import {
+  asIssueId,
+  type IssueComment,
+  type IssueId,
+  type IssueStage,
+  type IssueWire,
+} from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { CircleAlert, FileText, Play, User } from 'lucide-react'
 import type { JSX } from 'react'
@@ -10,8 +24,6 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { copyToClipboard } from '@/lib/clipboard'
 import { subIssuesOf } from '@/lib/derive'
-import { artifactKind, artifactUrl, basename, issueForPanel, panelNonEmpty } from '@/lib/dock-panel'
-import { relativeTime } from '@/lib/home'
 import { cn } from '@/lib/utils'
 import { DockSection } from './DockSection'
 import { IssueCompactControls } from './IssueCompactControls'

@@ -1,16 +1,13 @@
 import {
-  type SessionMetaInput,
-  type SessionMeta,
-} from '@podium/model'
-import { describe, expect, it } from 'vitest'
-import {
   attentionGroup,
   attentionSummary,
   compareRecency,
   groupSessions,
   kanbanColumns,
   relativeTime,
-} from '../src/lib/home'
+} from '@podium/client-core/focus'
+import type { SessionMeta, SessionMetaInput } from '@podium/model'
+import { describe, expect, it } from 'vitest'
 
 const base = (over: Partial<SessionMetaInput> = {}): SessionMeta => ({
   sessionId: 's1',

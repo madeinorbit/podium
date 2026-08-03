@@ -1,4 +1,3 @@
-import { familyState } from './modules/derived-family'
 import {
   AgentKind,
   ArtifactIdField,
@@ -14,6 +13,7 @@ import {
   WorkState,
 } from '@podium/model'
 import { clientSwitchTraceSchema, type FileReadResultMessage } from '@podium/protocol'
+import { clearPassword, hasPassword, setPassword, verifyPassword } from '@podium/runtime/auth-store'
 import { loadConfig, resolveUpdateChannel } from '@podium/runtime/config'
 import {
   applyJoin,
@@ -33,7 +33,6 @@ import {
 } from '@podium/telemetry'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
-import { clearPassword, hasPassword, setPassword, verifyPassword } from './auth-store'
 import {
   type CloudAgentKind,
   type CloudRepoRequest,
@@ -49,7 +48,7 @@ import { approvalFamilyProcedures } from './modules/approvals/trpc'
 import { automationProcedures } from './modules/automations/trpc'
 import { cloudFamilyProcedures } from './modules/cloud/trpc'
 import { conversationFamilyProcedures } from './modules/conversations/trpc'
-import { queryProcedures } from './modules/derived-family'
+import { familyState, queryProcedures } from './modules/derived-family'
 import { fileFamilyProcedures } from './modules/files/trpc'
 import { DISCOVERY_QUERIES, REPO_QUERIES } from './modules/fleet/queries'
 import { hostFamilyProcedures } from './modules/hosts/trpc'
@@ -60,6 +59,7 @@ import {
 } from './modules/instance/trpc'
 import { issueRegistry } from './modules/issues/registry'
 import { routerFromCommands } from './modules/issues/trpc'
+import { layoutFamilyProcedures } from './modules/layout/trpc'
 import { lockRegistry } from './modules/lock/registry'
 import { lockRouterFromCommands } from './modules/lock/trpc'
 import {
@@ -75,6 +75,7 @@ import {
 } from './modules/misc-queries'
 import { modelFamilyProcedures } from './modules/models/trpc'
 import { perfFamilyProcedures } from './modules/perf/trpc'
+import { readPositionFamilyProcedures } from './modules/read-position/trpc'
 import {
   PIN_QUERIES,
   SESSION_QUERIES,
@@ -82,8 +83,6 @@ import {
   SYNC_QUERIES,
   TAB_QUERIES,
 } from './modules/sessions/queries'
-import { readPositionFamilyProcedures } from './modules/read-position/trpc'
-import { layoutFamilyProcedures } from './modules/layout/trpc'
 import { settingsAuthzDeps, settingsCommandsPermitted } from './modules/settings/authz'
 import { settingsFamilyProcedures } from './modules/settings/trpc'
 import { specsInputs } from './modules/specs/service'

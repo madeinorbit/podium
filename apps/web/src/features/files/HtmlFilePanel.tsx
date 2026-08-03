@@ -1,14 +1,18 @@
 import type { EditorView } from '@codemirror/view'
 import { shallowEqual } from '@podium/client-core/store'
+import {
+  HTML_MODE_MAP_KEY,
+  readFilePanelMode,
+  writeFilePanelMode,
+} from '@podium/client-core/ui-state'
+import { type FileScope, scopeKey } from '@podium/client-core/viewmodels'
 import { Columns2, Eye, Pencil, Save, X } from 'lucide-react'
 import { type JSX, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { scopedAssetUrl } from '@/lib/asset-url'
-import { type FileScope, scopeKey } from '@/lib/file-scope'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { canSave } from './editor-save'
-import { HTML_MODE_MAP_KEY, readFilePanelMode, writeFilePanelMode } from './file-panel-mode'
 import {
   buildStaticHtmlPreview,
   linkedStylesheetPathsForStaticHtml,

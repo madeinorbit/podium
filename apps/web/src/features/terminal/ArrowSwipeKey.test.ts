@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
 import {
+  type ArrowDirection,
   ArrowSwipeEngine,
   candidatePassesSwitchGate,
   computeUsableMaxes,
@@ -8,8 +8,8 @@ import {
   firstRepeatDelayMs,
   isConstrainedDirection,
   repeatCps,
-  type ArrowDirection,
-} from './ArrowSwipeKey'
+} from '@podium/terminal-client-react'
+import { describe, expect, it } from 'vitest'
 
 describe('evaluateGeometry', () => {
   it('stays neutral inside the activation deadzone', () => {

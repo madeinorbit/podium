@@ -1,3 +1,4 @@
+import type { SpawnTarget } from '@podium/client-core'
 import { shallowEqual } from '@podium/client-core/store'
 import type { AgentKind, IssueId, IssueWire, SessionId } from '@podium/model'
 import { resolveRole } from '@podium/runtime'
@@ -33,7 +34,6 @@ import {
   type PaletteCommand,
   type PaletteGroupId,
 } from './command-palette'
-import type { SpawnTarget } from './spawn-agent'
 import { useReplicaIssues, useSlice, useStoreSelector } from './store'
 
 const GROUP_LABELS: Record<PaletteGroupId, string> = {

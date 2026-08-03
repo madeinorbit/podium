@@ -1,9 +1,9 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { makeIssueClient } from '@podium/issue-client'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { runIssueCli } from '../../cli/src/issue-cli'
-import { makeIssueClient } from './issue-client'
 import { startServer } from './server'
 
 const priorStateDir = process.env.PODIUM_STATE_DIR!
@@ -84,8 +84,17 @@ describe('podium issue CLI ↔ live server (e2e)', () => {
     const seq = /created #(\d+)/.exec(
       await runIssueCli(
         [
-          'create', '--repoPath', '/repo', '--title', 'Model routing',
-          '--agent', 'codex', '--model', 'gpt-5.2-codex', '--effort', 'high',
+          'create',
+          '--repoPath',
+          '/repo',
+          '--title',
+          'Model routing',
+          '--agent',
+          'codex',
+          '--model',
+          'gpt-5.2-codex',
+          '--effort',
+          'high',
         ],
         client,
       ),
