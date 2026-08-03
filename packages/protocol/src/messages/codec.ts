@@ -11,6 +11,13 @@ import { ClientMessage } from './client'
 import { ControlMessage } from './control'
 import { DaemonMessage } from './daemon'
 import type { DaemonHandshake, DaemonHandshakeReply } from './daemon-handshake'
+import {
+  type FeedBootstrapMessage,
+  FeedBootstrapMessageLenient,
+  FeedChangeLenient,
+  type FeedDeltaMessage,
+  FeedDeltaMessageLenient,
+} from './feed'
 import { ServerMessage } from './server'
 import {
   MetadataChangeLenient,
@@ -56,13 +63,27 @@ const COLLECTION_MESSAGE_ELEMENTS: Record<string, { key: string; element: z.ZodT
   hostMetricsChanged: { key: 'hosts', element: HostMetricsWire },
 }
 
-/** What {@link parseServerMessageLenient} yields: the strict union, except
- *  metadataDelta, whose changes are kind-tolerant ([spec:SP-3fe2] #258 — a
- *  NEWER server may stream entity kinds this build doesn't know; consumers
- *  ignore those rows but must still see them to advance the cursor). */
+/** The wire-v2 change-bearing frames. Same per-element leniency as
+ *  `metadataDelta`, and for a sharper reason: v2 is the SHIPPED entity wire, and
+ *  a bootstrap frame carries the client's whole world in one object — so one
+ *  un-armed row taking the frame down empties the app rather than losing a row
+ *  (POD-1608). Keyed by `type`, with the envelope schema that tolerates
+ *  unknown kinds inside `changes`. */
+const FEED_MESSAGE_ENVELOPES: Record<string, z.ZodTypeAny> = {
+  feedDelta: FeedDeltaMessageLenient,
+  feedBootstrap: FeedBootstrapMessageLenient,
+}
+
+/** What {@link parseServerMessageLenient} yields: the strict union, except the
+ *  change-bearing frames (`metadataDelta` on v1, `feedDelta`/`feedBootstrap` on
+ *  v2), whose changes are kind-tolerant ([spec:SP-3fe2] #258 — a NEWER server
+ *  may stream entity kinds this build doesn't know; consumers ignore those rows
+ *  but must still see them to advance the cursor). */
 export type ServerMessageLenient =
-  | Exclude<ServerMessage, MetadataDeltaMessage>
+  | Exclude<ServerMessage, MetadataDeltaMessage | FeedDeltaMessage | FeedBootstrapMessage>
   | MetadataDeltaMessageLenient
+  | FeedDeltaMessageLenient
+  | FeedBootstrapMessageLenient
 
 export interface LenientServerMessage {
   /** The parsed message, or null only if the structural envelope was invalid. */
@@ -98,6 +119,25 @@ export function parseServerMessageLenient(raw: string): LenientServerMessage {
       else dropped++
     }
     return { message: MetadataDeltaMessageLenient.parse({ ...json, changes: good }), dropped }
+  }
+  const feedEnvelope =
+    typeof json?.type === 'string' ? FEED_MESSAGE_ENVELOPES[json.type] : undefined
+  if (feedEnvelope && Array.isArray(json.changes)) {
+    // The v1 contract above, on the v2 frames. An un-armed kind PASSES through
+    // `FeedChangeLenient` (the consumer ignores the row and still advances past
+    // its seq); a kind WITH an arm whose value is invalid is quarantined and
+    // counted, which callers read as a gap and heal from.
+    const good: unknown[] = []
+    let dropped = 0
+    for (const el of json.changes) {
+      const r = FeedChangeLenient.safeParse(el)
+      if (r.success) good.push(r.data)
+      else dropped++
+    }
+    return {
+      message: feedEnvelope.parse({ ...json, changes: good }) as ServerMessageLenient,
+      dropped,
+    }
   }
   const spec = typeof json?.type === 'string' ? COLLECTION_MESSAGE_ELEMENTS[json.type] : undefined
   const arr = spec ? json[spec.key] : undefined

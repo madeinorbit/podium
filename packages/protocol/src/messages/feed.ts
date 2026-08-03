@@ -66,7 +66,6 @@ import {
 import { z } from 'zod'
 import { FeedEpochField, ScopedChangeOp } from '../planes/scoped-feed'
 import { changeRowArm } from './change-row'
-import { MetadataEntityKind } from './sync'
 
 /**
  * ONE arm of the v2 change union.
@@ -98,12 +97,34 @@ export const FeedChange = z.discriminatedUnion('entity', [
 ])
 export type FeedChange = z.infer<typeof FeedChange>
 
-/** The catch-all arm — a kind THIS build does not know, from a newer server.
- *  Known kinds are excluded, so a known-kind row with an invalid value still
- *  fails parse (quarantine → heal) instead of sneaking through untyped. Same
- *  forward-compat contract as v1's `UnknownMetadataChange`, same reason. */
+/**
+ * The kinds {@link FeedChange} ACTUALLY HAS AN ARM FOR, read off the union
+ * itself.
+ *
+ * It was `MetadataEntityKind.options` — v1's vocabulary — and that is the drift
+ * POD-1608 was made of. v1 grew `userLayout` and `userReadPosition`
+ * (POD-1350/POD-1380) and v2 did not, so those two kinds were refused by the
+ * strict union AND excluded from the catch-all below. A row the server genuinely
+ * emits then failed BOTH arms, and since the whole frame parses as one object,
+ * a single such row took a 21-row `feedBootstrap` — every issue, every session —
+ * down with it. Silently: the client logs one dropped message and renders empty.
+ *
+ * Deriving the set from `FeedChange.options` makes that class of gap
+ * unrepresentable rather than merely fixed: the exclusion list and the arms are
+ * now the same fact, so a kind can never be "known" to the catch-all without
+ * having an arm to be known BY.
+ */
+const FEED_CHANGE_KINDS: readonly string[] = FeedChange.options.map(
+  (arm) => arm.shape.entity.value as string,
+)
+
+/** The catch-all arm — a kind THIS union has no arm for, whether because a newer
+ *  server added it or because the other wire declares it and this one does not.
+ *  Kinds WITH an arm are excluded, so a known-kind row with an invalid value
+ *  still fails parse (quarantine → heal) instead of sneaking through untyped.
+ *  Same forward-compat contract as v1's `UnknownMetadataChange`, same reason. */
 export const UnknownFeedChange = feedChangeArm(
-  z.string().refine((e) => !MetadataEntityKind.options.includes(e as never), {
+  z.string().refine((e) => !FEED_CHANGE_KINDS.includes(e), {
     message: 'known entity kinds must parse through the strict FeedChange union',
   }),
   z.unknown(),
@@ -114,7 +135,7 @@ export const FeedChangeLenient = z.union([FeedChange, UnknownFeedChange])
 export type FeedChangeLenient = FeedChange | UnknownFeedChange
 
 export function isKnownFeedChange(change: FeedChangeLenient): change is FeedChange {
-  return MetadataEntityKind.options.includes(change.entity as never)
+  return FEED_CHANGE_KINDS.includes(change.entity)
 }
 
 /**

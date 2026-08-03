@@ -35,15 +35,18 @@ import type { z } from 'zod'
 import { FeedEpochField, ScopedChangeOp } from '../planes/scoped-feed'
 import {
   FeedBootstrapMessage,
+  FeedBootstrapMessageLenient,
   FeedChange,
+  FeedChangeLenient,
   FeedDeltaMessage,
   FeedDeltaMessageLenient,
   feedFrameAcceptsAt,
   isFeedWatermark,
+  isKnownFeedChange,
   UnknownFeedChange,
   validateFeedFrame,
 } from './feed'
-import { MetadataChangeOp } from './sync'
+import { MetadataChangeOp, MetadataEntityKind } from './sync'
 
 type Arm = { shape: Record<string, unknown> }
 const arms = FeedChange.options as unknown as Arm[]
@@ -255,5 +258,105 @@ describe('the acceptance rule is the explicit lower bound', () => {
   it('rejects a foreign feed or a rolled epoch', () => {
     expect(feedFrameAcceptsAt(cursor, delta({ feedId: 'other' }))).toBe(false)
     expect(feedFrameAcceptsAt(cursor, delta({ epoch: 'epoch-02K' }))).toBe(false)
+  })
+})
+
+/**
+ * POD-1608 — THE GAP BETWEEN THE STRICT ARMS AND THE CATCH-ALL.
+ *
+ * The catch-all excluded `MetadataEntityKind.options` — v1's vocabulary — while
+ * `FeedChange` carried arms for only eight of them. v1 grew `userLayout` and
+ * `userReadPosition` (POD-1350/POD-1380) and v2 did not, so a row of either kind
+ * was refused by the strict union AND excluded from the lenient one. Since a
+ * frame parses as ONE object, that single row took the whole `feedBootstrap`
+ * with it — every issue, every session — and the client rendered an empty board
+ * with no error.
+ *
+ * These tests are at the schema, which is where it broke: the replica and the
+ * board never lost a row they were given.
+ */
+describe('every kind the wire can carry survives the v2 change union', () => {
+  const unarmed = MetadataEntityKind.options.filter(
+    (kind) => !FeedChange.options.some((arm) => kindOf(arm as unknown as Arm) === kind),
+  )
+
+  it('has a kind with no strict arm — otherwise this test proves nothing', () => {
+    // The guard on the guard. If v2 ever gains every arm, the lenient path below
+    // stops being exercised by real kinds and this test must be re-aimed rather
+    // than left passing vacuously.
+    expect(unarmed.length).toBeGreaterThan(0)
+  })
+
+  it('parses a kind the strict union has no arm for, through the catch-all', () => {
+    for (const kind of unarmed) {
+      const change = { seq: 5, entity: kind, entityId: 'x_1', op: 'upsert', value: { any: 1 } }
+      expect(UnknownFeedChange.safeParse(change).success).toBe(true)
+      expect(FeedChangeLenient.safeParse(change).success).toBe(true)
+    }
+  })
+
+  it('keeps the whole frame when one row is a kind it has no arm for', () => {
+    // THE REGRESSION. Before the fix this frame failed to parse and the client
+    // dropped it whole, losing the issue row sitting beside the un-armed one.
+    const frame = {
+      type: 'feedBootstrap' as const,
+      feedId: 'feed-01J',
+      epoch: 'epoch-01J',
+      fromSeq: 0,
+      seq: 6,
+      minAvailableSeq: 0,
+      last: true,
+      changes: [
+        {
+          seq: 5,
+          entity: 'userReadPosition',
+          entityId: 'user:sole\nissueEvents',
+          op: 'upsert',
+          value: { userId: 'user:sole' },
+        },
+        {
+          seq: 6,
+          entity: 'repo',
+          entityId: 'repo_1',
+          op: 'upsert',
+          value: { id: 'repo_1', prefix: 'POD' },
+        },
+      ],
+    }
+    const parsed = FeedBootstrapMessageLenient.safeParse(frame)
+    expect(parsed.success).toBe(true)
+    expect(parsed.success && parsed.data.changes).toHaveLength(2)
+  })
+
+  it('still refuses a KNOWN kind with an invalid value — leniency is not a bypass', () => {
+    // Proves it can say NO. An armed kind whose payload is wrong must fail parse
+    // (quarantine → heal) rather than slip through the catch-all untyped.
+    const bad = { seq: 5, entity: 'repo', entityId: 'repo_1', op: 'upsert', value: { id: 7 } }
+    expect(FeedChangeLenient.safeParse(bad).success).toBe(false)
+    expect(UnknownFeedChange.safeParse(bad).success).toBe(false)
+  })
+
+  it('narrows an un-armed kind as NOT known, so no consumer folds it into a list', () => {
+    for (const kind of unarmed) {
+      const change = UnknownFeedChange.parse({
+        seq: 5,
+        entity: kind,
+        entityId: 'x_1',
+        op: 'upsert',
+        value: {},
+      })
+      expect(isKnownFeedChange(change)).toBe(false)
+    }
+    expect(
+      isKnownFeedChange(
+        FeedChange.parse({
+          seq: 5,
+          entity: 'repo',
+          entityId: 'repo_1',
+          op: 'upsert',
+          value: { id: 'repo_1', prefix: 'POD' },
+        }),
+      ),
+    ).toBe(true)
   })
 })
