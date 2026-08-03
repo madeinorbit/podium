@@ -1,5 +1,5 @@
 import { type IssueTrpc, LOCK_COMMANDS, makeRelayIssueClient } from '@podium/issue-client'
-import { resolveAgentRelay, resolvePort } from '@podium/runtime/config'
+import { localServerUrl, resolveAgentRelay, resolvePort } from '@podium/runtime/config'
 import { makeOperatorIssueClient } from './operator-client'
 
 /**
@@ -212,7 +212,7 @@ function buildClient(argv: string[]): IssueTrpc {
   const outsideScope = argv.includes('--outside-scope')
   return relay
     ? makeRelayIssueClient(relay, { outsideScope })
-    : makeOperatorIssueClient(`http://localhost:${resolvePort()}`)
+    : makeOperatorIssueClient(localServerUrl(resolvePort()))
 }
 
 async function cliMain(argv: string[], group: 'lock' | 'merge-lock'): Promise<void> {

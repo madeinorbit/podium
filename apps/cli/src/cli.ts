@@ -21,6 +21,8 @@ import {
 } from '@podium/protocol'
 import {
   loadConfig,
+  localServerUrl,
+  localServerWsUrl,
   needsSetup,
   type PodiumConfig,
   type PodiumMode,
@@ -437,7 +439,7 @@ export function resolvePlan(
     const componentArgs = argv.slice(1).filter((arg) => arg !== '--takeover')
     const takeover = argv.includes('--takeover')
     if (componentArgs.length === 0) {
-      return { kind: 'janitor', serverUrl: `http://localhost:${port}`, takeover }
+      return { kind: 'janitor', serverUrl: localServerUrl(port), takeover }
     }
     if (componentArgs.length === 2 && componentArgs[0] === '--server' && componentArgs[1]) {
       return { kind: 'janitor', serverUrl: componentArgs[1], takeover }
@@ -689,7 +691,7 @@ export async function resolveCliFeatures(
     client = (relay
       ? makeRelayIssueClient(relay)
       : makeOperatorIssueClient(
-          `http://localhost:${resolvePort(config, env)}`,
+          localServerUrl(resolvePort(config, env), env),
         )) as unknown as CliFeaturesClient
   }
   try {
@@ -743,7 +745,7 @@ export function daemonOptionsForPlan(
    *  server read is the same file read here, because it is the same host. */
   hostMachineId: string = readOrCreateLocalMachineId(),
 ): DaemonStartOptions {
-  const serverUrl = plan.mode === 'daemon' ? plan.serverUrl : `ws://localhost:${serverPort}`
+  const serverUrl = plan.mode === 'daemon' ? plan.serverUrl : localServerWsUrl(serverPort)
   if (!serverUrl)
     throw new Error('podium daemon mode needs a serverUrl (config.serverUrl or --server)')
 
@@ -772,7 +774,9 @@ export function daemonOptionsForPlan(
 export function portInUseMessage(port: number): string {
   return [
     `podium: port ${port} is already in use — a podium server is probably already running here.`,
-    `  → Open it:               http://localhost:${port}/`,
+    // The address the server actually bound — `localhost` is a lie the operator
+    // would paste into a browser and watch fail when PODIUM_HOST is set (POD-1607).
+    `  → Open it:               ${localServerUrl(port)}/`,
     '  → Reconfigure this box:  podium setup',
     `  → Or use another port:   PODIUM_PORT=<port> podium`,
   ].join('\n')
@@ -885,9 +889,9 @@ async function runInProcess(
     serverPort = server.port
     localBootstrapToken = server.bootstrapToken
     localDaemonLink = server.localDaemonLink
-    console.log(`podium server up on http://localhost:${serverPort}`)
+    console.log(`podium server up on ${localServerUrl(serverPort)}`)
     if (plan.showSetupHint) {
-      console.log(`\n  → Open setup:  http://localhost:${serverPort}/\n`)
+      console.log(`\n  → Open setup:  ${localServerUrl(serverPort)}/\n`)
       console.log('  → …or run: podium setup   (configure here in the terminal)')
     }
   }
@@ -901,7 +905,7 @@ async function runInProcess(
       // state dir, same identity — an ordinary `hello`, not a bootstrap special case.
       const { readOrCreateDaemonSecret } = await import('@podium/runtime/local-machine')
       daemonOptions = {
-        serverUrl: modePlan.serverUrl ?? `ws://localhost:${port}`,
+        serverUrl: modePlan.serverUrl ?? localServerWsUrl(port),
         bootstrapToken: readOrCreateDaemonSecret(),
         machineId: readOrCreateLocalMachineId(),
         installCodexHooks: true,

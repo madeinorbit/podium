@@ -7,6 +7,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   loadConfig,
+  localServerUrl,
   type PodiumConfig,
   resolveInstanceId,
   resolvePort,
@@ -109,7 +110,7 @@ export function renderStatus(view: StatusView): string {
   // daemon has written its link state, report it — including the terminal blocked state,
   // which explains why the unit is down and what to do.
   if (view.connectivity) lines.push(...renderConnectivity(view.connectivity, nowMs))
-  const url = config.publicUrl ?? `http://localhost:${view.port ?? config.port ?? 18787}`
+  const url = config.publicUrl ?? localServerUrl(view.port ?? config.port ?? 18787)
   lines.push(`  URL: ${url}`)
   return lines.join('\n')
 }

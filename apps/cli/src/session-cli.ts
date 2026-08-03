@@ -9,7 +9,7 @@ import type {
   SessionRecapResult,
   SessionStatusResult,
 } from '@podium/model'
-import { resolveAgentRelay, resolvePort } from '@podium/runtime/config'
+import { localServerUrl, resolveAgentRelay, resolvePort } from '@podium/runtime/config'
 import { makeOperatorIssueClient } from './operator-client'
 
 type SessionResult = { ok: boolean; queued?: boolean; reason?: string; disposition?: string }
@@ -458,9 +458,7 @@ export async function sessionCliMain(argv: string[]): Promise<void> {
   const outsideScope = argv.includes('--outside-scope')
   const client = (relay
     ? makeRelayIssueClient(relay, { outsideScope })
-    : makeOperatorIssueClient(
-        `http://localhost:${resolvePort()}`,
-      )) as unknown as SessionControlClient
+    : makeOperatorIssueClient(localServerUrl(resolvePort()))) as unknown as SessionControlClient
   try {
     console.log(await runSessionCli(argv, client, { hasRelay: Boolean(relay) }))
   } catch (error) {

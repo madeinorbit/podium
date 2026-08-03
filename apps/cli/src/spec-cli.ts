@@ -1,5 +1,5 @@
 import { type IssueTrpc, makeRelayIssueClient, SPEC_COMMANDS } from '@podium/issue-client'
-import { resolveAgentRelay, resolvePort } from '@podium/runtime/config'
+import { localServerUrl, resolveAgentRelay, resolvePort } from '@podium/runtime/config'
 import {
   IssueCliError,
   parseIssueArgs,
@@ -78,7 +78,7 @@ export async function specCliMain(argv: string[]): Promise<void> {
   const relay = resolveAgentRelay()
   const client = relay
     ? makeRelayIssueClient(relay)
-    : makeOperatorIssueClient(`http://localhost:${resolvePort()}`)
+    : makeOperatorIssueClient(localServerUrl(resolvePort()))
   try {
     console.log(await runSpecCli(argv, client))
   } catch (err) {
