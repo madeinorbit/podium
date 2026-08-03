@@ -80,7 +80,8 @@ Each of these was read out of the code that decides it, not inferred from a doc:
    integer is the whole cursor. The DB-reset case is handled by a *heuristic* —
    `readChangesSince` returns "snapshot" when `cursor > max` (`change-log.ts:139`).
    That heuristic has a hole; D1 closes it.
-2. **Retention is 3 days, and the spec says 14.** `CHANGE_MAX_AGE_MS = 3 days`
+2. **Retention is 3 days, and the spec said 14** (*as written; the spec has since been
+   corrected by POD-770 — D5 below is authoritative*). `CHANGE_MAX_AGE_MS = 3 days`
    (`change-log.ts:37`), and `pruneChanges` takes `Math.max(rowCapSeq, aged.seq)` —
    *whichever budget deletes **more*** (`sync-repository.ts:96`). The spec promises
    "keep 20 000 rows or 14 days, whichever is **larger**"
@@ -414,7 +415,9 @@ the spec says 14 and reconciles the two budgets the opposite way ("whichever is
 larger" vs the shipped `Math.max(rowCap, agedSeq)` = whichever deletes more). **The
 code's reconciliation is correct** — the budgets are a *bound* on the log, and taking
 whichever deletes more honors both bounds; "whichever is larger" honors neither. The
-spec is wrong and POD-305 corrects it.
+spec was wrong; **POD-770 corrected it** (`docs/spec/oplog-read-path.md` §2.1 now
+states 20 000 rows / 3 days, whichever deletes more, and points here). POD-305 carries
+the remaining code-side work — publishing `minAvailableSeq`.
 
 The **horizon is now a published protocol parameter**, not an implementation constant:
 the authority advertises `minAvailableSeq` so a replica can tell "I need to
