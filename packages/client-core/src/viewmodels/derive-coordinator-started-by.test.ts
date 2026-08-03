@@ -143,7 +143,6 @@ describe('nestStartedByIssues', () => {
     issue: iss,
     sessions,
     activityAt: NOW,
-    rank: 0,
   })
 
   it('nests a top-level agent-started issue under the starter session issue', () => {
@@ -258,7 +257,6 @@ describe('nestStartedByIssues', () => {
       [parentSession, childSession],
       [],
       [parentIssue, hiddenInternal, childIssue],
-      NOW,
     )
     expect((nested[0] as UnifiedIssueRow).startedByChildren?.[0]?.issue.id).toBe('child')
   })
@@ -447,7 +445,6 @@ describe('sidebar completion decay [spec:SP-6144]', () => {
       issue: issue({ childCount: 6, childDoneCount: 4 }),
       sessions: [worker],
       activityAt: NOW,
-      rank: 1,
     }
     // POD-85 grammar: progress speaks of subtasks ("done · 0/1 done" read as
     // nonsense before).

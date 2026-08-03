@@ -61,7 +61,6 @@ function issueRow(
     issue: { id: 'i1', updatedAt: new Date(NOW).toISOString(), draft, ...issueOver },
     sessions,
     activityAt: NOW - 120_000,
-    rank: 0,
   } as unknown as Extract<UnifiedWorkRow, { kind: 'issue' }>
 }
 

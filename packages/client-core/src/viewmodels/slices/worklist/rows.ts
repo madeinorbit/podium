@@ -22,13 +22,7 @@ import {
 } from '../issues'
 import type { SidebarSections } from './nav'
 import { compareManualOrder, sortUnifiedWorkRows } from './row-order'
-import {
-  rowRank,
-  rowSessions,
-  UNIFIED_ROW_EMPTY_RANK,
-  type UnifiedIssueRow,
-  type UnifiedWorkRow,
-} from './row-types'
+import { rowSessions, type UnifiedIssueRow, type UnifiedWorkRow } from './row-types'
 import { issueVisibleInSidebar, sessionVisibleInSidebar } from './visibility'
 
 /**
@@ -91,7 +85,6 @@ function buildUnifiedRows(
       issue,
       sessions: mine,
       activityAt: lastSession || Date.parse(issue.updatedAt) || 0,
-      rank: rowRank(mine, now),
     })
   }
   // Keep a tracked human parent visible when only its descendants are running;
@@ -121,7 +114,6 @@ function buildUnifiedRows(
           issue: parent,
           sessions: [],
           activityAt: Date.parse(parent.updatedAt) || 0,
-          rank: UNIFIED_ROW_EMPTY_RANK,
         })
         presentIssueIds.add(parent.id)
       }
@@ -131,7 +123,7 @@ function buildUnifiedRows(
   // The work sidebar is issue-only. Unattached and orphaned sessions remain
   // available through session/history surfaces, but a repository branch is
   // never promoted into a pseudo-issue row (for example "podium · main").
-  return nestStartedByIssues(rows, sessions, allWorktreePaths, issues, now, ownership)
+  return nestStartedByIssues(rows, sessions, allWorktreePaths, issues, ownership)
 }
 
 /**
@@ -151,7 +143,6 @@ export function nestStartedByIssues(
   allIssues: readonly IssueWire[] = rows
     .filter((row): row is UnifiedIssueRow => row.kind === 'issue')
     .map((row) => row.issue),
-  now: number = Date.now(),
   ownership?: SessionOwnershipIndex,
 ): UnifiedWorkRow[] {
   const issueRows = rows.filter((r): r is UnifiedIssueRow => r.kind === 'issue')
@@ -230,7 +221,6 @@ export function nestStartedByIssues(
       ...row,
       ...(children.length ? { startedByChildren: children } : {}),
       aggregateSessions,
-      rank: rowRank(aggregateSessions, now),
       activityAt: aggregateSessions.reduce(
         (max, session) => Math.max(max, Date.parse(session.lastActiveAt) || 0),
         row.activityAt,
@@ -288,9 +278,9 @@ export interface UnifiedWorkPartition {
   work: UnifiedWorkRow[]
 }
 
-/** Rebuild a WORK row around a filtered session set, recomputing its rank +
- *  activity so ordering stays coherent after working sessions are lifted out. */
-function rowWithSessions(row: UnifiedWorkRow, keep: SessionMeta[], now: number): UnifiedWorkRow {
+/** Rebuild a WORK row around a filtered session set, recomputing its activity
+ *  so ordering stays coherent after working sessions are lifted out. */
+function rowWithSessions(row: UnifiedWorkRow, keep: SessionMeta[]): UnifiedWorkRow {
   const activityAt = keep.reduce((max, s) => Math.max(max, Date.parse(s.lastActiveAt) || 0), 0)
   if (row.kind === 'issue') {
     // Recompute the bubbled aggregate too — a stale aggregate would keep
@@ -305,14 +295,12 @@ function rowWithSessions(row: UnifiedWorkRow, keep: SessionMeta[], now: number):
       ...row,
       sessions: keep,
       aggregateSessions: aggregate,
-      rank: rowRank(keep, now),
       activityAt: activityAt || Date.parse(row.issue.updatedAt) || 0,
     }
   }
   return {
     ...row,
     worktree: { ...row.worktree, sessions: keep },
-    rank: rowRank(keep, now),
     activityAt,
   }
 }
@@ -366,7 +354,6 @@ export function partitionUnifiedWork(
         rowWithSessions(
           row,
           own.filter((s) => !isSessionWorking(s)),
-          now,
         ),
       )
       for (const s of runningNow) working.push({ kind: 'session', session: s })

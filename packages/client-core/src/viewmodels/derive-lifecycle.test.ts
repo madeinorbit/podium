@@ -62,7 +62,7 @@ function session(over: Partial<SessionMetaInput> = {}): SessionMeta {
 const sections: SidebarSections = { pinnedWorktrees: [], pinnedRepos: [], repos: [] }
 
 function row(value: IssueNavigationModel, sessions: SessionMeta[] = []): UnifiedIssueRow {
-  return { kind: 'issue', issue: value, sessions, activityAt: NOW, rank: 4 }
+  return { kind: 'issue', issue: value, sessions, activityAt: NOW }
 }
 
 describe('issue/session lifecycle in the unified sidebar', () => {
