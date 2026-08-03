@@ -639,3 +639,189 @@ MEASURED verdict reads as settled and never expires. The mobile half
 type in `@podium/protocol` or `@podium/model` to point at, so reaching audit
 zero there means CREATING the shared type first. The audit assigns the whole
 item to **POD-332**.
+
+---
+
+## 7. POD-646 — the IssuePage port, and the two open questions it had to answer
+
+**Measured at:** `HEAD` of `issue/646-6-4f-issuepage-onto-issue-slices`, based on
+`2b637a2b`. `apps/web/src/features/issues/IssuePage.tsx` was **1,307** lines
+(the brief's 1,225 is stale) and `issue-page-properties.tsx` **821** (the brief's
+768 is stale). After: IssuePage **277**, properties gone, **19** modules under
+`features/issues/issue-page/`, largest **379** (`IssueProperties.tsx`). Every
+module is under §4e's ~400-line criterion, so no exception is claimed and none
+is owed.
+
+> **CORRECTION (kept visible, not silently edited).** This paragraph first said
+> **20** modules. It is 19. The twentieth item was `IssuePage.tsx` itself, which
+> is the parent SHELL and does not live under `issue-page/` — I read the count
+> off a `wc -l` whose argument list included the parent, then reported it against
+> the narrower noun "modules under `features/issues/issue-page/`".
+>
+> The same error POD-331 caught in its own `useNow` line an hour later, and the
+> same one that produced three undercounts of the browser-suite census between
+> us: **a number measured over one set, reported against a different noun.** The
+> arithmetic was never wrong; the SUBJECT was. It is worth writing down because
+> it survives review — 19 and 20 both read as plausible, and nobody re-counts a
+> number that is not surprising.
+>
+> The rule that catches it, and the one that caught this: count the noun you are
+> about to NAME, count it untruncated, and then re-run it over what you have
+> ALREADY published rather than only over the next sentence.
+
+The split is by QUESTION, per §4e's lesson rather than by size: the parent row
+owns the reparent decision, relations own cross-boundary edges, sessions own
+placement, git owns merge-style ordering, About owns owner/visibility. Each has
+a reason to change the others do not.
+
+### 7.1 LEDGER — cross-boundary edges on the DETAIL page (§3.1.2)
+
+§4c left this open, correctly: no consumer had been ported, so nothing had to
+choose. This is the first surface that had to.
+
+**SHIPPED: `opaque`.** `apps/web/src/features/issues/issue-page/issue-edges.tsx`
+declares `CROSS_BOUNDARY_POLICY` as the ONE call-site argument for
+`resolveIssueEdge` on this surface. Every issue-to-issue reference on the page —
+parent, superseded-by, duplicate-of, each dependency relation, and a moved-on
+session's destination issue — resolves through it.
+
+The argument, in §3.1.2's own terms: hiding the edge makes the tracker LIE about
+why something is blocked, and on a DETAIL page that cost is the higher one. "Blocked
+by" with nothing under it reads as a tracker bug, and a user who cannot see WHY
+their issue is blocked cannot go and ask the right person for access. The leak is
+real and bounded — an opaque edge is ANONYMOUS (the slice never sets `value` on
+one), so no ref, title, stage or id reaches the DOM. That is asserted, not
+assumed: `issue-edges.test.tsx` greps the rendered HTML for the target id.
+
+**POD-406 (IssuesView) owns the same choice for the BOARD and had not started
+when this landed.** The two surfaces must not disagree, so the choice and its
+argument were mailed to POD-406 with the request that the board adopt `opaque`
+or come back with a reason the board's cost balance differs. Whichever lands
+second consumes the other's constant rather than declaring a second one.
+
+**A CORRECTION TO WHAT THE POLICY CAN ACHIEVE TODAY, and it is the part worth
+carrying forward.** `not-visible` is currently UNREACHABLE in the product, and
+not because of anything this issue did. Distinguishing it from `removed` needs
+the replica's exit record; `packages/sync`'s Replica has `exitKind()`, but the
+client-core `Replica` CONTRACT (`replica/contract.ts`) does not expose it and the
+kernel facade deliberately does not project it ("both leave this slice", and for
+`rows()` that is right). So with no exit lookup every dangling reference resolves
+to `pending`, and the shipped policy is a decision that will take effect when the
+seam is wired, not one taking effect now.
+
+This surface therefore takes `exitOf` as an INJECTED seam
+(`IssueExitProvider`), which is what makes all four states reachable under test
+and makes the wiring a one-line change later. Filed as its own issue rather than
+smuggled in here, because it is a client-core contract change and two agents
+editing that is how this family lost work once already.
+
+**And note what `pending` had to render, because it is a rule collision the doc
+does not anticipate.** §3.1 rule 2 says `pending` is the one state a spinner is
+correct for — but a reference that can never resolve, because nothing can tell us
+it left, would spin forever, which the same rule forbids. So `pending` renders as
+the bare id, muted and INERT: identical to what the page showed before the port
+(hence the single-user parity guard), and never a spinner.
+`issue-edges.test.tsx` asserts the absence of `progressbar`/`status` roles, so a
+future "improvement" that adds a spinner reddens.
+
+### 7.2 LEDGER — reparent as a permission-affecting operation (§3.1.5 case 2)
+
+**SHIPPED: BOTH halves.**
+
+1. A STANDING NOTE in the parent-change affordance
+   (`REPARENT_SCOPE_NOTE`, rendered always, also the trigger's `title`):
+   *"Agents are scoped to a subtree — changing the parent changes which agents
+   can see this issue."* Not a warning and not a modal: the operation is
+   legitimate, and a dialog on every reparent is noise that trains dismissal.
+2. A CONFIRM when the move crosses an OWNER BOUNDARY. Moving inside one person's
+   tree rescopes agents within work that person already owns; moving under a
+   DIFFERENT owner's epic hands visibility to someone else's agents, which is a
+   different act and one nobody decided.
+
+**The third decision is the one that makes the second usable, and it is a general
+lesson about shipping a guard before its data exists.** `crossesOwnerBoundary`
+returns true ONLY when both owners are KNOWN and differ. `owner` is a projection
+field absent on today's rows, so a confirm keyed on "not equal" would fire on
+EVERY reparent right now — and by the time the field is real, users would have
+been clicking through the dialog for months. Missing data is not a boundary
+crossing; it is missing data. The rule is a pure exported function precisely so
+that claim is tested rather than asserted (`IssueParentRow.test.tsx`, all four
+unknown-owner combinations).
+
+### 7.3 Attribution: what is actually stamped, measured rather than assumed
+
+§3.1.3 A3 requires the agent-activity panel to show ACTOR and ON-BEHALF-OF from
+server fields and never to synthesise either. Measuring what exists:
+
+| surface | pair available? | rendered |
+|---|---|---|
+| the issue itself (`createdBy: Attribution`) | YES — on `IssueAggregate`, so on the projection | agent-activity panel header |
+| needs-human (`asked.attribution`) | YES — `NeedsHuman.asked` | the asker line, with the legacy `humanQuestionAskedBy` session as the fallback half |
+| a COMMENT (`IssueComment`) | **NO** — `id`/`author`/`body`/`createdAt`, no `Attribution` | nothing, deliberately |
+| a PANEL item (todo/artifact/deferred) | **NO** | nothing, deliberately |
+
+The two absences are recorded rather than papered over: deriving a pair from
+`author`, or attaching the issue's `createdBy` to each panel item, would be
+exactly the synthesis A3 forbids and would look like compliance. Giving comments
+and panel items their own attribution is a model + wire change and belongs
+wherever POD-1075 lands it.
+
+`onBehalfOf: null` renders as a NAMED absence ("no human"), never dropped and
+never substituted with the owner — ADR 9 D8 S5. A mutant flipping that check to
+`undefined` reddens `renders "no human" — not the owner — for a machine actor`.
+
+### 7.4 What the mutation pass found, including the mutant that was SILENT
+
+Six mutants, each reverted from a snapshot copy and grepped back (§4b's
+instrument rule):
+
+| mutant | result |
+|---|---|
+| policy `opaque` → `hidden` | 2 named tests red |
+| opaque edge renders `fallbackId` | 1 red — the leak assertion |
+| `pending` gains `role="status"` | 1 red — the never-a-spinner assertion |
+| eviction guard loses presence-arming | 1 red — the cold-load case |
+| eviction guard loses its once-latch | 1 red — the re-arming case |
+| archive gate re-implemented locally | **SILENT** |
+
+**The silent one was an ASSERTION GAP, and it is the useful finding.** Replacing
+the delegation to `issueMenuEligibility` with a hand-written
+`!issue.deletedAt \|\| issue.archived` passed all 11 tests. The two agree on every
+case the matrix held — ordinary, archived, pinned, deleted — and diverge on
+exactly one: **archived AND deleted**, where the shared predicate refuses archive
+and the local copy offers it. The test claimed to prove the gate is SHARED and
+proved only that it MATCHES ON FOUR POINTS.
+
+> **A test that a re-implementation is the same as the original must be driven by
+> the cases where they could DIFFER, not by the cases that are convenient to
+> write. An equivalence checked on four points is not an equivalence; it is four
+> points.**
+
+The case was added, the mutant then reddens on it by name, and the comment in
+`issue-page-menu.test.ts` records why that row exists so nobody prunes it as
+redundant later.
+
+Also honest about a partial: the once-latch mutant did NOT redden `leaves exactly
+once, however many renders follow`. That test re-renders without changing the
+`issues` identity, so the effect never re-runs and the latch is not exercised —
+equivalent FOR THAT TEST. The re-arming test is what catches it, and the pair is
+left as-is because it documents the difference between "renders again" and "the
+dependency changed again".
+
+### 7.5 What POD-646 did NOT do, and why
+
+- **No `useSlice` / `defineSlice` was added.** Rule 1 of the port brief: a
+  published slice is for a named derivation SEVERAL surfaces read, and porting
+  every selector would rebuild the god object behind a nicer hook. This page's
+  remaining derivations (`repoMatesOf`, `assigneeOptionsOf`, `labelPoolOf`) have
+  exactly one consumer, and the slice-owned ones (`subIssuesOf`,
+  `resolveIssueEdge`) are consumed from the slice directly. Adding an
+  `issuePageSlice` would have been the failure mode wearing the fix's clothes.
+- **No colour picker was touched**, because there is none on this surface: the
+  acceptance list inherits it from the shared 6.4 contract, and `issue.color` is
+  set from the context menu on the board, not here. Issue-derived tint on this
+  page comes from `lib/issueColors.ts` and has no control.
+- **No sharing UX was invented** (§3 of the brief is explicit that it is
+  deferred). The About rows are a DATA list, so a `Shared with` entry is one
+  array element later, with no restructuring — which is the whole of what
+  "structurally able to gain a share entry" asks for.
