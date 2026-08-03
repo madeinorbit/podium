@@ -364,7 +364,7 @@ export class TerminalView {
     // GPU rendering is on by default, but some GPUs/drivers paint xterm's WebGL glyph
     // atlas without color — output renders monochrome even though the data and theme
     // carry color. The DOM renderer always colors correctly, so offer an escape hatch:
-    // `?gpu=off` (or localStorage['podium:gpu']='off') skips WebGL and keeps DOM.
+    // `?gpu=off` skips WebGL and keeps DOM (URL-only since POD-329).
     if (!gpuEnabled()) {
       this.emitDiagnostic('renderer:dom', { reason: 'gpu-disabled' })
       return
