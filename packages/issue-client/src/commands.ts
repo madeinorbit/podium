@@ -478,12 +478,14 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'start',
     summary:
-      'Start an issue: create its worktree+branch, claim it, spawn its agent. start <id> [--agent claude-code] [--machine <name|id>] [--force-unknown-model]. Model/effort come from the issue (set via create/update --model/--effort). --machine HOMES the issue on that machine (see `podium machine list`) — its worktree, branch and agent all live there from now on.',
+      "Start an issue: create its worktree+branch, claim it, spawn its agent. start <id> [--agent claude-code] [--model <slug>] [--effort low|medium|high] [--machine <name|id>] [--force-unknown-model]. --model/--effort take the same values as create/update and PERSIST onto the issue, so later sessions on it run the same; without them the issue's stored model/effort is used (`auto` = the CLI default). An unknown model or effort is refused before anything is created. --machine HOMES the issue on that machine (see `podium machine list`) — its worktree, branch and agent all live there from now on.",
     args: z.strictObject({
       id: idArg,
       agent: z.string().min(1).optional(),
+      model: z.string().min(1).optional(),
+      effort: z.string().min(1).optional(),
       machine: z.string().min(1).optional(),
-      'force-unknown-model': z.boolean().optional(),
+      forceUnknownModel: z.boolean().optional(),
     }),
     positionals: ['id'],
     async run(c, a) {
@@ -500,7 +502,9 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       const i = (await c.issues.start.mutate({
         id: a.id as string,
         ...(a.agent ? { agentKind: a.agent as string } : {}),
-        ...(a['force-unknown-model'] ? { forceUnknownModel: true } : {}),
+        ...(a.model ? { defaultModel: a.model as string } : {}),
+        ...(a.effort ? { defaultEffort: a.effort as string } : {}),
+        ...(a.forceUnknownModel ? { forceUnknownModel: true } : {}),
       })) as {
         seq: number
         worktreePath?: string | null
@@ -782,14 +786,14 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     args: z.strictObject({
       id: idArg,
       agent: z.string().optional(),
-      'force-unknown-model': z.boolean().optional(),
+      forceUnknownModel: z.boolean().optional(),
     }),
     positionals: ['id'],
     async run(c, a) {
       const i = (await c.issues.addSession.mutate({
         id: a.id as string,
         ...(a.agent ? { agentKind: a.agent as string } : {}),
-        ...(a['force-unknown-model'] ? { forceUnknownModel: true } : {}),
+        ...(a.forceUnknownModel ? { forceUnknownModel: true } : {}),
       })) as { seq: number }
       return { text: `session added to #${i.seq}`, data: i }
     },

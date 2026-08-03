@@ -40,6 +40,11 @@ export interface ModelValidationProblem {
   fetchedAt: number
   /** Ranked closest matches (up to three), may be empty. */
   suggestions: string[]
+  /** For an effort problem, the whole valid set that was consulted. Efforts are a
+   *  short fixed ladder, so the message prints it outright: `didYouMean` needs an
+   *  0.85 similarity to fire, and a value that resembles nothing valid ("banana")
+   *  is exactly the case where a caller most needs to be told what IS valid. */
+  valid?: string[]
 }
 
 export type ModelValidationResult =
@@ -126,6 +131,7 @@ export function validateModelSelection(
           ...(modelChoice ? { model: modelChoice.value } : {}),
           fetchedAt,
           suggestions: didYouMean(effort, validEfforts),
+          valid: validEfforts,
         },
       }
     }
@@ -167,8 +173,12 @@ export function formatModelValidationProblem(
     )
   }
   const modelCtx = problem.model ? ` for model "${problem.model}"` : ''
-  const tail = problem.suggestions.length
-    ? suggestion
+  // Print the whole valid ladder, not just a "did you mean" — a rejected effort is
+  // most often one nothing resembles, and the caller's next move is to pick a real
+  // one. Only when the set is genuinely empty does the "supports none" wording hold.
+  const valid = problem.valid ?? []
+  const tail = valid.length
+    ? ` Valid efforts${modelCtx}: ${quotedList(valid)}.${suggestion}`
     : ` That model supports no reasoning-effort levels.`
   return (
     `${problem.harness}: unknown effort "${problem.requested}"${modelCtx} — not in the model ` +

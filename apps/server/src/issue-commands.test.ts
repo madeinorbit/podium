@@ -266,6 +266,30 @@ describe('ISSUE_COMMANDS registry', () => {
     })
   })
 
+  it('start maps --model/--effort to defaultModel/defaultEffort (POD-1545)', async () => {
+    const { client, calls } = mockClient({
+      start: { seq: 3, branch: 'issue/3-x', worktreePath: '/r/.worktrees/issue-3-x' },
+    })
+    await cmd('start').run(client, { id: '3', model: 'claude-opus-5', effort: 'high' })
+    expect(calls).toContainEqual({
+      path: 'start',
+      kind: 'mutate',
+      input: { id: '3', defaultModel: 'claude-opus-5', defaultEffort: 'high' },
+    })
+  })
+
+  it('start forwards --force-unknown-model (POD-1545: the key was kebab and never matched)', async () => {
+    const { client, calls } = mockClient({
+      start: { seq: 3, branch: 'issue/3-x', worktreePath: '/r/.worktrees/issue-3-x' },
+    })
+    await cmd('start').run(client, { id: '3', model: 'unlisted', forceUnknownModel: true })
+    expect(calls).toContainEqual({
+      path: 'start',
+      kind: 'mutate',
+      input: { id: '3', defaultModel: 'unlisted', forceUnknownModel: true },
+    })
+  })
+
   it('show surfaces defaultAgent/defaultModel/defaultEffort in the meta line and data', async () => {
     const { client } = mockClient({
       get: {

@@ -846,6 +846,11 @@ const defs = {
       .object({
         id: z.string(),
         agentKind: z.string().optional(),
+        // POD-1545: choose model/effort in the SAME command that starts the issue.
+        // Same vocabulary as create/update (`auto` keeps its meaning); validated
+        // against the model catalog and then persisted onto the issue by the service.
+        defaultModel: z.string().min(1).optional(),
+        defaultEffort: z.string().min(1).optional(),
         forceUnknownModel: z.boolean().optional(),
       })
       .merge(env),
@@ -870,6 +875,8 @@ const defs = {
         }
         return ctx.issues.start(input.id, input.agentKind, {
           spawnedBy: ctx.spawnProvenance(),
+          ...(input.defaultModel ? { model: input.defaultModel } : {}),
+          ...(input.defaultEffort ? { effort: input.defaultEffort } : {}),
           ...(input.forceUnknownModel ? { forceUnknownModel: true } : {}),
         })
       }),

@@ -18,6 +18,9 @@ const BOOL_FLAGS = new Set([
   'notify',
   'confirmRehome',
   'force',
+  // Kebab in argv, camel after camelFlag — the schemas spelled it kebab, so it never
+  // matched and `issue start --force-unknown-model` died as an unknown flag (POD-1545).
+  'forceUnknownModel',
   'help',
 ])
 

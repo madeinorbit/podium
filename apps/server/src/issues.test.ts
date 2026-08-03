@@ -1134,6 +1134,185 @@ describe('IssueService.start', () => {
     })
   })
 
+  /**
+   * POD-1545: `--model`/`--effort` on start. The failure this pins is a flag that is
+   * PARSED and then DROPPED — indistinguishable from success at the CLI, because start
+   * echoes its own arguments back. Every case therefore asserts on what reached
+   * spawnSession (what the session actually runs), not on the return value.
+   */
+  describe('start --model/--effort overrides [POD-1545]', () => {
+    it('an explicit flag beats the value stored on the issue', async () => {
+      const { svc, deps } = harness()
+      const a = svc.create({
+        repoPath: '/r',
+        title: 'A',
+        startNow: false,
+        defaultModel: 'sonnet',
+        defaultEffort: 'low',
+      })
+      await svc.start(a.id, undefined, { model: 'opus', effort: 'high' })
+      expect(deps.spawnSession).toHaveBeenCalledWith(
+        expect.objectContaining({ model: 'opus', effort: 'high' }),
+      )
+    })
+
+    it('one flag overrides only its own dimension; the other keeps the stored value', async () => {
+      const { svc, deps } = harness()
+      const a = svc.create({
+        repoPath: '/r',
+        title: 'A',
+        startNow: false,
+        defaultModel: 'sonnet',
+        defaultEffort: 'low',
+      })
+      await svc.start(a.id, undefined, { effort: 'high' })
+      expect(deps.spawnSession).toHaveBeenCalledWith(
+        expect.objectContaining({ model: 'sonnet', effort: 'high' }),
+      )
+    })
+
+    it('no flag leaves the stored value alone — a default never clobbers it', async () => {
+      const { svc, deps } = harness()
+      const a = svc.create({
+        repoPath: '/r',
+        title: 'A',
+        startNow: false,
+        defaultModel: 'sonnet',
+        defaultEffort: 'low',
+      })
+      await svc.start(a.id)
+      expect(deps.spawnSession).toHaveBeenCalledWith(
+        expect.objectContaining({ model: 'sonnet', effort: 'low' }),
+      )
+      expect(svc.get(a.id)?.defaultEffort).toBe('low')
+    })
+
+    it('neither flag nor stored value falls back to auto', async () => {
+      const { svc, deps } = harness()
+      const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+      await svc.start(a.id)
+      expect(deps.spawnSession).toHaveBeenCalledWith(
+        expect.objectContaining({ model: 'auto', effort: 'auto' }),
+      )
+    })
+
+    it('the flag PERSISTS onto the issue, so later spawns run what was chosen', async () => {
+      const { svc, deps } = harness()
+      const a = svc.create({
+        repoPath: '/r',
+        title: 'A',
+        startNow: false,
+        defaultModel: 'sonnet',
+        defaultEffort: 'low',
+      })
+      const started = await svc.start(a.id, undefined, { model: 'opus', effort: 'high' })
+      expect(started.defaultModel).toBe('opus')
+      expect(started.defaultEffort).toBe('high')
+      expect(svc.get(a.id)?.defaultModel).toBe('opus')
+      svc.addSession(a.id)
+      expect(deps.spawnSession).toHaveBeenLastCalledWith(
+        expect.objectContaining({ model: 'opus', effort: 'high' }),
+      )
+    })
+
+    /**
+     * The sanitizer in modelSelectionFor drops a stored model that is merely the
+     * inherited coding-role default when the harness differs. An EXPLICIT flag is not
+     * inherited, so it must survive that rule — otherwise `--model opus` on a codex
+     * issue silently spawns `auto`, the parsed-then-dropped failure exactly.
+     */
+    it('survives the legacy-defaults sanitizer that drops an inherited value', async () => {
+      const { svc, deps } = harness()
+      deps.getSettings = () =>
+        normalizeSettings({
+          roles: { coding: { accountId: 'native:claude-code', model: 'opus', effort: 'high' } },
+        })
+      const issue = svc.create({
+        repoPath: '/r',
+        title: 'Legacy Codex',
+        startNow: false,
+        defaultAgent: 'codex',
+        defaultModel: 'opus',
+        defaultEffort: 'high',
+      })
+      await svc.start(issue.id, undefined, { model: 'opus', effort: 'high' })
+      expect(deps.spawnSession).toHaveBeenLastCalledWith(
+        expect.objectContaining({ agentKind: 'codex', model: 'opus', effort: 'high' }),
+      )
+    })
+
+    it('an explicit flag survives an --agent switch that resets the stored profile', async () => {
+      const { svc, deps } = harness()
+      const a = svc.create({
+        repoPath: '/r',
+        title: 'A',
+        startNow: false,
+        defaultModel: 'sonnet',
+        defaultEffort: 'low',
+      })
+      await svc.start(a.id, 'codex', { effort: 'high' })
+      expect(deps.spawnSession).toHaveBeenLastCalledWith(
+        expect.objectContaining({ agentKind: 'codex', model: 'auto', effort: 'high' }),
+      )
+    })
+
+    it('refuses a nonsense effort with the valid set, before mutating any start state', async () => {
+      const { svc, deps, store } = harness()
+      store.settings.setModelCatalog({
+        version: MODEL_CATALOG_VERSION,
+        fetchedAt: 1_000_000,
+        byAgent: {
+          'claude-code': [
+            { value: 'claude-opus-5', label: 'Opus 5', efforts: ['low', 'medium', 'high'] },
+          ],
+        },
+      })
+      const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+      await expect(svc.start(a.id, undefined, { effort: 'banana' })).rejects.toThrow(
+        /unknown effort "banana".*"low", "medium", "high"/s,
+      )
+      expect(deps.repoOp).not.toHaveBeenCalled()
+      expect(deps.spawnSession).not.toHaveBeenCalled()
+      expect(svc.get(a.id)?.stage).toBe('backlog')
+      // …and the rejected value is NOT left on the issue.
+      expect(svc.get(a.id)?.defaultEffort).toBe('auto')
+    })
+
+    it('refuses a nonsense model and leaves the stored profile untouched', async () => {
+      const { svc, deps, store } = harness()
+      store.settings.setModelCatalog({
+        version: MODEL_CATALOG_VERSION,
+        fetchedAt: 1_000_000,
+        byAgent: { 'claude-code': [{ value: 'claude-opus-5', label: 'Opus 5' }] },
+      })
+      const a = svc.create({
+        repoPath: '/r',
+        title: 'A',
+        startNow: false,
+        defaultModel: 'claude-opus-5',
+      })
+      await expect(svc.start(a.id, undefined, { model: 'claude-opus-9' })).rejects.toThrow(
+        /unknown model "claude-opus-9"/,
+      )
+      expect(svc.get(a.id)?.defaultModel).toBe('claude-opus-5')
+      expect(deps.spawnSession).not.toHaveBeenCalled()
+    })
+
+    it('--force-unknown-model still lets an explicit unlisted model through', async () => {
+      const { svc, deps, store } = harness()
+      store.settings.setModelCatalog({
+        version: MODEL_CATALOG_VERSION,
+        fetchedAt: 1_000_000,
+        byAgent: { 'claude-code': [{ value: 'claude-opus-5', label: 'Opus 5' }] },
+      })
+      const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+      await svc.start(a.id, undefined, { model: 'claude-opus-6-preview', forceUnknownModel: true })
+      expect(deps.spawnSession).toHaveBeenCalledWith(
+        expect.objectContaining({ model: 'claude-opus-6-preview', forceUnknownModel: true }),
+      )
+    })
+  })
+
   it('addSession/addShell use issue provenance as the direct-service fallback', async () => {
     const { svc, deps } = harness()
     deps.getSettings = () =>

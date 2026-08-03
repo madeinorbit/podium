@@ -76,28 +76,46 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     return `${repoPath}/.worktrees/${dir}`
   }
 
-  private modelSelectionFor(row: IssueRow, agentKind: string): { model: string; effort: string } {
+  /**
+   * The model/effort a spawn on this issue should actually run.
+   *
+   * `stored` is the issue's profile; the sanitizer drops a stored value that is merely
+   * the INHERITED coding-role default when the spawn is on a different harness, since
+   * one harness's slug is meaningless on another.
+   *
+   * `override` is an explicit per-launch choice (`issue start --model/--effort`,
+   * POD-1545) and bypasses the sanitizer entirely: an explicit value was not inherited
+   * from anything, so there is nothing to sanitize, and dropping it would be the
+   * parsed-then-silently-ignored failure this exists to avoid. Precedence, therefore:
+   * explicit flag > issue's stored value > `auto`.
+   */
+  private selectionFor(
+    agentKind: string,
+    stored: { agent: string; model: string; effort: string },
+    override?: { model?: string; effort?: string },
+  ): { model: string; effort: string } {
     const settings = this.d.getSettings()
     const coding = resolveRole(settings, 'coding')
-    const usesIssueProfile = agentKind === row.defaultAgent
+    const usesIssueProfile = agentKind === stored.agent
+    const inherited = (value: string, roleValue: string): string =>
+      usesIssueProfile && (agentKind === coding.harness || value !== roleValue) ? value : 'auto'
     return {
-      model:
-        usesIssueProfile &&
-        (agentKind === coding.harness || row.defaultModel !== settings.roles.coding.model)
-          ? row.defaultModel
-          : 'auto',
-      effort:
-        usesIssueProfile &&
-        (agentKind === coding.harness || row.defaultEffort !== settings.roles.coding.effort)
-          ? row.defaultEffort
-          : 'auto',
+      model: override?.model ?? inherited(stored.model, settings.roles.coding.model),
+      effort: override?.effort ?? inherited(stored.effort, settings.roles.coding.effort),
     }
   }
 
   async start(
     id: string,
     agentKind?: string,
-    opts?: { spawnedBy?: string; forceUnknownModel?: boolean },
+    opts?: {
+      spawnedBy?: string
+      forceUnknownModel?: boolean
+      /** Explicit per-launch model/effort (POD-1545). Beats the issue's stored value
+       *  and PERSISTS onto the issue, so every later spawn on it agrees. */
+      model?: string
+      effort?: string
+    },
   ): Promise<
     IssueWire &
       Partial<{
@@ -110,20 +128,37 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
   > {
     const row = this.rowOrThrow(id)
     if (row.worktreePath) return this.toWire(row) // already started
-    if (agentKind && agentKind !== row.defaultAgent) {
-      row.defaultAgent = agentKind
-      row.defaultModel = 'auto'
-      row.defaultEffort = 'auto'
+    // Switching harness at start discards the stored model/effort: they were chosen
+    // for the OLD harness and its slugs mean nothing on the new one.
+    const switching = Boolean(agentKind && agentKind !== row.defaultAgent)
+    const agent = agentKind ?? row.defaultAgent
+    const stored = {
+      agent,
+      model: switching ? 'auto' : row.defaultModel,
+      effort: switching ? 'auto' : row.defaultEffort,
     }
-    const selection = this.modelSelectionFor(row, row.defaultAgent)
+    const selection = this.selectionFor(agent, stored, {
+      ...(opts?.model ? { model: opts.model } : {}),
+      ...(opts?.effort ? { effort: opts.effort } : {}),
+    })
     // Reject an unavailable model/effort BEFORE mutating any start state (worktree,
-    // branch, stage) [spec:SP-cc60] — the issue's stored defaults are the selection.
+    // branch, stage, and the issue's own profile) [spec:SP-cc60]. Resolving the whole
+    // selection above rather than writing it to `row` first is what makes that true of
+    // the PROFILE too: a refused `--model` must not be left sitting on the issue for
+    // the next start to inherit silently.
     assertModelSelectionValid(this.d.store.settings.getModelCatalog(), {
-      agentKind: row.defaultAgent,
+      agentKind: agent,
       ...(selection.model ? { model: selection.model } : {}),
       ...(selection.effort ? { effort: selection.effort } : {}),
       ...(opts?.forceUnknownModel ? { force: true } : {}),
     })
+    // Accepted — commit the selection to the issue. `--model`/`--effort` PERSIST here
+    // (documented as such in `start --help`), matching `--agent` above: the issue's
+    // profile is what add-session and every later respawn read, so a launch-only
+    // override would give one issue two answers to "what does this run at".
+    row.defaultAgent = agent
+    row.defaultModel = opts?.model ?? stored.model
+    row.defaultEffort = opts?.effort ?? stored.effort
     /**
      * A machine-pinned start has to reach the target BEFORE the worktree add (POD-1424).
      *
@@ -836,7 +871,11 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     const row = this.rowOrThrow(id)
     if (!row.worktreePath) throw new Error('issue not started')
     const kind = agentKind ?? row.defaultAgent
-    const selection = this.modelSelectionFor(row, kind)
+    const selection = this.selectionFor(kind, {
+      agent: row.defaultAgent,
+      model: row.defaultModel,
+      effort: row.defaultEffort,
+    })
     // Reject an unavailable model/effort before spawning [spec:SP-cc60]. A 'shell'
     // session carries no model (addShell), so validation is a no-op there.
     assertModelSelectionValid(this.d.store.settings.getModelCatalog(), {
