@@ -28,6 +28,15 @@
  * It counts **a hand-restated session or issue field list that is not accounted
  * for in `packages/model`'s retained-representation registry.**
  *
+ * In **two syntax forms** since POD-1525: a NAMED declaration
+ * ({@link entityShapedDeclarations}) and an INLINE object type literal
+ * ({@link inlineEntityShapedLiterals}). Until then only the first counted, so
+ * consolidating two inline restatements into one named interface RAISED the
+ * number — the tree got better and the count got worse — and the baseline
+ * bounded the named half of the problem while reading as the whole of it. Read
+ * that function's docblock before touching the criterion; it is where the line
+ * between "restates the shape" and "reads three fields" is drawn.
+ *
  * The limit is structural and must be stated, because it is the reason the
  * registry exists and is not derived from this detector: **a composed
  * representation is INVISIBLE here, by construction.** `Pick<IssueWire, …>` and
@@ -55,10 +64,18 @@
  * "the regex broke" is the audit's own worst failure mode
  * (`docs/rearch-deletion-audit.md`), so `entityShapedDeclarations` THROWS if the
  * vocabulary it loads is empty rather than reporting a serene zero.
+ *
+ * The inline pass carries the same obligations and one more, because a parser
+ * fails where a regex shouts: it runs a CONTROL on every invocation
+ * ({@link assertInlineDetectorMatchesControl}) proving it still matches a known
+ * inline shape and still ignores a destructuring pattern, and the test file pins
+ * both sides of the ≥3 threshold and asserts POD-408's refactor now scores as a
+ * WIN rather than as +1.
  */
 
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import ts from 'typescript'
 import { IssueAggregate } from '../packages/model/src/aggregates/issue'
 import { PER_USER_STATE_KEYS } from '../packages/model/src/aggregates/registry'
 import { SessionAggregate } from '../packages/model/src/aggregates/session'
@@ -152,7 +169,15 @@ const FUNCTION_MEMBER = /^\s+(?:readonly\s+)?\w+\??\s*(?:\([^)]*\)\s*:|:\s*\([^)
 export interface EntityShapedDecl {
   readonly file: string
   readonly line: number
+  /** Last line of the text this site was read from. The inline pass subtracts
+   *  these windows so a literal nested inside a counted declaration is not
+   *  counted twice — the named pass reads a declaration's text FLAT, so it has
+   *  already absorbed every key of every literal inside it. */
+  readonly endLine: number
   readonly symbol: string
+  /** Which syntax form this site is, so a count can be attributed to the form
+   *  that produced it rather than read as one undifferentiated number. */
+  readonly form: 'named' | 'inline'
   /**
    * Distinct non-generic vocabulary keys this declaration RESTATES — i.e. writes
    * out as a property with its own type. Composed keys are deliberately absent:
@@ -206,16 +231,14 @@ export function entityShapedDeclarations(ctx: AuditContext): EntityShapedDecl[] 
 
   const out: EntityShapedDecl[] = []
   for (const f of ctx.files) {
-    if (f.isTest) continue
-    // Past migrations are immutable history and generated files are rebuilt from
-    // them; neither may be edited to satisfy a vocabulary audit.
-    if (f.file.includes('/migrations/') || f.file.endsWith('.generated.ts')) continue
-    // Wire fixtures are captured PAYLOADS, not declarations of a shape.
-    if (f.file.endsWith('.fixtures.ts')) continue
-    // `packages/model/src/fields/` IS the shared vocabulary: a field group has no
-    // entity identity of its own and is composed BY representations (inventory
-    // §2.2 / §3). Counting the definition as a restatement of itself is circular.
-    if (f.file.startsWith('packages/model/src/fields/')) continue
+    // Not tests; not immutable migration history or the generated files rebuilt
+    // from it, neither of which may be edited to satisfy a vocabulary audit; not
+    // wire fixtures, which are captured PAYLOADS rather than declarations of a
+    // shape; and not `packages/model/src/fields/`, which IS the shared
+    // vocabulary — a field group has no entity identity of its own and is
+    // composed BY representations (inventory §2.2 / §3), so counting the
+    // definition as a restatement of itself is circular.
+    if (!isScannedForShapes(f)) continue
 
     const lines = f.stripped.split('\n')
     for (let n = 0; n < lines.length; n++) {
@@ -262,7 +285,9 @@ export function entityShapedDeclarations(ctx: AuditContext): EntityShapedDecl[] 
       out.push({
         file: f.file,
         line: n + 1,
+        endLine: n + text.split('\n').length,
         symbol: m[2] as string,
+        form: 'named',
         sessionKeys,
         issueKeys,
         keys: named,
@@ -330,6 +355,277 @@ function declaredKeys(text: string): { properties: string[]; named: string[] } {
   const named = new Set(properties)
   for (const m of text.matchAll(/'(\w+)'/g)) named.add(m[1] as string)
   return { properties: [...properties], named: [...named] }
+}
+
+// ---------------------------------------------------------------------------
+// The INLINE form — POD-1525
+// ---------------------------------------------------------------------------
+
+/**
+ * THE SECOND SYNTAX FORM, and why it is here.
+ *
+ * Until POD-1525 this file counted `interface X { … }` and `type X = { … }` and
+ * nothing else. The same field list written without a name — a component's
+ * inline prop type, a procedure's inline input, a function's inline parameter
+ * object — was INVISIBLE, and the exclusion recorded above for
+ * `cloudSourceSessionInput` says so in as many words: "it lived in
+ * `apps/server/src/router.ts` as an inline procedure input, which this detector
+ * does not scan".
+ *
+ * POD-408 hit the consequence. It consolidated two inline restatements of the
+ * same four session keys — `ExitedPane` and `ExitedBanner`, each with its own
+ * hand-written `{ sessionId; exitCode; spawnFailure; resumable; … }` — into one
+ * named `ExitedProps`, and `session-shapes` went 1 → 2 and rejected it. The tree
+ * got better; the number got worse. A ratchet that pays for inlining and
+ * charges for naming pushes the next agent toward the worse code, and this epic
+ * exists to DELETE restatements, not to rename them out of view.
+ *
+ * WHAT THIS COUNTS, AND THE LINE IT DRAWS
+ *
+ * An **object TYPE literal** — `{ sessionId: SessionId; cwd: string; agentKind:
+ * AgentKind }` in a type position — restating ≥{@link ENTITY_SHAPE_THRESHOLD}
+ * non-generic keys of one entity's vocabulary. Same threshold, same vocabulary,
+ * same generic-key list as the named form: nothing about WHAT COUNTS AS A KEY
+ * changed here, so the whole delta is attributable to the form.
+ *
+ * It deliberately does NOT count two things that also mention three keys:
+ *
+ *  - a **destructuring pattern** — `function Pane({ sessionId, exitCode,
+ *    resumable })` — and
+ *  - a **value object literal** — `{ sessionId: s.id, exitCode: s.code }`.
+ *
+ * Both NAME keys; neither RESTATES them, because neither writes the types out.
+ * That is not a new judgement invented for this pass: it is the line the named
+ * form already draws on `Pick<IssueWire, 'readAt'>`, which names its members and
+ * is counted for the forbidden-key classes but is never counted as a
+ * restatement. A component that reads three session fields is coupled to three
+ * NAMES; one that hand-writes their types is a second declaration of the shape
+ * and is the thing `packages/model` is meant to be the single source of. Drawing
+ * the line anywhere looser floods the audit with every function that touches a
+ * session, and a gate everyone learns to ignore is dead.
+ *
+ * A literal with a METHOD or a function-typed member is skipped, exactly as
+ * {@link FUNCTION_MEMBER} skips the named form: those members are behaviour, so
+ * the declaration is a port, not a shape.
+ *
+ * NESTING AND DOUBLE-COUNTING. The named pass reads a declaration's text FLAT,
+ * so it has already absorbed the keys of every literal nested inside it. Any
+ * literal inside a window the named pass emitted is therefore skipped here, as
+ * is any literal nested inside a literal this pass has already emitted. One
+ * site, one restatement.
+ */
+function typeLiteralKeys(node: ts.TypeLiteralNode): { keys: string[]; hasBehaviour: boolean } {
+  const keys: string[] = []
+  let hasBehaviour = false
+  for (const member of node.members) {
+    if (ts.isMethodSignature(member)) {
+      hasBehaviour = true
+      continue
+    }
+    if (!ts.isPropertySignature(member)) continue
+    if (
+      member.type &&
+      (ts.isFunctionTypeNode(member.type) || ts.isConstructorTypeNode(member.type))
+    ) {
+      hasBehaviour = true
+      continue
+    }
+    const name = member.name
+    if (ts.isIdentifier(name) || ts.isStringLiteral(name)) keys.push(name.text)
+  }
+  return { keys, hasBehaviour }
+}
+
+/** The nearest named thing around an inline literal, so a site has a stable
+ *  handle an exclusion could key on and a reader can find it without the line
+ *  number. `<module>` when a literal sits at the top of a file under no name at
+ *  all. */
+function enclosingName(node: ts.Node): string {
+  for (let p = node.parent; p; p = p.parent) {
+    if (
+      (ts.isFunctionDeclaration(p) ||
+        ts.isClassDeclaration(p) ||
+        ts.isInterfaceDeclaration(p) ||
+        ts.isTypeAliasDeclaration(p) ||
+        ts.isMethodDeclaration(p) ||
+        ts.isPropertyDeclaration(p) ||
+        ts.isVariableDeclaration(p) ||
+        ts.isPropertyAssignment(p)) &&
+      p.name &&
+      (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name))
+    ) {
+      return p.name.text
+    }
+  }
+  return '<module>'
+}
+
+function scriptKindOf(file: string): ts.ScriptKind {
+  return file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS
+}
+
+/**
+ * Every inline object type literal under `apps/` + `packages/` that restates at
+ * least {@link ENTITY_SHAPE_THRESHOLD} distinct non-generic session or issue
+ * keys and is not already inside a window the named pass read.
+ *
+ * Kept as its own function rather than folded into
+ * {@link entityShapedDeclarations} on purpose: the forbidden-key-class checks
+ * (`perUserSingletons`, `capabilitySnapshots`) read that one, and widening it
+ * would move four counts at once with no way to attribute the delta. Those
+ * checks therefore remain NAMED-FORM ONLY, which is a real limit and is stated
+ * as one — see `docs/rearch-deletion-audit.md`.
+ */
+export function inlineEntityShapedLiterals(
+  ctx: AuditContext,
+  named: readonly EntityShapedDecl[] = entityShapedDeclarations(ctx),
+): EntityShapedDecl[] {
+  assertVocabularyLoaded(SESSION_VOCABULARY, ISSUE_VOCABULARY)
+  assertInlineDetectorMatchesControl()
+
+  const namedWindows = new Map<string, { from: number; to: number }[]>()
+  for (const d of named) {
+    const w = namedWindows.get(d.file) ?? []
+    w.push({ from: d.line, to: d.endLine })
+    namedWindows.set(d.file, w)
+  }
+
+  const out: EntityShapedDecl[] = []
+  for (const f of ctx.files) {
+    if (!isScannedForShapes(f)) continue
+    const windows = namedWindows.get(f.file) ?? []
+    const emitted: { from: number; to: number }[] = []
+    const ordinals = new Map<string, number>()
+    for (const hit of inlineLiteralsIn(f.file, f.stripped)) {
+      if (windows.some((w) => hit.line >= w.from && hit.line <= w.to)) continue
+      if (emitted.some((w) => hit.line >= w.from && hit.line <= w.to)) continue
+      emitted.push({ from: hit.line, to: hit.endLine })
+      const ordinal = (ordinals.get(hit.enclosing) ?? 0) + 1
+      ordinals.set(hit.enclosing, ordinal)
+      out.push({
+        file: f.file,
+        line: hit.line,
+        endLine: hit.endLine,
+        symbol: `${hit.enclosing}#${ordinal}`,
+        form: 'inline',
+        sessionKeys: hit.sessionKeys,
+        issueKeys: hit.issueKeys,
+        keys: hit.keys,
+      })
+    }
+  }
+  return out
+}
+
+interface InlineHit {
+  readonly line: number
+  readonly endLine: number
+  readonly enclosing: string
+  readonly sessionKeys: string[]
+  readonly issueKeys: string[]
+  readonly keys: string[]
+}
+
+/** The parse, in source order. Split out so the control below exercises exactly
+ *  the code the tree scan runs. */
+function inlineLiteralsIn(file: string, source: string): InlineHit[] {
+  const sf = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, scriptKindOf(file))
+  const hits: InlineHit[] = []
+  const visit = (node: ts.Node): void => {
+    if (ts.isTypeLiteralNode(node)) {
+      const { keys, hasBehaviour } = typeLiteralKeys(node)
+      if (!hasBehaviour) {
+        const restated = keys.filter((k) => !GENERIC_KEYS.has(k))
+        const sessionKeys = restated.filter((k) => SESSION_VOCABULARY.has(k))
+        const issueKeys = restated.filter((k) => ISSUE_VOCABULARY.has(k))
+        if (
+          sessionKeys.length >= ENTITY_SHAPE_THRESHOLD ||
+          issueKeys.length >= ENTITY_SHAPE_THRESHOLD
+        ) {
+          hits.push({
+            line: sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1,
+            endLine: sf.getLineAndCharacterOfPosition(node.getEnd()).line + 1,
+            enclosing: enclosingName(node),
+            sessionKeys,
+            issueKeys,
+            keys,
+          })
+        }
+      }
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(sf)
+  return hits.sort((a, b) => a.line - b.line)
+}
+
+/**
+ * The CONTROL, run on every invocation.
+ *
+ * A parser-backed detector fails silently in a way a regex one does not: hand it
+ * a script kind it cannot parse, or move to a TypeScript whose node predicates
+ * are named differently, and `forEachChild` walks a tree with no type literals
+ * in it and this pass reports a serene ZERO. A zero from here would then be
+ * banked as "the inline debt is gone", which is this audit's own worst failure
+ * mode (`docs/rearch-deletion-audit.md`) and is exactly why POD-1525 exists at
+ * all — a detector that measures one form of a problem reads as an answer about
+ * the problem.
+ *
+ * So the pass proves it can still say YES to a known shape before it is allowed
+ * to say NO about the tree — the same contract `upstream-sync-forwarder` carries
+ * for its zero. The control is a `.tsx` component, because that is the form
+ * POD-408 hit and the one whose script kind is easiest to get wrong.
+ */
+const INLINE_CONTROL_FILE = 'apps/web/src/probe.control.tsx'
+const INLINE_CONTROL_SOURCE = `
+function ControlPane({ sessionId, cwd }: {
+  sessionId: SessionId
+  cwd: string
+  agentKind: AgentKind
+  machineId?: MachineId
+}): JSX.Element {
+  return <div>{sessionId}{cwd}</div>
+}
+`
+/** A shape that must NOT match: same keys, but only NAMED — the destructuring
+ *  form. If this one starts matching, the pass has stopped distinguishing
+ *  "restates the shape" from "reads three fields" and will flood the audit. */
+const INLINE_ANTICONTROL_SOURCE = `
+function ControlPane({ sessionId, cwd, agentKind, machineId }: ControlProps): JSX.Element {
+  return <div>{sessionId}{cwd}{agentKind}{machineId}</div>
+}
+`
+
+export function assertInlineDetectorMatchesControl(
+  control: string = INLINE_CONTROL_SOURCE,
+  anticontrol: string = INLINE_ANTICONTROL_SOURCE,
+): void {
+  const found = inlineLiteralsIn(INLINE_CONTROL_FILE, control)
+  if (found.length !== 1 || (found[0]?.sessionKeys.length ?? 0) < ENTITY_SHAPE_THRESHOLD) {
+    throw new Error(
+      'representation-audit: the inline-restatement pass no longer matches its own control ' +
+        `shape (found ${found.length} literal(s)). Its zero would be a phantom, not a deletion. ` +
+        'Fix the detector; do not rebaseline.',
+    )
+  }
+  if (inlineLiteralsIn(INLINE_CONTROL_FILE, anticontrol).length !== 0) {
+    throw new Error(
+      'representation-audit: the inline-restatement pass matched a DESTRUCTURING pattern, which ' +
+        'names keys without restating their types. It has lost the line between restating a shape ' +
+        'and reading three fields, and will now count most of the repo.',
+    )
+  }
+}
+
+/** The files a shape detector reads: not tests, not immutable migration history,
+ *  not generated output, not captured payloads, and not the shared vocabulary
+ *  itself. Shared by both forms so they can never drift apart on scope. */
+function isScannedForShapes(f: { file: string; isTest: boolean }): boolean {
+  if (f.isTest) return false
+  if (f.file.includes('/migrations/') || f.file.endsWith('.generated.ts')) return false
+  if (f.file.endsWith('.fixtures.ts')) return false
+  if (f.file.startsWith('packages/model/src/fields/')) return false
+  return true
 }
 
 // ---------------------------------------------------------------------------
@@ -604,16 +900,27 @@ const registeredSymbols = new Set(RETAINED_REPRESENTATIONS.map((r) => r.symbol))
  * ITEM: a hand-restated session/issue field list that `packages/model`'s registry
  * does not account for.
  *
- * Zero means every restatement is either composed away, registered with its
- * justification, or excluded with a reason that cites the inventory rule. It does
- * NOT mean the registry is complete — see the module header.
+ * TWO SYNTAX FORMS since POD-1525: a NAMED declaration (`interface X { … }`,
+ * `type X = { … }`) and an INLINE object type literal (a component's prop type, a
+ * procedure's inline input). Before POD-1525 only the first counted, so
+ * CONSOLIDATING two inline restatements into one named interface raised the
+ * number while improving the tree, and the baseline bounded the named half of a
+ * problem while reading as the whole of it.
+ *
+ * Zero means every restatement of EITHER form is composed away, registered with
+ * its justification, or excluded with a reason that cites the inventory rule. It
+ * does NOT mean the registry is complete — see the module header — and it does
+ * not mean there is no restatement left in a form neither pass reads: a
+ * destructuring pattern and a value object literal NAME keys without restating
+ * their types, and are deliberately outside the unit.
  */
 export function unregisteredRestatements(
   ctx: AuditContext,
   entity: 'session' | 'issue',
 ): AuditSite[] {
   const sites: AuditSite[] = []
-  for (const d of entityShapedDeclarations(ctx)) {
+  const named = entityShapedDeclarations(ctx)
+  for (const d of [...named, ...inlineEntityShapedLiterals(ctx, named)]) {
     if (excluded.has(`${d.file}::${d.symbol}`)) continue
     if (registeredSymbols.has(d.symbol)) continue
     const mine =
@@ -623,13 +930,14 @@ export function unregisteredRestatements(
         : d.issueKeys.length >= ENTITY_SHAPE_THRESHOLD && d.issueKeys.length > d.sessionKeys.length
     if (!mine) continue
     const keys = entity === 'session' ? d.sessionKeys : d.issueKeys
+    const what = d.form === 'inline' ? `inline object type in ${d.symbol.split('#')[0]}` : d.symbol
     sites.push({
       file: d.file,
       line: d.line,
-      text: `${d.symbol} hand-declares ${keys.length} ${entity} keys: ${keys.slice(0, 6).join(', ')}`,
+      text: `${what} hand-declares ${keys.length} ${entity} keys: ${keys.slice(0, 6).join(', ')}`,
     })
   }
-  return sites
+  return sites.sort((a, b) => (a.file === b.file ? a.line - b.line : a.file < b.file ? -1 : 1))
 }
 
 /**

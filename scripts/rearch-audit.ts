@@ -1500,6 +1500,7 @@ function formatBaseline(baseline: Baseline): string {
   return `{
   "$schema": "Deletion audit baseline — see scripts/rearch-audit.ts and docs/rearch-deletion-audit.md.",
   "$note": "Counts of v3-inventory items still present. Regenerate with: bun run audit:rearch --update-baseline. These may only go DOWN; every undeclared site must reach 0 before its phase issue closes.",
+  "$scope": "A count bounds the SYNTAX FORMS its detector reads, not the problem it is named after — read each one with the unit \`--sites\` prints. Stated here because a number that bounds one form reads as an answer about the whole: session-shapes and issue-shapes counted NAMED declarations only until POD-1525 re-measured them over inline object type literals too (1 -> 37 and 3 -> 9 at aeb2de9e), which is a NEW MEASUREMENT of a wider unit, not 36 and 6 new restatements. Neither form counts a destructuring pattern or a value object literal: those NAME keys without restating their types.",
   "counts": {
 ${body}
   }

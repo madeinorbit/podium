@@ -135,6 +135,55 @@ So detectors must not key on things that move for unrelated reasons:
 in the live tree, which catches total drift. It cannot catch partial
 under-counting — that is what the rules above are for.
 
+### A count bounds the SYNTAX FORMS its detector reads, not the problem (POD-1525)
+
+The failure above is a count that falls for the wrong reason. This one is
+quieter: a count that was **never a census of its own item**, and reads like one.
+
+`session-shapes` counted `interface X { … }` and `type X = { … }` and nothing
+else. The same field list written *without a name* — a component's inline prop
+type, a procedure's inline input, a function's inline parameter object — did not
+count, so **naming a shape raised the number and inlining it lowered one**. That
+is backwards for an epic whose job is deleting restatements, and it was found the
+only way this kind of defect ever is: POD-408 consolidated two inline
+restatements of the same four session keys into one named `ExitedProps`, the
+audit rejected it for growing 1 → 2, and POD-408 reported the number's *meaning*
+rather than disputing its arithmetic. Re-measured over both forms, that same
+refactor is 2 → 1.
+
+The second consequence is the one that outlives the incident. "1 item, 113 sites
+remaining" bounded the **named half** of the session-shape problem while reading
+as a measured remainder of the whole; nobody had ever counted the other half, so
+nobody knew the size of it. Both readings are true statements about the
+detector's scope, and neither is an answer about the problem the item is named
+after.
+
+So, for whoever writes the next gate:
+
+- **State the form, not just the unit.** A detector matching one syntax form of a
+  semantic problem must say which form, where the number is read —
+  `rearch-audit-baseline.json` carries a `$scope` line for exactly this, and
+  `formatBaseline` regenerates it so `--update-baseline` cannot drop it.
+- **A widened detector re-baselines as a NEW MEASUREMENT.** POD-1525's
+  `1 → 37` and `3 → 9` are not 42 new restatements; they are the first count of a
+  wider unit. Recorded as a reconciliation below, in the form this file already
+  uses for `change-row-typings` (7 → 18 with the code unchanged), so "new debt"
+  and "debt that came into view" never look alike.
+- **Widening only pays if the new form can be shown to FAIL.** A detector
+  extended to a form it cannot actually match is *worse* than one honestly
+  scoped, because the re-baseline then blesses an unknown quantity of debt as
+  measured-and-clean. Probe it — see the reconciliation entry for what POD-1525
+  planted and what each probe returned.
+- **Draw the false-positive line and assert it.** The inline form is far more
+  common than the named one, and a gate that floods gets muted. The line here is
+  the one the named form already drew on `Pick`: a **type literal** restates
+  (keys *and* their types); a destructuring pattern or a value object literal only
+  **names** keys, and is not counted.
+
+Same family as a probe that counts through a barrel and reads zero once the call
+moves to a package-internal import (POD-331) — caught only because that probe
+carried a can-say-NO assertion.
+
 ### What an item that reaches ZERO owes (POD-309)
 
 The anchor rule above bites hardest the moment an item is genuinely finished,
@@ -184,6 +233,51 @@ table is the defect.** The rule the rows apply:
 - **Genuinely new debt** — a call site, placeholder or table that did not exist —
   is recorded *and* filed, so the phase that owns the deletion inherits it
   instead of it riding along invisibly inside a larger number.
+
+### 2026-08-03 — POD-1525 teaches the vocabulary items the INLINE form (1 → 37, 3 → 9)
+
+**A NEW MEASUREMENT OF A WIDER UNIT, NOT 42 NEW RESTATEMENTS.** Same tree
+(`aeb2de9e`), same threshold (≥3), same vocabulary, same generic-key list —
+nothing about *what counts as a key* moved, so the whole delta is attributable to
+the syntax form. Read the general rule above; this row is its evidence.
+
+| Item | Was → now | Verdict |
+| --- | --- | --- |
+| `session-shapes` | 1 → 37 | **1 named + 36 inline.** The one named site (`SessionViewInput`) is unchanged. The 36 are inline object type literals that were never counted: mostly `…Deps`/`…Ports` method-parameter objects restating the spawn field list (`session-start.ts:287` alone hand-declares 13 session keys), plus two React prop types of exactly POD-408's form. |
+| `issue-shapes` | 3 → 9 | **3 named + 6 inline.** Named unchanged (`IssueView`, `IssueViewInput`, `IssueWireTail`). |
+
+**PROBES — the detector was shown to say NO to BOTH forms before the baseline
+moved.** Planted in `apps/server/src/modules/sessions/workspace.ts`, each
+reverted by copying back an md5-verified snapshot (all three restores matched;
+`grep` for the probe marker returned rc=1 each time):
+
+| Probe | Gate | Result |
+| --- | --- | --- |
+| inline object type literal, 3 session keys | **exit 1** | `baseline 37 → now 38`, naming `workspace.ts:420  inline object type in pod1525ProbeInline` |
+| named `interface`, the same 3 keys | **exit 1** | `baseline 37 → now 38`, naming `workspace.ts:420  Pod1525ProbeNamedPOD1525PROBE` |
+| **threshold boundary** — inline, only **2** session keys | exit 0 | `baseline exact`. Three trips it, two does not. |
+| clean tree | exit 0 | `32 items, 155 sites remaining (baseline exact)` |
+
+The pass also runs a **control on every invocation**
+(`assertInlineDetectorMatchesControl`): a `.tsx` component whose inline prop type
+it must still find, and a destructuring pattern it must still ignore. A
+parser-backed detector handed the wrong script kind does not fail loudly — it
+walks a tree with nothing in it and reports a serene zero, which the ratchet would
+bank as progress. Same contract `upstream-sync-forwarder` carries for its zero.
+
+**RE-JUDGING POD-408.** Measured out of git at `744b02b6^` → `744b02b6` under
+both forms: **2 → 1** — two inline restatements of `sessionId, exitCode,
+spawnFailure, resumable` on `ExitedPane` and `ExitedBanner`, consolidated into one
+named `ExitedProps`. The rejection was a detector defect, not a finding. POD-408
+went further on its own and the site is now **0**: `SessionLifecyclePanes.tsx`
+`Pick`s the four session facts from the model and hand-declares only the three
+panel-local derivations.
+
+**KNOWN LIMIT, stated rather than discovered later.** Only `session-shapes` and
+`issue-shapes` read both forms. The forbidden-key-class checks —
+`per-user-singletons`, `capability-snapshots`, `instance-partitions` — still read
+NAMED declarations only, because widening them in the same change would have moved
+four counts at once with no way to attribute the delta. Filed as follow-up.
 
 ### 2026-07-31 — POD-324 deletes durable-host sync twins
 

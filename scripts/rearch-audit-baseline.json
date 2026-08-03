@@ -1,6 +1,7 @@
 {
   "$schema": "Deletion audit baseline — see scripts/rearch-audit.ts and docs/rearch-deletion-audit.md.",
   "$note": "Counts of v3-inventory items still present. Regenerate with: bun run audit:rearch --update-baseline. These may only go DOWN; every undeclared site must reach 0 before its phase issue closes.",
+  "$scope": "A count bounds the SYNTAX FORMS its detector reads, not the problem it is named after — read each one with the unit `--sites` prints. Stated here because a number that bounds one form reads as an answer about the whole: session-shapes and issue-shapes counted NAMED declarations only until POD-1525 re-measured them over inline object type literals too (1 -> 37 and 3 -> 9 at aeb2de9e), which is a NEW MEASUREMENT of a wider unit, not 36 and 6 new restatements. Neither form counts a destructuring pattern or a value object literal: those NAME keys without restating their types.",
   "counts": {
     "adoption-backfill-heals": 5,
     "agent-kind-enums": 0,
@@ -11,7 +12,7 @@
     "composition-root-forward-refs": 0,
     "durable-host-sync-async-twins": 0,
     "instance-partitions": 0,
-    "issue-shapes": 3,
+    "issue-shapes": 9,
     "issue-wire-dirty-scoping-shims": 3,
     "issues-legacy-local-wire": 12,
     "legacy-wire-v1-adapter": 6,
@@ -27,7 +28,7 @@
     "representation-registry-rot": 0,
     "router-triple-access": 0,
     "send-turn-duplicate": 0,
-    "session-shapes": 1,
+    "session-shapes": 37,
     "state-dir-defs": 0,
     "static-systemd-units": 11,
     "superagent-shadow-types": 2,

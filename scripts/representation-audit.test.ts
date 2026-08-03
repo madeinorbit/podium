@@ -2,12 +2,14 @@ import { describe, expect, it } from 'vitest'
 import type { AuditContext, SourceFile } from './rearch-audit'
 import { stripComments } from './rearch-audit'
 import {
+  assertInlineDetectorMatchesControl,
   assertVocabularyLoaded,
   capabilitySnapshots,
   danglingRegistryEntries,
   ENTITY_SHAPE_THRESHOLD,
   entityShapedDeclarations,
   GENERIC_KEYS,
+  inlineEntityShapedLiterals,
   instancePartitions,
   NOT_A_REPRESENTATION,
   perUserSingletons,
@@ -144,6 +146,182 @@ export function exitedRecovery(opts: {
     expect(
       entityShapedDeclarations(ctxOf(RESTATED, 'packages/model/src/fields/session.ts')),
     ).toEqual([])
+  })
+})
+
+/**
+ * THE SECOND SYNTAX FORM (POD-1525).
+ *
+ * POD-408 consolidated two inline restatements of the same four session keys —
+ * `ExitedPane` and `ExitedBanner` in AgentPanel.tsx, each with its own
+ * hand-written prop type — into one named `ExitedProps`, and `session-shapes`
+ * went 1 → 2 and rejected the change. The tree got better; the number got worse,
+ * because the detector counted DECLARATION and the defect is RESTATEMENT.
+ *
+ * These cases pin the fix in both directions: the inline form is now found, and
+ * the forms that merely NAME keys without restating their types are still not,
+ * because a detector that counted those would count most of the repo and get
+ * muted.
+ */
+describe('the INLINE form — it can say YES', () => {
+  /** POD-408's shape, as it stood in AgentPanel.tsx before the refactor. */
+  const INLINE_PANE = `
+function ExitedPane({ sessionId, exitCode, spawnFailure, resumable }: {
+  sessionId: SessionId
+  exitCode: number | undefined
+  spawnFailure?: string
+  resumable: boolean
+}): JSX.Element {
+  return <div>{sessionId}</div>
+}
+`
+  const TSX = 'apps/web/src/features/terminal/AgentPanel.tsx'
+
+  it('finds an inline prop type the named pass cannot see', () => {
+    expect(entityShapedDeclarations(ctxOf(INLINE_PANE, TSX))).toEqual([])
+    const inline = inlineEntityShapedLiterals(ctxOf(INLINE_PANE, TSX))
+    expect(inline).toHaveLength(1)
+    expect(inline[0]?.symbol).toBe('ExitedPane#1')
+    expect(inline[0]?.sessionKeys.length).toBeGreaterThanOrEqual(ENTITY_SHAPE_THRESHOLD)
+    expect(unregisteredRestatements(ctxOf(INLINE_PANE, TSX), 'session')).toHaveLength(1)
+  })
+
+  /**
+   * THE PROPERTY THIS WHOLE ITEM EXISTS FOR. Under the old detector this
+   * refactor read as +1. It must now read as an improvement, or the ratchet goes
+   * on paying agents to inline the debt this epic is deleting.
+   */
+  it('scores consolidating two inline restatements into one named interface as a WIN', () => {
+    const before = `${INLINE_PANE}\n${INLINE_PANE.replace(/ExitedPane/g, 'ExitedBanner')}`
+    const after = `
+interface ExitedProps {
+  sessionId: SessionId
+  exitCode: number | undefined
+  spawnFailure?: string
+  resumable: boolean
+}
+function ExitedPane({ sessionId }: ExitedProps): JSX.Element { return <div>{sessionId}</div> }
+function ExitedBanner({ sessionId }: ExitedProps): JSX.Element { return <div>{sessionId}</div> }
+`
+    expect(unregisteredRestatements(ctxOf(before, TSX), 'session')).toHaveLength(2)
+    expect(unregisteredRestatements(ctxOf(after, TSX), 'session')).toHaveLength(1)
+  })
+
+  it('finds the inline parameter object the named pass deliberately walks past', () => {
+    // The named pass has a case asserting this literal is NOT attributed to the
+    // brace-less alias above it. That was right, and it left the literal
+    // uncounted by anything. It is a restatement; here is where it counts.
+    const source = `
+export type ExitedAction = 'restart' | 'resume' | 'remove'
+
+export function exitedRecovery(opts: {
+  exitCode: number | undefined
+  spawnFailure?: string
+  resumable: boolean
+  worktreePath?: string
+}): ExitedAction {
+  return 'remove'
+}
+`
+    expect(entityShapedDeclarations(ctxOf(source))).toEqual([])
+    expect(inlineEntityShapedLiterals(ctxOf(source)).map((d) => d.symbol)).toEqual([
+      'exitedRecovery#1',
+    ])
+  })
+})
+
+describe('the INLINE form — it can say NO', () => {
+  /**
+   * THE LINE, asserted rather than described. A component that DESTRUCTURES
+   * three session fields is coupled to three names; one that hand-writes their
+   * types has declared the shape a second time. Only the second is a
+   * restatement — the same line the named pass already draws on `Pick`, which
+   * names its members and is never counted as a restatement either.
+   */
+  it('is silent on a destructuring pattern that names the same keys', () => {
+    const source = `
+function ExitedPane({ sessionId, exitCode, spawnFailure, resumable }: ExitedProps): JSX.Element {
+  return <div>{sessionId}{exitCode}{spawnFailure}{resumable}</div>
+}
+`
+    expect(inlineEntityShapedLiterals(ctxOf(source, 'apps/web/src/p.tsx'))).toEqual([])
+  })
+
+  it('is silent on a VALUE object literal that names the same keys', () => {
+    const source = `
+export function toRow(s: Session) {
+  return { sessionId: s.sessionId, cwd: s.cwd, agentKind: s.agentKind, machineId: s.machineId }
+}
+`
+    expect(inlineEntityShapedLiterals(ctxOf(source))).toEqual([])
+  })
+
+  it('is silent on an inline literal whose members are BEHAVIOUR', () => {
+    const source = `
+export function wire(deps: {
+  sessionId(): string
+  cwd: () => string
+  agentKind(): string
+  machineId(): string
+}): void {}
+`
+    expect(inlineEntityShapedLiterals(ctxOf(source))).toEqual([])
+  })
+
+  /**
+   * THE THRESHOLD BOUNDARY. An off-by-one here silently changes what the whole
+   * ratchet measures, so both sides of it are pinned rather than reasoned about.
+   */
+  it('needs exactly ENTITY_SHAPE_THRESHOLD keys — two do not trip it, three do', () => {
+    const two = `export function f(o: { sessionId: string; cwd: string }): void {}`
+    const three = `export function f(o: { sessionId: string; cwd: string; agentKind: string }): void {}`
+    expect(ENTITY_SHAPE_THRESHOLD).toBe(3)
+    expect(inlineEntityShapedLiterals(ctxOf(two))).toEqual([])
+    expect(inlineEntityShapedLiterals(ctxOf(three))).toHaveLength(1)
+  })
+
+  it('counts a nested literal ONCE, not once per enclosing window', () => {
+    // The named pass reads a declaration's text flat, so it has already absorbed
+    // the nested keys. Counting them again would inflate the baseline with the
+    // same site twice.
+    const source = `
+export interface Envelope {
+  sessionId: string
+  cwd: string
+  agentKind: string
+  inner: { sessionId: string; cwd: string; machineId: string }
+}
+`
+    expect(unregisteredRestatements(ctxOf(source), 'session')).toHaveLength(1)
+  })
+
+  it('does not count an inline literal in a test, a migration or a fixture', () => {
+    const source = `export function f(o: { sessionId: string; cwd: string; agentKind: string }): void {}`
+    for (const file of [
+      'apps/server/src/migrations/schema.ts',
+      'apps/server/src/x.generated.ts',
+      'packages/protocol/src/messages/wire-golden.fixtures.ts',
+      'packages/model/src/fields/session.ts',
+    ]) {
+      expect(inlineEntityShapedLiterals(ctxOf(source, file)), file).toEqual([])
+    }
+  })
+
+  /**
+   * The guard that stops a parser failure from reading as a deletion. A
+   * regex detector that breaks usually breaks loudly; a parser handed the wrong
+   * script kind just walks a tree with nothing in it and reports a serene zero,
+   * which the ratchet would bank as progress.
+   */
+  it('REFUSES to run when it stops matching its own control shape', () => {
+    expect(() => assertInlineDetectorMatchesControl()).not.toThrow()
+    expect(() => assertInlineDetectorMatchesControl('const x = 1')).toThrow(/control shape/)
+    expect(() =>
+      assertInlineDetectorMatchesControl(
+        undefined,
+        'export function f(o: { sessionId: string; cwd: string; agentKind: string }): void {}',
+      ),
+    ).toThrow(/DESTRUCTURING|restating a shape/)
   })
 })
 
