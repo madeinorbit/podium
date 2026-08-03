@@ -16,10 +16,12 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { DaemonHandshakeReply } from '@podium/protocol'
+import { type PeerHelloReply, WIRE_VERSION } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { type WebSocket, WebSocketServer } from 'ws'
 import { startDaemon } from './daemon'
+
+const priorStateDir = process.env.PODIUM_STATE_DIR!
 
 describe('unknown repo op is answered, not dropped (POD-1464)', () => {
   let dir: string
@@ -36,7 +38,9 @@ describe('unknown repo op is answered, not dropped (POD-1464)', () => {
     port = (httpServer.address() as { port: number }).port
   })
   afterEach(async () => {
-    delete process.env.PODIUM_STATE_DIR
+    // Restored, not deleted: the hermetic guard runs as a GLOBAL afterEach
+    // (test-hermetic-vitest-hooks.ts) and requires it set on the way out too.
+    process.env.PODIUM_STATE_DIR = priorStateDir
     for (const c of wss.clients) c.terminate()
     await new Promise<void>((r) => wss.close(() => r()))
     httpServer.closeAllConnections?.()
@@ -49,11 +53,18 @@ describe('unknown repo op is answered, not dropped (POD-1464)', () => {
     const replies: Record<string, unknown>[] = []
     wss.on('connection', (ws) => {
       socket = ws
+      // Complete the handshake the way the rewrite's dialer requires: the ACK first,
+      // and it must parse as a `PeerHelloReply`. Sending an application frame before
+      // that ack is the named `traffic-before-ack` protocol error, so an ill-formed
+      // reply here would fail the connection long before the op under test is read.
+      // Same rig as the passing connectivity-state.test.ts.
       ws.once('message', () => {
-        const reply: DaemonHandshakeReply = {
-          type: 'paired',
-          token: 'tok-1',
-          machineId: 'm-1',
+        const reply: PeerHelloReply = {
+          type: 'peerHelloOk',
+          v: WIRE_VERSION,
+          caps: [],
+          issuedToken: 'tok-1',
+          assignedId: 'm-1',
           name: 'box',
         }
         ws.send(JSON.stringify(reply))

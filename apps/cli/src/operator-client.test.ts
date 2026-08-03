@@ -13,7 +13,11 @@ beforeEach(() => {
   process.env.PODIUM_STATE_DIR = dir
 })
 afterEach(() => {
-  delete process.env.PODIUM_STATE_DIR
+  // Do NOT delete PODIUM_STATE_DIR: the hermetic guard runs as a GLOBAL
+  // afterEach (test-hermetic-vitest-hooks.ts) and requires it set on the way out
+  // too, so clearing it here trips the very protection it exists to give. The
+  // temp dir is removed instead, and the next file sets its own. Same fix as
+  // apps/cli/src/auth-cli.test.ts (05e21ad6).
   delete process.env.PODIUM_SESSION_TOKEN
   rmSync(dir, { recursive: true, force: true })
 })
