@@ -1,0 +1,18 @@
+// PROBE FIXTURE for the `manifest-retired-path` rule (POD-333). Not real source
+// — `.txt` so the walker never reads it as code; check-boundaries --probe feeds
+// it to checkManifestFile under a synthetic apps/web path and REQUIRES three
+// violations. If this file stops producing them, the rule stopped working and
+// the probe fails rather than the tree quietly going unguarded.
+//
+// The three forms are deliberate, and each has failed for real:
+//   1. a `@/` ALIASED import — 30 of the POD-333 call sites used this form, and
+//      an earlier draft of the codemod resolved only relative specifiers;
+//   2. a RELATIVE import — the ordinary form;
+//   3. a TYPE-ONLY import — exempt under the layer/platform rules, NOT here,
+//      because a retired path is missing for a type import too.
+
+import { relativeTime } from '@/lib/home'
+import { scopeKey } from '../lib/file-scope'
+import type { UiState } from '../app/replica'
+
+export const probe = { relativeTime, scopeKey } as unknown as UiState

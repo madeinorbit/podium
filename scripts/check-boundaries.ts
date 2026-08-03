@@ -106,6 +106,8 @@ import {
   clauseIsTypeOnly,
   extractImports,
   findHarnessBranching,
+  findRetiredFile,
+  findRetiredImports,
   type ImportRef,
   isTestFile,
   loadHarnessLiterals,
@@ -1272,6 +1274,10 @@ export function checkManifestFile(
   const violations: Violation[] = [
     ...findHarnessBranching(file, source, harnessLiterals),
     ...checkHarnessClassifierBoundary(file, source),
+    // POD-333 — the deleted compatibility shims stay deleted: neither the file
+    // nor an import that resolves to it may come back.
+    ...findRetiredFile(file),
+    ...findRetiredImports(file, source),
     // POD-329 ownership also runs under the architecture-manifest path so
     // `lint:architecture` (`--manifest-only`) cannot sail past a new raw-storage
     // call while legacy `lint:boundaries` is continue-on-error.
@@ -1388,6 +1394,36 @@ function main(): void {
         loadHarnessLiterals(repoRoot),
       ),
     )
+    // POD-333 — the retired-path rule proves it can still say NO. Unlike the
+    // harness probe (whose violations join the run and are allowlisted), this
+    // one ASSERTS and throws: `manifest-retired-path` is error-level, so its
+    // violations can never be allowlisted, and a probe that merely reported
+    // would fail the build every time it worked. Asserting here also gives the
+    // rule the property docs/rearch-deletion-audit.md demands of anything whose
+    // correct count is zero — the detector watches itself, because nothing else
+    // can distinguish "no retired paths remain" from "the resolver broke".
+    const retiredProbe = checkManifestFile(
+      'apps/web/src/features/__retired-path-probe.ts',
+      readFileSync(join(repoRoot, 'scripts/fixtures/retired-path-probe.ts.txt'), 'utf8'),
+      [],
+    ).filter((v) => v.rule === 'manifest-retired-path')
+    // EXIT CODE 3, not 1. `--probe` already exits 1 by design — the harness
+    // probe's violation is reported as NEW and fails the run, which is how that
+    // probe proves its rule fires. A broken retired-path rule would therefore
+    // ALSO exit 1, via somebody else's violation, and read as "the probe ran".
+    // A distinct code makes "the guard is dead" impossible to mistake for "the
+    // guard fired".
+    const fileProbe = findRetiredFile('apps/web/src/lib/home.ts')
+    if (retiredProbe.length !== 3 || fileProbe.length !== 1) {
+      console.error(
+        `\nPROBE FAILED (manifest-retired-path): imports ${retiredProbe.length}/3 ` +
+          `(aliased, relative, type-only), file ${fileProbe.length}/1. The rule can no longer ` +
+          'refuse a retired path — fix findRetiredImports / resolveModulePath / RETIRED_MODULES ' +
+          'in scripts/architecture-manifest.ts before trusting any green from this check.',
+      )
+      process.exit(3)
+    }
+    console.log('probe: manifest-retired-path refuses 3/3 import forms and 1/1 re-created file')
   }
   // ONE allowlist, but the two rule families must be applied to their OWN
   // violations: applyAllowlist calls any entry with no matching violation stale,
