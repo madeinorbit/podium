@@ -56,8 +56,12 @@ describe('spawn machine-USE placement', () => {
       draftIssue: { repoPath: '/repo', issueId: 'issue-1' },
       machineId: 'machine-1',
     })
-    expect(Object.keys(create.mock.calls[0]?.[0] ?? {})).not.toEqual(
-      expect.arrayContaining(['actor', 'owner', 'ownerId', 'origin']),
-    )
+    // Per-field: `not.toEqual(expect.arrayContaining([...]))` only fails when
+    // ALL of the listed fields are present at once, so a single leaked field
+    // passed silently (POD-1533).
+    const createdKeys = Object.keys(create.mock.calls[0]?.[0] ?? {})
+    for (const field of ['actor', 'owner', 'ownerId', 'origin']) {
+      expect(createdKeys, `spawn payload asserts attribution field '${field}'`).not.toContain(field)
+    }
   })
 })

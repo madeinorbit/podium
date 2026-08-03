@@ -15,6 +15,10 @@ import type { EngineOutbox, OutboxKinds } from './wiring'
 
 const sessionId = asSessionId('session-1')
 
+/** Attribution is transport-derived; payload identity is inert (ADR 3 D7,
+ *  multi-user-readiness 3.1.3 A3). Each name is refused INDIVIDUALLY. */
+const ATTRIBUTION_FIELDS = ['actor', 'owner', 'ownerId', 'origin'] as const
+
 function nestedKeys(value: unknown): string[] {
   if (Array.isArray(value)) return value.flatMap(nestedKeys)
   if (value === null || typeof value !== 'object') return []
@@ -246,10 +250,14 @@ describe('engine action ownership boundary', () => {
     h.actions.replicatedLayout.set('superOpen', '1')
     h.actions.replicatedLayout.clear('superOpen')
 
-    for (const { input } of h.queued) {
-      expect(nestedKeys(input)).not.toEqual(
-        expect.arrayContaining(['actor', 'owner', 'ownerId', 'origin']),
-      )
+    // Per-field, deliberately: `not.toEqual(expect.arrayContaining([...]))`
+    // only fails when EVERY listed field is present at once, so the realistic
+    // drift — one field leaking into one payload — passes silently (POD-1533).
+    for (const { kind, input } of h.queued) {
+      const keys = nestedKeys(input)
+      for (const field of ATTRIBUTION_FIELDS) {
+        expect(keys, `${kind} payload asserts attribution field '${field}'`).not.toContain(field)
+      }
     }
   })
 })
