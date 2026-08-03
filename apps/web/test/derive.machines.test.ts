@@ -1,11 +1,7 @@
+import { reposToViews } from '@podium/client-core/viewmodels'
 import type { GitRepositoryWire, MachineWire, SessionMeta } from '@podium/model'
+import { lastUsedMachine, machinesForRepo, resolveTargetMachine } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import {
-  lastUsedMachine,
-  machinesForRepo,
-  reposToViews,
-  resolveTargetMachine,
-} from '../src/lib/derive'
 
 // --- helpers ---
 
@@ -18,40 +14,43 @@ const makeRepo = (
     branch?: string
     worktrees?: { path: string; branch?: string }[]
   } = {},
-): GitRepositoryWire => ({
-  path,
-  kind: 'repository',
-  branch: opts.branch ?? 'main',
-  originUrl: opts.originUrl,
-  machineId: opts.machineId,
-  repoId: opts.repoId,
-  worktrees: opts.worktrees ?? [],
-})
+): GitRepositoryWire =>
+  ({
+    path,
+    kind: 'repository',
+    branch: opts.branch ?? 'main',
+    originUrl: opts.originUrl,
+    machineId: opts.machineId,
+    repoId: opts.repoId,
+    worktrees: opts.worktrees ?? [],
+  }) as unknown as GitRepositoryWire
 
-const makeMachine = (id: string, online: boolean): MachineWire => ({
-  id,
-  name: id,
-  hostname: `${id}.local`,
-  online,
-  lastSeenAt: '2026-06-17T00:00:00.000Z',
-})
+const makeMachine = (id: string, online: boolean): MachineWire =>
+  ({
+    id,
+    name: id,
+    hostname: `${id}.local`,
+    online,
+    lastSeenAt: '2026-06-17T00:00:00.000Z',
+  }) as unknown as MachineWire
 
-const makeSession = (machineId: string | undefined, createdAt: string): SessionMeta => ({
-  sessionId: `sess-${createdAt}-${machineId ?? 'none'}`,
-  agentKind: 'claude-code',
-  title: 't',
-  cwd: '/src/app',
-  status: 'live',
-  controllerId: null,
-  geometry: { cols: 80, rows: 24 },
-  epoch: 0,
-  clientCount: 0,
-  createdAt,
-  lastActiveAt: createdAt,
-  origin: { kind: 'spawn' },
-  archived: false,
-  machineId,
-})
+const makeSession = (machineId: string | undefined, createdAt: string): SessionMeta =>
+  ({
+    sessionId: `sess-${createdAt}-${machineId ?? 'none'}`,
+    agentKind: 'claude-code',
+    title: 't',
+    cwd: '/src/app',
+    status: 'live',
+    controllerId: null,
+    geometry: { cols: 80, rows: 24 },
+    epoch: 0,
+    clientCount: 0,
+    createdAt,
+    lastActiveAt: createdAt,
+    origin: { kind: 'spawn' },
+    archived: false,
+    machineId,
+  }) as unknown as SessionMeta
 
 // --- reposToViews: multi-machine merging ---
 
@@ -63,7 +62,7 @@ describe('reposToViews (multi-machine)', () => {
     ]
     const views = reposToViews(repos)
     expect(views).toHaveLength(1)
-    expect(views[0].machines.map((m) => m.machineId).sort()).toEqual(['podium-host', 'vmi34'])
+    expect(views[0]!.machines.map((m) => m.machineId).sort()).toEqual(['podium-host', 'vmi34'])
   })
 
   it('collapses two repos with the same origin onto different machines into one RepoView', () => {
@@ -73,8 +72,8 @@ describe('reposToViews (multi-machine)', () => {
     ]
     const views = reposToViews(repos)
     expect(views).toHaveLength(1)
-    expect(views[0].machines).toHaveLength(2)
-    expect(views[0].machines.map((m) => m.machineId).sort()).toEqual(['m1', 'm2'])
+    expect(views[0]!.machines).toHaveLength(2)
+    expect(views[0]!.machines.map((m) => m.machineId).sort()).toEqual(['m1', 'm2'])
   })
 
   it('keeps repos with different origins separate', () => {
@@ -99,7 +98,7 @@ describe('reposToViews (multi-machine)', () => {
         worktrees: [{ path: '/m2/app-main2', branch: 'main2' }],
       }),
     ]
-    const [view] = reposToViews(repos)
+    const view = reposToViews(repos)[0]!
     expect(view.worktrees).toHaveLength(4) // m1 main + m1 feat + m2 main + m2 main2
     const m1Worktrees = view.worktrees.filter((w) => w.machineId === 'm1')
     const m2Worktrees = view.worktrees.filter((w) => w.machineId === 'm2')
@@ -112,7 +111,7 @@ describe('reposToViews (multi-machine)', () => {
       makeRepo('/m1/app', { originUrl: 'git@github.com:acme/app.git', machineId: 'm1' }),
       makeRepo('/m2/app', { originUrl: 'git@github.com:acme/app.git', machineId: 'm2' }),
     ]
-    const [view] = reposToViews(repos)
+    const view = reposToViews(repos)[0]!
     for (const wt of view.worktrees) {
       expect(wt.machineId).toBeDefined()
     }
@@ -140,7 +139,7 @@ describe('reposToViews (multi-machine)', () => {
     const repos: GitRepositoryWire[] = [
       makeRepo('/m1/app', { originUrl: 'git@github.com:acme/app.git', machineId: 'm1' }),
     ]
-    const [view] = reposToViews(repos)
+    const view = reposToViews(repos)[0]!
     expect(view.originUrl).toBe('github.com/acme/app')
   })
 })
@@ -156,7 +155,7 @@ describe('reposToViews (single-machine invariant)', () => {
         worktrees: [{ path: '/src/app-feat', branch: 'feat' }],
       }),
     ]
-    const [view] = reposToViews(repos)
+    const view = reposToViews(repos)[0]!
     // Same core fields
     expect(view.path).toBe('/src/app')
     expect(view.name).toBe('app')
@@ -190,17 +189,17 @@ describe('reposToViews (single-machine invariant)', () => {
     }
     const views = reposToViews([parent, standalone])
     expect(views).toHaveLength(1)
-    expect(views[0].worktrees.map((w) => w.path)).toEqual(['/src/app', '/src/app-feat'])
+    expect(views[0]!.worktrees.map((w) => w.path)).toEqual(['/src/app', '/src/app-feat'])
   })
 
   it('produces machines: [] when repos have no machineId (legacy single-machine without stamp)', () => {
     const repos: GitRepositoryWire[] = [
       makeRepo('/src/app', { originUrl: 'git@github.com:acme/app.git' /* no machineId */ }),
     ]
-    const [view] = reposToViews(repos)
+    const view = reposToViews(repos)[0]!
     // No machineId on the wire → machines stays empty, worktrees have no machineId
     expect(view.machines).toEqual([])
-    expect(view.worktrees[0].machineId).toBeUndefined()
+    expect(view.worktrees[0]!.machineId).toBeUndefined()
   })
 })
 
@@ -211,7 +210,7 @@ describe('machinesForRepo', () => {
     const repo = reposToViews([
       makeRepo('/m1/app', { originUrl: 'git@github.com:acme/app.git', machineId: 'm1' }),
       makeRepo('/m2/app', { originUrl: 'git@github.com:acme/app.git', machineId: 'm2' }),
-    ])[0]
+    ])[0]!
     const machines: MachineWire[] = [
       makeMachine('m1', true),
       makeMachine('m2', false), // offline
@@ -219,13 +218,13 @@ describe('machinesForRepo', () => {
     ]
     const result = machinesForRepo(repo, machines)
     expect(result).toHaveLength(1)
-    expect(result[0].id).toBe('m1')
+    expect(result[0]!.id).toBe('m1')
   })
 
   it('returns empty when no machine is online', () => {
     const repo = reposToViews([
       makeRepo('/m1/app', { originUrl: 'git@github.com:acme/app.git', machineId: 'm1' }),
-    ])[0]
+    ])[0]!
     const machines: MachineWire[] = [makeMachine('m1', false)]
     expect(machinesForRepo(repo, machines)).toHaveLength(0)
   })
@@ -233,7 +232,7 @@ describe('machinesForRepo', () => {
   it('returns empty when no machine has the repo', () => {
     const repo = reposToViews([
       makeRepo('/m1/app', { originUrl: 'git@github.com:acme/app.git', machineId: 'm1' }),
-    ])[0]
+    ])[0]!
     const machines: MachineWire[] = [makeMachine('m2', true)]
     expect(machinesForRepo(repo, machines)).toHaveLength(0)
   })
@@ -286,7 +285,7 @@ describe('resolveTargetMachine', () => {
     const repo = reposToViews([
       makeRepo('/m1/app', { originUrl: 'git@github.com:acme/app.git', machineId: 'm1' }),
       makeRepo('/m2/app', { originUrl: 'git@github.com:acme/app.git', machineId: 'm2' }),
-    ])[0]
+    ])[0]!
     const machines: MachineWire[] = [makeMachine('m1', true), makeMachine('m2', true)]
     const sessions = [
       makeSession('m1', '2026-06-17T10:00:00.000Z'),
@@ -299,7 +298,7 @@ describe('resolveTargetMachine', () => {
     const repo = reposToViews([
       makeRepo('/m1/app', { originUrl: 'git@github.com:acme/app.git', machineId: 'm1' }),
       makeRepo('/m2/app', { originUrl: 'git@github.com:acme/app.git', machineId: 'm2' }),
-    ])[0]
+    ])[0]!
     const machines: MachineWire[] = [makeMachine('m1', true), makeMachine('m2', true)]
     const result = resolveTargetMachine(repo, [], machines)
     // Should be the first machine from machinesForRepo (m1 or m2 — either is fine as long as it's one of them)
@@ -310,7 +309,7 @@ describe('resolveTargetMachine', () => {
     const repo = reposToViews([
       makeRepo('/m1/app', { originUrl: 'git@github.com:acme/app.git', machineId: 'm1' }),
       makeRepo('/m2/app', { originUrl: 'git@github.com:acme/app.git', machineId: 'm2' }),
-    ])[0]
+    ])[0]!
     const machines: MachineWire[] = [
       makeMachine('m1', true),
       makeMachine('m2', false), // offline
@@ -326,7 +325,7 @@ describe('resolveTargetMachine', () => {
   it('returns undefined when no machine has the repo online', () => {
     const repo = reposToViews([
       makeRepo('/m1/app', { originUrl: 'git@github.com:acme/app.git', machineId: 'm1' }),
-    ])[0]
+    ])[0]!
     const machines: MachineWire[] = [makeMachine('m1', false)]
     expect(resolveTargetMachine(repo, [], machines)).toBeUndefined()
   })

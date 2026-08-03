@@ -1,10 +1,4 @@
 import {
-  type SessionMetaInput,
-  type GitRepositoryWire,
-  type SessionMeta,
-} from '@podium/model'
-import { describe, expect, it } from 'vitest'
-import {
   agentBadge,
   chatActivity,
   defaultChatCapable,
@@ -12,21 +6,27 @@ import {
   formatMemBytes,
   hostMemoryView,
   isKnownWorktreePath,
-  isSnoozed,
   orderTabs,
   orphanSessionFor,
   panelLabel,
   partitionWorkItems,
   reposToViews,
-  returnedFromSnooze,
-  sessionDotClass,
   sessionDotTone,
   sessionsForWorktree,
   sidebarSections,
+  sortSessionsForSidebar,
+} from '@podium/client-core/viewmodels'
+import {
+  type GitRepositoryWire,
+  isSnoozed,
+  returnedFromSnooze,
+  type SessionMeta,
+  type SessionMetaInput,
   snoozeUntil1h,
   snoozeUntilTomorrow5am,
-  sortSessionsForSidebar,
-} from '../src/lib/derive'
+} from '@podium/model'
+import { describe, expect, it } from 'vitest'
+import { sessionDotClass } from '../src/lib/derive'
 
 describe('defaultChatCapable', () => {
   it('offers chat for structured-transcript harnesses incl. codex, not shell', () => {
@@ -39,6 +39,9 @@ describe('defaultChatCapable', () => {
   })
 })
 
+/** Tests build ids from plain strings; the SessionId brand is a compile-time tag only. */
+const sid = (id: string) => id as SessionMeta['sessionId']
+
 const repo: GitRepositoryWire = {
   path: '/src/app',
   kind: 'repository',
@@ -46,25 +49,26 @@ const repo: GitRepositoryWire = {
   worktrees: [{ path: '/src/app-feat', branch: 'feat' }],
 }
 
-const session = (cwd: string): SessionMeta => ({
-  sessionId: `s-${cwd}`,
-  agentKind: 'claude-code',
-  title: 't',
-  cwd,
-  status: 'live',
-  controllerId: null,
-  geometry: { cols: 80, rows: 24 },
-  epoch: 0,
-  clientCount: 0,
-  createdAt: '2026-06-03T00:00:00.000Z',
-  lastActiveAt: '2026-06-03T00:00:00.000Z',
-  origin: { kind: 'spawn' },
-  archived: false,
-})
+const session = (cwd: string): SessionMeta =>
+  ({
+    sessionId: sid(`s-${cwd}`),
+    agentKind: 'claude-code',
+    title: 't',
+    cwd,
+    status: 'live',
+    controllerId: null,
+    geometry: { cols: 80, rows: 24 },
+    epoch: 0,
+    clientCount: 0,
+    createdAt: '2026-06-03T00:00:00.000Z',
+    lastActiveAt: '2026-06-03T00:00:00.000Z',
+    origin: { kind: 'spawn' },
+    archived: false,
+  }) as unknown as SessionMeta
 
 describe('reposToViews', () => {
   it('lists the repo checkout as main plus linked worktrees', () => {
-    const [view] = reposToViews([repo])
+    const view = reposToViews([repo])[0]!
     expect(view.name).toBe('app')
     expect(view.worktrees).toEqual([
       { path: '/src/app', branch: 'main', repoPath: '/src/app', isMain: true },
@@ -87,7 +91,7 @@ describe('reposToViews', () => {
     }
     const views = reposToViews([parent, standalone])
     expect(views.map((v) => v.path)).toEqual(['/src/app'])
-    expect(views[0].worktrees.map((w) => w.path)).toEqual(['/src/app', '/src/app-feat'])
+    expect(views[0]!.worktrees.map((w) => w.path)).toEqual(['/src/app', '/src/app-feat'])
   })
 })
 
@@ -95,7 +99,7 @@ describe('sessionsForWorktree', () => {
   it('matches by exact cwd', () => {
     const all = [session('/src/app'), session('/src/app-feat')]
     expect(sessionsForWorktree(all, '/src/app-feat')).toHaveLength(1)
-    expect(sessionsForWorktree(all, '/src/app-feat')[0].cwd).toBe('/src/app-feat')
+    expect(sessionsForWorktree(all, '/src/app-feat')[0]!.cwd).toBe('/src/app-feat')
   })
 })
 
@@ -175,7 +179,7 @@ describe('exitedRecovery', () => {
 describe('orphanSessionFor', () => {
   const mk = (sessionId: string, cwd: string, archived = false): SessionMeta => ({
     ...session(cwd),
-    sessionId,
+    sessionId: sid(sessionId),
     archived,
   })
 
@@ -294,16 +298,18 @@ describe('pin-aware navigation derivation', () => {
 
     // Panel-pinning is retired (POD-169): persisted pins.panels entries are
     // ignored — no PINNED PANELS section derives from them.
-    expect(sections.pinnedPanels).toBeUndefined()
+    expect('pinnedPanels' in sections).toBe(false)
     expect(sections.pinnedWorktrees.map((worktree) => worktree.path)).toEqual(['/src/app-feat'])
-    expect(sections.pinnedWorktrees[0].sessions.map((panel) => panel.sessionId)).toEqual([
+    expect(sections.pinnedWorktrees[0]!.sessions.map((panel) => panel.sessionId)).toEqual([
       's-/src/app-feat',
     ])
     expect(sections.pinnedRepos.map((pinnedRepo) => pinnedRepo.path)).toEqual(['/src/app'])
-    expect(sections.pinnedRepos[0].worktrees.map((worktree) => worktree.path)).toEqual(['/src/app'])
-    expect(sections.pinnedRepos[0].worktrees[0].sessions.map((panel) => panel.sessionId)).toEqual([
-      's-/src/app',
+    expect(sections.pinnedRepos[0]!.worktrees.map((worktree) => worktree.path)).toEqual([
+      '/src/app',
     ])
+    expect(sections.pinnedRepos[0]!.worktrees[0]!.sessions.map((panel) => panel.sessionId)).toEqual(
+      ['s-/src/app'],
+    )
     expect(sections.repos).toEqual([])
   })
 
@@ -315,14 +321,13 @@ describe('pin-aware navigation derivation', () => {
     })
 
     expect(sections.pinnedRepos.map((pinnedRepo) => pinnedRepo.path)).toEqual(['/src/app'])
-    expect(sections.pinnedRepos[0].worktrees).toEqual([])
+    expect(sections.pinnedRepos[0]!.worktrees).toEqual([])
     expect(sections.repos).toEqual([])
   })
-
 })
 
 describe('orderTabs', () => {
-  const named = (id: string): SessionMeta => ({ ...session('/src/app'), sessionId: id })
+  const named = (id: string): SessionMeta => ({ ...session('/src/app'), sessionId: sid(id) })
 
   it('keeps arrival order when no manual order exists (pin-first is retired, POD-169)', () => {
     const sessions = [named('a'), named('b')]
@@ -460,22 +465,23 @@ describe('partitionWorkItems', () => {
     id: string,
     phase: NonNullable<SessionMeta['agentState']>['phase'] | null,
     status: SessionMeta['status'] = 'live',
-  ): SessionMeta => ({
-    sessionId: id,
-    agentKind: 'claude-code',
-    title: id,
-    cwd: '/src',
-    status,
-    controllerId: null,
-    geometry: { cols: 80, rows: 24 },
-    epoch: 0,
-    clientCount: 1,
-    createdAt: '2026-06-01T00:00:00.000Z',
-    lastActiveAt: '2026-06-01T00:00:00.000Z',
-    origin: { kind: 'spawn' },
-    archived: false,
-    ...(phase != null ? { agentState: { phase, since: '', nativeSubagentCount: 0 } } : {}),
-  })
+  ): SessionMeta =>
+    ({
+      sessionId: sid(id),
+      agentKind: 'claude-code',
+      title: id,
+      cwd: '/src',
+      status,
+      controllerId: null,
+      geometry: { cols: 80, rows: 24 },
+      epoch: 0,
+      clientCount: 1,
+      createdAt: '2026-06-01T00:00:00.000Z',
+      lastActiveAt: '2026-06-01T00:00:00.000Z',
+      origin: { kind: 'spawn' },
+      archived: false,
+      ...(phase != null ? { agentState: { phase, since: '', nativeSubagentCount: 0 } } : {}),
+    }) as unknown as SessionMeta
 
   it('partitions sessions by state and also lists pinned ones in pinnedPanels', () => {
     // 'idle' → attention, 'working' → working, 'needs_user' → attention
@@ -560,7 +566,10 @@ describe('returnedFromSnooze', () => {
 describe('chatActivity', () => {
   it('shows Working… while the agent phase is working', () => {
     expect(
-      chatActivity(base({ agentState: { phase: 'working', since: '', nativeSubagentCount: 0 } }), false),
+      chatActivity(
+        base({ agentState: { phase: 'working', since: '', nativeSubagentCount: 0 } }),
+        false,
+      ),
     ).toEqual({ label: 'Working…', tone: 'working' })
   })
   it('shows Compacting… while compacting', () => {
@@ -594,7 +603,10 @@ describe('chatActivity', () => {
   })
   it('shows Sending… optimistically right after submit, before any signal', () => {
     expect(
-      chatActivity(base({ agentState: { phase: 'idle', since: '', nativeSubagentCount: 0 } }), true),
+      chatActivity(
+        base({ agentState: { phase: 'idle', since: '', nativeSubagentCount: 0 } }),
+        true,
+      ),
     ).toEqual({ label: 'Sending…', tone: 'working' })
   })
   it('never shows Working… for a parked session with a preserved working phase (#161)', () => {
@@ -607,7 +619,9 @@ describe('chatActivity', () => {
       ).toBeNull()
     }
     // The PTY-busy fallback is parked-guarded too.
-    expect(chatActivity(base({ status: 'hibernated', agentKind: 'shell', busy: true }), false)).toBeNull()
+    expect(
+      chatActivity(base({ status: 'hibernated', agentKind: 'shell', busy: true }), false),
+    ).toBeNull()
   })
   it('keeps last-state attention labels on a hibernated session', () => {
     expect(
@@ -627,7 +641,10 @@ describe('chatActivity', () => {
   })
   it('shows nothing when idle and not just-sent', () => {
     expect(
-      chatActivity(base({ agentState: { phase: 'idle', since: '', nativeSubagentCount: 0 } }), false),
+      chatActivity(
+        base({ agentState: { phase: 'idle', since: '', nativeSubagentCount: 0 } }),
+        false,
+      ),
     ).toBeNull()
     expect(chatActivity(undefined, false)).toBeNull()
   })
@@ -708,7 +725,10 @@ describe('sessionDotClass', () => {
 
   it('does not animate a hibernated dot even if its last tone was working', () => {
     const cls = sessionDotClass(
-      base({ status: 'hibernated', agentState: { phase: 'working', since: '', nativeSubagentCount: 0 } }),
+      base({
+        status: 'hibernated',
+        agentState: { phase: 'working', since: '', nativeSubagentCount: 0 },
+      }),
     )
     expect(cls).toContain('parked')
     expect(cls).not.toContain('dot-working')
@@ -724,13 +744,18 @@ describe('sessionDotClass', () => {
 describe('pinned panel ordering & co-location', () => {
   const work = (cwd: string, id: string): SessionMeta => ({
     ...session(cwd),
-    sessionId: id,
+    sessionId: sid(id),
     agentState: { phase: 'working', since: '', nativeSubagentCount: 0 },
   })
   const needs = (cwd: string, id: string): SessionMeta => ({
     ...session(cwd),
-    sessionId: id,
-    agentState: { phase: 'needs_user', since: '', nativeSubagentCount: 0, need: { kind: 'question' } },
+    sessionId: sid(id),
+    agentState: {
+      phase: 'needs_user',
+      since: '',
+      nativeSubagentCount: 0,
+      need: { kind: 'question' },
+    },
   })
 
   it('derives no pinned-panels section — panel pins are inert (POD-169)', () => {
@@ -742,7 +767,7 @@ describe('pinned panel ordering & co-location', () => {
       worktrees: [],
       repos: [],
     })
-    expect(sections.pinnedPanels).toBeUndefined()
+    expect('pinnedPanels' in sections).toBe(false)
   })
 })
 
@@ -803,12 +828,12 @@ describe('partitionWorkItems with snooze', () => {
   it('orders the attention bucket most-recently-active first', () => {
     const older = {
       ...withState(session('/w'), 'needs_user'),
-      sessionId: 'older',
+      sessionId: sid('older'),
       lastActiveAt: '2026-06-19T10:00:00.000Z',
     }
     const newer = {
       ...withState(session('/w'), 'needs_user'),
-      sessionId: 'newer',
+      sessionId: sid('newer'),
       lastActiveAt: '2026-06-19T12:00:00.000Z',
     }
     // Fed oldest-first; the bucket must come back newest-first (matches the home board).

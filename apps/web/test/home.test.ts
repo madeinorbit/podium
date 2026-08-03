@@ -9,22 +9,23 @@ import {
 import type { SessionMeta, SessionMetaInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 
-const base = (over: Partial<SessionMetaInput> = {}): SessionMeta => ({
-  sessionId: 's1',
-  agentKind: 'claude-code',
-  title: 't',
-  cwd: '/w',
-  status: 'live',
-  controllerId: null,
-  geometry: { cols: 80, rows: 24 },
-  epoch: 0,
-  clientCount: 0,
-  createdAt: '2026-06-12T08:00:00.000Z',
-  lastActiveAt: '2026-06-12T08:00:00.000Z',
-  origin: { kind: 'spawn' },
-  archived: false,
-  ...over,
-})
+const base = (over: Partial<SessionMetaInput> = {}): SessionMeta =>
+  ({
+    sessionId: 's1',
+    agentKind: 'claude-code',
+    title: 't',
+    cwd: '/w',
+    status: 'live',
+    controllerId: null,
+    geometry: { cols: 80, rows: 24 },
+    epoch: 0,
+    clientCount: 0,
+    createdAt: '2026-06-12T08:00:00.000Z',
+    lastActiveAt: '2026-06-12T08:00:00.000Z',
+    origin: { kind: 'spawn' },
+    archived: false,
+    ...over,
+  }) as unknown as SessionMeta
 
 const state = (
   phase: NonNullable<SessionMeta['agentState']>['phase'],
@@ -175,7 +176,7 @@ describe('kanbanColumns', () => {
       base({ sessionId: 'z', archived: true, workState: 'done' }),
     ])
     expect(lanes[0]).toMatchObject({ key: 'unsorted' })
-    expect(lanes[0].sessions.map((s) => s.sessionId)).toEqual(['a'])
+    expect(lanes[0]?.sessions.map((s) => s.sessionId)).toEqual(['a'])
     expect(lanes.find((l) => l.key === 'implementing')?.sessions.map((s) => s.sessionId)).toEqual([
       'b',
     ])
