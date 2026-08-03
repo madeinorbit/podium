@@ -18,20 +18,24 @@ import { attachTestClient } from './test-support/client-transport'
  * every later session change must perform zero issue builds and zero membership
  * scans. The detector is those exact counters — not wall-clock.
  *
- * Scale is 300×200, the same as `issues.normalized-wire.test.ts` D7.2. A
- * historical live snapshot (793×588, measured 2026-07-17 from ~/.podium) was
- * tried here, but `new SessionRegistry` alone exceeds five minutes on a quiet
- * host at that size (POD-1418): seed and the zero-counter assertions take
- * seconds; the timeout fired before they ran. The zero property does not need
- * the live census — any residual coupling fails the counters at 300×200 — and
- * the unit lane must not soak composition-root boot at full live entity counts.
+ * Scale is 60×40, the same as `issues.normalized-wire.test.ts` D7.2, and it has
+ * come down twice for one reason: `new SessionRegistry` is O(issues × sessions),
+ * so every entity added here buys fixture cost rather than evidence. A live
+ * snapshot (793×588, measured 2026-07-17 from ~/.podium) exceeded five minutes in
+ * construction alone and the timeout fired before the assertions ran (POD-1418);
+ * 300×200 cost ~33s and did the same thing under ordinary CPU contention
+ * (POD-1522, measured 2026-08-03 — see the sister file for the full curve).
+ * The zero property never needed the census: the counters are exact, so any
+ * residual coupling reads nonzero at 60×40 exactly as it would at 793×588, and
+ * the unit lane must not soak composition-root boot at live entity counts.
  * Evidence: docs/agents/pod-1418-normalized-wire-bench.md.
  */
 
-const ISSUE_COUNT = 300
-const SESSION_COUNT = 200
+const ISSUE_COUNT = 60
+const SESSION_COUNT = 40
 /** Sister D7.2 scale guards use 60s. Same order of magnitude here: wedge only;
- *  the zero-build / zero-scan assertions are the detector. */
+ *  the zero-build / zero-scan assertions are the detector. At this scale the
+ *  guard runs in ~1.5s, so the watchdog is headroom rather than a race. */
 const RESIDUE_GUARD_TIMEOUT_MS = 60_000
 
 function issueRow(i: number): IssueRow {
@@ -155,8 +159,8 @@ it('session-free residue never couples session changes back to issues', {
   // registry construction and the attach paints from it. Pinning the exact number
   // would be pinning WHEN the list was built rather than how much it costs, and
   // it would fail on either side of a legitimate change. What must never happen
-  // is a build PER SESSION — that is the coupling under test, and it would blow
-  // this bound by two orders of magnitude.
+  // is a build PER SESSION — that is the coupling under test, and it overshoots
+  // this bound by a factor of SESSION_COUNT.
   expect(attachBuilds).toBeLessThanOrEqual(ISSUE_COUNT)
   expect(attachScans).toBe(0)
 
