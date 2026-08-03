@@ -31,10 +31,10 @@ import { SqliteSyncStore } from '../mobile-sqlite/store'
 import { freshDatabaseFile, sqliteEngine } from '../mobile-sqlite/test-support'
 import captured from './__fixtures__/captured-legacy-replica.json' with { type: 'json' }
 import {
+  LEGACY_UI_STATE_KEY,
   type LegacyIdentityEvidence,
   type LegacyKeyValueStore,
   migrateLegacyReplica,
-  LEGACY_UI_STATE_KEY,
 } from './index'
 
 /** Kept in step with `MIGRATION_PROBE_TEXT` in
@@ -65,19 +65,34 @@ const TWO_PEOPLE: LegacyIdentityEvidence = {
 /** A mutable key-value store seeded from a captured device. */
 function deviceStore(snapshot: Record<string, string>): LegacyKeyValueStore & {
   keys(): string[]
+  read(key: string): string | null
   failRemovals(): void
+  failWrites(): void
 } {
   const data = new Map(Object.entries(snapshot))
   let removalsFail = false
+  let writesFail = false
   return {
     getItem: (k) => data.get(k) ?? null,
+    setItem: (k, v) => {
+      if (writesFail) {
+        const error = new Error('QuotaExceededError')
+        error.name = 'QuotaExceededError'
+        throw error
+      }
+      data.set(k, v)
+    },
     removeItem: (k) => {
       if (removalsFail) throw new Error('storage unavailable')
       data.delete(k)
     },
     keys: () => [...data.keys()].sort(),
+    read: (k) => data.get(k) ?? null,
     failRemovals: () => {
       removalsFail = true
+    },
+    failWrites: () => {
+      writesFail = true
     },
   }
 }
@@ -99,7 +114,9 @@ function newDatabaseFile(): string {
   return file
 }
 
-async function openStore(file = newDatabaseFile()): Promise<{ store: SqliteSyncStore; file: string }> {
+async function openStore(
+  file = newDatabaseFile(),
+): Promise<{ store: SqliteSyncStore; file: string }> {
   const store = await SqliteSyncStore.open({
     openDatabase: () => sqliteEngine.open(file),
     deleteDatabase: () => rmSync(file, { force: true }),
@@ -347,5 +364,76 @@ describe('entries the importer cannot decode are reported, never swallowed', () 
     // The one that DID resolve still landed — a rejection must not take the rest
     // of the queue down with it.
     expect((await durableOutbox(file)).map((r) => r.mutationId)).toEqual(['mut_queued_2'])
+  })
+
+  /**
+   * THE ENTRY THAT CANNOT BE MAPPED IS THE POINT (POD-1232).
+   *
+   * The three cases above prove the unmappable entry is REPORTED. Reporting is
+   * not keeping: before this, the key it lived in was retired with everything
+   * else, so a `kind` that no longer names a contract — a mutation renamed
+   * between the build that queued it offline and the build that opens the store —
+   * meant the user's words were deleted and a counter said so. ADR 6 D4.3 does
+   * not allow that trade.
+   */
+  it('QUARANTINES the blob of a key it could not fully map, instead of deleting it', async () => {
+    const legacy = deviceStore(captured.collections)
+    const before = legacy.read('podium.replica.outbox.v1')
+    expect(before).toContain(PROBE)
+    const { store } = await openStore()
+
+    const outcome = await migrateLegacyReplica({
+      legacy,
+      outbox: store.viewFor(PRINCIPAL).outbox,
+      transact: store.unitOfWork.transact,
+      // Nothing resolves: every entry on this device is unmappable, which is the
+      // shape of a client two renames behind.
+      resolveCommand: () => undefined,
+      attribution: ATTRIBUTION,
+      evidence: SOLE_OPERATOR,
+      now: () => NOW,
+    })
+
+    expect(outcome.adopted).toBe(0)
+    expect(outcome.quarantined).toContain('podium.replica.outbox.v1')
+    // VERBATIM, and still holding the user's own text: a quarantine that dropped
+    // the payload would be the redaction the refusal path does deliberately, done
+    // here by accident.
+    expect(legacy.read('podium.replica.outbox.v1.unmigrated')).toBe(before)
+    // The original is gone, so nothing re-imports it and nothing drains it.
+    expect(legacy.read('podium.replica.outbox.v1')).toBeNull()
+  })
+
+  it('leaves the ORIGINAL key when the quarantine copy cannot be written', async () => {
+    const legacy = deviceStore(captured.collections)
+    const { store } = await openStore()
+    // The store that refuses the copy is exactly the store on which deleting the
+    // original would be unrecoverable.
+    legacy.failWrites()
+
+    const outcome = await migrateLegacyReplica({
+      legacy,
+      outbox: store.viewFor(PRINCIPAL).outbox,
+      transact: store.unitOfWork.transact,
+      resolveCommand: () => undefined,
+      attribution: ATTRIBUTION,
+      evidence: SOLE_OPERATOR,
+      now: () => NOW,
+    })
+
+    expect(outcome.quarantined).toEqual([])
+    expect(outcome.keysLeftBehind).toContain('podium.replica.outbox.v1')
+    expect(legacy.read('podium.replica.outbox.v1')).toContain(PROBE)
+  })
+
+  it('does not quarantine a key that mapped cleanly — the counterfactual', async () => {
+    const legacy = deviceStore(captured.collections)
+    const { store } = await openStore()
+
+    const outcome = await runMigration(legacy, store, SOLE_OPERATOR)
+
+    expect(outcome.rejected).toEqual([])
+    expect(outcome.quarantined).toEqual([])
+    expect(legacy.keys().filter((k) => k.endsWith('.unmigrated'))).toEqual([])
   })
 })

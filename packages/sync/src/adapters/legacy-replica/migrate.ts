@@ -42,6 +42,25 @@
  * does not otherwise need. Stated here so the next reader inherits the trade rather
  * than rediscovering the window and assuming it was missed.
  *
+ * WHAT HAPPENS TO AN ENTRY THAT COULD NOT BE MAPPED (POD-1232). `readLegacyReplica`
+ * REJECTS three things: a blob it cannot decode, a row missing `mutationId`/`kind`/
+ * `queuedAt`, and — the one that matters — a `kind` no contract resolves. That last
+ * case is not hypothetical: the legacy format is a tRPC mutation kind plus an opaque
+ * input, and a kind that has since been renamed or retired names no contract today,
+ * so an entry queued offline by a build the user was running last month can arrive
+ * with nothing to mint an `OutboxCommand` from. It cannot be imported (a guessed
+ * contract re-authors the write, ADR 3 D9) and it must not be destroyed (D4.3 makes
+ * losing queued intent a correctness bug).
+ *
+ * So a key that produced ANY rejection is QUARANTINED rather than retired: its raw
+ * blob is copied verbatim to `<key>.unmigrated` and only then deleted. The copy is
+ * outside the legacy key inventory, so it is never re-read and never re-imported —
+ * it is not a queue, it is the evidence that the work existed, recoverable by hand
+ * or by a later build that knows the missing contract. A quarantine that could not
+ * be written (quota, a locked store) leaves the ORIGINAL key in place instead, which
+ * is reported through `keysLeftBehind`: stale keys are harmless, a deleted blob with
+ * nowhere to have gone is not.
+ *
  * WHY KEY RETIREMENT IS BEST-EFFORT AND NEVER THROWS. A `removeItem` that fails
  * after a successful commit must not turn a completed migration into a failed boot:
  * the keys are then stale rather than dangerous, the next open re-imports
@@ -49,7 +68,7 @@
  * an unreadable store.
  */
 
-import type { OutboxStorePort, OutboxRecordExpectation } from '../../outbox/ports'
+import type { OutboxRecordExpectation, OutboxStorePort } from '../../outbox/ports'
 import type { OutboxAttribution, OutboxCommand } from '../../outbox/records'
 import type { SyncSpan } from '../../replica/ports'
 import {
@@ -66,7 +85,13 @@ import { type LegacyImportRejection, type LegacyKeyValueSource, readLegacyReplic
  */
 export interface LegacyKeyValueStore extends LegacyKeyValueSource {
   removeItem(key: string): void
+  /** Used for ONE thing: the quarantine copy of a blob that had rejections. */
+  setItem(key: string, value: string): void
 }
+
+/** Suffix of the quarantine copy. Deliberately NOT under any legacy key the
+ *  importer scans, so a quarantined blob is inert rather than re-read. */
+export const LEGACY_QUARANTINE_SUFFIX = '.unmigrated'
 
 export interface LegacyMigrationHost {
   readonly legacy: LegacyKeyValueStore
@@ -114,6 +139,11 @@ export interface LegacyMigrationOutcome {
    *  a silently half-retired keyspace is the kind of thing that looks like a bug
    *  for months. */
   readonly keysLeftBehind: readonly string[]
+  /** Keys whose blob held something that could not be mapped, copied verbatim to
+   *  `<key>.unmigrated` before the original was retired — see the header. The
+   *  user's work is not in the queue and is not gone either, and this is how a
+   *  client can say so. */
+  readonly quarantined: readonly string[]
 }
 
 const NOTHING_TO_DO: LegacyMigrationOutcome = {
@@ -123,6 +153,7 @@ const NOTHING_TO_DO: LegacyMigrationOutcome = {
   rejected: [],
   cursorDiscarded: false,
   keysLeftBehind: [],
+  quarantined: [],
 }
 
 /**
@@ -166,10 +197,12 @@ export async function migrateLegacyReplica(
         rejected: plan.rejected,
         cursorDiscarded: false,
         keysLeftBehind: [...plan.retireKeys],
+        quarantined: [],
       }
     }
   }
 
+  const retired = retire(host.legacy, plan.retireKeys, plan.rejected)
   return {
     ran: true,
     reason: decision.reason,
@@ -177,19 +210,51 @@ export async function migrateLegacyReplica(
     parked: decision.adopt ? 0 : decision.records.length,
     rejected: plan.rejected,
     cursorDiscarded: plan.cursorDiscarded,
-    keysLeftBehind: retire(host.legacy, plan.retireKeys),
+    keysLeftBehind: retired.keysLeftBehind,
+    quarantined: retired.quarantined,
   }
 }
 
-/** Best-effort, per key, never throwing — see the header. */
-function retire(legacy: LegacyKeyValueStore, keys: readonly string[]): readonly string[] {
+/**
+ * Best-effort, per key, never throwing — see the header.
+ *
+ * A key named by a rejection is copied to `<key>.unmigrated` BEFORE it is deleted,
+ * and is left in place entirely when that copy fails. The order is the whole point:
+ * delete-then-copy would lose the blob on exactly the store that is refusing writes.
+ */
+function retire(
+  legacy: LegacyKeyValueStore,
+  keys: readonly string[],
+  rejected: readonly LegacyImportRejection[],
+): { keysLeftBehind: readonly string[]; quarantined: readonly string[] } {
+  const needsQuarantine = new Set(rejected.map((rejection) => rejection.key))
   const leftBehind: string[] = []
+  const quarantined: string[] = []
   for (const key of keys) {
+    if (needsQuarantine.has(key)) {
+      let raw: string | null = null
+      try {
+        raw = legacy.getItem(key)
+      } catch {
+        raw = null
+      }
+      if (raw !== null) {
+        try {
+          legacy.setItem(`${key}${LEGACY_QUARANTINE_SUFFIX}`, raw)
+          quarantined.push(key)
+        } catch {
+          // The copy did not land, so the original stays: work that could not be
+          // mapped is still on disk, which is the whole obligation here.
+          leftBehind.push(key)
+          continue
+        }
+      }
+    }
     try {
       legacy.removeItem(key)
     } catch {
       leftBehind.push(key)
     }
   }
-  return leftBehind
+  return { keysLeftBehind: leftBehind, quarantined }
 }
