@@ -46,7 +46,6 @@ const SANCTIONED_STORAGE_FILES = new Set([
   'packages/client-core/src/replica/legacy-snapshot.ts',
   // Platform composition roots that *inject* storage into the replica factory.
   'apps/web/src/lib/webReplica.ts',
-  'apps/web/src/lib/desktopReplica.ts',
   'apps/web/src/lib/kernelReplica.ts',
   'apps/web/src/lib/use-kernel-replica.ts',
   'apps/web/src/lib/legacyStoreAttribution.ts',

@@ -70,7 +70,7 @@ import { createCollection, localStorageCollectionOptions } from '@tanstack/db'
 // TYPE-ONLY on purpose: the persistence packages must never enter the browser
 // bundle (plain PWAs run the localStorage backend and load this module in the
 // main chunk). The runtime factory arrives via PersistedReplicaInit from the
-// platform layer's dynamic import (apps/web desktopReplica.ts).
+// platform layer's dynamic import.
 import type {
   PersistedCollectionPersistence,
   persistedCollectionOptions,
