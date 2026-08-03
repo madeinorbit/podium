@@ -89,8 +89,12 @@ export const sharedVitestConfig = {
         replacement: fileURLToPath(new URL('./packages/pty/src/index.ts', import.meta.url)),
       },
       // Leaving runtime to the exports map resolved it by walking *up* the filesystem
-      // out of the checkout: scripts/ is not a workspace package, so it owns no
-      // @podium symlink, and a walk-up can land in a sibling checkout's node_modules.
+      // out of the checkout, and a walk-up can land in a sibling checkout's
+      // node_modules. (The original reason was that scripts/ owned no @podium
+      // symlink because it was not a workspace package. POD-1122 made it one, so
+      // that premise is now FALSE — scripts/ does own its own node_modules/@podium.
+      // The anchoring below is still what makes this safe, and the hazard it
+      // guards against is unchanged for any path outside a workspace package.)
       // Two copies of a module = two module-scoped WeakMaps, and bunSqliteClient()
       // then can't recognise a db the other copy opened — it returns undefined and the
       // migrator blames the runtime [POD-746]. Anchor every lane to THIS checkout's
