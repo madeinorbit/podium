@@ -74,6 +74,24 @@ export function useSession(id: SessionId | undefined): SessionMeta | undefined {
   )
 }
 
+/**
+ * True while this id names a session the server has NOT confirmed yet — an
+ * optimistic spawn overlay (#119) with no row behind it.
+ *
+ * A TERMINAL MUST NOT ATTACH TO ONE (POD-1613). `SocketHub.attach` sends its
+ * `attach` frame exactly once, when the connection is constructed, and re-sends
+ * it only if the SOCKET reconnects. Attaching to an id the server has never
+ * heard of therefore burns the single attempt: the frame is dropped, nothing
+ * retries it, and `mountSession`'s ready backstop then reveals a terminal that
+ * stays blank forever. The desktop AgentPanel spends the same fact through
+ * `panelGates().terminalMounted`; this is the phone's reader for it.
+ */
+export function useSpawnPending(id: SessionId | undefined): boolean {
+  return useStoreSelector<boolean, MobileTrpc>((s) =>
+    id === undefined ? false : s.pendingSpawnIds.has(id),
+  )
+}
+
 /** ONE UI persistence mechanism: the replica's per-principal ui-state
  *  collection. No screen writes raw AsyncStorage (doc §3.3 / POD-329). */
 export function useUiState(): RoutedUiState {
