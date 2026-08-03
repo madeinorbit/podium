@@ -91,12 +91,12 @@ afterEach(() => {
   rmSync(stateDir, { recursive: true, force: true })
 })
 
-const call = (reg: SessionRegistry) =>
+const call = (reg: SessionRegistry, ref = REF) =>
   reg.modules.sessions.ensureRefOnMachine({
     sourceRepoPath: SOURCE,
     targetRepoPath: TARGET,
     targetMachineId: 'tgt',
-    ref: REF,
+    ref,
   })
 
 describe('ensureRefOnMachine', () => {
@@ -130,6 +130,35 @@ describe('ensureRefOnMachine', () => {
     const { reg, calls } = makeRig({ [`src:${REF}`]: TIP, 'src:main': MAIN })
     await expect(call(reg)).rejects.toThrow(/does not resolve on the target/u)
     expect(calls.map((c) => c.op)).toContain('bundleCreate')
+  })
+
+  /**
+   * A SHARED NAME RESOLVING IS NOT THE SAME COMMIT RESOLVING (POD-1572).
+   *
+   * Both machines have a `main`. The pair below is the whole bug: the stale target must
+   * NOT be taken as ready, and the up-to-date one must still skip the bundle — a guard
+   * that fires on both is just "always bundle".
+   */
+  it('does not start from the target’s own stale copy of a shared branch name', async () => {
+    const STALE = 'c'.repeat(40)
+    const { reg, calls } = makeRig(
+      // src:main is the tip the operator meant; tgt:main is 455 commits behind.
+      { 'src:main': TIP, 'src:origin/main': TIP, [`src:${STALE}`]: STALE, 'tgt:main': STALE },
+      undefined,
+      { [`tgt:${TIP}`]: TIP },
+    )
+    // The start point is the SOURCE's commit, not the name the target would have resolved.
+    await expect(call(reg, 'main')).resolves.toEqual({ transferred: true, startPoint: TIP })
+    const bundled = calls.find((c) => c.op === 'bundleCreate')
+    expect(bundled).toBeDefined()
+    // Bundled from the target's own tip: the gap, not the repository's whole history.
+    expect(bundled?.args.bases).toBe(STALE)
+  })
+
+  it('still skips the transfer when the shared name is already the same commit', async () => {
+    const { reg, calls } = makeRig({ 'src:main': TIP, 'src:origin/main': TIP, 'tgt:main': TIP })
+    await expect(call(reg, 'main')).resolves.toEqual({ transferred: false, startPoint: TIP })
+    expect(calls.map((c) => c.op)).not.toContain('bundleCreate')
   })
 
   it('fails loudly when the transfer itself breaks', async () => {
