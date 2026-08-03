@@ -66,7 +66,6 @@ import {
 import { z } from 'zod'
 import { FeedEpochField, ScopedChangeOp } from '../planes/scoped-feed'
 import { changeRowArm } from './change-row'
-import { MetadataEntityKind } from './sync'
 
 /**
  * ONE arm of the v2 change union.
@@ -98,13 +97,34 @@ export const FeedChange = z.discriminatedUnion('entity', [
 ])
 export type FeedChange = z.infer<typeof FeedChange>
 
+/**
+ * The entity kinds THIS BUILD'S union can actually parse, read off the arms
+ * themselves.
+ *
+ * DERIVED, NEVER RESTATED — and POD-1610 is the receipt. The catch-all below
+ * used to exclude `MetadataEntityKind.options`, a DIFFERENT list maintained in a
+ * different file, on the assumption the two stay equal. They do not: v1's kind
+ * enum carries `userLayout` and `userReadPosition`, which have no arm here. A row
+ * of such a kind fails the strict union (no arm) AND the catch-all (the kind is
+ * "known"), so the WHOLE FRAME fails to parse — a blank app, one console line.
+ *
+ * The same drift is what a stale bundle IS: a build whose arm list has fallen
+ * behind the server's. Keyed off `FeedChange.options`, "a kind this build cannot
+ * parse" is answered by the thing that does the parsing, so the answer cannot be
+ * wrong — in this build or in a build three deploys behind.
+ */
+export const FEED_ENTITY_KINDS: readonly string[] = FeedChange.options.map(
+  (arm) => (arm.shape.entity as z.ZodLiteral<string>).value,
+)
+
 /** The catch-all arm — a kind THIS build does not know, from a newer server.
- *  Known kinds are excluded, so a known-kind row with an invalid value still
- *  fails parse (quarantine → heal) instead of sneaking through untyped. Same
- *  forward-compat contract as v1's `UnknownMetadataChange`, same reason. */
+ *  Kinds this build CAN parse are excluded, so a known-kind row with an invalid
+ *  value still fails parse (quarantine → the frame keeps its other rows and the
+ *  client says so) instead of sneaking through untyped. Same forward-compat
+ *  contract as v1's `UnknownMetadataChange`, same reason. */
 export const UnknownFeedChange = feedChangeArm(
-  z.string().refine((e) => !MetadataEntityKind.options.includes(e as never), {
-    message: 'known entity kinds must parse through the strict FeedChange union',
+  z.string().refine((e) => !FEED_ENTITY_KINDS.includes(e), {
+    message: 'entity kinds with an arm must parse through the strict FeedChange union',
   }),
   z.unknown(),
 )
@@ -113,8 +133,12 @@ export type UnknownFeedChange = z.infer<typeof UnknownFeedChange>
 export const FeedChangeLenient = z.union([FeedChange, UnknownFeedChange])
 export type FeedChangeLenient = FeedChange | UnknownFeedChange
 
+/** Narrow a leniently parsed row to the known union. Off the ARMS, for the
+ *  reason {@link FEED_ENTITY_KINDS} states: keyed off v1's kind enum this
+ *  answered `true` for `userLayout`, a kind with no arm — so a consumer would
+ *  have read an untyped payload as a typed one. */
 export function isKnownFeedChange(change: FeedChangeLenient): change is FeedChange {
-  return MetadataEntityKind.options.includes(change.entity as never)
+  return FEED_ENTITY_KINDS.includes(change.entity)
 }
 
 /**

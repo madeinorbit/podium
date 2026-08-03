@@ -44,6 +44,7 @@ import {
   SUPERAGENT_MODE_KEY,
   type SuperagentMode,
 } from './shell-state'
+import { describeWireSkew, reportSkew } from './skew-notice'
 import { StoreProvider, useReplicaIssues, useStoreSelector } from './store'
 import { TopBar } from './TopBar'
 import { ThemeUiStateMirror } from './theme'
@@ -71,6 +72,11 @@ function KernelHubAttach({ assembly }: { assembly: KernelAssembly }): null {
   useEffect(() => {
     assembly.attachHub(hub)
   }, [assembly, hub])
+  // The transport's ground truth about build skew (POD-1610): rows or whole
+  // frames this build could not read. Routed to the module-level notice rather
+  // than to local state so the banner can live OUTSIDE this subtree — the failure
+  // it reports is one where this subtree is the thing that did not come up.
+  useEffect(() => hub.onWireSkew((skew) => reportSkew(describeWireSkew(skew))), [hub])
   return null
 }
 

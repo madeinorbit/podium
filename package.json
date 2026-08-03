@@ -36,7 +36,8 @@
     "tests/*"
   ],
   "scripts": {
-    "build": "bun run --filter './packages/*' build",
+    "//build": "The web app is HALF of what this repo serves, and leaving it out is how POD-1610 survived a night of rebuilding: `bun run build` looked like it rebuilt everything and left apps/web/dist three days stale. apps/desktop (tauri) and apps/mobile (expo) are NOT here — they are separately released artefacts with their own commands (desktop:build, apps/mobile) rather than something this server serves.",
+    "build": "bun run --filter './packages/*' build && bun run --filter @podium/web build",
     "dev": "bun run --filter './packages/*' dev",
     "host": "bun run --filter @podium/web dev & bun --conditions=@podium/source --watch scripts/host.ts",
     "host:web": "bun run --filter @podium/web dev",
