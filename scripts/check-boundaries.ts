@@ -723,7 +723,10 @@ export function checkBrowserReach(file: string, ref: ImportRef): Violation | nul
     file,
     specifier: spec,
     rule: 'manifest-browser-reach',
-    message: `${file}: browser-safe ${from} imports '${spec}', which is not a declared browser entrypoint of ${to}. ${to} is tagged NEUTRAL — it has a browser half and a node-only half — so only its declared surface is reachable from a bundle. Declared: ${allowed.length > 0 ? allowed.join(', ') : 'none'}. Adding one is a decision: declare it in BROWSER_ENTRYPOINTS (scripts/architecture-manifest.ts) and its whole import closure is then held to no-Node.`,
+    message:
+      spec === `@podium/${to.slice(to.indexOf('/') + 1)}`
+        ? `${file}: browser-safe ${from} imports the ${spec} BARREL. ${to} is tagged NEUTRAL — its barrel value-exports the node-only half — so a browser bundle would inline Node code. Import a declared browser entrypoint instead: ${browserEntrypointsOf(to).join(', ')}.`
+        : `${file}: browser-safe ${from} imports '${spec}', which is not a declared browser entrypoint of ${to}. ${to} is tagged NEUTRAL — it has a browser half and a node-only half — so only its declared surface is reachable from a bundle. Declared: ${allowed.length > 0 ? allowed.join(', ') : 'none'}. Adding one is a decision: declare it in BROWSER_ENTRYPOINTS (scripts/architecture-manifest.ts) and its whole import closure is then held to no-Node.`,
   }
 }
 

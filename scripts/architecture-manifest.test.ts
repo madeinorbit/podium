@@ -185,20 +185,60 @@ describe('checkManifestEdge — layer axiom', () => {
     ).toEqual([])
   })
 
-  it('exempts type-only imports (erased at build, no runtime edge)', () => {
-    // The real grandfathered edge: web -> server, same layer, type-only.
+  it('exempts type-only from PLATFORM, not from DIRECTION (POD-335)', () => {
+    // Type erasure answers "does this edge reach a bundle", which is the platform
+    // question. It does not answer "can this workspace still be built without
+    // that one", which is the direction question — and a blanket exemption used
+    // to make the layer, deps and consumer arms all skip type-only silently.
+
+    // The one DECLARED type-only same-layer edge: web -> server AppRouter.
     expect(
       checkManifestEdge('apps/web/src/x.ts', 'apps/web', 'apps/server', typeOnly('@podium/server')),
     ).toEqual([])
-    // ... and a type-only UPWARD edge is erased too.
+
+    // An UNDECLARED type-only same-layer edge is still refused.
+    expect(
+      checkManifestEdge(
+        'apps/server/src/x.ts',
+        'apps/server',
+        'apps/daemon',
+        typeOnly('@podium/daemon'),
+      ).map((v) => v.rule),
+    ).toEqual(['manifest-layer'])
+
+    // A type-only edge UP INTO AN APP is refused — legacy rule 4 exempted
+    // nothing, including type-only, including tests.
     expect(
       checkManifestEdge(
         'packages/model/src/x.ts',
         'packages/model',
         'apps/server',
         typeOnly('@podium/server'),
+      ).map((v) => v.rule),
+      // `manifest-deps` joins it because model is the leaf — one edge, two true
+      // statements about it.
+    ).toEqual(['manifest-layer', 'manifest-deps'])
+
+    // A type-only edge up between two PACKAGES stays exempt, and the carve-out is
+    // named: no legacy rule refused it, and POD-1543 owns removing it.
+    expect(
+      checkManifestEdge(
+        'packages/terminal-client/src/x.ts',
+        'packages/terminal-client',
+        'packages/client-core',
+        typeOnly('@podium/client-core/socket-transport'),
       ),
     ).toEqual([])
+
+    // PLATFORM stays exempt: erased code reaches no bundle.
+    expect(
+      checkManifestEdge(
+        'apps/web/src/x.ts',
+        'apps/web',
+        'packages/transcript',
+        typeOnly('@podium/transcript'),
+      ).map((v) => v.rule),
+    ).not.toContain('manifest-platform')
   })
 
   it('ignores edges touching an untagged workspace', () => {
