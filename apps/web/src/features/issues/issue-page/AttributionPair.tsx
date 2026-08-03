@@ -48,37 +48,77 @@ function actorKindLabel(actor: Attribution['actor']): string {
  * does not carry attribution has not told us who acted, and inventing "unknown ·
  * for you" would be exactly the synthesis A3 forbids.
  */
+/**
+ * A uuid actor id shortened to its leading segment, for DENSE rows only.
+ *
+ * Safe precisely because `actorDisplayId` is already display-only and
+ * deliberately non-round-trippable — nothing may compare or gate on it, so
+ * showing less of it cannot break a consumer that was never allowed to read it
+ * that way. The full value stays in `title`.
+ *
+ * Only a uuid is shortened. A `user:sole` or a system job NAME is already short
+ * and already meaningful, and clipping those would destroy information rather
+ * than compress it.
+ */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const shortenId = (id: string): string => (UUID_RE.test(id) ? id.slice(0, 8) : id)
+
 export function AttributionPair({
   attribution,
   className,
+  compact = false,
 }: {
   attribution?: Attribution
   className?: string
+  /** Dense single-line rows (the sidebar's session roster): shorten a uuid
+   *  actor id so the ON-BEHALF-OF half still fits beside it. Rendered whole, a
+   *  uuid consumed the line and evicted the human half — a pair that is present
+   *  in the DOM and collapsed to the eye, on exactly the delegated rows the
+   *  pair exists to distinguish. */
+  compact?: boolean
 }): JSX.Element | null {
   if (!attribution) return null
   const { actor, onBehalfOf } = attribution
   return (
     <span
       className={cn(
-        'inline-flex items-baseline gap-1 text-[11px] text-muted-foreground',
+        'inline-flex min-w-0 items-baseline gap-1 text-[11px] text-muted-foreground',
         className,
       )}
       data-testid="attribution-pair"
     >
-      <span data-testid="attribution-actor" title={`${actorKindLabel(actor)} — the actor`}>
-        {actorDisplayId(actor)}
+      {/* BOTH HALVES SHRINK, NEITHER IS PUSHED OFF (POD-1526). An agent actor's
+          id is a full uuid, so in a narrow container the actor half alone
+          consumed the line and the on-behalf-of half was clipped out of sight —
+          rendering, in effect, a collapsed pair on exactly the delegated rows
+          the pair exists to distinguish. `min-w-0` + `truncate` on each half
+          makes them ellipsize instead of evict: a shortened id still says WHO,
+          whereas an absent half says nothing. Both keep their full value in
+          `title`. */}
+      <span
+        className="min-w-0 truncate"
+        data-testid="attribution-actor"
+        title={`${actorKindLabel(actor)} — the actor: ${actorDisplayId(actor)}`}
+      >
+        {compact ? shortenId(actorDisplayId(actor)) : actorDisplayId(actor)}
       </span>
-      <span aria-hidden="true">·</span>
+      <span aria-hidden="true" className="flex-none">
+        ·
+      </span>
       {onBehalfOf === null ? (
         <span
           data-testid="attribution-on-behalf-of"
-          className="italic"
+          className="flex-none italic"
           title="A machine or system job acts for no human (ADR 9 D8 S5)"
         >
           no human
         </span>
       ) : (
-        <span data-testid="attribution-on-behalf-of" title="On behalf of — whose work this is">
+        <span
+          className="min-w-0 truncate"
+          data-testid="attribution-on-behalf-of"
+          title={`On behalf of — whose work this is: ${onBehalfOf}`}
+        >
           for {onBehalfOf}
         </span>
       )}

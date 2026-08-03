@@ -15,6 +15,7 @@ import type {
 import { useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
+import { AttributionPair } from '@/features/issues/issue-page/AttributionPair'
 import {
   agentBadge,
   agentColorHex,
@@ -693,6 +694,31 @@ export function PanelRow({
               {issueLinkage}
             </span>
           )}
+          {/* WHO STARTED THIS SESSION, and FOR WHOM (POD-1526, closing POD-407
+              AC 6). Rendered from `createdBy` ALONE — the server stamps it from
+              the authenticated transport principal (ADR 3 D7), so the row reads
+              it and never re-derives it. A session predating the columns has no
+              pair and renders none: POD-1516 deliberately left those NULL rather
+              than backfilling the owner, because `owner_user_id` is the
+              on-behalf-of human EVEN WHEN AN AGENT ACTED, so backfilling it as
+              the actor would assert "a human did it" for exactly the
+              agent-created rows the pair exists to distinguish. A gap in an
+              audit trail beats a lie in one — and "probably the current user" is
+              right on a single-user instance and silently wrong the moment a
+              second principal exists.
+
+              Reuses `AttributionPair` (POD-646) rather than minting a second
+              renderer: one concept, one spelling. Only the type scale is
+              overridden, to sit in this row's mono machine voice beside the
+              issue linkage. */}
+          <AttributionPair
+            attribution={session.createdBy}
+            compact
+            // Shrinkable, never flex-none: an agent actor's id is a full uuid,
+            // and a rigid pair pushed its on-behalf-of half clean off the row.
+            // Capped at half the row so the session's NAME still wins the space.
+            className="min-w-0 max-w-[50%] shrink font-mono text-[9.5px] text-[#6c6c78]"
+          />
           {/* Unsent composer draft → DRAFT tag (shown wherever a session is listed,
               not just NEEDS YOUR ATTENTION). The session is also lifted by its
               draft-edit time via compareRecency. */}

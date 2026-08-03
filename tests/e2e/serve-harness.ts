@@ -542,6 +542,101 @@ if (process.env.PODIUM_E2E_HANDOFF === '1') {
     machineId: hostMachineId(),
   })
 }
+// TWO SESSIONS UNDER ONE ISSUE WHOSE ATTRIBUTION PAIRS DIFFER IN SHAPE (POD-1526).
+//
+// The DELEGATED one is the whole point of the fixture. Both sessions here are
+// created through the real `createSession`, so the server stamps `createdBy`
+// itself from the binding principal (ADR 3 D7) rather than the fixture asserting
+// a pair — a hand-set field would make the browser spec a test of this file.
+//
+// The parent takes the default USER principal, which stamps the same human into
+// both halves. That case CANNOT prove the pair survives: a renderer that printed
+// the actor twice would satisfy it. So the child is bound to an AGENT principal
+// whose `parentBindingId` is the parent session, which stamps actor=<agent> and
+// onBehalfOf=<the delegating human> — two DIFFERENT values, which is the only
+// arrangement in which a collapsed renderer is visibly wrong.
+if (process.env.PODIUM_E2E_SESSION_ATTRIBUTION === '1') {
+  const issue = server.registry.modules.issues.create({
+    repoPath: REPO_ROOT,
+    title: 'Session attribution rows',
+    startNow: false,
+  })
+  // The daemon's harness INVENTORY reaches the server asynchronously after
+  // `startDaemon` returns, so `createSession` throws `<kind> is not installed`
+  // until it lands and takes the whole harness down with it — the same race the
+  // PANEL_LIFECYCLE fixture above documents. Retry rather than assume.
+  let parentId: string | undefined
+  let lastError: unknown
+  for (let attempt = 0; attempt < 80 && parentId === undefined; attempt++) {
+    try {
+      parentId = server.registry.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: REPO_ROOT,
+        issueId: issue.id,
+        machineId: hostMachineId(),
+      }).sessionId
+    } catch (err) {
+      lastError = err
+      await new Promise((resolve) => setTimeout(resolve, 250))
+    }
+  }
+  if (parentId === undefined) {
+    throw new Error(
+      `PODIUM_E2E_SESSION_ATTRIBUTION: the agent inventory never arrived — ${String(lastError)}`,
+    )
+  }
+  server.registry.modules.sessions.renameSession({ sessionId: parentId, name: 'Attribution host' })
+  // WAIT FOR THE PARENT'S BINDING, WHICH IS NOT A RETRY (POD-1526).
+  //
+  // `createSession` for an AGENT principal SUCCEEDS synchronously and then fails
+  // asynchronously — the daemon rejects the spawn transition with
+  // `parent-binding-missing` and the child lands `exited`. So retrying the CALL
+  // catches nothing: it never throws. The only honest fix is to wait for the
+  // thing the child depends on, which is the parent's binding, minted when the
+  // parent's own spawn transition completes. `agentState` is the observable
+  // consequence of exactly that, so it is the signal polled here.
+  //
+  // Getting this wrong is what made the browser spec flaky rather than failing:
+  // when the parent bound quickly the child spawned and two rows appeared, and
+  // when it did not the child died on arrival — the same fixture reporting two
+  // different worlds.
+  // RETRY ON THE OUTCOME, BECAUSE THE FAILURE IS ASYNCHRONOUS. `createSession`
+  // for an AGENT principal succeeds synchronously and only then does the daemon
+  // reject the spawn transition with `parent-binding-missing`, landing the child
+  // `exited`. So retrying the CALL catches nothing — it never throws — and the
+  // parent's own `agentState` is not the signal either: the keyecho jig may
+  // never report one, which turned a wait on it into a hard fixture failure.
+  // What IS observable is whether the child survived, so that is what is waited
+  // on and retried. Casualties are archived rather than left on screen: a dead
+  // row from a lost race is not a fixture the spec should have to reason about.
+  const statusOf = (id: string): string | undefined =>
+    server.registry.modules.sessions.listSessions().find((s) => s.sessionId === id)?.status
+  let childId: string | undefined
+  for (let attempt = 0; attempt < 30 && childId === undefined; attempt++) {
+    const candidate = server.registry.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: REPO_ROOT,
+      issueId: issue.id,
+      machineId: hostMachineId(),
+      binding: { principal: { kind: 'agent', parentBindingId: parentId } },
+    }).sessionId
+    // Give the daemon a moment to accept or reject the transition.
+    for (let settle = 0; settle < 12 && statusOf(candidate) !== 'exited'; settle++) {
+      await new Promise((resolve) => setTimeout(resolve, 250))
+    }
+    if (statusOf(candidate) === 'exited') {
+      server.registry.modules.sessions.setArchived({ sessionId: candidate, archived: true })
+      continue
+    }
+    childId = candidate
+  }
+  if (childId === undefined) {
+    throw new Error(
+      'PODIUM_E2E_SESSION_ATTRIBUTION: no delegated child survived its spawn, so there is no delegated pair to render',
+    )
+  }
+  server.registry.modules.sessions.renameSession({ sessionId: childId, name: 'Delegated worker' })
+}
 console.log(
   `harness relay on ws://localhost:${server.port} (shell=real, else=keyecho); state=${stateDir}`,
 )
