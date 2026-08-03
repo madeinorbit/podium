@@ -129,3 +129,56 @@ nothing and every row assertion stayed green. The fixture now carries a second c
   POD-1526's, and synthesising one from `author` is exactly what ADR 9 forbids.
 - **No new slice was published.** Rule 1 cuts both ways, and nothing here had two consumers that
   was not already published.
+
+---
+
+## 8. The Phase-6 exit gate, as measured
+
+All lanes run individually on the rebased tip (base `cab24060`), exit codes captured without a
+pipe. The oracle's five lanes were run one at a time rather than through `bun run oracle`, which
+would have re-run the same work; the lane names below are its lane names.
+
+| lane | result |
+|---|---|
+| `typecheck` | **22/22 successful, rc=0** (0 cached — the changes invalidated it; not forced) |
+| `test:unit` | **694 files / 9944 tests passed, 3 files + 20 tests skipped, rc=0** |
+| `test:web` (apps/web only) | **205 files / 1632 tests, rc=0** |
+| `test:mobile` | **7 files / 58 tests, rc=0** |
+| `test:bun:unit` | 14 pass / 0 fail, rc=0 |
+| `test:integration` | 294 passed / 6 skipped, rc=0 |
+| `test:e2e` | 10 files / 36 tests, rc=0 |
+| `test:multi-instance` | 1 file / 3 tests, rc=0 |
+| `audit:rearch` | rc=0 — 32 items, **152 sites, baseline exact** |
+| `audit:phase2-client` | rc=0 — **all 6 items at zero** |
+| `audit:god-objects`, `audit:router-mutations`, `audit:scoped-feed`, `audit:ambient-principals` | rc=0 |
+| `lint:boundaries`, `lint:architecture`, `lint:no-nul` | rc=0 |
+| bundle / PWA precache | **pass** — 52 entries (5476 KiB), largest asset 2.56 MiB against a 5 MiB per-file ceiling, **0 eligible files excluded** from the manifest |
+| Expo web export (`@podium/mobile build:web`) | rc=0 |
+
+**Scope note on the test-count numbers, because two different scopes are in circulation:**
+`test:web` above is `apps/web` under its own config. The coordinator's 267-files/2276-tests figure
+is `apps/web/src` + `packages/client-core/src` under the DEFAULT vitest config. The numbers are not
+comparable and neither is wrong.
+
+### Not green, and not this issue's doing
+
+- **The Playwright browser lane.** 13 passed / 164 failed / 303 skipped, and **143 of the 164
+  failures are "cannot reach the server"** rather than assertions: the relay `webServer` dies
+  partway through the run and everything after it is `ERR_CONNECTION_REFUSED` in under two seconds.
+  Reproduced twice, including once with no other lane of mine running. Filed as **POD-1532**.
+- **Three suites call `settings.set`**, a procedure POD-1213 replaced with
+  `settings.updatePersonal`. Filed as **POD-1531**.
+- `lint:shadowing` reports one shadowed declaration in `packages/harness/src/registry.ts`
+  (`harnessResumeKind` declared three times). Untouched by this issue; pre-existing on the base.
+- `audit:declared-consumers` reports 5 declarations in `packages/commands/src/contract.ts` with no
+  consumer. Untouched by this issue; pre-existing on the base.
+
+**Therefore POD-427 cannot be certified on the "Playwright suites green" criterion tonight**, and
+POD-293 must not close on it. Everything else the gate names is green and measured above.
+
+### The human gate
+
+The real-device half of the mobile e2e is a HUMAN GATE (section 6 of the brief): cold-start offline
+paint from the SQLite replica, reconnect drain, and terminal-pane parity on a physical phone. The
+Expo web build is green and the replica behaviour is covered by the mobile lane, but a device pass
+is not something an agent can sign.
