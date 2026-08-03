@@ -107,7 +107,13 @@ const IMPORT_RE =
   // import ... from '...'; export ... from '...'; import '...'; require('...'); import('...')
   // The clause (group 2) may span lines but never contains quotes or semicolons,
   // so one statement's clause can't swallow a neighbouring statement.
-  /(?:\b(import|export)\s+([^'";]*?)\s+from\s*|\bimport\s*(?=['"])|\b(?:require|import)\s*\(\s*)['"]([^'"]+)['"]/g
+  //
+  // The side-effect alternative (`import '...'`) is anchored to a STATEMENT START
+  // via lookbehind. Unanchored, it fired on the word "import" inside a string
+  // literal (`const help = 'usage: import'`) and then `['"]([^'"]+)['"]` ran from
+  // that string's closing quote to the OPENING quote of the next real import —
+  // swallowing it whole, so the next statement was never checked (POD-755).
+  /(?:\b(import|export)\s+([^'";]*?)\s+from\s*|(?<=^|[\n;{}])\s*import\s*(?=['"])|\b(?:require|import)\s*\(\s*)['"]([^'"]+)['"]/g
 
 /** True when an import/export clause is fully type-only (erased at build). */
 export function clauseIsTypeOnly(clause: string): boolean {

@@ -150,6 +150,28 @@ describe('extractImports', () => {
     ].join('\n')
     expect(extractImports(src)).toEqual([{ specifier: 'zod', typeOnly: false }])
   })
+
+  it('does not let the word "import" inside a string swallow the next import (POD-755)', () => {
+    // The side-effect alternative used to fire on this string's `import`, then run
+    // from its closing quote to the OPENING quote of the real statement below —
+    // returning one junk specifier and losing '@podium/transcript' entirely.
+    const src = [`const help = 'usage: import'`, `import { parse } from '@podium/transcript'`].join(
+      '\n',
+    )
+    expect(extractImports(src)).toEqual([{ specifier: '@podium/transcript', typeOnly: false }])
+  })
+
+  it('still finds side-effect imports that are indented or follow a brace/semicolon', () => {
+    const src = [`  import './indented'`, `import 'a';import 'b'`, `{ import './in-block' }`].join(
+      '\n',
+    )
+    expect(extractImports(src).map((r) => r.specifier)).toEqual([
+      './indented',
+      'a',
+      'b',
+      './in-block',
+    ])
+  })
 })
 
 describe('clauseIsTypeOnly', () => {

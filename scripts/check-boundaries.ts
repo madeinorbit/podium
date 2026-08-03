@@ -162,8 +162,14 @@ const MODEL_HOME = 'packages/model'
  *  `export { NAME } from '...'` — those re-export an existing binding rather
  *  than declaring a new one, which is exactly the pattern a model consumer
  *  (e.g. client-core re-exporting a model predicate under its original name
- *  for backward-compatible call sites) is expected to use. */
-const TOP_LEVEL_DECL_RE = /^export (?:function|const)\s+([A-Za-z_$][\w$]*)/gm
+ *  for backward-compatible call sites) is expected to use.
+ *
+ *  The leading `[ \t]*` is what makes this survive `stripComments`, which blanks
+ *  a comment to spaces IN PLACE rather than deleting it (POD-296). A block
+ *  comment closed immediately before `export` on the same line, with no space
+ *  between, leaves blanks where it stood — and a bare `^export` then misses it
+ *  entirely (POD-755). `[ \t]` rather than `\s` so it cannot cross a newline. */
+const TOP_LEVEL_DECL_RE = /^[ \t]*export (?:function|const)\s+([A-Za-z_$][\w$]*)/gm
 
 /** Names @podium/model exports as a top-level function/const (its entity
  *  predicates and pure logic) — read live from packages/model/src so the set
