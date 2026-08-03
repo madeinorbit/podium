@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { isExposedOn, sessionCommandPlane, sessionHandoffInput } from '@podium/commands'
-import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness'
+import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness/metadata'
 import type { AgentKind, SessionId, SessionMeta } from '@podium/model'
 import {
   asSessionId,

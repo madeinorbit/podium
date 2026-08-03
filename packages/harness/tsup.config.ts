@@ -1,7 +1,9 @@
 import { defineConfig } from 'tsup'
 
 export default defineConfig({
-  entry: ['src/index.ts'],
+  // Two entries: the barrel, and the narrow open entrypoint the architecture
+  // manifest lets non-host consumers reach (`@podium/harness/metadata`, POD-335).
+  entry: ['src/index.ts', 'src/metadata.ts'],
   format: ['esm'],
   // POD-781: the shared tsconfig enables `incremental` for tsgo typechecking,
   // but tsup's dts worker re-passes compilerOptions programmatically, where

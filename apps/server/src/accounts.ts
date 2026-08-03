@@ -7,9 +7,11 @@
 // still modelled only.
 //
 // Login/profile detection lives on each @podium/harness harness adapter so
-// the daemon inventory and this server-side AccountView use the same facts.
+// the daemon inventory and this server-side AccountView use the same facts. The
+// server reaches it through the narrow `@podium/harness/metadata` entrypoint —
+// the manifest registry itself is a host capability it is not entitled to.
 import { homedir } from 'node:os'
-import { HARNESS_ADAPTERS } from '@podium/harness'
+import { harnessDetectLogin } from '@podium/harness/metadata'
 import type { HarnessAgent } from '@podium/model'
 import type { PodiumSettings } from '@podium/runtime'
 import { z } from 'zod'
@@ -51,7 +53,20 @@ export function maskCredential(secret: string): string {
 }
 
 function detectNative(homeDir: string, kind: HarnessAgent, provider: string): AccountView {
-  const login = HARNESS_ADAPTERS[kind].inventory.detectLogin(homeDir)
+  // `harnessDetectLogin` rather than a reach for the manifest registry: the
+  // server takes the ANSWER, never the object that can also launch a process
+  // (POD-335, `manifest-consumers`).
+  const login = harnessDetectLogin(kind, homeDir)
+  if (!login) {
+    return {
+      id: `native:${kind}`,
+      provider,
+      source: 'native',
+      harness: kind,
+      identity: undefined,
+      status: 'not-configured',
+    }
+  }
   return {
     id: `native:${kind}`,
     provider,
