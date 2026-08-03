@@ -262,6 +262,28 @@ export class InMemoryUnitOfWork implements SyncUnitOfWork {
   spans = 0
   /** Set to make the durable commit fail, e.g. a quota denial mid-span. */
   failCommit: unknown | undefined
+  /**
+   * The COMMIT GAP, and it is on by DEFAULT.
+   *
+   * A real IndexedDB or SQLite transaction does not settle in the same
+   * synchronous turn its body finishes in: there is a suspension point between
+   * "the body is done" and "the commit has landed", and that gap is where another
+   * writer over the same physical store gets to interleave. POD-370's review found
+   * a commit lock that no test could observe precisely because this double's
+   * commit ran end to end synchronously — the interleaving the lock existed for
+   * was unreachable, so the assertion could not fail.
+   *
+   * Defaulting to the gap makes the faithful path the one every test runs and the
+   * synchronous path the one you opt into, rather than the reverse. Set it to
+   * `false` only to demonstrate that a probe depends on the gap; a test that needs
+   * it off to pass is describing a race a real adapter has.
+   *
+   * Note this cannot live INSIDE the span: every span hook is synchronous by
+   * contract (`../span`), because an await inside a native transaction closes it.
+   * The gap therefore sits where a real adapter's does — around the commit, in the
+   * unit of work.
+   */
+  commitGap = true
   /** Independent transactions run one at a time. */
   private queue: Promise<unknown> = Promise.resolve()
 
@@ -286,6 +308,9 @@ export class InMemoryUnitOfWork implements SyncUnitOfWork {
         // `body` sees the span NARROWED to `SyncSpan`: participants enrol, and only
         // this opener settles.
         const result = await body(span)
+        // The gap a real transaction has between "body finished" and "commit
+        // landed". Another store-sharing writer runs here.
+        if (this.commitGap) await Promise.resolve()
         if (this.failCommit !== undefined) throw this.failCommit
         span.commit()
         return result
