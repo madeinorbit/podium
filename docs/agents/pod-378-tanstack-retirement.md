@@ -522,3 +522,64 @@ Then: drop `@tanstack/db`, `@tanstack/react-db` and `@tanstack/db-sqlite-persist
 `apps/web/package.json` and `packages/client-core/package.json`, `bun install`, and verify
 against the LOCKFILE. `packages/sync/src/adapters/legacy-replica/keys.ts` keeps its key-name
 constants — it names the old key space on purpose and takes no dependency on the library.
+
+## 7. POD-1245 re-measured §6 before deleting, and §6.3's map is STALE in three ways
+
+Measured on this worktree at base `dac14c84`, with `node_modules` installed locally and
+`require.resolve('@podium/model/package.json')` confirmed to land INSIDE the worktree — the
+resolution hazard POD-279 warned about was real here (the worktree had NO `node_modules` at
+all) and a plain `bun install` fixed it, contrary to the standing note that it cannot.
+
+### 7.1 The deletion is BLOCKED, and not on mobile
+
+§6.3 says "re-point `MobileClientProvider.tsx` (POD-1220's, landing now)" and treats mobile as
+the last composition root. POD-1220 DID land (`08db934f`): the mobile app's real path now opens
+a kernel replica, and its only surviving `createReplica()` is in `DemoProvider` — a stub.
+
+The blocker is the WEB, and §6.3 cannot see it because `apps/web/src/lib/webReplica.ts` did not
+exist when §6 was written — POD-1239/POD-1252 created it AFTER. The full production census:
+
+| Site | Status |
+|---|---|
+| `apps/web/src/lib/webReplica.ts:155` | **THE SHIPPED BROWSER PATH.** Blocking; not in §6.3. |
+| `apps/mobile/.../MobileClientProvider.tsx:369` | Demo stub only. Re-pointable. |
+| `apps/web/src/lib/shadow/runner.ts:120` | Live on `kernel-with-shadow`; retires with the path. |
+| `apps/web/src/perf/large-state.frontend-perf.tsx:291` | Harness. Re-pointable. |
+| `packages/client-core/src/replica/legacy-snapshot.ts:132` | The drift-guard writer (§6.2). |
+| `apps/web/src/lib/desktopReplica.ts:235` | **DEAD** — see §7.2. |
+
+`packages/client-core/src/replica/kernel/facade.ts` and `scripts/audit-phase2-client.ts` appear
+in a `createReplica` grep and are NOT consumers: comments and a grader's regex respectively.
+
+Why the web is a hard stop rather than a re-point. `packages/protocol/src/features.ts:101`
+declares `kernel-replica` hidden with "**off is the shipped path**", existing "so the cutover is
+reversible per install during the rollout window". `resolveReplicaMode`
+(`replica/feed/mode.ts:114`) still returns `path: 'legacy'` for flag-off against a non-scoped
+server, and `use-kernel-replica.ts` documents the failure posture as *deliberately* falling back
+to legacy when IndexedDB is unavailable (private-browsing modes). Deleting the adapter therefore
+does three things §6 never priced: it flips the cutover, it destroys the per-install reversal,
+and it turns "no IndexedDB" from a quiet degrade into a brick. That is a rollout decision, not a
+deletion — hence the blocking sub-issue.
+
+### 7.2 `desktopReplica.ts` is already dead, and §6.3 lists it as a re-point
+
+It has NO importer anywhere in the repo. Every remaining mention is an audit path list, a doc,
+a comment, or its own `desktopReplica.attribution.test.ts`. Counting the READS rather than the
+occurrences moves it out of "re-point the Tauri SQLite path" and into "delete unreferenced
+code". It is left in place here only because deleting it alone reaches no acceptance criterion
+and would churn the diff the cutover has to touch anyway.
+
+### 7.3 The audit number in the POD-1245 brief is a misread of the output
+
+The brief says `bun run audit:phase2-client` reports "unattributed-store-read: 6" and that the
+count must drop by two. It does not. The run prints:
+
+```
+ZERO  unattributed-store-read — a persisted store adopted without establishing the current principal
+Phase-2 client audit: all 6 items at zero
+```
+
+Six is the number of AUDIT ITEMS, all of them at zero; it was never a finding count. The two
+roots the brief expected to remove were already attributed by `029dfac3`. So the acceptance
+criterion cannot be "drops by two" — it is **stays at zero**, and an agent who reads the brief
+literally will go looking for two findings that do not exist.
