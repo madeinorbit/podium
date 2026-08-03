@@ -90,6 +90,11 @@
       "types": "./src/react/index.ts",
       "import": "./src/react/index.ts"
     },
+    "./presence": {
+      "@podium/source": "./src/presence/index.ts",
+      "types": "./src/presence/index.ts",
+      "import": "./src/presence/index.ts"
+    },
     "./perf": {
       "@podium/source": "./src/perf/index.ts",
       "types": "./src/perf/index.ts",

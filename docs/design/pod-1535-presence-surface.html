@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>POD-1535 — session presence surface</title>
+    <style>
+      /* Superade tokens, taken from apps/web/DESIGN.md. This page is a VISUAL
+         PREVIEW of apps/web/src/features/terminal/SessionWatchers.tsx — the
+         same geometry, tone and copy, standing alone so the three states can
+         be judged side by side. The shipped component is the source of truth. */
+      :root {
+        --navy: #0a0f1c;
+        --panel: #121b30;
+        --chip: #16223c;
+        --tabstrip: #0c1322;
+        --border: #243356;
+        --hairline: #1e2a4c;
+        --strong: #f3f3f8;
+        --ink: #d7d7e0;
+        --muted: #9a9aa8;
+        --dim: #6c7690;
+        --faint: #525c78;
+        --yellow: #f5c518;
+        --slate: #94a3b8;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        padding: 32px 24px 64px;
+        background: var(--navy);
+        color: var(--ink);
+        font: 400 12px/1.5 ui-sans-serif, system-ui, sans-serif;
+      }
+      h1 { font-size: 15px; font-weight: 600; color: var(--strong); margin: 0 0 6px; }
+      p.lede { color: var(--muted); max-width: 68ch; margin: 0 0 28px; }
+      h2 {
+        font: 500 8.5px/1 ui-monospace, Menlo, monospace;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: #7a84a0;
+        margin: 30px 0 8px;
+      }
+      .note { color: var(--dim); font-size: 11px; margin: 6px 0 0; max-width: 68ch; }
+
+      /* The 40px session header, tinted by the issue-color channel. */
+      .header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 40px;
+        padding: 0 10px;
+        border-bottom: 1px solid color-mix(in srgb, var(--slate) 45%, var(--hairline));
+        background: color-mix(in srgb, var(--slate) 18%, var(--tabstrip));
+        border-radius: 6px 6px 0 0;
+      }
+      .name { font-size: 12.5px; font-weight: 600; color: var(--strong); }
+      .cwd { font-size: 10.5px; color: var(--dim); }
+      .right { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
+      .model {
+        display: inline-flex; align-items: center; gap: 5px;
+        font: 400 10px/1 ui-monospace, Menlo, monospace; color: var(--muted);
+      }
+      .dot { width: 6px; height: 6px; border-radius: 999px; background: #d97757; }
+      .segment {
+        display: inline-flex; height: 26px; border: 1px solid color-mix(in srgb, var(--slate) 30%, var(--hairline));
+        border-radius: 7px; overflow: hidden;
+      }
+      .segment span { display: inline-flex; align-items: center; padding: 0 9px; font-size: 11px; }
+      .segment .on { background: var(--chip); color: var(--strong); }
+      .segment .off { color: var(--muted); }
+
+      /* The strip itself. */
+      .watchers { display: inline-flex; align-items: center; }
+      .chip {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 18px; height: 18px; margin-left: -4px;
+        border: 1px solid color-mix(in srgb, var(--slate) 45%, var(--hairline));
+        border-radius: 999px; background: var(--chip);
+        font: 500 8.5px/1 ui-monospace, Menlo, monospace; letter-spacing: 0.02em;
+        color: var(--ink);
+      }
+      .chip:first-child { margin-left: 0; }
+      .more {
+        display: inline-flex; align-items: center; height: 18px; margin-left: -4px; padding: 0 5px;
+        border: 1px solid color-mix(in srgb, var(--slate) 45%, var(--hairline));
+        border-radius: 999px; background: var(--chip);
+        font: 400 8.5px/1 ui-monospace, Menlo, monospace; color: var(--muted);
+        font-variant-numeric: tabular-nums;
+      }
+      .glyph { display: inline-flex; }
+      .glyph.unknown { color: var(--faint); }
+      .glyph.alone { color: var(--muted); }
+
+      .case { margin-bottom: 4px; }
+      .caption { color: var(--muted); font-size: 11px; margin: 8px 0 0; }
+      .caption b { color: var(--strong); font-weight: 500; }
+      code { font-family: ui-monospace, Menlo, monospace; color: var(--ink); font-size: 11px; }
+    </style>
+  </head>
+  <body>
+    <h1>Session presence — the four states of the header strip</h1>
+    <p class="lede">
+      POD-1535. ADR 7's rooms had a transport and no surface; this is the surface. The strip sits in
+      the session header's right cluster and answers one question: <em>who else is on this session</em>.
+      The whole design turns on the last two cases below being different.
+    </p>
+
+    <h2>1 · Two other people, one of them reading the terminal</h2>
+    <div class="case">
+      <div class="header">
+        <span class="name">refactor the feed cursor</span>
+        <span class="cwd">~/src/podium</span>
+        <span class="right">
+          <span class="watchers" title="user:alice is here — watching the terminal&#10;user:priya is here — watching chat">
+            <span class="chip">AL</span><span class="chip">PR</span>
+          </span>
+          <span class="model"><span class="dot"></span>opus 5 · high</span>
+          <span class="segment"><span class="off">Chat</span><span class="on">Native</span></span>
+        </span>
+      </div>
+    </div>
+    <p class="caption">
+      Neutral chips, not a hue per person: <b>The Reserved Hues Rule</b> keeps identity out of the
+      signal colours, and this header is already tinted by the issue-colour channel. Identity reads
+      from the mono token. Hovering names them and says what each is looking at.
+    </p>
+
+    <h2>2 · An agent is watching too, and more people than fit</h2>
+    <div class="case">
+      <div class="header">
+        <span class="name">refactor the feed cursor</span>
+        <span class="cwd">~/src/podium</span>
+        <span class="right">
+          <span class="watchers" title="user:alice is here&#10;Agent agent_reviewer, for user:bob, is here&#10;user:priya is here&#10;+2 more">
+            <span class="chip">AL</span>
+            <span class="chip" title="agent">⌁</span>
+            <span class="chip">PR</span><span class="more">+2</span>
+          </span>
+          <span class="model"><span class="dot"></span>opus 5 · high</span>
+          <span class="segment"><span class="on">Chat</span><span class="off">Native</span></span>
+        </span>
+      </div>
+    </div>
+    <p class="caption">
+      An agent carries ADR 3 D17's attribution pair, so the strip can say <b>whose</b> agent is
+      watching without a second identity concept. Past three, the rest collapse to <code>+N</code>.
+    </p>
+
+    <h2>3 · Only you — a fact, and stated as one</h2>
+    <div class="case">
+      <div class="header">
+        <span class="name">refactor the feed cursor</span>
+        <span class="cwd">~/src/podium</span>
+        <span class="right">
+          <span class="glyph alone" title="Only you are here">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          </span>
+          <span class="model"><span class="dot"></span>opus 5 · high</span>
+          <span class="segment"><span class="on">Chat</span><span class="off">Native</span></span>
+        </span>
+      </div>
+    </div>
+    <p class="caption">The server told us the room is empty. Tooltip: <b>“Only you are here.”</b></p>
+
+    <h2>4 · We do not know — and this is not the same as “nobody”</h2>
+    <div class="case">
+      <div class="header">
+        <span class="name">refactor the feed cursor</span>
+        <span class="cwd">~/src/podium</span>
+        <span class="right">
+          <span class="glyph unknown" title="Presence unavailable — who else is here is unknown">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          </span>
+          <span class="model"><span class="dot"></span>opus 5 · high</span>
+          <span class="segment"><span class="on">Chat</span><span class="off">Native</span></span>
+        </span>
+      </div>
+    </div>
+    <p class="caption">
+      Disconnected, not joined yet, or the join was refused — the protocol answers all of those with
+      one reason-free frame, on purpose. The glyph drops to Faint ink and the tooltip says
+      <b>“Presence unavailable”</b>. Never a count, never the word “nobody”.
+    </p>
+    <p class="note">
+      This distinction is carried by the TYPE, not by a convention: <code>PresenceRoomView</code> has
+      no <code>members</code> array on its <code>unknown</code> arm, so no component can map over an
+      empty list and paint “alone”. Mutating that arm to <code>{ status: 'present', members: [] }</code>
+      turns three tests red.
+    </p>
+  </body>
+</html>

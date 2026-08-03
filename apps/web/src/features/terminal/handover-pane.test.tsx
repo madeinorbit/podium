@@ -9,6 +9,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 // suite drives the panel through a whole move (transit → arrival → dissolve) and
 // through a failed one (rolled back to the source).
 
+// The presence seam [POD-1535]: the header's watcher strip reads the hub off
+// the client-core StoreProvider, which these focused renders don't mount.
+vi.mock('@podium/client-core/react', async () =>
+  (await import('./test-support/presence-mock')).presenceSeamStub(),
+)
+
 vi.mock('@podium/terminal-client', async (orig) => {
   const real = (await orig()) as Record<string, unknown>
   return {

@@ -59,6 +59,7 @@ import { EchoHud, echoHudEnabled } from './EchoHud'
 import { HandoverPane, useHandoverView } from './HandoverPane'
 import { hibernateAction } from './lifecycle-actions'
 import { ExitedBanner, ExitedPane, HibernatedBanner, HibernatedPane } from './SessionLifecyclePanes'
+import { SessionWatchers } from './SessionWatchers'
 import { usePanelSurface } from './use-panel-surface'
 import { useTerminalAppearance } from './use-terminal-appearance'
 
@@ -547,6 +548,11 @@ export function AgentPanel({
             (snooze, archive) · overflow. Transient utilities (take control, copy
             resume, ask superagent, hibernate) live in the overflow menu. */}
         <span className="ml-auto inline-flex flex-none items-center gap-2">
+          {/* Who else is on this session [POD-1535] — ADR 7's rooms, surfaced.
+              Renders in every session state (a watcher may be reading an
+              exited transcript with you), and distinguishes "only you" from
+              "we do not know" rather than collapsing both to blank. */}
+          <SessionWatchers sessionId={sessionId} view={effectiveMode} />
           {/* The running model + requested effort ("fable 5 · med"): observed
               model from the transcript tail (resolves a spawn-time `auto`),
               effort from the spawn selection — hidden until either is known. */}

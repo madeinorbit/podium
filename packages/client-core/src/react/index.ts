@@ -5,4 +5,7 @@ export * from '../replica/react'
 export * from '../replica/use-issue-views'
 export * from './provider'
 export * from './use-slice'
+// The presence seam (POD-1535): rooms are joined through here, never through
+// `hub.subscribeRoom` directly.
+export * from './use-presence-room'
 export * from './use-mark-read-on-view'
