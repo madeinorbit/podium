@@ -137,16 +137,33 @@ a second meaning on an existing one.**
 | `IssueWire.origin` (`'human' \| 'agent'`) | enum, unchanged | the *person* dimension is new; the enum stays as the class |
 | `IssueComment.author` | raw, unchanged | becomes a `UserId` (freeform author label today) |
 | `SessionMeta.nameSource` (`'user' \| 'agent'`) | enum, unchanged | per readiness §3.2, the role class must learn to name a person; [spec:SP-eb60]'s human-outranks-agent rule is why the pair cannot collapse |
-| `SessionMeta.spawnedBy` | raw, unchanged — **and it needs more than a brand** | on-behalf-of, **after POD-1133** |
+| `SessionMeta.spawnedBy` | raw on the wire, unchanged — but no longer written or read by hand (POD-1133) | on-behalf-of, as an arm member |
 | `Capability.actorSessionId` / `actorUser` / `onBehalfOf` (`authz/issue-authz.ts`) | already the pair's seam, landed by ADR 3 Amendment 1 D17; structurally `string` because the brand was not reachable at L0 | POD-1075 types `actorUser` / `onBehalfOf` as `UserId` — now that the brand **is** at L0, this is a type change with no move |
 | `sessions.deletion_source` | untouched | POD-360 reclassified it as a code-PATH label, not provenance — recorded so POD-1075 does not add a person to it by pattern-matching |
 
-**`spawnedBy` is why POD-1133 exists.** POD-360 found one consumer parses it and **seven** rebuild
-the template literal to compare, five of them gating parent-session authorization: a tag-format
-change makes those five silently answer "not the parent" rather than failing. A brand does not fix
-that — it still permits seven hand-built strings — so it needs a shared constructor **and** parser.
-Filed as POD-1133 (`discovered-from` POD-361). POD-1075 must not append a second value to a
-freeform string; POD-1133 lands first.
+**`spawnedBy` is why POD-1133 exists — and POD-1133 has now landed.** POD-360 found one consumer
+parsed it and **seven** rebuilt the template literal to compare, five of them gating parent-session
+authorization: a tag-format change made those five silently answer "not the parent" rather than
+failing. A brand does not fix that — it still permits seven hand-built strings — so it needed a
+shared constructor **and** parser.
+
+POD-1133 (`discovered-from` POD-361) shipped them in `packages/model/src/fields/session.ts`:
+
+| Function | Role |
+| --- | --- |
+| `SpawnedByRef` | the closed discriminated union — seven arms, a new one is a compile error at `spawnedByTag` |
+| `spawnedByTag(ref)` | **the only writer**. Nine producers routed through it |
+| `parseSpawnedBy(tag)` | **the only reader**. Fails closed to `null` on an unknown or malformed tag |
+| `spawnedByParentSessionId(tag)` | the parent-session question. Replaced `steward.ts`'s `sessionSpawnerParentId` **and** `client-core`'s regex, and returns a branded `SessionId` |
+| `isSpawnedBy(tag, ref)` | the comparison. Replaced all seven hand-built literals |
+
+The tag format itself is unchanged and `wire-golden.json` still pins it. Two things moved: the
+`system` arm gained an optional `job`, because `spawnedByFor` had been writing `system:<job>` all
+along and nothing could read it back; and the boundary cast in `session-groups.ts` is gone, since
+the reader now brands its own output.
+
+POD-1075 must not append a second value to a freeform string, and now cannot: the on-behalf-of half
+is a member on the union's arms.
 
 ---
 
@@ -231,7 +248,7 @@ The counts below were taken at the flip and are kept as the historical record.
 | `apps/daemon` (`memory-breakdown.ts`) | 1 | The daemon's own session record. Same fix as the server runtime objects. |
 | `apps/web` map lookups (`SidebarUnified.tsx`, `IssuePanelView.tsx`, `issue-page-properties.tsx`, `issue-context-menu.ts`, `IssueCompactControls.tsx`) | 5 | `Map<IssueId,…>.get(plainString)` where the string came from a DOM/prop/drag payload. **Replace by branding the component props and the drag payload types.** |
 | `apps/mobile` (`lib/screening.ts`) | 1 | The persisted screening order is a plain string list. **Replace by branding the persisted shape.** |
-| `packages/client-core` (`viewmodels/derive.ts`, `optimistic-spawn.ts`) | 2 | `OptimisticSpawnArgs` takes plain strings; and one lookup brands the output of the `spawnedBy` parser. The latter disappears with **POD-1133**, not with a sweep. |
+| `packages/client-core` (`viewmodels/derive.ts`, `optimistic-spawn.ts`) | 2 | `OptimisticSpawnArgs` takes plain strings; and one lookup branded the output of the `spawnedBy` parser. The latter is **gone** — POD-1133 moved the parser into `@podium/model`, where it brands its own output. |
 | Test fixtures (20 casts) | 20 | Fixture builders now take `Partial<SessionMetaInput>` / `Partial<IssueWireInput>` and brand once at the return. Left as-is deliberately: rewriting ~170 fixture literals **is** POD-362/POD-363's sweep, done badly and inside test files. |
 
 **Two mechanisms support those casts, and both are POD-362/POD-363's to retire:**
@@ -254,7 +271,7 @@ The counts below were taken at the flip and are kept as the historical record.
 
 | Issue | What |
 |---|---|
-| **POD-1133** | Shared `spawnedBy` constructor and parser — §4. A brand cannot fix seven hand-built template literals, five of which gate authz. |
+| **POD-1133** | Shared `spawnedBy` constructor and parser — §4. A brand cannot fix seven hand-built template literals, five of which gate authz. **Landed.** |
 | **POD-1134** | `planes/routing.ts` builds `entity:${kind}:${id}` **unescaped**, so `('a','b:c')` and `('a:b','c')` collide on one routing key; and it declares a second, looser `EntityRef`. Landed after POD-360's inventory was generated, which is why the inventory does not carry it. |
 
 Also fixed in passing, because it blocked verification: `packages/harness/package.json` imported

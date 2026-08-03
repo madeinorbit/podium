@@ -31,6 +31,7 @@
  * proof is refused.
  */
 
+import { isSpawnedBy } from '@podium/model'
 import { harnessObservationProvider } from '../../harness-manifest'
 import type { SessionId } from '@podium/model'
 import type { ObservationCheckpointsRepository } from '../../store/observation-checkpoints'
@@ -126,7 +127,7 @@ export class SessionTerminalProof {
     const activeChildren = [...this.ports.sessions()]
       .filter(
         (child) =>
-          child.spawnedBy === `session:${session.sessionId}` &&
+          isSpawnedBy(child.spawnedBy, { kind: 'session', id: session.sessionId }) &&
           (child.status === 'starting' ||
             child.status === 'live' ||
             child.status === 'reconnecting'),

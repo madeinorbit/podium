@@ -11,6 +11,7 @@
  * in MessageDeliveryService.trySpawn. This module only knows how to spawn.
  */
 
+import { type SpawnedByRef, spawnedByTag } from '@podium/model'
 import type { AgentKind, IssueId, SessionId, UserId } from '@podium/model'
 import type { MessageRow } from '../../store'
 import type { IssueService } from '../issues/service'
@@ -37,13 +38,25 @@ export interface SpawnOnWakeDeps {
  *  session-target authz gate already read), so the waker gets parent-grade
  *  rights over what it woke. */
 export function spawnedByForMessage(m: MessageRow): string {
-  if (m.fromKind === 'agent') {
-    if (m.fromSession) return `session:${m.fromSession}`
-    if (m.fromIssue) return `issue:${m.fromIssue}`
-    return 'agent'
+  return spawnedByTag(spawnedByRefForMessage(m))
+}
+
+/** The sender's provenance as the union arm, before it is written as a tag. Split
+ *  out so the mapping is a `switch` over closed arms rather than four returns of
+ *  hand-built strings — a new arm fails to compile here (POD-1133). */
+function spawnedByRefForMessage(m: MessageRow): SpawnedByRef {
+  switch (m.fromKind) {
+    case 'agent':
+      if (m.fromSession) return { kind: 'session', id: m.fromSession }
+      if (m.fromIssue) return { kind: 'issue', id: m.fromIssue }
+      return { kind: 'agent' }
+    case 'operator':
+      return { kind: 'user' }
+    case 'superagent':
+      return { kind: 'superagent' }
+    case 'system':
+      return { kind: 'system' }
   }
-  if (m.fromKind === 'operator') return 'user'
-  return m.fromKind // superagent | system
 }
 
 export function makeSpawnOnWake(deps: SpawnOnWakeDeps): SpawnOnWake {

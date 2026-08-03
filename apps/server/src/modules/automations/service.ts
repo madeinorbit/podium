@@ -11,6 +11,7 @@
  * dispatcher changes.
  */
 
+import { spawnedByTag } from '@podium/model'
 import type { IssueId, SessionId } from '@podium/model'
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
@@ -628,7 +629,7 @@ export class AutomationsService {
       agentKind: automation.agentKind as AgentKind,
       model: automation.model,
       effort: automation.effort,
-      spawnedBy: `automation:${automation.id}`,
+      spawnedBy: spawnedByTag({ kind: 'automation', id: automation.id }),
       title: automation.name,
       issueId: issue.id,
       ownerUserId: automation.ownerUserId,

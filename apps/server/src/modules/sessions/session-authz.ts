@@ -15,7 +15,7 @@ import {
 import type { ClientPrincipal } from '../../gateway/client-principal'
 import type { Capability } from '../../issue-authz'
 import { machineUseDecision, ownershipFromMachines } from '../../machine-access'
-import { sessionSpawnerParentId } from '../../steward'
+import { spawnedByParentSessionId } from '@podium/model'
 import type { GrantRow } from '../../store/grants'
 import { type InboxPrincipalReference, inboxPrincipalFromCommand } from './inbox'
 import { assertMayCommandSession, resolveSessionTarget } from './session-access'
@@ -75,7 +75,7 @@ export class SessionAuthz {
       }
       principal = resolvePrincipal(this.capabilityForSession(actorSessionId), {
         parentSessionOf: (sessionId) =>
-          sessionSpawnerParentId(this.ports.sessions.get(sessionId)?.spawnedBy),
+          spawnedByParentSessionId(this.ports.sessions.get(sessionId)?.spawnedBy),
         onBehalfOfFor: (sessionId) => this.sessionOwner(sessionId)?.owner ?? undefined,
       })
       if (
@@ -219,7 +219,7 @@ export class SessionAuthz {
     return inboxPrincipalFromCommand(
       resolvePrincipal(capability, {
         parentSessionOf: (sessionId) =>
-          sessionSpawnerParentId(this.ports.sessions.get(sessionId)?.spawnedBy),
+          spawnedByParentSessionId(this.ports.sessions.get(sessionId)?.spawnedBy),
         onBehalfOfFor: (sessionId) => this.sessionOwner(sessionId)?.owner ?? undefined,
       }),
     )

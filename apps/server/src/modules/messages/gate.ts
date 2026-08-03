@@ -22,7 +22,7 @@
 
 import { type HumanCeiling, SINGLE_USER_CEILING, type TransportTag } from '@podium/commands'
 import type { IssueId, SessionId, SessionMeta, UserId } from '@podium/model'
-import { sessionSpawnerParentId } from '../../steward'
+import { spawnedByParentSessionId } from '@podium/model'
 import type { Capability } from '../../issue-authz'
 import { resolvePrincipal, type CommandPrincipal } from '../../command-principal'
 import type { MessageRow } from '../../store'
@@ -230,7 +230,7 @@ export class MessageGate {
       this.principalForCapability?.(capability) ??
       resolvePrincipal(capability, {
         parentSessionOf: (sessionId) =>
-          sessionSpawnerParentId(
+          spawnedByParentSessionId(
             sessions.find((session) => session.sessionId === sessionId)?.spawnedBy,
           ),
       })

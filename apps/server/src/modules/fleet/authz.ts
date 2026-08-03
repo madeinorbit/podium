@@ -52,7 +52,7 @@ import {
   machineAccessMessage,
   ownershipFromMachines,
 } from '../../machine-access'
-import { sessionSpawnerParentId } from '../../steward'
+import { spawnedByParentSessionId } from '@podium/model'
 import type { Context } from '../../trpc'
 import { mods } from '../../trpc'
 
@@ -337,7 +337,7 @@ export function fleetAuthzDeps(ctx: Context): FleetAuthzDeps {
   const sessions = mods(ctx).sessions
   const principal = resolvePrincipal(ctx.capability, {
     parentSessionOf: (sessionId) =>
-      sessionSpawnerParentId(
+      spawnedByParentSessionId(
         sessions.listSessions().find((s) => s.sessionId === sessionId)?.spawnedBy,
       ),
   })

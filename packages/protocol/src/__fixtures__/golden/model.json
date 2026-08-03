@@ -6955,7 +6955,8 @@
           "onBehalfOf": "namedBy.onBehalfOf"
         },
         "spawnedBy": {
-          "kind": "system"
+          "kind": "system",
+          "job": "spawnedBy.job"
         },
         "refIssueId": "refIssueId",
         "refLetter": "refLetter",
@@ -7034,7 +7035,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"codex\",\"createdAt\":\"createdAt\",\"origin\":{\"kind\":\"resume\",\"conversationId\":\"origin.conversationId\"},\"headless\":false,\"cwd\":\"cwd\",\"machineId\":\"machineId\",\"issueId\":\"issueId\",\"model\":\"model\",\"effort\":\"effort\",\"accountId\":\"accountId\",\"durableLabel\":\"durableLabel\",\"title\":\"title\",\"name\":\"name\",\"nameSource\":\"agent\",\"namedBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"namedBy.actor.id\"},\"onBehalfOf\":\"namedBy.onBehalfOf\"},\"spawnedBy\":{\"kind\":\"system\"},\"refIssueId\":\"refIssueId\",\"refLetter\":\"refLetter\",\"refDraft\":2,\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"status\":\"live\",\"exitCode\":2,\"spawnFailure\":\"spawnFailure\",\"stoppedAt\":\"stoppedAt\",\"stopReason\":\"parent\",\"archived\":false,\"lastActiveAt\":\"lastActiveAt\",\"lastInputAt\":\"lastInputAt\",\"lastOutputAt\":\"lastOutputAt\",\"lastResumedAt\":\"lastResumedAt\",\"inputCount\":2,\"outputCount\":2,\"activityCount\":2,\"workState\":\"implementing\",\"workflowRunId\":\"workflowRunId\",\"workflowStepId\":\"workflowStepId\",\"executionProfileId\":\"executionProfileId\",\"deleted\":{\"at\":\"deleted.at\",\"source\":\"standalone\",\"by\":{\"actor\":{\"kind\":\"agent\",\"id\":\"deleted.by.actor.id\"},\"onBehalfOf\":\"deleted.by.onBehalfOf\"},\"byIssueId\":\"deleted.byIssueId\"},\"owner\":\"owner\",\"visibility\":\"per-user-state\",\"agentState\":{\"phase\":\"working\",\"since\":\"agentState.since\",\"workingMsTotal\":2,\"nativeSubagentCount\":2,\"nativeSubagents\":[{\"id\":\"agentState.nativeSubagents[0].id\",\"type\":\"agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":false,\"idle\":{\"kind\":\"question\",\"summary\":\"agentState.idle.summary\"},\"need\":{\"kind\":\"permission\",\"summary\":\"agentState.need.summary\"},\"error\":{\"class\":\"agentState.error.class\",\"retryable\":false},\"stateSource\":\"poll\",\"stateConfidence\":1,\"stateObservedAt\":\"agentState.stateObservedAt\"},\"createdBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"}}"
+      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"codex\",\"createdAt\":\"createdAt\",\"origin\":{\"kind\":\"resume\",\"conversationId\":\"origin.conversationId\"},\"headless\":false,\"cwd\":\"cwd\",\"machineId\":\"machineId\",\"issueId\":\"issueId\",\"model\":\"model\",\"effort\":\"effort\",\"accountId\":\"accountId\",\"durableLabel\":\"durableLabel\",\"title\":\"title\",\"name\":\"name\",\"nameSource\":\"agent\",\"namedBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"namedBy.actor.id\"},\"onBehalfOf\":\"namedBy.onBehalfOf\"},\"spawnedBy\":{\"kind\":\"system\",\"job\":\"spawnedBy.job\"},\"refIssueId\":\"refIssueId\",\"refLetter\":\"refLetter\",\"refDraft\":2,\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"status\":\"live\",\"exitCode\":2,\"spawnFailure\":\"spawnFailure\",\"stoppedAt\":\"stoppedAt\",\"stopReason\":\"parent\",\"archived\":false,\"lastActiveAt\":\"lastActiveAt\",\"lastInputAt\":\"lastInputAt\",\"lastOutputAt\":\"lastOutputAt\",\"lastResumedAt\":\"lastResumedAt\",\"inputCount\":2,\"outputCount\":2,\"activityCount\":2,\"workState\":\"implementing\",\"workflowRunId\":\"workflowRunId\",\"workflowStepId\":\"workflowStepId\",\"executionProfileId\":\"executionProfileId\",\"deleted\":{\"at\":\"deleted.at\",\"source\":\"standalone\",\"by\":{\"actor\":{\"kind\":\"agent\",\"id\":\"deleted.by.actor.id\"},\"onBehalfOf\":\"deleted.by.onBehalfOf\"},\"byIssueId\":\"deleted.byIssueId\"},\"owner\":\"owner\",\"visibility\":\"per-user-state\",\"agentState\":{\"phase\":\"working\",\"since\":\"agentState.since\",\"workingMsTotal\":2,\"nativeSubagentCount\":2,\"nativeSubagents\":[{\"id\":\"agentState.nativeSubagents[0].id\",\"type\":\"agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":false,\"idle\":{\"kind\":\"question\",\"summary\":\"agentState.idle.summary\"},\"need\":{\"kind\":\"permission\",\"summary\":\"agentState.need.summary\"},\"error\":{\"class\":\"agentState.error.class\",\"retryable\":false},\"stateSource\":\"poll\",\"stateConfidence\":1,\"stateObservedAt\":\"agentState.stateObservedAt\"},\"createdBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"}}"
     },
     {
       "schema": "SessionAggregate",
@@ -9054,13 +9055,14 @@
       "variant": "full/arm1",
       "wire": {
         "spawnedBy": {
-          "kind": "system"
+          "kind": "system",
+          "job": "spawnedBy.job"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"spawnedBy\":{\"kind\":\"system\"}}"
+      "encoded": "{\"spawnedBy\":{\"kind\":\"system\",\"job\":\"spawnedBy.job\"}}"
     },
     {
       "schema": "SessionProvenance",
@@ -9437,12 +9439,13 @@
       "schema": "SpawnedByRef",
       "variant": "full/arm1",
       "wire": {
-        "kind": "system"
+        "kind": "system",
+        "job": "job"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"kind\":\"system\"}"
+      "encoded": "{\"kind\":\"system\",\"job\":\"job\"}"
     },
     {
       "schema": "SpawnedByRef",

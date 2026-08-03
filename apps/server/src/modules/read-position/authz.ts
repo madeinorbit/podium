@@ -18,7 +18,7 @@ import { READ_POSITION_CONTRACTS, type ReadPositionContractName } from '@podium/
 import type { UserId, UserRole } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { type CommandPrincipal, onBehalfOfUser, resolvePrincipal } from '../../command-principal'
-import { sessionSpawnerParentId } from '../../steward'
+import { spawnedByParentSessionId } from '@podium/model'
 import type { Context } from '../../trpc'
 import { mods } from '../../trpc'
 
@@ -64,7 +64,7 @@ export function readPositionAuthzDeps(ctx: Context): ReadPositionAuthzDeps {
   const sessions = mods(ctx).sessions
   const principal = resolvePrincipal(ctx.capability, {
     parentSessionOf: (sessionId) =>
-      sessionSpawnerParentId(
+      spawnedByParentSessionId(
         sessions.listSessions().find((s) => s.sessionId === sessionId)?.spawnedBy,
       ),
   })

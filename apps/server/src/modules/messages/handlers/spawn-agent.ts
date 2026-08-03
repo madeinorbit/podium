@@ -11,6 +11,7 @@
  * the machine the resolved execution profile places the child on.
  */
 
+import { spawnedByTag } from '@podium/model'
 import { type ContractInput, type spawnAgentContract, UNADDRESSABLE } from '@podium/commands'
 import { attributionOf, onBehalfOfUser } from '../../../command-principal'
 import { checkIssueAccess } from '../../../issue-authz'
@@ -98,11 +99,13 @@ export function spawnAgentHandler(
     throw new Error(`issue #${issue.seq} has no worktree — run \`podium issue start\` first`)
   }
   const cwd = issue.worktreePath ?? issue.repoPath
-  const spawnedBy = caller.capability.actorSessionId
-    ? `session:${caller.capability.actorSessionId}`
-    : caller.capability.scope.kind === 'all'
-      ? 'user'
-      : 'agent'
+  const spawnedBy = spawnedByTag(
+    caller.capability.actorSessionId
+      ? { kind: 'session', id: caller.capability.actorSessionId }
+      : caller.capability.scope.kind === 'all'
+        ? { kind: 'user' }
+        : { kind: 'agent' },
+  )
   const profile = input.executionProfileId
     ? deps.resolveExecutionProfile?.({
         profileId: input.executionProfileId,

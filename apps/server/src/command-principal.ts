@@ -181,7 +181,8 @@ export function attributionOf(principal: CommandPrincipal): CommandAttribution {
  */
 export interface DelegationIndex {
   /** The session that spawned this one, if it was spawned by another session.
-   *  Today's provenance vocabulary is `spawnedBy: 'session:<id>'`. */
+   *  Read with `spawnedByParentSessionId` — the one reader of the `spawnedBy`
+   *  tag (POD-1133); nothing here matches the string itself. */
   parentSessionOf(sessionId: SessionId): SessionId | undefined
   /** The human a root agent session was spawned for. Absent ⇒ the instance's
    *  one account, which is the only answer available before POD-1075. */

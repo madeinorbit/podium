@@ -38,7 +38,7 @@
  *   D-9  five fields published on `SessionMeta` with NO storage column
  *   D-11 `workingMsTotal` with two homes
  *   D-12 the spawn tuple, restated four times
- *   D-17 `spawnedBy` as an unparsed six-arm tagged union in a freeform string
+ *   D-17 `spawnedBy` as an unparsed tagged union in a freeform string
  *
  * ---------------------------------------------------------------------------
  * BRANDING, AND THE ONE PLACE IT IS DELIBERATELY ABSENT
@@ -62,6 +62,7 @@ import {
   ConversationIdField,
   IssueIdField,
   MachineIdField,
+  type SessionId,
   SessionIdField,
   ThreadIdField,
 } from '../ids'
@@ -89,28 +90,45 @@ export { AgentRuntimeState, Geometry, ResumeRef, SessionOrigin, SessionStatus, W
  * WHO OR WHAT CAUSED THIS SESSION TO EXIST — as a closed discriminated union
  * (inventory D-17).
  *
- * Today this is `SessionMeta.spawnedBy: z.string().optional()`, and POD-360
- * measured what that costs: the DOCUMENTED arm set and the PRODUCED arm set
- * differ in BOTH directions (`'steward'` is documented and never written;
- * `automation:<id>` and bare `'agent'`/`'system'`/`'superagent'` are written and
- * never documented), exactly ONE consumer parses the string, and SEVEN rebuild
- * the template literal to compare — FIVE of them gating parent-session
- * authorization. A tag-format change therefore makes those five silently answer
- * "not the parent" rather than failing loudly.
+ * `SessionMeta.spawnedBy` is still `z.string().optional()` on the wire — the tag
+ * is pinned by `wire-golden.json` and does not change. What POD-1133 changed is
+ * that NOTHING formats or reads that tag by hand any more.
+ *
+ * POD-360 measured what the freeform tag cost: the DOCUMENTED arm set and the
+ * PRODUCED arm set differed in BOTH directions (`'steward'` was documented and
+ * never written; `automation:<id>` and bare `'agent'`/`'system'`/`'superagent'`
+ * were written and never documented), exactly ONE consumer parsed the string, and
+ * SEVEN rebuilt the template literal to compare — FIVE of them gating
+ * parent-session authorization. A tag-format change therefore made those five
+ * silently answer "not the parent" rather than failing loudly.
  *
  * A brand does not fix that: it still permits seven hand-built strings. What
- * fixes it is a union that ships with the only two functions allowed to write or
- * read the tag, which is why {@link spawnedByTag} and {@link parseSpawnedBy} are
- * exported immediately below and why nothing else should format one.
+ * fixes it is a union that ships with the only functions allowed to write, read
+ * or compare the tag — {@link spawnedByTag}, {@link parseSpawnedBy},
+ * {@link spawnedByParentSessionId} and {@link isSpawnedBy}. Every producer and
+ * every comparison site in the repo now routes through them, so a format change
+ * is one edit here rather than eight silent divergences.
  *
- * `'steward'` is DROPPED: no producer writes it. If one is ever found, it is an
- * added member here, not a seventh hand-built string.
+ * THE ARM SET IS CLOSED, and that is the point: a new provenance is a member
+ * added here, which makes `spawnedByTag`'s switch non-exhaustive — a compile
+ * error, verified by adding an arm and watching it fail — and so reaches every
+ * writer through the one function they all call. It is never an eighth literal.
+ *
+ * `'steward'` is DROPPED: no producer writes it.
+ *
+ * WHERE POD-1075's on-behalf-of GOES. Per `docs/multi-user-readiness.md` §3.1.3
+ * A3 this site gains the human a spawn acted for. It is a MEMBER on the arms that
+ * can have one — not a second value appended to the tag — which is why the union
+ * had to land before POD-1075 rather than after it.
  */
 export const SpawnedByRef = z.discriminatedUnion('kind', [
   /** A person, directly. */
   z.object({ kind: z.literal('user') }),
-  /** An in-process job with no human behind it (ADR 9 D8 S5). */
-  z.object({ kind: z.literal('system') }),
+  /** An in-process job with no human behind it (ADR 9 D8 S5). `job` names which
+   *  one (steward, expiry, boot reconcile), matching `Attribution`'s system
+   *  actor. Optional because the bare `'system'` tag predates it, and "which job"
+   *  must stay distinguishable from "a job, unrecorded". */
+  z.object({ kind: z.literal('system'), job: z.string().optional() }),
   /** An agent, where the producer recorded no finer identity than the role. */
   z.object({ kind: z.literal('agent') }),
   /** A parent session. */
@@ -124,13 +142,18 @@ export const SpawnedByRef = z.discriminatedUnion('kind', [
 ])
 export type SpawnedByRef = z.infer<typeof SpawnedByRef>
 
-/** THE only writer of the legacy tag string. Every producer goes through it. */
+/** THE only writer of the tag string. Every producer goes through it.
+ *
+ *  The switch has no `default`, so adding an arm to {@link SpawnedByRef} fails to
+ *  compile here first. That is the mechanism the issue asked for: a new
+ *  provenance cannot reach storage as an unrecognised string. */
 export const spawnedByTag = (ref: SpawnedByRef): string => {
   switch (ref.kind) {
     case 'user':
-    case 'system':
     case 'agent':
       return ref.kind
+    case 'system':
+      return ref.job ? `system:${ref.job}` : 'system'
     case 'session':
       return `session:${ref.id}`
     case 'issue':
@@ -142,16 +165,19 @@ export const spawnedByTag = (ref: SpawnedByRef): string => {
   }
 }
 
-/** THE only reader of the legacy tag string. Returns `null` for anything it does
- *  not recognise — including a malformed tag — rather than guessing an arm. A
- *  parser that invented a `kind` would be worse than the seven hand-built
- *  comparisons it replaces, because it would be trusted. */
+/** THE only reader of the tag string. FAILS CLOSED: returns `null` for anything
+ *  it does not recognise — an unknown arm, a tagged arm with no value, a
+ *  malformed tag — rather than guessing or half-filling one. A parser that
+ *  invented a `kind` would be worse than the seven hand-built comparisons it
+ *  replaces, because it would be trusted. */
 export const parseSpawnedBy = (tag: string | undefined | null): SpawnedByRef | null => {
   if (!tag) return null
   if (tag === 'user' || tag === 'system' || tag === 'agent') return { kind: tag }
   if (tag === 'superagent') return { kind: 'superagent' }
   const sep = tag.indexOf(':')
   if (sep <= 0) return null
+  // Only the FIRST colon separates: an id that contains one is carried whole
+  // rather than silently truncated to its prefix.
   const value = tag.slice(sep + 1)
   if (!value) return null
   switch (tag.slice(0, sep)) {
@@ -163,9 +189,51 @@ export const parseSpawnedBy = (tag: string | undefined | null): SpawnedByRef | n
       return { kind: 'superagent', threadId: asThreadId(value) }
     case 'automation':
       return { kind: 'automation', id: asAutomationId(value) }
+    case 'system':
+      return { kind: 'system', job: value }
     default:
       return null
   }
+}
+
+/**
+ * THE PARENT SESSION a tag names, or `undefined` for every other arm.
+ *
+ * This is what the sidebar grouping and the steward's parent-wake both wanted
+ * out of the tag, and each had grown its own regex/`startsWith` to get it. Both
+ * now call this, so the extraction and the tag format cannot drift apart — and
+ * the result is a `SessionId` at the source rather than a `string` branded by a
+ * cast at whichever boundary happened to need one (POD-361 left exactly such a
+ * cast in `session-groups.ts`; routing through here is what retires it).
+ *
+ * `undefined` — not a throw — because "spawned by something that is not a
+ * session" is an ordinary answer, not an error.
+ */
+export const spawnedByParentSessionId = (tag: string | undefined | null): SessionId | undefined => {
+  const ref = parseSpawnedBy(tag)
+  return ref?.kind === 'session' ? ref.id : undefined
+}
+
+/**
+ * WHETHER A TAG NAMES EXACTLY THIS PROVENANCE — the comparison the five authz
+ * gates were making by rebuilding the template literal.
+ *
+ * It parses and compares STRUCTURE rather than comparing two formatted strings,
+ * so a caller cannot accidentally compare against a shape the writer no longer
+ * emits: there is one format function and one parse function, and this sits on
+ * top of the parse side.
+ *
+ * An absent or unrecognised tag is `false`. For an authz gate that IS the closed
+ * answer — an unreadable provenance grants nothing — and it is reached only for
+ * a tag no producer in this repo can write, because they all go through
+ * {@link spawnedByTag}.
+ */
+export const isSpawnedBy = (tag: string | undefined | null, ref: SpawnedByRef): boolean => {
+  const parsed = parseSpawnedBy(tag)
+  // Both sides go through the ONE formatter, on a value the ONE parser produced.
+  // `spawnedByTag` is injective over the union — no two arms share a spelling —
+  // so equal tags mean equal provenance, and neither side is hand-built.
+  return parsed !== null && spawnedByTag(parsed) === spawnedByTag(ref)
 }
 
 export const SessionProvenance = z.object({

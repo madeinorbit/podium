@@ -340,19 +340,26 @@ export const SessionMetaEntity = z.object({
    *  THE branded `ConversationId` on this schema — `origin.conversationId` above
    *  is the native id and is deliberately unbranded. */
   conversationPodiumId: ConversationIdField.optional(),
-  /** WHO created this session (provenance, issue #60). Freeform; documented values:
-   *  'user' | 'superagent:<threadId>' | 'steward' | 'issue:<issueId>' |
-   *  'session:<sessionId>'. Absent = created before this field existed (unknown).
+  /** WHO created this session (provenance, issue #60). Absent = created before
+   *  this field existed (unknown), which stays distinct from `'user'`.
    *
-   *  DELIBERATELY LEFT A RAW STRING, and not because it is not identity —
-   *  because a brand would not fix it. POD-360 found SIX produced arms, exactly
-   *  ONE consumer that parses this string, and SEVEN that rebuild the template
-   *  literal to compare, FIVE of them gating parent-session authorization: a
-   *  tag-format change makes those five silently answer "not the parent" rather
-   *  than failing. A brand still permits seven hand-built strings, so what this
-   *  field needs is a shared CONSTRUCTOR and PARSER (POD-1133, `discovered-from`
-   *  this issue) — and it is simultaneously an attribution site that gains an
-   *  on-behalf-of value in POD-1075 (`docs/rearch-branded-id-flip.md` §4). */
+   *  STILL A RAW STRING ON THE WIRE, and still not because it is not identity.
+   *  A brand would not have fixed it: POD-360 found SIX produced arms, exactly
+   *  ONE consumer that parsed this string, and SEVEN that rebuilt the template
+   *  literal to compare, FIVE of them gating parent-session authorization — a
+   *  brand permits all seven unchanged.
+   *
+   *  WHAT FIXED IT (POD-1133) is `SpawnedByRef` in `../fields/session.ts`: a
+   *  closed discriminated union with `spawnedByTag` as the ONLY writer of this
+   *  string, `parseSpawnedBy` as the only reader, and `spawnedByParentSessionId`
+   *  / `isSpawnedBy` as the only ways to ask it a question. The tag format is
+   *  unchanged and `wire-golden.json` still pins it byte-for-byte; what changed
+   *  is that no site outside those four functions spells it. Do not add a
+   *  ninth producer here — add an arm there.
+   *
+   *  It is also the attribution site that gains an on-behalf-of value in
+   *  POD-1075 (`docs/rearch-branded-id-flip.md` §4); that value is a member on
+   *  the union's arms, not a second value appended to this string. */
   spawnedBy: z.string().optional(),
   /** OPTIONAL workflow-coordination pass-through metadata (#285 via #237
    *  [spec:SP-34d7 cross-harness]). Stamped at spawn/assignment by an external
@@ -393,8 +400,9 @@ export const SessionMetaEntity = z.object({
    * COMPOSED, NOT RESTATED. This is `fields/attribution.ts`'s `Attribution` —
    * the one field schema for the pair, already `SessionAggregate.createdBy` —
    * so the wire cannot drift from the aggregate and no consumer meets a second
-   * spelling. `spawnedBy` above is its freeform ancestor and carries at most the
-   * ACTOR half; it stays for its existing parsers and is not the pair.
+   * spelling. `spawnedBy` above is its ancestor and carries at most the ACTOR
+   * half; it stays — now as a parsed union behind one writer and one reader
+   * (POD-1133) — and is not the pair.
    *
    * SERVER-STAMPED AND READ-ONLY TO CLIENTS. Both halves come from the
    * authenticated transport principal (ADR 3 D7) via the session's binding

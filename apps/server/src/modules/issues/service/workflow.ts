@@ -1,3 +1,4 @@
+import { spawnedByTag } from '@podium/model'
 import {
   asMachineId,
   asUserId,
@@ -273,7 +274,7 @@ export class IssueGitWorkflowModule {
       effort: selection.effort,
       ...(opts?.forceUnknownModel ? { forceUnknownModel: true } : {}),
       ...(initialPrompt ? { initialPrompt } : {}),
-      spawnedBy: opts?.spawnedBy ?? `issue:${row.id}`,
+      spawnedBy: opts?.spawnedBy ?? spawnedByTag({ kind: 'issue', id: row.id }),
       ...(row.ownerUserId ? { ownerUserId: row.ownerUserId } : {}),
       ...(row.machineId ? { machineId: row.machineId } : {}),
     })
@@ -929,7 +930,7 @@ export class IssueGitWorkflowModule {
       model: selection.model,
       effort: selection.effort,
       ...(opts?.forceUnknownModel ? { forceUnknownModel: true } : {}),
-      spawnedBy: opts?.spawnedBy ?? `issue:${row.id}`,
+      spawnedBy: opts?.spawnedBy ?? spawnedByTag({ kind: 'issue', id: row.id }),
       ...(row.ownerUserId ? { ownerUserId: row.ownerUserId } : {}),
       ...(row.machineId ? { machineId: row.machineId } : {}),
     })

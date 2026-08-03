@@ -32,6 +32,7 @@
  * multi-user answer is exercised before POD-1075 supplies the real one.
  */
 
+import { isSpawnedBy } from '@podium/model'
 import type { Capability, SessionId, SessionMeta } from '@podium/model'
 import type { CommandPrincipal } from '../../command-principal'
 import { checkIssueAccess, type IssueAccessIndex } from '../../issue-authz'
@@ -130,7 +131,7 @@ export function assertMayCommandSession(
   const isOperator = capability.scope.kind === 'all'
   const isParent =
     capability.actorSessionId !== undefined &&
-    session.spawnedBy === `session:${capability.actorSessionId}`
+    isSpawnedBy(session.spawnedBy, { kind: 'session', id: capability.actorSessionId })
   if (!isOperator && !isParent) {
     throw new Error('target session has no issue; only its parent or the operator may message it')
   }

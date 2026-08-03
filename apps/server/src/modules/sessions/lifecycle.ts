@@ -10,7 +10,7 @@ import type {
   WorkState,
 } from '@podium/model'
 import { type AgentKind, asMachineId, asSessionId, asUserId, type UserId } from '@podium/model'
-import { sessionSpawnerParentId } from '../../steward'
+import { spawnedByParentSessionId } from '@podium/model'
 
 /**
  * WHO a session wire projection is being built for — the explicit argument
@@ -486,7 +486,7 @@ export class SessionLifecycle {
       // EXTRACTS while leaving the tag itself raw, which entities/session.ts
       // records as deliberate. This was the third hand-rolled copy of the slice.
       parentSessionOf: (sessionId) =>
-        sessionSpawnerParentId(
+        spawnedByParentSessionId(
           this.listSessions().find((s) => s.sessionId === sessionId)?.spawnedBy,
         ),
       ownership: ownershipFromMachines(this.machines),
