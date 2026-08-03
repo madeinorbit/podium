@@ -180,6 +180,10 @@ component with a driven fake hub plus a real-app check; the Playwright browser l
 
 ## Follow-ups filed, not built
 
-- Issue-room presence (who else is looking at this issue) — same seam, new caller.
-- Mobile presence surface — `apps/mobile`, its own UX concept.
+- **POD-1537** — issue-room presence (who else is looking at this issue): same seam, new caller.
+- **POD-1538** — mobile presence surface: `apps/mobile` has its own UX concept, and whether it
+  mounts the same store/hub needs checking before any UI is designed.
+- **POD-1536** — `reattach-storm.integration.test.ts` flakes 2-in-5 in isolation on code
+  byte-identical to the base; found while verifying this change, not caused by it.
 - Co-editing cursors — blocked on ADR 1's `op-stream` conflict class and the `document` room kind.
+  Not filed: the readiness doc says that part need not ship.
