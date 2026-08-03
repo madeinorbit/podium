@@ -228,7 +228,11 @@ export class LegacyWireV1Adapter
       const bucket = this.projection.get(change.entity)
       if (bucket === undefined) continue
       if (change.op === 'remove') bucket.delete(change.entityId)
-      else bucket.set(change.entityId, change.value)
+      // Translated ON THE WAY IN, so the snapshot path and the delta path cannot
+      // disagree: `snapshot()` serves straight out of this projection, and a
+      // rename applied only at `snapshot()` would leave `advisory()` and every
+      // future reader of the bucket to remember it independently (POD-1530).
+      else bucket.set(change.entityId, toV1Value(change.entity, change.value))
       touched.add(change.entity)
     }
     return [...touched]
@@ -304,6 +308,41 @@ const isLegacyKind = (entity: string): entity is LegacyKind =>
 function toV1Change(change: FeedChangeRow): MetadataChange {
   const base = { seq: change.seq, id: change.entityId, op: change.op }
   return (
-    change.op === 'upsert' ? { ...base, entity: change.entity, value: change.value } : { ...base, entity: change.entity }
+    change.op === 'upsert'
+      ? { ...base, entity: change.entity, value: toV1Value(change.entity, change.value) }
+      : { ...base, entity: change.entity }
   ) as MetadataChange
+}
+
+/**
+ * THE KEY-RENAME ARM (POD-1530). Deleted with the rest of this file.
+ *
+ * v2 renamed the issue wire key `blockedBy` to `blockedByNotes`, because the old
+ * name read like the dependency list and is not: it holds an assistant's free
+ * text, often a branch name. A v1 peer's code reads `blockedBy` and knows
+ * nothing about the new spelling, so the rename is undone HERE, on the way out,
+ * for exactly as long as v1 is served.
+ *
+ * WHY THIS ARM IS NOT OPTIONAL, AND WHY NOTHING WOULD HAVE TOLD YOU. Without it
+ * a v1 client receives an object with no `blockedBy` key at all. That is not a
+ * parse error and not a 426 — v1's issue payload is read leniently, so the
+ * client simply renders an absent field: the "Agent notes" block in
+ * `IssueRelations.tsx` goes BLANK, or throws on `.length` of undefined in the
+ * builds that index it directly. Either way the server logs nothing, no fixture
+ * changes, and no test reddens on its own. The failure is invisible from the
+ * only side that can see the wire.
+ *
+ * BOTH EGRESS PATHS GO THROUGH HERE. A v1 peer receives issues two ways —
+ * `metadataDelta` rows (via {@link toV1Change}) and full `issuesChanged` lists
+ * (via the shared projection) — and translating only one produces a client whose
+ * notes appear on a delta and vanish on the next reconnect, which is worse than
+ * either failure alone because it looks intermittent.
+ *
+ * The guard is `legacy-wire-v1-adapter.blocked-by.test.ts`.
+ */
+function toV1Value(entity: string, value: unknown): unknown {
+  if (entity !== 'issue' || value === null || typeof value !== 'object') return value
+  if (!('blockedByNotes' in value)) return value
+  const { blockedByNotes, ...rest } = value as Record<string, unknown>
+  return { ...rest, blockedBy: blockedByNotes }
 }

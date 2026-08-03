@@ -21,7 +21,7 @@ function issue(over: Partial<IssueWireInput> = {}): IssueWire {
     defaultAgent: 'claude-code',
     defaultModel: 'auto',
     defaultEffort: 'auto',
-    blockedBy: [],
+    blockedByNotes: [],
     priority: 1,
     type: 'task',
     pinned: false,

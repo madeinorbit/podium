@@ -25,7 +25,7 @@ const rich: RefIssueLike = {
   assignee: asUserId('agent:claude-code'),
   ready: false,
   blocked: true,
-  blockedBy: [asIssueId('iss_a'), asIssueId('iss_b')],
+  blockedByNotes: [asIssueId('iss_a'), asIssueId('iss_b')],
   childCount: 4,
   childDoneCount: 2,
   parentId: asIssueId('iss_parent'),
@@ -78,7 +78,7 @@ describe('RefCard issue summary (#517)', () => {
     // Identity: the card renders the right issue.
     expect(text).toContain('POD-517')
     expect(text).toContain('Enrich the miniview')
-    // Computed values (not passthrough copy): blocker count from blockedBy.length,
+    // Computed values (not passthrough copy): blocker count from blockedByNotes.length,
     // childDoneCount/childCount, done/total todos, and the resolved parent ref.
     expect(text).toContain('blocked (2)')
     expect(text).toContain('2/4 done')
@@ -94,7 +94,7 @@ describe('RefCard issue summary (#517)', () => {
   })
 
   it('normal availability is silent — no ready chip (POD-155)', () => {
-    renderCard(root, { ...rich, blocked: false, blockedBy: [], ready: true })
+    renderCard(root, { ...rich, blocked: false, blockedByNotes: [], ready: true })
     const text = container.textContent ?? ''
     expect(text).not.toContain('ready')
     expect(text).not.toContain('blocked')

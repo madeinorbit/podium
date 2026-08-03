@@ -15,9 +15,14 @@
  * principal already holds — it does not require seeing the other end, and
  * withholding the control would strand a blocker nobody can clear.
  *
- * AGENT NOTES are NOT edges. `blockedBy` / `dependencyNote` are free text an
- * agent wrote; they name nothing resolvable and are rendered as prose, kept
+ * AGENT NOTES are NOT edges. `blockedByNotes` / `dependencyNote` are free text
+ * an agent wrote; they name nothing resolvable and are rendered as prose, kept
  * visually distinct from the real graph exactly as before.
+ *
+ * `blockedByNotes` was called `blockedBy` on the wire until POD-1530, which is
+ * precisely the confusion this block's heading exists to undo — the old name
+ * read like the dependency list two sections up. The key now says what it
+ * holds.
  */
 import type { IssueId } from '@podium/model'
 import { ISSUE_DEP_TYPES } from '@podium/model'
@@ -96,7 +101,7 @@ export function IssueRelations({
       ))}
       {/* Agent-noted soft blockers (issues.blocked_by / dependency_note) —
           free-text notes, distinct from the real dependency graph above. */}
-      {(issue.blockedBy.length > 0 || issue.dependencyNote) && (
+      {(issue.blockedByNotes.length > 0 || issue.dependencyNote) && (
         <div
           className="flex flex-col gap-0.5 rounded-md border border-border border-dashed bg-muted/20 px-2 py-1.5"
           data-testid="agent-blockers"
@@ -104,7 +109,7 @@ export function IssueRelations({
           <span className="text-[11px] text-muted-foreground uppercase tracking-wide">
             Agent notes
           </span>
-          {issue.blockedBy.map((b) => (
+          {issue.blockedByNotes.map((b) => (
             <span key={b} className="break-words text-[12px] text-muted-foreground">
               blocked by: {b}
             </span>

@@ -83,7 +83,7 @@ const wire = (o: Partial<IssueWireInput>): IssueWire =>
     seq: 1,
     title: 'T',
     priority: 2,
-    blockedBy: [],
+    blockedByNotes: [],
     needsHuman: false,
     ...o,
   }) as IssueWire
@@ -104,7 +104,7 @@ describe('buildConciergeSeed', () => {
   const seed = buildConciergeSeed({
     repoPath: '/r',
     ready: [wire({ id: 'a', seq: 3, title: 'Fix login', priority: 1 })],
-    blocked: [wire({ id: 'b', seq: 4, title: 'Ship it', blockedBy: ['a'] })],
+    blocked: [wire({ id: 'b', seq: 4, title: 'Ship it', blockedByNotes: ['a'] })],
     needsHuman: [wire({ id: 'c', seq: 5, humanQuestion: 'Which region?' })],
     all: [
       wire({ id: 'a', seq: 3, title: 'Fix login' }),

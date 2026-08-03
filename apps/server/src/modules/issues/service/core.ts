@@ -381,7 +381,11 @@ export class IssueStore {
       // now IS `IssueGraphRefs.shape.blockedByNotes`, so a branch name reaches
       // the client as the string it is. Assign it straight — a cast reappearing
       // here would mean the two types have drifted apart again.
-      blockedBy: issue.blockedByNotes,
+      //
+      // POD-1530 renamed the wire KEY to match, so this is no longer a rename at
+      // all — it is the same name on both sides. v1 peers still read `blockedBy`;
+      // `gateway/legacy-wire-v1-adapter.ts` renames it back for them.
+      blockedByNotes: issue.blockedByNotes,
       ...(issue.dependencyNote ? { dependencyNote: issue.dependencyNote } : {}),
       ...(issue.prUrl ? { prUrl: issue.prUrl } : {}),
       priority: issue.priority,

@@ -522,7 +522,7 @@ function IssueSummary({
     meta.push(
       <span key="b" className="inline-flex items-center gap-1.5 text-red-400">
         <span className="size-1.5 flex-none rounded-full bg-red-400" aria-hidden="true" />
-        blocked{issue.blockedBy?.length ? ` (${issue.blockedBy.length})` : null}
+        blocked{issue.blockedByNotes?.length ? ` (${issue.blockedByNotes.length})` : null}
       </span>,
     )
   return (

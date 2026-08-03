@@ -83,7 +83,7 @@ function issueAt(index: number): IssueWire {
     branch: `issue/${10_000 + index}-generated`,
     parentBranch: 'main',
     defaultAgent: index % 2 === 0 ? 'codex' : 'claude-code',
-    blockedBy: [],
+    blockedByNotes: [],
     createdAt: `2026-07-${String((index % 17) + 1).padStart(2, '0')}T08:00:00.000Z`,
     updatedAt: `2026-07-${String((index % 17) + 1).padStart(2, '0')}T12:00:00.000Z`,
     archived: false,

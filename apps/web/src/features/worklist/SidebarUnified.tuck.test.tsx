@@ -39,7 +39,7 @@ vi.mock('@/app/store', () => {
     defaultAgent: 'codex',
     defaultModel: 'auto',
     defaultEffort: 'auto',
-    blockedBy: [],
+    blockedByNotes: [],
     createdAt: '2026-07-20T00:00:00.000Z',
     updatedAt: new Date(Date.now() - 60_000).toISOString(),
     archived: false,

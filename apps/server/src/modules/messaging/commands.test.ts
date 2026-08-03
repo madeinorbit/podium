@@ -24,7 +24,7 @@ function issue(partial: Partial<IssueWireInput> & Pick<IssueWire, 'id' | 'seq' |
     defaultAgent: 'claude-code',
     defaultModel: 'auto',
     defaultEffort: 'auto',
-    blockedBy: [],
+    blockedByNotes: [],
     priority: 2,
     type: 'task',
     pinned: false,

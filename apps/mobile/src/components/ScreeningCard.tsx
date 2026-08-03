@@ -117,7 +117,7 @@ export function ScreeningCard({
     outputRange: [1, 0],
     extrapolate: 'clamp',
   })
-  const blockers = issue.blockedBy.length
+  const blockers = issue.blockedByNotes.length
   const openChildren = Math.max(0, issue.childCount - issue.childDoneCount)
   const brief = issue.brief?.trim()
   const description = issue.description.trim()

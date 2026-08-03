@@ -29,7 +29,7 @@ export const makeIssue = (
     defaultAgent: 'claude-code',
     defaultModel: 'auto',
     defaultEffort: 'auto',
-    blockedBy: [],
+    blockedByNotes: [],
     createdAt: 't',
     updatedAt: 't',
     archived: false,
