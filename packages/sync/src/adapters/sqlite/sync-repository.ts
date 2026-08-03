@@ -99,8 +99,8 @@ export class SyncRepository {
   /**
    * Head-only retention: drop rows beyond the row budget (keep the newest
    * `keepRows`) OR older than the age budget — whichever deletes MORE. The old
-   * AND-policy never pruned under sustained write rates (rows aged past 14 days
-   * only after the table had grown unboundedly for weeks). Deletion is still
+   * AND-policy never pruned under sustained write rates (rows aged past the age
+   * budget only after the table had grown unboundedly). Deletion is still
    * head-only: we compute the highest seq that satisfies either budget and delete
    * snapshot it once per job, so even the indexed age-threshold scan does not
    * recur inside every bounded delete unit. Rows appended after the snapshot are
