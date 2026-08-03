@@ -58,8 +58,8 @@ describe('search', () => {
     expect(searchBlocks(blocks, '')).toEqual([])
   })
   it('blockMatches mirrors the same predicate', () => {
-    expect(blockMatches(blocks[0], 'fix the')).toBe(true)
-    expect(blockMatches(blocks[2], 'fix the')).toBe(false)
+    expect(blockMatches(blocks[0]!, 'fix the')).toBe(true)
+    expect(blockMatches(blocks[2]!, 'fix the')).toBe(false)
   })
 })
 
@@ -104,7 +104,7 @@ describe('buildChatRows', () => {
     ])
     const rows = buildChatRows(blocks)
     expect(rows.map((r) => r.kind)).toEqual(['block', 'tools', 'block'])
-    const batch = rows[1]
+    const batch = rows[1]!
     expect(batch.kind === 'tools' && batch.blocks).toHaveLength(3)
     expect(batch.kind === 'tools' && batch.title).toBe('Read 2 files, ran a command')
     // blockIndices map back into the flat stream so search can find the row.
