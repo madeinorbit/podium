@@ -114,8 +114,20 @@ test('desktop header links + a scheduled automation that persists', async ({ pag
   await view.getByRole('button', { name: /Expand Nightly test sweep runs/ }).click()
   await expect(view.getByText('No runs yet')).toBeVisible()
 
-  // Delete removes it for good.
+  // Delete removes it for good — and these are TWO different bugs, so both are
+  // asserted (POD-1509). The card leaving WITHOUT a reload is the client having
+  // been TOLD: the removal has to survive the scoped feed, which used to refuse
+  // it (the row was already deleted, so its owner read as `undefined`) and send
+  // an empty watermark instead. Still gone AFTER a reload is the separate claim
+  // that the server really deleted it, which was never in doubt — a fix that
+  // only hid the card would pass the first assertion and fail this one.
   await view.getByRole('button', { name: 'Delete Nightly test sweep' }).click()
+  await expect(view.getByText('Nightly test sweep', { exact: true })).toHaveCount(0)
+  await expect(view.getByText('No scheduled automations yet.', { exact: false })).toBeVisible()
+
+  await page.reload()
+  await expect(header).toBeVisible({ timeout: 20_000 })
+  await header.getByTestId('topbar-nav-automations').click()
   await expect(view.getByText('Nightly test sweep', { exact: true })).toHaveCount(0)
   await expect(view.getByText('No scheduled automations yet.', { exact: false })).toBeVisible()
 })
@@ -163,5 +175,11 @@ test('a one-off automation persists its exact future run', async ({ page }) => {
   await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click()
 
   await view.getByRole('button', { name: 'Delete Quota wakeup' }).click()
+  await expect(view.getByText('Quota wakeup', { exact: true })).toHaveCount(0)
+
+  // Same two-bugs split as above (POD-1509): live removal, then durability.
+  await page.reload()
+  await expect(header).toBeVisible({ timeout: 20_000 })
+  await header.getByTestId('topbar-nav-automations').click()
   await expect(view.getByText('Quota wakeup', { exact: true })).toHaveCount(0)
 })

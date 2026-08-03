@@ -1,0 +1,36 @@
+-- OWNERSHIP MUST OUTLIVE THE ROW (POD-1509).
+--
+-- The scoped feed decides whether a change may be delivered by asking the
+-- visibility policy "may this principal read this entity?", and that policy
+-- resolves an automation's owner by LOOKING THE ROW UP. A commit writes before
+-- it scopes (ADR 2 D10: the entity write and the change append are one span,
+-- and the broadcast follows the span), so by the time a `remove` is evaluated
+-- the row is already gone, the owner reads as `undefined`, and the removal is
+-- refused as `personal-not-granted`. The connection is still certified through
+-- that seq, so the client receives an EMPTY WATERMARK: the row is marked
+-- delivered without ever being sent, and every replica keeps a phantom
+-- automation until it re-bootstraps.
+--
+-- A deletion is the one change whose audience can never be computed from
+-- post-delete state. So the row's OWNERSHIP survives it: `remove` stamps
+-- `deleted_at` instead of issuing a DELETE, every read filters tombstones out
+-- (so `get`/`list` and therefore the wire, the queries and the UI are
+-- unchanged), and the visibility port reads through them. The feed keeps
+-- carrying an explicit `op: 'remove'` — absence is NOT promoted to meaning
+-- deletion anywhere.
+--
+-- This is also what the ownership matrix already declared: the automations row
+-- in `packages/model/src/annotations/matrix.ts` says `tombstone: 'soft-delete'`
+-- while the store issued a hard `DELETE FROM automations`. The declaration was
+-- right and the implementation had drifted from it.
+--
+-- `automation_runs` gets the same column for the same reason and not by
+-- symmetry: its rows left via `ON DELETE CASCADE`, so their removals were
+-- suppressed by the identical lookup failure (`getRun` on a cascaded row).
+-- With the parent tombstoned the cascade no longer fires, so `remove` stamps
+-- the children explicitly.
+--
+-- ADDITIVE AND NULLABLE: every existing row is live, which is exactly what
+-- `NULL` means here, so there is nothing to backfill and no row changes meaning.
+ALTER TABLE `automations` ADD `deleted_at` text;--> statement-breakpoint
+ALTER TABLE `automation_runs` ADD `deleted_at` text;
