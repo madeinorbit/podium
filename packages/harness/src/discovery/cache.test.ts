@@ -156,7 +156,7 @@ describe('ConversationDiscoveryCache', () => {
     const file = await writeSession(root, 'guardian.jsonl')
     const fileStat = await stat(file)
     const first = new ConversationDiscoveryCache(db)
-    first.upsertIgnoredMany([{ path: file, stats: fileStat, agentKind: 'codex' }])
+    first.upsertManyNegative([{ path: file, stats: fileStat, agentKind: 'codex' }])
     first.close()
 
     const reopened = new ConversationDiscoveryCache(db)

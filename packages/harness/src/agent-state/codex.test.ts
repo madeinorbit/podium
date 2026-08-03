@@ -1724,7 +1724,7 @@ describe('observeCodexState rollout pinning', () => {
       cwd: '/repo/missing',
       homeDir: home,
       startedAtMs: Date.now(),
-      podiumSessionId: 'podium-linux-exact',
+      podiumSessionId: asSessionId('podium-linux-exact'),
       procRoot,
       platform: 'linux',
       pollMs: 10,

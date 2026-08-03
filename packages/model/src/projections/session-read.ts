@@ -103,6 +103,18 @@ export interface IssueTreeSession {
   label?: string
   agentKind: string
   model?: string
+  /**
+   * Reasoning effort, and how full the agent's context is (0-100).
+   *
+   * Carried forward from main's POD-1262 during the POD-1439 reconciliation. The
+   * CLI renders both on every session line, so before this they were declared
+   * locally in two places (issue-client and the session CLI) against a model
+   * that did not name them — which is the duplicate-vocabulary problem this
+   * epic exists to remove. Defined here, once, because that is where a field's
+   * meaning lives.
+   */
+  effort?: string
+  contextUsagePercent?: number
   /** PTY/process status: starting | live | reconnecting | hibernated | exited. */
   status: string
   /** Agent phase when known (working | idle | needs_user | …). */

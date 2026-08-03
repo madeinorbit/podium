@@ -18,6 +18,7 @@ export type SessionProjectionDaemonFrame = Extract<
     type:
       | 'agentColor'
       | 'agentModel'
+      | 'agentContext'
       | 'title'
       | 'sessionResumeRef'
       | 'sessionCwd'
@@ -63,6 +64,14 @@ export class SessionDaemonProjection {
       case 'agentModel': {
         const session = this.ports.sessions.get(message.sessionId)
         if (session?.setObservedModel(message.model, message.effort)) {
+          this.ports.persist(session)
+          this.ports.broadcastSessions()
+        }
+        break
+      }
+      case 'agentContext': {
+        const session = this.ports.sessions.get(message.sessionId)
+        if (session?.setContextUsagePercent(message.percent)) {
           this.ports.persist(session)
           this.ports.broadcastSessions()
         }
