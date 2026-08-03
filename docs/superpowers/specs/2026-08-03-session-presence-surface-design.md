@@ -89,9 +89,13 @@ Rendered in the `agent-panel-header` right cluster, before the model token.
 - `status === 'unknown'` → a dimmed `Users` glyph, `title="Presence unavailable"`, `aria-label`
   the same. Never a count, never "0".
 - `status === 'present'` → chips for every member **other than this connection's own identity**,
-  each a small round token with initials derived from the identity (user id, or the agent
-  identity with an on-behalf-of user), a deterministic hue from the id, and a tooltip naming who
-  they are and what they are looking at. More than three others collapse to `+N`.
+  each an 18px round token with initials derived from the identity (or a bot glyph for an agent),
+  and a tooltip naming who they are and what they are looking at. More than three others collapse
+  to `+N`. Chips are **neutral, not hue-per-person**: DESIGN.md's Reserved Hues Rule keeps the
+  signal hues and terracotta out of identity, and a per-person palette would collide with the
+  issue-colour channel this header is already tinted by. Identity reads from the mono token.
+  The strip is one `role="img"` with the summary as its accessible name — the idiom
+  `AgentStatusGlyph` / `StatusBadge` already use — and deliberately not a live region.
 - `status === 'present'` with no others → the glyph is rendered at low emphasis with
   `title="Only you"`. Known-alone is stated, not implied by absence.
 
@@ -139,16 +143,31 @@ Per CLAUDE.md, scoped to the regression risk of new behaviour:
    a delta, and returns `unknown` for a `null` room.
 3. `features/terminal/session-watchers.test.tsx` — the three rendered states, that self is
    excluded from the chips, and that `unknown` never renders a count.
+4. `presence/room-presence.transport.test.ts` — ONE test over a real `SocketHub` on a fake
+   socket, because the three above would all survive the seam and the hub disagreeing about the
+   wire: the join really becomes a `presenceSubscribe` frame carrying no identity, and a server
+   `presenceRoomState` really lands in the view.
+5. `agent-panel-active.test.tsx` gains *"renders the presence strip in the session header"* — the
+   caller itself, which is what the gate found missing. The suites that render `AgentPanel` for
+   other reasons stub the seam through
+   `features/terminal/test-support/presence-mock.ts`; stubbing rather than degrading the hook
+   keeps a missing provider loud in the app.
 
 **Mutation proof (the gate's acceptance bar).** The gate's finding was "no product caller", so
 the planted violation is the removal of the caller. Two mutants, each expected RED naming the
 site, then reverted from a byte-verified pristine snapshot:
 
-- M1 — delete the `usePresenceRoom` call from `AgentPanel` (break the substring; do not extend
-  it): the web surface test must go RED.
-- M2 — make `PresenceRooms.view` return `{ status: 'present', members: [] }` instead of
-  `{ status: 'unknown' }` when a room is closed: the invariant test must go RED. This is the
-  exact "absence reads as nobody" defect the ruling names.
+- M1 — delete `<SessionWatchers/>` from `AgentPanel`: **RED**, `agent-panel-active.test.tsx >
+  renders the presence strip in the session header`.
+- M2 — make the closed/disconnected path set `{ status: 'present', members: [] }` instead of
+  `UNKNOWN_PRESENCE`: **RED ×3** — the two `room-presence.test.ts` invariant tests and
+  `use-presence-room.test.tsx > re-renders as unknown when the room closes`. This is the exact
+  "absence reads as nobody" defect the ruling names.
+- M3 — stop excluding the current principal from the chips: **RED ×2** in
+  `session-watchers.test.tsx`.
+
+All three reverted by copying back a byte-verified pristine snapshot (md5 equal, `grep MUTANT`
+rc=1, `git status` clean), and the suites re-run green afterwards.
 
 A silent mutant is diagnosed with a `throw` on the same line before it is believed equivalent.
 

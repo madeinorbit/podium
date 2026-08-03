@@ -7,7 +7,7 @@ import type { IssueId, SessionId } from '@podium/model'
 import type { PresenceMember, PresencePayload, RoomRef } from '@podium/protocol'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { HubEvents } from '../socket-transport'
-import { PresenceRooms, type PresenceHubPort } from './room-presence'
+import { type PresenceHubPort, PresenceRooms } from './room-presence'
 
 const SESSION = { kind: 'session', id: 's_1' as SessionId } as RoomRef
 const OTHER = { kind: 'issue', id: 'i_1' as IssueId } as RoomRef

@@ -15,8 +15,8 @@ import type { PresenceMember, PresencePayload, RoomRef } from '@podium/protocol'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import type { JSX } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { HubEvents } from '../socket-transport'
 import type { PresenceHubPort } from '../presence/room-presence'
+import type { HubEvents } from '../socket-transport'
 
 const ALICE: PresenceMember = { identity: { kind: 'user', user: 'user:alice' as never } }
 
@@ -65,13 +65,7 @@ const { usePresenceRoom } = await import('./use-presence-room')
 
 const ROOM = { kind: 'session', id: 's_1' as SessionId } as RoomRef
 
-function Watchers({
-  room,
-  view,
-}: {
-  room: RoomRef | null
-  view?: string
-}): JSX.Element {
+function Watchers({ room, view }: { room: RoomRef | null; view?: string }): JSX.Element {
   const presence = usePresenceRoom(room, view === undefined ? undefined : { view })
   return (
     <div data-testid="out" data-status={presence.status}>

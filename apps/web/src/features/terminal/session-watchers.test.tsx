@@ -6,8 +6,9 @@
  * watcher can SEE who else is present, and "we do not know" never renders as
  * "nobody is here".
  */
-import type { PresenceMember } from '@podium/protocol'
+
 import { asSessionId } from '@podium/model'
+import type { PresenceMember } from '@podium/protocol'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { watchersOf, watchersSummary } from './watchers'
@@ -48,7 +49,10 @@ const strip = () => screen.getByTestId('session-watchers')
 describe('SessionWatchers', () => {
   it('joins the session room and publishes which pane this connection is reading', () => {
     render(<SessionWatchers sessionId={SESSION} view="native" />)
-    expect(usePresenceRoom).toHaveBeenCalledWith({ kind: 'session', id: SESSION }, { view: 'native' })
+    expect(usePresenceRoom).toHaveBeenCalledWith(
+      { kind: 'session', id: SESSION },
+      { view: 'native' },
+    )
   })
 
   it('renders unknown presence as unavailable — never as a count and never as nobody', () => {

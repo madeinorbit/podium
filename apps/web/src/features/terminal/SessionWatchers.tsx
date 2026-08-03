@@ -35,8 +35,8 @@
  * perpetual motion for an agent actually computing.
  */
 
-import type { SessionId } from '@podium/model'
 import { useCurrentPrincipal, usePresenceRoom } from '@podium/client-core/react'
+import type { SessionId } from '@podium/model'
 import { Bot, Users } from 'lucide-react'
 import type { JSX } from 'react'
 import { useMemo } from 'react'
@@ -55,11 +55,7 @@ export interface SessionWatchersProps {
   readonly className?: string
 }
 
-export function SessionWatchers({
-  sessionId,
-  view,
-  className,
-}: SessionWatchersProps): JSX.Element {
+export function SessionWatchers({ sessionId, view, className }: SessionWatchersProps): JSX.Element {
   // Rebuilt per render on purpose: the hook compares rooms by value, and the
   // payload is this connection's own presence, republished when it changes.
   const room = useMemo(() => ({ kind: 'session' as const, id: sessionId }), [sessionId])
@@ -68,7 +64,8 @@ export function SessionWatchers({
   const principal = useCurrentPrincipal()
 
   const watchers = useMemo(
-    () => (presence.status === 'present' ? watchersOf(presence.members, principal?.userId ?? null) : []),
+    () =>
+      presence.status === 'present' ? watchersOf(presence.members, principal?.userId ?? null) : [],
     [presence, principal],
   )
   const summary = watchersSummary(presence.status, watchers)
@@ -77,6 +74,11 @@ export function SessionWatchers({
 
   return (
     <span
+      // One named graphic, as the other header glyphs do (`AgentStatusGlyph`,
+      // `StatusBadge`) — the chips are a picture of the room and the sentence
+      // is its name. Deliberately NOT a live region: presence changes
+      // constantly and announcing every join would talk over the work.
+      role="img"
       data-testid="session-watchers"
       data-presence-status={presence.status}
       className={cn('inline-flex flex-none items-center', className)}
