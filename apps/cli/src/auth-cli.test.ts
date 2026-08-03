@@ -18,8 +18,13 @@ const stderr = () => err.join('\n')
 function seedDatabase(): void {
   const db = openDatabase(join(dir, 'podium.db'))
   db.prepare(
+    // `user_id` is NOT NULL with no default (POD-1079): a login session says WHO
+    // it is. A fixture missing it lets the mint compile and fail only at the
+    // insert — the sibling fixture in packages/runtime/src/session-mint.test.ts
+    // carries the same column for the same reason.
     `CREATE TABLE client_sessions (
        token_hash TEXT PRIMARY KEY,
+       user_id TEXT NOT NULL,
        created_at TEXT NOT NULL,
        expires_at TEXT NOT NULL,
        label TEXT NOT NULL DEFAULT 'login'
@@ -35,7 +40,10 @@ beforeEach(() => {
   err.length = 0
 })
 afterEach(() => {
-  delete process.env.PODIUM_STATE_DIR
+  // Do NOT delete PODIUM_STATE_DIR: the hermetic guard runs as a GLOBAL
+  // afterEach (test-hermetic-vitest-hooks.ts) and requires it set on the way out
+  // too, so clearing it here trips the very protection it exists to give. The
+  // temp dir is removed instead, and the next file sets its own.
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -95,7 +103,8 @@ it('revokes break-glass sessions by default, not browser logins', async () => {
   seedDatabase()
   const db = openDatabase(join(dir, 'podium.db'))
   db.prepare(
-    "INSERT INTO client_sessions (token_hash, created_at, expires_at, label) VALUES ('login-hash','','2999-01-01T00:00:00.000Z','login')",
+    // user_id is NOT NULL (POD-1079) — a browser login says whose it is.
+    "INSERT INTO client_sessions (token_hash, user_id, created_at, expires_at, label) VALUES ('login-hash','user:sole','','2999-01-01T00:00:00.000Z','login')",
   ).run()
   db.close?.()
   await authCliMain(['mint-session', '--print-only'], io)
