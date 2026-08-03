@@ -4,7 +4,7 @@ import { DEPLOYMENT, perf } from '../../perf/registry'
  * THE ISSUE-REPUBLISH PORTS ARE GONE (POD-1574), and their absence is the point.
  *
  * This coordinator used to carry `issueGeneration()`, `listSessions()` and a
- * `publishIssues(sessions)` port, gated by a dirty check against a generation
+ * full-issue-list republish port, gated by a dirty check against a generation
  * counter that no writer ever incremented — so the gate was true once per
  * process and false forever after, while its skip counter reported as a healthy
  * optimization.

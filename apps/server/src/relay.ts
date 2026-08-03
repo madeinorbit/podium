@@ -60,7 +60,7 @@ import { DurableIssueAccessIndex } from './modules/issues/access-index'
 import { IssueArtifactStore } from './modules/issues/artifact-store'
 import { IssueAutoArchive } from './modules/issues/auto-archive'
 import { IssueCommandDispatcher } from './modules/issues/dispatcher'
-import { issueDepProjectionRows, repoProjectionRows } from './modules/issues/projection'
+import { repoProjectionRows } from './modules/issues/projection'
 import { IssuePublisher } from './modules/issues/publish'
 import { AgentRelayGate } from './modules/issues/relay-gate'
 import { IssueService } from './modules/issues/service'
@@ -636,33 +636,12 @@ export class SessionRegistry {
       automationRuns: ledger.authority.snapshot('automationRun') as SnapshotTail['automationRuns'],
       diagnostics: [...conversationDiagnostics.current],
     })
-    const publisher = new IssuePublisher({
-      // Write-less full-list rebroadcasts (session churn, staleness flips):
-      // reconcile against the ledger baseline (durable append, #255), then fan
-      // the committed changes out.
-      publishIssueList: (spec, projectionRows) => {
-        // The reconcile's appends ARE the fan-out (POD-1203): they enter the
-        // Authority's ordered pipe and reach every connection through the feed.
-        // The legacy snapshot that used to follow this line is built at the
-        // connection boundary now, from these same rows.
-        ledger.reconcile('issue', spec.rows)
-        // The normalized kind rides the SAME onAppended pipe [POD-796] — no
-        // second emitter and no second ordering, which the client gap rule
-        // (seq !== cursor+1 -> heal) makes non-negotiable. A delta client that
-        // did NOT offer CAP_ISSUES_NORMALIZED still receives these rows and
-        // ignores them via lenient parsing, advancing its cursor past them
-        // (protocol/messages/sync.ts) — that is why a new KIND is additive
-        // where reshaping 'issue' in place would not have been.
-        if (projectionRows) ledger.reconcile('issueProjection', projectionRows)
-        // The edges reconcile on the same full-truth pass [POD-822]. Additive,
-        // and since POD-797 UNCONDITIONAL (the issues-normalized-wire flag is
-        // deleted): `undefined` means only "cannot project; do not touch the
-        // kind". A build that has never heard of the 'issueDep' kind ignores
-        // the rows and advances its cursor.
-        const depRows = issueDepProjectionRows(this.store.issues.listAllIssueDeps())
-        if (depRows) ledger.reconcile('issueDep', depRows)
-      },
-    })
+    // Spec factory only (POD-1576). The `publishIssueList` reconcile tail that
+    // used to be wired here — issue + issueProjection + issueDep full-truth
+    // reconciles for write-less republishes — had no trigger left once POD-1574
+    // deleted the never-bumped dirty gate that called it. Issue WRITES still
+    // reconcile those same kinds; they do it from IssueService's own tail.
+    const publisher = new IssuePublisher({})
     const specs = new SpecsService({
       repoRoots: () => this.store.repos.listRepoPaths(),
     })

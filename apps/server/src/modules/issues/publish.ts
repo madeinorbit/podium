@@ -1,4 +1,4 @@
-import type { IssueProjection, IssueWire } from '@podium/model'
+import type { IssueWire } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import type { IssuePublishSpecs } from './service/types'
 
@@ -32,31 +32,23 @@ export interface IssuePublisherDeps {
    *  the registry constructor hasn't assigned the service yet (broadcasts can run
    *  via loadFromStore before that). */
   allWire?(): IssueWire[] | undefined
-  /** The LOCAL normalized projection truth (IssueService.allProjections) —
-   *  Undefined only when a row cannot be projected or the service is not yet
-   *  constructed; normalized emission itself is unconditional.
-   *
-   *  LOCAL only. POD-309 retired the hub mirror on this branch, so the union
-   *  main guarded against here has no second half left to union with. */
-  allProjections?(): { id: string; value: IssueProjection }[] | undefined
-  /** Full-list publish tail ([spec:SP-3fe2] #255): ledger reconcile of the
-   *  spec's rows — the durable change append, including removes, which IS the
-   *  fan-out since POD-1203. Wired in relay.ts.
-   *
-   *  `projectionRows` is the POD-796 normalized truth for the same pass.
-   *  Undefined leaves the kind alone — only for an unprojectable row or while the
-   *  service is not constructed. Passed alongside the spec rather than inside it
-   *  — see {@link PublishSpec}. */
-  publishIssueList(
-    spec: PublishSpec,
-    projectionRows?: { id: string; value: IssueProjection }[],
-  ): void
 }
 
-/** Issue wire publishing: builds the two issue {@link PublishSpec} shapes
- *  (IssueService's mutations run them through the ledger + funnel — issue
- *  #190, #255) and serves the write-less rebroadcast paths (hub-mirror and staleness changes), so every issuesChanged/issueUpdated fan-out records to
- *  the durable change log before clients see anything (oplog-read-path §2.5). */
+/** Issue wire publishing: builds the two issue {@link PublishSpec} shapes.
+ *
+ *  IT NO LONGER PUBLISHES ANYTHING ITSELF (POD-1576). The write-less
+ *  full-list republish tail — `publishIssues` and its `publishIssueList` dep,
+ *  wired in relay.ts to a ledger reconcile — served two clients: hub-mirror
+ *  sets, retired with federation at POD-309, and staleness flips, which never
+ *  had a caller. Its last trigger, the session.listChanged listener, went with
+ *  the never-bumped dirty gate at POD-1574, so the tail is deleted rather than
+ *  left reading as a live path.
+ *
+ *  What remains is the spec factory IssueService consumes as `publishSpecs`:
+ *  the service's own mutations run those specs through the ledger + funnel
+ *  themselves (issue #190, #255), so every issuesChanged/issueUpdated fan-out
+ *  still records to the durable change log before clients see anything
+ *  (oplog-read-path §2.5). */
 export class IssuePublisher implements IssuePublishSpecs {
   constructor(private readonly deps: IssuePublisherDeps) {}
   private currentLocalIssues?: IssueWire[]
@@ -76,28 +68,6 @@ export class IssuePublisher implements IssuePublishSpecs {
     } catch (err) {
       console.warn('[podium] issues payload build failed — broadcasting empty issues list', err)
       return []
-    }
-  }
-
-  /**
-   * {@link safeIssuesList}'s normalized counterpart [POD-796] — `undefined` on
-   * ANY failure, which the reconcile tail reads as "don't touch the normalized
-   * baseline this pass".
-   *
-   * Note the degradation differs from safeIssuesList's `?? []` ON PURPOSE, and
-   * the difference is not cosmetic: an empty ARRAY handed to `reconcile` is a
-   * claim that NO issues exist, which the full-truth diff turns into a remove
-   * for every issue in the baseline. `undefined` is the only spelling of "I
-   * don't know" that reconcile cannot mistake for "nothing". (The legacy path's
-   * `?? []` has exactly that shape and is left alone here — changing it is a
-   * behavior change to the registered transitional residue and remains out of scope.)
-   */
-  safeProjectionRows(): { id: string; value: IssueProjection }[] | undefined {
-    try {
-      return this.deps.allProjections?.()
-    } catch (err) {
-      console.warn('[podium] issue projection build failed — skipping the normalized feed', err)
-      return undefined
     }
   }
 
@@ -132,22 +102,5 @@ export class IssuePublisher implements IssuePublishSpecs {
             )
     }
     return { rows: [{ id: issue.id, value: issue }] }
-  }
-
-  /** Reconcile-and-fan-out of a full issue list — for pipelines with no issue
-   *  write of their own (session churn re-derives member data, staleness flips).
-   *
-   *  Under POD-796 the session-churn caller is gone on the new path: a session
-   *  change cannot dirty an `IssueProjection`, so SessionLifecycle skips this
-   *  entirely once every connected client reads the normalized shape (see
-   *  `runSessionsBroadcast`). What still arrives here is the genuinely
-   *  issue-shaped write-less churn — staleness flips and hub-mirror sets. */
-  publishIssues(
-    localIssues: IssueWire[],
-    projectionRows:
-      | { id: string; value: IssueProjection }[]
-      | undefined = this.safeProjectionRows(),
-  ): void {
-    this.deps.publishIssueList(this.issuesChanged(localIssues), projectionRows)
   }
 }

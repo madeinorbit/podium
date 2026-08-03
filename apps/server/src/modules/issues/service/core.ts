@@ -123,11 +123,14 @@ export class IssueStore {
   }
 
   // Dirty-scoped issue wire rebuild [POD-723]. One built IssueWire per issue,
-  // keyed by a fingerprint of that issue's OWN toWire inputs. On a session-driven
-  // publish (the O(issues×sessions) publishIssues path POD-701 measured), no issue
-  // row/label/dep/comment changed, so `issueInputsGen` is stable and only issues
-  // whose member sessions moved rebuild — everything else reuses its cached
-  // payload, skipping toWire's per-issue store queries + O(issues) children scan.
+  // keyed by a fingerprint of that issue's OWN toWire inputs. It was sized for a
+  // session-driven publish — the O(issues×sessions) republish path POD-701
+  // measured, deleted at POD-1574/POD-1576 — where no issue row/label/dep/comment
+  // changed, so `issueInputsGen` stayed stable and only issues whose member
+  // sessions moved rebuilt. That caller is gone; the memo still pays for itself
+  // on {@link broadcastList}, where one write's ripple rebuilds a few rows and
+  // every untouched issue reuses its cached payload, skipping toWire's per-issue
+  // store queries + O(issues) children scan.
   // Interim until POD-308 deletes the snapshot fan-out.
   private readonly wireCache = new Map<string, { key: string; wire: IssueWire }>()
   // Bumped on EVERY issue-side input change (row upsert, labels, deps, comments,
@@ -652,10 +655,10 @@ export class IssueStore {
    *  on why that is all-or-nothing). Flag off returns EMPTY, not undefined, and
    *  the difference is the rollback — see {@link EMPTY_NORMALIZED_TRUTH}.
    *
-   *  The normalized parallel to {@link allWire}, and public for the same reason:
-   *  the relay's write-less publish tail needs it. LOCAL only — like allWire(),
-   *  hub-mirrored issues are the publisher's union to make, and it cannot make
-   *  it here (see IssuePublisherDeps.allProjections). */
+   *  The normalized parallel to {@link allWire}. Public because it predates
+   *  POD-1576, when the relay's write-less publish tail was its outside caller;
+   *  {@link reconcileAndPublish} is the only caller left, so this is the
+   *  service's own truth now and no publisher unions anything into it. */
   allProjections(): { id: string; value: IssueProjection }[] | undefined {
     const labelsByIssue = this.deps.store.issues.listIssueLabelsByIssue()
     return issueProjectionRows(this.rows.values(), (id) => labelsByIssue.get(id) ?? [])
@@ -872,9 +875,10 @@ export class IssueStore {
    *  its dependents' wire rows (and childDoneCount on its parent) without any
    *  write touching those rows — a per-write declaration alone would miss
    *  them. Every site that mutates-then-broadcastLists keeps exactly this
-   *  shape ([spec:SP-3fe2] #255). The reconciled rows are the ones the
-   *  snapshot carries (local ∪ hub-mirrored, unioned by the publisher), so the
-   *  change log records exactly what legacy clients see. */
+   *  shape ([spec:SP-3fe2] #255). The reconciled rows ARE the rows the snapshot
+   *  carries — local only, with no publisher-side union left since POD-309
+   *  retired the hub mirror — so the change log records exactly what legacy
+   *  clients see. */
   broadcastList(): void {
     // Cross-issue derived ripples (a close flipping dependents' blocked/ready,
     // a re-parent moving childCount) change OTHER rows' wire output without a

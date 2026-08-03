@@ -62,8 +62,10 @@ export interface IssueLedger {
 }
 
 /** Publish-spec factory for the two issue wire shapes. The relay implements it
- *  with IssuePublisher, which unions hub-mirrored issues into the list snapshot
- *  (node-hub-issues §2.1) — the service never learns about the mirror. */
+ *  with IssuePublisher, which builds the specs and nothing else: it used to
+ *  union hub-mirrored issues into the list snapshot (node-hub-issues §2.1) and
+ *  to own a publish tail of its own, and POD-309 and POD-1576 removed those in
+ *  turn. The service reconciles and fans out these specs itself. */
 export interface IssuePublishSpecs {
   /** Single-issue delta (issue #22) — the issueUpdated legacy snapshot. */
   issueUpdated(issue: IssueWire): PublishSpec

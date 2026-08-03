@@ -668,11 +668,6 @@ describe('SessionRegistry', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const publisher = new IssuePublisher({
       allWire: () => (reg.issues as unknown as { allWire: () => IssueWire[] }).allWire(),
-      // The normalized half is not what this test degrades — `undefined` is the
-      // publisher's own "no projections offered" spelling, so the throw under
-      // test stays the only degradation in play.
-      allProjections: () => undefined,
-      publishIssueList: () => {},
     })
     expect(publisher.safeIssuesList()).toEqual([])
     expect(warn).toHaveBeenCalled()
