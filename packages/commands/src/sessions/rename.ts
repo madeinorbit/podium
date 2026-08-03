@@ -32,9 +32,9 @@
  * `personal`, and `per-user-state` is a different member for a reason.
  */
 
-import { z } from 'zod'
-import { sessionStateCommands } from './session-state-commands'
+import type { z } from 'zod'
 import type { CommandContract, OptimisticReducer } from '../contract'
+import { sessionStateCommands } from './session-state-commands'
 
 /**
  * The input, COMPOSED FROM THE SHIPPED CONTRACT'S SCHEMA INSTANCE rather than
@@ -133,16 +133,24 @@ interface RenameBase {
   readonly nameSource?: 'user' | 'agent'
 }
 
-/** The actor half of the authored attribution, by KIND only — never an id. */
-type AuthoredKind = 'user' | 'agent-session' | undefined
+/**
+ * The actor half of the authored attribution, by KIND only — never an id.
+ *
+ * The kinds are `ActorRef`'s (`packages/model/src/fields/attribution.ts`), which
+ * is why the agent arm is `'agent'` and not `'agent-session'`: POD-1148 made the
+ * Outbox's pair a narrowing of that one field schema instead of a second union,
+ * and this reducer reads what the Outbox actually stored. It cannot IMPORT the
+ * type — the reducer is handed `authored` as `unknown` on purpose, and the
+ * direction lint keeps the Replica out of the Outbox module — so the coupling is
+ * a string literal, and `rename.test.ts` builds its fixtures with the model's
+ * `actorAgent` / `actorUser` constructors rather than with another hand-written
+ * literal, so a rename of the arm reddens the test instead of passing quietly.
+ */
+type AuthoredKind = 'user' | 'agent' | undefined
 
 const authoredKind = (authored: unknown): AuthoredKind => {
   const actor = (authored as { actor?: { kind?: unknown } } | undefined)?.actor
-  return actor?.kind === 'agent-session'
-    ? 'agent-session'
-    : actor?.kind === 'user'
-      ? 'user'
-      : undefined
+  return actor?.kind === 'agent' ? 'agent' : actor?.kind === 'user' ? 'user' : undefined
 }
 
 /**
@@ -189,7 +197,7 @@ export const sessionRenameReducer: OptimisticReducer<SessionRenameInput> = ({
   authored,
 }) => {
   const base = (local ?? undefined) as RenameBase | undefined
-  const byAgent = authoredKind(authored) === 'agent-session'
+  const byAgent = authoredKind(authored) === 'agent'
 
   if (byAgent) {
     const norm = input.name.trim().replace(/\s+/g, ' ')

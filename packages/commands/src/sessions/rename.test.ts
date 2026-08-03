@@ -9,8 +9,14 @@
  * copied N times rather than hit once.
  */
 
+// The model's constructors, not the Outbox's projection of them: `@podium/sync`
+// depends on this package, so importing back the other way would be a cycle.
+// POD-1148 is what makes that a non-issue — there is one `ActorRef`, and the
+// Outbox's `OutboxActor` is an `Extract` over it, so an actor built here is the
+// same value the Outbox would have stored.
+import { actorAgent, actorUser, agentIdentityFromSessionId, asUserId } from '@podium/model'
+import { asSessionId } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
-import { sessionStateCommands } from './session-state-commands'
 import { classificationErrors } from '../contract'
 import {
   RENAME_REJECTIONS,
@@ -18,9 +24,12 @@ import {
   sessionRenameInput,
   sessionRenameReducer,
 } from './rename'
+import { sessionStateCommands } from './session-state-commands'
 
-const agent = { onBehalfOf: 'user-mike', actor: { kind: 'agent-session', sessionId: 'sess-9' } }
-const human = { onBehalfOf: 'user-mike', actor: { kind: 'user', userId: 'user-mike' } }
+const agentActorOfSession = (id: string) => actorAgent(agentIdentityFromSessionId(asSessionId(id)))
+
+const agent = { onBehalfOf: 'user-mike', actor: agentActorOfSession('sess-9') }
+const human = { onBehalfOf: 'user-mike', actor: actorUser(asUserId('user-mike')) }
 
 const reduce = (local: unknown, name: string, authored?: { onBehalfOf: string; actor: unknown }) =>
   sessionRenameReducer({
@@ -284,11 +293,11 @@ describe('the reducer is pure and consults no principal', () => {
     // it has no way to tell one principal from another.
     const a1 = reduce({ name: 'n', nameSource: 'user' }, 'x', {
       onBehalfOf: 'user-mike',
-      actor: { kind: 'agent-session', sessionId: 'sess-1' },
+      actor: agentActorOfSession('sess-1'),
     })
     const a2 = reduce({ name: 'n', nameSource: 'user' }, 'x', {
       onBehalfOf: 'user-ada',
-      actor: { kind: 'agent-session', sessionId: 'sess-2' },
+      actor: agentActorOfSession('sess-2'),
     })
     expect(a1).toEqual(a2)
   })

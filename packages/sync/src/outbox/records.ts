@@ -20,31 +20,94 @@
  *   all.
  */
 
+import {
+  type ActorRef,
+  type AgentActor,
+  type Attribution,
+  agentIdentityFromSessionId,
+  sessionIdFromAgentIdentity,
+} from '@podium/model'
 import type { MutationId, SessionId } from '@podium/protocol'
 import type { OutboxRejectionReason, RecoveryPlan } from './reasons'
 import type { OutboxState } from './states'
 
 /**
- * The human a write is on behalf of. A plain string until POD-1075 lands the
- * model's `UserId` brand (ADR 4 Amendment 1 D9.1 owns that shape) — this module
- * must not mint a second brand for the same identity, and the pair below is what
- * carries the semantics in the meantime.
+ * A user, as the parts of this package that are NOT the attribution pair still
+ * spell one: grant tables, send queues, audiences, and the principal an Outbox
+ * is bound to.
+ *
+ * IT NO LONGER DESCRIBES EITHER HALF OF THE PAIR, and that is the POD-1148
+ * change. Both halves are now the model's `UserId` — branded — because the pair
+ * below is composed from `@podium/model`'s `Attribution` rather than restated
+ * here. The old comment on this alias ("a plain string until POD-1075 lands the
+ * model's `UserId` brand … this module must not mint a second brand for the
+ * same identity") was right about the rule and is now satisfied by IMPORTING the
+ * brand instead of waiting for it.
+ *
+ * What is still deliberately unbranded is everything else: `FeedPrincipal`, the
+ * grant sets, the bounded send queues. POD-1075 owns sweeping that surface in
+ * one pass (readiness §3.2: a schema is not swept twice), and branding it as a
+ * side effect of an attribution change would be exactly that second sweep. A
+ * `UserId` reads as a `UserRef` on the way out, so the two coexist without a
+ * cast until then. See `docs/agents/pod-1148-one-attribution-vocabulary.md`.
  */
 export type UserRef = string
 
 /**
- * The actor half of the attribution pair (amendment D17.1). Typed by KIND rather
- * than by a single id string: D17's rejected alternatives call out that one
- * `actor` field holding either a user or an agent forces every consumer into
- * prefix-typing an id, and the human-vs-agent question
- * (`humanQuestionAskedBy`, `nameSource` per [spec:SP-eb60]) must stay
- * answerable.
+ * The actor half of the attribution pair (amendment D17.1) — THE MODEL'S
+ * `ActorRef`, narrowed, not a second union.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY THIS IS A NARROWING AND NOT A DELETION (POD-1148)
+ * ---------------------------------------------------------------------------
+ *
+ * This used to be a locally-declared two-arm union whose agent arm was
+ * `{ kind: 'agent-session'; sessionId: SessionId }`, against the model's
+ * `{ kind: 'agent'; id: AgentIdentityId }`. That looked like two facts — a
+ * session is not an agent identity — so the two pairs could not simply be
+ * merged on the strength of a shared name.
+ *
+ * **POD-1164 measured it and they are one fact.** For a Podium agent session
+ * `AgentIdentityId` and `SessionId` are the SAME minted string: the sole
+ * production mint is `asAgentIdentityId(sessionId)` at every spawn / receipt
+ * path in `apps/daemon/src/binding-store.ts`. The brands distinguish ROLE
+ * (axis-2 actor vs axis-1 work), not a second id space. So neither spelling was
+ * wrong and neither is a "loser" — the model's is the FIELD SCHEMA
+ * (`packages/model/src/fields/attribution.ts` says so in its own header), this
+ * is a projection of it, and `sessionIdFromAgentIdentity` below is the seam
+ * that recovers the session spelling for the consumers that need it.
+ *
+ * The narrowing itself is a POLICY, in the same sense `inbox.ts`'s narrower pair
+ * is one: the Outbox is a CLIENT-side queue of a principal's own intent, so only
+ * the two arms that have a human behind them can author an entry. A `machine`
+ * observation and a `system` job never queue client work, which is also what
+ * makes `onBehalfOf` below non-nullable here while it is nullable on the
+ * durable field. Adding an arm is an ADR 9 D1 question, not a convenience — and
+ * because this is `Extract` over the model's union rather than a copy of two of
+ * its members, a fifth kind there cannot silently appear here.
  */
-export type OutboxActor =
-  | { readonly kind: 'user'; readonly userId: UserRef }
-  /** `Capability.actorSessionId` is the existing seam for the actor half
-   *  (amendment D17.4). */
-  | { readonly kind: 'agent-session'; readonly sessionId: SessionId }
+export type OutboxActor = Extract<ActorRef, { kind: 'user' | 'agent' }>
+
+/**
+ * The session spelling of an agent actor — `Capability.actorSessionId` is the
+ * existing seam for the actor half (amendment D17.4), and this is how a consumer
+ * that walks sessions gets there from the stored pair.
+ *
+ * A named reclassification, never a cast and never a lookup: POD-1164's whole
+ * point is that call sites must not be able to invent a second id space by
+ * accident. Returns `null` for a human actor, who has no session.
+ */
+export const actorSessionIdOf = (actor: OutboxActor): SessionId | null =>
+  actor.kind === 'agent' ? sessionIdFromAgentIdentity(actor.id) : null
+
+/**
+ * The inverse, for the producers that hold a `SessionId` — the transport knows
+ * the connection, and this is the one supported way to spell it as an actor.
+ */
+export const agentActorOfSession = (sessionId: SessionId): AgentActor => ({
+  kind: 'agent',
+  id: agentIdentityFromSessionId(sessionId),
+})
 
 /**
  * Attribution is a PAIR and is always shaped like one (amendment D17.2): for a
@@ -53,16 +116,23 @@ export type OutboxActor =
  *
  * Both halves come from the authenticated transport (D7/D14). Nothing in this
  * package derives either from `input`.
+ *
+ * It EXTENDS the model's `Attribution` rather than restating it, which is what
+ * makes "one definition" load-bearing instead of a comment: an `OutboxAttribution`
+ * is assignable to an `Attribution` by construction, and a change to the field
+ * schema that this narrowing cannot satisfy is a compile error here rather than
+ * a drift nobody notices. `onBehalfOf` is non-nullable for the reason given on
+ * `OutboxActor`: both arms an outbox entry may carry have a human behind them.
  */
-export interface OutboxAttribution {
+export interface OutboxAttribution extends Attribution {
   readonly actor: OutboxActor
-  readonly onBehalfOf: UserRef
+  readonly onBehalfOf: NonNullable<Attribution['onBehalfOf']>
 }
 
 /** True when the actor is an agent acting for a human — the case where the two
  *  halves are genuinely different identities (readiness §3.1.3 A3). */
 export const isDelegated = (attribution: OutboxAttribution): boolean =>
-  attribution.actor.kind === 'agent-session'
+  attribution.actor.kind === 'agent'
 
 /**
  * ADR 3 D4's delivery classes. The Outbox may hold exactly one of them.

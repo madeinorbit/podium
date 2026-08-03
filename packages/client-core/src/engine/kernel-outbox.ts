@@ -4,6 +4,8 @@
  * Web opens this adapter before mounting the engine, then every transition is
  * performed by the kernel state machine against the replica's IndexedDB store.
  */
+
+import { actorUser, asUserId } from '@podium/model'
 import type { MutationId } from '@podium/protocol'
 import {
   Outbox as KernelOutbox,
@@ -29,8 +31,8 @@ import {
   type EngineOutbox,
   type EngineOutboxCallbacks,
   OUTBOX_COMMANDS,
-  outboxRoutingFor,
   type OutboxKinds,
+  outboxRoutingFor,
 } from './wiring'
 
 export interface OpenKernelEngineOutboxOptions {
@@ -175,8 +177,11 @@ class KernelEngineOutbox implements EngineOutbox {
         partitionKey: route.partitionKey,
         ...(route.collapseKey === undefined ? {} : { collapseKey: route.collapseKey }),
         attribution: {
-          actor: { kind: 'user', userId: this.kernel.boundTo() },
-          onBehalfOf: this.kernel.boundTo(),
+          // The bound principal, entering the branded space (POD-1148): the
+          // Outbox's pair is the model's `Attribution`, narrowed. `boundTo()` is
+          // still a raw string because POD-1075 owns flipping that surface.
+          actor: actorUser(asUserId(this.kernel.boundTo())),
+          onBehalfOf: asUserId(this.kernel.boundTo()),
         },
       })
       if (platformIsOnline()) void this.drain()

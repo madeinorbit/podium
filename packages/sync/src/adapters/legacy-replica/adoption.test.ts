@@ -15,8 +15,9 @@
  * cannot tell a working default from a gate nobody supplied evidence to.
  */
 
-import { describe, expect, it } from 'vitest'
+import { actorUser, asUserId } from '@podium/model'
 import type { MutationId } from '@podium/protocol'
+import { describe, expect, it } from 'vitest'
 import type { OutboxAttribution, OutboxCommand, OutboxRecord } from '../../outbox/records'
 import {
   decideLegacyAdoption,
@@ -31,8 +32,8 @@ const COMMAND: OutboxCommand = {
   delivery: 'offline-eligible',
 }
 const ATTRIBUTION: OutboxAttribution = {
-  actor: { kind: 'user', userId: 'u_alice' },
-  onBehalfOf: 'u_alice',
+  actor: actorUser(asUserId('u_alice')),
+  onBehalfOf: asUserId('u_alice'),
 }
 const NOW = 1_800_000_000_000
 

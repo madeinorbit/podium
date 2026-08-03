@@ -1,3 +1,4 @@
+import { actorUser, asUserId } from '@podium/model'
 import { asSessionId, type MutationId } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import {
@@ -18,6 +19,7 @@ import type {
 import { SyncCommitConflict } from './ports'
 import type { AuthorityRefusal } from './reasons'
 import {
+  agentActorOfSession,
   CONFIRMATION_FIELD,
   type OutboxAttribution,
   type OutboxCommand,
@@ -46,15 +48,18 @@ const CLOSE: OutboxCommand = { name: 'issues.close', version: 1, delivery: 'offl
 
 /** A human on `trpc`: actor and on-behalf-of are the same person, and the pair
  *  is still recorded as a pair (amendment D17.2). */
-const ADA: OutboxAttribution = { actor: { kind: 'user', userId: 'u-ada' }, onBehalfOf: 'u-ada' }
+const ADA: OutboxAttribution = {
+  actor: actorUser(asUserId('u-ada')),
+  onBehalfOf: asUserId('u-ada'),
+}
 const GRACE: OutboxAttribution = {
-  actor: { kind: 'user', userId: 'u-grace' },
-  onBehalfOf: 'u-grace',
+  actor: actorUser(asUserId('u-grace')),
+  onBehalfOf: asUserId('u-grace'),
 }
 /** An agent acting for Ada: the two halves are different identities (§3.1.3 A3). */
 const ADAS_AGENT: OutboxAttribution = {
-  actor: { kind: 'agent-session', sessionId: asSessionId('sess-7') },
-  onBehalfOf: 'u-ada',
+  actor: agentActorOfSession(asSessionId('sess-7')),
+  onBehalfOf: asUserId('u-ada'),
 }
 
 const applied: OutboxSubmitOutcome = { kind: 'applied' }
@@ -697,14 +702,14 @@ describe('every entry records its principal as a pair, taken from the transport'
     const record = await outbox.enqueue(close('POD-1', { attribution: ADAS_AGENT }))
 
     expect(record.attribution).toEqual({
-      actor: { kind: 'agent-session', sessionId: 'sess-7' },
-      onBehalfOf: 'u-ada',
+      actor: agentActorOfSession(asSessionId('sess-7')),
+      onBehalfOf: asUserId('u-ada'),
     })
     // The pair is still a pair for a human, so consumers never branch on shape.
     const human = await outbox.enqueue(close('POD-2'))
     expect(human.attribution).toEqual({
-      actor: { kind: 'user', userId: 'u-ada' },
-      onBehalfOf: 'u-ada',
+      actor: actorUser(asUserId('u-ada')),
+      onBehalfOf: asUserId('u-ada'),
     })
   })
 
@@ -712,7 +717,12 @@ describe('every entry records its principal as a pair, taken from the transport'
     const { outbox, store } = await harness()
     const record = await outbox.enqueue({
       command: CLOSE,
-      input: { issueId: 'POD-1', onBehalfOf: 'u-grace', actor: 'u-grace', capability: 'admin' },
+      input: {
+        issueId: 'POD-1',
+        onBehalfOf: asUserId('u-grace'),
+        actor: 'u-grace',
+        capability: 'admin',
+      },
       attribution: ADAS_AGENT,
       partitionKey: 'issue:POD-1',
     })
@@ -721,7 +731,7 @@ describe('every entry records its principal as a pair, taken from the transport'
     expect(store.durable()[0]?.attribution).toEqual(ADAS_AGENT)
     // The forged fields survive as inert payload (D7.1: informational only) —
     // they simply have no path into the attribution.
-    expect(record.attribution.actor).toEqual({ kind: 'agent-session', sessionId: 'sess-7' })
+    expect(record.attribution.actor).toEqual(agentActorOfSession(asSessionId('sess-7')))
   })
 
   it('refuses to enqueue on behalf of anyone but the principal it is bound to', async () => {

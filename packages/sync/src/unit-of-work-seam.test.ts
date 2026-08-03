@@ -53,6 +53,7 @@
  * deleted only alongside the seam itself.
  */
 
+import { actorUser, asUserId } from '@podium/model'
 import type { MutationId } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { Outbox } from './outbox/outbox'
@@ -66,14 +67,13 @@ import { InMemoryReplicaStore } from './replica/memory-store'
 import type { OptimisticOverlayPort, RetirementIntent } from './replica/overlay'
 import type { ReplicaCacheStore, ReplicaParticipantStore, SyncSpan } from './replica/ports'
 import { Replica, SyncUnitOfWorkRequiredError } from './replica/replica'
-import { EPOCH, FEED_ID, deltaFrame, upsertChange } from './replica/test-support'
-import { FakeAuthority } from './replica/test-support'
+import { deltaFrame, EPOCH, FakeAuthority, FEED_ID, upsertChange } from './replica/test-support'
 
 const MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000
-const ADA = 'ada'
+const ADA = asUserId('ada')
 
 const command = { name: 'issues.close', version: 1, delivery: 'offline-eligible' } as const
-const attribution = { actor: { kind: 'user', userId: ADA }, onBehalfOf: ADA } as const
+const attribution = { actor: actorUser(ADA), onBehalfOf: ADA } as const
 
 /**
  * The REAL Outbox wired to the REAL Replica through the seam — no double on either

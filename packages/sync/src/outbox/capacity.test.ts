@@ -1,3 +1,4 @@
+import { actorUser, asUserId } from '@podium/model'
 import type { MutationId } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { type EnqueueRequest, Outbox } from './outbox'
@@ -27,7 +28,10 @@ import {
  */
 
 const MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000
-const ADA: OutboxAttribution = { actor: { kind: 'user', userId: 'u-ada' }, onBehalfOf: 'u-ada' }
+const ADA: OutboxAttribution = {
+  actor: actorUser(asUserId('u-ada')),
+  onBehalfOf: asUserId('u-ada'),
+}
 
 const cmd = (name: string): OutboxCommand => ({ name, version: 1, delivery: 'offline-eligible' })
 const MARK_READ = cmd('issues.markRead')
@@ -107,7 +111,7 @@ describe('supersede collapse bounds the redundant-write class', () => {
 
     // 900 visits across a 60-issue working set — the section C workload.
     let seed = 12345
-    const rand = (): number => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff)
+    const rand = (): number => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff
     for (let i = 0; i < 900; i++) {
       await outbox.enqueue(receipt(`POD-${Math.floor(rand() * 60)}`))
     }
@@ -124,9 +128,10 @@ describe('supersede collapse bounds the redundant-write class', () => {
     await outbox.enqueue(receipt('POD-1'))
 
     expect(outbox.pending().length).toBe(2)
-    expect(
-      outbox.pending().map((r) => (r.input as { issueId: string }).issueId),
-    ).toEqual(['POD-2', 'POD-1'])
+    expect(outbox.pending().map((r) => (r.input as { issueId: string }).issueId)).toEqual([
+      'POD-2',
+      'POD-1',
+    ])
   })
 
   it('publishes the collapse so an overlay above the seam can repaint', async () => {

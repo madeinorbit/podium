@@ -8,7 +8,20 @@
  * `replica.test.ts`, where a real store and a real outbox exist.
  */
 
+import { actorAgent, actorUser, asAgentIdentityId, asUserId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+
+/**
+ * An agent actor, built from `@podium/model` and NOT from the Outbox's
+ * `agentActorOfSession`. The direction lint forbids the Replica role reaching
+ * into `../outbox/` — the same rule that keeps `PendingAttribution.actor` typed
+ * `unknown` — and it applies to this test too. POD-1148 is what makes the
+ * detour harmless: there is one `ActorRef`, so an actor built here is the value
+ * the Outbox would have stored. The id is a session id because POD-1164 says
+ * the two brands name one string.
+ */
+const agentActor = (sessionId: string) => actorAgent(asAgentIdentityId(sessionId))
+
 import type { OptimisticEffect, PendingMutation } from './overlay'
 import { computeOverlay, type OverlayInputs } from './overlay-projection'
 import type { EntityRecord, ExitKind } from './types'
@@ -227,7 +240,7 @@ describe('provisional attribution for an optimistic create (readiness §3.1.3 A4
   const agentCreate = cmd(
     'm1',
     { kind: 'session.create', name: 'fresh' },
-    { onBehalfOf: 'user-mike', actor: { kind: 'agent-session', sessionId: 'sess-9' } },
+    { onBehalfOf: 'user-mike', actor: agentActor('sess-9') },
   )
 
   it('owns the row by the ON-BEHALF-OF HUMAN with the agent as actor', () => {
@@ -237,7 +250,7 @@ describe('provisional attribution for an optimistic create (readiness §3.1.3 A4
     // If these were collapsed the row would flicker owners when the authoritative
     // row landed, which is the whole reason the pair is carried.
     expect(result.provisionalOwner).toBe('user-mike')
-    expect(result.provisionalActor).toEqual({ kind: 'agent-session', sessionId: 'sess-9' })
+    expect(result.provisionalActor).toEqual(agentActor('sess-9'))
   })
 
   it('renders no visibility class and no grant — the type cannot express one', () => {
@@ -274,7 +287,7 @@ describe('provisional attribution for an optimistic create (readiness §3.1.3 A4
         cmd(
           'm1',
           { kind: 'session.rename', name: 'typed' },
-          { onBehalfOf: 'user-mike', actor: { kind: 'user', userId: 'user-mike' } },
+          { onBehalfOf: 'user-mike', actor: actorUser(asUserId('user-mike')) },
         ),
       ],
     })
@@ -296,12 +309,12 @@ describe('provisional attribution for an optimistic create (readiness §3.1.3 A4
       cmd(
         id,
         { kind: 'session.share', with: 'someone' },
-        { onBehalfOf: human, actor: { kind: 'user', userId: human } },
+        { onBehalfOf: human, actor: actorUser(asUserId(human)) },
       )
     const followUp = cmd(
       'm3',
       { kind: 'session.rename', name: 'renamed' },
-      { onBehalfOf: 'later-human', actor: { kind: 'user', userId: 'later-human' } },
+      { onBehalfOf: 'later-human', actor: actorUser(asUserId('later-human')) },
     )
     const result = overlay({
       pending: [other('m0', 'before-human'), agentCreate, other('m2', 'after-human'), followUp],
@@ -324,7 +337,7 @@ describe('provisional attribution for an optimistic create (readiness §3.1.3 A4
         cmd(
           'm2',
           { kind: 'session.create', name: 'again' },
-          { onBehalfOf: 'user-ada', actor: { kind: 'agent-session', sessionId: 'sess-2' } },
+          { onBehalfOf: 'user-ada', actor: agentActor('sess-2') },
         ),
       ],
     })
@@ -357,7 +370,7 @@ describe('a reducer may PREDICT a refusal, and the projection must not swallow i
     if (c.kind !== 'session.rename') return { kind: 'no-reducer' }
     const row = base as { name?: string; nameSource?: string } | undefined
     const actor = authored?.actor as { kind?: string } | undefined
-    const byAgent = actor?.kind === 'agent-session'
+    const byAgent = actor?.kind === 'agent'
     if (byAgent && row?.nameSource === 'user') {
       return { kind: 'rejected', reason: `named by the user ("${row.name}")` }
     }
@@ -377,15 +390,23 @@ describe('a reducer may PREDICT a refusal, and the projection must not swallow i
   }
 
   const byAgent = (id: string, name: string) =>
-    cmd(id, { kind: 'session.rename', name }, {
-      onBehalfOf: 'user-mike',
-      actor: { kind: 'agent-session', sessionId: 'sess-9' },
-    })
+    cmd(
+      id,
+      { kind: 'session.rename', name },
+      {
+        onBehalfOf: 'user-mike',
+        actor: agentActor('sess-9'),
+      },
+    )
   const byHuman = (id: string, name: string) =>
-    cmd(id, { kind: 'session.rename', name }, {
-      onBehalfOf: 'user-mike',
-      actor: { kind: 'user', userId: 'user-mike' },
-    })
+    cmd(
+      id,
+      { kind: 'session.rename', name },
+      {
+        onBehalfOf: 'user-mike',
+        actor: actorUser(asUserId('user-mike')),
+      },
+    )
 
   const withArbitration = (partial: Partial<OverlayInputs>) =>
     computeOverlay({
@@ -458,11 +479,7 @@ describe('a reducer may PREDICT a refusal, and the projection must not swallow i
     // at the first `rejected` would render a state the authority never reaches.
     const result = withArbitration({
       base: row({ name: 'chosen by me', nameSource: 'user' }),
-      pending: [
-        byAgent('m1', 'too early'),
-        byHuman('m2', ''),
-        byAgent('m3', 'now allowed'),
-      ],
+      pending: [byAgent('m1', 'too early'), byHuman('m2', ''), byAgent('m3', 'now allowed')],
     })
 
     expect(result.rejected.map((r) => r.mutationId)).toEqual(['m1'])

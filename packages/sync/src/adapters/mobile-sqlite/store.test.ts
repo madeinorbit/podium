@@ -14,6 +14,7 @@
  *  - two principals over one file are disjoint by KEY, not by a filter.
  */
 
+import { actorUser, asUserId } from '@podium/model'
 import type { MutationId } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { OutboxRecord } from '../../outbox/records'
@@ -23,8 +24,8 @@ import { SyncCommitConflict } from '../../span'
 import { type DurabilityDegradation, SqliteSyncStore } from './store'
 import { freshDatabaseFile, readDurable, sqliteEngine } from './test-support'
 
-const ADA = 'ada'
-const GRACE = 'grace'
+const ADA = asUserId('ada')
+const GRACE = asUserId('grace')
 const M: MutationId = 'm-1' as MutationId
 const CURSOR_1: Cursor = { feedId: 'feed', epoch: 'e1', seq: 1 }
 
@@ -33,7 +34,7 @@ const record = (state: OutboxRecord['state']): OutboxRecord => ({
   command: { name: 'issues.close', version: 1, delivery: 'offline-eligible' },
   input: { entityId: 'ADA-1' },
   partitionKey: 'issue:ADA-1',
-  attribution: { actor: { kind: 'user', userId: ADA }, onBehalfOf: ADA },
+  attribution: { actor: actorUser(ADA), onBehalfOf: ADA },
   state,
   queuedAt: 1_700_000_000_000,
   attempts: 0,

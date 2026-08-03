@@ -10,6 +10,7 @@
  * empty store.
  */
 
+import { actorUser, asUserId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { OutboxAttribution, OutboxCommand } from '../../outbox/records'
 import {
@@ -29,8 +30,8 @@ const COMMAND: OutboxCommand = {
   delivery: 'offline-eligible',
 }
 const ATTRIBUTION: OutboxAttribution = {
-  actor: { kind: 'user', userId: 'u_1' },
-  onBehalfOf: 'u_1',
+  actor: actorUser(asUserId('u_1')),
+  onBehalfOf: asUserId('u_1'),
 }
 const OPTIONS = { resolveCommand: () => COMMAND, attribution: ATTRIBUTION }
 

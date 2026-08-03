@@ -15,8 +15,10 @@
  * matters, and a receipt horizon on the other side of the wire.
  */
 
+import { actorUser, asUserId } from '@podium/model'
 import { asSessionId, type MutationId } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
+import { InMemoryReplicaStore } from '../replica/memory-store'
 import type { OptimisticOverlayPort } from '../replica/overlay'
 import { Replica } from '../replica/replica'
 import {
@@ -26,7 +28,6 @@ import {
   upsertChange,
   watermark,
 } from '../replica/test-support'
-import { InMemoryReplicaStore } from '../replica/memory-store'
 import {
   backoffDelayMs,
   failureClassOf,
@@ -41,6 +42,7 @@ import { type EnqueueRequest, Outbox } from './outbox'
 import type { OutboxEvent, OutboxSubmitOutcome } from './ports'
 import type { AuthorityRefusal } from './reasons'
 import type { OutboxAttribution, OutboxCommand, OutboxRecord } from './records'
+import { agentActorOfSession } from './records'
 import {
   InMemoryOutboxStore,
   ManualClock,
@@ -53,15 +55,18 @@ const DAY = 24 * 60 * 60 * 1000
 const CLOSE: OutboxCommand = { name: 'issues.close', version: 1, delivery: 'offline-eligible' }
 const LOCK: OutboxCommand = { name: 'locks.acquire', version: 1, delivery: 'offline-eligible' }
 
-const ADA: OutboxAttribution = { actor: { kind: 'user', userId: 'u-ada' }, onBehalfOf: 'u-ada' }
+const ADA: OutboxAttribution = {
+  actor: actorUser(asUserId('u-ada')),
+  onBehalfOf: asUserId('u-ada'),
+}
 const GRACE: OutboxAttribution = {
-  actor: { kind: 'user', userId: 'u-grace' },
-  onBehalfOf: 'u-grace',
+  actor: actorUser(asUserId('u-grace')),
+  onBehalfOf: asUserId('u-grace'),
 }
 /** An agent acting for Ada — the delegated case (readiness §3.1.3 A3). */
 const ADAS_AGENT: OutboxAttribution = {
-  actor: { kind: 'agent-session', sessionId: asSessionId('sess-7') },
-  onBehalfOf: 'u-ada',
+  actor: agentActorOfSession(asSessionId('sess-7')),
+  onBehalfOf: asUserId('u-ada'),
 }
 
 const applied: OutboxSubmitOutcome = { kind: 'applied' }
@@ -428,7 +433,7 @@ describe('D10 — transient backoff: exponential, capped, and with no attempt ce
 })
 
 // ───────────────────────────────────────────────────────────────────────────────
-describe("D10 — the age limit, and a per-command override that may only shorten", () => {
+describe('D10 — the age limit, and a per-command override that may only shorten', () => {
   it('carries D10s numbers and D11s inequality shape', () => {
     expect(OUTBOX_MAX_AGE_MS).toBe(14 * DAY)
     expect(SKEW_MARGIN_MS).toBeGreaterThanOrEqual(2 * DAY)
@@ -540,11 +545,7 @@ describe('D11.5 — the client that comes back after forty days', () => {
     )
 
     // Fact one — age: all three expired, none was sent.
-    expect(outbox.all().map((r) => r.state)).toEqual([
-      'dead-letter',
-      'dead-letter',
-      'dead-letter',
-    ])
+    expect(outbox.all().map((r) => r.state)).toEqual(['dead-letter', 'dead-letter', 'dead-letter'])
     expect(authority.envelopes).toEqual([])
 
     // Fact two — the user re-authors, and only NOW does the revocation surface.

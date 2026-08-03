@@ -11,16 +11,20 @@
  * suppression covering the wrong error read identically.
  */
 
-import { describe, expect, it } from 'vitest'
+import { actorUser, asUserId } from '@podium/model'
 import type { MutationId } from '@podium/protocol'
-import { InMemoryOutboxStore } from './outbox/test-doubles'
+import { describe, expect, it } from 'vitest'
 import type { OutboxAttribution, OutboxCommand, OutboxRecord } from './outbox/records'
+import { InMemoryOutboxStore } from './outbox/test-doubles'
 import { InMemoryReplicaStore } from './replica/memory-store'
 import type { Cursor } from './replica/types'
 import type { OwnedSyncSpan, SyncSpan, SyncSpanParticipant } from './span'
 
 const CLOSE: OutboxCommand = { name: 'issues.close', version: 1, delivery: 'offline-eligible' }
-const ADA: OutboxAttribution = { actor: { kind: 'user', userId: 'u-ada' }, onBehalfOf: 'u-ada' }
+const ADA: OutboxAttribution = {
+  actor: actorUser(asUserId('u-ada')),
+  onBehalfOf: asUserId('u-ada'),
+}
 
 const queued = (id: string): OutboxRecord => ({
   mutationId: id as MutationId,

@@ -34,10 +34,11 @@
  *     come back byte-identical.
  */
 
-import { SETTINGS_SECRET_PATHS } from '@podium/model'
+import { actorUser, asUserId, SETTINGS_SECRET_PATHS } from '@podium/model'
 import type { MutationId } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { OutboxRecord } from '../outbox/records'
+import type { IdbDatabaseLike, IdbFactoryLike } from './indexeddb/idb'
 import {
   ALL_STORES,
   ENTITY_STORE,
@@ -47,7 +48,6 @@ import {
   REPLICA_SCHEMA_VERSION,
   upgradeSchema,
 } from './indexeddb/schema'
-import type { IdbDatabaseLike, IdbFactoryLike } from './indexeddb/idb'
 import { IndexedDbSyncStore } from './indexeddb/store'
 import { freshFactory, readDurable as readDurableIdb } from './indexeddb/test-support'
 import {
@@ -65,7 +65,7 @@ import {
 } from './mobile-sqlite/test-support'
 import type { SecretScrubReport } from './secret-scrub'
 
-const ADA = 'ada'
+const ADA = asUserId('ada')
 
 /** DISTINCT per row and per region. A fixture that reused one value could not
  *  tell "removed all five" from "removed one and the others were never there",
@@ -111,7 +111,7 @@ const outboxRecord = (
   // The author's intent, verbatim — which is exactly why a secret can be here.
   input: { settings: payloadWith(secret) },
   partitionKey: 'settings',
-  attribution: { actor: { kind: 'user', userId: ADA }, onBehalfOf: ADA },
+  attribution: { actor: actorUser(ADA), onBehalfOf: ADA },
   state,
   queuedAt: 1_700_000_000_000,
   attempts: 0,

@@ -18,6 +18,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { actorUser, asUserId } from '@podium/model'
 import { asMutationId } from '@podium/protocol'
 import type { SqlDatabaseLike } from '@podium/sync/adapters/mobile-sqlite'
 import { SqliteSyncStore } from '@podium/sync/adapters/mobile-sqlite'
@@ -26,9 +27,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 import type { OutboxEntry } from '../../outbox'
 import { createKernelOutboxStorage, type KernelOutboxStorages } from './sqlite-outbox'
 
-const PRINCIPAL = 'operator'
+const PRINCIPAL = asUserId('operator')
 const ATTRIBUTION: OutboxAttribution = {
-  actor: { kind: 'user', userId: PRINCIPAL },
+  actor: actorUser(PRINCIPAL),
   onBehalfOf: PRINCIPAL,
 }
 const COMMANDS: Record<string, OutboxCommand> = {

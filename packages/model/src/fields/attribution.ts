@@ -14,9 +14,9 @@
  * THIS IS THE DURABLE FIELD SCHEMA. THE TWO EXISTING PAIRS ARE ITS PRODUCERS.
  * ---------------------------------------------------------------------------
  *
- * Three things in this repo carry an (actor, on-behalf-of) shape and they are
+ * Four things in this repo carry an (actor, on-behalf-of) shape and they are
  * not duplicates of each other. Stated here because the next reader's first
- * instinct will be that two of them should be deleted:
+ * instinct will be that some of them should be deleted:
  *
  *   1. `capabilityAttribution()` (`../authz/issue-authz.ts`) reads the pair off a
  *      **`Capability`** — the authorization decision input.
@@ -24,6 +24,8 @@
  *      off a **`Principal`** — the authenticated transport identity.
  *   3. **This file** is the pair as it is STORED ON AN ENTITY — durable truth on
  *      R1 that survives bootstrap, export and re-replication (ADR 4 Am1 D9.4).
+ *   4. `OutboxAttribution` (`@podium/sync`'s `outbox/records.ts`) is the pair on a
+ *      QUEUED CLIENT WRITE, before it has reached an entity at all.
  *
  * (1) and (2) are readers; (3) is the field. They are related the way a getter is
  * related to a column, and the correct end state is that both readers PRODUCE
@@ -31,6 +33,19 @@
  * explicitly not making — POD-1075 owns the principal module and has been mailed
  * the interface. What is guaranteed today is that there is exactly ONE *field
  * schema* for the pair, and it is this one.
+ *
+ * (4) WAS A SECOND FIELD DEFINITION AND IS NOT ANY MORE — POD-1148. It declared
+ * its own two-arm union whose agent arm carried a `SessionId` against this file's
+ * `AgentIdentityId`, which read as two facts rather than two spellings. POD-1164
+ * measured the mint and settled it: for a Podium agent session those brands name
+ * the SAME string (`asAgentIdentityId(sessionId)` at every binding-store spawn
+ * and receipt path), so the brands separate ROLE, not id space. `OutboxActor` is
+ * now `Extract<ActorRef, { kind: 'user' | 'agent' }>` — a narrowing of the union
+ * below, with its `onBehalfOf` non-nullable because both surviving arms have a
+ * human behind them — and `OutboxAttribution extends Attribution`, so it cannot
+ * drift from this file without a compile error. Adding a fifth kind here
+ * propagates there; it cannot be shadowed. Decision and evidence:
+ * `docs/agents/pod-1148-one-attribution-vocabulary.md`.
  *
  * ADR 4 Am1 D9.4 also fixes where it may NOT live: attribution is not provenance.
  * `viaHub` / `upstreamStale` / `pendingSync` describe how a value ARRIVED and

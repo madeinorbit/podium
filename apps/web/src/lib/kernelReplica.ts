@@ -47,6 +47,7 @@ import {
   resolveReplicaMode,
 } from '@podium/client-core/replica'
 import type { FeedSinkPort, SocketHub } from '@podium/client-core/socket-transport'
+import { actorUser, asUserId } from '@podium/model'
 import { type IdbFactoryLike, IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import {
   decideLegacyAdoption,
@@ -308,8 +309,8 @@ export async function openKernelAssembly(
     // asserted by anything the queue itself carries. A legacy entry carries NO
     // identity at all, which is why this pair is stamped by the importer from the
     // authenticated principal rather than read out of the blob.
-    actor: { kind: 'user', userId: options.principal },
-    onBehalfOf: options.principal,
+    actor: actorUser(asUserId(options.principal)),
+    onBehalfOf: asUserId(options.principal),
   }
   const migrations: LegacyMigrationOutcome[] = []
   for (const legacy of [
