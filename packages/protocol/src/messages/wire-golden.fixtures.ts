@@ -163,6 +163,14 @@ const SESSION_META_FULL = {
   refDraft: 3,
   displayRef: 'POD-300-A',
   headless: false,
+  // A DELEGATED session (POD-1516): an AGENT acted, for a HUMAN. Deliberately
+  // not a user-acting-for-themselves pair, where both halves hold the same value
+  // and a collapse of the two would still encode identically — this fixture is
+  // the one that goes red if the pair is ever flattened to a single value.
+  createdBy: {
+    actor: { kind: 'agent', id: 'agent-7' },
+    onBehalfOf: 'user:sole',
+  },
   viaHub: true,
   upstreamStale: true,
 }

@@ -46,7 +46,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
-import type { ResumeRef } from '@podium/model'
+import type { Attribution, ResumeRef } from '@podium/model'
 import {
   type AccountId,
   AgentKind,
@@ -70,6 +70,7 @@ import { assertModelSelectionValid } from '../../model-validation'
 import type { SessionStore } from '../../store'
 import type { MachineUseResolver } from '../machines/service'
 import type { SessionLaunchConfig } from './launch-config'
+import { createdByForBinding } from './command-plane'
 import { normalizeAgentName } from './naming'
 import type { SessionRepository } from './repository'
 import { Session } from './session'
@@ -228,6 +229,22 @@ export class SessionStart {
           ? this.ports.sessionOwner(input.binding.principal.parentBindingId)?.owner
           : undefined
     const ownerUserId = parentOwner ?? input.ownerUserId ?? bindingOwner ?? FIRST_ADMIN_USER_ID
+    // THE BINDING PRINCIPAL, RESOLVED ONCE (POD-1516). It was previously built
+    // inline at the `binding:` key below; hoisting it is what lets the durable
+    // attribution pair and the daemon binding come from THE SAME identity rather
+    // than from two constructions of it.
+    const binding = input.binding ?? {
+      // One ownership answer feeds both the durable row and the daemon binding;
+      // this seam never invents a different principal.
+      principal: { kind: 'user' as const, userId: ownerUserId },
+    }
+    // WHO CREATED THIS SESSION, AND FOR WHOM — stamped here, UNCONDITIONALLY, so
+    // that an absent pair downstream can only ever mean "recorded before the
+    // field existed" (ADR 9 D5 A3; see `SessionMeta.createdBy`). The human half
+    // is the DELEGATING human off the principal, NOT `ownerUserId`: those differ
+    // exactly when a session is spawned under a shared issue, and conflating
+    // them would attribute the spawn to the issue's owner.
+    const createdBy = createdByForBinding(binding.principal, bindingOwner ?? ownerUserId)
     const spawned = this.spawn({
       agentKind,
       ownerUserId,
@@ -249,11 +266,8 @@ export class SessionStart {
       ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),
       ...(input.executionProfileId ? { executionProfileId: input.executionProfileId } : {}),
       ...(issueId ? { issueId } : {}),
-      binding: input.binding ?? {
-        // One ownership answer feeds both the durable row and the daemon binding;
-        // this seam never invents a different principal.
-        principal: { kind: 'user', userId: ownerUserId },
-      },
+      binding,
+      createdBy,
       sessionId,
     })
     preparedInstructions.commit()
@@ -308,6 +322,9 @@ export class SessionStart {
     sessionId?: SessionId
     binding?: Omit<SessionBindingSpawnInstruction, 'transitionId' | 'machineAccess' | 'issueId'>
     bindingMachineAccess?: SessionBindingSpawnInstruction['machineAccess']
+    /** The attribution pair, already derived from the binding principal by the
+     *  caller. Optional only for the in-process spawn paths that predate it. */
+    createdBy?: Attribution
   }): SessionSpawnResult {
     // A server-minted uuid was unique by construction; a client-supplied id is
     // not. Reject a collision rather than let the registry overwrite the live
@@ -358,6 +375,7 @@ export class SessionStart {
       },
       ...(input.resume ? { resume: input.resume } : {}),
       ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),
+      ...(input.createdBy ? { createdBy: input.createdBy } : {}),
       ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
       ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),
       ...(input.executionProfileId ? { executionProfileId: input.executionProfileId } : {}),

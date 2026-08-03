@@ -36,7 +36,8 @@ import {
   sessionCommandPlane,
   type sessionCommandPlaneInputs,
 } from '@podium/commands'
-import type { AgentKind, IssueId, SessionId } from '@podium/model'
+import type { AgentKind, Attribution, IssueId, SessionId, UserId } from '@podium/model'
+import { actorAgent, actorSystem, actorUser, asAgentIdentityId } from '@podium/model'
 import type { SessionBindingSpawnPrincipal } from '@podium/protocol'
 
 import type { MutationLedgerPort } from '@podium/sync'
@@ -248,7 +249,61 @@ export function bindingPrincipalFor(principal: CommandPrincipal): SessionBinding
     case 'agent':
       return { kind: 'agent', parentBindingId: principal.agentSessionId }
     case 'system':
-      return { kind: 'system' }
+      return { kind: 'system', job: principal.job }
+  }
+}
+
+/**
+ * THE SESSION'S ATTRIBUTION PAIR (POD-1516, ADR 9 D5 A3) — who created it, and
+ * for whom, from the ALREADY-TRANSPORT-DERIVED binding principal.
+ *
+ * ONE DERIVATION, and it is deliberately this one. The binding principal is what
+ * {@link bindingPrincipalFor} just built out of the authenticated
+ * `CommandPrincipal`, and the protocol declares it "server-authored identity
+ * input … no command payload has this shape". Deriving the pair from it — rather
+ * than from `ownerUserId`, from `spawnedBy`, or from anything on the spawn input
+ * — is what makes ADR 3 D7 structural instead of a convention: there is no
+ * parameter here a caller could use to assert an actor.
+ *
+ * WHY NOT `ownerUserId`, WHICH IS RIGHT THERE. Under ADR 9 D5 A4 the owner IS
+ * the pair's on-behalf-of half in the ordinary case, which is exactly what makes
+ * it a trap: a session spawned under a SHARED issue inherits THAT ISSUE's owner,
+ * who is not the human that delegated the spawn. Reading the human off the
+ * principal keeps "who authorised this" and "whose tree it lands in" separable,
+ * which is the whole content of A3.
+ *
+ * `delegatingHuman` IS ONLY THE AGENT ARM'S ANSWER. An agent acts for exactly
+ * one human (D1, D5 A1) and the caller resolves which by walking the parent
+ * binding; it is never consulted for the other two arms, so no arm can quietly
+ * inherit another's human.
+ *
+ * TOTAL BY CONSTRUCTION — every arm returns a pair, none returns `undefined`.
+ * That is what lets `SessionMeta.createdBy`'s absence mean "no attribution was
+ * ever recorded" and never "not evaluated": there is no path through this
+ * function that declines to stamp.
+ */
+export function createdByForBinding(
+  principal: SessionBindingSpawnPrincipal,
+  delegatingHuman: UserId,
+): Attribution {
+  switch (principal.kind) {
+    case 'user':
+      // A person acting directly: both halves name the same human.
+      return { actor: actorUser(principal.userId), onBehalfOf: principal.userId }
+    case 'agent':
+      // POD-1164: the agent-session mint and the agent-identity mint are the
+      // same, which is why this coercion is a re-brand and not a lookup. It is
+      // the derivation `handoff/attribution.ts` already ships; a second spelling
+      // here would be two answers to "which agent" from one capability.
+      return {
+        actor: actorAgent(asAgentIdentityId(principal.parentBindingId)),
+        onBehalfOf: delegatingHuman,
+      }
+    case 'system':
+      // ADR 9 D8 S5: a system job never acts AS a person, so the human half is
+      // an explicit `null` — representable "there is none", never a failure to
+      // record one, and never defaulted to the row's owner.
+      return { actor: actorSystem(principal.job ?? 'unnamed-job'), onBehalfOf: null }
   }
 }
 

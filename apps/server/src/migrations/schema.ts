@@ -79,6 +79,17 @@ export const sessions = sqliteTable(
     inputCount: integer('input_count').notNull().default(0),
     outputCount: integer('output_count').notNull().default(0),
     activityCount: integer('activity_count').notNull().default(0),
+    // WHO CREATED THIS SESSION, AND FOR WHOM — ADR 9 D5 A3's pair (POD-1516).
+    // All three NULLABLE with no backfill: a row written before these columns
+    // existed genuinely has no recorded pair, and `owner_user_id` cannot supply
+    // one (it is the on-behalf-of human even when an AGENT acted, so borrowing
+    // it would assert "a human did it" for exactly the rows the pair exists to
+    // tell apart). NULL reads as "from before the pair existed".
+    createdByActorKind: text('created_by_actor_kind'),
+    /** The actor's id — or, for a `system` actor, its JOB name (ADR 9 D8 S5
+     *  gives that arm no id). Decoded through the model's `ActorRef`. */
+    createdByActorId: text('created_by_actor_id'),
+    createdByOnBehalfOf: text('created_by_on_behalf_of'),
   },
   (table) => [
     index('idx_sessions_deleted_by_issue').on(table.deletedByIssueId),
@@ -86,6 +97,17 @@ export const sessions = sqliteTable(
     check(
       'sessions_stop_reason_check',
       sql`stop_reason IS NULL OR stop_reason IN ('self', 'parent', 'forced', 'exited')`,
+    ),
+    // Closed over ADR 9 D1's four principal kinds; a fifth is a D1 amendment,
+    // not a convenience. Same spelling as `settings_audit_events`.
+    check(
+      'sessions_created_by_actor_kind',
+      sql`created_by_actor_kind IS NULL OR created_by_actor_kind IN ('user', 'agent', 'machine', 'system')`,
+    ),
+    // A system principal has no human by construction and is never assigned one.
+    check(
+      'sessions_created_by_system_has_no_human',
+      sql`created_by_actor_kind <> 'system' OR created_by_on_behalf_of IS NULL`,
     ),
   ],
 )

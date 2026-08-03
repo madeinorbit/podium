@@ -278,7 +278,18 @@ describe('per-user-state re-key: every existing marker ARRIVES, owned by the fir
     // ORDER is not a property this suite can pin, while column MEMBERSHIP, which is
     // what "lost an unrelated column" means, still is.
     const sorted = (xs: string[]) => [...xs].sort()
-    expect(sorted(columns(db, 'sessions'))).toEqual(sorted([...before.session, 'owner_user_id']))
+    expect(sorted(columns(db, 'sessions'))).toEqual(
+      sorted([
+        ...before.session,
+        'owner_user_id',
+        // POD-1516's attribution pair — added by a later migration in the same
+        // chain, so it is an ADDITION to record here, not a column this
+        // migration lost.
+        'created_by_actor_kind',
+        'created_by_actor_id',
+        'created_by_on_behalf_of',
+      ]),
+    )
     expect(sorted(columns(db, 'issues'))).toEqual(
       sorted([
         ...before.issue,

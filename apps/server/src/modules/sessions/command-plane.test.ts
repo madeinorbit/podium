@@ -473,8 +473,11 @@ describe('attribution and ownership come from the principal', () => {
       kind: 'agent',
       parentBindingId: asSessionId('parent-agent'),
     })
+    // POD-1516: the job NAME survives the crossing. It used to be dropped here,
+    // which made every system-spawned session attributable to "some job".
     expect(bindingPrincipalFor({ kind: 'system', job: 'steward' })).toEqual({
       kind: 'system',
+      job: 'steward',
     })
   })
 

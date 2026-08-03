@@ -167,6 +167,16 @@ export interface SessionRow {
    *  null/absent = legacy row from before the field existed. Optional (like machineId)
    *  so pre-#60 row literals stay valid. */
   spawnedBy?: string | null
+  /** THE ATTRIBUTION PAIR — who created this session and for whom (ADR 9 D5 A3,
+   *  POD-1516). The model's one `Attribution` schema, stored across
+   *  `created_by_actor_kind` / `created_by_actor_id` / `created_by_on_behalf_of`.
+   *
+   *  OPTIONAL, and absent means NO PAIR WAS EVER RECORDED — a row written before
+   *  the columns existed. It never means "not evaluated": the spawn path stamps
+   *  it unconditionally, so no live write can produce an absence. Distinct from
+   *  `spawnedBy` above, which carries at most the ACTOR half and often only its
+   *  role, and from `ownerUserId`, which is who the session BELONGS to. */
+  createdBy?: Attribution
   archived: boolean
   /** Kanban column on the home board; null = unsorted. */
   workState: string | null

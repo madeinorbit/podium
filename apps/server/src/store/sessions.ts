@@ -6,6 +6,9 @@
 
 import {
   type AccountId,
+  type ActorKind,
+  actorColumns,
+  actorFromColumns,
   AgentKind,
   asSessionId,
   type IssueId,
@@ -67,7 +70,8 @@ export class SessionsRepository {
                 archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at,
                 spawned_by, headless, issue_id, stopped_at, stop_reason, deleted_at, deletion_source,
                 deleted_by_issue_id, workflow_run_id, workflow_step_id, execution_profile_id,
-                ref_issue_id, ref_letter, ref_draft
+                ref_issue_id, ref_letter, ref_draft,
+                created_by_actor_kind, created_by_actor_id, created_by_on_behalf_of
          FROM sessions WHERE ${where} ORDER BY created_at ASC, rowid ASC`,
       )
       .all(...params) as Record<string, unknown>[]
@@ -127,6 +131,31 @@ export class SessionsRepository {
       lastInputAt: (r.last_input_at as string | null) ?? null,
       lastResumedAt: (r.last_resumed_at as string | null) ?? null,
       spawnedBy: (r.spawned_by as string | null) ?? null,
+      // THE ATTRIBUTION PAIR (POD-1516). BOTH id columns must be present for a
+      // pair to exist — a kind with no id is a half-written row, and decoding it
+      // would mint an actor with an empty id that compares equal to every other
+      // empty one. `null` here is the honest "no pair recorded"; it is NEVER
+      // filled in from `owner_user_id` or `spawned_by`, which answer different
+      // questions (see the migration).
+      // ABSENT, not `null`, when no pair was recorded. One spelling for one fact:
+      // a row carrying `createdBy: null` beside rows that simply omit the key
+      // would be two encodings of "nobody recorded this", and the whole point of
+      // this field is that its absence has a single unambiguous meaning.
+      ...(r.created_by_actor_kind != null && r.created_by_actor_id != null
+        ? {
+            createdBy: {
+              // SERIALIZATION EDGE: the actor's id re-enters the branded id space.
+              actor: actorFromColumns(
+                r.created_by_actor_kind as ActorKind,
+                r.created_by_actor_id as string,
+              ),
+              // The INNER null stays: it is the representable "no human behind
+              // this" for the machine and system arms, which is a different fact
+              // from the pair being absent altogether.
+              onBehalfOf: (r.created_by_on_behalf_of as UserId | null) ?? null,
+            },
+          }
+        : {}),
       headless: r.headless === 1,
       issueId: (r.issue_id as IssueId | null) ?? null,
       refIssueId: (r.ref_issue_id as IssueId | null) ?? null,
@@ -171,8 +200,9 @@ export class SessionsRepository {
             archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at,
             spawned_by, headless, issue_id, stopped_at, stop_reason, deleted_at, deletion_source,
             deleted_by_issue_id, workflow_run_id, workflow_step_id, execution_profile_id,
-            ref_issue_id, ref_letter, ref_draft)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ref_issue_id, ref_letter, ref_draft,
+            created_by_actor_kind, created_by_actor_id, created_by_on_behalf_of)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            cwd = excluded.cwd,
            model = excluded.model,
@@ -217,7 +247,16 @@ export class SessionsRepository {
            -- first non-null allocation.
            ref_issue_id = COALESCE(sessions.ref_issue_id, excluded.ref_issue_id),
            ref_letter = COALESCE(sessions.ref_letter, excluded.ref_letter),
-           ref_draft = COALESCE(sessions.ref_draft, excluded.ref_draft)`,
+           ref_draft = COALESCE(sessions.ref_draft, excluded.ref_draft),
+           -- ATTRIBUTION IS IMMUTABLE AFTER CREATE (POD-365's
+           -- SESSION_IMMUTABLE_AFTER_CREATE lists \`createdBy\`). COALESCE keeps the
+           -- pair stamped at birth: an upsert from a later code path — a status
+           -- change, a rename, a reattach — must not be able to re-attribute the
+           -- session to whoever happened to trigger it. It can only FILL a pair
+           -- that was never recorded, never overwrite one that was.
+           created_by_actor_kind = COALESCE(sessions.created_by_actor_kind, excluded.created_by_actor_kind),
+           created_by_actor_id = COALESCE(sessions.created_by_actor_id, excluded.created_by_actor_id),
+           created_by_on_behalf_of = COALESCE(sessions.created_by_on_behalf_of, excluded.created_by_on_behalf_of)`,
       )
       .run(
         row.id,
@@ -266,6 +305,9 @@ export class SessionsRepository {
         row.refIssueId ?? null,
         row.refLetter ?? null,
         row.refDraft ?? null,
+        row.createdBy ? actorColumns(row.createdBy.actor).kind : null,
+        row.createdBy ? actorColumns(row.createdBy.actor).id : null,
+        row.createdBy?.onBehalfOf ?? null,
       )
   }
 

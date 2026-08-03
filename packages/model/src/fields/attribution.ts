@@ -109,6 +109,52 @@ export const actorSystem = (job: string): SystemActor => ({ kind: 'system', job 
  */
 export const actorDisplayId = (a: ActorRef): string => (a.kind === 'system' ? a.job : a.id)
 
+/** The kind half as a storage column takes it — ADR 9 D1's four, closed.
+ *  DERIVED from the union's arms, never retyped: adding a fifth kind above
+ *  propagates here and makes `actorFromColumns` below fail to compile until it
+ *  handles the new arm, which is the point of not writing the list twice. */
+export type ActorKind = ActorRef['kind']
+
+/**
+ * THE `(kind, id)` COLUMN CODEC — the round-trip between an `ActorRef` and the
+ * two-column encoding every attribution table in this repo already uses
+ * (`settings_audit_events`, `telegram_chat_bindings`, `messages`,
+ * `queued_messages`, `sessions`).
+ *
+ * It lives here, beside the union, because a codec written at the storage edge
+ * is a codec each storage edge writes AGAIN — and `actorDisplayId` above records
+ * what that costs: the moment a flattened tag becomes something call sites
+ * rebuild by hand, they start comparing on it. These two are the inverse of each
+ * other and nothing else needs to know the encoding.
+ *
+ * `fromColumns` is a DECODER, not a validator: it trusts the CHECK constraint on
+ * the column for the closed kind set, and re-brands the id on the way in — the
+ * one legitimate re-entry into the branded id space, since sqlite carries no
+ * brand. `system` stores its JOB in the id column because ADR 9 D8 S5 gives that
+ * arm no id, and giving it one would be the service account D8 rejects.
+ *
+ * (`inbox.ts` has a deliberately NARROWER pair that refuses `machine`. That is a
+ * policy — a machine may not originate session input — not a second encoding,
+ * and it is left alone rather than widened to match.)
+ */
+export const actorColumns = (actor: ActorRef): { kind: ActorKind; id: string } => ({
+  kind: actor.kind,
+  id: actorDisplayId(actor),
+})
+
+export const actorFromColumns = (kind: ActorKind, id: string): ActorRef => {
+  switch (kind) {
+    case 'user':
+      return actorUser(id as UserActor['id'])
+    case 'agent':
+      return actorAgent(id as AgentActor['id'])
+    case 'machine':
+      return actorMachine(id as MachineActor['id'])
+    case 'system':
+      return actorSystem(id)
+  }
+}
+
 /**
  * The attribution pair as an entity carries it.
  *
