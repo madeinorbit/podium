@@ -9,6 +9,9 @@ import {
   mergeByCursor,
   pairToolResults,
   reconcileReset,
+  toolCallPhrase,
+  toolRunElapsedMs,
+  toolRunFailures,
 } from './chat'
 
 const tool = (toolName: string, id: string): TranscriptItem => ({
@@ -40,6 +43,65 @@ describe('buildChatRows with SendUserFile', () => {
     expect(rows.map((r) => r.kind)).toEqual(['tools', 'block', 'tools'])
     const mid = rows[1]
     expect(mid?.kind === 'block' && mid.block.item.toolName).toBe('SendUserFile')
+  })
+})
+
+describe('toolCallPhrase — what the live work line says', () => {
+  it('names the file a call touches, by basename', () => {
+    expect(
+      toolCallPhrase({ ...tool('Edit', 'e'), toolPaths: ['/repo/apps/web/src/ChatView.tsx'] }),
+    ).toBe('Editing ChatView.tsx')
+    expect(toolCallPhrase({ ...tool('Read', 'r'), toolPaths: ['/repo/pin.ts'] })).toBe(
+      'Reading pin.ts',
+    )
+  })
+  it('falls back to the agent-supplied title, then the raw input', () => {
+    expect(toolCallPhrase({ ...tool('Bash', 'b'), toolTitle: 'bun run test' })).toBe(
+      'Running bun run test',
+    )
+    expect(toolCallPhrase({ ...tool('Grep', 'g'), toolInput: 'pinnedMachineId' })).toBe(
+      'Searching pinnedMachineId',
+    )
+  })
+  it('never renders an empty phrase when a call has no target at all', () => {
+    expect(toolCallPhrase(tool('Bash', 'b'))).toBe('Running Bash')
+    expect(toolCallPhrase({ ...tool('Read', 'r'), toolName: undefined })).toBe('Running a tool')
+  })
+})
+
+describe('toolRunElapsedMs — the work line timer', () => {
+  const at = (id: string, ts: string): { item: TranscriptItem } => ({
+    item: { ...tool('Read', id), ts },
+  })
+
+  it('counts from the first call to now while the run is live', () => {
+    const blocks = [at('a', '2026-08-03T10:00:00.000Z'), at('b', '2026-08-03T10:00:05.000Z')]
+    expect(toolRunElapsedMs(blocks, Date.parse('2026-08-03T10:00:12.000Z'))).toBe(12_000)
+  })
+  it('spans first to last call once it has settled', () => {
+    const blocks = [at('a', '2026-08-03T10:00:00.000Z'), at('b', '2026-08-03T10:00:05.000Z')]
+    expect(toolRunElapsedMs(blocks)).toBe(5_000)
+  })
+  it('reports nothing rather than a wrong time when timestamps are missing', () => {
+    expect(toolRunElapsedMs([{ item: tool('Read', 'a') }])).toBeUndefined()
+    expect(
+      toolRunElapsedMs([at('a', '2026-08-03T10:00:00.000Z'), { item: tool('Read', 'b') }]),
+    ).toBeUndefined()
+    expect(toolRunElapsedMs([at('a', 'not-a-date')], 1)).toBeUndefined()
+  })
+})
+
+describe('toolRunFailures — failure survives the fold', () => {
+  it('counts the calls whose result reads as an error', () => {
+    const blocks = [
+      { item: tool('Read', 'a'), result: 'ok' },
+      { item: tool('Bash', 'b'), result: 'Error: exit code 1' },
+      { item: tool('Bash', 'c'), result: 'fatal: not a git repository' },
+    ]
+    expect(toolRunFailures(blocks)).toBe(2)
+  })
+  it('is zero for a clean run', () => {
+    expect(toolRunFailures([{ item: tool('Read', 'a'), result: '12 lines' }])).toBe(0)
   })
 })
 

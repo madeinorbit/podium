@@ -1,9 +1,12 @@
 import type { ModelChoiceWire } from '@podium/protocol'
 
 /** Bumped whenever the probe's output SHAPE changes (e.g. per-model `efforts`
- *  added, or the snapshot becoming machine-keyed), so a persisted snapshot from
- *  an older build is ignored and re-probed instead of served stale within its TTL. */
-export const MODEL_CATALOG_VERSION = 3
+ *  added, or the snapshot becoming machine-keyed) OR a probe fix means an older
+ *  snapshot's CONTENT is wrong (v4: the CLI probes ran without the user install
+ *  roots on PATH, so every CLI agent persisted an empty list — POD-362), so a
+ *  persisted snapshot from an older build is ignored and re-probed instead of
+ *  served stale within its TTL. */
+export const MODEL_CATALOG_VERSION = 4
 
 /**
  * Live per-agent model lists for ONE machine.

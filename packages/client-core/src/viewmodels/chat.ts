@@ -237,6 +237,81 @@ export function toolBatchTitle(blocks: ChatBlock[]): string {
     .join(', ')
 }
 
+// Tool → the present-participle phrase shown on a LIVE work line, which names
+// what the agent is doing right now rather than what it has done ("Editing
+// ChatView.tsx"). Past-tense counting is the settled row's job (toolBatchTitle).
+function toolGerund(toolName: string | undefined): string {
+  switch (toolName) {
+    case 'Read':
+    case 'NotebookRead':
+      return 'Reading'
+    case 'Write':
+      return 'Writing'
+    case 'Edit':
+    case 'MultiEdit':
+    case 'NotebookEdit':
+      return 'Editing'
+    case 'Bash':
+      return 'Running'
+    case 'Task':
+      return 'Delegating to'
+    case 'Grep':
+    case 'Glob':
+      return 'Searching'
+    case 'WebFetch':
+    case 'WebSearch':
+      return 'Fetching'
+    default:
+      return 'Running'
+  }
+}
+
+/**
+ * What the work line says while a run is still going: the call in flight, named
+ * the way the operator would name it. Prefers the file the call touches (its
+ * basename — the full path is in the expanded row), then the agent's own
+ * one-line description, then the raw input preview. With no target at all it
+ * falls back to the tool's own name so the line is never empty.
+ */
+export function toolCallPhrase(item: TranscriptItem): string {
+  const gerund = toolGerund(item.toolName)
+  const path = item.toolPaths?.[0]
+  const target = path
+    ? (path.split('/').pop() ?? path)
+    : (item.toolTitle ?? item.toolInput ?? '').trim()
+  if (!target) return `${gerund} ${item.toolName ?? 'a tool'}`
+  return `${gerund} ${target}`
+}
+
+/**
+ * Wall-clock span of a tool run, in ms, from the first call's timestamp to
+ * `nowMs` while it is still live — or to the last call's timestamp once it has
+ * settled, which is a LOWER BOUND (it cannot see how long the final call itself
+ * took). Returns undefined when the run has no usable timestamps, so a
+ * transcript without them shows no timer rather than a wrong one.
+ */
+export function toolRunElapsedMs(blocks: ChatBlock[], nowMs?: number): number | undefined {
+  const first = blocks[0]?.item.ts
+  if (first === undefined) return undefined
+  const start = Date.parse(first)
+  if (Number.isNaN(start)) return undefined
+  let end: number
+  if (nowMs !== undefined) end = nowMs
+  else {
+    const last = blocks[blocks.length - 1]?.item.ts
+    if (last === undefined) return undefined
+    end = Date.parse(last)
+    if (Number.isNaN(end)) return undefined
+  }
+  return Math.max(0, end - start)
+}
+
+/** How many calls in a run failed — surfaced on the COLLAPSED work line, because
+ *  a failure hidden behind a disclosure is a failure the operator never sees. */
+export function toolRunFailures(blocks: ChatBlock[]): number {
+  return blocks.filter((b) => toolVerdict(b.result ?? b.item.toolResult) === 'err').length
+}
+
 /** Per-call outcome shown as a glyph on the collapsed tool row (Flat Field
  *  design, POD-159). The transcript carries no structured error flag, so this
  *  is a conservative heuristic over the result text: only patterns that

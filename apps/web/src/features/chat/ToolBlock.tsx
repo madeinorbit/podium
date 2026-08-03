@@ -46,7 +46,10 @@ export function ToolBlock({
         >
           {verdict === 'err' ? '✕' : verdict === 'ok' ? '✓' : '·'}
         </span>
-        <span className="flex-none font-semibold text-[10.5px]">{label}</span>
+        {/* A floor, not a cap: short names share one column so the targets line
+            up to a single left edge; a long one (NotebookEdit) still shows in
+            full rather than truncating to nothing. */}
+        <span className="min-w-[46px] flex-none font-semibold text-[10.5px]">{label}</span>
         {(item.toolTitle ?? item.toolInput) && (
           <span className="min-w-0 truncate opacity-70">{item.toolTitle ?? item.toolInput}</span>
         )}

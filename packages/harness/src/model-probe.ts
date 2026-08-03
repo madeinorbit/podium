@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
@@ -151,18 +151,55 @@ export function parseModels(kind: ProbeableAgent, out: string): ModelChoice[] {
 /** Runs a probe argv → stdout. Injectable so tests never shell out. */
 export type ModelProbeExec = (argv: readonly string[], timeoutMs: number) => Promise<string>
 
-const defaultExec: ModelProbeExec = async (argv, timeoutMs) => {
-  const [cmd, ...args] = argv
-  const { stdout } = await execFileAsync(cmd as string, args, {
-    timeout: timeoutMs,
-    maxBuffer: 1024 * 1024,
-  })
-  return stdout
+/**
+ * The PATH a probe runs with: the same user install roots `spawnEnv` makes
+ * authoritative for every spawned agent, prepended to the inherited one.
+ *
+ * The host running this probe inherits a NON-LOGIN PATH (a systemd unit's, or a
+ * detached install's), which on a normal machine does not contain ~/.local/bin —
+ * where install.sh puts codex/grok/claude. Without this, every CLI probe ENOENTs
+ * and the catalog silently degrades to [] for that agent, so the web falls back to
+ * its tiny static list while the very same agent spawns fine (spawnEnv fixes the
+ * PATH for the spawn, but not for this probe).
+ *
+ * `homeDir` wins over the environment's HOME: since POD-1466 the probe also runs
+ * inside a DAEMON, whose authoritative home is `ctx.homeDir` — the same value it
+ * feeds spawnEnv — and which under test is a fixture home.
+ */
+export function probePath(env: NodeJS.ProcessEnv = process.env, homeDir?: string): string {
+  const home = homeDir || env.HOME || homedir()
+  return [
+    join(home, '.local', 'bin'),
+    join(home, '.bun', 'bin'),
+    join(home, '.opencode', 'bin'),
+    ...(env.PATH ?? '').split(delimiter),
+  ]
+    .filter((entry, index, entries) => entry && entries.indexOf(entry) === index)
+    .join(delimiter)
 }
+
+const makeDefaultExec =
+  (homeDir?: string): ModelProbeExec =>
+  async (argv, timeoutMs) => {
+    const [cmd, ...args] = argv
+    const { stdout } = await execFileAsync(cmd as string, args, {
+      timeout: timeoutMs,
+      // `codex debug models` embeds each model's full base instructions — ~300KB today
+      // and growing with every model added. 1MB was one release away from truncating
+      // the catalog into a parse failure (→ [] → the static fallback list).
+      maxBuffer: 16 * 1024 * 1024,
+      env: { ...process.env, PATH: probePath(process.env, homeDir) },
+    })
+    return stdout
+  }
 
 export interface ProbeOptions {
   exec?: ModelProbeExec
   timeoutMs?: number
+  /** Home whose user install roots go on the probe's PATH (and, for claude, whose
+   *  `.claude/.credentials.json` is read). The daemon passes its own `ctx.homeDir`
+   *  so a fixture home probes that home's installs. Defaults to the process home. */
+  homeDir?: string
 }
 
 /** Enumerate one agent's models. Any failure (CLI absent, not logged in, timeout)
@@ -171,7 +208,7 @@ export async function probeAgentModels(
   kind: ProbeableAgent,
   opts: ProbeOptions = {},
 ): Promise<ModelChoice[]> {
-  const exec = opts.exec ?? defaultExec
+  const exec = opts.exec ?? makeDefaultExec(opts.homeDir)
   const timeoutMs = opts.timeoutMs ?? 8000
   try {
     return parseModels(kind, await exec(MODEL_PROBES[kind], timeoutMs))
@@ -283,7 +320,11 @@ export async function probeAllModels(
 ): Promise<Record<string, ModelChoice[]>> {
   const [cli, claude] = await Promise.all([
     Promise.all(PROBEABLE_AGENTS.map(async (k) => [k, await probeAgentModels(k, opts)] as const)),
-    probeClaudeModels({ timeoutMs: opts.timeoutMs, ...opts.claude }),
+    probeClaudeModels({
+      timeoutMs: opts.timeoutMs,
+      ...(opts.homeDir ? { homeDir: opts.homeDir } : {}),
+      ...opts.claude,
+    }),
   ])
   const byAgent: Record<string, ModelChoice[]> = Object.fromEntries(cli)
   if (claude.length > 0) byAgent['claude-code'] = claude
