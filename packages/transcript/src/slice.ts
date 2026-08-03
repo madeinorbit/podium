@@ -1,3 +1,4 @@
+import { statSync } from 'node:fs'
 import { open, stat } from 'node:fs/promises'
 import type { TranscriptItem } from '@podium/model'
 import { decodeCursor, recordUuid, stampCursors } from './cursor-codec'
@@ -420,28 +421,36 @@ const sliceCache = new Map<string, SliceCacheEntry>()
 let sliceCacheBytes = 0
 let sliceCacheHits = 0
 let sliceCacheMisses = 0
+let sliceTailContinuations = 0
 
-/** Cache counters + current occupancy. Exported for tests (hit/miss assertions). */
+/** Cache counters + current occupancy. Exported for tests (hit/miss assertions).
+ *  `tailContinuations` counts misses served incrementally from the appended bytes
+ *  (POD-1623) rather than by re-reading the file — the property the perf fix rests
+ *  on, so it is asserted directly instead of inferred from a duration. */
 export function sliceCacheStats(): {
   hits: number
   misses: number
   entries: number
   bytes: number
+  tailContinuations: number
 } {
   return {
     hits: sliceCacheHits,
     misses: sliceCacheMisses,
     entries: sliceCache.size,
     bytes: sliceCacheBytes,
+    tailContinuations: sliceTailContinuations,
   }
 }
 
 /** Drop all cached slices and zero the counters. Exported for test isolation. */
 export function resetSliceCache(): void {
   sliceCache.clear()
+  tailCache.clear()
   sliceCacheBytes = 0
   sliceCacheHits = 0
   sliceCacheMisses = 0
+  sliceTailContinuations = 0
 }
 
 /** Cheap approximate byte size of a parsed slice — the large fields only, plus a
@@ -520,10 +529,165 @@ export async function readTranscriptSliceCached(
   }
 
   sliceCacheMisses++
-  const result = await readTranscriptSlice(chain, recordToItems, opts)
+  // POD-1623: a miss caused purely by an APPEND continues the prior parse from the
+  // last record instead of re-reading the file. Falls back to the full read when it
+  // cannot prove continuity.
+  const continued = await continueTailRead(chain, recordToItems, opts)
+  if (continued) sliceTailContinuations++
+  const result = continued ?? (await readTranscriptSlice(chain, recordToItems, opts))
+  rememberTail(chain, opts, result)
   const bytes = estimateSliceBytes(result.items)
   sliceCache.set(key, { result, bytes })
   sliceCacheBytes += bytes
   evictSliceCache()
   return result
+}
+
+// ---------------------------------------------------------------------------
+// Append-incremental tail reads (POD-1623).
+//
+// The cache above is keyed on file size+mtime, so an APPEND — the only mutation a
+// transcript takes under the append-only contract — always misses, and the miss
+// re-read and re-`JSON.parse`d the WHOLE file. Measured on the live lake, one
+// appended record on a 97.6MB transcript cost 837ms of straight-line CPU. That is
+// paid once per incoming message per open chat, on the server/daemon event loop,
+// so it froze every session rather than only the one being read.
+//
+// A grown file's tail is the OLD tail plus the appended records, so the new answer
+// is computable from the appended bytes alone. This keeps, per (file, limit), the
+// page it last served plus the byte offset of its last record; a later read
+// re-parses only `[lastRecordOffset, size)` and splices.
+//
+// Re-parsing FROM the last record (not from the old EOF) is deliberate: the live
+// tailer flushes a trailing record before its newline arrives, so that record's
+// content can still grow. Re-reading it means the completed version replaces the
+// partial one instead of being emitted twice.
+//
+// SCOPE: single-file chains reading the newest window (`before`, no anchor) — the
+// chat-open and live-tail read, and the only shape that grows at a known end.
+// Everything else falls through to the full read unchanged.
+//
+// SAFETY: continuity is proven, never assumed. The file must not have shrunk, and
+// the record re-parsed at `lastRecordOffset` must carry the SAME cursor as the one
+// remembered there (the cursor encodes the record's uuid, so a rewrite that
+// preserves byte length is still caught, while an in-flight record that merely grew
+// keeps its uuid and matches). Any mismatch → full re-parse.
+// ---------------------------------------------------------------------------
+
+interface TailEntry {
+  /** The page last served for this (file, limit). */
+  items: TranscriptItem[]
+  /** Byte offset of the last record contributing to `items`. */
+  lastRecordOffset: number
+  /** How many trailing `items` came from that record — the splice index. */
+  trailingCount: number
+  /** File size when `items` was parsed — a shrink disproves append-only. */
+  size: number
+  /** `hasMore` of the remembered page: true ⇒ older items remain on disk. */
+  hasMore: boolean
+}
+
+const TAIL_CACHE_MAX_ENTRIES = 64
+const tailCache = new Map<string, TailEntry>()
+
+/** The incremental path applies only to a single-file newest-window read. */
+function tailKey(chain: ChainEntry[], opts: SliceOptions): string | null {
+  if (chain.length !== 1 || opts.direction !== 'before' || opts.anchor !== undefined) return null
+  const entry = chain[0]
+  if (!entry) return null
+  return `${entry.path}|${entry.fileId}|${opts.limit}|${opts.initialWindowBytes ?? ''}`
+}
+
+function rememberTail(chain: ChainEntry[], opts: SliceOptions, result: SliceResult): void {
+  const key = tailKey(chain, opts)
+  const entry = chain[0]
+  if (key === null || !entry) return
+  const last = result.items[result.items.length - 1]
+  const lastRecordOffset = last ? offsetOf(last) : -1
+  if (lastRecordOffset < 0) {
+    tailCache.delete(key)
+    return
+  }
+  // How many trailing items came from that last record (a record can map to several
+  // items). Counted backwards from the end, so it costs a handful of cursor decodes
+  // rather than one per page item — the continuation then splices by INDEX and never
+  // decodes the page again.
+  let trailingCount = 0
+  for (let i = result.items.length - 1; i >= 0; i--) {
+    if (offsetOf(result.items[i] as TranscriptItem) !== lastRecordOffset) break
+    trailingCount++
+  }
+  let size: number
+  try {
+    size = statSync(entry.path).size
+  } catch {
+    return
+  }
+  tailCache.delete(key)
+  tailCache.set(key, {
+    items: result.items,
+    lastRecordOffset,
+    trailingCount,
+    size,
+    hasMore: result.hasMore,
+  })
+  while (tailCache.size > TAIL_CACHE_MAX_ENTRIES) {
+    const oldest = tailCache.keys().next()
+    if (oldest.done) break
+    tailCache.delete(oldest.value)
+  }
+}
+
+/** Serve a grown file's newest window from the remembered page plus the appended
+ *  bytes. Returns null when the incremental path does not apply or cannot be
+ *  proven safe — the caller then does the full read. */
+async function continueTailRead(
+  chain: ChainEntry[],
+  recordToItems: (r: unknown) => TranscriptItem[],
+  opts: SliceOptions,
+): Promise<SliceResult | null> {
+  const key = tailKey(chain, opts)
+  const entry = chain[0]
+  if (key === null || !entry) return null
+  const prior = tailCache.get(key)
+  if (!prior) return null
+
+  let size: number
+  try {
+    size = (await stat(entry.path)).size
+  } catch {
+    return null
+  }
+  // Shrink ⇒ not an append. Also nothing to do if the last record's offset is no
+  // longer inside the file.
+  if (size < prior.size || prior.lastRecordOffset >= size) return null
+
+  // Start STRICTLY before the last record so `readFileItems`' leading-partial drop
+  // consumes the previous record's terminating newline and not the record we want.
+  const start = Math.max(0, prior.lastRecordOffset - 1)
+  const fresh = await self.readFileItems(entry.path, entry.fileId, recordToItems, {
+    start,
+    end: size,
+  })
+
+  // Continuity proof, in O(1) cursor decodes: the re-read must BEGIN at the record we
+  // remembered, and that record must be the same one (the cursor encodes its uuid, so
+  // a same-length rewrite is caught, while an in-flight record that merely grew keeps
+  // its uuid and matches).
+  const keep = prior.items.length - prior.trailingCount
+  const priorAtOffset = prior.items[keep]
+  const freshAtOffset = fresh[0]
+  if (!priorAtOffset || !freshAtOffset) return null
+  if (offsetOf(freshAtOffset) !== prior.lastRecordOffset) return null
+  if (priorAtOffset.cursor !== freshAtOffset.cursor) return null
+
+  // Splice: the remembered page minus the re-read record, plus everything re-parsed.
+  const merged = [...prior.items.slice(0, keep), ...fresh]
+  // Fewer items than asked for while older ones remain on disk means the splice lost
+  // context the page needs — fall back rather than serve a short page.
+  if (merged.length < opts.limit && prior.hasMore) return null
+
+  const items = merged.slice(Math.max(0, merged.length - opts.limit))
+  const hasMore = prior.hasMore || merged.length > opts.limit
+  return finalize(items, hasMore)
 }
