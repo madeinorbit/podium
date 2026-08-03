@@ -445,6 +445,33 @@ export function resolvePort(
   )
 }
 
+/**
+ * The host the LOCAL daemon dials to reach its server (POD-1585).
+ *
+ * The pair has to agree, and until now only one of them read `PODIUM_HOST`: the
+ * server binds `resolveBindHost()` (`PODIUM_HOST` → `127.0.0.1`), while the
+ * bundled daemon dialed a hard-coded `localhost`. Set `PODIUM_HOST` to a real
+ * interface — which is exactly what you do to reach Podium from another device —
+ * and the server binds THAT ADDRESS ONLY. Loopback is then not listening, the
+ * local daemon's connect is refused on every retry, and the host machine never
+ * attaches: it reads offline forever, its folders cannot be browsed, no agent can
+ * be placed, and first-run onboarding cannot complete. The UI itself is fine over
+ * the network, so the whole failure looks like a broken server rather than a
+ * daemon that is dialing an address nothing is listening on.
+ *
+ * A WILDCARD BIND STAYS ON LOOPBACK. `0.0.0.0`/`::` mean "every interface",
+ * which includes 127.0.0.1, so the daemon keeps its short, DNS-free local path;
+ * dialing `0.0.0.0` as a destination is not portable and would be a regression.
+ * Any other value is the only address the server can be reached on, so it is the
+ * only correct thing for the daemon to dial.
+ */
+export function resolveLocalServerHost(env: EnvSource = process.env): string {
+  const host = env.PODIUM_HOST?.trim()
+  if (!host || host === '0.0.0.0' || host === '::' || host === '[::]') return 'localhost'
+  // A bare IPv6 literal has to be bracketed before it can go in a URL authority.
+  return host.includes(':') && !host.startsWith('[') ? `[${host}]` : host
+}
+
 export function resolveHookPort(
   config: PodiumConfig = loadConfig(),
   env: EnvSource = process.env,

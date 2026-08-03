@@ -244,6 +244,15 @@ export class DaemonMux {
     const machineId = principal.machine
     const { machines, sessions } = this.deps.ports
     machines.attach(machineId, send)
+    // SAY THAT IT HAPPENED (POD-1585). Attach/detach ran silently, so a server
+    // log with no daemon line looked identical whether the fleet was healthy or
+    // no daemon had ever arrived — an instrument that cannot say NO. That silence
+    // was read as proof a daemon never registered, and working server code was
+    // filed as a pre-merge blocker on it. This is the exact transition the UI's
+    // `online` dot reads (a live socket in this mux), so the log and the dot now
+    // have one shared cause; logging here rather than at the socket also covers
+    // the in-process link, and keeps the superseded-socket guard below authoritative.
+    console.log(`[podium:server] daemon attached: machine ${machineId} is now online`)
     machines.flushQueued(machineId)
     sessions.onMachineAttached(principal)
     machines.broadcastMachines()
@@ -263,7 +272,11 @@ export class DaemonMux {
     const principal = principalOf(peer)
     const machineId = principal.machine
     const { machines, sessions } = this.deps.ports
+    // Below the supersede guard on purpose: a stale socket's late close is not a
+    // machine going offline, and logging it as one would recreate the confusion
+    // the attach line above exists to end.
     if (!machines.detach(machineId, send)) return
+    console.log(`[podium:server] daemon detached: machine ${machineId} is now offline`)
     this.deps.bus.emit('machine.disconnected', { machineId })
     sessions.onMachineDetached(principal)
     machines.broadcastMachines()

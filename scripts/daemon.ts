@@ -23,11 +23,14 @@
  */
 
 import { bootProcess } from '@podium/runtime/boot'
-import { resolvePort } from '@podium/runtime/config'
+import { resolveLocalServerHost, resolvePort } from '@podium/runtime/config'
 import { readOrCreateDaemonSecret, readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { startDaemon } from '../apps/daemon/src/daemon'
 
 const port = resolvePort()
+// Must match what the server BOUND, not an assumption about it — a `PODIUM_HOST`
+// pointing at one interface means loopback is not listening (POD-1585).
+const host = resolveLocalServerHost()
 
 await bootProcess({
   name: 'daemon',
@@ -37,7 +40,7 @@ await bootProcess({
   // `machine_id='__local__'` sessions/repos are never adopted — they vanish on restart.
   start: () =>
     startDaemon({
-      serverUrl: `ws://localhost:${port}`,
+      serverUrl: `ws://${host}:${port}`,
       bootstrapToken: readOrCreateDaemonSecret(),
       // Same host, same state dir, same identity file the server read: this daemon
       // attaches AS this host rather than as a constant that stood for it.
@@ -45,5 +48,16 @@ await bootProcess({
       installCodexHooks: true,
       installGrokHooks: true,
     }),
-  readyMessage: () => `podium daemon up: connected to ws://localhost:${port}/daemon`,
+  // TELL THE TRUTH ABOUT THE LINK (POD-1585). `startDaemon` resolves on first
+  // connect OR after its own ~10s grace, so reaching this line proves the daemon
+  // BOOTED — never that it reached the server. The old message said "connected
+  // to <url>" unconditionally, and when the server was in fact gone it read as
+  // proof the daemon was attached: the machine it never registered showed
+  // offline, and working server code was filed as a pre-merge blocker. Both
+  // states are normal (the state machine retries with backoff), so name which
+  // one this is.
+  readyMessage: (daemon) =>
+    daemon.connected
+      ? `podium daemon up: connected to ws://${host}:${port}/daemon`
+      : `podium daemon up: NOT yet connected to ws://${host}:${port}/daemon — retrying in the background (is the server running on ${host}:${port}?)`,
 })

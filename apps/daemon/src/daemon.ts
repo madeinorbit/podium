@@ -27,6 +27,19 @@ export interface DaemonHandle {
   readonly hookSocketPath?: string
   readonly agentRelayPort: number
   /**
+   * Whether the server link is ACTUALLY established right now (POD-1585).
+   *
+   * `startDaemon` resolves on first connect OR after a ~10s grace, because an
+   * offline server must not block boot. That makes the resolved handle a claim
+   * about BOOT, not about connectivity — and an entrypoint that prints
+   * "connected to <url>" on the strength of it is asserting something it never
+   * checked. It cost a pre-merge blocker: a daemon whose server had died logged
+   * "podium daemon up: connected to ws://…", and the machine it never registered
+   * read offline in the UI, so working code was reported as broken. Read this
+   * before saying the word "connected".
+   */
+  readonly connected: boolean
+  /**
    * Detach from live sessions and close the server connection. Durable masters
    * survive unless `reapSessions` is explicitly requested.
    */
@@ -66,6 +79,11 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     hookPort: host.hookPort,
     ...(host.hookSocketPath ? { hookSocketPath: host.hookSocketPath } : {}),
     agentRelayPort: host.agentRelayPort,
+    // A getter, not a snapshot: the link goes up and down over the process's
+    // life, so a boolean captured here would be the same lie in a new place.
+    get connected() {
+      return connection?.state === 'connected'
+    },
     async close(closeOpts) {
       await host.close(closeOpts)
       await connection?.close()
