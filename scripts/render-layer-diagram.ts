@@ -54,7 +54,7 @@ const LAYER_TITLE: Record<Layer, string> = {
 const pkg = (workspace: string): string =>
   workspace === 'scripts' ? 'scripts/' : `@podium/${workspace.slice(workspace.indexOf('/') + 1)}`
 
-function describeDeps(workspace: string, tags: WorkspaceTags): string {
+function describeDeps(tags: WorkspaceTags): string {
   if (tags.deps === undefined) return 'anything below its layer'
   if (tags.deps.length === 0) return 'nothing — this is the leaf'
   return [...tags.deps].sort().map(pkg).join(', ')
@@ -85,10 +85,12 @@ export function renderLayerDiagram(
       const marks: string[] = [tags.platform]
       if (tags.roleTiered === true) marks.push('role-tiered')
       if (tags.consumers !== undefined) {
-        marks.push(`host capability — importable only by ${[...tags.consumers].sort().map(pkg).join(', ')}`)
+        marks.push(
+          `host capability — importable only by ${[...tags.consumers].sort().map(pkg).join(', ')}`,
+        )
       }
       lines.push(`  ${name}${marks.join(', ')}`)
-      lines.push(`  ${' '.repeat(NAME_COLUMN)}deps: ${describeDeps(workspace, tags)}`)
+      lines.push(`  ${' '.repeat(NAME_COLUMN)}deps: ${describeDeps(tags)}`)
     }
     lines.push('')
   }
@@ -105,7 +107,9 @@ export function renderLayerDiagram(
   lines.push('')
   for (const edge of [...typeOnly].sort()) {
     const [from = '', to = ''] = edge.split(' -> ')
-    lines.push(`- \`${pkg(from)} ⇢ ${pkg(to)}\` (\`import type\` only; a runtime import is refused)`)
+    lines.push(
+      `- \`${pkg(from)} ⇢ ${pkg(to)}\` (\`import type\` only; a runtime import is refused)`,
+    )
   }
   lines.push('')
   lines.push(

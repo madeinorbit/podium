@@ -54,7 +54,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { SYNC_BROWSER_ENTRYPOINTS } from './check-boundaries'
+import { BROWSER_ENTRYPOINTS, extractImports } from './architecture-manifest'
 
 export interface ReachFinding {
   entrypoint: string
@@ -77,11 +77,15 @@ export interface ReachFinding {
  * follow an edge, which is the vacuous pass the check exists for.
  */
 export function expectedModuleFloor(entrySource: string): number {
+  // VALUE imports only. A type-only relative import is erased before the bundler
+  // ever sees it, so counting it sets a floor the bundler cannot reach and the
+  // entrypoint is reported 'vacuous' for being correct. Measured on
+  // `@podium/telemetry/example`, whose one relative import is
+  // `import type { UsageReport } from './schema'`: the bundler loaded 1 module,
+  // this expected 2, and a healthy entrypoint was reported as proving nothing.
   const relatives = new Set<string>()
-  for (const m of entrySource.matchAll(
-    /(?:\bfrom\s*|\bimport\s*\(?\s*)['"](\.[^'"]*)['"]/g,
-  )) {
-    if (m[1]) relatives.add(m[1])
+  for (const ref of extractImports(entrySource)) {
+    if (!ref.typeOnly && ref.specifier.startsWith('.')) relatives.add(ref.specifier)
   }
   return 1 + relatives.size
 }
@@ -90,10 +94,7 @@ export function expectedModuleFloor(entrySource: string): number {
  * Bundle one entrypoint for the browser and report every Node/Bun specifier the
  * bundler was asked to resolve, with the module that asked.
  */
-export async function auditEntrypoint(
-  label: string,
-  absEntry: string,
-): Promise<ReachFinding[]> {
+export async function auditEntrypoint(label: string, absEntry: string): Promise<ReachFinding[]> {
   const findings: ReachFinding[] = []
   const nodeRefs: string[] = []
   let loaded = 0
@@ -166,7 +167,7 @@ export async function auditEntrypoint(
 /** Audit every declared browser entrypoint of @podium/sync. */
 export async function auditDeclaredEntrypoints(repoRoot: string): Promise<ReachFinding[]> {
   const findings: ReachFinding[] = []
-  for (const [specifier, entry] of SYNC_BROWSER_ENTRYPOINTS) {
+  for (const [specifier, entry] of BROWSER_ENTRYPOINTS) {
     findings.push(...(await auditEntrypoint(specifier, join(repoRoot, entry))))
   }
   return findings
@@ -274,7 +275,7 @@ async function main(): Promise<void> {
     process.exit(1)
   }
   console.log(
-    `browser-reach OK — ${SYNC_BROWSER_ENTRYPOINTS.size} declared entrypoint(s) bundle for the browser with no Node reachable`,
+    `browser-reach OK — ${BROWSER_ENTRYPOINTS.size} declared entrypoint(s) bundle for the browser with no Node reachable`,
   )
 }
 

@@ -45,6 +45,18 @@
  * it belongs on `apps/daemon`, which is what the machine host is.
  */
 
+// The observation-ledger causal state machine (cursor succession, binding
+// version, terminal fence). Harness-AGNOSTIC — its only imports are types from
+// `@podium/protocol` — and merely FILED in this package; the boundary-allowlist
+// entry it replaces said exactly that.
+export { acceptAgentObservation } from './agent-state/causal.js'
+
+// Two prompt-pointer string constants. Data the server renders into agent
+// prompts; they name no process and reach no host.
+export { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from './issue-system-pointer.js'
+// Types only. Erased at build, so they carry nothing at all; listed rather than
+// starred for the same reason as everything above.
+export type { HarnessCapabilities, HarnessLogin } from './manifest.js'
 // Static per-CLI facts. Each resolves through `manifestFor`, which returns
 // `undefined` for a harness this build has never heard of rather than
 // substituting another CLI's row.
@@ -65,17 +77,3 @@ export {
   harnessUsesPromptTitleFallback,
   transcriptRecordMapperFor,
 } from './registry.js'
-
-// Two prompt-pointer string constants. Data the server renders into agent
-// prompts; they name no process and reach no host.
-export { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from './issue-system-pointer.js'
-
-// The observation-ledger causal state machine (cursor succession, binding
-// version, terminal fence). Harness-AGNOSTIC — its only imports are types from
-// `@podium/protocol` — and merely FILED in this package; the boundary-allowlist
-// entry it replaces said exactly that.
-export { acceptAgentObservation } from './agent-state/causal.js'
-
-// Types only. Erased at build, so they carry nothing at all; listed rather than
-// starred for the same reason as everything above.
-export type { HarnessCapabilities, HarnessLogin } from './manifest.js'

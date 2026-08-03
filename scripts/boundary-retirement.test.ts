@@ -86,14 +86,15 @@ describe('RETIRED no-app-to-app -> manifest-layer', () => {
 // ---------------------------------------------------------------------------
 
 describe('RETIRED cli-no-apps -> manifest-layer', () => {
-  it.each(['@podium/server', '@podium/daemon', '../../server/src/server'])(
-    'refuses apps/cli importing %s',
-    (spec) => {
-      expect(rulesFor('apps/cli/src/cli.ts', `import { x } from '${spec}'`)).toEqual([
-        'manifest-layer',
-      ])
-    },
-  )
+  it.each([
+    '@podium/server',
+    '@podium/daemon',
+    '../../server/src/server',
+  ])('refuses apps/cli importing %s', (spec) => {
+    expect(rulesFor('apps/cli/src/cli.ts', `import { x } from '${spec}'`)).toEqual([
+      'manifest-layer',
+    ])
+  })
 
   it('still allows the CLI its own seam and runtime config', () => {
     expect(
@@ -141,9 +142,9 @@ describe('RETIRED leaf-package + restricted-package-deps -> manifest-deps', () =
     expect(
       rulesFor('packages/model/src/index.ts', `import { x } from '@podium/protocol'`),
     ).toContain('manifest-deps')
-    expect(rulesFor('packages/model/src/index.ts', `import { z } from '@podium/runtime'`)).toContain(
-      'manifest-deps',
-    )
+    expect(
+      rulesFor('packages/model/src/index.ts', `import { z } from '@podium/runtime'`),
+    ).toContain('manifest-deps')
   })
 
   it('keeps protocol near-leaf: model only [POD-808]', () => {
@@ -187,7 +188,8 @@ describe('RETIRED leaf-package + restricted-package-deps -> manifest-deps', () =
 
   it('keeps the issue-client seam free of IO packages', () => {
     expect(
-      rulesFor('packages/issue-client/src/commands.ts', `import { x } from '@podium/harness'`).length,
+      rulesFor('packages/issue-client/src/commands.ts', `import { x } from '@podium/harness'`)
+        .length,
     ).toBeGreaterThan(0)
     expect(
       rulesFor(
@@ -218,16 +220,19 @@ describe('RETIRED leaf-package + restricted-package-deps -> manifest-deps', () =
 // ---------------------------------------------------------------------------
 
 describe('RETIRED agent-host-consumers -> manifest-consumers', () => {
-  it.each(['apps/daemon/src/daemon.ts', 'scripts/daemon.ts'])(
-    'allows the host capability to %s',
-    (file) => {
-      expect(rulesFor(file, `import { x } from '@podium/harness'`)).toEqual([])
-    },
-  )
+  it.each([
+    'apps/daemon/src/daemon.ts',
+    'scripts/daemon.ts',
+  ])('allows the host capability to %s', (file) => {
+    expect(rulesFor(file, `import { x } from '@podium/harness'`)).toEqual([])
+  })
 
   it("allows the restricted package's OWN tests", () => {
     expect(
-      rulesFor('packages/harness/test/pty-behavior/abduco.bun.test.ts', `import { x } from '@podium/harness'`),
+      rulesFor(
+        'packages/harness/test/pty-behavior/abduco.bun.test.ts',
+        `import { x } from '@podium/harness'`,
+      ),
     ).toEqual([])
   })
 

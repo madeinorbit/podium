@@ -19,7 +19,7 @@
  * able to decide whether they may have them.
  */
 
-import { SessionIdField, asUserId } from '@podium/model'
+import { asUserId, SessionIdField } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { mayReadOwned } from '../../issue-authz'

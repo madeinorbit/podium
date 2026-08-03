@@ -1,7 +1,7 @@
-import { asRepoId, type RepoId } from '@podium/model'
 import { createHash } from 'node:crypto'
 import { readFileSync, statSync } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
+import { asRepoId, type RepoId } from '@podium/model'
 
 /** Stable repo identity (#74). A repo's `repo_id` is derived from its normalized
  *  origin URL when one is known — so the same repository cloned at different paths
@@ -36,7 +36,9 @@ export function canonicalizeRepoOrigin(url: string | null | undefined): string |
   let port: string | undefined
   let path: string
 
-  const full = raw.match(/^([A-Za-z][A-Za-z0-9+.-]*):\/\/(?:[^/@]*@)?([^/:?#]+)(?::(\d+))?(\/[^?#]*)?/)
+  const full = raw.match(
+    /^([A-Za-z][A-Za-z0-9+.-]*):\/\/(?:[^/@]*@)?([^/:?#]+)(?::(\d+))?(\/[^?#]*)?/,
+  )
   // scp-style: [user@]host:path — only when there's no scheme and the part after
   // ':' doesn't look like a port-only or //-authority form.
   const scp = full ? null : raw.match(/^(?:[^@/]+@)?([^:/@]+):([^/].*)$/)

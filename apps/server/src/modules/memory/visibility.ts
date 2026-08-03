@@ -1,6 +1,6 @@
 import { asIssueId, asSessionId, ROW, type VisibilityClass, visibilityClassOf } from '@podium/model'
-import type { SessionRow, SessionStore } from '../../store'
 import { mayReadOwned } from '../../issue-authz'
+import type { SessionRow, SessionStore } from '../../store'
 import type { MemoryReader } from './types'
 
 export const INDEXED_MEMORY_DOCUMENT_CLASSES = [

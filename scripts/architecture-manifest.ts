@@ -366,12 +366,7 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
     layer: 2,
     platform: 'neutral',
     features: ['oplog', 'upstream-sync'],
-    deps: [
-      'packages/commands',
-      'packages/protocol',
-      'packages/runtime',
-      'packages/model',
-    ],
+    deps: ['packages/commands', 'packages/protocol', 'packages/runtime', 'packages/model'],
   },
   // Opt-in telemetry [spec:SP-f933]. NEUTRAL for the same reason as runtime,
   // and by the same construction: the barrel and the pure slices (schema,
@@ -1118,12 +1113,7 @@ function hasBody(src: string, open: number): boolean {
  * `packages/commands/src/sessions/session-state-commands.ts`, five contracts
  * declaring `resource: 'per-user-state'` and holding no class table at all.
  */
-const DECLARATION_KEYS: ReadonlySet<string> = new Set([
-  'visibility',
-  'resource',
-  'scope',
-  'kind',
-])
+const DECLARATION_KEYS: ReadonlySet<string> = new Set(['visibility', 'resource', 'scope', 'kind'])
 
 const VISIBILITY_VALUE_RE = new RegExp(
   `(?:^|[{,\\s])['"]?([A-Za-z_$][\\w$-]*)['"]?\\s*:\\s*'(?:${UNAMBIGUOUS_VISIBILITY_CLASSES.join('|')})'`,

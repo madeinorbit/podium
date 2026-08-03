@@ -3,14 +3,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { applyAllowlist, partitionAllowlist } from './architecture-manifest'
+import { applyAllowlist, BROWSER_ENTRYPOINTS, partitionAllowlist } from './architecture-manifest'
 import { BOUNDARY_ALLOWLIST } from './boundary-allowlist'
 import {
+  checkBrowserGraphAll,
   checkDeclaredDeps,
+  checkFile,
   checkHarnessClassifierBoundary,
   checkHostEdgeSeparationAll,
-  checkBrowserGraphAll,
-  checkFile,
   checkManifestFile,
   checkPrincipalFree,
   checkSessionBindingFieldAccess,
@@ -19,7 +19,6 @@ import {
   extractImports,
   loadModelExportNames,
 } from './check-boundaries'
-import { BROWSER_ENTRYPOINTS } from './architecture-manifest'
 
 describe('ui-storage-ownership (POD-329)', () => {
   it('flags a feature-surface localStorage method call', () => {
@@ -663,8 +662,7 @@ describe('manifest-browser-reach (a) — browser-safe workspaces reach a NEUTRAL
       // may point at different files. Any of them naming the module this rule
       // WALKED is what makes the declaration resolvable; asserting one spelling
       // would fail on workspaces that use the other.
-      const targets =
-        typeof declared === 'string' ? [declared] : Object.values(declared ?? {})
+      const targets = typeof declared === 'string' ? [declared] : Object.values(declared ?? {})
       expect(targets, specifier).toContain(`./${entry.slice(`${workspace}/`.length)}`)
     }
   })
@@ -732,9 +730,7 @@ describe("manifest-browser-reach (b) — a declared entrypoint's TRANSITIVE clos
       ...CLEAN,
       'packages/sync/src/replica/index.ts': `import { openDatabase } from '@podium/runtime/sqlite'\nexport const x = openDatabase\n`,
     })
-    expect(checkBrowserGraphAll(root).map((x) => x.specifier)).toEqual([
-      '@podium/runtime/sqlite',
-    ])
+    expect(checkBrowserGraphAll(root).map((x) => x.specifier)).toEqual(['@podium/runtime/sqlite'])
   })
 
   it('refuses an UNRESOLVABLE import — a truncated closure is green for the wrong reason', () => {
