@@ -3,23 +3,21 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { applyAllowlist, partitionAllowlist } from './architecture-manifest'
+import { applyAllowlist, BROWSER_ENTRYPOINTS, partitionAllowlist } from './architecture-manifest'
 import { BOUNDARY_ALLOWLIST } from './boundary-allowlist'
 import {
+  checkBrowserGraphAll,
   checkDeclaredDeps,
   checkFile,
   checkHarnessClassifierBoundary,
   checkHostEdgeSeparationAll,
   checkManifestFile,
   checkPrincipalFree,
-  checkRuntimeBarrelPurity,
   checkSessionBindingFieldAccess,
-  checkSyncBrowserGraphAll,
   checkUiStorageOwnership,
   clauseIsTypeOnly,
   extractImports,
   loadModelExportNames,
-  SYNC_BROWSER_ENTRYPOINTS,
 } from './check-boundaries'
 
 describe('ui-storage-ownership (POD-329)', () => {
@@ -190,430 +188,7 @@ describe('checkFile rules', () => {
     const source = `// actor, onBehalfOf and scope stay opaque\nctx.sessionBinding.transition(input)`
     expect(checkSessionBindingFieldAccess('apps/daemon/src/control/session.ts', source)).toEqual([])
   })
-
-  it('allows the grandfathered type-only web→server AppRouter import', () => {
-    const v = checkFile('apps/web/src/trpc.ts', `import type { AppRouter } from '@podium/server'`)
-    expect(v).toEqual([])
-  })
-
-  it('rejects a runtime web→server import', () => {
-    const v = checkFile('apps/web/src/trpc.ts', `import { appRouter } from '@podium/server'`)
-    expect(v).toHaveLength(1)
-    expect(v[0].rule).toBe('no-app-to-app')
-    expect(v[0].message).toContain('type-only')
-  })
-
-  it('rejects any other app→app import, even type-only', () => {
-    const v = checkFile('apps/server/src/x.ts', `import type { Y } from '@podium/daemon'`)
-    expect(v).toHaveLength(1)
-    expect(v[0].rule).toBe('no-app-to-app')
-  })
-
-  it('rejects relative imports that cross into another app (non-test files)', () => {
-    const v = checkFile('apps/server/src/x.ts', `import { repoOp } from '../../daemon/src/repo-op'`)
-    expect(v).toHaveLength(1)
-    expect(v[0].rule).toBe('no-app-to-app')
-  })
-
-  it('exempts e2e test files from the app→app rule', () => {
-    const v = checkFile(
-      'apps/server/src/agent-relay-e2e.test.ts',
-      `import { agentRelay } from '../../daemon/src/agent-relay'`,
-    )
-    expect(v).toEqual([])
-  })
-
-  it('allows harness imports from daemon, scripts and its own tests', () => {
-    for (const file of [
-      'apps/daemon/src/daemon.ts',
-      'scripts/daemon.ts',
-      'packages/harness/test/pty-behavior/abduco.bun.test.ts',
-    ]) {
-      expect(checkFile(file, `import { x } from '@podium/harness'`)).toEqual([])
-    }
-  })
-
-  it('rejects harness importers in apps/server (Phase 3 removed the grandfathers)', () => {
-    for (const file of [
-      'apps/server/src/relay.ts',
-      'apps/server/src/modules/memory/transcript-indexer.ts',
-      'apps/server/src/modules/memory/service.ts',
-    ]) {
-      const v = checkFile(file, `import { fileChainSource } from '@podium/harness'`)
-      expect(v).toHaveLength(1)
-      expect(v[0].rule).toBe('agent-host-consumers')
-    }
-  })
-
-  // Ported from main (POD-808) during the POD-1246 catch-up: integration had
-  // near-leaf coverage for transcript but none for the protocol/model pair, which
-  // is the edge ADR 8 actually turns on. Kept because a rule with no test is a
-  // rule that can be narrowed silently.
-  it('keeps protocol near-leaf: model only, nothing else [POD-808]', () => {
-    // The one allowed workspace edge: L1 frames compose the L0 vocabulary.
-    expect(
-      checkFile('packages/protocol/src/index.ts', `import { Revision } from '@podium/model'`),
-    ).toEqual([])
-    // Everything else stays refused — the leaf property that actually matters.
-    const p = checkFile('packages/protocol/src/index.ts', `import { z } from '@podium/runtime'`)
-    expect(p).toHaveLength(1)
-    expect(p[0].rule).toBe('restricted-package-deps')
-  })
-
-  it('keeps model a true leaf [POD-808]', () => {
-    const m = checkFile('packages/model/src/index.ts', `import { x } from '@podium/protocol'`)
-    expect(m).toHaveLength(1)
-    expect(m[0].rule).toBe('leaf-package')
-  })
-
-  it('allows @podium/transcript from apps and packages, and keeps it near-leaf', () => {
-    expect(
-      checkFile(
-        'apps/server/src/modules/memory/transcript-indexer.ts',
-        `import { claudeRecordToItems } from '@podium/transcript'`,
-      ),
-    ).toEqual([])
-    expect(
-      checkFile(
-        'packages/transcript/src/source.ts',
-        `import type { TranscriptItem } from '@podium/protocol'`,
-      ),
-    ).toEqual([])
-    const core = checkFile(
-      'packages/transcript/src/source.ts',
-      `import { openDatabase } from '@podium/runtime/sqlite'`,
-    )
-    expect(core).toHaveLength(1)
-    expect(core[0].rule).toBe('restricted-package-deps')
-    const bridge = checkFile(
-      'packages/transcript/src/file-chain.ts',
-      `import { locateClaudeSessionFile } from '@podium/harness'`,
-    )
-    expect(bridge.map((v) => v.rule)).toContain('restricted-package-deps')
-  })
-
-  it('rejects new harness importers (not grandfathered)', () => {
-    const v = checkFile(
-      'apps/server/src/model-catalog.ts',
-      `import { agentLaunchCommand } from '@podium/harness'`,
-    )
-    expect(v).toHaveLength(1)
-    expect(v[0].rule).toBe('agent-host-consumers')
-    const web = checkFile('apps/web/src/derive.ts', `import { x } from '@podium/harness'`)
-    expect(web).toHaveLength(1)
-    expect(web[0].rule).toBe('agent-host-consumers')
-  })
-
-  it('rejects subpath imports of harness too', () => {
-    const v = checkFile('apps/web/src/x.ts', `import { y } from '@podium/harness/pty'`)
-    expect(v).toHaveLength(1)
-    expect(v[0].rule).toBe('agent-host-consumers')
-  })
-
-  it('forbids apps/cli from importing server or daemon code (the CLI boundary)', () => {
-    for (const spec of ['@podium/server', '@podium/daemon', '../../server/src/server']) {
-      const v = checkFile('apps/cli/src/cli.ts', `import { x } from '${spec}'`)
-      expect(v, spec).toHaveLength(1)
-      expect(v[0].rule).toBe('no-app-to-app')
-    }
-    expect(
-      checkFile(
-        'apps/cli/src/issue-cli.ts',
-        `import { ISSUE_COMMANDS, makeRelayIssueClient } from '@podium/issue-client'\nimport { loadConfig } from '@podium/runtime/config'`,
-      ),
-    ).toEqual([])
-  })
-
-  it('keeps the issue-client seam free of app/IO deps', () => {
-    const v = checkFile(
-      'packages/issue-client/src/commands.ts',
-      `import { x } from '@podium/harness'`,
-    )
-    expect(v.map((f) => f.rule)).toContain('restricted-package-deps')
-    expect(
-      checkFile(
-        'packages/issue-client/src/commands.ts',
-        `import type { IssueStage } from '@podium/protocol'`,
-      ),
-    ).toEqual([])
-  })
-
-  it('keeps domain a leaf package', () => {
-    const d = checkFile(
-      'packages/model/src/issue-stage.ts',
-      `import type { IssueWire } from '@podium/protocol'`,
-    )
-    expect(d).toHaveLength(1)
-    expect(d[0].rule).toBe('leaf-package')
-    expect(
-      checkFile('apps/server/src/issues.ts', `import { isIssueClosed } from '@podium/model'`),
-    ).toEqual([])
-  })
-
-  it('keeps @podium/model the true leaf', () => {
-    const m = checkFile('packages/model/src/index.ts', `import { z } from '@podium/runtime'`)
-    expect(m).toHaveLength(1)
-    expect(m[0].rule).toBe('leaf-package')
-  })
-
-  it('lets protocol import model and nothing else (POD-300)', () => {
-    // Protocol stopped being a leaf when its entity schemas moved to L0 model:
-    // it holds only frames now and imports those schemas. That ONE edge is
-    // allowed; every other workspace import is still a violation.
-    expect(
-      checkFile(
-        'packages/protocol/src/messages/issues.ts',
-        `import { IssueWire } from '@podium/model'`,
-      ),
-    ).toEqual([])
-    const p = checkFile('packages/protocol/src/index.ts', `import { z } from '@podium/runtime'`)
-    expect(p).toHaveLength(1)
-    expect(p[0].rule).toBe('restricted-package-deps')
-  })
-
-  it('restricts @podium/runtime to the protocol/domain leaves', () => {
-    // Allowed: protocol and domain (e.g. domain's normalizeOriginUrl).
-    expect(
-      checkFile('packages/runtime/src/settings.ts', `import type { T } from '@podium/protocol'`),
-    ).toEqual([])
-    expect(
-      checkFile(
-        'packages/runtime/src/git.ts',
-        `export { normalizeOriginUrl } from '@podium/model'`,
-      ),
-    ).toEqual([])
-    // Disallowed: any other workspace package.
-    const c = checkFile(
-      'packages/runtime/src/settings.ts',
-      `import { something } from '@podium/client-core'`,
-    )
-    expect(c).toHaveLength(1)
-    expect(c[0].rule).toBe('restricted-package-deps')
-    // Intra-package and external imports are fine.
-    expect(
-      checkFile('packages/runtime/src/index.ts', `import { z } from 'zod'\nimport './settings.js'`),
-    ).toEqual([])
-  })
-
-  it('rejects packages importing from apps, by name or relative path', () => {
-    const byName = checkFile(
-      'packages/client-core/src/x.ts',
-      `import type { AppRouter } from '@podium/server'`,
-    )
-    expect(byName).toHaveLength(1)
-    expect(byName[0].rule).toBe('packages-no-apps')
-    const relativePath = checkFile(
-      'packages/client-core/src/x.ts',
-      `import { store } from '../../../apps/server/src/store'`,
-    )
-    expect(relativePath).toHaveLength(1)
-    expect(relativePath[0].rule).toBe('packages-no-apps')
-  })
-
-  it('permits normal app→package and package→package edges', () => {
-    expect(
-      checkFile(
-        'apps/web/src/store.tsx',
-        `import { groupSessions } from '@podium/client-core/focus'\nimport type { SessionMeta } from '@podium/protocol'`,
-      ),
-    ).toEqual([])
-    expect(
-      checkFile(
-        'packages/client-core/src/transport.ts',
-        `import { WIRE_VERSION } from '@podium/protocol'`,
-      ),
-    ).toEqual([])
-  })
 })
-
-describe('server role tiers (core → hub → cloud, apps/server/src/roles.ts)', () => {
-  it('flags core importing hub', () => {
-    const v = checkFile(
-      'apps/server/src/relay.ts',
-      `import { PairingManager } from './hub/pairing'`,
-    )
-    expect(v).toHaveLength(1)
-    expect(v[0].rule).toBe('server-role-tiers')
-    // Nested core files too (the resolver walks ../).
-    const nested = checkFile(
-      'apps/server/src/modules/machines/service.ts',
-      `import { PairingManager } from '../../hub/pairing'`,
-    )
-    expect(nested).toHaveLength(1)
-    expect(nested[0].rule).toBe('server-role-tiers')
-  })
-
-  it('allows hub importing core, and core importing core', () => {
-    expect(
-      checkFile(
-        'apps/server/src/hub/pairing.ts',
-        `import { sha256 } from '../modules/machines/service'`,
-      ),
-    ).toEqual([])
-    expect(
-      checkFile('apps/server/src/relay.ts', `import { EventBus } from './modules/bus'`),
-    ).toEqual([])
-  })
-
-  it('exempts composition roots and test files for hub — they assemble/inject', () => {
-    expect(
-      checkFile('apps/server/src/server.ts', `import { PairingManager } from './hub/pairing'`),
-    ).toEqual([])
-    expect(
-      checkFile(
-        'apps/server/src/router.ts',
-        `import { buildJoinCommand } from './hub/machines-join'`,
-      ),
-    ).toEqual([])
-    expect(
-      checkFile('apps/server/src/relay.test.ts', `import { PairingManager } from './hub/pairing'`),
-    ).toEqual([])
-  })
-
-  it('bans cloud/ imports for EVERYONE — core, hub, composition roots, tests', () => {
-    for (const file of [
-      'apps/server/src/relay.ts',
-      'apps/server/src/hub/pairing.ts',
-      'apps/server/src/server.ts',
-      'apps/server/src/relay.test.ts',
-    ]) {
-      const spec = file.includes('/hub/') ? '../cloud/billing' : './cloud/billing'
-      const v = checkFile(file, `import { bill } from '${spec}'`)
-      expect(v).toHaveLength(1)
-      expect(v[0].rule).toBe('server-role-tiers')
-      expect(v[0].message).toContain('plugins.ts seam')
-    }
-  })
-
-  it('ignores files outside apps/server/src and non-relative specifiers', () => {
-    expect(checkFile('apps/web/src/hub/x.ts', `import { y } from './thing'`)).toEqual([])
-    expect(
-      checkFile('apps/server/src/relay.ts', `import { loadConfig } from '@podium/runtime/config'`),
-    ).toEqual([])
-  })
-})
-
-describe('rule 7 — @podium/model single-home for its predicates', () => {
-  const domainNames = new Set(['isSnoozed', 'worktreeForCwd'])
-
-  it('flags a packages/* file that REDECLARES a domain-exported name', () => {
-    const v = checkFile(
-      'packages/client-core/src/viewmodels/derive.ts',
-      `export function isSnoozed(s, now) { return false }`,
-      domainNames,
-    )
-    expect(v).toHaveLength(1)
-    expect(v[0].rule).toBe('model-single-home')
-    expect(v[0].message).toContain('isSnoozed')
-
-    const c = checkFile(
-      'packages/client-core/src/viewmodels/derive.ts',
-      `export const worktreeForCwd = (cwd, paths) => null`,
-      domainNames,
-    )
-    expect(c).toHaveLength(1)
-    expect(c[0].rule).toBe('model-single-home')
-  })
-
-  it('allows re-exporting the imported binding under the same name', () => {
-    expect(
-      checkFile(
-        'packages/client-core/src/viewmodels/derive.ts',
-        `import { isSnoozed } from '@podium/model'\nexport { isSnoozed }`,
-        domainNames,
-      ),
-    ).toEqual([])
-    expect(
-      checkFile(
-        'packages/client-core/src/viewmodels/derive.ts',
-        `export { isSnoozed } from '@podium/model'`,
-        domainNames,
-      ),
-    ).toEqual([])
-  })
-
-  it('is a no-op with an empty domain-names set (existing checkFile callers unaffected)', () => {
-    expect(
-      checkFile(
-        'packages/client-core/src/viewmodels/derive.ts',
-        `export function isSnoozed(s, now) { return false }`,
-      ),
-    ).toEqual([])
-  })
-
-  it('exempts @podium/model itself and test files', () => {
-    expect(
-      checkFile(
-        'packages/model/src/snooze.ts',
-        `export function isSnoozed(row, now) { return false }`,
-        domainNames,
-      ),
-    ).toEqual([])
-    expect(
-      checkFile(
-        'packages/client-core/src/viewmodels/derive.test.ts',
-        `export function isSnoozed(s, now) { return false }`,
-        domainNames,
-      ),
-    ).toEqual([])
-  })
-
-  it('never flags apps/* — the rule patrols the package layer only', () => {
-    expect(
-      checkFile(
-        'apps/web/src/derive.ts',
-        `export function isSnoozed(s, now) { return false }`,
-        domainNames,
-      ),
-    ).toEqual([])
-  })
-
-  it('loadModelExportNames reads the real @podium/model source', () => {
-    const repoRoot = new URL('..', import.meta.url).pathname
-    const names = loadModelExportNames(repoRoot)
-    expect(names.has('isSnoozed')).toBe(true)
-    expect(names.has('worktreeForCwd')).toBe(true)
-    expect(names.has('isIssueClosed')).toBe(true)
-  })
-})
-
-describe('rule 8 — @podium/runtime browser-safety', () => {
-  it('rejects apps/web importing any @podium/runtime subpath', () => {
-    const v = checkFile('apps/web/src/x.ts', `import { z } from '@podium/runtime/config'`)
-    expect(v).toHaveLength(1)
-    expect(v[0].rule).toBe('runtime-browser-safety')
-    expect(v[0].message).toContain('subpath')
-  })
-
-  it('allows apps/web bare-importing @podium/runtime', () => {
-    expect(
-      checkFile('apps/web/src/x.ts', `import { normalizeOriginUrl } from '@podium/runtime'`),
-    ).toEqual([])
-  })
-
-  it('lets every other workspace use @podium/runtime subpaths freely', () => {
-    expect(
-      checkFile('apps/server/src/x.ts', `import { loadConfig } from '@podium/runtime/config'`),
-    ).toEqual([])
-    expect(
-      checkFile('apps/daemon/src/x.ts', `import { openDatabase } from '@podium/runtime/sqlite'`),
-    ).toEqual([])
-  })
-
-  it('checkRuntimeBarrelPurity passes clean against the real repo (git/settings are node-free)', () => {
-    const repoRoot = new URL('..', import.meta.url).pathname
-    expect(checkRuntimeBarrelPurity(repoRoot)).toEqual([])
-  })
-
-  it('checkRuntimeBarrelPurity is a no-op when the barrel file cannot be read', () => {
-    expect(checkRuntimeBarrelPurity('/nonexistent/repo/root')).toEqual([])
-  })
-})
-
-// ---------------------------------------------------------------------------
-// harness-principal-free (POD-397/POD-325) — packages/harness and packages/pty
-// must stay libraries about SOFTWARE, never about who is allowed to use it.
-// ---------------------------------------------------------------------------
 
 describe('checkPrincipalFree', () => {
   const HARNESS = 'packages/harness/src/manifest.ts'
@@ -1017,7 +592,7 @@ describe('rule 11: sync kernel purity', () => {
 // YES. A gate that only ever refuses, or only ever passes, is evidence of
 // nothing.
 
-describe('rule 12a — browser-safe workspaces reach @podium/sync only through a declared entrypoint', () => {
+describe('manifest-browser-reach (a) — browser-safe workspaces reach a NEUTRAL workspace only through a declared entrypoint', () => {
   it('refuses the BARE BARREL from a browser-safe workspace', () => {
     // The barrel value-exports the Authority, the Ledger, mirror.ts and the
     // SQLite repository. This is the exact edge the node-only tag used to refuse.
@@ -1025,7 +600,7 @@ describe('rule 12a — browser-safe workspaces reach @podium/sync only through a
       'apps/web/src/boot.ts',
       `import { createIndexedDbReplicaStore } from '@podium/sync'`,
     )
-    expect(v.map((x) => x.rule)).toEqual(['sync-browser-reach'])
+    expect(v.map((x) => x.rule)).toEqual(['manifest-browser-reach'])
     expect(v[0]?.message).toContain('BARREL')
   })
 
@@ -1034,16 +609,16 @@ describe('rule 12a — browser-safe workspaces reach @podium/sync only through a
       'apps/mobile/src/boot.ts',
       `import { Authority } from '@podium/sync/authority/index'`,
     )
-    expect(v.map((x) => x.rule)).toEqual(['sync-browser-reach'])
+    expect(v.map((x) => x.rule)).toEqual(['manifest-browser-reach'])
   })
 
   it('ALLOWS every declared entrypoint — the control', () => {
     // Without this the suite would pass against a rule that refuses everything,
     // which would "prove" browser-safety by making the adapters unreachable
     // again — the state POD-307 exists to end.
-    for (const specifier of SYNC_BROWSER_ENTRYPOINTS.keys()) {
+    for (const specifier of BROWSER_ENTRYPOINTS.keys()) {
       const v = checkManifestFile('apps/web/src/boot.ts', `import { X } from '${specifier}'`)
-      expect(v.map((x) => x.rule)).not.toContain('sync-browser-reach')
+      expect(v.map((x) => x.rule)).not.toContain('manifest-browser-reach')
     }
   })
 
@@ -1052,7 +627,7 @@ describe('rule 12a — browser-safe workspaces reach @podium/sync only through a
       'apps/server/src/boot.ts',
       `import { Authority } from '@podium/sync'`,
     )
-    expect(v.map((x) => x.rule)).not.toContain('sync-browser-reach')
+    expect(v.map((x) => x.rule)).not.toContain('manifest-browser-reach')
   })
 
   it('exempts type-only imports, matching checkManifestEdge (erased at build)', () => {
@@ -1060,26 +635,40 @@ describe('rule 12a — browser-safe workspaces reach @podium/sync only through a
       'apps/web/src/boot.ts',
       `import type { Authority } from '@podium/sync'`,
     )
-    expect(v.map((x) => x.rule)).not.toContain('sync-browser-reach')
+    expect(v.map((x) => x.rule)).not.toContain('manifest-browser-reach')
   })
 
-  it('every declared entrypoint is resolvable — packages/sync/package.json exports it', () => {
+  it('EVERY declared entrypoint is resolvable — its package.json exports it', () => {
     // A rule that permits a specifier Node cannot resolve permits nothing. This
     // is the check that would have caught declaring an entrypoint and forgetting
     // the exports map, which fails at RUNTIME in the client and nowhere in CI.
+    //
+    // Generalised past @podium/sync with the rule itself (POD-335): every NEUTRAL
+    // workspace's declared surface is checked against its own package.json, so
+    // adding a browser entrypoint to a workspace this test has never heard of is
+    // covered on the day it lands.
     const repoRoot = fileURLToPath(new URL('..', import.meta.url))
-    const pkg = JSON.parse(readFileSync(join(repoRoot, 'packages/sync/package.json'), 'utf8')) as {
-      exports: Record<string, { import?: string }>
-    }
-    for (const [specifier, entry] of SYNC_BROWSER_ENTRYPOINTS) {
-      const subpath = `.${specifier.slice('@podium/sync'.length)}`
-      expect(pkg.exports[subpath], `${specifier} missing from packages/sync exports`).toBeDefined()
-      expect(pkg.exports[subpath]?.import).toBe(`./${entry.slice('packages/sync/'.length)}`)
+    for (const [specifier, entry] of BROWSER_ENTRYPOINTS) {
+      const workspace = entry.slice(0, entry.indexOf('/src/'))
+      const pkg = JSON.parse(readFileSync(join(repoRoot, workspace, 'package.json'), 'utf8')) as {
+        name: string
+        exports: Record<string, string | Record<string, string>>
+      }
+      const subpath = specifier === pkg.name ? '.' : `.${specifier.slice(pkg.name.length)}`
+      const declared = pkg.exports[subpath]
+      expect(declared, `${specifier} missing from ${workspace} exports`).toBeDefined()
+      // The exports map has two shapes in this repo — a bare path, or a
+      // conditions object where `@podium/source` (in-repo) and `import` (built)
+      // may point at different files. Any of them naming the module this rule
+      // WALKED is what makes the declaration resolvable; asserting one spelling
+      // would fail on workspaces that use the other.
+      const targets = typeof declared === 'string' ? [declared] : Object.values(declared ?? {})
+      expect(targets, specifier).toContain(`./${entry.slice(`${workspace}/`.length)}`)
     }
   })
 })
 
-describe("rule 12b — a declared entrypoint's TRANSITIVE closure is Node-free", () => {
+describe("manifest-browser-reach (b) — a declared entrypoint's TRANSITIVE closure is Node-free", () => {
   /** A synthetic repo containing only the files a case needs, so the refusing
    *  arm is produced by the fixture rather than waited for. */
   function plant(files: Record<string, string>): string {
@@ -1095,11 +684,11 @@ describe("rule 12b — a declared entrypoint's TRANSITIVE closure is Node-free",
   /** Every declared entrypoint present and trivially clean — the baseline each
    *  case mutates ONE file of. */
   const CLEAN: Record<string, string> = Object.fromEntries(
-    [...SYNC_BROWSER_ENTRYPOINTS.values()].map((entry) => [entry, `export const x = 1\n`]),
+    [...BROWSER_ENTRYPOINTS.values()].map((entry) => [entry, `export const x = 1\n`]),
   )
 
   it('says YES on a clean closure — the control', () => {
-    expect(checkSyncBrowserGraphAll(plant(CLEAN))).toEqual([])
+    expect(checkBrowserGraphAll(plant(CLEAN))).toEqual([])
   })
 
   it('says YES on the REAL repo — the control that matters', () => {
@@ -1108,7 +697,7 @@ describe("rule 12b — a declared entrypoint's TRANSITIVE closure is Node-free",
     // the first can pass against a broken walker, the second can pass against a
     // walker that reads nothing.
     const repoRoot = fileURLToPath(new URL('..', import.meta.url))
-    expect(checkSyncBrowserGraphAll(repoRoot)).toEqual([])
+    expect(checkBrowserGraphAll(repoRoot)).toEqual([])
   })
 
   it('refuses a Node builtin ONE hop from the entrypoint', () => {
@@ -1117,7 +706,7 @@ describe("rule 12b — a declared entrypoint's TRANSITIVE closure is Node-free",
       'packages/sync/src/replica/index.ts': `export * from './leaf'\n`,
       'packages/sync/src/replica/leaf.ts': `import { readFileSync } from 'node:fs'\nexport const x = readFileSync\n`,
     })
-    const v = checkSyncBrowserGraphAll(root)
+    const v = checkBrowserGraphAll(root)
     expect(v.map((x) => x.specifier)).toEqual(['node:fs'])
   })
 
@@ -1132,7 +721,7 @@ describe("rule 12b — a declared entrypoint's TRANSITIVE closure is Node-free",
       'packages/sync/src/replica/b.ts': `export * from './c'\n`,
       'packages/sync/src/replica/c.ts': `import { Database } from 'bun:sqlite'\nexport const x = Database\n`,
     })
-    const v = checkSyncBrowserGraphAll(root)
+    const v = checkBrowserGraphAll(root)
     expect(v.map((x) => x.specifier)).toEqual(['bun:sqlite'])
   })
 
@@ -1141,21 +730,19 @@ describe("rule 12b — a declared entrypoint's TRANSITIVE closure is Node-free",
       ...CLEAN,
       'packages/sync/src/replica/index.ts': `import { openDatabase } from '@podium/runtime/sqlite'\nexport const x = openDatabase\n`,
     })
-    expect(checkSyncBrowserGraphAll(root).map((x) => x.specifier)).toEqual([
-      '@podium/runtime/sqlite',
-    ])
+    expect(checkBrowserGraphAll(root).map((x) => x.specifier)).toEqual(['@podium/runtime/sqlite'])
   })
 
   it('refuses an UNRESOLVABLE import — a truncated closure is green for the wrong reason', () => {
     const root = plant({ ...CLEAN, 'packages/sync/src/span.ts': `export * from './gone'\n` })
-    const v = checkSyncBrowserGraphAll(root)
+    const v = checkBrowserGraphAll(root)
     expect(v.map((x) => x.specifier)).toEqual(['./gone'])
     expect(v[0]?.message).toContain('TRUNCATES')
   })
 
   it('refuses a MISSING entrypoint — an absent file makes the closure vacuously green', () => {
     const { 'packages/sync/src/span.ts': _dropped, ...withoutSpan } = CLEAN
-    const v = checkSyncBrowserGraphAll(plant(withoutSpan))
+    const v = checkBrowserGraphAll(plant(withoutSpan))
     expect(v.map((x) => x.specifier)).toEqual(['@podium/sync/span'])
   })
 
@@ -1164,6 +751,6 @@ describe("rule 12b — a declared entrypoint's TRANSITIVE closure is Node-free",
       ...CLEAN,
       'packages/sync/src/replica/index.ts': `import type { Stats } from 'node:fs'\nexport type X = Stats\n`,
     })
-    expect(checkSyncBrowserGraphAll(root)).toEqual([])
+    expect(checkBrowserGraphAll(root)).toEqual([])
   })
 })

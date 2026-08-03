@@ -6,7 +6,12 @@ import {
 } from '@podium/protocol'
 import type { TranscriptRecordMapper } from '@podium/transcript'
 import type { AgentStateProvider } from './agent-state/types.js'
-import { type AgentManifest, declaredValue, type HarnessCapabilities } from './manifest.js'
+import {
+  type AgentManifest,
+  declaredValue,
+  type HarnessCapabilities,
+  type HarnessLogin,
+} from './manifest.js'
 import { claudeCodeManifest } from './manifests/claude-code.js'
 import { codexManifest } from './manifests/codex.js'
 import { cursorManifest } from './manifests/cursor.js'
@@ -159,4 +164,25 @@ export function harnessKindForResumeKind(resumeKind: string): HarnessAgent | und
     if (manifest.resumeKind === resumeKind) return manifest.kind
   }
   return undefined
+}
+
+/**
+ * NATIVE LOGIN DETECTION for one harness, by kind (POD-335).
+ *
+ * A named function rather than a second reach for {@link AGENT_MANIFESTS}, and
+ * the reason is the boundary rather than tidiness. `apps/server`'s Accounts hub
+ * needs one fact — "is this CLI logged in, and as whom" — and used to get it by
+ * importing the whole manifest registry, which also carries launch, exec, PTY
+ * and probe APIs it must never hold (`manifest-consumers` in the architecture
+ * manifest). Handing it the ANSWER instead of the registry is what lets that
+ * rule be precise instead of a whole-package ban with an allowlist under it.
+ *
+ * `undefined` for an unknown kind — never another harness's detector, the same
+ * open/closed discipline {@link manifestFor} states at length.
+ */
+export function harnessDetectLogin(
+  kind: AgentKind | string,
+  homeDir: string,
+): HarnessLogin | undefined {
+  return manifestFor(kind)?.inventory.detectLogin(homeDir)
 }

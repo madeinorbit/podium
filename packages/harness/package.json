@@ -13,6 +13,11 @@
       "@podium/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./metadata": {
+      "@podium/source": "./src/metadata.ts",
+      "types": "./dist/metadata.d.ts",
+      "import": "./dist/metadata.js"
     }
   },
   "files": [

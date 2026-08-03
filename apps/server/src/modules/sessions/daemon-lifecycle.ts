@@ -1,4 +1,4 @@
-import { acceptAgentObservation } from '@podium/harness'
+import { acceptAgentObservation } from '@podium/harness/metadata'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
 import type { ControlMessage, LiveServerMessage, MachinePrincipal } from '@podium/protocol'
 import type { AutoContinueController } from '../../auto-continue'

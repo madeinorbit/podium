@@ -22,7 +22,7 @@ export {
   harnessSupportsMcp,
   harnessUsesPromptTitleFallback,
   transcriptRecordMapperFor,
-} from '@podium/harness'
+} from '@podium/harness/metadata'
 
 /** Makes the temporary adapter explicit rather than disguising it as a legacy
  * app-level re-export shim in the deletion audit. */

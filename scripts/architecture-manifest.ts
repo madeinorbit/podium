@@ -145,8 +145,31 @@ export function isTestFile(file: string): boolean {
   return /\.(test|spec)\.tsx?$/.test(file) || /\/(test|tests|__tests__)\//.test(file)
 }
 
+/**
+ * `apps/<x>/scripts/**` is BUILD TIER, not app source (POD-335).
+ *
+ * The decision the POD-296 allowlist deferred to Phase 7, made here in the open.
+ * `apps/desktop/scripts/stage-sidecar.ts` imports `scripts/build-bun.js` and was
+ * carried as two allowlist entries (`manifest-layer` + `manifest-platform`) whose
+ * own note said the debt was a TAG-GRANULARITY artifact: the manifest tags whole
+ * workspaces, so a build script inherited `apps/desktop`'s L4/browser-safe tags
+ * and was accused of dragging Node into a browser bundle it never reaches.
+ *
+ * Of the two resolutions that note named — move the file under `scripts/`, or
+ * give `apps/*&#47;scripts` its own build-tier tag — this is the second, and it is
+ * the right one: the file is a per-app build step and belongs beside the app it
+ * builds. Classifying it as L5 says the true thing (build tooling composes
+ * everything; nothing ships it) instead of granting an exception to a false one.
+ *
+ * NARROW ON PURPOSE. Only `scripts/` directly under an app, never `src/scripts/`
+ * and never a deeper match, so an app cannot move product code into a folder
+ * named `scripts` and inherit L5's "may import anything".
+ */
+const APP_BUILD_TIER_RE = /^apps\/[^/]+\/scripts\//
+
 /** Workspace a repo-relative file path belongs to: 'apps/x', 'packages/y' or 'scripts'. */
 export function workspaceOf(file: string): string {
+  if (APP_BUILD_TIER_RE.test(file)) return 'scripts'
   const parts = file.split('/')
   if (parts[0] === 'apps' || parts[0] === 'packages') return `${parts[0]}/${parts[1]}`
   if (parts[0] === 'scripts') return 'scripts'
@@ -170,6 +193,59 @@ export interface WorkspaceTags {
   features: readonly string[]
   /** Server role tiers (core<hub<cloud) apply file-level inside this workspace. */
   roleTiered?: boolean
+  /**
+   * The CLOSED set of workspaces this one may import (POD-335).
+   *
+   * The layer ordinal alone is strictly weaker than the near-leaf rules it
+   * replaces, and the gap is not hypothetical: `packages/runtime` is L2 and
+   * `packages/commands` is L1, so the layer axiom would happily admit
+   * `runtime -> commands` while legacy rule 3b's allow-list never did. Same for
+   * `transcript -> commands` and `composer -> commands`. A tag that says "down is
+   * free" cannot express "down, but only to these two", so the matrix carries
+   * both: an ordinal for the general direction and a closed set where the
+   * workspace's whole point is that its dependencies are enumerable.
+   *
+   * ABSENT means "governed by the layer axiom alone" — the right default for an
+   * app composition root, which by definition composes whatever it needs. An
+   * empty array is not the same thing: it means "imports NO workspace package",
+   * which is what makes `packages/model` a leaf.
+   */
+  deps?: readonly string[]
+  /**
+   * The CLOSED set of workspaces that may import THIS one (POD-335) — the
+   * inverse direction, and it needs its own tag because a capability is a
+   * property of the TARGET, not of any one edge.
+   *
+   * `packages/pty` and `packages/harness` drive real agent PROCESSES and PTYs.
+   * That is a host capability: the machine host (apps/daemon) and the build tier
+   * may take it; nothing else may. No ordinal can say this — the edges it
+   * forbids (apps/server L4 -> packages/harness L2) all point correctly DOWN.
+   *
+   * See {@link WorkspaceTags.openEntrypoints} for the narrow surface everyone
+   * else may still reach.
+   */
+  consumers?: readonly string[]
+  /**
+   * Subpath specifiers of a `consumers`-restricted workspace that ANY workspace
+   * may import (POD-335), because their transitive closure carries none of the
+   * capability the restriction exists to contain.
+   *
+   * This is the mechanism that lets the restriction be PRECISE instead of merely
+   * strict. Legacy rule 2 was a whole-package ban, so four `apps/server` files
+   * that read static software metadata — display names, capability descriptors,
+   * pure transcript mappers, two string constants, a protocol-level causal state
+   * machine — were indistinguishable from a file that spawns a process, and all
+   * four sat in the allowlist as debt nobody could pay without moving modules
+   * between packages.
+   *
+   * A declaration here is a DECISION, and {@link Violation}-producing closure
+   * checks in scripts/check-boundaries.ts hold it: an open entrypoint whose graph
+   * reaches a process-spawning API, or whose graph cannot be walked at all, is a
+   * violation. Same shape as the browser-entrypoint pair, and for the same
+   * reason — a declaration list nobody verifies is mechanism-presence, not
+   * coverage.
+   */
+  openEntrypoints?: readonly string[]
 }
 
 /**
@@ -203,23 +279,56 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
       'git-identity',
       'clock',
     ],
+    // THE LEAF (legacy rule 3). An empty closed set, not an absent one: model
+    // imports NO workspace package at all, which is what makes it the one
+    // definition site every other layer can depend on without a cycle.
+    deps: [],
   },
 
   // L1 — wire / commands / contracts.
-  'packages/protocol': { layer: 1, platform: 'browser-safe', features: ['wire-schema', 'titles'] },
-  'packages/issue-client': { layer: 1, platform: 'node-only', features: ['issue-command-table'] },
+  // Near-leaf (legacy rule 3): since POD-300 the entity schemas live in L0 model
+  // and protocol imports them. That single edge is the whole set.
+  'packages/protocol': {
+    layer: 1,
+    platform: 'browser-safe',
+    features: ['wire-schema', 'titles'],
+    deps: ['packages/model'],
+  },
+  // The issue-client seam (IssueTrpc + the CLI's rendering table) sits between
+  // apps/cli and apps/server — it must never import app code or IO packages.
+  'packages/issue-client': {
+    layer: 1,
+    platform: 'node-only',
+    features: ['issue-command-table'],
+    deps: ['packages/commands', 'packages/protocol', 'packages/model'],
+  },
   // The command CONTRACT framework (ADR 3 D1, POD-311's split; landed by POD-728
   // with agent-mail as its first tenant). Pure data + pure policy functions —
   // browser-safe by construction, because a contract that needed a service could
   // not live at L1 at all.
-  'packages/commands': { layer: 1, platform: 'browser-safe', features: ['command-contracts'] },
+  'packages/commands': {
+    layer: 1,
+    platform: 'browser-safe',
+    features: ['command-contracts'],
+    deps: ['packages/protocol', 'packages/model'],
+  },
 
   // L2 — kernels / ports.
-  'packages/transcript': { layer: 2, platform: 'node-only', features: ['transcript-parsing'] },
+  // Pure parsing/paging over protocol types — it must never grow IO or harness
+  // dependencies, which the ordinal alone would permit (transcript L2 could
+  // reach commands L1 on the layer axiom; the closed set is what refuses it).
+  'packages/transcript': {
+    layer: 2,
+    platform: 'node-only',
+    features: ['transcript-parsing'],
+    deps: ['packages/protocol', 'packages/model'],
+  },
   'packages/runtime': {
     layer: 2,
     platform: 'neutral',
     features: ['config', 'sqlite', 'git-port', 'connectivity', 'auth-store', 'settings'],
+    // Node-runtime plumbing that may reach the pure leaves and nothing else.
+    deps: ['packages/protocol', 'packages/model'],
   },
   // The sync kernel. NEUTRAL, and this is a CLASSIFICATION change rather than a
   // code change (POD-307; the decision POD-374 and POD-375 both declined to make
@@ -253,7 +362,12 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
   // browser-safe entrypoints and holds their transitive import closure to
   // no-Node. Retagging without that rule would be trading a false accusation for
   // a real one.
-  'packages/sync': { layer: 2, platform: 'neutral', features: ['oplog', 'upstream-sync'] },
+  'packages/sync': {
+    layer: 2,
+    platform: 'neutral',
+    features: ['oplog', 'upstream-sync'],
+    deps: ['packages/commands', 'packages/protocol', 'packages/runtime', 'packages/model'],
+  },
   // Opt-in telemetry [spec:SP-f933]. NEUTRAL for the same reason as runtime,
   // and by the same construction: the barrel and the pure slices (schema,
   // example, scrub) are browser-safe — apps/web imports './example' for its
@@ -264,6 +378,7 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
     layer: 2,
     platform: 'neutral',
     features: ['telemetry-schema', 'telemetry-consent', 'telemetry-queue'],
+    deps: ['packages/protocol', 'packages/runtime', 'packages/model'],
   },
   // The PTY kernel split out of agent-bridge (POD-396, ADR 8 D4): backends,
   // durable hosts (abduco/tmux + the vendored-C build), byte framing, OSC scan,
@@ -276,6 +391,11 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
     layer: 2,
     platform: 'node-only',
     features: ['pty-port', 'durable-host'],
+    deps: ['packages/protocol', 'packages/model', 'packages/runtime'],
+    // HOST CAPABILITY (legacy rule 2). Importing this package means spawning
+    // PTYs. The machine host and the build tier may; nothing else may, and there
+    // is no open entrypoint because every export here drives a process.
+    consumers: ['apps/daemon', 'scripts'],
   },
   // The home for coding-agent CLI variance: one AgentManifest per CLI
   // (launch/exec/headless/state/discovery/transcript), the native-state
@@ -290,8 +410,16 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
     layer: 2,
     platform: 'node-only',
     features: ['harness-adapters'],
+    deps: ['packages/protocol', 'packages/model', 'packages/runtime', 'packages/transcript'],
+    // HOST CAPABILITY (legacy rule 2), with a declared open surface.
+    consumers: ['apps/daemon', 'scripts'],
+    openEntrypoints: ['@podium/harness/metadata'],
   },
-  'packages/terminal-client': { layer: 2, platform: 'browser-safe', features: ['terminal-port'] },
+  'packages/terminal-client': {
+    layer: 2,
+    platform: 'browser-safe',
+    features: ['terminal-port'],
+  },
   // The harness composer port: pure prompt-draft extraction + keystroke
   // injection, imported only from @podium/protocol. BROWSER-SAFE by
   // construction and by consumer — apps/web aliases it in vite.config.ts, and
@@ -303,6 +431,7 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
     layer: 2,
     platform: 'browser-safe',
     features: ['composer-driver', 'prompt-draft'],
+    deps: ['packages/protocol', 'packages/model'],
   },
 
   // L3 — features / adapters / engine.
@@ -367,6 +496,73 @@ export const SAME_LAYER_ALLOWED: ReadonlySet<string> = new Set<string>([
   // L2: terminal-client's DOM readiness check uses the shared,
   // pure composer extractor rather than carrying a second copy.
   'packages/terminal-client -> packages/composer',
+  // L1: the CLI's issue client RENDERS the shared command contracts (POD-311)
+  // rather than declaring its own command-name universe. Previously invisible to
+  // this set because the import is type-only and type-only used to skip the
+  // whole rule; it is a deliberate edge and now says so (POD-335).
+  'packages/issue-client -> packages/commands',
+])
+
+/**
+ * THE BROWSER SURFACE of every NEUTRAL workspace (POD-335) — specifier → the
+ * source module it names.
+ *
+ * `neutral` means "one bit cannot say both": the workspace has a browser-safe
+ * half and a node-only half behind explicit subpaths. That makes it
+ * unconstrained by the platform rule, which on its own is a hole — a
+ * browser-safe app could import the bare barrel and inline Node. This map is the
+ * half that closes it, and it is where legacy rule 8 (runtime browser-safety)
+ * comes to rest: rule 8a said "apps/web may import only the bare @podium/runtime
+ * specifier, never a subpath", which is exactly one row here, generalised from
+ * one app to every browser-safe workspace because ADR 6 puts a client adapter on
+ * mobile too.
+ *
+ * Adding a row is a DECISION that the module's whole import closure is
+ * browser-safe, and the closure check in scripts/check-boundaries.ts holds you to
+ * it — including reporting an entry that does not exist or cannot be walked,
+ * since a truncated closure is green for the wrong reason. That closure check is
+ * also strictly stronger than the rule 8b it replaces: 8b stopped at one hop and
+ * said so, so a barrel re-exporting a file that re-exports a node-tainted file
+ * slipped through.
+ */
+export const BROWSER_ENTRYPOINTS: ReadonlyMap<string, string> = new Map([
+  // packages/runtime — the root barrel only. Every node-only concern (config,
+  // sqlite, git, connectivity, auth-store) lives behind its own subpath, which
+  // is what makes "the bare specifier is the whole browser surface" true.
+  ['@podium/runtime', 'packages/runtime/src/index.ts'],
+  // packages/telemetry — the pure display example apps/web renders in its
+  // privacy and setup copy. The bare specifier pulls the emitter and node:fs.
+  ['@podium/telemetry/example', 'packages/telemetry/src/example.ts'],
+  // packages/sync — the Replica and Outbox ROLES and the storage adapters built
+  // for a browser and a phone (POD-307).
+  ['@podium/sync/replica', 'packages/sync/src/replica/index.ts'],
+  ['@podium/sync/outbox', 'packages/sync/src/outbox/index.ts'],
+  ['@podium/sync/span', 'packages/sync/src/span.ts'],
+  ['@podium/sync/adapters/indexeddb', 'packages/sync/src/adapters/indexeddb/index.ts'],
+  ['@podium/sync/adapters/mobile-sqlite', 'packages/sync/src/adapters/mobile-sqlite/index.ts'],
+  ['@podium/sync/adapters/legacy-replica', 'packages/sync/src/adapters/legacy-replica/index.ts'],
+])
+
+/** The declared browser specifiers of one workspace, for a failure message that
+ *  names the alternatives instead of only the refusal. */
+export function browserEntrypointsOf(workspace: string): string[] {
+  const prefix = `@podium/${workspace.slice(workspace.indexOf('/') + 1)}`
+  return [...BROWSER_ENTRYPOINTS.keys()]
+    .filter((s) => s === prefix || s.startsWith(`${prefix}/`))
+    .sort()
+}
+
+/**
+ * Same-layer edges allowed ONLY as `import type` (POD-335).
+ *
+ * One entry, and it is the one legacy rule 1 named: `apps/web` imports the
+ * `AppRouter` TYPE from `apps/server` for its tRPC client. Erased at build, so
+ * there is no runtime dependency and no bundle consequence — but a RUNTIME
+ * import of the same specifier is still refused, which is the distinction the
+ * legacy rule made and this set preserves.
+ */
+export const SAME_LAYER_TYPE_ONLY_ALLOWED: ReadonlySet<string> = new Set<string>([
+  'apps/web -> apps/server',
 ])
 
 export function tagsFor(workspace: string): WorkspaceTags | null {
@@ -423,7 +619,6 @@ export function checkManifestEdge(
   to: string,
   ref: ImportRef,
 ): Violation[] {
-  if (ref.typeOnly) return []
   const fromTags = tagsFor(from)
   const toTags = tagsFor(to)
   if (!fromTags || !toTags) return []
@@ -432,15 +627,41 @@ export function checkManifestEdge(
   const edge = `${from} -> ${to}`
   const testFile = isTestFile(file)
 
+  // TYPE-ONLY IS EXEMPT FROM PLATFORM, NOT FROM DIRECTION — and the split is
+  // inherited from the rules this replaces rather than invented. A type import is
+  // erased at build, so it cannot drag Node into a browser bundle (legacy rule 1
+  // sanctioned exactly one type-only app→app edge for that reason). But it is
+  // still a BUILD coupling: a package whose types need an app can no longer be
+  // built or typechecked without that app, which is an architectural fact
+  // erasure has no say over — legacy rule 4 exempted nothing, and legacy rule 1
+  // refused every type-only app→app edge except the one it named.
+  const typeOnlyAllowed = ref.typeOnly && SAME_LAYER_TYPE_ONLY_ALLOWED.has(edge)
+
   // Layer axiom: down is free, sideways must be declared, up is never allowed.
-  if (toTags.layer > fromTags.layer) {
+  //
+  // The UPWARD arm exempts a type-only edge between two PACKAGES and not one
+  // that reaches an APP, which is legacy rule 4's line exactly ("packages never
+  // import from apps", with no exemption of any kind) rather than a new one.
+  // Measured before choosing it: refusing every type-only upward edge surfaces
+  // eight `packages/terminal-client -> packages/client-core` imports of
+  // `@podium/client-core/socket-transport` — a real L2→L3 inversion that no
+  // legacy rule ever refused, and one that needs terminal-client restructured
+  // rather than a guardrail issue quietly widening its own scope. Recorded in
+  // docs/gates/pod-335-boundary-lint-end-state.md and filed, not swept.
+  const upwardExempt = ref.typeOnly && !to.startsWith('apps/')
+  if (toTags.layer > fromTags.layer && !upwardExempt) {
     violations.push({
       file,
       specifier: ref.specifier,
       rule: 'manifest-layer',
       message: `${file}: ${from} (${LAYER_NAMES[fromTags.layer]}) imports UP into ${to} (${LAYER_NAMES[toTags.layer]}) via '${ref.specifier}' — imports must point down the layer order`,
     })
-  } else if (toTags.layer === fromTags.layer && !SAME_LAYER_ALLOWED.has(edge) && !testFile) {
+  } else if (
+    toTags.layer === fromTags.layer &&
+    !SAME_LAYER_ALLOWED.has(edge) &&
+    !typeOnlyAllowed &&
+    !testFile
+  ) {
     violations.push({
       file,
       specifier: ref.specifier,
@@ -449,8 +670,46 @@ export function checkManifestEdge(
     })
   }
 
+  // Closed dependency set: where a workspace declares one, DOWN is not enough.
+  // Tests are NOT exempt — a near-leaf whose tests need a package it may not
+  // import is a near-leaf that can no longer be built or tested without it,
+  // which is the same architectural fact the upward rule refuses.
+  if (fromTags.deps && !fromTags.deps.includes(to) && !typeOnlyAllowed) {
+    violations.push({
+      file,
+      specifier: ref.specifier,
+      rule: 'manifest-deps',
+      message: `${file}: ${from} declares a CLOSED dependency set and '${to}' is not in it (allowed: ${fromTags.deps.length > 0 ? [...fromTags.deps].sort().join(', ') : 'none — this is a leaf'}) — imported via '${ref.specifier}'. Widening the set is a decision: edit the workspace's \`deps\` in scripts/architecture-manifest.ts.`,
+    })
+  }
+
+  // Capability consumers: a property of the TARGET, so no ordinal can say it.
+  // The open entrypoints are checked by the caller against the SPECIFIER, since
+  // the whole point is that one subpath of the package is reachable and the
+  // barrel is not.
+  if (toTags.consumers && !toTags.consumers.includes(from) && from !== to) {
+    const open = toTags.openEntrypoints ?? []
+    // A test is exempt only if it lives INSIDE the restricted workspace. Legacy
+    // rule 2 allowed `packages/harness`'s own tests to drive its own processes
+    // and nothing else; exempting every test file would have let an apps/server
+    // test take the capability its source may not.
+    if (!open.includes(ref.specifier) && !(testFile && file.startsWith(`${to}/`))) {
+      violations.push({
+        file,
+        specifier: ref.specifier,
+        rule: 'manifest-consumers',
+        message: `${file}: ${to} restricts its consumers to ${[...toTags.consumers].sort().join(', ')} — importing it means taking a host capability (spawning agent processes / PTYs), which ${from} is not entitled to. ${open.length > 0 ? `Its declared open surface is: ${[...open].sort().join(', ')}.` : 'It declares no open entrypoint: every export drives a process.'}`,
+      })
+    }
+  }
+
   // Platform: a browser-safe workspace may only reach browser-safe or neutral.
-  if (fromTags.platform === 'browser-safe' && toTags.platform === 'node-only' && !testFile) {
+  if (
+    fromTags.platform === 'browser-safe' &&
+    toTags.platform === 'node-only' &&
+    !ref.typeOnly &&
+    !testFile
+  ) {
     violations.push({
       file,
       specifier: ref.specifier,
@@ -685,6 +944,271 @@ export function findHarnessBranching(
 }
 
 // ---------------------------------------------------------------------------
+// Feature ownership — identity / authorization / visibility single-home
+// ---------------------------------------------------------------------------
+
+/**
+ * THE DECLARED HOMES of identity, authorization and visibility resolution
+ * (POD-335; docs/multi-user-readiness.md §3.1.1, §3.1.4 M6, §3.2).
+ *
+ * PINNED TO WHAT SHIPPED, not invented here. §3.2 is explicit that the closed
+ * `IssueScope` set is to be EXTENDED with owner/grant scopes *"rather than
+ * inventing a parallel check"*, and §3.1.4 M6 says machine access is expressed
+ * as grants on the same principal model *"rather than as a separate fleet ACL"*.
+ * These four paths are where POD-1073 / POD-1075 / POD-1077 put that machinery:
+ *
+ *   packages/model/src/authz/        capability, role, the closed IssueScope set
+ *                                    and the ONE `authorize` decision
+ *   packages/model/src/identity/     user, grant edge, delegation, client session
+ *   packages/model/src/annotations/  ADR 1's ownership matrix and the visibility
+ *                                    classes `visibilityClassOf` resolves over
+ *   packages/sync/src/feed/          the authority-side per-principal evaluation
+ *                                    (POD-1077) that reads all three
+ *
+ * Everything else CONSULTS them. A server module, a client viewmodel or a
+ * machines module that re-derives the answer is a second authorization surface,
+ * and — this is the part a review cannot catch — it is a second surface that
+ * PASSES ITS OWN TESTS while disagreeing with the first one.
+ */
+export const AUTHZ_HOMES: readonly string[] = [
+  'packages/model/src/authz/',
+  'packages/model/src/identity/',
+  'packages/model/src/annotations/',
+  'packages/sync/src/feed/',
+]
+
+/**
+ * The classes the TABLE detector counts — ADR 9 D3's set minus `secret`.
+ *
+ * `'secret'` is excluded and the exclusion is measured, not cautious: the
+ * literal is also a resource kind (`resource: 'secret'` in the instance command
+ * contracts) and a discriminant (`kind: 'secret'` in the settings write plan),
+ * and counting it made this rule report three `packages/commands` files that
+ * hold no classification at all. A table that really is a second classification
+ * carries the other four alongside it, so nothing is lost — the memory module
+ * this rule was written against matches six times without it.
+ */
+const UNAMBIGUOUS_VISIBILITY_CLASSES = [
+  'personal',
+  'per-user-state',
+  'owned-compute',
+  'deployment-substrate',
+]
+
+/** The full class set, as ADR 1's matrix spells them. */
+const VISIBILITY_CLASS_LITERALS = [
+  'personal',
+  'per-user-state',
+  'owned-compute',
+  'deployment-substrate',
+  'secret',
+]
+
+/**
+ * Names that DECIDE a visibility or grant question. Matched at DECLARATION sites
+ * only — a top-level `function`/`const`, or a class method — never at call sites
+ * and never on an interface member or an object property.
+ *
+ * That distinction is the whole difference between a rule and a noise generator.
+ * The repo is full of PORTS that name these verbs (`canSee(principal, entity)`
+ * on `packages/protocol`'s plane contract, `hasGrant` on the workflows ownership
+ * port) and of composition roots that INJECT an implementation (`relay.ts`
+ * passes `mayRead:`/`canSee:` closures into the kernel). Declaring the port is
+ * how the decision gets asked for; supplying it at the composition root is how
+ * the one implementation gets wired. Neither is a parallel check. Writing the
+ * decision yourself, in a module that consults none of the homes, is.
+ */
+const AUTHZ_DECISION_NAMES = [
+  'canSee',
+  'maySee',
+  'mayView',
+  'mayRead',
+  'mayReadSession',
+  'isVisibleTo',
+  'visibleTo',
+  'evaluateVisibility',
+  'resolveVisibility',
+  'filterVisible',
+  'hasGrant',
+  'hasReadGrant',
+  'grantsFor',
+  'checkAccess',
+  'visibilityClassOf',
+  'grantVerbsOf',
+]
+
+const AUTHZ_DECL_RE = new RegExp(
+  // A DEFINITION site: `export function foo(`, `function foo(`, `const foo = (`,
+  // or a class method `private foo(` / `foo(`. The trailing shape is checked by
+  // {@link hasBody}, which is what separates a definition from a PORT.
+  `^[ \\t]*(?:export\\s+)?(?:async\\s+)?(?:function\\s+|const\\s+|private\\s+|public\\s+|protected\\s+|static\\s+)?(${AUTHZ_DECISION_NAMES.join('|')})\\s*(?:=\\s*(?:async\\s*)?)?\\(`,
+  // LINE-ANCHORED, which is what keeps a CALL SITE out of a rule about
+  // DECLARATIONS: `deps.ceiling.canSee({ kind: 'session', id })` matched an
+  // unanchored pattern and then satisfied the body scan on the `{` of the
+  // ternary that followed it. Asking the one authority is the behaviour this
+  // rule exists to encourage; flagging it would invert the whole guardrail.
+  'gm',
+)
+
+/**
+ * True when the `(` at `open` begins a function DEFINITION rather than a port
+ * DECLARATION — i.e. a body follows the parameter list and its optional return
+ * type annotation.
+ *
+ * This is the discriminator the whole rule rests on, so it is a scan and not a
+ * regex. `packages/protocol`'s plane contract declares `canSee(principal,
+ * entity): boolean` and `packages/commands`' workflows port declares
+ * `hasGrant(user, entity, verb): boolean`; both are how the ONE implementation
+ * gets ASKED for, and flagging them would make the rule fire hardest on the code
+ * that is doing the right thing.
+ */
+function hasBody(src: string, open: number): boolean {
+  let depth = 0
+  let i = open
+  for (; i < src.length; i++) {
+    const c = src[i]
+    if (c === '(') depth++
+    else if (c === ')') {
+      depth--
+      if (depth === 0) break
+    }
+  }
+  if (i >= src.length) return false
+  // Past the parameter list: skip an optional `: ReturnType` and any whitespace.
+  // A `{` reached before a statement terminator means a body follows.
+  for (let j = i + 1; j < src.length && j < i + 400; j++) {
+    const c = src[j] as string
+    if (c === '{') return true
+    if (c === ';' || c === ',' || c === ')' || c === '}' || c === '=') return false
+    if (c === '\n') {
+      // A blank line, or a line that starts a new member, ends the candidate.
+      if (src[j + 1] === '\n') return false
+    }
+  }
+  return false
+}
+
+/**
+ * A SECOND CLASSIFICATION TABLE: two or more entries whose VALUE is a visibility
+ * class under a key the file invented.
+ *
+ * The `visibility:` key is deliberately excluded, and that exclusion is the rule
+ * rather than a hole in it. Declaring `visibility: 'owned-compute'` on a command
+ * contract or a canonical aggregate is exactly what §3.1.1 rule 2 ASKS for — a
+ * class declared against ADR 1's matrix, checked against it by
+ * `classificationViolations`. What must not exist is a lookup table that ANSWERS
+ * the classification question a second time, like a
+ * `{ session: 'personal', issue: 'personal', setting: 'deployment-substrate' }`
+ * keyed by a locally-invented document-class enum: nothing checks it against the
+ * matrix, and on the day the two disagree the caller's reach decides which one
+ * is true.
+ */
+/**
+ * Keys whose value is a DECLARATION against the matrix, or a homonym, rather
+ * than a classification the file is making up.
+ *
+ * `visibility:` is §3.1.1 rule 2 being obeyed. `resource:`/`scope:`/`kind:` are
+ * ADR 3 D2's policy vocabulary, which shares the literal `per-user-state` with
+ * ADR 9 D3's class set — measured on
+ * `packages/commands/src/sessions/session-state-commands.ts`, five contracts
+ * declaring `resource: 'per-user-state'` and holding no class table at all.
+ */
+const DECLARATION_KEYS: ReadonlySet<string> = new Set(['visibility', 'resource', 'scope', 'kind'])
+
+const VISIBILITY_VALUE_RE = new RegExp(
+  `(?:^|[{,\\s])['"]?([A-Za-z_$][\\w$-]*)['"]?\\s*:\\s*'(?:${UNAMBIGUOUS_VISIBILITY_CLASSES.join('|')})'`,
+  'gm',
+)
+
+function secondClassificationTable(stripped: string): boolean {
+  let count = 0
+  for (const m of stripped.matchAll(VISIBILITY_VALUE_RE)) {
+    if (DECLARATION_KEYS.has(m[1] ?? '')) continue
+    count++
+    if (count >= 2) return true
+  }
+  return false
+}
+
+/** True when the file consults a declared home — the discriminator between a
+ *  module that ASKS the one authority and one that answers for itself. */
+function importsAnAuthzHome(source: string): boolean {
+  // The IMPORT CLAUSE, not the package name. `import { asIssueId } from
+  // '@podium/model'` is not consulting the authorization home — it is asking for
+  // an id brand — and treating it as if it were is how this rule would have
+  // passed the very module it was written to catch
+  // (apps/server/src/modules/memory/visibility.ts, measured).
+  for (const m of source.matchAll(
+    /\b(?:import|export)\s+(?:type\s+)?(\{[^}]*\}|[A-Za-z_$][\w$]*)\s+from\s*['"][^'"]+['"]/g,
+  )) {
+    if (AUTHZ_HOME_VOCABULARY_RE.test(m[1] ?? '')) return true
+  }
+  return false
+}
+
+/**
+ * The symbols a module imports when it CONSULTS the one authority rather than
+ * answering for itself: the decision, the capability vocabulary it is asked in,
+ * the grant edge, and the matrix resolver.
+ */
+const AUTHZ_HOME_VOCABULARY_RE =
+  /\b(?:authorize|Capability|IssueScope|IssueAction|IssueRole|AuthTarget|AuthDecision|IssueAccessIndex|OPERATOR|visibilityClassOf|VisibilityClass|grantVerbsOf|GrantEdge|GrantVerb|evaluateVisibility|checkIssueAccess|mayReadOwned)\b/
+
+/**
+ * Rule `authz-single-home` — identity, authorization and visibility resolution
+ * live in their declared home (POD-335). A guardrail with NO legacy predecessor:
+ * it arrives with multi-user, not with the rewrite.
+ *
+ * TWO ARMS, because the two ways to build a parallel check look nothing alike:
+ *
+ *  (a) A SECOND CLASSIFICATION TABLE. A literal map to `VisibilityClass` members
+ *      outside `annotations/`. ADR 1's matrix is the normative column set and
+ *      `visibilityClassOf` is the total, default-closed resolver over it; a
+ *      hand-written table beside it is a fact that can silently disagree, and it
+ *      fails OPEN when the two drift because whichever module the caller reached
+ *      is the one that answered.
+ *
+ *  (b) A DECISION DECLARED WITHOUT CONSULTING A HOME. A module outside the homes
+ *      that declares one of the decision verbs and imports no home is answering
+ *      "may this principal see X" on its own authority. The import test is what
+ *      keeps this from flagging every delegator: `apps/server/src/issue-authz.ts`
+ *      declares `checkIssueAccess` and passes, because it imports `authorize`
+ *      from the model and only shapes the throw.
+ */
+export function checkAuthzSingleHome(file: string, source: string): Violation[] {
+  if (isTestFile(file)) return []
+  if (AUTHZ_HOMES.some((home) => file.startsWith(home))) return []
+  if (!file.startsWith('apps/') && !file.startsWith('packages/')) return []
+  const stripped = stripComments(source)
+  const violations: Violation[] = []
+
+  if (secondClassificationTable(stripped)) {
+    violations.push({
+      file,
+      specifier: 'VisibilityClass table',
+      rule: 'authz-single-home',
+      message: `${file}: declares a SECOND visibility-class table. ADR 1's ownership matrix (packages/model/src/annotations/matrix.ts) is the one normative classification and \`visibilityClassOf\` is its total, default-closed resolver — derive the class from the matrix row instead of restating it, so the two cannot drift (docs/multi-user-readiness.md §3.1.1 rule 2).`,
+    })
+  }
+
+  if (!importsAnAuthzHome(stripped)) {
+    AUTHZ_DECL_RE.lastIndex = 0
+    for (const m of stripped.matchAll(AUTHZ_DECL_RE)) {
+      const open = stripped.indexOf('(', m.index + (m[0]?.length ?? 1) - 1)
+      if (open < 0 || !hasBody(stripped, open)) continue
+      violations.push({
+        file,
+        specifier: m[1] ?? 'authz decision',
+        rule: 'authz-single-home',
+        message: `${file}:${lineOf(stripped, m.index)}: declares '${m[1]}', a visibility/grant DECISION, in a module that consults none of the declared homes (${AUTHZ_HOMES.join(', ')}). Identity, authorization and visibility have exactly one home: extend the closed IssueScope set and call \`authorize\` rather than inventing a parallel check (docs/multi-user-readiness.md §3.2; §3.1.4 M6 for machine grants). Declaring a PORT with this name, or injecting an implementation at a composition root, is fine — this fires only on a declaration that answers the question itself.`,
+      })
+    }
+  }
+
+  return violations
+}
+
+// ---------------------------------------------------------------------------
 // Allowlist / ratchet
 // ---------------------------------------------------------------------------
 
@@ -702,20 +1226,32 @@ export const MANIFEST_RULES: ReadonlySet<string> = new Set([
   'manifest-platform',
   'manifest-role',
   'manifest-untagged',
+  // POD-335 — the tags that retired the legacy eight. `manifest-deps` and
+  // `manifest-consumers` are the dependency matrix's closed sets (legacy rules
+  // 1/3/3b/4/5 and 2); `manifest-open-entrypoint` and `manifest-browser-reach`
+  // hold the two declared surfaces honest (legacy rules 2 and 8);
+  // `feature-single-home` and `authz-single-home` are the feature-ownership arm
+  // (legacy rule 7, and the multi-user guardrail that has no predecessor).
+  'manifest-deps',
+  'manifest-consumers',
+  'manifest-open-entrypoint',
+  'manifest-browser-reach',
+  'feature-single-home',
+  'authz-single-home',
   'harness-branching',
   'harness-classifier-boundary',
-  // Rule 12 (POD-307). A MANIFEST rule, not a legacy one, because it is the
-  // guard that replaces what `packages/sync`'s node-only tag used to provide:
-  // it has to run in `lint:architecture`, the BLOCKING step, or the retag would
-  // be protected only by a check CI is allowed to sail past.
-  'sync-browser-reach',
 ])
 
-/** Rules enforced at error level: allowlist entries cannot downgrade them. */
-export const ERROR_LEVEL_MANIFEST_RULES: ReadonlySet<string> = new Set([
-  'harness-branching',
-  'harness-classifier-boundary',
-])
+/**
+ * Rules enforced at error level: allowlist entries cannot downgrade them.
+ *
+ * POD-335 made this EVERY manifest rule. The set is kept — rather than deleted
+ * along with the allowlist — because it is what makes "empty" a property the
+ * build defends instead of a state of a file: `applyManifestPolicy` reports an
+ * allowlist entry naming an error-level rule as a FORBIDDEN entry, so the way
+ * back to a ratchet is a build failure, not an edit nobody notices.
+ */
+export const ERROR_LEVEL_MANIFEST_RULES: ReadonlySet<string> = new Set(MANIFEST_RULES)
 
 /** Split one allowlist into [manifest entries, legacy entries]. */
 export function partitionAllowlist(

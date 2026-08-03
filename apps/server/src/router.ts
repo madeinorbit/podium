@@ -90,7 +90,7 @@ import { specsInputs } from './modules/specs/service'
 import { specFamilyProcedures } from './modules/specs/trpc'
 import { superagentFamilyProcedures } from './modules/superagent/trpc'
 import type { RegistryModules } from './relay'
-import { normalizeOriginUrl } from './repo-id'
+import { canonicalizeRepoOrigin } from './repo-id'
 import { browseDirectories } from './repo-registry'
 import { isAllowedRoot } from './root-allowlist'
 

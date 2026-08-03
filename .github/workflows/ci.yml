@@ -38,16 +38,26 @@ jobs:
       - name: deletion audit ratchet (rearchitecture v3)
         run: bun run audit:rearch
 
-      # BLOCKING — the architecture-manifest ratchet (POD-296). Deliberately a
-      # separate step from `bun run lint` above: that one is continue-on-error
-      # while its pre-existing reds are burned down (biome #30, POD-740), so a
-      # ratchet living inside it would report a NEW violation and CI would pass
-      # anyway. This runs the manifest alone and fails ONLY on violations that
-      # are not in scripts/boundary-allowlist.ts (or exceed a declared count).
-      # Known debt warns and does not fail. POD-335 removes --manifest-only when
-      # the legacy rules retire and the whole lint goes blocking.
-      - name: architecture manifest ratchet
-        run: bun run lint:architecture
+      # BLOCKING, and deliberately its own step rather than folded into the
+      # `bun run lint` bundle above: that one is continue-on-error while biome's
+      # backlog is burned down (#30), and POD-744 is the cautionary tale — a
+      # guardrail bundled under a swallowed red reported green for weeks while
+      # exiting 1.
+      #
+      # POD-335 dropped `--manifest-only`. That flag existed because the legacy
+      # rule family was red (POD-740's four agent-host-consumers violations) and
+      # the manifest had to be blockable without them. Both halves are green now:
+      # the eight legacy rules are RETIRED against manifest equivalents, the
+      # allowlist is EMPTY, and every manifest rule runs at error level. So the
+      # whole boundary lint blocks, which is the end state POD-296 was aiming at.
+      - name: dependency boundaries + architecture manifest (error level, no allowlist)
+        run: bun run lint:boundaries
+      # The layer diagram in ARCHITECTURE.md is RENDERED from the same manifest
+      # the lint reads. Without this step a hand edit is silently lost at the
+      # next render, which is how the two sources drifted apart in the first
+      # place (the old block still called @podium/protocol a leaf).
+      - name: ARCHITECTURE.md layer diagram is not stale
+        run: bun run docs:layers:check
 
   # [POD-758] Own blocking job — never fold into the continue-on-error lint
   # bundle above. A raw NUL makes the file binary: real grep is loud, but

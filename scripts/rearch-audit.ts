@@ -609,6 +609,68 @@ export const REGISTERED_RESIDUE: readonly RegisteredResidue[] = [
   },
 ]
 
+/**
+ * True when a repo-relative source file is named by its own package's `exports`
+ * map — i.e. it IS the public surface rather than a tombstone pointing at one.
+ *
+ * Reads package.json rather than trusting a filename. Memoised per package
+ * because the audit walks every file in the tree.
+ */
+const packageEntrypointCache = new Map<string, ReadonlySet<string>>()
+
+/** This file lives in `scripts/`, so the repo root is one level up. */
+const AUDIT_REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+
+/**
+ * A `packages/*` file that IS the public surface, by either of the two ways this
+ * repo expresses one.
+ *
+ * The UNION is deliberate and it is not a widening for convenience. The original
+ * test — a directory `index.ts` under `packages/*&#47;src/**` — stays untouched and
+ * still spares internal barrels like `packages/sync/src/feed/index.ts`, which no
+ * exports map names because they are not meant to be imported from outside the
+ * package. Measured before choosing the union: the exports-map test ALONE takes
+ * the count from 21 to 33, because it would start flagging exactly those.
+ *
+ * What the second clause adds is the case the name proxy cannot see: an
+ * entrypoint declared under a name that is not `index`.
+ */
+function isPackagePublicSurface(file: string): boolean {
+  return (
+    /^packages\/[^/]+\/src\/(?:.*\/)?index\.ts$/.test(file) || isDeclaredPackageEntrypoint(file)
+  )
+}
+
+export function isDeclaredPackageEntrypoint(file: string): boolean {
+  const m = /^(packages\/[^/]+)\//.exec(file)
+  if (!m) return false
+  const workspace = m[1] as string
+  let declared = packageEntrypointCache.get(workspace)
+  if (declared === undefined) {
+    const paths = new Set<string>()
+    try {
+      const pkg = JSON.parse(
+        readFileSync(join(AUDIT_REPO_ROOT, workspace, 'package.json'), 'utf8'),
+      ) as {
+        exports?: Record<string, string | Record<string, string>>
+      }
+      for (const entry of Object.values(pkg.exports ?? {})) {
+        for (const target of typeof entry === 'string' ? [entry] : Object.values(entry)) {
+          if (typeof target === 'string' && target.startsWith('./')) {
+            paths.add(`${workspace}/${target.slice(2)}`)
+          }
+        }
+      }
+    } catch {
+      // No package.json, or unreadable: nothing is declared, so nothing is spared.
+      // Fails toward FLAGGING, which is the safe direction for a debt ratchet.
+    }
+    declared = paths
+    packageEntrypointCache.set(workspace, paths)
+  }
+  return declared.has(file)
+}
+
 export const CHECKS: AuditCheck[] = [
   {
     /*
@@ -1112,7 +1174,19 @@ export const CHECKS: AuditCheck[] = [
         // not debt: `protocol/src/messages/index.ts` re-exports the domain split
         // precisely so `@podium/protocol`'s import path stays stable. Only
         // APP-level all-re-export files are shims (a moved module's tombstone).
-        if (/^packages\/[^/]+\/src\/(?:.*\/)?index\.ts$/.test(f.file)) continue
+        //
+        // The test used to be the NAME `index.ts`, which is a proxy for "public
+        // surface" and stops being one the moment a package declares an
+        // entrypoint under any other name. POD-335 did exactly that:
+        // `@podium/harness/metadata` is a deliberate capability-NARROWING
+        // entrypoint — an explicit named list of what a non-host consumer may
+        // reach, whose enumerability is itself enforced by
+        // `manifest-open-entrypoint` — and the name proxy counted it as a moved
+        // module's tombstone. So the test is now the FACT: is this file declared
+        // in its own package's `exports` map. Strictly more accurate in both
+        // directions — a declared non-index entrypoint is spared, and an
+        // `index.ts` nobody exports is no longer spared for its name alone.
+        if (isPackagePublicSurface(f.file)) continue
         // STATEMENT-based, not line-based. A wrapped `export {\n a,\n} from 'x'`
         // has no single line carrying both `export` and `from`, so a per-line
         // test drops the file entirely — and since biome (lineWidth 100) wraps a

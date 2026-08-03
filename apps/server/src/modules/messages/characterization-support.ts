@@ -178,13 +178,11 @@ export interface MailHarness {
   events(kinds?: string[]): { kind: string; subject: string; payload: unknown }[]
 }
 
-const OPERATOR_CAP: Capability = {
-  role: 'admin',
-  scope: { kind: 'all' },
-  actorUser: FIRST_ADMIN_USER_ID,
-  onBehalfOf: FIRST_ADMIN_USER_ID,
-}
-export const OPERATOR = OPERATOR_CAP
+// THE model's operator capability, re-exported (POD-335). This used to be a
+// byte-identical second declaration — same role, same scope, same two attribution
+// fields — which is a copy that passes every test right up until the day the real
+// one gains a field. `feature-single-home` fails the build on the copy.
+export { OPERATOR } from '@podium/model'
 
 export function mailHarness(opts?: HarnessOptions): MailHarness {
   const store = new SessionStore(':memory:')

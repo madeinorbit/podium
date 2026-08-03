@@ -1,7 +1,7 @@
-import { asRepoId, type RepoId } from '@podium/model'
 import { createHash } from 'node:crypto'
 import { readFileSync, statSync } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
+import { asRepoId, type RepoId } from '@podium/model'
 
 /** Stable repo identity (#74). A repo's `repo_id` is derived from its normalized
  *  origin URL when one is known — so the same repository cloned at different paths
@@ -18,8 +18,16 @@ const DEFAULT_PORTS: Record<string, string> = { ssh: '22', http: '80', https: '4
  * same repository normalize identically. Credentials are stripped, the host is
  * lowercased, default ports and trailing `.git`/slashes are dropped.
  * Returns null for empty or unparseable input.
+ *
+ * NAMED FOR REPO_ID, not for URLs (POD-335). This was `normalizeOriginUrl`, which
+ * is also the name of a `@podium/model` predicate — and the two are NOT the same
+ * function: the model's returns `''` for unparseable input and this one returns
+ * `null`, because repo_id identity must be able to say "no identity" rather than
+ * collapse every unparseable origin onto one empty key. `feature-single-home`
+ * refuses the shared name; the distinct behaviour is the reason the fix is a
+ * rename and not a merge.
  */
-export function normalizeOriginUrl(url: string | null | undefined): string | null {
+export function canonicalizeRepoOrigin(url: string | null | undefined): string | null {
   const raw = url?.trim()
   if (!raw) return null
 
@@ -28,7 +36,9 @@ export function normalizeOriginUrl(url: string | null | undefined): string | nul
   let port: string | undefined
   let path: string
 
-  const full = raw.match(/^([A-Za-z][A-Za-z0-9+.-]*):\/\/(?:[^/@]*@)?([^/:?#]+)(?::(\d+))?(\/[^?#]*)?/)
+  const full = raw.match(
+    /^([A-Za-z][A-Za-z0-9+.-]*):\/\/(?:[^/@]*@)?([^/:?#]+)(?::(\d+))?(\/[^?#]*)?/,
+  )
   // scp-style: [user@]host:path — only when there's no scheme and the part after
   // ':' doesn't look like a port-only or //-authority form.
   const scp = full ? null : raw.match(/^(?:[^@/]+@)?([^:/@]+):([^/].*)$/)
@@ -69,7 +79,7 @@ export function deriveRepoId(input: {
 }): RepoId {
   // MINT SITE for a RepoId — derived here from an origin URL or a (machine, path)
   // fallback, so this is where the brand is applied (POD-362).
-  const normalized = normalizeOriginUrl(input.originUrl)
+  const normalized = canonicalizeRepoOrigin(input.originUrl)
   if (normalized) return asRepoId(`repo_${sha1_16(normalized)}`)
   return asRepoId(`repo_${sha1_16(`path:${input.machineId}:${input.path}`)}`)
 }

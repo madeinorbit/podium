@@ -97,7 +97,9 @@
     "desktop:build": "bun run --cwd apps/desktop build",
     "migration:new": "bun run scripts/new-migration.ts",
     "migration:check": "drizzle-kit check",
-    "migration:manifest": "bun run scripts/build-drizzle-manifest.ts"
+    "migration:manifest": "bun run scripts/build-drizzle-manifest.ts",
+    "docs:layers": "bun scripts/render-layer-diagram.ts",
+    "docs:layers:check": "bun scripts/render-layer-diagram.ts --check"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.16",

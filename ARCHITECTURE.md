@@ -18,27 +18,104 @@ keeping CLI variance, PTY mechanics, and browser DOM code in separate packages.
 
 ## Dependency direction
 
+<!-- BEGIN GENERATED: layer diagram (scripts/render-layer-diagram.ts) -->
+
+Imports point DOWN the layer order. A same-layer edge is not implicit — it must be
+declared. An upward edge is a violation, and so is a dependency outside a workspace’s
+declared closed set.
+
 ```
-@podium/web              ->  @podium/terminal-client, @podium/client-core, @podium/runtime
-@podium/web              ~>  @podium/server   (type-only AppRouter; planned, no runtime dep)
-@podium/server           ->  @podium/runtime, @podium/model, @podium/protocol
-@podium/server           ->  @podium/commands, @podium/sync
-@podium/daemon           ->  @podium/harness, @podium/pty, @podium/protocol, @podium/runtime
-@podium/client-core      ->  @podium/protocol, @podium/model, @podium/runtime, @podium/terminal-client
-@podium/harness          ->  @podium/protocol, @podium/runtime, @podium/transcript
-@podium/pty              ->  @podium/protocol, @podium/runtime
-@podium/terminal-client  ->  @podium/protocol
-@podium/protocol         ->  (leaf — no internal deps)
-@podium/model           ->  (leaf — no internal deps, no @podium/protocol dep either)
-@podium/commands         ->  @podium/model, @podium/protocol (L1 contracts only)
-@podium/runtime          ->  @podium/protocol, @podium/model (near-leaf; nothing else)
+L0 — model
+  @podium/model                 browser-safe
+                                deps: nothing — this is the leaf
+
+L1 — wire / commands / contracts
+  @podium/commands              browser-safe
+                                deps: @podium/model, @podium/protocol
+  @podium/issue-client          node-only
+                                deps: @podium/commands, @podium/model, @podium/protocol
+  @podium/protocol              browser-safe
+                                deps: @podium/model
+
+L2 — kernels / ports
+  @podium/composer              browser-safe
+                                deps: @podium/model, @podium/protocol
+  @podium/harness               node-only, host capability — importable only by @podium/daemon, scripts/
+                                deps: @podium/model, @podium/protocol, @podium/runtime, @podium/transcript
+  @podium/pty                   node-only, host capability — importable only by @podium/daemon, scripts/
+                                deps: @podium/model, @podium/protocol, @podium/runtime
+  @podium/runtime               neutral
+                                deps: @podium/model, @podium/protocol
+  @podium/sync                  neutral
+                                deps: @podium/commands, @podium/model, @podium/protocol, @podium/runtime
+  @podium/telemetry             neutral
+                                deps: @podium/model, @podium/protocol, @podium/runtime
+  @podium/terminal-client       browser-safe
+                                deps: anything below its layer
+  @podium/transcript            node-only
+                                deps: @podium/model, @podium/protocol
+
+L3 — features / adapters
+  @podium/client-core           browser-safe
+                                deps: anything below its layer
+  @podium/terminal-client-react browser-safe
+                                deps: anything below its layer
+
+L4 — app composition roots
+  @podium/cli                   node-only
+                                deps: anything below its layer
+  @podium/daemon                node-only
+                                deps: anything below its layer
+  @podium/desktop               browser-safe
+                                deps: anything below its layer
+  @podium/janitor               node-only
+                                deps: anything below its layer
+  @podium/mobile                browser-safe
+                                deps: anything below its layer
+  @podium/server                node-only, role-tiered
+                                deps: anything below its layer
+  @podium/web                   browser-safe
+                                deps: anything below its layer
+
+L5 — build / compose tier
+  scripts/                      node-only
+                                deps: anything below its layer
+
 ```
 
-- Apps depend on packages, never the reverse.
-- No app→app runtime dependency; `apps/web` imports only the `AppRouter` *type* from
-  `apps/server`.
-- `@podium/protocol` and `@podium/model` are leaf packages. `@podium/runtime` is a
-  near-leaf: it may depend only on those two leaves.
+**Declared same-layer edges** — the only legal sideways imports:
+
+- `@podium/commands → @podium/protocol`
+- `@podium/harness → @podium/runtime`
+- `@podium/harness → @podium/transcript`
+- `@podium/issue-client → @podium/commands`
+- `@podium/issue-client → @podium/protocol`
+- `@podium/pty → @podium/runtime`
+- `@podium/sync → @podium/runtime`
+- `@podium/telemetry → @podium/runtime`
+- `@podium/terminal-client → @podium/composer`
+- `@podium/terminal-client-react → @podium/client-core`
+
+**Declared type-only same-layer edges** — erased at build, so no runtime edge:
+
+- `@podium/web ⇢ @podium/server` (`import type` only; a runtime import is refused)
+
+_Generated from `scripts/architecture-manifest.ts` — the same manifest `bun run lint:architecture` reads. Edit the manifest, then run `bun run docs:layers`._
+
+<!-- END GENERATED: layer diagram -->
+
+The block above is GENERATED, and that is the point rather than a convenience:
+before POD-335 this section was hand-written prose beside a lint that enforced
+something else, and it had drifted — it still called `@podium/protocol` a leaf,
+which stopped being true when POD-300 moved the entity schemas down to
+`@podium/model`. `bun run docs:layers:check` fails when it is stale, so the
+diagram and the gate cannot disagree again. Edit
+`scripts/architecture-manifest.ts`, then run `bun run docs:layers`.
+
+Enforced by `bun run lint:architecture` (`scripts/check-boundaries.ts`) at ERROR
+level with no allowlist. The rule-by-rule retirement table, and the guardrails
+that have no legacy predecessor, are in
+[docs/gates/pod-335-boundary-lint-end-state.md](docs/gates/pod-335-boundary-lint-end-state.md).
 
 ### Server role tiers: core → hub → cloud
 

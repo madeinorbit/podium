@@ -30,9 +30,19 @@ export const sharedVitestConfig = {
     // import to '<index.ts>/sqlite' — that hazard is why runtime went unaliased.
     alias: [
       { find: '@', replacement: fileURLToPath(new URL('./apps/web/src', import.meta.url)) },
+      // ANCHORED as of POD-335, and the anchoring is not defensive — it was a live
+      // break. `@podium/harness` gained the `./metadata` open entrypoint, and the
+      // bare STRING form here prefix-matched it and rewrote
+      // '@podium/harness/metadata' to '<index.ts>/metadata'. 99 apps/server suites
+      // failed to import with "Cannot find package", which is the exact hazard the
+      // model/sync/composer entries above already anchor against.
       {
-        find: '@podium/harness',
+        find: /^@podium\/harness$/,
         replacement: fileURLToPath(new URL('./packages/harness/src/index.ts', import.meta.url)),
+      },
+      {
+        find: /^@podium\/harness\/metadata$/,
+        replacement: fileURLToPath(new URL('./packages/harness/src/metadata.ts', import.meta.url)),
       },
       // Anchored for the same reason model and sync are, below: composer exposes
       // only '.' today, and the day it grows a subpath a prefix match would

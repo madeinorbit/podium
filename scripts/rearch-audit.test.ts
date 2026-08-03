@@ -350,6 +350,30 @@ describe('inventory checks', () => {
     expect(sites.map((s) => s.file)).toEqual(['apps/web/src/lib/home.ts'])
   })
 
+  it('reexport-shims spares a DECLARED entrypoint whose name is not index (POD-335)', () => {
+    // The name proxy `index.ts` stopped standing for "public surface" when
+    // `packages/harness` declared `./metadata` in its exports map — a
+    // capability-NARROWING entrypoint that the audit counted as a moved module's
+    // tombstone. Read against the REAL package.json, so this fails if the export
+    // is ever removed while the file stays.
+    const sites =
+      CHECKS.find((c) => c.id === 'reexport-shims')?.collect(
+        ctxOf({ 'packages/harness/src/metadata.ts': `export { x } from './registry.js'` }),
+      ) ?? []
+    expect(sites).toEqual([])
+  })
+
+  it('reexport-shims STILL flags an undeclared packages/ file — the sparing is narrow', () => {
+    // The counterfactual. If the exclusion had been widened to "anything under
+    // packages/", this would be empty and the detector would be blind to the debt
+    // it exists to count.
+    const sites =
+      CHECKS.find((c) => c.id === 'reexport-shims')?.collect(
+        ctxOf({ 'packages/harness/src/not-exported.ts': `export { x } from './registry.js'` }),
+      ) ?? []
+    expect(sites.map((site) => site.file)).toEqual(['packages/harness/src/not-exported.ts'])
+  })
+
   // A per-LINE predicate missed these: no single line carries both `export` and
   // `from`. Biome (lineWidth 100) wraps a re-export as soon as a name is added,
   // so the count would DROP and the ratchet would record a phantom deletion.
