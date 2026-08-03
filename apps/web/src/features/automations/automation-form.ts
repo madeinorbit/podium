@@ -17,7 +17,7 @@
  * (worklist, chat, issues, terminal, machines); automations is not among them,
  * and inventing a sixth would be a bigger claim than this residual makes. What
  * DOES come from the slices comes from the slices: machine authority
- * (`machineViews` / `MachineAvailability`) and `repoUsageAt` are imported from
+ * (`machineViewsFromWire` / `MachineAvailability`) and `repoUsageAt` are imported from
  * `@podium/client-core/viewmodels` rather than re-derived here. What is left is
  * automations-specific and lives beside the only feature that renders it.
  *
@@ -32,7 +32,7 @@
 import {
   type MachineAvailability,
   type MachineView,
-  machineViews,
+  machineViewsFromWire,
   repoUsageAt,
 } from '@podium/client-core/viewmodels'
 import type { AutomationSessionMode, GitRepositoryWire, MachineWire } from '@podium/model'
@@ -400,27 +400,13 @@ const repoLabel = (path: string): string => path.split('/').filter(Boolean).pop(
 /**
  * Grants for the machines we can see.
  *
- * `MachineWire.use` is optional and an omitted value means NOT EVALUATED. Reading
- * that as "denied" for every machine would leave today's single-machine
- * deployments with an empty repo picker, and single-user parity is this issue's
- * regression guard. So the reading is per-LIST, not per-machine: if ANY visible
- * machine carries a `use` decision the server is evaluating scoping, and every
- * machine is then read strictly (an omitted `use` in a scoped list is denied). If
- * NONE does, the list is unscoped and use is not being decided at all.
- *
- * This is safe because it is UX only — the Authority re-authorizes at apply — and
- * it fails closed the moment the server starts answering the question.
+ * The per-LIST reading of `MachineWire.use` moved to the machines slice
+ * (`machineViewsFromWire`) when the worklist's new-agent submenu came to need the
+ * identical answer — see that function for why an omitted `use` is read per-list
+ * rather than per-machine. This alias stays so the composer's call sites keep
+ * naming the automations question they are asking.
  */
-export function automationMachineViews(
-  machines: readonly MachineWire[],
-): MachineView<MachineWire>[] {
-  const scoped = machines.some((m) => m.use !== undefined)
-  return machineViews(machines, (m) => ({
-    see: true,
-    use: scoped ? m.use === 'granted' : true,
-    manage: m.owned === true,
-  }))
-}
+export const automationMachineViews = machineViewsFromWire
 
 /**
  * The repos this automation may target, most-recently-used first, plus the count
