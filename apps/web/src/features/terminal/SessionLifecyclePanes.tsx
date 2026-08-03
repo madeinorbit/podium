@@ -13,7 +13,7 @@
  */
 
 import { shallowEqual } from '@podium/client-core/store'
-import type { SessionId } from '@podium/model'
+import type { SessionId, SessionMeta } from '@podium/model'
 import { Moon, RotateCcw } from 'lucide-react'
 import { type JSX, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
@@ -91,12 +91,22 @@ function LifecycleButton({
   )
 }
 
-interface ExitedProps {
-  sessionId: SessionId
-  exitCode: number | undefined
-  spawnFailure?: string
+/**
+ * What an exited session's surface needs.
+ *
+ * The four SESSION facts are PICKED from the model, never restated (POD-302's
+ * ratchet: a hand-written `exitCode: number | undefined` is a ninth definition
+ * of "a session" arriving while the epic is deleting eight). `Pick` names the
+ * keys and inherits their types, so the model stays the single place that says
+ * what `spawnFailure` is.
+ *
+ * The other three are NOT session fields and are deliberately hand-declared:
+ * each is a DERIVATION the panel computes (`agentKind === 'shell'`, the cwd
+ * matched against the scanned worktrees, that path prettified). Picking them
+ * would be claiming the model publishes something it does not.
+ */
+type ExitedProps = Pick<SessionMeta, 'sessionId' | 'exitCode' | 'spawnFailure' | 'resumable'> & {
   isShell: boolean
-  resumable: boolean
   worktreeMissing: boolean
   worktreePath?: string
 }
@@ -106,7 +116,7 @@ function exitedAction(p: ExitedProps): { detail: string; action: LifecycleAction
     exitCode: p.exitCode,
     ...(p.spawnFailure ? { spawnFailure: p.spawnFailure } : {}),
     isShell: p.isShell,
-    resumable: p.resumable,
+    resumable: p.resumable === true,
     worktreeMissing: p.worktreeMissing,
     ...(p.worktreePath ? { worktreePath: p.worktreePath } : {}),
   })
