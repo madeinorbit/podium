@@ -19,13 +19,8 @@
  * shipped function; there is no logic in this file, deliberately.
  */
 
-import {
-  hasPassword,
-  clearPassword as storeClearPassword,
-  setPassword as storeSetPassword,
-  verifyPassword,
-} from '@podium/runtime/auth-store'
-import { loadConfig } from '@podium/runtime/config'
+import { hashPassword, verifyPasswordHash } from '@podium/runtime/auth-store'
+import { loadConfig, saveConfig } from '@podium/runtime/config'
 import {
   applyJoin,
   applyMode,
@@ -51,6 +46,24 @@ import { TRPCError } from '@trpc/server'
  *  it so what the user is shown cannot drift from what is sent. */
 export interface InstanceDeps {
   readonly emitter?: Pick<TelemetryEmitter, 'buildUsageReport'> | undefined
+  /**
+   * THE ACCOUNT SEAM (POD-1554). `auth.*` stopped being process-wide the moment a
+   * password belonged to a person rather than to the box, so this service now takes
+   * the users repository and the caller's id. Both come from `FamilyState`; neither
+   * is resolved here, and there is deliberately no second principal-to-user path at
+   * this seam — `callerUserId(ctx)` in derived-family.ts is the only one.
+   */
+  readonly users?: InstanceAccountStore | undefined
+  readonly callerUserId?: string | undefined
+  /** `credentialsRequired()` from the composition root — see AuthRouteOptions.loginRequired. */
+  readonly loginRequired?: (() => boolean) | undefined
+}
+
+/** The slice of `UsersRepository` the auth commands need. */
+export interface InstanceAccountStore {
+  get(userId: string): { role: string } | undefined
+  credentialFor(userId: string): { passwordHash: string | null } | undefined
+  setPasswordHash(userId: string, passwordHash: string, updatedAt: string): void
 }
 
 export class InstanceService {
@@ -108,7 +121,8 @@ export class InstanceService {
     // is ALREADY set — that's "keep the current password" (e.g. setting the URL
     // later from Settings → Machines). It is only a mandatory choice on a fresh,
     // password-less instance.
-    if (!password && !input.acknowledgeNoPassword && !hasPassword()) {
+    // "Already set" is now the CALLER having a credential, not a file existing.
+    if (!password && !input.acknowledgeNoPassword && !this.callerCredential?.passwordHash) {
       throw new TRPCError({
         code: 'BAD_REQUEST',
         message: 'Confirm running without a login password.',
@@ -121,7 +135,11 @@ export class InstanceService {
     // Honours the kill switches: an env that says "do not track" wins over an
     // answer the UI should not have collected.
     if (input.telemetry && shouldAskForConsent()) setConsent(input.telemetry)
-    if (password) await storeSetPassword(password)
+    // Setup's optional password is the caller's own credential, same as auth.setPassword.
+    if (password) {
+      const { users, callerUserId } = this.requireAccountStore()
+      users.setPasswordHash(callerUserId, await hashPassword(password), new Date().toISOString())
+    }
     return cfg
   }
 
@@ -149,32 +167,78 @@ export class InstanceService {
 
   // ---- auth ----
 
-  status() {
-    return { enabled: hasPassword() }
+  /**
+   * WHO IS ASKING, and their own credential — never the instance's, because after
+   * POD-1554 the instance does not have one. `deps.callerUserId` is
+   * `FamilyState.caller.userId`, which `callerUserId(ctx)` in derived-family.ts
+   * already resolved from the transport principal and which THROWS when there is
+   * no authenticated human. That throw is why nothing below re-checks for one: an
+   * unauthenticated caller cannot reach these methods at all.
+   */
+  private get callerCredential() {
+    return this.deps.users?.credentialFor(this.deps.callerUserId ?? '')
   }
 
-  /** Requires the CURRENT password when one is set — defends against a hijacked
-   *  session. In open mode the check is skipped (bootstrap). Shipped behaviour. */
+  /** `{ loginRequired }` is instance policy; the other two are about the CALLER.
+   *  Still never the password or its hash — there is nothing else to return. */
+  status() {
+    return {
+      loginRequired: this.deps.loginRequired?.() ?? false,
+      hasOwnCredential: Boolean(this.callerCredential?.passwordHash),
+      canManageInstance: this.deps.users?.get(this.deps.callerUserId ?? '')?.role === 'admin',
+    }
+  }
+
+  /** MY OWN password. Requires the CURRENT one when the caller already has a
+   *  credential — defends against a hijacked session. A caller with none yet skips
+   *  the check (bootstrap). Shipped behaviour, now scoped to one account. */
   async setPassword(input: { current?: string | undefined; next: string }) {
-    if (hasPassword() && !(input.current && (await verifyPassword(input.current)))) {
+    const { users, callerUserId } = this.requireAccountStore()
+    const existing = users.credentialFor(callerUserId)?.passwordHash
+    if (existing && !(input.current && (await verifyPasswordHash(input.current, existing)))) {
       throw new TRPCError({ code: 'UNAUTHORIZED', message: 'current password is incorrect' })
     }
-    await storeSetPassword(input.next)
-    return { enabled: true }
+    users.setPasswordHash(callerUserId, await hashPassword(input.next), new Date().toISOString())
+    return { loginRequired: this.deps.loginRequired?.() ?? true }
   }
 
-  async clearPassword(input: { current: string; acknowledgeNoPassword?: true | undefined }) {
-    if (!input.acknowledgeNoPassword) {
+  /**
+   * INSTANCE POLICY (POD-1554). Turning login off does NOT delete anyone's
+   * credential — it writes `auth.openMode` in config.json — so turning it back on
+   * restores every account's existing password rather than making everyone
+   * re-enrol. `current` is the CALLER's own password, verified for the same
+   * hijacked-session reason as `setPassword`.
+   */
+  async setLoginRequired(input: {
+    required: boolean
+    current: string
+    acknowledgeNoPassword?: true | undefined
+  }) {
+    if (!input.required && !input.acknowledgeNoPassword) {
       throw new TRPCError({
         code: 'BAD_REQUEST',
         message: 'Confirm running without a login password.',
       })
     }
-    if (hasPassword() && !(await verifyPassword(input.current))) {
+    const { users, callerUserId } = this.requireAccountStore()
+    const existing = users.credentialFor(callerUserId)?.passwordHash
+    if (existing && !(await verifyPasswordHash(input.current, existing))) {
       throw new TRPCError({ code: 'UNAUTHORIZED', message: 'current password is incorrect' })
     }
-    storeClearPassword()
-    return { enabled: false }
+    const config = loadConfig()
+    saveConfig({ ...config, auth: { ...config.auth, openMode: !input.required } })
+    return { loginRequired: this.deps.loginRequired?.() ?? input.required }
+  }
+
+  /** A server assembled without a user store serves no credential writes. Refusing
+   *  is the honest answer: there is no account for the password to belong to. */
+  private requireAccountStore() {
+    const users = this.deps.users
+    const callerUserId = this.deps.callerUserId
+    if (!users || !callerUserId) {
+      throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'account store unavailable' })
+    }
+    return { users, callerUserId }
   }
 
   // ---- telemetry ----

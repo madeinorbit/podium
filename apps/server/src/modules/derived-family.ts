@@ -56,21 +56,22 @@
  * objects, not by grepping for an absence.
  */
 
+import type { AnyCommandContract, TransportTag } from '@podium/commands'
 import {
   asAgentIdentityId,
   asCapabilityRef,
   asDelegationRef,
   asDeviceId,
+  type Principal,
 } from '@podium/protocol'
-import { type Principal } from '@podium/protocol'
-import type { AnyCommandContract, TransportTag } from '@podium/commands'
 import type { TRPCMutationProcedure, TRPCQueryProcedure } from '@trpc/server'
 import type { z } from 'zod'
 import type { Capability } from '../issue-authz'
 import type { RegistryModules, SessionRegistry } from '../relay'
 import type { RepoRegistry } from '../repo-registry'
-import { sessionStatePrincipalFor } from './sessions/session-state/registry'
+import type { UsersRepository } from '../store/users'
 import { type Context, mods, t } from '../trpc'
+import { sessionStatePrincipalFor } from './sessions/session-state/registry'
 
 /**
  * THE STATE A FAMILY MAY SELECT FROM — the whole of it, and deliberately a
@@ -124,6 +125,21 @@ export interface FamilyState {
    * a router cutover's.
    */
   readonly store: SessionRegistry['sessionStore']
+  /**
+   * ACCOUNTS AND THEIR CREDENTIALS — the member this bundle gained at POD-1554, when
+   * `auth.setPassword` stopped writing one password for the whole instance and started
+   * writing the CALLER's. `instance` is the one family that reads it. It is the
+   * repository rather than a narrowed "credential writer" because the same family also
+   * asks whether the caller is an admin, and two seams onto one table would be a second
+   * place for the answer to drift.
+   *
+   * Optional: a server can be assembled without a user store, and the commands refuse
+   * rather than inventing an account (see `InstanceService.requireAccountStore`).
+   */
+  readonly users?: UsersRepository | undefined
+  /** Is login required on this instance — `credentialsRequired()` from server.ts,
+   *  the ONE joined reader of open mode and per-user credentials. */
+  readonly loginRequired?: (() => boolean) | undefined
   /**
    * The hosted-runtime provider, absent on deployments with no cloud. On the
    * bundle for `repos`' reason — one family needs it — and left OPTIONAL rather
@@ -384,6 +400,8 @@ export const familyState = (ctx: Context): FamilyState => ({
   repos: ctx.repos,
   telemetry: ctx.telemetry,
   store: ctx.registry.sessionStore,
+  ...(ctx.users ? { users: ctx.users } : {}),
+  ...(ctx.loginRequired ? { loginRequired: ctx.loginRequired } : {}),
   cloud: ctx.cloud,
   caller: {
     userId: callerUserId(ctx),

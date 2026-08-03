@@ -256,37 +256,39 @@ export type UserWire = z.infer<typeof UserWire>
  * shape composes.
  *
  * ---------------------------------------------------------------------------
- * `source` — AND THE ONE FORK THIS ISSUE RESOLVED
+ * `source` — ONE MEMBER, AND WHY THE SECOND ONE LEFT (POD-1554)
  * ---------------------------------------------------------------------------
  *
- * Today's one shared password is a scrypt hash in `auth.json`
- * (`packages/runtime/src/auth-store.ts`), not a database row — a FILE, which a
- * SQL migration cannot read. So "the existing password becomes the first admin's
- * credential" cannot be implemented by copying a hash inside the migration.
+ * There was a second member, `'instance-password'`, with a NULL hash. It meant
+ * *this account authenticates with the one shared password in `auth.json`* — a
+ * FILE, which the POD-1075 SQL migration could not read, so it named the
+ * indirection instead of inventing a hash. That was correct then and it was
+ * declared temporary in the same breath: minting per-account credentials was to
+ * land with the per-user login work in Phase 3 (POD-315). POD-315 closed without
+ * minting them, so the bridge outlived its owner by an entire phase.
  *
- * Resolved (recorded here and in the migration): the upgrade writes a credential
- * row for the first admin with `source: 'instance-password'` and
- * `passwordHash: null`, which says exactly what is true — *this account
- * authenticates with the instance password that already exists in `auth.json`*.
- * Nobody is locked out and nothing is invented. Moving the hash into the row and
- * minting per-account credentials is `source: 'per-user-scrypt'`, and it lands
- * with the per-user login work in Phase 3 (POD-315).
+ * POD-1554 does the move the migration could not: a one-shot at BOOT (where a
+ * file *is* readable) copies the hash into the first admin's row and deletes
+ * `auth.json` — `apps/server/src/instance-password-migration.ts`. With that,
+ * every account authenticates the one way, and the enum is a single member.
  *
- * The alternative — leaving the credential unmodelled until POD-315 — was
- * rejected because it makes the first admin an account that authenticates by a
- * mechanism the model has no word for, and "how does this person log in" would
- * have exactly the un-named answer this phase exists to delete.
+ * A one-member enum is kept as an enum rather than collapsed to a literal
+ * because the NEXT source is a real prospect (OIDC, passkeys), and because the
+ * column already stores this string. Adding a member should be additive; going
+ * back through a literal would not be.
  */
-export const CREDENTIAL_SOURCES = ['instance-password', 'per-user-scrypt'] as const
+export const CREDENTIAL_SOURCES = ['per-user-scrypt'] as const
 export const CredentialSource = z.enum(CREDENTIAL_SOURCES)
 export type CredentialSource = (typeof CREDENTIAL_SOURCES)[number]
 
 export const UserCredential = z.object({
   userId: UserIdField,
   source: CredentialSource,
-  /** `null` iff `source === 'instance-password'`: the material lives in
-   *  `auth.json` and there is nothing to store here. Never `.optional()` — an
-   *  absent key would be indistinguishable from "nobody wrote one". */
+  /** Nullable because the COLUMN is (it held NULL for every `'instance-password'`
+   *  row before POD-1554). A `per-user-scrypt` row with a null hash is an account
+   *  that cannot log in, and every reader treats it as such rather than as a
+   *  credential. Never `.optional()` — an absent key would be indistinguishable
+   *  from "nobody wrote one". */
   passwordHash: z.string().nullable(),
   updatedAt: z.string(),
 })

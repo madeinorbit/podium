@@ -12,6 +12,7 @@ import type { RegistryModules, SessionRegistry } from './relay'
 import type { MachineRepoDiscovery } from './repo-discovery'
 import type { RepoRegistry } from './repo-registry'
 import type { ServerRoleConfig } from './roles'
+import type { UsersRepository } from './store/users'
 
 /**
  * The tRPC core shared by the hand-written routers (router.ts) and the derived
@@ -53,6 +54,12 @@ export interface Context {
    *  the in-process MCP caller) simply have no preview. Consent state itself is
    *  read from config.json, never from here — it must work with no server. */
   telemetry?: { emitter: Pick<TelemetryEmitter, 'buildUsageReport'> }
+  /** Accounts and their credentials (POD-1554). `auth.setPassword` writes the CALLER's
+   *  credential, so the instance family needs the repository; optional because a context
+   *  can be built without one, and the commands refuse rather than invent an account. */
+  users?: UsersRepository
+  /** Is login required on this instance — `credentialsRequired()` from server.ts. */
+  loginRequired?: () => boolean
 }
 
 /** The typed module seam router procs reach services through (ctx.modules when

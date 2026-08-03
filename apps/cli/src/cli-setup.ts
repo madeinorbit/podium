@@ -1,5 +1,5 @@
 import { renameSync } from 'node:fs'
-import { setPassword as realSetPassword } from '@podium/runtime/auth-store'
+import { stagePasswordForFirstBoot as realSetPassword } from '@podium/runtime/auth-store'
 import {
   configPath,
   type EnvSource,

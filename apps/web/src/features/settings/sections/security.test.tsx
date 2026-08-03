@@ -3,12 +3,23 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Trpc } from '@/app/trpc'
 import { LoginPasswordSection } from './security'
 
-function fakeTrpc(enabled: boolean) {
+/**
+ * `enabled` used to be one boolean for the whole instance. It is now three answers: does
+ * the CALLER have a password, does the INSTANCE require login, and may this caller change
+ * that. The default here is an admin, because the disable flow is admin-only.
+ */
+function fakeTrpc(enabled: boolean, canManageInstance = true) {
   return {
     auth: {
-      status: { query: vi.fn().mockResolvedValue({ enabled }) },
-      setPassword: { mutate: vi.fn().mockResolvedValue({ enabled: true }) },
-      clearPassword: { mutate: vi.fn().mockResolvedValue({ enabled: false }) },
+      status: {
+        query: vi.fn().mockResolvedValue({
+          hasOwnCredential: enabled,
+          loginRequired: enabled,
+          canManageInstance,
+        }),
+      },
+      setPassword: { mutate: vi.fn().mockResolvedValue({ loginRequired: true }) },
+      setLoginRequired: { mutate: vi.fn().mockResolvedValue({ loginRequired: false }) },
     },
   } as unknown as Trpc
 }
@@ -89,10 +100,20 @@ describe('LoginPasswordSection', () => {
     fireEvent.click(finalDisable)
 
     await waitFor(() =>
-      expect(trpc.auth.clearPassword.mutate).toHaveBeenCalledWith({
+      expect(trpc.auth.setLoginRequired.mutate).toHaveBeenCalledWith({
+        required: false,
         current: 'old',
         acknowledgeNoPassword: true,
       }),
     )
+  })
+  it('a non-admin can change their own password but cannot disable login', async () => {
+    // The split POD-1554 exists for: one user must not be able to turn login off for
+    // everybody. The server refuses it too (roleFloor: admin) — this asserts the UI does
+    // not offer an action the caller cannot take.
+    const trpc = fakeTrpc(true, false)
+    render(<LoginPasswordSection trpc={trpc} />)
+    expect(await screen.findByRole('button', { name: /change password/i })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /disable login/i })).toBeNull()
   })
 })

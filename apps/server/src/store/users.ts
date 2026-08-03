@@ -14,8 +14,8 @@
  * would be a privilege-escalation surface this issue has no use for.
  */
 
-import type { UserId, UserRole } from '@podium/model'
-import { USER_ROLES } from '@podium/model'
+import type { CredentialSource, UserId, UserRole } from '@podium/model'
+import { CREDENTIAL_SOURCES, USER_ROLES } from '@podium/model'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 
 export interface UserAccountRow {
@@ -40,7 +40,7 @@ const parseRole = (raw: unknown): UserRole | undefined =>
 
 export interface UserCredentialRow {
   userId: UserId
-  source: 'instance-password' | 'per-user-scrypt'
+  source: CredentialSource
   passwordHash: string | null
   updatedAt: string
 }
@@ -93,10 +93,14 @@ export class UsersRepository {
       | Record<string, unknown>
       | undefined
     if (!row) return undefined
-    if (row.source !== 'instance-password' && row.source !== 'per-user-scrypt') return undefined
+    // Source parsing FAILS CLOSED for the same reason `parseRole` does, and it is
+    // load-bearing here rather than defensive: a leftover `'instance-password'` row from
+    // before POD-1554 must read as NO CREDENTIAL, never as one this build might verify
+    // against. The SQL migration deletes those rows; this is what happens if one survives.
+    if (!(CREDENTIAL_SOURCES as readonly string[]).includes(row.source as string)) return undefined
     return {
       userId: row.user_id as UserId,
-      source: row.source,
+      source: row.source as CredentialSource,
       passwordHash: (row.password_hash as string | null | undefined) ?? null,
       updatedAt: row.updated_at as string,
     }

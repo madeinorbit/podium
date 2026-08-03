@@ -1,12 +1,13 @@
 import { createHash, randomBytes } from 'node:crypto'
-import { asUserId, FIRST_ADMIN_USER_ID, type UserId, type UserRole } from '@podium/model'
-import { SESSION_COOKIE } from '@podium/protocol'
 import {
-  hashPassword,
-  hasPassword,
-  verifyPassword,
-  verifyPasswordHash,
-} from '@podium/runtime/auth-store'
+  asUserId,
+  type CredentialSource,
+  FIRST_ADMIN_USER_ID,
+  type UserId,
+  type UserRole,
+} from '@podium/model'
+import { SESSION_COOKIE } from '@podium/protocol'
+import { hashPassword, verifyPasswordHash } from '@podium/runtime/auth-store'
 import type { Context, Hono, MiddlewareHandler } from 'hono'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 
@@ -100,13 +101,15 @@ function setSessionCookie(c: Context, token: string): void {
 export function clientAuthGuard(opts: {
   store?: ClientSessionStore
   users?: AccountCredentialStore
-  authDir?: string
+  /** See {@link AuthRouteOptions.loginRequired} — the ONE predicate, shared. */
+  loginRequired?: () => boolean
   now?: () => number
 }): MiddlewareHandler {
   const now = opts.now ?? (() => Date.now())
+  const loginRequired = opts.loginRequired ?? (() => Boolean(opts.users?.hasPerUserCredentials()))
   return async (c, next) => {
     if (c.req.method === 'OPTIONS') return next()
-    if (!hasPassword(opts.authDir) && !opts.users?.hasPerUserCredentials()) return next()
+    if (!loginRequired()) return next()
     const store = opts.store
     const token = store ? parseSessionCookie(c.req.header('cookie')) : undefined
     const nowMs = now()
@@ -144,12 +147,9 @@ export interface AccountCredentialStore {
     },
     passwordHash: string,
   ): void
-  credentialFor(userId: string):
-    | {
-        source: 'instance-password' | 'per-user-scrypt'
-        passwordHash: string | null
-      }
-    | undefined
+  credentialFor(
+    userId: string,
+  ): { source: CredentialSource; passwordHash: string | null } | undefined
   hasPerUserCredentials(): boolean
 }
 
@@ -165,16 +165,27 @@ export interface AuthRouteOptions {
    * second first-admin fallback at an unauthenticated status endpoint.
    */
   resolveUserId?: (cookieHeader: string | undefined) => UserId | undefined
-  /** State dir holding the password hash (auth.json). Defaults to the real state dir. */
-  authDir?: string
+  /**
+   * IS LOGIN REQUIRED ON THIS INSTANCE — the one predicate every gate reads (POD-1554).
+   *
+   * `!openMode && users.hasPerUserCredentials()`, composed once in `server.ts`. It replaced
+   * `hasPassword()`, whose answer came from a FILE existing: "someone set the instance
+   * password" was made to mean both "there are credentials" and "the operator wants login
+   * on", and open mode could then be entered by deleting a file. Those are two questions
+   * and they now have two pieces of state, joined here so no caller can read one and
+   * believe it answered the other.
+   *
+   * Defaults to the credential half alone when not supplied (tests, embedded servers).
+   */
+  loginRequired?: () => boolean
   throttle?: { maxFailures?: number; lockoutMs?: number }
   now?: () => number
 }
 
 export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void {
   const store = opts.store
-  const authDir = opts.authDir
   const users = opts.users
+  const loginRequired = opts.loginRequired ?? (() => Boolean(users?.hasPerUserCredentials()))
   const now = opts.now ?? (() => Date.now())
   const maxFailures = opts.throttle?.maxFailures ?? DEFAULT_MAX_FAILURES
   const lockoutMs = opts.throttle?.lockoutMs ?? DEFAULT_LOCKOUT_MS
@@ -184,7 +195,7 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
   let lockedUntil = 0
 
   app.get('/auth/status', (c) => {
-    const needsAuth = hasPassword(authDir) || Boolean(users?.hasPerUserCredentials())
+    const needsAuth = loginRequired()
     const cookie = c.req.header('cookie')
     const userId = opts.resolveUserId
       ? opts.resolveUserId(cookie)
@@ -196,7 +207,7 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
   })
 
   app.post('/auth/login', async (c) => {
-    if (!hasPassword(authDir) && !users?.hasPerUserCredentials()) {
+    if (!loginRequired()) {
       // No password configured → auth is disabled; there's nothing to log into.
       return c.json({ error: 'auth disabled' }, 400)
     }
@@ -221,14 +232,18 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
       // fall through — empty password fails verification below
     }
 
+    // ONE WAY IN (POD-1554). A login is a per-account credential match or it is nothing.
+    // Two arms used to live here: a `source === 'instance-password'` arm that verified
+    // against the shared hash in auth.json, and a `!users && userId === FIRST_ADMIN_USER_ID`
+    // fallback for a server assembled without a user store. Both authenticated a person by
+    // a secret that belonged to the INSTANCE, which is precisely what cannot survive
+    // accounts — and the fallback did it while unable to name whose account it was. A
+    // server with no user store now serves no login at all, which is the honest answer.
     const credential = users?.credentialFor(userId)
-    const ok = password
-      ? credential?.source === 'per-user-scrypt' && credential.passwordHash
+    const ok =
+      password && credential?.passwordHash
         ? await verifyPasswordHash(password, credential.passwordHash)
-        : credential?.source === 'instance-password' || (!users && userId === FIRST_ADMIN_USER_ID)
-          ? await verifyPassword(password, authDir)
-          : false
-      : false
+        : false
     if (!ok) {
       failures += 1
       if (failures >= maxFailures) {

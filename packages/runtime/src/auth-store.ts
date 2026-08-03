@@ -1,5 +1,5 @@
 import { randomBytes, type ScryptOptions, scrypt as scryptCb, timingSafeEqual } from 'node:crypto'
-import { existsSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { stateDir } from './local-machine'
 
@@ -112,6 +112,31 @@ export async function verifyPasswordHash(password: string, stored: string): Prom
  */
 export function readLegacyInstancePasswordHash(dir: string = stateDir()): string | undefined {
   return readFile(dir).passwordHash || undefined
+}
+
+/**
+ * `podium setup` CHOOSING A PASSWORD BEFORE THERE IS A DATABASE TO PUT IT IN.
+ *
+ * The interactive CLI setup asks for a login password on a box that has no server running
+ * and, on a fresh install, no store file yet — so it cannot write a credential row. It
+ * stages the hash here, and the FIRST BOOT's `retireInstancePassword` moves it into the
+ * first admin's credential and deletes the file, exactly as it does for an upgraded
+ * instance. Same one-shot, same verify-then-delete.
+ *
+ * `auth.json` is therefore a HANDOFF, not a credential store: nothing authenticates against
+ * it any more (`POST /auth/login` reads credential rows and nothing else), and it never
+ * survives a boot. The alternative — having `podium setup` start a server just to set a
+ * password — buys nothing and adds a failure mode to the one flow that must work on a
+ * fresh machine.
+ */
+export async function stagePasswordForFirstBoot(
+  password: string,
+  dir: string = stateDir(),
+): Promise<void> {
+  if (!password?.trim()) throw new Error('password must not be empty')
+  const passwordHash = await hashPassword(password)
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(authPath(dir), JSON.stringify({ passwordHash } satisfies AuthFile), { mode: 0o600 })
 }
 
 /**

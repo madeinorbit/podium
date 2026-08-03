@@ -80,8 +80,9 @@ describe('retireInstancePassword', () => {
     expect(credential?.source).toBe('per-user-scrypt')
     // The COPY, not a rehash: the operator's existing password must still verify.
     expect(credential?.passwordHash).toBe(legacyHash)
-    expect(await verifyPasswordHash('correct horse battery staple', credential?.passwordHash ?? ''))
-      .toBe(true)
+    expect(
+      await verifyPasswordHash('correct horse battery staple', credential?.passwordHash ?? ''),
+    ).toBe(true)
     expect(authFileExists()).toBe(false)
   })
 
@@ -183,8 +184,9 @@ describe('applyEnvFirstAdminPassword', () => {
     const users = new FakeUsers()
 
     expect((await applyEnvFirstAdminPassword({ users, env: {} })).applied).toBe(false)
-    expect((await applyEnvFirstAdminPassword({ users, env: { PODIUM_PASSWORD: '   ' } })).applied)
-      .toBe(false)
+    expect(
+      (await applyEnvFirstAdminPassword({ users, env: { PODIUM_PASSWORD: '   ' } })).applied,
+    ).toBe(false)
     expect(users.writes).toBe(0)
   })
 })

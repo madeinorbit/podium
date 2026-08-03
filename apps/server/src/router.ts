@@ -13,7 +13,6 @@ import {
   WorkState,
 } from '@podium/model'
 import { clientSwitchTraceSchema, type FileReadResultMessage } from '@podium/protocol'
-import { clearPassword, hasPassword, setPassword, verifyPassword } from '@podium/runtime/auth-store'
 import { loadConfig, resolveUpdateChannel } from '@podium/runtime/config'
 import {
   applyJoin,

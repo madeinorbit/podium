@@ -1,0 +1,30 @@
+-- RETIRING THE `instance-password` CREDENTIAL SOURCE (POD-1554)
+--
+-- POD-1075 gave the first admin a credential row reading
+-- `source = 'instance-password'` with a NULL hash, meaning *this account
+-- authenticates with the one shared password in `auth.json`*. It said so because
+-- SQL cannot read a file, and it declared itself temporary in the same breath:
+-- minting per-account credentials was to land in Phase 3 (POD-315). POD-315
+-- closed without doing it, so the bridge outlived its owner by a phase.
+--
+-- THIS MIGRATION DOES NOT MOVE THE HASH — it still cannot, for the same reason.
+-- The move is a one-shot at BOOT, where a file IS readable:
+-- `apps/server/src/instance-password-migration.ts` copies the hash into the
+-- first admin's row, RE-READS it, and only then deletes `auth.json`.
+--
+-- WHAT THIS DOES is delete the marker rows, and the ORDER makes that safe. This
+-- runs at boot BEFORE the server serves anything, and the boot migration that
+-- follows keys on `auth.json` EXISTING rather than on the marker row — so
+-- removing the marker takes nothing the copy depends on. A row deleted here that
+-- had a real password would be a data loss; none can, because an
+-- `instance-password` row is NULL-hashed by construction (POD-1075 wrote the
+-- only ones there are, all NULL, all for `'user:sole'`).
+--
+-- WHY DELETE RATHER THAN LEAVE IT. `credentialFor` now fails closed on an
+-- unknown source, so a surviving row already reads as NO CREDENTIAL — the
+-- account would be silently unable to log in with no row explaining why. Better
+-- for the row to be absent, which is the same state a fresh account has before
+-- it sets a password, and which the boot migration then fills.
+--
+-- IDEMPOTENT: a second application finds no such rows and deletes nothing.
+DELETE FROM `user_credentials` WHERE `source` = 'instance-password';
