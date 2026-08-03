@@ -147,10 +147,36 @@ const GAINED_EXPECTED_REVISION = new Set([
   'update',
 ])
 
-/** The recorded key set, plus `expectedRevision` where the merge added it. */
+/**
+ * THE SECOND SANCTIONED DRIFT, recorded the same way and for the same reason.
+ *
+ * The same catch-up merge brought two main-side features that widen exactly two
+ * READ/WRITE inputs and no others:
+ *
+ *   - POD-1545 let `start` choose the model and effort in the command that starts
+ *     the issue, so `start` gained `defaultModel` + `defaultEffort`;
+ *   - POD-1342 made the tree's depth/node caps callable over the wire (the CLI's
+ *     truncation footer tells the reader to raise them), so `tree` gained
+ *     `maxDepth` + `maxNodes`.
+ *
+ * Spelled out per command rather than derived, on the same principle as
+ * {@link GAINED_EXPECTED_REVISION}: the property is "exactly these commands gained
+ * exactly these keys", so a third command growing them, or either of these growing
+ * a further key — or silently LOSING one — still fails.
+ */
+const GAINED_KEYS: Record<string, string[]> = {
+  start: ['defaultEffort', 'defaultModel'],
+  tree: ['maxDepth', 'maxNodes'],
+}
+
+/** The recorded key set, plus the keys the catch-up merge added to it. */
 function expectedInputKeys(name: string, was: Cell): string[] | string {
-  if (!GAINED_EXPECTED_REVISION.has(name) || !Array.isArray(was.inputKeys)) return was.inputKeys
-  return [...was.inputKeys, 'expectedRevision'].sort()
+  if (!Array.isArray(was.inputKeys)) return was.inputKeys
+  const added = [
+    ...(GAINED_EXPECTED_REVISION.has(name) ? ['expectedRevision'] : []),
+    ...(GAINED_KEYS[name] ?? []),
+  ]
+  return added.length === 0 ? was.inputKeys : [...was.inputKeys, ...added].sort()
 }
 
 describe('issue registry metadata is unchanged by the POD-311 split', () => {

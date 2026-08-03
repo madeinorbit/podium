@@ -521,6 +521,37 @@ const SESSION_REPRESENTATIONS: readonly RetainedRepresentation[] = [
     visibility: 'personal',
   },
   {
+    symbol: 'SessionStatusSubagent',
+    entity: 'session',
+    site: 'packages/model/src/projections/session-read.ts',
+    role: 'R4',
+    purpose:
+      "One Podium session spawned (transitively) by the session being read — the `subagents:` " +
+      'block of `podium session status`.',
+    distinctSemantics:
+      'A read model over ANOTHER session, not an embed of one. It carries only the keys the ' +
+      'status renderer prints, resolved at read time by walking `spawnedBy`, plus the ' +
+      '`parentSessionId` edge so a reader can rebuild the tree from a flat list. That edge is ' +
+      'what makes it its own representation rather than a narrowing of ' +
+      '{@link SessionStatusResult}: the subject of each row is a DIFFERENT session from the one ' +
+      'being read.',
+    composition: {
+      state: 'declared-legitimate-restatement',
+      reason:
+        'its subject is a DIFFERENT session from the one being read, so it is not a narrowing ' +
+        'of the aggregate under read: composing it from that aggregate would assert a ' +
+        'containment that does not hold. Like its siblings in this file it stays hand-written ' +
+        'until POD-365 lands the shared session field schemas (§6.2), at which point the ' +
+        'printed keys become Picks and the `parentSessionId` edge remains its own.',
+      enforcedBy:
+        'the compiler at its one producer and one consumer — the status read builds it by ' +
+        'walking `spawnedBy`, and the renderer prints exactly these keys; adding a key here ' +
+        'that the walk cannot resolve fails to typecheck at the producer.',
+    },
+    matrixRow: ROW.sessionIdentity,
+    visibility: 'personal',
+  },
+  {
     symbol: 'SessionAutoArchiveObservation',
     entity: 'session',
     site: 'packages/protocol/src/maintenance.ts',

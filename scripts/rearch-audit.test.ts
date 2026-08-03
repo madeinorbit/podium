@@ -1161,7 +1161,13 @@ describe('against the live repo', () => {
     // the DELIBERATE ACT the pin exists to force: the entry declares why no
     // canonical legacy record exists to compose and names the real-state-dir
     // migration test that enforces its finite purpose.
-    expect(RETAINED_REPRESENTATIONS.length).toBe(45)
+    //
+    // 45 -> 46 when the POD-1439 reconciliation carried main's `SessionStatusSubagent`
+    // (POD-1262) across. Deliberate for the same reason: its subject is a DIFFERENT
+    // session from the one being read, so composing it from that aggregate would
+    // assert a containment that does not hold, and the entry says so rather than
+    // letting a restatement land unaccounted for.
+    expect(RETAINED_REPRESENTATIONS.length).toBe(46)
   })
 
   it('the physical-table parser still binds to the live schema', () => {

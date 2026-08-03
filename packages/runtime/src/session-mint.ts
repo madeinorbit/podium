@@ -38,6 +38,7 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { FIRST_ADMIN_USER_ID } from '@podium/model'
 import { stateDir } from './config'
 import { openDatabase } from './sqlite'
 
@@ -135,10 +136,16 @@ export function mintBreakGlassSession(opts: MintOptions = {}): MintedSession {
   const expiresAt = new Date(nowMs + (opts.ttlMs ?? DEFAULT_TTL_MS)).toISOString()
   const db = openInstanceDatabase(path)
   try {
+    // `user_id` is NOT NULL and carries no default (POD-1079): a login session
+    // says WHO it is, and the server's own `createClientSession` takes the user
+    // as a required parameter for the same reason. A break-glass session is
+    // minted from local state-dir access, which is the first admin's authority —
+    // the same owner `ensureHostMachine` and the password login resolve to.
     db.prepare(
-      'INSERT OR REPLACE INTO client_sessions (token_hash, created_at, expires_at, label) VALUES (?, ?, ?, ?)',
+      'INSERT OR REPLACE INTO client_sessions (token_hash, user_id, created_at, expires_at, label) VALUES (?, ?, ?, ?, ?)',
     ).run(
       createHash('sha256').update(token).digest('hex'),
+      FIRST_ADMIN_USER_ID,
       new Date(nowMs).toISOString(),
       expiresAt,
       BREAK_GLASS_LABEL,
@@ -228,7 +235,10 @@ export function readCachedSessionToken(
  * short-lived session, without disturbing the stored one.
  */
 export function resolveSessionToken(
-  env: { PODIUM_SESSION_TOKEN?: string } = process.env,
+  // `Record<string, string | undefined>`, not a one-key literal: Bun's `ProcessEnv`
+  // declares no properties of its own, so a literal parameter type has nothing in
+  // common with it and `= process.env` will not typecheck against one.
+  env: Record<string, string | undefined> = process.env,
   at: string = stateDir(),
   now: () => number = Date.now,
 ): string | undefined {

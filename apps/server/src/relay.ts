@@ -960,6 +960,7 @@ export class SessionRegistry {
         // that went in: a bundled branch arrives as objects, not as a ref, so the name
         // does not resolve on the target even though the commit does.
         const ensured = await sessionsSvc.workspace.ensureRefOnMachine({
+          sourceRepoPath: repoPath,
           targetMachineId: machineId,
           targetRepoPath,
           ref: startPoint,

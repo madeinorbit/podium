@@ -115,6 +115,7 @@ describe('issues.* subtree scope (P1a)', () => {
       repos: {} as never,
       superagent: {} as never,
       capability: OPERATOR,
+      principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
     })
     for (let i = 0; i < 4; i++)
       await c.issues.create({ repoPath: '/r', title: `k${i}`, parentId: A.id, startNow: false })

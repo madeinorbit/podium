@@ -105,49 +105,81 @@ export class SessionWorkspace {
    *
    * IT VERIFIES RATHER THAN ASSUMES. The ref is re-checked on the target AFTER the
    * fetch, so a bundle that transferred but did not apply is a failure here rather
-   * than a confusing `worktree add` error later. An early return when the target
-   * already has the ref makes the common case free.
+   * than a confusing `worktree add` error later.
+   *
+   * WHAT COMES BACK IS A SHA, NOT THE NAME THAT WENT IN (POD-1424). `bundleFetch`
+   * deliberately does not create or move a branch — it makes the OBJECTS reachable
+   * and leaves ref management to the caller. So after a successful transfer the
+   * commit EXISTS on the target while a ref by that name still does not, and the
+   * `worktree add` that follows would fail on the name. A branch name is
+   * machine-local; a commit id is not.
    */
   async ensureRefOnMachine(input: {
+    /** The machine-local checkout the commits come FROM. Passed rather than
+     *  derived by repoId: an unidentified checkout (no origin) has no repoId, and
+     *  deriving would silently make this a no-op for it. */
+    sourceRepoPath: string
     targetMachineId: string
     targetRepoPath: string
     /** The start point a worktree will be created from — a branch name or sha. */
     ref: string
     /** Refs the target plausibly shares, cheapest first. Intersected, never trusted. */
     baseCandidates?: string[]
-  }): Promise<void> {
+  }): Promise<{ transferred: boolean; startPoint: string }> {
     const { rpc } = this.ports
-    // WHICH MACHINE HAS THE COMMITS. Found here rather than passed in, because by
-    // the time an issue start calls this its own `repoPath` has already been
-    // rehomed onto the target — so a caller threading "the source" through would
-    // be threading the value this just overwrote. The source is whichever OTHER
-    // machine holds a checkout of the same repository.
-    const targetRepo = this.ports.store.repos
-      .listRepos(input.targetMachineId)
-      .find((repo) => repo.path === input.targetRepoPath)
-    const source = targetRepo?.repoId
-      ? this.ports.store.repos
-          .listRepos()
-          .find(
-            (repo) => repo.repoId === targetRepo.repoId && repo.machineId !== input.targetMachineId,
-          )
-      : undefined
-    if (!source) return
+    const source = this.ports.store.repos
+      .listRepos()
+      .find((repo) => repo.path === input.sourceRepoPath)
+    if (!source) throw new Error(`no registered repository at ${input.sourceRepoPath}`)
     const sourceRepoPath = source.path
     const sourceMachineId = source.machineId
-    if (sourceMachineId === input.targetMachineId) return
+    if (sourceMachineId === input.targetMachineId) {
+      return { transferred: false, startPoint: input.ref }
+    }
+
+    // Resolve on the SOURCE first: the sha is what crosses, and what the target is
+    // then verified against and started from.
+    const sourceRef = await rpc.repoOp(
+      'revParseVerify',
+      sourceRepoPath,
+      { ref: input.ref },
+      sourceMachineId,
+    )
+    if (!sourceRef.ok) {
+      throw new Error(`source machine cannot resolve ${input.ref}: ${sourceRef.output}`)
+    }
+    const sha = sourceRef.output.trim().split(/\s+/u)[0] ?? ''
+    if (!/^[0-9a-f]{40}$/u.test(sha)) {
+      throw new Error(`source machine returned an unusable commit id for ${input.ref}: ${sha}`)
+    }
+
+    /**
+     * A NAME RESOLVING IS NOT THE SAME COMMIT RESOLVING (POD-1572).
+     *
+     * This used to return as soon as the target could rev-parse the NAME, which made
+     * "every start from an origin branch free". For a SHARED name — `main`,
+     * `origin/main` — every machine has its own, so the check passed on a target
+     * arbitrarily far behind and the worktree add then started from the target's
+     * stale name. Measured 2026-08-03: a start onto vmi3407763 with parentBranch
+     * `main` created the branch 455 commits behind ludovico's main, no bundle, no
+     * warning, exit status 0. So compare the COMMITS, not the names.
+     */
     const already = await rpc.repoOp(
       'revParseVerify',
       input.targetRepoPath,
       { ref: input.ref },
       input.targetMachineId,
     )
-    if (already.ok) return
+    if (already.ok && already.output.trim().split(/\s+/u)[0] === sha) {
+      return { transferred: false, startPoint: sha }
+    }
 
     // What the target can prove it holds, intersected with what the source can
     // bundle FROM. `git bundle create ^<sha>` aborts on a base the source does
     // not know, so the intersection is a correctness requirement, not a saving.
-    const candidates = [...new Set([...(input.baseCandidates ?? []), 'main', 'origin/main'])]
+    const candidates = [
+      ...new Set([...(input.baseCandidates ?? []), 'main', 'origin/main', input.ref]),
+    ]
     const sourceVerified = await Promise.all(
       candidates.map((ref) =>
         rpc.repoOp('revParseVerify', sourceRepoPath, { ref }, sourceMachineId),
@@ -160,13 +192,52 @@ export class SessionWorkspace {
     )
     const bases = verifiedCommonBundleBases(sourceVerified, targetVerified)
 
+    /**
+     * THE TARGET'S OWN TIP IS THE BEST BASE FOR A STALE SHARED NAME (POD-1572).
+     *
+     * When the target resolves the name to a DIFFERENT commit, that commit is the
+     * gap's floor — the target proved it holds it by resolving it. Without it the
+     * candidate list can intersect to nothing on a shared name (every candidate
+     * resolves to the source's tip, which the target does not have) and the bundle
+     * would carry the whole history to close a 455-commit gap. Only usable if the
+     * SOURCE can name it too; a target ahead on an unrelated line simply gets the
+     * wider bundle.
+     */
+    const targetSha = already.ok ? (already.output.trim().split(/\s+/u)[0] ?? '') : ''
+    if (/^[0-9a-f]{40}$/u.test(targetSha) && !bases.includes(targetSha)) {
+      const onSource = await rpc.repoOp(
+        'revParseVerify',
+        sourceRepoPath,
+        { ref: targetSha },
+        sourceMachineId,
+      )
+      if (onSource.ok) bases.push(targetSha)
+    }
+
+    /**
+     * NOTHING TO SHIP IS NOT A FAILURE (POD-1542).
+     *
+     * The early return above asks whether the target resolves the ref by NAME to the
+     * same commit, and a branch name is machine-local — a target that fetched the
+     * branch, or received it from an earlier handoff, holds every commit while
+     * having no ref by that name. Then the base intersection legitimately contains
+     * the tip itself, `git bundle create <ref> ^<tip>` has an empty commit set, and
+     * git refuses: "fatal: Refusing to create empty bundle."
+     *
+     * IT CANNOT SWALLOW A TRANSPORT FAILURE. `bases` only holds object ids the
+     * TARGET independently proved it has (verifiedCommonBundleBases intersects
+     * against targetVerified). An unreachable daemon yields no sha at all, so the
+     * bundle is built and every downstream failure still throws.
+     */
+    if (bases.includes(sha)) return { transferred: false, startPoint: sha }
+
     // A NAME, NOT A PATH. The daemons derive the location from this token inside
     // their own stage dirs, so neither end takes a filesystem path from here.
     const token = `ref-${randomUUID().slice(0, 13)}` as const
     const created = await rpc.repoOp(
       'bundleCreate',
       sourceRepoPath,
-      { token, ref: input.ref, bases: bases.join(',') },
+      { token, ref: input.ref, ...(bases.length > 0 ? { bases: bases.join(',') } : {}) },
       sourceMachineId,
     )
     if (!created.ok) throw new Error(`could not bundle ${input.ref} on the source: ${created.output}`)
@@ -196,19 +267,58 @@ export class SessionWorkspace {
       input.targetMachineId,
     )
     if (!fetched.ok) {
-      throw new Error(`target could not apply the bundle for ${input.ref}: ${fetched.output}`)
+      throw new Error(`could not fetch ${input.ref} on the target: ${fetched.output}`)
     }
-    const settled = await rpc.repoOp(
+    // Verify the COMMIT, not the name: the objects are what travelled.
+    const landed = await rpc.repoOp(
       'revParseVerify',
       input.targetRepoPath,
-      { ref: input.ref },
+      { ref: sha },
       input.targetMachineId,
     )
-    if (!settled.ok) {
+    if (!landed.ok) {
       throw new Error(
-        `${input.ref} is still unresolvable on the target after its bundle was applied`,
+        `${input.ref} (${sha.slice(0, 12)}) still does not resolve on the target after the bundle transferred: ${landed.output}`,
       )
     }
+    return { transferred: true, startPoint: sha }
+  }
+
+  /**
+   * The identity rule itself: which checkout on `targetMachineId` IS this repository.
+   *
+   * Origin-derived `repoId`, never the path — two machines have two layouts. A null
+   * repoId is NOT an identity: unidentified checkouts would all match each other, so
+   * they match nothing here and the caller falls back to refusing.
+   */
+  private repoOnMachineByIdentity<T extends { repoId: string | null }>(
+    sourceRepo: T,
+    targetMachineId: string,
+  ) {
+    if (!sourceRepo.repoId) return undefined
+    return this.ports.store.repos
+      .listRepos(targetMachineId)
+      .find((repo) => repo.repoId === sourceRepo.repoId)
+  }
+
+  /**
+   * Where a source repository ALREADY lives on another machine, or null (POD-1571).
+   *
+   * The lookup-only half of {@link resolveRepoOnMachine}, for the call sites that must
+   * not create anything: adding a session to a started issue, and recreating its
+   * worktree, both need a repository that is already there — the worktree they are
+   * about to use is IN it. Returning null on absence is the point: the caller then
+   * guards against the source path and `requireMachineForRepo` still refuses, with its
+   * actionable message. A resolver that clones on absence would make that refusal
+   * impossible.
+   */
+  findRepoOnMachine(sourceRepoPath: string, targetMachineId: string): string | null {
+    const source = this.ports.store.repos
+      .listRepos()
+      .find((repo) => repo.path === sourceRepoPath)
+    if (!source) return null
+    if (source.machineId === targetMachineId) return source.path
+    return this.repoOnMachineByIdentity(source, targetMachineId)?.path ?? null
   }
 
   async ensureTargetRepo(
@@ -227,9 +337,10 @@ export class SessionWorkspace {
     repoId: string | null
     prefix: string | null
   }> {
-    const existing = this.ports.store.repos
-      .listRepos(targetMachineId)
-      .find((repo) => repo.repoId === sourceRepo.repoId)
+    // ONE IDENTITY RULE, shared with findRepoOnMachine (POD-1571). Fork it and the
+    // placement paths drift apart again — and a raw `repoId === repoId` here made
+    // every UNIDENTIFIED checkout (null repoId) match every other one.
+    const existing = this.repoOnMachineByIdentity(sourceRepo, targetMachineId)
     if (existing) return existing
     if (!sourceRepo.originUrl || !sourceRepo.repoId) {
       throw new Error('target machine lacks this repository and the source has no clone URL')

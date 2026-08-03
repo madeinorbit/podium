@@ -171,7 +171,7 @@ export class MachineRepoDiscovery {
     let healed = false
 
     for (const row of here) {
-      const origin = normalizeOriginUrl(row.originUrl)
+      const origin = canonicalizeRepoOrigin(row.originUrl)
       if (!origin) continue
       const rowPath = normalizeRepoPath(row.path)
       // Still discovered where it was registered — nothing to heal, and no probe cost.
@@ -180,7 +180,7 @@ export class MachineRepoDiscovery {
       // Exactly one same-origin NEWCOMER, or this is not an unambiguous move.
       const newcomers = [...found.entries()].filter(
         ([path, repo]) =>
-          normalizeOriginUrl(repo.originUrl ?? null) === origin && !registeredHere.has(path),
+          canonicalizeRepoOrigin(repo.originUrl ?? null) === origin && !registeredHere.has(path),
       )
       if (newcomers.length !== 1) continue
       const [newPath, newRepo] = newcomers[0] as [string, { originUrl?: string | null }]

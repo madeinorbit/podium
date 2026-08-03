@@ -38,11 +38,37 @@
  * `StatusWire` omitted nothing, and narrowing here would just re-create the
  * subset drift this file deletes.
  */
+/**
+ * One Podium session spawned (transitively) by the session being read — the
+ * `subagents:` block of `podium session status` (ab75ab1e).
+ *
+ * A read model over another session, not an embed of it: only the keys the
+ * status renderer prints, resolved at read time by walking `spawnedBy`.
+ */
+export interface SessionStatusSubagent {
+  sessionId: string
+  /** Human-facing session ref when known (e.g. POD-966-A). */
+  displayRef?: string
+  /** The session this one was spawned by — the walk's edge, kept so a reader can
+   *  rebuild the tree from a flat list. */
+  parentSessionId: string
+  harness: string
+  model: string | null
+  effort: string | null
+  contextUsagePercent: number | null
+  status: string
+  phase: string
+}
+
 export interface SessionStatusResult {
   /** SCHEMA: SessionIdentity (`sessionId`, `agentKind`). Unbranded here because
    *  it crosses a tRPC boundary as JSON; branding is POD-365/POD-361 territory. */
   sessionId: string
   agentKind: string
+  /** The harness actually running the session. Same value as `agentKind` today;
+   *  carried separately because the status renderer labels it "harness" and
+   *  {@link SessionStatusSubagent} names only that half (ab75ab1e). */
+  harness: string
   /** SCHEMA: SessionLifecycle.status */
   status: string
   /** SCHEMA: AgentRuntimeState.phase, flattened for display. */
@@ -55,6 +81,9 @@ export interface SessionStatusResult {
   /** SCHEMA: SessionLaunchConfig (`model`, `effort`, `accountId`). */
   model: string | null
   effort: string | null
+  /** SCHEMA: AgentRuntimeState.contextUsagePercent. `null` when the harness does
+   *  not expose both used tokens and window capacity (ab75ab1e). */
+  contextUsagePercent: number | null
   account: string | null
   /** SCHEMA: AgentRuntimeState.error */
   error: { class: string; retryable: boolean } | null
@@ -62,6 +91,12 @@ export interface SessionStatusResult {
   draft: boolean
   /** SCHEMA: AgentRuntimeState.nativeSubagentCount */
   nativeSubagentCount: number
+  /** SCHEMA: AgentRuntimeState.nativeSubagents — the harness's own in-process
+   *  subagents, which have no session of their own. */
+  nativeSubagents: { id: string; type?: string }[]
+  /** Podium sessions spawned by this one, transitively (ab75ab1e). Distinct from
+   *  `nativeSubagents`: each of these IS a session and can be read on its own. */
+  subagents: SessionStatusSubagent[]
   /** The bound issue, denormalized for one-shot display. Not an entity embed:
    *  ADR 4 D7.1 forbids entity-in-entity on the FEED, and this is a read model
    *  assembled per request, not a replicated row. */
@@ -179,6 +214,8 @@ export function toIssueTreeSession(src: {
   title?: string | undefined
   agentKind: string
   model?: string | undefined
+  effort?: string | undefined
+  contextUsagePercent?: number | undefined
   status: string
   agentState?: { phase?: string | undefined } | undefined
   coordinator?: boolean | undefined
@@ -201,6 +238,10 @@ export function toIssueTreeSession(src: {
     label: label || undefined,
     agentKind: src.agentKind,
     model: src.model || undefined,
+    effort: src.effort || undefined,
+    // `!== undefined`, not `||`: 0% is a real reading and the falsy-drop idiom
+    // used for the string fields would erase it (matches main's producer).
+    contextUsagePercent: src.contextUsagePercent,
     status: src.status,
     phase: src.agentState?.phase || undefined,
     coordinator: src.coordinator || undefined,

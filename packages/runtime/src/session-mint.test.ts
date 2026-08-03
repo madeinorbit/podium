@@ -34,8 +34,13 @@ let dir: string
 function seedDatabase(at: string): void {
   const db = openDatabase(join(at, 'podium.db'))
   db.prepare(
+    // `user_id NOT NULL` is POD-1075's identity column (migrations/schema.ts
+     // `clientSessions`). It has no default on purpose — a session says WHO it
+     // is — so a fixture missing it lets the mint compile and fail only at the
+     // server, which is precisely what the cross-check above caught.
     `CREATE TABLE client_sessions (
        token_hash TEXT PRIMARY KEY,
+       user_id TEXT NOT NULL,
        created_at TEXT NOT NULL,
        expires_at TEXT NOT NULL,
        label TEXT NOT NULL DEFAULT 'login'
@@ -130,7 +135,7 @@ it('revokes only the labelled class, leaving browser logins signed in', () => {
   seedDatabase(dir)
   const db = openDatabase(join(dir, 'podium.db'))
   db.prepare(
-    "INSERT INTO client_sessions (token_hash, created_at, expires_at, label) VALUES ('login-hash', '', '2999-01-01T00:00:00.000Z', 'login')",
+    "INSERT INTO client_sessions (token_hash, user_id, created_at, expires_at, label) VALUES ('login-hash', 'user_first_admin', '', '2999-01-01T00:00:00.000Z', 'login')",
   ).run()
   db.close?.()
   mintBreakGlassSession({ stateDir: dir })

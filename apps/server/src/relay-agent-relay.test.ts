@@ -52,12 +52,14 @@ describe('server agent relay handler (P1b)', () => {
       name: 'ludovico',
       hostname: 'ludovico.local',
       tokenHash: 'hash-1',
+      ownerUserId: null,
     })
     store.machines.upsertMachine({
       id: 'm2',
       name: 'quiet-box',
       hostname: 'quiet-box.example.net',
       tokenHash: 'hash-2',
+      ownerUserId: null,
     })
     store.repos.addRepo('/home/a/src/podium', machineId)
     store.repos.addRepo('/home/b/src/podium', 'm2')

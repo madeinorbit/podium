@@ -391,10 +391,10 @@ describe('guardIssueCommand authorization matrix', () => {
 
 describe('issues.get session membership', () => {
   it('returns every attached agent and excludes shell sessions', async () => {
-    const registry = new SessionRegistry()
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     try {
       const issue = registry.issues.create({ repoPath: '/r', title: 'A', startNow: false })
-      registry.modules.sessions.attachDaemon('local', () => {})
+      registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
       const first = registry.modules.sessions.createSession({
         agentKind: 'codex',
         cwd: '/r',
@@ -572,7 +572,7 @@ describe('issue spawn provenance', () => {
   // tests exists to separate (the defect is SILENT — mail reaches someone, nothing
   // errors, no lane goes red).
   it('exposes coordinatorSessionId on issues.get(), the projection mail routing reads', async () => {
-    const registry = new SessionRegistry()
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     try {
       const issue = registry.issues.create({
         repoPath: '/r',
@@ -609,15 +609,34 @@ describe('issue spawn provenance', () => {
  */
 describe('issue mail read state is per reading session [POD-1379]', () => {
   it('a peer read leaves the other agent on the issue still pending, and no self-nag', async () => {
-    const registry = new SessionRegistry()
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     try {
       const issue = registry.issues.create({ repoPath: '/r', title: 'Shared', startNow: false })
+      // REAL SESSIONS, not the bare ids main used. `authorizeAtApply` re-resolves
+      // the SENDER's principal on every delivery (POD-728/POD-1193), so a send
+      // from a session id that names no session is dead-lettered — "sender
+      // authorization is no longer valid" — and never reaches a peer's mailbox.
+      // The ids are the sessions' own; the arrangement (two agents, one issue,
+      // one shared mailbox) is unchanged.
+      const sA = registry.modules.sessions.createSession({
+        agentKind: 'codex',
+        cwd: '/r',
+        issueId: issue.id,
+      }).sessionId
+      const sB = registry.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/r',
+        issueId: issue.id,
+      }).sessionId
       const agent = (sessionId: string) =>
         ({
           capability: {
             role: 'worker' as const,
             scope: { kind: 'subtree' as const, rootId: issue.id },
-            actorSessionId: sessionId,
+            actorSessionId: asSessionId(sessionId),
+            // An agent capability must name the human it acts for: `resolvePrincipal`
+            // refuses one with no delegation owner (POD-1075 attribution).
+            onBehalfOf: FIRST_ADMIN_USER_ID,
           },
         }) as const
       const pending = async (sessionId: string) =>
@@ -626,22 +645,22 @@ describe('issue mail read state is per reading session [POD-1379]', () => {
         }
 
       // Session A mails ITS OWN issue, meaning it for session B (the POD-1342 move).
-      await registry.issueCommands.dispatch(agent('sA'), 'issues', 'mailSend', {
+      await registry.issueCommands.dispatch(agent(sA), 'issues', 'mailSend', {
         id: issue.id,
         body: 'handing this to you',
       })
-      expect((await pending('sA')).unread).toBe(0)
-      expect((await pending('sB')).unread).toBe(1)
+      expect((await pending(sA)).unread).toBe(0)
+      expect((await pending(sB)).unread).toBe(1)
 
       // A opens the shared mailbox anyway — B's handoff must survive it.
-      await registry.issueCommands.dispatch(agent('sA'), 'issues', 'mailInbox', { id: issue.id })
-      expect((await pending('sB')).unread).toBe(1)
+      await registry.issueCommands.dispatch(agent(sA), 'issues', 'mailInbox', { id: issue.id })
+      expect((await pending(sB)).unread).toBe(1)
 
-      const inboxB = (await registry.issueCommands.dispatch(agent('sB'), 'issues', 'mailInbox', {
+      const inboxB = (await registry.issueCommands.dispatch(agent(sB), 'issues', 'mailInbox', {
         id: issue.id,
       })) as Array<{ body: string; wasUnread: boolean }>
       expect(inboxB).toMatchObject([{ body: 'handing this to you', wasUnread: true }])
-      expect((await pending('sB')).unread).toBe(0)
+      expect((await pending(sB)).unread).toBe(0)
     } finally {
       registry.dispose()
     }

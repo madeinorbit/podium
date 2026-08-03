@@ -499,7 +499,7 @@ export const AgentContextMessage = z.object({
   // Branded like every sibling frame in this file. main added this frame
   // (POD-1262) with a bare z.string(); the rewrite's ids are branded, and the
   // deletion ratchet flags exactly this shape — a key naming an entity id whose
-  // schema is an unbranded string.
+  // schema is an unbranded string. POD-1593 reached the same fix independently.
   sessionId: SessionIdField,
   percent: z.number().finite().min(0).max(100),
 })
