@@ -1,4 +1,5 @@
 import type { AgentIdentityId, MachineId, UserId } from '@podium/model'
+import { joinKeyParts } from '@podium/model'
 import { z } from 'zod'
 
 /**
@@ -149,13 +150,39 @@ export const attributionOf = (p: Principal): Attribution => {
  * member with two connections). For an agent the identity is the agent itself,
  * not the human it acts for: "your agent is watching this session" must be
  * distinguishable from "you are".
+ *
+ * AN AGENT IS KEYED BY ITS DELEGATION AS WELL AS ITS IDENTITY (POD-1196), and
+ * that is not belt-and-braces — it is what stops a silent visibility widening.
+ *
+ * The delegation is part of WHO an agent principal is, not metadata beside it:
+ * ADR 3 Amendment 1 makes `delegation` a member of the principal, and the one
+ * production site that builds one (`handshake/strategies/agent-relay-delegation.ts`)
+ * sets `agentIdentity` from `resolveDelegationChain(ref).leaf` while carrying the
+ * ref itself. ONE `agentIdentity` is therefore reachable through more than one
+ * delegation ref, and two refs are two different scopes (ADR 9 D5 A2).
+ *
+ * `@podium/sync`'s publisher uses this id as its AUDIENCE-EQUALITY test — the
+ * connections whose id matches receive the same slice. A key that dropped the
+ * delegation would hand a narrowly-scoped agent the audience of a broadly-scoped
+ * one. It would compile, and every test that existed before POD-1196 would pass.
+ *
+ * `device` stays OUT, deliberately: two tabs of one delegated agent are one
+ * member, exactly as two of a person's browser tabs are.
+ *
+ * THE AGENT ARM IS ESCAPED, and the other arms are not, because only it joins
+ * two parts. `AgentIdentityId` is one brand shared with the attribution actor,
+ * where `'superagent:' + threadId` is a real mint — so an unescaped
+ * `agent:${identity}:${delegation}` would alias `(identity 'a:b', delegation 'c')`
+ * with `(identity 'a', delegation 'b:c')`. That is the exact collision
+ * `keys.test.ts`'s HOSTILE battery was built for, and an aliased routing key is
+ * an aliased AUDIENCE.
  */
 export const principalRoutingId = (p: Principal): string => {
   switch (p.kind) {
     case 'user':
       return `user:${p.user}`
     case 'agent':
-      return `agent:${p.agentIdentity}`
+      return `agent:${joinKeyParts(':', [p.agentIdentity, p.delegation])}`
     case 'machine':
       return `machine:${p.machine}`
     case 'system':
