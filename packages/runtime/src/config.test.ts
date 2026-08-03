@@ -17,6 +17,7 @@ import {
   resolveFeatureOverrides,
   resolveHookPort,
   resolveInstallDir,
+  resolveLocalServerHost,
   resolvePort,
   resolveRunRecordMode,
   resolveSessionRelay,
@@ -160,6 +161,24 @@ describe('layered resolvers (#251): env → config.json → default', () => {
     expect(resolvePort({}, {})).toBe(18787)
     expect(resolvePort({ port: 2000 }, { PODIUM_PORT: 'nope' })).toBe(2000)
     expect(resolvePort({}, { PODIUM_PORT: '0' })).toBe(18787)
+  })
+  it('resolveLocalServerHost: the daemon dials what the server BOUND (POD-1585)', () => {
+    // The pair must agree. `resolveBindHost` binds PODIUM_HOST and NOTHING else,
+    // so a specific interface leaves loopback unbound — a daemon that assumed
+    // `localhost` was refused on every retry and its machine read offline
+    // forever, which blocks folder browsing, agent placement, and onboarding.
+    expect(resolveLocalServerHost({ PODIUM_HOST: '100.113.194.89' })).toBe('100.113.194.89')
+    expect(resolveLocalServerHost({ PODIUM_HOST: 'podium.example.com' })).toBe('podium.example.com')
+    // Unset matches the server's own 127.0.0.1 default.
+    expect(resolveLocalServerHost({})).toBe('localhost')
+    // Wildcards DO include loopback, so the short local path stays — and
+    // '0.0.0.0' is not a valid destination to dial.
+    expect(resolveLocalServerHost({ PODIUM_HOST: '0.0.0.0' })).toBe('localhost')
+    expect(resolveLocalServerHost({ PODIUM_HOST: '::' })).toBe('localhost')
+    expect(resolveLocalServerHost({ PODIUM_HOST: '  ' })).toBe('localhost')
+    // A bare IPv6 literal must be bracketed to be a legal URL authority.
+    expect(resolveLocalServerHost({ PODIUM_HOST: 'fd00::1' })).toBe('[fd00::1]')
+    expect(resolveLocalServerHost({ PODIUM_HOST: '[fd00::1]' })).toBe('[fd00::1]')
   })
   it('named instances get stable distinct endpoint defaults with env/config overrides', () => {
     const env = { PODIUM_INSTANCE: 'blue' }
