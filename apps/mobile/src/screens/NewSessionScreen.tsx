@@ -1,15 +1,17 @@
+import { useSlice } from '@podium/client-core/react'
 import {
+  machineViewsFromWire,
   machinesWithRepo,
   resolveDefaultAgent,
-  resolveTargetMachine,
-  sidebarSections,
+  resolveSpawnTargetMachine,
   spawnTargetForRepo,
+  worklistSlice,
 } from '@podium/client-core/viewmodels'
 import type { AgentKind } from '@podium/model'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useEffect, useMemo, useState } from 'react'
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
-import { useMobileClient } from '../client/MobileClientProvider'
+import { useIssue, useMobileStore, useSessions } from '../client/hooks'
 import { Screen } from '../components/Screen'
 import { SectionHeader } from '../components/ui'
 import { color, font, radius, sans, space } from '../theme/theme'
@@ -30,21 +32,18 @@ function param(value: string | string[] | undefined): string | undefined {
 
 export function NewSessionScreen() {
   const router = useRouter()
-  const client = useMobileClient()
+  const store = useMobileStore()
+  const sessions = useSessions()
+  const { sections } = useSlice(worklistSlice)
   const params = useLocalSearchParams<{ cwd?: string | string[]; issueId?: string | string[] }>()
   const presetCwd = param(params.cwd)
   const issueId = param(params.issueId)
 
-  const repos = useMemo(() => {
-    const sections = sidebarSections(
-      client.repos,
-      client.sessions,
-      client.pins,
-      Date.now(),
-      client.issues,
-    )
-    return [...sections.pinnedRepos, ...sections.repos]
-  }, [client.repos, client.sessions, client.pins, client.issues])
+  // Placement reads the principal's machine VIEWS, never the raw wire list, so
+  // a machine this person lacks `use` on is not a candidate and not a chip
+  // (doc §3.1.4 M1/M5). Same helper as the desktop spawn row.
+  const machineViews = useMemo(() => machineViewsFromWire(store.machines), [store.machines])
+  const repos = useMemo(() => [...sections.pinnedRepos, ...sections.repos], [sections])
   const [cwd, setCwd] = useState(presetCwd ?? '')
   const [agentKind, setAgentKind] = useState<AgentKind | undefined>(undefined)
   const [machineId, setMachineId] = useState<string | undefined>(undefined)
@@ -57,17 +56,35 @@ export function NewSessionScreen() {
     if (cwd || repos.length === 0) return
     const repo = repos[0]
     if (!repo) return
-    const targetMachine = resolveTargetMachine(repo, client.sessions, client.machines)
+    const { machineId: targetMachine, refusal } = resolveSpawnTargetMachine(
+      repo,
+      sessions,
+      machineViews,
+    )
+    // An `unauthorized` refusal leaves the prefill EMPTY rather than falling
+    // through to the repo's primary checkout — a silently retargeted spawn is
+    // the failure M5 names. `no-repo` / `unreachable` behave exactly as before.
+    if (refusal === 'unauthorized') return
     const { worktree } = spawnTargetForRepo(repo, targetMachine)
     setCwd(worktree.path)
     setMachineId(targetMachine)
-  }, [cwd, repos, client.sessions, client.machines])
+  }, [cwd, repos, sessions, machineViews])
 
-  const issue = issueId ? client.issueById(issueId) : undefined
+  const issue = useIssue(issueId)
   const selectedRepo = repos.find((repo) =>
     repo.worktrees.some((worktree) => worktree.path === cwd),
   )
-  const repoMachines = selectedRepo ? machinesWithRepo(selectedRepo, client.machines) : []
+  const repoMachineViews = selectedRepo
+    ? (() => {
+        const withRepo = new Set(
+          machinesWithRepo(
+            selectedRepo,
+            machineViews.map((v) => v.machine),
+          ).map((m) => m.id),
+        )
+        return machineViews.filter((v) => withRepo.has(v.machine.id))
+      })()
+    : []
   const canCreate = useMemo(() => cwd.trim().length > 0 && !busy, [cwd, busy])
   const screenTitle = issueId ? 'Add agent' : 'New session'
   const submitLabel = issueId ? 'Add agent' : 'Start session'
@@ -86,9 +103,9 @@ export function NewSessionScreen() {
       // The common root launch uses the shared desktop mechanism: optimistic
       // session + draft vessel now, server reconciliation by those same ids.
       if (!issueId && !title.trim()) {
-        const created = client.spawnDraftAgent({
+        const created = store.spawnDraftAgent({
           target,
-          agentKind: resolveDefaultAgent(agentKind, client.sessions),
+          agentKind: resolveDefaultAgent(agentKind, sessions),
           ...(text ? { firstPrompt: text } : {}),
         })
         router.replace(`/session/${created.sessionId}`)
@@ -97,14 +114,14 @@ export function NewSessionScreen() {
 
       // A custom title still uses the server half of that mechanism. The shared
       // optimistic helper does not carry titles, but the draft issue is durable.
-      const created = await client.trpc.sessions.create.mutate({
+      const created = await store.trpc.sessions.create.mutate({
         cwd: target.path,
         ...(target.machineId ? { machineId: target.machineId } : {}),
         ...(agentKind ? { agentKind } : {}),
         ...(title.trim() ? { title: title.trim() } : {}),
         ...(issueId ? { issueId } : { draftIssue: { repoPath: target.repoPath } }),
       })
-      if (text) await client.sendMessage(created.sessionId, text)
+      if (text) await store.resumeAndSend(created.sessionId, text)
       router.replace(`/session/${created.sessionId}`)
     } catch (e) {
       setBusy(false)
@@ -132,11 +149,12 @@ export function NewSessionScreen() {
                   accessibilityRole="button"
                   accessibilityLabel={`Repository ${repo.name}`}
                   onPress={() => {
-                    const targetMachine = resolveTargetMachine(
+                    const { machineId: targetMachine, refusal } = resolveSpawnTargetMachine(
                       repo,
-                      client.sessions,
-                      client.machines,
+                      sessions,
+                      machineViews,
                     )
+                    if (refusal === 'unauthorized') return
                     const { worktree } = spawnTargetForRepo(repo, targetMachine)
                     setCwd(worktree.path)
                     setMachineId(targetMachine)
@@ -165,33 +183,40 @@ export function NewSessionScreen() {
           autoCorrect={false}
         />
 
-        {repoMachines.length > 1 ? (
+        {repoMachineViews.length > 1 ? (
           <>
             <SectionHeader label="Machine" />
             <View style={styles.chipWrap}>
-              {repoMachines.map((machine) => {
+              {repoMachineViews.map((view) => {
+                const machine = view.machine
+                const usable = view.availability === 'available'
+                // 'no access' and 'offline' are different facts and get
+                // different words (§3.1.4 M5) — waiting fixes one and never
+                // the other. Neither is selectable.
+                const why =
+                  view.availability === 'unauthorized'
+                    ? 'no access'
+                    : view.availability === 'unreachable'
+                      ? 'offline'
+                      : ''
                 const active = machineId === machine.id
                 return (
                   <Pressable
                     key={machine.id}
                     accessibilityRole="button"
-                    accessibilityLabel={`Machine ${machine.name}${machine.online ? '' : ' offline'}`}
-                    accessibilityState={{ disabled: !machine.online }}
-                    disabled={!machine.online}
+                    accessibilityLabel={`Machine ${machine.name}${why ? ` ${why}` : ''}`}
+                    accessibilityState={{ disabled: !usable }}
+                    disabled={!usable}
                     onPress={() => {
                       if (!selectedRepo) return
                       const { worktree } = spawnTargetForRepo(selectedRepo, machine.id)
                       setMachineId(machine.id)
                       setCwd(worktree.path)
                     }}
-                    style={[
-                      styles.chip,
-                      active && styles.chipActive,
-                      !machine.online && styles.chipDisabled,
-                    ]}
+                    style={[styles.chip, active && styles.chipActive, !usable && styles.chipDisabled]}
                   >
                     <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                      {machine.name}
+                      {why ? `${machine.name} · ${why}` : machine.name}
                     </Text>
                   </Pressable>
                 )

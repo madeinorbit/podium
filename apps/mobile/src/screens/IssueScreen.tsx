@@ -6,7 +6,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router'
 import { Plus } from 'lucide-react-native'
 import { useMemo, useState } from 'react'
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
-import { useMobileClient } from '../client/MobileClientProvider'
+import { useIssue, useMobileStore, useSessions } from '../client/hooks'
 import { ActionSheet } from '../components/ActionSheet'
 import { Composer } from '../components/Composer'
 import { Icon } from '../components/Icon'
@@ -21,16 +21,17 @@ export function IssueScreen() {
     Array.isArray(params.issueId) ? params.issueId[0] : (params.issueId ?? ''),
   )
   const router = useRouter()
-  const client = useMobileClient()
-  const issue = client.issueById(issueId)
+  const trpc = useMobileStore().trpc
+  const allSessions = useSessions()
+  const issue = useIssue(issueId)
   const now = Date.now()
   const [stageMenuOpen, setStageMenuOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
 
   const sessions = useMemo(
-    () => withoutShells(client.sessions).filter((s) => s.issueId === issueId && !s.archived),
-    [client.sessions, issueId],
+    () => withoutShells(allSessions).filter((s) => s.issueId === issueId && !s.archived),
+    [allSessions, issueId],
   )
 
   if (!issue) {
@@ -44,7 +45,7 @@ export function IssueScreen() {
   const setStage = async (stage: (typeof ISSUE_STAGES)[number]) => {
     setError(null)
     try {
-      await client.trpc.issues.update.mutate({ id: issue.id, patch: { stage } })
+      await trpc.issues.update.mutate({ id: issue.id, patch: { stage } })
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     }
@@ -57,7 +58,7 @@ export function IssueScreen() {
     setError(null)
     setStarting(true)
     try {
-      await client.trpc.issues.start.mutate({ id: issue.id })
+      await trpc.issues.start.mutate({ id: issue.id })
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -68,7 +69,7 @@ export function IssueScreen() {
   const addComment = async (body: string) => {
     setError(null)
     try {
-      await client.trpc.issues.addComment.mutate({ id: issue.id, author: 'mobile', body })
+      await trpc.issues.addComment.mutate({ id: issue.id, author: 'mobile', body })
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     }

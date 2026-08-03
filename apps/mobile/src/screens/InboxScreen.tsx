@@ -5,7 +5,8 @@ import { useRouter } from 'expo-router'
 import { Inbox as InboxIcon, Settings } from 'lucide-react-native'
 import { useMemo } from 'react'
 import { SectionList, StyleSheet, Text, View } from 'react-native'
-import { useMobileClient } from '../client/MobileClientProvider'
+import { useConnected, useIssues, useMobileStore, useSessions, useTrpc } from '../client/hooks'
+import { useMobileShell } from '../client/shell'
 import { AskQuestionCard } from '../components/AskQuestionCard'
 import { Icon } from '../components/Icon'
 import { NewWorkButton } from '../components/NewWorkButton'
@@ -31,7 +32,8 @@ function NeedsYouCard({
   now: number
 }) {
   const router = useRouter()
-  const { answerQuestion, continueSession } = useMobileClient()
+  const trpc = useTrpc()
+  const continueSession = useMobileStore().continueSession
   const needsQuestion = session.agentState?.phase === 'needs_user'
   const pending = usePendingQuestion(session.sessionId, needsQuestion, session.agentState?.since)
   const retryable = session.agentState?.phase === 'errored' && session.agentState.error?.retryable
@@ -51,7 +53,12 @@ function NeedsYouCard({
           <AskQuestionCard
             item={pending}
             live
-            onAnswer={(choices) => answerQuestion(session.sessionId, choices)}
+            onAnswer={async (choices) => {
+              await trpc.sessions.answerAskUserQuestion.mutate({
+                sessionId: session.sessionId,
+                choices,
+              })
+            }}
           />
         </View>
       ) : null}
@@ -78,10 +85,14 @@ function inboxSubtitle(needsYou: number, working: number, connected: boolean): s
 
 export function InboxScreen() {
   const router = useRouter()
-  const client = useMobileClient()
+  const sessions = useSessions()
+  const issues = useIssues()
+  const connected = useConnected()
+  const outboxSize = useMobileStore().outboxSize
+  const { error, notice } = useMobileShell()
   const now = Date.now()
 
-  const groups = useMemo(() => groupSessions(withoutShells(client.sessions)), [client.sessions])
+  const groups = useMemo(() => groupSessions(withoutShells(sessions)), [sessions])
   const sections = useMemo(
     () =>
       [
@@ -92,18 +103,21 @@ export function InboxScreen() {
     [groups],
   )
 
+  // An issue this principal cannot see resolves to undefined and renders as
+  // NOTHING — not as a deletion and not as a spinner (doc §3.1 ¶2). The card
+  // keeps its session identity either way.
   const issueFor = (session: SessionMeta): IssueWire | undefined =>
-    session.issueId ? client.issueById(session.issueId) : undefined
+    session.issueId ? issues.find((issue) => issue.id === session.issueId) : undefined
 
   return (
     <Screen
       large
       title="Inbox"
-      subtitle={inboxSubtitle(groups.needsYou.length, groups.working.length, client.connected)}
+      subtitle={inboxSubtitle(groups.needsYou.length, groups.working.length, connected)}
       right={
         <>
-          {client.outboxSize > 0 ? (
-            <Text style={styles.queued}>{client.outboxSize} queued</Text>
+          {outboxSize > 0 ? (
+            <Text style={styles.queued}>{outboxSize} queued</Text>
           ) : null}
           <NewWorkButton />
           <HeaderButton label="Settings" onPress={() => router.push('/settings')}>
@@ -112,11 +126,11 @@ export function InboxScreen() {
         </>
       }
     >
-      {client.error ? <Text style={styles.error}>{client.error}</Text> : null}
+      {error ? <Text style={styles.error}>{error}</Text> : null}
       {/* Never silent (ADR 6 D4.4): queued work a storage migration could not
           attribute to this account, and storage degradation, are both things the
           user is owed rather than log lines. */}
-      {client.notice ? <Text style={styles.notice}>{client.notice}</Text> : null}
+      {notice ? <Text style={styles.notice}>{notice}</Text> : null}
       <SectionList
         sections={sections}
         keyExtractor={(session) => session.sessionId}

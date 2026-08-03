@@ -4,7 +4,7 @@ import { Check, Inbox, Play, RotateCcw, SkipForward, X } from 'lucide-react-nati
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { useMobileClient } from '../client/MobileClientProvider'
+import { useConnected, useIssues, useTrpc } from '../client/hooks'
 import { Icon } from '../components/Icon'
 import { Screen } from '../components/Screen'
 import { ScreeningCard } from '../components/ScreeningCard'
@@ -53,10 +53,13 @@ const sameDeck = (a: Deck, b: Deck) =>
  */
 export function ProposalScreeningScreen() {
   const router = useRouter()
-  const client = useMobileClient()
+  const issues = useIssues()
+  const trpc = useTrpc()
+  const connected = useConnected()
+  const issueById = (id: string) => issues.find((issue) => issue.id === id)
   const insets = useSafeAreaInsets()
   const [deck, setDeck] = useState<Deck>(() => ({
-    order: buildScreeningQueue(client.issues).map((issue) => issue.id),
+    order: buildScreeningQueue(issues).map((issue) => issue.id),
     index: 0,
   }))
   const [outcomes, setOutcomes] = useState<Record<string, ScreeningOutcome>>({})
@@ -67,10 +70,10 @@ export function ProposalScreeningScreen() {
   // Fold live board changes into the open deck (never around the current card).
   useEffect(() => {
     setDeck((prev) => {
-      const next = reconcileScreeningOrder(prev.order, prev.index, client.issues)
+      const next = reconcileScreeningOrder(prev.order, prev.index, issues)
       return sameDeck(prev, next) ? prev : next
     })
-  }, [client.issues])
+  }, [issues])
 
   const run = useCallback(
     async (issue: IssueWire, outcome: ScreeningOutcome) => {
@@ -78,7 +81,7 @@ export function ProposalScreeningScreen() {
       inFlight.current.add(issue.id)
       setPending((p) => [...p, issue.id])
       try {
-        await applyScreeningDecision(client.trpc, issue, outcome)
+        await applyScreeningDecision(trpc, issue, outcome)
         setFailures((f) => f.filter((entry) => entry.id !== issue.id))
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e)
@@ -96,7 +99,7 @@ export function ProposalScreeningScreen() {
         setPending((p) => p.filter((id) => id !== issue.id))
       }
     },
-    [client.trpc],
+    [trpc],
   )
 
   const decide = useCallback(
@@ -113,7 +116,7 @@ export function ProposalScreeningScreen() {
 
   const retry = useCallback(
     (failure: Failure) => {
-      const issue = client.issueById(failure.id)
+      const issue = issueById(failure.id)
       if (!issue) {
         setFailures((f) => f.filter((entry) => entry.id !== failure.id))
         return
@@ -121,7 +124,7 @@ export function ProposalScreeningScreen() {
       setOutcomes((o) => ({ ...o, [issue.id]: failure.outcome }))
       void run(issue, failure.outcome)
     },
-    [client, run],
+    [issues, run],
   )
 
   // Opened from a deep link / notification there is nothing to go back to, so
@@ -131,8 +134,8 @@ export function ProposalScreeningScreen() {
     else router.replace('/issues')
   }, [router])
 
-  const current = client.issueById(deck.order[deck.index] ?? '')
-  const next = client.issueById(deck.order[deck.index + 1] ?? '')
+  const current = issueById(deck.order[deck.index] ?? '')
+  const next = issueById(deck.order[deck.index + 1] ?? '')
   const tally = useMemo(() => screeningTally(Object.values(outcomes)), [outcomes])
   const skipped = useMemo(
     () => deck.order.slice(0, deck.index).filter((id) => outcomes[id] === 'skipped'),
@@ -140,7 +143,7 @@ export function ProposalScreeningScreen() {
   )
   // The store paints from the local replica first; an empty board while the
   // socket is still down is "not loaded yet", not "nothing to screen".
-  const booting = client.issues.length === 0 && !client.connected
+  const booting = issues.length === 0 && !connected
   const failure = failures[failures.length - 1]
 
   const body = (() => {
@@ -238,7 +241,7 @@ export function ProposalScreeningScreen() {
               key={current.id}
               issue={current}
               repoName={repoName(current)}
-              parent={current.parentId ? client.issueById(current.parentId) : undefined}
+              parent={current.parentId ? issueById(current.parentId) : undefined}
               onDecide={(gesture) => decide(current, gesture)}
               onOpen={() => router.push(`/issue/${encodeURIComponent(current.id)}`)}
             />

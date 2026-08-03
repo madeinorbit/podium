@@ -3,7 +3,8 @@ import { Monitor } from 'lucide-react-native'
 import { useState } from 'react'
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { logout } from '../client/auth'
-import { useMobileClient } from '../client/MobileClientProvider'
+import { useConnected, useMobileStore } from '../client/hooks'
+import { useMobileShell } from '../client/shell'
 import { Icon } from '../components/Icon'
 import { Screen } from '../components/Screen'
 import { SectionHeader } from '../components/ui'
@@ -19,21 +20,14 @@ function openDesktop() {
 
 export function SettingsScreen() {
   const router = useRouter()
-  const {
-    connected,
-    conversations,
-    cursor,
-    eraseLocalData,
-    issues,
-    outboxSize,
-    serverConfig,
-    sessions,
-  } = useMobileClient()
+  const { conversations, issues, outboxSize, replica, sessions, httpOrigin } = useMobileStore()
+  const connected = useConnected()
+  const { eraseLocalData } = useMobileShell()
   const [loggedOut, setLoggedOut] = useState(false)
 
   const doLogout = async () => {
     await eraseLocalData()
-    await logout(serverConfig.httpOrigin)
+    await logout(httpOrigin)
     setLoggedOut(true)
     if (typeof window !== 'undefined') window.location.reload()
   }
@@ -55,10 +49,10 @@ export function SettingsScreen() {
 
         <SectionHeader label="Connection" />
         <View style={styles.panel}>
-          <Row label="Server" value={serverConfig.httpOrigin} />
+          <Row label="Server" value={httpOrigin} />
           <Row label="Status" value={connected ? 'live' : 'reconnecting'} />
           <Row label="Platform" value={Platform.OS} />
-          <Row label="Sync cursor" value={String(cursor ?? 'none')} />
+          <Row label="Sync cursor" value={String(replica.getCursor() ?? 'none')} />
         </View>
 
         <SectionHeader label="Data" />

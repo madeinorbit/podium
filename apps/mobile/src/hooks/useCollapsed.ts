@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { useMobileClient } from '../client/MobileClientProvider'
+import { useUiState } from '../client/hooks'
 
 /**
  * Per-key collapsed state in the principal-scoped replica UI store — the phone twin of the
@@ -7,7 +7,7 @@ import { useMobileClient } from '../client/MobileClientProvider'
  * read as one product even though the stores are separate).
  */
 export function useCollapsed(key: string, defaultCollapsed: boolean): [boolean, () => void] {
-  const { uiState } = useMobileClient()
+  const uiState = useUiState()
   const read = useCallback(() => uiState.get(key) === 'true', [key, uiState])
   const [collapsed, setCollapsed] = useState(() =>
     uiState.get(key) === null ? defaultCollapsed : read(),

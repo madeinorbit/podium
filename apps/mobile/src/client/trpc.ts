@@ -24,35 +24,9 @@ export interface TranscriptPage {
   hasMore: boolean
 }
 
-/** One message of a superagent thread, as stored server-side. */
-export interface SuperagentMessage {
-  id: number
-  role: 'user' | 'assistant' | 'tool' | 'system'
-  content: string
-  toolName?: string
-  createdAt: string
-}
-
-export interface SuperagentThread {
-  id: string
-  kind: 'global' | 'btw' | 'concierge'
-  originSessionId?: string
-  repoPath?: string
-  title?: string
-  podiumSessionId?: SessionId
-  /** The harness's own session id — present once the thread has a real session. */
-  harnessSessionId?: string
-  /** Query-backed running state, so a reload or late join mid-turn still knows a
-   *  turn is in flight (headlessActivity frames are ephemeral). */
-  turnRunning?: boolean
-  createdAt: string
-  updatedAt: string
-  archived: boolean
-}
-
 /**
  * Mobile-only procedures beyond the shared PodiumClientApi seam (transcript
- * paging, ask-user answers, superagent threads, issue CRUD). Hand-written
+ * paging, ask-user answers, superagent turn control, issue CRUD). Hand-written
  * because importing the server's AppRouter type would pull the whole server
  * into the Metro graph; kept narrow and in one place so drift is easy to audit.
  * Everything the SHARED store/actions layer calls lives in PodiumClientApi
@@ -71,9 +45,14 @@ interface MobileTrpcExtras {
     }>
   }
   superagent: {
-    listThreads: QueryProcedure<void, SuperagentThread[]>
-    history: QueryProcedure<{ threadId: string }, SuperagentMessage[]>
-    // sendTurn + startBtw are served by the shared PodiumClientApi seam.
+    // THE SHADOW TYPES ARE GONE (POD-332, audit item `superagent-shadow-types`).
+    // `listThreads` and `history` were declared here over two mobile-local row
+    // interfaces. `listThreads` is served by the shared PodiumClientApi seam and
+    // answers `SuperThreadView[]` — the type the superagent SLICE publishes — so
+    // the phone and the desktop render one thread shape. `history` is deleted
+    // outright rather than re-typed: it is the FROZEN legacy buffer, and this
+    // app never called it (see SuperagentScreen's header for why folding it back
+    // in is a trap). Only turn control is mobile's own.
     interruptTurn: MutationProcedure<{ threadId: string }>
     clear: MutationProcedure<{ threadId: string }>
   }

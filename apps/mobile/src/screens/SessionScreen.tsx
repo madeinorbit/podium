@@ -1,11 +1,13 @@
 import { asSessionId } from '@podium/model'
 import type { SessionId } from '@podium/model'
+import { groupSessions, withoutShells } from '@podium/client-core/focus'
 import {
   agentBadge,
   chatActivity,
   mergeTranscriptItems,
   panelLabel,
   prependTranscriptItems,
+  resolveReferent,
   sessionTitle,
   snoozeUntil1h,
   snoozeUntilTomorrow5am,
@@ -15,7 +17,15 @@ import { useLocalSearchParams, useRouter } from 'expo-router'
 import { MoreVertical } from 'lucide-react-native'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
-import { useMobileClient } from '../client/MobileClientProvider'
+import {
+  readTranscriptPage,
+  useHub,
+  useIssue,
+  useIssues,
+  useMobileStore,
+  useSession,
+  useSessions,
+} from '../client/hooks'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { Composer } from '../components/Composer'
 import { Icon } from '../components/Icon'
@@ -38,6 +48,31 @@ const WORK_STATES: (WorkState | null)[] = [
   null,
 ]
 
+/**
+ * What an absent session says, per referent state. Four rows rather than a
+ * connected/disconnected boolean, because "you may not see it" and "it was
+ * deleted" need different words and different recovery — and neither is a
+ * spinner (only `pending` is even about waiting, and it says so once).
+ */
+const NOT_HERE: Record<
+  'present' | 'not-visible' | 'removed' | 'pending',
+  { title: string; body: string }
+> = {
+  present: { title: 'Session', body: '' },
+  'not-visible': {
+    title: 'You do not have access to this session.',
+    body: 'It exists, but it has not been shared with you. Ask its owner for access.',
+  },
+  removed: {
+    title: 'Session deleted.',
+    body: 'It was removed on the server.',
+  },
+  pending: {
+    title: 'Session not here yet.',
+    body: 'It has not arrived on this device. It may appear in a moment.',
+  },
+}
+
 export function SessionScreen() {
   // Route params are RAW URL values, so the type stays `string` and the brand is
   // applied once here — the DECODE EDGE for this screen (POD-362).
@@ -45,8 +80,11 @@ export function SessionScreen() {
   const rawSessionId = Array.isArray(params.sessionId) ? params.sessionId[0] : params.sessionId
   const sessionId = rawSessionId ? asSessionId(rawSessionId) : undefined
   const router = useRouter()
-  const client = useMobileClient()
-  const session = sessionId ? client.sessionById(sessionId) : undefined
+  const store = useMobileStore()
+  const hub = useHub()
+  const allSessions = useSessions()
+  const issues = useIssues()
+  const session = useSession(sessionId)
 
   const [items, setItems] = useState<TranscriptItem[]>([])
   const [loaded, setLoaded] = useState(false)
@@ -59,7 +97,7 @@ export function SessionScreen() {
   // Chat is the default view; 'native' flips to the real PTY in place [POD-131].
   const [view, setView] = useState<'chat' | 'native'>('chat')
   const [peekIssue, setPeekIssue] = useState<import('@podium/model').IssueWire | null>(null)
-  const { readTranscript, subscribeTranscript } = client
+  const trpc = store.trpc
   // Scroll-back paging state. Refs, not state: paging must not retrigger the
   // load/subscribe effect, and onEndReached can fire in bursts.
   const paging = useRef<{ head?: string; hasMore: boolean; loading: boolean }>({
@@ -77,11 +115,11 @@ export function SessionScreen() {
     paging.current = { hasMore: false, loading: false }
     const attach = (since: string | undefined) => {
       if (!alive) return
-      unsubscribe = subscribeTranscript(sessionId, since, (delta, meta) => {
+      unsubscribe = hub.subscribeTranscript(sessionId, since, (delta, meta) => {
         setItems((prev) => (meta.reset ? delta : mergeTranscriptItems(prev, delta)))
       })
     }
-    readTranscript(sessionId)
+    readTranscriptPage(trpc, sessionId)
       .then((page) => {
         if (!alive) return
         setItems(page.items)
@@ -98,7 +136,7 @@ export function SessionScreen() {
       alive = false
       unsubscribe?.()
     }
-  }, [readTranscript, subscribeTranscript, sessionId])
+  }, [trpc, hub, sessionId])
 
   useEffect(() => {
     if (pendingTurns.length === 0) return
@@ -115,16 +153,16 @@ export function SessionScreen() {
       const trimmed = text.trim()
       if (!trimmed) return
       setPendingTurns((prev) => [...prev, { id: `${Date.now()}:${prev.length}`, text: trimmed }])
-      void client.sendMessage(sessionId, trimmed)
+      void store.resumeAndSend(sessionId, trimmed)
     },
-    [client.sendMessage, sessionId],
+    [store.resumeAndSend, sessionId],
   )
 
   const loadOlder = useCallback(() => {
     const p = paging.current
     if (!sessionId || !p.hasMore || p.loading || !p.head) return
     p.loading = true
-    readTranscript(sessionId, p.head)
+    readTranscriptPage(trpc, sessionId, p.head)
       .then((page) => {
         paging.current = { head: page.head, hasMore: page.hasMore, loading: false }
         setItems((prev) => prependTranscriptItems(prev, page.items))
@@ -132,19 +170,27 @@ export function SessionScreen() {
       .catch(() => {
         paging.current.loading = false
       })
-  }, [readTranscript, sessionId])
+  }, [trpc, sessionId])
+
+  // Round-robin triage order: needsYou, then idle, then working. Derived HERE
+  // rather than published: this screen is its only consumer, and a slice with
+  // one reader is the god object growing back under a nicer name (POD-409's
+  // rule 1, applied in the direction that says NO).
+  const focusSessionIds = useMemo(() => {
+    const groups = groupSessions(withoutShells(allSessions))
+    return [...groups.needsYou, ...groups.idle, ...groups.working].map((s) => s.sessionId)
+  }, [allSessions])
 
   const nextSession = useCallback(() => {
     if (!sessionId) return
-    const ids = client.focusSessionIds
-    if (ids.length === 0) return
-    const at = ids.indexOf(sessionId)
-    const next = ids[(at + 1) % ids.length]
+    if (focusSessionIds.length === 0) return
+    const at = focusSessionIds.indexOf(sessionId)
+    const next = focusSessionIds[(at + 1) % focusSessionIds.length]
     if (next && next !== sessionId) router.replace(`/session/${next}`)
-  }, [client.focusSessionIds, router, sessionId])
+  }, [focusSessionIds, router, sessionId])
 
   const title = session ? sessionTitle(session) : 'Session'
-  const issue = session?.issueId ? client.issueById(session.issueId) : undefined
+  const issue = useIssue(session?.issueId)
   // The issue colour flows through the chrome; slate when the issue is uncoloured.
   const accent = issue ? (issueColorHex(issue.color) ?? FLOW_SLATE) : undefined
 
@@ -153,32 +199,32 @@ export function SessionScreen() {
     const actions: SheetAction[] = [
       {
         label: session.archived ? 'Unarchive' : 'Archive',
-        onPress: () => void client.setArchived(session.sessionId, !session.archived),
+        onPress: () => void store.archiveSession(session.sessionId, !session.archived),
       },
       { label: 'Set work state…', onPress: () => setWorkMenuOpen(true) },
       {
         label: 'Snooze until next message',
-        onPress: () => void client.snooze(session.sessionId, null),
+        onPress: () => void store.setSnooze(session.sessionId, null),
       },
       {
         label: 'Snooze for 1 hour',
-        onPress: () => void client.snooze(session.sessionId, snoozeUntil1h(Date.now())),
+        onPress: () => void store.setSnooze(session.sessionId, snoozeUntil1h(Date.now())),
       },
       {
         label: 'Snooze until tomorrow',
-        onPress: () => void client.snooze(session.sessionId, snoozeUntilTomorrow5am(Date.now())),
+        onPress: () => void store.setSnooze(session.sessionId, snoozeUntilTomorrow5am(Date.now())),
       },
     ]
     if (session.snoozedUntil !== undefined) {
       actions.push({
         label: 'Clear snooze',
-        onPress: () => void client.clearSnooze(session.sessionId),
+        onPress: () => void store.clearSnooze(session.sessionId),
       })
     }
     if (session.agentState?.phase === 'errored') {
       actions.push({
         label: 'Continue after error',
-        onPress: () => void client.continueSession(session.sessionId),
+        onPress: () => void store.continueSession(session.sessionId),
       })
     }
     if (
@@ -189,31 +235,34 @@ export function SessionScreen() {
       actions.push({
         label: 'Kill session',
         destructive: true,
-        onPress: () => void client.killSession(session.sessionId),
+        onPress: () => void store.killSession(session.sessionId),
       })
     }
     return actions
-  }, [client, session])
+  }, [store, session])
 
   const offerActions: TrayCardActions = {
-    onOfferAction: (target, prompt) => void client.sendMessage(target.sessionId, prompt),
+    onOfferAction: (target, prompt) => void store.resumeAndSend(target.sessionId, prompt),
     onOpenSession: () => {},
     onOpenIssue: (target) => router.push(`/issue/${encodeURIComponent(target.id)}`),
-    onResolve: (target) => void client.trpc.issues.clearNeedsHuman.mutate({ id: target.id }),
+    onResolve: (target) => void store.trpc.issues.clearNeedsHuman.mutate({ id: target.id }),
     onOpenArtifact: (target) => router.push(`/issue/${encodeURIComponent(target.id)}`),
   }
 
   if (!sessionId || !session) {
+    // A SESSION THAT IS NOT HERE IS THREE DIFFERENT FACTS (doc §3.1 ¶2).
+    // Deleted, evicted from THIS principal's view (a share revoked, or never
+    // granted — it still exists), or simply not arrived yet. This screen used to
+    // render all three as "it may have been removed on the server", which is the
+    // exact defect `resolveReferent` exists to prevent: an eviction rendered as
+    // a deletion. `pending` says "not yet" without spinning forever, and every
+    // state is terminal copy rather than a loader.
+    const resolution = resolveReferent(sessionId, () => session, (id) =>
+      store.replica.exitKind?.('session', id),
+    )
     return (
       <Screen title="Session" onBack={() => router.back()}>
-        <EmptyState
-          title="Session not found."
-          body={
-            client.connected
-              ? 'It may have been removed on the server.'
-              : 'Still connecting — it may appear in a moment.'
-          }
-        />
+        <EmptyState title={NOT_HERE[resolution.state].title} body={NOT_HERE[resolution.state].body} />
       </Screen>
     )
   }
@@ -304,11 +353,13 @@ export function SessionScreen() {
             items={items}
             live={session?.status === 'live'}
             pendingTurns={pendingTurns}
-            onAnswer={(choices) => client.answerQuestion(sessionId, choices)}
+            onAnswer={async (choices) => {
+              await trpc.sessions.answerAskUserQuestion.mutate({ sessionId, choices })
+            }}
             onLoadOlder={loadOlder}
             onRefPress={(ref) => {
               const seq = Number(ref.slice(4))
-              const target = client.issues.find((i) => i.seq === seq)
+              const target = issues.find((i) => i.seq === seq)
               if (target) setPeekIssue(target)
             }}
           />
@@ -334,9 +385,9 @@ export function SessionScreen() {
                 offer: session.offer,
                 since: session.offer.createdAt,
               }}
-              issues={client.issues}
-              sessions={client.sessions}
-              httpOrigin={client.serverConfig.httpOrigin}
+              issues={issues}
+              sessions={allSessions}
+              httpOrigin={store.httpOrigin}
               actions={offerActions}
               now={Date.now()}
             />
@@ -347,7 +398,7 @@ export function SessionScreen() {
       <TaskPeekSheet
         issue={peekIssue}
         session={session}
-        sessions={client.sessions}
+        sessions={allSessions}
         onClose={() => setPeekIssue(null)}
       />
       <ActionSheet
@@ -361,7 +412,7 @@ export function SessionScreen() {
         title="Work state"
         actions={WORK_STATES.map((ws) => ({
           label: ws ? ws[0].toUpperCase() + ws.slice(1) : 'Unsorted',
-          onPress: () => void client.setWorkState(sessionId, ws),
+          onPress: () => void store.setWorkState(sessionId, ws),
         }))}
         onClose={() => setWorkMenuOpen(false)}
       />

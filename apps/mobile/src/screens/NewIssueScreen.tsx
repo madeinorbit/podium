@@ -2,7 +2,7 @@ import type { IssueType } from '@podium/model'
 import { useRouter } from 'expo-router'
 import { useEffect, useState } from 'react'
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
-import { useMobileClient } from '../client/MobileClientProvider'
+import { useTrpc } from '../client/hooks'
 import { Screen } from '../components/Screen'
 import { SectionHeader } from '../components/ui'
 import { color, font, radius, sans, space } from '../theme/theme'
@@ -12,7 +12,7 @@ const PRIORITIES = [0, 1, 2, 3, 4]
 
 export function NewIssueScreen() {
   const router = useRouter()
-  const client = useMobileClient()
+  const trpc = useTrpc()
   const [repos, setRepos] = useState<string[]>([])
   const [repoPath, setRepoPath] = useState('')
   const [title, setTitle] = useState('')
@@ -24,14 +24,14 @@ export function NewIssueScreen() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    client.trpc.repos.list
+    trpc.repos.list
       .query()
       .then((list) => {
         setRepos(list)
         setRepoPath((prev) => prev || list[0] || '')
       })
       .catch(() => setRepos([]))
-  }, [client.trpc])
+  }, [trpc])
 
   const canCreate = repoPath.trim().length > 0 && title.trim().length > 0 && !busy
 
@@ -40,7 +40,7 @@ export function NewIssueScreen() {
     setBusy(true)
     setError(null)
     try {
-      const issue = await client.trpc.issues.create.mutate({
+      const issue = await trpc.issues.create.mutate({
         repoPath: repoPath.trim(),
         title: title.trim(),
         ...(description.trim() ? { description: description.trim() } : {}),

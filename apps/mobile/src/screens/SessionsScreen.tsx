@@ -4,7 +4,7 @@ import type { IssueWire, SessionMeta } from '@podium/model'
 import { useRouter } from 'expo-router'
 import { useMemo, useState } from 'react'
 import { SectionList, StyleSheet, Text, View } from 'react-native'
-import { useMobileClient } from '../client/MobileClientProvider'
+import { useConnected, useIssues, useSessions } from '../client/hooks'
 import { NewWorkButton } from '../components/NewWorkButton'
 import { Screen } from '../components/Screen'
 import { SessionCard } from '../components/SessionCard'
@@ -20,11 +20,13 @@ import { color, font, mono, monoLabel, space } from '../theme/theme'
  */
 export function SessionsScreen() {
   const router = useRouter()
-  const client = useMobileClient()
+  const sessions = useSessions()
+  const issues = useIssues()
+  const connected = useConnected()
   const now = Date.now()
   const [peek, setPeek] = useState<{ issue: IssueWire; session: SessionMeta } | null>(null)
 
-  const groups = useMemo(() => groupSessions(withoutShells(client.sessions)), [client.sessions])
+  const groups = useMemo(() => groupSessions(withoutShells(sessions)), [sessions])
   const sections = useMemo(
     () =>
       [
@@ -36,14 +38,14 @@ export function SessionsScreen() {
   )
 
   const issueFor = (session: SessionMeta): IssueWire | undefined =>
-    session.issueId ? client.issueById(session.issueId) : undefined
+    session.issueId ? issues.find((issue) => issue.id === session.issueId) : undefined
 
   return (
     <Screen
       large
       title="Agents"
       subtitle={
-        client.connected
+        connected
           ? `${groups.working.length} working · ${groups.idle.length} idle`
           : 'reconnecting…'
       }
@@ -95,7 +97,7 @@ export function SessionsScreen() {
       <TaskPeekSheet
         issue={peek?.issue ?? null}
         session={peek?.session}
-        sessions={client.sessions}
+        sessions={sessions}
         onClose={() => setPeek(null)}
       />
     </Screen>
