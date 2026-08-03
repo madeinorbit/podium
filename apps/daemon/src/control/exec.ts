@@ -170,16 +170,29 @@ async function runHarnessExec(
 // stale by the next poll, so every poll re-read every recent transcript end to end.
 const USAGE_MEMO_TTL_MS = 120_000
 
-async function runUsageScan(
-  ctx: DaemonContext,
-  msg: Extract<ControlMessage, { type: 'usageRequest' }>,
-): Promise<void> {
-  const sinceMs = msg.sinceMs ?? Date.now() - 7 * 24 * 3_600_000
-  const memo = ctx.usageMemo.value
-  let buckets: UsageBucketWire[]
-  if (memo && Date.now() - memo.atMs < USAGE_MEMO_TTL_MS && memo.sinceMs <= sinceMs) {
-    buckets = memo.buckets.filter((b) => Date.parse(b.hour) >= sinceMs - 3_600_000)
-  } else {
+/**
+ * PAST THE TTL, SERVE STALE AND RESCAN BEHIND IT (POD-1624) — the same shape the
+ * quota memo uses, and here it protects more than one reader's latency. This scan
+ * JSON.parses every `"usage"`-bearing line of every transcript touched in the last
+ * 7 days, and it runs on the DAEMON's event loop, which is the loop carrying PTY
+ * traffic. A memo that only bounds how OFTEN the scan runs still lets it block
+ * that loop for the duration whenever it does; serving the previous buckets keeps
+ * the request off the critical path entirely.
+ *
+ * WORST-CASE STALENESS: TTL + one scan (~120s + the scan's own duration). The
+ * rescan is kicked off by the first read past the TTL, never deferred.
+ */
+// Keyed by context, never module-global: two daemon runtimes in one process (the
+// test lane makes them routinely) must not share one another's in-flight scan.
+const usageRescans = new WeakMap<DaemonContext, Promise<void>>()
+
+function rescanUsage(ctx: DaemonContext, sinceMs: number): Promise<void> {
+  // One scan at a time — concurrent pollers must not stack copies of a
+  // CPU-bound walk onto the loop they are already competing with.
+  const pending = usageRescans.get(ctx)
+  if (pending) return pending
+  const started = (async () => {
+    let buckets: UsageBucketWire[]
     try {
       buckets = await scanClaudeUsage({
         sinceMs,
@@ -189,7 +202,31 @@ async function runUsageScan(
       buckets = []
     }
     ctx.usageMemo.value = { atMs: Date.now(), sinceMs, buckets }
+  })().finally(() => {
+    usageRescans.delete(ctx)
+  })
+  usageRescans.set(ctx, started)
+  return started
+}
+
+async function runUsageScan(
+  ctx: DaemonContext,
+  msg: Extract<ControlMessage, { type: 'usageRequest' }>,
+): Promise<void> {
+  const sinceMs = msg.sinceMs ?? Date.now() - 7 * 24 * 3_600_000
+  const memo = ctx.usageMemo.value
+  const usable = memo && memo.sinceMs <= sinceMs
+  if (!usable) {
+    // No buckets covering this window have ever been computed — this one caller
+    // has nothing to be served and must wait.
+    await rescanUsage(ctx, sinceMs)
+  } else if (Date.now() - memo.atMs >= USAGE_MEMO_TTL_MS) {
+    void rescanUsage(ctx, sinceMs)
   }
+  const current = ctx.usageMemo.value
+  const buckets = current
+    ? current.buckets.filter((b) => Date.parse(b.hour) >= sinceMs - 3_600_000)
+    : []
   ctx.send({ type: 'usageResult', requestId: msg.requestId, hostname: hostname(), buckets })
 }
 
