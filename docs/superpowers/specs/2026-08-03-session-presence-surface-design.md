@@ -71,11 +71,12 @@ Nothing here is persisted, memoized into an entity slice, or entered into the op
 
 ### 2. `packages/client-core/src/react/use-presence-room.ts` (the seam)
 
-- `usePresenceRoom(room: RoomRef | null): PresenceRoomView` — `useSyncExternalStore` over the
-  registry for the hub behind `useStoreHandle()`. `null` room ⇒ `{ status: 'unknown' }` and no
-  join.
-- `usePublishPresence(room: RoomRef | null, payload: PresencePayload): void` — publishes on
-  change; the payload is compared by JSON identity so a re-render does not re-send.
+- `usePresenceRoom(room: RoomRef | null, payload?: PresencePayload): PresenceRoomView` — one hook,
+  because joining and publishing your own payload are the same subscription. `useSyncExternalStore`
+  over the registry for the hub read off the store. `null` room ⇒ `{ status: 'unknown' }` and no
+  join. Rooms compare by VALUE (`{kind, id}` is rebuilt every render at every call site), and the
+  payload by serialized value, seeded from what the join frame already sent — so neither a
+  re-render nor a fresh literal re-joins or re-publishes.
 
 Exported from `react/index.ts`, which `index.ts` already re-exports. Apps reach rooms **only**
 through this seam — no app code touches `hub.subscribeRoom` directly.
@@ -107,14 +108,16 @@ the 4 KiB budget, and carries no durable truth. A text cursor inside a shared do
 
 Identity display uses the id itself, not a directory: per-user authentication is Phase 3
 (POD-315) and there is no user name to resolve yet. The chip is honest about that — it shows a
-short id token, and "You" for the current principal.
+short token from the id the server stamped. The current principal's own member is dropped from
+the strip (it answers "who ELSE is here"), on an exact id match only; with no principal known,
+nobody is dropped rather than someone being guessed at.
 
 ## Data flow
 
 ```
 AgentPanel(sessionId)
-  └─ usePresenceRoom({kind:'session', id:sessionId})   ── join / fold / leave
-  └─ usePublishPresence(room, {view: effectiveMode})   ── own payload
+  └─ SessionWatchers(sessionId, view)
+       └─ usePresenceRoom({kind:'session', id}, {view})  ── join / fold / publish / leave
         │
         ▼  (client-core seam)
   PresenceRooms(hub)  ── hub.subscribeRoom / publishPresence / on(presenceRoom*)
