@@ -1150,6 +1150,14 @@ export class SessionRegistry {
     // bind/live, resume-ref, attachment/CWD and draft changes; issue upserts cover
     // worktree/archive/target-resolution changes. The service coalesces by target.
     this.bus.on('oplog.appended', ({ changes }) => {
+      // ISSUE CHANGES GO IN ONE BATCH (POD-1597). Per change, the recompute walks
+      // every session and resolves each against every issue; the boot catch-up
+      // arrives here as ONE batch of every issue there is, so per-change cost
+      // squared the world and cost 573s of a 668s boot on the live database.
+      // The issue half of a mixed batch is therefore recomputed AFTER the session
+      // half rather than interleaved with it; both only queue targets into the
+      // scheduler's coalescing map, which is flushed once, after this handler.
+      const changedIssueIds: string[] = []
       for (const change of changes) {
         if (change.entity === 'session') {
           messagesSvc.onSessionEligibilityChanged(
@@ -1160,9 +1168,10 @@ export class SessionRegistry {
             change.op === 'upsert' ? (change.value as SessionMeta) : undefined,
           )
         } else if (change.entity === 'issue') {
-          messagesSvc.onIssueEligibilityChanged(change.id)
+          changedIssueIds.push(change.id)
         }
       }
+      messagesSvc.onIssuesEligibilityChanged(changedIssueIds)
     })
     const workflows = new WorkflowService(
       {

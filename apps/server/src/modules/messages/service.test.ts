@@ -3921,6 +3921,75 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
     expect(sent).toHaveLength(1)
     expect(sent[0]?.text).toContain('session after rehome')
   })
+
+  // POD-1597. The boot catch-up publishes EVERY issue in one change-log batch,
+  // and the per-change form recomputed every session's membership once per
+  // change: 1272 changes x 1172 sessions x 1570 issue rows on the live database,
+  // 573 seconds, before the port opened. These two guard the batch form: it must
+  // deliver what the per-change form delivered, and it must resolve membership a
+  // number of times bounded by the SESSION count, not by changes x sessions.
+  it('delivers the same mail for a batched issue recompute as for per-change calls', () => {
+    const fixture = () => [
+      session({ sessionId: asSessionId('s1'), issueId: ISSUE.id }),
+      session({ sessionId: asSessionId('s2'), issueId: undefined, cwd: ISSUE.worktreePath }),
+      session({ sessionId: asSessionId('s3'), issueId: undefined, cwd: '/unowned' }),
+    ]
+    const batchIds = [ISSUE.id, SENDER_ISSUE.id]
+    const drive = (recompute: (svc: MessageDeliveryService) => void) => {
+      const { svc, sent } = harness(fixture())
+      svc.send(
+        { kind: 'superagent' },
+        { to: { kind: 'issue', id: ISSUE.id }, body: 'issue mail' },
+      )
+      svc.send(
+        { kind: 'superagent' },
+        { to: { kind: 'session', id: asSessionId('s3') }, body: 'session mail' },
+      )
+      recompute(svc)
+      svc.flushDeliveryTriggers()
+      return sent.map((s) => `${s.sessionId}:${s.text.includes('issue mail') ? 'issue' : 'session'}`)
+    }
+
+    const perChange = drive((svc) => {
+      for (const id of batchIds) svc.onIssueEligibilityChanged(id)
+    })
+    const batched = drive((svc) => {
+      svc.onIssuesEligibilityChanged(batchIds)
+    })
+
+    expect(batched).toEqual(perChange)
+    expect(batched.length).toBeGreaterThan(0)
+  })
+
+  it('resolves session membership once per session for a whole issue batch', () => {
+    const sessions = [
+      session({ sessionId: asSessionId('s1'), issueId: undefined, cwd: ISSUE.worktreePath }),
+      session({ sessionId: asSessionId('s2'), issueId: undefined, cwd: '/unowned' }),
+    ]
+    let resolutions = 0
+    const { svc } = harness(sessions, {
+      issueForCwd: (cwd) => {
+        resolutions += 1
+        return cwd === ISSUE.worktreePath ? ISSUE.id : null
+      },
+    })
+    svc.send(
+      { kind: 'superagent' },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'issue mail' },
+    )
+    resolutions = 0
+
+    // A boot-shaped batch: every issue at once. Twenty changes, two sessions.
+    svc.onIssuesEligibilityChanged([
+      ISSUE.id,
+      SENDER_ISSUE.id,
+      ...Array.from({ length: 18 }, (_, i) => `iss_batch_${i}`),
+    ])
+
+    // One resolution per session for the batch decision, plus at most one more
+    // per session that the decision then re-queued. Per change it was 20x that.
+    expect(resolutions).toBeLessThanOrEqual(sessions.length * 2)
+  })
 })
 
 describe('delivery trigger isolation and observability [POD-842]', () => {
