@@ -1,11 +1,12 @@
 import type { MetadataChange, MetadataEntityKind } from '@podium/protocol'
+import { type Principal } from '@podium/protocol'
 import { Authority } from './authority/authority'
 import {
   DeviceGradeNoAnchors,
   DeviceGradeUnscopedPolicy,
   DEVICE_GRADE_PRINCIPAL,
 } from './feed/visibility'
-import type { FeedPrincipal, FeedVisibilityPolicy, VisibilityAnchorPort } from './feed/visibility'
+import type { FeedVisibilityPolicy, VisibilityAnchorPort } from './feed/visibility'
 import type {
   StagedChangeSpec as KernelChangeSpec,
   ScopedChange,
@@ -110,7 +111,7 @@ export interface LedgerDeps {
   onPruneMetrics?: Parameters<typeof pruneChangeLog>[1]['onMetrics']
   visibility?: FeedVisibilityPolicy
   anchors?: VisibilityAnchorPort
-  listenerPrincipal?: FeedPrincipal
+  listenerPrincipal?: Principal
 }
 
 export interface LedgerBootOptions {

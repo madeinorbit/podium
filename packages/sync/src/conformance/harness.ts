@@ -35,7 +35,7 @@ import type { OptimisticOverlayPort, PendingMutation } from '../replica/overlay'
 import { Replica } from '../replica/replica'
 import type { DeltaFrame, EntityRecord, ReplicaEvent, ServerFrame } from '../replica/types'
 import type { ConformanceAuthority, ConformancePrincipal } from './authority'
-import { attributionOf, humanOf, keyOf } from './authority'
+import { attributionOf, requireHuman, keyOf } from './authority'
 import type { ConformanceStorage, ConformanceStorageView } from './instantiation'
 
 /** D10's age ceiling. ADR 3 D10 owns the value; the suite only needs it to be finite. */
@@ -80,7 +80,7 @@ export interface ClientOptions {
  */
 export async function openClient(options: ClientOptions): Promise<ConformanceClient> {
   const { authority, storage, principal, clock } = options
-  const view = storage.viewFor(humanOf(principal))
+  const view = storage.viewFor(requireHuman(principal))
   const replicaEvents: ReplicaEvent[] = []
   const outboxEvents: OutboxEvent[] = []
   const storeUnreadable: unknown[] = []
@@ -88,7 +88,7 @@ export async function openClient(options: ClientOptions): Promise<ConformanceCli
   const outbox = await Outbox.open({
     store: view.outbox,
     submit: authority.transportFor(principal),
-    principal: humanOf(principal),
+    principal: requireHuman(principal),
     now: clock.now,
     maxAgeMs: MAX_AGE_MS,
     newMutationId: options.newMutationId,

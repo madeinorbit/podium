@@ -39,9 +39,12 @@ import type { Cursor, ServerFrame } from '../replica/types'
 import {
   ConformanceAuthority,
   type ConformancePrincipal,
+  conformanceAgent,
+  conformanceUser,
   FIRST_EPOCH,
   attributionOf,
   humanOf,
+  requireHuman,
   keyOf,
 } from './authority'
 import { GateLedger, assertGatesCovered } from './gates'
@@ -57,19 +60,26 @@ import {
 } from './harness'
 import type { ConformanceStorage, SyncInstantiation } from './instantiation'
 
-const ADA: ConformancePrincipal = { kind: 'user', userId: 'ada' }
-const GRACE: ConformancePrincipal = { kind: 'user', userId: 'grace' }
+const ADA: ConformancePrincipal = conformanceUser('ada')
+const GRACE: ConformancePrincipal = conformanceUser('grace')
+
+/** The ref ADA's agent presents. Its SCOPE is registered on the tables below. */
+const ADAS_DELEGATION = 'del_ada_agent'
 
 /** ADA's agent, scoped to ONE issue. Its human can see more — that is A2's whole point. */
-const ADAS_AGENT: ConformancePrincipal = {
-  kind: 'agent',
-  sessionId: 'ses_ada_agent',
-  onBehalfOf: 'ada',
-  // A DELEGATED SCOPE, in the kernel's own vocabulary (POD-1077): `entities` with
-  // an explicit key set, so the `all` arm — which exists for a human's own
-  // connection — is not reachable from an agent by omission.
-  scope: { kind: 'entities', keys: new Set([keyOf('issue', 'ADA-1')]) },
-}
+const ADAS_AGENT: ConformancePrincipal = conformanceAgent(
+  'ses_ada_agent',
+  'ada',
+  ADAS_DELEGATION,
+)
+
+/**
+ * What that delegation was minted for — registered on the TABLES, not carried on
+ * the principal (POD-1196). `entities` with an explicit key set, so the `all`
+ * arm — which exists for a human's own connection — is not reachable from an
+ * agent by omission.
+ */
+const ADAS_SCOPE = { kind: 'entities' as const, keys: new Set([keyOf('issue', 'ADA-1')]) }
 
 export function describeSyncConformance(instantiation: SyncInstantiation): void {
   const ledger = new GateLedger(instantiation.name)
@@ -84,6 +94,12 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
 
     beforeEach(async () => {
       authority = new ConformanceAuthority()
+      // MINT ADA's agent delegation with what it was spawned for. Registered on
+      // the tables rather than carried on the principal (POD-1196), and required
+      // rather than implied: StubVisibilityPolicy is default-closed for a ref it
+      // never minted, so forgetting this line makes the agent see NOTHING — which
+      // is what a default-closed port is supposed to do.
+      authority.policy.delegate(ADAS_DELEGATION, ADAS_SCOPE)
       storage = await instantiation.open()
       clock = new Clock()
       ids = 0
@@ -728,7 +744,7 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         authority.chunkSize = 1
 
         const clients = await Promise.all(
-          humans.map(async (who) => await client({ kind: 'user', userId: who })),
+          humans.map(async (who) => await client(conformanceUser(who))),
         )
         // ALL AT ONCE.
         for (const c of clients) c.replica.connect()
@@ -807,10 +823,10 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         // now fails if the queue stops demoting — the property it was always
         // credited with testing and never had. Offering frames the slow consumer
         // never drains is exactly what a slow consumer does.
-        const slowQueue = authority.sendQueueFor(humanOf(ADA))
+        const slowQueue = authority.sendQueueFor(requireHuman(ADA))
         let demotion: ServerFrame | null = null
         for (let i = 0; demotion === null && i < 10; i += 1) {
-          demotion = authority.offerTo(humanOf(ADA), authority.frameFor(ADA, behind + i))
+          demotion = authority.offerTo(requireHuman(ADA), authority.frameFor(ADA, behind + i))
         }
         expect(demotion).not.toBeNull()
         expect(slowQueue.isDemoted()).toBe(true)

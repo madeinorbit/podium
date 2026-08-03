@@ -63,6 +63,7 @@
  * can: a version nobody announced cannot be refused.
  */
 
+import { principalRoutingId } from '@podium/protocol'
 import type { ConversationDiagnosticWire } from '@podium/model'
 import {
   asSubscriberId,
@@ -82,13 +83,12 @@ import type {
   AuthorityPort,
   FeedConnection,
   FeedIdentityRegistry,
-  FeedPrincipal,
   FeedRetentionPort,
   ScopedChange,
   ScopedDelivery,
   ServerFrame,
 } from '@podium/sync'
-import { FeedPublisher, principalIdOf } from '@podium/sync'
+import { FeedPublisher } from '@podium/sync'
 import { perfPrincipal } from '../modules/perf/principal'
 import { perf } from '../modules/perf/registry'
 import {
@@ -143,7 +143,7 @@ export class FeedServing {
   private readonly authoritySubscriptionByKey = new Map<RoutingKey, () => void>()
   private readonly pendingByPrincipal = new Map<
     string,
-    { principal: FeedPrincipal; deliveries: ScopedDelivery[] }
+    { principal: Principal; deliveries: ScopedDelivery[] }
   >()
   private flushScheduled = false
 
@@ -175,7 +175,7 @@ export class FeedServing {
    */
   attach(
     peer: FeedPeer,
-    principal: FeedPrincipal,
+    principal: Principal,
     routingPrincipal: Principal,
   ): UpgradeRequired | null {
     const refusal = this.edge.attach(peer)
@@ -188,7 +188,7 @@ export class FeedServing {
 
   /** Read the world, send it, and start framing from the position it was read
    *  at. The one place a connection acquires a position. */
-  private serveWorld(peer: FeedPeer, principal: FeedPrincipal, routingPrincipal: Principal): void {
+  private serveWorld(peer: FeedPeer, principal: Principal, routingPrincipal: Principal): void {
     // ONE synchronous pass: the world, and the position it was read at.
     const t0 = performance.now()
     const world = this.deps.authority.bootstrap(principal)
@@ -234,10 +234,10 @@ export class FeedServing {
 
   private retainPrincipal(
     peerId: string,
-    principal: FeedPrincipal,
+    principal: Principal,
     routingPrincipal: Principal,
   ): void {
-    const key = principalRoutingKeyFromId(principalIdOf(principal))
+    const key = principalRoutingKeyFromId(principalRoutingId(principal))
     if (this.feedKeyByPeer.get(peerId) === key) return
     this.releasePrincipal(peerId)
     const wasEmpty = this.deps.subscriptions.subscribers(key).length === 0
@@ -276,7 +276,7 @@ export class FeedServing {
    */
   renegotiate(
     peer: FeedPeer,
-    principal: FeedPrincipal,
+    principal: Principal,
     routingPrincipal: Principal,
   ): UpgradeRequired | null {
     const refusal = this.edge.attach(peer)
@@ -312,8 +312,8 @@ export class FeedServing {
     this.connections.delete(peerId)
   }
 
-  private queue(principal: FeedPrincipal, delivery: ScopedDelivery): void {
-    const key = principalIdOf(principal)
+  private queue(principal: Principal, delivery: ScopedDelivery): void {
+    const key = principalRoutingId(principal)
     const pending = this.pendingByPrincipal.get(key) ?? { principal, deliveries: [] }
     pending.deliveries.push(delivery)
     this.pendingByPrincipal.set(key, pending)
@@ -339,7 +339,7 @@ export class FeedServing {
    * not a schedule: a frame left in it is a frame a connection has not been told
    * about, and there is no other tick in this server that would come back for it.
    */
-  publish(principal: FeedPrincipal, delivery: ScopedDelivery): void {
+  publish(principal: Principal, delivery: ScopedDelivery): void {
     const totalStartedAt = performance.now()
     const perfKey = perfPrincipal(principal)
     // Scoping has already been evaluated by Authority for this principal. Record
@@ -355,7 +355,7 @@ export class FeedServing {
     // changed because the pipeline they named is gone; `PHASE_MIGRATION` in
     // `@podium/protocol` is the map a recorded baseline resolves through.
     const t0 = performance.now()
-    const key = principalRoutingKeyFromId(principalIdOf(principal))
+    const key = principalRoutingKeyFromId(principalRoutingId(principal))
     const subscribers = this.deps.subscriptions.subscribers(key)
     const targets = subscribers.map((sub) => String(sub.subscriberId))
     if (delivery.kind === 'rescope' || delivery.changes.some((change) => change.op === 'evict')) {

@@ -3,6 +3,7 @@ import {
   asCapabilityRef,
   asDeviceId,
   asUserId,
+  type AgentPrincipal,
   type Principal,
   principalRoutingId,
 } from './principal'
@@ -208,6 +209,48 @@ describe('ADR 7 Amendment 1 D13 — ONE routing primitive, parameterized by dura
       delegation: 'del-1' as never,
     }
     expect(principalRoutingId(agent)).not.toBe(principalRoutingId(user('alice')))
+  })
+
+  const agentUnder = (delegation: string): AgentPrincipal => ({
+    kind: 'agent',
+    agentIdentity: 'agent-7' as never,
+    onBehalfOf: asUserId('alice'),
+    device: asDeviceId('d'),
+    capability: asCapabilityRef('cap'),
+    delegation: delegation as never,
+  })
+
+  it('separates two same-identity agents holding DIFFERENT delegations', () => {
+    // Reachable in production, not hypothetical: the one site that builds an
+    // AgentPrincipal (handshake/strategies/agent-relay-delegation.ts) sets
+    // agentIdentity from resolveDelegationChain(ref).leaf while carrying the ref
+    // itself as `delegation`. One identity is therefore reachable through more
+    // than one ref, and two refs mean two different scopes. A key that dropped
+    // the delegation would hand a narrowly-scoped agent the audience of a
+    // broadly-scoped one — silently, since it compiles and every prior test
+    // passes.
+    expect(principalRoutingId(agentUnder('del-narrow'))).not.toBe(
+      principalRoutingId(agentUnder('del-broad')),
+    )
+  })
+
+  it('does not alias (identity, delegation) pairs that split differently', () => {
+    // The classic unescaped-concat collision, and NOT hypothetical for this
+    // brand: AgentIdentityId is shared with the attribution actor, where
+    // `'superagent:' + threadId` is a real mint. Unescaped, both of these are
+    // 'agent:a:b:c'. An aliased routing key is an aliased AUDIENCE.
+    const left: AgentPrincipal = { ...agentUnder('c'), agentIdentity: 'a:b' as never }
+    const right: AgentPrincipal = { ...agentUnder('b:c'), agentIdentity: 'a' as never }
+    expect(principalRoutingId(left)).not.toBe(principalRoutingId(right))
+  })
+
+  it('keeps two connections of ONE delegated agent as a single member (D9.4)', () => {
+    // Two tabs are one member. `device` is what differs between connections, and
+    // it is deliberately NOT in the key — the same rule that puts two of a
+    // person's browser tabs under one user id.
+    const one = agentUnder('del-1')
+    const other: AgentPrincipal = { ...one, device: asDeviceId('d2') }
+    expect(principalRoutingId(one)).toBe(principalRoutingId(other))
   })
 })
 

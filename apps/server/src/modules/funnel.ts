@@ -1,3 +1,4 @@
+import { type Principal } from '@podium/protocol'
 import type { FeedChangesSinceReply, FeedCursorField, MetadataChange } from '@podium/protocol'
 import { toFeedChange } from '../gateway/feed-serving'
 import {
@@ -220,7 +221,7 @@ export class WriteFunnel {
    */
   feedChangesSince(
     cursor: FeedCursorField | null,
-    principal: import('@podium/sync').FeedPrincipal,
+    principal: import('@podium/protocol').Principal,
   ): FeedChangesSinceReply {
     const identity = this.deps.serving.identity()
     if (cursor !== null && (cursor.feedId !== identity.feedId || cursor.epoch !== identity.epoch)) {
@@ -271,7 +272,7 @@ export class WriteFunnel {
    * and a version, and shipping every row's value to a diagnostic read would make
    * a debugging aid the largest response on the wire.
    */
-  feedSlice(principal: import('@podium/sync').FeedPrincipal): {
+  feedSlice(principal: import('@podium/protocol').Principal): {
     feedId: string
     epoch: string
     throughSeq: number

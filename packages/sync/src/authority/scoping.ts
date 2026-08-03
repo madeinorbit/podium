@@ -45,9 +45,9 @@
  * chose, and `authority.scoped.test.ts` asserts the absence of any other route.
  */
 
+import { type Principal } from '@podium/protocol'
 import type {
   EntityRef,
-  FeedPrincipal,
   FeedVisibilityPolicy,
   VisibilityAnchorPort,
 } from '../feed/visibility'
@@ -109,7 +109,7 @@ export const DEFAULT_RESCOPE_THRESHOLD = 32
  */
 export function scopeBatch(
   deps: ScopingDeps,
-  principal: FeedPrincipal,
+  principal: Principal,
   changes: readonly SequencedChange[],
   throughSeq: number,
 ): ScopedDelivery {
@@ -119,7 +119,7 @@ export function scopeBatch(
 
   for (const change of changes) {
     // 1. The ordinary path: is this row in this principal's slice right now?
-    if (deps.policy.mayDeliver(principal, change)) visible.push(change)
+    if (deps.policy.decide(principal, change).visible) visible.push(change)
 
     // 2. D14.3: did this row MOVE anyone's visibility? Asked of the port that
     //    owns the tables, never inferred from the payload — a payload-shaped
@@ -127,7 +127,9 @@ export function scopeBatch(
     //    controls.
     const edge = deps.anchors.visibilityEdge(change)
     if (edge === null) continue
-    if (!edge.audience.includes(human)) continue
+    // A principal with no human (machine/system) is in nobody's audience by
+    // construction — `audience` names HUMANS whose view moved (D14.3).
+    if (human === null || !edge.audience.includes(human)) continue
     for (const subject of edge.subjects) {
       anchored.push(anchorFor(deps, principal, subject, change.seq))
     }
@@ -181,14 +183,14 @@ export interface ScopedBootstrap {
  * the rescope threshold on any instance large enough to have grant edges, so the
  * omission is load-bearing rather than an economy.
  *
- * What is NOT duplicated is the decision itself: `mayDeliver` is the same policy
+ * What is NOT duplicated is the decision itself: `decide` is the same policy
  * object, called the same way, so there is still exactly one answer to "may this
  * principal see this row" in the kernel. `authority.scoped.test.ts` pins that a
  * row suppressed on the live path is suppressed here too.
  */
 export function scopeBootstrap(
   deps: Pick<ScopingDeps, 'policy'>,
-  principal: FeedPrincipal,
+  principal: Principal,
   state: readonly SequencedChange[],
   throughSeq: number,
 ): ScopedBootstrap {
@@ -199,7 +201,7 @@ export function scopeBootstrap(
     // cache that does not exist yet, and a replica that applied one would be
     // holding a tombstone for an entity it was never told about.
     if (row.op !== 'upsert') continue
-    if (!deps.policy.mayDeliver(principal, row)) continue
+    if (!deps.policy.decide(principal, row).visible) continue
     changes.push(row as ScopedChange)
   }
   return { throughSeq, changes: changes.sort((a, b) => a.seq - b.seq) }
@@ -218,12 +220,12 @@ export function scopeBootstrap(
  */
 function anchorFor(
   deps: ScopingDeps,
-  principal: FeedPrincipal,
+  principal: Principal,
   subject: EntityRef,
   seq: number,
 ): ScopedChange {
   const base = { seq, entity: subject.entity, entityId: subject.entityId }
-  if (deps.policy.mayDeliver(principal, subject)) {
+  if (deps.policy.decide(principal, subject).visible) {
     const value = deps.anchors.currentValueOf(subject)
     if (value !== undefined) return { ...base, op: 'upsert', value }
   }

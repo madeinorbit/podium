@@ -24,6 +24,7 @@
  * forges another session's id in the body still lands on ITS OWN partition.
  */
 
+import { type Principal } from '@podium/protocol'
 import {
   type AnyCommandContract,
   PERF_CONTRACT_NAMES,
@@ -32,7 +33,6 @@ import {
   registryClassificationErrors,
   type TransportTag,
 } from '@podium/commands'
-import type { FeedPrincipal } from '@podium/sync'
 import type { z } from 'zod'
 import type { PerfRegistry } from './registry'
 import { perfPrincipal } from './principal'
@@ -45,7 +45,7 @@ import { perfPrincipal } from './principal'
  */
 export interface PerfState {
   readonly perf: PerfRegistry
-  readonly feedPrincipal?: FeedPrincipal
+  readonly feedPrincipal?: Principal
 }
 
 export type PerfHandler<In, Out> = (state: PerfState, input: In) => Out

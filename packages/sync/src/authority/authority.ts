@@ -82,6 +82,7 @@
  */
 
 import type { MetadataChange, MetadataEntityKind } from '@podium/protocol'
+import { type Principal, principalRoutingId } from '@podium/protocol'
 import { ChangeBaseline, type ChangeLogStore, detectionKey, readChangesSince } from '../change-log'
 import { arbitrate } from './arbitration'
 import type { StagedChangeSpec, SequencedChange } from './change-lifecycle'
@@ -94,12 +95,10 @@ import type {
   TransactPort,
 } from './ports'
 import type {
-  FeedPrincipal,
   FeedScopingGrade,
   FeedVisibilityPolicy,
   VisibilityAnchorPort,
 } from '../feed/visibility'
-import { principalIdOf } from '../feed/visibility'
 import {
   DEFAULT_RESCOPE_THRESHOLD,
   scopeBatch,
@@ -160,7 +159,7 @@ function isThenable(value: unknown): value is PromiseLike<unknown> {
 
 /** One subscription: who it is for, and where its deliveries go. */
 interface ScopedSubscription {
-  readonly principal: FeedPrincipal
+  readonly principal: Principal
   readonly deliver: ChangeSubscriber
 }
 
@@ -264,7 +263,7 @@ export class Authority implements AuthorityPort {
    * reachable here rather than only on the live path because a heal is how a
    * replica recovers from every rung of the ladder.
    */
-  changesSince(cursor: number | null, principal: FeedPrincipal): ScopedDelivery | null {
+  changesSince(cursor: number | null, principal: Principal): ScopedDelivery | null {
     const rows = readChangesSince(this.deps.store, cursor)
     if (rows === null) return null
     return this.scope(principal, rows.map(fromWire), this.cursor())
@@ -305,7 +304,7 @@ export class Authority implements AuthorityPort {
    * it stands, which is what the v1 snapshot could never offer because its
    * message carried no position at all.
    */
-  bootstrap(principal: FeedPrincipal): ScopedBootstrap {
+  bootstrap(principal: Principal): ScopedBootstrap {
     const state: SequencedChange[] = []
     for (const row of this.deps.store.latestChangeStates()) {
       if (row.op !== 'upsert' || row.payload === null) continue
@@ -342,11 +341,11 @@ export class Authority implements AuthorityPort {
    * forward falls below `minAvailableSeq` and re-bootstraps for lack of news. The
    * CADENCE is POD-337's measured threshold; this is the operation it calls.
    */
-  watermark(principal: FeedPrincipal): ScopedDelivery {
+  watermark(principal: Principal): ScopedDelivery {
     return this.scope(principal, [], this.cursor())
   }
 
-  subscribe(principal: FeedPrincipal, subscriber: ChangeSubscriber): () => void {
+  subscribe(principal: Principal, subscriber: ChangeSubscriber): () => void {
     const subscription: ScopedSubscription = { principal, deliver: subscriber }
     this.subscribers.add(subscription)
     return () => {
@@ -356,7 +355,7 @@ export class Authority implements AuthorityPort {
 
   /** The principals currently subscribed, by stable id. Telemetry and tests. */
   subscribedPrincipals(): readonly string[] {
-    return [...this.subscribers].map((s) => principalIdOf(s.principal))
+    return [...this.subscribers].map((s) => principalRoutingId(s.principal))
   }
 
   /**
@@ -370,7 +369,7 @@ export class Authority implements AuthorityPort {
    * range rather than by asserting each against a literal.
    */
   private scope(
-    principal: FeedPrincipal,
+    principal: Principal,
     changes: readonly SequencedChange[],
     throughSeq: number,
   ): ScopedDelivery {

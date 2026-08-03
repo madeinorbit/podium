@@ -16,6 +16,8 @@
  * assertion is about feed scoping, not SQLite.
  */
 
+import { asCapabilityRef, asDeviceId } from '@podium/protocol'
+import { type Principal } from '@podium/protocol'
 import {
   asUserId,
   type ReadPositionSnapshot,
@@ -26,9 +28,9 @@ import {
 import {
   Authority,
   DeviceGradeNoAnchors,
-  type FeedPrincipal,
   GrantEdgeVisibilityPolicy,
   type VisibilityStatePort,
+  NoDelegationsGranted,
 } from '@podium/sync'
 import { describe, expect, it } from 'vitest'
 import type { StoredReadPosition } from '../../store/user-read-position'
@@ -39,8 +41,13 @@ const BOB: UserId = asUserId('user:bob')
 
 type AuthorityStore = ConstructorParameters<typeof Authority>[0]['store']
 
-function humanPrincipal(userId: UserId): FeedPrincipal {
-  return { kind: 'user', userId }
+function humanPrincipal(userId: UserId): Principal {
+  return {
+    kind: 'user',
+    user: userId,
+    device: asDeviceId(`dev:${userId}`),
+    capability: asCapabilityRef(`cap:${userId}`),
+  }
 }
 
 function memoryStore(): AuthorityStore {
@@ -126,7 +133,7 @@ function build() {
     store: memoryStore(),
     now: () => 1_000,
     transact: (fn) => fn(),
-    visibility: new GrantEdgeVisibilityPolicy(visibilityPort),
+    visibility: new GrantEdgeVisibilityPolicy(visibilityPort, new NoDelegationsGranted()),
     anchors: new DeviceGradeNoAnchors(),
   })
   const repo = memoryCursorRepo()

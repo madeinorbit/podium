@@ -7,9 +7,9 @@
  * derives and carries this tuple; command and visibility policy evaluate it.
  */
 
+import { type Principal } from '@podium/protocol'
 import type { UserId, UserRole } from '@podium/model'
 import { asCapabilityRef, asDeviceId, asUserId, type UserPrincipal } from '@podium/protocol'
-import type { FeedPrincipal } from '@podium/sync'
 
 /**
  * The principal of one `/client` connection. Its device half names the socket
@@ -55,7 +55,4 @@ export const userClientPrincipal = (
  * person therefore share one authority subscription while retaining distinct
  * connection ids in the gateway registry.
  */
-export const feedPrincipalOf = (principal: ClientPrincipal): FeedPrincipal => ({
-  kind: 'user',
-  userId: principal.user,
-})
+export const feedPrincipalOf = (principal: ClientPrincipal): Principal => principal

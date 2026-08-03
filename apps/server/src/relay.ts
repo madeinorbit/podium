@@ -1,3 +1,4 @@
+import { type Principal } from '@podium/protocol'
 import { isSpawnedBy } from '@podium/model'
 import { randomUUID } from 'node:crypto'
 import { hostname } from 'node:os'
@@ -24,6 +25,8 @@ import {
   Ledger,
   MutationLedger,
   type VisibilityAnchorPort,
+  NoDelegationsGranted,
+  kernelVisibilityResolver,
 } from '@podium/sync'
 import { IssueAttachOrchestrator } from './application/issue-attach-orchestrator'
 import {
@@ -497,7 +500,7 @@ export class SessionRegistry {
           return null
         }
       },
-    })
+    }, new NoDelegationsGranted())
     const durableChangeValueOf = (ref: { entity: string; entityId: string }): unknown => {
       const row = this.store.sync
         .latestChangeStates()
@@ -569,15 +572,20 @@ export class SessionRegistry {
       current: readonly import('@podium/model').ConversationDiagnosticWire[]
     } = { current: [] }
     const subscriptions = new SubscriptionRegistry()
+    // THE KERNEL'S OWN SEAM (POD-1196), not a hand-written bridge.
+    //
+    // This used to translate a protocol Principal into a second principal type
+    // and open with `if (principal.kind !== 'user') return false` — refusing
+    // EVERY agent, because the kernel's principal had nowhere to put a delegated
+    // scope. One principal type and a delegation port remove both the
+    // translation and the refusal.
+    //
+    // The entity-kind narrowing stays: it is a fact about what rooms address,
+    // not a refusal of a principal.
     const roomVisibility: VisibilityResolver = {
-      canSee: (principal, ref) => {
-        if (principal.kind !== 'user') return false
-        if (ref.kind !== 'session' && ref.kind !== 'issue') return false
-        return visibility.mayDeliver(
-          { kind: 'user', userId: principal.user },
-          { entity: ref.kind, entityId: ref.id },
-        )
-      },
+      canSee: (principal, ref) =>
+        (ref.kind === 'session' || ref.kind === 'issue') &&
+        kernelVisibilityResolver(visibility).canSee(principal, ref),
     }
     const presence = new PresenceRouting({
       subscriptions,

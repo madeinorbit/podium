@@ -1,6 +1,5 @@
 import { CHANGE_OPS, ChangeOpField } from '@podium/model'
 import { z } from 'zod'
-import { changeRowArm } from '../messages/change-row'
 
 /**
  * The control port's scoped-feed vocabulary — ADR 2 Amendment 1 D13/D14, whose
@@ -102,87 +101,37 @@ export const CHANGE_OP_SEMANTICS = {
 } as const satisfies Record<ScopedChangeOp, ChangeOpSemantics>
 
 /**
- * One scoped change. `evict` carries an entity kind and id and NO payload
- * (D14.1); the shape is the port's, and the entity-typed union on the wire is
- * `MetadataChange`'s (POD-1077 adds the op there).
+ * THE CERTIFIED FRAME AND ITS WATERMARK ALGEBRA LIVE ON THE WIRE, NOT HERE
+ * (POD-1196, deleting what POD-387 expressed and POD-308 declined).
  *
- * COMPOSED through {@link changeRowArm} (POD-1251) — the same factory the v1/v2
- * wire arms use — so the field list is not a fourth restatement. The port still
- * spells the target `id` (pre-cutover); the kernel and v2 wire spell `entityId`.
- * `seq` is the model's ChangeSeqField, composed inside the arm factory.
- */
-export const ScopedChange = changeRowArm('id', z.string().min(1), ScopedChangeOp, z.unknown())
-export type ScopedChange = z.infer<typeof ScopedChange>
-
-/**
- * THE WATERMARK MECHANISM (ADR 2 D13). Every delta frame certifies a covered
- * range; a watermark is that same frame with an EMPTY change list, on the
- * funnel's one ordered pipe — not a new message class, and never stream (a lost
- * watermark is an invisible permanent gap, the failure ADR 2 D2 documents).
+ * This module used to declare `ScopedChange`, `ScopedDeltaFrame`,
+ * `isWatermarkFrame`, `acceptsAtCursor` and `coalesceCertifiedRanges`. All five
+ * are gone, and the reason is not that they were unused — it is that
+ * `../messages/feed.ts` considered this design and took a different one, in its
+ * own words:
  *
- *   "I have evaluated every global seq in (fromSeq, seq] against your
- *    principal, and `changes` contains exactly those you may see."
+ *   "A watermark is that frame with `changes: []`, which is why there is no
+ *    watermark message type here: there is nothing separate to forget to send."
+ *   "The certified-range fields, declared ONCE and spread into every frame."
+ *
+ * So the shipped frame is `FeedDeltaMessage` with `CertifiedRangeFields`, the
+ * shipped watermark predicate is `isFeedWatermark`, and the shipped coalescing
+ * is `FeedPublisher`'s per-connection `watermarkThrough` slot — which is the
+ * stronger form, because its lower bound is always the connection's `fromSeq`
+ * and a non-contiguous certified range is therefore unrepresentable rather than
+ * merely rejected.
+ *
+ * `isWatermarkFrame` was not merely redundant, which is why relocating it was
+ * not an option: it answered `changes.length === 0`, while `isFeedWatermark`
+ * answers `changes.length === 0 && seq > fromSeq` and documents why — an EMPTY
+ * range certifies nothing and moves no cursor, so it is not a watermark. The
+ * deleted copy returned `true` for exactly that case.
+ *
+ * The replica acceptance rule `acceptsAtCursor` encoded is not lost either: it
+ * is enforced at `@podium/sync`'s `replica.ts` and declared as rows `D7-1-GAP`
+ * and the epoch-mismatch rung-4 row in `replica/transition-table.ts`, whose
+ * totality test requires every declared row to be exercised by a real one.
  */
-export const ScopedDeltaFrame = z.object({
-  feedId: z.string().min(1),
-  epoch: FeedEpochField,
-  /** Exclusive lower bound of the certified range. */
-  fromSeq: z.number().int().nonnegative(),
-  /** Inclusive upper bound — the batch stamp. */
-  seq: z.number().int().nonnegative(),
-  /**
-   * ADR 2 D5's retention floor, REQUIRED on every certified frame — the same
-   * decision, and for the same reason, as `DeltaFrame.minAvailableSeq` in
-   * `@podium/sync`'s replica types (POD-306). Optional here would be read as
-   * `?? 0` at every use site, and 0 is exactly the value meaning "nothing has
-   * been pruned, your cursor is fine" — so an authority that forgot to publish
-   * it would be indistinguishable from one whose log is complete, and D7 rung 2
-   * would silently never fire.
-   */
-  minAvailableSeq: z.number().int().nonnegative(),
-  /** Every visible change in `(fromSeq, seq]`, in `seq` order. MAY be empty. */
-  changes: z.array(ScopedChange),
-})
-export type ScopedDeltaFrame = z.infer<typeof ScopedDeltaFrame>
-
-/** A watermark is a certified frame with nothing visible in its range. */
-export const isWatermarkFrame = (frame: ScopedDeltaFrame): boolean => frame.changes.length === 0
-
-/**
- * The replica acceptance rule, replacing "the first change's seq must be
- * cursor + 1": accept iff `fromSeq === cursor` (and feedId/epoch match).
- * Strictly STRONGER than the rule it replaces — an explicit lower bound also
- * catches a frame that vanished between two accepted ones.
- */
-export const acceptsAtCursor = (cursor: FeedCursor, frame: ScopedDeltaFrame): boolean =>
-  cursor.feedId === frame.feedId && cursor.epoch === frame.epoch && cursor.seq === frame.fromSeq
-
-/**
- * Watermark-only frames may be coalesced by RANGE EXTENSION only: two adjacent
- * certified ranges merge, and a run of watermarks collapses to one frame
- * without loss (D13.2). Merging may never reorder, drop, or merge out of order
- * a frame containing visible changes (D13.3) — hence the guard.
- */
-export const coalesceCertifiedRanges = (
-  first: ScopedDeltaFrame,
-  second: ScopedDeltaFrame,
-): ScopedDeltaFrame | null => {
-  if (first.feedId !== second.feedId || first.epoch !== second.epoch) return null
-  if (first.seq !== second.fromSeq) return null
-  if (first.changes.length > 0 && second.changes.length > 0) return null
-  return {
-    feedId: first.feedId,
-    epoch: first.epoch,
-    fromSeq: first.fromSeq,
-    seq: second.seq,
-    // The LATER floor, not the earlier one and not the lower one. A merged frame
-    // certifies through `second.seq`, so it must advertise retention as of that
-    // point — carrying `first`'s floor would tell a replica the log still holds
-    // ground that was pruned between the two frames, and rung 2 would not fire.
-    minAvailableSeq: second.minAvailableSeq,
-    changes: [...first.changes, ...second.changes],
-  }
-}
 
 /**
  * `rescope` — the per-principal control frame that resolves to rung 2 of

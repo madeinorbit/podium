@@ -71,7 +71,12 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { ConformanceAuthority, type ConformancePrincipal } from '@podium/sync'
+import {
+  ConformanceAuthority,
+  type ConformancePrincipal,
+  conformanceUser,
+  requireHuman,
+} from '@podium/sync'
 import { type IdbFactoryLike, IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import {
   type SqlDatabaseLike,
@@ -95,8 +100,8 @@ import { FeedSink } from './feed/sink'
 import { createKernelReplica, createSideCache, type KernelCacheRead } from './kernel'
 import { memoryStorage } from './replica'
 
-const ALICE: ConformancePrincipal = { kind: 'user', userId: 'user:alice' }
-const BOB: ConformancePrincipal = { kind: 'user', userId: 'user:bob' }
+const ALICE: ConformancePrincipal = conformanceUser('user:alice')
+const BOB: ConformancePrincipal = conformanceUser('user:bob')
 
 /**
  * A real SQLite, or a refusal.
@@ -441,8 +446,8 @@ describe.each(
 
   it('renders a delete as gone-and-deleted, on disk and for every principal', async () => {
     authority.append({ entity: 'session', entityId: 's1', op: 'upsert', payload: session('s1') })
-    authority.grant(ALICE.userId, 'session', 's1')
-    authority.grant(BOB.userId, 'session', 's1')
+    authority.grant(requireHuman(ALICE), 'session', 's1')
+    authority.grant(requireHuman(BOB), 'session', 's1')
     const alice = await openClient(ALICE, 'alice')
     const bob = await openClient(BOB, 'bob')
     await online(alice)
@@ -475,8 +480,8 @@ describe.each(
 
   it('renders a revoked share as gone-from-my-view, never as a deletion', async () => {
     authority.append({ entity: 'session', entityId: 's1', op: 'upsert', payload: session('s1') })
-    authority.grant(ALICE.userId, 'session', 's1')
-    authority.grant(BOB.userId, 'session', 's1')
+    authority.grant(requireHuman(ALICE), 'session', 's1')
+    authority.grant(requireHuman(BOB), 'session', 's1')
     const alice = await openClient(ALICE, 'alice')
     const bob = await openClient(BOB, 'bob')
     await online(alice)
@@ -485,7 +490,7 @@ describe.each(
 
     const mark = bob.events.length
     const from = authority.head()
-    authority.revoke(BOB.userId, 'session', 's1')
+    authority.revoke(requireHuman(BOB), 'session', 's1')
     bob.pushDelta(from)
     alice.pushDelta(from)
     await bob.replica.settled()
@@ -533,14 +538,14 @@ describe.each(
   it('lets the ENGINE read model tell a delete from a revoked share, and both from a gap', async () => {
     for (const id of ['deleted', 'unshared', 'present']) {
       authority.append({ entity: 'session', entityId: id, op: 'upsert', payload: session(id) })
-      authority.grant(BOB.userId, 'session', id)
+      authority.grant(requireHuman(BOB), 'session', id)
     }
     const bob = await openClient(BOB, 'bob')
     await online(bob)
 
     const from = authority.head()
     authority.append({ entity: 'session', entityId: 'deleted', op: 'remove' })
-    authority.revoke(BOB.userId, 'session', 'unshared')
+    authority.revoke(requireHuman(BOB), 'session', 'unshared')
     bob.pushDelta(from)
     await bob.replica.settled()
 
@@ -603,7 +608,7 @@ describe.each(
 
   it('renders a watermark-skipped range as nothing, advances the cursor, and starts no heal', async () => {
     authority.append({ entity: 'session', entityId: 's1', op: 'upsert', payload: session('s1') })
-    authority.grant(BOB.userId, 'session', 's1')
+    authority.grant(requireHuman(BOB), 'session', 's1')
     const bob = await openClient(BOB, 'bob')
     await online(bob)
     const settled = bob.replica.stats()
@@ -617,7 +622,7 @@ describe.each(
     const from = authority.head()
     for (const id of ['a1', 'a2', 'a3']) {
       authority.append({ entity: 'session', entityId: id, op: 'upsert', payload: session(id) })
-      authority.grant(ALICE.userId, 'session', id)
+      authority.grant(requireHuman(ALICE), 'session', id)
     }
     const head = authority.head()
     bob.pushDelta(from, head)
@@ -662,7 +667,7 @@ describe.each(
       op: 'upsert',
       payload: { id: 'i1', title: 'i1', deferUntil: '2026-07-07T00:00:00.000Z' },
     })
-    authority.grant(BOB.userId, 'issue', 'i1')
+    authority.grant(requireHuman(BOB), 'issue', 'i1')
     const bob = await openClient(BOB, 'bob')
     await online(bob)
     expect((bob.replica.view('issue', 'i1') as Record<string, unknown>).deferUntil).toBe(

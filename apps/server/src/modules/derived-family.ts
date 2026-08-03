@@ -56,6 +56,13 @@
  * objects, not by grepping for an absence.
  */
 
+import {
+  asAgentIdentityId,
+  asCapabilityRef,
+  asDelegationRef,
+  asDeviceId,
+} from '@podium/protocol'
+import { type Principal } from '@podium/protocol'
 import type { AnyCommandContract, TransportTag } from '@podium/commands'
 import type { TRPCMutationProcedure, TRPCQueryProcedure } from '@trpc/server'
 import type { z } from 'zod'
@@ -155,7 +162,7 @@ export interface FamilyState {
   /** Request-scoped world used by websocket publication and sync catch-up; the
    *  one read (`sync.changesSince`) passes it straight through to the service. */
   readonly publicationAuthority?: Context['publicationAuthority']
-  readonly feedPrincipal?: import('@podium/sync').FeedPrincipal
+  readonly feedPrincipal?: import('@podium/protocol').Principal
   /** Tiered per-machine repo discovery (POD-787) [spec:SP-3701]. Optional, so
    *  callers that do not exercise discovery need not construct one — which is
    *  the shipped shape, and why `discovery.lastMachineScan` answers null rather
@@ -385,14 +392,33 @@ export const familyState = (ctx: Context): FamilyState => ({
   },
   publicationAuthority: ctx.publicationAuthority,
   ...(ctx.principal?.kind === 'user'
-    ? { feedPrincipal: { kind: 'user' as const, userId: ctx.principal.user } }
+    ? {
+        feedPrincipal: {
+          kind: 'user' as const,
+          user: ctx.principal.user,
+          device: asDeviceId(`trpc:${ctx.principal.user}`),
+          // A REF, minted here — not the command layer's Capability object. The
+          // ports carry this and must never inspect it, so handing them a
+          // structured capability would hand them a scope to read.
+          capability: asCapabilityRef(`trpc:user:${ctx.principal.user}`),
+        },
+      }
     : ctx.principal?.kind === 'agent'
       ? {
           feedPrincipal: {
             kind: 'agent' as const,
-            sessionId: ctx.principal.agentSessionId,
+            // POD-1164: an agent's identity and its session id are the same
+            // string, minted by asAgentIdentityId(sessionId).
+            agentIdentity: asAgentIdentityId(ctx.principal.agentSessionId),
             onBehalfOf: ctx.principal.onBehalfOf,
-            scope: { kind: 'entities' as const, keys: new Set<string>() },
+            device: asDeviceId(`trpc:${ctx.principal.agentSessionId}`),
+            capability: asCapabilityRef(`trpc:agent:${ctx.principal.agentSessionId}`),
+            // THE COMMAND PRINCIPAL CARRIES NO DELEGATION REF, so one is derived
+            // from the session. It resolves through whichever DelegationScopePort
+            // is installed; against `NoDelegationsGranted` that is an EMPTY scope,
+            // so a /trpc agent sees nothing — the same outcome as before
+            // POD-1196, now stated rather than produced by an early return.
+            delegation: asDelegationRef(`session:${ctx.principal.agentSessionId}`),
           },
         }
       : {}),
