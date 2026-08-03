@@ -1,0 +1,59 @@
+POD-785 — client outbox growth measurement
+driving packages/sync/src/outbox/outbox.ts directly
+
+── A. single-partition wedge (the live web wiring) ─────────────────────
+dead-lettered at head:            1
+read receipts enqueued behind it: 500
+still pending after 3 drains:     500
+delivered:                        0
+
+  → The queue is WEDGED. Nothing drains while one entry is parked,
+    because every client write shares one partitionKey and D12 stops a
+    partition at its first unresolved entry (outbox.ts:517-521).
+
+per-target partitions, same workload:
+  still pending after 1 drain:    0
+  dead letters:                   1
+  → Only the revoked session is stuck. Every unrelated write lands.
+
+── B. durable bytes per entry, by command ──────────────────────────────
+  issueMarkRead     361 B
+  issueMarkUnread   327 B
+  sessionMarkRead   366 B
+  issueSetTucked    340 B
+  rename            366 B
+  snoozeSet         359 B
+  tabSetOrder       534 B
+  resumeAndSend     413 B
+
+  median entry ≈ 366 B; a read receipt is 361 B
+
+  entries to fill the OLD localStorage ceiling (~5 MB, and note the
+  blob is UTF-16 in most engines so the effective budget is ~2.5 M chars):
+    at 361 B/entry → ~14,523 read receipts
+  → reachable in normal use once the queue never drains. That is the
+    2026-07-17 incident: markIssueRead named as the trigger.
+
+── C. how much of a wedged queue is SUPERSEDED (safely collapsible) ────
+  distinct issues in working set:  60
+  read receipts queued:            900
+  superseded by a later receipt:   840  (93.3%)
+  irreducible (newest per target): 60
+
+  → Collapsing superseded same-target receipts bounds this class of
+    growth by the size of the WORKING SET, not by time spent offline.
+    Nothing a user typed is touched: a superseded read receipt is
+    fully subsumed by the later one the same user authored.
+
+── D. cancelled-record leak on every retry/edit (outbox.ts:972-977) ────
+  user edits of ONE failing write: 25
+  rows in the durable store:       26
+  of which state=cancelled:        25
+  bytes held by tombstones:        11455 B
+
+  → Every retry-with-new-id and every edit leaves a permanent
+    'cancelled' row carrying the full input. Nothing ever removes it:
+    purgeCancelled() has exactly one caller (kernel-outbox.ts:199-203,
+    the user's discard button) and reissue() does not use it.
+    This is pure garbage — the user's intent lives on under the new id.
+

@@ -151,6 +151,14 @@ export const revisionOf = (source: RevisionPrecondition): RevisionPrecondition =
 export const revisionOfValue = (expectedRevision: number | undefined): RevisionPrecondition =>
   expectedRevision === undefined ? {} : { expectedRevision }
 
+/** POD-785's collapse key, carried the same way and for the same reason as the
+ *  revision precondition above: absent-vs-present is meaningful (absent means
+ *  NEVER collapse), so it must not serialise as a key with an `undefined` value. */
+export type CollapseKey = { readonly collapseKey?: string }
+
+export const collapseKeyOf = (source: CollapseKey): CollapseKey =>
+  source.collapseKey === undefined ? {} : { collapseKey: source.collapseKey }
+
 /**
  * One durable Outbox entry.
  *
@@ -173,6 +181,20 @@ export interface OutboxRecord extends EnvelopeConfirmation {
   /** ADR 3 D12: FIFO within this key, concurrent across keys. The Outbox stores
    *  the key; the contract's target extractor computes it (POD-311/POD-371). */
   readonly partitionKey: string
+  /**
+   * POD-785. Present only on a write whose contract declares that a LATER write
+   * bearing the same key, in the same partition, fully subsumes it — a read
+   * receipt for one issue, say. Absent means "never collapse", which is the
+   * default for every command and the only setting a content-bearing one may
+   * have.
+   *
+   * The key is the STATE CELL the write lands on, not the command: `markRead`
+   * and `markUnread` for the same issue both write that issue's read state, so
+   * they share a key and the newest wins — which is exactly what the user's last
+   * click meant. It is computed by the contract's target extractor beside the
+   * partition key, never inferred from `input` by this package.
+   */
+  readonly collapseKey?: string
   readonly attribution: OutboxAttribution
   // The out-of-scope confirmation arrives via `EnvelopeConfirmation` above —
   // declared once so POD-311's rename is one line.

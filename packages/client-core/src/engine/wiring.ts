@@ -148,6 +148,139 @@ export const OUTBOX_COMMANDS: Record<
   issueSetTucked: { name: 'issues.setTucked', version: 1, delivery, confirmation: 'none' },
 }
 
+/**
+ * POD-785 — WHERE each queued write sits in the queue, and WHETHER a later write
+ * of the same kind makes it redundant.
+ *
+ * Both halves used to be one constant. Every client write went into a single
+ * `client-outbox` partition, and ADR 3 D12 stops a partition at its first
+ * unresolved entry — so ONE dead-lettered write (a rename refused after a share
+ * was revoked, say) wedged the whole queue for ever, while the app kept queueing
+ * read receipts behind it at ~361 B each. Measured: 500 receipts behind one
+ * parked entry, 0 delivered after three drains. Per-target keys, same workload:
+ * everything lands and only the revoked session stays stuck.
+ * (docs/internal/pod-785-evidence/)
+ *
+ * The single-partition choice was inherited from the legacy IMPORT path, where it
+ * is argued as "over-serialised and correct" — true for a one-shot drain of a
+ * handful of entries, and false for the app's steady-state queue.
+ *
+ * ## partition — the ORDERING domain
+ *
+ * The target the write lands on. Two writes to the SAME row must share a key, or
+ * they can reorder and a rename lands before the edit it was meant to follow
+ * (this is what the legacy `chained` flag tracked). Two writes to DIFFERENT rows
+ * must not, or one refusal blocks the other.
+ *
+ * ## collapse — the REDUNDANCY domain
+ *
+ * The STATE CELL the write sets, present only when a later write to that cell
+ * fully subsumes an earlier one. `undefined` means never collapse, and it is the
+ * answer for two whole classes:
+ *
+ *   - CONTENT-BEARING writes. `resumeAndSend` puts text into a live PTY; two
+ *     sends are two sends. ADR 3 D11 names exactly this as the reason
+ *     "idempotent-ish" is not a property we may lean on.
+ *   - PARTIAL patches. `layout.set`, `layout.clear` and `settings.updatePersonal`
+ *     carry only the keys they touch, so a later patch does NOT subsume an
+ *     earlier one — collapsing them would silently drop the fields only the first
+ *     one set.
+ *
+ * Where two different commands write the same cell they SHARE a collapse key:
+ * `markRead`/`markUnread` on one issue, `snoozeSet`/`snoozeClear` on one session.
+ * The newest wins, which is precisely what the user's last click meant.
+ *
+ * Typed `Record<keyof OutboxKinds, …>` for the same reason as `OUTBOX_COMMANDS`
+ * above: adding a queued kind without deciding its ordering and its redundancy is
+ * a TYPE ERROR, not a default that silently reinstates the wedge.
+ */
+export type OutboxRouting = {
+  readonly partitionKey: string
+  readonly collapseKey?: string
+}
+
+export const OUTBOX_ROUTING: {
+  [K in keyof OutboxKinds]: (input: OutboxKinds[K]) => OutboxRouting
+} = {
+  // Per-user singletons: one partition each, so they no longer serialise behind
+  // one another or behind any session's writes.
+  pinSet: (i) => ({
+    partitionKey: `pin:${i.kind}:${i.id}`,
+    collapseKey: `pin:${i.kind}:${i.id}`,
+  }),
+  // Per WORKTREE, not global: the input names one worktree's tab order, so two
+  // worktrees have no reason to serialise against each other. It sets the WHOLE
+  // order for that worktree, which is what makes it collapsible.
+  tabSetOrder: (i) => ({
+    partitionKey: `tabs:${i.worktree}`,
+    collapseKey: `tabs-order:${i.worktree}`,
+  }),
+  // `values`/`keys` are PARTIAL — no collapse.
+  layoutSet: () => ({ partitionKey: 'layout' }),
+  layoutClear: () => ({ partitionKey: 'layout' }),
+  // A partial patch of personal settings — no collapse.
+  settingsUpdatePersonal: () => ({ partitionKey: 'settings' }),
+
+  // Session-targeted writes. All share the session's partition, so their order
+  // relative to one another is preserved.
+  resumeAndSend: (i) => ({ partitionKey: `session:${i.sessionId}` }),
+  rename: (i) => ({
+    partitionKey: `session:${i.sessionId}`,
+    collapseKey: `session-name:${i.sessionId}`,
+  }),
+  setArchived: (i) => ({
+    partitionKey: `session:${i.sessionId}`,
+    collapseKey: `session-archived:${i.sessionId}`,
+  }),
+  setWorkState: (i) => ({
+    partitionKey: `session:${i.sessionId}`,
+    collapseKey: `session-work-state:${i.sessionId}`,
+  }),
+  snoozeSet: (i) => ({
+    partitionKey: `session:${i.sessionId}`,
+    collapseKey: `session-snooze:${i.sessionId}`,
+  }),
+  snoozeClear: (i) => ({
+    partitionKey: `session:${i.sessionId}`,
+    collapseKey: `session-snooze:${i.sessionId}`,
+  }),
+  sessionMarkRead: (i) => ({
+    partitionKey: `session:${i.sessionId}`,
+    collapseKey: `session-read:${i.sessionId}`,
+  }),
+  sessionMarkUnread: (i) => ({
+    partitionKey: `session:${i.sessionId}`,
+    collapseKey: `session-read:${i.sessionId}`,
+  }),
+
+  // Issue-targeted writes. `issues.markRead` is the command named in the
+  // 2026-07-17 report as the trigger.
+  issueMarkRead: (i) => ({
+    partitionKey: `issue:${i.id}`,
+    collapseKey: `issue-read:${i.id}`,
+  }),
+  issueMarkUnread: (i) => ({
+    partitionKey: `issue:${i.id}`,
+    collapseKey: `issue-read:${i.id}`,
+  }),
+  issueSetTucked: (i) => ({
+    partitionKey: `issue:${i.id}`,
+    collapseKey: `issue-tucked:${i.id}`,
+  }),
+}
+
+/** Route one queued write. Falls back to the entry's own private partition — D12's
+ *  rule for a command with no resolvable target — rather than to a shared one, so
+ *  an unknown kind can never reinstate the global wedge. */
+export const outboxRoutingFor = <K extends keyof OutboxKinds & string>(
+  kind: K,
+  input: OutboxKinds[K],
+  mutationId: string,
+): OutboxRouting => {
+  const route = OUTBOX_ROUTING[kind] as ((i: OutboxKinds[K]) => OutboxRouting) | undefined
+  return route ? route(input) : { partitionKey: `create:${mutationId}` }
+}
+
 /** The contract behind one queued kind, or `undefined` for a kind with no
  *  executor. */
 export const outboxCommandFor = (

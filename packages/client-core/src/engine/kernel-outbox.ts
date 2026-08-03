@@ -29,6 +29,7 @@ import {
   type EngineOutbox,
   type EngineOutboxCallbacks,
   OUTBOX_COMMANDS,
+  outboxRoutingFor,
   type OutboxKinds,
 } from './wiring'
 
@@ -163,12 +164,16 @@ class KernelEngineOutbox implements EngineOutbox {
       ...(opts?.baseline === undefined ? {} : { baseline: opts.baseline }),
       ...(opts?.chained === true ? { chained: true } : {}),
     })
+    // POD-785: routed per TARGET, not into one global partition. See
+    // OUTBOX_ROUTING for why the single `client-outbox` key wedged the queue.
+    const route = outboxRoutingFor(kind, input, mutationId)
     try {
       const record = await this.kernel.enqueue({
         mutationId,
         command: OUTBOX_COMMANDS[kind],
         input,
-        partitionKey: 'client-outbox',
+        partitionKey: route.partitionKey,
+        ...(route.collapseKey === undefined ? {} : { collapseKey: route.collapseKey }),
         attribution: {
           actor: { kind: 'user', userId: this.kernel.boundTo() },
           onBehalfOf: this.kernel.boundTo(),
@@ -236,7 +241,15 @@ class KernelEngineOutbox implements EngineOutbox {
         )
         this.callbacks.onDeadLetter?.(parked)
       }
-    } else if (event.type === 'retired' || event.type === 'cancelled') {
+    } else if (
+      event.type === 'retired' ||
+      event.type === 'cancelled' ||
+      // POD-785: a collapsed entry leaves the queue without ever being sent, so
+      // its side metadata has to go with it. Omitted, this Map would be a second
+      // unbounded collection growing exactly where the first one did — a read
+      // receipt's baseline retained for a record that no longer exists.
+      event.type === 'superseded'
+    ) {
       this.metadata.delete(event.mutationId)
     }
     this.publish()

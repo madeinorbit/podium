@@ -97,6 +97,7 @@ import {
   confirmationOf,
   type DeadLetterRecord,
   ENQUEUEABLE_DELIVERY,
+  collapseKeyOf,
   type EnvelopeConfirmation,
   type OutboxAttribution,
   type OutboxCommand,
@@ -127,6 +128,18 @@ export interface EnqueueRequest extends EnvelopeConfirmation {
    *  D12's own rule for additive commands with no existing target id — so an
    *  unpartitioned entry can never block another aggregate. */
   readonly partitionKey?: string
+  /**
+   * POD-785. Declares this write REDUNDANT once a later write with the same key
+   * is queued in the same partition. Omit it — the default — and the entry is
+   * never collapsed.
+   *
+   * Only the contract knows this. A read receipt is subsumed by a later read
+   * receipt for the same issue; a line of text typed into a live PTY is not
+   * subsumed by anything, and a PARTIAL patch is not subsumed by a later partial
+   * patch (collapsing two `settings.updatePersonal` calls would drop the fields
+   * only the first one set). So this is supplied per enqueue, never derived here.
+   */
+  readonly collapseKey?: string
   /** Supply one to keep a caller-minted id; otherwise the config mints it. */
   readonly mutationId?: MutationId
 }
@@ -170,13 +183,45 @@ class OutboxConflict extends Error {
  *  bound rather than a loop: a permanent conflict must surface, not spin. */
 const MUTATION_CONFLICT_ATTEMPTS = 5
 
-/** D9 invariant 1's two licences to make an entry gone. There is no third. */
+/**
+ * The licences to make an entry gone. Every one of them is D9 invariant 1's
+ * "user action or an applied retirement" — none is an exception to it.
+ */
 export type RemovalLicence =
   /** A successful `applied` retirement after covering truth landed. */
   | 'covering-truth'
   /** The user discarded it (or re-issued it under a fresh id, which is the same
    *  decision: they chose for this entry to stop existing). */
   | 'user-discarded'
+  /**
+   * POD-785. A LATER write, authored by the same principal, still `queued` in the
+   * same partition, carrying the same `collapseKey`, fully expresses this entry's
+   * intent.
+   *
+   * This is invariant 1's USER-ACTION arm and not a third kind of thing: the act
+   * that ends this entry is the user's own next click on the same state cell. The
+   * intent is not discarded, it is REPRESENTED — by a record that is still in the
+   * queue, still drains, and still lands. What is dropped is a duplicate of a
+   * value the queue already holds, so no reader can tell the difference except by
+   * the queue being smaller.
+   *
+   * That argument only holds under all four conditions, and `collapseInto` checks
+   * every one of them rather than trusting a caller:
+   *
+   *  1. the contract OPTED IN via `collapseKey`, so a content-bearing command
+   *     (text into a PTY) and a partial patch (which a later patch does not
+   *     subsume) can never be reached;
+   *  2. both entries are `queued` — never one that is `sending`/`accepted`, whose
+   *     record is the only trace of a send the Authority may already hold, and
+   *     never one in `dead-letter`, which is a refusal the user still has to see;
+   *  3. the same partition, because ordering is only defined within one (D12) and
+   *     a cross-partition collapse would be asserting an order we were not given;
+   *  4. the same principal, which `mine()` already scopes.
+   *
+   * Loosen any of those and the removal stops being licensed. The tests that pin
+   * each one are in `capacity.test.ts`.
+   */
+  | 'superseded'
 
 /**
  * A staged edit of the record set.
@@ -467,6 +512,7 @@ export class Outbox {
         input: request.input,
         ...revisionOf(request),
         partitionKey: request.partitionKey ?? `create:${mutationId}`,
+        ...collapseKeyOf(request),
         attribution: request.attribution,
         state: 'queued',
         queuedAt: this.config.now(),
@@ -475,8 +521,39 @@ export class Outbox {
       }
       draft.put(record)
       draft.emit({ type: 'local-ack', mutationId })
+      // AFTER the put, so the successor is already in the draft: the entries
+      // being removed are redundant BECAUSE this one exists, and staging it
+      // first means there is no instant, even inside the transaction, where the
+      // intent is represented by nothing.
+      this.collapseInto(draft, record)
       return record
     })
+  }
+
+  /**
+   * POD-785. Drop the queued predecessors this record supersedes.
+   *
+   * The four conditions on the `superseded` licence are enforced HERE, in the one
+   * place that issues it, rather than being asked of callers. `record` itself is
+   * excluded by id, so a re-entrant call could not collapse the very entry it was
+   * staged for.
+   */
+  private collapseInto(draft: OutboxDraft, record: OutboxRecord): void {
+    const key = record.collapseKey
+    // No key means the contract never opted in — the default, and the only
+    // setting a content-bearing command may have.
+    if (key === undefined) return
+    for (const candidate of draft.all()) {
+      if (candidate.mutationId === record.mutationId) continue
+      if (candidate.collapseKey !== key) continue
+      if (candidate.partitionKey !== record.partitionKey) continue
+      // `queued` ONLY. A `sending`/`accepted` entry may already be at the
+      // Authority, and a `dead-letter` one is a refusal awaiting the user.
+      if (candidate.state !== 'queued') continue
+      if (!belongsTo(candidate, this.principal)) continue
+      draft.remove(candidate.mutationId, 'superseded')
+      draft.emit({ type: 'superseded', mutationId: candidate.mutationId })
+    }
   }
 
   /**
@@ -964,16 +1041,33 @@ export class Outbox {
         input: request.input,
         ...revisionOf(request),
         partitionKey: old.partitionKey,
+        ...collapseKeyOf(old),
         attribution: old.attribution,
         state: 'queued',
         queuedAt: this.config.now(),
         attempts: 0,
       }
-      draft.put({
+      // The predecessor is cancelled and then REMOVED, in this one transaction.
+      //
+      // POD-785: it used to be written back as a `cancelled` row and left there
+      // for ever. Nothing removed it — `purgeCancelled` has a single caller, the
+      // user's discard button — so every retry-with-new-id and every edit leaked
+      // one permanent row carrying the whole original input. Measured at 25 edits
+      // of one failing write: 25 tombstones, 11.4 KB, none of it reachable.
+      //
+      // Removing it loses nothing recoverable. The user's intent continues under
+      // `fresh`, which is staged in the same transaction; `cancelled` is a
+      // terminal state with no transition out of it, and no surface reads it
+      // (`pending`, `deadLetters` and the drain all exclude it). The transition is
+      // still computed through the state table, so an illegal `old.state` throws
+      // exactly as before rather than being skipped by the removal.
+      const cancelled: OutboxRecord = {
         ...old,
         state: applyOutboxTransition(old.state, 'user-discarded'),
         cancelledAt: this.config.now(),
-      })
+      }
+      draft.put(cancelled)
+      draft.remove(cancelled.mutationId, 'user-discarded')
       draft.put(fresh)
       draft.emit({ type: 'cancelled', mutationId: old.mutationId })
       draft.emit({ type: 'local-ack', mutationId })
