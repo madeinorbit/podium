@@ -1,4 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
+import { machineViewsFromWire } from '@podium/client-core/viewmodels'
 import type { AutomationSessionMode } from '@podium/model'
 import type { JSX } from 'react'
 import { useMemo, useState } from 'react'
@@ -38,7 +39,6 @@ import {
   automationClassOf,
   automationCron,
   automationInput,
-  automationMachineViews,
   automationRight,
   automationSubform,
   automationTargetChoices,
@@ -124,7 +124,7 @@ export function NewAutomationDialog({
       automationTargetChoices(
         repos,
         sessions,
-        automationMachineViews(machines),
+        machineViewsFromWire(machines),
         automation?.repoPath ?? null,
       ),
     [repos, sessions, machines, automation?.repoPath],

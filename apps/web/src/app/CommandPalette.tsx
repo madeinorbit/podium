@@ -6,6 +6,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { STAGE_LABELS } from '@/features/issues/issue-card'
+import { paletteIssueMenuData } from '@/features/issues/issue-menu-palette'
+import { issueMenuPaletteCommands } from '@/features/issues/issue-menu-palette-commands'
 import { NewIssueDialog } from '@/features/issues/NewIssueDialog'
 import {
   isSnoozed,
@@ -113,6 +115,10 @@ function PaletteDialog({
     trpc,
     repos,
     sessions,
+    machines,
+    markIssueRead,
+    markIssueUnread,
+    openIssueId,
     pins,
     paneA,
     setPane,
@@ -120,6 +126,7 @@ function PaletteDialog({
     setSelectedWorktree,
     setSelectedIssueId,
     setOpenIssueId,
+    selectedIssueId,
     superOpen,
     setSuperOpen,
     setSnooze,
@@ -134,6 +141,10 @@ function PaletteDialog({
       trpc: s.trpc,
       repos: s.repos,
       sessions: s.sessions,
+      machines: s.machines,
+      markIssueRead: s.markIssueRead,
+      markIssueUnread: s.markIssueUnread,
+      openIssueId: s.openIssueId,
       pins: s.pins,
       paneA: s.paneA,
       setPane: s.setPane,
@@ -141,6 +152,7 @@ function PaletteDialog({
       setSelectedWorktree: s.setSelectedWorktree,
       setSelectedIssueId: s.setSelectedIssueId,
       setOpenIssueId: s.setOpenIssueId,
+      selectedIssueId: s.selectedIssueId,
       superOpen: s.superOpen,
       setSuperOpen: s.setSuperOpen,
       setSnooze: s.setSnooze,
@@ -157,6 +169,7 @@ function PaletteDialog({
   const { guardedKill, guardedArchive } = useSessionGuard()
   const workflowsEnabled = useFeature('workflows')
   const automationsEnabled = useFeature('automations')
+  const handoffEnabled = useFeature('session-handoff')
   const [query, setQuery] = useState('')
   const [highlight, setHighlight] = useState(0)
   const listRef = useRef<HTMLDivElement | null>(null)
@@ -223,6 +236,19 @@ function PaletteDialog({
     setView('workspace')
   }
 
+  const issueMenuData = useMemo(
+    () =>
+      paletteIssueMenuData({
+        issues,
+        issueId: openIssueId ?? selectedIssueId,
+        sessions,
+        repos,
+        machines,
+        handoffEnabled,
+      }),
+    [issues, openIssueId, selectedIssueId, sessions, repos, machines, handoffEnabled],
+  )
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: run closures capture stable store actions
   const commands = useMemo((): PaletteCommand[] => {
     const out: PaletteCommand[] = []
@@ -277,6 +303,21 @@ function PaletteDialog({
     }
     for (const i of serverIssueHits) {
       if (!localIds.has(i.id)) out.push(issueCmd(i))
+    }
+    if (issueMenuData) {
+      out.push(
+        ...issueMenuPaletteCommands(issueMenuData, {
+          trpc,
+          markIssueRead,
+          markIssueUnread,
+          setOpenIssueId: (id) => setOpenIssueId(id as IssueId),
+          setView: (view) => setView(view),
+          handoff: (machineId) => {
+            const sessionId = issueMenuData.handoff?.sessionId
+            if (sessionId) void trpc.sessions.handoff.mutate({ sessionId, machineId })
+          },
+        }),
+      )
     }
 
     // ── Global ──
@@ -400,6 +441,8 @@ function PaletteDialog({
     superOpen,
     workflowsEnabled,
     automationsEnabled,
+    handoffEnabled,
+    issueMenuData,
   ])
 
   const groups = useMemo(() => filterCommands(query, commands), [query, commands])

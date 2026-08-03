@@ -1,3 +1,4 @@
+import { machineViewsFromWire } from '@podium/client-core/viewmodels'
 import { asMachineId, type GitRepositoryWire, type MachineWire } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
@@ -5,7 +6,6 @@ import {
   automationClassOf,
   automationFormFields,
   automationInput,
-  automationMachineViews,
   automationRight,
   automationTargetChoices,
   canSaveAutomation,
@@ -144,11 +144,7 @@ describe('targets are bounded by machine USE', () => {
   ]
 
   it('offers only usable targets and counts the rest by reason', () => {
-    const { choices, excluded } = automationTargetChoices(
-      repos,
-      [],
-      automationMachineViews(machines),
-    )
+    const { choices, excluded } = automationTargetChoices(repos, [], machineViewsFromWire(machines))
     expect(choices.map((c) => c.value)).toEqual(['/repos/mine', GLOBAL_TARGET])
     // Unauthorized and unreachable stay distinguishable (§3.1.4 M5).
     expect(excluded).toEqual({ unauthorized: 1, unreachable: 1 })
@@ -156,11 +152,7 @@ describe('targets are bounded by machine USE', () => {
 
   it('reads an unscoped machine list permissively, so single-user parity holds', () => {
     const unscoped = [machine('m-mine'), machine('m-theirs'), machine('m-offline')]
-    const { choices, excluded } = automationTargetChoices(
-      repos,
-      [],
-      automationMachineViews(unscoped),
-    )
+    const { choices, excluded } = automationTargetChoices(repos, [], machineViewsFromWire(unscoped))
     expect(choices.map((c) => c.value)).toEqual([
       '/repos/mine',
       '/repos/theirs',
@@ -174,7 +166,7 @@ describe('targets are bounded by machine USE', () => {
     const { choices } = automationTargetChoices(
       repos,
       [],
-      automationMachineViews(machines),
+      machineViewsFromWire(machines),
       '/repos/theirs',
     )
     const opaque = choices.find((c) => c.value === '/repos/theirs')
@@ -184,7 +176,7 @@ describe('targets are bounded by machine USE', () => {
     const offline = automationTargetChoices(
       repos,
       [],
-      automationMachineViews(machines),
+      machineViewsFromWire(machines),
       '/repos/offline',
     ).choices.find((c) => c.value === '/repos/offline')
     expect(offline?.availability).toBe('unreachable')

@@ -32,7 +32,6 @@
 import {
   type MachineAvailability,
   type MachineView,
-  machineViewsFromWire,
   repoUsageAt,
 } from '@podium/client-core/viewmodels'
 import type { AutomationSessionMode, GitRepositoryWire, MachineWire } from '@podium/model'
@@ -396,17 +395,6 @@ export const NO_TARGET_EXCLUSIONS: AutomationTargetExclusions = {
 }
 
 const repoLabel = (path: string): string => path.split('/').filter(Boolean).pop() ?? path
-
-/**
- * Grants for the machines we can see.
- *
- * The per-LIST reading of `MachineWire.use` moved to the machines slice
- * (`machineViewsFromWire`) when the worklist's new-agent submenu came to need the
- * identical answer — see that function for why an omitted `use` is read per-list
- * rather than per-machine. This alias stays so the composer's call sites keep
- * naming the automations question they are asking.
- */
-export const automationMachineViews = machineViewsFromWire
 
 /**
  * The repos this automation may target, most-recently-used first, plus the count
