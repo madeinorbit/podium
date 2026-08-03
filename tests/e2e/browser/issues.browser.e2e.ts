@@ -79,8 +79,8 @@ test('proposed lane approves a card into Backlog through the real UI', async ({
 
   await page.setViewportSize({ width: 1500, height: 900 })
   await openShell(page)
-  await page.locator('aside').first().getByRole('button', { name: 'Issues', exact: true }).click()
-  const board = page.getByRole('region', { name: 'Issues' })
+  await page.getByTestId('topbar-nav-issues').click()
+  const board = page.getByRole('region', { name: 'Tasks' })
   const column = (name: string) =>
     board
       .locator('div.w-\\[280px\\]')
@@ -106,14 +106,10 @@ test('issues board: renders the stage columns, creates a Backlog issue, and move
   // ---- Navigate to the Issues board via the Sidebar nav button ----
   // The sidebar redesign made this a labelled nav row (no title attr) — target the
   // exact-named button inside the aside so worktrees named "…issues…" can't collide.
-  await page
-    .locator('aside')
-    .first()
-    .getByRole('button', { name: 'Issues', exact: true })
-    .click({ timeout: 15_000 })
+  await page.getByTestId('topbar-nav-issues').click({ timeout: 15_000 })
 
   // The board is a <section aria-label="Issues"> with a header and six stage columns.
-  const board = page.getByRole('region', { name: 'Issues' })
+  const board = page.getByRole('region', { name: 'Tasks' })
   await expect(board).toBeVisible({ timeout: 10_000 })
 
   // ---- All six lifecycle stage columns render (one <h3> heading each) ----
@@ -125,9 +121,9 @@ test('issues board: renders the stage columns, creates a Backlog issue, and move
   }
 
   // ---- Open the New Issue dialog ----
-  await page.getByRole('button', { name: 'New Issue', exact: true }).click()
+  await page.getByRole('button', { name: 'New Task', exact: true }).click()
   const dialog = page.getByRole('dialog')
-  await expect(dialog.getByRole('heading', { name: 'New Issue' })).toBeVisible({ timeout: 10_000 })
+  await expect(dialog.getByRole('heading', { name: 'New Task' })).toBeVisible({ timeout: 10_000 })
 
   // Fill the title with a unique marker so it can't collide with a sibling spec or a
   // re-run sharing the same relay state.
@@ -224,12 +220,8 @@ test('issues composer: set a property pill, Create more keeps the dialog open fo
   await page.setViewportSize({ width: 1280, height: 900 })
   await openShell(page)
 
-  await page
-    .locator('aside')
-    .first()
-    .getByRole('button', { name: 'Issues', exact: true })
-    .click({ timeout: 15_000 })
-  const board = page.getByRole('region', { name: 'Issues' })
+  await page.getByTestId('topbar-nav-issues').click({ timeout: 15_000 })
+  const board = page.getByRole('region', { name: 'Tasks' })
   await expect(board).toBeVisible({ timeout: 10_000 })
 
   const backlogColumn = board
@@ -238,9 +230,9 @@ test('issues composer: set a property pill, Create more keeps the dialog open fo
     .first()
 
   // ---- Open the Linear-style composer ----
-  await page.getByRole('button', { name: 'New Issue', exact: true }).click()
+  await page.getByRole('button', { name: 'New Task', exact: true }).click()
   const dialog = page.getByRole('dialog')
-  await expect(dialog.getByRole('heading', { name: 'New Issue' })).toBeVisible({ timeout: 10_000 })
+  await expect(dialog.getByRole('heading', { name: 'New Task' })).toBeVisible({ timeout: 10_000 })
 
   // Keep the issues worktree-less so no git op runs (harness parity).
   const startNow = dialog.getByRole('checkbox', { name: 'Start work now' })
@@ -268,7 +260,7 @@ test('issues composer: set a property pill, Create more keeps the dialog open fo
   await createBtn.click()
 
   // Dialog is still open (Create more), the title reset, and the P1 pill persisted.
-  await expect(dialog.getByRole('heading', { name: 'New Issue' })).toBeVisible({ timeout: 10_000 })
+  await expect(dialog.getByRole('heading', { name: 'New Task' })).toBeVisible({ timeout: 10_000 })
   await expect(dialog.getByLabel('Title')).toHaveValue('', { timeout: 10_000 })
   await expect(dialog.locator('button.rounded-full').filter({ hasText: 'P1' })).toBeVisible()
 
@@ -297,17 +289,13 @@ test('issues composer: selected agent persists to deferred issue start dropdown'
   await page.setViewportSize({ width: 1280, height: 900 })
   await openShell(page)
 
-  await page
-    .locator('aside')
-    .first()
-    .getByRole('button', { name: 'Issues', exact: true })
-    .click({ timeout: 15_000 })
-  const board = page.getByRole('region', { name: 'Issues' })
+  await page.getByTestId('topbar-nav-issues').click({ timeout: 15_000 })
+  const board = page.getByRole('region', { name: 'Tasks' })
   await expect(board).toBeVisible({ timeout: 10_000 })
 
-  await page.getByRole('button', { name: 'New Issue', exact: true }).click()
+  await page.getByRole('button', { name: 'New Task', exact: true }).click()
   const dialog = page.getByRole('dialog')
-  await expect(dialog.getByRole('heading', { name: 'New Issue' })).toBeVisible({ timeout: 10_000 })
+  await expect(dialog.getByRole('heading', { name: 'New Task' })).toBeVisible({ timeout: 10_000 })
 
   const repoPill = dialog.getByRole('button', { name: 'podium' })
   await expect(repoPill.locator('svg')).toHaveCount(1)
@@ -376,18 +364,14 @@ test('issues board: flag an issue for human, badge appears live, then resolve', 
 
   // Target the app-tools icon button by its title attribute — the accessible-name
   // selector now collides with the "Issues" sidebar tab and any worktree named "…issues…".
-  await page
-    .locator('aside')
-    .first()
-    .getByRole('button', { name: 'Issues', exact: true })
-    .click({ timeout: 15_000 })
-  const board = page.getByRole('region', { name: 'Issues' })
+  await page.getByTestId('topbar-nav-issues').click({ timeout: 15_000 })
+  const board = page.getByRole('region', { name: 'Tasks' })
   await expect(board).toBeVisible({ timeout: 10_000 })
 
   // ---- Create a Backlog issue (startNow=false → no worktree op) ----
-  await page.getByRole('button', { name: 'New Issue', exact: true }).click()
+  await page.getByRole('button', { name: 'New Task', exact: true }).click()
   const dialog = page.getByRole('dialog')
-  await expect(dialog.getByRole('heading', { name: 'New Issue' })).toBeVisible({ timeout: 10_000 })
+  await expect(dialog.getByRole('heading', { name: 'New Task' })).toBeVisible({ timeout: 10_000 })
   const title = `E2E needs-human ${Date.now()}`
   await dialog.getByLabel('Title').fill(title)
   const startNow = dialog.getByRole('checkbox', { name: 'Start work now' })
@@ -454,18 +438,14 @@ test('issue page: add a comment and it appears in the activity feed', async ({ p
   await page.setViewportSize({ width: 1280, height: 900 })
   await openShell(page)
 
-  await page
-    .locator('aside')
-    .first()
-    .getByRole('button', { name: 'Issues', exact: true })
-    .click({ timeout: 15_000 })
-  const board = page.getByRole('region', { name: 'Issues' })
+  await page.getByTestId('topbar-nav-issues').click({ timeout: 15_000 })
+  const board = page.getByRole('region', { name: 'Tasks' })
   await expect(board).toBeVisible({ timeout: 10_000 })
 
   // ---- Create a Backlog issue (startNow=false → no worktree op) ----
-  await page.getByRole('button', { name: 'New Issue', exact: true }).click()
+  await page.getByRole('button', { name: 'New Task', exact: true }).click()
   const dialog = page.getByRole('dialog')
-  await expect(dialog.getByRole('heading', { name: 'New Issue' })).toBeVisible({ timeout: 10_000 })
+  await expect(dialog.getByRole('heading', { name: 'New Task' })).toBeVisible({ timeout: 10_000 })
   const title = `E2E comment ${Date.now()}`
   await dialog.getByLabel('Title').fill(title)
   const startNow = dialog.getByRole('checkbox', { name: 'Start work now' })
@@ -508,18 +488,14 @@ test('issue page: add a sub-issue inline and the child row appears with a 0/1 co
   await page.setViewportSize({ width: 1280, height: 900 })
   await openShell(page)
 
-  await page
-    .locator('aside')
-    .first()
-    .getByRole('button', { name: 'Issues', exact: true })
-    .click({ timeout: 15_000 })
-  const board = page.getByRole('region', { name: 'Issues' })
+  await page.getByTestId('topbar-nav-issues').click({ timeout: 15_000 })
+  const board = page.getByRole('region', { name: 'Tasks' })
   await expect(board).toBeVisible({ timeout: 10_000 })
 
   // ---- Create a parent Backlog issue (startNow=false → no worktree op) ----
-  await page.getByRole('button', { name: 'New Issue', exact: true }).click()
+  await page.getByRole('button', { name: 'New Task', exact: true }).click()
   const dialog = page.getByRole('dialog')
-  await expect(dialog.getByRole('heading', { name: 'New Issue' })).toBeVisible({ timeout: 10_000 })
+  await expect(dialog.getByRole('heading', { name: 'New Task' })).toBeVisible({ timeout: 10_000 })
   const parentTitle = `E2E parent ${Date.now()}`
   await dialog.getByLabel('Title').fill(parentTitle)
   const startNow = dialog.getByRole('checkbox', { name: 'Start work now' })
@@ -543,7 +519,7 @@ test('issue page: add a sub-issue inline and the child row appears with a 0/1 co
   await expect(issuePage).toBeVisible({ timeout: 10_000 })
 
   const subIssues = issuePage.getByTestId('sub-issues')
-  await expect(subIssues.getByRole('heading', { name: 'Sub-issues' })).toBeVisible()
+  await expect(subIssues.getByRole('heading', { name: 'Sub-tasks' })).toBeVisible()
 
   // Reveal the inline input, type a child title, press Enter to create it.
   await subIssues.getByRole('button', { name: /Add sub-issue/ }).click({ timeout: 10_000 })
@@ -565,9 +541,9 @@ test('issue page: add a sub-issue inline and the child row appears with a 0/1 co
 
 /** Create a worktree-less Backlog issue via the composer and wait for its card. */
 async function createBacklogIssue(page: Page, title: string): Promise<void> {
-  await page.getByRole('button', { name: 'New Issue', exact: true }).click()
+  await page.getByRole('button', { name: 'New Task', exact: true }).click()
   const dialog = page.getByRole('dialog')
-  await expect(dialog.getByRole('heading', { name: 'New Issue' })).toBeVisible({ timeout: 10_000 })
+  await expect(dialog.getByRole('heading', { name: 'New Task' })).toBeVisible({ timeout: 10_000 })
   await dialog.getByLabel('Title').fill(title)
   const startNow = dialog.getByRole('checkbox', { name: 'Start work now' })
   await expect(startNow).toBeChecked()
@@ -581,12 +557,8 @@ async function createBacklogIssue(page: Page, title: string): Promise<void> {
 test('issues keyboard: j / j / Enter opens the second issue in board order', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await openShell(page)
-  await page
-    .locator('aside')
-    .first()
-    .getByRole('button', { name: 'Issues', exact: true })
-    .click({ timeout: 15_000 })
-  const board = page.getByRole('region', { name: 'Issues' })
+  await page.getByTestId('topbar-nav-issues').click({ timeout: 15_000 })
+  const board = page.getByRole('region', { name: 'Tasks' })
   await expect(board).toBeVisible({ timeout: 10_000 })
 
   // Guarantee at least two focusable cards on the board.
@@ -598,7 +570,7 @@ test('issues keyboard: j / j / Enter opens the second issue in board order', asy
   await expect.poll(async () => cards.count(), { timeout: 15_000 }).toBeGreaterThanOrEqual(2)
 
   // Blur any focused control so the window key handler is active (guard skips inputs).
-  await board.getByRole('heading', { name: 'Issues', exact: true }).click()
+  await board.getByRole('heading', { name: 'Tasks', exact: true }).click()
 
   // First `j` focuses the first card, the second `j` the second (ring-2 class).
   await page.keyboard.press('j')
@@ -633,12 +605,8 @@ test('issues keyboard: x / x selects two issues, bulk stage change moves both', 
 }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await openShell(page)
-  await page
-    .locator('aside')
-    .first()
-    .getByRole('button', { name: 'Issues', exact: true })
-    .click({ timeout: 15_000 })
-  const board = page.getByRole('region', { name: 'Issues' })
+  await page.getByTestId('topbar-nav-issues').click({ timeout: 15_000 })
+  const board = page.getByRole('region', { name: 'Tasks' })
   await expect(board).toBeVisible({ timeout: 10_000 })
 
   const stamp = Date.now()
@@ -653,7 +621,7 @@ test('issues keyboard: x / x selects two issues, bulk stage change moves both', 
   const id1 = await cards.nth(1).getAttribute('data-issue-id')
   expect(id0 && id1 && id0 !== id1).toBeTruthy()
 
-  await board.getByRole('heading', { name: 'Issues', exact: true }).click()
+  await board.getByRole('heading', { name: 'Tasks', exact: true }).click()
 
   // Focus + select the first two cards: j x j x.
   await page.keyboard.press('j')
@@ -691,12 +659,8 @@ test('issues display: the Display menu opens (no crash), switches to List, and b
 }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await openShell(page)
-  await page
-    .locator('aside')
-    .first()
-    .getByRole('button', { name: 'Issues', exact: true })
-    .click({ timeout: 15_000 })
-  const board = page.getByRole('region', { name: 'Issues' })
+  await page.getByTestId('topbar-nav-issues').click({ timeout: 15_000 })
+  const board = page.getByRole('region', { name: 'Tasks' })
   await expect(board).toBeVisible({ timeout: 10_000 })
 
   // Guarantee at least one row so the List view has a stage group to render (the
