@@ -1,16 +1,12 @@
 import { randomUUID } from '@podium/client-core/id'
 import { markSwitch } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
-import {
-  effectivePanelMode,
-  PANEL_MODE_DEFAULT_KEY,
-  type PanelMode,
-} from '@podium/client-core/ui-state'
+import { effectivePanelMode, type PanelMode } from '@podium/client-core/ui-state'
 
 export { effectivePanelMode, effectivePanelMode as initialPanelMode, type PanelMode }
-import { composerDriverFor } from '@podium/composer'
+
 import type { SessionId } from '@podium/model'
-import { keySequence, type MountedSession, type SpecialKey } from '@podium/terminal-client'
+import { keySequence, type SpecialKey } from '@podium/terminal-client'
 import { useTerminalSession } from '@podium/terminal-client-react'
 import {
   Archive,
@@ -21,7 +17,6 @@ import {
   MessageSquareText,
   Mic,
   Moon,
-  RotateCcw,
   Sparkles,
   SquareTerminal,
   Terminal as TerminalIcon,
@@ -46,14 +41,7 @@ import { ChatView } from '@/features/chat/ChatView'
 import { accumulateFileLinkPaths } from '@/features/chat/chat'
 import { OfferBar } from '@/features/chat/OfferBar'
 import { agentBrandDot } from '@/lib/agent-tone'
-import {
-  defaultChatCapable,
-  exitedRecovery,
-  isKnownWorktreePath,
-  isSnoozed,
-  panelLabel,
-  resumeCommand,
-} from '@/lib/derive'
+import { isKnownWorktreePath, isSnoozed, panelLabel, resumeCommand } from '@/lib/derive'
 import { attentionGroup } from '@/lib/home'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { effectiveIssueColorHex } from '@/lib/issueColors'
@@ -66,8 +54,12 @@ import { useVoiceInput } from '@/lib/voice'
 import { KindIcon, sessionDisplayName } from '@/lib/WorkerLabel'
 import { ArrowSwipeKey } from './ArrowSwipeKey'
 import { paneTintedBackground, withBackground } from './appearance'
+import { createDraftSync } from './draft-sync'
 import { EchoHud, echoHudEnabled } from './EchoHud'
 import { HandoverPane, useHandoverView } from './HandoverPane'
+import { hibernateAction } from './lifecycle-actions'
+import { ExitedBanner, ExitedPane, HibernatedBanner, HibernatedPane } from './SessionLifecyclePanes'
+import { usePanelSurface } from './use-panel-surface'
 import { useTerminalAppearance } from './use-terminal-appearance'
 
 // Opt-in browser-test hook: `?e2e=1` exposes `globalThis.__podium` on the mounted
@@ -156,8 +148,6 @@ export function AgentPanel({
     setSessionDraft,
     hibernateSession,
     openFile,
-    panelMode,
-    setPanelMode,
     uiState,
     selectedIssueId,
   } = useStoreSelector(
@@ -173,8 +163,6 @@ export function AgentPanel({
       setSessionDraft: s.setSessionDraft,
       hibernateSession: s.hibernateSession,
       openFile: s.openFile,
-      panelMode: s.panelMode,
-      setPanelMode: s.setPanelMode,
       uiState: s.uiState,
       selectedIssueId: s.selectedIssueId,
     }),
@@ -189,44 +177,34 @@ export function AgentPanel({
   // "Starting…" overlay covers the wait, and the mount effect (which depends on
   // this) fires the instant it flips true.
   const spawnConfirmed = !pendingSpawnIds.has(sessionId)
-  // Chat exists where a structured transcript does. Prefer the server's
-  // observed signal (lights up any future transcript provider with no edit
-  // here); fall back to known transcript harnesses so chat is offered
-  // immediately, before the first transcript frame arrives.
-  const chatCapable =
-    session?.transcriptAvailable ?? (session ? defaultChatCapable(session.agentKind) : false)
-  // Fetch the startScreen setting once; default to 'native' while loading. This
-  // drives the configurable default mode for sessions the user has never toggled.
-  const [startScreen, setStartScreen] = useState<'native' | 'chat' | 'auto'>('native')
-  useEffect(() => {
-    trpc.settings.get
-      .query()
-      .then((s) => {
-        setStartScreen(s.roles.coding.startScreen)
-      })
-      .catch(() => {
-        /* keep default */
-      })
-  }, [trpc])
-
-  // Per-session mode is restored from the store (persisted via ui-state) so a
-  // reload returns this session to the view it was last left in (#35). A session
-  // the user never toggled falls back to the configurable default: the per-device
-  // pick (PANEL_MODE_DEFAULT_KEY) → the `startScreen` setting →
-  // chat-on-mobile/native-on-desktop.
-  const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches
-  // One derivation (client-core ui-state.effectivePanelMode) produces the
-  // modeled, persisted, and reported mode — no parallel saved/effective path.
-  const effectiveMode: PanelMode = effectivePanelMode({
-    startScreen,
+  // Moving to another machine ([spec:SP-3f7a]) is one deliberate state, not the
+  // sequence of read-only states the move happens to pass through: the session is
+  // stopped here, shipped, and resumed there. `handover` covers the pane for the
+  // whole window (and one beat past it, over the reattaching terminal), so
+  // `inTransit` suppresses the parked-transcript fallback underneath it.
+  const handover = useHandoverView(session)
+  const inTransit = handover?.phase === 'transit'
+  // Re-arm hook for the chat→native draft flush, published by onMounted below.
+  // Declared here because the arbitration hook owns the chat→native EDGE and
+  // calls it; the flush machinery itself lives in the mount closure.
+  const rearmFlushRef = useRef<(() => void) | null>(null)
+  // THE ARBITRATION (POD-408). `surface` says which of the four states this panel
+  // is in and, when live, which view; `gates` are every "may I" the panel used to
+  // re-spell from `!hibernated && !exited && …` at eight separate call sites.
+  const {
+    surface,
+    gates,
+    mode: effectiveMode,
     chatCapable,
-    isMobile,
-    saved: panelMode[sessionId],
-    deviceDefault: uiState.get(PANEL_MODE_DEFAULT_KEY),
+    pickMode,
+  } = usePanelSurface({
+    sessionId,
+    session,
+    paneActive: active,
+    spawnConfirmed,
+    inTransit,
+    onEnterNative: () => rearmFlushRef.current?.(),
   })
-  useEffect(() => {
-    setPanelMode(sessionId, effectiveMode)
-  }, [sessionId, effectiveMode, setPanelMode])
 
   // Switch-latency trace marks [POD-701] — both are no-ops (one null check in
   // markSwitch) unless a switch to THIS session is being traced.
@@ -244,22 +222,6 @@ export function AgentPanel({
     prevActiveForTrace.current = active
   }, [active, sessionId, effectiveMode])
 
-  const pickMode = (m: PanelMode) => {
-    // Persist the per-session override in the store (#35)…
-    setPanelMode(sessionId, m)
-    // …and remember the latest pick as the per-device default for not-yet-seen sessions.
-    uiState.set(PANEL_MODE_DEFAULT_KEY, m)
-  }
-
-  const hibernated = session?.status === 'hibernated'
-  const exited = session?.status === 'exited'
-  // Moving to another machine ([spec:SP-3f7a]) is one deliberate state, not the
-  // sequence of read-only states the move happens to pass through: the session is
-  // stopped here, shipped, and resumed there. `handover` covers the pane for the
-  // whole window (and one beat past it, over the reattaching terminal), so
-  // `inTransit` suppresses the parked-transcript fallback underneath it.
-  const handover = useHandoverView(session)
-  const inTransit = handover?.phase === 'transit'
   // The session's worktree was removed out from under it (an orphaned session):
   // its cwd no longer matches any scanned worktree. Gate on repos being loaded so
   // the boot window (no repos yet) doesn't transiently flag every session. Feeds
@@ -271,20 +233,22 @@ export function AgentPanel({
   // resume ref is known. Also the first right-aligned header control, so the
   // `ml-auto` fallbacks below defer to it when present.
   const resumeCmd = session ? resumeCommand(session) : null
-  // Manual hibernation is offered for a live, resumable agent (a resume ref means
-  // it can come back), but disabled while it's actively working — parking a
-  // working agent would kill its in-flight turn (the server refuses it too).
-  const phase = session?.agentState?.phase
-  const agentWorking = phase === 'working' || phase === 'compacting'
+  // Manual hibernation, as a descriptor: whether it applies at all and why it is
+  // blocked come from the SHARED eligibility rule (`sessionMenuEligibility`, also
+  // read by the session context menu and the command palette) rather than from a
+  // fourth local spelling of it.
+  const hibernate = hibernateAction(session)
+  // Device fact, not arbitration: the header drops the snooze control on a narrow
+  // screen. (The arbitration hook reads the same query for the mode default; that
+  // one is a MODE input, this one is a layout one, so they stay separate.)
+  const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches
   const snoozeNow = useNow(60_000)
   // Offer snooze in the full view when the session is in (or already snoozed out
   // of) the attention surface — not for actively-working or parked sessions.
   const showSnooze =
     !!session &&
-    !hibernated &&
-    !exited &&
+    surface.kind === 'live' &&
     (attentionGroup(session) !== 'working' || isSnoozed(session, snoozeNow))
-  const canHibernate = !hibernated && !exited && session?.resumable === true
   // Agent action offer [spec:SP-c7f1] in NATIVE mode: chat renders its own bar
   // above the composer; this one sits beneath the PTY so an offer is visible in
   // both views. Same optimistic-hide contract as chat: dismissed the moment a
@@ -293,11 +257,7 @@ export function AgentPanel({
   // auto-clears the offer on. Raw PTY keystrokes deliberately don't clear it.
   const [dismissedOfferAt, setDismissedOfferAt] = useState<string | null>(null)
   const nativeOffer =
-    effectiveMode === 'native' &&
-    !hibernated &&
-    !exited &&
-    session?.offer &&
-    session.offer.createdAt !== dismissedOfferAt
+    gates.offerDockOffered && session?.offer && session.offer.createdAt !== dismissedOfferAt
       ? session.offer
       : null
   // Keep the last offer rendered while the dock animates closed (POD-178): the
@@ -333,26 +293,32 @@ export function AgentPanel({
   // biome-ignore lint/correctness/useExhaustiveDependencies: mountedRef is a stable ref from useTerminalSession, not app state
   useLayoutEffect(() => {
     if (dockOpen === dockOpenTarget) return
-    const surface = termSurfaceRef.current
+    const termSurface = termSurfaceRef.current
     const reduced =
       typeof window !== 'undefined' &&
       window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-    if (!surface || reduced || effectiveMode !== 'native') {
+    // `ptySizingAllowed` — not `mode === 'native'` — is the gate. A warm panel
+    // that is not the visible pane is `display:none` (PanelDeck) and measures
+    // ZERO, so pinning and fitting from here would re-grid a live PTY to a box
+    // nobody is looking at. Same flag the engine derives viewState `visible`
+    // from, which is what makes this the visibility foundation and not a
+    // second, private opinion about what is on screen.
+    if (!termSurface || reduced || !gates.ptySizingAllowed) {
       setDockOpen(dockOpenTarget)
       return
     }
     dockUnpinRef.current?.()
-    const height = surface.getBoundingClientRect().height
+    const height = termSurface.getBoundingClientRect().height
     const dockHeight = dockInnerRef.current?.offsetHeight ?? 0
-    surface.style.flex = 'none'
-    surface.style.height = `${Math.max(0, dockOpenTarget ? height - dockHeight : height)}px`
+    termSurface.style.flex = 'none'
+    termSurface.style.height = `${Math.max(0, dockOpenTarget ? height - dockHeight : height)}px`
     dockUnpinRef.current = () => {
       dockUnpinRef.current = null
-      surface.style.flex = ''
-      surface.style.height = ''
+      termSurface.style.flex = ''
+      termSurface.style.height = ''
     }
     if (dockOpenTarget) {
-      void surface.offsetHeight // reflow so fit() measures the pinned size
+      void termSurface.offsetHeight // reflow so fit() measures the pinned size
       const m = mountedRef.current
       if (m) {
         const grid = m.view.fit()
@@ -366,12 +332,7 @@ export function AgentPanel({
     // have settled so the terminal doesn't stay frozen at a stale height.
     if (dockUnpinFallbackRef.current !== undefined) clearTimeout(dockUnpinFallbackRef.current)
     dockUnpinFallbackRef.current = setTimeout(() => dockUnpinRef.current?.(), 700)
-  }, [dockOpen, dockOpenTarget, effectiveMode])
-  // The terminal stays mounted across a chat<->native toggle (Task 6): it's kept
-  // alive (hidden under the chat overlay) with eligibility flipped via `active`
-  // instead of a remount — see useTerminalSession's own setActive effect.
-  const terminalActive =
-    active && effectiveMode === 'native' && !hibernated && !exited && !inTransit
+  }, [dockOpen, dockOpenTarget, gates.ptySizingAllowed])
   const knownPathsRef = useRef<Set<string>>(new Set())
   // Latest shared chat draft for this session, mirrored into a ref so the
   // draft-flush machinery (onMounted, below) can read it at flush time
@@ -385,15 +346,12 @@ export function AgentPanel({
   // check needs no effect dep (no terminal remount when the capability flips on).
   const draftEngineRef = useRef(false)
   draftEngineRef.current = session?.draftSyncEngine === true
-  // Re-arm hook for the chat→native draft flush, published by onMounted below.
-  // The flush machinery (one-shot guard + bounded poll) lives inside onMounted's
-  // closure and otherwise only runs once, at mount. Since the terminal stays
-  // mounted across a chat↔native toggle (Task 6), onMounted doesn't re-fire on
-  // each toggle, so the mode-transition effect further down calls this re-arm
-  // fn whenever the panel ENTERS native — re-running the flush so a chat-
-  // authored draft lands in the native composer on every toggle, not just the
-  // first mount.
-  const rearmFlushRef = useRef<(() => void) | null>(null)
+  // (`rearmFlushRef` is declared above the arbitration hook, which owns the
+  // chat→native edge that calls it: the flush machinery — one-shot guard plus
+  // bounded poll — lives inside onMounted's closure and otherwise only runs once,
+  // at mount. The terminal stays mounted across a chat↔native toggle (Task 6), so
+  // onMounted does NOT re-fire per toggle; without the re-arm a draft typed in
+  // chat and carried into native on a later toggle would never be injected.)
   // Latest per-frame sampler, published by onMounted. Forwarded into
   // useTerminalSession's onFrame via a stable wrapper defined before the hook
   // call (onFrame is bound at mountSession-construction time, before onMounted
@@ -441,14 +399,17 @@ export function AgentPanel({
   } = useTerminalSession({
     hub,
     sessionId,
-    // Hibernated/exited (no live PTY) skip mounting. An optimistically-spawned
-    // session doesn't exist server-side yet (#119) either — its one-shot attach
-    // would be dropped and never retried, so hold the mount until spawnConfirmed
-    // flips true (the reconcile). A session in transit is about to lose its PTY
-    // and come back on another machine: stay unmounted until it lands, so the
-    // attach that runs is the one against the new daemon.
-    enabled: !hibernated && !exited && !inTransit && spawnConfirmed,
-    active: terminalActive,
+    // Only a LIVE surface has a PTY behind it: hibernated/exited have no process,
+    // and a session in transit is about to lose its PTY and come back on another
+    // machine (stay unmounted until it lands, so the attach that runs is the one
+    // against the new daemon). An optimistically-spawned session doesn't exist
+    // server-side yet (#119) either — its one-shot attach would be dropped and
+    // never retried, so `spawnConfirmed` holds the mount until the reconcile.
+    enabled: gates.terminalMounted,
+    // The terminal stays mounted across a chat<->native toggle (Task 6): it's
+    // kept alive (hidden under the chat overlay) with eligibility flipped here
+    // instead of by a remount — see useTerminalSession's own setActive effect.
+    active: gates.terminalActive,
     // Don't grab focus on mount — that pops the soft keyboard over the
     // "Starting…" overlay. focusWhenReady takes over once the session is ready
     // (attached) AND this is the active terminal.
@@ -472,139 +433,24 @@ export function AgentPanel({
         isKnownPrefix: (p) => isKnownRefPrefix(p),
         onActivate: (ref, event) => activateRef(ref, event),
       })
-      // Mirror the in-progress native prompt into the shared chat draft (Claude and
-      // Codex). Best-effort + clobber-safe: only the controlling client publishes
-      // (cross-client), and only while THIS terminal holds focus, so a chat composer
-      // being typed in another pane/device wins. Publish only on change; a null
-      // extraction (slash menu / no composer / other agent) never clobbers; and a
-      // freshly-focused EMPTY composer won't publish '' as its first act (which would
-      // wipe a draft another device is typing — a real clear still propagates after).
-      const agentKind = session?.agentKind
-      let lastPublished: string | null = null
-      let sampleTimer: ReturnType<typeof setTimeout> | null = null
-      // Read the native composer's current text via the same scrape both directions
-      // share. Returns the typed text, '' for an empty composer, or null when no
-      // clean composer box is on screen yet (splash/overlay/menu) — callers must
-      // not act on null. Claude draws a box; Codex a single dim-stripped `›` line.
-      const composerDriver = agentKind ? composerDriverFor(agentKind) : null
-      const scrapeComposer = (m: MountedSession): string | null =>
-        composerDriver?.extract(
-          m.view.screenText({ dropDim: composerDriver.dimStripped }).split('\n'),
-        ) ?? null
-      const sample = () => {
-        // Daemon engine active → it scrapes native server-side; don't double-publish.
-        if (draftEngineRef.current) return
-        if (mounted.connection.state().role !== 'controller') return
-        if (!termRef.current?.contains(document.activeElement)) return
-        // Codex's empty composer shows a DIM placeholder suggestion — blank dim cells
-        // (screenText dropDim) so it isn't mistaken for typed text; Claude's box needs
-        // no such filter.
-        const draft = scrapeComposer(mounted)
-        if (draft === null || draft === lastPublished) return
-        if (draft === '' && lastPublished === null) return
-        lastPublished = draft
-        setSessionDraft(sessionId, draft)
-      }
-      // chat→native (#17/#62): one-shot flush of the shared chat draft into the
-      // native composer on entering native mode, so text typed in chat lands in the
-      // real PTY prompt. The terminal is UNMOUNTED during chat mode (chat renders
-      // ChatView, not the xterm), so realtime key-by-key injection while chat-typing
-      // is impossible — the realistic, safe sync point is this mode switch.
-      //
-      // SAFETY (never clobber text the user typed directly in the native composer):
-      //   - only the controller injects, and only while the terminal holds focus
-      //     (mirrors the sampler's directional guard #53 so the two never fight);
-      //   - we scrape the live composer first and ONLY inject when it is empty (or
-      //     already equals what we're about to type — an idempotent retry). A null
-      //     scrape (splash/overlay not yet a clean box) or unrelated typed text →
-      //     SKIP, and we retry on later frames until the box settles or we bail;
-      //   - empty shared draft → nothing to do.
-      // ANTI-FEEDBACK ("sent keys + reconcile"): we send Ctrl-U (clear-line, a no-op
-      // on an already-empty composer) then the draft, remember it as `lastPublished`,
-      // and let the existing 150ms sampler reconcile — it now sees the scrape return
-      // exactly what we injected (=== lastPublished) and stays quiet, so our own
-      // injection is never re-published as a "new" draft.
-      let flushTried = false
-      // Returns true when it actually injected on this tick — the caller then SKIPS
-      // the sampler for this tick, because the injected bytes haven't echoed back to
-      // the screen yet (the scrape would still read the pre-injection empty composer
-      // and, with lastPublished now set to the draft, publish '' — wiping it). The
-      // next frame's scrape sees the echo, matches lastPublished, and stays quiet.
-      const flushDraftToNative = (): boolean => {
-        if (flushTried) return false
-        // Daemon engine active → it injects chat drafts into native server-side.
-        if (draftEngineRef.current) return false
-        if (mounted.connection.state().role !== 'controller') return false
-        if (!termRef.current?.contains(document.activeElement)) return false
-        const want = draftRef.current
-        // Nothing to push — let the native→chat sampler own this session's draft.
-        if (want === '') {
-          flushTried = true
-          return false
-        }
-        const current = scrapeComposer(mounted)
-        // No clean composer box yet (splash/overlay): wait for a later frame.
-        if (current === null) return false
-        // The composer already holds text the user typed directly in native — never
-        // overwrite it. Stand down for this mode-entry (idempotent if it happens to
-        // already equal what we'd type).
-        if (current !== '' && current !== want) {
-          flushTried = true
-          return false
-        }
-        flushTried = true
-        // Clear the line (safe no-op when empty) then type the draft. Seed the
-        // sampler so the reconcile scrape of our own injection isn't re-published.
-        lastPublished = want
-        mounted.connection.sendInput('\x15') // Ctrl-U
-        mounted.connection.sendInput(want)
-        return true
-      }
-      const scheduleSample = () => {
-        if (sampleTimer) return
-        sampleTimer = setTimeout(() => {
-          sampleTimer = null
-          if (flushDraftToNative()) return
-          sample()
-        }, 150)
-      }
-      scheduleSampleRef.current = scheduleSample
-      // The flush above piggy-backs on onFrame, but an already-idle composer may
-      // emit no frames after focus lands (and focus itself arrives a beat after
-      // the first frame, via focusWhenReady above). Poll a bounded number of
-      // times so the one-shot chat→native flush still fires on a quiet session;
-      // it self-stops once the flush resolves (injected, or skipped because
-      // empty/occupied/wrong-agent).
-      let flushPoll: ReturnType<typeof setInterval> | null = null
-      const startFlushPoll = () => {
-        if (flushPoll) clearInterval(flushPoll)
-        let flushAttempts = 0
-        flushPoll = setInterval(() => {
-          if (flushTried || flushAttempts++ >= 40) {
-            if (flushPoll) clearInterval(flushPoll)
-            flushPoll = null
-            return
-          }
-          if (flushDraftToNative()) {
-            if (flushPoll) clearInterval(flushPoll)
-            flushPoll = null
-          }
-        }, 150)
-      }
-      startFlushPoll()
-      // Publish the re-arm hook: reset the one-shot guard and restart the bounded
-      // poll. Called by the mode-transition effect on each chat→native entry so the
-      // flush re-fires for a fresh chat draft (its own guards still protect against
-      // clobbering native-typed text / empty drafts).
-      rearmFlushRef.current = () => {
-        flushTried = false
-        startFlushPoll()
-      }
+      // Draft sync between the PTY and chat, both directions (#17/#62/#53,
+      // POD-859). Everything it needs from React arrives as a getter, so no
+      // closure here can capture a stale render's value; the chat->native edge
+      // that re-arms the one-shot flush is owned by the arbitration hook above.
+      const sync = createDraftSync({
+        mounted,
+        agentKind: session?.agentKind,
+        hasFocus: () => !!termRef.current?.contains(document.activeElement),
+        draft: () => draftRef.current,
+        engineActive: () => draftEngineRef.current,
+        publish: (text) => setSessionDraft(sessionId, text),
+      })
+      scheduleSampleRef.current = sync.scheduleSample
+      rearmFlushRef.current = sync.rearm
       return () => {
         rearmFlushRef.current = null
         scheduleSampleRef.current = () => {}
-        if (sampleTimer) clearTimeout(sampleTimer)
-        if (flushPoll) clearInterval(flushPoll)
+        sync.dispose()
       }
     },
   })
@@ -633,25 +479,6 @@ export function AgentPanel({
       })
     })
   }, [hub, sessionId, session?.cwd, openFile])
-
-  // Re-arm the chat→native draft flush whenever the panel ENTERS native mode
-  // while the terminal stays mounted (Task 6's warm toggle). The flush itself is
-  // a one-shot inside the mount effect; without this it would only run at first
-  // mount, so a draft typed in chat and then carried into native on a later
-  // toggle would never be injected. We skip the initial mount-in-native double
-  // (prevModeRef starts unset) — the mount effect already armed the poll there —
-  // and only re-arm on a real chat→native transition. native→chat (and the
-  // sampler direction) are untouched.
-  const prevModeRef = useRef<PanelMode | null>(null)
-  useEffect(() => {
-    const prev = prevModeRef.current
-    prevModeRef.current = effectiveMode
-    if (effectiveMode !== 'native') return
-    // Only a *transition* into native re-arms; the first observation (prev null)
-    // is the mount-in-native case already handled by the mount effect.
-    if (prev === null || prev === 'native') return
-    rearmFlushRef.current?.()
-  }, [effectiveMode])
 
   const sendKey = (key: SpecialKey): void => {
     mountedRef.current?.connection.sendInput(keySequence(key))
@@ -750,7 +577,7 @@ export function AgentPanel({
               control — both views always visible and labeled, the filled segment
               is the current one. Only offered with a live PTY behind it — a
               hibernated/exited session has no terminal to switch to. */}
-          {chatCapable && !hibernated && !exited && !inTransit && (
+          {gates.modeSwitchOffered && (
             <span
               role="tablist"
               aria-label="Panel view"
@@ -827,7 +654,7 @@ export function AgentPanel({
                   align="end"
                   className="w-auto min-w-[236px] max-w-[90vw] p-[5px] **:data-[slot=dropdown-menu-item]:gap-[9px] **:data-[slot=dropdown-menu-item]:px-[9px] **:data-[slot=dropdown-menu-item]:py-[6px] **:data-[slot=dropdown-menu-item]:text-[12px]"
                 >
-                  {effectiveMode === 'native' && !hibernated && !exited && !inTransit && (
+                  {gates.takeControlOffered && (
                     <DropdownMenuItem
                       data-testid="take-control"
                       aria-label="Take control of the terminal"
@@ -871,19 +698,16 @@ export function AgentPanel({
                       <DropdownMenuShortcut>/btw</DropdownMenuShortcut>
                     </DropdownMenuItem>
                   )}
-                  {canHibernate && (
+                  {hibernate && (
                     <>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem
-                        disabled={agentWorking}
-                        title={
-                          agentWorking
-                            ? 'Agent is working — hibernate once it reaches idle'
-                            : undefined
-                        }
+                        data-testid="lifecycle-hibernate"
+                        disabled={hibernate.disabledReason !== null}
+                        {...(hibernate.disabledReason ? { title: hibernate.disabledReason } : {})}
                         onClick={() => void hibernateSession(sessionId)}
                       >
-                        <Moon size={13} aria-hidden="true" /> Hibernate
+                        <Moon size={13} aria-hidden="true" /> {hibernate.label}
                       </DropdownMenuItem>
                     </>
                   )}
@@ -894,13 +718,13 @@ export function AgentPanel({
         </span>
       </div>
       {handover && <HandoverPane view={handover} background={termBg} />}
-      {inTransit ? (
+      {surface.kind === 'transit' ? (
         // The veil owns this window; underneath it only the pane's own surface
         // shows, so a mid-move status change (live → parked) never repaints a
         // view the operator didn't ask for.
         <div className="flex-1" style={{ backgroundColor: termBg }} />
-      ) : hibernated ? (
-        chatCapable ? (
+      ) : surface.kind === 'parked' ? (
+        surface.view === 'transcript' ? (
           // The transcript outlives the process — a hibernated agent's history is
           // still worth reading. Show it (read-only; the composer disables itself
           // when the session isn't live) with a banner to wake it back up.
@@ -911,8 +735,8 @@ export function AgentPanel({
         ) : (
           <HibernatedPane sessionId={sessionId} />
         )
-      ) : exited && session ? (
-        chatCapable ? (
+      ) : surface.kind === 'ended' && session ? (
+        surface.view === 'transcript' ? (
           // The process is gone but the transcript outlives it — keep the chat
           // readable (and resumable via the composer) with a banner, instead of
           // replacing it with a dead-end pane. Shells (no transcript) still get it.
@@ -1112,218 +936,6 @@ export function AgentPanel({
           />
         </>
       )}
-    </div>
-  )
-}
-
-/**
- * The process is gone but the row survived (crash, external kill, or plain
- * exit). Dead-end panels are forbidden: say what happened and offer the way
- * back — a shell restarts fresh in its directory (nothing to lose), an agent
- * resumes its conversation when it left a ref, and Remove covers the rest.
- */
-function ExitedPane({
-  sessionId,
-  exitCode,
-  spawnFailure,
-  isShell,
-  resumable,
-  worktreeMissing,
-  worktreePath,
-}: {
-  sessionId: SessionId
-  exitCode: number | undefined
-  spawnFailure?: string
-  isShell: boolean
-  resumable: boolean
-  worktreeMissing: boolean
-  worktreePath?: string
-}): JSX.Element {
-  const { resurrectSession, killSession } = useStoreSelector(
-    (s) => ({ resurrectSession: s.resurrectSession, killSession: s.killSession }),
-    shallowEqual,
-  )
-  const [waking, setWaking] = useState(false)
-  const { detail, action } = exitedRecovery({
-    exitCode,
-    ...(spawnFailure ? { spawnFailure } : {}),
-    isShell,
-    resumable,
-    worktreeMissing,
-    ...(worktreePath ? { worktreePath } : {}),
-  })
-  const secondary =
-    action === 'restart'
-      ? 'Restart opens a fresh shell in the same directory.'
-      : action === 'resume'
-        ? 'The conversation is intact — resume to pick up where it left off.'
-        : worktreeMissing
-          ? 'Remove it to clear it away.'
-          : 'It left no conversation to resume.'
-  return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center text-warning">
-      <RotateCcw size={28} aria-hidden="true" />
-      <p className="m-0 max-w-[42ch] text-[13px] text-muted-foreground">
-        {detail} {secondary}
-      </p>
-      {action === 'remove' ? (
-        <Button type="button" variant="secondary" onClick={() => void killSession(sessionId)}>
-          Remove session
-        </Button>
-      ) : (
-        <Button
-          type="button"
-          disabled={waking}
-          onClick={() => {
-            setWaking(true)
-            void resurrectSession(sessionId).then(
-              () => setWaking(false),
-              () => setWaking(false),
-            )
-          }}
-        >
-          {waking
-            ? action === 'restart'
-              ? 'Restarting…'
-              : 'Resuming…'
-            : action === 'restart'
-              ? 'Restart shell'
-              : 'Resume session'}
-        </Button>
-      )}
-    </div>
-  )
-}
-
-/** Thin bar over an exited session's (read-only) transcript: says the process is
- *  gone but keeps the conversation readable, with resume/restart or remove. */
-function ExitedBanner({
-  sessionId,
-  exitCode,
-  spawnFailure,
-  isShell,
-  resumable,
-  worktreeMissing,
-  worktreePath,
-}: {
-  sessionId: SessionId
-  exitCode: number | undefined
-  spawnFailure?: string
-  isShell: boolean
-  resumable: boolean
-  worktreeMissing: boolean
-  worktreePath?: string
-}): JSX.Element {
-  const { resurrectSession, killSession } = useStoreSelector(
-    (s) => ({ resurrectSession: s.resurrectSession, killSession: s.killSession }),
-    shallowEqual,
-  )
-  const [waking, setWaking] = useState(false)
-  const { detail, action } = exitedRecovery({
-    exitCode,
-    ...(spawnFailure ? { spawnFailure } : {}),
-    isShell,
-    resumable,
-    worktreeMissing,
-    ...(worktreePath ? { worktreePath } : {}),
-  })
-  return (
-    // items-start (not -center) so the action stays put when the notice wraps to
-    // a second line — the worktree-missing message is longer than a bare exit line.
-    <div className="flex shrink-0 items-start gap-2 border-b border-warning/30 bg-warning/10 px-3 py-1.5 text-xs text-warning">
-      <RotateCcw size={14} aria-hidden="true" className="mt-0.5 shrink-0" />
-      <span className="min-w-0 flex-1">{detail} Transcript is read-only.</span>
-      {action === 'remove' ? (
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="shrink-0"
-          onClick={() => void killSession(sessionId)}
-        >
-          Remove
-        </Button>
-      ) : (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="shrink-0 border-warning/50 text-warning hover:bg-warning/10 hover:text-warning"
-          disabled={waking}
-          onClick={() => {
-            setWaking(true)
-            void resurrectSession(sessionId).then(
-              () => setWaking(false),
-              () => setWaking(false),
-            )
-          }}
-        >
-          {waking
-            ? action === 'restart'
-              ? 'Restarting…'
-              : 'Resuming…'
-            : action === 'restart'
-              ? 'Restart'
-              : 'Resume'}
-        </Button>
-      )}
-    </div>
-  )
-}
-
-/** Thin bar over a hibernated session's (read-only) transcript: explains the
- *  state and offers one-click resume, without hiding the conversation. */
-function HibernatedBanner({ sessionId }: { sessionId: SessionId }): JSX.Element {
-  const resurrectSession = useStoreSelector((s) => s.resurrectSession)
-  const [waking, setWaking] = useState(false)
-  return (
-    <div className="flex shrink-0 items-center gap-2 border-b border-primary/30 bg-primary/10 px-3 py-1.5 text-xs text-primary">
-      <Moon size={14} aria-hidden="true" />
-      <span className="min-w-0 flex-1">Hibernated — transcript is read-only until you resume.</span>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="shrink-0 border-primary/50 text-primary hover:bg-primary/10 hover:text-primary"
-        disabled={waking}
-        onClick={() => {
-          setWaking(true)
-          void resurrectSession(sessionId).then(
-            () => setWaking(false),
-            () => setWaking(false),
-          )
-        }}
-      >
-        {waking ? 'Waking…' : 'Resume'}
-      </Button>
-    </div>
-  )
-}
-
-/** Firefox-snoozed-tab moment: the process is parked, one click wakes it. */
-function HibernatedPane({ sessionId }: { sessionId: SessionId }): JSX.Element {
-  const resurrectSession = useStoreSelector((s) => s.resurrectSession)
-  const [waking, setWaking] = useState(false)
-  return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center text-primary">
-      <Moon size={28} aria-hidden="true" />
-      <p className="m-0 max-w-[42ch] text-[13px] text-muted-foreground">
-        This session is hibernated — its process was stopped to free memory, but the conversation is
-        intact.
-      </p>
-      <Button
-        type="button"
-        disabled={waking}
-        onClick={() => {
-          setWaking(true)
-          void resurrectSession(sessionId).then(
-            () => setWaking(false),
-            () => setWaking(false),
-          )
-        }}
-      >
-        {waking ? 'Waking…' : 'Resume session'}
-      </Button>
     </div>
   )
 }

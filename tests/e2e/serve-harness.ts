@@ -30,12 +30,12 @@ import {
   type LaunchSpec,
 } from '@podium/harness'
 import type { AgentKind } from '@podium/model'
+import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { ensurePodiumCodexHooks } from '../../apps/daemon/src/codex-hooks'
 import { startDaemon } from '../../apps/daemon/src/daemon'
 import { runIndexRefreshJob, runMemoryBreakdownJob } from '../../apps/daemon/src/discovery-jobs'
 import type { WorkerJob } from '../../apps/daemon/src/discovery-worker'
 import { DiscoveryWorkerClient, type WorkerLike } from '../../apps/daemon/src/worker-client'
-import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { startServer } from '../../apps/server/src/server'
 import type { SessionStore } from '../../apps/server/src/store'
 import { writeCodexStartupFixture } from './codex-fixture'
@@ -351,6 +351,53 @@ const daemonOptions: Parameters<typeof startDaemon>[0] = {
   workerClient: inlineWorkerClient(),
 }
 let daemon = await startDaemon(daemonOptions)
+// POD-408: one LIVE, RESUMABLE agent session, so a spec can drive the panel's
+// lifecycle arbitration in both directions with real clicks — Hibernate from the
+// header overflow (live → parked), Resume from the banner (parked → live).
+// `claude-code` rather than `codex`: `createSession` resolves the machine through
+// `requireAgent`, which THROWS (and takes the whole harness down) for a harness
+// that is not installed on the host, and codex often is not.
+if (process.env.PODIUM_E2E_PANEL_LIFECYCLE === '1') {
+  const issue = server.registry.modules.issues.create({
+    repoPath: REPO_ROOT,
+    title: 'Panel lifecycle arbitration',
+    startNow: false,
+  })
+  const { sessionId } = server.registry.modules.sessions.createSession({
+    agentKind: 'claude-code',
+    cwd: REPO_ROOT,
+    issueId: issue.id,
+    machineId: hostMachineId(),
+  })
+  server.registry.modules.sessions.renameSession({ sessionId, name: 'Lifecycle panel subject' })
+  server.registry.modules.sessions.onDaemonMessageFrom(hostMachineId(), {
+    type: 'bind',
+    sessionId,
+    cmd: 'claude',
+    cwd: REPO_ROOT,
+    agentKind: 'claude-code',
+    geometry: { cols: 80, rows: 24 },
+  })
+  // A resume ref is what makes a session RESUMABLE, which is what makes manual
+  // hibernation eligible at all (`sessionMenuEligibility.canHibernate`).
+  server.registry.modules.sessions.onDaemonMessageFrom(hostMachineId(), {
+    type: 'sessionResumeRef',
+    sessionId,
+    resume: { kind: 'claude-session', value: 'e2e-panel-lifecycle' },
+  })
+  // Idle, not working: hibernating mid-turn is refused (by the panel and by the
+  // server), so the fixture must be parkable.
+  server.registry.modules.sessions.onDaemonMessageFrom(hostMachineId(), {
+    type: 'agentState',
+    sessionId,
+    state: {
+      phase: 'idle',
+      idle: { kind: 'done' },
+      since: new Date().toISOString(),
+      nativeSubagentCount: 0,
+    },
+  })
+}
 if (process.env.PODIUM_E2E_FINISHED_DELEGATE === '1') {
   const issue = server.registry.modules.issues.create({
     repoPath: REPO_ROOT,
