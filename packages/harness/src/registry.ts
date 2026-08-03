@@ -4,7 +4,7 @@ import {
   isBuiltinHarnessKind,
   type ObservationProvider,
 } from '@podium/protocol'
-import type { TranscriptRecordMapper } from '@podium/transcript'
+import type { TranscriptRecordMapper, TranscriptRuntimeReader } from '@podium/transcript'
 import type { AgentStateProvider } from './agent-state/types.js'
 import {
   type AgentManifest,
@@ -139,6 +139,18 @@ export function transcriptRecordMapperFor(
   const declaredTranscript = manifestFor(kind)?.transcript
   const transcript = declaredTranscript ? declaredValue(declaredTranscript) : undefined
   return transcript ? declaredValue(transcript.recordToItems) : undefined
+}
+
+/** The runtime-fact reader declared by this CLI's manifest — what model, effort
+ * and context use its records report. Harnesses that report none (and unknown
+ * kinds) return undefined, so the caller observes nothing rather than inferring
+ * it from another harness's record conventions. */
+export function transcriptRuntimeReaderFor(
+  kind: AgentKind | string,
+): TranscriptRuntimeReader | undefined {
+  const declaredTranscript = manifestFor(kind)?.transcript
+  const transcript = declaredTranscript ? declaredValue(declaredTranscript) : undefined
+  return transcript ? declaredValue(transcript.recordRuntime) : undefined
 }
 
 /** @deprecated Renamed to {@link manifestFor}. Kept so POD-398/399 can retire the

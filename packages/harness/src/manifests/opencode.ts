@@ -177,6 +177,7 @@ export const opencodeManifest: AgentManifest = {
     // contract as the chain reader.
     storage: 'sqlite',
     recordToItems: unsupported('opencode maps typed SQLite rows rather than native JSONL records'),
+    recordRuntime: unsupported('opencode reports no model, effort or context use in its records'),
     chainPaths: unsupported('opencode stores transcripts in SQLite — there are no files to chain'),
     async sourceFor(input) {
       // No resume value → nothing to read; hand back an inert empty source so

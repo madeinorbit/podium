@@ -19,6 +19,7 @@ import {
   parseClaudeTranscriptSegmentId,
   reduceAgentState,
   transcriptRecordMapperFor,
+  transcriptRuntimeReaderFor,
 } from '@podium/harness'
 import type { AgentKind, SessionId, TranscriptItem } from '@podium/model'
 import type {
@@ -31,7 +32,6 @@ import { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/pro
 import type { AgentSession } from '@podium/pty'
 import {
   createSharedStatTick,
-  recordRuntimeForKind,
   type StatTick,
   type TranscriptTailer,
   tailTranscript,
@@ -1026,7 +1026,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
           // As do the observed model + effort (assistant `message.model` / `effort`).
           onModel: (model, effort) =>
             send({ type: 'agentModel', sessionId, model, ...(effort ? { effort } : {}) }),
-          recordRuntime: (record) => recordRuntimeForKind(agentKind, record),
+          recordRuntime: transcriptRuntimeReaderFor(agentKind) ?? (() => ({})),
           onContextUsage: (percent) => send({ type: 'agentContext', sessionId, percent }),
           ...(deps.tailSeedGate ? { seedGate: deps.tailSeedGate } : {}),
           initialWindowBytes: TAIL_SEED_WINDOW_BYTES,

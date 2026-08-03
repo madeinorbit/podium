@@ -15,7 +15,25 @@ function finiteNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
-function codexRuntime(record: unknown): HarnessRuntimeObservation {
+/** Read one harness's native record for runtime identity/context facts. One of
+ * these per harness; WHICH one applies is the manifest's answer, not a switch
+ * here — behaviour keyed on a harness belongs in that harness's declaration
+ * (`HarnessTranscript.recordRuntime`), while these parsers stay in browser-safe
+ * @podium/transcript (ADR 8 D4.3). */
+export type TranscriptRuntimeReader = (record: unknown) => HarnessRuntimeObservation
+
+/** Claude Code: model and effort ride the assistant record. */
+export function claudeRuntime(record: unknown): HarnessRuntimeObservation {
+  const model = claudeRecordModel(record)
+  const effort = claudeRecordEffort(record)
+  return {
+    ...(model ? { model } : {}),
+    ...(effort ? { effort } : {}),
+  }
+}
+
+/** Codex: model/effort from `turn_context`, context use from `token_count`. */
+export function codexRuntime(record: unknown): HarnessRuntimeObservation {
   if (!isRecord(record)) return {}
   const payload = isRecord(record.payload) ? record.payload : undefined
   if (!payload) return {}
@@ -39,7 +57,8 @@ function codexRuntime(record: unknown): HarnessRuntimeObservation {
   return { contextUsagePercent: Math.round(percent * 10) / 10 }
 }
 
-function grokRuntime(record: unknown): HarnessRuntimeObservation {
+/** Grok: the model id, wherever this record carries it. */
+export function grokRuntime(record: unknown): HarnessRuntimeObservation {
   if (!isRecord(record)) return {}
   const message = isRecord(record.message) ? record.message : undefined
   const model =
@@ -47,27 +66,4 @@ function grokRuntime(record: unknown): HarnessRuntimeObservation {
     stringField(record, 'model') ??
     (message ? (stringField(message, 'model_id') ?? stringField(message, 'model')) : undefined)
   return model ? { model } : {}
-}
-
-/** Extract actual runtime identity/context facts for one harness record. */
-export function recordRuntimeForKind(
-  agentKind: string,
-  record: unknown,
-): HarnessRuntimeObservation {
-  switch (agentKind) {
-    case 'claude-code': {
-      const model = claudeRecordModel(record)
-      const effort = claudeRecordEffort(record)
-      return {
-        ...(model ? { model } : {}),
-        ...(effort ? { effort } : {}),
-      }
-    }
-    case 'codex':
-      return codexRuntime(record)
-    case 'grok':
-      return grokRuntime(record)
-    default:
-      return {}
-  }
 }

@@ -15,6 +15,7 @@ import {
   fileIdFor,
   type StatTick,
   type TranscriptRecordMapper,
+  type TranscriptRuntimeReader,
   type TranscriptSource,
 } from '@podium/transcript'
 import type {
@@ -366,6 +367,13 @@ export interface HarnessTranscript {
    *  transcripts declare this unsupported because their adapter maps typed rows
    *  before applying the storage-neutral slice contract. */
   recordToItems: Declared<TranscriptRecordMapper>
+  /** Pure native-record reader for RUNTIME facts — the model, effort and context
+   *  use this harness actually reports. Separate from `recordToItems` because it
+   *  answers a different question about the same record: that one produces the
+   *  conversation, this one produces what the agent is running as. Unsupported ⇒
+   *  no observed model/effort/context for this harness; the transcript still
+   *  reads. */
+  recordRuntime: Declared<TranscriptRuntimeReader>
   /** Ordered oldest→newest JSONL files for a session ('file-chain' storage only;
    *  unsupported for 'sqlite', which has no files to chain). Every file-based
    *  harness resolves the SPECIFIC conversation by its resume value — a cwd
@@ -383,10 +391,14 @@ export interface HarnessTranscript {
 export function fileTranscript(
   chainPaths: (input: TranscriptSourceInput) => Promise<string[]>,
   recordToItems: TranscriptRecordMapper,
+  recordRuntime?: TranscriptRuntimeReader,
 ): HarnessTranscript {
   return {
     storage: 'file-chain',
     recordToItems: supported(recordToItems),
+    recordRuntime: recordRuntime
+      ? supported(recordRuntime)
+      : unsupported('this harness does not report model, effort or context use in its records'),
     chainPaths: supported(chainPaths),
     async sourceFor(input) {
       const chain = (await chainPaths(input)).map((path) => ({ path, fileId: fileIdFor(path) }))

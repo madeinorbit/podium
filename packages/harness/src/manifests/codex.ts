@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { basename, dirname, join, relative } from 'node:path'
-import { codexRecordToItems } from '@podium/transcript'
+import { codexRecordToItems, codexRuntime } from '@podium/transcript'
 import {
   codexStateProvider,
   findCodexRolloutPath,
@@ -498,7 +498,7 @@ export const codexManifest: AgentManifest = {
     },
   }),
 
-  transcript: supported(fileTranscript(chainPaths, codexRecordToItems)),
+  transcript: supported(fileTranscript(chainPaths, codexRecordToItems, codexRuntime)),
 
   // Codex login goes through auth.openai.com (loopback redirect to :1455);
   // chatgpt.com / platform.openai.com opens are plain links. Unknown hosts

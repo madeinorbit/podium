@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { claudeRecordToItems } from '@podium/transcript'
+import { claudeRecordToItems, claudeRuntime } from '@podium/transcript'
 import {
   claudeCodeStateProvider,
   configureClaudeTranscriptClassifier,
@@ -205,7 +205,7 @@ export const claudeCodeManifest: AgentManifest = {
 
   discovery: createClaudeCodeConversationProvider(),
 
-  transcript: supported(fileTranscript(chainPaths, claudeRecordToItems)),
+  transcript: supported(fileTranscript(chainPaths, claudeRecordToItems, claudeRuntime)),
 
   handoffTranscript: supported({
     transcriptPlacement: ({ cwd, homeDir, resumeValue }) =>
