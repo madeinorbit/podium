@@ -76,16 +76,51 @@ export class AutomationsRepository {
 
   list(): AutomationRow[] {
     const rows = this.db
-      .prepare('SELECT * FROM automations ORDER BY created_at ASC')
+      .prepare('SELECT * FROM automations WHERE deleted_at IS NULL ORDER BY created_at ASC')
       .all() as Record<string, unknown>[]
     return rows.map(rowToAutomation)
   }
 
   get(id: string): AutomationRow | undefined {
-    const r = this.db.prepare('SELECT * FROM automations WHERE id = ?').get(id) as
+    const r = this.db
+      .prepare('SELECT * FROM automations WHERE id = ? AND deleted_at IS NULL')
+      .get(id) as Record<string, unknown> | undefined
+    return r ? rowToAutomation(r) : undefined
+  }
+
+  /**
+   * THE OWNER OF A ROW THAT MAY ALREADY BE GONE (POD-1509).
+   *
+   * The one read that deliberately looks THROUGH the tombstone, and the reason
+   * the tombstone exists. A commit writes before it scopes, so when the scoped
+   * feed evaluates a `remove` the row is already deleted; an owner lookup that
+   * respected the tombstone would answer `undefined`, the policy would refuse
+   * the row as `personal-not-granted`, and the deletion would reach the client
+   * as an empty watermark — delivered-but-not-sent. Ownership is therefore the
+   * one fact about an automation that outlives it.
+   *
+   * NOT a general `getIncludingRemoved`: this returns an owner and nothing else,
+   * so no caller can accidentally resurrect a deleted automation's payload by
+   * reaching for a field that happens to still be in the row.
+   */
+  ownerOf(id: string): UserId | undefined {
+    const r = this.db.prepare('SELECT owner_user_id FROM automations WHERE id = ?').get(id) as
       | Record<string, unknown>
       | undefined
-    return r ? rowToAutomation(r) : undefined
+    return r ? (r.owner_user_id as UserId) : undefined
+  }
+
+  /** The owning user of a run's automation, through both tombstones. Same
+   *  contract and the same reason as {@link ownerOf}. */
+  runOwnerOf(id: string): UserId | undefined {
+    const r = this.db
+      .prepare(
+        `SELECT a.owner_user_id AS owner_user_id FROM automation_runs r
+           JOIN automations a ON a.id = r.automation_id
+          WHERE r.id = ?`,
+      )
+      .get(id) as Record<string, unknown> | undefined
+    return r ? (r.owner_user_id as UserId) : undefined
   }
 
   insert(a: AutomationRow): void {
@@ -149,9 +184,35 @@ export class AutomationsRepository {
       )
   }
 
-  /** Delete an automation. Its runs go with it (FK ON DELETE CASCADE). */
-  remove(id: string): boolean {
-    return Number(this.db.prepare('DELETE FROM automations WHERE id = ?').run(id).changes) > 0
+  /**
+   * Delete an automation and its runs — as TOMBSTONES, not as a `DELETE`.
+   *
+   * Every read above filters `deleted_at IS NULL`, so this is invisible to the
+   * service, the wire and the UI: `get` and `list` stop returning the row, the
+   * feed still carries an explicit `op: 'remove'`, and nothing anywhere reads
+   * absence as deletion. What survives is the OWNERSHIP the scoped feed needs to
+   * decide who the removal is for — see {@link ownerOf}.
+   *
+   * The runs are stamped EXPLICITLY. They used to leave through the
+   * `ON DELETE CASCADE` on `automation_runs.automation_id`, which no longer
+   * fires now that the parent row stays; a cascade that silently stopped
+   * happening would leave every run of a deleted automation live and listable.
+   */
+  remove(id: string, deletedAt: string): boolean {
+    const removed =
+      Number(
+        this.db
+          .prepare('UPDATE automations SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL')
+          .run(deletedAt, id).changes,
+      ) > 0
+    if (removed) {
+      this.db
+        .prepare(
+          'UPDATE automation_runs SET deleted_at = ? WHERE automation_id = ? AND deleted_at IS NULL',
+        )
+        .run(deletedAt, id)
+    }
+    return removed
   }
 
   // ---- runs ----
@@ -175,13 +236,14 @@ export class AutomationsRepository {
   }
 
   getRun(id: string): AutomationRunRow | undefined {
-    const r = this.db.prepare('SELECT * FROM automation_runs WHERE id = ?').get(id) as
-      | Record<string, unknown>
-      | undefined
+    const r = this.db
+      .prepare('SELECT * FROM automation_runs WHERE id = ? AND deleted_at IS NULL')
+      .get(id) as Record<string, unknown> | undefined
     return r ? rowToRun(r) : undefined
   }
 
-  /** Finalize a reserved occurrence after side effects [POD-925]. */
+  /** Finalize a reserved occurrence after side effects [POD-925]. A tombstoned
+   *  run is not finalizable: its automation is gone and the row is history. */
   updateRun(
     id: string,
     patch: { sessionId: SessionId | null; outcome: AutomationRunOutcome; detail: string | null },
@@ -190,7 +252,7 @@ export class AutomationsRepository {
       .prepare(
         `UPDATE automation_runs
          SET session_id = ?, outcome = ?, detail = ?
-         WHERE id = ?`,
+         WHERE id = ? AND deleted_at IS NULL`,
       )
       .run(patch.sessionId, patch.outcome, patch.detail, id)
   }
@@ -199,7 +261,9 @@ export class AutomationsRepository {
   listRuns(automationId: string, limit = 20): AutomationRunRow[] {
     const rows = this.db
       .prepare(
-        'SELECT * FROM automation_runs WHERE automation_id = ? ORDER BY fired_at DESC, rowid DESC LIMIT ?',
+        `SELECT * FROM automation_runs
+          WHERE automation_id = ? AND deleted_at IS NULL
+          ORDER BY fired_at DESC, rowid DESC LIMIT ?`,
       )
       .all(automationId, limit) as Record<string, unknown>[]
     return rows.map(rowToRun)
@@ -208,7 +272,9 @@ export class AutomationsRepository {
   /** Full run truth for durable snapshots and boot reconciliation. */
   listAllRuns(): AutomationRunRow[] {
     const rows = this.db
-      .prepare('SELECT * FROM automation_runs ORDER BY fired_at ASC, rowid ASC')
+      .prepare(
+        'SELECT * FROM automation_runs WHERE deleted_at IS NULL ORDER BY fired_at ASC, rowid ASC',
+      )
       .all() as Record<string, unknown>[]
     return rows.map(rowToRun)
   }
@@ -222,11 +288,12 @@ export class AutomationsRepository {
     const rows = this.db
       .prepare(
         `SELECT automation_id, session_id FROM automation_runs r
-         WHERE outcome = 'spawned' AND session_id IS NOT NULL
+         WHERE outcome = 'spawned' AND session_id IS NOT NULL AND deleted_at IS NULL
            AND rowid = (
              SELECT MAX(rowid) FROM automation_runs x
              WHERE x.automation_id = r.automation_id
                AND x.outcome = 'spawned' AND x.session_id IS NOT NULL
+               AND x.deleted_at IS NULL
            )`,
       )
       .all() as Record<string, unknown>[]

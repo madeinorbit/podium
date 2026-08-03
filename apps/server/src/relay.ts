@@ -462,12 +462,18 @@ export class SessionRegistry {
             .listForResource('session', row.id)
             .some((edge) => edge.grantee === userId && edge.verb === 'read')
         }
+        // THROUGH THE TOMBSTONE, and that is the whole point (POD-1509). A
+        // commit writes before it scopes, so when a `remove` reaches this
+        // decision the row is already deleted. `get()` would answer `undefined`,
+        // the policy would refuse the row as `personal-not-granted`, and the
+        // deletion would leave as an empty watermark — certified as delivered
+        // and never sent. `ownerOf`/`runOwnerOf` read past the tombstone, which
+        // is the only state from which a removal's audience is answerable.
         if (ref.entity === 'automation') {
-          return this.store.automations.get(ref.entityId)?.ownerUserId === userId
+          return this.store.automations.ownerOf(ref.entityId) === userId
         }
         if (ref.entity === 'automationRun') {
-          const run = this.store.automations.getRun(ref.entityId)
-          return run ? this.store.automations.get(run.automationId)?.ownerUserId === userId : false
+          return this.store.automations.runOwnerOf(ref.entityId) === userId
         }
         // per-user-state is decided by keyedUserOf, not mayRead.
         if (ref.entity === 'userLayout') return false
