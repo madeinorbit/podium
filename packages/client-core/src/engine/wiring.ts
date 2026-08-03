@@ -208,7 +208,13 @@ export const OUTBOX_ROUTING: {
     partitionKey: `pin:${i.kind}:${i.id}`,
     collapseKey: `pin:${i.kind}:${i.id}`,
   }),
-  tabSetOrder: () => ({ partitionKey: 'tabs', collapseKey: 'tabs-order' }),
+  // Per WORKTREE, not global: the input names one worktree's tab order, so two
+  // worktrees have no reason to serialise against each other. It sets the WHOLE
+  // order for that worktree, which is what makes it collapsible.
+  tabSetOrder: (i) => ({
+    partitionKey: `tabs:${i.worktree}`,
+    collapseKey: `tabs-order:${i.worktree}`,
+  }),
   // `values`/`keys` are PARTIAL — no collapse.
   layoutSet: () => ({ partitionKey: 'layout' }),
   layoutClear: () => ({ partitionKey: 'layout' }),

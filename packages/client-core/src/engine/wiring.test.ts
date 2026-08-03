@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -34,18 +35,23 @@ describe('isInitialConnectivityError', () => {
  *  exhaustively rather than sampled. */
 const SAMPLE: { [K in keyof OutboxKinds]: OutboxKinds[K] } = {
   pinSet: { kind: 'panel', id: 's-1', pinned: true } as OutboxKinds['pinSet'],
-  tabSetOrder: { order: ['a', 'b'] } as OutboxKinds['tabSetOrder'],
+  tabSetOrder: {
+    worktree: '/repo/wt-a',
+    sessionIds: [asSessionId('s-1')],
+  } as OutboxKinds['tabSetOrder'],
   layoutSet: { values: { density: 'compact' } } as OutboxKinds['layoutSet'],
   layoutClear: { keys: ['density'] } as OutboxKinds['layoutClear'],
-  settingsUpdatePersonal: { theme: 'dark' } as OutboxKinds['settingsUpdatePersonal'],
-  resumeAndSend: { sessionId: 's-1', text: 'hello' } as OutboxKinds['resumeAndSend'],
-  rename: { sessionId: 's-1', name: 'new name' } as OutboxKinds['rename'],
-  setArchived: { sessionId: 's-1', archived: true } as OutboxKinds['setArchived'],
-  setWorkState: { sessionId: 's-1', workState: null } as OutboxKinds['setWorkState'],
-  snoozeSet: { sessionId: 's-1', until: null } as OutboxKinds['snoozeSet'],
-  snoozeClear: { sessionId: 's-1' } as OutboxKinds['snoozeClear'],
-  sessionMarkRead: { sessionId: 's-1' } as OutboxKinds['sessionMarkRead'],
-  sessionMarkUnread: { sessionId: 's-1' } as OutboxKinds['sessionMarkUnread'],
+  settingsUpdatePersonal: {
+    values: { theme: 'dark' },
+  } as OutboxKinds['settingsUpdatePersonal'],
+  resumeAndSend: { sessionId: asSessionId('s-1'), text: 'hello' } as OutboxKinds['resumeAndSend'],
+  rename: { sessionId: asSessionId('s-1'), name: 'new name' } as OutboxKinds['rename'],
+  setArchived: { sessionId: asSessionId('s-1'), archived: true } as OutboxKinds['setArchived'],
+  setWorkState: { sessionId: asSessionId('s-1'), workState: null } as OutboxKinds['setWorkState'],
+  snoozeSet: { sessionId: asSessionId('s-1'), until: null } as OutboxKinds['snoozeSet'],
+  snoozeClear: { sessionId: asSessionId('s-1') } as OutboxKinds['snoozeClear'],
+  sessionMarkRead: { sessionId: asSessionId('s-1') } as OutboxKinds['sessionMarkRead'],
+  sessionMarkUnread: { sessionId: asSessionId('s-1') } as OutboxKinds['sessionMarkUnread'],
   issueMarkRead: { id: 'POD-1' } as OutboxKinds['issueMarkRead'],
   issueMarkUnread: { id: 'POD-1' } as OutboxKinds['issueMarkUnread'],
   issueSetTucked: { id: 'POD-1', tucked: true } as OutboxKinds['issueSetTucked'],
@@ -74,21 +80,36 @@ describe('POD-785 — outbox routing keys every write by its target', () => {
     expect(route('issueMarkRead', { id: 'POD-1' }).partitionKey).not.toBe(
       route('issueMarkRead', { id: 'POD-2' }).partitionKey,
     )
-    expect(route('rename', { sessionId: 's-1', name: 'a' }).partitionKey).not.toBe(
-      route('rename', { sessionId: 's-2', name: 'a' }).partitionKey,
+    expect(route('rename', { sessionId: asSessionId('s-1'), name: 'a' }).partitionKey).not.toBe(
+      route('rename', { sessionId: asSessionId('s-2'), name: 'a' }).partitionKey,
     )
     // ...and a session write is not serialised behind an unrelated issue write.
-    expect(route('rename', { sessionId: 's-1', name: 'a' }).partitionKey).not.toBe(
+    expect(route('rename', { sessionId: asSessionId('s-1'), name: 'a' }).partitionKey).not.toBe(
       route('issueMarkRead', { id: 'POD-1' }).partitionKey,
     )
+  })
+
+  it('keys per-worktree tab order by its worktree, not globally', () => {
+    // The input names ONE worktree's order. A global `tabs` partition would have
+    // serialised every worktree's tab writes against one another for no reason.
+    const a = route('tabSetOrder', {
+      worktree: '/repo/wt-a',
+      sessionIds: [asSessionId('s-1')],
+    } as OutboxKinds['tabSetOrder'])
+    const b = route('tabSetOrder', {
+      worktree: '/repo/wt-b',
+      sessionIds: [asSessionId('s-2')],
+    } as OutboxKinds['tabSetOrder'])
+    expect(a.partitionKey).not.toBe(b.partitionKey)
+    expect(a.collapseKey).not.toBe(b.collapseKey)
   })
 
   it('keeps writes to the SAME row in one partition, preserving their order', () => {
     // This is what the legacy `chained` flag tracked: two edits of one row must
     // not be able to reorder.
-    const a = route('rename', { sessionId: 's-1', name: 'first' }).partitionKey
-    const b = route('rename', { sessionId: 's-1', name: 'second' }).partitionKey
-    const c = route('resumeAndSend', { sessionId: 's-1', text: 'typed' }).partitionKey
+    const a = route('rename', { sessionId: asSessionId('s-1'), name: 'first' }).partitionKey
+    const b = route('rename', { sessionId: asSessionId('s-1'), name: 'second' }).partitionKey
+    const c = route('resumeAndSend', { sessionId: asSessionId('s-1'), text: 'typed' }).partitionKey
     expect(a).toBe(b)
     expect(a).toBe(c)
   })
@@ -113,8 +134,8 @@ describe('POD-785 — only writes a later one subsumes may collapse', () => {
     expect(route('issueMarkRead', { id }).collapseKey).toBe(
       route('issueMarkUnread', { id }).collapseKey,
     )
-    expect(route('snoozeSet', { sessionId: 's-1', until: null }).collapseKey).toBe(
-      route('snoozeClear', { sessionId: 's-1' }).collapseKey,
+    expect(route('snoozeSet', { sessionId: asSessionId('s-1'), until: null }).collapseKey).toBe(
+      route('snoozeClear', { sessionId: asSessionId('s-1') }).collapseKey,
     )
   })
 
@@ -126,8 +147,8 @@ describe('POD-785 — only writes a later one subsumes may collapse', () => {
     expect(route('issueMarkRead', { id: 'POD-1' }).collapseKey).not.toBe(
       route('issueSetTucked', { id: 'POD-1', tucked: true }).collapseKey,
     )
-    expect(route('rename', { sessionId: 's-1', name: 'a' }).collapseKey).not.toBe(
-      route('setArchived', { sessionId: 's-1', archived: true }).collapseKey,
+    expect(route('rename', { sessionId: asSessionId('s-1'), name: 'a' }).collapseKey).not.toBe(
+      route('setArchived', { sessionId: asSessionId('s-1'), archived: true }).collapseKey,
     )
   })
 
