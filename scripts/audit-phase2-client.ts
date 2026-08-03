@@ -295,7 +295,7 @@ function withoutCommentsOrStrings(source: string): string {
     source
       // NEWLINES PRESERVED, and this was wrong in the first draft. Collapsing a block
       // comment to a single space renumbers every line after it, so the findings
-      // pointed at real files and fictional lines — `desktopReplica.ts:135` became
+      // pointed at real files and fictional lines — a finding at `:135` became
       // `:98`. A report whose line numbers are confidently wrong is worse than one
       // with none: it sends the reader to an innocent line and costs them the trust
       // they need to act on the next finding.

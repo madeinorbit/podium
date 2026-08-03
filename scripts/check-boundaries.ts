@@ -942,7 +942,6 @@ const SANCTIONED_UI_STORAGE_FILES: ReadonlySet<string> = new Set([
   // NEXT entry must be a composition root that wires StorageApi into createReplica
   // (or its AsyncStorage twin), never a feature surface that reads a key ad hoc.
   'apps/web/src/lib/webReplica.ts',
-  'apps/web/src/lib/desktopReplica.ts',
   'apps/web/src/lib/kernelReplica.ts',
   'apps/web/src/lib/use-kernel-replica.ts',
   'apps/web/src/lib/legacyStoreAttribution.ts',

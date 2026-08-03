@@ -5,16 +5,17 @@
  * WHY THIS IS A HELPER AND THE GATE CALL IS NOT
  * ---------------------------------------------------------------------------
  *
- * `decideLegacyAdoption` stays AT each composition root — `webReplica.ts` and
- * `desktopReplica.ts` each call it themselves — because the question a reader
+ * `decideLegacyAdoption` stays AT each composition root — `webReplica.ts` calls
+ * it itself — because the question a reader
  * arrives with ("does this client attribute its store before adopting it?") is
  * asked OF the file that composes the store, and a helper moves that answer one
  * hop from where it is looked for (POD-1220, quoted in `scripts/audit-phase2-client.ts`).
  *
  * What lives here is the OTHER half: what a refusal must DO to a localStorage
- * legacy replica. That half is identical on both roots — the desktop root reads
- * the very same `window.localStorage` blobs, because SQLite mode's one-time
- * localStorage→SQLite migration reads them (see `legacyMigrationStorage` in
+ * legacy replica. It is kept separate from the gate call because any future root
+ * that adopts a localStorage replica needs the identical rule — SQLite mode's
+ * one-time localStorage→SQLite migration reads the very same `window.localStorage`
+ * blobs (see `legacyMigrationStorage` in
  * `packages/client-core/src/replica/replica.ts`) — and two hand-written copies of
  * a privacy rule is the failure mode `adoption.ts` names in its own header.
  *
