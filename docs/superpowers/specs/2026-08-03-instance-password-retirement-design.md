@@ -95,8 +95,17 @@ the UI. That is the shipped guarantee, preserved.
   it is nothing.
 - `auth-store.ts` loses `hasPassword`, `setPassword`, `clearPassword`, `verifyPassword`,
   `applyEnvPassword`. `hashPassword` and `verifyPasswordHash` stay — the KDF is still the
-  credential format for every per-user row. The module becomes a pure hashing seam; renaming it is
-  out of scope.
+  credential format for every per-user row. Renaming the module is out of scope.
+
+**DELTA FOUND DURING IMPLEMENTATION: `auth.json` survives as a first-boot HANDOFF, not as a
+credential store.** `podium setup` asks for a login password on a box with no server running and,
+on a fresh install, no store file at all — so it cannot write a credential row. It stages the hash
+(`stagePasswordForFirstBoot`) and the first boot's `retireInstancePassword` moves it into the first
+admin's credential and deletes it: the same one-shot, the same verify-then-delete, as for an
+upgraded instance. Nothing authenticates against the file — `POST /auth/login` reads credential
+rows and nothing else — and it never survives a boot. The alternative, having `podium setup` start
+a server just to set a password, adds a failure mode to the one flow that must work on a fresh
+machine.
 
 ### 5. The command surface
 
