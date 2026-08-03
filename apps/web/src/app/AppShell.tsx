@@ -3,6 +3,7 @@ import type { IssueColorSlot } from '@podium/model'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import type { CSSProperties, JSX } from 'react'
 import { useEffect, useRef, useState } from 'react'
+import { toast } from 'sonner'
 import { IssuePeekOverlay } from '@/components/IssuePeekOverlay'
 import { RefMiniviewHost, RefPrefixSync } from '@/components/RefMiniview'
 import { Toaster } from '@/components/ui/sonner'
@@ -80,6 +81,15 @@ export function AppShell(): JSX.Element {
   // does not re-run (and re-open IndexedDB) on every render.
   const [gateTrpc] = useState(() => makeTrpc(config.httpOrigin))
   const kernel = useKernelReplica({ httpOrigin: config.httpOrigin, trpc: gateTrpc })
+
+  // Queued offline writes the boot migration could not simply carry across
+  // (POD-1232). Shown once, as a toast rather than a console line, because the
+  // work is the user's and the two outcomes it reports — parked for review, or
+  // kept on disk unsent — are things only they can act on.
+  const migrationNotice = kernel.status === 'kernel' ? kernel.notice : undefined
+  useEffect(() => {
+    if (migrationNotice !== undefined) toast(migrationNotice)
+  }, [migrationNotice])
 
   // The store must not mount until BOTH gates settle: the desktop SQLite
   // replica and the kernel-replica decision. Each one is a synchronous read the

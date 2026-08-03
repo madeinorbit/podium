@@ -51,6 +51,30 @@
  * cutover this issue owns does not need it (the shadow basis §2.3 excludes
  * optimistic state from the comparison by design), so the write path stays where
  * it is and its cutover is filed separately rather than half-done here.
+ *
+ * ---------------------------------------------------------------------------
+ * WHAT THAT SEPARATE CUTOVER DID (POD-1232) — READ THIS BEFORE TRUSTING THE ABOVE
+ * ---------------------------------------------------------------------------
+ *
+ * The minting problem is gone: POD-311's contracts exist, and `OUTBOX_COMMANDS`
+ * in `../../engine/wiring.ts` is the table that names each queued kind's real
+ * contract and version, pinned to the contracts themselves by
+ * `outbox-contract-table.test.ts`. So the ENGINE's queue is now the kernel's on
+ * both platforms: web drives the kernel `Outbox` state machine over its
+ * IndexedDB `OutboxStorePort` (`openKernelEngineOutbox`), mobile passes SQLite
+ * views through `init.outbox` below. Queued writes are in the same transactional
+ * store as the entity rows (ADR 6 D4.3), with a dotted contract name, a version,
+ * a delivery class, a partition key and an attribution pair stamped from the
+ * AUTHENTICATED principal (ADR 3 D7) — never from anything the entry carried.
+ *
+ * What did NOT change is this facade's three `outbox*Storage()` seams on WEB,
+ * which still resolve to the side cache. They are not the engine's queue there —
+ * nothing on the kernel path reads them — and pointing them at the kernel store
+ * would put a second, mirror-backed writer on records the kernel `Outbox` owns,
+ * and would lose POD-1231's synchronous "this write is not durable" report,
+ * which only exists because `StorageApi.setItem` is synchronous. Left as they
+ * are, deliberately, and named here so the next reader does not conclude from
+ * `outboxStorage()` that web queues to localStorage — it does not.
  */
 
 import type { TranscriptItem } from '@podium/model'

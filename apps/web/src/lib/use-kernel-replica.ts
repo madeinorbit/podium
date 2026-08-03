@@ -48,6 +48,17 @@ export type KernelReplicaGate =
       readonly shadow: boolean
       /** `/version`'s grade, handed to the shadow harness. */
       readonly authorityScoped: boolean
+      /**
+       * One sentence the user is OWED, or nothing (POD-1232).
+       *
+       * Queued offline writes found on this device are moved into the kernel
+       * store at open, and some of them cannot be: work this account cannot be
+       * shown to have authored is parked, and work naming an action no contract
+       * resolves is kept on disk unsent. ADR 6 D4.4 does not allow either to be
+       * silent, and the gate is the only thing that sees it happen — the store
+       * has not mounted yet.
+       */
+      readonly notice?: string
     }
 
 export interface ResolveReplicaPrincipalOptions {
@@ -150,10 +161,20 @@ export function useKernelReplica(args: { httpOrigin: string; trpc: Trpc }): Kern
       }
       try {
         const principal = await resolveReplicaPrincipal()
+        // Captured DURING the open: the migration runs inside `openKernelAssembly`
+        // and reports through `onDegraded`, which is the only channel that exists
+        // before the store (and its toasts) are mounted.
+        let notice: string | undefined
         const assembly = await openKernelAssembly({
           trpc,
           principal,
           evidence: recordIdentityEvidence(principal),
+          onDegraded: (detail) => {
+            const report = detail as { kind?: unknown; notice?: unknown }
+            if (report?.kind === 'legacy-outbox-migrated' && typeof report.notice === 'string') {
+              notice = report.notice
+            }
+          },
         })
         if (!alive) {
           void assembly.dispose()
@@ -168,6 +189,7 @@ export function useKernelReplica(args: { httpOrigin: string; trpc: Trpc }): Kern
           assembly,
           shadow: mode.path === 'kernel-with-shadow',
           authorityScoped: serverGrade === 'per-principal',
+          ...(notice === undefined ? {} : { notice }),
         })
       } catch (error) {
         // Reported, not swallowed: a flag that silently did nothing would be

@@ -266,6 +266,55 @@ describe('IndexedDbSyncStore', () => {
     })
   })
 
+  describe('ADR 2 D7 — a cache discard KEEPS the outbox', () => {
+    /**
+     * The web half of the rule mobile already pins
+     * (`mobile-sqlite/store.test.ts`: "discardCache() … CANNOT reach the outbox —
+     * durably"). It is worth having on BOTH adapters rather than once: the rule is
+     * structural (`ReplicaCacheStore` has no outbox method, so a discard has no
+     * verb that names the queue), but "structural" is a claim about the shape of
+     * two files, and the thing that would break it here is an IndexedDB commit
+     * that clears object stores by iterating `ALL_STORES` — a change no type
+     * error would catch, because it never mentions the outbox by name either.
+     *
+     * Read through a SECOND connection: the assertion is about what is on disk,
+     * not about what the mirror in the discarding object still believes.
+     */
+    it('discardCache() drops entities and the cursor and leaves the queue on disk', async () => {
+      const store = await open()
+      const view = store.viewFor(PRINCIPAL)
+      await put(store, 'm-survives')
+      view.cache.applyAtomic({
+        operations: [
+          {
+            kind: 'upsert',
+            entity: 'issue',
+            entityId: 'ADA-1',
+            value: { v: 1 },
+            provenance: { seq: 1 },
+          },
+        ],
+        cursor: CURSOR,
+      })
+      await store.settled()
+      expect((await readDurable(factory))[ENTITY_STORE]).toHaveLength(1)
+
+      view.cache.discardCache()
+      await store.settled()
+
+      const durable = await readDurable(factory)
+      expect(durable[ENTITY_STORE]).toEqual([])
+      expect(view.cache.readCursor()).toBeNull()
+      // The user's unsent work outlives the cache it was optimistic about.
+      expect((durable[OUTBOX_STORE] as { mutationId: string }[]).map((r) => r.mutationId)).toEqual([
+        'm-survives',
+      ])
+      // …and is still readable as queued work, not merely present as a row.
+      expect((await view.outbox.read()).map((r) => r.mutationId)).toEqual(['m-survives'])
+      store.close()
+    })
+  })
+
   describe('two principals over one physical store (ADR 6 D4.1 / Amendment 1 D15.3)', () => {
     it('each view’s rows are a disjoint KEY RANGE, and a discard reaches only its own', async () => {
       const store = await open()
