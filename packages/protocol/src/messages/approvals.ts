@@ -55,6 +55,29 @@ export type ApprovalOp = z.infer<typeof ApprovalOp>
 export const ApprovalStatus = z.enum(['pending', 'denied', 'executing', 'succeeded', 'failed'])
 export type ApprovalStatus = z.infer<typeof ApprovalStatus>
 
+/**
+ * WHY ApprovalWire LIVES IN @podium/protocol, NOT @podium/model
+ * [decided POD-1127 — record the argument so a future pass can re-derive AND
+ *  re-test the decision without finding the author].
+ *
+ * @podium/model is authoritative for REPLICATED entity fields. ApprovalWire is
+ * entity-shaped but is an RPC read model, not a replicated aggregate — its
+ * carrier `approvalsChanged` is a full-list snapshot (`pending: array<ApprovalWire>`
+ * below), not a metadataDelta element. So it stays in protocol.
+ *
+ * Two OBJECTIVE membership tests decide it (POD-300's tests — re-run them, do
+ * not trust this comment):
+ *   1. MetadataEntityKind (messages/sync.ts) — no `approval` arm.
+ *   2. COLLECTION_MESSAGE_ELEMENTS (messages/codec.ts) — no `approvalsChanged`
+ *      frame (it is a snapshot broadcast, not an element-wise delta collection).
+ * Both FAIL for approvals. POD-308 (the wire cutover) CLOSED WITHOUT replicating
+ * them — the moment that could have flipped this passed and did not.
+ *
+ * WHAT REVERSES THIS: if `approval` is ever added to MetadataEntityKind or an
+ * `approvalsChanged` entry to COLLECTION_MESSAGE_ELEMENTS, this decision EXPIRES
+ * and the relocation-to-model question reopens (move + golden fixtures first).
+ */
+
 /** One approval request as the web UI / CLI sees it. */
 export const ApprovalWire = z.object({
   id: z.string(),

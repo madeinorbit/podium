@@ -1,6 +1,37 @@
 import { AccountIdField, SessionIdField } from '@podium/model'
 import { z } from 'zod'
 
+/**
+ * WHY THESE ENTITY-SHAPED WIRES LIVE IN @podium/protocol, NOT @podium/model
+ * [decided POD-1127 — record the argument so a future pass can re-derive AND
+ *  re-test the decision without finding the author].
+ *
+ * @podium/model is authoritative for REPLICATED entity fields. The workflow
+ * family below is entity-SHAPED but is NOT a replicated aggregate — it is an
+ * RPC read model (a projection of a request), so it stays in protocol. That is
+ * the seam this phase draws: dragging an RPC read model into model would blur it.
+ *
+ * Two OBJECTIVE membership tests decide it (POD-300's tests — re-run them, do
+ * not trust this comment):
+ *   1. MetadataEntityKind (messages/sync.ts) — the enum of replicated kinds.
+ *      No workflow arm. The family is not streamed as metadata deltas.
+ *   2. COLLECTION_MESSAGE_ELEMENTS (messages/codec.ts) — the element-wise
+ *      quarantined carrier frames. No workflows* frame. The family is not a
+ *      delta-bearing collection.
+ * Both FAIL for workflows. The read path confirms it: the client fetches over
+ * tRPC (apps/web/src/features/workflows/use-workflows.ts — trpc.workflows.list/
+ * get/bindings/profiles/runs.query), i.e. request/response, not the feed.
+ *
+ * POD-308 (the wire cutover) CLOSED WITHOUT replicating workflows — the moment
+ * that could have flipped this passed and did not.
+ *
+ * WHAT REVERSES THIS: if a workflow kind is ever added to MetadataEntityKind or
+ * a workflows* frame to COLLECTION_MESSAGE_ELEMENTS, this decision EXPIRES — the
+ * family becomes a replicated entity, the relocation-to-model question genuinely
+ * reopens, and these types should move to packages/model with golden fixtures
+ * captured BEFORE the move (as POD-300 did for the replicated entities).
+ */
+
 /** Instruction-first workflows. Markdown remains the primary contract; the
  * optional ordered steps exist only to make progress + handoff explicit. */
 export const WorkflowScope = z.enum(['global', 'repository', 'task'])
