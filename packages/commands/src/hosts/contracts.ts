@@ -135,6 +135,7 @@ export const hostsMemoryBreakdownContract = {
       'breakdown request"), which is a different refusal from a denied grant. D20.2 still governs ' +
       'everything inside a machine the caller may already use.',
   } satisfies ErrorConsistency,
+  conflict: 'n/a',
 } as const satisfies CommandContract<typeof hostsMemoryBreakdownInput>
 
 export const HOST_CONTRACTS = { memoryBreakdown: hostsMemoryBreakdownContract } as const

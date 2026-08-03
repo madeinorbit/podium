@@ -374,15 +374,27 @@ describe('registry totality (ADR 3 D13.2 — declared per contract, never guesse
     expect(def.conflictRule?.length ?? 0).toBeGreaterThan(10)
   })
 
-  it('leaves reads out of the envelope entirely', () => {
+  it('leaves reads out of the envelope — as a written `n/a`, not as a silence', () => {
+    // REWRITTEN BY POD-1250. The property is the same one this always asserted —
+    // a query has no ADR 1 row and gets no arbitration envelope — but the field
+    // is now required on `CommandContractBase`, so "must not declare a class" is
+    // no longer expressible and `'n/a'` is how a query says it.
+    //
+    // That is a STRONGER assertion than the `toBeUndefined()` it replaces, and
+    // the reason is worth keeping: `undefined` was also what a mutation whose
+    // author forgot the field would have produced, so the old form passed
+    // identically for "correctly has no row" and "nobody classified it". Only
+    // one of those two can now reach this loop at all.
+    let queries = 0
     for (const [name, def] of Object.entries(
       issueRegistry.defs as Record<string, AnyIssueCommandDef>,
     )) {
       if (def.kind === 'mutation') continue
-      expect(
-        def.conflict,
-        `${name} is a query and must not declare a conflict class`,
-      ).toBeUndefined()
+      queries += 1
+      expect(def.conflict, `${name} is a query and must declare 'n/a'`).toBe('n/a')
+      expect(def.conflictRule, `${name} is a query and has no rule to state`).toBeUndefined()
     }
+    // Non-vacuity: the loop met the queries, not an empty registry.
+    expect(queries).toBe(25)
   })
 })

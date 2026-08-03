@@ -219,6 +219,7 @@ export const mailSendContract: CommandContract<typeof mailSendInput> = {
   attribution: MAIL_ATTRIBUTION,
   errorConsistency: ADDRESS_ORACLE_RULE,
   cli: { positional: ['to'], summary: 'Send agent mail to an issue or a session' },
+  conflict: 'append',
 }
 
 export const mailReplyContract: CommandContract<typeof mailReplyInput> = {
@@ -255,6 +256,7 @@ export const mailReplyContract: CommandContract<typeof mailReplyInput> = {
       "message id, or the reply path enumerates other principals' traffic.",
   },
   cli: { positional: ['id'], summary: 'Reply to a message you received' },
+  conflict: 'append',
 }
 
 export const spawnAgentContract: CommandContract<typeof spawnAgentInput> = {
@@ -335,6 +337,7 @@ export const spawnAgentContract: CommandContract<typeof spawnAgentInput> = {
       "difference between the two errors to probe which of a colleague's machines are online.",
   },
   cli: { summary: 'Spawn a full Podium session as a subagent' },
+  conflict: 'append',
 }
 
 export const awaitAgentContract: CommandContract<typeof awaitAgentInput> = {
@@ -397,6 +400,9 @@ export const awaitAgentContract: CommandContract<typeof awaitAgentInput> = {
       'authorized to await and which then vanished, which is an outcome rather than a denial.',
   },
   cli: { positional: ['sessionId'], summary: 'Bounded wait for a child session' },
+  conflict: 'cmd',
+  conflictRule:
+    'Retires the notification-fact claim for a settled child; idempotent, last observer wins, no precondition',
 }
 
 export const mailInboxConsumeContract: CommandContract<typeof mailInboxInput> = {
@@ -438,6 +444,9 @@ export const mailInboxConsumeContract: CommandContract<typeof mailInboxInput> = 
       'alike here for exactly the reason they must in mail.send.',
   },
   cli: { summary: 'Read (and consume) your mailbox' },
+  conflict: 'cmd',
+  conflictRule:
+    'FIFO drain of the caller own mailbox; a row is delivered at most once, and a concurrent consume sees the shorter queue rather than a duplicate',
 }
 
 /**
@@ -507,6 +516,7 @@ export const mailLedgerContract: CommandContract<typeof mailLedgerInput> = {
       'would confirm the issue exists.',
   },
   cli: { summary: 'The message delivery ledger' },
+  conflict: 'n/a',
 }
 
 // ---------------------------------------------------------------------------
@@ -579,6 +589,7 @@ export const mailShowContract: CommandContract<typeof mailShowInput> = {
   attribution: MAIL_ATTRIBUTION,
   errorConsistency: MESSAGE_ID_ORACLE_RULE,
   cli: { positional: ['id'], summary: 'Show one message' },
+  conflict: 'n/a',
 }
 
 export const mailDismissContract: CommandContract<typeof mailDismissInput> = {
@@ -605,6 +616,9 @@ export const mailDismissContract: CommandContract<typeof mailDismissInput> = {
   attribution: MAIL_ATTRIBUTION,
   errorConsistency: MESSAGE_ID_ORACLE_RULE,
   cli: { positional: ['id'], summary: 'Dismiss a message from your inbox' },
+  conflict: 'cmd',
+  conflictRule:
+    'Recipient-only clear of one row; idempotent, and a second dismiss of an already-cleared row is a no-op rather than a rejection',
 }
 
 export const mailStatusContract: CommandContract<typeof mailStatusInput> = {
@@ -634,6 +648,7 @@ export const mailStatusContract: CommandContract<typeof mailStatusInput> = {
   attribution: MAIL_ATTRIBUTION,
   errorConsistency: MESSAGE_ID_ORACLE_RULE,
   cli: { positional: ['id'], summary: 'What happened to a message you sent' },
+  conflict: 'n/a',
 }
 
 export const mailPendingRemindersContract: CommandContract<typeof mailPendingRemindersInput> = {
@@ -665,6 +680,9 @@ export const mailPendingRemindersContract: CommandContract<typeof mailPendingRem
       'for a caller to probe, which is the strongest form of D20 compliance available.',
   },
   cli: { summary: 'The stop-hook’s unacked-message reminder' },
+  conflict: 'cmd',
+  conflictRule:
+    'Stamps existing rows reminded; idempotent per row, so two stop-hooks racing produce one reminder rather than two',
 }
 
 export const mailAskContract: CommandContract<typeof mailAskInput> = {
@@ -740,6 +758,7 @@ export const mailAskContract: CommandContract<typeof mailAskInput> = {
       'for a session-addressed mail.send — the two go through the same gate, so there is one answer.',
   },
   cli: { positional: ['sessionId'], summary: 'Ask a session a question and wait for the answer' },
+  conflict: 'append',
 }
 
 /** The agent-mail contract table. POD-729 derives the transports from it and

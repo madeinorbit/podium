@@ -160,6 +160,9 @@ export const accountsConnectContract = {
       'no caller-controlled target to iterate and no existence to leak. That is a property of the ' +
       'handler’s id minting, stated here rather than left to be inferred from the schema.',
   } satisfies ErrorConsistency,
+  conflict: 'cmd',
+  conflictRule:
+    'ROW.managedCredentials / ROW.accountCredential; one live credential per (user, provider), so a reconnect REPLACES the stored material in one Authority commit rather than accumulating a second',
 } as const satisfies CommandContract<typeof accountsConnectInput>
 
 export const accountsDisconnectInput = z.object({ id: AccountIdField })
@@ -209,6 +212,8 @@ export const accountsDisconnectContract = {
       'M5’s carve-out does not apply, since no machine is nameable, so there is nothing to keep ' +
       'distinguishable.',
   } satisfies ErrorConsistency,
+  conflict: 'cmd',
+  conflictRule: 'Idempotent revocation; disconnecting an already-disconnected account is a no-op',
 } as const satisfies CommandContract<typeof accountsDisconnectInput>
 
 export const ACCOUNT_CONTRACTS = {

@@ -333,6 +333,7 @@ export const superagentSendTurnContract = {
   attribution: ATTRIBUTION,
   errorConsistency: MACHINE_ERRORS,
   cli: { summary: 'Send one turn to a superagent thread' },
+  conflict: 'append',
 } as const satisfies CommandContract<typeof superagentSendTurnInput>
 
 export const superagentConciergeInput = z.object({
@@ -378,6 +379,7 @@ export const superagentConciergeContract = {
     note: 'An unregistered repo is refused by name (`unknown repo: <path> — register it in Podium first`). That is NOT an existence oracle in the D20.2 sense: the caller supplied the path, it names their own filesystem, and the refusal reports the state of Podium’s registry rather than the visibility of someone else’s row.',
   },
   cli: { summary: 'Send a concierge intake message for a repo' },
+  conflict: 'append',
 } as const satisfies CommandContract<typeof superagentConciergeInput>
 
 export const superagentOpenInTerminalInput = z.object({ threadId: ThreadIdField })
@@ -421,6 +423,9 @@ export const superagentOpenInTerminalContract = {
   attribution: ATTRIBUTION,
   errorConsistency: MACHINE_ERRORS,
   cli: { summary: 'Open a superagent thread’s harness session in a terminal' },
+  conflict: 'cmd',
+  conflictRule:
+    'Re-opening while an earlier attachment is live REUSES the session row rather than minting a second writer — the rule the ownership note already states',
 } as const satisfies CommandContract<typeof superagentOpenInTerminalInput>
 
 // ---------------------------------------------------------------------------
@@ -467,6 +472,9 @@ export const superagentInterruptTurnContract = {
     note: 'A thread with no headless session refuses with `no headless session for thread: <id>` — the same message whether the thread is invisible, absent, or simply has never run a turn, so the refusal distinguishes none of the three.',
   },
   cli: { summary: 'Interrupt a superagent thread’s running turn' },
+  conflict: 'cmd',
+  conflictRule:
+    'Signals an existing headless session; idempotent, and interrupting a turn that has already ended is a no-op rather than a rejection',
 } as const satisfies CommandContract<typeof superagentInterruptTurnInput>
 
 export const superagentRestartInput = z.object({
@@ -508,6 +516,9 @@ export const superagentRestartContract = {
   attribution: ATTRIBUTION,
   errorConsistency: THREAD_ERRORS,
   cli: { summary: 'Reset a superagent thread’s harness session' },
+  conflict: 'cmd',
+  conflictRule:
+    'Nulls two binding columns on the thread row; the next sendTurn mints the replacement session, so two concurrent restarts leave one nulled row rather than two sessions',
 } as const satisfies CommandContract<typeof superagentRestartInput>
 
 export const superagentClearInput = z.object({
@@ -556,6 +567,9 @@ export const superagentClearContract = {
     note: 'Clearing an unknown thread is a no-op rather than an error (`getSuperagentThread` returns undefined and the global path returns early), so this command reports nothing about which threads exist — the strongest form of D20.2 compliance and the one behaviour here that predates the rule.',
   },
   cli: { summary: 'Clear a superagent thread’s context' },
+  conflict: 'cmd',
+  conflictRule:
+    'Archives the thread (soft-delete, the matrix row tombstone rule) or nulls the global thread bindings; idempotent either way',
 } as const satisfies CommandContract<typeof superagentClearInput>
 
 export const superagentStartBtwInput = z.object({ sessionId: SessionIdField })
@@ -600,6 +614,9 @@ export const superagentStartBtwContract = {
     note: 'Takes a caller-supplied SESSION id. An unknown session yields a thread titled with the raw id rather than an error, so the command reports nothing about which sessions exist. When POD-1077 scopes the session feed, the visibility check lands on the session read this already performs.',
   },
   cli: { summary: 'Open a btw thread for a chat session' },
+  conflict: 'cmd',
+  conflictRule:
+    'One btw thread per parent session; a concurrent start returns the existing thread rather than minting a second',
 } as const satisfies CommandContract<typeof superagentStartBtwInput>
 
 // ---------------------------------------------------------------------------

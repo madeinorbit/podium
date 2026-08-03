@@ -8,9 +8,10 @@
 
 import { OWNERSHIP_MATRIX, visibilityClassOf } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import type { AnyCommandContract } from '../contract'
+import type { AnyCommandContract, ContractConflictClass } from '../contract'
 import { classificationErrors, registryClassificationErrors } from '../contract'
 import { PER_USER_VISIBILITY, SERVED_EVERYWHERE, SERVED_ON_WIRE } from './cells'
+import type { IssueContractName } from './contracts'
 import { ISSUE_COMMAND_NAMES, ISSUE_CONTRACT_LIST, ISSUE_CONTRACTS } from './contracts'
 
 /** The ADR 1 rows an issue command can write. Named literals, so a row that is
@@ -222,17 +223,29 @@ describe('redaction', () => {
     expect(cmd).toBe(17)
   })
 
-  it('every mutating command declares a conflict class, and no read does', () => {
-    // The subtraction the type-level tripwire makes: 45 mutations, 25 non-mutating
-    // members (24 reads + `linearSearch`, which is write-grade authority over an
-    // EXTERNAL system with no ADR 1 row to arbitrate).
-    const declared = ISSUE_COMMAND_NAMES.filter(
-      (k) => (ISSUE_CONTRACTS[k] as AnyCommandContract).conflict !== undefined,
-    )
-    expect(declared.length).toBe(45)
-    expect(ISSUE_COMMAND_NAMES.length - declared.length).toBe(25)
-    // `in`, not a property read: the contract's literal type HAS no `conflict`
-    // key, so reading one is a compile error rather than an `undefined`.
-    expect('conflict' in ISSUE_CONTRACTS.linearSearch).toBe(false)
+  it('every command declares a class, mutations a real one and reads `n/a`', () => {
+    // REWRITTEN BY POD-1250, which made `conflict` required on
+    // `CommandContractBase`. What this used to assert was that the 25 non-mutating
+    // members declare NOTHING — an absence that is no longer expressible, and whose
+    // inexpressibility is the entire point of that change: an absent field cannot
+    // distinguish "has no ADR 1 row" from "nobody classified it".
+    //
+    // The subtraction it was measuring is unchanged and still measured: 45
+    // mutations, 25 non-mutating members (24 reads + `linearSearch`, which is
+    // write-grade authority over an EXTERNAL system with no ADR 1 row). Only the
+    // spelling of the second group moved, from absence to a written `'n/a'`.
+    const classOf = (k: IssueContractName): ContractConflictClass | undefined =>
+      (ISSUE_CONTRACTS[k] as AnyCommandContract).conflict
+
+    // FIRST, the property the required field buys: nobody is silent.
+    const undeclared = ISSUE_COMMAND_NAMES.filter((k) => classOf(k) === undefined)
+    expect(undeclared).toEqual([])
+
+    const mutations = ISSUE_COMMAND_NAMES.filter((k) => classOf(k) !== 'n/a')
+    const nonMutating = ISSUE_COMMAND_NAMES.filter((k) => classOf(k) === 'n/a')
+    expect(mutations.length).toBe(45)
+    expect(nonMutating.length).toBe(25)
+    // The named case, kept from the original: write-grade authority, no row.
+    expect(classOf('linearSearch')).toBe('n/a')
   })
 })

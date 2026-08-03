@@ -447,6 +447,7 @@ export const automationCreateContract = {
   ownership: CREATES_AN_AUTOMATION,
   attribution: AUTOMATION_ATTRIBUTION,
   errorConsistency: UNTARGETED_ERRORS,
+  conflict: 'append',
 } as const satisfies AutomationCommandContract<typeof automationCreateInput>
 
 // ---------------------------------------------------------------------------
@@ -478,6 +479,9 @@ export const automationUpdateContract = {
   ownership: CREATES_NOTHING,
   attribution: AUTOMATION_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
+  conflict: 'cmd',
+  conflictRule:
+    'Whole-automation replace by the owner; no precondition on the wire, so two concurrent edits resolve to the later Authority commit rather than merging field by field',
 } as const satisfies AutomationCommandContract<typeof automationUpdateInput>
 
 // ---------------------------------------------------------------------------
@@ -524,6 +528,8 @@ export const automationSetEnabledContract = {
   ownership: CREATES_NOTHING,
   attribution: AUTOMATION_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
+  conflict: 'cmd',
+  conflictRule: 'Flips one boolean; idempotent, and the later Authority commit wins',
 } as const satisfies AutomationCommandContract<typeof automationSetEnabledInput>
 
 // ---------------------------------------------------------------------------
@@ -563,6 +569,9 @@ export const automationRemoveContract = {
   ownership: CREATES_NOTHING,
   attribution: AUTOMATION_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
+  conflict: 'cmd',
+  conflictRule:
+    'Idempotent removal; removing an already-removed automation is a no-op rather than a rejection',
 } as const satisfies AutomationCommandContract<typeof automationRemoveInput>
 
 // ---------------------------------------------------------------------------

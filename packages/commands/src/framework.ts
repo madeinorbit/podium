@@ -1,6 +1,6 @@
 import type { VisibilityClass } from '@podium/model'
-import type { z } from 'zod'
 import type { MachineVerb } from '@podium/protocol'
+import type { z } from 'zod'
 
 /**
  * Command-definition contract for the P3 command registry [spec:SP-3fe2]:
@@ -172,6 +172,21 @@ export type ConflictClass =
   | 'op-stream'
 
 /**
+ * {@link ConflictClass} plus the WRITTEN `'n/a'` a command with no replicated row
+ * answers with — the vocabulary a CONTRACT declares, as opposed to the six an
+ * ARBITRATION LOOKUP resolves.
+ *
+ * Lives here, beside `ConflictClass`, because `CommandDef` below has to hold one:
+ * `defineCommands` constrains a registry's defs to `CommandDef`, so a def whose
+ * `conflict` is narrower than what its contract actually carries makes that
+ * constraint fail — and it fails SILENTLY, by widening the inferred defs table
+ * until every command reads as possibly-undefined rather than by naming the field.
+ * That is how POD-1250 found it. The full argument for the member is on
+ * `ContractConflictClass` in `contract.ts`, which re-exports this.
+ */
+export type ContractConflictClass = ConflictClass | 'n/a'
+
+/**
  * THE VISIBILITY CLASS OF WHAT A COMMAND WRITES (POD-382; ADR 9 D3/D4, readiness
  * §3.1.1 rules 1 and 2).
  *
@@ -217,8 +232,9 @@ export interface CommandDef<In extends z.ZodTypeAny = z.ZodTypeAny, Out = unknow
   offline?: OfflineClass
   /** SENSITIVE-FIELD REDACTION (see {@link CommandRedaction}). */
   redaction?: CommandRedaction
-  /** ADR 1 conflict class this command's target arbitrates under. */
-  conflict?: ConflictClass
+  /** ADR 1 conflict class this command's target arbitrates under. `'n/a'` is the
+   *  answer for a command with no replicated row — see {@link ContractConflictClass}. */
+  conflict?: ContractConflictClass
   /** VISIBILITY CLASS of the state this command writes — see {@link VisibilityClass}
    *  above. Absent ⇒ `personal` (default-closed); required on the session family. */
   visibility?: VisibilityClass

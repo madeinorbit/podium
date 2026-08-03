@@ -291,6 +291,7 @@ export const specsCreateContract = {
     positional: ['parent', 'title'],
     summary: 'add a component: create <parent-id> "<title>" [--body <html>]',
   },
+  conflict: 'single-writer',
 } as const satisfies CommandContract<typeof specsCreateInput>
 
 // ---------------------------------------------------------------------------
@@ -348,6 +349,7 @@ export const specsSaveContract = {
     summary:
       'edit a component: update <id> [--title …] [--status active|draft|superseded] [--parent <id>] [--body <html> | --body-file <path>]',
   },
+  conflict: 'single-writer',
 } as const satisfies CommandContract<typeof specsSaveInput>
 
 // ---------------------------------------------------------------------------
@@ -387,6 +389,7 @@ export const specsRemoveContract = {
     positional: ['id'],
     summary: 'delete a leaf component (children must be moved or deleted first)',
   },
+  conflict: 'single-writer',
 } as const satisfies CommandContract<typeof specsRemoveInput>
 
 // ---------------------------------------------------------------------------

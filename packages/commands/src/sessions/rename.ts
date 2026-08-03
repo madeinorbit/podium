@@ -307,4 +307,5 @@ export const sessionRenameContract: CommandContract<
   },
   optimisticReducer: sessionRenameReducer,
   cli: { summary: 'Rename a session (the curated name slot).' },
+  conflict: 'single-writer',
 }

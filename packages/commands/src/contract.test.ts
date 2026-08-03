@@ -18,6 +18,8 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import {
   type AnyCommandContract,
+  CONTRACT_CONFLICT_CLASSES,
+  type ContractConflictClass,
   classificationErrors,
   registryClassificationErrors,
   SERVED_NOWHERE,
@@ -53,6 +55,10 @@ const base: AnyCommandContract = {
     rationale: 'a probe',
   },
   errorConsistency: { callerSuppliedTargetId: false, note: 'a probe' },
+  // POD-1250: required, so the positive control has to answer. `n/a` is the
+  // honest answer for a probe that writes nothing, and it keeps this control
+  // clear of the `cmd` pair the cases below mutate it into.
+  conflict: 'n/a',
 }
 
 /** Deep-ish override helper so each negative case is one mutation of `base`. */
@@ -147,10 +153,125 @@ describe('classification totality — each negative is one mutation of the passi
     ],
     ['version zero', mutate({ version: 0 }), /positive integer/],
     ['an undotted name', mutate({ name: 'send' }), /dotted wire name/],
+    // ---- ADR 1, the conflict declaration (POD-1250) ----
+    [
+      'a `cmd` class with no rule — the row arbitration.ts refuses to arbitrate',
+      mutate({ conflict: 'cmd' }),
+      /requires conflictRule/,
+    ],
+    [
+      'a `cmd` class whose rule is whitespace',
+      mutate({ conflict: 'cmd', conflictRule: '   ' }),
+      /requires conflictRule/,
+    ],
+    [
+      'a rule attached to a class that nothing reads it for',
+      mutate({ conflict: 'append', conflictRule: 'a rule nobody consults' }),
+      /`cmd` rows only/,
+    ],
+    [
+      'a conflict class outside the vocabulary',
+      mutate({ conflict: 'whole-aggregate-LWW' as ContractConflictClass }),
+      /no safe default/,
+    ],
+    [
+      'an absent conflict class — the state POD-1250 removed, still caught semantically',
+      mutate({ conflict: undefined as unknown as ContractConflictClass }),
+      /no safe default/,
+    ],
+    [
+      '`exp-rev` on an input with nowhere to put the revision',
+      mutate({ conflict: 'exp-rev' }),
+      /requires an `expectedRevision`/,
+    ],
+    [
+      '`n/a` on a command that creates entities',
+      mutate({
+        conflict: 'n/a',
+        ownership: {
+          creates: ['widget'],
+          owner: 'on-behalf-of-human',
+          visibility: 'personal',
+          inheritanceOnCreate: 'on-behalf-of-human',
+          note: 'a probe',
+        },
+      }),
+      /contradicts ownership\.creates/,
+    ],
+    [
+      '`n/a` on a command queued in the client Outbox',
+      mutate({
+        conflict: 'n/a',
+        exposure: ['outbox'],
+        delivery: { ...base.delivery, class: 'offline-eligible' },
+      }),
+      /contradicts `outbox` exposure/,
+    ],
   ])('rejects %s', (_label, contract, pattern) => {
     const errs = classificationErrors(contract)
     expect(errs.length).toBeGreaterThan(0)
     expect(errs.join('\n')).toMatch(pattern)
+  })
+})
+
+/**
+ * THE CONFLICT DECLARATION'S POSITIVE CONTROLS (POD-1250).
+ *
+ * The negatives above prove the checks FIRE. These prove they are not simply
+ * always-on — a check that rejected every conflict declaration would satisfy
+ * every case in the table above and still be worthless. Each case here is a
+ * declaration the fleet actually contains.
+ */
+describe('the conflict declaration accepts what the fleet actually declares', () => {
+  it('accepts `cmd` WITH its rule — the pair, which is the only legal `cmd`', () => {
+    expect(
+      classificationErrors(mutate({ conflict: 'cmd', conflictRule: 'first decision settles it' })),
+    ).toEqual([])
+  })
+
+  it('accepts a ruleless class, which is every class but `cmd`', () => {
+    for (const cls of ['append', 'single-writer', 'field-LWW', 'op-stream', 'n/a'] as const) {
+      expect(classificationErrors(mutate({ conflict: cls }))).toEqual([])
+    }
+  })
+
+  it('accepts `exp-rev` once the input can carry the revision it arbitrates on', () => {
+    expect(
+      classificationErrors(
+        mutate({
+          conflict: 'exp-rev',
+          input: z.object({ x: z.string(), expectedRevision: z.number() }),
+        }),
+      ),
+    ).toEqual([])
+  })
+
+  it('sees through the wrappers the tables use — .merge() and .optional()', () => {
+    const merged = z.object({ x: z.string() }).merge(z.object({ expectedRevision: z.number() }))
+    expect(classificationErrors(mutate({ conflict: 'exp-rev', input: merged }))).toEqual([])
+    expect(classificationErrors(mutate({ conflict: 'exp-rev', input: merged.optional() }))).toEqual(
+      [],
+    )
+  })
+
+  it('lists every member of the vocabulary — a class the type admits and the list omits', () => {
+    // The type-level tripwire in `contract.ts` is the real guard; this is its
+    // runtime witness, and it fails if a seventh class is added to the union
+    // without being added to the checked list.
+    // Two classes carry a further requirement of their own, so a bare
+    // declaration of them is EXPECTED to complain — and naming which is part of
+    // the witness: a check that had stopped firing would show up here as an
+    // empty array where a message belongs.
+    const furtherRequirement: Partial<Record<ContractConflictClass, RegExp>> = {
+      cmd: /requires conflictRule/,
+      'exp-rev': /requires an `expectedRevision`/,
+    }
+    for (const cls of CONTRACT_CONFLICT_CLASSES) {
+      const errs = classificationErrors(mutate({ conflict: cls }))
+      const expected = furtherRequirement[cls]
+      if (expected === undefined) expect(errs, cls).toEqual([])
+      else expect(errs.join('\n'), cls).toMatch(expected)
+    }
   })
 })
 

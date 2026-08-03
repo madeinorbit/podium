@@ -121,6 +121,7 @@ export const modelsRefreshContract = {
       'a machine the caller may already use. POD-1079 owns the projection boundary that enforces ' +
       'who may see which machine’s catalog.',
   } satisfies ErrorConsistency,
+  conflict: 'single-writer',
 } as const satisfies CommandContract<typeof modelsRefreshInput>
 
 export const MODEL_CONTRACTS = { refresh: modelsRefreshContract } as const

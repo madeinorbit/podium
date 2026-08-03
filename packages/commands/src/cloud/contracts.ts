@@ -199,6 +199,9 @@ export const cloudCreateMachineContract = {
   ownership: CREATES_A_RUNTIME,
   attribution: CLOUD_ATTRIBUTION,
   errorConsistency: CLOUD_ERRORS,
+  conflict: 'cmd',
+  conflictRule:
+    'Provisions an external cloud machine and mints its fleet row in one commit; the provider request is keyed so a retry adopts the existing machine rather than provisioning a second',
 } as const satisfies CommandContract<typeof cloudCreateMachineInput>
 
 // ---------------------------------------------------------------------------
@@ -240,6 +243,9 @@ export const cloudCreateAgentContract = {
   ownership: CREATES_A_RUNTIME,
   attribution: CLOUD_ATTRIBUTION,
   errorConsistency: CLOUD_ERRORS,
+  conflict: 'cmd',
+  conflictRule:
+    'As cloud.createMachine — the provider call is the commit point and a retry adopts rather than duplicates',
 } as const satisfies CommandContract<typeof cloudCreateAgentInput>
 
 // ---------------------------------------------------------------------------
@@ -294,6 +300,9 @@ export const cloudMoveSessionContract = {
   ownership: CREATES_A_RUNTIME,
   attribution: CLOUD_ATTRIBUTION,
   errorConsistency: CLOUD_ERRORS,
+  conflict: 'cmd',
+  conflictRule:
+    'Relocates a session to another machine; a move racing a second move is refused rather than applied twice, since a session has exactly one placement',
 } as const satisfies CommandContract<typeof cloudMoveSessionInput>
 
 // ---------------------------------------------------------------------------
@@ -326,6 +335,9 @@ export const cloudStopContract = {
   ownership: CREATES_NOTHING,
   attribution: CLOUD_ATTRIBUTION,
   errorConsistency: CLOUD_ERRORS,
+  conflict: 'cmd',
+  conflictRule:
+    'Idempotent stop; stopping an already-stopped machine is a no-op rather than a rejection',
 } as const satisfies CommandContract<typeof cloudStopInput>
 
 export const cloudWakeInput = cloudRuntimeIdInput
@@ -353,6 +365,9 @@ export const cloudWakeContract = {
   ownership: CREATES_NOTHING,
   attribution: CLOUD_ATTRIBUTION,
   errorConsistency: CLOUD_ERRORS,
+  conflict: 'cmd',
+  conflictRule:
+    'Idempotent wake; a concurrent wake joins the in-flight one rather than starting a second boot',
 } as const satisfies CommandContract<typeof cloudWakeInput>
 
 export const CLOUD_CONTRACTS = {

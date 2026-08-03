@@ -143,6 +143,7 @@ export const filesWriteContract = {
       'an unwritable path and a nonexistent one fail alike and neither reveals anything across an ' +
       'ownership boundary, since the caller holds `use` on the whole checkout by then.',
   } satisfies ErrorConsistency,
+  conflict: 'single-writer',
 } as const satisfies CommandContract<typeof filesWriteInput>
 
 export const FILE_CONTRACTS = { write: filesWriteContract } as const
