@@ -178,11 +178,16 @@ export interface MailHarness {
   events(kinds?: string[]): { kind: string; subject: string; payload: unknown }[]
 }
 
-// THE model's operator capability, re-exported (POD-335). This used to be a
+// THE operator capability, re-exported (POD-335). This used to be a
 // byte-identical second declaration — same role, same scope, same two attribution
 // fields — which is a copy that passes every test right up until the day the real
 // one gains a field. `feature-single-home` fails the build on the copy.
-export { OPERATOR } from '@podium/model'
+//
+// The single home MOVED: POD-335 pointed this at `@podium/model`, and POD-333
+// then retired `OPERATOR` from the model (it is a test capability, not model
+// vocabulary). Neither change is wrong alone; together they broke the build,
+// which is why this now names the home POD-333 gave it.
+export { OPERATOR } from '../../test-support/capabilities'
 
 export function mailHarness(opts?: HarnessOptions): MailHarness {
   const store = new SessionStore(':memory:')
