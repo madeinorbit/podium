@@ -47,6 +47,26 @@ export class SessionsRepository {
     return this.readSessions('id = ?', sessionId)[0]
   }
 
+  /**
+   * The live session a conversation resumes into, by its `resumeValue`.
+   *
+   * A QUERY RATHER THAN A SCAN, and that is the whole point (POD-1614). Feed
+   * visibility asks this question once per conversation row of a bootstrap, and
+   * the caller used to answer it with `loadSessions().find(…)` — a 49-column
+   * load of every live session, mapped into objects, per row. On the live corpus
+   * (2019 conversation rows x 1115 sessions) that was 18.9 s of synchronous CPU
+   * inside one `authority.bootstrap()` call, which blocked the event loop whole.
+   *
+   * SAME ROW AS THE SCAN IT REPLACES, deliberately: `readSessions` supplies the
+   * `created_at ASC, rowid ASC` order, so taking `[0]` here picks exactly the
+   * entry a `.find()` over `loadSessions()` returned when several sessions share
+   * a `resumeValue`. `deleted_at IS NULL` is restated for the same reason — it is
+   * the filter `loadSessions` applied, not an added condition.
+   */
+  findSessionByResumeValue(resumeValue: string): SessionRow | undefined {
+    return this.readSessions('resume_value = ? AND deleted_at IS NULL', resumeValue)[0]
+  }
+
   /** All session tombstones, for repository-level inspection and maintenance. */
   loadDeletedSessions(): SessionRow[] {
     return this.readSessions('deleted_at IS NOT NULL')
