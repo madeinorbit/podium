@@ -1262,6 +1262,10 @@ export class SessionRegistry {
         })
         return { repoPath: target.path, startPoint: ensured.startPoint }
       },
+      // The lookup-only half (POD-1571): add-session and worktree recreate need the
+      // repository the target ALREADY has, and must keep the refusal when it has none.
+      findRepoOnMachine: (repoPath, machineId) =>
+        sessionsSvc.findRepoOnMachine(repoPath, machineId),
       getSessionIssueId: (sessionId) => sessionsSvc.getSessionIssueId(sessionId),
       setSessionIssueId: (sessionId, issueId) => sessionsSvc.setSessionIssueId(sessionId, issueId),
       setSessionArchived: (sessionId, archived) => sessionsSvc.setArchived({ sessionId, archived }),

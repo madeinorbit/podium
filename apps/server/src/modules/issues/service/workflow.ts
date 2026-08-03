@@ -453,6 +453,17 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
   }
 
   /**
+   * The issue's repository as the PINNED machine has it (POD-1571).
+   *
+   * Falls back to the issue's own path on absence, deliberately: that is what makes
+   * requireMachineForRepo still able to say NO, naming a path the user recognises.
+   */
+  private repoPathOnMachine(repoPath: string, machineId: string | null | undefined): string {
+    if (!machineId) return repoPath
+    return this.d.findRepoOnMachine?.(repoPath, machineId) ?? repoPath
+  }
+
+  /**
    * Ensure the issue's worktree exists on disk for the preserved branch
    * [spec:SP-9904]. Used on resume after stop freed the working copy.
    * Idempotent when the worktree is already present.
@@ -491,11 +502,16 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
         issue: this.toWire(row),
       }
     }
-    const path = row.worktreePath ?? this.worktreePathFor(row.repoPath, row.branch)
-    if (row.machineId) this.d.requireMachineForRepo?.(row.machineId, row.repoPath)
+    // The repository is on the PINNED machine at that machine's path, which is not
+    // row.repoPath when the layouts differ (POD-1571). Resolve by identity first, then
+    // guard — and run the recreate itself against the resolved path, since `git -C
+    // <source path>` on the target names a directory that is not there.
+    const repoPath = this.repoPathOnMachine(row.repoPath, row.machineId)
+    const path = row.worktreePath ?? this.worktreePathFor(repoPath, row.branch)
+    if (row.machineId) this.d.requireMachineForRepo?.(row.machineId, repoPath)
     const res = await this.d.repoOp(
       'worktreeAddExisting',
-      row.repoPath,
+      repoPath,
       { path, branch: row.branch },
       machineId,
     )
@@ -897,7 +913,15 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
       ...(selection.effort ? { effort: selection.effort } : {}),
       ...(opts?.forceUnknownModel ? { force: true } : {}),
     })
-    if (row.machineId) this.d.requireMachineForRepo?.(row.machineId, row.repoPath)
+    // Guard against the path the repository has ON THE PIN, not the issue's own
+    // (POD-1571): comparing the source path literally made a present repo read as
+    // absent and refused every add-session to a machine with a different layout.
+    if (row.machineId) {
+      this.d.requireMachineForRepo?.(
+        row.machineId,
+        this.repoPathOnMachine(row.repoPath, row.machineId),
+      )
+    }
     this.d.spawnSession({
       cwd: row.worktreePath,
       issueId: row.id,
