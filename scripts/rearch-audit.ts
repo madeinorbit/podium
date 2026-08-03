@@ -1341,13 +1341,35 @@ export const CHECKS: AuditCheck[] = [
         // new unit reports exactly the 16. See the reconciliation entry in
         // docs/rearch-deletion-audit.md.
         const foreign = matches.filter((m) => !(m[1] ?? '').startsWith('.'))
-        if (foreign.length === 0) continue
+        // ...WITH ONE EXCEPTION, WHICH IS THE OTHER HALF OF THE SAME ARGUMENT
+        // (POD-1575). The edge criterion above and the POD-335 entrypoint
+        // sparing landed on PARALLEL branches and only met at a merge; neither
+        // author saw the hole their combination opens. The edge criterion spares
+        // a local-sibling barrel because it is "public API, not debt" — but
+        // inside `packages/**` that premise is checked, not assumed: a file is
+        // reachable from outside its package only if it is an `index.ts` or is
+        // named in the package's `exports` map, and `isPackagePublicSurface`
+        // above has already let every such file through. What reaches here under
+        // `packages/**` is therefore a re-export-ONLY file that NOTHING outside
+        // the package can import: not an API surface, just a forwarding stub
+        // left where a module used to be. Count it whatever its targets are.
+        //
+        // Deliberately narrow — it does not touch `apps/**` (where finding 16's
+        // local-sibling barrels live and are still spared), does not touch files
+        // with real code beside the re-exports (handled and `continue`d above),
+        // and does not touch a declared or index entrypoint. That narrowness is
+        // exactly what the counterfactual test asserts: "the sparing is NARROW".
+        const unreachablePackageStub = f.file.startsWith('packages/')
+        if (foreign.length === 0 && !unreachablePackageStub) continue
         sites.push({
           file: f.file,
           line: 1,
-          text: `${matches.length} re-exports, no other code; ${foreign.length} cross-workspace (${[
-            ...new Set(foreign.map((m) => m[1])),
-          ].join(', ')})`,
+          text:
+            foreign.length > 0
+              ? `${matches.length} re-exports, no other code; ${foreign.length} cross-workspace (${[
+                  ...new Set(foreign.map((m) => m[1])),
+                ].join(', ')})`
+              : `${matches.length} re-exports, no other code; forwards only to local siblings but is not an entrypoint of its own package, so nothing outside can import it`,
         })
       }
       return sites
