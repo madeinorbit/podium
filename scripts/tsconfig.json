@@ -1,0 +1,15 @@
+{
+  "extends": "../tooling/tsconfig/node.json",
+  "compilerOptions": {
+    // Guardrails and probes reach into app/package sources, including
+    // @podium/client-core, which is browser-facing. Without the DOM lib every
+    // `window`/`StorageEvent` in those transitively-pulled sources reports here
+    // even though client-core's own lane is green.
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    // 51 scripts use `Bun.*` / `import.meta.dir`, and a handful import
+    // `bun:sqlite` / `bun:test`.
+    "types": ["node", "bun"]
+  },
+  "include": ["."],
+  "exclude": ["node_modules", "fixtures/**/*.ts.txt"]
+}

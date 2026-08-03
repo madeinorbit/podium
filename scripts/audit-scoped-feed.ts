@@ -289,21 +289,53 @@ export function deliveryShape(source: string): Finding[] {
  * import-free, so the text checks still run in a checkout where the `@podium`
  * scope is not installed (which is every worktree in this fan-out).
  */
+/**
+ * What a delivery has to look like for these checks to read it. Deliberately
+ * loose about everything except the three fields the watermark property is
+ * stated in: the audit is meant to run against a kernel it does not trust.
+ */
+export interface FeedDelivery {
+  kind: string
+  throughSeq?: number
+  changes?: readonly { entityId: string }[]
+}
+
+/** One captured change, as the audit's fixtures write them. */
+export interface ChangeSpec {
+  entity: string
+  entityId: string
+  op: string
+  value: unknown
+}
+
 export interface KernelUnderTest {
-  Authority: new (deps: never) => {
-    subscribe(principal: unknown, subscriber: (delivery: never) => void): () => void
-    capture(specs: readonly never[]): unknown
-    changesSince(cursor: number | null, principal: unknown): { kind: string; throughSeq?: number; changes?: readonly { entityId: string }[] } | null
+  Authority: new (deps: {
+    store: unknown
+    now: () => number
+    transact: <T>(fn: () => T) => T
+    visibility: unknown
+    anchors: unknown
+  }) => {
+    subscribe(principal: unknown, subscriber: (delivery: FeedDelivery) => void): () => void
+    capture(specs: readonly ChangeSpec[]): unknown
+    changesSince(cursor: number | null, principal: unknown): FeedDelivery | null
   }
-  FeedPublisher: new (deps: never) => {
+  FeedPublisher: new (deps: {
+    identity: unknown
+    retention: { minAvailableSeq: () => number }
+    sendQueue: { maxBytes: number; sizeOf: () => number }
+  }) => {
     connect(id: string, fromSeq: number, principal: unknown): {
       isDemoted(): boolean
       drain(): readonly { kind: string; fromSeq?: number; seq?: number }[]
     }
     publish(principal: unknown, delivery: unknown): void
   }
-  FeedIdentityRegistry: new (store: never, mint: () => string) => unknown
-  GrantEdgeVisibilityPolicy: new (state: never) => unknown
+  FeedIdentityRegistry: new (
+    store: { readIdentity: () => unknown; writeIdentity: (v: unknown) => void },
+    mint: () => string,
+  ) => unknown
+  GrantEdgeVisibilityPolicy: new (state: unknown) => unknown
 }
 
 /** Resolve the real kernel. Only reachable where the workspace is installed. */
@@ -367,24 +399,37 @@ export async function runtimeChecks(kernel: KernelUnderTest): Promise<Finding[]>
     currentValueOf: () => undefined,
   }
   const authority = new Authority({
-    store: store as never,
+    store,
     now: () => 1,
     transact: <T,>(fn: () => T) => fn(),
-    visibility: new GrantEdgeVisibilityPolicy(state as never),
-    anchors: state as never,
+    visibility: new GrantEdgeVisibilityPolicy(state),
+    anchors: state,
   })
 
   const ADA = { kind: 'user', userId: 'ada' } as const
   const GRACE = { kind: 'user', userId: 'grace' } as const
 
+  /**
+   * A `batch` that actually carries the two fields the watermark property is
+   * stated in. A batch missing either is malformed, and must NOT be read as a
+   * well-formed empty batch — that reading is exactly the silent drop this
+   * audit exists to catch, so a malformed delivery is dropped here and the
+   * checks below report the absence.
+   */
+  const asBatch = (d: FeedDelivery): { ids: string[]; through: number } | null =>
+    d.kind === 'batch' && d.changes !== undefined && d.throughSeq !== undefined
+      ? { ids: d.changes.map((c) => c.entityId), through: d.throughSeq }
+      : null
+
   const adaSaw: { ids: string[]; through: number }[] = []
   const graceSaw: { ids: string[]; through: number }[] = []
   authority.subscribe(ADA, (d) => {
-    if (d.kind === 'batch') adaSaw.push({ ids: d.changes.map((c) => c.entityId), through: d.throughSeq })
+    const batch = asBatch(d)
+    if (batch !== null) adaSaw.push(batch)
   })
   authority.subscribe(GRACE, (d) => {
-    if (d.kind === 'batch')
-      graceSaw.push({ ids: d.changes.map((c) => c.entityId), through: d.throughSeq })
+    const batch = asBatch(d)
+    if (batch !== null) graceSaw.push(batch)
   })
 
   authority.capture([{ entity: 'session', entityId: 'mine', op: 'upsert', value: { n: 1 } }])
@@ -408,10 +453,11 @@ export async function runtimeChecks(kernel: KernelUnderTest): Promise<Finding[]>
 
   // The heal path must agree with the live path over the same range.
   const healed = authority.changesSince(0, GRACE)
-  if (healed === null || healed.kind !== 'batch' || healed.throughSeq !== 1) {
+  const healedBatch = healed === null ? null : asBatch(healed)
+  if (healedBatch === null || healedBatch.through !== 1) {
     fail('runtime-watermark', 'the scoped catch-up reply does not certify to the log head')
   }
-  if (healed !== null && healed.kind === 'batch' && healed.changes.length > 0) {
+  if (healedBatch !== null && healedBatch.ids.length > 0) {
     fail('runtime-filter', 'the scoped catch-up reply served rows the principal may not see')
   }
 
@@ -421,9 +467,9 @@ export async function runtimeChecks(kernel: KernelUnderTest): Promise<Finding[]>
     {
       readIdentity: () => held,
       writeIdentity: (v: unknown) => {
-        held = v as never
+        held = v
       },
-    } as never,
+    },
     () => `01JQ0PAUDIT${(minted++).toString().padStart(15, '0')}`,
   )
   let held: unknown = null

@@ -29,6 +29,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { agentLaunchCommand } from '@podium/harness'
+import { asSessionId, type SessionId } from '@podium/model'
 import { type DaemonMessage, SpawnMessage } from '@podium/protocol'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -200,7 +201,7 @@ afterEach(() => {
  */
 async function spawnAndDumpEnv(
   h: Harness,
-  sessionId: string,
+  sessionId: SessionId,
   env: Record<string, string> | undefined,
 ): Promise<string> {
   // The real wire frame, through the real schema — an env the protocol would have
@@ -262,7 +263,7 @@ describe('managed account -> real spawned process env (#216)', () => {
     expect(env).toEqual({ ANTHROPIC_API_KEY: CREDENTIAL })
 
     const h = makeHarness(settingsDir)
-    const dump = await spawnAndDumpEnv(h, 'sess-managed', env)
+    const dump = await spawnAndDumpEnv(h, asSessionId('sess-managed'), env)
 
     // The child's own `env` listed it — a real process, a real environment.
     expect(dump).toContain(`ANTHROPIC_API_KEY=${CREDENTIAL}`)
@@ -277,7 +278,7 @@ describe('managed account -> real spawned process env (#216)', () => {
     // carrying no managed env must leave the agent's credentials exactly as the CLI's
     // own on-disk login left them. Podium must add nothing.
     const h = makeHarness(settingsDir)
-    const dump = await spawnAndDumpEnv(h, 'sess-native', undefined)
+    const dump = await spawnAndDumpEnv(h, asSessionId('sess-native'), undefined)
 
     expect(dump).toContain('PODIUM_SESSION_ID=sess-native') // the dump really happened
     expect(dump).not.toContain('ANTHROPIC_API_KEY=')
@@ -301,7 +302,7 @@ describe('managed account -> real spawned process env (#216)', () => {
     expect(env).toEqual({ CLAUDE_CODE_OAUTH_TOKEN: 'oat-test-1' })
 
     const h = makeHarness(settingsDir)
-    const dump = await spawnAndDumpEnv(h, 'sess-oauth', env)
+    const dump = await spawnAndDumpEnv(h, asSessionId('sess-oauth'), env)
 
     expect(dump).toContain('CLAUDE_CODE_OAUTH_TOKEN=oat-test-1')
     expect(dump).not.toContain('ANTHROPIC_API_KEY=') // oauth must not also set the api-key var

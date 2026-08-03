@@ -281,8 +281,12 @@ describe('test lane configuration', () => {
     }
     for (const [name, script] of Object.entries(pkg.scripts)) {
       for (const match of script.matchAll(/(?:^|&&|\|\|)\s*([^&|]*\bvitest\b[^&|]*)/g)) {
+        const invocation = match[1]
+        if (invocation === undefined) {
+          throw new Error(`script "${name}": vitest invocation did not capture`)
+        }
         expect(
-          match[1].trim(),
+          invocation.trim(),
           `script "${name}" must run vitest via bun --bun node_modules/vitest/vitest.mjs`,
         ).toMatch(/^(?:[A-Z_]+=\S+\s+)*bun --bun node_modules\/vitest\/vitest\.mjs\b/)
       }

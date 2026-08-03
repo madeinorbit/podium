@@ -49,7 +49,7 @@ describe('the instrument can say YES — three broken kernels, three catches', (
     const findings = await broken((kernel) => ({
       ...kernel,
       Authority: class extends (Authority as never as new (deps: never) => Authority) {
-        subscribe(_principal: never, subscriber: never): () => void {
+        override subscribe(_principal: never, subscriber: never): () => void {
           return super.subscribe({ kind: 'user', userId: 'ada' }, subscriber)
         }
       } as never as KernelUnderTest['Authority'],
@@ -64,7 +64,7 @@ describe('the instrument can say YES — three broken kernels, three catches', (
     const findings = await broken((kernel) => ({
       ...kernel,
       Authority: class extends (Authority as never as new (deps: never) => Authority) {
-        subscribe(principal: never, subscriber: (d: never) => void): () => void {
+        override subscribe(principal: never, subscriber: (d: never) => void): () => void {
           return super.subscribe(principal, ((delivery: { kind: string; changes: unknown[] }) => {
             if (delivery.kind === 'batch' && delivery.changes.length === 0) return
             subscriber(delivery as never)
@@ -82,7 +82,7 @@ describe('the instrument can say YES — three broken kernels, three catches', (
     const findings = await broken((kernel) => ({
       ...kernel,
       FeedPublisher: class extends (FeedPublisher as never as new (deps: never) => FeedPublisher) {
-        publish(principal: never, delivery: never): void {
+        override publish(principal: never, delivery: never): void {
           const d = delivery as { kind: string; throughSeq: number; changes: readonly unknown[] }
           if (d.kind === 'batch' && d.changes.length === 0) {
             // The regression: pad the "empty" frame so it consumes queue budget.

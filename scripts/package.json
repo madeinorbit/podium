@@ -1,0 +1,31 @@
+{
+  "name": "@podium/scripts",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "description": "Repository guardrails and operational scripts. A workspace package only so `turbo run typecheck` reaches it (POD-1122) — it publishes no exports and nothing may depend on it.",
+  "dependencies": {
+    "@podium/client-core": "workspace:*",
+    "@podium/commands": "workspace:*",
+    "@podium/daemon": "workspace:*",
+    "@podium/harness": "workspace:*",
+    "@podium/issue-client": "workspace:*",
+    "@podium/model": "workspace:*",
+    "@podium/protocol": "workspace:*",
+    "@podium/pty": "workspace:*",
+    "@podium/runtime": "workspace:*",
+    "@podium/server": "workspace:*",
+    "@podium/sync": "workspace:*",
+    "@podium/transcript": "workspace:*"
+  },
+  "scripts": {
+    "typecheck": "tsgo --noEmit",
+    "typecheck:tsc": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "typescript": "^6.0.3",
+    "vitest": "5.0.0-beta.6"
+  }
+}

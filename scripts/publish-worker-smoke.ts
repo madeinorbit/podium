@@ -1,13 +1,14 @@
+import { asMachineId, asSessionId } from '@podium/model'
 import type { SessionMeta } from '@podium/model'
 import { createViewKey } from '../apps/server/src/modules/sessions/publish-worker-actor.js'
 import { PublishWorkerClient } from '../apps/server/src/modules/sessions/publish-worker-client.js'
 
 const session: SessionMeta = {
-  sessionId: 'smoke-session',
+  sessionId: asSessionId('smoke-session'),
   agentKind: 'shell',
   cwd: '/smoke',
   title: 'smoke',
-  machineId: 'local',
+  machineId: asMachineId('local'),
   machineName: 'Local',
   status: 'live',
   geometry: { cols: 80, rows: 24 },

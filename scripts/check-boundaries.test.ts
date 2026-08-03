@@ -302,8 +302,10 @@ describe('rule 9 — host edge vs agent command relay (ADR 7 D2)', () => {
     )
     const violations = checkHostEdgeSeparationAll(root)
     expect(violations).toHaveLength(1)
-    expect(violations[0].rule).toBe('host-edge-separation')
-    expect(violations[0].message).toContain('must not import')
+    const [violation] = violations
+    if (violation === undefined) throw new Error('expected exactly one violation')
+    expect(violation.rule).toBe('host-edge-separation')
+    expect(violation.message).toContain('must not import')
   })
 
   it('flags the crossing in the other direction too', () => {

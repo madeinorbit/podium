@@ -7,6 +7,7 @@ import {
   type MaintenanceCommand,
   type MaintenanceCommandReply,
   type MaintenanceHandshakeReply,
+  type MessageExpiryObservation,
 } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { JanitorService } from '../apps/janitor/src/janitor'
@@ -120,7 +121,10 @@ describe('janitor lease and server-restart faults [spec:SP-c29e]', () => {
     const server = maintenance(store, () => now)
     const firstRead = vi.fn(() => [])
     const secondRead = vi.fn(() => [])
-    const janitor = (generationId: string, readExpiryCandidates: () => []): JanitorService =>
+    const janitor = (
+      generationId: string,
+      readExpiryCandidates: () => MessageExpiryObservation[],
+    ): JanitorService =>
       new JanitorService({
         generationId,
         now: () => now,

@@ -310,7 +310,9 @@ describe('real process death acceptance [spec:SP-c29e]', () => {
           )
           await waitUntil(() => existsSync(recoveredStarted), 'recovered janitor start')
           expect(expiredEventCount(harness.store, message.id)).toBe(1)
-          expect(Number(readFileSync(recoveredStarted, 'utf8'))).toBe(recovered.child.pid)
+          const recoveredPid = recovered.child.pid
+          if (recoveredPid === undefined) throw new Error('recovered janitor reported no pid')
+          expect(Number(readFileSync(recoveredStarted, 'utf8'))).toBe(recoveredPid)
         } finally {
           await kill(recovered.child, 'SIGTERM')
         }

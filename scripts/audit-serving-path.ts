@@ -271,7 +271,11 @@ export const PROBES: { name: string; input: AuditInput; expect: string }[] = (()
     files: Record<string, string | null>,
     extraSources: string[] = [],
   ): AuditInput => ({
-    read: (path) => (path in files ? files[path] : base.read(path)),
+    read: (path) => {
+      if (!Object.hasOwn(files, path)) return base.read(path)
+      // An overlaid key maps to the file's content, or to null for "deleted".
+      return files[path] ?? null
+    },
     sources: () => [...base.sources(), ...extraSources],
   })
   return [

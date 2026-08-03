@@ -24,7 +24,8 @@ import { LEGACY_WIRE_V1_EXPIRY, LegacyWireV1Adapter } from '../apps/server/src/g
 import { WireFeedEdge } from '../apps/server/src/gateway/wire-feed-edge'
 import { outcomesOf, PROBES, runChecks } from './audit-wire-adapters'
 
-const edge = () => new WireFeedEdge({ diagnostics: () => [] })
+const edge = () =>
+  new WireFeedEdge({ diagnostics: () => [], visibilityGrade: () => 'device-unscoped' })
 
 describe('the shipped edge, as a running object', () => {
   it('covers the whole advertised window — it would refuse to boot otherwise', () => {

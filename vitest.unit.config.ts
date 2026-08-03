@@ -35,7 +35,6 @@ export default defineConfig({
         test: {
           name: 'node',
           ...sharedVitestConfig.test,
-          passWithNoTests: true,
           // Hermetic lane: a flaky unit test is a bug, not weather. No retries.
           retry: 0,
           sequence: { groupOrder: 0 },
@@ -80,7 +79,6 @@ export default defineConfig({
         test: {
           name: 'normalized-wire',
           ...sharedVitestConfig.test,
-          passWithNoTests: true,
           retry: 0,
           include: normalizedWireTests,
           fileParallelism: false,
