@@ -9507,6 +9507,96 @@
       "encoded": "{\"kind\":\"automation\",\"id\":\"id\"}"
     },
     {
+      "schema": "StampedAttribution",
+      "variant": "minimal",
+      "wire": {
+        "at": "at",
+        "by": {
+          "actor": {
+            "kind": "user",
+            "id": "by.actor.id"
+          },
+          "onBehalfOf": null
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"at\",\"by\":{\"actor\":{\"kind\":\"user\",\"id\":\"by.actor.id\"},\"onBehalfOf\":null}}"
+    },
+    {
+      "schema": "StampedAttribution",
+      "variant": "full/arm0",
+      "wire": {
+        "at": "at",
+        "by": {
+          "actor": {
+            "kind": "user",
+            "id": "by.actor.id"
+          },
+          "onBehalfOf": "by.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"at\",\"by\":{\"actor\":{\"kind\":\"user\",\"id\":\"by.actor.id\"},\"onBehalfOf\":\"by.onBehalfOf\"}}"
+    },
+    {
+      "schema": "StampedAttribution",
+      "variant": "full/arm1",
+      "wire": {
+        "at": "at",
+        "by": {
+          "actor": {
+            "kind": "agent",
+            "id": "by.actor.id"
+          },
+          "onBehalfOf": "by.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"at\",\"by\":{\"actor\":{\"kind\":\"agent\",\"id\":\"by.actor.id\"},\"onBehalfOf\":\"by.onBehalfOf\"}}"
+    },
+    {
+      "schema": "StampedAttribution",
+      "variant": "full/arm2",
+      "wire": {
+        "at": "at",
+        "by": {
+          "actor": {
+            "kind": "machine",
+            "id": "by.actor.id"
+          },
+          "onBehalfOf": "by.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"at\",\"by\":{\"actor\":{\"kind\":\"machine\",\"id\":\"by.actor.id\"},\"onBehalfOf\":\"by.onBehalfOf\"}}"
+    },
+    {
+      "schema": "StampedAttribution",
+      "variant": "full/arm3",
+      "wire": {
+        "at": "at",
+        "by": {
+          "actor": {
+            "kind": "system",
+            "job": "by.actor.job"
+          },
+          "onBehalfOf": "by.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"at\",\"by\":{\"actor\":{\"kind\":\"system\",\"job\":\"by.actor.job\"},\"onBehalfOf\":\"by.onBehalfOf\"}}"
+    },
+    {
       "schema": "StewardPolicy",
       "variant": "minimal",
       "wire": {},

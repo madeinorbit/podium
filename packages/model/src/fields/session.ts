@@ -75,7 +75,7 @@ import {
   SessionStatus,
   WorkState,
 } from '../entities/session'
-import { Attribution } from './attribution'
+import { Attribution, StampedAttribution } from './attribution'
 import { OpStreamDocument } from './op-stream'
 
 // Re-exported so a consumer composing the groups gets the value objects they
@@ -410,15 +410,23 @@ export type SessionWorkflowLink = z.infer<typeof SessionWorkflowLink>
  * and the two are nested together with `deletedAt` so a tombstone cannot record
  * *when* while recording nothing about *who* — the same split POD-367 found on
  * the needs-human overlay.
+ *
+ * `at` and `by` ARE {@link StampedAttribution}'s two members, named here
+ * POSITIONALLY rather than by `.extend()` (POD-1156). This object interleaves its
+ * own keys with the pair's — `{at, source, by, byIssueId}` — and `.extend()`
+ * appends, so it would re-emit this shape as `{at, by, source, byIssueId}`. That
+ * is a REORDERING of a persisted, replicated object: no type changes, no golden
+ * fixture that pins a written value changes, and the bytes move. Placement is how
+ * an interleaving site composes the pair without paying for that.
  */
 export const SessionTombstone = z.object({
   deleted: z
     .object({
-      at: z.string(),
+      at: StampedAttribution.shape.at,
       /** WHICH PATH ran. A reason, not a principal. */
       source: z.enum(['issue', 'standalone']),
       /** WHICH PRINCIPAL ran it (ADR 9 D5 A3). */
-      by: Attribution,
+      by: StampedAttribution.shape.by,
       /** The cascading issue, on the issue-delete path. */
       byIssueId: IssueIdField.optional(),
     })

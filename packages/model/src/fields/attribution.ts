@@ -193,3 +193,58 @@ export const Attribution = z.object({
   onBehalfOf: UserIdField.nullable(),
 })
 export type Attribution = z.infer<typeof Attribution>
+
+/**
+ * WHEN IT HAPPENED AND WHO DID IT — the stamped pair, defined once (POD-1156).
+ *
+ * POD-365 made the attribution pair unsplittable by NESTING the timestamp INSIDE
+ * the object that carries the actor, so a shape recording *when* while recording
+ * nothing about *who* does not typecheck. That is the fix POD-367 pinned a live
+ * defect against (commit `a349bf4e`: the node-side optimistic-patch arm stamps
+ * the timestamp unconditionally and the principal only if the input happens to
+ * supply one). The IDIOM was then hand-written at each site that needed it.
+ *
+ * THE DRIFT THIS CLOSES IS THE PAIRING, NOT THE PRINCIPAL. {@link Attribution}
+ * is already one schema and every site names that instance, so the actor half
+ * cannot fork. What had no definition at all was the *two-part fact* — and a new
+ * site was free to call the timestamp `stampedAt`, make it `.optional()`, or nest
+ * it the other way round, with nothing anywhere to notice. Every instrument this
+ * repo owns is blind to that: a restatement is byte-identical, so the golden
+ * corpora cannot see it (they pin the encoding of values someone chose to
+ * write), and `legacyAttributionViolations` resolves the pair by a per-site
+ * DECLARED path, so a site that spells the timestamp differently still passes it.
+ *
+ * WHAT COMPOSES IT, AND THE ONE SITE THAT CANNOT:
+ *
+ *   - `HandoffManifestV2.exported` (POD-1153) IS this object — same key set, same
+ *     order, so composing it moves no bytes.
+ *   - `SessionTombstone.deleted` is this pair PLUS `source` and `byIssueId`, and
+ *     it interleaves them: `{at, source, by, byIssueId}`. It therefore names the
+ *     two members positionally rather than calling `.extend()`, which would
+ *     append and re-emit the object as `{at, by, source, byIssueId}` — a
+ *     REORDERING of a persisted, replicated shape, invisible to every type but
+ *     not to the bytes. Extension stays expressible; it is spelled by placement.
+ *   - `NeedsHuman.asked` (`fields/issue.ts`) does NOT compose it and is not made
+ *     to. Its `by` key is the asking SESSION — POD-365 kept it that way because
+ *     it is also the DELIVERY ADDRESS the registry routes the answer to — and the
+ *     principal pair sits beside it at `asked.attribution`. Composing here would
+ *     mean RENAMING two keys on a persisted shape, which is strictly worse than
+ *     the duplication it removes. The site is instead pinned by name in
+ *     `attribution-stamped.test.ts`, so its deviation is a recorded decision that
+ *     a fourth site cannot quietly join.
+ *
+ * `at` is a plain `z.string()` because that is what all three sites already use.
+ * A shared TIMESTAMP field schema is a separate question with a separate blast
+ * radius (every `*At` key in the vocabulary) and is deliberately not opened here;
+ * what is shared is this MEMBER, so the pair's timestamp has one definition even
+ * though timestamps in general do not.
+ */
+export const StampedAttribution = z.object({
+  /** WHEN. Inside the object rather than beside it — that nesting is the whole
+   *  mechanism, not a formatting choice (ADR 9 D5 A3, POD-365). */
+  at: z.string(),
+  /** WHO, as the ONE shared pair. Required: a stamp with no principal is the
+   *  half-record this shape exists to make unrepresentable. */
+  by: Attribution,
+})
+export type StampedAttribution = z.infer<typeof StampedAttribution>
