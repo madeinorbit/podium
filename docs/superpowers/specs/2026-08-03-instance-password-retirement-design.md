@@ -101,8 +101,18 @@ the UI. That is the shipped guarantee, preserved.
 ### 5. The command surface
 
 `derived-family.ts` hands a handler its service and nothing else, and `InstanceService` therefore
-has no principal today. `FamilyState` widens by one member (`users`), and `instanceService` starts
-passing `caller.userId` — the reviewer-visible widening that file's own comment anticipates.
+has no principal today. `FamilyState` widens by **one member only — the users repository**. It does
+NOT gain a way to identify the caller, because it already has one: `FamilyState.caller.userId`,
+filled by `callerUserId(ctx)` (`derived-family.ts`), which resolves the user arm of the principal,
+the agent arm via `onBehalfOf`, and THROWS when there is no authenticated human principal.
+`auth.setPassword` consumes that existing resolution. Introducing a second principal-to-user path
+at this seam is exactly the duplication POD-1196 has just finished collapsing, and is forbidden here.
+
+The throw is load-bearing rather than incidental: an unauthenticated caller cannot reach a
+"set my own password" handler at all, so the command inherits fail-closed instead of building it.
+
+`instanceService` therefore starts taking `state.users` and `state.caller.userId` — the
+reviewer-visible widening that file's own comment anticipates.
 
 | Command | Change |
 |---|---|
@@ -126,8 +136,10 @@ credential.
 
 Unit, extending the existing suites rather than adding parallel ones:
 
-- boot migration: has-password / no-password / already-migrated / no-first-admin-row (asserts
-  `auth.json` survives) / verify-fails-so-nothing-is-cleared.
+- boot migration: has-password / no-password / no-first-admin-row (asserts `auth.json` survives) /
+  verify-fails-so-nothing-is-cleared, **plus a named test that runs the migration twice and
+  reddens if the second run is not a no-op**. Idempotence that nothing asserts is a claim, not a
+  property.
 - `POST /auth/login`: succeeds on a per-user credential, refuses with no credential, and no longer
   has an instance-password path to exercise.
 - `auth.setPassword` writes the caller's row and refuses a wrong `current`;
