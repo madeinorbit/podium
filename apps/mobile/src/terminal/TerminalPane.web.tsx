@@ -2,7 +2,7 @@ import type { SessionId } from '@podium/model'
 import { MobileTerminalKeyboard, useTerminalSession } from '@podium/terminal-client-react'
 import { Mic } from 'lucide-react-native'
 import { Text, View } from 'react-native'
-import { useConnected, useHub } from '../client/hooks'
+import { useConnected, useHub, useSpawnPending } from '../client/hooks'
 import { Icon } from '../components/Icon'
 import { color, font, mono } from '../theme/theme'
 
@@ -41,10 +41,23 @@ const MOBILE_APPEARANCE = {
 export function TerminalPane({ sessionId, active }: { sessionId: SessionId; active: boolean }) {
   const hub = useHub()
   const connected = useConnected()
+  // HOLD THE MOUNT UNTIL THE SPAWN IS CONFIRMED (POD-1613). The create path
+  // lands here with an OPTIMISTIC session: the row is painted, so the screen
+  // renders, but the server has not created the session and there is no PTY to
+  // bind. `hub.attach` gets exactly one shot — it sends its frame at connection
+  // construction and re-sends only across a socket reconnect — so attaching now
+  // spends it on a frame the server drops, and nothing ever retries. The ready
+  // backstop then hides "Attaching terminal…" over a grid that stays empty
+  // forever, which is precisely what the operator saw. Leaving the screen
+  // disposed the mount (`hub.detach`) and coming back built a fresh connection
+  // whose attach finally landed — the "go to work and back and it's there".
+  // Flipping this false→true remounts, so the attach that runs is the one with
+  // a live PTY behind it. Same gate the desktop spends as `spawnConfirmed`.
+  const spawnPending = useSpawnPending(sessionId)
   const { containerRef, toolbarRef, mountedRef, ready } = useTerminalSession({
     hub,
     sessionId,
-    enabled: connected,
+    enabled: connected && !spawnPending,
     // Match the desktop AgentPanel lifecycle exactly: stay mounted while hidden,
     // flip eligibility on the live session, and focus only after reveal/attach.
     // This is what drives the shared reveal -> fit -> WebGL recovery sequence.
@@ -58,7 +71,13 @@ export function TerminalPane({ sessionId, active }: { sessionId: SessionId; acti
   return (
     <View style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
       {!connected ? <Text style={statusStyle}>Connecting terminal…</Text> : null}
-      {connected && !ready ? <Text style={statusStyle}>Attaching terminal…</Text> : null}
+      {/* Three waits, three sentences. "Attaching" while the spawn is still
+          pending would name a step that has not begun — the create path waits
+          on the SERVER, not on the socket. */}
+      {connected && spawnPending ? <Text style={statusStyle}>Starting agent…</Text> : null}
+      {connected && !spawnPending && !ready ? (
+        <Text style={statusStyle}>Attaching terminal…</Text>
+      ) : null}
       {/* `minHeight: 0` (the desktop AgentPanel's `min-h-0`) lets this flex child
           SHRINK to the viewport. The old `minHeight: 260` floor meant a short
           phone screen could not contain the pane and the agent frame ran off the
