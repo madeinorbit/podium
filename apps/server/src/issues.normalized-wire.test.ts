@@ -29,12 +29,39 @@ const AS_OPERATOR = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
  * TOGETHER, so a harness that faked any of them could not witness it.
  */
 
-const ISSUE_COUNT = 300
-const SESSION_COUNT = 200
-/** The two live-shape guards measure counters, not speed. On the contended
- * 8-vCPU exit host they measured 19.8s and 20.7s in isolation, so the shared
- * 20s default was a scheduler race. Three times that measured cost is a
- * watchdog for a wedge while the zero-scan assertions remain the detector. */
+/**
+ * SIZED TO THE ASSERTION, NOT TO A LIVE CENSUS [POD-1522].
+ *
+ * These were 300×200, and the whole cost of that is `new SessionRegistry`:
+ * registry construction is O(issues × sessions) at roughly 0.5ms per pair
+ * (measured 2026-08-03 at b82fa157 — 300×0: 139ms, 0×200: 125ms, 300×50: 7.4s,
+ * 300×100: 14.7s, 300×200: 29.6s, 600×200: 57.8s; both axes alone are free, the
+ * product is everything). At 300×200 the guards spent ~33s in the fixture and
+ * ~0.5s on the thing under test, against a 60s watchdog — so ordinary CPU
+ * contention timed them out and NO ASSERTION RAN. Reproduced deliberately: with
+ * only these two files in the lane and 12 spinners on 8 vCPUs, all three scale
+ * guards died at `Test timed out in 60000ms`; +120 inert files on a quiet box
+ * did not reproduce, so it was contention, never file count or cross-suite state.
+ *
+ * The scale was never the detector and does not need to be. The counters are
+ * EXACT: a reintroduced membership scan increments once per issue touched, so it
+ * reads ≥1 at any issue count ≥1, and the zero-vs-nonzero distinction has no
+ * noise floor to clear. What the scale must still do is separate CONSTANT work
+ * from work PROPORTIONAL to entity count — 60×40 does that with 2400 pairs
+ * behind it, two orders of magnitude above the bounds asserted here.
+ *
+ * This is a change to what the fixture COSTS, not to what it CLAIMS. The
+ * O(issues × sessions) boot cost is real and is not fixed by shrinking the
+ * fixture; it is filed as its own defect (POD-1529) because it
+ * is composition-root boot on the production path, where these counters are not
+ * instrumented and therefore never witnessed it.
+ */
+const ISSUE_COUNT = 60
+const SESSION_COUNT = 40
+/** Wedge watchdog only — deliberately NOT widened (that move was already made
+ * once, 20s→60s in POD-1308, and it only moved the threshold). At the scale
+ * above the guards run in ~1.5s, so this is ~40x headroom rather than the ~2x
+ * that made them contention-fragile. The zero-scan assertions are the detector. */
 const SCALE_GUARD_TIMEOUT_MS = 60_000
 
 function issueRow(i: number): IssueRow {
@@ -163,11 +190,11 @@ function client(registry: SessionRegistry, caps: string[] | undefined): string {
  *
  * `builds` counts `toWire` calls; `scans` counts issues TOUCHED by the list path.
  * Post-POD-723 they diverge, and only one of them is D7.2's unit. On the old path
- * this change reads **1 build but 300 scans**: POD-723's memo reuses 299 cached
- * payloads, but it still calls `sessionsForIssue()` for every issue to compute
- * the cache key, and each of those filters all ${SESSION_COUNT} sessions. So the
- * O(issues × sessions) work D7.2 forbids is entirely intact — 60 000 session
- * comparisons — and a build-counting assertion would have read "1 vs 0" and
+ * this change reads **1 build but ISSUE_COUNT scans**: POD-723's memo reuses every
+ * cached payload but one, and still calls `sessionsForIssue()` for every issue to
+ * compute the cache key, each of those filtering all SESSION_COUNT sessions. So the
+ * O(issues × sessions) work D7.2 forbids is entirely intact — one comparison per
+ * pair — and a build-counting assertion would have read "1 vs 0" and
  * quietly reported the shim as near-compliant. D7.2 forbids WORK proportional to
  * entity count, not serializations. Both numbers are returned so the divergence
  * stays visible rather than becoming folklore.
