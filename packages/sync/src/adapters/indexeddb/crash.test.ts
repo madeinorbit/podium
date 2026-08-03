@@ -36,6 +36,7 @@
  * be satisfied by an adapter that never writes anything at all.
  */
 
+import { actorUser, asUserId } from '@podium/model'
 import type { MutationId } from '@podium/protocol'
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { OutboxRecord } from '../../outbox/records'
@@ -45,7 +46,7 @@ import { CURSOR_KEY, ENTITY_STORE, META_STORE, OUTBOX_STORE, REPLICA_DB_NAME } f
 import { type DurabilityDegradation, type IndexedDbStoreView, IndexedDbSyncStore } from './store'
 import { FaultyIdbFactory, freshFactory, readDurable } from './test-support'
 
-const PRINCIPAL = 'ada'
+const PRINCIPAL = asUserId('ada')
 const M: MutationId = 'm-1' as MutationId
 
 const CURSOR_1: Cursor = { feedId: 'feed', epoch: 'e1', seq: 1 }
@@ -56,7 +57,7 @@ const record = (state: OutboxRecord['state']): OutboxRecord => ({
   command: { name: 'issues.close', version: 1, delivery: 'offline-eligible' },
   input: { entityId: 'ADA-1' },
   partitionKey: 'issue:ADA-1',
-  attribution: { actor: { kind: 'user', userId: PRINCIPAL }, onBehalfOf: PRINCIPAL },
+  attribution: { actor: actorUser(PRINCIPAL), onBehalfOf: PRINCIPAL },
   state,
   queuedAt: 1_700_000_000_000,
   attempts: 1,

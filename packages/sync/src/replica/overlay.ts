@@ -40,11 +40,18 @@ import type { SyncSpan } from './ports'
  * that same pair, or the row flickers from "owned by the agent" to "owned by the
  * human" the moment the authoritative row lands.
  *
- * `actor` is `unknown` deliberately. The Outbox types it by KIND (user vs
- * agent-session) so nobody has to prefix-type an id; re-declaring that union here
- * would be a second definition of one identity vocabulary, and the direction lint
- * forbids importing the first. The Replica never inspects this value — it carries
- * it through untouched — so `unknown` is both honest and structurally enforcing.
+ * `actor` is `unknown` deliberately. The Outbox types it by KIND (user vs agent)
+ * so nobody has to prefix-type an id; re-declaring that union here would be a
+ * second definition of one identity vocabulary, and the direction lint forbids
+ * importing the first. The Replica never inspects this value — it carries it
+ * through untouched — so `unknown` is both honest and structurally enforcing.
+ *
+ * Since POD-1148 the union it is opaque ABOUT is no longer the Outbox's own: the
+ * Outbox narrows `@podium/model`'s `ActorRef`, so the value flowing through here
+ * is the same one an entity stores, and the agent arm reads `kind: 'agent'`. The
+ * one consumer that must know that literal is `sessionRenameReducer`
+ * (`@podium/commands`), which is handed this value as `unknown` and matches on
+ * the kind alone — its own doc records the coupling.
  */
 export interface PendingAttribution {
   /** The human the write is on behalf of. Becomes the provisional OWNER (A4). */

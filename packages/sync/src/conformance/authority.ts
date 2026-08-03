@@ -56,21 +56,21 @@
  * moving the table, not the commands that will do it.
  */
 
-import type { VisibilityClass } from '@podium/model'
-import { MetadataEntityKind, type MutationId } from '@podium/protocol'
+import { actorUser, asUserId, type VisibilityClass } from '@podium/model'
+import { asSessionId, MetadataEntityKind, type MutationId } from '@podium/protocol'
 import {
   BoundedSendQueue,
-  FeedIdentityRegistry,
-  GrantEdgeVisibilityPolicy,
   type EntityRef,
   type EpochBumpCause,
   type FeedIdentity,
+  FeedIdentityRegistry,
   type FeedIdentityStore,
   type FeedPrincipal,
+  GrantEdgeVisibilityPolicy,
   type VisibilityStatePort,
 } from '../feed'
-import type { OutboxAttribution, UserRef } from '../outbox/records'
 import type { OutboxEnvelope, OutboxSubmitOutcome, OutboxSubmitPort } from '../outbox/ports'
+import { agentActorOfSession, type OutboxAttribution, type UserRef } from '../outbox/records'
 import type { AuthorityReadPort } from '../replica/ports'
 import type {
   BootstrapChunk,
@@ -145,12 +145,15 @@ export const humanOf = (principal: ConformancePrincipal): UserRef =>
 /** The attribution PAIR this principal's writes are stamped with (A3 / ADR 3 D17). */
 export const attributionOf = (principal: ConformancePrincipal): OutboxAttribution =>
   principal.kind === 'user'
-    ? { actor: { kind: 'user', userId: principal.userId }, onBehalfOf: principal.userId }
+    ? { actor: actorUser(asUserId(principal.userId)), onBehalfOf: asUserId(principal.userId) }
     : {
-        // `sessionId` is branded in `@podium/protocol`; the fixture is the one place
-        // that mints one, so the cast is confined here rather than spread across cases.
-        actor: { kind: 'agent-session', sessionId: principal.sessionId as never },
-        onBehalfOf: principal.onBehalfOf,
+        // `FeedPrincipal` still carries raw strings (POD-1075 owns that flip), so
+        // this fixture is where they enter the branded space. `asSessionId` then
+        // `agentActorOfSession` rather than a cast to the actor brand: POD-1164's
+        // rule is that the reclassification is always NAMED, so no call site can
+        // invent a second agent id space by accident.
+        actor: agentActorOfSession(asSessionId(principal.sessionId)),
+        onBehalfOf: asUserId(principal.onBehalfOf),
       }
 
 /**
@@ -566,10 +569,7 @@ export class ConformanceAuthority {
    * transport. That split is D7: the input is the author's intent, the identity is
    * the connection's, and the two never swap roles.
    */
-  applyCommand(
-    principal: ConformancePrincipal,
-    envelope: OutboxEnvelope,
-  ): OutboxSubmitOutcome {
+  applyCommand(principal: ConformancePrincipal, envelope: OutboxEnvelope): OutboxSubmitOutcome {
     const target = targetOf(envelope.input)
     if (target === undefined) {
       return { kind: 'rejected', refusal: { kind: 'invalid', details: ['input.entityId'] } }

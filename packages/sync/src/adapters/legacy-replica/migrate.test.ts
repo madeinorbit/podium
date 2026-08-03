@@ -25,6 +25,7 @@
  */
 
 import { rmSync, writeFileSync } from 'node:fs'
+import { actorUser, asUserId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { OutboxAttribution, OutboxCommand, OutboxRecord } from '../../outbox/records'
 import { SqliteSyncStore } from '../mobile-sqlite/store'
@@ -42,11 +43,11 @@ import {
  *  fails if the capture stops carrying it. */
 const PROBE = 'the-users-own-words'
 
-const PRINCIPAL = 'operator'
+const PRINCIPAL = asUserId('operator')
 const NOW = 1_800_000_000_000
 
 const ATTRIBUTION: OutboxAttribution = {
-  actor: { kind: 'user', userId: PRINCIPAL },
+  actor: actorUser(PRINCIPAL),
   onBehalfOf: PRINCIPAL,
 }
 const COMMANDS: Record<string, OutboxCommand> = {

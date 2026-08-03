@@ -48,7 +48,7 @@ import {
 } from '@podium/client-core/replica'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import type { FeedSinkPort, SocketHub } from '@podium/client-core/socket-transport'
-import type { SessionId } from '@podium/model'
+import { actorUser, asUserId, type SessionId } from '@podium/model'
 import type { FeedChangesSinceReplyLenient } from '@podium/protocol'
 import {
   decideLegacyAdoption,
@@ -215,8 +215,8 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
   }
   const view = store.viewFor(principal)
   const attribution: OutboxAttribution = {
-    actor: { kind: 'user', userId: principal },
-    onBehalfOf: principal,
+    actor: actorUser(asUserId(principal)),
+    onBehalfOf: asUserId(principal),
   }
 
   // Default evidence is the per-principal namespace ledger assembled above.
