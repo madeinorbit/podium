@@ -6,10 +6,15 @@ import { RELAY } from './_harness'
  *
  * `panel-surface.ts` decides which of four states a session's panel is in and
  * `lifecycle-actions.ts` decides what the way back is called; this drives both
- * through a real browser, in both directions:
+ * through a real browser:
  *
- *   live → parked   Hibernate, from the header overflow menu
- *   parked → live   Resume, from the read-only surface underneath
+ *   live → parked    Hibernate, from the header overflow menu
+ *   parked → ended   Resume, refused by the server on this harness — the panel
+ *                    follows the answer instead of its own optimism
+ *
+ * parked → LIVE is deliberately NOT claimed here: the in-process harness cannot
+ * relaunch a session (see the comment at the last step). It is covered at the
+ * unit layer instead. A spec that asserted it would be asserting the fixture.
  *
  * THE TELL IS THE TERMINAL SURFACE, not the chat/native segment. The segment
  * would read better, but it also requires `chatCapable`, which depends on a
