@@ -31,7 +31,7 @@ import {
   layoutKeyFromLegacy,
   LayoutSnapshot,
   LayoutState,
-  LAYOUT_EXACT_KEYS,
+  LAYOUT_KEY_FROM_LEGACY,
 } from './layout-state'
 import { PersonalPreferenceState } from './preference-state'
 import {
@@ -234,12 +234,23 @@ describe('the fragment factory is reused, not re-implemented', () => {
 })
 
 describe('layout key routing (POD-1350 / POD-403 shared vocabulary)', () => {
-  it('admits every exact key and every dynamic section key under an allowed prefix', () => {
-    for (const key of LAYOUT_EXACT_KEYS) {
-      expect(isLayoutKey(key), key).toBe(true)
-    }
+  it('admits dynamic section keys, and refuses the LEGACY spelling of an admitted key', () => {
+    // `for (const key of LAYOUT_EXACT_KEYS) expect(isLayoutKey(key)).toBe(true)`
+    // used to stand here and was deleted, not amended: `isLayoutKey` tests
+    // membership of a set BUILT FROM `LAYOUT_EXACT_KEYS`, so it cannot fail for
+    // any key. It read as totality coverage over the vocabulary and provided
+    // none (POD-427 exit gate item 3 / POD-1534). The real totality check —
+    // every exact key and every prefix reaches a declared home — lives with the
+    // routing table, in `packages/client-core/src/ui-state.audit.test.ts`.
+    //
+    // What is asserted here is the part that CAN fail: the canonical vocabulary
+    // is disjoint from the legacy storage spellings that map onto it. Admitting
+    // `podium.dockTab` as a layout key would give one setting two rows.
     expect(isLayoutKey('sidebar.section.closed')).toBe(true)
     expect(isLayoutKey('dock.section.files')).toBe(true)
+    for (const legacy of Object.keys(LAYOUT_KEY_FROM_LEGACY)) {
+      expect(isLayoutKey(legacy), legacy).toBe(false)
+    }
   })
 
   it('refuses free-form keys, bare prefixes, and device-local geometry', () => {

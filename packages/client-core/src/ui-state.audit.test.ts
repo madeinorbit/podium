@@ -1,12 +1,23 @@
 /** Build-failing ownership guard for the sole UI persistence module. */
 import { readdirSync, readFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
-import { DEVICE_LOCAL_UI_KEYS, LAYOUT_KEY_FROM_LEGACY, THEME_UI_KEYS } from '@podium/model'
+import {
+  DEVICE_LOCAL_UI_KEYS,
+  LAYOUT_EXACT_KEYS,
+  LAYOUT_KEY_FROM_LEGACY,
+  LAYOUT_KEY_PREFIXES,
+  layoutKeyFromLegacy,
+  THEME_UI_KEYS,
+} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   CLIENT_DEVICE_LOCAL_UI_KEYS,
   createRoutedUiState,
+  DOCK_SECTION_KEY_PREFIX,
   KNOWN_NON_UI_ROUTES,
+  SIDEBAR_COLLAPSED_KEY,
+  SUPERAGENT_MODE_KEY,
+  UI_STATE_KEYS,
   uiStateRoute,
 } from './ui-state'
 
@@ -203,5 +214,98 @@ describe('UI persistence ownership lint', () => {
       .map(({ rel }) => rel)
       .sort()
     expect(offenders).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Routing TOTALITY over the shared layout vocabulary (POD-1534)
+// ---------------------------------------------------------------------------
+
+/**
+ * Every legacy storage spelling this module has ever persisted, composed from
+ * the declarations rather than restated. `UI_STATE_KEYS` carries the sole
+ * spelling of the panelMode keys (panel-mode-duality / POD-329), so composing
+ * from it keeps those literals out of this file too.
+ */
+const LEGACY_UI_STATE_VOCABULARY: readonly string[] = [
+  ...Object.values(UI_STATE_KEYS),
+  ...Object.keys(LAYOUT_KEY_FROM_LEGACY),
+  SUPERAGENT_MODE_KEY,
+  SIDEBAR_COLLAPSED_KEY,
+  ...DEVICE_LOCAL_UI_KEYS,
+  ...CLIENT_DEVICE_LOCAL_UI_KEYS,
+]
+
+/** The legacy PREFIXES under which dynamic section keys are spelled on disk. */
+const LEGACY_SECTION_PREFIXES: readonly string[] = ['podium:sidebar:', DOCK_SECTION_KEY_PREFIX]
+
+/**
+ * The canonical layout keys that are actually REACHABLE: a legacy spelling the
+ * router classifies `per-user-replicated` maps onto them. Derived by ROUTING,
+ * never from `LAYOUT_EXACT_KEYS` — a set built from the list it is meant to
+ * check is the tautology this audit exists to replace.
+ */
+function reachableLayoutKeys(vocabulary: readonly string[]): ReadonlySet<string> {
+  const reached = new Set<string>()
+  for (const legacy of vocabulary) {
+    if (uiStateRoute(legacy).home !== 'per-user-replicated') continue
+    const layoutKey = layoutKeyFromLegacy(legacy)
+    if (layoutKey !== null) reached.add(layoutKey)
+  }
+  return reached
+}
+
+/**
+ * The finding this audit reports: a persisted key admitted into the shared
+ * vocabulary with NO declared home. Exposed as a function over the key list so
+ * the check itself can be shown to refuse a planted key.
+ */
+function unhomedLayoutKeys(
+  exactKeys: readonly string[],
+  vocabulary: readonly string[] = LEGACY_UI_STATE_VOCABULARY,
+): string[] {
+  const reached = reachableLayoutKeys(vocabulary)
+  return exactKeys.filter((key) => !reached.has(key)).sort()
+}
+
+describe('UI-state routing totality over the shared layout vocabulary', () => {
+  it('every exact layout key has a declared home — and every home names a declared key', () => {
+    // POD-427 item 3: adding a key here with no home must FAIL, not wait for the
+    // first runtime read. `uiStateRoute` is default-closed and throws on such a
+    // key, which is correct and kept — but nothing reached it before this.
+    //
+    // The two directions are one assertion because they are one property: the
+    // canonical vocabulary and the set of keys the router can actually route to
+    // are the same set. A key with no legacy spelling is dead-on-arrival; a
+    // routed key that is not in the vocabulary would not parse as durable state.
+    expect(
+      [...reachableLayoutKeys(LEGACY_UI_STATE_VOCABULARY)].sort(),
+      'canonical layout keys reachable through uiStateRoute',
+    ).toEqual([...LAYOUT_EXACT_KEYS].sort())
+  })
+
+  it('every dynamic prefix has a legacy spelling that routes to it', () => {
+    // Prefix forms never appear in the static vocabulary, so the exact-key
+    // assertion above cannot see them. A new prefix with no legacy source is the
+    // same defect one level up.
+    const probe = 'gateProbeSection'
+    const reachedPrefixes = LEGACY_SECTION_PREFIXES.map((legacyPrefix) => {
+      const legacyKey = `${legacyPrefix}${probe}`
+      expect(uiStateRoute(legacyKey).home, legacyKey).toBe('per-user-replicated')
+      const layoutKey = layoutKeyFromLegacy(legacyKey)
+      expect(layoutKey, legacyKey).toMatch(new RegExp(`\\.${probe}$`))
+      return layoutKey?.slice(0, -(probe.length + 1))
+    })
+    expect([...new Set(reachedPrefixes)].sort()).toEqual([...LAYOUT_KEY_PREFIXES].sort())
+  })
+
+  it('the totality check REFUSES a planted key with no declared home', () => {
+    // The gate's own probe, run in-repo: `gateProbeUnrouted` added to the shared
+    // vocabulary is reported by name. Without this, the check above could pass
+    // for a reason unrelated to what it claims to measure.
+    expect(unhomedLayoutKeys([...LAYOUT_EXACT_KEYS, 'gateProbeUnrouted'])).toEqual([
+      'gateProbeUnrouted',
+    ])
+    expect(unhomedLayoutKeys([...LAYOUT_EXACT_KEYS])).toEqual([])
   })
 })
