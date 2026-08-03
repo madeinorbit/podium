@@ -78,7 +78,7 @@
  */
 
 import type { TranscriptItem } from '@podium/model'
-import type { EntityRecord, ReplicaEvent } from '@podium/sync/replica'
+import type { EntityRecord, ExitKind, ReplicaEvent } from '@podium/sync/replica'
 import type { OutboxStorage } from '../../outbox'
 import type {
   Replica,
@@ -129,6 +129,29 @@ export interface KernelReplicaInit {
     readonly awaiting: OutboxStorage
     readonly deadLetter?: OutboxStorage
   }
+  /**
+   * The kernel Replica's OWN exit record, handed in rather than mirrored
+   * (POD-1510).
+   *
+   * The facade could rebuild this from `onKernelEvent`: `removed`/`evicted` set
+   * an entry, `upserted` clears it. It deliberately does not, and the reason is
+   * that the kernel Replica's map is not a log of those three events — it is
+   * ALSO cleared wholesale when a bootstrap is installed and when the cache is
+   * discarded (`replica.ts`'s two `exits.clear()` sites), and readmission has a
+   * defined meaning there (`readmitted`) that a shadow copy would have to
+   * re-derive. A second map that agreed with the first on the common path and
+   * disagreed after a heal is precisely the divergence this facade exists to
+   * make impossible: two answers to "was it deleted or unshared?" is worse than
+   * one honest `undefined`.
+   *
+   * OPTIONAL, so a composition root that has no kernel Replica in hand (the
+   * facade's own tests, `replica-binding.test.ts`) still constructs, and answers
+   * `undefined` — "no exit record", never a guess. The two real roots
+   * (`apps/web/src/lib/kernelReplica.ts`, `apps/mobile`) construct the facade
+   * BEFORE the kernel Replica, so this is a function they close over rather than
+   * a value they could pass.
+   */
+  readonly exits?: (entity: string, entityId: string) => ExitKind | undefined
 }
 
 /** What the composition root drives, beyond the `Replica` interface itself. */
@@ -333,6 +356,22 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
       return project(kind)
     },
 
+    exitKind(entity: string, entityId: string): ExitKind | undefined {
+      // A READ, so it answers rather than refusing, and it never throws: this is
+      // called from render, and a replica that made a page crash because it
+      // could not say WHY a row was gone would be worse than one that said
+      // nothing. `undefined` from the catch means the same as `undefined` from
+      // an unwired port — no exit record — which `resolveReferent` renders as
+      // `pending`, i.e. as no claim at all.
+      const port = init.exits
+      if (port === undefined) return undefined
+      try {
+        return port(entity, entityId)
+      } catch {
+        return undefined
+      }
+    },
+
     subscribeRows(kind: ReplicaKind, cb: () => void): () => void {
       const set = listeners.get(kind) ?? new Set<() => void>()
       listeners.set(kind, set)
@@ -376,11 +415,16 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
         }
         case 'removed':
         case 'evicted': {
-          // Both leave this slice, and the read model renders both as gone. The
-          // DIFFERENCE between them is real and preserved — the kernel Replica's
-          // `exitKind()` still distinguishes them, and the shadow classifier
-          // reads it there — but a row that has left the view is absent from
-          // `rows()` either way, so this projection does not need to branch.
+          // Both leave this slice, and `rows()` renders both as gone, so THIS
+          // projection does not branch — a row that has left the view is absent
+          // either way.
+          //
+          // The DIFFERENCE is not lost by that: it is answered by `exitKind()`
+          // above, off the kernel Replica's own exit record, which is the seam a
+          // surface that must render "unshared" differently from "deleted" reads
+          // (POD-1510). Collapsing it HERE and preserving it THERE is the whole
+          // arrangement — do not "fix" this case by branching, and do not read
+          // this comment as licence to collapse the two anywhere else.
           const kind = kindForEntity(event.entity)
           if (kind !== undefined) touch([kind])
           return

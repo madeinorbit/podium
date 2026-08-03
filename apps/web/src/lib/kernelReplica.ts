@@ -379,6 +379,12 @@ export async function openKernelAssembly(
   const facade = createKernelReplica({
     cache: view.cache,
     side,
+    // POD-1510: the read model's answer to "was this row DELETED or did it leave
+    // MY view?". Deferred through a closure because the kernel Replica is
+    // constructed below — it needs `facade.onKernelEvent`, and the facade needs
+    // its exit record, so one of the two edges has to be lazy. Nothing calls
+    // this before the assembly returns.
+    exits: (entity, entityId) => kernel.exitKind(entity, entityId),
   })
 
   const kernel = new KernelReplica({

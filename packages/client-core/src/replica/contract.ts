@@ -67,8 +67,11 @@ import type {
   SessionMeta,
   TranscriptItem,
 } from '@podium/model'
+import type { ExitKind } from '@podium/sync/replica'
 import type { OutboxStorage } from '../outbox'
 import type { FeedCursor } from './feed'
+
+export type { ExitKind }
 
 /** Synchronous key-value storage seam. Tests inject a fake; the browser passes
  *  `window.localStorage`. Shape-identical to what the outgoing adapter's library
@@ -223,6 +226,32 @@ export interface Replica {
   /** Non-React change seam (#262). Notifications are COALESCED per application:
    *  a listener never observes the transient half-applied list. Never throws. */
   subscribeRows(kind: ReplicaKind, cb: () => void): () => void
+  /**
+   * How an entity LEFT this replica's view, if it did — `undefined` while it is
+   * present, and `undefined` when it was never held.
+   *
+   * `entity` is the AUTHORITY's singular entity name (`'session'`, `'issue'`),
+   * not a {@link ReplicaKind}: this answers about the kernel's row identity, and
+   * `kernel/kinds.ts` is the one place that translates between the two
+   * vocabularies. Passing `'sessions'` here answers `undefined` forever, which
+   * is why the spelling is named rather than left to be inferred from `rows()`.
+   *
+   * WHY IT IS OPTIONAL. `rows()` is identical for a removed row and an evicted
+   * one — both are absent — so a replica can be completely correct as a read
+   * model without tracking exits at all, and the legacy TanStack implementation
+   * does not. Making this required would force that implementation to invent an
+   * answer, and the only two it could invent are both wrong in the direction
+   * this method exists to prevent: `'removed'` makes every revoked share render
+   * as a DELETION (ADR 2 D14.1's explicit prohibition), and `'evicted'` makes
+   * every real deletion render as an access problem. Absent means "this replica
+   * keeps no exit record", which `resolveReferent` reads as `pending` — the one
+   * state that claims nothing about why the row is gone.
+   *
+   * So a caller MUST NOT read `undefined` as "still here" or as "deleted"; it is
+   * "no exit record", and the four-state `ReferentState` in
+   * `viewmodels/session-ownership.ts` is the vocabulary that keeps those apart.
+   */
+  exitKind?(entity: string, entityId: string): ExitKind | undefined
   /** Optional whole-application notification. Kernel adapters use this to
    *  publish an atomic bootstrap/rescope as one changed-kind set; callers fall
    *  back to the collection-scoped seam when it is absent. */

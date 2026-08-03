@@ -23,31 +23,41 @@
  * `docs/agents/pod-330-slice-ownership-map.md` §7 rather than buried here.
  *
  * -------------------------------------------------------------------------
- * `exitOf` IS INJECTED, AND TODAY THE WEB REPLICA CANNOT SUPPLY IT.
+ * `exitOf` COMES FROM THE REPLICA NOW (POD-1510), AND IS STILL OVERRIDABLE.
  * -------------------------------------------------------------------------
  *
  * Distinguishing `not-visible` from `removed` needs the replica's exit record.
- * `packages/sync`'s Replica has `exitKind()`, but the client-core `Replica`
- * CONTRACT does not expose it and the kernel facade deliberately does not
- * project it (`replica/kernel/facade.ts`: "both leave this slice"). So this
- * module takes the lookup as an injectable seam: the product supplies none
- * today, and a test — or a later wiring of that seam — supplies a real one. The
- * rendering below is complete over all four states either way, which is the
- * half this issue owns.
+ * POD-646 shipped this module with the lookup injectable and NOTHING supplying
+ * it, because the client-core `Replica` contract did not expose one — so the
+ * policy above was a decision that could not take effect: every absent referent
+ * resolved `pending` and `not-visible` was unreachable outside a test.
  *
- * WHAT THAT MEANS FOR `pending`, and why it is not a spinner. With no exit
- * record every dangling reference resolves to `pending`. `pending` is the one
- * state a spinner is CORRECT for in the general case — but a reference that will
- * never resolve because nothing can tell us it left would spin forever, which
- * §3.1's rule 2 forbids outright. So `pending` renders as the bare id in muted,
- * non-interactive text: exactly what this page rendered before the port, which
- * is also the single-user parity guard.
+ * The contract now declares `exitKind?(entity, entityId)` and the kernel-backed
+ * facade answers it off the kernel Replica's own exit record, so the DEFAULT
+ * lookup here is the live one — see {@link useIssueEdgeResolver}. The context
+ * survives as an OVERRIDE rather than as the only source, which is what keeps
+ * the four states drivable from a test without a sync kernel.
+ *
+ * The default is the fallback, not a mount, on purpose: `useIssueEdgeResolver`
+ * has four call sites on this page and more will follow, and a provider that
+ * each new surface has to remember to sit under fails SILENTLY back to
+ * `pending` — the same invisible defect, reintroduced one component at a time.
+ *
+ * WHAT THAT MEANS FOR `pending`, and why it is not a spinner. `pending` now
+ * means what it says — no exit record YET — but it is still reachable
+ * permanently: the legacy TanStack replica implements no `exitKind` at all (see
+ * its note), and a referent may simply never have been held. `pending` is the
+ * one state a spinner is CORRECT for in the general case — but a reference that
+ * will never resolve because nothing can tell us it left would spin forever,
+ * which §3.1's rule 2 forbids outright. So `pending` renders as the bare id in
+ * muted, non-interactive text: exactly what this page rendered before the port,
+ * which is also the single-user parity guard.
  */
 import type { CrossBoundaryPolicy, IssueEdge } from '@podium/client-core/viewmodels'
 import { type ReferentExit, resolveIssueEdge } from '@podium/client-core/viewmodels'
 import type { IssueId, IssueWire } from '@podium/model'
 import { createContext, type JSX, type ReactNode, useContext, useMemo } from 'react'
-import { type IssueViewModel, useReplicaIssues } from '@/app/store'
+import { type IssueViewModel, useReplicaIssues, useStoreSelector } from '@/app/store'
 import { issueRefLong } from '../issue-card'
 
 /**
@@ -65,17 +75,18 @@ import { issueRefLong } from '../issue-card'
  */
 export const CROSS_BOUNDARY_POLICY: CrossBoundaryPolicy = 'opaque'
 
-/** How this surface learns that an absent referent EXITED, and how. Supplied by
- *  a test (or, once the contract exposes it, by the replica); `undefined` from
- *  the default means "no exit record", which is honest rather than a guess. */
+/** How this surface learns that an absent referent EXITED, and how. `undefined`
+ *  means "no exit record" — never "still here" and never "deleted". */
 export type IssueExitLookup = (id: string) => ReferentExit | undefined
 
-const NO_EXITS: IssueExitLookup = () => undefined
+/** No provider mounted. Distinct from a provider that supplies a lookup which
+ *  happens to answer `undefined`: the first falls back to the replica, the
+ *  second is a test deliberately saying "this world records no exits". */
+const IssueExitContext = createContext<IssueExitLookup | undefined>(undefined)
 
-const IssueExitContext = createContext<IssueExitLookup>(NO_EXITS)
-
-/** Inject the exit lookup for a subtree. The product mounts nothing; this is the
- *  seam that makes `not-visible` reachable under test and wireable later. */
+/** OVERRIDE the exit lookup for a subtree. Without one the resolver reads the
+ *  replica (POD-1510); this is how a test drives all four states without a sync
+ *  kernel, and how a surface could opt into a narrower world. */
 export function IssueExitProvider({
   exitOf,
   children,
@@ -86,12 +97,32 @@ export function IssueExitProvider({
   return <IssueExitContext.Provider value={exitOf}>{children}</IssueExitContext.Provider>
 }
 
+/**
+ * The replica's exit record, as this page's id-only lookup.
+ *
+ * `'issue'` is the AUTHORITY's singular entity name, which is what `exitKind`
+ * keys on — not the `'issues'` collection kind. The two vocabularies are mapped
+ * in `client-core`'s `replica/kernel/kinds.ts`, and passing the plural here
+ * would answer `undefined` forever: a wiring that looks done and restores
+ * nothing, which is the failure mode this whole module is about.
+ *
+ * `exitKind` is OPTIONAL on the contract, so the call is optional too — a
+ * replica that keeps no exit record (the legacy TanStack one) answers
+ * `undefined` and every edge stays `pending`, exactly as before this wiring.
+ */
+function useReplicaExitLookup(): IssueExitLookup {
+  const replica = useStoreSelector((s) => s.replica)
+  return useMemo(() => (id: string) => replica?.exitKind?.('issue', id), [replica])
+}
+
 /** Resolve any issue-to-issue reference against the partial world this replica
  *  holds. One resolver per render, closed over the issue rows and the exit
  *  lookup, so a section resolving five edges does one index build. */
 export function useIssueEdgeResolver(): (id: string | undefined | null) => IssueEdge {
   const issues = useReplicaIssues()
-  const exitOf = useContext(IssueExitContext)
+  const override = useContext(IssueExitContext)
+  const fromReplica = useReplicaExitLookup()
+  const exitOf = override ?? fromReplica
   return useMemo(() => {
     const byId = new Map(issues.map((i) => [i.id as string, i]))
     // The slice is typed over `IssueWire`; `IssueViewModel` is a superset of it

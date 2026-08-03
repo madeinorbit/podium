@@ -27,8 +27,8 @@ import {
   createSideCache,
   FeedAuthorityClient,
   FeedSink,
-  preparePrincipalNamespace,
   PushedBootstrapSource,
+  preparePrincipalNamespace,
   REPLICA_KEY_PREFIX,
   type Replica,
   type StorageApi,
@@ -64,7 +64,7 @@ import {
   SqliteSyncStore,
 } from '@podium/sync/adapters/mobile-sqlite'
 import type { OutboxAttribution, OutboxCommand } from '@podium/sync/outbox'
-import { Replica as KernelReplica, type Cursor, type ReplicaEvent } from '@podium/sync/replica'
+import { type Cursor, Replica as KernelReplica, type ReplicaEvent } from '@podium/sync/replica'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as SQLite from 'expo-sqlite'
 import {
@@ -392,9 +392,7 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
   const adoption = decideLegacyAdoption(EMPTY_ADOPTION_PLAN, evidence, now())
   if (!adoption.adopt) {
     view.cache.discardCache()
-    deps.onDegraded(
-      `Refreshing from the server after a storage upgrade (${adoption.reason}).`,
-    )
+    deps.onDegraded(`Refreshing from the server after a storage upgrade (${adoption.reason}).`)
   }
 
   const outcome = await migrateLegacyReplica({
@@ -430,6 +428,13 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
     cache: view.cache,
     side,
     outbox: outboxes,
+    // POD-1510, same closure-deferred edge as web: the kernel Replica is built
+    // below (it needs `facade.onKernelEvent`), so the facade takes its exit
+    // record as a function rather than a value. Wired on BOTH platforms
+    // deliberately — an exit distinction that existed on web only would make
+    // "unshared" render as "deleted" on mobile, which is the defect, not a
+    // smaller version of it.
+    exits: (entity, entityId) => kernel.exitKind(entity, entityId),
   })
 
   // ---- WIRE v2 (POD-1241) — the feed that populates entity rows ------------

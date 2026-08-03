@@ -817,6 +817,28 @@ class TanstackReplica implements Replica {
     }
   }
 
+  /*
+   * `exitKind()` IS DELIBERATELY NOT IMPLEMENTED HERE (POD-1510).
+   *
+   * The contract declares it OPTIONAL and this replica declines it, which is the
+   * honest answer rather than the convenient one. This is the WIRE-v1 path: a
+   * metadata batch arrives as a snapshot or a delta with `removeIds`, and a
+   * removeId carries no reason. Deletion and revoked visibility are BYTE-
+   * IDENTICAL on the way in — the v2 feed's `evicted` op, which is where the
+   * distinction is actually stated, does not exist on this wire — so there is
+   * nothing here to distinguish them WITH.
+   *
+   * Tracking `removeIds` and answering `'removed'` would type-check, satisfy any
+   * caller that only asks whether the method exists, and be wrong every time a
+   * share is revoked: each eviction would render as a DELETION, which is exactly
+   * the prohibition in ADR 2 D14.1 and the defect the four-state `ReferentState`
+   * exists to prevent. An absent method answers `undefined` — "no exit record" —
+   * and `resolveReferent` renders that as `pending`, which claims nothing.
+   *
+   * There is no work item hiding behind this. POD-378 retires this class; the
+   * distinction arrives with the kernel feed, not with a better guess here.
+   */
+
   subscribeRows(kind: ReplicaKind, cb: () => void): () => void {
     try {
       let set = this.rowListeners.get(kind)
