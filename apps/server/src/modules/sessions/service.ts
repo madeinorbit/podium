@@ -3313,14 +3313,6 @@ export class SessionsService {
       return { transferred: false, startPoint: input.ref }
     }
 
-    const already = await this.rpc.repoOp(
-      'revParseVerify',
-      input.targetRepoPath,
-      { ref: input.ref },
-      input.targetMachineId,
-    )
-    if (already.ok) return { transferred: false, startPoint: input.ref }
-
     /**
      * THE START POINT THAT CROSSES IS A SHA, NOT A NAME.
      *
@@ -3348,6 +3340,31 @@ export class SessionsService {
       throw new Error(`source machine returned an unusable commit id for ${input.ref}: ${sha}`)
     }
 
+    /**
+     * A NAME RESOLVING IS NOT THE SAME COMMIT RESOLVING (POD-1572).
+     *
+     * This used to return early as soon as the target could rev-parse the NAME, which made
+     * "every start from an origin branch free". For a SHARED name — `main`, `origin/main` —
+     * every machine has its own, so the check passed on a target arbitrarily far behind and
+     * the worktree add then started from the target's stale name. Measured 2026-08-03:
+     * a start onto vmi3407763 with parentBranch `main` created the branch 455 commits behind
+     * ludovico's main, with no bundle, no warning, and exit status 0.
+     *
+     * So compare the COMMITS, not the names. Only a target that resolves the same name to the
+     * same sha skips ahead; anything else falls through to the sha path below, which ships
+     * what is missing (or skips via the POD-1542 base guard when the objects are already
+     * there) and starts from the sha the SOURCE meant.
+     */
+    const already = await this.rpc.repoOp(
+      'revParseVerify',
+      input.targetRepoPath,
+      { ref: input.ref },
+      input.targetMachineId,
+    )
+    if (already.ok && already.output.trim().split(/\s+/u)[0] === sha) {
+      return { transferred: false, startPoint: sha }
+    }
+
     // What can we bundle FROM? Only commits BOTH sides can name.
     const candidates = [...new Set(['main', 'origin/main', input.ref])]
     const sourceVerified = await Promise.all(
@@ -3368,10 +3385,32 @@ export class SessionsService {
     const bases = verifiedCommonBundleBases(sourceVerified, targetVerified)
 
     /**
+     * THE TARGET'S OWN TIP IS THE BEST BASE FOR A STALE SHARED NAME (POD-1572).
+     *
+     * When the target resolves the name to a DIFFERENT commit, that commit is exactly the
+     * gap's floor: the target proved it holds it by resolving it. Without it the candidate
+     * list ('main', 'origin/main', ref) can intersect to nothing on a shared name — every
+     * candidate resolves to the source's tip, which the target does not have — and the
+     * bundle would carry the repository's whole history to close a 455-commit gap.
+     * Only usable if the SOURCE can name it too; a target ahead on some unrelated line
+     * fails that check and simply gets the wider bundle.
+     */
+    const targetSha = already.ok ? (already.output.trim().split(/\s+/u)[0] ?? '') : ''
+    if (/^[0-9a-f]{40}$/u.test(targetSha) && !bases.includes(targetSha)) {
+      const onSource = await this.rpc.repoOp(
+        'revParseVerify',
+        input.sourceRepoPath,
+        { ref: targetSha },
+        source.machineId,
+      )
+      if (onSource.ok) bases.push(targetSha)
+    }
+
+    /**
      * NOTHING TO SHIP IS NOT A FAILURE (POD-1542).
      *
-     * The early return above asks whether the target resolves the ref by NAME, and a
-     * branch name is machine-local — a target that fetched the branch, or that received
+     * The early return above asks whether the target resolves the ref by NAME to the same
+     * commit, and a branch name is machine-local — a target that fetched the branch, or that received
      * it from an earlier successful handoff, holds every commit while still having no
      * ref by that name. Then the base intersection legitimately contains the tip itself,
      * `git bundle create <ref> ^<tip>` has an empty commit set, and git refuses:
