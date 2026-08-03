@@ -406,8 +406,29 @@ export async function runtimeChecks(kernel: KernelUnderTest): Promise<Finding[]>
     anchors: state,
   })
 
-  const ADA = { kind: 'user', userId: 'ada' } as const
-  const GRACE = { kind: 'user', userId: 'grace' } as const
+  /**
+   * POD-1196 renamed UserPrincipal.userId to .user. These fixtures kept the old
+   * name, so `principal.user` read undefined, ADA matched no grant, and this
+   * audit reported "the feed delivers nothing" against a HEALTHY kernel — while
+   * the complement check (GRACE must receive nothing) passed VACUOUSLY, because
+   * nobody received anything at all. A stale fixture turned both halves off.
+   *
+   * Kept as plain strings on purpose: this file resolves no modules (see the
+   * header), so it must not import the brand constructors. The brands are
+   * compile-time-only casts, so the runtime behaviour is identical.
+   */
+  const ADA = {
+    kind: 'user',
+    user: 'ada',
+    device: 'audit:scoped-feed:ada',
+    capability: 'audit:scoped-feed:ada',
+  } as const
+  const GRACE = {
+    kind: 'user',
+    user: 'grace',
+    device: 'audit:scoped-feed:grace',
+    capability: 'audit:scoped-feed:grace',
+  } as const
 
   /**
    * A `batch` that actually carries the two fields the watermark property is
