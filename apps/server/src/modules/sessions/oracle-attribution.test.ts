@@ -218,6 +218,15 @@ describe('oracle: who moved this session between machines', () => {
       Object.keys(row ?? {})
         .filter((k) => /source|by|actor|owner|user/i.test(k))
         .sort(),
-    ).toEqual(['deletedByIssueId', 'deletionSource', 'nameSource', 'ownerUserId', 'spawnedBy'])
+    ).toEqual([
+      // POD-1516: the session now carries its attribution PAIR, and this oracle
+      // pins that handoff does not touch it — a move is not a re-creation.
+      'createdBy',
+      'deletedByIssueId',
+      'deletionSource',
+      'nameSource',
+      'ownerUserId',
+      'spawnedBy',
+    ])
   })
 })

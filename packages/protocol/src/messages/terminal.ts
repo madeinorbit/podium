@@ -274,7 +274,11 @@ export type AgentInstruction = z.infer<typeof AgentInstruction>
 export const SessionBindingSpawnPrincipal = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('user'), userId: UserIdField }),
   z.object({ kind: z.literal('agent'), parentBindingId: SessionIdField }),
-  z.object({ kind: z.literal('system') }),
+  /** `job` NAMES the in-process job (steward, automation, boot reconcile), the
+   *  way ADR 9 D1's system arm does. Optional so a peer that predates it still
+   *  parses, and because the arm was carried here without one: absent means the
+   *  producer recorded no job name, never that a job name was suppressed. */
+  z.object({ kind: z.literal('system'), job: z.string().optional() }),
 ])
 export type SessionBindingSpawnPrincipal = z.infer<typeof SessionBindingSpawnPrincipal>
 

@@ -2,6 +2,7 @@ import {
   type AccountId,
   type AgentKind,
   type AgentRuntimeState,
+  type Attribution,
   type ConversationId,
   type Geometry,
   type IssueId,
@@ -98,6 +99,10 @@ export interface SessionInit {
   /** WHO created this session (provenance, issue #60): 'user', 'issue:<id>',
    *  'superagent:<threadId>', … Absent = unknown (legacy row). */
   spawnedBy?: string
+  /** The ADR 9 D5 A3 attribution pair, stamped at spawn from the transport
+   *  principal. Optional ONLY so a session reloaded from a pre-POD-1516 row can
+   *  exist without one; every live spawn supplies it. */
+  createdBy?: Attribution
   /** True for a headless harness session (no PTY; concierge unification). */
   headless?: boolean
   /** Explicit issue attachment (issue-as-workspace). Absent = unattached. */
@@ -181,6 +186,9 @@ export class Session {
   readonly durableLabel: string
   /** Creation provenance (issue #60) — immutable for the life of the row. */
   readonly spawnedBy: string | undefined
+  /** WHO created this session and FOR WHOM. Immutable after create
+   *  (`SESSION_IMMUTABLE_AFTER_CREATE`): nothing re-attributes a live session. */
+  readonly createdBy: Attribution | undefined
   /** Actual launch configuration captured once at spawn [spec:SP-dae6]. */
   readonly model: string | undefined
   readonly effort: string | undefined
@@ -283,6 +291,7 @@ export class Session {
     this.origin = init.origin
     this.createdAt = init.createdAt
     this.spawnedBy = init.spawnedBy
+    this.createdBy = init.createdBy
     this.model = init.model
     this.effort = init.effort
     this.accountId = init.accountId
@@ -609,6 +618,7 @@ export class Session {
       lastInputAt: Session.msToIso(this.terminal.lastInputAtMs),
       lastResumedAt: Session.msToIso(this.terminal.lastResumedAtMs),
       spawnedBy: this.spawnedBy ?? null,
+      ...(this.createdBy ? { createdBy: this.createdBy } : {}),
       machineId: this.machineId,
       headless: this.headless,
       issueId: this.issueId ?? null,
@@ -696,6 +706,11 @@ export class Session {
       ...(this.queuedMessageCount > 0 ? { queuedMessageCount: this.queuedMessageCount } : {}),
       ...(this.conversationPodiumId ? { conversationPodiumId: this.conversationPodiumId } : {}),
       ...(this.spawnedBy ? { spawnedBy: this.spawnedBy } : {}),
+      // THE ATTRIBUTION PAIR ON THE WIRE (POD-1516). Server-stamped and read-only:
+      // it is projected from the durable pair, and nothing a client sends reaches
+      // it. Omitted when none was ever recorded — which is the ONLY thing its
+      // absence means, because the spawn path always stamps one.
+      ...(this.createdBy ? { createdBy: this.createdBy } : {}),
       ...(this.headless ? { headless: true } : {}),
       ...(this.issueId ? { issueId: this.issueId } : {}),
       ...(this.refIssueId ? { refIssueId: this.refIssueId } : {}),

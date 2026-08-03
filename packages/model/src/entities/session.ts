@@ -38,9 +38,11 @@
  *
  * ATTRIBUTION (§3.1.3 A3, and see `entities/issue.ts`). `controllerId` and
  * `spawnedBy` are actor-shaped fields carrying at most one value. A3 makes
- * attribution a PAIR — actor (which agent) and on-behalf-of (which human). The
- * on-behalf-of half is POD-1075's; flagged to POD-304 (provenance envelope) as
- * a placement decision that must accommodate two values, not one.
+ * attribution a PAIR — actor (which agent) and on-behalf-of (which human).
+ * `createdBy` below is that pair, LANDED (POD-1516): the note this paragraph
+ * used to carry — "the on-behalf-of half is POD-1075's" — expired when POD-1075
+ * shipped `UserId` and the `users` table, so the pair now has a production value
+ * on both halves and is projected rather than deferred.
  *
  * MACHINE FACTS EMBEDDED HERE. `machineId` / `machineName` are a *reference to*
  * a machine, not facts about one, so they stay on the session rather than
@@ -57,6 +59,7 @@ import {
   MachineIdField,
   SessionIdField,
 } from '../ids'
+import { Attribution } from '../fields/attribution'
 import { SESSION_FLAT_PROVENANCE_SHAPE } from '../provenance/envelope'
 import { AgentKind } from './agent'
 
@@ -383,6 +386,41 @@ export const SessionMetaEntity = z.object({
    *  web hides it from the ordinary session lists (Phase C). Additive: absent =
    *  a normal PTY session. */
   headless: z.boolean().optional(),
+  /**
+   * WHO CREATED THIS SESSION, AND FOR WHOM — the ADR 9 D5 A3 attribution PAIR,
+   * projected onto the wire (POD-1516, readiness §3.1.3 A3).
+   *
+   * COMPOSED, NOT RESTATED. This is `fields/attribution.ts`'s `Attribution` —
+   * the one field schema for the pair, already `SessionAggregate.createdBy` —
+   * so the wire cannot drift from the aggregate and no consumer meets a second
+   * spelling. `spawnedBy` above is its freeform ancestor and carries at most the
+   * ACTOR half; it stays for its existing parsers and is not the pair.
+   *
+   * SERVER-STAMPED AND READ-ONLY TO CLIENTS. Both halves come from the
+   * authenticated transport principal (ADR 3 D7) via the session's binding
+   * principal, which the protocol declares as "server-authored identity input …
+   * no command payload has this shape". No spawn or rename payload carries an
+   * actor, an owner or an origin, and nothing a client sends reaches this field.
+   *
+   * OPTIONAL, AND ABSENT MEANS EXACTLY ONE THING: **no attribution was ever
+   * recorded** for this session — a row written before the columns existed, or a
+   * payload from a peer that predates this field. It NEVER means "not
+   * evaluated". That distinction is enforceable rather than aspirational because
+   * the server stamps the pair UNCONDITIONALLY for every session it creates, so
+   * within this version there is no unevaluated state to confuse it with — which
+   * is `annotations/matrix.ts`'s conditional-attribution defect closed for
+   * sessions rather than projected around. A consumer renders absent AS ABSENT;
+   * falling back to "probably the current user" is correct on a single-user
+   * instance and silently wrong the moment a second principal exists.
+   *
+   * THE PAIR MUST NOT COLLAPSE. `actor` answers WHO ACTED and `onBehalfOf`
+   * answers FOR WHOM, and an agent acting for a human is representable only as
+   * both: dropping `actor` hides which agent ran, dropping `onBehalfOf` loses
+   * the delegation. `onBehalfOf` stays nullable — `null` is the representable
+   * "no human behind this" for the machine and system arms (ADR 9 D8 S5), never
+   * a failure to record one.
+   */
+  createdBy: Attribution.optional(),
 })
 export type SessionMetaEntity = z.infer<typeof SessionMetaEntity>
 
