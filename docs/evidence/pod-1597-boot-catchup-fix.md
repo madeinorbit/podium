@@ -93,5 +93,21 @@ makes it matter again.
 
 ## Gates
 
-- `bun run typecheck` — 23/23 successful, 19 cached.
-- `apps/server` unit lane — 263 files, 3912 passed, 1 skipped.
+    bun run typecheck
+     Tasks:    23 successful, 23 total
+    Cached:    20 cached, 23 total
+      Time:    17.245s
+
+    bun --bun vitest run --config vitest.unit.config.ts --pool=forks apps/server/src
+     Test Files  263 passed (263)
+          Tests  3912 passed | 1 skipped (3913)
+       Duration  219.90s
+
+The FULL unit lane (`bun run test:unit`, 724 files) is 5 files / 6 tests red on this
+branch, and they are **integration's, not this change's**: `scripts/audit-durable-classes`
+(`message_reads` undeclared, `session-mint.ts` unaccounted), `scripts/audit-god-objects`
+(`issues/service/workflow.ts` at 1319 lines against a 1300 budget),
+`packages/runtime/src/session-mint`, `apps/cli/src/operator-client`,
+`apps/daemon/src/unknown-op-reply`. Every file those checks name is byte-identical
+to integration `47368203` under `git diff 473682032 HEAD -- <them>`, and this commit
+touches none of them. A sixth worker died of SIGILL mid-file on a box at load 20–25.
