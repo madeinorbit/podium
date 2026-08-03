@@ -76,7 +76,8 @@ The eviction gate was **mutation-checked**: inverting the slice's eviction arm f
 the partial-world cases, so its pass is evidence rather than decoration.
 
 **Not verified here:** four pre-existing cases in `transcript-loading.browser.e2e.ts` fail
-on this branch, all on `newSession` timing out while waiting for the test API to attach —
-a harness-capacity failure under load, not a chat failure. Its case (a), *"a RUNNING claude
-session renders its on-disk transcript in the chat view"*, **passes** against the
-refactored component.
+on this branch, all on `newSession` timing out while waiting for the test API to attach.
+That is harness capacity, not chat — a **full browser lane was running concurrently in the
+POD-406 worktree** on the same box for the duration of these runs. Its case (a), *"a RUNNING
+claude session renders its on-disk transcript in the chat view"*, **passes** against the
+refactored component, and the new chat-flow suite passes in the same conditions.
