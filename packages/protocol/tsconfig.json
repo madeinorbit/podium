@@ -1,6 +1,6 @@
 {
-  "//": "dom.json, not base.json: protocol is browser-safe and, since POD-300, resolves @podium/model's SOURCE through the @podium/source condition — so model's files are checked under THIS config. model/src/predicates/mobile-entry.ts uses the WHATWG URLSearchParams global, which base.json's lib (ES2023 only, types: []) does not declare. DOM is the browser-safe way to declare it; adding @types/node here would not be.",
-  "extends": "../../tooling/tsconfig/dom.json",
+  "//": "base.json — the lean lib (ES2023, types: []). protocol is browser-safe and, since POD-300, resolves @podium/model's SOURCE through the @podium/source condition, so model's files are checked under THIS config. It was widened to dom.json purely to declare the WHATWG URLSearchParams global that model/src/predicates/mobile-entry.ts used; POD-1124 removed that ambient dependency, so this is lean again. Keeping it lean is what keeps L0 honest: a node or DOM global reaching model's shipped source reddens THIS typecheck.",
+  "extends": "../../tooling/tsconfig/base.json",
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": "src",
