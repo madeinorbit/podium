@@ -16,8 +16,11 @@ import { colorSchemeReport, DEFAULT_THEME, isLightBackground, TerminalView } fro
 
 beforeAll(() => {
   // happy-dom's WebGL is real enough to load but crashes on theme changes —
-  // keep these tests on the DOM renderer via the documented escape hatch.
-  localStorage.setItem('podium:gpu', 'off')
+  // keep these tests on the DOM renderer via the documented escape hatch, which
+  // is URL-only since POD-329 dropped raw localStorage reads from the client.
+  ;(globalThis as { happyDOM?: { setURL: (u: string) => void } }).happyDOM?.setURL(
+    'http://localhost/?gpu=off',
+  )
   if (!('ResizeObserver' in globalThis)) {
     ;(globalThis as Record<string, unknown>).ResizeObserver = class {
       observe() {}
