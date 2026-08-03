@@ -713,7 +713,11 @@ export function PanelRow({
               issue linkage. */}
           <AttributionPair
             attribution={session.createdBy}
-            className="min-w-0 flex-none overflow-hidden font-mono text-[9.5px] text-[#6c6c78]"
+            compact
+            // Shrinkable, never flex-none: an agent actor's id is a full uuid,
+            // and a rigid pair pushed its on-behalf-of half clean off the row.
+            // Capped at half the row so the session's NAME still wins the space.
+            className="min-w-0 max-w-[50%] shrink font-mono text-[9.5px] text-[#6c6c78]"
           />
           {/* Unsent composer draft → DRAFT tag (shown wherever a session is listed,
               not just NEEDS YOUR ATTENTION). The session is also lifted by its

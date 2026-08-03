@@ -87,6 +87,30 @@ describe('PanelRow renders the session attribution pair (POD-1526)', () => {
     expect(actor).not.toBe(onBehalfOf)
   })
 
+  it('a uuid actor is SHORTENED on the row, and the human half still survives beside it', () => {
+    // The row is dense and an agent id is a full uuid. Rendered whole it ate the
+    // line and pushed the on-behalf-of half off the row — a pair that is
+    // technically present and practically collapsed, on exactly the delegated
+    // rows the pair exists to distinguish. Shortening the DISPLAY is safe here
+    // because `actorDisplayId` is already display-only and non-round-trippable;
+    // the full value stays in `title` for anyone who needs it.
+    renderRow(
+      sess({
+        createdBy: {
+          actor: actorAgent('8e2ed49f-b94c-4a90-936f-1c0d4e5a7b21' as never),
+          onBehalfOf: 'user:sole' as never,
+        },
+      }),
+    )
+    const actor = screen.getByTestId('attribution-actor')
+    const onBehalfOf = screen.getByTestId('attribution-on-behalf-of')
+    expect(actor.textContent).toBe('8e2ed49f')
+    // The full id is not lost, only not shouted.
+    expect(actor.getAttribute('title')).toContain('8e2ed49f-b94c-4a90-936f-1c0d4e5a7b21')
+    // And the human half is still rendered in full beside it.
+    expect(onBehalfOf.textContent).toContain('user:sole')
+  })
+
   it('a session with no recorded attribution renders NO pair', () => {
     // POD-1516 does not backfill. Absent means "no attribution was ever
     // recorded" — never "not evaluated", and never the current user.

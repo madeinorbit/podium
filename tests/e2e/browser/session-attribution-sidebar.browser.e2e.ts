@@ -27,6 +27,12 @@ test.skip(({ isMobile }) => isMobile, 'desktop sidebar verification')
 test('a delegated session row shows the acting agent AND the human it acted for', async ({
   page,
 }) => {
+  // The config's 30s default is a per-TEST cap, and this test cold-starts the
+  // whole stack: the sidebar's first paint waits on a repo discovery pass that
+  // has been measured at 8s on a loaded box. Generous per-assertion timeouts
+  // below mean nothing without this — the run that found it died at 30s with
+  // every individual wait still well inside its own budget.
+  test.setTimeout(180_000)
   test.fail(
     process.env.PODIUM_E2E_SESSION_ATTRIBUTION !== '1',
     'needs PODIUM_E2E_SESSION_ATTRIBUTION=1 on the harness server — without it there are no attribution rows to read',
@@ -43,7 +49,13 @@ test('a delegated session row shows the acting agent AND the human it acted for'
     .getByTestId('unified-issue-row')
     .filter({ hasText: 'Session attribution rows' })
     .first()
-  await expect(issueRow).toBeVisible({ timeout: 30_000 })
+  // PATIENT BY NECESSITY, not by superstition. The harness answers /health as
+  // soon as the server listens, which is BEFORE this fixture's sessions exist:
+  // both spawns retry against races that resolve on their own schedule (the
+  // daemon's harness inventory, then the parent's minted binding), so the rows
+  // can arrive tens of seconds after the page does. Waiting for them is correct;
+  // a shorter budget here just reports "no rows" for a fixture still building.
+  await expect(issueRow).toBeVisible({ timeout: 120_000 })
 
   // REAL CLICK: the agent roster folds behind the row's chevron, so the pair is
   // only on screen once a user expands the issue — which is exactly the gesture
@@ -79,6 +91,9 @@ test('a delegated session row shows the acting agent AND the human it acted for'
   expect(behalfText).toMatch(/^for \S/)
   // The pair did NOT collapse: the human half does not merely restate the actor.
   expect(behalfText).not.toContain(actorText)
+
+  if (process.env.PODIUM_E2E_ATTRIBUTION_SHOT)
+    await issueRow.screenshot({ path: process.env.PODIUM_E2E_ATTRIBUTION_SHOT })
 
   // Real click: selecting the delegated row opens it, and the attribution
   // survives the row becoming the ACTIVE row (a state that restyles it).
