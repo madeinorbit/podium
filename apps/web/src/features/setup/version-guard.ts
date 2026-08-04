@@ -1,5 +1,10 @@
 import { WIRE_RELOAD_COUNTER_KEY } from '@podium/client-core/ui-state'
-import { WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
+import {
+  classifySkew,
+  parseServerVersion,
+  WIRE_VERSION,
+  wireSchemaDigest,
+} from '@podium/protocol'
 import { reportSkew } from '@/app/skew-notice'
 
 /**
@@ -19,15 +24,7 @@ const RELOAD_COUNTER_KEY = WIRE_RELOAD_COUNTER_KEY
 const MAX_RELOADS = 2
 
 /** Result of a version check: matched, a hard-reload was triggered, or the loop guard tripped. */
-export type VersionCheck = 'ok' | 'reloaded' | 'blocked'
-
-/** Shape the server's `/version` endpoint returns (see apps/server GET /version). */
-interface ServerVersion {
-  wireVersion?: unknown
-  minSupportedVersion?: unknown
-  appVersion?: unknown
-  wireSchemaDigest?: unknown
-}
+export type VersionCheck = 'ok' | 'reloaded' | 'blocked' | 'server-behind'
 
 /**
  * Evict the PWA service worker + every cache, then hard-reload. Best-effort: a failure in
@@ -88,41 +85,42 @@ function clearReloadCounter(): void {
  * - Network / parse error → `'ok'` (never block the app on a flaky `/version`).
  */
 export async function checkServerVersion(httpOrigin: string): Promise<VersionCheck> {
-  let server: ServerVersion
+  let server: ReturnType<typeof parseServerVersion>
   try {
     const res = await fetch(`${httpOrigin}/version`)
-    server = (await res.json()) as ServerVersion
+    server = parseServerVersion(await res.json())
   } catch {
     return 'ok' // unreachable or non-JSON /version → proceed rather than block
   }
 
-  const serverWire = typeof server.wireVersion === 'number' ? server.wireVersion : undefined
-  const serverMin =
-    typeof server.minSupportedVersion === 'number' ? server.minSupportedVersion : undefined
-  const serverSchema =
-    typeof server.wireSchemaDigest === 'string' ? server.wireSchemaDigest : undefined
+  const verdict = classifySkew(server, { wire: WIRE_VERSION, digest: wireSchemaDigest() })
 
-  const tooOld = serverMin !== undefined && WIRE_VERSION < serverMin
-  const mismatch = serverWire !== undefined && serverWire !== WIRE_VERSION
-  /**
-   * The check the wire version cannot make (POD-1610).
-   *
-   * `WIRE_VERSION` is coarse BY DESIGN — additive entity kinds and renamed
-   * payload fields do not bump it — so the bundle and the server agreed on wire 2
-   * for the whole three days they were failing to understand each other. The
-   * schema digest is the fine-grained answer: same digest means both sides were
-   * built from the same protocol source.
-   *
-   * Absent (an older server that does not advertise one) is NOT a mismatch. A
-   * client that treated silence as skew would reload-loop against every server
-   * predating this field, which is the exact failure the loop guard below exists
-   * to prevent — and would be a detector that fires on healthy pairs.
-   */
-  const schemaSkew = serverSchema !== undefined && serverSchema !== wireSchemaDigest()
-  if (!tooOld && !mismatch && !schemaSkew) {
+  if (verdict === 'ok') {
     clearReloadCounter()
     return 'ok'
   }
+
+  /**
+   * This client is AHEAD of its server. A reload cannot fix that: the fresh
+   * bundle would be just as far ahead. Reloading here would burn both attempts
+   * and then tell the user to rebuild, which is the wrong instruction. The thing
+   * to move is the server, so say so and leave the reload budget alone.
+   */
+  if (verdict === 'client-too-new') {
+    reportSkew({
+      source: 'boot-digest',
+      severe: false,
+      message:
+        `Your server is running an older version of Podium than this app ` +
+        `(wire ${server.wireVersion} against ${WIRE_VERSION}). Update your server to continue.`,
+    })
+    return 'server-behind'
+  }
+
+  const serverWire = server.wireVersion
+  const serverMin = server.minSupportedVersion
+  const serverSchema = server.wireSchemaDigest
+  const schemaSkew = verdict === 'schema-skew'
 
   const reloads = readReloadCounter()
   if (reloads >= MAX_RELOADS) {
