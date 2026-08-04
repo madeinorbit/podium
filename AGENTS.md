@@ -57,6 +57,39 @@ execute for real; there is no cached/uncached split to choose there.
 
 Evidence for the cache-key coverage table: **[docs/agents/pod-1378-cache-evidence.md](docs/agents/pod-1378-cache-evidence.md)**.
 
+## Affected-only tests
+
+`bun run test:affected` runs the `test` turbo task filtered to the packages your change
+actually touches — the ones whose sources changed, plus every package that depends on
+them. On a 22-package workspace that is the whole point: editing a leaf selects it and
+its dependents; editing `packages/model` correctly selects everything.
+
+**This is a fast inner-loop approximation. It does not replace `bun run test` before a
+commit.** It structurally cannot run the root-level lanes, which sweep the whole
+monorepo from root vitest configs rather than from any package:
+
+- `test:unit` — root vitest sweep
+- `test:integration` — real processes, PTYs, server boots
+- `test:acceptance` — loop-split load suite
+- `test:bun:unit` — bun-native `*.bun.test.ts` suites
+
+Because those lanes are invisible to a package filter, the entry point **refuses to run
+rather than print a green it did not earn**: if any changed file is not owned by a
+package that defines a `test` script (root configs, `scripts/`, tooling), it exits 1 and
+tells you to run `bun run test`. Use `--allow-uncovered` only once you have run the full
+lane yourself.
+
+The base is resolved, never hardcoded: the merge base against the *closest* of your
+upstream, `origin/main`, and `origin/project/*`. Worktrees cut from a long-lived project
+branch therefore diff against that branch, not against main. Override when needed:
+
+```
+bun run test:affected -- --base=<ref>     # or PODIUM_TEST_BASE=<ref>
+```
+
+Uncommitted and untracked changes count, and a checkout with no usable
+`node_modules/@podium` links is refused for the same reason `typecheck` refuses it.
+
 ## Testing policy
 
 Match testing effort to regression risk. Simple, low-risk changes may skip automated tests when
