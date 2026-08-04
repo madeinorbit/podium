@@ -159,7 +159,21 @@ export interface SessionInboxDeps {
   needsSubmitVerification(agentKind: AgentKind): boolean
   prepareSend(sessionId: SessionId, attribution: Attribution, kind: 'text' | 'answer'): void
   ownerOf(sessionId: SessionId): UserId | null | undefined
-  resurrect(sessionId: SessionId, principal: InboxPrincipalReference): Promise<{ ok: boolean; reason?: string }>
+  /**
+   * REQUEST a wake for a parked target; it does not perform one.
+   *
+   * Deliberately `void`, not an outcome. The wake is dispatched by a reaction
+   * (`session.wakeRequested`) that re-authorizes the queued delegation live and
+   * may legitimately refuse — so nothing here can be told whether the session
+   * came back, and the composition root that DOES know is where the refusal and
+   * the failure are reported. This used to be typed as an outcome, which read
+   * like the caller could act on it while the only implementation returned a
+   * hardcoded `{ ok: true }`: the failure branch below it was dead code that
+   * made the silence look handled (POD-1650).
+   *
+   * The queued row is durable either way, so a refused wake loses no input.
+   */
+  resurrect(sessionId: SessionId, principal: InboxPrincipalReference): void
   /**
    * Live take-control / hold-control gate (POD-1081). When omitted, controller
    * identity is still stamped but policy is open — unit fixtures without a
@@ -242,12 +256,8 @@ export class SessionInbox {
       this.deps.prepareSend(input.sessionId, principal.attribution, 'text')
       this.deps.broadcast()
     }
-    if (parked) {
-      void this.deps.resurrect(input.sessionId, principal).then((result) => {
-        if (!result.ok)
-          console.warn(`[podium] wake-on-queue failed for ${input.sessionId}: ${result.reason}`)
-      })
-    }
+    // Ask for the wake; the reaction decides and reports. See the port's note.
+    if (parked) this.deps.resurrect(input.sessionId, principal)
     this.drain(input.sessionId)
     return { ok: true, queued: true }
   }

@@ -1038,7 +1038,18 @@ export class SessionRegistry {
         principal,
         sourceMessageId: null,
       })
-      if (!authorized.ok) return
+      // REFUSING THE WAKE IS CORRECT — revocation is supposed to stop a parked
+      // session being woken by input it may no longer accept, and the queued row
+      // stays pending for an explicit later resume. Doing it SILENTLY was not:
+      // the sender is told its message was queued, the session never comes back,
+      // and nothing anywhere records why. A refused wake looked identical to a
+      // broken one for as long as it took to read this line (POD-1650).
+      if (!authorized.ok) {
+        console.warn(
+          `[podium] wake refused for ${sessionId}: ${authorized.reason ?? 'not authorized'} — input stays queued for an explicit resume`,
+        )
+        return
+      }
       void issueSessionLifecycle
         .resurrectSession({ sessionId })
         .then((result) => {

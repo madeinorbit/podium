@@ -3078,6 +3078,38 @@ describe('hibernation', () => {
     expect(reg.modules.sessions.hibernateSession({ sessionId }).ok).toBe(false)
   })
 
+  // A wake the authorization gate refuses is CORRECT — revocation must stop a
+  // parked session being woken by input it may no longer accept. Refusing it
+  // silently was the defect: the sender is told 'queued', the session never
+  // returns, and nothing records why, so a refused wake and a broken one look
+  // identical (POD-1650).
+  it('a refused wake says so instead of dropping the request silently', () => {
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const daemon: ControlMessage[] = []
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    const sessionId = liveSession(reg, daemon)
+    reg.modules.sessions.hibernateSession({ sessionId })
+    daemon.length = 0
+
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    // A user principal naming a user that no longer exists — the shape a
+    // revoked delegation leaves behind. The gate refuses it, so no spawn may go
+    // out; the refusal must still be visible.
+    const ghost = 'usr_ghost'
+    reg.bus.emit('session.wakeRequested', {
+      sessionId,
+      principal: {
+        kind: 'user',
+        principalRef: ghost,
+        attribution: { actor: { kind: 'user', id: ghost }, onBehalfOf: ghost },
+      } as never,
+    })
+
+    expect(daemon.some((m) => m.type === 'spawn')).toBe(false)
+    expect(warn.mock.calls.flat().join(' ')).toContain('wake refused')
+    warn.mockRestore()
+  })
+
   it('resurrect respawns under the same id with the resume ref', async () => {
     const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
