@@ -7,12 +7,11 @@ import type {
 import { planConvergence } from '@podium/protocol'
 import type { PendingGrant } from './pending-grant'
 
-type PlatformAsset = Extract<UpdateArtifact, { delivery: 'feed' }>['platforms'][string]
+type PlatformAsset = Extract<UpdateArtifact, { delivery: 'feed' | 'bundle' }>['platforms'][string]
+type GitArtifact = Extract<UpdateArtifact, { delivery: 'git' }>
 
 /** The delivery result is deliberately small: verification happens before this seam. */
-export interface GrantArtifact {
-  bytes: Uint8Array
-}
+export type GrantArtifact = { bytes: Uint8Array } | { git: true }
 
 export interface GrantApplyDeps {
   /** Read the label currently running, without ordering or semver parsing it. */
@@ -22,7 +21,10 @@ export interface GrantApplyDeps {
   /** The running target triple; platform selection must happen before delivery. */
   platform?: string
   /** Fetch and verify the already-resolved platform asset. */
-  fetchArtifact(asset: PlatformAsset, delivery: 'feed' | 'bundle'): Promise<GrantArtifact>
+  fetchArtifact(
+    asset: PlatformAsset | GitArtifact,
+    delivery: UpdateArtifact['delivery'],
+  ): Promise<GrantArtifact>
   /** Binary swap only. Database state is intentionally not part of this phase. */
   swap(bytes: Uint8Array): void | Promise<void>
   /** Persist before asking the process manager to restart us. */
@@ -79,17 +81,11 @@ export async function applyGrant(grant: UpdateGrantMessage, deps: GrantApplyDeps
     report(deps, grant, 'rejected', current, `cannot converge: ${plan.reason}`)
     return
   }
-  if (plan.delivery === 'git') {
-    // Keep the refusal explicit even though planConvergence currently checks the
-    // capability first. Phase 5 owns git delivery.
-    report(deps, grant, 'rejected', current, 'git delivery is not implemented in this phase')
-    return
-  }
-
   report(deps, grant, 'downloading', current)
   try {
-    const { bytes } = await deps.fetchArtifact(plan.asset, plan.delivery)
-    await deps.swap(bytes)
+    const asset = plan.delivery === 'git' ? plan.artifact : plan.asset
+    const artifact = await deps.fetchArtifact(asset, plan.delivery)
+    if ('bytes' in artifact) await deps.swap(artifact.bytes)
     deps.writePending({
       grantId: grant.grantId,
       targetVersion: grant.target.version,

@@ -18,8 +18,9 @@ type GitArtifact = Extract<UpdateArtifact, { delivery: 'git' }>
 
 /**
  * A feed or bundle plan contains the exact platform asset selected for this
- * daemon. Git remains represented as its checkout descriptor for Phase 5;
- * delivery deliberately rejects it in this phase.
+ * daemon. Git remains represented as its platform-independent checkout
+ * descriptor; its host-side delivery implementation performs the fetch and
+ * checkout after this planner has authorized it.
  */
 export type ConvergencePlan =
   | { action: 'already-current' }
@@ -52,9 +53,8 @@ export function planConvergence(ctx: {
     return { action: 'cannot', reason: 'unsupported-delivery' }
   }
 
-  // Git is a platform-independent checkout. Phase 5 owns fetching it; keeping
-  // the descriptor here lets that delivery path fail explicitly rather than
-  // silently refusing a granted target.
+  // Git is a platform-independent checkout. Keep the descriptor here so the
+  // host-side delivery seam can fetch and check out the exact granted revision.
   if (artifact.delivery === 'git') return { action: 'converge', delivery: 'git', artifact }
 
   // Never select another platform's bytes. A signed, digest-matching binary

@@ -11,4 +11,4 @@
  * lockstep with install.sh's PUBKEY default (scripts/install-pubkey.test.ts enforces it).
  * The Tauri minisign `pubkey` in apps/desktop/src-tauri/tauri.conf.json is a separate key.
  */
-export const PODIUM_UPDATE_PUBKEY = 'MCowBQYDK2VwAyEAG12/153QJI/SePyYeJQhBSbh1ZsFgkoMkwb823NiYOU='
+export { PODIUM_UPDATE_PUBKEY } from '@podium/runtime/update-delivery'

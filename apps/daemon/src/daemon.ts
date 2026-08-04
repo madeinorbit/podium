@@ -72,6 +72,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       host.frameGuard.send(socket as never, message as DaemonMessage),
     onConnected: host.connected,
     onTerminal: host.close,
+    restartAfterUpdate: opts.restartAfterUpdate,
   })
   await connection.start()
 
