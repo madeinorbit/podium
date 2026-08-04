@@ -133,9 +133,7 @@ export default defineConfig({
       // source condition faithfully resolves MAIN's src. The build exits 0 and
       // bundles code that is not the code under review [POD-746]. Verify with the
       // bundle-content grep, never the exit code.
-      '@podium/model': fileURLToPath(
-        new URL('../../packages/model/src/index.ts', import.meta.url),
-      ),
+      '@podium/model': fileURLToPath(new URL('../../packages/model/src/index.ts', import.meta.url)),
       '@podium/protocol': fileURLToPath(
         new URL('../../packages/protocol/src/index.ts', import.meta.url),
       ),
@@ -155,6 +153,20 @@ export default defineConfig({
     // copy while our sources get 19.2.7 and react-dom hard-errors on mismatch.
     dedupe: ['react', 'react-dom'],
   },
+  // Source maps ship with EVERY build, as `hidden` (POD-1658): the `.map` files land
+  // in dist, but no `//# sourceMappingURL=` comment is emitted, so no browser ever
+  // fetches them and end users are never served a byte of our sources. That is enough
+  // for the job they exist to do — a CDP CPU profile carries raw file:line:col call
+  // frames and is resolved OFFLINE against dist/*.map by
+  // docs/agents/pod-1658/resolve-profile.mjs, which needs the map on disk and nothing
+  // in the page. Without this, top self-time frames read `ure`/`dre`/`ese` and a
+  // profile of the real bundle cannot be acted on.
+  //
+  // Set PODIUM_SOURCEMAP=linked when you want Chrome/Firefox DevTools to resolve the
+  // bundle interactively (breakpoints, the DevTools performance panel): that emits the
+  // reference comment, and the maps then WILL be fetched by anyone who opens DevTools.
+  // Use it on a local build, never on one you hand to someone else.
+  build: { sourcemap: process.env.PODIUM_SOURCEMAP === 'linked' ? true : 'hidden' },
   server: { host: '0.0.0.0', port: WEB_PORT, strictPort: true, allowedHosts, proxy },
   preview: { host: '0.0.0.0', port: WEB_PORT, strictPort: true, allowedHosts, proxy },
 })
