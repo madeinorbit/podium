@@ -37,6 +37,15 @@ import { FIRST_ADMIN_USER_ID } from '@podium/model'
  * account of an upgraded instance". That is a real, migrated USER. This is a
  * capability shape for tests, which is a different thing, and separating them is
  * the point of the move.
+ *
+ * AMBIENT PRINCIPAL, DELIBERATE (POD-1669). The two `FIRST_ADMIN_USER_ID` uses
+ * below are counted by the ambient-principal census — this file is not named
+ * `*.test.ts`, so the census's path filter cannot see that it is a fixture, and
+ * that is the honest outcome: a fixture is still a place the identity is
+ * assumed. NO CALLER EXISTS TO RESOLVE: a constant has no request behind it. They
+ * are held at the baseline rather than excluded by path, because widening the
+ * census's blind spot to `test-support/` would let a real production site hide
+ * there later. See `scripts/audit-ambient-principals.ts` BASELINE.
  */
 export const OPERATOR: Capability = {
   role: 'admin',
