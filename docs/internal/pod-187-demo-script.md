@@ -35,9 +35,27 @@ The task is the unit. Agents are just who's on it right now. Every beat serves t
 **Type** (copy-paste ready):
 
 ```
-Add CSV export to the reports page. Have Grok implement it on its own worktree,
-and put Claude on review before anything merges.
+Add a CSV export button to the Reports page. The API already serves it at
+GET /export?report=<id>. File it as a task, put Grok on the implementation in
+its own worktree, and have Claude review it before anything merges.
 ```
+
+Backups if that flops on camera — both are untouched on `main` with no work
+committed on their branches, so an agent starts genuinely from zero:
+
+```
+/search returns every match (MRD-5) — the dashboard is pulling 4k rows on a
+two-character query. Make it cursor-based, 25 per page.
+```
+```
+Every empty state in the dashboard just says "No data" (MER-3). Give them some
+life — an illustration and a useful next action per surface.
+```
+
+Do NOT reuse **MER-2** or **MRD-1** as prompts: both already carry committed work on
+their branches (MER-2 is the review-card showcase, MRD-1 the content-flow one), so
+asking an agent to redo them reads as incoherent on camera. `main` itself is
+untouched in both repos, which is why the CSV-export prompt above still works.
 
 - Every agent gets the **Podium CLI** in its system prompt
 - Not just code: files tasks, spawns agents, messages them, drives all of Podium
@@ -83,11 +101,10 @@ Watch the departure/arrival animation, then the row goes quiet locally.
 - Doesn't re-read the repo — the task carries the context
 - Both work for one reason: **the task owns the branch. Sessions never do**
 
-### Beat 8 · Close (3:50–4:10)
+### Beat 8 · Close (3:50–4:05)
 
-**Screen** phone, same board, answer a yellow question, pocket it.
+**Screen** back to the board, wide. Let it sit. Don't click anything.
 
-- It follows me
 - Ten agents ≈ a decision a minute arriving at you
 - So the interface has one job: tell me which one needs me
 - "That's Podium."
@@ -162,8 +179,6 @@ Watch the departure/arrival animation, then the row goes quiet locally.
 > Sessions never do.
 >
 > **[Beat 8 — close]**
->
-> And it follows me. An agent has a question while I'm at dinner — two taps, it keeps working.
 >
 > Ten agents is roughly a decision a minute arriving at you. Which is why the whole interface
 > has exactly one job: tell me which one needs me.
