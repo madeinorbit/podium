@@ -1,12 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process'
-import {
-  chmodSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -28,6 +21,7 @@ import {
   spawnAbducoAgent,
   systemdScopeArgv,
   userRuntimeDir,
+  waitForAbducoSocket,
 } from './abduco.js'
 import { resolveAbducoBin } from './abduco-bin.js'
 import { nodePtyBackend, resolveNodeExecutable } from './backends/index.js'
@@ -172,6 +166,28 @@ describe('abducoSocketHasSession', () => {
       expect(abducoSocketHasSession('podium-other', { ABDUCO_SOCKET_DIR: root }, 'tester')).toBe(
         false,
       )
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('waitForAbducoSocket', () => {
+  it('waits for a newly-created master to publish its socket', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'podium-abduco-ready-'))
+    const dir = join(root, 'abduco', 'tester')
+    mkdirSync(dir, { recursive: true })
+    const label = 'podium-ready'
+    try {
+      const pending = waitForAbducoSocket(
+        label,
+        { ABDUCO_SOCKET_DIR: root },
+        { username: 'tester', timeoutMs: 200, pollMs: 2 },
+      )
+      await new Promise((resolve) => setTimeout(resolve, 15))
+      const socket = join(dir, label + '@old-host')
+      writeFileSync(socket, '')
+      expect(await pending).toBe(socket)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

@@ -238,6 +238,9 @@ function liveEnv(): NodeJS.ProcessEnv {
 
 const execFileAsync = promisify(execFile)
 
+const ABDUCO_SOCKET_WAIT_MS = 5000
+const ABDUCO_SOCKET_POLL_MS = 10
+
 /** Candidate roots in abduco's resolution order. */
 function abducoSocketDirs(env: NodeJS.ProcessEnv, username?: string): string[] {
   const dirs: string[] = []
@@ -299,6 +302,35 @@ export function abducoSocketPath(
     }
   }
   return undefined
+}
+
+/**
+ * Wait for a newly-created master to publish its socket before starting the
+ * attach client. "abduco -n" exits after handing work to the daemonized master;
+ * the master can therefore still be between fork and bind when an immediate
+ * "-a" runs. A durable label is unique, so the socket index is the safe
+ * readiness signal and also gives us the absolute path needed for renamed hosts.
+ */
+export async function waitForAbducoSocket(
+  label: string,
+  env: NodeJS.ProcessEnv = liveEnv(),
+  options: { timeoutMs?: number; pollMs?: number; username?: string } = {},
+): Promise<string> {
+  const timeoutMs = options.timeoutMs ?? ABDUCO_SOCKET_WAIT_MS
+  const pollMs = options.pollMs ?? ABDUCO_SOCKET_POLL_MS
+  const deadline = Date.now() + timeoutMs
+  let path = abducoSocketPath(label, env, options.username)
+  while (path === undefined && Date.now() < deadline) {
+    const delay = Math.min(pollMs, Math.max(1, deadline - Date.now()))
+    await new Promise<void>((resolve) => setTimeout(resolve, delay))
+    path = abducoSocketPath(label, env, options.username)
+  }
+  if (path === undefined) {
+    throw new Error(
+      'abduco session ' + label + ' did not publish a live socket within ' + timeoutMs + 'ms',
+    )
+  }
+  return path
 }
 
 export function abducoSocketHasSession(
@@ -546,17 +578,29 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
   const bin = resolveAbducoBin()
   if (!bin) throw new Error('abduco unavailable: not installed and the vendored build failed')
   const createArgs = abducoCreateArgv(opts.label, opts.cmd, opts.args ?? [])
+  const childEnv: Record<string, string> = {
+    ...scopeEnv(liveEnv()),
+    TERM: 'xterm-256color',
+    COLORTERM: 'truecolor',
+    ...opts.env,
+  }
   // stdio is execCreate's to set: it captures stderr so a create failure
   // reports abduco's own diagnosis instead of a bare "Command failed".
   const execOpts = {
     cwd: opts.cwd ?? process.cwd(),
-    env: {
-      ...scopeEnv(liveEnv()),
-      TERM: 'xterm-256color',
-      COLORTERM: 'truecolor',
-      ...opts.env,
-    },
+    env: childEnv,
   } as const
+  const attachCreated = async (): Promise<AgentSession> => {
+    const socketPath = await waitForAbducoSocket(opts.label, childEnv)
+    return attachAbducoAgent({
+      label: opts.label,
+      socketPath,
+      cols: opts.cols,
+      rows: opts.rows,
+      ...(opts.env ? { env: opts.env } : {}),
+      ...(opts.backend ? { backend: opts.backend } : {}),
+    })
+  }
   // Create the master in its own systemd scope so it outlives a redeploy. `--scope`
   // runs in the foreground but returns the instant the create process exits — abduco
   // daemonizes the master and returns immediately, so timing matches the bare call.
@@ -566,20 +610,15 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
     // fails ("unit already exists") and the master falls into the daemon's cgroup —
     // where the next redeploy kills it (see scopeReclaimArgvs). Guarded on no live
     // master, so we only ever clear a zombie scope held open by orphaned grandchildren.
-    await reclaimStaleScope(opts.label, liveEnv())
+    await reclaimStaleScope(opts.label, childEnv)
+    let createdInScope = false
     try {
       await execCreate(
         'systemd-run',
         systemdScopeArgv(scopeUnitName(opts.label), [bin, ...createArgs]),
         execOpts,
       )
-      return attachAbducoAgent({
-        label: opts.label,
-        cols: opts.cols,
-        rows: opts.rows,
-        ...(opts.env ? { env: opts.env } : {}),
-        ...(opts.backend ? { backend: opts.backend } : {}),
-      })
+      createdInScope = true
     } catch (err) {
       // A direct master would be reaped on the next redeploy, so make the
       // degradation loud rather than silently reintroducing the original bug.
@@ -587,6 +626,10 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
         `[podium] systemd scope unavailable for ${opts.label}; session will NOT survive a podium restart: ${err instanceof Error ? err.message : String(err)}`,
       )
     }
+    // Do not treat an attach/readiness failure as a scope-launch failure: the
+    // master is already alive, and creating a second one with the same label
+    // would race the first and make the original client even less recoverable.
+    if (createdInScope) return attachCreated()
   } else if (process.platform === 'linux' && !process.env.PODIUM_NO_SCOPE && !scopeWarned) {
     // Same degradation as the catch above, but on the no-user-manager path (system
     // service without lingering). Once per process, not per session.
@@ -596,13 +639,7 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
     )
   }
   await execCreate(bin, createArgs, execOpts)
-  return attachAbducoAgent({
-    label: opts.label,
-    cols: opts.cols,
-    rows: opts.rows,
-    ...(opts.env ? { env: opts.env } : {}),
-    ...(opts.backend ? { backend: opts.backend } : {}),
-  })
+  return attachCreated()
 }
 
 /**
