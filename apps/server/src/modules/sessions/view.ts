@@ -165,6 +165,15 @@ export class SessionView {
     if (!principal) return []
     // ONE memo for the whole pass [POD-1618] — see {@link SessionListMemo}.
     const memo = newSessionListMemo()
+    // ...and fill its grant half up front [POD-1653]. Sessions with no issue key
+    // their grants on their own id, so the memo alone can never coalesce them:
+    // ~1145 distinct keys per pass, each its own zero-row statement. Primed, the
+    // whole pass costs two reads. Same rows, same freshness — see
+    // `GrantsRepository.listForResources` on why this is batching, not caching.
+    this.ports.state.primeOwnerMemo?.(
+      memo,
+      candidates.map((session) => session.sessionId),
+    )
     return candidates
       .filter((session) => this.ports.state.canReadSession(principal, session.sessionId, memo))
       .map((session) => this.wire(session, principal, memo))

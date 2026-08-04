@@ -1,0 +1,12 @@
+[podium:loop] TOTALS
+4597x/33ms/4597rows SELECT COUNT(*) AS n FROM messages WHERE to_kind = ? AND to_id = ? AND status = 'queued'
+1032x/22ms/1029rows SELECT podium_id FROM conversation_segments WHERE machine_id=? AND native_id=?
+658x/47ms/451rows SELECT * FROM issues WHERE id = ?
+621x/13ms/621rows SELECT * FROM users WHERE id = ?
+444x/32ms/1586rows SELECT id, owner_user_id, agent_kind, model, effort, account_id, cwd, title, name, name_source, origin_kind, conversati…
+441x/36ms/441rows SELECT * FROM issues WHERE id IN (?)
+441x/8ms/0rows SELECT * FROM grants WHERE resource_kind = ? AND resource_id IN (?) ORDER BY created_at ASC
+334x/24ms/566rows SELECT * FROM messages WHERE to_kind = ? AND status = 'queued' AND to_id = ? ORDER BY created_at ASC, id ASC LIMIT ?
+324x/5ms/320rows SELECT to_id, type FROM issue_deps WHERE from_id = ? ORDER BY to_id ASC, type ASC
+162x/2ms/0rows SELECT label FROM issue_labels WHERE issue_id = ? ORDER BY label ASC
+162x/5ms/298rows SELECT from_id, type FROM issue_deps WHERE to_id = ? ORDER BY from_id ASC, type ASC

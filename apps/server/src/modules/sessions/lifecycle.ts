@@ -333,6 +333,10 @@ export class SessionLifecycle {
   clearSnooze(...args: any[]): void {
     (this.sessionMetaOps as any).clearSnooze(...args)
   }
+  primeOwnerMemo(...args: any[]): any {
+    return (this.sessionAuthz as any).primeOwnerMemo(...args)
+  }
+
   sessionOwner(...args: any[]): any {
     return (this.sessionAuthz as any).sessionOwner(...args)
   }

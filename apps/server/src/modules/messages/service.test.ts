@@ -8,6 +8,7 @@ import { asIssueId, asSessionId, FIRST_ADMIN_USER_ID, type SessionId } from '@po
 import { AGENT_RELAY_BLOCKING_TIMEOUT_MS } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import type { Capability } from '../../issue-authz'
+import { sessionsForIssue } from '../../issue-util'
 import type { IssueRow, MessageRow } from '../../store'
 import { SessionStore } from '../../store'
 import { NotificationArbiter } from '../../store/notification-facts'
@@ -196,6 +197,7 @@ function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
   const interrupted: { sessionId: SessionId; text: string }[] = []
   const attention: { messageId: string; reason: string }[] = []
   const listCalls = { n: 0 }
+  const narrowCalls = { byId: 0, byIssue: 0 }
   const issueGetLists: (SessionMeta[] | undefined)[] = []
   const svc = new MessageDeliveryService({
     messages: store.messages,
@@ -212,6 +214,17 @@ function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
       listSessions: () => {
         listCalls.n += 1
         return sessions
+      },
+      // The narrow reads production wires [POD-1653]. They are counted
+      // SEPARATELY from listSessions so a test can assert the thing that
+      // actually costs: full reader-scoped passes, not lookups.
+      sessionById: (sessionId) => {
+        narrowCalls.byId += 1
+        return sessions.find((s) => s.sessionId === sessionId)
+      },
+      listSessionsForIssue: (worktreePath, issueId) => {
+        narrowCalls.byIssue += 1
+        return sessionsForIssue(worktreePath, sessions, issueId)
       },
       sendText: (i) => {
         sent.push(i)
@@ -233,7 +246,17 @@ function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
     notifyOperator: (i) => attention.push({ messageId: i.messageId, reason: i.reason }),
     now: opts?.now ?? (() => '2026-07-13T00:00:00.000Z'),
   })
-  return { store, svc, sent, queued, interrupted, attention, listCalls, issueGetLists }
+  return {
+    store,
+    svc,
+    sent,
+    queued,
+    interrupted,
+    attention,
+    listCalls,
+    narrowCalls,
+    issueGetLists,
+  }
 }
 
 const IDLE = { phase: 'idle', since: 't', nativeSubagentCount: 0 } as SessionMeta['agentState']
@@ -1635,9 +1658,15 @@ describe('server-owned delivery retry backstop [spec:SP-c29e]', () => {
 
   // POD-817: the sweep ran listSessions() (full toMeta of EVERY session) once
   // PER QUEUED ROW — 83 stuck rows × 588 sessions froze the server loop ~8s
-  // every minute on the live host. One list per sweep pass, not per row.
-  it('lists sessions once per sweep pass, not once per queued row', () => {
-    const { svc, listCalls } = harness([])
+  // every minute on the live host. POD-817 got that to one list per pass.
+  //
+  // POD-1653 removes the last one. A pass is not merely amortized now, it is
+  // GONE: delivery resolves its recipient through the by-id / by-issue reads,
+  // so no number of queued rows produces a reader-scoped projection. This
+  // asserts ZERO, and it is the assertion that scales — "once per pass" was
+  // still O(pages) across a paged reconcile over a 5.5k-row backlog.
+  it('builds no full session pass during a sweep, however many rows are queued', () => {
+    const { svc, listCalls, narrowCalls } = harness([])
     for (let i = 0; i < 5; i++) {
       const r = svc.send(
         { kind: 'superagent' },
@@ -1646,8 +1675,29 @@ describe('server-owned delivery retry backstop [spec:SP-c29e]', () => {
       expect(r.message.status).toBe('queued')
     }
     listCalls.n = 0
+    narrowCalls.byIssue = 0
     svc.sweep()
-    expect(listCalls.n).toBe(1)
+    expect(listCalls.n).toBe(0)
+    // ...and it did do the work: the rows were resolved by the narrow read.
+    expect(narrowCalls.byIssue).toBeGreaterThan(0)
+  })
+
+  // The scaling property itself, stated independently of any absolute count:
+  // ten times the queued rows must not cost ten times the session reads.
+  it('costs the same number of full passes for 5 rows as for 50', () => {
+    const cost = (rows: number): number => {
+      const { svc, listCalls } = harness([])
+      for (let i = 0; i < rows; i++) {
+        svc.send(
+          { kind: 'superagent' },
+          { to: { kind: 'issue', id: ISSUE.id }, body: `x${i}`, lifecycle: 'wait' },
+        )
+      }
+      listCalls.n = 0
+      svc.sweep()
+      return listCalls.n
+    }
+    expect(cost(50)).toBe(cost(5))
   })
 
   it('does not add a full issue lookup for the send existence gate', () => {
@@ -1661,7 +1711,9 @@ describe('server-owned delivery retry backstop [spec:SP-c29e]', () => {
       { to: { kind: 'issue', id: ISSUE.id }, body: 'x', lifecycle: 'wait' },
     )
 
-    expect(listCalls.n).toBe(1)
+    // Was 1 (the one delivery pass); POD-1653 removed that too — a send resolves
+    // its recipient through the by-issue read, so the gate costs no full pass.
+    expect(listCalls.n).toBe(0)
     // The lookup no longer TAKES a session list. `IssueService.get` used to
     // default `sessionList` to a fresh `listSessions()` inside `toWire`, which is
     // why threading one mattered; POD-797 took the session embed off the wire and

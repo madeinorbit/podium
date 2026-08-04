@@ -23,7 +23,12 @@ import {
   stateDir,
 } from '@podium/runtime/local-machine'
 import { formatStallClassification, startLoopMetrics } from '@podium/runtime/loop-metrics'
-import { formatTopQueries, resetQueryAttribution } from '@podium/runtime/sqlite'
+import {
+  formatTopQueries,
+  queryAttributionTotals,
+  queryCallerStacks,
+  resetQueryAttribution,
+} from '@podium/runtime/sqlite'
 import { prepareLedgerBoot } from '@podium/sync'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
@@ -637,6 +642,26 @@ export async function startServer(
           // loop-attribution uses, and for the same reason.
           const attributionWindow = setInterval(() => resetQueryAttribution(), 1000)
           attributionWindow.unref?.()
+          // POD-1653: the window above answers "what stalled this second"; a bench
+          // run asks "what ran over the last minute, and WHO issued it". Both
+          // retentions already exist (queryAttributionTotals / queryCallerStacks)
+          // but nothing could read them out of a live process. SIGUSR2 is that
+          // reader — inert unless profiling is on, and it only prints.
+          process.on('SIGUSR2', () => {
+            const out = [...queryAttributionTotals()]
+              .sort((a, b) => b[1].count - a[1].count)
+              .slice(0, 15)
+              .map(([sql, c]) => `${c.count}x/${c.wallMs.toFixed(0)}ms/${c.rows}rows ${sql}`)
+            console.warn(`[podium:loop] TOTALS\n${out.join('\n')}`)
+            for (const [key, samples] of queryCallerStacks()) {
+              console.warn(
+                `[podium:loop] STACKS ${key}\n${samples
+                  .slice(0, 3)
+                  .map((s) => `  ${s.count}x\n${s.stack}`)
+                  .join('\n')}`,
+              )
+            }
+          })
           startLoopMetrics({
             label: 'server',
             onLongTick: (ms, classification) => {

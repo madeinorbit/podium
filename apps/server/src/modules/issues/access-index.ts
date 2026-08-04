@@ -8,6 +8,12 @@ import type { ReposRepository } from '../../store/repos'
 /**
  * Live issue authorization facts for lower-layer consumers.
  *
+ * The three cwd questions read `listIssueCwdRows()` rather than
+ * `listIssueRows()` [POD-1653]: they only ever touch worktree/repo/deleted/
+ * archived, and the full read materialized every issue row — JSON columns and
+ * all — on a per-message path. Still one live read per call; just not the whole
+ * table's payload.
+ *
  * Reads the durable repositories on every call: no capability or delegation
  * snapshot survives until an outbox replay. The higher-level IssueService is
  * intentionally absent so sessions can be assembled before issue workflows.
@@ -61,7 +67,7 @@ export class DurableIssueAccessIndex implements IssueAccessIndex {
 
   worktreePaths(): string[] {
     return this.issues
-      .listIssueRows()
+      .listIssueCwdRows()
       .filter((row) => !row.deletedAt && row.worktreePath)
       .map((row) => row.worktreePath as string)
   }
@@ -69,7 +75,7 @@ export class DurableIssueAccessIndex implements IssueAccessIndex {
   soleOwnerForCwd(cwd: string): IssueId | null {
     const repoRoots = new Set(this.repos.listRepoPaths())
     const owners = this.issues
-      .listIssueRows()
+      .listIssueCwdRows()
       .filter(
         (row) =>
           !row.deletedAt &&
@@ -88,7 +94,7 @@ export class DurableIssueAccessIndex implements IssueAccessIndex {
 
   issueForCwd(cwd: string): IssueId | null {
     let best: { id: IssueId; length: number } | undefined
-    for (const row of this.issues.listIssueRows()) {
+    for (const row of this.issues.listIssueCwdRows()) {
       if (row.deletedAt || !isMemberCwd(row.worktreePath, cwd)) continue
       const length = row.worktreePath?.length ?? 0
       if (!best || length > best.length) best = { id: row.id, length }

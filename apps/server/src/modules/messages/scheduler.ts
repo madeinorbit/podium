@@ -86,9 +86,10 @@ export interface DeliveryRunner {
     messages: readonly MessageRow[],
     nowMs: number,
   ): readonly string[]
-  /** One row, attempted against the live session set. */
-  attemptOne(message: MessageRow, allSessions: readonly SessionMeta[], nowMs: number): void
-  listSessions(): SessionMeta[]
+  /** One row, attempted. Takes NO session listing [POD-1653]: delivery resolves
+   *  its recipient through the narrow by-id / by-issue reads, so the scheduler
+   *  no longer builds (and this no longer carries) a full reader-scoped pass. */
+  attemptOne(message: MessageRow, nowMs: number): void
   /** ONE clock read per pass, shared by every row in it — as it was when all of
    *  this lived in one object. */
   nowMs(): number
@@ -241,7 +242,6 @@ export class DeliveryScheduler {
     }
 
     if (selected.size === 0) return
-    const all = this.runner.listSessions()
     const nowMs = this.runner.nowMs()
     const handled = new Set<string>()
     for (const group of preferredGroups.values()) {
@@ -251,7 +251,7 @@ export class DeliveryScheduler {
     for (const message of selected.values()) {
       if (handled.has(message.id)) continue
       try {
-        this.runner.attemptOne(message, all, nowMs)
+        this.runner.attemptOne(message, nowMs)
       } catch (error) {
         this.recordTriggerFailure(`message ${message.id}`, error)
       }
@@ -362,11 +362,10 @@ export class DeliveryScheduler {
       return
     }
 
-    const all = this.runner.listSessions()
     const nowMs = this.runner.nowMs()
     for (const message of page) {
       try {
-        this.runner.attemptOne(message, all, nowMs)
+        this.runner.attemptOne(message, nowMs)
       } catch (error) {
         this.recordTriggerFailure(`retry message ${message.id}`, error)
       }

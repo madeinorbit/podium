@@ -32,6 +32,26 @@ export interface SessionAuthzPorts {
   store: any
 }
 
+/**
+ * The grantees a set of edges confers READ-or-better on — the ONE definition
+ * [POD-1653].
+ *
+ * It is a free function because two paths now need it: the per-resource read
+ * and the batched prime. A verb set spelled twice is the shape where a later
+ * verb addition lands on one path only, and the failure would be silent and
+ * security-relevant (a grantee visible through one path, invisible through the
+ * other, depending purely on whether a pass primed).
+ */
+function granteesOf(edges: readonly GrantRow[]): string[] {
+  return [
+    ...new Set(
+      edges
+        .filter((edge) => edge.verb === 'read' || edge.verb === 'write' || edge.verb === 'manage')
+        .map((edge) => edge.grantee),
+    ),
+  ]
+}
+
 export class SessionAuthz {
   constructor(private readonly ports: SessionAuthzPorts) {}
 
@@ -210,6 +230,61 @@ export class SessionAuthz {
     return { owner: parentOwner, grants }
   }
 
+  /**
+   * Fill a pass's grant memo in ONE read per resource kind [POD-1653].
+   *
+   * `memoGrantees` collapses repeated keys, which is everything POD-1618 needed
+   * for issue-backed sessions: a hundred sessions on one issue ask one question.
+   * A session with NO issue keys on its own id, so there is nothing to collapse
+   * — every such session was its own statement, and on the live host ~1145 of
+   * them per pass each returned zero rows. Coalescing cannot fix a set of
+   * distinct keys; only asking for them together can.
+   *
+   * Freshness is unchanged. This runs at the START of the pass the memo belongs
+   * to, reads live rows, and writes the same values `memoGrantees` would have
+   * computed. A pass that primes and a pass that does not see the same edges;
+   * the difference is 2 statements instead of ~1200.
+   *
+   * The empty array matters: a primed key with no edges must be RECORDED as
+   * empty, or `memoGrantees` reads the miss as "not looked at yet" and issues
+   * the per-resource query anyway — which is precisely the statement being
+   * removed, and the reason this fills every requested key rather than only the
+   * ones the batched read returned.
+   */
+  primeOwnerMemo(memo: SessionOwnerMemo, sessionIds: readonly SessionId[]): void {
+    const byKind = new Map<string, Set<string>>()
+    const issueIds = new Set<string>()
+    for (const sessionId of sessionIds) {
+      const live = this.ports.sessions.get(sessionId)
+      const durable = live ?? this.ports.store.sessions.getSession(sessionId)
+      if (!durable) continue
+      const issueId = durable.issueId ?? undefined
+      if (issueId) issueIds.add(issueId)
+      const kind = issueId ? 'issue' : 'session'
+      const id = issueId ?? sessionId
+      const bucket = byKind.get(kind) ?? new Set<string>()
+      bucket.add(id)
+      byKind.set(kind, bucket)
+    }
+    // The issue half of the same memo. `memoIssueOwner` collapses ~1200 sessions
+    // onto their distinct issues; this collapses those onto one statement. A
+    // MISSING id must still be recorded — as null — because `memoIssueOwner`
+    // reads a `has()` miss as "not looked up yet" and would re-query it.
+    const wantedIssues = [...issueIds].filter((id) => !memo.issues.has(id))
+    if (wantedIssues.length > 0) {
+      const found = this.ports.store.issues.getIssues(wantedIssues)
+      for (const id of wantedIssues) memo.issues.set(id, found.get(id) ?? null)
+    }
+    for (const [kind, ids] of byKind) {
+      const wanted = [...ids].filter((id) => !memo.grants.has(`${kind}:${id}`))
+      if (wanted.length === 0) continue
+      const found = this.ports.store.grants.listForResources(kind, wanted)
+      for (const id of wanted) {
+        memo.grants.set(`${kind}:${id}`, granteesOf((found.get(id) ?? []) as GrantRow[]))
+      }
+    }
+  }
+
   private memoIssueOwner(issueId: string, memo?: SessionOwnerMemo): UserId | undefined {
     if (!memo) return this.ports.store.issues.getIssue(issueId)?.ownerUserId ?? undefined
     if (!memo.issues.has(issueId)) {
@@ -223,13 +298,8 @@ export class SessionAuthz {
     resourceId: string,
     memo?: SessionOwnerMemo,
   ): string[] {
-    const compute = (): string[] => [
-      ...new Set(
-        (this.ports.store.grants.listForResource(resourceKind, resourceId) as GrantRow[])
-          .filter((edge) => edge.verb === 'read' || edge.verb === 'write' || edge.verb === 'manage')
-          .map((edge) => edge.grantee),
-      ),
-    ]
+    const compute = (): string[] =>
+      granteesOf(this.ports.store.grants.listForResource(resourceKind, resourceId) as GrantRow[])
     if (!memo) return compute()
     const key = `${resourceKind}:${resourceId}`
     const hit = memo.grants.get(key)
