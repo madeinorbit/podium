@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { readBooleanState, readRightPanel, readSuperagentMode } from './shell-state'
+import {
+  isOverlayView,
+  nextBaseView,
+  readBooleanState,
+  readRightPanel,
+  readSuperagentMode,
+} from './shell-state'
 
 describe('desktop shell persistence readers', () => {
   it('restores independent sidebar collapse state without treating corrupt values as true', () => {
@@ -21,5 +27,28 @@ describe('desktop shell persistence readers', () => {
   it('accepts only a known right-dock panel', () => {
     expect(readRightPanel('git')).toBe('git')
     expect(readRightPanel('unknown')).toBeNull()
+  })
+})
+
+describe('utility overlays layer over a mode (POD-365)', () => {
+  it('treats only the utilities as overlays', () => {
+    expect(isOverlayView('settings')).toBe(true)
+    expect(isOverlayView('usage')).toBe(true)
+    expect(isOverlayView('workspace')).toBe(false)
+    expect(isOverlayView('issues')).toBe(false)
+  })
+
+  it('keeps the mode underneath an overlay so closing returns you where you were', () => {
+    // Opening Settings from Tasks must not silently rewrite "where you were" to
+    // the workspace, which is what the old hard-coded close did.
+    expect(nextBaseView('issues', 'settings')).toBe('issues')
+    expect(nextBaseView('issues', 'usage')).toBe('issues')
+    expect(nextBaseView('workspace', 'settings')).toBe('workspace')
+  })
+
+  it('adopts any non-overlay view as the new base', () => {
+    expect(nextBaseView('workspace', 'issues')).toBe('issues')
+    expect(nextBaseView('issues', 'workspace')).toBe('workspace')
+    expect(nextBaseView('issues', 'workflows')).toBe('workflows')
   })
 })

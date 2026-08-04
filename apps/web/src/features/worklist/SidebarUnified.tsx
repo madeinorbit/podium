@@ -45,13 +45,12 @@ export function SidebarUnified(): JSX.Element {
   return (
     <>
       <NewWorkRow sections={derivation.sections} />
-      {/* Divider under the spawn row — the handoff's 4px margins plus the
-          column's 3px flex gap on each side land at 11px above / 9px below. */}
-      <div
-        data-testid="sidebar-divider"
-        className="mx-2.5 mt-[11px] mb-[9px] h-px flex-none bg-hairline-soft"
-        aria-hidden="true"
-      />
+      {/* The seam under the spawn row is the section bar's own bottom border
+          now (POD-365) — one line at the shell's datum, shared by every column,
+          rather than three columns each drawing their own at a different y.
+          POD-388's theming of this divider goes with the divider; the border
+          that replaced it takes `hairline-soft` from the same ramp. */}
+      <div className="h-[9px] flex-none" aria-hidden="true" />
       {/* The scroll container leaves 5px of horizontal head-room past the aside
           edge (negative margin + matching padding) so the selected row's bridge
           notch can paint OVER the aside border into the engraved column —

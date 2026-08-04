@@ -1,7 +1,9 @@
 import type { IssueId, IssueStage } from '@podium/model'
+import { ListTree, Plus } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { type IssueViewModel, useReplicaIssues, useStoreSelector } from '@/app/store'
+import { ToolbarSlot } from '@/app/ToolbarSlot'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
@@ -226,9 +228,34 @@ export function IssuesView(): JSX.Element {
 
   return (
     <section className="flex min-w-0 flex-1 flex-col overflow-hidden" aria-label="Tasks">
-      <div className="flex items-center justify-between border-border border-b px-4 py-3 md:px-[22px] md:py-3.5">
-        <h2 className="font-medium text-base text-foreground">Tasks</h2>
-        <div className="flex items-center gap-2">
+      {/* Tasks' controls live in the command bar's dynamic centre (POD-365).
+          They pass the slot's test — their scope is the whole mode and no column
+          owns them — and before this they paid for that with two full-bleed bars
+          and an H1 restating the mode tab. The board keeps the vertical budget. */}
+      <ToolbarSlot>
+        <div className="topbar-tools" data-testid="tasks-toolbar">
+          <Input
+            value={filter.text ?? ''}
+            onChange={(event) => setFilter({ ...filter, text: event.target.value || undefined })}
+            placeholder="Search tasks or ID…"
+            aria-label="Search tasks"
+            className="topbar-tools-search"
+          />
+          <button
+            data-pressable
+            type="button"
+            className={cn('topbar-tool-toggle', display.flatten && 'topbar-tool-toggle-on')}
+            aria-pressed={display.flatten}
+            title={
+              display.flatten
+                ? 'Showing all tasks flat — click to nest sub-tasks under parents'
+                : 'Showing top-level tasks — click to flatten sub-tasks into the list'
+            }
+            onClick={() => updateDisplay({ flatten: !display.flatten })}
+          >
+            <ListTree size={13} aria-hidden="true" />
+            <span className="topbar-tool-label">Flatten</span>
+          </button>
           <FilterMenu
             filter={filter}
             onChange={setFilter}
@@ -240,52 +267,37 @@ export function IssuesView(): JSX.Element {
             type="button"
             size="sm"
             data-testid="issues-new-task"
+            // The label collapses under the narrow breakpoint; the name must not.
+            aria-label="New Task"
+            title="New Task"
             onClick={() => setCreating({})}
           >
-            + New Task
+            <Plus size={13} aria-hidden="true" />
+            <span className="topbar-tool-label">New Task</span>
           </Button>
         </div>
-      </div>
-      <div className="flex flex-wrap items-center gap-2 border-border border-b px-4 py-2 md:px-[22px]">
-        <Input
-          value={filter.text ?? ''}
-          onChange={(event) => setFilter({ ...filter, text: event.target.value || undefined })}
-          placeholder="Search tasks or ID…"
-          aria-label="Search tasks"
-          className="h-8 w-full max-w-[240px] flex-1"
-        />
-        <button
-          data-pressable
-          type="button"
-          className={cn(
-            'inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[12px] transition-colors',
-            display.flatten
-              ? 'bg-primary/15 text-foreground'
-              : 'bg-muted/50 text-muted-foreground hover:text-foreground',
-          )}
-          aria-pressed={display.flatten}
-          title={
-            display.flatten
-              ? 'Showing all tasks flat — click to nest sub-tasks under parents'
-              : 'Showing top-level tasks — click to flatten sub-tasks into the list'
-          }
-          onClick={() => updateDisplay({ flatten: !display.flatten })}
-        >
-          Flatten
-        </button>
-        {view.chips.map((chip) => (
-          <button
-            data-pressable
-            key={chip.key}
-            type="button"
-            className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[12px]"
-            onClick={() => setFilter(clearChip(filter, chip.key))}
-            title="Remove filter"
-          >
-            {chip.label} ×
-          </button>
-        ))}
-      </div>
+      </ToolbarSlot>
+      {/* Active filters, and ONLY when some are set — a strip that appears with
+          the state it describes is not permanent chrome. */}
+      {view.chips.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 border-border border-b px-4 py-2 md:px-[22px]">
+          <span className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground/70">
+            Filtered
+          </span>
+          {view.chips.map((chip) => (
+            <button
+              data-pressable
+              key={chip.key}
+              type="button"
+              className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[12px]"
+              onClick={() => setFilter(clearChip(filter, chip.key))}
+              title="Remove filter"
+            >
+              {chip.label} ×
+            </button>
+          ))}
+        </div>
+      )}
       {view.layout === 'list' ? (
         <IssueListView
           groups={view.rowGroups}

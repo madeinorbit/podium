@@ -200,9 +200,6 @@ export function HeaderHostIndicators(): JSX.Element {
       <span className="sr-only" role="status" aria-live="polite">
         {announce}
       </span>
-      {/* POD-318 — the hairline that ends the chrome actions and starts the
-          health readouts, so the right end of the bar reads as two groups. */}
-      <span className="header-strip-seam" aria-hidden="true" />
       {hostMetrics.length === 0 && (
         <button
           data-pressable
@@ -296,6 +293,11 @@ export function HeaderHostIndicators(): JSX.Element {
         )
       })}
       <OutboxRecoveryIndicator compact />
+      {/* POD-318/POD-365 — the hairline that divides the host group from the
+          quota group INSIDE the instrument well. Grouping by hairline is how
+          every other section of the shell divides; a wider gap alone read as one
+          undifferentiated run. */}
+      <span className="header-strip-seam" aria-hidden="true" />
       <QuotaIndicator header />
       {info && (
         <HostInfoView
