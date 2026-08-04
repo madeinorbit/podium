@@ -6,7 +6,7 @@ import { effectivePanelMode, type PanelMode } from '@podium/client-core/ui-state
 export { effectivePanelMode, effectivePanelMode as initialPanelMode, type PanelMode }
 
 import { attentionGroup } from '@podium/client-core/focus'
-import { isKnownWorktreePath, panelLabel, resumeCommand } from '@podium/client-core/viewmodels'
+import { panelLabel, resumeCommand } from '@podium/client-core/viewmodels'
 import type { SessionId } from '@podium/model'
 import { isSnoozed } from '@podium/model'
 import { keySequence, type SpecialKey } from '@podium/terminal-client'
@@ -141,7 +141,6 @@ export function AgentPanel({
     sessions,
     pendingSpawnIds,
     machines,
-    repos,
     trpc,
     drafts,
     startBtw,
@@ -156,7 +155,9 @@ export function AgentPanel({
       sessions: s.sessions,
       pendingSpawnIds: s.pendingSpawnIds,
       machines: s.machines,
-      repos: s.repos,
+      // `repos` is deliberately NOT selected (POD-1704). Its only use here was the
+      // worktree-missing guess; subscribing to it re-rendered every agent panel on
+      // each repo scan for a fact the panel had no business deriving.
       trpc: s.trpc,
       drafts: s.drafts,
       startBtw: s.startBtw,
@@ -222,13 +223,6 @@ export function AgentPanel({
     prevActiveForTrace.current = active
   }, [active, sessionId, effectiveMode])
 
-  // The session's worktree was removed out from under it (an orphaned session):
-  // its cwd no longer matches any scanned worktree. Gate on repos being loaded so
-  // the boot window (no repos yet) doesn't transiently flag every session. Feeds
-  // the exited banners — a missing worktree forces "remove" (can't resume in a
-  // directory that's gone), while the header's copy-resume-command stays for
-  // resuming by hand elsewhere.
-  const worktreeMissing = !!session && repos.length > 0 && !isKnownWorktreePath(repos, session.cwd)
   // The native CLI resume command for this session (#119), or null when no
   // resume ref is known. Also the first right-aligned header control, so the
   // `ml-auto` fallbacks below defer to it when present.
@@ -752,8 +746,6 @@ export function AgentPanel({
               spawnFailure={session.spawnFailure}
               isShell={session.agentKind === 'shell'}
               resumable={session.resumable === true}
-              worktreeMissing={worktreeMissing}
-              worktreePath={prettyCwd(session.cwd)}
             />
             <ChatView sessionId={sessionId} active={active} />
           </>
@@ -764,8 +756,6 @@ export function AgentPanel({
             spawnFailure={session.spawnFailure}
             isShell={session.agentKind === 'shell'}
             resumable={session.resumable === true}
-            worktreeMissing={worktreeMissing}
-            worktreePath={prettyCwd(session.cwd)}
           />
         )
       ) : (

@@ -210,6 +210,17 @@ export class RepoRegistry {
         // Keep registered roots visible even when the daemon scan times out or returns
         // no metadata. The path is still a valid spawn target for this machine, and
         // diagnostics continue to surface the scan failure separately.
+        //
+        // READ `worktrees: []` HERE AS "UNKNOWN", NEVER AS "NONE" (POD-1704). These
+        // rows are SYNTHESIZED from the registry because the scan told us nothing —
+        // `scanRepos` resolves rather than rejects on its 10s timeout, so a slow
+        // daemon lands here with every root intact and every worktree missing. A
+        // consumer that reads the emptiness as absence concludes that live worktrees
+        // were deleted; one did, and offered to destroy the sessions running in them.
+        // The result is a UNION of machines and a snapshot of a moment, so it is
+        // sound for POSITIVE answers ("here is a worktree you can use") and unsound
+        // for negative ones. To ask whether a path really exists, ask the daemon that
+        // owns it — `IssueWorkflow.ensureWorktree` does, and rebuilds from the branch.
         const registeredFallbacks = storedRows
           .filter((row) => !seenPaths.has(normalizeRepoPath(row.path)))
           .map((row) => ({

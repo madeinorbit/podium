@@ -55,9 +55,12 @@ describe('recoveryAction', () => {
     expect(a.busyLabel).toBeNull()
   })
 
-  it('says why removal is the only way out when the worktree is gone', () => {
-    expect(recoveryAction('ended', 'remove', true).hint).toBe('Remove it to clear it away.')
-    expect(recoveryAction('ended', 'remove', false).hint).toBe('It left no conversation to resume.')
+  it('gives removal its one honest reason', () => {
+    // The worktree-gone variant of this hint ("Remove it to clear it away.") went
+    // with the flag that produced it (POD-1704) — it was the copy shown when a
+    // degraded repo scan made the UI believe a live worktree had been deleted.
+    // Removal now has exactly one meaning: there is no conversation to resume.
+    expect(recoveryAction('ended', 'remove').hint).toBe('It left no conversation to resume.')
   })
 })
 

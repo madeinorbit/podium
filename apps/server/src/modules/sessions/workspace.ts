@@ -515,7 +515,17 @@ export class SessionWorkspace {
     const issue = this.ports.issueAccess.getMeta(issueId)
     if (!issue) return { ok: true, cwd: session.cwd }
     if (issue.worktreePath) return { ok: true, cwd: issue.worktreePath }
-    if (!session.stopReason || !issue.branch) return { ok: true, cwd: session.cwd }
+    // No worktree recorded, but a branch is: rebuild it. This used to also require
+    // `session.stopReason`, which meant only a DELIBERATELY stopped session got its
+    // workspace back — one that crashed or was killed externally fell through to a
+    // cwd that is not there and spawned into it (POD-1704). How the process died
+    // says nothing about whether the directory exists, so it is not consulted.
+    //
+    // Only this already-async branch widens. The common wake path (`worktreePath`
+    // recorded, just above) still returns synchronously, which POD-197 requires:
+    // `queueText` fire-and-forgets the resurrect and needs the spawn on the wire
+    // before it returns.
+    if (!issue.branch) return { ok: true, cwd: session.cwd }
     return issues.ensureWorktree(issueId).then((recreated) => {
       if (!recreated.ok || !recreated.worktreePath) {
         return {

@@ -60,7 +60,6 @@ export interface LifecycleAction {
 export function recoveryAction(
   kind: 'parked' | 'ended',
   action: 'restart' | 'resume' | 'remove',
-  worktreeMissing = false,
 ): LifecycleAction {
   if (kind === 'parked') {
     return {
@@ -101,7 +100,7 @@ export function recoveryAction(
     label: 'Remove session',
     compactLabel: 'Remove',
     busyLabel: null,
-    hint: worktreeMissing ? 'Remove it to clear it away.' : 'It left no conversation to resume.',
+    hint: 'It left no conversation to resume.',
     disabledReason: null,
   }
 }
