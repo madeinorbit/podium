@@ -141,6 +141,10 @@ export const sharedVitestConfig = {
     // worker_threads support is incomplete for vitest's `threads` pool, so pin
     // `forks` (a child process per file) — the default, made explicit as a guard.
     pool: 'forks' as const,
+    // A broad suite creates one Bun/Vite module graph per fork. Keep the default
+    // lanes inside the host memory budget instead of using the CPU-count default.
+    // POD-1678: the rewrite exposed the old fan-out as a host-wide OOM risk.
+    maxWorkers: 2,
     // Shared-vCPU hosts make sqlite-heavy tests (migrations) overrun the
     // 5s default; 20s keeps them honest without flaking on CPU steal.
     testTimeout: 20_000,
