@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
-import { extname, join, normalize, sep } from 'node:path'
+import { basename, extname, join, normalize, sep } from 'node:path'
+import { brotliCompress, gzip, constants as zlibConstants } from 'node:zlib'
 import { desktopShellLocation, mobileEntryRedirect } from '@podium/model'
 import type { Context, Hono } from 'hono'
 import { gradeWebBundle, injectBundleWarning } from './web-bundle-stamp'
@@ -43,6 +44,189 @@ const CONTENT_TYPES: Record<string, string> = {
   '.woff2': 'font/woff2',
   '.woff': 'font/woff',
   '.map': 'application/json; charset=utf-8',
+}
+
+/**
+ * Content types worth compressing. Everything else here (png, ico, woff/woff2)
+ * is already compressed — running deflate over it burns CPU for ~0% gain, so the
+ * bytes go out as-is. Keyed by extension rather than by sniffing the body.
+ */
+const COMPRESSIBLE_EXTENSIONS = new Set([
+  '.html',
+  '.js',
+  '.mjs',
+  '.css',
+  '.json',
+  '.svg',
+  '.webmanifest',
+  '.map',
+  '.txt',
+])
+
+/** Below this, the gzip framing costs more than it saves. */
+const MIN_COMPRESS_BYTES = 1024
+
+/**
+ * On-the-fly compression is the FALLBACK, not the plan: the build writes .br/.gz
+ * next to each asset (scripts/precompress-dist.ts) and those are served straight
+ * off disk. This cache exists for dists that were not pre-compressed (the Expo
+ * mobile export, a dev `vite build` run by hand) so the 2.7 MB main chunk is
+ * deflated once rather than once per request — this server's event loop is
+ * already its bottleneck. Keyed on path+size+mtime, so a rebuild misses rather
+ * than serving the previous build's bytes.
+ */
+const compressedCache = new Map<string, Buffer>()
+let compressedCacheBytes = 0
+const COMPRESSED_CACHE_LIMIT = 64 * 1024 * 1024
+
+function cacheCompressed(key: string, buf: Buffer): void {
+  if (buf.byteLength > COMPRESSED_CACHE_LIMIT) return
+  while (compressedCacheBytes + buf.byteLength > COMPRESSED_CACHE_LIMIT) {
+    const oldest = compressedCache.keys().next()
+    if (oldest.done) break
+    const evicted = compressedCache.get(oldest.value)
+    compressedCache.delete(oldest.value)
+    compressedCacheBytes -= evicted?.byteLength ?? 0
+  }
+  compressedCache.set(key, buf)
+  compressedCacheBytes += buf.byteLength
+}
+
+type Encoding = 'br' | 'gzip'
+
+/**
+ * Encodings the client will accept, best first. Brotli wins when offered: it is
+ * ~15% smaller than gzip on JS and every browser that speaks it over http/https
+ * advertises it. `identity` is implicit; an explicit `;q=0` opts an encoding out.
+ */
+function acceptedEncodings(header: string | undefined): Encoding[] {
+  if (!header) return []
+  const accepted: Encoding[] = []
+  const entries = header.split(',').map((part) => part.trim().toLowerCase())
+  const wants = (name: string): boolean =>
+    entries.some((entry) => {
+      const [token, ...params] = entry.split(';').map((p) => p.trim())
+      if (token !== name && token !== '*') return false
+      return !params.some((p) => p.replace(/\s/g, '') === 'q=0' || p.replace(/\s/g, '') === 'q=0.0')
+    })
+  if (wants('br')) accepted.push('br')
+  if (wants('gzip')) accepted.push('gzip')
+  return accepted
+}
+
+function compress(buf: Buffer, encoding: Encoding): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const done = (err: Error | null, out: Buffer): void => {
+      if (err) reject(err)
+      else resolve(out)
+    }
+    // Both run on libuv's threadpool, so a 2.7 MB chunk does not block the loop.
+    // Brotli quality 5 is the on-the-fly setting (quality 11 takes seconds); the
+    // build-time pre-compression uses 11 because it pays that cost once.
+    if (encoding === 'br') {
+      brotliCompress(
+        buf,
+        {
+          params: {
+            [zlibConstants.BROTLI_PARAM_QUALITY]: 5,
+            [zlibConstants.BROTLI_PARAM_SIZE_HINT]: buf.byteLength,
+          },
+        },
+        done,
+      )
+    } else {
+      gzip(buf, { level: 6 }, done)
+    }
+  })
+}
+
+const ENCODING_SUFFIX: Record<Encoding, string> = { br: '.br', gzip: '.gz' }
+
+/**
+ * Vite and Expo both emit content-hashed filenames (`index-RR9HhGf3.js`). Those
+ * are immutable by construction: a new build is a new URL, so the browser never
+ * needs to revalidate. Everything else (index.html, the service worker, manifest)
+ * keeps its URL across builds and must revalidate every load.
+ */
+function isImmutableAsset(filePath: string): boolean {
+  const name = basename(filePath)
+  if (name.toLowerCase().endsWith('.html')) return false
+  return /-[A-Za-z0-9_-]{8,}\.[A-Za-z0-9]+$/.test(name)
+}
+
+function cacheControl(filePath: string): string {
+  return isImmutableAsset(filePath) ? 'public, max-age=31536000, immutable' : 'no-cache'
+}
+
+/**
+ * A view over the buffer, not a copy: node's Buffer is not structurally a
+ * BodyInit under this lib set, but the Uint8Array over its bytes is.
+ */
+function body(buf: Buffer): Uint8Array<ArrayBuffer> {
+  return new Uint8Array(buf.buffer as ArrayBuffer, buf.byteOffset, buf.byteLength)
+}
+
+/**
+ * Serve one file, negotiating compression. Prefers a build-time .br/.gz sitting
+ * next to it; falls back to compressing once and caching. `Vary: Accept-Encoding`
+ * goes out for every compressible type — including the ones we chose NOT to
+ * compress this time — so a shared cache never hands a br body to a client that
+ * cannot read it.
+ */
+async function serveFile(
+  filePath: string,
+  accepted: Encoding[],
+  inMemory?: Buffer,
+): Promise<Response> {
+  const headers: Record<string, string> = {
+    'Content-Type': contentType(filePath),
+    'Cache-Control': cacheControl(filePath),
+  }
+  if (!COMPRESSIBLE_EXTENSIONS.has(extname(filePath).toLowerCase())) {
+    return new Response(body(inMemory ?? readFileSync(filePath)), { status: 200, headers })
+  }
+  headers.Vary = 'Accept-Encoding'
+
+  // Pre-compressed sibling from the build — the fast path for the web dist.
+  if (!inMemory) {
+    for (const encoding of accepted) {
+      const sibling = filePath + ENCODING_SUFFIX[encoding]
+      if (existsSync(sibling) && statSync(sibling).isFile()) {
+        return new Response(body(readFileSync(sibling)), {
+          status: 200,
+          headers: { ...headers, 'Content-Encoding': encoding },
+        })
+      }
+    }
+  }
+
+  const raw = inMemory ?? readFileSync(filePath)
+  const encoding = accepted[0]
+  if (!encoding || raw.byteLength < MIN_COMPRESS_BYTES) {
+    return new Response(body(raw), { status: 200, headers })
+  }
+
+  // In-memory bodies (the SPA shell, rewritten per request) are compressed but
+  // never cached: the stale-build warning makes each render potentially distinct.
+  if (inMemory) {
+    const out = await compress(raw, encoding)
+    return new Response(body(out), {
+      status: 200,
+      headers: { ...headers, 'Content-Encoding': encoding },
+    })
+  }
+
+  const stat = statSync(filePath)
+  const key = `${encoding}:${filePath}:${stat.size}:${stat.mtimeMs}`
+  let out = compressedCache.get(key)
+  if (!out) {
+    out = await compress(raw, encoding)
+    cacheCompressed(key, out)
+  }
+  return new Response(body(out), {
+    status: 200,
+    headers: { ...headers, 'Content-Encoding': encoding },
+  })
 }
 
 export interface StaticWebOptions {
@@ -160,7 +344,7 @@ export function registerWebStatic(app: Hono, webDir: string, opts: StaticWebOpti
   if (!opts.lazy && !existsSync(indexPath)) return false
 
   const basePath = normalizedBasePath(opts.basePath)
-  const handler = (c: Context) => {
+  const handler = async (c: Context) => {
     if (opts.lazy && !existsSync(indexPath)) return c.notFound()
     const pathname = new URL(c.req.url).pathname
     const inside = pathInsideBase(pathname, basePath)
@@ -169,26 +353,25 @@ export function registerWebStatic(app: Hono, webDir: string, opts: StaticWebOpti
 
     const rel = normalize(decodeURIComponent(inside)).replace(/^(\.\.[/\\])+/, '')
     const filePath = join(webDir, rel)
+    const accepted = acceptedEncodings(c.req.header('accept-encoding'))
     if (
       (filePath === webDir || filePath.startsWith(webDir + sep)) &&
       existsSync(filePath) &&
       statSync(filePath).isFile() &&
       filePath !== indexPath
     ) {
-      return new Response(readFileSync(filePath), {
-        status: 200,
-        headers: { 'Content-Type': contentType(filePath) },
-      })
+      return await serveFile(filePath, accepted)
     }
     // index.html goes out through ONE path — the fallback — even when it was
     // asked for by name. The service worker precaches `/index.html` explicitly,
     // so a second, un-annotated route for the same file is how the stale-build
     // warning (POD-1610) would be missing from precisely the installed PWA that
     // most needs it.
-    return new Response(serveIndex(webDir, indexPath, opts.stampCheck === true), {
-      status: 200,
-      headers: { 'Content-Type': 'text/html; charset=utf-8' },
-    })
+    return await serveFile(
+      indexPath,
+      accepted,
+      Buffer.from(serveIndex(webDir, indexPath, opts.stampCheck === true), 'utf8'),
+    )
   }
 
   if (basePath !== '/') app.get(basePath, handler)
