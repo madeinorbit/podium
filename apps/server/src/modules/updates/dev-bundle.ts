@@ -94,6 +94,12 @@ export interface DevBundleBuildDeps {
 const SOURCE_ROOT = fileURLToPath(new URL('../../../../..', import.meta.url))
 const DEFAULT_RENEW_INTERVAL_MS = 5 * 60 * 1000
 
+export const DEVELOPMENT_SOURCE_ROOT = SOURCE_ROOT
+
+export function developmentHeadSha(root: string = SOURCE_ROOT): string {
+  return String(execFileSync('git', ['rev-parse', '--short=7', 'HEAD'], { cwd: root })).trim()
+}
+
 function shortSha(raw: string): string {
   const sha = raw.trim()
   if (!sha) throw new Error('could not determine the development bundle HEAD sha')

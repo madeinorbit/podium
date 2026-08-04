@@ -51,6 +51,12 @@ import { IssueToolProvider } from './issue-mcp'
 import { registerMcpRoute } from './mcp-route'
 import { registerMaintenanceRoute } from './modules/maintenance/route'
 import { MaintenanceService } from './modules/maintenance/service'
+import {
+  createDevBundlePublisher,
+  developmentHeadSha,
+  DEVELOPMENT_SOURCE_ROOT,
+} from './modules/updates/dev-bundle'
+import { registerDevArtifactRoute } from './modules/updates/artifact-route'
 import { MessagingService } from './modules/messaging'
 import { DEPLOYMENT, perf } from './modules/perf/registry'
 import type { PublicationAuthority } from './modules/sessions/session'
@@ -385,13 +391,62 @@ export async function startServer(
   })
   messaging.configure()
   const cloud = createCloudRuntimeProviderFromEnv()
+  const devArtifactToken = randomUUID()
+  let boundPort = opts.port ?? 0
+  const devPublisher = !process.env.PODIUM_HOME
+    ? createDevBundlePublisher({
+        isSourceRun: true,
+        root: DEVELOPMENT_SOURCE_ROOT,
+        headSha: () => developmentHeadSha(DEVELOPMENT_SOURCE_ROOT),
+        artifactUrl: (version) => {
+          const base = (
+            process.env.PODIUM_DEV_ARTIFACT_BASE_URL ?? 'http://127.0.0.1:' + boundPort
+          ).replace(/\/$/, '')
+          return (
+            base +
+            '/updates/dev-bundle/' +
+            encodeURIComponent(version) +
+            '?token=' +
+            encodeURIComponent(devArtifactToken)
+          )
+        },
+      })
+    : undefined
+  const publishDevTarget = (): UpdateTarget | undefined => {
+    const target = devPublisher?.target()
+    if (target) registry.modules.updates.setTarget(target)
+    return target
+  }
+  const requestDevBuild = (explicit: boolean): void => {
+    if (!devPublisher) return
+    void devPublisher
+      .requestBuild(explicit)
+      .then(() => publishDevTarget())
+      .catch((error) => {
+        console.warn('[podium] development bundle build failed:', error)
+      })
+  }
+
   const app = new Hono()
   app.get('/health', (c) => c.text('ok'))
+  if (devPublisher) {
+    registerDevArtifactRoute(app, {
+      current: () => devPublisher.current(),
+      authenticate: (request) => {
+        const token = new URL(request.url).searchParams.get('token')
+        return token === devArtifactToken
+      },
+    })
+  }
   registerVersionRoute(app, {
     instanceId,
     // Straight through to the Authority, which delegates to the policy object it
     // was constructed with. No copy on the path (POD-376).
     visibilityGrade: () => registry.modules.funnel.visibilityGrade(),
+    updateTarget: () => {
+      requestDevBuild(false)
+      return publishDevTarget()
+    },
   })
   registerMaintenanceRoute(app, {
     // The maintenance realm is THIS HOST's credential, named by its real id rather
@@ -607,6 +662,8 @@ export async function startServer(
       server = serve({ fetch: app.fetch, port: requestedPort, hostname: host }, (info) => {
         if (settled) return
         settled = true
+        boundPort = info.port
+        requestDevBuild(true)
         // The in-process MCP issue surface is the trusted superagent orchestrator. It calls
         // the issue command registry DIRECTLY (not the cookie-gated HTTP /trpc, which would
         // 401 it) as the OPERATOR — router-equal authz, no router caller involved. This is
