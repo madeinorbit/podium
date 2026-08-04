@@ -65,3 +65,4 @@ export const UpdateTarget = z
       .passthrough(),
   })
   .passthrough()
+export type UpdateTarget = z.infer<typeof UpdateTarget>
