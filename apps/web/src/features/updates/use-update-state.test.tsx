@@ -16,14 +16,24 @@ const target = {
   critical: false,
   artifacts: {},
 }
+const reloadAction = vi.fn()
 
-function Probe({ onResult }: { onResult: (result: UpdateStateResult) => void }) {
+function Probe({
+  onResult,
+  withReload = false,
+}: {
+  onResult: (result: UpdateStateResult) => void
+  withReload?: boolean
+}) {
   const result = useUpdateState({
     httpOrigin: 'http://podium.test',
     needRefresh: false,
     fleet: { total: 1, behind: 1, converging: 0, failed: 0 },
+    reload: withReload ? reloadAction : undefined,
   })
-  useEffect(() => { onResult(result) }, [onResult, result])
+  useEffect(() => {
+    onResult(result)
+  }, [onResult, result])
   return (
     <>
       {result.actions.updateServer && (
@@ -39,6 +49,7 @@ function Probe({ onResult }: { onResult: (result: UpdateStateResult) => void }) 
             : result.view.state}
       </output>
       {result.actions.installApp && <span>install action</span>}
+      {result.actions.reload && <span>reload action</span>}
     </>
   )
 }
@@ -50,7 +61,7 @@ afterEach(() => {
   delete (globalThis as { __PODIUM_DESKTOP__?: unknown }).__PODIUM_DESKTOP__
 })
 
-function setupTransport(): void {
+function setupTransport(version = { appVersion: '0.4.1', target }): void {
   mocks.makeTrpc.mockReturnValue({
     updates: {
       fleet: { query: mocks.query },
@@ -61,8 +72,7 @@ function setupTransport(): void {
     'fetch',
     vi.fn(async (url: string) => ({
       ok: true,
-      json: async () =>
-        url.endsWith('/version') ? { appVersion: '0.4.1', target } : { appVersion: '0.4.1' },
+      json: async () => (url.endsWith('/version') ? version : { appVersion: '0.4.1' }),
     })),
   )
 }
@@ -128,5 +138,32 @@ describe('useUpdateState server action', () => {
     render(<Probe onResult={() => {}} />)
     await waitFor(() => expect(screen.getByRole('button', { name: /update server/i })).toBeTruthy())
     expect(screen.queryByText('install action')).toBeNull()
+  })
+
+  it('only exposes reload when the app place is touched', async () => {
+    setupTransport({
+      appVersion: '0.4.1',
+      target: { ...target, artifacts: { web: { digest: 'new-web-digest' } } },
+    })
+
+    render(<Probe onResult={() => {}} withReload />)
+    await waitFor(() => expect(screen.getByText('reload action')).toBeTruthy())
+  })
+
+  it('does not expose reload when only the server place is touched', async () => {
+    setupTransport()
+
+    render(<Probe onResult={() => {}} withReload />)
+    await waitFor(() => expect(screen.getByRole('button', { name: /update server/i })).toBeTruthy())
+    expect(screen.queryByText('reload action')).toBeNull()
+  })
+
+  it('does not expose reload when only machines are touched', async () => {
+    setupTransport({ appVersion: '0.4.2', target })
+
+    render(<Probe onResult={() => {}} withReload />)
+    await waitFor(() => expect(screen.getByTestId('view-state').textContent).toBe('available'))
+    expect(screen.queryByText('reload action')).toBeNull()
+    expect(screen.queryByRole('button', { name: /update server/i })).toBeNull()
   })
 })

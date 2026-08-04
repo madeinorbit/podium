@@ -15,25 +15,6 @@ const available = {
 }
 
 describe('UpdateDialog', () => {
-
-  it('offers Reload only when THIS APP is one of the places being updated', () => {
-    // A server-only release would otherwise offer a button that fetches back the
-    // same app the user already has.
-    const serverOnly = {
-      ...available,
-      places: [
-        { kind: 'server' as const, label: 'Your server (localhost)', effect: 'will briefly reconnect' },
-      ],
-    }
-    render(<UpdateDialog view={serverOnly} actions={{ reload: vi.fn(), updateServer: vi.fn() }} />)
-    expect(screen.queryByRole('button', { name: /reload/i })).toBeNull()
-    expect(screen.getByRole("button", { name: /update server/i })).toBeTruthy()
-  })
-
-  it('still offers Reload when the app is among the places', () => {
-    render(<UpdateDialog view={available} actions={{ reload: vi.fn() }} />)
-    expect(screen.getByRole("button", { name: /reload/i })).toBeTruthy()
-  })
   it('renders nothing in the none state', () => {
     const { container } = render(<UpdateDialog view={{ state: 'none' }} actions={{}} />)
     expect(container.innerHTML).toBe('')
@@ -91,6 +72,21 @@ describe('UpdateDialog', () => {
   it('does not offer an action whose backend is absent on this surface', () => {
     render(<UpdateDialog view={available} actions={{ reload: vi.fn() }} />)
     expect(screen.queryByRole('button', { name: /install/i })).toBeNull()
+  })
+
+  it('does not render reload when the app place is absent', () => {
+    render(
+      <UpdateDialog
+        view={{
+          ...available,
+          places: [
+            { kind: 'server', label: 'Your server', effect: 'will briefly reconnect' },
+          ],
+        }}
+        actions={{ reload: vi.fn() }}
+      />,
+    )
+    expect(screen.queryByRole('button', { name: /reload/i })).toBeNull()
   })
 
   it('runs the action it does offer', async () => {

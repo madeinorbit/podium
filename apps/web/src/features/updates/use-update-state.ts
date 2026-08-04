@@ -228,11 +228,11 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
         ? () => bridge.installUpdate?.()
         : undefined
     return {
-      ...(options.reload ? { reload: options.reload } : {}),
+      ...(options.reload && touched.app ? { reload: options.reload } : {}),
       ...(installApp ? { installApp } : {}),
       ...(updateServer ? { updateServer } : {}),
     }
-  }, [options.reload, updateServer])
+  }, [options.reload, touched.app, updateServer])
 
   const view: UpdateView =
     serverAction.state === 'in-progress'
