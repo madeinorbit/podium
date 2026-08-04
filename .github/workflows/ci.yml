@@ -130,6 +130,8 @@ jobs:
         run: bun run migration:check
       - name: bundled migration manifest is not stale
         run: bun run migration:manifest --check
+      - name: expand-only migration audit
+        run: bun run audit:expand-only
 
   unit-tests:
     runs-on: ubuntu-latest
