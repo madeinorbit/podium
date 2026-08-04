@@ -1645,3 +1645,57 @@ describe('coarse clock (POD-331)', () => {
     }
   })
 })
+
+describe('one delta, one snapshot (POD-1645)', () => {
+  /**
+   * THE COUNT IS THE DEFECT; the duration only moves with load.
+   *
+   * A replica delta touching sessions, issues and issue projections used to run
+   * `publishReplica` → three separate `apply` calls → three published
+   * snapshots, and every snapshot-keyed published slice re-derived once per
+   * snapshot. POD-1641 measured the worklist slice's ownership-index rebuild
+   * at 93% of main-thread CPU across a multi-minute freeze, running three times
+   * per delta frame. What this asserts is therefore the CONSERVED QUANTITY —
+   * snapshots per delta — and not a millisecond figure.
+   *
+   * The counterfactual is on the record: with the `batch()` wrapper removed
+   * from `publishReplica`, this test sees 3 and fails. It can say NO.
+   */
+  it('publishes ONE snapshot for a delta touching sessions, issues and projections', async () => {
+    const storage = memoryStorage()
+    const replica = createReplica({ storage })
+    // Seed truth in all three collections BEFORE start, so the binding's first
+    // flush is a delta that changes all three at once — the shape of a live
+    // `changesSince` frame, and the one the profile caught.
+    replica.applySnapshot('sessions', [
+      { sessionId: 'a', name: 'a', cwd: '/tmp/known-repo' },
+    ] as never)
+    replica.applySnapshot('issues', [{ id: 'i1', title: 'i1', status: 'open' }] as never)
+    replica.applySnapshot('issueProjections', [{ id: 'i1', title: 'i1' }] as never)
+
+    const { engine } = makeEngine({ storage })
+    // Count only the snapshots that move a REPLICA collection: start() also
+    // publishes unrelated boot state (outbox dead letters, repo loading), and
+    // counting those would make the number say something other than what this
+    // test is about.
+    const replicaKeys = ['sessions', 'issues', 'issueProjections'] as const
+    let prev = engine.getSnapshot()
+    let snapshots = 0
+    const off = engine.subscribe(() => {
+      const next = engine.getSnapshot()
+      if (replicaKeys.some((k) => next[k] !== prev[k])) snapshots++
+      prev = next
+    })
+    engine.start()
+    off()
+
+    expect(snapshots).toBe(1)
+    // …and the one snapshot carries every collection, so coalescing did not
+    // simply drop two thirds of the delta on the floor.
+    const state = engine.getSnapshot()
+    expect(state.sessions.map((s) => s.sessionId)).toEqual(['a'])
+    expect(state.issues.map((i) => i.id)).toEqual(['i1'])
+    engine.dispose()
+    await settle()
+  })
+})

@@ -80,6 +80,10 @@ export interface OptimismPorts<TApi extends PodiumClientApi> {
   readonly paintedIssues: () => IssueWire[]
   /** The runtime's state choke point. */
   readonly publish: (patch: Partial<EngineState>) => void
+  /** Coalesce every `publish` inside `fn` into ONE snapshot (POD-1645). Optional
+   *  so a test harness can wire the ledger without one; the default runs `fn`
+   *  unchanged, which is correct but publishes once per recompute. */
+  readonly batch?: (fn: () => void) => void
   readonly spawnConfirmGraceMs?: number
 }
 
@@ -184,10 +188,18 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     }, delay)
   }
 
+  /** Run `fn` under the runtime's snapshot batch when one is wired. */
+  private batched(fn: () => void): void {
+    if (this.ports.batch) this.ports.batch(fn)
+    else fn()
+  }
+
   recomputeAll(): void {
-    this.recomputeSessions()
-    this.recomputeIssues()
-    this.recomputeIssueProjections()
+    this.batched(() => {
+      this.recomputeSessions()
+      this.recomputeIssues()
+      this.recomputeIssueProjections()
+    })
   }
 
   /** Retirement rule (a) (#263, overlay.ts): spawn inserts retire when server
@@ -254,8 +266,10 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     if (entity === 'sessions') this.recomputeSessions()
     else if (entity === 'issues') this.recomputeIssues()
     else if (entity === 'issueProjections') {
-      this.recomputeIssueProjections()
-      this.recomputeIssues()
+      this.batched(() => {
+        this.recomputeIssueProjections()
+        this.recomputeIssues()
+      })
     }
   }
 
@@ -403,8 +417,10 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
         }),
       ),
     ]
-    this.recomputeSessions()
-    this.recomputeIssues()
+    this.batched(() => {
+      this.recomputeSessions()
+      this.recomputeIssues()
+    })
     void createDraftAgent({
       trpc: this.ports.api,
       sessionId,
@@ -427,8 +443,10 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
         this.spawnOverlays = this.spawnOverlays.filter(
           (overlay) => overlay.id !== sessionId && overlay.id !== issueId,
         )
-        this.recomputeSessions()
-        this.recomputeIssues()
+        this.batched(() => {
+          this.recomputeSessions()
+          this.recomputeIssues()
+        })
         this.ports.notices.error(
           `Couldn't start the agent — ${error instanceof Error ? error.message : 'unknown error'}`,
         )
