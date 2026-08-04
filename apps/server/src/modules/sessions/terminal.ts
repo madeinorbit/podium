@@ -193,6 +193,19 @@ export class SessionTerminal {
       perfPrincipal(feedPrincipalOf(client.principal)),
       replayBytes,
     )
+    // The replay log is a byte stream, not a screen — replaying it only rebuilds the
+    // terminal if the window still holds a whole-screen anchor. A full-screen TUI that
+    // repaints a small region forever without ever re-anchoring evicts one: grok's idle
+    // animation shimmers its logo at ~6.8 KB/s with no clear, turning the 256 KB window
+    // over every ~30s, so a client attaching later replayed nothing but partial logo
+    // frames and showed a BLANK terminal for a session running fine [POD-379]. So
+    // whenever the client is (re)building its screen from replay alone, nudge the PTY
+    // into repainting from its own model. Harness-agnostic — it fixes any TUI that does
+    // not re-anchor — and the repaint carries a real clear, which re-anchors the log for
+    // the next attach too. A clean resume keeps its screen and only needs the delta —
+    // including a caught-up one, whose empty delta is "nothing changed", NOT "nothing to
+    // rebuild from"; only an EMPTY LOG (a restarted server) means the latter.
+    if (!resumed || this.outputLog.length === 0) this.redraw()
   }
 
   reassignController(fromId: string, toId: string): void {

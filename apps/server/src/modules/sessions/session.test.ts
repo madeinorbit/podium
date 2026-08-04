@@ -126,7 +126,9 @@ describe('Session', () => {
     s.terminal.attachClient(a)
     s.terminal.attachClient(b)
     s.terminal.handleInput('b', 'eA==')
-    expect(toDaemon).not.toHaveBeenCalled()
+    // Nothing a spectator does reaches the PTY. (Attaching itself nudges a repaint —
+    // POD-379 — so assert on input specifically, not on "never called".)
+    expect(toDaemon).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'input' }))
     s.terminal.handleInput('a', 'eA==')
     expect(toDaemon).toHaveBeenCalledWith({
       type: 'input',
@@ -209,7 +211,9 @@ describe('Session', () => {
     a.viewVisible = new Set([asSessionId('s1')]) // controller is rendering the session
     s.terminal.handleResize('b', 100, 30)
     expect(s.terminal.geometry).toEqual(geo)
-    expect(toDaemon).not.toHaveBeenCalled()
+    // A spectator's resize never reaches the PTY (the attach repaint of POD-379 does,
+    // so this asserts on resize specifically rather than "never called").
+    expect(toDaemon).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'resize' }))
     s.terminal.handleResize('a', 120, 40)
     expect(s.terminal.geometry).toEqual({ cols: 120, rows: 40 })
     expect(toDaemon).toHaveBeenCalledWith({
@@ -495,6 +499,58 @@ describe('Session', () => {
     s.terminal.attachClient(a)
     expect(a.sent.find((m) => m.type === 'attached')).toMatchObject({ resumed: false })
     expect(a.sent.filter((m) => m.type === 'outputFrame')).toHaveLength(1)
+  })
+
+  // POD-379: a full-screen TUI that repaints a region forever without re-anchoring
+  // (grok's idle logo animation) evicts every whole-screen frame from the replay
+  // window, so replaying it verbatim paints fragments onto a blank terminal. Every
+  // attach that rebuilds the screen from replay alone forces the PTY to repaint.
+  describe('repaint on attach', () => {
+    const redraws = (toDaemon: ReturnType<typeof vi.fn>): unknown[] =>
+      toDaemon.mock.calls.map(([m]) => m).filter((m) => (m as { type: string }).type === 'redraw')
+
+    it('nudges a repaint on a fresh attach, so a stale replay window cannot show blank', () => {
+      const toDaemon = vi.fn()
+      const s = makeSession(toDaemon)
+      s.terminal.onFrame('YQ==')
+      s.terminal.attachClient(makeClient('a'))
+      expect(redraws(toDaemon)).toEqual([{ type: 'redraw', sessionId: asSessionId('s1') }])
+    })
+
+    it('nudges when a same-generation cursor fell out of the replay window', () => {
+      const toDaemon = vi.fn()
+      const s = makeSession(toDaemon)
+      const largeFrame = 'eA=='.repeat(70_000)
+      s.terminal.onFrame(largeFrame) // seq 0, evicted by later frames
+      s.terminal.onFrame(largeFrame) // seq 1, evicted by seq 2
+      s.terminal.onFrame(largeFrame) // seq 2
+      s.terminal.attachClient(makeClient('a'), 0)
+      expect(redraws(toDaemon)).toHaveLength(1)
+    })
+
+    it('nudges when a restarted server has no frames to replay at all', () => {
+      const toDaemon = vi.fn()
+      const s = makeSession(toDaemon)
+      s.terminal.attachClient(makeClient('a'), 99)
+      expect(redraws(toDaemon)).toHaveLength(1)
+    })
+
+    it('does NOT nudge a clean resume — the client keeps its screen and takes the delta', () => {
+      const toDaemon = vi.fn()
+      const s = makeSession(toDaemon)
+      s.terminal.onFrame('YQ==') // seq 0
+      s.terminal.onFrame('Yg==') // seq 1
+      s.terminal.attachClient(makeClient('a'), 0)
+      expect(redraws(toDaemon)).toEqual([])
+    })
+
+    it('does NOT nudge a CAUGHT-UP resume — an empty delta means nothing changed', () => {
+      const toDaemon = vi.fn()
+      const s = makeSession(toDaemon)
+      s.terminal.onFrame('YQ==') // seq 0
+      s.terminal.attachClient(makeClient('a'), 0)
+      expect(redraws(toDaemon)).toEqual([])
+    })
   })
 
   it('reassignController moves the role from a stale client to its reconnected self', () => {
