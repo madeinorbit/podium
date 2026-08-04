@@ -158,6 +158,30 @@ export interface Coverage {
 }
 
 /**
+ * Documentation that a REAL test reads, and which therefore is NOT inert — editing
+ * it can turn a suite red, but no package filter will select that suite (the reader
+ * lives in another package and turbo hashes only its own directory).
+ *
+ * Kept honest by the drift guard in test-affected.test.ts, which scans the test
+ * suites for repo-root doc reads and fails if one is missing from this list. If that
+ * guard fails, add the path here — do not delete the guard.
+ */
+export const DOCS_READ_BY_TESTS = ['docs/TELEMETRY.md']
+
+/**
+ * Files that cannot change any test outcome, so a run that skips tests entirely is
+ * still an honest green. Deliberately narrow: prose and licences only. Anything
+ * executable or config-shaped (`scripts/`, `vitest.*.config.ts`, `tooling/`) is NOT
+ * inert and keeps refusing — those genuinely change what the root lanes do.
+ */
+export function isInert(file: string): boolean {
+  if (DOCS_READ_BY_TESTS.includes(file)) return false
+  const base = file.slice(file.lastIndexOf('/') + 1)
+  if (base === 'LICENSE' || base === 'NOTICE') return true
+  return file.endsWith('.md')
+}
+
+/**
  * A changed file is covered only if it lives in a package that defines a `test`
  * script. Root configs, tooling, and packages whose suites live in the root-level
  * lanes are all INVISIBLE to `turbo run test` — those are exactly the cases where a
@@ -167,6 +191,9 @@ export function assessCoverage(files: string[], packages: PackageDir[]): Coverag
   const uncovered: string[] = []
   const reasons = new Map<string, string>()
   for (const file of files) {
+    // Inert prose is covered by construction — refusing on a README edit would only
+    // train people to reach for --allow-uncovered until the refusal means nothing.
+    if (isInert(file)) continue
     const owner = packages.find((p) => file === p.dir || file.startsWith(`${p.dir}/`))
     if (!owner) {
       uncovered.push(file)

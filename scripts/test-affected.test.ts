@@ -1,8 +1,11 @@
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
+  DOCS_READ_BY_TESTS,
   type Git,
   assessCoverage,
   changedFiles,
+  isInert,
   longLivedCandidates,
   parseArgs,
   resolveBase,
@@ -119,6 +122,60 @@ describe('assessCoverage', () => {
     expect(assessCoverage(['apps/web-legacy/src/a.ts'], packages).uncovered).toEqual([
       'apps/web-legacy/src/a.ts',
     ])
+  })
+})
+
+describe('isInert', () => {
+  it('prose and licences are covered by construction', () => {
+    for (const f of ['README.md', 'AGENTS.md', 'docs/agents/testing.md', 'LICENSE', 'NOTICE'])
+      expect(isInert(f), f).toBe(true)
+  })
+
+  it('anything executable or config-shaped is NOT inert', () => {
+    for (const f of [
+      'vitest.unit.config.ts',
+      'scripts/host.ts',
+      'tooling/tsconfig/base.json',
+      'turbo.json',
+    ])
+      expect(isInert(f), f).toBe(false)
+  })
+
+  it('a doc that a test actually reads is not inert', () => {
+    // docs-drift.test.ts (packages/telemetry) reads this; editing it can turn that
+    // suite red, and no package filter would select telemetry for a root-level doc.
+    expect(isInert('docs/TELEMETRY.md')).toBe(false)
+  })
+
+  it('a doc-only change no longer refuses', () => {
+    expect(assessCoverage(['README.md'], []).uncovered).toEqual([])
+    expect(assessCoverage(['docs/TELEMETRY.md'], []).uncovered).toEqual(['docs/TELEMETRY.md'])
+  })
+})
+
+describe('DOCS_READ_BY_TESTS drift guard', () => {
+  it('every repo-root doc a test reads is listed', () => {
+    // If this fails, a new test started reading a real repo doc. Add its path to
+    // DOCS_READ_BY_TESTS so a change to it keeps refusing instead of passing green.
+    const root = fileURLToPath(new URL('..', import.meta.url))
+    const grep = Bun.spawnSync(
+      [
+        'git',
+        'grep',
+        '-hoE',
+        String.raw`new URL\('[^']*docs/[A-Za-z0-9_./-]+\.md`,
+        '--',
+        '*.test.ts',
+        '*.test.tsx',
+      ],
+      { cwd: root },
+    )
+    const found = new Set<string>()
+    for (const line of grep.stdout.toString().split('\n')) {
+      const m = line.match(/docs\/[A-Za-z0-9_./-]+\.md/)
+      if (m) found.add(m[0])
+    }
+    for (const doc of found) expect(DOCS_READ_BY_TESTS, `${doc} reads as inert`).toContain(doc)
   })
 })
 

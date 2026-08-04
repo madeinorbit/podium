@@ -79,6 +79,12 @@ package that defines a `test` script (root configs, `scripts/`, tooling), it exi
 tells you to run `bun run test`. Use `--allow-uncovered` only once you have run the full
 lane yourself.
 
+Inert files — `*.md`, `LICENSE`, `NOTICE` — do not trigger the refusal, since prose cannot
+change a test outcome. The exception is a doc a test actually reads: `docs/TELEMETRY.md`
+is asserted against `packages/telemetry/src/docs-drift.test.ts`, so editing it still
+refuses. If you add a test that reads a repo-root doc, the drift guard in
+`scripts/test-affected.test.ts` will fail and tell you to list it in `DOCS_READ_BY_TESTS`.
+
 The base is resolved, never hardcoded: the merge base against the *closest* of your
 upstream, `origin/main`, and `origin/project/*`. Worktrees cut from a long-lived project
 branch therefore diff against that branch, not against main. Override when needed:

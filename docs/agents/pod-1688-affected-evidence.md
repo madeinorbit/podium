@@ -22,9 +22,20 @@ correct selection, not noise — subtract it to read the deltas.
 Doc-only adds nothing, a leaf pulls in exactly its dependents, and the hub pulls in
 everything. Untracked and uncommitted files count toward selection.
 
-These runs used the `typecheck` task. Package **selection** is task-independent — the
-`--filter` resolves the package graph before any task is looked up — so the same sets
-apply to the `test` task from POD-1687.
+### These numbers were measured against `typecheck`, not `test`
+
+Stated plainly so a later reader does not assume otherwise: **the lane has never been run
+end to end.** At the time of measurement POD-1687 had landed nothing — there was no `test`
+task in `turbo.json` — so every row above was produced with `turbo run typecheck`.
+
+Package **selection** is task-independent (the `--filter` resolves the package graph
+before any task is looked up), so the sets carry over to the `test` task unchanged. But
+nobody has yet watched real test suites execute through this entry point. The first run
+against a merged `test` task is still owed.
+
+A dry-run against POD-1687's uncommitted `turbo.json` was attempted and discarded: copying
+their file in made `turbo.json` itself a change versus the base, which — per the caveat
+above — selected all 24 packages and told us nothing.
 
 ### Caveat: a turbo.json or root package.json edit selects everything
 
@@ -67,6 +78,24 @@ no package filter can select them, so a pass here would not mean they are tested
 Verified refusal cases: a `vitest.unit.config.ts` edit (no owning package) and a
 `scripts/` edit (owning package has no `test` script). Both select no real package and
 would otherwise have printed a clean green.
+
+### Inert files do not refuse
+
+Prose cannot change a test outcome, and refusing on a README edit would only train people
+to reach for `--allow-uncovered` until the refusal stops meaning anything. So `*.md`,
+`LICENSE`, and `NOTICE` are treated as covered by construction. The list is deliberately
+narrow: `scripts/`, `vitest.*.config.ts`, `turbo.json`, and `tooling/` are **not** inert
+and keep refusing.
+
+One carve-out, and it is load-bearing: `packages/telemetry/src/docs-drift.test.ts` reads
+the repo-root `docs/TELEMETRY.md`. Editing that doc can turn a real suite red, and no
+package filter will select telemetry for it — turbo hashes only telemetry's own directory.
+So `docs/TELEMETRY.md` is listed in `DOCS_READ_BY_TESTS` and keeps refusing.
+
+That list would rot the moment another test starts reading a repo doc, so
+`test-affected.test.ts` carries a drift guard: it greps the suites for repo-root doc reads
+and fails if one is missing from the list. Confirmed non-vacuous — it currently finds
+`docs/TELEMETRY.md`.
 
 ## Base ref
 
