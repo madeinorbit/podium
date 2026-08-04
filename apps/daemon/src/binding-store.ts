@@ -357,6 +357,9 @@ export type SessionBindingTransition =
       /** An override is authority input only after the existing confirmation path accepted it. */
       requestedScope?: DelegationScope
       scopeOverrideConfirmed?: boolean
+      /** A respawn of an existing session (resurrect), not a birth — see the
+       *  `spawn` case for what it changes about an already-present binding. */
+      relaunch?: boolean
       attemptId?: string | null
       observationGeneration?: number
       createdAt?: string
@@ -1296,7 +1299,34 @@ export class BindingStore {
       let changed: SessionBindingRecord | null = null
       switch (input.event) {
         case 'spawn': {
-          if (current) return transitionRejected(input.event, 'binding-exists')
+          if (current) {
+            // A BIRTH over an existing binding is a duplicate spawn — refuse it.
+            // A RELAUNCH is the resurrect path: the row, the delegation and the
+            // claimant are already decided, and this frame only re-launches the
+            // process under them. Refusing it here is what left every parked
+            // session unresumable (POD-1647).
+            if (!input.relaunch) return transitionRejected(input.event, 'binding-exists')
+            if (current.state === 'retired' || current.state === 'exported') {
+              return transitionRejected(input.event, 'binding-retired')
+            }
+            if (current.state === 'exporting' || current.state === 'adopting') {
+              return transitionRejected(input.event, 'transfer-conflict')
+            }
+            if (current.claimantMachineId !== input.claimantMachineId) {
+              return transitionRejected(input.event, 'claimant-mismatch')
+            }
+            changed = withTransitionReceipt(
+              {
+                ...current,
+                attemptId: input.attemptId ?? current.attemptId,
+                observationGeneration:
+                  input.observationGeneration ?? current.observationGeneration,
+              },
+              input,
+              this.now(),
+            )
+            break
+          }
           const createdAt = input.createdAt ?? this.now()
           const narrowDefault: DelegationScope = input.issueId
             ? { kind: 'subtree', rootId: input.issueId }
