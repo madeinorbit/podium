@@ -21,8 +21,8 @@ interface MachineConvergenceState {
 
 /**
  * Server-owned convergence orchestration. A target is inert until setTarget is
- * called, and every grant comes from planWave. Daemon status is attributed by the
- * authenticated gateway before it reaches onStatus.
+ * called, and every grant comes from planWave. Daemon status is attributed by
+ * the authenticated gateway before it reaches onStatus.
  */
 export class UpdatesService {
   private targetValue: UpdateTarget | undefined
@@ -35,6 +35,11 @@ export class UpdatesService {
 
   targetVersion(): string | undefined {
     return this.targetValue?.version
+  }
+
+  /** The immutable target descriptor currently published by the server. */
+  target(): UpdateTarget | undefined {
+    return this.targetValue
   }
 
   setTarget(target: UpdateTarget): void {

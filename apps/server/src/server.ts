@@ -445,7 +445,7 @@ export async function startServer(
     visibilityGrade: () => registry.modules.funnel.visibilityGrade(),
     updateTarget: () => {
       requestDevBuild(false)
-      return publishDevTarget()
+      return publishDevTarget() ?? registry.modules.updates.target()
     },
   })
   registerMaintenanceRoute(app, {

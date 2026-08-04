@@ -43,9 +43,7 @@ function machineLabel(count: number): string {
   return `${count} machine${count === 1 ? '' : 's'}`
 }
 
-function targetNotes(notes: UpdateNotes | undefined): UpdateView extends infer _
-  ? { summary?: string; url?: string } | undefined
-  : never {
+function targetNotes(notes: UpdateNotes | undefined): { summary?: string; url?: string } | undefined {
   if (!notes) return undefined
   return {
     ...(notes.summary !== undefined ? { summary: notes.summary } : {}),
@@ -122,7 +120,6 @@ export function describeUpdate(input: UpdateInput): UpdateView {
 
   const required = input.skew !== 'ok' || target?.critical === true
   const places = placesFor(input)
-  if (!target && !required) return { state: 'none' }
   if (!required && places.length === 0) return { state: 'none' }
 
   const result: Extract<UpdateView, { state: 'available' | 'required' }> = {
