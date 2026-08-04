@@ -10,6 +10,9 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
+import { MinRequired, type MinRequired as MinRequiredShape } from '@podium/protocol'
+import { extractRelease } from './changelog'
+import { buildManifest } from './release-manifest'
 
 export type HeadlessArch = 'x64' | 'arm64'
 
@@ -74,6 +77,22 @@ export function buildHeadlessManifest(p: {
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(name)
   return i >= 0 ? process.argv[i + 1] : undefined
+}
+
+function minRequiredArg(): MinRequiredShape | undefined {
+  const flag = '--min-required'
+  const index = process.argv.indexOf(flag)
+  if (index < 0) return undefined
+  const value = process.argv[index + 1]
+  if (!value || value.startsWith('--')) {
+    throw new Error('--min-required needs a JSON object')
+  }
+  try {
+    return MinRequired.parse(JSON.parse(value))
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`invalid --min-required JSON: ${message}`)
+  }
 }
 
 function releaseUrl(channel: 'stable' | 'edge', tag: string, asset: string): string {
@@ -171,20 +190,35 @@ export function publishPreparedHeadless(p: {
   tag: string
   dir: string
   requiredTargets?: string[]
+  critical?: boolean
+  minRequired?: MinRequiredShape
+  changelogPath?: string
 }): void {
   if (p.channel === 'stable' && !p.tag) throw new Error('stable release needs --tag vX.Y.Z')
   const { version, prepared } = loadPreparedHeadless(p.dir, p.requiredTargets)
   const manifestName = 'podium-update.json'
+  const notes = extractRelease(
+    readFileSync(p.changelogPath ?? 'CHANGELOG.md', 'utf8'),
+    version,
+  )
   writeFileSync(
     join(p.dir, manifestName),
-    buildHeadlessManifestForPlatforms({
-      version,
-      platforms: prepared.map((item) => ({
-        target: item.target,
-        url: releaseUrl(p.channel, p.tag, item.asset),
-        signature: item.signature,
-      })),
-    }),
+    `${JSON.stringify(
+      buildManifest({
+        version,
+        platforms: prepared.map((item) => ({
+          target: item.target,
+          url: releaseUrl(p.channel, p.tag, item.asset),
+          signature: item.signature,
+          bytes: readFileSync(join(p.dir, item.asset)),
+        })),
+        notes,
+        critical: p.critical ?? false,
+        minRequired: p.minRequired,
+      }),
+      null,
+      2,
+    )}\n`,
   )
   writeFileSync(join(p.dir, 'VERSION'), `${version}\n`)
   const releaseFiles = [
@@ -266,7 +300,13 @@ async function main(): Promise<void> {
     return
   }
   if (publishDir) {
-    publishPreparedHeadless({ channel, tag, dir: publishDir })
+    publishPreparedHeadless({
+      channel,
+      tag,
+      dir: publishDir,
+      critical: process.argv.includes('--critical'),
+      minRequired: minRequiredArg(),
+    })
     return
   }
 
@@ -283,6 +323,8 @@ async function main(): Promise<void> {
     tag,
     dir: 'dist-bun/release',
     requiredTargets: [prepared.target],
+    critical: process.argv.includes('--critical'),
+    minRequired: minRequiredArg(),
   })
 }
 

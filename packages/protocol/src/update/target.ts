@@ -1,19 +1,22 @@
 import { z } from 'zod'
 
-export const FeedArtifact = z
+export const PlatformAsset = z
   .object({
-    delivery: z.literal('feed'),
     url: z.string().min(1),
     digest: z.string().min(1),
     signature: z.string().min(1),
   })
 
+export const FeedArtifact = z
+  .object({
+    delivery: z.literal('feed'),
+    platforms: z.record(z.string(), PlatformAsset),
+  })
+
 export const BundleArtifact = z
   .object({
     delivery: z.literal('bundle'),
-    url: z.string().min(1),
-    digest: z.string().min(1),
-    signature: z.string().min(1),
+    platforms: z.record(z.string(), PlatformAsset),
   })
 
 export const GitArtifact = z

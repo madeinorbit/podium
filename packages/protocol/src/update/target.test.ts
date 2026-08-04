@@ -6,9 +6,13 @@ const feedTarget = {
   artifacts: {
     headless: {
       delivery: 'feed',
-      url: 'https://example.test/podium-headless-0.4.2.tar.gz',
-      digest: 'sha256-aaa',
-      signature: 'sig',
+      platforms: {
+        'linux-x86_64': {
+          url: 'https://example.test/podium-headless-0.4.2.tar.gz',
+          digest: 'sha256-aaa',
+          signature: 'sig',
+        },
+      },
     },
   },
 }
@@ -26,9 +30,13 @@ describe('UpdateTarget', () => {
       artifacts: {
         headless: {
           delivery: 'bundle',
-          url: 'https://server.test/update/headless.tar.gz',
-          digest: 'sha256-bbb',
-          signature: 'sig',
+          platforms: {
+            'linux-x86_64': {
+              url: 'https://server.test/update/headless.tar.gz',
+              digest: 'sha256-bbb',
+              signature: 'sig',
+            },
+          },
         },
       },
     })
@@ -53,7 +61,7 @@ describe('UpdateTarget', () => {
     expect(() =>
       UpdateTarget.parse({
         version: '0.4.2',
-        artifacts: { headless: { delivery: 'feed', digest: 'd', signature: 's' } },
+        artifacts: { headless: { delivery: 'feed', platforms: { 'linux-x86_64': { digest: 'd', signature: 's' } } } },
       }),
     ).toThrow()
   })
@@ -84,5 +92,36 @@ describe('UpdateTarget', () => {
 
   it('ignores unknown top-level fields instead of rejecting them', () => {
     expect(() => UpdateTarget.parse({ ...feedTarget, aFieldFromTheFuture: 1 })).not.toThrow()
+  })
+  it('round-trips every prepared platform through UpdateTarget', () => {
+    const t = UpdateTarget.parse({
+      ...feedTarget,
+      artifacts: {
+        headless: {
+          delivery: 'feed',
+          platforms: {
+            ...feedTarget.artifacts.headless.platforms,
+            'linux-aarch64': {
+              url: 'https://example.test/podium-headless-0.4.2-arm64.tar.gz',
+              digest: 'sha256-arm',
+              signature: 'sig-arm',
+            },
+          },
+        },
+      },
+    })
+    expect(t.artifacts.headless?.delivery).toBe('feed')
+    if (t.artifacts.headless?.delivery !== 'feed') throw new Error('expected feed artifact')
+    expect(Object.keys(t.artifacts.headless.platforms)).toEqual([
+      'linux-x86_64',
+      'linux-aarch64',
+    ])
+    expect(t.artifacts.headless.platforms['linux-aarch64']?.digest).toBe('sha256-arm')
+  })
+
+  it('represents a target without the running platform', () => {
+    const t = UpdateTarget.parse(feedTarget)
+    if (t.artifacts.headless?.delivery !== 'feed') throw new Error('expected feed artifact')
+    expect(t.artifacts.headless.platforms['darwin-aarch64']).toBeUndefined()
   })
 })

@@ -17,6 +17,7 @@ export function extractRelease(markdown: string, version: string): ReleaseNotes 
   const headings = [...markdown.matchAll(VERSION_HEADING)]
   for (let index = 0; index < headings.length; index += 1) {
     const heading = headings[index]
+    if (!heading) continue
     if (headingVersion(heading[1] ?? '') !== version) continue
 
     const headingStart = heading.index ?? 0
