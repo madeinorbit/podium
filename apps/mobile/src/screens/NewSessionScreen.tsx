@@ -10,12 +10,13 @@ import type { AgentKind } from '@podium/model'
 import { machinesWithRepo } from '@podium/model'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useEffect, useMemo, useState } from 'react'
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
+import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useIssue, useMobileStore, useSessions } from '../client/hooks'
 import { Screen } from '../components/Screen'
 import { SectionHeader } from '../components/ui'
 import { sessionBackTarget, sessionHref } from '../lib/session-route'
 import { color, font, radius, sans, space } from '../theme/theme'
+import { PressableScale } from '../components/PressableScale'
 
 const AGENT_KINDS: { key: AgentKind | undefined; label: string }[] = [
   { key: undefined, label: 'Default' },
@@ -136,7 +137,7 @@ export function NewSessionScreen() {
   }
 
   return (
-    <Screen title={screenTitle} onBack={() => router.back()}>
+    <Screen title={screenTitle} onBack={() => router.back()} backAs="text">
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         {issue ? (
           <Text style={styles.issueNote}>
@@ -150,7 +151,7 @@ export function NewSessionScreen() {
             {repos.map((repo) => {
               const active = selectedRepo?.path === repo.path
               return (
-                <Pressable
+                <PressableScale
                   key={repo.path}
                   accessibilityRole="button"
                   accessibilityLabel={`Repository ${repo.name}`}
@@ -170,7 +171,7 @@ export function NewSessionScreen() {
                   <Text style={[styles.chipText, active && styles.chipTextActive]}>
                     {repo.name}
                   </Text>
-                </Pressable>
+                </PressableScale>
               )
             })}
           </View>
@@ -207,7 +208,7 @@ export function NewSessionScreen() {
                       : ''
                 const active = machineId === machine.id
                 return (
-                  <Pressable
+                  <PressableScale
                     key={machine.id}
                     accessibilityRole="button"
                     accessibilityLabel={`Machine ${machine.name}${why ? ` ${why}` : ''}`}
@@ -228,7 +229,7 @@ export function NewSessionScreen() {
                     <Text style={[styles.chipText, active && styles.chipTextActive]}>
                       {why ? `${machine.name} · ${why}` : machine.name}
                     </Text>
-                  </Pressable>
+                  </PressableScale>
                 )
               })}
             </View>
@@ -240,7 +241,7 @@ export function NewSessionScreen() {
           {AGENT_KINDS.map((kind) => {
             const active = agentKind === kind.key
             return (
-              <Pressable
+              <PressableScale
                 key={kind.label}
                 accessibilityRole="button"
                 accessibilityLabel={`Agent ${kind.label}`}
@@ -248,7 +249,7 @@ export function NewSessionScreen() {
                 style={[styles.chip, active && styles.chipActive]}
               >
                 <Text style={[styles.chipText, active && styles.chipTextActive]}>{kind.label}</Text>
-              </Pressable>
+              </PressableScale>
             )
           })}
         </View>
@@ -276,7 +277,7 @@ export function NewSessionScreen() {
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
-        <Pressable
+        <PressableScale
           accessibilityRole="button"
           accessibilityLabel={submitLabel}
           disabled={!canCreate}
@@ -284,7 +285,7 @@ export function NewSessionScreen() {
           style={[styles.createBtn, !canCreate && styles.createBtnDisabled]}
         >
           <Text style={styles.createText}>{busy ? 'Starting…' : submitLabel}</Text>
-        </Pressable>
+        </PressableScale>
       </ScrollView>
     </Screen>
   )

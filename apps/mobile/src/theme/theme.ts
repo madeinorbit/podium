@@ -116,15 +116,37 @@ export const radius = {
   full: 999,
 } as const
 
+/**
+ * Type scale, re-based onto iPhone sizes [POD-366].
+ *
+ * The app used to top out at 13px body — iOS's *footnote* size — which is why
+ * it read as a desktop tool shrunk onto a phone, and why the web export needed
+ * `maximum-scale=1` to stop Safari auto-zooming every sub-16px input. Each step
+ * now lands on an iOS system size: body 17, subhead 15, footnote 13, caption 11.
+ *
+ * Use the tokens. Arithmetic on them (`font.small - 0.5`) is what produced 34
+ * distinct sizes across 178 call sites; if a step is missing, add one here.
+ */
 export const font = {
-  largeTitle: 24,
-  title: 18,
-  heading: 15,
-  body: 13,
-  small: 12,
-  tiny: 10,
-  micro: 9,
+  largeTitle: 28,
+  title: 22,
+  heading: 20,
+  /** Primary readable content — row titles, transcript prose, inputs. */
+  body: 17,
+  /** Secondary text — descriptions, chips, table cells. */
+  small: 15,
+  /** Metadata — timestamps, status lines, tool rows. */
+  tiny: 13,
+  /** Micro labels — mono section labels, counts, badges. */
+  micro: 11,
 } as const
+
+/**
+ * Line height for a scale step. Body copy gets room (1.45); dense chrome and
+ * micro labels sit tighter (1.3) so rows don't grow taller than their content.
+ */
+export const leading = (size: number, density: 'prose' | 'ui' = 'ui') =>
+  Math.round(size * (density === 'prose' ? 1.45 : 1.3))
 
 /**
  * Geist / Geist Mono, with regular and semibold static faces loaded in
@@ -154,7 +176,7 @@ export const mono = (weight: 400 | 500 | 600 | 700 = 400) =>
   }) as const
 
 /** Mono micro-label style (project/scope labels): tracking ≈ .12em. */
-export const monoLabel = (size = 10) =>
+export const monoLabel = (size: number = font.micro) =>
   ({
     ...mono(500),
     fontSize: size,

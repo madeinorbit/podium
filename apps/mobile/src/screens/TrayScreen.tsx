@@ -19,6 +19,8 @@ import { sessionHref } from '../lib/session-route'
 import { effectiveIssueColorHex, FLOW_SLATE, flow } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
 import { color, font, mono, radius, sans, space } from '../theme/theme'
+import { PressableScale } from '../components/PressableScale'
+import { useRefreshableTab } from '../hooks/useRefreshableTab'
 
 /**
  * The Tray — home [POD-131]. The phone IS the engraved column: a GLOBAL
@@ -71,7 +73,7 @@ function AskCard({
       ) : (
         <Text style={styles.askWaiting}>Waiting on you — open the session to answer.</Text>
       )}
-      <Pressable
+      <PressableScale
         accessibilityRole="button"
         accessibilityLabel="Open session"
         onPress={onOpenSession}
@@ -79,7 +81,7 @@ function AskCard({
         style={styles.sessionLink}
       >
         <Text style={styles.sessionLinkText}>session →</Text>
-      </Pressable>
+      </PressableScale>
     </View>
   )
 }
@@ -90,6 +92,7 @@ export function TrayScreen() {
   const allSessions = useSessions()
   const issues = useIssues()
   const connected = useConnected()
+  const { listRef, refreshControl } = useRefreshableTab('index')
   const { error } = useMobileShell()
   const now = Date.now()
   const [lightbox, setLightbox] = useState<{ uri: string; label: string } | null>(null)
@@ -171,7 +174,11 @@ export function TrayScreen() {
     >
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <View style={styles.queue}>
-        <ScrollView contentContainerStyle={styles.queueContent}>
+        <ScrollView
+          ref={listRef as never}
+          refreshControl={refreshControl}
+          contentContainerStyle={styles.queueContent}
+        >
           {askSessions.map((session) => (
             <AskCard
               key={session.sessionId}
@@ -199,22 +206,22 @@ export function TrayScreen() {
                   : 'Agent hit an error.'}
               </Text>
               <View style={styles.errorActions}>
-                <Pressable
+                <PressableScale
                   accessibilityRole="button"
                   accessibilityLabel="Continue after error"
                   style={styles.continueBtn}
                   onPress={() => void store.continueSession(session.sessionId)}
                 >
                   <Text style={styles.continueText}>Continue</Text>
-                </Pressable>
-                <Pressable
+                </PressableScale>
+                <PressableScale
                   accessibilityRole="button"
                   accessibilityLabel="Open session"
                   onPress={() => router.push(sessionHref(session.sessionId, '/'))}
                   hitSlop={8}
                 >
                   <Text style={styles.sessionLinkText}>session →</Text>
-                </Pressable>
+                </PressableScale>
               </View>
             </View>
           ))}
@@ -325,7 +332,7 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     color: color.textDim,
-    fontSize: font.tiny + 0.5,
+    fontSize: font.tiny,
   },
   askAgo: {
     ...mono(500),
@@ -360,7 +367,7 @@ const styles = StyleSheet.create({
   },
   errorBody: {
     color: color.textDim,
-    fontSize: font.small - 0.5,
+    fontSize: font.small,
   },
   errorActions: {
     flexDirection: 'row',
@@ -376,7 +383,7 @@ const styles = StyleSheet.create({
   continueText: {
     ...sans(600),
     color: color.onAccent,
-    fontSize: font.small - 0.5,
+    fontSize: font.small,
   },
   empty: {
     flex: 1,

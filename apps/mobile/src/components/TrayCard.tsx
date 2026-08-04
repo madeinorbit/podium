@@ -2,13 +2,14 @@ import { relativeTime } from '@podium/client-core/focus'
 import type { TrayItem } from '@podium/client-core/viewmodels'
 import type { IssuePanelArtifact, IssueWire, SessionMeta, SessionOffer } from '@podium/model'
 import { useState } from 'react'
-import { Image, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { Image, Modal, StyleSheet, Text, TextInput, View } from 'react-native'
 import { offerArtifactTarget } from '../lib/offer-artifact-target'
 import { resolveOfferArtifacts } from '../lib/offer-artifacts'
 import { effectiveIssueColorHex, FLOW_SLATE, flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
-import { color, font, mono, radius, sans, space } from '../theme/theme'
+import { color, font, leading, mono, radius, sans, space } from '../theme/theme'
 import { IdSquare } from './IdSquare'
+import { PressableScale } from './PressableScale'
 
 /** Compose an input-action's prompt with the collected feedback (web parity). */
 export const composeOfferPrompt = (prompt: string, feedback: string): string =>
@@ -98,7 +99,7 @@ export function TrayCard({
   )
 
   const sessionLink = session ? (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityLabel="Open session"
       onPress={() => actions.onOpenSession(session)}
@@ -106,7 +107,7 @@ export function TrayCard({
       style={styles.sessionLink}
     >
       <Text style={styles.sessionLinkText}>session →</Text>
-    </Pressable>
+    </PressableScale>
   ) : null
 
   if (item.kind === 'offer') {
@@ -137,7 +138,7 @@ export function TrayCard({
             {shown.map((a) => {
               const target = offerArtifactTarget({ httpOrigin, issue, artifact: a })
               return (
-                <Pressable
+                <PressableScale
                   key={a.artifactId ?? a.path}
                   accessibilityRole={target.previewable ? 'imagebutton' : 'button'}
                   accessibilityLabel={
@@ -157,7 +158,7 @@ export function TrayCard({
                       {target.label}
                     </Text>
                   )}
-                </Pressable>
+                </PressableScale>
               )
             })}
             {extra > 0 ? (
@@ -180,7 +181,7 @@ export function TrayCard({
               autoFocus
             />
             <View style={styles.actRow}>
-              <Pressable
+              <PressableScale
                 accessibilityRole="button"
                 accessibilityLabel={pendingAction.label}
                 disabled={!feedback.trim()}
@@ -195,8 +196,8 @@ export function TrayCard({
                 }}
               >
                 <Text style={styles.btnPrimaryText}>{pendingAction.label}</Text>
-              </Pressable>
-              <Pressable
+              </PressableScale>
+              <PressableScale
                 accessibilityRole="button"
                 accessibilityLabel="Cancel"
                 onPress={() => {
@@ -206,13 +207,13 @@ export function TrayCard({
                 hitSlop={8}
               >
                 <Text style={styles.cancel}>Cancel</Text>
-              </Pressable>
+              </PressableScale>
             </View>
           </View>
         ) : (
           <View style={styles.actRow}>
             {offer.actions.map((action, ai) => (
-              <Pressable
+              <PressableScale
                 key={`${action.label}:${action.prompt}`}
                 accessibilityRole="button"
                 accessibilityLabel={action.label}
@@ -225,7 +226,7 @@ export function TrayCard({
                 <Text style={ai === 0 ? styles.btnPrimaryText : styles.btnSecondaryText}>
                   {action.label}
                 </Text>
-              </Pressable>
+              </PressableScale>
             ))}
             {sessionLink}
           </View>
@@ -237,7 +238,7 @@ export function TrayCard({
           onRequestClose={() => setPreview(null)}
         >
           <View style={styles.lightbox}>
-            <Pressable
+            <PressableScale
               accessibilityRole="button"
               accessibilityLabel="Close image"
               onPress={() => setPreview(null)}
@@ -245,7 +246,7 @@ export function TrayCard({
               style={({ pressed }) => [styles.lightboxClose, pressed && styles.shotPressed]}
             >
               <Text style={styles.lightboxCloseText}>×</Text>
-            </Pressable>
+            </PressableScale>
             {preview ? (
               <>
                 <Image
@@ -277,7 +278,7 @@ export function TrayCard({
         {header}
         <Text style={styles.headline}>{item.text}</Text>
         {options.map((option) => (
-          <Pressable
+          <PressableScale
             key={option}
             accessibilityRole="button"
             accessibilityLabel={option}
@@ -287,17 +288,17 @@ export function TrayCard({
             }
           >
             <Text style={styles.optionText}>{option}</Text>
-          </Pressable>
+          </PressableScale>
         ))}
         <View style={styles.actRow}>
-          <Pressable
+          <PressableScale
             accessibilityRole="button"
             accessibilityLabel="Resolve question"
             onPress={() => actions.onResolve(issue)}
             hitSlop={8}
           >
             <Text style={styles.cancel}>resolve ✓</Text>
-          </Pressable>
+          </PressableScale>
           {sessionLink}
         </View>
       </View>
@@ -310,14 +311,14 @@ export function TrayCard({
       {header}
       <Text style={styles.headline}>Ready for review</Text>
       <View style={styles.actRow}>
-        <Pressable
+        <PressableScale
           accessibilityRole="button"
           accessibilityLabel="Open task"
           style={[styles.btn, styles.btnPrimary]}
           onPress={() => actions.onOpenIssue(issue)}
         >
           <Text style={styles.btnPrimaryText}>Review</Text>
-        </Pressable>
+        </PressableScale>
         {sessionLink}
       </View>
     </View>
@@ -347,11 +348,11 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     color: color.textDim,
-    fontSize: font.tiny + 0.5,
+    fontSize: font.tiny,
   },
   agent: {
     color: color.textFaint,
-    fontSize: font.micro + 0.5,
+    fontSize: font.micro,
     maxWidth: 90,
   },
   agentGlyph: {
@@ -359,19 +360,21 @@ const styles = StyleSheet.create({
   },
   ago: {
     ...mono(500),
-    color: color.accent,
+    // Yellow means "waiting on you" (The Signal Rule) — a timestamp is not
+    // that, and spending the signal here diluted it [POD-366].
+    color: color.textFaint,
     fontSize: font.micro,
   },
   headline: {
     ...sans(600),
     color: color.text,
     fontSize: font.body,
-    lineHeight: 18,
+    lineHeight: leading(font.body, 'prose'),
   },
   body: {
     color: color.textDim,
-    fontSize: font.small - 0.5,
-    lineHeight: 16,
+    fontSize: font.small,
+    lineHeight: leading(font.body, 'prose'),
   },
   shots: {
     flexDirection: 'row',
@@ -401,7 +404,7 @@ const styles = StyleSheet.create({
   shotLabel: {
     ...mono(400),
     color: color.textFaint,
-    fontSize: 8,
+    fontSize: font.micro,
     paddingHorizontal: 3,
   },
   actRow: {
@@ -423,7 +426,7 @@ const styles = StyleSheet.create({
   btnPrimaryText: {
     ...sans(600),
     color: color.onAccent,
-    fontSize: font.small - 0.5,
+    fontSize: font.small,
   },
   btnSecondary: {
     backgroundColor: color.elevated,
@@ -433,7 +436,7 @@ const styles = StyleSheet.create({
   btnSecondaryText: {
     ...sans(500),
     color: color.body,
-    fontSize: font.small - 0.5,
+    fontSize: font.small,
   },
   btnDisabled: {
     opacity: 0.5,

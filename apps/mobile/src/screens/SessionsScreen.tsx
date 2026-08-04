@@ -119,7 +119,7 @@ const styles = StyleSheet.create({
     paddingBottom: 5,
   },
   sectionLabel: {
-    ...monoLabel(9),
+    ...monoLabel(),
     color: color.label,
   },
   needsYouLabel: {

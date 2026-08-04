@@ -3,7 +3,7 @@ import type { IssueWire } from '@podium/model'
 import { StyleSheet, Text, View } from 'react-native'
 import { flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
-import { type AttentionTone, color, font, mono, radius, sans, space, tone } from '../theme/theme'
+import { type AttentionTone, color, font, leading, mono, radius, sans, space, tone } from '../theme/theme'
 import { IdSquare, type IdSquareState } from './IdSquare'
 import { PressableScale } from './PressableScale'
 import { BrailleSpinner } from './StatusGlyphs'
@@ -155,7 +155,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   avatarText: {
-    fontSize: 11,
+    fontSize: font.tiny,
   },
   titles: {
     flex: 1,
@@ -185,8 +185,8 @@ const styles = StyleSheet.create({
   summary: {
     ...sans(400),
     color: color.textDim,
-    fontSize: 11.5,
-    lineHeight: 16,
+    fontSize: font.small,
+    lineHeight: leading(font.small),
   },
   quote: {
     backgroundColor: tone.needsYou.bg,
@@ -199,7 +199,7 @@ const styles = StyleSheet.create({
   quoteText: {
     ...sans(500),
     color: color.accentTint,
-    fontSize: 11.5,
-    lineHeight: 16,
+    fontSize: font.small,
+    lineHeight: leading(font.small, 'prose'),
   },
 })

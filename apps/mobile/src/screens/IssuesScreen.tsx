@@ -3,15 +3,17 @@ import type { IssueStage, IssueWire } from '@podium/model'
 import { useRouter } from 'expo-router'
 import { ChevronRight, Layers, Plus } from 'lucide-react-native'
 import { useMemo, useState } from 'react'
-import { Pressable, SectionList, StyleSheet, Text, View } from 'react-native'
-import { useIssues } from '../client/hooks'
+import { SectionList, StyleSheet, Text, View } from 'react-native'
+import { useBooting, useIssues } from '../client/hooks'
 import { Icon } from '../components/Icon'
 import { IdSquare } from '../components/IdSquare'
 import { HeaderButton, Screen } from '../components/Screen'
-import { EmptyState, Pill } from '../components/ui'
+import { EmptyState, ListSkeleton, Pill } from '../components/ui'
 import { buildScreeningQueue } from '../lib/screening'
 import { flow, issueColorHex } from '../theme/issueColors'
-import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
+import { color, font, leading, mono, monoLabel, radius, sans, space } from '../theme/theme'
+import { PressableScale } from '../components/PressableScale'
+import { useRefreshableTab } from '../hooks/useRefreshableTab'
 
 const STAGE_ORDER: IssueStage[] = [
   'in_progress',
@@ -35,6 +37,8 @@ export function IssuesScreen() {
   const router = useRouter()
   const issues = useIssues()
   const [showDone, setShowDone] = useState(false)
+  const booting = useBooting()
+  const { listRef, refreshControl } = useRefreshableTab('issues')
 
   // The board's population is the desktop board's population (POD-338): no
   // archived or tombstoned rows, no DRAFT vessels (the placeholder issue every
@@ -71,14 +75,14 @@ export function IssuesScreen() {
       title="Tasks"
       right={
         <>
-          <Pressable
+          <PressableScale
             accessibilityRole="button"
             accessibilityLabel={showDone ? 'Hide done tasks' : 'Show done tasks'}
             onPress={() => setShowDone((v) => !v)}
             hitSlop={8}
           >
             <Text style={styles.toggle}>{showDone ? 'Hide done' : 'Show done'}</Text>
-          </Pressable>
+          </PressableScale>
           <HeaderButton label="New task" onPress={() => router.push('/new-issue')}>
             <Icon as={Plus} size={19} color={color.text} />
           </HeaderButton>
@@ -86,13 +90,15 @@ export function IssuesScreen() {
       }
     >
       <SectionList
+        ref={listRef as never}
         sections={sections}
         keyExtractor={(issue) => issue.id}
         stickySectionHeadersEnabled
+        refreshControl={refreshControl}
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={
           proposals.length === 0 ? null : (
-            <Pressable
+            <PressableScale
               accessibilityRole="button"
               accessibilityLabel="Screen proposed"
               accessibilityHint={`Decide on ${proposals.length} proposal${proposals.length === 1 ? '' : 's'} one at a time`}
@@ -109,7 +115,7 @@ export function IssuesScreen() {
                 </Text>
               </View>
               <Icon as={ChevronRight} size={16} color={color.textFaint} />
-            </Pressable>
+            </PressableScale>
           )
         }
         renderSectionHeader={({ section }) => (
@@ -123,7 +129,7 @@ export function IssuesScreen() {
           const hex = issueColorHex(issue.color)
           const resting = issue.stage === 'backlog' || issue.stage === 'proposed'
           return (
-            <Pressable
+            <PressableScale
               accessibilityRole="button"
               accessibilityLabel={`Issue ${issue.seq}: ${issue.title}`}
               onPress={() => router.push(`/issue/${encodeURIComponent(issue.id)}`)}
@@ -165,11 +171,15 @@ export function IssuesScreen() {
                   {repoName(issue)}
                 </Text>
               </View>
-            </Pressable>
+            </PressableScale>
           )
         }}
         ListEmptyComponent={
-          <EmptyState title="No tasks" body="Tasks filed in your repos show up here." />
+          booting ? (
+            <ListSkeleton />
+          ) : (
+            <EmptyState title="No tasks" body="Tasks filed in your repos show up here." />
+          )
         }
       />
     </Screen>
@@ -183,8 +193,10 @@ const styles = StyleSheet.create({
   },
   toggle: {
     ...sans(600),
-    color: color.accent,
-    fontSize: font.tiny + 1,
+    // A view filter is not the primary action; it stopped competing with the
+    // needs-you yellow and the New Task button [POD-366].
+    color: color.textDim,
+    fontSize: font.small,
   },
   screenRow: {
     flexDirection: 'row',
@@ -220,7 +232,7 @@ const styles = StyleSheet.create({
   screenTitle: {
     ...sans(600),
     color: color.text,
-    fontSize: font.small + 1,
+    fontSize: font.small,
   },
   screenSub: {
     ...mono(400),
@@ -238,7 +250,7 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   sectionLabel: {
-    ...monoLabel(9),
+    ...monoLabel(),
     color: color.label,
   },
   sectionCount: {
@@ -273,7 +285,7 @@ const styles = StyleSheet.create({
     flex: 1,
     color: color.text,
     fontSize: font.small,
-    lineHeight: 16,
+    lineHeight: leading(font.body),
   },
   metaRow: {
     flexDirection: 'row',

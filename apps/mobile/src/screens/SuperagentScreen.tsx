@@ -7,7 +7,7 @@ import {
 import type { SessionId, TranscriptItem } from '@podium/model'
 import { Eraser } from 'lucide-react-native'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
+import { KeyboardAvoidingView, Platform, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { readTranscriptPage, useHub, useMobileStore } from '../client/hooks'
 import { Composer } from '../components/Composer'
@@ -18,6 +18,7 @@ import { type PendingTurn, TranscriptList } from '../components/TranscriptList'
 import { EmptyState } from '../components/ui'
 import { dropEchoedTurns, markTurnsFailed, renderedTranscript } from '../lib/superagent-transcript'
 import { color, font, mono, monoLabel, sans, space } from '../theme/theme'
+import { PressableScale } from '../components/PressableScale'
 
 /**
  * The Super agent — the phone half of the engraved column's overarching chat
@@ -287,23 +288,23 @@ export function SuperagentScreen() {
           <Text style={styles.scope}>OVERARCHING</Text>
           <View style={styles.barActions}>
             {running ? (
-              <Pressable
+              <PressableScale
                 accessibilityRole="button"
                 accessibilityLabel="Stop turn"
                 onPress={() => void interrupt()}
                 hitSlop={8}
               >
                 <Text style={styles.stop}>Stop</Text>
-              </Pressable>
+              </PressableScale>
             ) : null}
-            <Pressable
+            <PressableScale
               accessibilityRole="button"
               accessibilityLabel="Clear context — start the chat fresh"
               onPress={() => void clear()}
               hitSlop={8}
             >
               <Icon as={Eraser} size={13} color={color.textFaint} />
-            </Pressable>
+            </PressableScale>
           </View>
         </View>
         <KeyboardAvoidingView
@@ -386,7 +387,7 @@ const styles = StyleSheet.create({
     fontSize: font.small,
   },
   scope: {
-    ...monoLabel(8),
+    ...monoLabel(),
     color: color.textMicro,
   },
   barActions: {

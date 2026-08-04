@@ -1,7 +1,19 @@
-import { useEffect, useRef, useState } from 'react'
-import { Animated, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  Animated,
+  Modal,
+  PanResponder,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { color, elevation, font, monoLabel, radius, sans, space } from '../theme/theme'
+import { color, elevation, font, leading, monoLabel, radius, sans, space } from '../theme/theme'
+import { PressableScale } from './PressableScale'
+
+/** How far the sheet travels when opening — and the drag distance that dismisses it. */
+const SHEET_TRAVEL = 320
 
 export interface SheetAction {
   label: string
@@ -38,7 +50,9 @@ export function ActionSheet({
       setMounted(true)
       const opening = Animated.spring(slide, {
         toValue: 1,
-        useNativeDriver: Platform.OS !== 'web',
+        // JS driver on purpose: the drag below feeds the same transform via
+        // PanResponder.setValue, which a native-driven node rejects.
+        useNativeDriver: false,
         speed: 18,
         bounciness: 4,
       })
@@ -49,7 +63,7 @@ export function ActionSheet({
     const closing = Animated.timing(slide, {
       toValue: 0,
       duration: 160,
-      useNativeDriver: Platform.OS !== 'web',
+      useNativeDriver: false,
     })
     closing.start(({ finished }) => {
       if (finished) setMounted(false)
@@ -57,9 +71,47 @@ export function ActionSheet({
     return () => closing.stop()
   }, [visible, slide])
 
+  // The sheet drew the 36×4 grab pill that means "drag me down" on every native
+  // sheet, and ignored the gesture [POD-366]. Now it tracks the finger: past a
+  // third of its travel, or on a fast flick, it dismisses; otherwise it springs
+  // back. Downward drags only — an upward pull must not lift it off the edge.
+  const drag = useRef(new Animated.Value(0)).current
+  const pan = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_e, g) => g.dy > 4 && Math.abs(g.dy) > Math.abs(g.dx),
+        onPanResponderMove: (_e, g) => {
+          if (g.dy > 0) drag.setValue(g.dy)
+        },
+        onPanResponderRelease: (_e, g) => {
+          if (g.dy > SHEET_TRAVEL / 3 || g.vy > 0.8) {
+            onClose()
+            return
+          }
+          Animated.spring(drag, {
+            toValue: 0,
+            useNativeDriver: false,
+            speed: 20,
+            bounciness: 6,
+          }).start()
+        },
+        onPanResponderTerminate: () => {
+          drag.setValue(0)
+        },
+      }),
+    [drag, onClose],
+  )
+
+  useEffect(() => {
+    if (visible) drag.setValue(0)
+  }, [visible, drag])
+
   if (!mounted) return null
 
-  const translateY = slide.interpolate({ inputRange: [0, 1], outputRange: [320, 0] })
+  const translateY = Animated.add(
+    slide.interpolate({ inputRange: [0, 1], outputRange: [SHEET_TRAVEL, 0] }),
+    drag,
+  )
 
   return (
     <Modal visible transparent animationType="none" onRequestClose={onClose}>
@@ -77,7 +129,9 @@ export function ActionSheet({
           { paddingBottom: insets.bottom + space.lg, transform: [{ translateY }] },
         ]}
       >
-        <View style={styles.handle} />
+        <View style={styles.handleZone} {...pan.panHandlers}>
+          <View style={styles.handle} />
+        </View>
         {title ? (
           <Text style={styles.title} numberOfLines={1}>
             {title}
@@ -85,7 +139,7 @@ export function ActionSheet({
         ) : null}
         <View style={styles.group}>
           {actions.map((action, i) => (
-            <Pressable
+            <PressableScale
               key={action.label}
               accessibilityRole="button"
               accessibilityLabel={action.label}
@@ -107,17 +161,17 @@ export function ActionSheet({
                 {action.label}
               </Text>
               {action.hint ? <Text style={styles.actionHint}>{action.hint}</Text> : null}
-            </Pressable>
+            </PressableScale>
           ))}
         </View>
-        <Pressable
+        <PressableScale
           accessibilityRole="button"
           accessibilityLabel="Cancel"
           onPress={onClose}
           style={({ pressed }) => [styles.cancel, pressed && styles.actionPressed]}
         >
           <Text style={styles.cancelText}>Cancel</Text>
-        </Pressable>
+        </PressableScale>
       </Animated.View>
     </Modal>
   )
@@ -144,16 +198,21 @@ const styles = StyleSheet.create({
     paddingTop: space.sm,
     paddingHorizontal: space.md,
   },
+  // The grab target is the whole strip above the actions, not the 4px pill.
+  handleZone: {
+    alignSelf: 'stretch',
+    alignItems: 'center',
+    paddingTop: 2,
+    paddingBottom: space.sm,
+  },
   handle: {
-    alignSelf: 'center',
     width: 36,
     height: 4,
     borderRadius: radius.full,
     backgroundColor: color.borderStrong,
-    marginBottom: space.sm,
   },
   title: {
-    ...monoLabel(9),
+    ...monoLabel(),
     color: color.textMicro,
     textAlign: 'center',
     marginBottom: space.sm,
@@ -190,7 +249,7 @@ const styles = StyleSheet.create({
     ...sans(400),
     color: color.textFaint,
     fontSize: font.tiny,
-    lineHeight: 15,
+    lineHeight: leading(font.tiny),
     textAlign: 'center',
   },
   destructive: {

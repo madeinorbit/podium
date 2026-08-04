@@ -31,7 +31,18 @@ export default function RootLayout() {
               headerShown: false,
               contentStyle: { backgroundColor: color.bg },
             }}
-          />
+          >
+            {/*
+              Create forms and settings are sheets, not destinations [POD-366].
+              They were plain pushes, which reads as "you have gone somewhere
+              and must come back"; on iOS a form you can abandon is a sheet you
+              swipe down. The screens themselves pair this with a Cancel
+              affordance instead of a back chevron.
+            */}
+            <Stack.Screen name="new-session" options={{ presentation: 'modal' }} />
+            <Stack.Screen name="new-issue" options={{ presentation: 'modal' }} />
+            <Stack.Screen name="settings" options={{ presentation: 'modal' }} />
+          </Stack>
         </MobileClientProvider>
       </AuthGate>
       <StatusBar style="light" />

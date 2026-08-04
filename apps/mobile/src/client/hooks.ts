@@ -117,6 +117,27 @@ export function useConnected(): boolean {
   return demoEnabled() ? true : connected
 }
 
+/**
+ * True while no snapshot has arrived yet — the lists have nothing to show and
+ * do not yet know whether they are empty [POD-366].
+ *
+ * NOT A SLICE, for the same reason `useConnected` is not one: this is a fact
+ * about the transport's progress, not a derivation over an entity snapshot. The
+ * replica hands out a cursor only once a feed frame has landed, so before that
+ * an empty list means "not loaded" rather than "nothing here" — and painting an
+ * empty state on a cold start reads as breakage rather than latency. Screens
+ * show skeletons on this and keep the empty state for genuinely empty.
+ *
+ * Demo mode is never booting: the fixture store IS the snapshot.
+ */
+export function useBooting(): boolean {
+  return useStoreSelector<boolean, MobileTrpc>((s) =>
+    demoEnabled()
+      ? false
+      : s.replica.getCursor() === null && s.sessions.length === 0 && s.issues.length === 0,
+  )
+}
+
 /** One page of a session transcript, newest-first, as both transcript readers
  *  (session chat, superagent) ask for it. A shared call shape rather than a
  *  derivation — the paging arguments must not drift between the two. */

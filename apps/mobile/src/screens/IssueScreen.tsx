@@ -5,7 +5,7 @@ import { issueDisplayRef } from '@podium/protocol'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { Plus } from 'lucide-react-native'
 import { useMemo, useState } from 'react'
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useIssue, useMobileStore, useSessions } from '../client/hooks'
 import { ActionSheet } from '../components/ActionSheet'
 import { Composer } from '../components/Composer'
@@ -14,7 +14,8 @@ import { HeaderButton, Screen } from '../components/Screen'
 import { SessionCard } from '../components/SessionCard'
 import { EmptyState, Pill, SectionHeader } from '../components/ui'
 import { sessionHref } from '../lib/session-route'
-import { color, font, radius, sans, space } from '../theme/theme'
+import { color, font, leading, radius, sans, space } from '../theme/theme'
+import { PressableScale } from '../components/PressableScale'
 
 export function IssueScreen() {
   const params = useLocalSearchParams<{ issueId: string | string[] }>()
@@ -95,7 +96,7 @@ export function IssueScreen() {
     >
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.metaRow}>
-          <Pressable
+          <PressableScale
             accessibilityRole="button"
             accessibilityLabel={`Stage ${issue.stage} — change`}
             onPress={() => setStageMenuOpen(true)}
@@ -104,7 +105,7 @@ export function IssueScreen() {
               label={`${issue.stage.replace('_', ' ')} ▾`}
               toneKey={issue.stage === 'in_progress' ? 'working' : undefined}
             />
-          </Pressable>
+          </PressableScale>
           <Pill label={issue.type} />
           <Pill label={`P${issue.priority}`} />
           {issue.needsHuman ? <Pill label="needs human" toneKey="needsYou" /> : null}
@@ -136,7 +137,7 @@ export function IssueScreen() {
         {sessions.length === 0 ? (
           <>
             <Text style={styles.noSessions}>No agent is on this task.</Text>
-            <Pressable
+            <PressableScale
               accessibilityRole="button"
               accessibilityLabel="Start an agent on this task"
               disabled={starting}
@@ -147,7 +148,7 @@ export function IssueScreen() {
               ]}
             >
               <Text style={styles.startText}>{starting ? 'Starting…' : 'Start an agent'}</Text>
-            </Pressable>
+            </PressableScale>
           </>
         ) : (
           sessions.map((session) => (
@@ -204,7 +205,7 @@ const styles = StyleSheet.create({
   description: {
     color: color.textDim,
     fontSize: font.body,
-    lineHeight: 21,
+    lineHeight: leading(font.body, 'prose'),
     paddingHorizontal: space.lg,
     paddingTop: space.md,
   },
@@ -217,7 +218,7 @@ const styles = StyleSheet.create({
   notes: {
     color: color.textDim,
     fontSize: font.small,
-    lineHeight: 19,
+    lineHeight: leading(font.small, 'prose'),
     paddingHorizontal: space.lg,
   },
   noSessions: {
@@ -274,6 +275,6 @@ const styles = StyleSheet.create({
   commentBody: {
     color: color.text,
     fontSize: font.small,
-    lineHeight: 19,
+    lineHeight: leading(font.small, 'prose'),
   },
 })

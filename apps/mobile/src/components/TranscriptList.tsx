@@ -21,17 +21,17 @@ import {
   FlatList,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native'
 import type { TranscriptAssetContext } from '../lib/transcript-assets'
-import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
+import { color, font, leading, mono, monoLabel, radius, sans, space } from '../theme/theme'
 import { AskQuestionCard } from './AskQuestionCard'
 import { RichMarkdown } from './RichMarkdown'
 import { SharedFiles } from './SharedFiles'
+import { PressableScale } from './PressableScale'
 
 function itemKey(item: TranscriptItem): string {
   return item.cursor ?? item.id
@@ -248,7 +248,7 @@ function MachineContextDisclosure({ item }: { item: TranscriptItem }) {
   const [open, setOpen] = useState(false)
   return (
     <View>
-      <Pressable
+      <PressableScale
         accessibilityRole="button"
         accessibilityLabel={machineContextLabel(item.text)}
         accessibilityState={{ expanded: open }}
@@ -257,7 +257,7 @@ function MachineContextDisclosure({ item }: { item: TranscriptItem }) {
       >
         <Text style={styles.contextGlyph}>{open ? '▾' : '▸'}</Text>
         <Text style={styles.contextLabel}>{machineContextLabel(item.text)}</Text>
-      </Pressable>
+      </PressableScale>
       {open ? (
         <ScrollView style={styles.contextScroll} nestedScrollEnabled>
           <Text selectable style={styles.contextBody}>
@@ -457,7 +457,7 @@ export function TranscriptList({
                     <>
                       <Text style={styles.pendingError}>{failed}</Text>
                       {onRetryPending && turn ? (
-                        <Pressable
+                        <PressableScale
                           accessibilityRole="button"
                           accessibilityLabel="Send this message again"
                           onPress={() => onRetryPending(turn)}
@@ -465,7 +465,7 @@ export function TranscriptList({
                           style={({ pressed }) => [styles.retry, pressed && styles.retryPressed]}
                         >
                           <Text style={styles.retryText}>Try again</Text>
-                        </Pressable>
+                        </PressableScale>
                       ) : null}
                     </>
                   ) : null}
@@ -613,7 +613,7 @@ const styles = StyleSheet.create({
   },
   envelopeRef: { color: color.accentTint, textDecorationLine: 'underline' },
   envelopeQuestion: {
-    ...monoLabel(8),
+    ...monoLabel(),
     color: color.accent,
     backgroundColor: color.accentSoft,
     paddingHorizontal: 5,
@@ -621,7 +621,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.xs,
   },
   envelopeReply: {
-    ...monoLabel(8),
+    ...monoLabel(),
     color: color.info,
     backgroundColor: color.workingSoft,
     paddingHorizontal: 5,
@@ -644,7 +644,7 @@ const styles = StyleSheet.create({
     ...mono(400),
     color: color.textMicro,
     fontSize: font.micro,
-    lineHeight: 14,
+    lineHeight: leading(font.micro),
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: color.border,
     marginTop: space.sm,
@@ -684,8 +684,8 @@ const styles = StyleSheet.create({
   contextBody: {
     ...mono(400),
     color: color.textDim,
-    fontSize: 11,
-    lineHeight: 16,
+    fontSize: font.small,
+    lineHeight: leading(font.small),
   },
   // Operator turn — the ONLY elevated surface on the field.
   userWrap: {
@@ -718,7 +718,7 @@ const styles = StyleSheet.create({
     marginTop: space.sm,
     color: color.danger,
     fontSize: font.tiny,
-    lineHeight: 16,
+    lineHeight: leading(font.tiny),
   },
   retry: {
     alignSelf: 'flex-start',
@@ -743,7 +743,7 @@ const styles = StyleSheet.create({
     marginBottom: 3,
   },
   userLabel: {
-    ...monoLabel(font.micro - 0.5),
+    ...monoLabel(),
     color: color.info,
   },
   userTime: {
@@ -760,14 +760,14 @@ const styles = StyleSheet.create({
     ...sans(500),
     color: color.text,
     fontSize: font.body,
-    lineHeight: 19,
+    lineHeight: leading(font.body, 'prose'),
   },
   // Agent prose — flat on the chassis, no bubble.
   proseText: {
     ...sans(400),
     color: color.body,
     fontSize: font.body,
-    lineHeight: 21,
+    lineHeight: leading(font.body, 'prose'),
   },
   // Tool run — muted mono one-liners.
   tools: {
@@ -796,13 +796,13 @@ const styles = StyleSheet.create({
   toolName: {
     ...mono(500),
     color: color.textDim,
-    fontSize: 11,
+    fontSize: font.tiny,
   },
   toolDesc: {
     ...mono(400),
     flex: 1,
     color: color.textFaint,
-    fontSize: 11,
+    fontSize: font.tiny,
   },
   toolMag: {
     ...mono(400),
@@ -818,7 +818,7 @@ const styles = StyleSheet.create({
     borderLeftWidth: 2,
     borderLeftColor: color.hairline,
     color: color.textMicro,
-    fontSize: 10.5,
+    fontSize: font.tiny,
   },
   toolsMore: {
     ...mono(400),
@@ -849,7 +849,7 @@ const styles = StyleSheet.create({
     marginBottom: space.xs + 2,
   },
   answerLabel: {
-    ...monoLabel(font.micro - 0.5),
+    ...monoLabel(),
     color: color.accent,
   },
   answerMeta: {
@@ -874,12 +874,12 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     color: color.textDim,
     fontSize: font.small,
-    lineHeight: 16,
+    lineHeight: leading(font.small, 'prose'),
   },
   receiptPick: {
     ...sans(500),
     color: color.body,
-    fontSize: 11,
+    fontSize: font.tiny,
     borderColor: color.hairline,
     borderWidth: 1,
     borderRadius: radius.xs,

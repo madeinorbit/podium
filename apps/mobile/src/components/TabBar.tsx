@@ -1,6 +1,8 @@
+import * as Haptics from 'expo-haptics'
 import { Inbox, KanbanSquare, MessagesSquare, Rows3 } from 'lucide-react-native'
-import { Pressable, StyleSheet, Text, View } from 'react-native'
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { emitTabReselect } from '../lib/tab-reselect'
 import { color, font, mono, radius, sans } from '../theme/theme'
 import { Icon } from './Icon'
 
@@ -59,12 +61,21 @@ export function TabBar({ state, descriptors, navigation }: TabBarProps) {
             accessibilityState={focused ? { selected: true } : {}}
             accessibilityLabel={options.tabBarAccessibilityLabel ?? label}
             onPress={() => {
+              // Selection feedback, not impact: switching tabs is a picker, and
+              // iOS reserves the softer tick for exactly this [POD-366].
+              if (Platform.OS !== 'web') {
+                Haptics.selectionAsync().catch(() => {})
+              }
               const event = navigation.emit({
                 type: 'tabPress',
                 target: route.key,
                 canPreventDefault: true,
               })
-              if (!focused && !event.defaultPrevented) navigation.navigate(route.name)
+              if (event.defaultPrevented) return
+              // Re-tapping the focused tab scrolls its list to the top rather
+              // than doing nothing, which is what it used to do.
+              if (focused) emitTabReselect(route.name)
+              else navigation.navigate(route.name)
             }}
             style={styles.tab}
           >
@@ -113,7 +124,7 @@ const styles = StyleSheet.create({
   label: {
     ...sans(600),
     color: color.textFaint,
-    fontSize: font.micro + 0.5,
+    fontSize: font.micro,
   },
   labelActive: {
     color: color.accent,
@@ -133,6 +144,6 @@ const styles = StyleSheet.create({
   badgeText: {
     ...mono(700),
     color: color.onAccent,
-    fontSize: 8.5,
+    fontSize: font.micro,
   },
 })

@@ -2,7 +2,7 @@ import type { IssueId, IssueWire } from '@podium/model'
 import { useRouter } from 'expo-router'
 import { Check, Inbox, Play, RotateCcw, SkipForward, X } from 'lucide-react-native'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useConnected, useIssues, useTrpc } from '../client/hooks'
 import { Icon } from '../components/Icon'
@@ -16,7 +16,8 @@ import {
   type ScreeningOutcome,
   screeningTally,
 } from '../lib/screening'
-import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
+import { color, font, leading, mono, monoLabel, radius, sans, space } from '../theme/theme'
+import { PressableScale } from '../components/PressableScale'
 
 interface Deck {
   order: IssueId[]
@@ -183,7 +184,7 @@ export function ProposalScreeningScreen() {
           </View>
           <View style={styles.summaryActions}>
             {skipped.length > 0 ? (
-              <Pressable
+              <PressableScale
                 accessibilityRole="button"
                 accessibilityLabel={`Screen the ${skipped.length} skipped proposals again`}
                 onPress={() => {
@@ -197,9 +198,9 @@ export function ProposalScreeningScreen() {
                 style={({ pressed }) => [styles.summaryBtn, pressed && styles.summaryBtnPressed]}
               >
                 <Text style={styles.summaryBtnText}>{`Review ${skipped.length} skipped`}</Text>
-              </Pressable>
+              </PressableScale>
             ) : null}
-            <Pressable
+            <PressableScale
               accessibilityRole="button"
               accessibilityLabel="Back to Tasks"
               onPress={() => leave()}
@@ -212,7 +213,7 @@ export function ProposalScreeningScreen() {
               <Text style={[styles.summaryBtnText, styles.summaryBtnPrimaryText]}>
                 Back to Tasks
               </Text>
-            </Pressable>
+            </PressableScale>
           </View>
         </View>
       )
@@ -282,7 +283,7 @@ export function ProposalScreeningScreen() {
                 {failure.message}
               </Text>
             </View>
-            <Pressable
+            <PressableScale
               accessibilityRole="button"
               accessibilityLabel={`Retry ${failure.ref}`}
               onPress={() => retry(failure)}
@@ -290,8 +291,8 @@ export function ProposalScreeningScreen() {
               style={styles.failureBtn}
             >
               <Icon as={RotateCcw} size={14} color={color.text} />
-            </Pressable>
-            <Pressable
+            </PressableScale>
+            <PressableScale
               accessibilityRole="button"
               accessibilityLabel={`Dismiss the ${failure.ref} error`}
               onPress={() => setFailures((f) => f.filter((entry) => entry.id !== failure.id))}
@@ -299,7 +300,7 @@ export function ProposalScreeningScreen() {
               style={styles.failureBtn}
             >
               <Icon as={X} size={14} color={color.textDim} />
-            </Pressable>
+            </PressableScale>
           </View>
         ) : null}
         {current ? (
@@ -349,7 +350,7 @@ function ActionButton({
   onPress: () => void
 }) {
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityHint={hint}
@@ -364,7 +365,7 @@ function ActionButton({
     >
       <Icon as={icon} size={16} color={primary ? color.onAccent : tint} />
       <Text style={[styles.actionLabel, { color: primary ? color.onAccent : tint }]}>{label}</Text>
-    </Pressable>
+    </PressableScale>
   )
 }
 
@@ -466,7 +467,7 @@ const styles = StyleSheet.create({
     ...mono(400),
     color: color.textDim,
     fontSize: font.micro,
-    lineHeight: 13,
+    lineHeight: leading(font.micro),
   },
   failureBtn: {
     width: 28,
@@ -536,7 +537,7 @@ const styles = StyleSheet.create({
     marginTop: space.xs,
   },
   tallyItem: {
-    ...monoLabel(9),
+    ...monoLabel(),
     color: color.label,
   },
   tallyDot: {

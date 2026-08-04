@@ -1,14 +1,15 @@
 import { useRouter } from 'expo-router'
 import { Monitor } from 'lucide-react-native'
 import { useState } from 'react'
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { logout } from '../client/auth'
 import { useConnected, useMobileStore } from '../client/hooks'
 import { useMobileShell } from '../client/shell'
 import { Icon } from '../components/Icon'
 import { Screen } from '../components/Screen'
 import { SectionHeader } from '../components/ui'
-import { color, font, radius, sans, space } from '../theme/theme'
+import { color, font, leading, radius, sans, space } from '../theme/theme'
+import { PressableScale } from '../components/PressableScale'
 
 function openDesktop() {
   // The web shell is the default at / for every device now [spec:SP-902c]; /desktop is
@@ -33,10 +34,10 @@ export function SettingsScreen() {
   }
 
   return (
-    <Screen title="Settings" onBack={() => router.back()}>
+    <Screen title="Settings" onBack={() => router.back()} backAs="text" backLabel="Done">
       <ScrollView contentContainerStyle={styles.content}>
         {Platform.OS === 'web' ? (
-          <Pressable
+          <PressableScale
             style={({ pressed }) => [styles.action, pressed && styles.actionPressed]}
             onPress={openDesktop}
             accessibilityRole="button"
@@ -44,7 +45,7 @@ export function SettingsScreen() {
           >
             <Icon as={Monitor} size={18} color={color.accentText} />
             <Text style={styles.actionText}>Open desktop</Text>
-          </Pressable>
+          </PressableScale>
         ) : null}
 
         <SectionHeader label="Connection" />
@@ -64,14 +65,14 @@ export function SettingsScreen() {
         </View>
 
         <SectionHeader label="Account" />
-        <Pressable
+        <PressableScale
           style={({ pressed }) => [styles.logout, pressed && styles.actionPressed]}
           onPress={() => void doLogout()}
           accessibilityRole="button"
           accessibilityLabel="Log out"
         >
           <Text style={styles.logoutText}>{loggedOut ? 'Logged out' : 'Log out'}</Text>
-        </Pressable>
+        </PressableScale>
         <Text style={styles.hint}>
           Notifications: set an ntfy topic or a Telegram bot in the desktop app's settings to get
           pushed when an agent needs you.
@@ -154,7 +155,7 @@ const styles = StyleSheet.create({
   hint: {
     color: color.textFaint,
     fontSize: font.small,
-    lineHeight: 19,
+    lineHeight: leading(font.small, 'prose'),
     marginTop: space.lg,
   },
 })

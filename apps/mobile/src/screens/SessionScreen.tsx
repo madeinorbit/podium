@@ -12,7 +12,7 @@ import { asSessionId, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/mode
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
 import { MoreVertical } from 'lucide-react-native'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
+import { KeyboardAvoidingView, Platform, StyleSheet, Text, View } from 'react-native'
 import {
   readTranscriptPage,
   useHub,
@@ -36,6 +36,7 @@ import { TerminalPane } from '../terminal/TerminalPane'
 import { FLOW_SLATE, issueColorHex } from '../theme/issueColors'
 import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
 import { sessionAbsence } from './session-absence'
+import { PressableScale } from '../components/PressableScale'
 
 const WORK_STATES: (WorkState | null)[] = [
   'planning',
@@ -194,6 +195,11 @@ export function SessionScreen() {
     if (!session) return []
     const actions: SheetAction[] = [
       {
+        label: 'Next session',
+        hint: 'Jump to the next one waiting on you',
+        onPress: nextSession,
+      },
+      {
         label: session.archived ? 'Unarchive' : 'Archive',
         onPress: () => void store.archiveSession(session.sessionId, !session.archived),
       },
@@ -235,7 +241,7 @@ export function SessionScreen() {
       })
     }
     return actions
-  }, [store, session])
+  }, [nextSession, store, session])
 
   const offerActions: TrayCardActions = {
     onOfferAction: (target, prompt) => void store.resumeAndSend(target.sessionId, prompt),
@@ -276,64 +282,61 @@ export function SessionScreen() {
       accent={accent}
       leading={
         issue ? (
-          <Pressable
+          <PressableScale
             accessibilityRole="button"
             accessibilityLabel={`Task POD-${issue.seq} — peek`}
             onPress={() => issue && setPeekIssue(issue)}
             hitSlop={8}
           >
             <IdSquare issue={issue} state="working" size={18} />
-          </Pressable>
+          </PressableScale>
         ) : undefined
       }
+      // One trailing control [POD-366]. This bar used to carry six — back, ID
+      // square, a two-line title, "Next", the Chat/terminal switch and this
+      // kebab — inside 44px, which left every target undersized and put a
+      // second yellow next to the one that means "needs you". "Next" moved
+      // into the menu; the view switch moved to its own row below.
       right={
-        <>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Next session"
-            onPress={nextSession}
-            hitSlop={8}
-          >
-            <Text style={styles.nextText}>Next</Text>
-          </Pressable>
-          {Platform.OS === 'web' ? (
-            <View style={styles.segment}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Chat view"
-                accessibilityState={view === 'chat' ? { selected: true } : {}}
-                onPress={() => setView('chat')}
-                style={[styles.segmentCell, view === 'chat' && styles.segmentCellActive]}
-              >
-                <Text style={[styles.segmentText, view === 'chat' && styles.segmentTextActive]}>
-                  Chat
-                </Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Native agent view"
-                accessibilityState={view === 'native' ? { selected: true } : {}}
-                onPress={() => setView('native')}
-                style={[styles.segmentCell, view === 'native' && styles.segmentCellActive]}
-              >
-                <Text
-                  style={[
-                    styles.segmentText,
-                    styles.segmentTextTerminal,
-                    view === 'native' && styles.segmentTextNative,
-                  ]}
-                >
-                  {'>_'}
-                </Text>
-              </Pressable>
-            </View>
-          ) : null}
-          <HeaderButton label="Session actions" onPress={() => setMenuOpen(true)}>
-            <Icon as={MoreVertical} size={17} color={color.textDim} />
-          </HeaderButton>
-        </>
+        <HeaderButton label="Session actions" onPress={() => setMenuOpen(true)}>
+          <Icon as={MoreVertical} size={17} color={color.textDim} />
+        </HeaderButton>
       }
     >
+      {Platform.OS === 'web' ? (
+        <View style={styles.segmentRow}>
+          <View style={styles.segment}>
+            <PressableScale
+              accessibilityRole="button"
+              accessibilityLabel="Chat view"
+              accessibilityState={view === 'chat' ? { selected: true } : {}}
+              onPress={() => setView('chat')}
+              style={[styles.segmentCell, view === 'chat' && styles.segmentCellActive]}
+            >
+              <Text style={[styles.segmentText, view === 'chat' && styles.segmentTextActive]}>
+                Chat
+              </Text>
+            </PressableScale>
+            <PressableScale
+              accessibilityRole="button"
+              accessibilityLabel="Native agent view"
+              accessibilityState={view === 'native' ? { selected: true } : {}}
+              onPress={() => setView('native')}
+              style={[styles.segmentCell, view === 'native' && styles.segmentCellActive]}
+            >
+              <Text
+                style={[
+                  styles.segmentText,
+                  styles.segmentTextTerminal,
+                  view === 'native' && styles.segmentTextNative,
+                ]}
+              >
+                {'>_'}
+              </Text>
+            </PressableScale>
+          </View>
+        </View>
+      ) : null}
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -426,19 +429,27 @@ const styles = StyleSheet.create({
   flex: {
     flex: 1,
   },
+  // Belongs to the composer, not the transcript [POD-366]. With only bottom
+  // padding it butted against the last line of agent prose and read as text
+  // overlapping text; the seam and the breathing room make it a status strip.
   activity: {
-    ...monoLabel(9),
+    ...monoLabel(),
     color: color.working,
     paddingHorizontal: space.lg,
-    paddingBottom: space.xs,
+    paddingTop: space.sm,
+    paddingBottom: space.xs + 2,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: color.hairline,
   },
   activityAttention: {
     color: color.needsYou,
   },
-  nextText: {
-    ...sans(600),
-    color: color.accent,
-    fontSize: font.small,
+  // The view switch sits on its own row under the header instead of competing
+  // for the 44px bar [POD-366].
+  segmentRow: {
+    alignItems: 'center',
+    paddingTop: space.sm,
+    paddingHorizontal: space.md,
   },
   segment: {
     flexDirection: 'row',
@@ -446,7 +457,7 @@ const styles = StyleSheet.create({
     borderColor: color.borderStrong,
     borderRadius: radius.md,
     overflow: 'hidden',
-    height: 28,
+    height: 32,
   },
   segmentCell: {
     paddingHorizontal: 9,
@@ -459,7 +470,7 @@ const styles = StyleSheet.create({
   segmentText: {
     ...sans(600),
     color: color.textDim,
-    fontSize: font.tiny + 0.5,
+    fontSize: font.tiny,
   },
   segmentTextActive: {
     color: color.text,

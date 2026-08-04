@@ -1,11 +1,12 @@
 import type { IssueType } from '@podium/model'
 import { useRouter } from 'expo-router'
 import { useEffect, useState } from 'react'
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
+import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useTrpc } from '../client/hooks'
 import { Screen } from '../components/Screen'
 import { SectionHeader } from '../components/ui'
 import { color, font, radius, sans, space } from '../theme/theme'
+import { PressableScale } from '../components/PressableScale'
 
 const TYPES: IssueType[] = ['task', 'bug', 'feature', 'chore']
 const PRIORITIES = [0, 1, 2, 3, 4]
@@ -56,7 +57,7 @@ export function NewIssueScreen() {
   }
 
   return (
-    <Screen title="New task" onBack={() => router.back()}>
+    <Screen title="New task" onBack={() => router.back()} backAs="text">
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <SectionHeader label="Repository" />
         <View style={styles.chipWrap}>
@@ -64,7 +65,7 @@ export function NewIssueScreen() {
             const name = repo.split('/').filter(Boolean).pop() ?? repo
             const active = repoPath === repo
             return (
-              <Pressable
+              <PressableScale
                 key={repo}
                 accessibilityRole="button"
                 accessibilityLabel={`Repository ${name}`}
@@ -72,7 +73,7 @@ export function NewIssueScreen() {
                 style={[styles.chip, active && styles.chipActive]}
               >
                 <Text style={[styles.chipText, active && styles.chipTextActive]}>{name}</Text>
-              </Pressable>
+              </PressableScale>
             )
           })}
         </View>
@@ -101,7 +102,7 @@ export function NewIssueScreen() {
         <SectionHeader label="Type" />
         <View style={styles.chipWrap}>
           {TYPES.map((t) => (
-            <Pressable
+            <PressableScale
               key={t}
               accessibilityRole="button"
               accessibilityLabel={`Type ${t}`}
@@ -109,14 +110,14 @@ export function NewIssueScreen() {
               style={[styles.chip, type === t && styles.chipActive]}
             >
               <Text style={[styles.chipText, type === t && styles.chipTextActive]}>{t}</Text>
-            </Pressable>
+            </PressableScale>
           ))}
         </View>
 
         <SectionHeader label="Priority" />
         <View style={styles.chipWrap}>
           {PRIORITIES.map((p) => (
-            <Pressable
+            <PressableScale
               key={p}
               accessibilityRole="button"
               accessibilityLabel={`Priority ${p}`}
@@ -124,11 +125,11 @@ export function NewIssueScreen() {
               style={[styles.chip, priority === p && styles.chipActive]}
             >
               <Text style={[styles.chipText, priority === p && styles.chipTextActive]}>P{p}</Text>
-            </Pressable>
+            </PressableScale>
           ))}
         </View>
 
-        <Pressable
+        <PressableScale
           accessibilityRole="button"
           accessibilityLabel={startNow ? 'Agent will start now' : 'File without starting'}
           onPress={() => setStartNow((v) => !v)}
@@ -138,11 +139,11 @@ export function NewIssueScreen() {
             {startNow ? <Text style={styles.checkmark}>✓</Text> : null}
           </View>
           <Text style={styles.toggleLabel}>Start an agent on it right away</Text>
-        </Pressable>
+        </PressableScale>
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
-        <Pressable
+        <PressableScale
           accessibilityRole="button"
           accessibilityLabel="Create task"
           disabled={!canCreate}
@@ -152,7 +153,7 @@ export function NewIssueScreen() {
           <Text style={styles.createText}>
             {busy ? 'Creating…' : startNow ? 'Create & start agent' : 'Create task'}
           </Text>
-        </Pressable>
+        </PressableScale>
       </ScrollView>
     </Screen>
   )

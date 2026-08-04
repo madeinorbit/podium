@@ -3,6 +3,8 @@ import { StyleSheet, Text, View } from 'react-native'
 import {
   type AttentionTone,
   color,
+  font,
+  leading,
   mono,
   monoLabel,
   radius,
@@ -47,6 +49,37 @@ export function SectionHeader({ label, right }: { label: string; right?: ReactNo
   )
 }
 
+/**
+ * First-load placeholder rows [POD-366].
+ *
+ * Every list used to paint its empty state the instant the screen mounted, so
+ * a cold start read "No tasks" and then popped content in — a flicker that
+ * looks like breakage rather than latency. Lists render this while
+ * `client.booting` and keep the empty state for genuinely empty.
+ *
+ * Deliberately still: the braille spinner is the app's only perpetual motion
+ * (StatusGlyphs), so these do not shimmer.
+ */
+export function ListSkeleton({ rows = 3 }: { rows?: number }) {
+  return (
+    <View accessibilityRole="progressbar" accessibilityLabel="Loading">
+      {Array.from({ length: rows }, (_, i) => (
+        <View
+          // biome-ignore lint/suspicious/noArrayIndexKey: fixed-length placeholder, no identity
+          key={i}
+          style={[styles.skelRow, { opacity: 1 - i * 0.22 }]}
+        >
+          <View style={styles.skelSquare} />
+          <View style={styles.skelLines}>
+            <View style={[styles.skelBar, { width: `${72 - i * 14}%` }]} />
+            <View style={[styles.skelBar, styles.skelBarShort]} />
+          </View>
+        </View>
+      ))}
+    </View>
+  )
+}
+
 export function EmptyState({
   title,
   body,
@@ -82,7 +115,7 @@ const styles = StyleSheet.create({
   pillText: {
     ...mono(500),
     color: color.textDim,
-    fontSize: 9,
+    fontSize: font.micro,
     letterSpacing: 0.3,
   },
   sectionHeader: {
@@ -94,13 +127,42 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
   },
   sectionLabel: {
-    ...monoLabel(9),
+    ...monoLabel(),
     color: color.label,
   },
   sectionRule: {
     flex: 1,
     height: StyleSheet.hairlineWidth,
     backgroundColor: color.hairline,
+  },
+  skelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    marginHorizontal: space.sm + 2,
+    marginTop: space.sm,
+    padding: space.md,
+    borderRadius: radius.md,
+    backgroundColor: color.surface,
+  },
+  skelSquare: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.md,
+    backgroundColor: color.elevated,
+  },
+  skelLines: {
+    flex: 1,
+    gap: 7,
+  },
+  skelBar: {
+    height: 10,
+    borderRadius: radius.xs,
+    backgroundColor: color.elevated,
+  },
+  skelBarShort: {
+    width: '38%',
+    height: 8,
   },
   empty: {
     alignItems: 'center',
@@ -128,14 +190,14 @@ const styles = StyleSheet.create({
   emptyTitle: {
     ...sans(600),
     color: color.text,
-    fontSize: 14,
+    fontSize: font.heading,
     letterSpacing: -0.1,
   },
   emptyBody: {
     ...sans(400),
     color: color.textFaint,
-    fontSize: 11.5,
+    fontSize: font.small,
     textAlign: 'center',
-    lineHeight: 17,
+    lineHeight: leading(font.small, 'prose'),
   },
 })

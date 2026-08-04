@@ -25,21 +25,23 @@ import { issueDisplayRef } from '@podium/protocol'
 import { useRouter } from 'expo-router'
 import { ArrowDownToLine, ChevronDown, ChevronRight, Pin } from 'lucide-react-native'
 import { useCallback, useMemo, useState } from 'react'
-import { Pressable, SectionList, StyleSheet, Text, View } from 'react-native'
-import { useMobileStore, useSessions } from '../client/hooks'
+import { SectionList, StyleSheet, Text, View } from 'react-native'
+import { useBooting, useMobileStore, useSessions } from '../client/hooks'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { Icon } from '../components/Icon'
 import { IdSquare, type IdSquareState } from '../components/IdSquare'
 import { NewWorkButton } from '../components/NewWorkButton'
 import { Screen } from '../components/Screen'
-import { BrailleSpinner, CountPill } from '../components/StatusGlyphs'
+import { BrailleSpinner } from '../components/StatusGlyphs'
 import { TaskPeekSheet } from '../components/TaskPeekSheet'
-import { EmptyState, StatusDot } from '../components/ui'
+import { EmptyState, ListSkeleton, StatusDot } from '../components/ui'
 import { useCollapsed } from '../hooks/useCollapsed'
 import { sessionHref } from '../lib/session-route'
 import { FLOW_SLATE, flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
 import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
+import { PressableScale } from '../components/PressableScale'
+import { useRefreshableTab } from '../hooks/useRefreshableTab'
 
 /**
  * Work — the desktop sidebar, on the phone [POD-338].
@@ -113,6 +115,8 @@ export function WorkScreen() {
   const router = useRouter()
   const store = useMobileStore()
   const sessionsAll = useSessions()
+  const booting = useBooting()
+  const { listRef, refreshControl } = useRefreshableTab('work')
   // THE SAME LIST THE DESKTOP SIDEBAR RENDERS, DERIVED ONCE (POD-331/POD-332).
   // This screen used to call `sidebarSections` → `unifiedWorkList` →
   // `splitPinnedWork` → `groupUnifiedWorkRows` itself, on a private
@@ -220,8 +224,10 @@ export function WorkScreen() {
       right={<NewWorkButton />}
     >
       <SectionList
+        ref={listRef as never}
         sections={sections}
         keyExtractor={(row) => (row.kind === 'issue' ? row.issue.id : row.worktree.path)}
+        refreshControl={refreshControl}
         contentContainerStyle={styles.listContent}
         stickySectionHeadersEnabled={false}
         renderSectionHeader={({ section }) => (
@@ -261,10 +267,14 @@ export function WorkScreen() {
           </View>
         )}
         ListEmptyComponent={
-          <EmptyState
-            title="No work yet"
-            body="Tasks and their agents appear here — the same list, in the same order, as the desktop sidebar."
-          />
+          booting ? (
+            <ListSkeleton />
+          ) : (
+            <EmptyState
+              title="No work yet"
+              body="Tasks and their agents appear here — the same list, in the same order, as the desktop sidebar."
+            />
+          )
         }
       />
       <TaskPeekSheet issue={peek} sessions={sessionsAll} onClose={() => setPeek(null)} />
@@ -300,7 +310,7 @@ function Fold({
   const [collapsed, toggle] = useCollapsed(storageKey, true)
   return (
     <View style={styles.fold}>
-      <Pressable
+      <PressableScale
         accessibilityRole="button"
         accessibilityState={{ expanded: !collapsed }}
         accessibilityLabel={`${collapsed ? 'Show' : 'Hide'} ${label.toLowerCase()} · ${rows.length}`}
@@ -310,11 +320,11 @@ function Fold({
         <Icon as={collapsed ? ChevronRight : ChevronDown} size={11} color={color.textMicro} />
         <Text style={styles.foldToggleText}>{`${label} · ${rows.length}`}</Text>
         <View style={styles.foldRule} />
-      </Pressable>
+      </PressableScale>
       {collapsed
         ? null
         : rows.map((row) => (
-            <Pressable
+            <PressableScale
               key={row.issue.id}
               accessibilityRole="button"
               accessibilityLabel={`${issueDisplayRef(row.issue)} ${row.issue.title}`}
@@ -335,7 +345,7 @@ function Fold({
               >
                 {foldedMarker(row.issue, lane, now)}
               </Text>
-            </Pressable>
+            </PressableScale>
           ))}
     </View>
   )
@@ -409,7 +419,7 @@ function WorkRow({
           issue?.audience === 'agent' && styles.rowInternal,
         ]}
       >
-        <Pressable
+        <PressableScale
           accessibilityRole="button"
           accessibilityLabel={issue ? `${issueDisplayRef(issue)} ${label}` : `Worktree ${label}`}
           onPress={press}
@@ -437,11 +447,10 @@ function WorkRow({
                   unread && styles.rowTitleUnread,
                   hex ? { color: flow.text(hex) } : null,
                 ]}
-                numberOfLines={1}
+                numberOfLines={2}
               >
                 {label}
               </Text>
-              {waiting > 0 && !decision ? <CountPill count={waiting} size={14} /> : null}
               {sessions.length > 0 ? (
                 <Text style={styles.fleet}>{`${sessions.length}⏣`}</Text>
               ) : null}
@@ -462,9 +471,9 @@ function WorkRow({
               {stamp ? <Text style={styles.stamp}>{stamp}</Text> : null}
             </View>
           </View>
-        </Pressable>
+        </PressableScale>
         {onTuck ? (
-          <Pressable
+          <PressableScale
             accessibilityRole="button"
             accessibilityLabel={`Tuck ${label} into Closed`}
             onPress={onTuck}
@@ -472,9 +481,9 @@ function WorkRow({
           >
             <Icon as={ArrowDownToLine} size={11} color={color.textMicro} />
             <Text style={styles.tuckText}>Tuck</Text>
-          </Pressable>
+          </PressableScale>
         ) : expandable ? (
-          <Pressable
+          <PressableScale
             accessibilityRole="button"
             accessibilityState={{ expanded: !collapsed }}
             accessibilityLabel={`${collapsed ? 'Show' : 'Hide'} agents on ${label}`}
@@ -482,7 +491,7 @@ function WorkRow({
             style={({ pressed }) => [styles.chevron, pressed && styles.pressed]}
           >
             <Icon as={collapsed ? ChevronRight : ChevronDown} size={14} color={color.textFaint} />
-          </Pressable>
+          </PressableScale>
         ) : null}
       </View>
       {expandable && !collapsed ? (
@@ -534,7 +543,7 @@ function AgentRow({
   const badge = agentBadge(session, issue)
   const dot = sessionDotTone(session)
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityLabel={`Open session ${sessionTitle(session)}`}
       onPress={onPress}
@@ -564,7 +573,7 @@ function AgentRow({
           toneKey={dot === 'attention' ? 'needsYou' : dot === 'error' ? 'danger' : 'idle'}
         />
       )}
-    </Pressable>
+    </PressableScale>
   )
 }
 
@@ -583,7 +592,7 @@ const styles = StyleSheet.create({
     paddingBottom: 3,
   },
   groupLabelText: {
-    ...monoLabel(8.5),
+    ...monoLabel(),
     color: color.label,
     flexShrink: 1,
   },
@@ -639,7 +648,7 @@ const styles = StyleSheet.create({
     ...sans(400),
     flexShrink: 1,
     color: color.body,
-    fontSize: 12.5,
+    fontSize: font.body,
   },
   rowTitleUnread: {
     ...sans(600),
@@ -660,7 +669,7 @@ const styles = StyleSheet.create({
     ...mono(500),
     flexShrink: 1,
     color: color.textFaint,
-    fontSize: 9.5,
+    fontSize: font.tiny,
   },
   statusDecision: {
     ...mono(600),
@@ -676,7 +685,7 @@ const styles = StyleSheet.create({
     ...mono(400),
     marginLeft: 'auto',
     color: color.textMicro,
-    fontSize: 9.5,
+    fontSize: font.micro,
   },
   chevron: {
     width: 34,
@@ -701,7 +710,7 @@ const styles = StyleSheet.create({
   tuckText: {
     ...mono(400),
     color: color.textFaint,
-    fontSize: 9,
+    fontSize: font.micro,
     letterSpacing: 0.2,
   },
   roster: {
@@ -720,7 +729,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#2b3550',
   },
   rosterLabel: {
-    ...monoLabel(7.5),
+    ...monoLabel(),
     color: color.label,
     paddingTop: 4,
     paddingBottom: 2,
@@ -747,7 +756,7 @@ const styles = StyleSheet.create({
     ...mono(400),
     marginLeft: 'auto',
     color: color.textMicro,
-    fontSize: 9.5,
+    fontSize: font.micro,
   },
   agentMetaAttention: {
     color: color.needsYou,
@@ -791,7 +800,7 @@ const styles = StyleSheet.create({
   foldToggleText: {
     ...mono(500),
     color: color.textMicro,
-    fontSize: 10,
+    fontSize: font.tiny,
     letterSpacing: 0.35,
   },
   foldRule: {
@@ -811,19 +820,19 @@ const styles = StyleSheet.create({
   foldedRef: {
     ...mono(600),
     color: color.textMicro,
-    fontSize: 9,
+    fontSize: font.micro,
   },
   foldedTitle: {
     ...sans(400),
     flex: 1,
     minWidth: 0,
     color: color.textFaint,
-    fontSize: 12,
+    fontSize: font.small,
   },
   foldedMarker: {
     ...mono(400),
     color: color.textMicro,
-    fontSize: 8.5,
+    fontSize: font.micro,
   },
   foldedMerged: {
     color: alpha(color.info, 0.7),

@@ -1,4 +1,4 @@
-import { type ReactNode, useMemo } from 'react'
+import { type ReactNode, useMemo, useRef, useState } from 'react'
 import {
   Linking,
   ScrollView,
@@ -15,7 +15,9 @@ import {
   safeExternalUrl,
   splitPodiumRefs,
 } from '../lib/markdown'
-import { color, font, mono, radius, sans, space } from '../theme/theme'
+import { LinearGradient } from 'expo-linear-gradient'
+import { selectableProps } from '../lib/selectable'
+import { color, font, leading, mono, radius, sans, space } from '../theme/theme'
 
 interface RichMarkdownProps {
   text: string
@@ -201,15 +203,41 @@ function TableCell({ cell, ctx }: { cell: MarkdownTableCell; ctx: RenderContext 
   )
 }
 
+/**
+ * Agent replies are full of tables, and on a phone they are almost always wider
+ * than the screen. The scroller was already here — what was missing was any
+ * sign of it [POD-366]: the table simply ran off the edge mid-word and read as
+ * clipped. A fade on the cut edge says "there is more this way", and clears
+ * once you reach the end.
+ */
 function MarkdownTable({ token, ctx }: { token: MarkdownToken; ctx: RenderContext }) {
   const header = token.header ?? []
   const rows = token.rows ?? []
+  const [overflow, setOverflow] = useState(false)
+  const [atEnd, setAtEnd] = useState(false)
+  const viewport = useRef(0)
+  const content = useRef(0)
+  const measure = () => setOverflow(content.current > viewport.current + 1)
+
   return (
+    <View style={styles.tableScroller}>
     <ScrollView
       horizontal
       nestedScrollEnabled
       showsHorizontalScrollIndicator
-      style={styles.tableScroller}
+      scrollEventThrottle={64}
+      onLayout={(e) => {
+        viewport.current = e.nativeEvent.layout.width
+        measure()
+      }}
+      onContentSizeChange={(w) => {
+        content.current = w
+        measure()
+      }}
+      onScroll={(e) => {
+        const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent
+        setAtEnd(contentOffset.x + layoutMeasurement.width >= contentSize.width - 2)
+      }}
       contentContainerStyle={styles.table}
       accessibilityLabel={`Markdown table, ${header.length} columns and ${rows.length} rows`}
     >
@@ -231,6 +259,16 @@ function MarkdownTable({ token, ctx }: { token: MarkdownToken; ctx: RenderContex
         ))}
       </View>
     </ScrollView>
+      {overflow && !atEnd ? (
+        <LinearGradient
+          pointerEvents="none"
+          colors={['rgba(10,15,28,0)', color.bg]}
+          start={{ x: 0, y: 0.5 }}
+          end={{ x: 1, y: 0.5 }}
+          style={styles.tableFade}
+        />
+      ) : null}
+    </View>
   )
 }
 
@@ -319,22 +357,24 @@ function Blocks({
 export function RichMarkdown({ text, textStyle, onRefPress }: RichMarkdownProps) {
   const tokens = useMemo(() => parseMarkdown(text), [text])
   const ctx = useMemo(() => ({ textStyle, onRefPress }), [onRefPress, textStyle])
+  // The web shell disables selection app-wide so long-pressing a card cannot
+  // raise iOS's magnifier; agent prose opts back in [POD-366, patch-web-html].
   return (
-    <View style={styles.root}>
+    <View style={styles.root} {...selectableProps}>
       <Blocks tokens={tokens} ctx={ctx} />
     </View>
   )
 }
 
 const headingStyles = StyleSheet.create({
-  1: { fontSize: font.heading + 3, lineHeight: 24 },
-  2: { fontSize: font.heading + 1, lineHeight: 22 },
-  3: { fontSize: font.heading, lineHeight: 21 },
+  1: { fontSize: font.title, lineHeight: leading(font.title) },
+  2: { fontSize: font.heading, lineHeight: leading(font.heading) },
+  3: { fontSize: font.heading, lineHeight: leading(font.heading) },
 })
 
 const styles = StyleSheet.create({
   root: { minWidth: 0 },
-  body: { ...sans(400), color: color.body, fontSize: font.body, lineHeight: 21 },
+  body: { ...sans(400), color: color.body, fontSize: font.body, lineHeight: leading(font.body, 'prose') },
   paragraph: { marginVertical: 4 },
   strong: { ...sans(600), color: color.text },
   em: { fontStyle: 'italic' },
@@ -367,7 +407,7 @@ const styles = StyleSheet.create({
   },
   list: { marginVertical: space.xs, gap: 3 },
   listItem: { flexDirection: 'row', alignItems: 'flex-start', minWidth: 0 },
-  listMarker: { ...mono(500), color: color.textDim, width: 24, lineHeight: 21 },
+  listMarker: { ...mono(500), color: color.textDim, width: 24, lineHeight: leading(font.body, 'prose') },
   listBody: { flex: 1, minWidth: 0 },
   codeFrame: {
     backgroundColor: color.surface,
@@ -397,13 +437,20 @@ const styles = StyleSheet.create({
     ...mono(400),
     color: color.body,
     fontSize: font.small,
-    lineHeight: 18,
+    lineHeight: leading(font.small),
     padding: space.md,
   },
   diffAdd: { color: '#22c55e', backgroundColor: 'rgba(34, 197, 94, 0.08)' },
   diffDel: { color: '#ef4444', backgroundColor: 'rgba(239, 68, 68, 0.08)' },
   diffHunk: { color: '#06b6d4' },
   tableScroller: { marginVertical: space.sm },
+  tableFade: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: 28,
+  },
   table: { borderTopWidth: 1, borderLeftWidth: 1, borderColor: color.border },
   tableRow: { flexDirection: 'row' },
   tableCell: {
@@ -417,6 +464,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   tableHeaderCell: { backgroundColor: color.surface },
-  tableText: { fontSize: font.small, lineHeight: 17 },
+  tableText: { fontSize: font.small, lineHeight: leading(font.small) },
   tableHeaderText: { ...sans(600), color: color.text },
 })

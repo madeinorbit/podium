@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import {
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   StyleSheet,
   Text,
   TextInput,
@@ -10,7 +9,8 @@ import {
 } from 'react-native'
 import { login } from '../client/auth'
 import { AsciiWordmark } from '../components/AsciiWordmark'
-import { mono, monoLabel } from '../theme/theme'
+import { font, mono, monoLabel } from '../theme/theme'
+import { PressableScale } from '../components/PressableScale'
 
 /**
  * The web login screen (LoginGate spec 2b) ported 1:1 [POD-131]: ASCII
@@ -136,7 +136,7 @@ export function LoginScreen({
           autoCorrect={false}
           onSubmitEditing={() => void submit()}
         />
-        <Pressable
+        <PressableScale
           accessibilityRole="button"
           accessibilityLabel="Log in"
           disabled={(!password && !ok) || busy}
@@ -148,7 +148,7 @@ export function LoginScreen({
           ]}
         >
           <Text style={styles.submitGlyph}>{btnGlyph}</Text>
-        </Pressable>
+        </PressableScale>
       </View>
       <View style={styles.statusRow} accessibilityRole={error ? 'alert' : undefined}>
         {state !== 'busy' ? <View style={[styles.dot, { backgroundColor: statColor }]} /> : null}
@@ -168,7 +168,7 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   host: {
-    ...monoLabel(9),
+    ...monoLabel(),
     letterSpacing: 1.4,
     color: C.textFaint,
   },
@@ -193,7 +193,7 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     ...mono(400),
-    fontSize: 16,
+    fontSize: font.body,
     letterSpacing: 1,
     color: C.text,
     paddingVertical: 8,
@@ -224,6 +224,6 @@ const styles = StyleSheet.create({
   },
   status: {
     ...mono(400),
-    fontSize: 11,
+    fontSize: font.tiny,
   },
 })

@@ -6,7 +6,6 @@ import {
   Animated,
   PanResponder,
   Platform,
-  Pressable,
   StyleSheet,
   Text,
   useWindowDimensions,
@@ -14,9 +13,10 @@ import {
 } from 'react-native'
 import { FLOW_SLATE, flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
-import { color, elevation, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
+import { color, elevation, font, leading, mono, monoLabel, radius, sans, space } from '../theme/theme'
 import { IdSquare } from './IdSquare'
 import { Pill } from './ui'
+import { PressableScale } from './PressableScale'
 
 /** Horizontal travel that commits a swipe (a flick past it also commits). */
 const COMMIT_PX = 96
@@ -159,14 +159,14 @@ export function ScreeningCard({
             {` · proposed ${relativeTime(issue.createdAt, now)}`}
           </Text>
         </View>
-        <Pressable
+        <PressableScale
           accessibilityRole="button"
           accessibilityLabel={`Open task ${issue.displayRef ?? `#${issue.seq}`}`}
           onPress={onOpen}
           hitSlop={10}
         >
           <Text style={styles.open}>Open ↗</Text>
-        </Pressable>
+        </PressableScale>
       </View>
 
       <Text style={[styles.title, { color: flow.text(hex) }]} numberOfLines={3}>
@@ -263,7 +263,7 @@ const styles = StyleSheet.create({
   ref: {
     ...mono(600),
     color: color.textDim,
-    fontSize: font.tiny + 1,
+    fontSize: font.tiny,
     letterSpacing: 0.4,
   },
   origin: {
@@ -276,12 +276,12 @@ const styles = StyleSheet.create({
     // Start (The Signal Rule), so the escape hatch stays quiet.
     ...sans(600),
     color: color.textDim,
-    fontSize: font.tiny + 1,
+    fontSize: font.tiny,
   },
   title: {
     ...sans(600),
     fontSize: font.title,
-    lineHeight: 23,
+    lineHeight: leading(font.body),
     letterSpacing: -0.3,
   },
   pills: {
@@ -296,8 +296,8 @@ const styles = StyleSheet.create({
   description: {
     ...sans(400),
     color: color.body,
-    fontSize: font.body + 1,
-    lineHeight: 20,
+    fontSize: font.body,
+    lineHeight: leading(font.body, 'prose'),
   },
   noDescription: {
     ...sans(400),
@@ -315,14 +315,14 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   briefLabel: {
-    ...monoLabel(8),
+    ...monoLabel(),
     color: color.label,
   },
   brief: {
     ...mono(400),
     color: color.textDim,
     fontSize: font.small,
-    lineHeight: 17,
+    lineHeight: leading(font.small, 'prose'),
   },
   facts: {
     gap: 2,
@@ -333,6 +333,6 @@ const styles = StyleSheet.create({
   fact: {
     ...mono(400),
     color: color.textFaint,
-    fontSize: font.micro + 0.5,
+    fontSize: font.micro,
   },
 })

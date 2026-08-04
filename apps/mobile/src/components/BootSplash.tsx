@@ -32,7 +32,7 @@ const styles = StyleSheet.create({
     gap: 18,
   },
   label: {
-    ...monoLabel(9),
+    ...monoLabel(),
     letterSpacing: 2,
     color: color.label,
   },

@@ -1,8 +1,9 @@
 import { isChosenOption, parseAskQuestions } from '@podium/client-core/viewmodels'
 import type { TranscriptItem } from '@podium/model'
 import { useState } from 'react'
-import { Pressable, StyleSheet, Text, View } from 'react-native'
-import { color, font, monoLabel, radius, sans, space } from '../theme/theme'
+import { StyleSheet, Text, View } from 'react-native'
+import { color, font, leading, monoLabel, radius, sans, space } from '../theme/theme'
+import { PressableScale } from './PressableScale'
 
 /**
  * The agent asking the human — options rendered as big tap targets. Live cards
@@ -88,7 +89,7 @@ export function AskQuestionCard({
               const chosen = !live && isChosenOption(item.toolResult ?? '', opt.label)
               const highlighted = picked || chosen || (state === 'sent' && picked)
               return (
-                <Pressable
+                <PressableScale
                   key={opt.label}
                   accessibilityRole="button"
                   accessibilityLabel={opt.label}
@@ -108,14 +109,14 @@ export function AskQuestionCard({
                       {opt.description}
                     </Text>
                   ) : null}
-                </Pressable>
+                </PressableScale>
               )
             })}
           </View>
         </View>
       ))}
       {needsConfirm ? (
-        <Pressable
+        <PressableScale
           accessibilityRole="button"
           accessibilityLabel="Send answer"
           disabled={!allAnswered}
@@ -123,7 +124,7 @@ export function AskQuestionCard({
           style={[styles.confirm, !allAnswered && styles.confirmDisabled]}
         >
           <Text style={styles.confirmText}>Send answer</Text>
-        </Pressable>
+        </PressableScale>
       ) : null}
     </View>
   )
@@ -144,7 +145,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   badge: {
-    ...monoLabel(9),
+    ...monoLabel(),
     color: color.needsYou,
   },
   meta: {
@@ -164,7 +165,7 @@ const styles = StyleSheet.create({
     ...sans(600),
     color: color.text,
     fontSize: font.body,
-    lineHeight: 18,
+    lineHeight: leading(font.body, 'prose'),
     letterSpacing: -0.1,
   },
   options: {
@@ -197,8 +198,8 @@ const styles = StyleSheet.create({
   optionDesc: {
     ...sans(400),
     color: color.textDim,
-    fontSize: 11,
-    lineHeight: 15,
+    fontSize: font.small,
+    lineHeight: leading(font.small, 'prose'),
   },
   confirm: {
     backgroundColor: color.accent,

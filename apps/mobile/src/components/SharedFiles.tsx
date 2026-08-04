@@ -2,19 +2,20 @@ import { isImagePath } from '@podium/client-core/viewmodels'
 import type { TranscriptItem } from '@podium/model'
 import { FileText, X } from 'lucide-react-native'
 import { useState } from 'react'
-import { Image, Linking, Modal, Pressable, StyleSheet, Text, View } from 'react-native'
+import { Image, Linking, Modal, StyleSheet, Text, View } from 'react-native'
 import {
   pathBasename,
   sessionAssetUrl,
   type TranscriptAssetContext,
 } from '../lib/transcript-assets'
-import { color, font, monoLabel, radius, sans, space } from '../theme/theme'
+import { color, font, leading, monoLabel, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
+import { PressableScale } from './PressableScale'
 
 function FileChip({ label, url, onPress }: { label: string; url?: string; onPress?: () => void }) {
   const interactive = url !== undefined || onPress !== undefined
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole={interactive ? 'button' : undefined}
       accessibilityLabel={interactive ? `Open ${label}` : undefined}
       disabled={!interactive}
@@ -25,7 +26,7 @@ function FileChip({ label, url, onPress }: { label: string; url?: string; onPres
       <Text style={styles.chipText} numberOfLines={1}>
         {label}
       </Text>
-    </Pressable>
+    </PressableScale>
   )
 }
 
@@ -39,7 +40,7 @@ function SharedPath({ path, context }: { path: string; context?: TranscriptAsset
 
   return (
     <>
-      <Pressable
+      <PressableScale
         accessibilityRole="button"
         accessibilityLabel={`Open image ${name}`}
         onPress={() => setPreview(true)}
@@ -52,7 +53,7 @@ function SharedPath({ path, context }: { path: string; context?: TranscriptAsset
           style={styles.thumb}
           onError={() => setFailed(true)}
         />
-      </Pressable>
+      </PressableScale>
       <Modal
         visible={preview}
         transparent
@@ -60,7 +61,7 @@ function SharedPath({ path, context }: { path: string; context?: TranscriptAsset
         onRequestClose={() => setPreview(false)}
       >
         <View style={styles.lightbox}>
-          <Pressable
+          <PressableScale
             accessibilityRole="button"
             accessibilityLabel="Close image"
             onPress={() => setPreview(false)}
@@ -68,7 +69,7 @@ function SharedPath({ path, context }: { path: string; context?: TranscriptAsset
             style={styles.lightboxClose}
           >
             <Icon as={X} size={22} color={color.text} />
-          </Pressable>
+          </PressableScale>
           <Image
             source={{ uri: url }}
             accessibilityLabel={name}
@@ -120,7 +121,7 @@ export function SharedFiles({
 const styles = StyleSheet.create({
   root: { gap: space.xs + 1, marginVertical: space.xs },
   label: { ...monoLabel(font.micro), color: color.textDim },
-  caption: { ...sans(400), color: color.textDim, fontSize: font.small, lineHeight: 17 },
+  caption: { ...sans(400), color: color.textDim, fontSize: font.small, lineHeight: leading(font.small) },
   files: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
   chip: {
     maxWidth: 240,

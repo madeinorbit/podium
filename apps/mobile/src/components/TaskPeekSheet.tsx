@@ -4,13 +4,14 @@ import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
 import * as Haptics from 'expo-haptics'
 import { usePathname, useRouter } from 'expo-router'
 import { useEffect } from 'react'
-import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { Modal, Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { sessionHref } from '../lib/session-route'
 import { FLOW_SLATE, flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
-import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
+import { color, font, leading, mono, monoLabel, radius, sans, space } from '../theme/theme'
 import { IdSquare } from './IdSquare'
+import { PressableScale } from './PressableScale'
 
 /**
  * The ONE task-reveal surface on mobile [POD-131]: a bottom "popover card" —
@@ -57,7 +58,7 @@ export function TaskPeekSheet({
 
   return (
     <Modal transparent visible animationType="slide" onRequestClose={onClose}>
-      <Pressable accessibilityLabel="Close" style={styles.backdrop} onPress={onClose} />
+      <PressableScale accessibilityLabel="Close" style={styles.backdrop} onPress={onClose} />
       <View
         style={[
           styles.sheet,
@@ -99,7 +100,7 @@ export function TaskPeekSheet({
           >{`${artifactCount} artifact${artifactCount > 1 ? 's' : ''} published`}</Text>
         ) : null}
         <View style={styles.actions}>
-          <Pressable
+          <PressableScale
             accessibilityRole="button"
             accessibilityLabel="Open task"
             style={[styles.btn, styles.btnPrimary]}
@@ -109,9 +110,9 @@ export function TaskPeekSheet({
             }}
           >
             <Text style={styles.btnPrimaryText}>Open task</Text>
-          </Pressable>
+          </PressableScale>
           {session ? (
-            <Pressable
+            <PressableScale
               accessibilityRole="button"
               accessibilityLabel="Open session"
               style={[styles.btn, styles.btnSecondary]}
@@ -121,7 +122,7 @@ export function TaskPeekSheet({
               }}
             >
               <Text style={styles.btnSecondaryText}>Open session</Text>
-            </Pressable>
+            </PressableScale>
           ) : null}
         </View>
       </View>
@@ -165,12 +166,12 @@ const styles = StyleSheet.create({
     ...sans(600),
     color: color.text,
     fontSize: font.body,
-    lineHeight: 18,
+    lineHeight: leading(font.body),
   },
   meta: {
     ...mono(400),
     color: color.textDim,
-    fontSize: font.micro + 0.5,
+    fontSize: font.micro,
   },
   offer: {
     borderRadius: radius.md,
@@ -179,14 +180,14 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   offerLabel: {
-    ...monoLabel(8),
+    ...monoLabel(),
     color: color.accent,
   },
   offerText: {
     ...sans(500),
     color: color.body,
     fontSize: font.small,
-    lineHeight: 17,
+    lineHeight: leading(font.small, 'prose'),
   },
   descWrap: {
     maxHeight: 110,
@@ -194,7 +195,7 @@ const styles = StyleSheet.create({
   desc: {
     color: color.textDim,
     fontSize: font.small,
-    lineHeight: 18,
+    lineHeight: leading(font.small, 'prose'),
   },
   artifacts: {
     ...mono(400),

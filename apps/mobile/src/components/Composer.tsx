@@ -1,11 +1,23 @@
+import { BlurView } from 'expo-blur'
 import { LinearGradient } from 'expo-linear-gradient'
 import { ArrowUp } from 'lucide-react-native'
 import { useState } from 'react'
 import type { NativeSyntheticEvent, TextInputKeyPressEventData } from 'react-native'
 import { Platform, StyleSheet, Text, TextInput, View } from 'react-native'
-import { color, font, mono, radius, space } from '../theme/theme'
+import { color, font, leading, mono, radius, space } from '../theme/theme'
 import { Icon } from './Icon'
 import { PressableScale } from './PressableScale'
+
+/**
+ * Translucent chrome under the composer. Web already had it via CSS
+ * `backdrop-filter`; native had nothing, so the bar read as a flat slab over
+ * the transcript [POD-366]. `expo-blur` was already a dependency with zero
+ * call sites.
+ */
+function ComposerBackdrop() {
+  if (Platform.OS === 'web') return null
+  return <BlurView intensity={28} tint="dark" style={StyleSheet.absoluteFill} />
+}
 
 /** Chat composer — the super-agent field (Flat Field, POD-159): mono, a '>'
  *  prompt glyph, yellow border on focus; gradient send orb kept for touch. */
@@ -43,6 +55,7 @@ export function Composer({
 
   return (
     <View style={styles.row}>
+      <ComposerBackdrop />
       <View style={[styles.field, armed && styles.fieldArmed]}>
         <Text style={styles.gt}>{'>'}</Text>
         <TextInput
@@ -90,6 +103,7 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: color.hairline,
     backgroundColor: color.glass,
+    overflow: 'hidden',
     ...(Platform.OS === 'web' ? ({ backdropFilter: 'blur(14px)' } as object) : null),
   },
   field: {
@@ -112,7 +126,7 @@ const styles = StyleSheet.create({
     ...mono(400),
     color: color.textFaint,
     fontSize: font.body,
-    lineHeight: 19,
+    lineHeight: leading(font.body),
     paddingTop: 1,
   },
   input: {
@@ -123,7 +137,7 @@ const styles = StyleSheet.create({
     flex: 1,
     color: color.text,
     fontSize: font.body,
-    lineHeight: 19,
+    lineHeight: leading(font.body),
     maxHeight: 120,
     padding: 0,
     paddingTop: 1,

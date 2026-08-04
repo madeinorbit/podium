@@ -1,11 +1,12 @@
 import { ChevronLeft } from 'lucide-react-native'
 import type { ReactNode } from 'react'
-import { Pressable, StyleSheet, Text, View } from 'react-native'
+import { StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { flow } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
 import { color, font, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
+import { PressableScale } from './PressableScale'
 
 /**
  * Screen scaffold on the flat near-black canvas (#0e0e12).
@@ -23,6 +24,7 @@ export function Screen({
   subtitle,
   onBack,
   backLabel,
+  backAs = 'chevron',
   leading,
   right,
   children,
@@ -34,6 +36,12 @@ export function Screen({
   subtitle?: string
   onBack?: () => void
   backLabel?: string
+  /**
+   * How the leading dismiss control reads [POD-366]. A pushed destination gets
+   * the chevron; a sheet you can abandon (the create forms, settings) gets the
+   * word, matching how iOS distinguishes the two.
+   */
+  backAs?: 'chevron' | 'text'
   /** Slot between the back chevron and the titles (the 18px ID square). */
   leading?: ReactNode
   right?: ReactNode
@@ -69,15 +77,26 @@ export function Screen({
         ) : (
           <View style={[styles.header, tint ? tint.header : null, { paddingTop: insets.top + 6 }]}>
             {onBack ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={backLabel ?? 'Back'}
-                onPress={onBack}
-                style={styles.back}
-                hitSlop={10}
-              >
-                <Icon as={ChevronLeft} size={17} color={color.textDim} />
-              </Pressable>
+              backAs === 'text' ? (
+                <PressableScale
+                  accessibilityRole="button"
+                  accessibilityLabel={backLabel ?? 'Cancel'}
+                  onPress={onBack}
+                  hitSlop={10}
+                >
+                  <Text style={styles.backText}>{backLabel ?? 'Cancel'}</Text>
+                </PressableScale>
+              ) : (
+                <PressableScale
+                  accessibilityRole="button"
+                  accessibilityLabel={backLabel ?? 'Back'}
+                  onPress={onBack}
+                  style={styles.back}
+                  hitSlop={10}
+                >
+                  <Icon as={ChevronLeft} size={17} color={color.textDim} />
+                </PressableScale>
+              )
             ) : null}
             {leading}
             <View style={styles.titles}>
@@ -112,7 +131,7 @@ export function HeaderButton({
   children: ReactNode
 }) {
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityLabel={label}
       onPress={onPress}
@@ -120,7 +139,7 @@ export function HeaderButton({
       style={({ pressed }) => [styles.headerBtn, pressed && styles.headerBtnPressed]}
     >
       {children}
-    </Pressable>
+    </PressableScale>
   )
 }
 
@@ -149,13 +168,13 @@ const styles = StyleSheet.create({
   largeTitle: {
     ...sans(600),
     color: color.text,
-    fontSize: 20,
+    fontSize: font.largeTitle,
     letterSpacing: -0.3,
   },
   largeSubtitle: {
     ...sans(400),
     color: color.textFaint,
-    fontSize: font.tiny + 1,
+    fontSize: font.tiny,
   },
   header: {
     flexDirection: 'row',
@@ -176,6 +195,11 @@ const styles = StyleSheet.create({
     borderColor: color.hairlineBar,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  backText: {
+    ...sans(500),
+    color: color.textDim,
+    fontSize: font.small,
   },
   titles: {
     flex: 1,
