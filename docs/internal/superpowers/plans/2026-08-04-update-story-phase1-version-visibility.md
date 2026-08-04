@@ -936,19 +936,31 @@ Expected: PASS, all six cases.
 
 - [ ] **Step 5: Wire it into the hello**
 
-Find the `PeerHello` construction with `rg -n "peerHello" apps/daemon/src`, then add `build` and merge the delivery caps into the existing `caps` array. Do not replace `caps`; append, because other capability tokens are already negotiated there.
+The daemon does **not** construct `PeerHello` itself. It goes through `createHandshakeDialer(deps)` in `packages/protocol/src/handshake/dialer.ts`, whose `DialerDeps` has no build field. So:
+
+1. Add `readonly build?: PeerBuild` to `DialerDeps`, and emit it in `hello()` with the conditional-spread idiom the file already uses for `peerRole` and `claims`, so an absent build stays an absent *key* rather than an explicit `undefined`:
 
 ```ts
-const build = buildReport(process.env, resolveInstallDir())
-// … in the hello object:
-  caps: [...existingCaps, ...deliveryCaps(build.installKind)],
-  build,
+  ...(deps.build === undefined ? {} : { build: deps.build }),
 ```
+
+2. Pass `buildReport(...)` and the delivery caps from `apps/daemon/src/connection-state.ts`.
+
+**Append the delivery caps, never replace them.** The dialer does `caps: [...offered]` and later `negotiateCapabilities(reply.caps, offered)`, so whatever the call site passes today is what the acceptor intersects against. Overwriting it silently stops offering capabilities that are negotiated today, and nothing fails loudly.
+
+**The dialer is shared and role-blind** — it lives in the shared package because the contract is one contract, and `conformance.ts` runs the same scenarios against both ends. An optional `build` is fine there; nothing role-specific may follow it in, and a console dialer must remain able to send no build at all.
 
 - [ ] **Step 6: Run the daemon and handshake suites**
 
 Run: `bun run test:unit -- apps/daemon/src packages/protocol/src/handshake`
-Expected: PASS. An acceptor that does not know `build` must still accept the hello, which the passthrough in Task 1 guarantees.
+Expected: PASS.
+
+Cover **both** skew directions, since a rollout produces both:
+
+- **Old daemon, new server** — a hello with no `build` is accepted, and the machine reads `unreported`.
+- **New daemon, old server** — a hello *carrying* `build` reaches an acceptor that has never heard of it. `PeerHello` is a plain `z.object`, so it strips unknown keys rather than rejecting. That should make this pass; prove it rather than assume it, because it is the likelier direction during a rollout.
+
+Also add a payload-inert case for `build` alongside the existing ones in `strategies/*.test.ts`. Those pin that a hello claiming a different user, machine or agent changes nothing about the resolved principal. A build report is peer-asserted and unverified in exactly the same way, and a test there is what stops someone later reading it as authorization.
 
 - [ ] **Step 7: Commit**
 
