@@ -64,6 +64,22 @@ describe('machine (local) — shared host secret', () => {
     expect(outcome.ok && outcome.principal).toMatchObject({ machine: 'local' })
   })
 
+  it('is payload-inert: a build report does not change the principal', () => {
+    const strategy = createMachineLocalSecretStrategy({
+      machines: fakeMachines(seed),
+      mint: createRecordingMinter(),
+    })
+    const outcome = strategy.authenticate({
+      credential: { kind: 'daemonSecret', secret: 'secret-ok' },
+      hello: helloFor(
+        { kind: 'daemonSecret', secret: 'secret-ok' },
+        { build: { appVersion: 'dev+attacker', wireSchemaDigest: 'forged', installKind: 'source' } },
+      ),
+      transport: transportFacts(),
+    })
+    expect(outcome.ok && outcome.principal).toMatchObject({ kind: 'machine', machine: 'local' })
+  })
+
   it('fails closed on a wrong secret — and being on the local socket is not proof', () => {
     const strategy = createMachineLocalSecretStrategy({
       machines: fakeMachines(seed),

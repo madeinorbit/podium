@@ -14,6 +14,18 @@ describe('PeerHello build report', () => {
     expect(parsed.build).toBeUndefined()
   })
 
+  it('lets a newer daemon reach an older acceptor that strips the additive field', () => {
+    // This models the pre-build schema: PeerHello is a plain z.object, so the
+    // unknown additive key is ignored instead of rejecting the hello.
+    const oldPeerHello = PeerHello.omit({ build: true })
+    const parsed = oldPeerHello.parse({
+      ...baseHello,
+      build: { appVersion: '0.4.2', installKind: 'installed' },
+    })
+    expect(parsed).not.toHaveProperty('build')
+    expect(parsed).toMatchObject(baseHello)
+  })
+
   it('parses a full build report', () => {
     const parsed = PeerHello.parse({
       ...baseHello,
