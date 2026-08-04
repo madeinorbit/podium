@@ -62,6 +62,21 @@ export type SessionStateRecord = Pick<
   'sessionId' | 'machineId' | 'lastActiveAt' | 'draftUpdatedAt' | 'archived' | 'workState'
 >
 
+/**
+ * The half of a full-list pass's memo that ownership resolution reads
+ * [POD-1618]. Structural, so `SessionListMemo` (which also carries repo
+ * prefixes) satisfies it without either module importing the other.
+ *
+ * Lifetime is one list pass — see {@link SessionListMemo} for why that makes
+ * staleness unobservable.
+ */
+export interface SessionOwnerMemo {
+  /** Issue rows by id. */
+  issues: Map<string, unknown>
+  /** Grantee lists by `${resourceKind}:${resourceId}`. */
+  grants: Map<string, string[]>
+}
+
 export interface SessionStatePorts {
   readonly store: Pick<SessionStore, 'sessions'>
   readonly now: () => number
@@ -70,6 +85,8 @@ export interface SessionStatePorts {
   readonly clients: () => Iterable<ClientConn>
   readonly sessionOwner: (
     sessionId: SessionId,
+    /** Per-pass read-through memo for full-list callers [POD-1618]. */
+    memo?: SessionOwnerMemo,
   ) => { owner: UserId | null; grants: readonly string[] } | undefined
   /** Persist one session and an optional satellite-row write atomically. */
   readonly persistSession: (sessionId: SessionId, additionalWrite?: () => void) => void
@@ -186,8 +203,13 @@ export class SessionStateService {
    * Absence and invisibility intentionally share one false result, so callers
    * cannot turn this module into a session-existence oracle.
    */
-  canReadSession(principal: SessionStatePrincipal, sessionId: SessionId): boolean {
-    const target = this.ports.sessionOwner(sessionId)
+  canReadSession(
+    principal: SessionStatePrincipal,
+    sessionId: SessionId,
+    /** Per-pass memo when a full-list caller is asking [POD-1618]. */
+    memo?: SessionOwnerMemo,
+  ): boolean {
+    const target = this.ports.sessionOwner(sessionId, memo)
     if (!target) return false
     if (target.owner === principal.userId || target.grants.includes(principal.userId)) {
       return true
