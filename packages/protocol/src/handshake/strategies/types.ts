@@ -193,6 +193,8 @@ export interface ResolvedMachine {
   /** Subjects holding an explicit grant on this machine, per verb (D18.1). */
   readonly grants: readonly MachineGrant[]
   readonly name?: string
+  /** Current server update-signing key, published on every successful machine hello. */
+  readonly updatePubkey?: string
   /**
    * Opaque data the DIRECTORY attaches to a resolution and the gateway reads back
    * off the established peer. The handshake never interprets it — it exists so a
@@ -206,8 +208,6 @@ export interface ResolvedMachine {
 export interface PairedMachine extends ResolvedMachine {
   /** Handed to the peer exactly once; the peer persists it. */
   readonly issuedToken: string
-  /** The server's update-signing key, handed to the peer exactly once at pairing. */
-  readonly updatePubkey?: string
 }
 
 export type MachineVerb = 'see' | 'use' | 'manage'

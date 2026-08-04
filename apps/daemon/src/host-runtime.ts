@@ -275,6 +275,7 @@ export async function createDaemonHostRuntime(args: {
         fetchArtifact(asset, delivery, {
           fetch: globalThis.fetch,
           pubkey: PODIUM_UPDATE_PUBKEY,
+          pinnedPubkey: identity.updatePubkey,
           git: { run: runGit },
         }),
       swap: (bytes) => {

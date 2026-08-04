@@ -19,6 +19,8 @@ type GitArtifact = Extract<UpdateArtifact, { delivery: 'git' }>
 export interface DeliveryDeps {
   fetch: typeof fetch
   pubkey: string
+  /** Public key pinned by this daemon's server pairing. Required for bundles. */
+  pinnedPubkey?: string
   /**
    * Digest checking is a separate integrity gate from the signature. Tests may
    * disable it when they use a deliberately symbolic digest fixture; production
@@ -98,7 +100,11 @@ export async function fetchArtifact(
 
   // SECURITY GATE, before anything touches disk. Fail closed for both feed and
   // bundle delivery; transport authentication is not a substitute.
-  if (!verifyTarball(bytes, asset.signature, deps.pubkey)) {
+  const trustedPubkey = delivery === 'bundle' ? deps.pinnedPubkey : deps.pubkey
+  if (trustedPubkey === undefined) {
+    throw new Error('bundle delivery requires the server update key pinned at pairing')
+  }
+  if (!verifyTarball(bytes, asset.signature, trustedPubkey)) {
     throw new Error(
       'signature verification FAILED — refusing to install. The artifact was not ' +
         'signed by the trusted key (tampered, corrupt, or wrong feed). No changes were made.',

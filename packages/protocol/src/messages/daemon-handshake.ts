@@ -25,7 +25,7 @@ export const PairedReply = z.object({
   updatePubkey: z.string().min(1).optional(),
 })
 export const PairRejectedReply = z.object({ type: z.literal('pairRejected'), reason: z.string() })
-export const HelloOkReply = z.object({ type: z.literal('helloOk'), name: z.string() })
+export const HelloOkReply = z.object({ type: z.literal('helloOk'), name: z.string(), updatePubkey: z.string().min(1).optional() })
 export const HelloRejectedReply = z.object({ type: z.literal('helloRejected'), reason: z.string() })
 export const DaemonHandshakeReply = z.discriminatedUnion('type', [
   PairedReply,

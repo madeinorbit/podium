@@ -62,6 +62,7 @@ const resolved = (
   machineId: string,
   name: string,
   pairingGrant?: PairingGrant,
+  updatePubkey?: string,
 ): ResolvedMachine => ({
   machine: machineId as MachineId,
   // POD-1079's deliverable. `null` means "grants `use` to nobody" — see the
@@ -69,6 +70,7 @@ const resolved = (
   owner: null,
   grants: [],
   name,
+  ...(updatePubkey === undefined ? {} : { updatePubkey }),
   ...(pairingGrant === undefined ? {} : { directoryContext: pairingGrant }),
 })
 
@@ -88,7 +90,7 @@ export const createMachineDirectory = (machines: MachineAuthenticator): MachineD
       token: secret,
       hostname: observed?.hostname ?? machines.hostMachineId,
     })
-    return auth.ok ? resolved(auth.machineId, auth.name) : null
+    return auth.ok ? resolved(auth.machineId, auth.name, undefined, auth.updatePubkey) : null
   },
 
   /**
@@ -111,7 +113,7 @@ export const createMachineDirectory = (machines: MachineAuthenticator): MachineD
       token,
       hostname: observed?.hostname ?? machineHint,
     })
-    return auth.ok ? resolved(auth.machineId, auth.name) : null
+    return auth.ok ? resolved(auth.machineId, auth.name, undefined, auth.updatePubkey) : null
   },
 
   /**
@@ -136,9 +138,8 @@ export const createMachineDirectory = (machines: MachineAuthenticator): MachineD
     })
     if (!auth.ok || auth.token === undefined) return null
     return {
-      ...resolved(auth.machineId, auth.name, auth.pairingGrant),
+      ...resolved(auth.machineId, auth.name, auth.pairingGrant, auth.updatePubkey),
       issuedToken: auth.token,
-      ...(auth.updatePubkey === undefined ? {} : { updatePubkey: auth.updatePubkey }),
     }
   },
 })

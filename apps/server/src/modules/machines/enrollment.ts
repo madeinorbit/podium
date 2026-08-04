@@ -127,7 +127,8 @@ export function authenticateDaemon(
     const name =
       deps.store.machines.listMachines().find((m) => m.id === frame.machineId)?.name ??
       frame.hostname
-    return { ok: true, machineId: frame.machineId, name }
+    const updatePubkey = deps.updatePubkey?.()
+    return { ok: true, machineId: frame.machineId, name, ...(updatePubkey ? { updatePubkey } : {}) }
   }
   // Row missing — D19.4 verdict algorithm (pairing root → revoke serial → re-enrol).
   return helloMissingRow(host, frame)
@@ -178,7 +179,7 @@ function isTokenRevoked(host: EnrollmentHost, machineId: string, token: string):
 function helloMissingRow(
   host: EnrollmentHost,
   frame: Extract<DaemonHandshake, { type: 'hello' }>,
-): { ok: true; machineId: string; name: string } | { ok: false; reason: string } {
+): { ok: true; machineId: string; name: string; updatePubkey?: string } | { ok: false; reason: string } {
   const ledger = host.deps.enrollment
   if (!ledger) return { ok: false, reason: HELLO_DENIED_REASON }
   const result = verdictForMissingRow(ledger, frame.token)
@@ -201,7 +202,8 @@ function helloMissingRow(
     hostname: frame.hostname,
   })
   logVerdict(host, 're-enrolled', frame.machineId)
-  return { ok: true, machineId: frame.machineId, name }
+  const updatePubkey = host.deps.updatePubkey?.()
+  return { ok: true, machineId: frame.machineId, name, ...(updatePubkey ? { updatePubkey } : {}) }
 }
 
 /**
