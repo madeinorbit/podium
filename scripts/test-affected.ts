@@ -124,8 +124,25 @@ export interface PackageDir {
   /** Workspace-relative directory, e.g. "packages/model". */
   dir: string
   name: string
-  /** Does it define a `test` script — i.e. can turbo's `test` task cover it at all? */
-  hasTest: boolean
+}
+
+/**
+ * The packages `turbo run test` can ACTUALLY execute, straight from the task graph.
+ *
+ * This must not be inferred from package.json `test` scripts. POD-1687 pinned the task
+ * to `@podium/web#test` and `@podium/mobile#test` with no generic `test` entry, because
+ * the ~20 other packages ship a bare `vitest run` that finds no config (POD-1693). Those
+ * packages still HAVE a `test` script, so trusting package.json would mark them covered,
+ * run turbo, match no task, and exit 0 — a green for tests that never ran.
+ *
+ * Reading the graph also means this lane widens by itself: the day POD-1693 adds a
+ * package to the task, it becomes covered here with no change to this file.
+ */
+export function testCapablePackages(dryRunJson: string): Set<string> {
+  const parsed = JSON.parse(dryRunJson) as { tasks?: { package?: string }[] }
+  const names = new Set<string>()
+  for (const task of parsed.tasks ?? []) if (task.package) names.add(task.package)
+  return names
 }
 
 /** Reads the workspace globs from the root package.json and resolves them on disk. */
@@ -144,7 +161,7 @@ export function readPackages(root: string): PackageDir[] {
       const manifest = join(root, dir, 'package.json')
       if (!existsSync(manifest)) continue
       const pkg = JSON.parse(readFileSync(manifest, 'utf8'))
-      out.push({ dir, name: pkg.name, hasTest: Boolean(pkg.scripts?.test) })
+      out.push({ dir, name: pkg.name })
     }
   }
   return out.sort((a, b) => b.dir.length - a.dir.length) // longest prefix first
@@ -182,12 +199,17 @@ export function isInert(file: string): boolean {
 }
 
 /**
- * A changed file is covered only if it lives in a package that defines a `test`
- * script. Root configs, tooling, and packages whose suites live in the root-level
- * lanes are all INVISIBLE to `turbo run test` — those are exactly the cases where a
- * green from this lane would be a lie.
+ * A changed file is covered only if it lives in a package `turbo run test` can actually
+ * execute. Root configs, tooling, and every package outside the pinned task are INVISIBLE
+ * to this lane — exactly the cases where a green here would be a lie.
+ *
+ * `capable` comes from the task graph (see testCapablePackages), NOT from package.json.
  */
-export function assessCoverage(files: string[], packages: PackageDir[]): Coverage {
+export function assessCoverage(
+  files: string[],
+  packages: PackageDir[],
+  capable: Set<string>,
+): Coverage {
   const uncovered: string[] = []
   const reasons = new Map<string, string>()
   for (const file of files) {
@@ -198,9 +220,13 @@ export function assessCoverage(files: string[], packages: PackageDir[]): Coverag
     if (!owner) {
       uncovered.push(file)
       reasons.set(file, 'no workspace package owns it (root-level lane territory)')
-    } else if (!owner.hasTest) {
+    } else if (!capable.has(owner.name)) {
       uncovered.push(file)
-      reasons.set(file, `${owner.name} defines no \`test\` script`)
+      reasons.set(
+        file,
+        `${owner.name} has no \`test\` task in turbo.json — turbo would run nothing ` +
+          'and exit 0 (POD-1693)',
+      )
     }
   }
   return { uncovered, reasons }
@@ -260,11 +286,28 @@ async function main() {
     process.exit(1)
   }
 
+  const turboBin = join(root, 'node_modules', '.bin', 'turbo')
+  const dry = Bun.spawnSync([turboBin, 'run', 'test', '--dry=json'], {
+    cwd: root,
+    env: { ...process.env, PODIUM_CHECK_ENV_HASH: fingerprint(census) },
+  })
+  if (dry.exitCode !== 0) {
+    console.error(
+      'test:affected refused: could not read the `test` task graph from turbo.\n' +
+        dry.stderr.toString(),
+    )
+    process.exit(1)
+  }
+  const capable = testCapablePackages(dry.stdout.toString())
+
   const files = changedFiles(git, decision.base)
-  const { uncovered, reasons } = assessCoverage(files, readPackages(root))
+  const { uncovered, reasons } = assessCoverage(files, readPackages(root), capable)
 
   console.error(`test:affected — base: ${decision.how}`)
   console.error(`  ${files.length} changed file(s) vs base`)
+  console.error(
+    `  turbo can run \`test\` for ${capable.size} package(s): ${[...capable].sort().join(', ')}`,
+  )
   console.error('\nthis lane does NOT run, at any time:')
   for (const lane of NOT_COVERED) console.error(`  ${lane}`)
   console.error('run `bun run test` before you commit.\n')
@@ -286,13 +329,7 @@ async function main() {
   }
 
   const proc = Bun.spawn(
-    [
-      join(root, 'node_modules', '.bin', 'turbo'),
-      'run',
-      'test',
-      `--filter=...[${decision.base}]`,
-      ...forward,
-    ],
+    [turboBin, 'run', 'test', `--filter=...[${decision.base}]`, ...forward],
     {
       cwd: root,
       stdio: ['inherit', 'inherit', 'inherit'],

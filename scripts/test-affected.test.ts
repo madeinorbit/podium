@@ -9,6 +9,7 @@ import {
   longLivedCandidates,
   parseArgs,
   resolveBase,
+  testCapablePackages,
 } from './test-affected'
 
 /** Builds a fake git from an exact-args -> stdout map; anything unmapped "fails". */
@@ -93,33 +94,65 @@ describe('changedFiles', () => {
   })
 })
 
+describe('testCapablePackages', () => {
+  it('reads the packages turbo can actually run `test` for', () => {
+    const dry = JSON.stringify({
+      tasks: [
+        { taskId: '@podium/web#test', package: '@podium/web' },
+        { taskId: '@podium/mobile#test', package: '@podium/mobile' },
+      ],
+    })
+    expect([...testCapablePackages(dry)].sort()).toEqual(['@podium/mobile', '@podium/web'])
+  })
+
+  it('an empty task graph yields no capable packages', () => {
+    expect(testCapablePackages(JSON.stringify({ tasks: [] })).size).toBe(0)
+  })
+})
+
 describe('assessCoverage', () => {
   const packages = [
-    { dir: 'apps/web', name: '@podium/web', hasTest: true },
-    { dir: 'scripts', name: '@podium/scripts', hasTest: false },
+    { dir: 'apps/web', name: '@podium/web' },
+    { dir: 'packages/model', name: '@podium/model' },
+    { dir: 'scripts', name: '@podium/scripts' },
   ].sort((a, b) => b.dir.length - a.dir.length)
+  // What POD-1687 actually pinned: web and mobile only.
+  const capable = new Set(['@podium/web', '@podium/mobile'])
 
-  it('a file in a test-defining package is covered', () => {
-    expect(assessCoverage(['apps/web/src/a.ts'], packages).uncovered).toEqual([])
+  it('a file in a package turbo can run is covered', () => {
+    expect(assessCoverage(['apps/web/src/a.ts'], packages, capable).uncovered).toEqual([])
   })
 
   it('root-level files are uncovered — no package filter can ever select them', () => {
     // This is the case the lane exists to refuse: vitest.unit.config.ts changes the
     // whole root sweep, and `turbo run test` would report a clean green anyway.
-    const { uncovered, reasons } = assessCoverage(['vitest.unit.config.ts'], packages)
+    const { uncovered, reasons } = assessCoverage(['vitest.unit.config.ts'], packages, capable)
     expect(uncovered).toEqual(['vitest.unit.config.ts'])
     expect(reasons.get('vitest.unit.config.ts')).toContain('no workspace package')
   })
 
-  it('a package with no `test` script is uncovered, not silently passed', () => {
-    const { uncovered, reasons } = assessCoverage(['scripts/host.ts'], packages)
+  it('a package.json `test` script does NOT mean turbo can run it', () => {
+    // The integration bug: @podium/model ships `vitest run` in package.json but has no
+    // turbo task, so turbo matches nothing and exits 0. Trusting package.json here
+    // printed a green for a package whose tests never ran.
+    const { uncovered, reasons } = assessCoverage(['packages/model/src/a.ts'], packages, capable)
+    expect(uncovered).toEqual(['packages/model/src/a.ts'])
+    expect(reasons.get('packages/model/src/a.ts')).toContain('no `test` task in turbo.json')
+  })
+
+  it('widens by itself when a package joins the task graph', () => {
+    const widened = new Set([...capable, '@podium/model'])
+    expect(assessCoverage(['packages/model/src/a.ts'], packages, widened).uncovered).toEqual([])
+  })
+
+  it('a package with no turbo task is uncovered, not silently passed', () => {
+    const { uncovered } = assessCoverage(['scripts/host.ts'], packages, capable)
     expect(uncovered).toEqual(['scripts/host.ts'])
-    expect(reasons.get('scripts/host.ts')).toContain('no `test` script')
   })
 
   it('matches on path boundaries, not bare prefixes', () => {
     // "apps/web-legacy" must not be mistaken for the "apps/web" package.
-    expect(assessCoverage(['apps/web-legacy/src/a.ts'], packages).uncovered).toEqual([
+    expect(assessCoverage(['apps/web-legacy/src/a.ts'], packages, capable).uncovered).toEqual([
       'apps/web-legacy/src/a.ts',
     ])
   })
@@ -148,8 +181,10 @@ describe('isInert', () => {
   })
 
   it('a doc-only change no longer refuses', () => {
-    expect(assessCoverage(['README.md'], []).uncovered).toEqual([])
-    expect(assessCoverage(['docs/TELEMETRY.md'], []).uncovered).toEqual(['docs/TELEMETRY.md'])
+    expect(assessCoverage(['README.md'], [], new Set()).uncovered).toEqual([])
+    expect(assessCoverage(['docs/TELEMETRY.md'], [], new Set()).uncovered).toEqual([
+      'docs/TELEMETRY.md',
+    ])
   })
 })
 
