@@ -18,6 +18,15 @@ import { AUTO_ARCHIVE_READ_WINDOW_MS } from './types'
  * (POD-1638). Optional at the call site precisely so the single-draft kill path
  * keeps its own read-per-call semantics rather than inheriting a snapshot it did
  * not take.
+ *
+ * KNOWN HOLE, stated rather than left to be rediscovered: because it is optional,
+ * a SECOND sweep added later that loops over drafts and forgets to pass one gets
+ * the original drafts x sessions cost back, and no test goes red — the coverage
+ * pins the scaling of `reapLeakedDrafts`, not of "any loop over drafts". The
+ * failure mode is slow, never wrong. Making it required would push a snapshot
+ * onto the two single-draft callers that correctly do not want one, which is a
+ * worse trade for a hypothetical; if a second sweep ever appears, give it a pass
+ * and extend the scaling test to cover it.
  */
 interface ReapPass {
   sessions: SessionMeta[]
@@ -212,7 +221,13 @@ export class IssueAttentionModule {
    *  an authorization check and a display-ref resolution per session, each of
    *  which hits SQLite — so calling it once per draft made the boot sweep cost
    *  drafts x sessions and blocked the event loop for seconds. A single-draft
-   *  caller passes nothing and reads for itself, exactly as before. */
+   *  caller passes nothing and reads for itself, exactly as before.
+   *
+   *  IF YOU ARE WRITING A NEW LOOP OVER DRAFTS: build one {@link ReapPass} before
+   *  it and hand it to every call, or you reintroduce that cost. Omitting it is
+   *  silent — nothing fails, it just gets slow again — so also extend the scaling
+   *  test in `reap-drafts-cost.test.ts` to cover your sweep. See the note on
+   *  {@link ReapPass} for why this stayed optional. */
   reapIfEmptyDraft(id: string, pass?: ReapPass): boolean {
     const row = this.store.rows.get(id)
     if (!row || row.deletedAt || !row.draft || row.worktreePath) return false

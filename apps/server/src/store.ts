@@ -354,5 +354,10 @@ export class SessionStore {
         )
       }
     })
+    // This rewrote `repos.machine_id` on the raw handle, with SQL built from
+    // sqlite_master — so the repos aggregate's held read cannot have seen it
+    // (POD-1638). Tell it directly, or the next `listRepos()` answers with the
+    // pre-upgrade machine id.
+    this.repos.invalidate()
   }
 }

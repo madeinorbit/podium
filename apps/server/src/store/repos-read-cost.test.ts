@@ -26,6 +26,8 @@ import { openDatabase, type SqlDatabase, type SqlParam } from '@podium/runtime/s
 import { beforeEach, describe, expect, it } from 'vitest'
 import { runDrizzleMigrations } from '../migrations'
 import { DRIZZLE_MIGRATIONS } from '../migrations/drizzle-manifest.generated'
+import { deriveRepoId } from '../repo-id'
+import { SessionStore } from '../store'
 import { ReposRepository } from './repos'
 
 const HOST = 'machine-host'
@@ -131,5 +133,42 @@ describe('repo reads under a projection pass', () => {
     repos.setRepoPrefix(HOST, '/home/u/alpha', 'AZ')
 
     expect(repos.prefixForPath('/home/u/alpha/x')).toBe('AZ')
+  })
+})
+
+/**
+ * THE WRITERS THAT DO NOT GO THROUGH THIS CLASS (POD-1638 regression).
+ *
+ * The first version of the cache justified itself with "this class is the only
+ * writer of both tables", proved by grepping `UPDATE repos`. That proof could not
+ * see `SessionStore.migrateLegacyMachineIdentity`, which builds
+ * `UPDATE OR REPLACE "${table}" SET "${column}" = ?` from `sqlite_master` on the
+ * store's RAW handle — no literal table name in the source, and no trip through
+ * the invalidating `prepare` wrapper. The result was `listRepos()` answering with
+ * the PRE-upgrade machine id, which is a correctness bug on a live instance.
+ *
+ * `store.repo-id.test.ts` caught it, but that test is about POD-318 identity
+ * stability and would keep passing if this cache were replaced by something else
+ * with the same hole. This pins the SEAM: the bypassing writer invalidates.
+ */
+describe('registry cache vs writers that bypass the repository', () => {
+  it('serves the upgraded machine id after the raw-handle identity migration', () => {
+    const store = new SessionStore(':memory:')
+    store.repos.addRepo('/legacy', '__local__')
+
+    // Warm the cache BEFORE the migration — without this read the test passes
+    // against a stale cache too, because there would be nothing cached to go
+    // stale. The bug only exists for a reader that looked first.
+    expect(store.repos.listRepos()[0]?.machineId).toBe('__local__')
+
+    store.migrateLegacyMachineIdentity(store.hostMachineId)
+
+    expect(store.repos.listRepos()[0]?.machineId).toBe(store.hostMachineId)
+    expect(store.repos.listRepoPaths()).toEqual(['/legacy'])
+    // The machine moved; the opaque stored id did NOT (POD-318).
+    expect(store.repos.listRepos()[0]?.repoId).toBe(
+      deriveRepoId({ machineId: '__local__', path: '/legacy' }),
+    )
+    store.close()
   })
 })
