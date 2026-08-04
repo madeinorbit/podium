@@ -33,8 +33,14 @@ it('parses a payload carrying a target descriptor', () => {
     ...full,
     target: {
       version: '0.4.2',
+      critical: false,
       artifacts: {
-        headless: { delivery: 'feed', url: 'https://x.test/a.tgz', digest: 'd', signature: 's' },
+        headless: {
+          delivery: 'feed',
+          platforms: {
+            'linux-x86_64': { url: 'https://x.test/a.tgz', digest: 'd', signature: 's' },
+          },
+        },
       },
     },
   })
