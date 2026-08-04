@@ -416,7 +416,7 @@ WantedBy=multi-user.target
 
 function renderDevRedeployService(c: RenderContext): string {
   return `[Unit]
-Description=Podium redeploy — restart server + daemon + web to run the latest main (triggered by git HEAD change)
+Description=Podium redeploy — restart server + daemon + web + janitor to run the latest main (triggered by git HEAD change)
 After=${c.serverUnit} ${c.daemonUnit}
 
 [Service]
@@ -424,7 +424,17 @@ Type=oneshot
 Environment=PATH=%h/.bun/bin:%h/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 Environment=PODIUM_INSTANCE=${c.instanceId}
 ExecStartPre=/usr/bin/env bash ${c.repoRoot}/scripts/redeploy-wait.sh ${c.repoRoot}
-ExecStart=/usr/bin/systemctl --user restart ${c.serverUnit} ${c.daemonUnit} ${c.webUnit}
+# The janitor is a long-lived process holding the module graph it booted with, so a
+# redeploy that moves the maintenance protocol/schema leaves it skewed against the new
+# server. It then exits ${DAEMON_BLOCKED_EXIT_CODE} and RestartPreventExitStatus keeps it
+# stopped — durable maintenance (steward-poll, and with it ALL durable message delivery)
+# silently stops until a human notices (POD-1663). "podium update" revives it via
+# reviveCompatibilityBlockedJanitor, but this git-HEAD redeploy path is not that path.
+# reset-failed clears both a ${DAEMON_BLOCKED_EXIT_CODE} block and a hit start-limit;
+# restarting the janitor in the SAME step as the server also stops the skew arising at
+# all, since both re-exec from the checkout this deploy just verified.
+ExecStart=-/usr/bin/systemctl --user reset-failed ${c.janitorUnit}
+ExecStart=/usr/bin/systemctl --user restart ${c.serverUnit} ${c.daemonUnit} ${c.webUnit} ${c.janitorUnit}
 `
 }
 

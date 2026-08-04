@@ -158,6 +158,33 @@ describe('systemd profile rendering', () => {
     expect(files['podium-blue-health.timer']).toContain('Unit=podium-blue-health.service')
     expect(files['podium-blue-update.timer']).toContain('Unit=podium-blue-update.service')
   })
+
+  /**
+   * POD-1663: a redeploy that moved the maintenance protocol/schema left the
+   * long-lived janitor skewed against the new server. It exited 78, and
+   * RestartPreventExitStatus kept it stopped for good — steward-poll, and with it
+   * ALL durable message delivery, stopped silently for 14 hours. The revive hook
+   * lives in `podium update`, which this git-HEAD path never calls, so the redeploy
+   * itself has to carry the janitor.
+   */
+  it('restarts the janitor with the server, clearing a compatibility block first', () => {
+    const files = renderSystemdFiles({ profile: 'dev', instanceId: 'blue', port: 23000 }).units
+    const redeploy = files['podium-blue-redeploy.service'] ?? ''
+    const restart = redeploy
+      .split('\n')
+      .find((line) => line.startsWith('ExecStart=/usr/bin/systemctl --user restart'))
+    expect(restart).toBeDefined()
+    // The janitor must be restarted in the SAME step as the server, or it keeps
+    // running the module graph the previous deploy gave it.
+    expect(restart).toContain('podium-blue-janitor.service')
+    expect(restart).toContain('podium-blue-server.service')
+    // A janitor already blocked on exit 78 (or sitting on a hit start-limit) will not
+    // come back from `restart` alone; the failure state has to be cleared, and that
+    // clear must not fail the deploy when the unit is healthy or absent.
+    expect(redeploy).toContain(
+      'ExecStart=-/usr/bin/systemctl --user reset-failed podium-blue-janitor.service',
+    )
+  })
 })
 
 describe('userUnitDir', () => {
