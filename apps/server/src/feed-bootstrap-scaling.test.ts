@@ -39,12 +39,12 @@
  * corpus sizes differ instead of matching.
  */
 
-import { asUserId, SOLE_USER_ID } from '@podium/model'
+import { asUserId, issueDepId, SOLE_USER_ID } from '@podium/model'
 import { asCapabilityRef, asDeviceId, type Principal } from '@podium/protocol'
 import type { EntityChangeSpec, Ledger } from '@podium/sync'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
-import type { SessionsRepository } from './store/sessions'
+import type { SessionStore } from './store'
 
 const OWNER = asUserId(SOLE_USER_ID)
 
@@ -61,7 +61,7 @@ const feedPrincipal: Principal = {
  *  once here rather than cast at every call site (as `automation-removal-
  *  scoping.test.ts` does for the same reason). */
 const internals = (reg: SessionRegistry) =>
-  reg as unknown as { ledger: Ledger; store: { sessions: SessionsRepository } }
+  reg as unknown as { ledger: Ledger; store: SessionStore }
 
 /**
  * Append `count` conversation rows to the change log, through the Ledger — the
@@ -120,5 +120,86 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
     // The property, stated directly: growing the corpus 8x must not grow the
     // per-row table scans at all. Before the fix these read 8 and 64.
     expect(loadSessionsCallsDuringBootstrap(large)).toBe(loadSessionsCallsDuringBootstrap(small))
+  })
+  it('memoizes authorization snapshots across anchored issue refs and refreshes after append', () => {
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const { ledger, store } = internals(reg)
+    for (const issueId of ['i1', 'i2']) {
+      store.grants.upsert({
+        resourceKind: 'issue',
+        resourceId: issueId,
+        grantee: OWNER,
+        verb: 'read',
+        owner: OWNER,
+        visibility: 'personal',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        actorKind: 'user',
+        actorId: 'cache-test',
+        onBehalfOf: OWNER,
+      })
+    }
+    const latestStates = vi.spyOn(store.sync, 'latestChangeStates')
+    const sessionLoads = vi.spyOn(store.sessions, 'loadSessions')
+    const dependencyId = issueDepId('i1', 'i-target', 'blocks')
+    store.sync.appendChanges(
+      [
+        { entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{"v":1}' },
+        { entity: 'issue', entityId: 'i2', op: 'upsert', payload: '{"v":1}' },
+        { entity: 'issueDep', entityId: dependencyId, op: 'upsert', payload: '{"dep":true}' },
+      ],
+      1000,
+    )
+    const first = ledger.authority.changesSince(0, feedPrincipal)
+    if (first === null || first.kind !== 'batch') {
+      throw new Error('expected the first scoped delivery to be a batch')
+    }
+    // Before the fix, this fixture made 5 latest-state folds (one anchor scan
+    // plus current values) and 2 full session loads. The conserved quantities
+    // are now one fold and one session read.
+    expect(latestStates).toHaveBeenCalledTimes(1)
+    expect(sessionLoads).toHaveBeenCalledTimes(1)
+    expect(
+      first.changes.filter(
+        (change) => change.entity === 'issue' && change.entityId === 'i1' && change.op === 'upsert',
+      ),
+    ).toHaveLength(2)
+    expect(first.changes).toContainEqual(
+      expect.objectContaining({
+        entity: 'issue',
+        entityId: 'i1',
+        op: 'upsert',
+        value: { v: 1 },
+      }),
+    )
+    expect(first.changes).toContainEqual(
+      expect.objectContaining({
+        entity: 'issueDep',
+        entityId: dependencyId,
+        op: 'upsert',
+        value: { dep: true },
+      }),
+    )
+
+    const cursor = store.sync.maxChangeSeq()
+    store.sync.appendChanges(
+      [{ entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{"v":2}' }],
+      2000,
+    )
+    const second = ledger.authority.changesSince(cursor, feedPrincipal)
+    if (second === null || second.kind !== 'batch') {
+      throw new Error('expected the refreshed scoped delivery to be a batch')
+    }
+    // A durable append changes the generation before evaluation, so current
+    // values cannot come from the previous authorization snapshot.
+    expect(latestStates).toHaveBeenCalledTimes(2)
+    expect(sessionLoads).toHaveBeenCalledTimes(2)
+    expect(second.changes).toContainEqual(
+      expect.objectContaining({
+        entity: 'issue',
+        entityId: 'i1',
+        op: 'upsert',
+        value: { v: 2 },
+      }),
+    )
   })
 })

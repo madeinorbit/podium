@@ -25,6 +25,16 @@ function mapChangeLogReadRow(r: Record<string, unknown>): ChangeLogReadRow {
 }
 
 export class SyncRepository {
+  /**
+   * The latest-state fold is a snapshot of the retained change log. Visibility
+   * callbacks can ask for several rows during one synchronous delivery, so
+   * retaining the materialized rows avoids folding the same table once per
+   * subject. The generation is also exposed to the composition root: a
+   * re-entrant append must make its next authorization read build a new view.
+   */
+  private latestChangeStatesCache: ChangeLogReadRow[] | undefined
+  private latestChangeStatesGenerationValue = 0
+
   constructor(private readonly db: SqlDatabase) {}
 
   // ---- metadata oplog (docs/spec/oplog-read-path.md) ----
@@ -63,7 +73,18 @@ export class SyncRepository {
         for (let i = 0; i < chunk.length; i++) seqs.push(first + i)
       }
     })
+    this.invalidateLatestChangeStatesCache()
     return seqs
+  }
+
+  /**
+   * Monotonic generation for the retained latest-state view. It changes after
+   * every append or prune that can alter latestChangeStates; callers use it to
+   * bound a larger per-pass index without caching authorization data across a
+   * durable change.
+   */
+  latestChangeStatesGeneration(): number {
+    return this.latestChangeStatesGenerationValue
   }
 
   /** Highest assigned seq ever (survives head-pruning via sqlite_sequence). 0 = none. */
@@ -130,7 +151,9 @@ export class SyncRepository {
          )`,
       )
       .run(plan.thresholdSeq, batchSize)
-    return Number(result.changes)
+    const deleted = Number(result.changes)
+    if (deleted > 0) this.invalidateLatestChangeStatesCache()
+    return deleted
   }
 
   /**
@@ -139,6 +162,7 @@ export class SyncRepository {
    * changed while the server was down instead of silently rebasing.
    */
   latestChangeStates(): ChangeLogReadRow[] {
+    if (this.latestChangeStatesCache !== undefined) return this.latestChangeStatesCache
     const rows = this.db
       .prepare(
         `SELECT c.seq, c.entity, c.entity_id, c.op, c.payload FROM changes c
@@ -147,7 +171,13 @@ export class SyncRepository {
          ORDER BY c.seq`,
       )
       .all() as Record<string, unknown>[]
-    return rows.map((r) => mapChangeLogReadRow(r))
+    this.latestChangeStatesCache = rows.map((r) => mapChangeLogReadRow(r))
+    return this.latestChangeStatesCache
+  }
+
+  private invalidateLatestChangeStatesCache(): void {
+    this.latestChangeStatesCache = undefined
+    this.latestChangeStatesGenerationValue++
   }
 
   // ---- outbox write path (docs/spec/outbox-write-path.md) ----

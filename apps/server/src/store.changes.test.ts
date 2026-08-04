@@ -178,4 +178,39 @@ describe('SessionStore changes table', () => {
     // In seq order, which is what a bootstrap installs in.
     expect(folded.map((row) => row.seq)).toEqual([...folded.map((row) => row.seq)].sort((a, b) => a - b))
   })
+
+  it('reuses latest-state materialization until append or prune', () => {
+    const store = new SessionStore(':memory:')
+    const initialGeneration = store.sync.latestChangeStatesGeneration()
+    store.sync.appendChanges(
+      [
+        { entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{"v":1}' },
+        { entity: 'issue', entityId: 'i2', op: 'upsert', payload: '{"v":1}' },
+      ],
+      1000,
+    )
+    expect(store.sync.latestChangeStatesGeneration()).toBe(initialGeneration + 1)
+    const first = store.sync.latestChangeStates()
+    expect(store.sync.latestChangeStates()).toBe(first)
+
+    store.sync.appendChanges(
+      [{ entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{"v":2}' }],
+      1000,
+    )
+    expect(store.sync.latestChangeStatesGeneration()).toBe(initialGeneration + 2)
+    const second = store.sync.latestChangeStates()
+    expect(second).not.toBe(first)
+    expect(second).toContainEqual({
+      seq: 3,
+      entity: 'issue',
+      entityId: 'i1',
+      op: 'upsert',
+      payload: '{"v":2}',
+    })
+    expect(store.sync.latestChangeStates()).toBe(second)
+
+    expect(pruneChanges(store, { keepRows: 0, maxAgeMs: 0, now: 10_000 })).toBe(3)
+    expect(store.sync.latestChangeStatesGeneration()).toBe(initialGeneration + 3)
+    expect(store.sync.latestChangeStates()).toEqual([])
+  })
 })

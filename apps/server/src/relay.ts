@@ -25,6 +25,7 @@ import {
   Ledger,
   MutationLedger,
   type VisibilityAnchorPort,
+  type ChangeLogReadRow,
   NoDelegationsGranted,
   kernelVisibilityResolver,
 } from '@podium/sync'
@@ -107,7 +108,7 @@ import { WorkflowService } from './modules/workflows/service'
 import { inferRepoFromRoots } from './repo-registry'
 import { spawnedByParentSessionId } from '@podium/model'
 import { StewardService } from './steward'
-import { SessionStore } from './store'
+import { SessionStore, type SessionRow } from './store'
 import { isGenericClaudeTitle, isTransientTitle } from './title-filter'
 
 // Re-exported so repo-registry/superagent/tests keep importing the daemon-RPC
@@ -505,10 +506,38 @@ export class SessionRegistry {
         }
       },
     }, new NoDelegationsGranted())
+    type IssueDepSubject = {
+      entity: 'issueDep'
+      entityId: string
+    }
+    type BootstrapReadCache = {
+      generation: number
+      latestByRef: Map<string, Map<string, ChangeLogReadRow>>
+      issueDepsByFromId: Map<string, IssueDepSubject[]>
+      sessions?: SessionRow[]
+    }
+    let bootstrapReadCache: BootstrapReadCache | undefined
+    const currentBootstrapReadCache = (): BootstrapReadCache => {
+      const generation = this.store.sync.latestChangeStatesGeneration()
+      if (bootstrapReadCache?.generation === generation) return bootstrapReadCache
+      const latestByRef = new Map<string, Map<string, ChangeLogReadRow>>()
+      const issueDepsByFromId = new Map<string, IssueDepSubject[]>()
+      for (const row of this.store.sync.latestChangeStates()) {
+        const byEntity = latestByRef.get(row.entity) ?? new Map<string, ChangeLogReadRow>()
+        byEntity.set(row.entityId, row)
+        latestByRef.set(row.entity, byEntity)
+        if (row.entity !== 'issueDep' || row.op !== 'upsert') continue
+        const dep = parseIssueDepId(row.entityId)
+        if (dep === null) continue
+        const subjects = issueDepsByFromId.get(dep.fromId) ?? []
+        subjects.push({ entity: 'issueDep', entityId: row.entityId })
+        issueDepsByFromId.set(dep.fromId, subjects)
+      }
+      bootstrapReadCache = { generation, latestByRef, issueDepsByFromId }
+      return bootstrapReadCache
+    }
     const durableChangeValueOf = (ref: { entity: string; entityId: string }): unknown => {
-      const row = this.store.sync
-        .latestChangeStates()
-        .find((candidate) => candidate.entity === ref.entity && candidate.entityId === ref.entityId)
+      const row = currentBootstrapReadCache().latestByRef.get(ref.entity)?.get(ref.entityId)
       if (!row || row.op !== 'upsert' || row.payload === null) return undefined
       try {
         return JSON.parse(row.payload)
@@ -521,9 +550,13 @@ export class SessionRegistry {
         if (ref.entity !== 'issue') return null
         const audience = this.store.grants.visibilityAudienceFor('issue', ref.entityId)
         if (audience.length === 0) return null
-        const issueSessions = this.store.sessions
-          .loadSessions()
-          .filter((session) => session.issueId === ref.entityId)
+        const cache = currentBootstrapReadCache()
+        let sessions = cache.sessions
+        if (sessions === undefined) {
+          sessions = this.store.sessions.loadSessions()
+          cache.sessions = sessions
+        }
+        const issueSessions = sessions.filter((session) => session.issueId === ref.entityId)
         const subjects = [
           { entity: 'issue' as const, entityId: ref.entityId },
           { entity: 'issueProjection' as const, entityId: ref.entityId },
@@ -536,15 +569,7 @@ export class SessionRegistry {
               ? [{ entity: 'conversation' as const, entityId: session.resumeValue }]
               : [],
           ),
-          ...this.store.sync
-            .latestChangeStates()
-            .filter(
-              (row) =>
-                row.entity === 'issueDep' &&
-                row.op === 'upsert' &&
-                parseIssueDepId(row.entityId)?.fromId === ref.entityId,
-            )
-            .map((row) => ({ entity: 'issueDep' as const, entityId: row.entityId })),
+          ...(cache.issueDepsByFromId.get(ref.entityId) ?? []),
         ]
         return { audience, subjects }
       },
