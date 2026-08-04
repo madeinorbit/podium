@@ -43,8 +43,21 @@ const MODES: { id: PodiumMode; title: string; blurb: string; needsServer: boolea
   },
 ]
 
-// Default relay port for the first-run reachability commands (config has no port yet).
+// Fallback relay port for the first-run reachability commands, used ONLY when the location
+// carries no explicit port (an https reverse-proxied origin on 443, where naming 443 would be
+// wrong too). The config has no port yet, but the browser does: this page is served BY the
+// instance it is configuring, so its own location names the port to expose.
 const DEFAULT_PORT = 18787
+
+/**
+ * The port the reachability command must name. Read from the document's own location — the
+ * instance serving this page IS the instance being made reachable, so `tailscale funnel <port>`
+ * has to name the port it actually listens on, not the default (POD-1583).
+ */
+export function reachablePort(loc: { port?: string } = window.location): number {
+  const port = Number(loc.port)
+  return Number.isInteger(port) && port > 0 ? port : DEFAULT_PORT
+}
 
 /**
  * Warn when a URL is a Cloudflare QUICK tunnel (*.trycloudflare.com): those URLs rotate on
@@ -448,7 +461,7 @@ export function NetworkStep({
   }, [trpc])
   useEffect(() => {
     trpc.setup.commandFor
-      .query({ option, port: DEFAULT_PORT })
+      .query({ option, port: reachablePort() })
       .then(setCmd)
       .catch(() => {})
   }, [trpc, option])
