@@ -1028,6 +1028,26 @@ describe('SessionRegistry', () => {
     ...over,
   })
 
+  // The daemon refuses a reattach for a session it has no binding record for,
+  // which is EVERY session older than the binding store. It cannot mint one
+  // itself — it has the label and the cwd but not the owner — so the probe has
+  // to carry that identity or a whole pre-upgrade fleet stays unreachable
+  // (POD-1647). `principal` is the prober; `adopt` is the session's owner.
+  it('the boot probe carries the owner so the daemon can adopt a pre-binding survivor', () => {
+    const store = new SessionStore(':memory:', TEST_MACHINE)
+    const id = 'orphan-adopt'
+    store.sessions.upsertSession(exitedRow(id))
+    const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const daemon: ControlMessage[] = []
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+
+    const probe = daemon.find((m) => m.type === 'reattach' && m.sessionId === id)
+    expect(probe && 'binding' in probe ? probe.binding : undefined).toMatchObject({
+      principal: { kind: 'system' },
+      adopt: { ownerUserId: FIRST_ADMIN_USER_ID },
+    })
+  })
+
   it('probes an exited session on boot and reattaches it when the master is alive', () => {
     const store = new SessionStore(':memory:', TEST_MACHINE)
     const id = 'orphan-1'
@@ -1599,6 +1619,9 @@ describe('SessionRegistry', () => {
           machineAccess: 'allowed',
           sessionAccess: 'allowed',
           principal: { kind: 'system' },
+          // The prober is the system; the OWNER rides alongside so the daemon
+          // can adopt a survivor that has no binding record (POD-1647).
+          adopt: { ownerUserId: FIRST_ADMIN_USER_ID },
         },
       }),
     )

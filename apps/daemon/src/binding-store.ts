@@ -373,6 +373,12 @@ export type SessionBindingTransition =
       principal: BindingSpawnPrincipal
       requestedGeneration: number
       attemptId?: string | null
+      /** Needed only to ADOPT a survivor that has no record yet — see `adopt`. */
+      agentKind?: AgentKind
+      /** Server-authored owner of a session minted before the binding store
+       *  existed. Present = adopt the survivor under this identity instead of
+       *  refusing it as unknown (POD-1647). */
+      adopt?: { ownerUserId: UserId; issueId?: import('@podium/model').IssueId }
     })
   | (BindingTransitionBase & {
       event: 'hook-repin'
@@ -807,6 +813,58 @@ function withTransitionReceipt(
   return {
     ...binding,
     transitionHistory: [...binding.transitionHistory, receipt],
+  }
+}
+
+/**
+ * A fresh binding record. TWO events mint one: `spawn`, where the session is
+ * born here, and `reattach` adopting a survivor that predates this store
+ * (POD-1647). They must produce the same shape — a survivor adopted into a
+ * subtly different record is a divergence nothing downstream would report — so
+ * the construction lives here rather than inline at each site.
+ */
+function newBindingRecord(input: {
+  sessionId: SessionId
+  agentKind: AgentKind
+  claimantMachineId: MachineId
+  attemptId?: string | null
+  observationGeneration?: number
+  createdAt: string
+  recordedAt: string
+  delegation: {
+    actor: AgentIdentityId
+    onBehalfOf: UserId
+    grantedScope: DelegationScope
+    parentBindingId: SessionId | null
+  } | null
+}): SessionBindingRecord {
+  return {
+    schemaVersion: 1,
+    sessionId: input.sessionId,
+    conversationId: null,
+    agentKind: input.agentKind,
+    claimantMachineId: input.claimantMachineId,
+    attemptId: input.attemptId ?? null,
+    observationGeneration: input.observationGeneration ?? 1,
+    observations: [],
+    delegationHistory: input.delegation
+      ? [
+          {
+            observationId: randomUUID(),
+            ...input.delegation,
+            observedAt: input.createdAt,
+            recordedAt: input.recordedAt,
+            supersedes: null,
+            retired: false,
+          },
+        ]
+      : [],
+    transitionHistory: [],
+    conflictHistory: [],
+    transfer: null,
+    state: 'unbound',
+    createdAt: input.createdAt,
+    retiredAt: null,
   }
 }
 
@@ -1372,41 +1430,64 @@ export class BindingStore {
             }
           }
 
-          const base: SessionBindingRecord = {
-            schemaVersion: 1,
+          const base = newBindingRecord({
             sessionId: input.sessionId,
-            conversationId: null,
             agentKind: input.agentKind,
             claimantMachineId: input.claimantMachineId,
             attemptId: input.attemptId ?? null,
-            observationGeneration: input.observationGeneration ?? 1,
-            observations: [],
-            delegationHistory: delegation
-              ? [
-                  {
-                    observationId: randomUUID(),
-                    ...delegation,
-                    observedAt: createdAt,
-                    recordedAt: this.now(),
-                    supersedes: null,
-                    retired: false,
-                  },
-                ]
-              : [],
-            transitionHistory: [],
-            conflictHistory: [],
-            transfer: null,
-            state: 'unbound',
+            ...(input.observationGeneration !== undefined
+              ? { observationGeneration: input.observationGeneration }
+              : {}),
             createdAt,
-            retiredAt: null,
-          }
+            recordedAt: this.now(),
+            delegation,
+          })
           changed = withTransitionReceipt(base, input, this.now())
           break
         }
 
         case 'reattach': {
           if (!current) {
-            return { status: 'denied', event: 'reattach', reason: 'not-found', terminal: true }
+            // ADOPT A SURVIVOR. Every session minted before this store existed
+            // has no record, so a bare refusal here left a whole pre-upgrade
+            // fleet running and unreachable (POD-1647). Absence is not evidence
+            // the session is unknown — the SERVER holds the roster, and when it
+            // vouches for the owner we mint the binding and carry on.
+            //
+            // Without that identity we still refuse: minting from the reattach
+            // caller (a system probe) would replace a real human delegation
+            // with a placeholder, which reads as adopted and enforces nothing.
+            if (!input.adopt || !input.agentKind) {
+              return { status: 'denied', event: 'reattach', reason: 'not-found', terminal: true }
+            }
+            changed = withTransitionReceipt(
+              newBindingRecord({
+                sessionId: input.sessionId,
+                agentKind: input.agentKind,
+                claimantMachineId: input.claimantMachineId,
+                attemptId: input.attemptId ?? null,
+                observationGeneration: input.requestedGeneration,
+                // The record is born now; the SESSION is older. Nothing here can
+                // date it honestly, and inventing an earlier createdAt would
+                // fabricate history this store never observed.
+                createdAt: this.now(),
+                recordedAt: this.now(),
+                delegation: {
+                  actor: asAgentIdentityId(input.sessionId),
+                  onBehalfOf: input.adopt.ownerUserId,
+                  // Same narrow default a spawn would grant: the issue subtree,
+                  // or nothing for an issueless session. An adopted survivor
+                  // gets no more reach than it would have been born with.
+                  grantedScope: input.adopt.issueId
+                    ? { kind: 'subtree', rootId: input.adopt.issueId }
+                    : { kind: 'none' },
+                  parentBindingId: null,
+                },
+              }),
+              input,
+              this.now(),
+            )
+            break
           }
           if (current.state === 'retired' || current.state === 'exported') {
             return transitionRejected(input.event, 'binding-retired')
@@ -2214,6 +2295,14 @@ export class BindingStore {
         codexReceiptClaims: receipts.filter((receipt) => receipt.claimed).length,
       },
     }
+    // A RUN THAT MIGRATED NOTHING DOES NOT SPEND THE ONE SHOT. `legacyMigration`
+    // is checked as `!== null` at open, so stamping an empty result makes this a
+    // one-time no-op forever. That is exactly what happened on the first box to
+    // take the rewrite: the store opened with every legacy source cold, recorded
+    // an all-zero inventory, and could never look again (POD-1647). Leaving the
+    // marker null on an empty run costs a directory scan per boot and keeps the
+    // door open; a run that actually found something still closes it.
+    if (!hasBindingFacts) return result
     this.manifest = { ...this.manifest, legacyMigration: result }
     await atomicJsonWrite(join(this.dir, MANIFEST_NAME), this.manifest)
     return result

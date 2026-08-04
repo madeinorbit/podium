@@ -308,6 +308,24 @@ export const SessionBindingReattachInstruction = z.object({
   sessionAccess: z.enum(['allowed', 'not-found']),
   /** Server-authored from the authenticated transport, never client payload. */
   principal: SessionBindingSpawnPrincipal,
+  /** ADOPTION IDENTITY for a session with no binding record yet.
+   *
+   * A binding is minted at spawn, so every session that predates the binding
+   * store has none — and a reattach that merely refused those left a whole
+   * pre-upgrade fleet alive but unreachable (POD-1647). The daemon cannot mint
+   * one on its own: it has the durable label and the cwd, but not WHO the
+   * session belongs to. The server does, on the session row, so it authors that
+   * identity here and the daemon adopts the survivor under it.
+   *
+   * Deliberately NOT derived from `principal` above: that is the reattach
+   * CALLER (a system probe on daemon connect), not the session's owner, and
+   * minting from it would replace a real human delegation with a placeholder. */
+  adopt: z
+    .object({
+      ownerUserId: UserIdField,
+      issueId: IssueIdField.optional(),
+    })
+    .optional(),
 })
 export type SessionBindingReattachInstruction = z.infer<typeof SessionBindingReattachInstruction>
 

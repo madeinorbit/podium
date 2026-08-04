@@ -55,6 +55,40 @@ describe('BindingStore schema lifecycle', () => {
     expect(await readdir(join(dir, 'bindings'))).toEqual([])
   })
 
+  // The trap that orphaned a live fleet (POD-1647): the first open after the
+  // upgrade found every legacy source cold, recorded an all-zero migration, and
+  // — because open() only checks `legacyMigration !== null` — could never look
+  // again. An empty run must leave the door open.
+  it('an empty legacy migration does not spend the one-time marker', async () => {
+    const root = await tempRoot()
+    const dir = join(root, 'runtime', 'session-bindings')
+    const stateDir = join(root, 'state')
+    await mkdir(stateDir, { recursive: true })
+    await writeFile(join(stateDir, 'daemon.json'), JSON.stringify({ machineId: 'machine-real' }))
+
+    const first = await BindingStore.open({ dir, legacyStateDir: stateDir })
+    expect(first.legacyMigration).toBeNull()
+    expect(JSON.parse(await readFile(join(dir, 'manifest.json'), 'utf8'))).toMatchObject({
+      legacyMigration: null,
+    })
+
+    // A later boot that DOES have something to migrate is still able to run.
+    const second = await BindingStore.open({
+      dir,
+      legacyStateDir: stateDir,
+      singleOperatorUserId: FIRST_ADMIN_USER_ID,
+      legacyBindings: [
+        {
+          sessionId: asSessionId('late-arrival'),
+          agentKind: 'claude-code',
+          control: { durableLabel: 'podium-late-arrival', cwd: '/repo' },
+        },
+      ],
+    })
+    expect(second.legacyMigration?.inventory.controlSessions).toBe(1)
+    expect(await second.read(asSessionId('late-arrival'))).not.toBeNull()
+  })
+
   it('migrates a mid-version manifest forward and preserves unknown fields', async () => {
     const root = await tempRoot()
     const dir = join(root, 'runtime', 'session-bindings')
