@@ -198,7 +198,7 @@ export function UpdateDialog({ view, actions }: UpdateDialogProps): JSX.Element 
               </p>
             </div>
           </>
-        ) : (
+        ) : view.state === 'failed' ? (
           <>
             <DialogHeader className="gap-1 px-4 pt-4 pb-3">
               <DialogTitle className="text-[14px] font-semibold">Podium update paused</DialogTitle>
@@ -207,7 +207,7 @@ export function UpdateDialog({ view, actions }: UpdateDialogProps): JSX.Element 
               </DialogDescription>
             </DialogHeader>
           </>
-        )}
+        ) : null}
       </DialogContent>
     </Dialog>
   )
