@@ -19,9 +19,15 @@ Evidence from the rebased `origin/main` tree (Turbo 2.10.5, Bun 1.3.14):
 
 The fingerprint itself is SHA-256 over the `bunfig.toml` contents plus the sorted names under `node_modules/@podium`, marking entries with no `package.json` as dangling. This closes the measured POD-1343 linker/layout failure: a missing or dangling workspace-link census cannot reuse a green. Turbo also includes the lockfile/package metadata in the global cache inputs.
 
+The fingerprint is intentionally machine-portable: it hashes Bun configuration content and package names, not absolute checkout paths. Correctly installed checkouts on different machines and at different paths therefore produce the same environment hash.
+
 The exact CI install command was reproduced from an initially empty `node_modules` in this worktree. Bun 1.3.14 installed 1,341 packages and created 26 healthy `@podium` workspace links with `--ignore-scripts`; `bun run test:web -- --dry=json` then passed the link guard and reached Turbo. If a CI install ever produces zero usable links, `scripts/test.ts` exits nonzero before Turbo, so the job hard-fails rather than reporting a cached green.
 
 This is evidence for the current fleet shape, not a claim of arbitrary cross-platform hermeticity. The census records link names and dangling state, not symlink targets or installed package contents; Bun version, OS, and architecture are pinned by current CI (`ubuntu-latest`, Bun 1.3.14) but are not independently encoded by this fingerprint. If the rollout spans other runtimes or platforms, extend the fingerprint and re-run the hash probes before enabling remote reads.
+
+The runtime identity is a required pre-sharing gate: add Bun version, OS, and architecture to `PODIUM_CHECK_ENV_HASH` (or equivalent `globalEnv` entries) before remote reads. Pinning all producers to the same Bun/OS/architecture is acceptable only if the remote cache is explicitly scoped to that fleet.
+
+The census also does not hash valid symlink targets or their content. Before sharing, assert every `@podium` target resolves inside the checkout and that all resolved source is covered by task inputs, or add target/content identity to the key; otherwise a valid link into another checkout can reuse a green unseen by `$TURBO_ROOT$` globs.
 
 ## CI cache behavior
 
