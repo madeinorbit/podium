@@ -1,14 +1,11 @@
-import {
-  ISSUE_COLOR_HEX,
-  ISSUE_COLOR_SLOTS,
-  type IssueColorSlot,
-  type IssueWire,
-} from '@podium/model'
+import { ISSUE_COLOR_HEX, type IssueColorSlot, type IssueWire } from '@podium/model'
 import type { CSSProperties, JSX } from 'react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
+import { MENU_HEADER, MENU_HEADER_REF, MENU_PICKER_PANEL } from '@/lib/menu-surface'
 import { StatusBadge, type StatusBadgeKind } from '@/lib/motion'
+import { IssueColorSwatches, issueColorName } from './IssueColorSwatches'
 
 const PANEL_WIDTH = 196
 const PANEL_GUTTER = 8
@@ -28,10 +25,6 @@ export type IdSquareLabel = {
   prefix: string
   number: string
   full: string
-}
-
-function colorName(slot: IssueColorSlot): string {
-  return slot.charAt(0).toUpperCase() + slot.slice(1)
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -244,7 +237,7 @@ export function IdSquare({
         aria-busy={saving}
         title={
           titleHint ??
-          `${label.full} · ${issue.title} · ${displayColor ? colorName(displayColor) : 'No colour'}`
+          `${label.full} · ${issue.title} · ${displayColor ? issueColorName(displayColor) : 'No colour'}`
         }
         onClick={(event) => {
           event.stopPropagation()
@@ -266,62 +259,22 @@ export function IdSquare({
             ref={panelRef}
             role="dialog"
             aria-label={`Task colour for ${label.full}`}
-            className="fixed z-[70] w-[196px] rounded-[10px] border border-[#3a3a46] bg-[#1b1b22] px-[11px] py-[10px] text-[#d7d7e0] shadow-[0_14px_34px_rgba(0,0,0,.65),0_2px_8px_rgba(0,0,0,.5)]"
+            className={`fixed z-[70] ${MENU_PICKER_PANEL}`}
             style={position}
           >
             <span
               className={
                 panelSide === 'right'
-                  ? 'absolute top-[14px] left-[-5px] size-2 rotate-45 border-b border-l border-[#3a3a46] bg-[#1b1b22]'
-                  : 'absolute top-[14px] right-[-5px] size-2 rotate-45 border-t border-r border-[#3a3a46] bg-[#1b1b22]'
+                  ? 'absolute top-[14px] left-[-5px] size-2 rotate-45 border-b border-l border-border-strong bg-chip'
+                  : 'absolute top-[14px] right-[-5px] size-2 rotate-45 border-t border-r border-border-strong bg-chip'
               }
               aria-hidden="true"
             />
-            <div className="mb-[9px] flex items-center gap-1.5 font-mono text-[8px]">
-              <span className="tracking-[.12em] text-[#8d8d9a]">ISSUE COLOUR</span>
-              <span className="ml-auto text-[#5a5a66]">{label.full}</span>
+            <div className={MENU_HEADER}>
+              <span>ISSUE COLOUR</span>
+              <span className={MENU_HEADER_REF}>{label.full}</span>
             </div>
-            <div className="grid grid-cols-5 gap-2">
-              {ISSUE_COLOR_SLOTS.map((slot) => {
-                const swatch = ISSUE_COLOR_HEX[slot]
-                const current = displayColor === slot
-                return (
-                  <button
-                    data-pressable
-                    key={slot}
-                    type="button"
-                    title={`${colorName(slot)}${current ? ' — current' : ''}`}
-                    aria-label={colorName(slot)}
-                    aria-pressed={current}
-                    className="aspect-square cursor-pointer rounded-md text-[10px] font-bold outline-none hover:ring-2 hover:ring-[#f3f3f8] focus-visible:ring-2 focus-visible:ring-[#f3f3f8]"
-                    style={{
-                      background: swatch,
-                      color: `color-mix(in srgb, ${swatch} 30%, #000)`,
-                      boxShadow: current ? '0 0 0 2px #f3f3f8' : undefined,
-                    }}
-                    onClick={() => choose(slot)}
-                  >
-                    {current ? '✓' : null}
-                  </button>
-                )
-              })}
-            </div>
-            <div className="mt-2.5 flex items-center border-t border-[#25252f] pt-2">
-              <button
-                data-pressable
-                type="button"
-                className="flex cursor-pointer items-center gap-1.5 rounded-sm outline-none hover:text-[#d7d7e0] focus-visible:ring-2 focus-visible:ring-[#f3f3f8]"
-                aria-label="No colour"
-                aria-pressed={displayColor === undefined}
-                onClick={() => choose(null)}
-              >
-                <span className="flex size-4 items-center justify-center rounded-[5px] border border-dashed border-[#6c6c78] bg-[#25252f] text-[9px] text-[#8d8d9a]">
-                  ✕
-                </span>
-                <span className="text-[10.5px] text-[#9a9aa8]">No colour</span>
-              </button>
-              <span className="ml-auto font-mono text-[8px] text-[#5a5a66]">flows everywhere</span>
-            </div>
+            <IssueColorSwatches value={displayColor} onPick={choose} />
           </div>,
           document.body,
         )}

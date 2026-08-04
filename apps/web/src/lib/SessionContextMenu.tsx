@@ -31,6 +31,18 @@ import { toast } from 'sonner'
 import { useReplicaIssues, useStoreSelector } from '@/app/store'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { useFeature } from '@/lib/use-feature'
+import {
+  MENU_EMPTY,
+  MENU_HEADER,
+  MENU_HEADER_REF,
+  MENU_HINT,
+  MENU_ITEM,
+  MENU_ITEM_DESTRUCTIVE,
+  MENU_ITEM_DISABLED,
+  MENU_PANEL,
+  MENU_SECTION,
+  MENU_SUBTEXT,
+} from './menu-surface'
 import { useNow } from './useNow'
 import { sessionDisplayName } from './WorkerLabel'
 
@@ -233,19 +245,26 @@ export function SessionContextMenu({
     )
   }
 
-  const itemCls =
-    'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] hover:bg-accent hover:text-accent-foreground'
+  const itemCls = MENU_ITEM
 
   return createPortal(
     <div
       ref={ref}
       role="menu"
       aria-label="Session actions"
-      className="fixed z-[60] min-w-[190px] rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10"
+      className={`fixed z-[60] min-w-[196px] ${MENU_PANEL}`}
       style={{ left: pos.x, top: pos.y }}
       // The host opens this on contextmenu; suppress a nested browser menu.
       onContextMenu={(e) => e.preventDefault()}
     >
+      {/* Same header the issue menu and the colour picker wear (POD-380): the
+          two sidebar menus open one pixel apart and must read as one family. */}
+      <div className={`${MENU_HEADER} px-[5px]`}>
+        <span>AGENT</span>
+        <span className={`${MENU_HEADER_REF} min-w-0 truncate normal-case`}>
+          {sessionDisplayName(session)}
+        </span>
+      </div>
       <button
         data-pressable
         type="button"
@@ -280,7 +299,7 @@ export function SessionContextMenu({
         </button>
       )}
 
-      <hr className="my-1 h-px border-0 bg-border" />
+      <div className={MENU_SECTION}>SNOOZE</div>
       {snoozed ? (
         <button
           data-pressable
@@ -293,9 +312,6 @@ export function SessionContextMenu({
         </button>
       ) : (
         <>
-          <div className="px-2 py-1 text-[11px] font-medium tracking-wide text-muted-foreground">
-            Snooze
-          </div>
           <button
             data-pressable
             type="button"
@@ -326,7 +342,7 @@ export function SessionContextMenu({
         </>
       )}
 
-      <hr className="my-1 h-px border-0 bg-border" />
+      <div className={MENU_SECTION}>MANAGE</div>
       {canHibernate && (
         <button
           data-pressable
@@ -358,14 +374,12 @@ export function SessionContextMenu({
             type="button"
             role="menuitem"
             disabled
-            className="flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left text-[13px] opacity-60"
+            className={`${MENU_ITEM_DISABLED} flex-col items-stretch gap-0.5`}
           >
             <span className="flex items-center gap-2">
               <ArrowRightLeft size={14} aria-hidden="true" /> Handoff
             </span>
-            <span className="pl-6 text-[11px] text-muted-foreground">
-              {handoffBlockerText(blocker, session.agentKind)}
-            </span>
+            <span className={MENU_SUBTEXT}>{handoffBlockerText(blocker, session.agentKind)}</span>
           </button>
         ) : (
           <button
@@ -379,7 +393,7 @@ export function SessionContextMenu({
             onClick={(event) => setHandoffTop(event.currentTarget.offsetTop)}
           >
             <ArrowRightLeft size={14} aria-hidden="true" /> Handoff
-            <ChevronRight size={13} aria-hidden="true" className="ml-auto text-muted-foreground" />
+            <ChevronRight size={12} aria-hidden="true" className="ml-auto text-text-dim" />
           </button>
         ))}
       <button
@@ -410,7 +424,7 @@ export function SessionContextMenu({
           data-pressable
           type="button"
           role="menuitem"
-          className={`${itemCls} text-destructive hover:bg-destructive/10 hover:text-destructive`}
+          className={MENU_ITEM_DESTRUCTIVE}
           onClick={() => run(() => guardedKill(id))}
         >
           <X size={14} aria-hidden="true" /> Close
@@ -420,16 +434,14 @@ export function SessionContextMenu({
         <div
           role="menu"
           aria-label="Handoff targets"
-          className="absolute left-full z-[61] min-w-[180px] rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10"
+          className={`absolute left-full z-[61] min-w-[180px] ${MENU_PANEL}`}
           style={{
             ...(pos.x + 380 > window.innerWidth ? { left: 'auto', right: '100%' } : {}),
             top: handoffTop - 4,
           }}
         >
           {candidates.length === 0 && (
-            <div className="px-2 py-1.5 text-[11px] text-muted-foreground">
-              No other machine has this repo
-            </div>
+            <div className={MENU_EMPTY}>No other machine has this repo</div>
           )}
           {candidates.map(({ machine, rejection }) =>
             rejection ? (
@@ -439,11 +451,11 @@ export function SessionContextMenu({
                 type="button"
                 role="menuitem"
                 disabled
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] opacity-60"
+                className={MENU_ITEM_DISABLED}
               >
                 <span className="size-2 rounded-full bg-muted-foreground" aria-hidden="true" />
                 {machine.name}
-                <span className="ml-auto pl-2 text-[11px] text-muted-foreground">
+                <span className={MENU_HINT}>
                   {handoffRejectionText(rejection, session.agentKind)}
                 </span>
               </button>

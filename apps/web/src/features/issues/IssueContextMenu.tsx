@@ -2,11 +2,15 @@ import { shallowEqual } from '@podium/client-core/store'
 import { reposToViews } from '@podium/client-core/viewmodels'
 import {
   DEFER_NEXT_MESSAGE,
+  ISSUE_COLOR_HEX,
   ISSUE_STAGES,
+  type IssueColorSlot,
   type IssueId,
   type IssueStage,
+  isIssueColorSlot,
   snoozeUntil1h,
 } from '@podium/model'
+import { issueDisplayRef } from '@podium/protocol'
 import {
   AlarmClock,
   AlarmClockOff,
@@ -20,6 +24,7 @@ import {
   ExternalLink,
   Mail,
   MailOpen,
+  Palette,
   Pencil,
   Pin,
   PinOff,
@@ -33,7 +38,22 @@ import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
 import type { IssueViewModel } from '@/app/store'
 import { useStoreSelector } from '@/app/store'
+import { IssueColorSwatches } from '@/components/IssueColorSwatches'
 import { issueAgentIcon } from '@/lib/issue-agents'
+import {
+  MENU_EMPTY,
+  MENU_HEADER,
+  MENU_HEADER_REF,
+  MENU_HINT,
+  MENU_ITEM,
+  MENU_ITEM_DESTRUCTIVE,
+  MENU_ITEM_DISABLED,
+  MENU_PANEL,
+  MENU_PICKER_PANEL,
+  MENU_RULE,
+  MENU_SECTION,
+  MENU_SUBTEXT,
+} from '@/lib/menu-surface'
 import {
   type ContextMenuAnchor,
   handoffBlockerText,
@@ -53,14 +73,25 @@ import { PriorityGlyph, StageGlyph } from './issue-glyphs'
 import type { IssueCloseReason } from './issue-lifecycle'
 import {
   createIssueMenuData,
+  ISSUE_MENU_COLOR_NONE,
   type IssueMenuConfig,
   type IssueMenuIcon,
   type IssueMenuOption,
+  type IssueMenuSection,
   type IssueMenuSubmenu,
   issueMenuEntries,
   issueMenuEntryLabel,
 } from './issue-menu-config'
 import { isIssueStartable } from './issue-startable'
+
+/** Regions get named in mono micro-caps, the way the colour picker names its
+ *  own (POD-380) — the menu's separators used to be anonymous rules. `main`
+ *  has no label: the panel header already sits above it. */
+const SECTION_LABEL: Record<IssueMenuSection, string | null> = {
+  main: null,
+  lifecycle: 'LIFECYCLE',
+  destructive: 'MANAGE',
+}
 
 /** A cursor-anchored menu whose tree is projected from issue-menu-config.ts. */
 export function IssueContextMenu({
@@ -168,6 +199,9 @@ export function IssueContextMenu({
     run(() => Promise.all(ids.map((id) => trpc.issues.update.mutate({ id, patch: { stage } }))))
   const setPriority = (priority: number): void =>
     run(() => Promise.all(ids.map((id) => trpc.issues.update.mutate({ id, patch: { priority } }))))
+  // Same patch the IdSquare picker sends; `null` clears back to the slate flow.
+  const setColor = (color: IssueColorSlot | null): void =>
+    run(() => Promise.all(ids.map((id) => trpc.issues.update.mutate({ id, patch: { color } }))))
   const toggleLabel = (label: string): void =>
     run(() =>
       Promise.all(toggleLabelAcross(issues, label).map((p) => trpc.issues.setLabels.mutate(p))),
@@ -243,10 +277,8 @@ export function IssueContextMenu({
   if (!menuData) return null
   const entries = issueMenuEntries(menuData)
 
-  const itemCls =
-    'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] hover:bg-accent hover:text-accent-foreground'
-  const disabledCls =
-    'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] opacity-60'
+  const itemCls = MENU_ITEM
+  const disabledCls = MENU_ITEM_DISABLED
   const leafHover = { onMouseEnter: () => setSub(null) }
 
   const runAction = (action: Extract<IssueMenuConfig, { kind: 'action' }>['id']): void => {
@@ -301,6 +333,10 @@ export function IssueContextMenu({
       case 'labels':
         toggleLabel(value)
         return
+      case 'color':
+        if (value === ISSUE_MENU_COLOR_NONE) setColor(null)
+        else if (isIssueColorSlot(value)) setColor(value)
+        return
       case 'handoff': {
         const target = handoffCandidates.find((candidate) => candidate.machine.id === value)
         if (target && !target.rejection) handoffTo(target.machine.id, target.machine.name)
@@ -344,6 +380,8 @@ export function IssueContextMenu({
         return <Mail {...props} />
       case 'mail-open':
         return <MailOpen {...props} />
+      case 'palette':
+        return <Palette {...props} />
       case 'pencil':
         return <Pencil {...props} />
       case 'pin':
@@ -361,10 +399,34 @@ export function IssueContextMenu({
     }
   }
 
+  /** The colour row wears the issue's own square rather than a palette glyph —
+   *  the same mark the IdSquare shows, so the row states the current colour
+   *  instead of just naming the control. */
+  const colorGlyph = (): ReactNode => {
+    const hex = first.color ? ISSUE_COLOR_HEX[first.color] : undefined
+    return (
+      <span
+        aria-hidden="true"
+        data-testid="issue-menu-color-glyph"
+        className="size-3.5 flex-none rounded-[4px] border"
+        style={
+          hex
+            ? { background: hex, borderColor: 'transparent' }
+            : {
+                background: 'var(--hairline-soft)',
+                borderColor: 'var(--text-dim)',
+                borderStyle: 'dashed',
+              }
+        }
+      />
+    )
+  }
+
   const entryIcon = (entry: IssueMenuConfig): ReactNode => {
     if (entry.kind === 'submenu') {
       if (entry.id === 'stage') return <StageGlyph stage={first.stage} />
       if (entry.id === 'priority') return <PriorityGlyph priority={first.priority} />
+      if (entry.id === 'color') return colorGlyph()
       if (entry.id === 'agent') return renderIcon(isIssueStartable(first) ? 'play' : 'agent')
     }
     if (entry.kind === 'action' && entry.id === 'pin') {
@@ -391,11 +453,13 @@ export function IssueContextMenu({
   const submenuItems = new Map<IssueMenuSubmenu, JSX.Element[]>()
   for (const entry of entries) {
     if (entry.kind !== 'submenu') continue
+    // Colour opens the picker's swatch grid, not a row list (POD-380).
+    if (entry.id === 'color') continue
     submenuItems.set(
       entry.id,
       entry.options(menuData).map((option) =>
         option.empty ? (
-          <span key={option.id} className="px-2 py-1.5 text-[13px] text-muted-foreground">
+          <span key={option.id} className={MENU_EMPTY}>
             {option.label}
           </span>
         ) : (
@@ -417,9 +481,7 @@ export function IssueContextMenu({
             )}
             {optionIcon(entry, option)}
             <span className="min-w-0 flex-1 truncate">{option.label}</span>
-            {option.hint && (
-              <span className="ml-auto pl-2 text-[11px] text-muted-foreground">{option.hint}</span>
-            )}
+            {option.hint && <span className={MENU_HINT}>{option.hint}</span>}
           </button>
         ),
       ),
@@ -438,18 +500,26 @@ export function IssueContextMenu({
       onClick={(e) => setSub({ kind: entry.id, top: e.currentTarget.offsetTop })}
     >
       {entryIcon(entry)} {issueMenuEntryLabel(entry, menuData)}
-      <ChevronRight size={13} aria-hidden="true" className="ml-auto text-muted-foreground" />
+      <ChevronRight size={12} aria-hidden="true" className="ml-auto text-text-dim" />
     </button>
   )
 
-  let previousSection = 'main'
+  let previousSection: IssueMenuSection = 'main'
   const renderedEntries = entries.map((entry) => {
-    const separator = entry.section !== previousSection
+    const changed = entry.section !== previousSection
     previousSection = entry.section
+    const label = SECTION_LABEL[entry.section]
+    const divider = changed ? (
+      label ? (
+        <div className={MENU_SECTION}>{label}</div>
+      ) : (
+        <hr className={MENU_RULE} />
+      )
+    ) : null
     if (entry.kind === 'submenu' && entry.id === 'handoff' && menuData.handoff?.blocker) {
       return (
         <Fragment key={entry.id}>
-          {separator && <hr className="my-1 h-px border-0 bg-border" />}
+          {divider}
           <button
             data-pressable
             type="button"
@@ -461,16 +531,14 @@ export function IssueContextMenu({
             <span className="flex items-center gap-2">
               {entryIcon(entry)} {issueMenuEntryLabel(entry, menuData)}
             </span>
-            <span className="pl-6 text-[11px] text-muted-foreground">
-              {menuData.handoff.blocker}
-            </span>
+            <span className={MENU_SUBTEXT}>{menuData.handoff.blocker}</span>
           </button>
         </Fragment>
       )
     }
     return (
       <Fragment key={entry.kind === 'action' ? entry.id : entry.id}>
-        {separator && <hr className="my-1 h-px border-0 bg-border" />}
+        {divider}
         {entry.kind === 'submenu' ? (
           subTrigger(entry)
         ) : (
@@ -478,11 +546,7 @@ export function IssueContextMenu({
             data-pressable
             type="button"
             role="menuitem"
-            className={
-              entry.id === 'delete'
-                ? `${itemCls} text-destructive hover:bg-destructive/10 hover:text-destructive`
-                : itemCls
-            }
+            className={entry.id === 'delete' ? MENU_ITEM_DESTRUCTIVE : itemCls}
             {...leafHover}
             onClick={() => runAction(entry.id)}
           >
@@ -493,34 +557,64 @@ export function IssueContextMenu({
     )
   })
 
+  // Flyout placement, shared by the option lists and the colour grid. The
+  // bottom clamp reserves the panel's own height so it can't hang off-screen —
+  // the fixed-size colour grid is taller than a couple of option rows.
+  const flyoutReserve = sub?.kind === 'color' ? 130 : 60
+  const flyoutStyle = sub
+    ? {
+        ...(pos.x + 400 > window.innerWidth ? { left: 'auto' as const, right: '100%' } : {}),
+        top: Math.max(
+          -pos.y + 8,
+          Math.min(sub.top - 4, window.innerHeight - pos.y - flyoutReserve),
+        ),
+      }
+    : undefined
+
   return createPortal(
     <div
       ref={ref}
       role="menu"
       aria-label="Task actions"
-      className="fixed z-[60] min-w-[200px] rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10"
+      className={`fixed z-[60] min-w-[196px] ${MENU_PANEL}`}
       style={{ left: pos.x, top: pos.y }}
       onContextMenu={(e) => e.preventDefault()}
     >
-      {issues.length > 1 && (
-        <div className="px-2 py-1 text-[11px] text-muted-foreground tabular-nums">
-          {issues.length} issues selected
-        </div>
-      )}
+      {/* The picker's header line, verbatim: what this panel acts on, named in
+          machine voice, with the ref pushed to the right edge. */}
+      <div className={`${MENU_HEADER} px-[5px]`}>
+        <span>TASK</span>
+        <span className={`${MENU_HEADER_REF} tabular-nums`}>
+          {issues.length > 1 ? `${issues.length} SELECTED` : issueDisplayRef(first)}
+        </span>
+      </div>
       {renderedEntries}
-      {sub && (
-        <div
-          role="menu"
-          aria-label={sub.kind === 'handoff' ? 'Handoff targets' : `${sub.kind} options`}
-          className="absolute left-full z-[61] max-h-[60vh] min-w-[180px] overflow-y-auto rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10"
-          style={{
-            ...(pos.x + 400 > window.innerWidth ? { left: 'auto', right: '100%' } : {}),
-            top: Math.max(-pos.y + 8, Math.min(sub.top - 4, window.innerHeight - pos.y - 60)),
-          }}
-        >
-          {submenuItems.get(sub.kind)}
-        </div>
-      )}
+      {sub &&
+        (sub.kind === 'color' ? (
+          <div
+            role="dialog"
+            aria-label="Task colour"
+            className={`absolute left-full z-[61] ${MENU_PICKER_PANEL}`}
+            style={flyoutStyle}
+          >
+            <div className={MENU_HEADER}>
+              <span>ISSUE COLOUR</span>
+              <span className={MENU_HEADER_REF}>
+                {issues.length > 1 ? `${issues.length} TASKS` : issueDisplayRef(first)}
+              </span>
+            </div>
+            <IssueColorSwatches value={first.color} onPick={setColor} />
+          </div>
+        ) : (
+          <div
+            role="menu"
+            aria-label={sub.kind === 'handoff' ? 'Handoff targets' : `${sub.kind} options`}
+            className={`absolute left-full z-[61] max-h-[60vh] min-w-[180px] overflow-y-auto ${MENU_PANEL}`}
+            style={flyoutStyle}
+          >
+            {submenuItems.get(sub.kind)}
+          </div>
+        ))}
     </div>,
     document.body,
   )

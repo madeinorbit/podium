@@ -1,4 +1,4 @@
-import { ISSUE_STAGES, type IssueStage } from '@podium/model'
+import { ISSUE_COLOR_SLOTS, ISSUE_STAGES, type IssueStage } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import type { IssueViewModel } from '@/app/store'
 import {
@@ -26,6 +26,7 @@ export type IssueMenuIcon =
   | 'external-link'
   | 'mail'
   | 'mail-open'
+  | 'palette'
   | 'pencil'
   | 'pin'
   | 'pin-off'
@@ -51,9 +52,14 @@ export type IssueMenuSubmenu =
   | 'priority'
   | 'agent'
   | 'labels'
+  | 'color'
   | 'handoff'
   | 'defer'
   | 'duplicate'
+
+/** The `color` submenu's value for "clear the colour" — slots are their own
+ *  names, and the wire patch carries `null`. */
+export const ISSUE_MENU_COLOR_NONE = 'none'
 
 export type IssueMenuSection = 'main' | 'lifecycle' | 'destructive'
 
@@ -213,6 +219,32 @@ export const ISSUE_MENU_CONFIG: readonly IssueMenuConfig[] = [
             label,
             checked: data.issues.every((issue) => issue.labels.includes(label)),
           })),
+  },
+  // The IdSquare picker keeps owning the fast path (click the square). This
+  // entry is the discoverable one (POD-380): everything else you can do to a
+  // task lives in the right-click menu, so colour has to be here too. The menu
+  // host renders it as the picker's swatch grid; the palette gets these rows.
+  {
+    kind: 'submenu',
+    id: 'color',
+    label: 'Set colour',
+    icon: 'palette',
+    section: 'main',
+    when: has('canSetColor'),
+    options: (data) => [
+      ...ISSUE_COLOR_SLOTS.map((slot) => ({
+        id: slot,
+        value: slot,
+        label: slot.charAt(0).toUpperCase() + slot.slice(1),
+        checked: data.issues.every((issue) => issue.color === slot),
+      })),
+      {
+        id: ISSUE_MENU_COLOR_NONE,
+        value: ISSUE_MENU_COLOR_NONE,
+        label: 'No colour',
+        checked: data.issues.every((issue) => !issue.color),
+      },
+    ],
   },
   {
     kind: 'submenu',

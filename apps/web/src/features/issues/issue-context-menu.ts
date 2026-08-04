@@ -106,6 +106,7 @@ export function issueMenuEligibility(
   canSetPriority: boolean
   canAssignAgent: boolean
   canSetLabels: boolean
+  canSetColor: boolean
   canClose: boolean
   canDefer: boolean
   canUndefer: boolean
@@ -132,6 +133,9 @@ export function issueMenuEligibility(
     canSetPriority: activeAny,
     canAssignAgent: openSingle && !hasDeleted,
     canSetLabels: activeAny,
+    // Colour is a per-issue patch like stage/priority, so it bulk-applies to a
+    // whole selection; a deleted issue has nothing to recolour.
+    canSetColor: activeAny,
     canClose: openSingle && !hasDeleted,
     canDefer: openSingle && !hasDeleted,
     canUndefer: single && !hasDeleted && first?.deferUntil != null,
