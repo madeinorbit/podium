@@ -169,3 +169,80 @@ inferred from a tail.
 
 Note: running this probe itself freezes the live server for ~60 s in total, so it
 is a deliberate act, not something to leave on a loop.
+
+---
+
+# AFTER: measured on main at 67db58baa
+
+Server pid 2998012, started 2026-08-04 20:57:26, running main at `67db58baa`
+(contains POD-1711, POD-1712, POD-1713). Box at load ~15-21 on 8 cores.
+Baseline for every number below is **post-POD-1653**; do not read these deltas as
+the whole journey from that campaign's figures.
+
+## The search freeze is fixed — 46x on the median, 56x on the tail
+
+Same script, same six fixed terms, same box and database.
+
+| term | before | after |
+|---|---|---|
+| `a` | 12.509 s | **0.252 s** |
+| `e` | 6.096 s | **0.098 s** |
+| `in` | 6.170 s | **0.113 s** |
+| `the` | 10.792 s | **0.199 s** |
+| `po` | 14.406 s | **0.252 s** |
+| `se` | 6.170 s | **0.134 s** |
+
+Server-side `conversations.search`: **p50 5840 ms → 126 ms**, **p95 13 914 ms →
+247 ms**. The probe itself took 59 s before and 3 s after.
+
+This was the per-keystroke freeze. It is gone.
+
+## The loop still stalls ~9 times a minute
+
+Rate-normalised, because the windows differ (45 min before, 10 min after):
+
+| metric | before | after |
+|---|---|---|
+| stall rate | 9.5 /min | **8.9 /min** |
+| p50 | 137 ms | **150 ms** |
+| max | 29 466 ms | **5226 ms** |
+| blocked time | 3.9 s/min | **2.6 s/min** |
+
+**The honest reading: the catastrophic freezes are largely gone (max down 5.6x,
+total blocked time down a third) but the baseline stutter is NOT fixed.** The
+server still blocks its event loop about nine times a minute, at a p50 that did
+not improve. A user reporting "slowness every couple of seconds" would still
+report it.
+
+## What is left, and one thing that got worse
+
+Top SQL inside stalled ticks, after:
+
+| ms | calls | query |
+|---|---|---|
+| 1764 | 10 931 | sessions projection read |
+| 1651 | 134 | `issues WHERE id IN (…)` |
+| 1213 | 18 677 | `issues WHERE id = ?` |
+| 667 | 2058 | `INSERT INTO conversations` |
+
+`issues WHERE id = ?` is worth flagging: 21 189 calls over 45 min before
+(471/min) versus 18 677 over 10 min after (**1868/min**) — the call RATE roughly
+quadrupled, even though cost per call fell sharply. That may be traffic mix
+rather than a regression, but it is not evidence of improvement and should be
+attributed before anyone claims this path is done.
+
+`discovery.refreshRepos` measured **p50 952 ms before, 10 066 ms after** (n=2 and
+n=4). It is now the single largest stall on the server, larger than anything
+fixed here. It is POD-1717 and it was never started — this is not a regression
+caused by the fixes so much as the thing that was always next.
+
+## What could NOT be demonstrated
+
+`feedBootstrap.read` — the navigate-back stall POD-1712 targeted — reads p50
+1435 ms (n=3) after, against 1304 ms (n=2) on the immediately preceding process.
+**No improvement is demonstrated at the RPC boundary.** The unit test proves the
+mechanism (5 latest-state folds and 2 session loads collapse to 1 and 1), and the
+change-log fold itself fell from 4809 ms/call to ~125 ms/call in the attribution,
+so the cost was removed where it was measured. But the end-to-end phase is at
+n=3 and cannot carry a conclusion either way. Grading it needs a longer window
+with real navigation traffic.
