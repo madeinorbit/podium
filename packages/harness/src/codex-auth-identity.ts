@@ -1,14 +1,6 @@
 import { createHash } from 'node:crypto'
 import type { LoginIdentity } from './manifest.js'
 
-interface CodexClaims {
-  email?: unknown
-  chatgpt_account_id?: unknown
-  workspace_account_id?: unknown
-  exp?: unknown
-  iat?: unknown
-  [key: string]: unknown
-}
 
 interface CodexAuthFile {
   tokens?: {
@@ -39,10 +31,23 @@ function decodeJson(value: unknown): Record<string, unknown> | undefined {
   }
 }
 
-function claim(claims: CodexClaims, names: readonly string[]): string | undefined {
-  for (const name of names) {
-    const value = text(claims[name])
-    if (value) return value
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined
+}
+
+function stringClaim(value: Record<string, unknown> | undefined, key: string): string | undefined {
+  return text(value?.[key])
+}
+
+function numberClaim(value: Record<string, unknown> | undefined, key: string): number | undefined {
+  const raw = value?.[key]
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw
+  if (typeof raw === "string" && raw.trim() !== "") {
+    const parsed = Number(raw)
+    if (Number.isFinite(parsed)) return parsed
   }
   return undefined
 }
@@ -63,37 +68,34 @@ export function readIdentityFromAuthContents(contents: string): LoginIdentity | 
     return undefined
   }
 
-  const tokens = auth.tokens
-  const claims = decodeJson(tokens?.id_token) as CodexClaims | undefined
-  const email = claims ? claim(claims, ['email']) : undefined
+  const tokens = asRecord(auth.tokens)
+  const idToken = stringClaim(tokens, "id_token") ?? stringClaim(tokens, "idToken")
+  const payload = decodeJson(idToken)
+  const authClaims = asRecord(payload?.["https://api.openai.com/auth"])
+  const profileClaims = asRecord(payload?.["https://api.openai.com/profile"])
+  const email = stringClaim(payload, "email") ?? stringClaim(profileClaims, "email")
   const providerAccountId =
-    (claims
-      ? claim(claims, [
-          'chatgpt_account_id',
-          'workspace_account_id',
-          'https://api.openai.com/auth.chatgpt_account_id',
-          'https://api.openai.com/auth.workspace_account_id',
-        ])
-      : undefined) ?? text(tokens?.account_id)
-  const source = providerAccountId ?? email
+    stringClaim(tokens, "account_id") ??
+    stringClaim(tokens, "accountId") ??
+    stringClaim(authClaims, "chatgpt_account_id") ??
+    stringClaim(payload, "chatgpt_account_id") ??
+    stringClaim(payload, "https://api.openai.com/auth.chatgpt_account_id")
+  const workspaceAccountId =
+    stringClaim(authClaims, "workspace_account_id") ??
+    stringClaim(payload, "workspace_account_id") ??
+    stringClaim(tokens, "account_id") ??
+    stringClaim(tokens, "accountId") ??
+    stringClaim(payload, "chatgpt_account_id")
+  const source = providerAccountId ?? workspaceAccountId ?? email
   if (!source) return undefined
   return {
     fingerprint: fingerprintForLoginIdentity(source),
     ...(email ? { email } : {}),
     ...(providerAccountId ? { providerAccountId } : {}),
+    ...(workspaceAccountId ? { workspaceAccountId } : {}),
   }
 }
 
-function timestamp(value: unknown): number | undefined {
-  if (typeof value === 'number' && Number.isFinite(value)) return value
-  if (typeof value === 'string') {
-    const numeric = Number(value)
-    if (Number.isFinite(numeric) && value.trim() !== '') return numeric
-    const parsed = Date.parse(value)
-    if (Number.isFinite(parsed)) return parsed
-  }
-  return undefined
-}
 
 /** Return a comparable freshness marker without retaining credential material. */
 export function readFreshnessFromAuthContents(contents: string): number | undefined {
@@ -105,14 +107,17 @@ export function readFreshnessFromAuthContents(contents: string): number | undefi
   } catch {
     return undefined
   }
-  const claims = decodeJson(auth.tokens?.id_token) as CodexClaims | undefined
-  const values = [
-    timestamp(auth.tokens?.expires_at),
-    timestamp(claims?.exp),
-    timestamp(claims?.iat),
-    timestamp(auth.last_refresh),
-  ].filter((value): value is number => value !== undefined)
-  return values.length > 0 ? Math.max(...values) : undefined
+  const tokens = asRecord(auth.tokens)
+  const idToken = stringClaim(tokens, "id_token") ?? stringClaim(tokens, "idToken")
+  const payload = decodeJson(idToken)
+  return (
+    numberClaim(tokens, "expires_at") ??
+    numberClaim(tokens, "expiresAt") ??
+    numberClaim(tokens, "expiry") ??
+    numberClaim(tokens, "expires") ??
+    numberClaim(payload, "exp") ??
+    numberClaim(payload, "iat")
+  )
 }
 
 export function compareCodexAuthFreshness(a: string, b: string): -1 | 0 | 1 | null {

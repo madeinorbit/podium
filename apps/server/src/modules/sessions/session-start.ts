@@ -126,11 +126,6 @@ export interface SessionStartPorts {
     agentKind: AgentKind,
     accountId: AccountId,
   ): AccountId
-  nativeAccountIdForMachine(
-    machineId: string,
-    agentKind: AgentKind,
-    accountId: AccountId,
-  ): AccountId
   resolveMachineForAgent(
     requested: string | undefined,
     cwd: string,
