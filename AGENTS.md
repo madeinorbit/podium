@@ -84,12 +84,14 @@ sources it reaches (`packages/*/src`, and `apps/daemon/src` for web), because bo
 suites import `@podium/*` as source and `apps/web/test/shell.structure.test.ts` reads
 `packages/client-core/src` off disk. `dependsOn: ["^test"]` does **not** cover that.
 
-The generic `test` task is deliberately `cache: false`. About twenty packages define a
-bare `vitest run --passWithNoTests` script that, run from the package directory, finds
-no config: no `@podium/source` condition, and no `setupFiles`, so the
-`test-hermetic-*.ts` guards that strip ambient Podium session env never run. Those
-suites may execute, but their greens are not cacheable evidence until each package has
-a real config.
+The `test` task is deliberately **pinned** to those two packages — there is no generic
+`test` entry, so `turbo run test` resolves to `@podium/web#test` and `@podium/mobile#test`
+and nothing else — including under `--filter`. About twenty other packages define a bare
+`vitest run --passWithNoTests` script, but those are deliberately OUT: run from the
+package directory vitest does not walk up, so it finds no config — no `@podium/source`
+condition, and no `setupFiles`, meaning the `test-hermetic-*.ts` guards that strip
+ambient Podium session env never run. Most pass by luck, not scoping. Adding a package
+to this task requires giving it a real config first — see POD-1693.
 
 Evidence for the cache-key coverage table: **[docs/agents/pod-1378-cache-evidence.md](docs/agents/pod-1378-cache-evidence.md)**.
 
