@@ -13,6 +13,26 @@
       "dependsOn": [],
       "inputs": ["$TURBO_DEFAULT$"],
       "outputs": []
+    },
+    "test": {
+      "dependsOn": ["^test"],
+      "inputs": ["$TURBO_DEFAULT$"],
+      "cache": false,
+      "outputs": []
+    },
+    "@podium/web#test": {
+      "dependsOn": [],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/packages/*/src/**",
+        "$TURBO_ROOT$/apps/daemon/src/**"
+      ],
+      "outputs": []
+    },
+    "@podium/mobile#test": {
+      "dependsOn": [],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/packages/*/src/**"],
+      "outputs": []
     }
   }
 }

@@ -52,8 +52,44 @@ bun run typecheck -- --uncached-because="<what the cache key is missing>"
 ```
 
 and file the gap as an issue so the key gets fixed. Bare `--force` and `TURBO_FORCE`
-exit with an error. Test lanes (`bun run test*`) are not turbo tasks and always
-execute for real; there is no cached/uncached split to choose there.
+exit with an error.
+
+### Cached test lanes
+
+Two test lanes are turbo tasks and reuse a cache (POD-1687):
+
+| Lane | Runs | Cached |
+| --- | --- | --- |
+| `bun run test:web` | the `apps/web` suite | yes |
+| `bun run test:mobile` | the `apps/mobile` suite | yes |
+| `bun run test:cached` | both of the above | yes |
+| every other `bun run test*` | root/integration/bun lanes | no — always executes for real |
+
+They go through `scripts/test.ts`, which reuses `scripts/typecheck.ts`'s environment
+fingerprint, so **the same rules apply**: a checkout with no usable
+`node_modules/@podium` links is refused outright, bare `--force`/`TURBO_FORCE` exit
+with an error, and `-- --uncached-because="<reason>"` is the only way past the cache.
+Cold, the two lanes cost ~2m33s; a hit returns in well under a second.
+
+Tell a hit from a miss by turbo's summary line — you do not have to guess:
+
+```
+Cached:    2 cached, 2 total          Time:   302ms >>> FULL TURBO   <- hit, nothing ran
+Cached:    1 cached, 2 total          Time:   4m17s                  <- miss, the suite really ran
+```
+
+`>>> FULL TURBO` means nothing executed. That is the intended outcome of an unrelated
+edit, and it is evidence — the key covers each suite's own files *plus* the workspace
+sources it reaches (`packages/*/src`, and `apps/daemon/src` for web), because both
+suites import `@podium/*` as source and `apps/web/test/shell.structure.test.ts` reads
+`packages/client-core/src` off disk. `dependsOn: ["^test"]` does **not** cover that.
+
+The generic `test` task is deliberately `cache: false`. About twenty packages define a
+bare `vitest run --passWithNoTests` script that, run from the package directory, finds
+no config: no `@podium/source` condition, and no `setupFiles`, so the
+`test-hermetic-*.ts` guards that strip ambient Podium session env never run. Those
+suites may execute, but their greens are not cacheable evidence until each package has
+a real config.
 
 Evidence for the cache-key coverage table: **[docs/agents/pod-1378-cache-evidence.md](docs/agents/pod-1378-cache-evidence.md)**.
 

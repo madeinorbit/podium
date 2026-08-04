@@ -15,7 +15,12 @@ Run `bun run typecheck` and trust a cache hit — never force a recompute (110x 
 forced runs have starved the live host). Installs, linker changes, and base swaps
 invalidate the cache automatically. If you have a concrete reason to distrust the
 cache, run `bun run typecheck -- --uncached-because="<reason>"`; bare `--force` is
-refused. Details: AGENTS.md "Cached checks".
+refused.
+
+`bun run test:web`, `test:mobile` and `test:cached` are cached the same way and follow
+the same no-forcing rule; every other `bun run test*` lane always executes for real.
+`Cached: N cached` / `>>> FULL TURBO` in turbo's summary is how you tell a hit from a
+miss. Details: AGENTS.md "Cached checks".
 
 ## Testing policy
 
