@@ -19,6 +19,7 @@ export function TranscriptSearchBar({
   onQueryChange,
   search,
   onCursorMove,
+  deepeningSearch = false,
   lastAnswerText,
   onTldr,
 }: {
@@ -27,6 +28,9 @@ export function TranscriptSearchBar({
   search: TranscriptSearchState
   /** Step the match cursor by ±1; the slice wraps it against the match count. */
   onCursorMove: (delta: number) => void
+  /** The loaded window is still being deepened for this query, so the count is a
+   *  floor rather than the final answer — shown as a trailing ellipsis. */
+  deepeningSearch?: boolean
   /** The agent's latest prose — what tl;dr summarises, and the button's gate. */
   lastAnswerText: string
   onTldr: () => void
@@ -41,8 +45,17 @@ export function TranscriptSearchBar({
         onChange={(e) => onQueryChange(e.target.value)}
       />
       {query && (
-        <span className="inline-flex items-center gap-0.5 whitespace-nowrap text-[11px] text-muted-foreground">
+        <span
+          className="inline-flex items-center gap-0.5 whitespace-nowrap text-[11px] text-muted-foreground"
+          title={
+            deepeningSearch ? 'Still loading earlier messages — more matches may appear' : undefined
+          }
+        >
+          {/* Matching is scoped to the LOADED transcript, so while the window is
+              still deepening the count is a floor. The ellipsis says so without
+              stealing the counter's width. */}
           {search.total === 0 ? '0' : `${search.position}/${search.total}`}
+          {deepeningSearch && <span aria-hidden="true">…</span>}
           <Button
             type="button"
             variant="ghost"

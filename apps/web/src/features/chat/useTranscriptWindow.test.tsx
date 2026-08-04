@@ -1,5 +1,11 @@
 import { beginSwitch, getRecentSwitchTraces, resetSwitchTraces } from '@podium/client-core/perf'
-import { asSessionId, type SessionId, type SessionMeta, type SessionMetaInput, type TranscriptItem } from '@podium/model'
+import {
+  asSessionId,
+  type SessionId,
+  type SessionMeta,
+  type SessionMetaInput,
+  type TranscriptItem,
+} from '@podium/model'
 import type { JSX } from 'react'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -9,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 import {
+  RENDER_WINDOW,
   type UseTranscriptWindowOptions,
   type UseTranscriptWindowResult,
   useTranscriptWindow,
@@ -379,5 +386,100 @@ describe('useTranscriptWindow back-paging (POD-341)', () => {
       'answer',
     ])
     expect(captured?.hasMoreOlder).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// POD-1631: the initial window is sized for time-to-first-paint (200 items —
+// measured p50 21ms vs 69ms at 1000, and exactly REPLICA_TRANSCRIPT_ITEM_CAP so
+// the offline write-through keeps the depth it always had). The depth search
+// used to get for free is bought back on demand by `ensureSearchDepth`.
+// ---------------------------------------------------------------------------
+describe('useTranscriptWindow initial depth and search deepen (POD-1631)', () => {
+  /** N synthetic items, cursors c1..cN, so a page can be sized without listing it. */
+  function page(from: number, count: number): TranscriptItem[] {
+    return Array.from({ length: count }, (_, i) => {
+      const n = from + i
+      return item(`i${n}`, `c${n}`, `msg ${n}`)
+    })
+  }
+
+  it('reads a paint-sized initial window, not the search-sized one', async () => {
+    act(() => root.render(<Probe active={true} />))
+    expect(reads[0]?.input.limit).toBe(200)
+    // No anchor on the initial read — it is the newest window off the tail.
+    expect(reads[0]?.input.anchor).toBeUndefined()
+  })
+
+  it('deepens the LOADED window to search depth on the first query, without rendering it', async () => {
+    act(() => root.render(<Probe active={true} />))
+    await act(async () => {
+      reads[0]?.resolve({ items: page(801, 200), head: 'c801', tail: 'c1000', hasMore: true })
+    })
+    await flush()
+
+    act(() => captured?.ensureSearchDepth())
+    await flush()
+    expect(captured?.deepeningSearch).toBe(true)
+
+    // Two 400-item pages take the loaded window from 200 to 1000 and it stops.
+    for (let p = 0; p < 2; p++) {
+      const call = reads.at(-1)
+      expect(call?.input.limit).toBe(400)
+      const from = 801 - 400 * (p + 1)
+      await act(async () => {
+        call?.resolve({
+          items: page(from, 400),
+          head: `c${from}`,
+          tail: `c${from + 399}`,
+          hasMore: true,
+        })
+      })
+      await flush()
+    }
+
+    expect(captured?.blocks).toHaveLength(1000)
+    expect(captured?.deepeningSearch).toBe(false)
+    // Depth reached → it stops paging (the initial read + exactly two pages).
+    expect(reads).toHaveLength(3)
+    // The deepen is for MATCHING, not for painting. `loadOlder` bumps renderCount
+    // by each page's size so a scrolled-to page stays on screen; this must NOT —
+    // the 800 new rows stay windowed OUT and the DOM stays at RENDER_WINDOW,
+    // instead of growing 800 rows behind a user who only typed in the search box.
+    expect(captured?.visibleRows.length).toBe(RENDER_WINDOW)
+    expect(captured?.renderStart).toBe(1000 - RENDER_WINDOW)
+  })
+
+  it('deepens once per session — a second query does not re-page', async () => {
+    act(() => root.render(<Probe active={true} />))
+    await act(async () => {
+      reads[0]?.resolve({ items: page(1, 200), head: 'c1', tail: 'c200', hasMore: true })
+    })
+    await flush()
+
+    act(() => captured?.ensureSearchDepth())
+    await flush()
+    await act(async () => {
+      // Disk runs out immediately: an empty page ends the deepen.
+      reads[1]?.resolve({ items: [], hasMore: false })
+    })
+    await flush()
+    expect(captured?.hasMoreOlder).toBe(false)
+    expect(captured?.deepeningSearch).toBe(false)
+
+    act(() => captured?.ensureSearchDepth())
+    await flush()
+    expect(reads).toHaveLength(2)
+  })
+
+  it('offline write-through keeps its full depth — the read now matches the replica cap', async () => {
+    act(() => root.render(<Probe active={true} />))
+    await act(async () => {
+      reads[0]?.resolve({ items: page(1, 200), head: 'c1', tail: 'c200', hasMore: false })
+    })
+    await flush()
+    // The old 1000-item read was sliced to 200 by REPLICA_TRANSCRIPT_ITEM_CAP, so
+    // an offline reopen served 200 then and serves 200 now: no depth was lost.
+    expect(fakeReplica.puts.at(-1)?.items).toHaveLength(200)
   })
 })
