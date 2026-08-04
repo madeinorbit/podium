@@ -450,6 +450,27 @@ export class MessagesRepository {
     return r.changes === 1
   }
 
+  /** queued → delivered via the PULL path (an issue-mailbox read/claim) [POD-1420].
+   *  Same ledger advance as `markDelivered`, with one difference that matters:
+   *  `delivered_to` is COALESCEd, never overwritten. `markInjected` stamps the
+   *  session a message was PUSHED to while leaving status `queued`, so a plain
+   *  overwrite here erased that target the moment the agent opened its inbox —
+   *  the row then read as "delivered to nobody" despite having been routed
+   *  correctly and landed in a transcript. That erase is why the delivery ledger
+   *  could not be trusted to answer "did this reach anyone?". */
+  markDeliveredByPull(id: string, reader: string | null, deliveredAt: string): boolean {
+    const r = this.db
+      .prepare(
+        `UPDATE messages
+         SET status = 'delivered', delivered_at = ?, delivered_to = COALESCE(delivered_to, ?)
+         WHERE id = ? AND status = 'queued'`,
+      )
+      .run(deliveredAt, reader, id)
+    // The pull proves THIS reader has it, whoever the row was pushed to.
+    if (reader) this.recordRead(id, reader, deliveredAt)
+    return r.changes === 1
+  }
+
   /** queued|delivered → read: the recipient opened its inbox and consumed it (the
    *  PULL path, [POD-834]). Distinct from delivered (push): `read` proves the
    *  agent pulled it. A delivered row can still be marked read if later pulled. */

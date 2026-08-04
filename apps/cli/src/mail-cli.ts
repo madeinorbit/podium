@@ -173,10 +173,21 @@ function dispositionLabel(disposition: string | undefined, queued: boolean | und
  *  the honest "what happened", with a one-line gloss so `queued` reads as "landed,
  *  not yet seen" and `delivered` as "in the agent's transcript". */
 function renderLifecycle(m: MessageWire): string {
+  // `delivered`/`read` with NO delivered_to is a WEAKER fact than the same status
+  // with a session named, and conflating them is how a sender's every instrument
+  // reported a message was fine [POD-1420]. It arises when the row was consumed
+  // with no recipient to record — a self-suppressed send (the sender was the only
+  // member) or a readerless operator/UI peek. Say that, rather than asserting an
+  // agent has it while naming nobody.
+  const anonymous = !m.deliveredTo
   const gloss: Record<string, string> = {
     queued: 'captured + waiting for the target (not yet in its context)',
-    delivered: 'appeared in the target’s transcript — the agent has it',
-    read: 'the recipient opened its inbox and read it',
+    delivered: anonymous
+      ? 'recorded as consumed, but NO recipient session was named — nobody is known to have it'
+      : 'appeared in the target’s transcript — the agent has it',
+    read: anonymous
+      ? 'opened from an inbox, but NO recipient session was named'
+      : 'the recipient opened its inbox and read it',
     dead_letter: 'target was gone — dead-lettered, not dropped',
     expired: 'sat undelivered past its TTL',
     cancelled: 'withdrawn',

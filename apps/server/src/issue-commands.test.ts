@@ -799,6 +799,27 @@ describe('mail command (agent mail #103)', () => {
     expect(r.text).toContain('msg_1')
   })
 
+  // `queued` is the disposition of the overwhelmingly common send — fyi mail to a
+  // busy live session — and it used to render as a bare "mail sent", which reads
+  // as delivered [POD-1420]. Measured: messages aging up to 14 hours against LIVE
+  // sessions while every sender believed they had landed.
+  it('mail send says queued mail is NOT yet in the target’s context', async () => {
+    const { client } = mockClient({
+      mailSend: { id: 'msg_1', issueId: 'iss_1', ok: true, disposition: 'queued' },
+    })
+    const r = await cmd('mail').run(client, { sub: 'send', ref: '#7', body: 'ping' })
+    expect(r.text).toMatch(/not yet in its context/i)
+  })
+
+  it('mail send confirms a delivered message distinctly from a queued one', async () => {
+    const { client } = mockClient({
+      mailSend: { id: 'msg_1', issueId: 'iss_1', ok: true, disposition: 'delivered' },
+    })
+    const r = await cmd('mail').run(client, { sub: 'send', ref: '#7', body: 'ping' })
+    expect(r.text).toMatch(/delivered/i)
+    expect(r.text).not.toMatch(/not yet in its context/i)
+  })
+
   it('mail send without body or id throws', async () => {
     const { client } = mockClient()
     await expect(cmd('mail').run(client, { sub: 'send', ref: '#7' })).rejects.toThrow(/--body/)

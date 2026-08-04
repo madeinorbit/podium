@@ -113,12 +113,21 @@ function line(i: { seq: number; title: string; priority?: number; stage?: string
   return `#${i.seq} ${p}${s}${i.title}`
 }
 
-/** Render a send disposition as a human note (#834): the sender learns whether a
- *  message landed on a live agent, is holding for the issue's next session, or
- *  waking one — never a bare "sent" that hides a hold. `delivered`/`queued` need
- *  no note (the default reading of "sent"). */
+/** What ACTUALLY happened to the send, worded so the sender can act on it
+ *  [POD-834, POD-1420]. Every non-`delivered` outcome means the recipient does
+ *  NOT have the message yet, and each one says so: a bare "mail sent" reads as
+ *  delivered, which is how blocking mail (merge requests, review verdicts,
+ *  BLOCKED reports) sat unread for hours while its sender believed it had
+ *  landed. `queued` is the common case — fyi mail to a busy live session — and
+ *  was previously the silent one. */
 function mailDispositionNote(disposition?: string): string {
   switch (disposition) {
+    case 'delivered':
+      return ' — delivered (in the recipient’s context)'
+    case 'queued':
+      return ' — QUEUED for the target’s next turn (not yet in its context)'
+    case 'accepted':
+      return ' — accepted, not yet confirmed delivered'
     case 'held':
       return ' — HELD for the issue’s next session (no live session right now)'
     case 'spawning':

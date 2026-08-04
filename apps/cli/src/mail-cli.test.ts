@@ -176,6 +176,26 @@ describe('podium mail CLI (argv shape)', () => {
     expect(out).toContain('delivered')
   })
 
+  // `delivered` with NO recipient session is not the same fact as `delivered` to a
+  // named one, and the sender's instrument must not read them the same [POD-1420].
+  // "appeared in the target's transcript — the agent has it" asserted an agent had
+  // it while naming nobody, so every sender-side check said the message was fine.
+  it('[POD-1420] mail status does not claim an agent has it when no session is named', async () => {
+    const c = client({ status: { ...WIRE, status: 'delivered', deliveredAt: 't1' } })
+    const out = await runMailCli(['status', 'msg_1'], c)
+    expect(out).not.toMatch(/the agent has it/)
+    expect(out).toMatch(/no recipient session/i)
+  })
+
+  it('[POD-1420] mail status still confirms delivery when a session IS named', async () => {
+    const c = client({
+      status: { ...WIRE, status: 'delivered', deliveredAt: 't1', deliveredTo: 's-abc' },
+    })
+    const out = await runMailCli(['status', 'msg_1'], c)
+    expect(out).toMatch(/the agent has it/)
+    expect(out).toContain('to-session=s-abc')
+  })
+
   it('inbox renders rows (and passes an --issue peek through)', async () => {
     const c = client()
     const out = await runMailCli(['inbox'], c)
