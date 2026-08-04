@@ -89,8 +89,8 @@ export interface DaemonContext {
   /** Usage-scan memo (mutable box — handlers replace the value). */
   usageMemo: { value?: { atMs: number; sinceMs: number; buckets: UsageBucketWire[] } }
 
-  /** Server-granted convergence only; absent in control-only test contexts. */
-  applyUpdateGrant?: (
+  /** Server-granted convergence is wired by the production composition root. */
+  applyUpdateGrant: (
     grant: Extract<ControlMessage, { type: 'updateGrant' }>,
   ) => void | Promise<void>
 }

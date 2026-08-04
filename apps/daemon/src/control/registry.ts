@@ -34,10 +34,6 @@ export const CONTROL_HANDLERS: ControlHandlers = {
   ...inventoryHandlers,
   agentRelayResult: (ctx, msg) => ctx.agentRelayHub.onResult(msg),
   updateGrant: (ctx, msg) => {
-    if (!ctx.applyUpdateGrant) {
-      console.warn('[podium:daemon] update grant received before convergence is configured')
-      return
-    }
     void ctx.applyUpdateGrant(msg)
   },
 }
