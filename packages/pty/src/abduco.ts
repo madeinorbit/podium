@@ -238,21 +238,8 @@ function liveEnv(): NodeJS.ProcessEnv {
 
 const execFileAsync = promisify(execFile)
 
-/**
- * Check one durable label directly in abduco's socket directory.
- *
- * Never use the global `abduco` listing on daemon recovery: listing connects to
- * every master in lexical order, so one legacy master wedged while an old attach
- * client was being torn down blocks the entire command forever. That turns one
- * bad session into a fleet-wide reattach outage. The socket filename and mode are
- * already abduco's authoritative index: S_IXGRP marks a terminated application;
- * detached and attached live sessions both omit that bit.
- */
-export function abducoSocketHasSession(
-  label: string,
-  env: NodeJS.ProcessEnv = process.env,
-  username?: string,
-): boolean {
+/** Candidate roots in abduco's resolution order. */
+function abducoSocketDirs(env: NodeJS.ProcessEnv, username?: string): string[] {
   const dirs: string[] = []
   if (env.ABDUCO_SOCKET_DIR) {
     let user = username
@@ -268,6 +255,23 @@ export function abducoSocketHasSession(
   } else if (env.HOME) {
     dirs.push(join(env.HOME, '.abduco'))
   }
+  return dirs
+}
+
+/**
+ * Resolve one live abduco socket for a durable label.
+ *
+ * Relative abduco names are stored as `<label>@<hostname>`. The hostname is
+ * written once by the abduco master and can be stale after an OS rename, so a
+ * recovery path must retain the discovered filename and attach by its absolute
+ * path instead of asking abduco to reconstruct it from the current hostname.
+ */
+export function abducoSocketPath(
+  label: string,
+  env: NodeJS.ProcessEnv = process.env,
+  username?: string,
+): string | undefined {
+  const dirs = abducoSocketDirs(env, username)
 
   for (const dir of dirs) {
     let names: string[]
@@ -276,16 +280,33 @@ export function abducoSocketHasSession(
     } catch {
       continue
     }
-    for (const name of names) {
-      if (name !== label && !name.startsWith(`${label}@`)) continue
+    const candidates = names
+      .filter((name) => name === label || name.startsWith(`${label}@`))
+      .sort((a, b) => {
+        // Prefer an explicitly named socket, then make historical host-suffixed
+        // recovery deterministic when more than one stale candidate exists.
+        if (a === label) return -1
+        if (b === label) return 1
+        return a.localeCompare(b)
+      })
+    for (const name of candidates) {
+      const path = join(dir, name)
       try {
-        return (statSync(join(dir, name)).mode & 0o010) === 0
+        if ((statSync(path).mode & 0o010) === 0) return path
       } catch {
         // The master exited between readdir and stat; keep looking.
       }
     }
   }
-  return false
+  return undefined
+}
+
+export function abducoSocketHasSession(
+  label: string,
+  env: NodeJS.ProcessEnv = process.env,
+  username?: string,
+): boolean {
+  return abducoSocketPath(label, env, username) !== undefined
 }
 
 /**
@@ -597,6 +618,8 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
  */
 export function attachAbducoAgent(opts: {
   label: string
+  /** Existing socket path, when recovery found a host-suffixed socket. */
+  socketPath?: string
   cols: number
   rows: number
   env?: Record<string, string>
@@ -604,7 +627,10 @@ export function attachAbducoAgent(opts: {
   hardRepaint?: boolean
   backend?: PtyBackend
 }): AgentSession {
-  const [cmd, ...args] = abducoAttachArgv(opts.label, resolveAbducoBin() ?? 'abduco')
+  const [cmd, ...args] = abducoAttachArgv(
+    opts.socketPath ?? opts.label,
+    resolveAbducoBin() ?? 'abduco',
+  )
   const backend = opts.backend ?? defaultPtyBackend()
   const proc = backend.spawn({
     file: cmd as string,

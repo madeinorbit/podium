@@ -5,6 +5,7 @@ import { type AgentKind, asMachineId, type SessionId } from '@podium/model'
 import {
   type AgentSession,
   abducoHasSession,
+  abducoSocketPath,
   attachAbducoAgent,
   attachTmuxAgent,
   killAbducoSession,
@@ -491,8 +492,12 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     let found: { session: AgentSession; cmd: string } | undefined
     // Backend-agnostic: try whichever durable host owns the label, so sessions
     // created under tmux before an abduco upgrade still reattach (no flag day).
-    if (ctx.backend !== 'none' && (await abducoHasSession(msg.durableLabel))) {
-      found = { session: attachAbducoAgent(attach), cmd: `abduco -a ${msg.durableLabel}` }
+    const socketPath = ctx.backend !== 'none' ? abducoSocketPath(msg.durableLabel) : undefined
+    if (socketPath) {
+      found = {
+        session: attachAbducoAgent({ ...attach, socketPath }),
+        cmd: `abduco -a ${socketPath}`,
+      }
     } else if (ctx.backend !== 'none' && (await tmuxHasSession(msg.durableLabel))) {
       found = { session: attachTmuxAgent(attach), cmd: `tmux -L ${msg.durableLabel} attach` }
     }

@@ -16,6 +16,7 @@ import {
   abducoCreateArgv,
   abducoHasSession,
   abducoSocketHasSession,
+  abducoSocketPath,
   attachAbducoAgent,
   canScopeMaster,
   createAltScreenStripper,
@@ -30,6 +31,7 @@ import {
 } from './abduco.js'
 import { resolveAbducoBin } from './abduco-bin.js'
 import { nodePtyBackend, resolveNodeExecutable } from './backends/index.js'
+import type { PtyBackend, PtyProcess } from './backends/types.js'
 import { spawnAgent } from './session.js'
 
 // Prefer node-pty + real Node for fidelity fixtures under bun --bun (bare "node" is a Bun
@@ -64,6 +66,40 @@ describe('abduco command builders', () => {
   it('shell-quotes a resolved binary path in the attach command', () => {
     const argv = abducoAttachArgv('podium-1', '/home/u/.podium/bin/abduco')
     expect(argv[2]).toContain("exec '/home/u/.podium/bin/abduco'")
+  })
+
+  it('passes an absolute socket path through unchanged for host-renamed sessions', () => {
+    const socketPath = '/home/u/.abduco/podium-1@old-host'
+    const calls: Array<{ file: string; args: string[] }> = []
+    const proc: PtyProcess = {
+      pid: 4242,
+      onData: () => {},
+      onExit: () => {},
+      write: () => {},
+      resize: () => {},
+      kill: () => {},
+    }
+    const backend: PtyBackend = {
+      name: 'node-pty',
+      spawn(opts) {
+        calls.push({ file: opts.file, args: opts.args })
+        return proc
+      },
+    }
+
+    const session = attachAbducoAgent({
+      label: 'podium-1',
+      socketPath,
+      cols: 80,
+      rows: 24,
+      backend,
+    })
+    try {
+      expect(calls[0]).toMatchObject({ file: 'sh' })
+      expect(calls[0]?.args[2]).toBe(socketPath)
+    } finally {
+      session.dispose()
+    }
   })
 
   it('wraps the create command in a named transient --user scope (the cgroup that survives redeploy)', () => {
@@ -123,17 +159,19 @@ describe('abducoSocketHasSession', () => {
     writeFileSync(socket, '')
     try {
       chmodSync(socket, 0o600)
-      expect(
-        abducoSocketHasSession('podium-live', { ABDUCO_SOCKET_DIR: root }, 'tester'),
-      ).toBe(true)
+      expect(abducoSocketPath('podium-live', { ABDUCO_SOCKET_DIR: root }, 'tester')).toBe(socket)
+      expect(abducoSocketHasSession('podium-live', { ABDUCO_SOCKET_DIR: root }, 'tester')).toBe(
+        true,
+      )
       // abduco marks a terminated application's socket with S_IXGRP.
       chmodSync(socket, 0o610)
-      expect(
-        abducoSocketHasSession('podium-live', { ABDUCO_SOCKET_DIR: root }, 'tester'),
-      ).toBe(false)
-      expect(
-        abducoSocketHasSession('podium-other', { ABDUCO_SOCKET_DIR: root }, 'tester'),
-      ).toBe(false)
+      expect(abducoSocketHasSession('podium-live', { ABDUCO_SOCKET_DIR: root }, 'tester')).toBe(
+        false,
+      )
+      expect(abducoSocketPath('podium-live', { ABDUCO_SOCKET_DIR: root }, 'tester')).toBeUndefined()
+      expect(abducoSocketHasSession('podium-other', { ABDUCO_SOCKET_DIR: root }, 'tester')).toBe(
+        false,
+      )
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
