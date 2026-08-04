@@ -1,5 +1,10 @@
 use crate::bootstrap::UpdateChannel;
-use tauri::AppHandle;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use tauri::{AppHandle, State};
+use tauri_plugin_updater::{Update, UpdaterExt};
+
+pub type UpdateOwnership = Arc<AtomicBool>;
 
 const STABLE_ENDPOINT: &str =
     "https://github.com/madeinorbit/podium/releases/latest/download/latest.json";
@@ -12,6 +17,52 @@ pub fn endpoint_for_channel(channel: UpdateChannel) -> &'static str {
     match channel {
         UpdateChannel::Stable => STABLE_ENDPOINT,
         UpdateChannel::Edge => EDGE_ENDPOINT,
+    }
+}
+
+/// Convert the bridge's explicit channel name into the shell's production feed.
+/// Unknown values fail closed instead of selecting an arbitrary release channel.
+pub fn channel_from_name(channel: &str) -> Result<UpdateChannel, String> {
+    match channel {
+        "stable" => Ok(UpdateChannel::Stable),
+        "edge" => Ok(UpdateChannel::Edge),
+        _ => Err(format!("unknown update channel: {channel}")),
+    }
+}
+
+/// The structured update metadata returned to the webview. Notes are descriptive only;
+/// `critical` is the policy bit and is never inferred from them.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct UpdateInfo {
+    pub current_version: String,
+    pub version: String,
+    pub critical: bool,
+    pub notes: Option<String>,
+}
+
+#[derive(Default)]
+pub struct PendingUpdate {
+    update: Mutex<Option<Update>>,
+}
+
+fn updater_for_channel(
+    app: &AppHandle,
+    channel: UpdateChannel,
+) -> Result<tauri_plugin_updater::Updater, String> {
+    let endpoint = tauri::Url::parse(endpoint_for_channel(channel))
+        .map_err(|error| format!("invalid updater endpoint: {error}"))?;
+    app.updater_builder()
+        .endpoints(vec![endpoint])
+        .and_then(|builder| builder.build())
+        .map_err(|error| format!("updater unavailable: {error}"))
+}
+
+fn update_info(update: &Update) -> UpdateInfo {
+    UpdateInfo {
+        current_version: update.current_version.clone(),
+        version: update.version.clone(),
+        critical: is_critical_update(&update.raw_json, update.body.as_deref()),
+        notes: update.body.clone(),
     }
 }
 
@@ -60,6 +111,94 @@ pub fn is_critical_update(raw: &serde_json::Value, _body: Option<&str>) -> bool 
         .unwrap_or(false)
 }
 
+/// The page calls this as soon as it mounts the shared update dialog. The shell's
+/// fallback timer reads the same flag and never needs the page to perform an update.
+#[tauri::command]
+pub fn claim_update_ownership(ownership: State<'_, UpdateOwnership>) -> Result<(), String> {
+    ownership.store(true, Ordering::Release);
+    Ok(())
+}
+
+/// Check a production feed and retain the signed update for a later install command.
+/// Debug builds deliberately return no update without touching a production endpoint.
+#[tauri::command]
+pub async fn check_update(
+    app: AppHandle,
+    channel: String,
+    pending: State<'_, PendingUpdate>,
+) -> Result<Option<UpdateInfo>, String> {
+    {
+        let mut slot = pending
+            .update
+            .lock()
+            .map_err(|_| "desktop update state is unavailable".to_string())?;
+        *slot = None;
+    }
+
+    if !production_auto_update_enabled(cfg!(debug_assertions)) {
+        return Ok(None);
+    }
+
+    let channel = channel_from_name(&channel)?;
+    let updater = updater_for_channel(&app, channel)?;
+    let update = updater
+        .check()
+        .await
+        .map_err(|error| format!("update check failed: {error}"))?;
+
+    match update {
+        Some(update) => {
+            let info = update_info(&update);
+            let mut slot = pending
+                .update
+                .lock()
+                .map_err(|_| "desktop update state is unavailable".to_string())?;
+            *slot = Some(update);
+            Ok(Some(info))
+        }
+        None => Ok(None),
+    }
+}
+
+/// Install the last checked update, or check the persisted channel when the web
+/// dialog arrived without calling checkUpdate first. The updater itself verifies
+/// the signed package before installing, then the shell restarts atomically.
+#[tauri::command]
+pub async fn install_update(
+    app: AppHandle,
+    pending: State<'_, PendingUpdate>,
+) -> Result<(), String> {
+    if !production_auto_update_enabled(cfg!(debug_assertions)) {
+        return Err("desktop updates are disabled in debug builds".to_string());
+    }
+
+    let checked_update = {
+        let mut slot = pending
+            .update
+            .lock()
+            .map_err(|_| "desktop update state is unavailable".to_string())?;
+        slot.take()
+    };
+    let update = match checked_update {
+        Some(update) => update,
+        None => {
+            let channel = crate::bootstrap::read_config().update_channel;
+            let updater = updater_for_channel(&app, channel)?;
+            updater
+                .check()
+                .await
+                .map_err(|error| format!("update check failed: {error}"))?
+                .ok_or_else(|| "no desktop update is available".to_string())?
+        }
+    };
+
+    update
+        .download_and_install(|_chunk, _total| {}, || {})
+        .await
+        .map_err(|error| format!("update install failed: {error}"))?;
+    app.restart();
+}
+
 /// On launch: check the feed; if a newer signed version exists, ask the user, then
 /// download+install and restart. Errors are logged, never fatal (no network = no-op).
 ///
@@ -69,28 +208,16 @@ pub fn is_critical_update(raw: &serde_json::Value, _body: Option<&str>) -> bool 
 /// full check → download → install → restart path. Do NOT set it in production.
 pub async fn check_and_prompt_update(app: AppHandle, channel: UpdateChannel) {
     use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
-    use tauri_plugin_updater::UpdaterExt;
 
     if !production_auto_update_enabled(cfg!(debug_assertions)) {
         eprintln!("[podium-desktop] production auto-update disabled in debug builds");
         return;
     }
 
-    let endpoint = match tauri::Url::parse(endpoint_for_channel(channel)) {
-        Ok(endpoint) => endpoint,
-        Err(e) => {
-            eprintln!("[podium-desktop] invalid updater endpoint: {e}");
-            return;
-        }
-    };
-    let updater = match app
-        .updater_builder()
-        .endpoints(vec![endpoint])
-        .and_then(|builder| builder.build())
-    {
+    let updater = match updater_for_channel(&app, channel) {
         Ok(u) => u,
-        Err(e) => {
-            eprintln!("[podium-desktop] updater unavailable: {e}");
+        Err(error) => {
+            eprintln!("[podium-desktop] {error}");
             return;
         }
     };
@@ -225,6 +352,17 @@ mod tests {
         // Remote mode fetches the page from another host. Too short a window shows a
         // native dialog over a page that was about to render its own.
         assert!(OWNERSHIP_GRACE_MS >= 5_000);
+    }
+
+    #[test]
+    fn bridge_channel_names_select_only_production_channels() {
+        assert_eq!(channel_from_name("stable"), Ok(UpdateChannel::Stable));
+        assert_eq!(channel_from_name("edge"), Ok(UpdateChannel::Edge));
+    }
+
+    #[test]
+    fn unknown_bridge_channel_is_rejected() {
+        assert!(channel_from_name("development").is_err());
     }
 
     #[test]

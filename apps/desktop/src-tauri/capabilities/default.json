@@ -11,6 +11,9 @@
     "dialog:default",
     "process:default",
     "process:allow-restart",
+    "allow-claim-update-ownership",
+    "allow-check-update",
+    "allow-install-update",
     "sql:default",
     "sql:allow-execute"
   ]
