@@ -45,16 +45,6 @@ export function UpdateDialog({ view, actions }: UpdateDialogProps): JSX.Element 
 
   const blocking = view.state === 'required'
   const canClose = view.state === 'available' || view.state === 'failed'
-  /**
-   * Reload only helps when THIS APP is one of the places being updated. A release
-   * that touches only the server or only machines would otherwise offer a button
-   * that fetches the same app back, and in the no-restart-needed state it is the
-   * only action besides Later, which reads as "click here to update" when the
-   * machines are converging on their own. Same rule as places: offer what does
-   * something.
-   */
-  const appTouched =
-    'places' in view && view.places.some((place) => place.kind === 'this-app')
 
   const runAction = async (name: ActionName, action: Action | undefined) => {
     if (!action) return
@@ -142,7 +132,7 @@ export function UpdateDialog({ view, actions }: UpdateDialogProps): JSX.Element 
                 <span />
               )}
               <div className="flex flex-wrap justify-end gap-2">
-                {actions.reload && appTouched && (
+                {actions.reload && (
                   <Button
                     type="button"
                     variant="outline"
