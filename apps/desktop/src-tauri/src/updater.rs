@@ -32,10 +32,19 @@ pub fn feed_endpoint(base: &str) -> String {
     )
 }
 
-/// A release is CRITICAL (forced) when its notes begin with a `CRITICAL:` marker set by
-/// the release process. Leading whitespace is tolerated. Critical updates are non-dismissible.
-pub fn is_critical(body: &str) -> bool {
-    body.trim_start().starts_with("CRITICAL:")
+/// Whether this release is FORCED, read from the manifest's structured field.
+///
+/// Deliberately not parsed out of the release notes. Policy that lives in prose
+/// can be changed by anyone reflowing a changelog, in either direction, silently.
+/// `raw_json` carries the manifest verbatim, so the flag the release process set
+/// is the flag we read.
+///
+/// Fails toward NOT critical: a malformed or absent field must never produce a
+/// non-dismissible dialog the user has no way out of.
+pub fn is_critical_update(raw: &serde_json::Value, _body: Option<&str>) -> bool {
+    raw.get("critical")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
 }
 
 /// On launch: check the feed; if a newer signed version exists, ask the user, then
@@ -74,9 +83,10 @@ pub async fn check_and_prompt_update(app: AppHandle, channel: UpdateChannel) {
     };
     match updater.check().await {
         Ok(Some(update)) => {
-            // A CRITICAL release (notes begin with `CRITICAL:`) is non-dismissible: the dialog
-            // offers Ok only (no Cancel) so the user cannot decline, and it always installs.
-            let critical = is_critical(update.body.as_deref().unwrap_or(""));
+            // A critical release is non-dismissible: the dialog offers Ok only (no Cancel) so
+            // the user cannot decline, and it always installs. Policy comes from the structured
+            // manifest field, never from release-note prose.
+            let critical = is_critical_update(&update.raw_json, update.body.as_deref());
             let msg = if critical {
                 format!(
                     "Critical update ({} → {}). This update is required and will be installed now.",
@@ -141,12 +151,37 @@ mod tests {
     }
 
     #[test]
-    fn is_critical_detects_the_marker() {
-        assert!(is_critical("CRITICAL: security fix"));
-        // Leading whitespace is tolerated (release notes may be indented).
-        assert!(is_critical("  CRITICAL: security fix"));
-        assert!(!is_critical("normal notes"));
-        assert!(!is_critical(""));
+    fn critical_is_read_from_the_structured_field() {
+        let json = serde_json::json!({ "version": "0.4.2", "critical": true });
+        assert!(is_critical_update(&json, Some("ordinary notes")));
+    }
+
+    #[test]
+    fn absent_critical_field_means_not_critical() {
+        let json = serde_json::json!({ "version": "0.4.2" });
+        assert!(!is_critical_update(&json, Some("notes")));
+    }
+
+    #[test]
+    fn explicit_false_means_not_critical() {
+        let json = serde_json::json!({ "version": "0.4.2", "critical": false });
+        assert!(!is_critical_update(&json, None));
+    }
+
+    #[test]
+    fn the_prose_marker_no_longer_forces_anything() {
+        // Policy must not be parseable out of a changelog. An editor reflowing prose
+        // must not be able to change whether an update is forced.
+        let json = serde_json::json!({ "version": "0.4.2" });
+        assert!(!is_critical_update(&json, Some("CRITICAL: security fix")));
+    }
+
+    #[test]
+    fn a_non_boolean_critical_is_not_critical() {
+        // Fail toward NOT forcing: a malformed manifest must not produce a
+        // non-dismissible dialog the user cannot escape.
+        let json = serde_json::json!({ "version": "0.4.2", "critical": "yes" });
+        assert!(!is_critical_update(&json, None));
     }
 
     #[test]
