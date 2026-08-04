@@ -158,6 +158,25 @@ export const PeerIdentityClaims = z
   .passthrough()
 export type PeerIdentityClaims = z.infer<typeof PeerIdentityClaims>
 
+/** Peer-asserted build metadata; advisory, never authorization. */
+/** Fields are optional and unknown fields are preserved for compatibility. */
+export const PeerBuild = z
+  .object({
+    appVersion: z.string().optional(),
+    wireSchemaDigest: z.string().optional(),
+    installKind: z.enum(['installed', 'source']).optional(),
+  })
+  .passthrough()
+export type PeerBuild = z.infer<typeof PeerBuild>
+
+export const DELIVERY_CAPS = [
+/** Delivery methods offered through the additive capability surface. */
+  'update.delivery.feed',
+  'update.delivery.bundle',
+  'update.delivery.git',
+] as const
+export type DeliveryCap = (typeof DELIVERY_CAPS)[number]
+
 /**
  * The hello envelope. Field-for-field ADR 5 D4.3's shape (`peerRole?`, `caps`,
  * `feedId?`) plus the credential and the inert claims bag.
@@ -177,6 +196,7 @@ export const PeerHello = z.object({
   feedId: z.string().optional(),
   credential: PeerCredential,
   claims: PeerIdentityClaims.optional(),
+  build: PeerBuild.optional(),
 })
 export type PeerHello = z.infer<typeof PeerHello>
 
