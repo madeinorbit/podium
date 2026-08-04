@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asMachineId, asSessionId } from '@podium/model'
+import { asAccountId, asMachineId, asSessionId } from '@podium/model'
 import type { Inventory } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol'
 import { describe, expect, test } from 'vitest'
@@ -259,6 +259,34 @@ describe('MachinesService inventory persistence (#222)', () => {
     store.machines.touchMachine(MACHINE, 'vmi-renamed')
     expect(store.machines.getMachine(MACHINE)?.inventory).toEqual(INV)
     expect(store.machines.getMachine(MACHINE)?.hostname).toBe('vmi-renamed')
+  })
+
+  test('records the native identity fingerprint selected on the target machine', () => {
+    const { svc, store } = makeStoreService()
+    store.machines.upsertMachine({
+      id: MACHINE,
+      name: 'Builder',
+      hostname: 'vmi',
+      tokenHash: 'x',
+      ownerUserId: 'user:sole',
+    })
+    svc.recordInventory(MACHINE, {
+      ...INV,
+      agents: [
+        {
+          kind: 'codex',
+          installed: true,
+          login: { state: 'in', identity: { fingerprint: 'fp-a' } },
+        },
+      ],
+    })
+
+    expect(svc.nativeAccountIdForMachine(MACHINE, 'codex', asAccountId('native:codex'))).toBe(
+      'native:codex:fp-a',
+    )
+    expect(svc.nativeAccountIdForMachine(MACHINE, 'codex', asAccountId('native:codex:fp-b'))).toBe(
+      'native:codex:fp-b',
+    )
   })
 
   test('explicit session placement rejects a missing harness but starts logged out', () => {

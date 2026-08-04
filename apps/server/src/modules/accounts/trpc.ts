@@ -16,7 +16,11 @@ export type AccountProcedures = FamilyProcedures<
 export const accountFamilyProcedures = (): AccountProcedures =>
   derivedFamilyProcedures({
     family: 'accounts',
-    service: (state) => ({ accounts: state.store.accounts, settings: state.modules.settings }),
+    service: (state) => ({
+      accounts: state.store.accounts,
+      machines: state.store.machines,
+      settings: state.modules.settings,
+    }),
     commands: ACCOUNT_COMMANDS_TRPC,
     queries: ACCOUNT_QUERIES,
   })

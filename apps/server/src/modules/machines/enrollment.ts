@@ -93,6 +93,7 @@ export function authenticateDaemon(
       // The pairer, carried from mint. `?? null` is the fail-closed arm, not a
       // default: a code with no owner produces an unowned machine.
       ownerUserId,
+      podiumManaged: pairingGrant.podiumManaged ?? true,
     })
     // Force the owner projection: upsert COALESCE would keep a stale owner after
     // a deliberate re-pair with a new pairer. The ledger enroll is the commit.
@@ -209,6 +210,7 @@ function reEnrolMachine(
     name: input.name,
     hostname: input.hostname,
     tokenHash: sha256(input.token),
+    podiumManaged: true,
     ownerUserId: resolvedOwner,
   })
   // upsert COALESCE keeps a prior owner; recovery must apply the ledger owner.

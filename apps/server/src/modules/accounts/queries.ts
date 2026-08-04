@@ -38,7 +38,11 @@ export const ACCOUNT_QUERIES = {
   // blob read being reinstated — taking either side wholesale would have
   // silently undone one of the two.
   list: query(noInput, (state) =>
-    accountViews((provider) => state.settings.apiKeyFor(provider), state.accounts),
+    accountViews(
+      (provider) => state.settings.apiKeyFor(provider),
+      state.accounts,
+      state.machines.listMachines(),
+    ),
   ),
 } as const
 

@@ -229,9 +229,9 @@ const MANAGED_CLAUDE_OAUTH = 'claude-oauth' as const
 export const CLAUDE_OAUTH_ACCOUNT_ID = `${MANAGED_ACCOUNT}${MANAGED_CLAUDE_OAUTH}` as const
 
 /** Synthetic account id for a native harness login. */
-export function nativeAccountId(harness: HarnessAgent): AccountId {
+export function nativeAccountId(harness: HarnessAgent, fingerprint?: string): AccountId {
   // MINT SITE for a synthetic native AccountId (POD-362).
-  return asAccountId(`${HARNESS_ACCOUNT}${harness}`)
+  return asAccountId(`${HARNESS_ACCOUNT}${harness}${fingerprint ? ':' + fingerprint : ''}`)
 }
 /** Synthetic account id for a managed API-key provider. */
 export function managedAccountId(provider: ApiProvider): AccountId {
@@ -477,7 +477,10 @@ function decodeAccount(
 ): { execution: 'harness' | 'api'; harness: HarnessAgent; provider?: ApiProvider } {
   if (accountId.startsWith(HARNESS_ACCOUNT)) {
     const raw = accountId.slice(HARNESS_ACCOUNT.length)
-    const harness = HarnessAgent.safeParse(raw).success ? (raw as HarnessAgent) : 'claude-code'
+    const harnessRaw = raw.split(':', 1)[0]
+    const harness = HarnessAgent.safeParse(harnessRaw).success
+      ? (harnessRaw as HarnessAgent)
+      : 'claude-code'
     const backgroundProvider = BACKGROUND_API_PROVIDERS[harness]
     if (role === 'background' && backgroundProvider) {
       return { execution: 'api', harness, provider: backgroundProvider }

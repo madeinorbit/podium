@@ -21,10 +21,9 @@ const BARE_LINUX_FETCH = [
 /** Keep a new daemon on the same release train as the server that admitted it. */
 function installerUrl(channel: 'stable' | 'edge'): string {
   return channel === 'edge'
-    ? `${RELEASE_BASE}/download/edge/install.sh`
-    : `${RELEASE_BASE}/latest/download/install.sh`
+    ? RELEASE_BASE + '/download/edge/install.sh'
+    : RELEASE_BASE + '/latest/download/install.sh'
 }
-
 /**
  * Build the ready-to-paste join command for a new machine. The outer POSIX-sh
  * bootstrap installs curl when a bare supported distro has no downloader, then
@@ -37,6 +36,7 @@ function installerUrl(channel: 'stable' | 'edge'): string {
 export function buildJoinCommand(p: {
   publicUrl?: string
   pairCode: string
+  podiumManaged?: boolean
   name?: string
   channel?: 'stable' | 'edge'
 }): string {
@@ -47,8 +47,21 @@ export function buildJoinCommand(p: {
     v: 1,
     serverUrl: wssFrom(p.publicUrl),
     pairCode: p.pairCode,
+    ...(p.podiumManaged !== undefined ? { podiumManaged: p.podiumManaged } : {}),
     ...(p.name ? { name: p.name } : {}),
   })
   const channel = p.channel ?? 'stable'
-  return `sh -c '${BARE_LINUX_FETCH}' sh ${installerUrl(channel)} --channel ${channel} --agents codex,claude-code,grok --join ${token}`
+  const mode = p.podiumManaged === false ? '--shared' : '--managed'
+  return (
+    "sh -c '" +
+    BARE_LINUX_FETCH +
+    "' sh " +
+    installerUrl(channel) +
+    ' --channel ' +
+    channel +
+    ' --agents codex,claude-code,grok ' +
+    mode +
+    ' --join ' +
+    token
+  )
 }

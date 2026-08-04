@@ -90,6 +90,17 @@ describe('setup core', () => {
       persistence: 'systemd',
     })
   })
+  it('applyJoin persists shared mode from the join token', () => {
+    const token = encodeJoin({
+      v: 1,
+      serverUrl: 'wss://relay',
+      pairCode: 'P1',
+      podiumManaged: false,
+    })
+    applyJoin(token)
+    expect(loadConfig().podiumManaged).toBe(false)
+  })
+
   it('applyJoin PATCHES config: updateChannel/port/persistence survive; host fields drop (#20)', () => {
     // The install.sh --channel edge --join regression: the join must not revert the channel.
     saveConfig({

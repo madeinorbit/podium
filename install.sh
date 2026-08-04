@@ -10,6 +10,7 @@ REPO="madeinorbit/podium"
 CHANNEL="stable"
 JOIN=""
 INSTALL_AGENTS=""
+PODIUM_MANAGED="1"
 AUTO_UPDATE="1"
 INSTANCE="default"
 # Ed25519 pubkey (SPKI/DER, base64). Commit the SAME value as PODIUM_UPDATE_PUBKEY in
@@ -21,6 +22,8 @@ GITHUB_AUTH_TOKEN="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
 while [ $# -gt 0 ]; do
   case "$1" in
     --join) JOIN="${2:?--join requires a TOKEN}"; shift 2 ;;
+    --managed) PODIUM_MANAGED="1"; shift ;;
+    --shared) PODIUM_MANAGED=""; shift ;;
     --agents) INSTALL_AGENTS="${2:?--agents requires a comma-separated value}"; shift 2 ;;
     --channel) CHANNEL="${2:?--channel requires a value}"; shift 2 ;;
     --no-auto-update) AUTO_UPDATE=""; shift ;;

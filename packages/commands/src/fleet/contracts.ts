@@ -192,7 +192,7 @@ export const machineAdoptInput = z.object({
 })
 
 export const machinePairingCodeInput = z
-  .object({ copyAgentCredentials: z.boolean().optional() })
+  .object({ copyAgentCredentials: z.boolean().optional(), podiumManaged: z.boolean().optional() })
   .optional()
 
 export const repoAddInput = z.object({

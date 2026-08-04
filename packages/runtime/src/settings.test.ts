@@ -65,6 +65,16 @@ describe('resolveRole harness precedence', () => {
       harness: 'codex',
     })
   })
+  it('decodes a fingerprint-suffixed native account', () => {
+    const settings = normalizeSettings({
+      roles: { coding: { accountId: nativeAccountId('codex', 'fp-a') } },
+    })
+    expect(resolveRole(settings, 'coding')).toMatchObject({
+      execution: 'harness',
+      harness: 'codex',
+      accountId: nativeAccountId('codex', 'fp-a'),
+    })
+  })
 })
 
 describe('normalizeSettings — coding.startScreen', () => {

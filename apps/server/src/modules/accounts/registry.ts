@@ -27,6 +27,7 @@ import type { RegistryModules, SessionRegistry } from '../../relay'
 /** Exactly what the account family reaches, named. */
 export interface AccountState {
   readonly accounts: SessionRegistry['sessionStore']['accounts']
+  readonly machines: SessionRegistry['sessionStore']['machines']
   readonly settings: RegistryModules['settings']
 }
 

@@ -119,6 +119,14 @@ export const AgentInventory = z.object({
     state: z.enum(['in', 'out', 'unknown']),
     /** Email / account label when known (claude, codex, grok). */
     account: z.string().optional(),
+    identity: z
+      .object({
+        fingerprint: z.string().min(1),
+        email: z.string().optional(),
+        providerAccountId: z.string().optional(),
+      })
+      .optional(),
+    freshness: z.number().optional(),
   }),
 })
 export type AgentInventory = z.infer<typeof AgentInventory>
@@ -228,6 +236,9 @@ export const MachineWire = z.object({
    * "yes".
    */
   owned: z.boolean().optional(),
+  /** Whether this machine was paired as a Podium-managed host. */ podiumManaged: z
+    .boolean()
+    .optional(),
   /** `USE` — see {@link Inventory}. */
   inventory: Inventory.optional(),
 })
