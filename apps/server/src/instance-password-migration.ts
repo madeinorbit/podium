@@ -15,6 +15,16 @@
  * own machine, and the failure is invisible until the next login attempt, which may be days
  * later. Every early return below leaves `auth.json` exactly where it was: not migrating is
  * a recoverable state (the next boot retries), and a lockout is not.
+ *
+ * AMBIENT PRINCIPAL, DELIBERATE AND PERMANENT (POD-1669). Every
+ * `FIRST_ADMIN_USER_ID` below is an ambient-principal site by the census's
+ * definition, and NO CALLER EXISTS HERE TO RESOLVE INSTEAD. Both functions run at
+ * boot, before the server can serve a login, so there is no authenticated request
+ * to read a principal from; and the account is not a choice this code makes — the
+ * legacy `auth.json` hash belongs to exactly one account by construction, the
+ * first admin of a pre-multi-user instance. Resolving a caller here would be
+ * resolving the wrong thing. These sites survive multi-user unchanged; see
+ * `scripts/audit-ambient-principals.ts` BASELINE.
  */
 
 import { FIRST_ADMIN_USER_ID } from '@podium/model'

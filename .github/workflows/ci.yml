@@ -38,6 +38,24 @@ jobs:
       - name: deletion audit ratchet (rearchitecture v3)
         run: bun run audit:rearch
 
+      # BLOCKING, its own step, for the same reason as the ratchet above — and
+      # POD-1669 is the proof it was needed. This gate went RED ON MAIN and
+      # nobody knew, because nothing ran it: the count of places assuming the
+      # sole account rose by five while the product shipped MULTI-USER. An
+      # instrument nobody reads is not a gate (the POD-1369 class).
+      #
+      # This lane and not another: it is a ratchet over source, exactly like
+      # `audit:rearch` — no database, no server, no fixtures, seconds to run —
+      # and the lint job is where the repo already keeps its blocking ratchets.
+      # It must NOT be folded into `bun run lint`, which is continue-on-error
+      # while biome's backlog burns down (#30); that is how POD-744 reported
+      # green for weeks while exiting 1, and it is how this gate went dark.
+      #
+      # The script self-probes before it measures, so a green here also means
+      # the instrument demonstrated it can still say no.
+      - name: ambient-principal ratchet (multi-user)
+        run: bun run audit:ambient-principals
+
       # BLOCKING, and deliberately its own step rather than folded into the
       # `bun run lint` bundle above: that one is continue-on-error while biome's
       # backlog is burned down (#30), and POD-744 is the cautionary tale — a
