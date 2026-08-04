@@ -85,6 +85,7 @@
     "audit:seam": "bun scripts/audit-federation-seam.ts --probe && bun scripts/audit-federation-seam.ts",
     "audit:settings": "bun scripts/audit-settings-commands.ts --probe && bun scripts/audit-settings-commands.ts",
     "audit:wire-adapters": "bun scripts/audit-wire-adapters.ts --probe && bun scripts/audit-wire-adapters.ts",
+    "audit:expand-only": "bun scripts/audit-expand-only-migrations.ts --probe && bun scripts/audit-expand-only-migrations.ts",
     "audit:spec": "bun scripts/audit-spec-commands.ts --probe && bun scripts/audit-spec-commands.ts",
     "audit:browser-reach": "bun scripts/audit-browser-reach.ts --probe && bun scripts/audit-browser-reach.ts",
     "audit:client-secrets": "bun scripts/audit-client-secrets.ts --probe && bun scripts/audit-client-secrets.ts",
