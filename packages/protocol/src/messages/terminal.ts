@@ -292,6 +292,12 @@ export const SessionBindingSpawnInstruction = z.object({
   issueId: IssueIdField.optional(),
   requestedScope: DelegationScope.optional(),
   scopeOverrideConfirmed: z.boolean().optional(),
+  /** RELAUNCH, not a birth. A resurrect respawns a session whose binding may
+   *  already exist (it was born under the binding store) or may not (it predates
+   *  it). Absent, an existing binding is a duplicate-spawn attempt and the daemon
+   *  rejects `binding-exists`; set, the daemon mints the record when it is
+   *  missing and records a receipt over a live same-claimant one instead. */
+  relaunch: z.boolean().optional(),
 })
 export type SessionBindingSpawnInstruction = z.infer<typeof SessionBindingSpawnInstruction>
 

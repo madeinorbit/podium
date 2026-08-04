@@ -133,6 +133,50 @@ describe('SessionBinding transition vocabulary', () => {
     expect(bindings.currentDelegation(broad)?.grantedScope).toEqual({ kind: 'all' })
   })
 
+  // A resurrect re-launches an existing session: its binding, delegation and
+  // claimant are already decided, and only the process is new. Without the
+  // relaunch marker that frame reads as a duplicate birth and is refused, which
+  // is what made every parked session unresumable (POD-1647).
+  it('RELAUNCH SPAWN re-launches an existing binding; a plain respawn is still a duplicate', async () => {
+    const bindings = await store()
+    const born = await spawn(bindings, 'relaunch-me', 'claude-code')
+
+    expect(
+      await bindings.transition({
+        event: 'spawn',
+        transitionId: 'spawn:relaunch-me:dup',
+        sessionId: born.sessionId,
+        agentKind: 'claude-code',
+        claimantMachineId: machineA,
+        machineAccess: 'allowed',
+        principal: { kind: 'user', userId: alice },
+      }),
+    ).toMatchObject({ status: 'rejected', reason: 'binding-exists' })
+
+    const again = await spawn(bindings, 'relaunch-me', 'claude-code', {
+      transitionId: 'relaunch:relaunch-me:2',
+      relaunch: true,
+      observationGeneration: 2,
+    })
+    // Same binding, same delegation — a new attempt, not a new identity.
+    expect(again.createdAt).toBe(born.createdAt)
+    expect(again.observationGeneration).toBe(2)
+    expect(bindings.currentDelegation(again)).toEqual(bindings.currentDelegation(born))
+    expect(again.transitionHistory.at(-1)).toMatchObject({
+      transitionId: 'relaunch:relaunch-me:2',
+      event: 'spawn',
+    })
+  })
+
+  // A relaunch mints the record when it is absent: sessions born before the
+  // binding store exists still resume.
+  it('RELAUNCH SPAWN mints a binding for a session that never had one', async () => {
+    const bindings = await store()
+    const row = await spawn(bindings, 'pre-store', 'claude-code', { relaunch: true })
+    expect(row.state).toBe('unbound')
+    expect(bindings.currentDelegation(row)).toMatchObject({ onBehalfOf: alice })
+  })
+
   it('SUB-AGENT SPAWN chains the root human, narrows, and rejects widening visibly', async () => {
     const bindings = await store()
     const parent = await spawn(bindings, 'parent', 'claude-code')

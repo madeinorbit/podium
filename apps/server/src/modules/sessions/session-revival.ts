@@ -329,7 +329,24 @@ export class SessionRevival {
       durableLabel: session.durableLabel,
       agentKind: session.agentKind,
       cwd: session.cwd,
-      ...(adoptedBinding ? { adoptedBinding } : {}),
+      // EVERY spawn frame carries a server-minted binding instruction; the daemon
+      // refuses one that carries neither (POD-1647). A handoff-adopted launch
+      // brings its own; every other resurrect mints a RELAUNCH spawn instruction
+      // — it re-launches the process under the binding this session already has,
+      // and mints that binding for a session born before the store existed.
+      // The generation makes each attempt its own transition while a redelivered
+      // frame stays idempotent.
+      ...(adoptedBinding
+        ? { adoptedBinding }
+        : {
+            binding: {
+              transitionId: `relaunch:${sessionId}:${observationLease?.observationGeneration ?? 0}`,
+              machineAccess: 'allowed' as const,
+              principal: { kind: 'user' as const, userId: session.ownerUserId },
+              ...(session.issueId ? { issueId: session.issueId } : {}),
+              relaunch: true,
+            },
+          }),
       ...(observationLease
         ? {
             observationGeneration: observationLease.observationGeneration,

@@ -332,6 +332,7 @@ async function handleSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
       ...(msg.binding.issueId ? { issueId: msg.binding.issueId } : {}),
       ...(msg.binding.requestedScope ? { requestedScope: msg.binding.requestedScope } : {}),
       ...(msg.binding.scopeOverrideConfirmed ? { scopeOverrideConfirmed: true } : {}),
+      ...(msg.binding.relaunch ? { relaunch: true } : {}),
       attemptId: label,
       observationGeneration: msg.observationGeneration,
     })

@@ -3079,6 +3079,30 @@ describe('hibernation', () => {
     expect(reg.modules.sessions.listSessions()[0]?.status).toBe('starting')
   })
 
+  // The daemon REFUSES a spawn frame carrying neither `binding` nor
+  // `adoptedBinding` (MISSING_SESSION_BINDING_MESSAGE), so a resurrect that
+  // omitted it left every parked session unresumable — green on both sides of
+  // the boundary, broken across it (POD-1647). It is a RELAUNCH: the binding
+  // already exists for anything born under the store.
+  it('resurrect carries a relaunch spawn binding', async () => {
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const daemon: ControlMessage[] = []
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    const sessionId = liveSession(reg, daemon)
+    reg.modules.sessions.hibernateSession({ sessionId })
+    daemon.length = 0
+
+    expect(await reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })).toEqual({
+      ok: true,
+    })
+    const spawn = daemon.find((m) => m.type === 'spawn')
+    expect(spawn && 'binding' in spawn ? spawn.binding : undefined).toMatchObject({
+      relaunch: true,
+      machineAccess: 'allowed',
+      principal: { kind: 'user' },
+    })
+  })
+
   it('resurrect revives an exited (crashed) session with a resume ref', async () => {
     const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
