@@ -166,3 +166,60 @@ touches no rows at all in the steady state.
 - `apps/server/src/migrations/applied-mutations-retention-index.test.ts` — asserts the
   query PLAN, not a duration, and that the delete still removes exactly the rows below
   the cutoff.
+
+## The bug this change introduced, and how it was caught
+
+The first version of the repo cache justified itself in a source comment with
+"this class is the only writer of both tables", proved by grepping
+`INSERT INTO repos|UPDATE repos|DELETE FROM repos`.
+
+That proof could not work. `SessionStore.migrateLegacyMachineIdentity` writes the
+table as `UPDATE OR REPLACE "${table}" SET "${column}" = ?`, with table and column
+walked out of `sqlite_master` — **no literal table name appears in the source**,
+and the write goes through the store's raw handle rather than the invalidating
+`prepare` wrapper. So `listRepos()` served the PRE-upgrade `machine_id` after the
+boot machine-identity migration: a correctness bug, not a perf wobble.
+
+It was caught by `store.repo-id.test.ts` — a test that predates this branch and
+pins the POD-318 decision. Nothing this change added caught it.
+
+The durable lesson is about the method, not the bug: **grep is sound for a
+positive and unsound for a negative.** "Here are the call sites I must inspect" is
+a claim grep supports; "therefore nothing else writes this table" is not, because
+the needle only expresses the syntactic forms you thought of. Before writing a
+grep-backed negative, search for the SHAPE as well as the name — template-
+interpolated SQL, dynamic property access, a raw handle beside a wrapped one — and
+if the forms cannot be bounded, do not write the exclusivity claim at all. Name
+the known exceptions and say what should happen when the list reaches two.
+
+Fixed in `99b92b900`; the seam is pinned by a test in `repos-read-cost.test.ts`
+that warms the cache before the migration (without that read there is nothing
+cached to go stale, and the assertion passes against the broken code too) and is
+verified to go red when `repos.invalidate()` is removed.
+
+### Two other reds were self-inflicted
+
+`scripts/rearch-audit.test.ts` (90802ms — a watchdog firing, not an assertion
+failing) and `packages/terminal-client/.../terminal-view.keyboard.test.ts` failed
+in a full lane that overlapped a forced 23-package typecheck. Both pass in
+isolation with the change in AND reverted, and both are green in a quiet lane.
+CLAUDE.md warns that a forced recompute starves the live host; it also makes your
+own test lane lie to you.
+
+## Final gates
+
+Tip `31dfb992a` on `issue/279-integration` @ `ec2cf9928`:
+
+- full unit lane: **10465 passed, 1 failed, 24 skipped** across 732 files. The one
+  failure is `session-mint.test.ts` — the deliberately-red POD-1402 tripwire
+  (POD-1633), which must not be silenced.
+- typecheck 23/23; `lint:boundaries` 0 allowlisted / 0 new; biome 0 new per-file,
+  counted from biome's own summary rather than a hand-rolled regex.
+
+## Known residual
+
+`reapIfEmptyDraft(id, pass?)` takes the hoisted reads optionally. A NEW loop over
+drafts that forgets to pass one silently reintroduces the drafts x sessions cost —
+the scaling test pins `reapLeakedDrafts`, not "any loop over drafts". It degrades
+to slow, never wrong. Making `pass` required would tax the two single-draft
+callers that correctly do not want a snapshot. Documented at the signature.
