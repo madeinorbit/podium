@@ -217,6 +217,100 @@ it('POD-1402: mint needs only state-dir write access — no password, no princip
   expect(listSessions(dir)).toHaveLength(1)
 })
 
+// ─── POD-1637: fail the mint closed on a second account ────────────────────
+//
+// docs/decisions/1634-mint-root-after-multi-user.md Part 1. Both sides are pinned
+// against a real on-disk database: a guard that only ever says yes is worth nothing,
+// and one that only ever says no would break every single-operator instance.
+
+/** The `users` table as apps/server's migrations create it, with `n` accounts. */
+function seedUsers(at: string, n: number): void {
+  const db = openDatabase(join(at, 'podium.db'))
+  db.prepare(
+    `CREATE TABLE users (
+       id TEXT PRIMARY KEY,
+       display_name TEXT NOT NULL,
+       role TEXT NOT NULL,
+       created_at TEXT NOT NULL,
+       disabled_at TEXT
+     )`,
+  ).run()
+  for (let i = 0; i < n; i++) {
+    db.prepare('INSERT INTO users (id, display_name, role, created_at) VALUES (?, ?, ?, ?)').run(
+      i === 0 ? 'user:sole' : `user:other-${i}`,
+      i === 0 ? 'Operator' : `Other ${i}`,
+      i === 0 ? 'admin' : 'member',
+      '2026-08-04T00:00:00.000Z',
+    )
+  }
+  db.close?.()
+}
+
+function sessionRowCount(at: string): number {
+  const db = openDatabase(join(at, 'podium.db'))
+  try {
+    return Number(
+      (db.prepare('SELECT count(*) AS n FROM client_sessions').get() as { n: number }).n,
+    )
+  } finally {
+    db.close?.()
+  }
+}
+
+// The live shape (ludovico, 2026-08-04: `select count(*) from users` -> 1). This change is
+// a no-op there, and this test is what says so.
+it('POD-1637: mints on a single-account instance, and the token validates', () => {
+  seedDatabase(dir)
+  seedUsers(dir, 1)
+
+  const minted = mintBreakGlassSession({ stateDir: dir })
+
+  // "Validates" at this layer = the stored hash is the one a guard looks the token up by;
+  // the end-to-end check against the server's own clientAuthGuard is
+  // apps/server/src/auth-route.test.ts.
+  const db = openDatabase(join(dir, 'podium.db'))
+  const row = db
+    .prepare('SELECT user_id, label, expires_at FROM client_sessions WHERE token_hash = ?')
+    .get(createHash('sha256').update(minted.token).digest('hex')) as
+    | { user_id: string; label: string; expires_at: string }
+    | undefined
+  db.close?.()
+  expect(row?.label).toBe(BREAK_GLASS_LABEL)
+  expect(row?.expires_at).toBe(minted.expiresAt)
+})
+
+it('POD-1637: refuses on a two-account instance, writing no session row', () => {
+  seedDatabase(dir)
+  seedUsers(dir, 2)
+
+  expect(() => mintBreakGlassSession({ stateDir: dir })).toThrow(
+    /refusing to mint.*2 user accounts/s,
+  )
+  expect(sessionRowCount(dir), 'a refused mint must leave no credential behind').toBe(0)
+})
+
+// A disabled account is still an account the instance was told about, and any admin can
+// re-enable it. Pinned so the guard's answer cannot be flipped by a mutable flag.
+it('POD-1637: counts a disabled second account', () => {
+  seedDatabase(dir)
+  seedUsers(dir, 2)
+  const db = openDatabase(join(dir, 'podium.db'))
+  db.prepare(
+    "UPDATE users SET disabled_at = '2026-08-04T00:00:00.000Z' WHERE id = 'user:other-1'",
+  ).run()
+  db.close?.()
+
+  expect(() => mintBreakGlassSession({ stateDir: dir })).toThrow(/refusing to mint/)
+})
+
+// No `users` table = a pre-multi-user schema, which cannot express a second human at all.
+// That is the ACCEPT case D14 argued for, so it must still mint — and it is what every
+// other test in this file relies on.
+it('POD-1637: still mints against a schema with no users table', () => {
+  seedDatabase(dir)
+  expect(mintBreakGlassSession({ stateDir: dir }).token.length).toBeGreaterThan(20)
+})
+
 /**
  * Schema tripwire (POD-1402 instrument / ADR 3 D14).
  *
