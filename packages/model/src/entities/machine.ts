@@ -230,6 +230,18 @@ export const MachineWire = z.object({
   owned: z.boolean().optional(),
   /** `USE` — see {@link Inventory}. */
   inventory: Inventory.optional(),
+  /** Peer-asserted build label; absent/null until the daemon reports one. */
+  appVersion: z.string().nullable().optional(),
+  /** Peer-asserted protocol schema digest; informational only. */
+  wireSchemaDigest: z.string().nullable().optional(),
+  /** Whether the daemon runs an installed bundle or a source checkout. */
+  installKind: z.string().nullable().optional(),
+  /** Delivery methods the daemon offered in its last authenticated hello. */
+  deliveryCaps: z.array(z.string()).optional(),
+  /** When the server last accepted the build report. */
+  buildReportedAt: z.string().nullable().optional(),
+  /** Derived relative state; never persisted. */
+  versionState: z.enum(['unreported', 'current', 'behind', 'ahead']).optional(),
 })
 export type MachineWire = z.infer<typeof MachineWire>
 

@@ -58,6 +58,25 @@ export type MachineOwnedResolver = (machineId: string) => boolean
  */
 export type MachineListing = MachineWire
 
+/** The machine's position relative to the version this server says it should run. */
+export type MachineVersionState = 'unreported' | 'current' | 'behind' | 'ahead'
+
+/**
+ * DERIVED, NEVER STORED. The server target may move independently of the last
+ * hello, so persisting this verdict would make the read model stale.
+ *
+ * `appVersion` is a label, not a semver. A development identity such as
+ * `dev+<sha>` compares by exact string equality only. `ahead` is reserved for
+ * the delivery layer; Phase 1 has no downgrade-aware verdict to add here.
+ */
+export function deriveVersionState(
+  reported: string | null,
+  target: string | undefined,
+): MachineVersionState {
+  if (!reported || !target) return 'unreported'
+  return reported === target ? 'current' : 'behind'
+}
+
 /**
  * The pairing-code surface this core module consumes WITHOUT importing the hub
  * module that implements it (`hub/pairing.ts` — core never imports hub, see
@@ -93,6 +112,11 @@ export interface PairingGrant {
 export interface MachinesDeps {
   /** Deployment configuration only; never an owner or grant input. */
   instanceId: string
+  /**
+   * The version in the server's injected update target. Absent means this
+   * deployment has no target descriptor yet, so every machine is unreported.
+   */
+  targetVersion?: () => string | undefined
   store: SessionStore
   /**
    * THIS HOST'S machine id — the UUID in `<stateDir>/machine.id`, read once by the
@@ -510,6 +534,12 @@ export class MachinesService {
    * supplying it here is what turns the whole placement surface on.
    */
   listMachines(use?: MachineUseResolver, owned?: MachineOwnedResolver): MachineListing[] {
+    let target: string | undefined
+    try {
+      target = this.deps.targetVersion?.()
+    } catch {
+      target = undefined
+    }
     return this.machineRecords().map((m) => ({
       ...(use ? { use: use(m.id) } : {}),
       // POD-1495: same contract as `use` one line up — supplied means evaluated,
@@ -520,6 +550,12 @@ export class MachinesService {
       hostname: m.hostname,
       online: this.daemons.has(m.id),
       lastSeenAt: m.lastSeenAt,
+      appVersion: m.appVersion,
+      wireSchemaDigest: m.wireSchemaDigest,
+      installKind: m.installKind,
+      deliveryCaps: m.deliveryCaps,
+      buildReportedAt: m.buildReportedAt,
+      versionState: deriveVersionState(m.appVersion, target),
       ...(m.inventory ? { inventory: m.inventory } : {}),
     }))
   }
