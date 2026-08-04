@@ -12,6 +12,7 @@ import {
   type LocalDaemonLink,
   MIN_SUPPORTED_VERSION,
   PeerHelloReply,
+  type UpdateTarget,
   WIRE_VERSION,
   wireSchemaDigest,
 } from '@podium/protocol'
@@ -152,27 +153,31 @@ export function registerVersionRoute(
      * fires on every stripped-down deployment.
      */
     visibilityGrade?: () => string
+    updateTarget?: () => UpdateTarget | undefined
   },
 ): void {
-  app.get('/version', (c) =>
-    c.json({
+  app.get('/version', (c) => {
+    let target: UpdateTarget | undefined
+    try {
+      target = deps.updateTarget?.()
+    } catch {
+      target = undefined
+    }
+    return c.json({
       wireVersion: WIRE_VERSION,
       minSupportedVersion: MIN_SUPPORTED_VERSION,
       /**
-       * The structural fingerprint of THIS server's message schemas (POD-1610).
-       *
-       * Alongside `wireVersion`, never instead of it: the version answers "can we
-       * be served" and stays coarse on purpose, while this answers "were we built
-       * from the same source". A client compares it to its own and SAYS SO — it
-       * does not refuse, because a digest difference is a build-plumbing fact, not
-       * a protocol incompatibility, and the two must not be conflated (ADR 2 D4).
+       * Structural fingerprint of this server's message schemas. Alongside the
+       * wire version, it lets clients report build drift without treating it as
+       * a hard compatibility decision.
        */
       wireSchemaDigest: wireSchemaDigest(),
       appVersion: process.env.PODIUM_APP_VERSION ?? 'dev',
       instanceId: deps.instanceId,
       feedScoping: deps.visibilityGrade?.() ?? 'device-unscoped',
-    }),
-  )
+      ...(target ? { target } : {}),
+    })
+  })
 }
 
 export async function startServer(
