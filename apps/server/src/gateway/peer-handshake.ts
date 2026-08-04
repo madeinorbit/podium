@@ -24,8 +24,8 @@ import {
   isLegacyDaemonFrame,
   legacyReplyFor,
   type MachinePrincipal,
-  PeerHello,
   type PeerBuild,
+  PeerHello,
   type PeerHelloReply,
   type UserId,
 } from '@podium/protocol'

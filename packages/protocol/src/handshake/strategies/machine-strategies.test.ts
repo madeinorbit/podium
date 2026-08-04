@@ -73,7 +73,9 @@ describe('machine (local) — shared host secret', () => {
       credential: { kind: 'daemonSecret', secret: 'secret-ok' },
       hello: helloFor(
         { kind: 'daemonSecret', secret: 'secret-ok' },
-        { build: { appVersion: 'dev+attacker', wireSchemaDigest: 'forged', installKind: 'source' } },
+        {
+          build: { appVersion: 'dev+attacker', wireSchemaDigest: 'forged', installKind: 'source' },
+        },
       ),
       transport: transportFacts(),
     })

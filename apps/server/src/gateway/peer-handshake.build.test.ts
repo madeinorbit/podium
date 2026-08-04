@@ -20,7 +20,12 @@ function fakeWs() {
     send: (s: string) => sent.push(s),
     terminate: () => {},
     on: (event: string, callback: (...args: unknown[]) => void) => {
-      ;(handlers[event] ??= []).push(callback)
+      let eventHandlers = handlers[event]
+      if (eventHandlers === undefined) {
+        eventHandlers = []
+        handlers[event] = eventHandlers
+      }
+      eventHandlers.push(callback)
     },
     emit: (event: string, ...args: unknown[]) => {
       for (const callback of handlers[event] ?? []) callback(...args)

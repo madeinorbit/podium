@@ -3,9 +3,9 @@
  * their token hashes).
  */
 
-import type { PeerBuild } from '@podium/protocol'
 import { createHash, timingSafeEqual } from 'node:crypto'
 import { Inventory, type MachineId } from '@podium/model'
+import type { PeerBuild } from '@podium/protocol'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import type { MachineRecord } from './types'
 
