@@ -331,6 +331,14 @@ describe('podium session status/read (#237 read toolkit)', () => {
     expect(c.sessions.read.query).toHaveBeenCalledWith({ sessionId: 's1', turns: 5, cursor: 'c3' })
     expect(out).toContain('hello')
     expect(out).toContain('--cursor c9')
+    expect(out).not.toContain('(truncated to the per-call cap)')
+
+    const capped = client()
+    capped.sessions.read.query.mockImplementation(async () => ({ ...READ, truncated: true }))
+    const cappedOut = await runSessionCli(['read', 's1'], capped)
+    expect(cappedOut.split('\n')[0]).toBe('(truncated to the per-call cap)')
+    expect(cappedOut).toContain('\n(more: --cursor c9) (truncated to the per-call cap)')
+
     await expect(runSessionCli(['read', 's1', '--turns', 'lots'], c)).rejects.toThrow(
       /positive integer/,
     )

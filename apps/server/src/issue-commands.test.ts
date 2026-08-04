@@ -595,6 +595,9 @@ describe('ISSUE_COMMANDS registry', () => {
     // Node cap bit (totalNodes reached maxNodes) → --max-nodes is the lever.
     const { client: nodeClient } = mockClient({ tree: capped({}) })
     const byNodes = await cmd('tree').run(nodeClient, { id: '10' })
+    expect(byNodes.text.split('\n')[0]).toBe(
+      'TRUNCATED: 100 nodes shown, 7 child issues omitted by the node cap (--max-nodes 100).',
+    )
     expect(byNodes.text).toContain('TRUNCATED')
     expect(byNodes.text).toContain('7 child issues omitted')
     expect(byNodes.text).toContain('node cap (--max-nodes 100)')
@@ -651,6 +654,7 @@ describe('ISSUE_COMMANDS registry', () => {
     // A full page is indistinguishable from "that was all" without the notice.
     const { client, calls } = mockClient({ events: page(3) })
     const out = await cmd('events').run(client, { since: 0, limit: 3, kind: 'issue.closed' })
+    expect(out.text.split('\n')[0]).toBe('TRUNCATED: hit the 3-event limit; there may be more.')
     expect(out.text).toContain('TRUNCATED: hit the 3-event limit')
     expect(out.text).toContain('podium issue events --since 3 --kind issue.closed --limit 3')
     expect(out.data).toEqual(page(3)) // --json consumers keep the bare row array
