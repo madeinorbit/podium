@@ -78,7 +78,10 @@ const target = {
   version: '0.4.2',
   critical: false,
   artifacts: {
-    headless: { delivery: 'feed', url: 'https://x.test/a.tgz', digest: 'd', signature: 's' },
+    headless: {
+      delivery: 'feed',
+      platforms: { 'linux-x86_64': { url: 'https://x.test/a.tgz', digest: 'd', signature: 's' } },
+    },
   },
 }
 
@@ -253,12 +256,16 @@ git commit -m "feat(protocol): update grant and convergence status frames (POD-1
 - Modify: `packages/protocol/src/update/index.ts`
 
 **Interfaces:**
-- Consumes: `UpdateTarget`, `UpdateArtifact` from Phase 1.
+- Consumes: `UpdateTarget`, `UpdateArtifact` from Phase 1 (as corrected by POD-1702, see below).
 - Produces:
-  - `type ConvergencePlan = { action: 'already-current' } | { action: 'converge'; artifact: UpdateArtifact } | { action: 'cannot'; reason: string }`
-  - `planConvergence(ctx: { current: string; target: UpdateTarget; caps: readonly string[] }): ConvergencePlan`
+  - `type ConvergencePlan = { action: 'already-current' } | { action: 'converge'; delivery: UpdateArtifact['delivery']; asset: PlatformAsset } | { action: 'cannot'; reason: 'no-artifact' | 'unsupported-delivery' | 'unsupported-platform' }`
+  - `planConvergence(ctx: { current: string; target: UpdateTarget; caps: readonly string[]; platform: string }): ConvergencePlan`
 
 **The rule this task exists to encode:** target equality, not `isNewer`. A downgrade is a legitimate convergence, and refusing it is what makes rollback impossible.
+
+**THE PLATFORM DIMENSION (corrected 2026-08-04, POD-1702).** `FeedArtifact` and `BundleArtifact` carry `platforms: Record<string, {url, digest, signature}>`, keyed by the target triples `platformTarget()` already produces (`linux-x86_64`, `linux-aarch64`, …). `GitArtifact` has none, because a checkout is platform-independent.
+
+The planner therefore takes the running `platform` and selects `artifact.platforms[platform]`. **A missing entry is `cannot: 'unsupported-platform'`, never a fallback to some other platform's bytes.** The original spec lost this dimension and a worker nearly shipped "use the first prepared platform", which would hand an arm64 daemon an x86_64 tarball: the signature verifies (it is a real signature over those bytes), the digest matches, the swap succeeds, and the binary will not execute. Every gate green, machine bricked. A fleet with mixed architectures and a release that only built one is an ordinary situation, so this refusal path is load-bearing, not defensive padding.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -268,26 +275,34 @@ Create `packages/protocol/src/update/convergence.test.ts`:
 import { describe, expect, it } from 'vitest'
 import { planConvergence } from './convergence'
 
-const feed = { delivery: 'feed', url: 'https://x.test/a.tgz', digest: 'd', signature: 's' } as const
+const feed = {
+  delivery: 'feed',
+  platforms: {
+    'linux-x86_64': { url: 'https://x.test/a-x64.tgz', digest: 'd1', signature: 's1' },
+    'linux-aarch64': { url: 'https://x.test/a-arm.tgz', digest: 'd2', signature: 's2' },
+  },
+} as const
 const target = (version: string, artifact: unknown = feed) =>
   ({ version, critical: false, artifacts: { headless: artifact } }) as never
+
+const HOST = 'linux-x86_64'
 
 const ALL_CAPS = ['update.delivery.feed', 'update.delivery.bundle', 'update.delivery.git']
 
 describe('planConvergence', () => {
   it('is already-current on an exact match', () => {
-    expect(planConvergence({ current: '0.4.2', target: target('0.4.2'), caps: ALL_CAPS })).toEqual({
+    expect(planConvergence({ current: '0.4.2', target: target('0.4.2'), caps: ALL_CAPS, platform: HOST })).toEqual({
       action: 'already-current',
     })
   })
 
   it('converges upward', () => {
-    const p = planConvergence({ current: '0.4.1', target: target('0.4.2'), caps: ALL_CAPS })
+    const p = planConvergence({ current: '0.4.1', target: target('0.4.2'), caps: ALL_CAPS, platform: HOST })
     expect(p.action).toBe('converge')
   })
 
   it('converges DOWNWARD, because the server is authority and rollback must work', () => {
-    const p = planConvergence({ current: '0.4.2', target: target('0.4.1'), caps: ALL_CAPS })
+    const p = planConvergence({ current: '0.4.2', target: target('0.4.1'), caps: ALL_CAPS, platform: HOST })
     expect(p.action).toBe('converge')
   })
 
@@ -317,6 +332,29 @@ describe('planConvergence', () => {
       caps: ALL_CAPS,
     })
     expect(p).toEqual({ action: 'cannot', reason: 'no-artifact' })
+  })
+
+  it('refuses when the target has no bytes for THIS platform', () => {
+    // An arm64 machine against a release that only built x86_64. Falling back to
+    // another platform's bytes would verify, swap, and produce a binary that
+    // cannot execute: every gate green, machine bricked.
+    const p = planConvergence({
+      current: '0.4.1',
+      target: target('0.4.2'),
+      caps: ALL_CAPS,
+      platform: 'darwin-aarch64',
+    })
+    expect(p).toEqual({ action: 'cannot', reason: 'unsupported-platform' })
+  })
+
+  it('selects the asset for the running platform, never another one', () => {
+    const p = planConvergence({
+      current: '0.4.1',
+      target: target('0.4.2'),
+      caps: ALL_CAPS,
+      platform: 'linux-aarch64',
+    })
+    expect(p).toMatchObject({ action: 'converge', asset: { url: 'https://x.test/a-arm.tgz' } })
   })
 
   it('is already-current BEFORE checking delivery, so a matched source run is not an error', () => {
@@ -413,7 +451,9 @@ git commit -m "feat(protocol): converge-to-target planning, downgrades included 
 
 **Interfaces:**
 - Consumes: `UpdateArtifact` from Phase 1, `verifyTarball` from `podium-update.ts`.
-- Produces: `fetchArtifact(artifact: UpdateArtifact, deps: { fetch: typeof fetch; pubkey: string }): Promise<{ bytes: Uint8Array }>` — throws on a bad signature, a bad digest, or a failed download.
+- Produces: `fetchArtifact(asset: PlatformAsset, delivery: 'feed' | 'bundle' | 'git', deps: { fetch: typeof fetch; pubkey: string }): Promise<{ bytes: Uint8Array }>` — throws on a bad signature, a bad digest, or a failed download.
+
+**It takes the RESOLVED asset, not the whole artifact.** Task 2's planner already picked the entry for this machine's platform, so the platform choice is made in exactly one place. A downloader that re-derived the platform would be a second place to get it wrong.
 
 `git` delivery is NOT implemented here. It belongs to Phase 5, and this task must throw a clear "not implemented in this phase" rather than half-build it.
 
@@ -440,7 +480,8 @@ const okFetch = (async () =>
 describe('fetchArtifact', () => {
   it('returns the bytes for a correctly signed feed artifact', async () => {
     const { bytes } = await fetchArtifact(
-      { delivery: 'feed', url: 'https://x.test/a.tgz', digest, signature },
+      { url: 'https://x.test/a.tgz', digest, signature },
+      'feed',
       { fetch: okFetch, pubkey, verifyDigest: false },
     )
     expect(Array.from(bytes)).toEqual([1, 2, 3, 4])
@@ -450,7 +491,8 @@ describe('fetchArtifact', () => {
     // An authenticated socket is not a substitute for a signature. A server-hosted
     // bundle is bytes over a network like any other.
     const { bytes } = await fetchArtifact(
-      { delivery: 'bundle', url: 'https://server.test/a.tgz', digest, signature },
+      { url: 'https://server.test/a.tgz', digest, signature },
+      'bundle',
       { fetch: okFetch, pubkey, verifyDigest: false },
     )
     expect(bytes.length).toBe(4)
@@ -459,7 +501,8 @@ describe('fetchArtifact', () => {
   it('throws on a bad signature and never returns bytes', async () => {
     await expect(
       fetchArtifact(
-        { delivery: 'feed', url: 'https://x.test/a.tgz', digest, signature: 'AAAA' },
+        { url: 'https://x.test/a.tgz', digest, signature: 'AAAA' },
+        'feed',
         { fetch: okFetch, pubkey, verifyDigest: false },
       ),
     ).rejects.toThrow(/signature/i)
@@ -468,7 +511,8 @@ describe('fetchArtifact', () => {
   it('throws on an empty signature rather than treating it as unsigned-but-fine', async () => {
     await expect(
       fetchArtifact(
-        { delivery: 'feed', url: 'https://x.test/a.tgz', digest, signature: '' },
+        { url: 'https://x.test/a.tgz', digest, signature: '' },
+        'feed',
         { fetch: okFetch, pubkey, verifyDigest: false },
       ),
     ).rejects.toThrow(/signature/i)
@@ -478,7 +522,8 @@ describe('fetchArtifact', () => {
     const bad = (async () => new Response('nope', { status: 404 })) as unknown as typeof fetch
     await expect(
       fetchArtifact(
-        { delivery: 'feed', url: 'https://x.test/a.tgz', digest, signature },
+        { url: 'https://x.test/a.tgz', digest, signature },
+        'feed',
         { fetch: bad, pubkey, verifyDigest: false },
       ),
     ).rejects.toThrow(/404/)
@@ -487,7 +532,8 @@ describe('fetchArtifact', () => {
   it('refuses a git artifact in this phase instead of half-doing it', async () => {
     await expect(
       fetchArtifact(
-        { delivery: 'git', repo: '/src/podium', sha: 'abc' },
+        { url: '', digest: '', signature: '' },
+        'git',
         { fetch: okFetch, pubkey },
       ),
     ).rejects.toThrow(/not implemented/i)
@@ -529,19 +575,20 @@ export interface DeliveryDeps {
 }
 
 export async function fetchArtifact(
-  artifact: UpdateArtifact,
+  asset: PlatformAsset,
+  delivery: UpdateArtifact['delivery'],
   deps: DeliveryDeps,
 ): Promise<{ bytes: Uint8Array }> {
-  if (artifact.delivery === 'git') {
+  if (delivery === 'git') {
     throw new Error('git delivery is not implemented in this phase (Phase 5 owns it)')
   }
 
-  const res = await deps.fetch(artifact.url)
+  const res = await deps.fetch(asset.url)
   if (!res.ok) throw new Error(`artifact download returned ${res.status}`)
   const bytes = new Uint8Array(await res.arrayBuffer())
 
   // SECURITY GATE, before anything touches disk. Fail closed.
-  if (!verifyTarball(bytes, artifact.signature, deps.pubkey)) {
+  if (!verifyTarball(bytes, asset.signature, deps.pubkey)) {
     throw new Error(
       'signature verification FAILED — refusing to install. The artifact was not ' +
         'signed by the trusted key (tampered, corrupt, or wrong feed). No changes were made.',
@@ -889,7 +936,10 @@ const target = {
   version: '0.4.2',
   critical: false,
   artifacts: {
-    headless: { delivery: 'feed', url: 'https://x.test/a.tgz', digest: 'd', signature: 's' },
+    headless: {
+      delivery: 'feed',
+      platforms: { 'linux-x86_64': { url: 'https://x.test/a.tgz', digest: 'd', signature: 's' } },
+    },
   },
 } as never
 
