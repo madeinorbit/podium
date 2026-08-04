@@ -50,7 +50,7 @@ export function GitStamp({
         data-density="stamp"
         title={m.title}
         className={`inline-flex flex-none items-center gap-1.5 font-mono text-[9px] leading-[13px] ${
-          m.mismatch ? 'text-destructive' : 'text-[#6c7690]'
+          m.mismatch ? 'text-destructive' : 'text-text-dim'
         } ${className}`}
       >
         {m.mismatch && <span>Wrong branch</span>}

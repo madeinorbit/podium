@@ -27,8 +27,8 @@ import type { AgentKind } from '@podium/model'
 
 /** The tone an unrecognised harness gets: the old non-Claude branch, verbatim. */
 const GLYPH_TONE_FALLBACK = 'text-foreground'
-const CHIP_TINT_FALLBACK = 'border-[#33456e] bg-[#182338]'
-const FLEET_TILE_TINT_FALLBACK = 'border-[#33456e] bg-[#182338] text-[#c3cbe0]'
+const CHIP_TINT_FALLBACK = 'border-border-strong bg-chip'
+const FLEET_TILE_TINT_FALLBACK = 'border-border-strong bg-chip text-foreground'
 
 const GLYPH_TONE: Record<AgentKind, string> = {
   'claude-code': 'text-claude',
@@ -40,7 +40,7 @@ const GLYPH_TONE: Record<AgentKind, string> = {
 }
 
 const CHIP_TINT: Record<AgentKind, string> = {
-  'claude-code': 'border-[#d97757]/50 bg-[#2a1a14]',
+  'claude-code': 'border-claude/50 bg-claude/12',
   codex: CHIP_TINT_FALLBACK,
   grok: CHIP_TINT_FALLBACK,
   opencode: CHIP_TINT_FALLBACK,
@@ -49,7 +49,7 @@ const CHIP_TINT: Record<AgentKind, string> = {
 }
 
 const FLEET_TILE_TINT: Record<AgentKind, string> = {
-  'claude-code': 'border-[#d97757]/50 bg-[#2a1a14] text-claude',
+  'claude-code': 'border-claude/50 bg-claude/12 text-claude',
   codex: FLEET_TILE_TINT_FALLBACK,
   grok: FLEET_TILE_TINT_FALLBACK,
   opencode: FLEET_TILE_TINT_FALLBACK,

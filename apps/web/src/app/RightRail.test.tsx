@@ -60,8 +60,10 @@ describe('RightRail', () => {
     )
     const square = screen.getByTestId('issue-id-square')
     // The square language's chrome, not the old borderless text cell.
-    expect(square.style.border).not.toBe('')
-    expect(square.style.background).toBe('#141d30') // uncoloured navy fill (resting, POD-293)
+    expect(square.style.borderStyle).not.toBe('')
+    // Uncoloured resting fill (POD-293) — read from the theme's --muted tier, not
+    // a literal navy, so Daylight repaints it (POD-388).
+    expect(square.style.background).toBe('var(--muted)')
     fireEvent.click(square)
     expect(onPanelChange).toHaveBeenLastCalledWith('issue')
   })

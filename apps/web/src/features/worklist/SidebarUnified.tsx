@@ -49,7 +49,7 @@ export function SidebarUnified(): JSX.Element {
           column's 3px flex gap on each side land at 11px above / 9px below. */}
       <div
         data-testid="sidebar-divider"
-        className="mx-2.5 mt-[11px] mb-[9px] h-px flex-none bg-[#25252f]"
+        className="mx-2.5 mt-[11px] mb-[9px] h-px flex-none bg-hairline-soft"
         aria-hidden="true"
       />
       {/* The scroll container leaves 5px of horizontal head-room past the aside
@@ -67,7 +67,7 @@ export function SidebarUnified(): JSX.Element {
         <WorkSections derivation={derivation} />
       </div>
       {/* Footer: 8px top / 10px sides, 4px own bottom + the column's 6px. */}
-      <AppToolsRow className="flex-none border-t border-[#25252f] px-2.5 pt-2 pb-2.5" />
+      <AppToolsRow className="flex-none border-t border-hairline-soft px-2.5 pt-2 pb-2.5" />
     </>
   )
 }

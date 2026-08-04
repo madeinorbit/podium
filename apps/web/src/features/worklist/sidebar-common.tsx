@@ -200,15 +200,15 @@ export function CollapsibleSection({
         <button
           data-pressable
           type="button"
-          className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-[10.5px] font-semibold tracking-[0.09em] uppercase text-[#7a7a86] hover:text-[#9a9aa8]"
+          className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-[10.5px] font-semibold tracking-[0.09em] uppercase text-label hover:text-muted-foreground"
           onClick={toggle}
           aria-expanded={!collapsed}
           aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${label}`}
         >
           {collapsed ? (
-            <ChevronRight size={11} aria-hidden="true" className="flex-none text-[#6c6c78]" />
+            <ChevronRight size={11} aria-hidden="true" className="flex-none text-text-dim" />
           ) : (
-            <ChevronDown size={11} aria-hidden="true" className="flex-none text-[#6c6c78]" />
+            <ChevronDown size={11} aria-hidden="true" className="flex-none text-text-dim" />
           )}
           <span className="truncate">
             {label}
@@ -423,12 +423,12 @@ export function AgentRosterBand({
     </>
   )
   const labelClass =
-    'flex w-full items-center gap-1.5 px-0.5 pt-[3px] pb-[2px] text-left font-mono text-[7.5px] font-medium uppercase tracking-[0.11em] text-[#7a84a0]'
+    'flex w-full items-center gap-1.5 px-0.5 pt-[3px] pb-[2px] text-left font-mono text-[7.5px] font-medium uppercase tracking-[0.11em] text-label'
   const header = onLabelClick ? (
     <button
       data-pressable
       type="button"
-      className={cn(labelClass, 'cursor-pointer hover:text-[#9aa4c0]')}
+      className={cn(labelClass, 'cursor-pointer hover:text-muted-foreground')}
       onClick={onLabelClick}
       title={labelHint}
     >
@@ -441,12 +441,12 @@ export function AgentRosterBand({
   )
   if (variant === 'rail') {
     // Hung on a light neutral guide, no card — the roster is detail behind the
-    // chevron, not a boxed section (POD-293). Rail hue #2b3550 keeps agents
+    // chevron, not a boxed section (POD-293). The hairline-bar guide keeps agents
     // visually distinct from the issue-tinted subtask tree.
     return (
       <div className={cn('relative min-w-0 pl-3', className)} data-testid={testId}>
         <span
-          className="absolute top-[7px] bottom-2 left-1 w-[1.5px] rounded-full bg-[#2b3550]"
+          className="absolute top-[7px] bottom-2 left-1 w-[1.5px] rounded-full bg-hairline-bar"
           aria-hidden="true"
         />
         {header}
@@ -457,8 +457,8 @@ export function AgentRosterBand({
   return (
     <div
       className={cn(
-        'min-w-0 rounded-[6px] border bg-[#0e1626] px-1.5 pb-1',
-        active ? 'border-[#364a78]' : 'border-[#1e2a4c]',
+        'min-w-0 rounded-[6px] border bg-rail px-1.5 pb-1',
+        active ? 'border-border-strong' : 'border-hairline-soft',
         className,
       )}
       data-testid={testId}
@@ -596,16 +596,16 @@ export function PanelRow({
       className={cn(
         'group relative flex min-w-0 items-center transition-colors',
         roster ? 'min-h-6 rounded' : dotRight ? 'min-h-7 rounded-md' : 'min-h-8 rounded-md',
-        // Roster rows live on the rail-navy band — chip-toned hover, no issue
-        // tint. Elsewhere var-driven so a coloured issue's unfolded block
+        // Roster rows live on the rail band — a muted hover, no issue tint.
+        // Elsewhere var-driven so a coloured issue's unfolded block
         // (SidebarUnified sets --child-*-bg on .tree-children) tints these.
         roster
           ? active
-            ? 'bg-[#1c2a47]'
-            : 'hover:bg-[#16223c]'
+            ? 'bg-accent'
+            : 'hover:bg-muted'
           : active
-            ? 'bg-[var(--child-active-bg,#232330)]'
-            : 'hover:bg-[var(--child-hover-bg,#20202a)]',
+            ? 'bg-[var(--child-active-bg,var(--accent))]'
+            : 'hover:bg-[var(--child-hover-bg,var(--muted))]',
       )}
       data-session={session.sessionId}
     >
@@ -615,7 +615,7 @@ export function PanelRow({
         // as a tree rather than a loose stack.
         <span
           aria-hidden="true"
-          className="pointer-events-none absolute top-1/2 left-[-8px] h-[1.5px] w-[7px] -translate-y-1/2 rounded-full bg-[#2b3550]"
+          className="pointer-events-none absolute top-1/2 left-[-8px] h-[1.5px] w-[7px] -translate-y-1/2 rounded-full bg-hairline-bar"
         />
       )}
       {editing ? (
@@ -647,8 +647,8 @@ export function PanelRow({
                 : 'gap-2 py-1.5 pr-2 pl-2 text-[13.5px]',
             // Selection is the accent background ALONE — never a heavier font
             // (#170), so it can't be confused with UNREAD's weight signal.
-            active ? 'text-[#f3f3f8]' : 'text-muted-foreground hover:text-foreground',
-            !dotRight && !active && 'text-[#dcdce4]',
+            active ? 'text-text-strong' : 'text-muted-foreground hover:text-foreground',
+            !dotRight && !active && 'text-foreground',
             // Email-style unread emphasis (#126): an unread session reads at
             // medium weight, lifting it out of the muted baseline. The ACTIVE row
             // never carries it (POD-272) — you are looking at that session.
@@ -683,7 +683,7 @@ export function PanelRow({
               (sub-issue) when SessionMeta carries displayRef or issueId. */}
           {issueLinkage && (
             <span
-              className="flex-none font-mono text-[10px] text-[#6c6c78] tabular-nums"
+              className="flex-none font-mono text-[10px] text-text-dim tabular-nums"
               data-testid="session-issue-linkage"
               title={
                 issueDisplayRef?.trim()
@@ -717,7 +717,7 @@ export function PanelRow({
             // Shrinkable, never flex-none: an agent actor's id is a full uuid,
             // and a rigid pair pushed its on-behalf-of half clean off the row.
             // Capped at half the row so the session's NAME still wins the space.
-            className="min-w-0 max-w-[50%] shrink font-mono text-[9.5px] text-[#6c6c78]"
+            className="min-w-0 max-w-[50%] shrink font-mono text-[9.5px] text-text-dim"
           />
           {/* Unsent composer draft → DRAFT tag (shown wherever a session is listed,
               not just NEEDS YOUR ATTENTION). The session is also lifted by its
@@ -763,7 +763,7 @@ export function PanelRow({
                   ? 'text-attention'
                   : badge?.tone === 'error'
                     ? 'text-destructive'
-                    : 'text-[#6c7690]',
+                    : 'text-text-dim',
               )}
             >
               {meta}
@@ -813,7 +813,7 @@ export function PanelRow({
           data-hover-reveal
           className={cn(
             'absolute top-1/2 right-5 hidden -translate-y-1/2 items-center gap-0 rounded-md group-hover:flex',
-            active ? 'bg-[#232330]' : 'bg-[#20202a]',
+            active ? 'bg-accent' : 'bg-muted',
           )}
         >
           <Button

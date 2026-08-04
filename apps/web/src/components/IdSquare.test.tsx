@@ -104,14 +104,19 @@ describe('IdSquare square language', () => {
     const { rerender } = render(
       <IdSquare issue={issue()} state="working" onColorChange={onColorChange} />,
     )
-    expect(square().getAttribute('style')).toContain('border: 1px solid #33456e')
-    expect(square().getAttribute('style')).toContain('background: #182338')
-    expect(square().getAttribute('style')).toContain('color: #c3cbe0')
+    // Every neutral tone is a token read (POD-388) so the square repaints with
+    // the theme; the solid/dashed seam still carries the resting distinction.
+    expect(square().getAttribute('style')).toContain('border-style: solid')
+    expect(square().getAttribute('style')).toContain('border-color: var(--border-strong)')
+    expect(square().getAttribute('style')).toContain('background: var(--chip)')
+    expect(square().getAttribute('style')).toContain('color: var(--foreground)')
     expect(square().style.opacity).toBe('1')
 
     rerender(<IdSquare issue={issue()} state="queued" onColorChange={onColorChange} />)
-    expect(square().getAttribute('style')).toContain('border: 1px dashed #3a4a70')
-    expect(square().getAttribute('style')).toContain('color: #7d88a4')
+    expect(square().getAttribute('style')).toContain('border-style: dashed')
+    expect(square().getAttribute('style')).toContain('border-color: var(--border-strong)')
+    expect(square().getAttribute('style')).toContain('background: var(--muted)')
+    expect(square().getAttribute('style')).toContain('color: var(--label)')
     expect(square().style.opacity).toBe('0.65')
 
     rerender(<IdSquare issue={issue()} state="idle" onColorChange={onColorChange} />)
@@ -125,14 +130,14 @@ describe('IdSquare square language', () => {
       <IdSquare issue={issue({ color: 'violet' })} state="queued" onColorChange={onColorChange} />,
     )
     expect(square().getAttribute('style')).toContain('background: #8b5cf6')
-    expect(square().getAttribute('style')).toContain('border: 1px solid transparent')
+    expect(square().getAttribute('style')).toContain('border-color: transparent')
     expect(square().getAttribute('data-color')).toBe('violet')
     expect(square().style.opacity).toBe('0.65')
 
     rerender(<IdSquare issue={issue()} state="idle" selected onColorChange={onColorChange} />)
-    expect(square().getAttribute('style')).toContain('border: 1px solid #c8d2e0')
-    expect(square().getAttribute('style')).toContain('color: #eef2f8')
-    expect(square().getAttribute('style')).toContain('rgba(148,163,184,.3)')
+    expect(square().getAttribute('style')).toContain('border-color: var(--foreground)')
+    expect(square().getAttribute('style')).toContain('color: var(--text-strong)')
+    expect(square().getAttribute('style')).toContain('color-mix(in srgb, var(--flow) 30%, transparent)')
     expect(square().style.opacity).toBe('1')
   })
 
@@ -141,11 +146,11 @@ describe('IdSquare square language', () => {
     const { rerender } = render(
       <IdSquare issue={issue()} state="waiting" onColorChange={onColorChange} />,
     )
-    expect(square().getAttribute('style')).toContain('border: 1px solid #33456e')
+    expect(square().getAttribute('style')).toContain('border-color: var(--border-strong)')
     expect(square().style.opacity).toBe('1')
 
     rerender(<IdSquare issue={issue()} state="done" onColorChange={onColorChange} />)
-    expect(square().getAttribute('style')).toContain('border: 1px solid #33456e')
+    expect(square().getAttribute('style')).toContain('border-color: var(--border-strong)')
     expect(square().style.opacity).toBe('1')
   })
 
@@ -205,7 +210,7 @@ describe('IdSquare colour picker', () => {
 
     const el = screen.getByRole('button', { name: 'Set colour for task #39' })
     fireEvent.click(el)
-    expect(el.getAttribute('style')).toContain('0 0 0 2px #f3f3f8')
+    expect(el.getAttribute('style')).toContain('0 0 0 2px var(--text-strong)')
     expect(screen.getByRole('dialog', { name: 'Task colour for #39' })).toBeTruthy()
     expect(screen.getAllByRole('button', { pressed: false })).toHaveLength(10)
 

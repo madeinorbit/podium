@@ -809,7 +809,7 @@ export function AgentPanel({
                 type="button"
                 variant="secondary"
                 size="sm"
-                className="absolute bottom-3 left-1/2 z-[4] -translate-x-1/2 rounded-full bg-muted text-foreground shadow-[0_4px_14px_rgba(0,0,0,0.4)] hover:border-primary"
+                className="absolute bottom-3 left-1/2 z-[4] -translate-x-1/2 rounded-full bg-muted text-foreground shadow-[0_4px_14px_var(--carve-popover-near)] hover:border-primary"
                 onClick={() => mountedRef.current?.view.scrollToBottom()}
               >
                 <ArrowDownToLine size={13} aria-hidden="true" /> Jump to bottom

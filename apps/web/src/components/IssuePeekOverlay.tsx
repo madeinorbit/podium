@@ -128,7 +128,7 @@ export function IssuePeekOverlay(): JSX.Element | null {
           'pointer-events-auto absolute inset-y-2 right-2 flex w-[min(480px,calc(100vw-16px))] flex-col overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground outline-none',
           // Elevation reads from the edge: a long soft throw to the left plus a
           // hairline ring, so the drawer is unmistakably a layer, not a column.
-          'shadow-[-40px_0_80px_-24px_rgba(0,0,0,0.65),0_0_0_1px_rgba(0,0,0,0.35)]',
+          'shadow-[-40px_0_80px_-24px_var(--carve-popover-far),0_0_0_1px_var(--carve-popover-near)]',
           'transition-transform will-change-transform motion-reduce:transition-none motion-reduce:translate-x-0',
           visible ? `translate-x-0 ${ENTER}` : `translate-x-[calc(100%+24px)] ${EXIT}`,
         )}

@@ -10,7 +10,7 @@ import type { IssueViewModel } from './store'
 import { useStoreSelector } from './store'
 
 /** The rail sits on the tinted --card gradient — corner badges punch out of it. */
-const RAIL_SURFACE = '#16161c'
+const RAIL_SURFACE = 'var(--card)'
 
 function railBadge(phase: MotionPhase, waitingCount: number): IdSquareBadge | null {
   if (waitingCount > 0) return { kind: 'count', count: waitingCount }
@@ -82,7 +82,7 @@ export function RightRail({
             // No selected issue: the square language's resting (dashed) look.
             // Deliberately NOT .right-rail-cell — its unlayered border:0 would
             // beat the utility border.
-            'flex size-[26px] flex-none cursor-pointer items-center justify-center rounded-[7px] border border-dashed border-[#6c6c78] bg-[#25252f] font-mono text-[8px] font-semibold text-[#8d8d9a] opacity-65 hover:opacity-100',
+            'flex size-[26px] flex-none cursor-pointer items-center justify-center rounded-[7px] border border-dashed border-text-dim bg-secondary font-mono text-[8px] font-semibold text-label opacity-65 hover:opacity-100',
             rightPanel === 'issue' && 'text-primary opacity-100',
           )}
         >

@@ -92,7 +92,7 @@ export function PhaseTimer({
         className={cn('font-mono tabular-nums', morph === 'waiting' && 'morph-flip-ago', className)}
         style={{
           fontSize: size,
-          color: mutedWaiting ? 'var(--ink-dim, #6c7690)' : 'var(--motion-waiting)',
+          color: mutedWaiting ? 'var(--text-dim)' : 'var(--motion-waiting)',
         }}
         title={`Waiting since ${new Date(sinceMs).toLocaleString()}`}
       >

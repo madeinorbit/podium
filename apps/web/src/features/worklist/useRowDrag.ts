@@ -107,7 +107,7 @@ export function useRowDrag(opts: {
       wrapper.style.zIndex = '30'
       wrapper.style.position = 'relative'
       wrapper.style.pointerEvents = 'none'
-      wrapper.style.boxShadow = '0 8px 20px rgb(0 0 0 / .45)'
+      wrapper.style.boxShadow = '0 8px 20px var(--carve-popover-near)'
       wrapper.style.borderRadius = '7px'
       grip.setPointerCapture(e.pointerId)
 

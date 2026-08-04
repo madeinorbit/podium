@@ -101,7 +101,7 @@ export function Tray({
         data-testid="tray-empty"
         className="flex flex-none flex-wrap items-center justify-center gap-x-2.5 gap-y-1.5 px-4 pt-5 pb-5"
       >
-        <span className="text-[12px] text-[#3f3f4a]" aria-hidden="true">
+        <span className="text-[12px] text-text-faint" aria-hidden="true">
           ✓
         </span>
         <span className="text-[12px] leading-5 text-text-dim">

@@ -42,7 +42,7 @@ export function SectionBar({
       data-open={open}
       className={cn(
         'flex flex-none cursor-pointer select-none items-center gap-2 border-hairline-bar bg-bar px-[13px] py-[5px]',
-        shadow && 'shadow-[0_5px_10px_-5px_rgba(0,0,0,.9)]',
+        shadow && 'shadow-[var(--shadow-bar-drop)]',
         className,
       )}
       onClick={onToggle}

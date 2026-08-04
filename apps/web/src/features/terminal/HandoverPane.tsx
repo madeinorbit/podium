@@ -132,7 +132,10 @@ export function HandoverPane({
         'handover-veil absolute inset-x-0 bottom-0 top-[40px] z-30 flex flex-col items-center justify-center text-center',
         out && 'handover-veil-out',
       )}
-      style={{ backgroundColor: background, boxShadow: 'inset 0 3px 6px -3px rgb(0 0 0 / 0.85)' }}
+      style={{
+        backgroundColor: background,
+        boxShadow: 'inset 0 3px 6px -3px var(--carve-engraved)',
+      }}
     >
       <p className="m-0 px-6 text-[19px] font-semibold leading-[1.2] tracking-[-0.015em] text-balance text-(--handover-ink)">
         {arrived ? `Resumed on ${view.to}` : `Handing over to ${view.to}`}

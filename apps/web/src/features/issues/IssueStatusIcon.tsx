@@ -25,7 +25,7 @@ export function IssueStatusIcon({
       className="relative flex flex-none items-center justify-center"
       style={{ width: size, height: size }}
     >
-      <ListTodo size={size} className="text-[#8a8a97]" aria-hidden="true" />
+      <ListTodo size={size} className="text-muted-foreground" aria-hidden="true" />
       {/* Corner badge: a small stage glyph on a background chip so it reads as a
           badge over the base glyph rather than blending into it. */}
       {badge && (

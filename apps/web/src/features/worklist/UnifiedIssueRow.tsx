@@ -104,7 +104,7 @@ function IssueFleetSummary({
             {AgentIcon ? <AgentIcon size={12} strokeWidth={1.8} aria-hidden="true" /> : '✳'}
             {showDot && (
               <span
-                className="absolute -top-[3px] -right-[3px] z-[1] size-[7px] rounded-full border-[1.5px] border-[var(--row-bg,#16161c)] bg-info"
+                className="absolute -top-[3px] -right-[3px] z-[1] size-[7px] rounded-full border-[1.5px] border-[var(--row-bg,var(--sidebar))] bg-info"
                 data-testid="row-unread-dot"
                 aria-hidden="true"
               />
@@ -114,7 +114,7 @@ function IssueFleetSummary({
       })}
       {overflow > 0 && (
         <span
-          className="-ml-1 flex h-[19px] min-w-[19px] items-center justify-center rounded-[6px] border border-[#33456e] bg-[#182338] px-0.5 font-mono text-[8px] text-[#9aa4c0]"
+          className="-ml-1 flex h-[19px] min-w-[19px] items-center justify-center rounded-[6px] border border-border-strong bg-chip px-0.5 font-mono text-[8px] text-muted-foreground"
           style={{ zIndex: shown.length + 1 }}
         >
           +{overflow}
@@ -122,7 +122,7 @@ function IssueFleetSummary({
       )}
       {nativeCount > 0 && (
         <span
-          className="-mt-2 -ml-1 rounded-[4px] border border-[#50392f] bg-[#241915] px-[2px] font-mono text-[7px] leading-[11px] text-[#d97757]"
+          className="-mt-2 -ml-1 rounded-[4px] border border-claude/35 bg-claude/12 px-[2px] font-mono text-[7px] leading-[11px] text-claude"
           style={{ zIndex: shown.length + 2 }}
           data-testid="issue-fleet-subagent-count"
         >

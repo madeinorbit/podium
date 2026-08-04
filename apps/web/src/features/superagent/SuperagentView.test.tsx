@@ -227,7 +227,7 @@ describe('tray filtering (human-actionable only)', () => {
     ) as HTMLElement
     expect(quiet.dataset.issueColored).toBe('false')
     expect(quiet.style.getPropertyValue('--issue')).toBe('#565965')
-    expect(quiet.style.getPropertyValue('--issue-action-fg')).toBe('#f3f3f8')
+    expect(quiet.style.getPropertyValue('--issue-action-fg')).toBe('var(--text-strong)')
     expect(violet.dataset.issueColored).toBe('true')
     expect(violet.style.getPropertyValue('--issue')).toBe('#8b5cf6')
     expect(violet.style.getPropertyValue('--issue-action-fg')).toBe('')

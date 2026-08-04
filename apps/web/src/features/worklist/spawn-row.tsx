@@ -240,7 +240,7 @@ export function NewWorkRow({ sections }: { sections?: SidebarSections } = {}): J
         <button
           data-pressable
           type="button"
-          className="flex w-full min-w-0 items-center gap-2 rounded-lg border border-[#3a3a46] bg-[#25252f] px-[10px] py-2 pr-[32px] text-[12px] leading-[normal] font-medium text-[#eaeaf0] transition-colors hover:border-[#4a4a56] hover:bg-[#2b2b36] disabled:opacity-50"
+          className="flex w-full min-w-0 items-center gap-2 rounded-lg border border-border-strong bg-chip px-[10px] py-2 pr-[32px] text-[12px] leading-[normal] font-medium text-text-strong transition-colors hover:border-text-faint hover:bg-accent disabled:opacity-50"
           disabled={!defaultRepo}
           title={
             defaultTarget
@@ -269,7 +269,7 @@ export function NewWorkRow({ sections }: { sections?: SidebarSections } = {}): J
               <button
                 data-pressable
                 type="button"
-                className="absolute top-1/2 right-[9px] flex size-6 -translate-y-1/2 items-center justify-center rounded text-[#7a7a86] hover:text-foreground"
+                className="absolute top-1/2 right-[9px] flex size-6 -translate-y-1/2 items-center justify-center rounded text-label hover:text-foreground"
                 aria-label="Choose agent and repo"
               >
                 <ChevronDown size={13} aria-hidden="true" />
@@ -300,8 +300,8 @@ export function AppToolsRow({ className }: { className?: string }): JSX.Element 
   const commandPaletteEnabled = useFeature('command-palette')
   const btn = (active = false) =>
     cn(
-      'flex size-7 items-center justify-center rounded-md text-[#9a9aa8] transition-colors hover:bg-[#20202a] hover:text-[#f3f3f8]',
-      active && 'bg-[#20202a] text-[#f3f3f8]',
+      'flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-text-strong',
+      active && 'bg-muted text-text-strong',
     )
   return (
     <div className={cn('flex items-center justify-around', className)}>

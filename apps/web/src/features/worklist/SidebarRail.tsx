@@ -32,8 +32,8 @@ import { useDefaultSpawn } from './spawn-row'
 import { useUnifiedWork } from './use-unified-work'
 
 /** The rail sits on the collapsed aside's surface — corner badges punch out of
- *  this colour (the --card sidebar background). */
-const RAIL_SURFACE = '#16161c'
+ *  this colour, so it must track the theme's sidebar surface, not a literal. */
+const RAIL_SURFACE = 'var(--sidebar)'
 
 function railBadge(phase: MotionPhase, waitingCount: number): IdSquareBadge | null {
   if (waitingCount > 0) return { kind: 'count', count: waitingCount }
@@ -116,12 +116,18 @@ export function SidebarRail(): JSX.Element {
           data-pressable
           type="button"
           data-testid="rail-worktree-square"
-          className="phase-surface relative flex size-[26px] flex-none cursor-pointer items-center justify-center rounded-[7px] bg-[#25252f]"
+          className="phase-surface relative flex size-[26px] flex-none cursor-pointer items-center justify-center rounded-[7px] bg-secondary"
           style={{
-            border: resting ? '1px dashed #6c6c78' : '1px solid #8d8d9a',
-            color: resting ? '#8d8d9a' : '#c5c5d0',
+            // Longhands, not a `border` shorthand: a `var()` inside a shorthand
+            // only resolves at computed-value time, so it can't be read back.
+            borderWidth: 1,
+            borderStyle: resting ? 'dashed' : 'solid',
+            borderColor: resting ? 'var(--text-dim)' : 'var(--label)',
+            color: resting ? 'var(--label)' : 'var(--foreground)',
             opacity: resting && !selected ? 0.6 : 1,
-            boxShadow: selected ? '0 0 0 2px rgba(148,163,184,.3)' : undefined,
+            boxShadow: selected
+              ? '0 0 0 2px color-mix(in srgb, var(--flow) 30%, transparent)'
+              : undefined,
           }}
           title={`${name} — ${selected ? 'selected, ' : ''}${status}`}
           aria-label={`Open worktree ${name}`}
@@ -141,7 +147,7 @@ export function SidebarRail(): JSX.Element {
         data-pressable
         type="button"
         data-testid="rail-new-agent"
-        className="flex size-7 flex-none cursor-pointer items-center justify-center rounded-lg border border-[#3a3a46] bg-[#25252f] transition-colors hover:border-[#4a4a56] hover:bg-[#2b2b36] disabled:opacity-50"
+        className="flex size-7 flex-none cursor-pointer items-center justify-center rounded-lg border border-border-strong bg-chip transition-colors hover:border-text-faint hover:bg-accent disabled:opacity-50"
         disabled={!defaultRepo}
         title={defaultTarget ? `New agent in ${defaultTarget.repoName}` : 'No repos yet'}
         onClick={() => defaultRepo && spawn(defaultAgent, defaultRepo)}
@@ -162,7 +168,7 @@ export function SidebarRail(): JSX.Element {
           <Fragment key={group.key}>
             <span
               data-testid="rail-project-hairline"
-              className="h-px w-[26px] flex-none bg-[#25252f]"
+              className="h-px w-[26px] flex-none bg-hairline-soft"
               title={group.label}
             />
             {group.rows.flatMap((row) => {
@@ -181,7 +187,7 @@ export function SidebarRail(): JSX.Element {
         <button
           data-pressable
           type="button"
-          className="flex size-7 flex-none cursor-pointer items-center justify-center rounded-md text-[#9a9aa8] transition-colors hover:bg-[#20202a] hover:text-[#f3f3f8]"
+          className="flex size-7 flex-none cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-text-strong"
           title="Search (⌘K)"
           aria-label="Search"
           onClick={() => setPaletteOpen(true)}

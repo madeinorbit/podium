@@ -48,10 +48,10 @@ const clock = (ts: string): string => {
     : `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
-/** §2.2 super agent bar icon actions: 20×20, `#6c6c78` at rest,
- *  hover `#f3f3f8` on `#1b1b22`, 5px radius. */
+/** §2.2 super agent bar icon actions: 20×20, --text-dim at rest,
+ *  hover --text-strong on the raised --chip tier, 5px radius. */
 const BAR_ACTION_CLS =
-  'size-5 flex-none rounded-[5px] text-[#6c6c78] hover:bg-[#1b1b22] hover:text-[#f3f3f8]'
+  'size-5 flex-none rounded-[5px] text-text-dim hover:bg-chip hover:text-text-strong'
 
 /**
  * The engraved column's CONTENT (issue #42): the Tray — ONLY items needing a
@@ -357,7 +357,7 @@ export function SuperagentView({
               aria-label="Resize tray"
               aria-valuemin={TRAY_MIN_HEIGHT}
               aria-valuenow={trayHeight ?? TRAY_MIN_HEIGHT}
-              className="h-[5px] flex-none cursor-row-resize hover:bg-[rgba(245,158,11,.15)]"
+              className="h-[5px] flex-none cursor-row-resize hover:bg-attention/15"
               onPointerDown={onSplitPointerDown}
             />
           )}
@@ -430,9 +430,9 @@ export function SuperagentView({
               data-testid="you-were-here"
               className="flex flex-none items-center gap-2 px-3.5 pt-2 pb-0.5 font-mono text-[9px] tracking-[.08em] text-attention"
             >
-              <span className="h-px flex-1 bg-[rgba(245,158,11,.4)]" />
+              <span className="h-px flex-1 bg-attention/40" />
               YOU WERE HERE{feed.dividerTs ? ` · ${clock(feed.dividerTs)}` : ''}
-              <span className="h-px flex-1 bg-[rgba(245,158,11,.4)]" />
+              <span className="h-px flex-1 bg-attention/40" />
             </div>
           )}
           {podiumSessionId ? (
@@ -636,10 +636,10 @@ function FreshThreadComposer({
         )}
       </div>
       <div className="flex-none border-t border-hairline-soft px-3.5 pt-2.5 pb-[calc(10px+env(safe-area-inset-bottom,0px))] font-mono">
-        <div className="relative flex items-end gap-2 rounded-lg border border-[#3a3a46] bg-[rgba(8,8,12,.7)] px-3 py-1.5 transition-colors focus-within:border-primary">
+        <div className="relative flex items-end gap-2 rounded-lg border border-border-strong bg-bar/70 px-3 py-1.5 transition-colors focus-within:border-primary">
           {atQuery !== null && atHits.length > 0 && (
             <div
-              className="absolute right-0 bottom-[calc(100%+10px)] left-0 z-30 flex max-w-[460px] flex-col overflow-hidden rounded-md border border-input bg-muted font-sans shadow-[0_-8px_24px_rgb(0_0_0_/_0.4)]"
+              className="absolute right-0 bottom-[calc(100%+10px)] left-0 z-30 flex max-w-[460px] flex-col overflow-hidden rounded-md border border-input bg-muted font-sans shadow-[0_-8px_24px_var(--carve-popover-far)]"
               role="listbox"
             >
               {atHits.map((option, i) => (
@@ -673,7 +673,7 @@ function FreshThreadComposer({
             </div>
           )}
           <span
-            className="flex-none pt-[3px] text-[13px] leading-[1.45] text-[#6c6c78]"
+            className="flex-none pt-[3px] text-[13px] leading-[1.45] text-text-dim"
             aria-hidden="true"
           >
             &gt;
@@ -681,7 +681,7 @@ function FreshThreadComposer({
           <BlockCaret taRef={inputRef} value={draft} />
           <Textarea
             ref={inputRef}
-            className="min-h-0 flex-1 resize-none overflow-y-auto rounded-none border-0 bg-transparent p-0 text-[13px] leading-[1.45] text-foreground caret-transparent shadow-none field-sizing-fixed transition-[height] duration-300 ease-[cubic-bezier(0.25,1,0.35,1)] placeholder:text-[#4d4d59] focus-visible:border-0 focus-visible:ring-0 dark:bg-transparent"
+            className="min-h-0 flex-1 resize-none overflow-y-auto rounded-none border-0 bg-transparent p-0 text-[13px] leading-[1.45] text-foreground caret-transparent shadow-none field-sizing-fixed transition-[height] duration-300 ease-[cubic-bezier(0.25,1,0.35,1)] placeholder:text-text-faint focus-visible:border-0 focus-visible:ring-0 dark:bg-transparent"
             rows={1}
             placeholder="Ask anything — @ to add context"
             value={draft}
@@ -743,8 +743,8 @@ function FreshThreadComposer({
             <Send size={14} aria-hidden="true" />
           </button>
         </div>
-        <div className="flex items-center gap-2 px-1 pt-1.5 text-[10.5px] text-[#4d4d59]">
-          <span className="text-[#6c6c78]">⏵⏵ auto-delegate on</span>
+        <div className="flex items-center gap-2 px-1 pt-1.5 text-[10.5px] text-text-faint">
+          <span className="text-text-dim">⏵⏵ auto-delegate on</span>
           <span>(shift+tab to cycle)</span>
           <span className="ml-auto">? for shortcuts</span>
         </div>

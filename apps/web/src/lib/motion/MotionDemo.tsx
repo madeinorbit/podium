@@ -40,14 +40,14 @@ export function MotionDemo(): JSX.Element {
   return (
     <main
       aria-label="Motion primitives demo"
-      className="flex min-h-dvh items-center justify-center bg-[#0e0e12] p-8 text-[#d7d7e0]"
+      className="flex min-h-dvh items-center justify-center bg-background p-8 text-foreground"
     >
-      <section className="w-full max-w-[620px] rounded-xl border border-[#2a2a34] bg-[#16161c] p-6 shadow-2xl">
+      <section className="w-full max-w-[620px] rounded-xl border border-border bg-card p-6 shadow-2xl">
         <div className="mb-5 flex items-baseline gap-3">
-          <h1 className="text-lg font-semibold text-[#f3f3f8]">Motion primitives</h1>
+          <h1 className="text-lg font-semibold text-text-strong">Motion primitives</h1>
           <output
             data-testid="phase-label"
-            className="font-mono text-[9px] tracking-[0.12em] text-[#9a9aa8]"
+            className="font-mono text-[9px] tracking-[0.12em] text-muted-foreground"
           >
             {PHASE_LABEL[phase]}
           </output>
@@ -66,13 +66,13 @@ export function MotionDemo(): JSX.Element {
           style={{
             background:
               phase === 'waiting'
-                ? 'rgba(245, 158, 11, 0.1)'
+                ? 'color-mix(in srgb, var(--attention) 10%, transparent)'
                 : phase === 'working'
-                  ? 'color-mix(in srgb, #8b5cf6 20%, #16161c)'
-                  : 'color-mix(in srgb, #8b5cf6 8%, #16161c)',
+                  ? 'color-mix(in srgb, #8b5cf6 20%, var(--card))'
+                  : 'color-mix(in srgb, #8b5cf6 8%, var(--card))',
             borderColor:
               phase === 'waiting'
-                ? 'rgba(245, 158, 11, 0.45)'
+                ? 'color-mix(in srgb, var(--attention) 45%, transparent)'
                 : phase === 'queued'
                   ? 'transparent'
                   : 'rgba(139, 92, 246, 0.5)',
@@ -86,10 +86,10 @@ export function MotionDemo(): JSX.Element {
               morph === 'working' && 'morph-ignite',
             )}
             style={{
-              background: phase === 'queued' ? '#25252f' : '#8b5cf6',
-              borderColor: phase === 'queued' ? '#6c6c78' : '#8b5cf6',
+              background: phase === 'queued' ? 'var(--secondary)' : '#8b5cf6',
+              borderColor: phase === 'queued' ? 'var(--text-dim)' : '#8b5cf6',
               borderStyle: phase === 'queued' ? 'dashed' : 'solid',
-              color: phase === 'queued' ? '#8d8d9a' : '#1e0b44',
+              color: phase === 'queued' ? 'var(--label)' : '#1e0b44',
             }}
           >
             <span>POD</span>
@@ -97,8 +97,8 @@ export function MotionDemo(): JSX.Element {
             <StatusBadge kind={badgeKind} count={phase === 'waiting' ? 1 : undefined} />
           </span>
           <div className="min-w-0 flex-1">
-            <div className="font-medium text-[#f6f3ff]">Token refresh loop</div>
-            <div className="text-[11px] text-[#8d84a6]">
+            <div className="font-medium text-text-strong">Token refresh loop</div>
+            <div className="text-[11px] text-muted-foreground">
               {phase === 'queued' ? 'queued' : phase === 'working' ? 'computing' : phase}
             </div>
           </div>

@@ -175,7 +175,7 @@ export function ChatComposer({
           offline copy — as of {new Date(offlineAsOf).toLocaleString()}
         </div>
       )}
-      <div className="relative flex flex-col gap-0.5 rounded-lg border border-[#3a3a46] bg-background px-3 py-1.5 focus-within:border-primary">
+      <div className="relative flex flex-col gap-0.5 rounded-lg border border-border-strong bg-background px-3 py-1.5 focus-within:border-primary">
         {attachments.dragOver && (
           <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl border-2 border-dashed border-primary bg-primary/5">
             <span className="text-sm font-medium text-primary">Drop image to attach</span>
@@ -192,7 +192,7 @@ export function ChatComposer({
         <BlockCaret taRef={taRef} value={draft} />
         <div className="flex items-start gap-2">
           <span
-            className="flex-none pt-[5px] text-[13px] leading-[1.45] text-[#6c6c78]"
+            className="flex-none pt-[5px] text-[13px] leading-[1.45] text-text-dim"
             aria-hidden="true"
           >
             &gt;
@@ -201,7 +201,7 @@ export function ChatComposer({
             ref={taRef}
             rows={1}
             placeholder={placeholder}
-            className="block max-h-44 min-h-0 w-full resize-none overflow-y-auto rounded-none border-0 bg-transparent p-0.5 text-[13px] leading-[1.45] text-foreground caret-transparent outline-none transition-[height] duration-300 ease-[cubic-bezier(0.25,1,0.35,1)] [field-sizing:fixed] placeholder:text-[#4d4d59] focus-visible:border-0 focus-visible:ring-0 disabled:bg-transparent disabled:text-muted-foreground disabled:opacity-100 dark:bg-transparent dark:disabled:bg-transparent"
+            className="block max-h-44 min-h-0 w-full resize-none overflow-y-auto rounded-none border-0 bg-transparent p-0.5 text-[13px] leading-[1.45] text-foreground caret-transparent outline-none transition-[height] duration-300 ease-[cubic-bezier(0.25,1,0.35,1)] [field-sizing:fixed] placeholder:text-text-faint focus-visible:border-0 focus-visible:ring-0 disabled:bg-transparent disabled:text-muted-foreground disabled:opacity-100 dark:bg-transparent dark:disabled:bg-transparent"
             value={draft}
             disabled={!enabled}
             onChange={(e) => onDraftChange(e.target.value)}
@@ -281,8 +281,8 @@ export function ChatComposer({
         <AttachmentStrip attachments={attachments.attachments} onRemove={attachments.remove} />
       </div>
       {compact && (
-        <div className="flex items-center gap-2 px-1 pt-1.5 text-[10.5px] text-[#4d4d59]">
-          <span className="text-[#6c6c78]">⏵⏵ auto-delegate on</span>
+        <div className="flex items-center gap-2 px-1 pt-1.5 text-[10.5px] text-text-faint">
+          <span className="text-text-dim">⏵⏵ auto-delegate on</span>
           <span>(shift+tab to cycle)</span>
           <span className="ml-auto">? for shortcuts</span>
         </div>

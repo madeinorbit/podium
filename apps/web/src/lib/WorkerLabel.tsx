@@ -103,7 +103,7 @@ export function KindIcon({
   if (chip) {
     // Per-kind tinted tile (POD-293): Claude wears its clay, other harnesses a
     // quiet navy — solid fills so the chip never ghosts through a neighbour.
-    const chipTint = dimmed ? 'border-[#2a3550] bg-[#141d30]' : agentChipTint(kind)
+    const chipTint = dimmed ? 'border-hairline-bar bg-muted' : agentChipTint(kind)
     return (
       <span
         className={`flex size-5 flex-none items-center justify-center rounded-[6px] border ${chipTint} ${tone}`}

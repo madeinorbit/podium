@@ -75,7 +75,7 @@ function StateLine({ issue }: { issue: IssueViewModel }): JSX.Element {
 /* 28px card control scale: 12px label, comfortable inline padding, r7. */
 const BTN =
   'inline-flex min-h-7 flex-none cursor-pointer items-center rounded-[7px] px-3.5 py-1 text-[12px] leading-[1.35] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--issue) focus-visible:ring-offset-1 focus-visible:ring-offset-background'
-const BTN_SEC = `${BTN} border border-[rgba(243,243,248,.28)] bg-transparent text-foreground hover:border-[rgba(243,243,248,.5)]`
+const BTN_SEC = `${BTN} border border-foreground/28 bg-transparent text-foreground hover:border-foreground/50`
 const BTN_TER = `${BTN} border border-border-strong bg-transparent text-muted-foreground hover:border-text-dim hover:text-foreground`
 
 function PrimaryButton({
@@ -167,12 +167,12 @@ export function TrayCard({
       : { mix: 'issue-mix-16 issue-hairline-55', hover: 'hover:issue-hairline-80' }
   const cardStyle = {
     '--issue': hex,
-    ...(!colored ? { '--issue-action-fg': '#f3f3f8' } : {}),
+    ...(!colored ? { '--issue-action-fg': 'var(--text-strong)' } : {}),
     ...(selected
       ? {
           boxShadow: colored
             ? '0 0 0 1px color-mix(in srgb, var(--issue) 35%, transparent), 0 0 14px -4px color-mix(in srgb, var(--issue) 45%, transparent)'
-            : '0 0 0 1px rgba(174,176,187,.38), 0 0 12px -5px rgba(174,176,187,.24)',
+            : '0 0 0 1px color-mix(in srgb, var(--foreground) 38%, transparent), 0 0 12px -5px color-mix(in srgb, var(--foreground) 24%, transparent)',
         }
       : {}),
   } as CSSProperties
@@ -208,7 +208,7 @@ export function TrayCard({
         />
         <span
           className="flex-none font-mono text-[10.5px] leading-5"
-          style={{ color: 'color-mix(in srgb, var(--issue) 65%, #f3f3f8)' }}
+          style={{ color: 'color-mix(in srgb, var(--issue) 65%, var(--text-strong))' }}
         >
           {issueDisplayRef(issue)}
         </span>
@@ -263,7 +263,7 @@ export function TrayCard({
                 }
                 if (e.key === 'Escape') setPending(null)
               }}
-              className="w-full resize-none rounded-[7px] border bg-[rgba(8,8,12,.7)] px-2.5 py-2 text-[12.5px] leading-[1.55] text-foreground outline-none issue-hairline-40 placeholder:text-text-dim focus:issue-hairline-70"
+              className="w-full resize-none rounded-[7px] border bg-bar/70 px-2.5 py-2 text-[12.5px] leading-[1.55] text-foreground outline-none issue-hairline-40 placeholder:text-text-dim focus:issue-hairline-70"
             />
             <div className="flex min-w-0 items-center gap-2">
               <PrimaryButton

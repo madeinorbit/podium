@@ -249,7 +249,7 @@ export function QuotaIndicator({
                 </span>
               )}
               {!compact && detail && worstW && (
-                <span className="whitespace-nowrap text-[#6c6c78]">
+                <span className="whitespace-nowrap text-text-dim">
                   {agentLabel(worstW.g.agent)} {Math.round(worstW.w.usedPercent)}% ·{' '}
                   {formatReset(worstW.w.resetsAt, Date.now())}
                 </span>

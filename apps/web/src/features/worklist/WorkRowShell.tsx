@@ -19,14 +19,18 @@ function rowTints(hex: string | undefined, phase: MotionPhase, active: boolean) 
   return {
     title: active
       ? hex
-        ? `color-mix(in srgb, ${hex} 10%, #f7f7fc)`
-        : '#f2f5fa'
+        ? `color-mix(in srgb, ${hex} 10%, var(--text-strong))`
+        : 'var(--text-strong)'
       : hex
-        ? `color-mix(in srgb, ${hex} 25%, #d7d7e0)`
+        ? `color-mix(in srgb, ${hex} 25%, var(--foreground))`
         : phase === 'queued'
-          ? '#9a9aa8'
-          : '#d7d7e0',
-    status: hex ? `color-mix(in srgb, ${hex} 55%, #9a9aa8)` : active ? '#aab6c8' : '#6c6c78',
+          ? 'var(--muted-foreground)'
+          : 'var(--foreground)',
+    status: hex
+      ? `color-mix(in srgb, ${hex} 55%, var(--muted-foreground))`
+      : active
+        ? 'var(--muted-foreground)'
+        : 'var(--text-dim)',
   }
 }
 
@@ -137,7 +141,7 @@ export function WorkRowShell({
   const tints = rowTints(hex, phase, active)
   const rowStyle: CSSProperties = active
     ? {
-        background: `color-mix(in srgb, ${accent} ${hex ? 28 : 20}%, #16161c)`,
+        background: `color-mix(in srgb, ${accent} ${hex ? 28 : 20}%, var(--sidebar))`,
         // Inset ring, not a border: selection must not change the row's height
         // (POD-81) — the box stays identical to a plain row's.
         boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${accent} ${hex ? 80 : 70}%, transparent)`,
@@ -146,8 +150,8 @@ export function WorkRowShell({
       ? // Var-driven so the hover class can override it — an inline `background`
         // would always beat `hover:` (POD-166: tint-aware hover, +5% mix).
         ({
-          '--row-bg': `color-mix(in srgb, ${hex} 12%, #16161c)`,
-          '--row-hover-bg': `color-mix(in srgb, ${hex} 17%, #16161c)`,
+          '--row-bg': `color-mix(in srgb, ${hex} 12%, var(--sidebar))`,
+          '--row-hover-bg': `color-mix(in srgb, ${hex} 17%, var(--sidebar))`,
         } as CSSProperties)
       : {}
   // A coloured issue's expanded block reads as ONE carved card (POD-293): the row
@@ -166,7 +170,7 @@ export function WorkRowShell({
               // unifies the card; the fill is only a whisper so the row stays the
               // one strongly-coloured surface and the detail reads recessed.
               borderColor: `color-mix(in srgb, ${hex} 34%, transparent)`,
-              background: `color-mix(in srgb, ${hex} 5%, #14141a)`,
+              background: `color-mix(in srgb, ${hex} 5%, var(--background))`,
             }
           : undefined
       }
@@ -176,7 +180,7 @@ export function WorkRowShell({
         className={cn(
           'phase-surface group/row relative flex min-w-0 items-center gap-2 rounded-[7px] py-[6.5px] pr-2 pl-3.5',
           carded && 'rounded-b-none',
-          !active && !hex && 'hover:bg-[#20202a]',
+          !active && !hex && 'hover:bg-muted',
           !active && hex && 'bg-[var(--row-bg)] hover:bg-[var(--row-hover-bg)]',
           phase === 'queued' && !active && 'opacity-65',
           // A finished row that still carries the tuck-away control stays at full
@@ -343,7 +347,7 @@ export function WorkRowShell({
             // Full content-height (POD-293): the control stretches to align with
             // the top of the square and the bottom of the status line, reading as
             // one clean right-edge action rather than a small floating chip.
-            className="group/tuck flex flex-none items-center gap-1.5 self-stretch rounded-md border border-[#243356] bg-[#16223c] px-2 font-mono text-[9px] tracking-[0.02em] text-[#7a84a0] transition-colors hover:border-[#364a78] hover:bg-[#1b2b49] hover:text-[#e6e9f2]"
+            className="group/tuck flex flex-none items-center gap-1.5 self-stretch rounded-md border border-border bg-chip px-2 font-mono text-[9px] tracking-[0.02em] text-label transition-colors hover:border-border-strong hover:bg-accent hover:text-text-strong"
             title="Tuck this finished task down into Closed — it stays reachable there (click to reopen, or start an agent to pick it back up). Nothing is killed or closed."
             aria-label={`Tuck ${label} into Closed`}
             onClick={(event) => {
@@ -354,7 +358,7 @@ export function WorkRowShell({
             <ArrowDownToLine
               size={11}
               aria-hidden="true"
-              className="text-[#525c78] transition-[transform,color] duration-150 group-hover/tuck:translate-y-px group-hover/tuck:text-[#9aa4c0]"
+              className="text-text-faint transition-[transform,color] duration-150 group-hover/tuck:translate-y-px group-hover/tuck:text-muted-foreground"
             />
             <span>Tuck away</span>
           </motion.button>
@@ -403,13 +407,14 @@ export function WorkRowShell({
             hex
               ? ({
                   '--tree-guide': `color-mix(in srgb, ${hex} 55%, var(--border))`,
-                  '--child-active-bg': `color-mix(in srgb, ${hex} 26%, #16161c)`,
-                  '--child-hover-bg': `color-mix(in srgb, ${hex} 18%, #16161c)`,
-                  // Recessed and subtle (POD-293): the detail sits on a darker
-                  // navy than the row with only a whisper of the issue hue, so the
+                  '--child-active-bg': `color-mix(in srgb, ${hex} 26%, var(--sidebar))`,
+                  '--child-hover-bg': `color-mix(in srgb, ${hex} 18%, var(--sidebar))`,
+                  // Recessed and subtle (POD-293): the detail sits on the page
+                  // ground rather than the row's surface, with only a whisper of
+                  // the issue hue, so the
                   // card reads carved-in — the coloured row above, a quiet well
                   // below — rather than one uniform slab of tint.
-                  background: `color-mix(in srgb, ${hex} 6%, #0e1422)`,
+                  background: `color-mix(in srgb, ${hex} 6%, var(--background))`,
                 } as CSSProperties)
               : undefined
           }

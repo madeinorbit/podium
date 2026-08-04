@@ -24,7 +24,7 @@ export type StatusBadgeKind = 'spinner' | 'count' | 'check' | 'dot'
 export function StatusBadge({
   kind,
   count,
-  ringColor = '#131318',
+  ringColor = 'var(--rail)',
   className,
 }: {
   /** Null keeps the transition latch mounted while rendering no badge. */

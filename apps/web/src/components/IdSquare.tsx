@@ -58,7 +58,7 @@ export function IdSquare({
   state,
   selected = false,
   badge = null,
-  ringColor = '#16161c',
+  ringColor = 'var(--card)',
   titleHint,
   onPrimary,
   primaryOnly = false,
@@ -180,34 +180,31 @@ export function IdSquare({
 
   const hex = displayColor ? ISSUE_COLOR_HEX[displayColor] : undefined
   const resting = state === 'queued' || state === 'idle'
-  // Neutral (uncoloured) square wears the concept's navy identity tones
-  // (POD-293): a deep-navy fill, a blue-grey seam and light ink read richer
-  // than the old flat grey, and let the coloured squares stay the exception.
-  const border = hex
-    ? '1px solid transparent'
-    : selected
-      ? '1px solid #c8d2e0'
-      : resting
-        ? '1px dashed #3a4a70'
-        : '1px solid #33456e'
+  // Neutral (uncoloured) square wears the chassis' own identity tones (POD-293):
+  // the recessed/raised surface tiers, the strong seam and light ink read richer
+  // than a flat grey, and let the coloured squares stay the exception. Written as
+  // longhands, not a `border` shorthand: a `var()` inside a shorthand is only
+  // resolved at computed-value time, so the shorthand can't be read back.
   const squareStyle: CSSProperties = {
     width: size,
     height: size,
     borderRadius: Math.round((size / 26) * 7),
     fontSize: Math.round((size / 26) * 7 * 10) / 10,
-    border,
-    background: hex ?? (resting ? '#141d30' : '#182338'),
+    borderWidth: 1,
+    borderStyle: !hex && resting ? 'dashed' : 'solid',
+    borderColor: hex ? 'transparent' : selected ? 'var(--foreground)' : 'var(--border-strong)',
+    background: hex ?? (resting ? 'var(--muted)' : 'var(--chip)'),
     color: hex
       ? `color-mix(in srgb, ${hex} 30%, #000)`
       : selected
-        ? '#eef2f8'
+        ? 'var(--text-strong)'
         : resting
-          ? '#7d88a4'
-          : '#c3cbe0',
+          ? 'var(--label)'
+          : 'var(--foreground)',
     boxShadow: open
-      ? '0 0 0 2px #f3f3f8'
+      ? '0 0 0 2px var(--text-strong)'
       : selected
-        ? `0 0 0 2px ${hex ? `color-mix(in srgb, ${hex} 35%, transparent)` : 'rgba(148,163,184,.3)'}`
+        ? `0 0 0 2px ${hex ? `color-mix(in srgb, ${hex} 35%, transparent)` : 'color-mix(in srgb, var(--flow) 30%, transparent)'}`
         : undefined,
     opacity: resting && !selected ? 0.65 : 1,
   }
@@ -225,7 +222,7 @@ export function IdSquare({
         data-badge={badge?.kind ?? 'none'}
         data-prefix={label.prefix}
         data-number={label.number}
-        className="phase-surface relative flex flex-none cursor-pointer flex-col items-center justify-center rounded-[7px] font-mono text-[7px] leading-[1.15] font-semibold outline-none focus-visible:ring-2 focus-visible:ring-[#f3f3f8]"
+        className="phase-surface relative flex flex-none cursor-pointer flex-col items-center justify-center rounded-[7px] font-mono text-[7px] leading-[1.15] font-semibold outline-none focus-visible:ring-2 focus-visible:ring-text-strong"
         style={squareStyle}
         aria-label={
           onPrimary && (primaryOnly || !selected)

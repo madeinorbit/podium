@@ -50,12 +50,12 @@ export function ProjectGroupLabel({
     <div
       data-testid="project-group-label"
       className={cn(
-        'flex items-center gap-1.5 px-1 pb-0.5 font-mono text-[8.5px] leading-[normal] tracking-[.12em] uppercase text-[#7a7a86]',
+        'flex items-center gap-1.5 px-1 pb-0.5 font-mono text-[8.5px] leading-[normal] tracking-[.12em] uppercase text-label',
         first ? 'pt-1' : 'pt-2',
       )}
     >
       <span className="truncate">{label}</span>
-      <span className="h-px min-w-4 flex-1 bg-[#25252f]" aria-hidden="true" />
+      <span className="h-px min-w-4 flex-1 bg-hairline-soft" aria-hidden="true" />
     </div>
   )
 }
@@ -66,11 +66,11 @@ export function PinnedSectionLabel(): JSX.Element {
   return (
     <div
       data-testid="pinned-section-label"
-      className="flex items-center gap-1.5 px-1 pt-1 pb-0.5 font-mono text-[8.5px] leading-[normal] tracking-[.12em] uppercase text-[#7a7a86]"
+      className="flex items-center gap-1.5 px-1 pt-1 pb-0.5 font-mono text-[8.5px] leading-[normal] tracking-[.12em] uppercase text-label"
     >
       <Pin size={9} className="flex-none text-attention" aria-hidden="true" />
       <span>Pinned</span>
-      <span className="h-px min-w-4 flex-1 bg-[#25252f]" aria-hidden="true" />
+      <span className="h-px min-w-4 flex-1 bg-hairline-soft" aria-hidden="true" />
     </div>
   )
 }
@@ -171,18 +171,20 @@ export function FoldedWorkRow({
       title={`${issueDisplayRef(issue)} · ${issue.title}`}
       className={cn(
         'group/crow flex w-full min-w-0 items-center gap-2.5 rounded-[6px] px-2 py-[3px] pr-8 text-left transition-colors',
-        active ? 'bg-[#232330]' : 'hover:bg-[#20202a]',
+        active ? 'bg-accent' : 'hover:bg-muted',
       )}
     >
-      <span className="flex-none font-mono text-[9px] font-semibold tracking-[.02em] tabular-nums text-[#525c78]">
+      <span className="flex-none font-mono text-[9px] font-semibold tracking-[.02em] tabular-nums text-text-faint">
         {issueDisplayRef(issue)}
       </span>
-      <span className="min-w-0 flex-1 truncate text-[12px] text-[#828ba6]">{issue.title}</span>
+      <span className="min-w-0 flex-1 truncate text-[12px] text-muted-foreground">
+        {issue.title}
+      </span>
       <span className="flex flex-none items-center gap-1.5 font-mono text-[8.5px]">
-        <span className={cn(marker === 'merged' ? 'text-info/70' : 'text-[#525c78]')}>
+        <span className={cn(marker === 'merged' ? 'text-info/70' : 'text-text-faint')}>
           {marker}
         </span>
-        {ago && <span className="tabular-nums text-[#6c7690]">{ago}</span>}
+        {ago && <span className="tabular-nums text-text-dim">{ago}</span>}
       </span>
     </button>
   )
@@ -211,7 +213,7 @@ export function SnoozedIssueFold({
       <button
         data-pressable
         type="button"
-        className="group/fold flex min-h-[31px] w-full items-center gap-1.5 rounded-[5px] px-2 py-0.5 text-left font-mono text-[10px] font-medium tracking-[.035em] text-[#525c78] hover:text-[#9a9aa8] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[#364a78] focus-visible:outline-offset-[-2px]"
+        className="group/fold flex min-h-[31px] w-full items-center gap-1.5 rounded-[5px] px-2 py-0.5 text-left font-mono text-[10px] font-medium tracking-[.035em] text-text-faint hover:text-muted-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong focus-visible:outline-offset-[-2px]"
         aria-expanded={!collapsed}
         aria-controls={contentId}
         onClick={toggle}
@@ -223,7 +225,7 @@ export function SnoozedIssueFold({
           aria-hidden="true"
         />
         <span>Snoozed · {rows.length}</span>
-        <span className="h-px min-w-4 flex-1 bg-[#1e2a4c]" aria-hidden="true" />
+        <span className="h-px min-w-4 flex-1 bg-hairline-soft" aria-hidden="true" />
       </button>
       {!collapsed && (
         <div id={contentId} className="min-w-0" data-testid="snoozed-fold-rows">
@@ -276,7 +278,7 @@ export function ClosedIssueFold<T>({
       <button
         data-pressable
         type="button"
-        className="group/fold flex min-h-[31px] w-full items-center gap-1.5 rounded-[5px] px-2 py-0.5 text-left font-mono text-[10px] font-medium tracking-[.035em] text-[#525c78] hover:text-[#9a9aa8] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[#364a78] focus-visible:outline-offset-[-2px]"
+        className="group/fold flex min-h-[31px] w-full items-center gap-1.5 rounded-[5px] px-2 py-0.5 text-left font-mono text-[10px] font-medium tracking-[.035em] text-text-faint hover:text-muted-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong focus-visible:outline-offset-[-2px]"
         aria-expanded={!collapsed}
         aria-controls={contentId}
         onClick={toggle}
@@ -288,7 +290,7 @@ export function ClosedIssueFold<T>({
           aria-hidden="true"
         />
         <span>Closed · {rows.length}</span>
-        <span className="h-px min-w-4 flex-1 bg-[#1e2a4c]" aria-hidden="true" />
+        <span className="h-px min-w-4 flex-1 bg-hairline-soft" aria-hidden="true" />
       </button>
       {!collapsed && (
         <div id={contentId} className="min-w-0" data-testid="closed-fold-rows">
@@ -308,7 +310,7 @@ export function ClosedIssueFold<T>({
                   // Sized and centred to the one-line folded row (POD-293): a
                   // 20px control vertically centred at the right inset, not the
                   // old tall-row top offset that hung off a 26px line.
-                  className="absolute top-1/2 right-1.5 z-20 flex size-5 -translate-y-1/2 items-center justify-center rounded-[5px] border border-[#30303b] bg-[#1a1a22] text-[#777785] opacity-0 shadow-sm transition-[color,opacity,background-color] group-hover/closed:opacity-100 group-focus-within/closed:opacity-100 hover:bg-[#24242e] hover:text-[#d7d7e0] focus-visible:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-[#526b9d]"
+                  className="absolute top-1/2 right-1.5 z-20 flex size-5 -translate-y-1/2 items-center justify-center rounded-[5px] border border-hairline-bar bg-chip text-label opacity-0 shadow-sm transition-[color,opacity,background-color] group-hover/closed:opacity-100 group-focus-within/closed:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong"
                   aria-label={`Archive ${issueDisplayRef(issueRow.issue)}`}
                   title="Archive — remove from sidebar"
                   data-testid="closed-issue-archive"
