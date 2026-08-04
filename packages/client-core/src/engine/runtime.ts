@@ -48,15 +48,15 @@
  * authentication has produced a principal. The provider renders nothing instead.
  */
 
-import type { ReadPositionWire, IssueId, LayoutWire, SessionId } from '@podium/model'
+import type { IssueId, LayoutWire, ReadPositionWire, SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import type { PodiumClientApi } from '../api'
 import type { OutboxEntry } from '../outbox'
-import { createReadPositionClient, type ReadPositionPort } from '../read-position'
+import { bindSwitchTraceUi } from '../perf/switch-trace'
 import type { ClientPrincipal } from '../principal'
+import { createReadPositionClient, type ReadPositionPort } from '../read-position'
 import type { Replica } from '../replica/replica'
 import type { FeedSinkPort, SocketHub } from '../socket-transport'
-import { bindSwitchTraceUi } from '../perf/switch-trace'
 import { NotificationSounder } from '../sound/notification-sounds'
 import type { SpawnTarget } from '../spawn-agent'
 import { createSubscriptionStore, type SubscriptionStore } from '../store'
@@ -212,6 +212,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
    *  superseded principal's late callback cannot reach any consumer. */
   private destroyed = false
   private applyingHydratedUi = false
+  /** > 0 while {@link batch} is coalescing applies into one snapshot. */
+  private batchDepth = 0
+  private pendingBatch: Partial<EngineState> | null = null
   /** True when this runtime runs on the wire-v2 feed (POD-1223). */
   private readonly onFeed: boolean
   /** One-time boot fetches (repos/pins/tab-orders/settings) — once per runtime,
@@ -273,6 +276,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       }),
       paintedIssues: () => this.state.issues,
       publish: (patch) => this.apply(patch),
+      batch: (fn) => this.batch(fn),
       ...(init.spawnConfirmGraceMs !== undefined
         ? { spawnConfirmGraceMs: init.spawnConfirmGraceMs }
         : {}),
@@ -630,6 +634,10 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
    *  than requiring each of them to remember to check. */
   private apply(patch: Partial<EngineState>): void {
     if (this.destroyed) return
+    if (this.batchDepth > 0) {
+      this.pendingBatch = { ...this.pendingBatch, ...patch }
+      return
+    }
     const changed = new Set<keyof EngineState>()
     for (const k of Object.keys(patch) as Array<keyof EngineState>) {
       const next = patch[k]
@@ -641,6 +649,40 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     if (changed.size === 0) return
     this.subStore.publish(this.buildSnapshot())
     this.react(changed)
+  }
+
+  /**
+   * ONE SNAPSHOT FOR ONE EVENT (POD-1645).
+   *
+   * A replica delta touching sessions, issues and issue projections used to run
+   * three separate `apply` calls, so it published three snapshots — and every
+   * published slice keyed on snapshot identity re-derived three times. The
+   * worklist slice's ownership index was the expensive one: POD-1641 measured
+   * 93% of main-thread CPU across a multi-minute freeze under a single delta,
+   * with the rebuild running three times per frame.
+   *
+   * Coalescing is not merely cheaper, it is more honest: the three writes come
+   * from ONE event and no consumer should ever observe the intermediate states
+   * where sessions have advanced but the issues they belong to have not.
+   *
+   * Keys are last-write-wins across the batch, which is exactly `apply`'s own
+   * shallow-merge rule; reactions run once, after the merged patch lands, so
+   * they see final state rather than a half-applied world. Code INSIDE a batch
+   * must therefore not depend on `this.state` reflecting its own writes yet.
+   */
+  private batch(fn: () => void): void {
+    if (this.destroyed) return
+    this.batchDepth++
+    try {
+      fn()
+    } finally {
+      this.batchDepth--
+      if (this.batchDepth === 0) {
+        const merged = this.pendingBatch
+        this.pendingBatch = null
+        if (merged) this.apply(merged)
+      }
+    }
   }
 
   /** Effect → reaction table (#262): each old provider useEffect either lives
@@ -740,23 +782,27 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private publishReplica(publication: ReplicaPublication): void {
     if (this.destroyed) return
     const { snapshot, changed } = publication
-    if (changed.has('sessions')) {
-      this.baseSessions = dedupeSessions(snapshot.sessions)
-      this.optimism.recomputeSessions()
-    }
-    if (changed.has('issues')) {
-      this.baseIssues = snapshot.issues
-      this.optimism.recomputeIssues()
-    }
-    if (changed.has('issueProjections')) {
-      this.baseIssueProjections = snapshot.issueProjections
-      this.optimism.recomputeIssueProjections()
-    }
-    const patch: Partial<EngineState> = {}
-    if (changed.has('conversations')) patch.conversations = snapshot.conversations
-    if (changed.has('automations')) patch.automations = snapshot.automations
-    if (changed.has('automationRuns')) patch.automationRuns = snapshot.automationRuns
-    this.apply(patch)
+    // ONE delta, ONE snapshot — see batch(). Without this the three recomputes
+    // below publish separately and every snapshot-keyed slice derives 3×.
+    this.batch(() => {
+      if (changed.has('sessions')) {
+        this.baseSessions = dedupeSessions(snapshot.sessions)
+        this.optimism.recomputeSessions()
+      }
+      if (changed.has('issues')) {
+        this.baseIssues = snapshot.issues
+        this.optimism.recomputeIssues()
+      }
+      if (changed.has('issueProjections')) {
+        this.baseIssueProjections = snapshot.issueProjections
+        this.optimism.recomputeIssueProjections()
+      }
+      const patch: Partial<EngineState> = {}
+      if (changed.has('conversations')) patch.conversations = snapshot.conversations
+      if (changed.has('automations')) patch.automations = snapshot.automations
+      if (changed.has('automationRuns')) patch.automationRuns = snapshot.automationRuns
+      this.apply(patch)
+    })
   }
 
   // -------------------------------------------------------------- outbox seams

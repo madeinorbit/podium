@@ -19,12 +19,13 @@
  * lookups as functions, so it is testable and mobile consumes it unchanged).
  */
 import {
-  isHeadlessSession,
-  worktreeForCwd,
+  buildWorktreeRootIndex,
   type IssueId,
   type IssueWire,
+  isHeadlessSession,
   type SessionId,
   type SessionMeta,
+  worktreeForCwdIndexed,
 } from '@podium/model'
 
 // ---------------------------------------------------------------------------
@@ -128,12 +129,15 @@ export function indexSessionOwnership(
   issues: readonly IssueWire[],
   allWorktreePaths: readonly string[],
 ): SessionOwnershipIndex {
-  const roots = [
-    ...new Set([
-      ...allWorktreePaths,
-      ...issues.flatMap((issue) => (issue.worktreePath ? [issue.worktreePath] : [])),
-    ]),
-  ]
+  // ONE root index for the whole pass. Building it is O(roots); every session
+  // then resolves in O(its path depth) instead of scanning all roots. Before
+  // POD-1645 this was sessions × roots — and the root list grows with the ISSUE
+  // count, so on the live corpus (~1100 sessions, ~1600 issues) one index build
+  // was millions of string comparisons, three times per replica delta.
+  const roots = buildWorktreeRootIndex([
+    ...allWorktreePaths,
+    ...issues.flatMap((issue) => (issue.worktreePath ? [issue.worktreePath] : [])),
+  ])
   const issuesByWorktree = new Map<string, IssueWire[]>()
   for (const issue of issues) {
     if (issue.archived || issue.deletedAt || !issue.worktreePath) continue
@@ -147,7 +151,7 @@ export function indexSessionOwnership(
   for (const session of sessions) {
     if (session.archived || isHeadlessSession(session)) continue
     sessionById.set(session.sessionId, session)
-    const worktreePath = worktreeForCwd(session.cwd, roots)
+    const worktreePath = worktreeForCwdIndexed(session.cwd, roots)
     if (worktreePath) appendSession(sessionsByWorktree, worktreePath, session)
     if (session.issueId !== undefined) {
       appendSession(sessionsByIssue, session.issueId, session)
@@ -174,13 +178,13 @@ export function sessionsForWorktree(
   if (allWorktreePaths && ownership) {
     return [...(ownership.sessionsByWorktree.get(worktreePath) ?? [])]
   }
+  // One root index for the whole filter, not one scan per session.
+  const roots = allWorktreePaths ? buildWorktreeRootIndex(allWorktreePaths) : null
   return sessions.filter(
     (s) =>
       !s.archived &&
       !isHeadlessSession(s) &&
-      (allWorktreePaths
-        ? worktreeForCwd(s.cwd, allWorktreePaths) === worktreePath
-        : s.cwd === worktreePath),
+      (roots ? worktreeForCwdIndexed(s.cwd, roots) === worktreePath : s.cwd === worktreePath),
   )
 }
 
@@ -235,13 +239,13 @@ export function sessionsForIssueNav(
   const wt = issue.worktreePath
   // Longest-match containment needs the full root list (a repo root contains its
   // own .worktrees/* checkouts); make sure the issue's own worktree is in it.
-  const roots = wt && !allWorktreePaths.includes(wt) ? [...allWorktreePaths, wt] : allWorktreePaths
+  const roots = buildWorktreeRootIndex(wt ? [...allWorktreePaths, wt] : allWorktreePaths)
   return sessions.filter((s) => {
     if (s.archived || isHeadlessSession(s)) return false
     if (!opts.includeShells && s.agentKind === 'shell') return false
     if (s.issueId !== undefined) return s.issueId === issue.id
     if (!wt) return false
-    return worktreeForCwd(s.cwd, roots) === wt
+    return worktreeForCwdIndexed(s.cwd, roots) === wt
   })
 }
 
@@ -260,12 +264,12 @@ export function archivedSessionsForIssue(
     return sessions.filter((s) => s.archived && !isHeadlessSession(s) && ids.has(s.sessionId))
   }
   const wt = issue.worktreePath
-  const roots = wt && !allWorktreePaths.includes(wt) ? [...allWorktreePaths, wt] : allWorktreePaths
+  const roots = buildWorktreeRootIndex(wt ? [...allWorktreePaths, wt] : allWorktreePaths)
   return sessions.filter((s) => {
     if (!s.archived || isHeadlessSession(s)) return false
     if (s.issueId !== undefined) return s.issueId === issue.id
     if (!wt) return false
-    return worktreeForCwd(s.cwd, roots) === wt
+    return worktreeForCwdIndexed(s.cwd, roots) === wt
   })
 }
 
@@ -276,13 +280,12 @@ export function archivedSessionsForWorktreePath(
   worktreePath: string,
   allWorktreePaths?: string[],
 ): SessionMeta[] {
+  const roots = allWorktreePaths ? buildWorktreeRootIndex(allWorktreePaths) : null
   return sessions.filter(
     (s) =>
       s.archived &&
       !isHeadlessSession(s) &&
-      (allWorktreePaths
-        ? worktreeForCwd(s.cwd, allWorktreePaths) === worktreePath
-        : s.cwd === worktreePath),
+      (roots ? worktreeForCwdIndexed(s.cwd, roots) === worktreePath : s.cwd === worktreePath),
   )
 }
 
