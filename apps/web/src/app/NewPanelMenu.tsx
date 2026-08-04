@@ -5,6 +5,7 @@ import { reposToViews } from '@podium/client-core/viewmodels'
 import type { AgentKind, IssueId, MachineWire, SessionId } from '@podium/model'
 import {
   agentCapabilityRejection,
+  agentLoginCondition,
   machinesForRepoOrClone,
   onlineMachinesForRepoOrClone,
   resolveTargetMachineForAgent,
@@ -215,6 +216,11 @@ export function NewPanelMenu({
                 label={label}
                 Icon={Icon}
                 reason={machine ? capabilityReason(machine, label, rejection) : undefined}
+                warning={
+                  machine
+                    ? loginWarning(machine, label, agentLoginCondition(machine, kind))
+                    : undefined
+                }
                 onSelect={() => void create(kind, machine?.id)}
               />
             )
@@ -492,6 +498,7 @@ function MachineSubmenu({
             label={label}
             Icon={Icon}
             reason={capabilityReason(machine, label, agentCapabilityRejection(machine, kind))}
+            warning={loginWarning(machine, label, agentLoginCondition(machine, kind))}
             onSelect={() => void onCreate(kind, machine.id)}
           />
         ))}
@@ -527,6 +534,16 @@ function agentLabel(menuLabel: string): string {
   return menuLabel.replace(/^New /, '')
 }
 
+function loginWarning(
+  machine: Pick<MachineWire, 'name'>,
+  label: string,
+  condition: ReturnType<typeof agentLoginCondition>,
+): string | undefined {
+  return condition === 'logged-out'
+    ? `${agentLabel(label)} isn't logged in on ${machine.name}; the session will open so you can log in in the pane.`
+    : undefined
+}
+
 function capabilityReason(
   machine: Pick<MachineWire, 'name'>,
   label: string,
@@ -546,8 +563,6 @@ function capabilityReason(
       return `${machine.name} is offline.`
     case 'harness-missing':
       return `${agentLabel(label)} is not installed on ${machine.name}.`
-    case 'logged-out':
-      return `${agentLabel(label)} is not logged in on ${machine.name}.`
     default: {
       const exhaustive: never = rejection
       return exhaustive
@@ -561,28 +576,36 @@ function CapabilityAgentItem({
   label,
   Icon,
   reason,
+  warning,
   onSelect,
 }: {
   kind: AgentKind
   label: string
   Icon: IconComponent
   reason?: string
+  warning?: string
   onSelect: () => void
 }): JSX.Element {
+  const detail = reason ?? warning
   const item = (
-    <DropdownMenuItem key={kind} disabled={reason !== undefined} onClick={onSelect}>
+    <DropdownMenuItem
+      key={kind}
+      disabled={reason !== undefined}
+      className={warning && !reason ? 'text-warning' : undefined}
+      onClick={onSelect}
+    >
       <Icon size={14} aria-hidden="true" className="text-muted-foreground" />
       {label}
     </DropdownMenuItem>
   )
-  if (!reason) return item
+  if (!detail) return item
   return (
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger render={<span className="block pointer-events-auto" />}>
           {item}
         </TooltipTrigger>
-        <TooltipContent side="right">{reason}</TooltipContent>
+        <TooltipContent side="right">{detail}</TooltipContent>
       </Tooltip>
     </TooltipProvider>
   )

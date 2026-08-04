@@ -78,7 +78,6 @@ describe('handoff reason copy (POD-821)', () => {
   it('names the harness the user actually sees, not the wire kind', () => {
     expect(handoffBlockerText('harness', 'shell')).toBe("Shell sessions can't be handed off")
     expect(handoffRejectionText('harness-missing', 'claude-code')).toBe('no Claude')
-    expect(handoffRejectionText('logged-out', 'codex')).toBe('Codex logged out')
     expect(handoffRejectionText('repo-missing', 'codex')).toBe('no clone URL for repo')
   })
 

@@ -108,8 +108,6 @@ export function handoffRejectionText(rejection: HandoffRejection, agentKind: Age
       return 'offline'
     case 'harness-missing':
       return `no ${panelLabel(agentKind)}`
-    case 'logged-out':
-      return `${panelLabel(agentKind)} logged out`
     case 'repo-missing':
       return 'no clone URL for repo'
     default: {

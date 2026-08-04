@@ -796,6 +796,15 @@ export function AgentPanel({
           </span>
         </span>
       </div>
+      {session?.condition === 'logged-out' && (
+        <div
+          role="status"
+          className="flex flex-none items-center gap-2 border-b border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning"
+        >
+          <strong>{panelLabel(session.agentKind)} isn&apos;t logged in</strong>
+          <span>Run its login command in this pane to continue.</span>
+        </div>
+      )}
       {handover && <HandoverPane view={handover} background={termBg} />}
       {surface.kind === 'transit' ? (
         // The veil owns this window; underneath it only the pane's own surface
