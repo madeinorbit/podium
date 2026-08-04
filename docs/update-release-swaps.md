@@ -58,6 +58,32 @@ Production feeds are GitHub Releases:
 Desktop artifacts are cut only through the manual workflow documented in
 [Desktop releases](desktop-releases.md).
 
+## Update manifest levers
+
+The release manifest adds structured update metadata without changing the manual version-bump workflow.
+
+### `critical`
+
+Pass `--critical` when the release contains a change that must be installed before the user continues.
+
+### `minRequired`
+
+Pass `--min-required '<json>'` explicitly to set minimum versions for the surfaces that need a retirement floor.
+
+The object may contain `desktop`, `web`, and `mobile` floors; `mobile` may set `ios` and `android` independently.
+
+For a mobile/store platform, raise its floor only after the replacement is confirmed live in that store. Raising it earlier can strand users whose replacement has not shipped, and a store release cannot be rolled back.
+
+Never derive `minRequired` from the version being cut. If it is not passed, it is absent from the manifest.
+
+### Digests and notes
+
+Artifact digests are computed automatically from the prepared bytes for each platform; operators do not provide them and they never gate compatibility.
+
+Release notes come from the matching version section in root `CHANGELOG.md`; the `[Unreleased]` section is never shipped.
+
+If the version has no changelog section, or its section is empty, the manifest omits `notes`; the dialog correctly omits "What's new".
+
 ## Summary
 
 | # | Swap | Where |
