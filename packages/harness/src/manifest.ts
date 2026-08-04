@@ -166,7 +166,6 @@ export interface LoginIdentity {
   fingerprint: string
   email?: string
   providerAccountId?: string
-  workspaceAccountId?: string
 }
 
 export interface PortableCredential {

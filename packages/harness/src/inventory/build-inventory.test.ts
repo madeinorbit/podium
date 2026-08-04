@@ -227,7 +227,6 @@ describe('buildInventory', () => {
       fingerprint: fingerprintForLoginIdentity('acct-secret'),
       email,
       providerAccountId: 'acct-secret',
-      workspaceAccountId: 'workspace-1',
     })
     expect(readFreshnessFromAuthContents(contents)).toBe(250)
     expect(JSON.stringify(readIdentityFromAuthContents(contents))).not.toContain('credential-bytes')

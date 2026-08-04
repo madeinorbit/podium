@@ -79,20 +79,15 @@ export function readIdentityFromAuthContents(contents: string): LoginIdentity | 
     stringClaim(tokens, "accountId") ??
     stringClaim(authClaims, "chatgpt_account_id") ??
     stringClaim(payload, "chatgpt_account_id") ??
-    stringClaim(payload, "https://api.openai.com/auth.chatgpt_account_id")
-  const workspaceAccountId =
+    stringClaim(payload, "https://api.openai.com/auth.chatgpt_account_id") ??
     stringClaim(authClaims, "workspace_account_id") ??
-    stringClaim(payload, "workspace_account_id") ??
-    stringClaim(tokens, "account_id") ??
-    stringClaim(tokens, "accountId") ??
-    stringClaim(payload, "chatgpt_account_id")
-  const source = providerAccountId ?? workspaceAccountId ?? email
+    stringClaim(payload, "workspace_account_id")
+  const source = providerAccountId ?? email
   if (!source) return undefined
   return {
     fingerprint: fingerprintForLoginIdentity(source),
     ...(email ? { email } : {}),
     ...(providerAccountId ? { providerAccountId } : {}),
-    ...(workspaceAccountId ? { workspaceAccountId } : {}),
   }
 }
 

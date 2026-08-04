@@ -288,13 +288,19 @@
         "path": "path",
         "login": {
           "state": "in",
-          "account": "login.account"
+          "account": "login.account",
+          "identity": {
+            "fingerprint": "login.identity.fingerprint",
+            "email": "login.identity.email",
+            "providerAccountId": "login.identity.providerAccountId"
+          },
+          "freshness": 1
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"kind\":\"claude-code\",\"installed\":true,\"version\":\"version\",\"path\":\"path\",\"login\":{\"state\":\"in\",\"account\":\"login.account\"}}"
+      "encoded": "{\"kind\":\"claude-code\",\"installed\":true,\"version\":\"version\",\"path\":\"path\",\"login\":{\"state\":\"in\",\"account\":\"login.account\",\"identity\":{\"fingerprint\":\"login.identity.fingerprint\",\"email\":\"login.identity.email\",\"providerAccountId\":\"login.identity.providerAccountId\"},\"freshness\":1}}"
     },
     {
       "schema": "AgentKind",
@@ -2564,7 +2570,13 @@
             "path": "agents[0].path",
             "login": {
               "state": "in",
-              "account": "agents[0].login.account"
+              "account": "agents[0].login.account",
+              "identity": {
+                "fingerprint": "agents[0].login.identity.fingerprint",
+                "email": "agents[0].login.identity.email",
+                "providerAccountId": "agents[0].login.identity.providerAccountId"
+              },
+              "freshness": 1
             }
           }
         ],
@@ -2580,7 +2592,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"podiumVersion\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"version\":\"agents[0].version\",\"path\":\"agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"agents[0].login.account\"}}],\"tools\":[{\"name\":\"tools[0].name\",\"installed\":true,\"version\":\"tools[0].version\",\"path\":\"tools[0].path\"}]}"
+      "encoded": "{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"podiumVersion\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"version\":\"agents[0].version\",\"path\":\"agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"agents[0].login.account\",\"identity\":{\"fingerprint\":\"agents[0].login.identity.fingerprint\",\"email\":\"agents[0].login.identity.email\",\"providerAccountId\":\"agents[0].login.identity.providerAccountId\"},\"freshness\":1}}],\"tools\":[{\"name\":\"tools[0].name\",\"installed\":true,\"version\":\"tools[0].version\",\"path\":\"tools[0].path\"}]}"
     },
     {
       "schema": "IssueAgentDefaults",
@@ -5695,6 +5707,7 @@
         "lastSeenAt": "lastSeenAt",
         "use": "granted",
         "owned": true,
+        "podiumManaged": true,
         "inventory": {
           "os": "linux",
           "arch": "x64",
@@ -5707,7 +5720,13 @@
               "path": "inventory.agents[0].path",
               "login": {
                 "state": "in",
-                "account": "inventory.agents[0].login.account"
+                "account": "inventory.agents[0].login.account",
+                "identity": {
+                  "fingerprint": "inventory.agents[0].login.identity.fingerprint",
+                  "email": "inventory.agents[0].login.identity.email",
+                  "providerAccountId": "inventory.agents[0].login.identity.providerAccountId"
+                },
+                "freshness": 1
               }
             }
           ],
@@ -5724,7 +5743,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"name\":\"name\",\"hostname\":\"hostname\",\"online\":true,\"lastSeenAt\":\"lastSeenAt\",\"use\":\"granted\",\"owned\":true,\"inventory\":{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"inventory.podiumVersion\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"version\":\"inventory.agents[0].version\",\"path\":\"inventory.agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"inventory.agents[0].login.account\"}}],\"tools\":[{\"name\":\"inventory.tools[0].name\",\"installed\":true,\"version\":\"inventory.tools[0].version\",\"path\":\"inventory.tools[0].path\"}]}}"
+      "encoded": "{\"id\":\"id\",\"name\":\"name\",\"hostname\":\"hostname\",\"online\":true,\"lastSeenAt\":\"lastSeenAt\",\"use\":\"granted\",\"owned\":true,\"podiumManaged\":true,\"inventory\":{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"inventory.podiumVersion\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"version\":\"inventory.agents[0].version\",\"path\":\"inventory.agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"inventory.agents[0].login.account\",\"identity\":{\"fingerprint\":\"inventory.agents[0].login.identity.fingerprint\",\"email\":\"inventory.agents[0].login.identity.email\",\"providerAccountId\":\"inventory.agents[0].login.identity.providerAccountId\"},\"freshness\":1}}],\"tools\":[{\"name\":\"inventory.tools[0].name\",\"installed\":true,\"version\":\"inventory.tools[0].version\",\"path\":\"inventory.tools[0].path\"}]}}"
     },
     {
       "schema": "MutationId",

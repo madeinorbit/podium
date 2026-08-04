@@ -124,7 +124,6 @@ export const AgentInventory = z.object({
         fingerprint: z.string().min(1),
         email: z.string().optional(),
         providerAccountId: z.string().optional(),
-        workspaceAccountId: z.string().optional(),
       })
       .optional(),
     freshness: z.number().optional(),

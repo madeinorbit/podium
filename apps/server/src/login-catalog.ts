@@ -13,7 +13,6 @@ export interface LoginCatalogEntry {
   fingerprint: string
   email?: string
   providerAccountId?: string
-  workspaceAccountId?: string
   machines: LoginCatalogMachine[]
 }
 
@@ -21,20 +20,15 @@ export interface LoginCatalogEntry {
 export type LoginCatalog = Readonly<Record<string, LoginCatalogEntry>>
 
 function mergeIdentity(
-  current: Pick<LoginCatalogEntry, 'email' | 'providerAccountId' | 'workspaceAccountId'>,
+  current: Pick<LoginCatalogEntry, 'email' | 'providerAccountId'>,
   identity: LoginIdentity,
-): Pick<LoginCatalogEntry, 'email' | 'providerAccountId' | 'workspaceAccountId'> {
+): Pick<LoginCatalogEntry, 'email' | 'providerAccountId'> {
   return {
     ...(current.email ? { email: current.email } : identity.email ? { email: identity.email } : {}),
     ...(current.providerAccountId
       ? { providerAccountId: current.providerAccountId }
       : identity.providerAccountId
         ? { providerAccountId: identity.providerAccountId }
-        : {}),
-    ...(current.workspaceAccountId
-      ? { workspaceAccountId: current.workspaceAccountId }
-      : identity.workspaceAccountId
-        ? { workspaceAccountId: identity.workspaceAccountId }
         : {}),
   }
 }
