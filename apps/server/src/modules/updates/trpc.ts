@@ -1,13 +1,9 @@
 import type { ConvergenceState } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
-import { mods, type Context, t } from '../../trpc'
-import { UpdatesService } from './service'
+import { type Context, mods, t } from '../../trpc'
+import type { UpdatesService } from './service'
 
-const IN_FLIGHT: ReadonlySet<ConvergenceState> = new Set([
-  'granted',
-  'downloading',
-  'restarting',
-])
+const IN_FLIGHT: ReadonlySet<ConvergenceState> = new Set(['granted', 'downloading', 'restarting'])
 const FAILED: ReadonlySet<ConvergenceState> = new Set(['rejected', 'stuck'])
 
 export interface UpdateFleetMachine {

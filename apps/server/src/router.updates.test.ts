@@ -86,9 +86,7 @@ describe('updates tRPC', () => {
     vi.spyOn(registry.modules.updates, 'tick').mockImplementation(() => {
       throw new Error('The update transport is unavailable.')
     })
-    await expect(caller.updates.converge()).rejects.toThrow(
-      'The update transport is unavailable.',
-    )
+    await expect(caller.updates.converge()).rejects.toThrow('The update transport is unavailable.')
     registry.dispose()
   })
 })
