@@ -175,12 +175,9 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       getSession: (sessionId) => bag.sessions.get(sessionId),
       sessionIds: () => bag.sessions.keys(),
       clients: () => bag.clients.values(),
-      // THE MEMO MUST BE FORWARDED [POD-1653]. This read `(sessionId) =>
-      // bag.sessionOwner(sessionId)` and silently dropped POD-1618's per-pass
-      // memo, so every session in a full projection re-read its issue row and
-      // its grant edges from SQLite — the memo existed, was threaded all the way
-      // down from `project()`, and died at this one arity mismatch.
-      sessionOwner: (sessionId, memo) => bag.sessionOwner(sessionId, memo),
+      // One object, so the memo CANNOT be dropped here again [POD-1653] — see
+      // the port's own comment for why the two-parameter form was unsafe.
+      sessionOwner: ({ sessionId, memo }) => bag.sessionOwner(sessionId, memo),
       primeOwnerMemo: (memo, sessionIds) => bag.primeOwnerMemo(memo, sessionIds),
       persistSession: (sessionId, additionalWrite) => {
         const session = bag.sessions.get(sessionId)

@@ -154,6 +154,31 @@ SIGTERMd on this box this morning and it was running at load 17-19 with ~10GB fr
   (`useTemplate`, lines 90/94) are pre-existing and on lines this change did not
   touch.
 
+## Follow-up: the hazard class, and what actually guards it
+
+POD-1639 (closed) verified this arity bug against its own measurement base and
+named the general hazard: *an optional trailing parameter threaded through a
+function-typed port is invisible to the compiler when a call site drops it*. A
+1-arg function is assignable to a 2-arg function type, so nothing can go red.
+
+Two corrections worth recording:
+
+- **It was one site, not six.** `session-wiring.ts` has five
+  `sessionOwner: (sessionId) => bag.sessionOwner(sessionId)` closures, but only
+  `SessionStatePorts` ever declared a memo parameter. The other four consumers
+  (browser-open, binding-receipts, headless, client-control) declare
+  `sessionOwner(sessionId)` and drop nothing.
+- **Making the port take one object does NOT restore a compile error.**
+  `bag.sessionOwner` is `(...args: any[]): any`, so the old shape still
+  type-checks against the object port — measured, not assumed.
+
+What the object form changes is the FAILURE MODE. Dropping the parameter now
+passes the input object where a `SessionId` is expected, ownership resolves to
+undefined, and **150 tests in `modules/sessions` fail**. The two-parameter form
+failed silently and cost only speed, which is why it survived POD-1618, POD-1638
+and POD-1639 and corrupted the per-session cost all three attributed. Loud beats
+invisible.
+
 ## Known residuals
 
 - **The `issues WHERE id = ?` residual is 658x**, not zero. Those are single-session
