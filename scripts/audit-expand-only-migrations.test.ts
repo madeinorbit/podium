@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { findDestructiveDdl } from './audit-expand-only-migrations'
+import {
+  findDestructiveDdl,
+  PROBES,
+  probeFailures,
+  runChecks,
+} from './audit-expand-only-migrations'
 
 describe('findDestructiveDdl', () => {
   it('passes a plain additive column', () => {
@@ -79,5 +84,25 @@ ALTER TABLE __new_machines RENAME TO machines;`
     const sql = `DROP TABLE a;
 ALTER TABLE b DROP COLUMN c;`
     expect(findDestructiveDdl(sql)).toHaveLength(2)
+  })
+})
+
+describe('the expand-only gate probes', () => {
+  it('has one planted violation for every individual check', () => {
+    expect(PROBES.map((probe) => probe.expect)).toEqual([
+      'drop-table',
+      'drop-column',
+      'rename',
+      'table-rebuild',
+      'not-null-without-default',
+    ])
+  })
+
+  it('can fire every planted violation', () => {
+    expect(probeFailures()).toEqual([])
+  })
+
+  it('spares the real migration tree after its historical allowlist', () => {
+    expect(runChecks()).toEqual([])
   })
 })
