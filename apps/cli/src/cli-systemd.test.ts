@@ -4,6 +4,7 @@ import {
   renderJanitorUnit,
   renderServerUnit,
   renderSystemdFiles,
+  shouldInstallUpdateTimer,
   userUnitDir,
 } from './cli-systemd'
 
@@ -197,5 +198,27 @@ describe('userUnitDir', () => {
       if (prev === undefined) delete process.env.XDG_CONFIG_HOME
       else process.env.XDG_CONFIG_HOME = prev
     }
+  })
+})
+
+describe('shouldInstallUpdateTimer', () => {
+  it('installs for a standalone all-in-one install with no server', () => {
+    expect(shouldInstallUpdateTimer({ mode: 'all-in-one', serverUrl: undefined })).toBe(true)
+  })
+
+  it('does not install for a daemon attached to a server', () => {
+    expect(shouldInstallUpdateTimer({ mode: 'daemon', serverUrl: 'wss://hub.test' })).toBe(false)
+  })
+
+  it('does not install for a client attached to a server', () => {
+    expect(shouldInstallUpdateTimer({ mode: 'client', serverUrl: 'wss://hub.test' })).toBe(false)
+  })
+
+  it('installs for a standalone server', () => {
+    expect(shouldInstallUpdateTimer({ mode: 'server', serverUrl: undefined })).toBe(true)
+  })
+
+  it('keeps a daemon without authority standalone', () => {
+    expect(shouldInstallUpdateTimer({ mode: 'daemon', serverUrl: undefined })).toBe(true)
   })
 })

@@ -637,6 +637,7 @@ export function installSystemd(
   mode: PodiumConfig['mode'],
   port: number,
   instanceId: string = resolveInstanceId(),
+  serverUrl?: string,
 ): InstallResult {
   if (!hasSystemctl())
     return {
@@ -676,6 +677,12 @@ export function installSystemd(
         units.push(daemonUnit)
       }
     }
+    if (shouldInstallUpdateTimer({ mode, serverUrl })) {
+      const c = context({ instanceId, port })
+      writeFileSync(join(dir, c.updateUnit), generatedUnit(renderUpdateService(c)))
+      writeFileSync(join(dir, c.updateTimer), generatedUnit(renderUpdateTimer(c)))
+      units.push(c.updateTimer)
+    }
     run('systemctl', ['--user', 'daemon-reload'])
     // Linger so the units run without an active login session (headless VPS over SSH).
     try {
@@ -688,4 +695,18 @@ export function installSystemd(
   } catch (e) {
     return { ok: false, reason: (e as Error).message }
   }
+}
+
+/**
+ * Daily channel updates are for standalone installs only. A daemon or client
+ * with a configured server is attached to an authority that coordinates updates
+ * in waves; letting the timer run would race the canary and concurrency cap.
+ */
+export function shouldInstallUpdateTimer(ctx: {
+  mode: PodiumConfig['mode']
+  serverUrl?: string
+}): boolean {
+  if (!ctx.mode) return false
+  const attached = typeof ctx.serverUrl === 'string' && ctx.serverUrl.length > 0
+  return !(attached && (ctx.mode === 'daemon' || ctx.mode === 'client'))
 }

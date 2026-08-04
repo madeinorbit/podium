@@ -30,6 +30,22 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+config_path_for_instance() {
+  if [ -n "${PODIUM_STATE_DIR:-}" ]; then
+    printf '%s/config.json\n' "$PODIUM_STATE_DIR"
+  elif [ "$INSTANCE" = "default" ]; then
+    printf '%s/.podium/config.json\n' "$HOME"
+  else
+    printf '%s/podium/%s/config.json\n' "${XDG_STATE_HOME:-$HOME/.local/state}" "$INSTANCE"
+  fi
+}
+
+config_is_attached() {
+  config_path="$(config_path_for_instance)"
+  [ -f "$config_path" ] || return 1
+  grep -Eq '"serverUrl"[[:space:]]*:[[:space:]]*"[^"]+"' "$config_path"
+}
+
 # --- presentation ----------------------------------------------------------------
 # Colour only when stdout is a real terminal (under `curl … | sh` stdin is the pipe, stdout is
 # not) and the terminal admits to being one. 214 ≈ Superade Yellow, the brand accent.
@@ -510,6 +526,7 @@ fi
 # the update timer. The release tarball contains the bytes rendered from cli-systemd.ts; this
 # installer deliberately carries no unit body of its own.
 UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"; mkdir -p "$UNIT_DIR"
+UPDATE_TIMER_INSTALLED=""
 copy_generated_unit() { # copy_generated_unit <default-artifact-name> <installed-name>
   source="$DEST/systemd/$1"
   target="$UNIT_DIR/$2"
@@ -535,8 +552,15 @@ fi
 # --- auto-update timer: `podium update` on a daily cadence, restart the daemon only when it
 #     actually swapped in a new bundle (exit 10). Opt out with --no-auto-update. ---
 if [ -n "$AUTO_UPDATE" ]; then
-  copy_generated_unit podium-update-user.service "$UPDATE_UNIT"
-  copy_generated_unit podium-update-user.timer "$UPDATE_TIMER"
+  if config_is_attached; then
+    note "Daily self-update timer not installed: this daemon is attached to a server, which manages updates in canary waves."
+  elif [ -n "$JOIN" ]; then
+    note "Daily self-update timer not installed: the joined daemon's server authority could not be verified."
+  else
+    copy_generated_unit podium-update-user.service "$UPDATE_UNIT"
+    copy_generated_unit podium-update-user.timer "$UPDATE_TIMER"
+    UPDATE_TIMER_INSTALLED=1
+  fi
 fi
 
 SUPERVISION="The daemon is running detached."
@@ -550,7 +574,7 @@ if [ -n "$HAVE_USER_SYSTEMD" ]; then
     systemctl --user enable --now "$DAEMON_UNIT" || \
       echo "Could not start the user service automatically; run: systemctl --user enable --now $DAEMON_UNIT"
   fi
-  if [ -n "$AUTO_UPDATE" ]; then
+  if [ -n "$UPDATE_TIMER_INSTALLED" ]; then
     systemctl --user enable --now "$UPDATE_TIMER" || \
       echo "Could not enable auto-update; run: systemctl --user enable --now $UPDATE_TIMER"
   fi
