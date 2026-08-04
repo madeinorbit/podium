@@ -10,6 +10,11 @@
  * Skipped: anything already compressed (png/woff2/ico), anything under 1 KB (the
  * framing costs more than it saves), and any output that failed to get smaller.
  *
+ * Also skipped: `.map`. Builds emit HIDDEN source maps (POD-1658) — nothing references
+ * them, so no client ever requests one and a pre-compressed copy would never be served.
+ * They are the largest files in the dist, and brotli-11 over them was pure build-time
+ * cost. The server still compresses a `.map` on the fly if someone fetches one directly.
+ *
  * Usage: bun scripts/precompress-dist.ts <dist-dir>
  */
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
@@ -28,7 +33,6 @@ const COMPRESSIBLE = new Set([
   '.json',
   '.svg',
   '.webmanifest',
-  '.map',
   '.txt',
 ])
 const MIN_BYTES = 1024
