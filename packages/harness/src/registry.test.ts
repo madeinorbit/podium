@@ -78,6 +78,20 @@ describe('agent manifest registry', () => {
       expect(manifest.discovery.agentKind).toBe(kind)
       expect(typeof manifest.inventory.binCandidates).toBe('function')
       expect(typeof manifest.inventory.detectLogin).toBe('function')
+      for (const [field, declaration] of [
+        ['loginIdentity', manifest.inventory.loginIdentity],
+        ['portableCredential', manifest.inventory.portableCredential],
+      ] as const) {
+        expect(declaration, kind + '.inventory.' + field + ' is not declared at all').toBeDefined()
+        if (declaration.supported) {
+          expect(declaration.value, kind + '.inventory.' + field + '.value').toBeDefined()
+        } else {
+          expect(
+            declaration.reason.length,
+            kind + '.inventory.' + field + '.reason',
+          ).toBeGreaterThan(0)
+        }
+      }
       expect(typeof manifest.resumeKind).toBe('string')
     }
   })
