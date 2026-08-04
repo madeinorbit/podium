@@ -1,5 +1,4 @@
 import type { IssueWire, SessionId } from '@podium/model'
-import { sessionsForIssue } from '../../../issue-util'
 import { buildAssistantMessages, parseAssistantJson } from '../../../issueAssistant'
 import { completeForRole } from '../../../llm-roles'
 import type { IssueStore } from './core'
@@ -62,13 +61,11 @@ export class IssueAssistantDigestModule {
     const row = this.store.rowOrThrow(id)
     if (!row.worktreePath) return this.store.toWire(row)
     const settings = this.store.d.getSettings()
-    const members = sessionsForIssue(row.worktreePath, this.store.d.listSessions(), row.id).map(
-      (s) => ({
-        agentKind: s.agentKind,
-        phase: s.agentState?.phase ?? 'shell',
-        tail: '',
-      }),
-    )
+    const members = this.store.sessionsFor(row).map((s) => ({
+      agentKind: s.agentKind,
+      phase: s.agentState?.phase ?? 'shell',
+      tail: '',
+    }))
     const [status, log] = await Promise.all([
       this.store.d.repoOp('status', row.worktreePath).catch(() => ({ ok: false, output: '' })),
       this.store.d.repoOp('log', row.worktreePath).catch(() => ({ ok: false, output: '' })),

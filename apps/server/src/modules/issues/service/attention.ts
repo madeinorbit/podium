@@ -444,7 +444,7 @@ export class IssueAttentionModule {
     const readMs = Date.parse(viewerReadAt ?? '')
     if (!Number.isFinite(readMs)) return 'precondition'
     if (readMs > nowMs - AUTO_ARCHIVE_READ_WINDOW_MS) return 'not-due'
-    const sessions = sessionsForIssue(row.worktreePath, this.store.deps.listSessions(), row.id)
+    const sessions = this.store.sessionsFor(row)
     if (this.store.computeUnread(row, sessions)) return 'precondition'
     this.autoArchive(row, principal)
     return 'applied'
@@ -483,7 +483,7 @@ export class IssueAttentionModule {
   public cascadeArchiveSessions(row: IssueRow): void {
     const setArchived = this.store.deps.setSessionArchived
     if (!setArchived) return
-    for (const s of sessionsForIssue(row.worktreePath, this.store.deps.listSessions(), row.id)) {
+    for (const s of this.store.sessionsFor(row)) {
       if (s.archived) continue
       setArchived(s.sessionId, true)
     }
@@ -499,7 +499,7 @@ export class IssueAttentionModule {
   public retireIssueOffers(row: IssueRow): void {
     const clearOffer = this.store.deps.clearSessionOffer
     if (!clearOffer) return
-    for (const s of sessionsForIssue(row.worktreePath, this.store.deps.listSessions(), row.id)) {
+    for (const s of this.store.sessionsFor(row)) {
       if (!s.offer) continue
       clearOffer(s.sessionId)
     }

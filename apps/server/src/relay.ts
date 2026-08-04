@@ -909,6 +909,10 @@ export class SessionRegistry {
       store: this.store,
       artifacts: issueArtifacts,
       listSessions: () => sessionsSvc.listSessions(),
+      // The narrow read [POD-1639]: an issue mutation asks for ITS sessions, not
+      // for all of them. Same set, same fields — see SessionView.listForIssue.
+      listSessionsForIssue: (worktreePath, issueId) =>
+        sessionsSvc.listSessionsForIssue(worktreePath, issueId),
       // Resolved for the sole account (POD-1213): the issue service reads
       // `roles.coding` — a personal preference — beside instance-tier git
       // workflow policy. See the note on `NotifyService` above.
