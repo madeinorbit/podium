@@ -30,7 +30,6 @@ export class UpdatesService {
   private halted = false
   private readonly machineStates = new Map<string, MachineConvergenceState>()
   private readonly pendingGrants = new Map<string, string>()
-  private readonly transitionAt = new Map<string, number>()
 
   constructor(private readonly deps: UpdatesDeps) {}
 
@@ -50,7 +49,6 @@ export class UpdatesService {
     this.halted = false
     this.machineStates.clear()
     this.pendingGrants.clear()
-    this.transitionAt.clear()
   }
 
   onStatus(machineId: string, message: UpdateStatusMessage): void {
@@ -73,7 +71,6 @@ export class UpdatesService {
       state: effectiveState,
       version: message.version,
     })
-    this.transitionAt.set(machineId, this.deps.now())
 
     if (message.state === 'current' && message.version === target.version) {
       if (pendingGrant !== undefined) {
@@ -114,7 +111,6 @@ export class UpdatesService {
         state: 'granted',
         version: machine?.version ?? '',
       })
-      this.transitionAt.set(machineId, this.deps.now())
       issued.push(machineId)
     }
     return issued
@@ -128,4 +124,3 @@ export class UpdatesService {
     })
   }
 }
-      this.deps.send(machineId, grant)

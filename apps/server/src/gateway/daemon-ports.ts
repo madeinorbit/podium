@@ -67,6 +67,11 @@ export interface MachinesDaemonPort {
   recordDiagnostic(machineId: string, diagnostic: DaemonFrame<'machineDiagnostic'>): void
 }
 
+/** UPDATES. Status is scoped by the authenticated daemon transport. */
+export interface UpdatesDaemonPort {
+  onUpdateStatus(machineId: string, message: DaemonFrame<'updateStatus'>): void
+}
+
 /** HOSTS. Health samples are per-machine facts and are scoped by the principal;
  *  so is the memory-breakdown reply, which the correlator checks the sender of. */
 export interface HostsDaemonPort {
@@ -141,4 +146,5 @@ export interface DaemonFeaturePorts {
   headless: HeadlessDaemonPort
   approvals: ApprovalsDaemonPort
   agentRelay: AgentRelayDaemonPort
+  updates: UpdatesDaemonPort
 }

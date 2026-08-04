@@ -30,6 +30,7 @@ export const DAEMON_PORT_IDS = [
   'headless',
   'agentRelay',
   'approvals',
+  'updates',
 ] as const
 export type DaemonPortId = (typeof DAEMON_PORT_IDS)[number]
 
@@ -66,6 +67,7 @@ export const DAEMON_FRAME_PORTS = {
   // ---- machine-owned ----
   inventoryReport: ['machines'],
   machineDiagnostic: ['machines'],
+  updateStatus: ['updates'],
 
   // ---- host-owned ----
   hostMetrics: ['hosts'],
@@ -170,6 +172,7 @@ export type RpcDaemonFrame = Extract<DaemonMessage, { type: RpcDaemonFrameType }
 export const MACHINE_SCOPE_CARRIER = {
   inventoryReport: 'principal',
   machineDiagnostic: 'principal',
+  updateStatus: 'principal',
   hostMetrics: 'principal',
   memoryBreakdownResult: 'request-correlated',
   scanResult: 'principal',

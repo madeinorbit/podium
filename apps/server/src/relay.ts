@@ -103,6 +103,7 @@ import { SettingsService, type TelegramSetupClient } from './modules/settings/se
 import { SpecsService } from './modules/specs/service'
 import { deliverAnswerToSession } from './modules/superagent/answer-delivery'
 import type { HeadlessService } from './modules/superagent/headless'
+import { UpdatesService } from './modules/updates/service'
 import { dispatchWorkflowRpc } from './modules/workflows/rpc'
 import { WorkflowService } from './modules/workflows/service'
 import { inferRepoFromRoots } from './repo-registry'
@@ -167,6 +168,7 @@ export interface RegistryModules {
   funnel: WriteFunnel
   sessions: SessionLifecycle
   machines: MachinesService
+  updates: UpdatesService
   rpc: DaemonRpcService
   memory: MemoryService
   hosts: HostsService
@@ -359,10 +361,12 @@ export class SessionRegistry {
       this.store.grants,
       this.store.repos,
     )
+    let updates: UpdatesService | undefined
     const machines = new MachinesService({
       instanceId,
       ...(options.targetVersion ? { targetVersion: options.targetVersion } : {}),
       store: this.store,
+      targetVersion: () => updates?.targetVersion() ?? options.targetVersion?.(),
       // ONE READER of `<stateDir>/machine.id`: the composition root passes the id to
       // the store, and every consumer takes the store's copy. A second `readOrCreate*`
       // call anywhere in the process would be a second opinion about who this host is.
@@ -388,6 +392,21 @@ export class SessionRegistry {
     // again with the real hostname and the loopback bootstrap secret; that call is
     // an idempotent UPDATE of this row, not a rival insert.
     machines.ensureHostMachine(hostname())
+    const updatesService = new UpdatesService({
+      machines: () =>
+        machines.listMachines().map((machine) => ({
+          id: machine.id,
+          version: machine.appVersion ?? 'unreported',
+          state: 'current',
+          online: machine.online,
+          busy: false,
+        })),
+      send: (machineId, message) => machines.toMachine(machineId, message),
+      now: this.now,
+      nextGrantId: () => randomUUID(),
+      concurrency: 3,
+    })
+    updates = updatesService
     const requestBroker = new DaemonRequestBroker({
       toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
       defaultMachine: () => machines.defaultMachine(),
@@ -1606,6 +1625,7 @@ export class SessionRegistry {
       funnel,
       sessions: sessionsSvc,
       machines,
+      updates: updatesService,
       rpc,
       memory,
       hosts,
@@ -2198,6 +2218,7 @@ export class SessionRegistry {
         headless,
         approvals,
         agentRelay: { run: (machineId, msg) => void agentRelayGate.run(machineId, msg) },
+        updates: { onUpdateStatus: (machineId, msg) => updatesService.onStatus(machineId, msg) },
       },
     })
   }
