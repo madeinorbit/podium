@@ -66,6 +66,7 @@ describe('issueMenuEligibility', () => {
       canSetPriority: true,
       canAssignAgent: true,
       canSetLabels: true,
+      canSetColor: true,
       canClose: true,
       canDefer: true,
       canUndefer: false,

@@ -1,8 +1,8 @@
-import { DEFER_NEXT_MESSAGE, snoozeUntil1h } from '@podium/model'
+import { DEFER_NEXT_MESSAGE, isIssueColorSlot, snoozeUntil1h } from '@podium/model'
 import type { Trpc } from '@/app/trpc'
 import { deferDateFromNow, toggleLabelAcross } from './issue-context-menu'
 import type { IssueMenuConfig, IssueMenuData } from './issue-menu-config'
-import { stageValue } from './issue-menu-config'
+import { ISSUE_MENU_COLOR_NONE, stageValue } from './issue-menu-config'
 
 export interface IssueMenuCommandDeps {
   trpc: Trpc
@@ -79,6 +79,15 @@ export function runIssueMenuCommand(
       return Promise.all(
         data.issues.map((issue) =>
           deps.trpc.issues.update.mutate({ id: issue.id, patch: { priority } }),
+        ),
+      )
+    }
+    case 'color': {
+      if (value !== ISSUE_MENU_COLOR_NONE && !isIssueColorSlot(value)) return
+      const color = value === ISSUE_MENU_COLOR_NONE ? null : value
+      return Promise.all(
+        data.issues.map((issue) =>
+          deps.trpc.issues.update.mutate({ id: issue.id, patch: { color } }),
         ),
       )
     }
