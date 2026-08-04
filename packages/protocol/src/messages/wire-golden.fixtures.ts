@@ -1128,6 +1128,27 @@ export const WIRE_FIXTURES: WireFixture[] = [
     schema: ClientMessage,
     value: { type: 'transcriptSubscribe', sessionId: 'sess-1', since: 'cur-1' },
   },
+  {
+    name: 'frame.updateGrant',
+    schema: ControlMessage,
+    value: {
+      type: 'updateGrant',
+      grantId: 'grant-1',
+      target: { version: '0.4.2', critical: false, artifacts: {} },
+    },
+  },
+  {
+    name: 'frame.updateStatus',
+    schema: DaemonMessage,
+    value: {
+      type: 'updateStatus',
+      grantId: 'grant-1',
+      state: 'restarting',
+      version: '0.4.1',
+      detail: 'convergence restart requested',
+    },
+  },
+
 
   // ---- the 7 handoff frames: they STAY protocol frames (POD-300) ----
   {

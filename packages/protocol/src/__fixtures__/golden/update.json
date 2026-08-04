@@ -1,0 +1,185 @@
+{
+  "family": "update",
+  "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
+  "cases": [
+    {
+      "schema": "UpdateGrantMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "updateGrant",
+        "grantId": "grantId",
+        "target": {
+          "version": "target.version",
+          "artifacts": {}
+        }
+      },
+      "parseAdded": {
+        "target.critical": false
+      },
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"updateGrant\",\"grantId\":\"grantId\",\"target\":{\"version\":\"target.version\",\"critical\":false,\"artifacts\":{}}}"
+    },
+    {
+      "schema": "UpdateGrantMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "updateGrant",
+        "grantId": "grantId",
+        "target": {
+          "version": "target.version",
+          "notes": {
+            "summary": "target.notes.summary",
+            "url": "target.notes.url"
+          },
+          "critical": true,
+          "minRequired": {
+            "desktop": "target.minRequired.desktop",
+            "web": "target.minRequired.web",
+            "mobile": {
+              "ios": "target.minRequired.mobile.ios",
+              "android": "target.minRequired.mobile.android"
+            }
+          },
+          "artifacts": {
+            "headless": {
+              "delivery": "feed",
+              "url": "target.artifacts.headless.url",
+              "digest": "target.artifacts.headless.digest",
+              "signature": "target.artifacts.headless.signature"
+            },
+            "desktop": {
+              "delivery": "feed",
+              "url": "target.artifacts.desktop.url",
+              "digest": "target.artifacts.desktop.digest",
+              "signature": "target.artifacts.desktop.signature"
+            },
+            "web": {
+              "digest": "target.artifacts.web.digest"
+            }
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"updateGrant\",\"grantId\":\"grantId\",\"target\":{\"version\":\"target.version\",\"notes\":{\"summary\":\"target.notes.summary\",\"url\":\"target.notes.url\"},\"critical\":true,\"minRequired\":{\"desktop\":\"target.minRequired.desktop\",\"web\":\"target.minRequired.web\",\"mobile\":{\"ios\":\"target.minRequired.mobile.ios\",\"android\":\"target.minRequired.mobile.android\"}},\"artifacts\":{\"headless\":{\"delivery\":\"feed\",\"url\":\"target.artifacts.headless.url\",\"digest\":\"target.artifacts.headless.digest\",\"signature\":\"target.artifacts.headless.signature\"},\"desktop\":{\"delivery\":\"feed\",\"url\":\"target.artifacts.desktop.url\",\"digest\":\"target.artifacts.desktop.digest\",\"signature\":\"target.artifacts.desktop.signature\"},\"web\":{\"digest\":\"target.artifacts.web.digest\"}}}}"
+    },
+    {
+      "schema": "UpdateGrantMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "updateGrant",
+        "grantId": "grantId",
+        "target": {
+          "version": "target.version",
+          "notes": {
+            "summary": "target.notes.summary",
+            "url": "target.notes.url"
+          },
+          "critical": false,
+          "minRequired": {
+            "desktop": "target.minRequired.desktop",
+            "web": "target.minRequired.web",
+            "mobile": {
+              "ios": "target.minRequired.mobile.ios",
+              "android": "target.minRequired.mobile.android"
+            }
+          },
+          "artifacts": {
+            "headless": {
+              "delivery": "bundle",
+              "url": "target.artifacts.headless.url",
+              "digest": "target.artifacts.headless.digest",
+              "signature": "target.artifacts.headless.signature"
+            },
+            "desktop": {
+              "delivery": "bundle",
+              "url": "target.artifacts.desktop.url",
+              "digest": "target.artifacts.desktop.digest",
+              "signature": "target.artifacts.desktop.signature"
+            },
+            "web": {
+              "digest": "target.artifacts.web.digest"
+            }
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"updateGrant\",\"grantId\":\"grantId\",\"target\":{\"version\":\"target.version\",\"notes\":{\"summary\":\"target.notes.summary\",\"url\":\"target.notes.url\"},\"critical\":false,\"minRequired\":{\"desktop\":\"target.minRequired.desktop\",\"web\":\"target.minRequired.web\",\"mobile\":{\"ios\":\"target.minRequired.mobile.ios\",\"android\":\"target.minRequired.mobile.android\"}},\"artifacts\":{\"headless\":{\"delivery\":\"bundle\",\"url\":\"target.artifacts.headless.url\",\"digest\":\"target.artifacts.headless.digest\",\"signature\":\"target.artifacts.headless.signature\"},\"desktop\":{\"delivery\":\"bundle\",\"url\":\"target.artifacts.desktop.url\",\"digest\":\"target.artifacts.desktop.digest\",\"signature\":\"target.artifacts.desktop.signature\"},\"web\":{\"digest\":\"target.artifacts.web.digest\"}}}}"
+    },
+    {
+      "schema": "UpdateGrantMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "updateGrant",
+        "grantId": "grantId",
+        "target": {
+          "version": "target.version",
+          "notes": {
+            "summary": "target.notes.summary",
+            "url": "target.notes.url"
+          },
+          "critical": true,
+          "minRequired": {
+            "desktop": "target.minRequired.desktop",
+            "web": "target.minRequired.web",
+            "mobile": {
+              "ios": "target.minRequired.mobile.ios",
+              "android": "target.minRequired.mobile.android"
+            }
+          },
+          "artifacts": {
+            "headless": {
+              "delivery": "git",
+              "repo": "target.artifacts.headless.repo",
+              "sha": "target.artifacts.headless.sha"
+            },
+            "desktop": {
+              "delivery": "git",
+              "repo": "target.artifacts.desktop.repo",
+              "sha": "target.artifacts.desktop.sha"
+            },
+            "web": {
+              "digest": "target.artifacts.web.digest"
+            }
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"updateGrant\",\"grantId\":\"grantId\",\"target\":{\"version\":\"target.version\",\"notes\":{\"summary\":\"target.notes.summary\",\"url\":\"target.notes.url\"},\"critical\":true,\"minRequired\":{\"desktop\":\"target.minRequired.desktop\",\"web\":\"target.minRequired.web\",\"mobile\":{\"ios\":\"target.minRequired.mobile.ios\",\"android\":\"target.minRequired.mobile.android\"}},\"artifacts\":{\"headless\":{\"delivery\":\"git\",\"repo\":\"target.artifacts.headless.repo\",\"sha\":\"target.artifacts.headless.sha\"},\"desktop\":{\"delivery\":\"git\",\"repo\":\"target.artifacts.desktop.repo\",\"sha\":\"target.artifacts.desktop.sha\"},\"web\":{\"digest\":\"target.artifacts.web.digest\"}}}}"
+    },
+    {
+      "schema": "UpdateStatusMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "updateStatus",
+        "state": "current",
+        "version": "version"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"updateStatus\",\"state\":\"current\",\"version\":\"version\"}"
+    },
+    {
+      "schema": "UpdateStatusMessage",
+      "variant": "full",
+      "wire": {
+        "type": "updateStatus",
+        "grantId": "grantId",
+        "state": "current",
+        "version": "version",
+        "detail": "detail"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"updateStatus\",\"grantId\":\"grantId\",\"state\":\"current\",\"version\":\"version\",\"detail\":\"detail\"}"
+    }
+  ]
+}

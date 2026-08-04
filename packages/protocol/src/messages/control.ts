@@ -37,6 +37,7 @@ import {
 import { InventoryRequestMessage, ModelProbeRequestMessage } from './inventory'
 import { AgentRelayResultMessage } from './issues'
 import { AgentObservationAckMessage, AgentObservationRebindAckMessage } from './runtime-state'
+import { UpdateGrantMessage } from './update'
 import {
   DraftTargetMessage,
   InputMessage,
@@ -81,6 +82,7 @@ export const ControlMessage = z.discriminatedUnion('type', [
   AgentQuotaRequestMessage,
   InventoryRequestMessage,
   ModelProbeRequestMessage,
+  UpdateGrantMessage,
   ImageUploadRequestMessage,
   SpawnMessage,
   ReattachMessage,
