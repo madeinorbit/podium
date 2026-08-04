@@ -35,6 +35,11 @@ export interface PendingMessageSender {
   fromSession: string | null
 }
 
+export interface PendingMessageSummary {
+  count: number
+  senders: PendingMessageSender[]
+}
+
 function storedActor(r: Record<string, unknown>): ActorRef | null {
   const kind = r.actor_kind as string | null
   const id = r.actor_id as string | null
@@ -288,6 +293,17 @@ export class MessagesRepository {
     }))
   }
 
+  /** Count and group one queued slice in one statement for the inbox nag. */
+  pendingSummary(to: MessagePrincipalRef): PendingMessageSummary {
+    const params: unknown[] = [to.kind]
+    const idPredicate = to.kind === 'operator' ? '' : ' AND to_id = ?'
+    if (to.kind !== 'operator') params.push(to.id ?? null)
+    return this.pendingSummaryForPredicate(
+      `to_kind = ?${idPredicate} AND status = 'queued'`,
+      params,
+    )
+  }
+
   countQueued(): number {
     const row = this.db
       .prepare("SELECT COUNT(*) AS n FROM messages WHERE status = 'queued'")
@@ -369,6 +385,44 @@ export class MessagesRepository {
       status = 'queued'
       OR created_at >= COALESCE((SELECT created_at FROM sessions WHERE id = ?), created_at)
     )`
+
+  /** Count and group one reader-scoped pending slice in one statement. */
+  pendingSummaryForSession(issueId: string, sessionId: string): PendingMessageSummary {
+    return this.pendingSummaryForPredicate(MessagesRepository.PENDING_FOR_SESSION, [
+      issueId,
+      sessionId,
+      sessionId,
+      sessionId,
+    ])
+  }
+
+  private pendingSummaryForPredicate(
+    predicate: string,
+    params: readonly unknown[],
+  ): PendingMessageSummary {
+    const rows = this.db
+      .prepare(
+        `SELECT from_kind, from_issue, from_session, COUNT(*) AS n
+         FROM messages
+         WHERE ${predicate}
+         GROUP BY from_kind, from_issue, from_session
+         ORDER BY from_kind ASC, from_issue ASC, from_session ASC`,
+      )
+      .all(...(params as never[])) as {
+      from_kind: MessageRow['fromKind']
+      from_issue: string | null
+      from_session: string | null
+      n: number
+    }[]
+    return {
+      count: rows.reduce((total, row) => total + row.n, 0),
+      senders: rows.map((row) => ({
+        fromKind: row.from_kind,
+        fromIssue: row.from_issue,
+        fromSession: row.from_session,
+      })),
+    }
+  }
 
   countPendingForSession(issueId: string, sessionId: string): number {
     const r = this.db
