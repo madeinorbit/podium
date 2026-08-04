@@ -10,6 +10,8 @@ export type ProtocolMismatchSource = 'handshake-rejection' | 'http-426'
 export function decideOnProtocolMismatch(ctx: {
   installed: boolean
   source: ProtocolMismatchSource
+  /** Attached daemons wait for a server grant; they never self-update on a delta. */
+  attached?: boolean
 }): {
   action: 'self-update' | 'backoff'
 } {
@@ -17,6 +19,7 @@ export function decideOnProtocolMismatch(ctx: {
   // prevents the socket state machine from growing two subtly different update
   // branches as servers roll between envelope and HTTP-level rejection.
   void ctx.source
+  if (ctx.attached) return { action: 'backoff' }
   return ctx.installed ? { action: 'self-update' } : { action: 'backoff' }
 }
 

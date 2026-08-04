@@ -13,8 +13,8 @@ import { stateDir } from '@podium/runtime/config'
 import { writeConnectivity } from '@podium/runtime/connectivity'
 import { consumePairCode } from '@podium/runtime/setup'
 import WebSocket, { type RawData } from 'ws'
-import type { DaemonOptions, ReconnectTimers } from './daemon-options'
 import { buildReport, deliveryCaps } from './build-report'
+import type { DaemonOptions, ReconnectTimers } from './daemon-options'
 import { saveToken } from './identity'
 import { decideOnProtocolMismatch, decidePostUpdate } from './self-update'
 
@@ -205,7 +205,14 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     source: 'handshake-rejection' | 'http-426',
   ): void => {
     const installed = !!process.env.PODIUM_HOME || /(?:^|[\\/])podium$/.test(process.execPath)
-    const { action } = decideOnProtocolMismatch({ installed, source })
+    // A configured server is the authority for this daemon. A wire mismatch is
+    // therefore a signal to wait for a granted convergence, not permission to
+    // race the server with a self-update.
+    const { action } = decideOnProtocolMismatch({
+      installed,
+      source,
+      attached: Boolean(options.serverUrl),
+    })
     if (action === 'backoff') {
       console.error('[podium:daemon] protocol mismatch; update the daemon to match the server.')
       active.close()
@@ -276,7 +283,8 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     const selected = credential()
     if (!selected) throw new Error('daemon has no machine credential; pair it first')
     const installDir =
-      process.env.PODIUM_HOME ?? (/(?:^|[\\/])podium$/.test(process.execPath) ? dirname(process.execPath) : undefined)
+      process.env.PODIUM_HOME ??
+      (/(?:^|[\\/])podium$/.test(process.execPath) ? dirname(process.execPath) : undefined)
     const build = buildReport(process.env, installDir)
     return createHandshakeDialer({
       peerRole: 'machine',

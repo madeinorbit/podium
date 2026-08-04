@@ -17,6 +17,16 @@ describe('decideOnProtocolMismatch', () => {
       decideOnProtocolMismatch({ installed: true, source: 'handshake-rejection' }),
     )
   })
+
+  it('attached installed daemons back off and wait for a server grant', () => {
+    expect(
+      decideOnProtocolMismatch({
+        installed: true,
+        attached: true,
+        source: 'http-426',
+      }),
+    ).toEqual({ action: 'backoff' })
+  })
 })
 
 describe('decidePostUpdate', () => {
