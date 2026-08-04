@@ -11,7 +11,7 @@ import type { RepoId } from '@podium/model'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { derivePrefix, isValidPrefix } from '@podium/protocol'
-import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
+import { type SqlDatabase, type SqlParam, transaction } from '@podium/runtime/sqlite'
 import { deriveRepoId, isPathFallbackRepoId, readLocalOriginUrl } from '../repo-id'
 
 export function normalizeRepoPath(path: string): string {
@@ -20,20 +20,115 @@ export function normalizeRepoPath(path: string): string {
   return trimmed.replace(/\/+$/u, '')
 }
 
+/** Statements whose execution can change what {@link ReposRepository} caches. */
+function writesRepoTables(sql: string): boolean {
+  return (
+    /^\s*(INSERT|UPDATE|DELETE|REPLACE)\b/iu.test(sql) && /\brepos\b|\brepo_prefixes\b/iu.test(sql)
+  )
+}
+
 export class ReposRepository {
+  /**
+   * The registry read, held for the duration of a pass (POD-1638).
+   *
+   * `listRepos` is not a list operation in practice — it is the lookup table
+   * behind `resolveRepoIdForPath`, which the session projection calls once per
+   * SESSION. Live attribution caught the unbounded `SELECT ... FROM repos ORDER
+   * BY rowid ASC` running 24206 times in one second for 314678 rows, against a
+   * table holding 13. Those reads block the server's single event loop and their
+   * row materialization is the off-heap churn behind RSS swinging 350MB -> 1.2GB.
+   *
+   * INVALIDATION IS STRUCTURAL, NOT A CHECKLIST. The cache is dropped by the
+   * `prepare` wrapper below whenever a statement that writes `repos` or
+   * `repo_prefixes` executes, so a mutator added later cannot forget to call an
+   * invalidate method — the guarantee is "the rows this connection wrote are the
+   * rows the next read sees", which is what a caching read owes its callers.
+   * This class is the only writer of both tables; the wrapper additionally means
+   * that stops being a fact this cache DEPENDS on for anything issued through it.
+   */
+  private cached: {
+    rows: Record<string, unknown>[]
+    prefixes: Map<string, string>
+  } | null = null
+
+  private readonly db: SqlDatabase
+
+  /**
+   * The UNWRAPPED handle, for transaction boundaries only.
+   *
+   * `transaction()` tracks nesting depth in a Map keyed by the database OBJECT
+   * IDENTITY, so opening a boundary on the wrapper below would read depth 0
+   * inside an already-open transaction and issue `BEGIN IMMEDIATE` within one
+   * ("cannot start a transaction within a transaction"). The wrapper and this
+   * share one underlying connection — statements prepared through either are
+   * inside whatever boundary is open — so the only thing that must use the
+   * original object is the depth bookkeeping.
+   */
+  private readonly txDb: SqlDatabase
+
   constructor(
-    private readonly db: SqlDatabase,
+    db: SqlDatabase,
     /** Issues-aggregate dual-write: stamp repoId onto issues under repoPath. */
     private readonly assignRepoIdToIssuesUnder: (repoId: RepoId, repoPath: string) => void,
     /** This host's minted machine id (`SessionStore.hostMachineId`) — the machine
      *  half of a path-fallback repo id for a path no repo row claims, and the owner
      *  stamped on rows imported from the legacy `repos.json`. */
     private readonly hostMachineId: string,
-  ) {}
+  ) {
+    this.txDb = db
+    // Drop the cache from underneath any write issued through this connection,
+    // including ones this class does not know about.
+    this.db = {
+      prepare: (sql: string) => {
+        const st = db.prepare(sql)
+        if (!writesRepoTables(sql)) return st
+        // Delegating explicitly rather than spreading `st`: a spread would carry
+        // only OWN properties, so this would break silently against a driver
+        // whose statements expose their methods on a prototype.
+        return {
+          run: (...p: SqlParam[]) => {
+            this.cached = null
+            return st.run(...p)
+          },
+          get: (...p: SqlParam[]) => st.get(...p),
+          all: (...p: SqlParam[]) => st.all(...p),
+        }
+      },
+      exec: (sql: string) => {
+        if (writesRepoTables(sql)) this.cached = null
+        return db.exec(sql)
+      },
+      close: () => db.close(),
+    }
+  }
 
   /** Back-compat: flat list of paths across all machines. RepoRegistry.list() uses this. */
   listRepoPaths(machineId?: string): string[] {
     return this.listRepos(machineId).map((r) => r.path)
+  }
+
+  /**
+   * The whole registry, read once and reused until a write invalidates it.
+   *
+   * Held as the RAW rows plus the prefix map — the two reads `listRepos` used to
+   * issue per call — rather than as finished objects, so the machine-scoped
+   * variant filters the same materialization instead of forcing a second query.
+   */
+  private registry(): { rows: Record<string, unknown>[]; prefixes: Map<string, string> } {
+    if (this.cached) return this.cached
+    const rows = this.db
+      .prepare('SELECT machine_id, path, origin_url, repo_id FROM repos ORDER BY rowid ASC')
+      .all() as Record<string, unknown>[]
+    const prefixes = new Map(
+      (
+        this.db.prepare('SELECT repo_id, prefix FROM repo_prefixes').all() as {
+          repo_id: string
+          prefix: string
+        }[]
+      ).map((r) => [r.repo_id, r.prefix] as const),
+    )
+    this.cached = { rows, prefixes }
+    return this.cached
   }
 
   /** Full repo rows including machineId, originUrl, repoId and prefix (#474). */
@@ -44,25 +139,11 @@ export class ReposRepository {
     repoId: RepoId | null
     prefix: string | null
   }[] {
-    const rows = (
-      machineId
-        ? this.db
-            .prepare(
-              'SELECT machine_id, path, origin_url, repo_id FROM repos WHERE machine_id = ? ORDER BY rowid ASC',
-            )
-            .all(machineId)
-        : this.db
-            .prepare('SELECT machine_id, path, origin_url, repo_id FROM repos ORDER BY rowid ASC')
-            .all()
-    ) as Record<string, unknown>[]
-    const prefixes = new Map(
-      (
-        this.db.prepare('SELECT repo_id, prefix FROM repo_prefixes').all() as {
-          repo_id: string
-          prefix: string
-        }[]
-      ).map((r) => [r.repo_id, r.prefix]),
-    )
+    const { rows: allRows, prefixes } = this.registry()
+    // Same rows, same `ORDER BY rowid ASC` order, filtered in memory: the
+    // machine-scoped statement this replaces read the same table with the same
+    // ordering, and repo-discovery documents that it depends on that order.
+    const rows = machineId ? allRows.filter((r) => r.machine_id === machineId) : allRows
     return rows.map((r) => {
       // SERIALIZATION EDGE: an untyped column re-entering the repo id space.
       const repoId = (r.repo_id as RepoId | null) ?? null
@@ -101,10 +182,11 @@ export class ReposRepository {
 
   /** The prefix chosen for the logical repo `repoId` (or null). */
   prefixForRepoId(repoId: RepoId): string | null {
-    const row = this.db
-      .prepare('SELECT prefix FROM repo_prefixes WHERE repo_id = ?')
-      .get(repoId) as { prefix: string } | undefined
-    return row?.prefix ?? null
+    // From the same held read as `listRepos` — this is the other half of the
+    // per-session projection cost (21902 point-reads of a 13-row table in the
+    // POD-1638 window), and a second statement for a map already in hand is the
+    // same defect one row narrower.
+    return this.registry().prefixes.get(repoId) ?? null
   }
 
   /** The prefix chosen for the logical repo containing `repoPath` (or null). */
@@ -170,7 +252,7 @@ export class ReposRepository {
    * ordinal.
    */
   nextDraftSeq(repoId: RepoId): number {
-    return transaction(this.db, () => {
+    return transaction(this.txDb, () => {
       const row = this.db
         .prepare('SELECT next_seq FROM repo_draft_seq WHERE repo_id = ?')
         .get(repoId) as { next_seq: number } | undefined

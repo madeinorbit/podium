@@ -610,8 +610,15 @@ export class IssueCrudModule {
   }
 
   /** Permanently purge an automatically-created empty draft. User-facing deletion
-   *  must go through IssueSessionLifecycle and never reaches this method. */
-  purgeEmptyDraft(ref: string): void {
+   *  must go through IssueSessionLifecycle and never reaches this method.
+   *
+   *  `publish: false` commits and reloads but leaves the reconcile to the CALLER
+   *  (POD-1638). The tail below serializes the FULL issue list, and the boot
+   *  sweep purges in a loop — so publishing per draft republished the whole list
+   *  once per reaped draft, on the event loop, at boot. A batching caller owes
+   *  exactly one `issuesChanged(allWire())` afterwards; the default keeps every
+   *  single-draft caller publishing its own, unchanged. */
+  purgeEmptyDraft(ref: string, opts?: { publish?: boolean }): void {
     const id = this.store.resolveRef(ref)
     this.store.rowOrThrow(id)
     this.store.deps.ledger.commit({
@@ -623,7 +630,11 @@ export class IssueCrudModule {
     // the normalized feed as the remove reconcile derives from full truth.
     // POD-1203 deleted the funnel snapshot half; `reconcileAndPublish` is the
     // whole tail now.
-    this.store.reconcileAndPublish(this.store.deps.publishSpecs.issuesChanged(this.store.allWire()))
+    if (opts?.publish !== false) {
+      this.store.reconcileAndPublish(
+        this.store.deps.publishSpecs.issuesChanged(this.store.allWire()),
+      )
+    }
     // Hard delete: drop any artifact snapshots too ([spec:SP-0fc9], best-effort).
     void this.store.deps.artifacts?.removeIssue(id).catch(() => {})
   }

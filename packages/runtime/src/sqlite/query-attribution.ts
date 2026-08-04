@@ -56,6 +56,70 @@ export function recordQuery(sql: string, wallMs: number, rows: number): void {
   cost.wallMs += wallMs
   cost.rows += rows
   costs.set(key, cost)
+  const total = totals.get(key) ?? { count: 0, wallMs: 0, rows: 0 }
+  total.count++
+  total.wallMs += wallMs
+  total.rows += rows
+  totals.set(key, total)
+  if (STACKS) recordCallerStack(key)
+}
+
+/**
+ * Lifetime totals, deliberately NOT cleared by {@link resetQueryAttribution}.
+ *
+ * The window exists so a stall line reports the second that stalled; a bench run
+ * asking "how many times did this statement run over a minute" needs the opposite,
+ * and reading the window from outside its 1s reset cadence answers neither
+ * question (POD-1638 first measured ~0 statements that way). Same recording path,
+ * two retention policies.
+ */
+const totals = new Map<string, QueryCost>()
+
+/** Lifetime per-statement totals since process start. Never reset. */
+export function queryAttributionTotals(): ReadonlyMap<string, QueryCost> {
+  return new Map(totals)
+}
+
+/**
+ * Caller attribution, one level deeper than the SQL (POD-1638).
+ *
+ * A statement key names WHAT ran; when the defect is a call COUNT the question is
+ * immediately WHO ran it, and the SQL cannot answer that — `SELECT * FROM issues
+ * WHERE id = ?` is prepared in one place and reached from dozens. Capturing a stack
+ * is far more expensive than the timing pair above, so it sits behind its own flag
+ * (`PODIUM_LOOP_PROFILE_STACKS`) rather than riding along with attribution: this is
+ * a bench/repro instrument, not something a live host should carry.
+ */
+const STACKS = ENABLED && !!process.env.PODIUM_LOOP_PROFILE_STACKS
+const stacks = new Map<string, Map<string, number>>()
+
+function recordCallerStack(key: string): void {
+  const raw = new Error().stack ?? ''
+  const frames = raw
+    .split('\n')
+    .slice(1)
+    .map((line) => line.trim())
+    // Drop this module's own frames so the top frame is the caller that issued it.
+    .filter((line) => !line.includes('query-attribution'))
+    .slice(0, 12)
+    .join('\n')
+  const perKey = stacks.get(key) ?? new Map<string, number>()
+  perKey.set(frames, (perKey.get(frames) ?? 0) + 1)
+  stacks.set(key, perKey)
+}
+
+/** Sampled caller stacks per statement key, hottest first. Empty unless stacks are on. */
+export function queryCallerStacks(): Map<string, { count: number; stack: string }[]> {
+  const out = new Map<string, { count: number; stack: string }[]>()
+  for (const [key, perKey] of stacks) {
+    out.set(
+      key,
+      [...perKey]
+        .map(([stack, count]) => ({ stack, count }))
+        .sort((a, b) => b.count - a.count),
+    )
+  }
+  return out
 }
 
 /**

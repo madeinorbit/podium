@@ -164,9 +164,27 @@ export const feedIdentity = sqliteTable(
   (table) => [check('feed_identity_singleton', sql`${table.singleton} = 1`)],
 )
 
-export const appliedMutations = sqliteTable('applied_mutations', {
-  mutationId: text('mutation_id').primaryKey(),
-  proc: text().notNull(),
-  result: text().notNull(),
-  appliedAt: integer('applied_at').notNull(),
-})
+export const appliedMutations = sqliteTable(
+  'applied_mutations',
+  {
+    mutationId: text('mutation_id').primaryKey(),
+    proc: text().notNull(),
+    result: text().notNull(),
+    appliedAt: integer('applied_at').notNull(),
+  },
+  (table) => [
+    /**
+     * The retention sweep's ONLY predicate (POD-1638).
+     *
+     * `pruneAppliedMutations` deletes by `applied_at < cutoff`, and without this
+     * index that is a full table scan — which is not a 7585-row scan but a scan
+     * of every row's `result` payload (~21MB here, ~5000 pages), because a table
+     * scan walks the rows themselves. Live attribution caught ONE such call
+     * burning 1529ms and deleting NOTHING, blocking the server's single event
+     * loop for a second and a half. With the index the sweep SEARCHes the
+     * cutoff range, so the steady-state "nothing to prune" case touches no rows
+     * at all.
+     */
+    index('idx_applied_mutations_applied_at').on(table.appliedAt),
+  ],
+)
