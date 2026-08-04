@@ -35,7 +35,7 @@ The census also does not hash valid symlink targets or their content. Before sha
 
 ## Rollout gates
 
-1. Land the `POD-1698` app-config safety fix. The web and mobile configs currently omit the root hermetic setup files; that is a separate live-instance safety issue, not a reason to weaken the cache key.
+1. Merge the `POD-1698` app-config safety fix. It is now in review with nonzero setup time and passing ambient-environment stripping proof; the unrelated POD-1402 root-gate tripwire does not change this cache audit.
 2. Choose and approve a self-hosted endpoint on the shared box, or explicitly authorize a hosted service. Keep tokens in CI/agent environment secrets; do not commit them or put them in `turbo.json`.
 3. Configure the endpoint through the `TURBO_API`/token/team environment expected by the selected service, then verify one writer and an independent reader with `TURBO_REMOTE_ONLY=1`. Treat remote timeouts as infrastructure load unless the test task itself reports an assertion failure.
 4. Keep the Turbo task pinned to the vetted packages until `POD-1699` gives additional packages real Vitest configurations. The current dry graph has only the web and mobile tasks; the other package `test` scripts are not safe task definitions yet.
