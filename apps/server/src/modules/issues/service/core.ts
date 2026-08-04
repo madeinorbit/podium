@@ -85,6 +85,27 @@ export class IssueStore {
     return FIRST_ADMIN_USER_ID
   }
 
+  /**
+   * THE MEMBER SESSIONS OF ONE ISSUE — the narrow read [POD-1639].
+   *
+   * Every caller here used to spell `sessionsForIssue(row.worktreePath,
+   * deps.listSessions(), row.id)`: build the reader-scoped projection for all
+   * 1119 sessions on the live corpus, then keep the two that belong to this
+   * issue. `listSessionsForIssue` asks the question directly, so the projection
+   * is built for members only.
+   *
+   * The fallback is not decoration. `IssueDeps` is satisfied by a dozen test
+   * fixtures that supply `listSessions` and nothing else, and by definition the
+   * fallback computes the identical answer — same predicate, applied after the
+   * pass instead of before. A fixture that never wired the narrow port is slow,
+   * not wrong.
+   */
+  sessionsFor(row: Pick<IssueRow, 'id' | 'worktreePath'>): SessionMeta[] {
+    const narrow = this.deps.listSessionsForIssue
+    if (narrow) return narrow(row.worktreePath, row.id)
+    return sessionsForIssue(row.worktreePath, this.deps.listSessions(), row.id)
+  }
+
   /** One issue's markers for the broadcast viewer, as the wire wants them. */
   issueOverlay(issueId: string): IssueUserOverlay {
     if (this.viewerState === null) {
@@ -261,7 +282,7 @@ export class IssueStore {
   unreadFor(id: IssueId): boolean {
     const row = this.rows.get(id)
     if (row === undefined) return false
-    const sessions = sessionsForIssue(row.worktreePath, this.deps.listSessions(), row.id)
+    const sessions = this.sessionsFor(row)
     return this.computeUnread(row, sessions)
   }
 

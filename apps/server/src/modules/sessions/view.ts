@@ -9,8 +9,10 @@ import {
 import { formatSessionRef } from '@podium/protocol'
 import { userCommandPrincipal } from '../../command-principal'
 import { harnessCapabilitiesFor } from '../../harness-manifest'
+import { isIssueMember } from '../../issue-util'
 import type { SessionStore } from '../../store'
 import type { MachinesService } from '../machines/service'
+import { DEPLOYMENT, perf } from '../perf/registry'
 import type { Session } from './session'
 import { sessionStatePrincipalFor } from './session-state/registry'
 import type { SessionStatePrincipal, SessionStateService } from './session-state/service'
@@ -64,16 +66,65 @@ export class SessionView {
   constructor(private readonly ports: SessionViewPorts) {}
 
   list(forPrincipal?: SessionStatePrincipal): SessionMeta[] {
+    const startedAt = performance.now()
+    try {
+      return this.project([...this.ports.sessions.values()], forPrincipal)
+    } finally {
+      perf.record('phase', 'sessionView.list', performance.now() - startedAt, DEPLOYMENT)
+    }
+  }
+
+  /**
+   * The SESSIONS OF ONE ISSUE, without building the other 1100 [POD-1639].
+   *
+   * `sessionsForIssue(path, list(), id)` is the shape almost every issue mutation
+   * wanted: a handful of member sessions. It got them by building the full
+   * reader-scoped projection and discarding it — measured on the live corpus
+   * (1582 issues / 1119 visible sessions), `cascadeArchiveSessions` found ZERO
+   * members and still paid the whole pass, twice per archive.
+   *
+   * The narrowing is legitimate because membership is decided by two fields that
+   * live on the session itself — `issueId` and `cwd` — and the projection copies
+   * both through unchanged. So {@link isIssueMember} against the live objects
+   * selects the same set the post-filter would, and only that set is visibility-
+   * checked and wired. Visibility is NOT narrowed: the surviving members still go
+   * through `canReadSession` for the same principal, so a caller sees exactly the
+   * sessions it saw before.
+   */
+  listForIssue(
+    worktreePath: string | null,
+    issueId: string | undefined,
+    forPrincipal?: SessionStatePrincipal,
+  ): SessionMeta[] {
+    const startedAt = performance.now()
+    try {
+      const members = [...this.ports.sessions.values()].filter((session) =>
+        isIssueMember(worktreePath, issueId, session),
+      )
+      return this.project(members, forPrincipal)
+    } finally {
+      perf.record('phase', 'sessionView.listForIssue', performance.now() - startedAt, DEPLOYMENT)
+    }
+  }
+
+  /** The reader-scoped projection over a candidate set — the body `list()` and
+   *  `listForIssue()` share so the visibility rule and the memo lifetime have
+   *  exactly one definition. */
+  private project(candidates: Session[], forPrincipal?: SessionStatePrincipal): SessionMeta[] {
     const principal = forPrincipal ?? this.defaultPrincipal()
     if (!principal) return []
     // ONE memo for the whole pass [POD-1618] — see {@link SessionListMemo}.
     const memo = newSessionListMemo()
-    return [...this.ports.sessions.values()]
+    return candidates
       .filter((session) => this.ports.state.canReadSession(principal, session.sessionId, memo))
       .map((session) => this.wire(session, principal, memo))
   }
 
-  wire(session: Session, forPrincipal?: SessionStatePrincipal, memo?: SessionListMemo): SessionMeta {
+  wire(
+    session: Session,
+    forPrincipal?: SessionStatePrincipal,
+    memo?: SessionListMemo,
+  ): SessionMeta {
     const harnessCapabilities = harnessCapabilitiesFor(session.agentKind)
     const viewer = forPrincipal ?? this.defaultPrincipal()
     const meta = session.toMeta(
@@ -135,7 +186,11 @@ export class SessionView {
     }
   }
 
-  private stampRef(session: Session, memo: SessionListMemo | undefined, meta: SessionMeta): SessionMeta {
+  private stampRef(
+    session: Session,
+    memo: SessionListMemo | undefined,
+    meta: SessionMeta,
+  ): SessionMeta {
     const displayRef = this.computeDisplayRef(session, memo)
     return {
       ...meta,
@@ -163,10 +218,7 @@ export class SessionView {
   }
 
   /** Same lookup, memoized for the pass — see {@link SessionListMemo}. */
-  private memoIssue(
-    id: string,
-    memo?: SessionListMemo,
-  ): { repoPath: string; seq: number } | null {
+  private memoIssue(id: string, memo?: SessionListMemo): { repoPath: string; seq: number } | null {
     if (!memo) return this.ports.store.issues.getIssue(id) as never
     if (!memo.issues.has(id)) memo.issues.set(id, this.ports.store.issues.getIssue(id))
     return memo.issues.get(id) as never

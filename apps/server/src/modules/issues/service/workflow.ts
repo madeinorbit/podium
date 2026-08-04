@@ -1193,7 +1193,7 @@ export class IssueGitWorkflowModule {
     const cwd = row.worktreePath ?? fallbackCwd
     if (!cwd) return false
     try {
-      const members = sessionsForIssue(row.worktreePath, this.store.d.listSessions(), row.id)
+      const members = this.store.sessionsFor(row)
       const attribution = this.gitAttributionFor(members)
       const state = await probeGitState(
         {

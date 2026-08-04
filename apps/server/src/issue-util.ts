@@ -29,9 +29,27 @@ export function sessionsForIssue(
   sessions: SessionMeta[],
   issueId?: string,
 ): SessionMeta[] {
-  return sessions.filter((s) =>
-    s.issueId ? s.issueId === issueId : isMemberCwd(worktreePath, s.cwd),
-  )
+  return sessions.filter((s) => isIssueMember(worktreePath, issueId, s))
+}
+
+/**
+ * The membership predicate {@link sessionsForIssue} filters on, as ONE function
+ * [POD-1639].
+ *
+ * It exists separately because the narrow read path applies it BEFORE the
+ * reader-scoped projection is built — `SessionView.listForIssue` runs it against
+ * the live `Session` objects so a mutation that touches one issue stops paying
+ * for a full 1119-session wire. Both fields it reads (`issueId`, `cwd`) are
+ * copied verbatim from the live session onto its `SessionMeta`, so pre-filtering
+ * selects exactly the set post-filtering would. Sharing one function is what
+ * keeps that true: a change to precedence here cannot land on one path only.
+ */
+export function isIssueMember(
+  worktreePath: string | null,
+  issueId: string | undefined,
+  session: { issueId?: string; cwd: string },
+): boolean {
+  return session.issueId ? session.issueId === issueId : isMemberCwd(worktreePath, session.cwd)
 }
 
 /**

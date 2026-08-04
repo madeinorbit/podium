@@ -150,6 +150,11 @@ export type { IssueTree, IssueTreeNode, IssueTreeSession }
 export interface IssueDeps {
   store: SessionStore
   listSessions(): SessionMeta[]
+  /** The member sessions of ONE issue, without wiring every other session
+   *  [POD-1639]. Optional so the test fixtures that satisfy this interface with
+   *  `listSessions` alone keep working — `IssueStore.sessionsFor` falls back to
+   *  filtering the full list, which is the same answer at the old price. */
+  listSessionsForIssue?(worktreePath: string | null, issueId: string): SessionMeta[]
   getSettings(): PodiumSettings
   /** Spawn a session in the issue's worktree. `initialPrompt` hands the agent its
    *  first prompt at spawn (argv for capable agents, draft-seed fallback otherwise —

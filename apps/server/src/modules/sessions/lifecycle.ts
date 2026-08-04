@@ -296,6 +296,16 @@ export class SessionLifecycle {
   listSessions(forPrincipal?: SessionWirePrincipal): SessionMeta[] {
     return this.view.list(forPrincipal)
   }
+  /** The member sessions of ONE issue, without wiring the rest [POD-1639].
+   *  Same set and same fields as `sessionsForIssue(path, listSessions(), id)`;
+   *  see {@link SessionView.listForIssue}. */
+  listSessionsForIssue(
+    worktreePath: string | null,
+    issueId: string | undefined,
+    forPrincipal?: SessionWirePrincipal,
+  ): SessionMeta[] {
+    return this.view.listForIssue(worktreePath, issueId, forPrincipal)
+  }
   // RETIRED at POD-309 (ADR 5 D8): the hub-mirror apply path lived here —
   // `upstreamSessions` / `upstreamStale` / `upstreamOwnMachineIds`, the
   // `setUpstreamSessions` ingest that stamped `viaHub`, the stale-visible flip, and
