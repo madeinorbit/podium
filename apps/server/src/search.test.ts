@@ -179,6 +179,63 @@ describe('MemoryService omni-search', () => {
     // The limit trims the tail, not the head: the best hits survive.
     expect(results[0]?.score).toBeGreaterThanOrEqual(results[1]?.score ?? 0)
   })
+  it('uses one live-session snapshot and request-local visibility memos', () => {
+    const { store, registry } = seed()
+    const liveRows = store.sessions.loadSessions()
+    const issueRows = store.issues.listIssueRows()
+    const expectedIssueIds = new Set(
+      issueRows
+        .filter((row) => !row.deletedAt)
+        .map((row) => row.id)
+        .concat(liveRows.flatMap((row) => (row.issueId ? [row.issueId] : []))),
+    )
+    const expectedGrantResources = new Set([
+      ...issueRows.filter((row) => !row.deletedAt).map((row) => 'issue\0' + row.id),
+      ...liveRows.map(
+        (row) => (row.issueId ? 'issue' : 'session') + '\0' + (row.issueId ?? row.id),
+      ),
+    ])
+
+    const loadSessions = store.sessions.loadSessions.bind(store.sessions)
+    let loadCalls = 0
+    let materializedRows = 0
+    store.sessions.loadSessions = () => {
+      loadCalls += 1
+      const rows = loadSessions()
+      materializedRows += rows.length
+      return rows
+    }
+
+    const getIssue = store.issues.getIssue.bind(store.issues)
+    let issueLookups = 0
+    store.issues.getIssue = (id) => {
+      issueLookups += 1
+      return getIssue(id)
+    }
+
+    const listForResource = store.grants.listForResource.bind(store.grants)
+    let grantLookups = 0
+    store.grants.listForResource = (resourceKind: string, resourceId: string) => {
+      grantLookups += 1
+      return listForResource(resourceKind, resourceId)
+    }
+
+    try {
+      registry.modules.memory.search(READER, { text: 'capacitor' })
+    } finally {
+      store.sessions.loadSessions = loadSessions
+      store.issues.getIssue = getIssue
+      store.grants.listForResource = listForResource
+    }
+
+    // Before batching, each native candidate loaded every live session. The
+    // conserved quantity is one snapshot containing exactly the live rows.
+    expect(loadCalls).toBe(1)
+    expect(materializedRows).toBe(liveRows.length)
+    // Each issue and grant resource is read at most once within this request.
+    expect(issueLookups).toBe(expectedIssueIds.size)
+    expect(grantLookups).toBe(expectedGrantResources.size)
+  })
 
   it('returns nothing for blank text (the router schema rejects it upstream too)', () => {
     const { store, registry } = seed()

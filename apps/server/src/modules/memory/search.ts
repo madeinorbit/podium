@@ -60,6 +60,9 @@ export class MemorySearchService {
   searchConversations(
     reader: MemoryReader,
     opts: { query?: string; projectPath?: string; limit?: number },
+    visibility: MemoryVisibilityPolicy = this.visibility.forRequest(
+      this.store.sessions.loadSessions(),
+    ),
   ) {
     const limit = Math.min(200, Math.max(1, opts.limit ?? 50))
     return this.store.conversations.index
@@ -70,7 +73,7 @@ export class MemorySearchService {
           // no placeholder left to substitute — a machine-less row is unreadable
           // rather than readable-as-local.
           row.machineId !== undefined &&
-          this.visibility.mayRead(reader, {
+          visibility.mayRead(reader, {
             class: 'conversation',
             machineId: row.machineId,
             nativeId: row.id,
@@ -90,9 +93,10 @@ export class MemorySearchService {
     const lower = text.toLowerCase()
     const out: SearchResultWire[] = []
     const sessions = this.store.sessions.loadSessions()
+    const visibility = this.visibility.forRequest(sessions)
 
     for (const row of sessions) {
-      if (!this.visibility.mayRead(reader, { class: 'session', id: row.id })) continue
+      if (!visibility.mayRead(reader, { class: 'session', id: row.id })) continue
       const nameHit = (row.name ?? '').toLowerCase().includes(lower)
       const titleHit = row.title.toLowerCase().includes(lower)
       const cwdHit = row.cwd.toLowerCase().includes(lower)
@@ -113,8 +117,7 @@ export class MemorySearchService {
       this.store.issues
         .listIssueRows()
         .filter(
-          (row) =>
-            !row.deletedAt && this.visibility.mayRead(reader, { class: 'issue', id: row.id }),
+          (row) => !row.deletedAt && visibility.mayRead(reader, { class: 'issue', id: row.id }),
         )
         .map((row) => [row.id, row]),
     )
@@ -149,7 +152,7 @@ export class MemorySearchService {
       issueHits.add(issue.id)
     }
 
-    for (const row of this.searchConversations(reader, { query: text, limit: 200 })) {
+    for (const row of this.searchConversations(reader, { query: text, limit: 200 }, visibility)) {
       out.push({
         kind: 'conversation',
         id: row.id,
@@ -167,7 +170,7 @@ export class MemorySearchService {
       const owner = reader.kind === 'user' ? reader.id : reader.onBehalfOf
       for (const thread of this.store.superagent.listSuperagentThreads(owner)) {
         if (
-          !this.visibility.mayRead(reader, {
+          !visibility.mayRead(reader, {
             class: 'superagent-thread',
             id: thread.id,
             ownerUserId: thread.ownerUserId,
@@ -193,7 +196,7 @@ export class MemorySearchService {
     const visibleTranscriptRows = this.store.conversations.transcriptIndex
       .searchCandidates(text)
       .filter((row) =>
-        this.visibility.mayRead(reader, {
+        visibility.mayRead(reader, {
           class: 'transcript',
           machineId: row.machineId,
           nativeId: row.nativeId,
@@ -210,7 +213,7 @@ export class MemorySearchService {
         (candidate) =>
           candidate.machineId === row.machineId &&
           candidate.resumeValue === row.nativeId &&
-          this.visibility.mayRead(reader, { class: 'session', id: candidate.id }),
+          visibility.mayRead(reader, { class: 'session', id: candidate.id }),
       )
       out.push({
         kind: 'transcript',
@@ -227,7 +230,7 @@ export class MemorySearchService {
     }
 
     for (const [key, label] of SETTINGS) {
-      if (!this.visibility.mayRead(reader, { class: 'setting', id: key })) continue
+      if (!visibility.mayRead(reader, { class: 'setting', id: key })) continue
       if (!label.toLowerCase().includes(lower) && !key.includes(lower)) continue
       out.push({
         kind: 'setting',
