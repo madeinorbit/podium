@@ -4,7 +4,7 @@ import type { SessionMeta } from '@podium/model'
 import * as Haptics from 'expo-haptics'
 import { usePathname, useRouter } from 'expo-router'
 import { useEffect } from 'react'
-import { Modal, Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { sessionHref } from '../lib/session-route'
 import { FLOW_SLATE, flow, issueColorHex } from '../theme/issueColors'
@@ -58,7 +58,10 @@ export function TaskPeekSheet({
 
   return (
     <Modal transparent visible animationType="slide" onRequestClose={onClose}>
-      <PressableScale accessibilityLabel="Close" style={styles.backdrop} onPress={onClose} />
+      {/* A dismiss backdrop stays a plain Pressable [POD-366]: scaling a
+          full-bleed dim shrinks it away from the screen edges, and an impact
+          haptic is the wrong report for "you tapped nothing". */}
+      <Pressable accessibilityLabel="Close" style={styles.backdrop} onPress={onClose} />
       <View
         style={[
           styles.sheet,
