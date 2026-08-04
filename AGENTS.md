@@ -89,6 +89,10 @@ bun run test:affected -- --base=<ref>     # or PODIUM_TEST_BASE=<ref>
 
 Uncommitted and untracked changes count, and a checkout with no usable
 `node_modules/@podium` links is refused for the same reason `typecheck` refuses it.
+Note that editing `turbo.json` or anything in `globalDependencies` selects all 24
+packages — safe, but you get no speedup on such a branch.
+
+Measured selection sets: **[docs/agents/pod-1688-affected-evidence.md](docs/agents/pod-1688-affected-evidence.md)**.
 
 ## Testing policy
 
