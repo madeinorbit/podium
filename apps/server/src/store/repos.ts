@@ -38,13 +38,21 @@ export class ReposRepository {
    * table holding 13. Those reads block the server's single event loop and their
    * row materialization is the off-heap churn behind RSS swinging 350MB -> 1.2GB.
    *
-   * INVALIDATION IS STRUCTURAL, NOT A CHECKLIST. The cache is dropped by the
-   * `prepare` wrapper below whenever a statement that writes `repos` or
-   * `repo_prefixes` executes, so a mutator added later cannot forget to call an
-   * invalidate method — the guarantee is "the rows this connection wrote are the
-   * rows the next read sees", which is what a caching read owes its callers.
-   * This class is the only writer of both tables; the wrapper additionally means
-   * that stops being a fact this cache DEPENDS on for anything issued through it.
+   * INVALIDATION IS STRUCTURAL FOR EVERY WRITE ISSUED THROUGH THIS CLASS: the
+   * `prepare` wrapper below drops the cache whenever a statement writing `repos`
+   * or `repo_prefixes` executes, so a mutator added here cannot forget to call an
+   * invalidate method.
+   *
+   * IT IS NOT THE ONLY WRITER, and assuming so is what made the first version of
+   * this cache wrong. `SessionStore.migrateLegacyMachineIdentity` rewrites
+   * `repos.machine_id` on the store's RAW handle with SQL built from
+   * `sqlite_master` — dynamic table names, so neither the wrapper above nor a
+   * grep for `UPDATE repos` can see it, which is how it survived review. That
+   * path calls {@link invalidate} explicitly; `store.repo-id.test.ts` pins it.
+   *
+   * Any future writer that bypasses this class owes the same call. If that list
+   * ever grows past one, this should become a notification the store owns rather
+   * than a courtesy each caller remembers.
    */
   private cached: {
     rows: Record<string, unknown>[]
@@ -100,6 +108,15 @@ export class ReposRepository {
       },
       close: () => db.close(),
     }
+  }
+
+  /**
+   * Drop the held registry read. For writers that do NOT go through this class —
+   * today only the boot machine-identity migration, which builds its UPDATE from
+   * `sqlite_master` on the store's raw handle.
+   */
+  invalidate(): void {
+    this.cached = null
   }
 
   /** Back-compat: flat list of paths across all machines. RepoRegistry.list() uses this. */
