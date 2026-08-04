@@ -87,6 +87,16 @@ describe('daemon connection credential state machine', () => {
       claims: { machineId: MACHINE_ID },
     })
     expect(state.state).toBe('connected')
+    expect(hello?.build?.appVersion).toBe(process.env.PODIUM_APP_VERSION ?? 'dev')
+    expect(hello?.build?.wireSchemaDigest).toBeTypeOf('string')
+    expect(hello?.build?.installKind).toBeTypeOf('string')
+    if (hello?.build?.installKind === 'source') {
+      expect(hello.caps).toContain('update.delivery.git')
+    } else {
+      expect(hello?.caps).toEqual(
+        expect.arrayContaining(['update.delivery.feed', 'update.delivery.bundle']),
+      )
+    }
     await state.close()
   })
 
