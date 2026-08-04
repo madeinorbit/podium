@@ -236,6 +236,11 @@ export interface MachineRecord {
    * "unowned", and the two must not look alike at the type level.
    */
   ownerUserId: string | null
+  appVersion: string | null
+  wireSchemaDigest: string | null
+  installKind: string | null
+  deliveryCaps: string[]
+  buildReportedAt: string | null
 }
 
 /**

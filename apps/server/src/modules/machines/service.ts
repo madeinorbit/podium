@@ -15,6 +15,7 @@ import type {
   DaemonMessage,
   LiveServerMessage,
   MachineVerb,
+  PeerBuild,
   ServerMessage,
 } from '@podium/protocol'
 import { deviceGradeSoleOwner } from '../../device-grade-owner'
@@ -558,6 +559,13 @@ export class MachinesService {
   /** Persist a daemon's inventoryReport (#222) on its machine row. */
   recordInventory(machineId: string, inventory: Inventory): void {
     this.deps.store.machines.setMachineInventory(machineId, JSON.stringify(inventory))
+    this.invalidateMachineCache()
+    this.broadcastMachines()
+  }
+
+  /** Persist a daemon's advisory build report and offered delivery capabilities. */
+  setMachineBuild(machineId: string, build: PeerBuild, caps: string[], at: string): void {
+    this.deps.store.machines.setMachineBuild(machineId, build, caps, at)
     this.invalidateMachineCache()
     this.broadcastMachines()
   }

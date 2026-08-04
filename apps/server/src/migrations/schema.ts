@@ -533,6 +533,15 @@ export const machines = sqliteTable('machines', {
   // verb)` — NOT in a column here. ADR 4 D7.1: a grant is its own aggregate and
   // a granted row never embeds its grants.
   ownerUserId: text('owner_user_id'),
+  // BUILD REPORT (POD-1670). What the daemon last told us it is running.
+  // ADVISORY: peer-asserted, unverified, never used to grant anything. Additive
+  // and nullable because an existing row has simply not reported yet, and that
+  // is the truthful answer until the daemon reconnects.
+  appVersion: text('app_version'),
+  wireSchemaDigest: text('wire_schema_digest'),
+  installKind: text('install_kind'),
+  deliveryCapsJson: text('delivery_caps_json'),
+  buildReportedAt: text('build_reported_at'),
 })
 
 export const repos = sqliteTable(

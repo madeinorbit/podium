@@ -3,6 +3,7 @@
  * their token hashes).
  */
 
+import type { PeerBuild } from '@podium/protocol'
 import { createHash, timingSafeEqual } from 'node:crypto'
 import { Inventory, type MachineId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
@@ -21,6 +22,16 @@ function parseInventory(json: unknown): Inventory | undefined {
   }
 }
 
+function parseCaps(raw: string | null): string[] {
+  if (!raw) return []
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.filter((c): c is string => typeof c === 'string') : []
+  } catch {
+    return []
+  }
+}
+
 function toRecord(r: Record<string, unknown>): MachineRecord {
   const inventory = parseInventory(r.inventory_json)
   return {
@@ -35,6 +46,11 @@ function toRecord(r: Record<string, unknown>): MachineRecord {
     // unowned, and unowned refuses `use` to everyone — substituting an owner
     // here would be the fail-open shape the nullable column exists to avoid.
     ownerUserId: (r.owner_user_id as string | null | undefined) ?? null,
+    appVersion: (r.app_version as string | null | undefined) ?? null,
+    wireSchemaDigest: (r.wire_schema_digest as string | null | undefined) ?? null,
+    installKind: (r.install_kind as string | null | undefined) ?? null,
+    deliveryCaps: parseCaps(r.delivery_caps_json as string | null),
+    buildReportedAt: (r.build_reported_at as string | null | undefined) ?? null,
   }
 }
 
@@ -83,7 +99,7 @@ export class MachinesRepository {
     return (
       this.db
         .prepare(
-          'SELECT id, name, hostname, created_at, last_seen_at, inventory_json, owner_user_id FROM machines ORDER BY created_at ASC',
+          'SELECT id, name, hostname, created_at, last_seen_at, inventory_json, owner_user_id, app_version, wire_schema_digest, install_kind, delivery_caps_json, build_reported_at FROM machines ORDER BY created_at ASC',
         )
         .all() as Record<string, unknown>[]
     ).map(toRecord)
@@ -92,7 +108,7 @@ export class MachinesRepository {
   getMachine(id: string): MachineRecord | undefined {
     const r = this.db
       .prepare(
-        'SELECT id, name, hostname, created_at, last_seen_at, inventory_json, owner_user_id FROM machines WHERE id = ?',
+        'SELECT id, name, hostname, created_at, last_seen_at, inventory_json, owner_user_id, app_version, wire_schema_digest, install_kind, delivery_caps_json, build_reported_at FROM machines WHERE id = ?',
       )
       .get(id) as Record<string, unknown> | undefined
     if (!r) return undefined
@@ -102,6 +118,22 @@ export class MachinesRepository {
   /** Persist a daemon-reported inventory (#222) as the raw JSON blob. */
   setMachineInventory(id: string, inventoryJson: string): void {
     this.db.prepare('UPDATE machines SET inventory_json = ? WHERE id = ?').run(inventoryJson, id)
+  }
+
+  /** Persist the daemon's advisory build report and the capabilities it offered. */
+  setMachineBuild(id: string, build: PeerBuild, caps: string[], at: string): void {
+    this.db
+      .prepare(
+        'UPDATE machines SET app_version = ?, wire_schema_digest = ?, install_kind = ?, delivery_caps_json = ?, build_reported_at = ? WHERE id = ?',
+      )
+      .run(
+        build.appVersion ?? null,
+        build.wireSchemaDigest ?? null,
+        build.installKind ?? null,
+        JSON.stringify(caps),
+        at,
+        id,
+      )
   }
 
   /** Constant-time token comparison using sha-256 hex. */

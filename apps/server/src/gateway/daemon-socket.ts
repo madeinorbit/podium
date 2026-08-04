@@ -35,7 +35,7 @@ import {
 } from '@podium/protocol'
 import type { PairingGrant } from '../modules/machines/service'
 import type { SessionRegistry } from '../relay'
-import { createDaemonAcceptor, receiveDaemonFrame } from './peer-handshake'
+import { createDaemonAcceptor, receiveDaemonFrame, recordHelloBuild } from './peer-handshake'
 import { DAEMON_PLANE_LIVENESS } from './plane-liveness'
 import { warnDroppedFrame } from './ws-send'
 
@@ -108,6 +108,11 @@ export function wireDaemonSocket(ws: import('ws').WebSocket, registry: SessionRe
       }
       if (outcome.kind !== 'established') return
       principal = outcome.principal
+      recordHelloBuild(registry.modules.machines, outcome.machineId, {
+        build: outcome.build,
+        caps: outcome.offeredCaps,
+        at: new Date().toISOString(),
+      })
       // A fresh pair hands the minted token back exactly once (the daemon persists
       // it). `paired` is itself the successful handshake reply; sending a second
       // `helloOk` would arrive after the daemon has entered its control-message loop.

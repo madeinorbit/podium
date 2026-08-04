@@ -39,7 +39,11 @@ import { userCommandPrincipal } from './command-principal'
 import { openEnrollmentLedger } from './enrollment-ledger'
 import { registerArtifactRoute } from './file-artifact-route'
 import { registerAssetRoute } from './file-asset-route'
-import { createDaemonAcceptor, receiveDaemonFrame } from './gateway/peer-handshake'
+import {
+  createDaemonAcceptor,
+  receiveDaemonFrame,
+  recordHelloBuild,
+} from './gateway/peer-handshake'
 import { attachWebSockets } from './gateway/ws-server'
 import { PairingManager } from './hub/pairing'
 import { applyEnvFirstAdminPassword, retireInstancePassword } from './instance-password-migration'
@@ -704,6 +708,11 @@ export async function startServer(
               return { established: false as const, reply }
             }
             const { principal } = outcome
+            recordHelloBuild(registry.modules.machines, outcome.machineId, {
+              build: outcome.build,
+              caps: outcome.offeredCaps,
+              at: new Date().toISOString(),
+            })
             const send = (msg: ControlMessage): void => queueMicrotask(() => deliver(msg))
             registry.gateway.attachDaemon(principal, send)
             return {
