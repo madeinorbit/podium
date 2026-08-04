@@ -8,7 +8,7 @@
 
 import type { Attribution, IssueId, SessionId, TranscriptItem, UserId, WorkState } from '@podium/model'
 import { asUserId } from '@podium/model'
-import type { ControlMessage } from '@podium/protocol'
+import type { ControlMessage, ObservationInputOrigin } from '@podium/protocol'
 import type { EntityChangeSpec } from '@podium/sync'
 import type { MutationLedgerPort } from '@podium/sync'
 import { sessionsForIssue } from '../../issue-util'
@@ -208,7 +208,7 @@ export class SessionMetaOps {
     // vanish into a dead PTY yet still report ok. Only a running session can retry.
     if (session.status !== 'live' && session.status !== 'starting') return { ok: false }
     if (session.agentState?.phase !== 'errored') return { ok: false }
-    session.terminal.recordInputActivity(this.ports.now())
+    session.terminal.recordInputActivity(this.ports.now(), 'auto_continue')
     this.ports.toMachine(session.machineId, {
       type: 'input',
       sessionId,
@@ -286,12 +286,18 @@ export class SessionMetaOps {
     sessionId: SessionId,
     attribution: Attribution,
     kind: 'text' | 'answer',
+    origin: ObservationInputOrigin = 'controller',
   ): void {
     const session = this.ports.sessions.get(sessionId)
     if (!session) return
     this.ports.state.clearAllSnoozes(sessionId)
     this.ports.state.suppressNativeDraft(sessionId)
-    if (session.offer !== undefined) this.clearOffer(sessionId)
+    // A PERSON sending into the session moves the conversation past the offer.
+    // Mail delivery, a cron/automation wake or an auto-continue is not a person
+    // — it must leave a standing offer for the human who has not seen it yet
+    // [spec:SP-c7f1, POD-118], the same rule the turn path applies.
+    const userSend = origin === 'human' || origin === 'controller'
+    if (userSend && session.offer !== undefined) this.clearOffer(sessionId)
     this.ports.store.events.appendEvent({
       ts: new Date(this.ports.now()).toISOString(),
       kind: kind === 'answer' ? 'session.inbox.answer' : 'session.inbox.send',

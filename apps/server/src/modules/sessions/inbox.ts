@@ -157,7 +157,12 @@ export interface SessionInboxDeps {
   persist(session: Session, options?: { cancelTerminalCandidate?: boolean }): void
   broadcast(): void
   needsSubmitVerification(agentKind: AgentKind): boolean
-  prepareSend(sessionId: SessionId, attribution: Attribution, kind: 'text' | 'answer'): void
+  prepareSend(
+    sessionId: SessionId,
+    attribution: Attribution,
+    kind: 'text' | 'answer',
+    origin: ObservationInputOrigin,
+  ): void
   ownerOf(sessionId: SessionId): UserId | null | undefined
   /**
    * REQUEST a wake for a parked target; it does not perform one.
@@ -253,7 +258,12 @@ export class SessionInbox {
     if (inserted) {
       session.queuedMessageCount += 1
       this.deps.persist(session, { cancelTerminalCandidate: true })
-      this.deps.prepareSend(input.sessionId, principal.attribution, 'text')
+      this.deps.prepareSend(
+        input.sessionId,
+        principal.attribution,
+        'text',
+        input.inputOrigin ?? 'controller',
+      )
       this.deps.broadcast()
     }
     // Ask for the wake; the reaction decides and reports. See the port's note.
@@ -374,7 +384,8 @@ export class SessionInbox {
         input.principal.attribution,
       )
     }
-    this.deps.prepareSend(input.sessionId, input.principal.attribution, 'answer')
+    // Answering the agent's question is always a person acting.
+    this.deps.prepareSend(input.sessionId, input.principal.attribution, 'answer', 'human')
     this.deps.attention.answered({
       ownerUserId,
       sessionId: input.sessionId,
@@ -461,7 +472,12 @@ export class SessionInbox {
     if (!afterEsc && session.agentState?.phase === 'needs_user') return { ok: false }
     const principal = input.principal ?? SYSTEM_INBOX_PRINCIPAL
     if (input.recordSend !== false)
-      this.deps.prepareSend(input.sessionId, principal.attribution, 'text')
+      this.deps.prepareSend(
+        input.sessionId,
+        principal.attribution,
+        'text',
+        input.inputOrigin ?? 'controller',
+      )
     const baseline = session.terminal.transcriptItems().filter((item) => item.role === 'user').length
     this.sendInput(
       session,
@@ -507,7 +523,7 @@ export class SessionInbox {
     inputOrigin: ObservationInputOrigin,
     attribution: Attribution,
   ): void {
-    session.terminal.recordInputActivity(this.deps.now())
+    session.terminal.recordInputActivity(this.deps.now(), inputOrigin)
     // Live last-input attribution for watchers (POD-1081 §2). The durable half
     // of intentional sends remains the queue row, not this field.
     session.terminal.noteInputAttribution(attribution)

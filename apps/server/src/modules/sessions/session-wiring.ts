@@ -343,8 +343,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         ),
       broadcast: () => bag.broadcastSessions(),
       needsSubmitVerification: harnessNeedsSubmitVerification,
-      prepareSend: (sessionId, attribution, kind) =>
-        bag.prepareInboxSend(sessionId, attribution, kind),
+      prepareSend: (sessionId, attribution, kind, origin) =>
+        bag.prepareInboxSend(sessionId, attribution, kind, origin),
       ownerOf: (sessionId) => bag.sessionOwner(sessionId)?.owner,
       resurrect: (sessionId, principal) => {
         bag.bus.emit('session.wakeRequested', { sessionId, principal })

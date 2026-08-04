@@ -1,6 +1,11 @@
 import { acceptAgentObservation } from '@podium/harness/metadata'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
-import type { ControlMessage, LiveServerMessage, MachinePrincipal } from '@podium/protocol'
+import type {
+  ControlMessage,
+  LiveServerMessage,
+  MachinePrincipal,
+  ObservationInputOrigin,
+} from '@podium/protocol'
 import type { AutoContinueController } from '../../auto-continue'
 import type { BrowserOpenGateway } from '../../gateway/browser-open'
 import type { SessionsDaemonFrame } from '../../gateway/daemon-frame-routing'
@@ -101,6 +106,40 @@ export class SessionDaemonLifecycle {
   private readonly broadcastToClients = (message: LiveServerMessage): void =>
     this.ports.broadcastToClients(message)
   private readonly clearOffer = (sessionId: SessionId): void => this.ports.clearOffer(sessionId)
+
+  /**
+   * A new turn began: does it retire the session's standing offer
+   * [spec:SP-c7f1]? Only when the USER opened it — a turn forced by a
+   * stop-hook, mail delivery, cron or steward wake must leave an offer the
+   * human never saw standing [POD-118].
+   *
+   * `origin` is the causal ledger's normalized answer and is trusted whenever
+   * the provider supplies a real one. The codex and grok observers stamp every
+   * transition 'provider' (they track no origin), and the legacy path carries
+   * none at all, so those fall back to the evidence that path always used:
+   * input a person is responsible for, arriving after the offer was posted.
+   *
+   * Both call sites route through here so the two branches cannot drift apart
+   * again — the drift is what left the offer standing in the first place.
+   */
+  private userOpenedTurn(
+    session: Session,
+    offerCreatedAt: string,
+    origin?: ObservationInputOrigin,
+  ): boolean {
+    switch (origin) {
+      case 'human':
+      case 'controller':
+        return true
+      case 'mail':
+      case 'auto_continue':
+      case 'steward':
+      case 'system':
+        return false
+      default:
+        return session.terminal.lastUserInputAtMs > Date.parse(offerCreatedAt)
+    }
+  }
 
   handle(principal: MachinePrincipal, msg: SessionsDaemonFrame): void {
     const machineId = principal.machine
@@ -421,6 +460,11 @@ export class SessionDaemonLifecycle {
         if (outcome.kind !== 'live_transition_accepted') break
         this.autoContinue.onStateChange(session.sessionId, next)
         this.ports.onSessionActivity(session.sessionId)
+        // Turn end (working → anything else) is the only moment new commits can
+        // appear — refresh the owning issue's git state [POD-98].
+        if (prev?.phase === 'working' && next.phase !== 'working') {
+          this.ports.onSessionTurnEnd(session.sessionId)
+        }
         this.inbox.stateChanged({
           sessionId: session.sessionId,
           prev,
@@ -432,6 +476,21 @@ export class SessionDaemonLifecycle {
         }
         if (!isAttentionPhase(prev) && isAttentionPhase(next)) {
           this.ports.onSessionAttention(session.sessionId)
+        }
+        // A NEW turn opened after the offer means the conversation moved past
+        // it, so its suggested actions no longer apply [spec:SP-c7f1]. This is
+        // the path every causally-observed harness takes — the chat composer
+        // and the offer buttons clear directly in sendText, so what lands here
+        // is the continuation those never see: the user typing into the PTY.
+        // The event-time guard keeps a late or replayed turn_opened from
+        // consuming an offer that was posted after it.
+        if (
+          session.offer !== undefined &&
+          observation.transitionKind === 'turn_opened' &&
+          Date.parse(observation.receivedAt) > Date.parse(session.offer.createdAt) &&
+          this.userOpenedTurn(session, session.offer.createdAt, observation.inputOrigin)
+        ) {
+          this.clearOffer(session.sessionId)
         }
         break
       }
@@ -506,21 +565,16 @@ export class SessionDaemonLifecycle {
           this.ports.onSessionAttention(msg.sessionId)
         }
         // A NEW turn beginning after the offer was made means the conversation
-        // moved past it — its suggested actions no longer apply [spec:SP-c7f1]
-        // — but only when the USER moved it: a turn forced by a stop-hook or a
-        // mail/cron wake must NOT consume a standing offer the human never saw
-        // [POD-118]. So this path (which catches the continuations sendText
-        // never sees: raw PTY keystrokes, whichever client they came from)
-        // additionally requires controller input SINCE the offer; chat sends
-        // and button clicks clear directly in sendText. The event-time guard
-        // keeps a boot replay of the very turn that produced the offer from
-        // consuming it.
+        // moved past it — its suggested actions no longer apply [spec:SP-c7f1].
+        // This frame carries no input origin, so {@link userOpenedTurn} decides
+        // on input evidence. The event-time guard keeps a boot replay of the
+        // very turn that produced the offer from consuming it.
         if (
           session.offer !== undefined &&
           prev?.phase !== 'working' &&
           next.phase === 'working' &&
           next.since > session.offer.createdAt &&
-          session.terminal.lastInputAtMs > Date.parse(session.offer.createdAt)
+          this.userOpenedTurn(session, session.offer.createdAt)
         ) {
           this.clearOffer(msg.sessionId)
         }

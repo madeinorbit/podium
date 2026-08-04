@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asSessionId } from '@podium/model'
+import type { AgentObservation } from '@podium/protocol'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
@@ -262,6 +263,222 @@ describe('agent action offer [spec:SP-c7f1]', () => {
         state: working(plusMinute(plusMinute(createdAt))),
       })
       expect(metaOffer(reg, sessionId)?.message).toBe(OFFER.message)
+    })
+  })
+
+  // Every causally-observed harness (claude-code, codex, grok) reports phase
+  // through 'agentObservation', and the legacy branch above REFUSES those
+  // sessions once a checkpoint exists — so the staleness rule has to live on
+  // this path too, or a typed continuation never retires the card (POD-378).
+  describe('staleness on the causal observation path [POD-378]', () => {
+    const shift = (iso: string, seconds: number) =>
+      new Date(Date.parse(iso) + seconds * 1000).toISOString()
+
+    function seed(agentKind: 'claude-code' | 'codex') {
+      const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+      const { sessionId } = reg.modules.sessions.createSession({ agentKind, cwd: '/p' })
+      reg.modules.sessions.setOffer({ sessionId, ...OFFER })
+      const createdAt = metaOffer(reg, sessionId)?.createdAt as string
+      const provider = agentKind === 'claude-code' ? ('claude-code' as const) : ('codex' as const)
+      const observe = (observation: AgentObservation) =>
+        reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+          type: 'agentObservation',
+          observation,
+        })
+      const state = (phase: 'idle' | 'working', since: string) => ({
+        phase,
+        since,
+        workingMsTotal: 0,
+        nativeSubagentCount: 0,
+      })
+      // The bootstrap snapshot the observer opens with: it establishes the
+      // checkpoint (which is what makes the legacy branch bail) and predates
+      // the offer, so it can never be mistaken for the continuation.
+      const bootstrap: AgentObservation = {
+        podiumSessionId: asSessionId(sessionId),
+        provider,
+        providerSessionId: null,
+        bindingVersion: 1,
+        providerTurnId: null,
+        providerPromptId: null,
+        observerGeneration: 1,
+        providerCursor: { segmentId: 'seg-1', components: { file: 10 } },
+        providerAt: shift(createdAt, -120),
+        receivedAt: shift(createdAt, -120),
+        sourceEventKind: 'bootstrap',
+        transitionKind: 'snapshot',
+        provenance: 'bootstrap',
+        inputOrigin: 'provider',
+        turnEpoch: 0,
+        priorPhase: 'unknown',
+        nextPhase: 'idle',
+        transitionId: 'snapshot-1',
+        state: state('idle', shift(createdAt, -120)),
+      }
+      observe(bootstrap)
+      /** The next turn opening, a minute after the offer was posted. */
+      const turnOpened = (inputOrigin: AgentObservation['inputOrigin']): AgentObservation => ({
+        ...bootstrap,
+        providerCursor: { segmentId: 'seg-1', components: { file: 20 } },
+        providerAt: shift(createdAt, 60),
+        receivedAt: shift(createdAt, 60),
+        sourceEventKind: 'UserPromptSubmit',
+        transitionKind: 'turn_opened',
+        provenance: 'live',
+        inputOrigin,
+        turnEpoch: 1,
+        priorPhase: 'idle',
+        nextPhase: 'working',
+        transitionId: 'turn-1-open',
+        state: state('working', shift(createdAt, 60)),
+      })
+      return { reg, sessionId, createdAt, observe, turnOpened, shift }
+    }
+
+    // Raw PTY keystrokes from the controlling client — the continuation the
+    // chat composer never sees, and the one that left cards standing.
+    function typeIntoPty(reg: SessionRegistry, sessionId: string, atIso: string) {
+      const clientId = attachTestClient(reg.clientGateway, () => {})
+      reg.clientGateway.routeClientFrame(clientId, {
+        type: 'attach',
+        sessionId: asSessionId(sessionId),
+      })
+      const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(Date.parse(atIso))
+      try {
+        reg.clientGateway.routeClientFrame(clientId, {
+          type: 'input',
+          sessionId: asSessionId(sessionId),
+          data: Buffer.from('fix it\r').toString('base64'),
+        })
+      } finally {
+        nowSpy.mockRestore()
+      }
+    }
+
+    it("a human-origin turn_opened consumes it (the harness's own answer)", () => {
+      const { reg, sessionId, observe, turnOpened } = seed('claude-code')
+      observe(turnOpened('human'))
+      expect(metaOffer(reg, sessionId)).toBeUndefined()
+    })
+
+    it('a controller-origin turn_opened (chat/button) consumes it', () => {
+      const { reg, sessionId, observe, turnOpened } = seed('claude-code')
+      observe(turnOpened('controller'))
+      expect(metaOffer(reg, sessionId)).toBeUndefined()
+    })
+
+    it.each([
+      'mail',
+      'auto_continue',
+      'steward',
+      'system',
+    ] as const)('a %s-origin turn preserves it — nobody saw the offer yet [POD-118]', (origin) => {
+      const { reg, sessionId, observe, turnOpened } = seed('claude-code')
+      observe(turnOpened(origin))
+      expect(metaOffer(reg, sessionId)?.message).toBe(OFFER.message)
+    })
+
+    // Codex and grok observers stamp every transition 'provider' — they track
+    // no origin — so those harnesses fall back to input evidence.
+    it('a provider-origin turn consumes it only after the user typed', () => {
+      const withoutTyping = seed('codex')
+      withoutTyping.observe(withoutTyping.turnOpened('provider'))
+      expect(metaOffer(withoutTyping.reg, withoutTyping.sessionId)?.message).toBe(OFFER.message)
+
+      const withTyping = seed('codex')
+      typeIntoPty(withTyping.reg, withTyping.sessionId, shift(withTyping.createdAt, 30))
+      withTyping.observe(withTyping.turnOpened('provider'))
+      expect(metaOffer(withTyping.reg, withTyping.sessionId)).toBeUndefined()
+    })
+
+    // A mail wake types into the PTY too, so "any input since the offer" is not
+    // evidence of a person — only user-origin input counts. The delivery must
+    // not consume the offer on its own way in either [POD-118].
+    it('a mail delivery neither clears the offer nor counts as input evidence', () => {
+      const { reg, sessionId, observe, turnOpened } = seed('codex')
+      reg.modules.sessions.sendText({
+        sessionId: asSessionId(sessionId),
+        text: 'a message from another agent',
+        inputOrigin: 'mail',
+      })
+      expect(metaOffer(reg, sessionId)?.message).toBe(OFFER.message)
+      observe(turnOpened('provider'))
+      expect(metaOffer(reg, sessionId)?.message).toBe(OFFER.message)
+    })
+
+    it('a chat send still clears it on the way in', () => {
+      const { reg, sessionId } = seed('codex')
+      reg.modules.sessions.sendText({
+        sessionId: asSessionId(sessionId),
+        text: 'carry on',
+      })
+      expect(metaOffer(reg, sessionId)).toBeUndefined()
+    })
+
+    it('a turn that opened BEFORE the offer cannot consume it', () => {
+      const { reg, sessionId, createdAt, observe, turnOpened } = seed('claude-code')
+      const early = turnOpened('human')
+      observe({ ...early, receivedAt: shift(createdAt, -30), providerAt: shift(createdAt, -30) })
+      expect(metaOffer(reg, sessionId)?.message).toBe(OFFER.message)
+    })
+
+    it('mid-turn activity and the turn end that posts the offer leave it', () => {
+      const { reg, sessionId, createdAt, observe, turnOpened } = seed('claude-code')
+      const open = turnOpened('human')
+      observe({
+        ...open,
+        transitionKind: 'activity',
+        sourceEventKind: 'PostToolUse',
+        transitionId: 'turn-1-activity',
+      })
+      expect(metaOffer(reg, sessionId)?.message).toBe(OFFER.message)
+      observe({
+        ...open,
+        providerCursor: { segmentId: 'seg-1', components: { file: 30 } },
+        transitionKind: 'turn_terminal',
+        sourceEventKind: 'Stop',
+        priorPhase: 'working',
+        nextPhase: 'idle',
+        transitionId: 'turn-1-done',
+        state: {
+          phase: 'idle' as const,
+          since: shift(createdAt, 90),
+          workingMsTotal: 0,
+          nativeSubagentCount: 0,
+        },
+      })
+      expect(metaOffer(reg, sessionId)?.message).toBe(OFFER.message)
+    })
+
+    // The same branch divergence dropped the POD-98 git refresh (POD-381).
+    it('a turn ending on this path fires the issue git-state refresh [POD-381]', () => {
+      const { reg, sessionId, createdAt, observe, turnOpened } = seed('claude-code')
+      const derived: string[] = []
+      reg.bus.on('issue.sessionDerived', (event) => {
+        if ('sessionId' in event && event.sessionId === sessionId) derived.push(event.kind)
+      })
+      const open = turnOpened('human')
+      observe(open)
+      expect(derived).not.toContain('turnEnd')
+      observe({
+        ...open,
+        providerCursor: { segmentId: 'seg-1', components: { file: 30 } },
+        providerAt: shift(createdAt, 90),
+        receivedAt: shift(createdAt, 90),
+        transitionKind: 'turn_terminal',
+        sourceEventKind: 'Stop',
+        priorPhase: 'working',
+        nextPhase: 'idle',
+        transitionId: 'turn-1-done',
+        state: {
+          phase: 'idle' as const,
+          since: shift(createdAt, 90),
+          workingMsTotal: 0,
+          nativeSubagentCount: 0,
+        },
+      })
+      expect(derived).toContain('turnEnd')
     })
   })
 })

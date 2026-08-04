@@ -5,7 +5,12 @@ import type {
   SessionId,
   TranscriptItem,
 } from '@podium/model'
-import type { ControlMessage, PresenceIdentity, ServerMessage } from '@podium/protocol'
+import type {
+  ControlMessage,
+  ObservationInputOrigin,
+  PresenceIdentity,
+  ServerMessage,
+} from '@podium/protocol'
 import type { ClientConn } from '../../gateway/client-registry'
 import { feedPrincipalOf } from '../../gateway/client-principal'
 import { perfPrincipal } from '../perf/principal'
@@ -74,6 +79,7 @@ export class SessionTerminal {
 
   private outputAtMs_ = 0
   private inputAtMs_ = 0
+  private userInputAtMs_ = 0
   private resumedAtMs_ = 0
   private inputCount_ = 0
   private outputCount_ = 0
@@ -94,6 +100,11 @@ export class SessionTerminal {
     this.geometry = { ...init.geometry }
     this.outputAtMs_ = this.seedMs(init.lastOutputAt)
     this.inputAtMs_ = this.seedMs(init.lastInputAt)
+    // Only the combined last-input time is durable, so a reload cannot tell a
+    // human keystroke from a mail delivery. Seeding both from it keeps the
+    // post-restart answer identical to the one the boot offer reconcile
+    // already gives (repository.ts), rather than inventing a stricter one.
+    this.userInputAtMs_ = this.inputAtMs_
     this.resumedAtMs_ = this.seedMs(init.lastResumedAt)
     this.inputCount_ = init.inputCount ?? 0
     this.outputCount_ = init.outputCount ?? 0
@@ -110,6 +121,17 @@ export class SessionTerminal {
 
   get lastInputAtMs(): number {
     return this.inputAtMs_
+  }
+
+  /**
+   * Last input a PERSON is responsible for — raw keystrokes and controller
+   * sends (chat, offer buttons), but not mail delivery, stop-hook continues,
+   * steward or automation wakes. The offer staleness rule [spec:SP-c7f1,
+   * POD-118] needs that distinction for the harnesses whose observers report
+   * no input origin of their own.
+   */
+  get lastUserInputAtMs(): number {
+    return this.userInputAtMs_
   }
 
   get lastResumedAtMs(): number {
@@ -341,8 +363,11 @@ export class SessionTerminal {
     })
   }
 
-  recordInputActivity(at = Date.now()): void {
+  /** `origin` defaults to 'human' because the raw-keystroke path below is the
+   *  only caller that omits it; every server-originated send states its own. */
+  recordInputActivity(at = Date.now(), origin: ObservationInputOrigin = 'human'): void {
     this.inputAtMs_ = at
+    if (origin === 'human' || origin === 'controller') this.userInputAtMs_ = at
     this.inputCount_ += 1
     this.activityCount_ += 1
     this.activityDirty_ = true
