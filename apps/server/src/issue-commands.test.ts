@@ -795,8 +795,42 @@ describe('mail command (agent mail #103)', () => {
     const { client, calls } = mockClient({ mailSend: { id: 'msg_1', issueId: 'iss_1' } })
     const r = await cmd('mail').run(client, { sub: 'send', ref: '#7', body: 'ping' })
     expect(calls).toEqual([{ path: 'mailSend', kind: 'mutate', input: { id: '#7', body: 'ping' } }])
-    expect(r.text).toContain('mail sent to #7')
     expect(r.text).toContain('msg_1')
+  })
+
+  /**
+   * POD-1663: this surface printed "mail sent to #7" for an UNCONFIRMED row. A
+   * coordinator then read status='queued' as proof of a delivery outage, filed a
+   * P1 and briefed two wrong hypotheses — against messages the recipients had in
+   * fact already received. Only `delivered` may claim the strong verb.
+   */
+  it('does not claim "sent" for a row that is merely captured', async () => {
+    const { client } = mockClient({ mailSend: { id: 'msg_1', issueId: 'iss_1' } })
+    const r = await cmd('mail').run(client, { sub: 'send', ref: '#7', body: 'ping' })
+    expect(r.text).not.toContain('mail sent')
+    expect(r.text).toContain('QUEUED')
+    expect(r.text).toContain('NOT yet confirmed')
+    // The sender must be told how to resolve it, or "queued" is just as opaque.
+    expect(r.text).toContain('podium mail status msg_1')
+  })
+
+  it('claims delivery only on the delivered disposition', async () => {
+    const { client } = mockClient({
+      mailSend: { id: 'msg_1', issueId: 'iss_1', disposition: 'delivered' },
+    })
+    const r = await cmd('mail').run(client, { sub: 'send', ref: '#7', body: 'ping' })
+    expect(r.text).toContain('DELIVERED')
+    expect(r.text).not.toContain('NOT yet confirmed')
+  })
+
+  it('keeps the hold visible and still weak', async () => {
+    const { client } = mockClient({
+      mailSend: { id: 'msg_1', issueId: 'iss_1', disposition: 'held' },
+    })
+    const r = await cmd('mail').run(client, { sub: 'send', ref: '#7', body: 'ping' })
+    expect(r.text).toContain('QUEUED')
+    expect(r.text).toContain('no live session')
+    expect(r.text).not.toContain('mail sent')
   })
 
   it('mail send without body or id throws', async () => {

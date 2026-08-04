@@ -113,18 +113,38 @@ function line(i: { seq: number; title: string; priority?: number; stage?: string
   return `#${i.seq} ${p}${s}${i.title}`
 }
 
-/** Render a send disposition as a human note (#834): the sender learns whether a
- *  message landed on a live agent, is holding for the issue's next session, or
- *  waking one — never a bare "sent" that hides a hold. `delivered`/`queued` need
- *  no note (the default reading of "sent"). */
-function mailDispositionNote(disposition?: string): string {
+/**
+ * The sender-facing outcome of a send, stated as what the LEDGER can actually
+ * back (#834, POD-1663).
+ *
+ * This used to print "mail sent" for every non-held disposition, on the reading
+ * that `queued` "needs no note". It does. Only `delivered` means the message is
+ * confirmed in the recipient's context; `queued` and `accepted` mean the row is
+ * durably captured and NOT yet confirmed, and a row can legitimately sit in
+ * `queued` indefinitely — an fyi/oversized issue message renders as an inbox
+ * POINTER, which is confirmed only by an inbox read that may never come.
+ *
+ * POD-1663 is what that costs: a coordinator read `status='queued'` as proof of
+ * an outage, built a P1 and two wrong hypotheses on it, and briefed against
+ * messages the recipients had already received. The verb has to distinguish
+ * "captured" from "confirmed", and point at the command that resolves it.
+ */
+export function mailSendOutcomeText(ref: string, id: string, disposition?: string): string {
+  const check = `check: podium mail status ${id}`
   switch (disposition) {
+    case 'delivered':
+      return `mail DELIVERED to ${ref} (${id}) — confirmed in the recipient’s context`
     case 'held':
-      return ' — HELD for the issue’s next session (no live session right now)'
+      return `mail QUEUED for ${ref} (${id}) — HELD for the issue’s next session (no live session right now); ${check}`
     case 'spawning':
-      return ' — waking a session to receive it'
+      return `mail QUEUED for ${ref} (${id}) — waking a session to receive it; ${check}`
+    case 'accepted':
+      return `mail QUEUED for ${ref} (${id}) — durably captured, NOT yet confirmed (the confirm budget expired); ${check}`
     default:
-      return ''
+      // `queued`, and anything a future disposition adds: captured, unconfirmed.
+      // Defaulting to the weaker claim is the point — a new disposition must not
+      // inherit "sent" by falling through.
+      return `mail QUEUED for ${ref} (${id}) — durably captured, NOT yet confirmed; ${check}`
   }
 }
 
@@ -907,8 +927,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
           if (m.ok === false || m.disposition === 'dead_letter') {
             throw new Error(m.reason ?? `mail to ${ref} could not be delivered`)
           }
-          const note = mailDispositionNote(m.disposition)
-          return { text: `mail sent to ${ref} (${m.id})${note}`, data: m }
+          return { text: mailSendOutcomeText(ref, m.id, m.disposition), data: m }
         }
         case 'inbox': {
           const msgs = (await c.issues.mailInbox.mutate(ref ? { id: ref } : {})) as {
