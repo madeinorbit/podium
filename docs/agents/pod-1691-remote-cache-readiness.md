@@ -19,7 +19,13 @@ Evidence from the rebased `origin/main` tree (Turbo 2.10.5, Bun 1.3.14):
 
 The fingerprint itself is SHA-256 over the `bunfig.toml` contents plus the sorted names under `node_modules/@podium`, marking entries with no `package.json` as dangling. This closes the measured POD-1343 linker/layout failure: a missing or dangling workspace-link census cannot reuse a green. Turbo also includes the lockfile/package metadata in the global cache inputs.
 
+The exact CI install command was reproduced from an initially empty `node_modules` in this worktree. Bun 1.3.14 installed 1,341 packages and created 26 healthy `@podium` workspace links with `--ignore-scripts`; `bun run test:web -- --dry=json` then passed the link guard and reached Turbo. If a CI install ever produces zero usable links, `scripts/test.ts` exits nonzero before Turbo, so the job hard-fails rather than reporting a cached green.
+
 This is evidence for the current fleet shape, not a claim of arbitrary cross-platform hermeticity. The census records link names and dangling state, not symlink targets or installed package contents; Bun version, OS, and architecture are pinned by current CI (`ubuntu-latest`, Bun 1.3.14) but are not independently encoded by this fingerprint. If the rollout spans other runtimes or platforms, extend the fingerprint and re-run the hash probes before enabling remote reads.
+
+## CI cache behavior
+
+`bun run test:web` computes the fingerprint before invoking Turbo. On a successful cache hit, Turbo skips `bun --bun vitest --config vitest.config.ts run`, reports the cached task as a hit, and replays the successful task result/logs to CI. The real wrapper dry run in this worktree reported `status: HIT`, `source: LOCAL`, and `remote: false`; the existing POD-1687 evidence measured two cached lanes completing in 302ms. The current workflow caches only `~/.bun/install/cache`, not `.turbo`, so a fresh GitHub runner misses and executes the suite. A future remote hit is safe only when the audited source, lockfile, install-fingerprint, and fleet-runtime assumptions match; otherwise the fingerprint must be strengthened or the fleet must be partitioned before remote reads are enabled.
 
 ## Rollout gates
 

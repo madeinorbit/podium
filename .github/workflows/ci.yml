@@ -153,6 +153,7 @@ jobs:
         run: bun run test:unit
       # apps/web needs happy-dom + its own aliases, so it runs under its own config.
       - name: unit tests (apps/web, happy-dom)
+        # This workflow caches Bun's download cache, not .turbo; a fresh runner executes.
         # Use the same Turbo task as local agents so a future approved remote
         # cache can share this lane across CI jobs and worktrees.
         run: bun run test:web
