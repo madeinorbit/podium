@@ -43,7 +43,16 @@ const runN = async (n: number): Promise<number> => {
     // One frame, one row — the shape a live delta stream has.
     cache.applyAtomic({
       operations: [
-        { kind: 'upsert', entity: 'issue', entityId: `POD-${i}`, value: value(i), revision: i },
+        {
+          kind: 'upsert',
+          entity: 'issue',
+          entityId: `POD-${i}`,
+          value: value(i),
+          revision: i,
+          // CacheOperation's upsert arm requires provenance; the sibling adapter
+          // benches spell it `{ seq: cursor.seq }` (mobile-sqlite/quota.test.ts).
+          provenance: { seq: cursor.seq },
+        },
       ],
       cursor,
     })
