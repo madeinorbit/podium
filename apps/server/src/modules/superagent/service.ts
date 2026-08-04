@@ -491,7 +491,7 @@ export class SuperagentService {
     // Ensure the headless Podium session (recreate if the row was deleted).
     const boundSessionId = thread.podiumSessionId
     const existingSession = boundSessionId
-      ? this.listSessions().find((session) => session.sessionId === boundSessionId)
+      ? this.sessionById(boundSessionId)
       : undefined
     let sessionId: SessionId
     if (existingSession) {
@@ -568,7 +568,7 @@ export class SuperagentService {
       })
     }
     for (const pending of this.store.superagent.listPendingTurns()) {
-      const session = this.listSessions().find((s) => s.sessionId === pending.podiumSessionId)
+      const session = this.sessionById(pending.podiumSessionId)
       if (!session || (machineId !== undefined && session.machineId !== machineId)) continue
       this.turnInFlight.add(pending.threadId)
       this.dispatchPendingTurn(pending)
@@ -818,7 +818,7 @@ export class SuperagentService {
     const threadId = asThreadId(`btw_${sessionId}`)
     const existing = this.store.superagent.getSuperagentThread(threadId, ownerUserId)
     if (existing?.kind === 'btw') return { threadId, isNew: false }
-    const info = this.listSessions().find((s) => s.sessionId === sessionId)
+    const info = this.sessionById(sessionId)
     this.store.superagent.upsertSuperagentThread({
       id: threadId,
       ownerUserId,
@@ -854,6 +854,10 @@ export class SuperagentService {
   private listSessions() {
     return this.modules.sessions.listSessions()
   }
+  /** ONE session, without wiring the other 1100 [POD-1646]. */
+  private sessionById(sessionId: string) {
+    return this.modules.sessions.sessionById(sessionId as SessionId)
+  }
 
   /** Where a thread's harness session runs: the repo for concierge threads, the
    *  origin session's cwd for btw threads, the home directory for the global
@@ -864,7 +868,7 @@ export class SuperagentService {
       return thread.repoPath ?? conciergeRepoPath(thread.id) ?? homedir()
     }
     if (thread.kind === 'btw' && thread.originSessionId) {
-      const origin = this.listSessions().find((s) => s.sessionId === thread.originSessionId)
+      const origin = this.sessionById(thread.originSessionId)
       return origin?.cwd ?? homedir()
     }
     return homedir()
@@ -875,7 +879,7 @@ export class SuperagentService {
    *  lock lazily right here. Returns the rejection message, or undefined. */
   private terminalLockError(thread: SuperagentThreadRow): string | undefined {
     if (!thread.terminalSessionId) return undefined
-    const s = this.listSessions().find((x) => x.sessionId === thread.terminalSessionId)
+    const s = this.sessionById(thread.terminalSessionId)
     if (s && (s.status === 'live' || s.status === 'starting' || s.status === 'reconnecting')) {
       return 'this thread is open in a terminal session — close it to chat here'
     }
@@ -957,7 +961,7 @@ export class SuperagentService {
       )
       const last = items[items.length - 1]
       if (firstTurn) {
-        const info = this.listSessions().find((s) => s.sessionId === originId)
+        const info = this.sessionById(originId)
         const session: ConciergeSessionInfo = {
           sessionId: originId,
           ...((info?.name ?? info?.title) ? { name: info?.name ?? info?.title } : {}),
@@ -1044,7 +1048,7 @@ export class SuperagentService {
 
   /** One live session, digested for a seed / focus block. */
   private sessionInfo(sessionId: SessionId): FocusSessionInfo | undefined {
-    const s = this.listSessions().find((x) => x.sessionId === sessionId)
+    const s = this.sessionById(sessionId)
     if (!s) return undefined
     const issue = s.issueId ? this.issueById(s.issueId) : undefined
     return {

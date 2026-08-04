@@ -26,6 +26,7 @@ export interface SessionAuthzPorts {
   clientControl: any
   deps: any
   listSessions: any
+  sessionById: any
   machines: any
   sessions: any
   store: any
@@ -105,6 +106,7 @@ export class SessionAuthz {
     // scope gate. The source message proves intent and ordering, never rights.
     const access = {
       listSessions: () => this.ports.listSessions(),
+      sessionById: (sessionId: SessionId) => this.ports.sessionById(sessionId),
       issues: this.ports.deps.issueAccess,
       visibility: () => true,
     }

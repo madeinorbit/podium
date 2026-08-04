@@ -909,6 +909,8 @@ export class SessionRegistry {
       store: this.store,
       artifacts: issueArtifacts,
       listSessions: () => sessionsSvc.listSessions(),
+      // The by-id read [POD-1646]: one session, not the full pass.
+      sessionById: (sessionId) => sessionsSvc.sessionById(sessionId),
       // The narrow read [POD-1639]: an issue mutation asks for ITS sessions, not
       // for all of them. Same set, same fields — see SessionView.listForIssue.
       listSessionsForIssue: (worktreePath, issueId) =>
@@ -1294,6 +1296,7 @@ export class SessionRegistry {
         messages: messagesSvc,
         issues,
         listSessions: () => sessionsSvc.listSessions(),
+        sessionById: (sessionId) => sessionsSvc.sessionById(sessionId),
         // Cross-harness subagent spawn (#237) [spec:SP-34d7 cross-harness]: the
         // child is a FULL Podium session through the one spawn path; --new is the
         // deliberate issue-create path (never automatic).
@@ -1398,7 +1401,7 @@ export class SessionRegistry {
       toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
       clients: () => clientRegistry.values(),
       sessionIssueId: (sessionId) => {
-        const s = sessionsSvc.listSessions().find((x) => x.sessionId === sessionId)
+        const s = sessionsSvc.sessionById(sessionId)
         return s ? (s.issueId ?? issues.issueForCwd(s.cwd)) : null
       },
       issueInfo: (issueId) => {
@@ -1453,8 +1456,7 @@ export class SessionRegistry {
           const principal = resolvePrincipal(sessionsSvc.capabilityForSession(sessionId), {
             parentSessionOf: (candidate) =>
               spawnedByParentSessionId(
-                sessionsSvc.listSessions().find((session) => session.sessionId === candidate)
-                  ?.spawnedBy,
+                sessionsSvc.sessionSpawnedBy(candidate),
               ),
             onBehalfOfFor: (candidate) => sessionsSvc.sessionOwner(candidate)?.owner,
           })
@@ -1498,6 +1500,8 @@ export class SessionRegistry {
       restoreIssue: (id) => issueSessionLifecycle.restoreIssue(id),
       mutations,
       listSessions: () => sessionsSvc.listSessions(),
+      // The by-id read [POD-1646]: one session, not the full pass.
+      sessionById: (sessionId) => sessionsSvc.sessionById(sessionId),
       repoPaths: () => this.store.repos.listRepoPaths(),
       inferRepoFromPath: (path) => inferRepoFromRoots(this.store.repos.listRepoPaths(), path),
       // mailSend rides the unified substrate (#237) [spec:SP-34d7].
@@ -1508,7 +1512,7 @@ export class SessionRegistry {
       answerSessionQuestion: async (sessionId, answer, caller) => {
         const r = await deliverAnswerToSession(
           {
-            getSession: (id) => sessionsSvc.listSessions().find((s) => s.sessionId === id),
+            getSession: (id) => sessionsSvc.sessionById(id),
             sessions: sessionsSvc,
             rpc: {
               readTranscript: (input) =>
@@ -1889,7 +1893,7 @@ export class SessionRegistry {
               }
               const selfStop = actorSessionId !== undefined && sessionId === actorSessionId
               if (!selfStop) {
-                const target = sessionsSvc.listSessions().find((s) => s.sessionId === sessionId)
+                const target = sessionsSvc.sessionById(sessionId)
                 if (!target) throw new Error('session not found')
                 const targetIssueId = target.issueId ?? issues.issueForCwd(target.cwd)
                 if (targetIssueId) {
@@ -2040,6 +2044,8 @@ export class SessionRegistry {
       messages: this.store.messages,
       issues,
       listSessions: () => sessionsSvc.listSessions(),
+      // The by-id read [POD-1646]: one session, not the full pass.
+      sessionById: (sessionId) => sessionsSvc.sessionById(sessionId),
       sessionOwner: (sessionId) => sessionsSvc.sessionOwner(sessionId)?.owner,
       // Durable outbox path: the nudge survives restarts and waits out a booting TUI.
       sendTextWhenReady: (sessionId, text, mutationId) => {
@@ -2061,7 +2067,7 @@ export class SessionRegistry {
         ackFallback: (sessionId, outcome, notificationFact) =>
           void (async () => {
             if (messagesSvc.settleNotifiable(sessionId).length === 0) return
-            const meta = sessionsSvc.listSessions().find((s) => s.sessionId === sessionId)
+            const meta = sessionsSvc.sessionById(sessionId)
             const issueId = meta ? (meta.issueId ?? issues.issueForCwd(meta.cwd)) : null
             const issue = issueId ? issues.getMeta(issueId) : null
             let lastCommit: string | undefined
@@ -2090,7 +2096,7 @@ export class SessionRegistry {
     // the slow sweep expires + retries whatever the event triggers missed.
     this.bus.on('session.stateChanged', ({ sessionId, prev, next }) => {
       if (next.phase !== 'idle' || prev?.phase === 'idle') return
-      const meta = sessionsSvc.listSessions().find((s) => s.sessionId === sessionId)
+      const meta = sessionsSvc.sessionById(sessionId)
       // Pass the phase the turn left from: an errored turn (prev='errored') did
       // not complete, so the turn-boundary backstop must not confirm its injected
       // rows [POD-853].

@@ -29,6 +29,7 @@ import { TRPCError } from '@trpc/server'
 import { type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
 import { authorize, type Capability, type IssueAccessIndex } from '../../issue-authz'
 import type { MessageSender, MessageSendInput, MessageSendResult } from '../messages/service'
+import { findSessionById } from '../sessions/session-by-id'
 import type {
   IssueAttentionCapability,
   IssueCommentsMailCapability,
@@ -76,6 +77,11 @@ export interface IssueCommandDeps {
   mutations: MutationLedgerPort
   /** Session list — subscription source checks resolve session→issue through it. */
   listSessions(): SessionMeta[]
+  /** ONE session by id, without the full reader-scoped pass [POD-1646].
+   *  Optional for the same reason `listSessionsForIssue` is — the many test
+   *  fixtures that satisfy this interface with `listSessions` alone stay
+   *  correct via {@link findSessionById}'s fallback, just slower. */
+  sessionById?(sessionId: SessionId): SessionMeta | undefined
   /** Registered repo paths, all machines (RepoRegistry.list() semantics). */
   repoPaths(): string[]
   /** cwd → repo inference (RepoRegistry.inferFromPath semantics) — serves the
@@ -350,7 +356,7 @@ export class IssueCommandCtx {
     }
     // session source: the caller's own session, or one bound to an in-subtree issue.
     if (source.ref === this.caller.capability.actorSessionId) return
-    const bound = this.deps.listSessions().find((s) => s.sessionId === source.ref)?.issueId
+    const bound = findSessionById(this.deps, source.ref)?.issueId
     const ok =
       bound != null &&
       authorize(this.caller.capability, 'write', {

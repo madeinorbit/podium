@@ -32,10 +32,11 @@
  * multi-user answer is exercised before POD-1075 supplies the real one.
  */
 
-import { isSpawnedBy } from '@podium/model'
 import type { Capability, SessionId, SessionMeta } from '@podium/model'
+import { isSpawnedBy } from '@podium/model'
 import type { CommandPrincipal } from '../../command-principal'
 import { checkIssueAccess, type IssueAccessIndex } from '../../issue-authz'
+import { findSessionById } from './session-by-id'
 
 /**
  * The live-session facts this resolver needs — a PICK of the model's own
@@ -65,6 +66,11 @@ export const everythingVisible: SessionVisibility = () => true
 export interface SessionAccessDeps {
   /** Live sessions, as the wire lists them. */
   listSessions(): SessionTargetRow[]
+  /** ONE session by id, without the full reader-scoped pass [POD-1646].
+   *  Optional for the same reason `listSessionsForIssue` is — the many test
+   *  fixtures that satisfy this interface with `listSessions` alone stay
+   *  correct via {@link findSessionById}'s fallback, just slower. */
+  sessionById?(sessionId: SessionId): SessionTargetRow | undefined
   /** Issue index for the subtree gate, and cwd → issue derivation. */
   /** `issueForCwd` is `string | null` on IssueService and `undefined` on the
    *  narrow test fixtures; both spellings mean "no issue owns this cwd". */
@@ -86,7 +92,7 @@ export function resolveSessionTarget(
   sessionId: SessionId,
   deps: SessionAccessDeps,
 ): SessionTarget {
-  const session = deps.listSessions().find((candidate) => candidate.sessionId === sessionId)
+  const session = findSessionById(deps, sessionId)
   if (!session) return { kind: 'absent' }
   const visible = (deps.visibility ?? everythingVisible)(principal, session)
   return visible ? { kind: 'visible', session } : { kind: 'absent' }

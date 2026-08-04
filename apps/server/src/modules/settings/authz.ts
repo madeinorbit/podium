@@ -160,9 +160,10 @@ export function settingsAuthzDeps(ctx: Context): SettingsAuthzDeps {
   const sessions = mods(ctx).sessions
   const principal = resolvePrincipal(ctx.capability, {
     parentSessionOf: (sessionId) =>
-      spawnedByParentSessionId(
-        sessions.listSessions().find((s) => s.sessionId === sessionId)?.spawnedBy,
-      ),
+      // POD-1646: the narrow read. Authorization runs on essentially every
+      // request, so the full reader-scoped pass this used to build was pure
+      // waste — `sessionSpawnedBy` reads the one field under the same check.
+      spawnedByParentSessionId(sessions.sessionSpawnedBy(sessionId)),
   })
   const user = onBehalfOfUser(principal)
   return {
