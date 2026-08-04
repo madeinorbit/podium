@@ -2,7 +2,9 @@ import { type Principal } from '@podium/protocol'
 import { randomUUID } from 'node:crypto'
 import {
   type AgentKind,
+  type AccountId,
   agentCapabilityRejection,
+  asAccountId,
   agentCapabilityRejectionForSelection,
   agentLoginCondition,
   asMachineId,
@@ -109,6 +111,7 @@ export interface PairingGrant {
    */
   ownerUserId?: string
   copyAgentCredentials?: boolean
+  podiumManaged?: boolean
 }
 
 export interface MachinesDeps {
@@ -353,6 +356,22 @@ export class MachinesService {
     return this.machineRecordsCache
   }
 
+  /** Resolve the native login identity available on the machine that will run a session. */
+  nativeAccountIdForMachine(
+    machineId: string,
+    agentKind: AgentKind,
+    accountId: AccountId,
+  ): AccountId {
+    const unsuffixed = 'native:' + agentKind
+    if (accountId !== unsuffixed) return accountId
+    const identity = this.machineRecords()
+      .find((machine) => machine.id === machineId)
+      ?.inventory?.agents.find((agent) => agent.kind === agentKind)?.login.identity
+    return identity?.fingerprint
+      ? asAccountId('native:' + agentKind + ':' + identity.fingerprint)
+      : accountId
+  }
+
   invalidateMachineCache(): void {
     this.machineRecordsCache = null
   }
@@ -559,6 +578,7 @@ export class MachinesService {
       deliveryCaps: m.deliveryCaps,
       buildReportedAt: m.buildReportedAt,
       versionState: deriveVersionState(m.appVersion, target),
+      ...(m.podiumManaged === false ? { podiumManaged: false } : {}),
       ...(m.inventory ? { inventory: m.inventory } : {}),
     }))
   }

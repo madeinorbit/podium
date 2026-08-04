@@ -1,0 +1,1 @@
+ALTER TABLE machines ADD COLUMN podium_managed INTEGER NOT NULL DEFAULT 1;

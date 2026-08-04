@@ -29,7 +29,7 @@ export interface FleetPorts {
    * this instance has no public URL to join to. Built from `hub/machines-join`
    * at the composition root.
    */
-  joinCommand: (pairCode: string) => string | null
+  joinCommand: (pairCode: string, podiumManaged?: boolean) => string | null
 }
 
 /**
@@ -164,7 +164,7 @@ export const machinePairingCodeHandler = ({
   ctx,
   input,
   ports,
-}: FleetArgs<{ copyAgentCredentials?: boolean } | undefined>): {
+}: FleetArgs<{ copyAgentCredentials?: boolean; podiumManaged?: boolean } | undefined>): {
   code: string
   joinCommand: string | null
 } => {
@@ -181,8 +181,9 @@ export const machinePairingCodeHandler = ({
   const code = mods(ctx).machines.mintPairingCode({
     ...(pairer === null ? {} : { ownerUserId: pairer }),
     ...(input?.copyAgentCredentials ? { copyAgentCredentials: true } : {}),
+    podiumManaged: input?.podiumManaged ?? true,
   })
-  return { code, joinCommand: ports.joinCommand(code) }
+  return { code, joinCommand: ports.joinCommand(code, input?.podiumManaged ?? true) }
 }
 
 // ---------------------------------------------------------------------------

@@ -41,6 +41,7 @@ function toRecord(r: Record<string, unknown>): MachineRecord {
     hostname: r.hostname as string,
     createdAt: r.created_at as string,
     lastSeenAt: r.last_seen_at as string,
+    podiumManaged: r.podium_managed === undefined ? true : Boolean(r.podium_managed),
     ...(inventory !== undefined ? { inventory } : {}),
     // POD-1079: no `??` fallback. A row whose column is NULL reads back as
     // unowned, and unowned refuses `use` to everyone — substituting an owner
@@ -79,27 +80,29 @@ export class MachinesRepository {
     hostname: string
     tokenHash: string
     ownerUserId: string | null
+    podiumManaged?: boolean
   }): void {
     const now = new Date().toISOString()
     this.db
       .prepare(
-        `INSERT INTO machines (id, name, hostname, token_hash, created_at, last_seen_at, owner_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO machines (id, name, hostname, token_hash, created_at, last_seen_at, owner_user_id, podium_managed)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            name = excluded.name,
            hostname = excluded.hostname,
            token_hash = excluded.token_hash,
            last_seen_at = excluded.last_seen_at,
-           owner_user_id = COALESCE(machines.owner_user_id, excluded.owner_user_id)`,
+           owner_user_id = COALESCE(machines.owner_user_id, excluded.owner_user_id),
+           podium_managed = excluded.podium_managed`,
       )
-      .run(m.id, m.name, m.hostname, m.tokenHash, now, now, m.ownerUserId)
+      .run(m.id, m.name, m.hostname, m.tokenHash, now, now, m.ownerUserId, m.podiumManaged ?? true)
   }
 
   listMachines(): MachineRecord[] {
     return (
       this.db
         .prepare(
-          'SELECT id, name, hostname, created_at, last_seen_at, inventory_json, owner_user_id, app_version, wire_schema_digest, install_kind, delivery_caps_json, build_reported_at FROM machines ORDER BY created_at ASC',
+          'SELECT id, name, hostname, created_at, last_seen_at, inventory_json, owner_user_id, app_version, wire_schema_digest, install_kind, delivery_caps_json, build_reported_at, podium_managed FROM machines ORDER BY created_at ASC',
         )
         .all() as Record<string, unknown>[]
     ).map(toRecord)
@@ -108,7 +111,7 @@ export class MachinesRepository {
   getMachine(id: string): MachineRecord | undefined {
     const r = this.db
       .prepare(
-        'SELECT id, name, hostname, created_at, last_seen_at, inventory_json, owner_user_id, app_version, wire_schema_digest, install_kind, delivery_caps_json, build_reported_at FROM machines WHERE id = ?',
+        'SELECT id, name, hostname, created_at, last_seen_at, inventory_json, owner_user_id, app_version, wire_schema_digest, install_kind, delivery_caps_json, build_reported_at, podium_managed FROM machines WHERE id = ?',
       )
       .get(id) as Record<string, unknown> | undefined
     if (!r) return undefined

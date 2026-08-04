@@ -225,6 +225,7 @@ export interface MachineRecord {
   hostname: string
   createdAt: string
   lastSeenAt: string
+  /** Whether onboarding marked this host as Podium-managed. */ podiumManaged: boolean
   /** Parsed machines.inventory_json (#222); absent until the daemon reports
    *  (or when the stored blob fails to parse — defensive). */
   inventory?: import('@podium/model').Inventory

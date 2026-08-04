@@ -5,6 +5,7 @@ import { grokSessionPaths, grokStateProvider, observeGrokState } from '../agent-
 import { withStateChannel } from '../agent-state/types.js'
 import { createGrokConversationProvider } from '../discovery/providers/grok.js'
 import { composeAgentInstructions } from '../instructions.js'
+import { fingerprintForLoginIdentity } from '../codex-auth-identity.js'
 import {
   type AgentManifest,
   accountIdentity,
@@ -23,6 +24,7 @@ interface GrokAuthRecord {
   email?: unknown
   first_name?: unknown
   last_name?: unknown
+  account_id?: unknown
 }
 
 function grokHome(homeDir: string): string {
@@ -54,6 +56,33 @@ function grokProfile(path: string): string | undefined {
   return undefined
 }
 
+function grokIdentity(path: string) {
+  try {
+    const file = JSON.parse(readFileSync(join(path, 'auth.json'), 'utf8')) as Record<
+      string,
+      GrokAuthRecord
+    >
+    const records = Object.values(file).filter(
+      (record) => record && (record.key || record.refresh_token),
+    )
+    const record = records.sort((left, right) =>
+      String(right.create_time ?? '').localeCompare(String(left.create_time ?? '')),
+    )[0]
+    if (!record) return undefined
+    const email = typeof record.email === 'string' ? record.email.trim() : ''
+    const providerAccountId = typeof record.account_id === 'string' ? record.account_id.trim() : ''
+    const source = providerAccountId || email
+    return source
+      ? {
+          fingerprint: fingerprintForLoginIdentity(source),
+          ...(email ? { email } : {}),
+          ...(providerAccountId ? { providerAccountId } : {}),
+        }
+      : undefined
+  } catch {
+    return undefined
+  }
+}
 async function chainPaths(input: TranscriptSourceInput): Promise<string[]> {
   if (!input.resumeValue) return []
   const path = grokSessionPaths({
@@ -91,6 +120,8 @@ export const grokManifest: AgentManifest = {
 
   inventory: {
     binCandidates: (homeDir) => [join(homeDir, '.local', 'bin', 'grok'), 'grok'],
+    loginIdentity: supported((homeDir) => grokIdentity(grokHome(homeDir))),
+    portableCredential: supported({ files: ['.grok/auth.json'], compareFreshness: () => null }),
     detectLogin(homeDir) {
       const path = grokHome(homeDir)
       try {
@@ -102,7 +133,12 @@ export const grokManifest: AgentManifest = {
           (record) => record && (record.key || record.refresh_token),
         )
         if (!hasCredential) return { state: 'out' }
-        return { state: 'in', account: grokProfile(path) ?? 'Grok login' }
+        const identity = grokIdentity(path)
+        return {
+          state: 'in',
+          account: grokProfile(path) ?? 'Grok login',
+          ...(identity ? { identity } : {}),
+        }
       } catch {
         return { state: 'out' }
       }

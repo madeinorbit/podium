@@ -164,9 +164,22 @@ export interface HarnessBins {
 
 /** Best-effort native login state for one harness on one machine. `account` is
  * a safe, human-facing label only (never a token or raw credential). */
+export interface LoginIdentity {
+  fingerprint: string
+  email?: string
+  providerAccountId?: string
+}
+
+export interface PortableCredential {
+  files: readonly string[]
+  compareFreshness(a: string, b: string): -1 | 0 | 1 | null
+}
+
 export interface HarnessLogin {
   state: 'in' | 'out' | 'unknown'
   account?: string
+  identity?: LoginIdentity
+  freshness?: number
 }
 
 export interface HarnessInventory {
@@ -179,6 +192,8 @@ export interface HarnessInventory {
   }
   /** Read-only local credential/profile detection. Uneven support is explicit. */
   detectLogin(homeDir: string): HarnessLogin
+  loginIdentity: Declared<(homeDir: string) => LoginIdentity | undefined>
+  portableCredential: Declared<PortableCredential>
 }
 
 /** Prefer a recognizable name + email without duplicating equal values. */

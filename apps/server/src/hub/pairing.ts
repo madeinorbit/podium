@@ -15,6 +15,7 @@ function defaultCode(): string {
 export interface PairingGrant {
   /** Copy allowlisted native agent logins from an already-owned online machine. */
   copyAgentCredentials?: boolean
+  /** Whether this pairing creates a managed host; absent means managed. */ podiumManaged?: boolean
 }
 
 export class PairingManager {

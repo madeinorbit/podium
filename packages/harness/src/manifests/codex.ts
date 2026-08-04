@@ -11,6 +11,11 @@ import { withStateChannel } from '../agent-state/types.js'
 import { createCodexConversationProvider } from '../discovery/providers/codex.js'
 import { composeAgentInstructions } from '../instructions.js'
 import {
+  compareCodexAuthFreshness,
+  readFreshnessFromAuthContents,
+  readIdentityFromAuthContents,
+} from '../codex-auth-identity.js'
+import {
   type AgentManifest,
   accountIdentity,
   fileTranscript,
@@ -170,10 +175,22 @@ export const codexManifest: AgentManifest = {
 
   inventory: {
     binCandidates: (homeDir) => [join(homeDir, '.local', 'bin', 'codex'), 'codex'],
+    loginIdentity: supported((homeDir) => {
+      try {
+        return readIdentityFromAuthContents(readFileSync(codexAuthPath(homeDir), 'utf8'))
+      } catch {
+        return undefined
+      }
+    }),
+    portableCredential: supported({
+      files: ['.codex/auth.json'],
+      compareFreshness: compareCodexAuthFreshness,
+    }),
     detectLogin(homeDir) {
       try {
         const path = codexAuthPath(homeDir)
-        const file = JSON.parse(readFileSync(path, 'utf8')) as CodexAuthFile
+        const contents = readFileSync(path, 'utf8')
+        const file = JSON.parse(contents) as CodexAuthFile
         const tokens = file.tokens
         if (!tokens?.access_token || !tokens.refresh_token) return { state: 'out' }
         const account =
@@ -181,7 +198,14 @@ export const codexManifest: AgentManifest = {
           (tokens.account_id
             ? `ChatGPT · ${maskedAccountId(tokens.account_id)}`
             : 'ChatGPT subscription')
-        return { state: 'in', account }
+        const identity = readIdentityFromAuthContents(contents)
+        const freshness = readFreshnessFromAuthContents(contents)
+        return {
+          state: 'in',
+          account,
+          ...(identity ? { identity } : {}),
+          ...(freshness !== undefined ? { freshness } : {}),
+        }
       } catch {
         return { state: 'out' }
       }

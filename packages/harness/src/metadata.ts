@@ -56,7 +56,12 @@ export { acceptAgentObservation } from './agent-state/causal.js'
 export { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from './issue-system-pointer.js'
 // Types only. Erased at build, so they carry nothing at all; listed rather than
 // starred for the same reason as everything above.
-export type { HarnessCapabilities, HarnessLogin } from './manifest.js'
+export type {
+  HarnessCapabilities,
+  HarnessLogin,
+  LoginIdentity,
+  PortableCredential,
+} from './manifest.js'
 // Static per-CLI facts. Each resolves through `manifestFor`, which returns
 // `undefined` for a harness this build has never heard of rather than
 // substituting another CLI's row.

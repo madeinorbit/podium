@@ -121,6 +121,16 @@ export interface SessionStartPorts {
   sessionMachineId(sessionId: SessionId): string | undefined
   defaultMachine(): MachineId
   machineName(machineId: string): string
+  nativeAccountIdForMachine(
+    machineId: string,
+    agentKind: AgentKind,
+    accountId: AccountId,
+  ): AccountId
+  nativeAccountIdForMachine(
+    machineId: string,
+    agentKind: AgentKind,
+    accountId: AccountId,
+  ): AccountId
   resolveMachineForAgent(
     requested: string | undefined,
     cwd: string,
@@ -340,7 +350,7 @@ export class SessionStart {
         ? { model: input.model, effort: input.effort }
         : undefined,
     )
-    const accountId =
+    const selectedAccountId =
       input.agentKind === 'shell'
         ? undefined
         : (input.accountId ??
@@ -348,6 +358,10 @@ export class SessionStart {
             this.ports.store.settings.getSettingsFor(this.ports.settingsViewer()),
             'coding',
           ).accountId)
+    const accountId =
+      input.agentKind === 'shell' || selectedAccountId === undefined
+        ? undefined
+        : this.ports.nativeAccountIdForMachine(machineId, input.agentKind, selectedAccountId)
     const session = new Session({
       sessionId,
       durableLabel: this.ports.durableLabelFor(sessionId),

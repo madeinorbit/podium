@@ -1,32 +1,20 @@
 // Account discovery for the Accounts & Keys settings hub (SP-6454, stream B2).
 //
-// Makes auth first-class and VISIBLE: native CLI logins on this machine (Claude
-// Code, Codex/ChatGPT, Grok) shown read-only with their identity, alongside the
-// MANAGED credentials Podium holds and injects into an agent's spawn env (#216) —
-// a provider API key or a `claude setup-token`. Multi-account oauth ROTATION is
-// still modelled only.
-//
-// Login/profile detection lives on each @podium/harness harness adapter so
-// the daemon inventory and this server-side AccountView use the same facts. The
-// server reaches it through the narrow `@podium/harness/metadata` entrypoint —
-// the manifest registry itself is a host capability it is not entitled to.
-import { homedir } from 'node:os'
+// Native login facts come from the authenticated machine inventory catalog. The
+// server never reads a host-local HOME here: every machine contributes through
+// its replicated, non-secret inventory record. Managed credentials remain in the
+// server-only accounts table and only their masked identities are projected.
+
 import { harnessDetectLogin } from '@podium/harness/metadata'
 import type { HarnessAgent } from '@podium/model'
-import type { PodiumSettings } from '@podium/runtime'
-import { z } from 'zod'
 import type { AccountsRepository } from './store/accounts'
+import { buildLoginCatalog, catalogEntriesForHarness, type LoginCatalog } from './login-catalog'
+import type { MachineRecord } from './store/types'
 
-// `AccountConnectInput` MOVED to `@podium/commands` (POD-314): it is the
-// `accounts.connect` contract's input vocabulary, and a copy here would be the
-// second declaration POD-305 measured — byte-identical on the wire, passing every
-// golden fixture, free to drift. Both call sites were repointed rather than
-// given a re-export shim, which the deletion audit counts.
-
-/** A row in the Accounts hub. Native rows are observed at read-time (identity +
- *  status can drift); managed rows reflect what Podium stores. */
+/** A row in the Accounts hub. Native rows are observed from the machine catalog;
+ * managed rows reflect what Podium stores. */
 export interface AccountView {
-  /** Stable id, e.g. "native:claude-code" or "managed:anthropic". */
+  /** Stable id, e.g. "native:claude-code" or "native:claude-code:<fingerprint>". */
   id: string
   provider: string
   source: 'native' | 'managed'
@@ -36,26 +24,26 @@ export interface AccountView {
   harness?: string
   /** Observed, human-facing: an email/plan, a masked key, or a hint. */
   identity?: string
+  /** Native identities may be present on several machines. */
+  machines?: string[]
+  /** Non-secret identity fingerprint used to distinguish multiple native logins. */
+  identityFingerprint?: string
   status: 'connected' | 'not-configured'
-  /** Managed only: where the credential actually lives.
-   *  'stored' — a row in the accounts table: Podium injects it at spawn, and
-   *    `accounts.disconnect` can really delete it.
-   *  'legacy' — no row; the value comes from the pre-hub `settings.apiKeys`.
-   *    accounts.remove() would delete NOTHING, so the UI must not offer a
-   *    Disconnect the server cannot honour (it points at Settings → API keys). */
+  /** Managed only: where the credential actually lives. */
   credentialSource?: 'stored' | 'legacy'
 }
 
 /** Display-only preview of a secret. The full value never leaves the server. */
 export function maskCredential(secret: string): string {
-  if (secret.length <= 8) return '••••'
+  if (secret.length <= 8) return '""""'
   return `${secret.slice(0, 4)}…${secret.slice(-4)}`
 }
 
+/**
+ * Compatibility seam for older unit tests that explicitly provide a HOME. Production
+ * calls pass machine records, so this path is never reached by the account query.
+ */
 function detectNative(homeDir: string, kind: HarnessAgent, provider: string): AccountView {
-  // `harnessDetectLogin` rather than a reach for the manifest registry: the
-  // server takes the ANSWER, never the object that can also launch a process
-  // (POD-335, `manifest-consumers`).
   const login = harnessDetectLogin(kind, homeDir)
   if (!login) {
     return {
@@ -63,7 +51,6 @@ function detectNative(homeDir: string, kind: HarnessAgent, provider: string): Ac
       provider,
       source: 'native',
       harness: kind,
-      identity: undefined,
       status: 'not-configured',
     }
   }
@@ -77,43 +64,69 @@ function detectNative(homeDir: string, kind: HarnessAgent, provider: string): Ac
   }
 }
 
+const NATIVE_HARNESSES: readonly [HarnessAgent, string][] = [
+  ['claude-code', 'anthropic'],
+  ['codex', 'openai'],
+  ['grok', 'xai'],
+]
+
+function nativeFromCatalog(catalog: LoginCatalog): AccountView[] {
+  return NATIVE_HARNESSES.flatMap(([harness, provider]): AccountView[] => {
+    const entries = catalogEntriesForHarness(catalog, harness)
+    if (entries.length === 0) {
+      return [
+        {
+          id: `native:${harness}`,
+          provider,
+          source: 'native' as const,
+          harness,
+          status: 'not-configured' as const,
+        },
+      ]
+    }
+    return entries.map((entry) => ({
+      id: entries.length === 1 ? `native:${harness}` : `native:${harness}:${entry.fingerprint}`,
+      provider,
+      source: 'native' as const,
+      harness,
+      identity: entry.email ?? entry.providerAccountId,
+      machines: [
+        ...new Set(
+          entry.machines
+            .filter((machine) => machine.harness === harness)
+            .map((machine) => machine.machineName),
+        ),
+      ],
+      identityFingerprint: entry.fingerprint,
+      status: 'connected' as const,
+    }))
+  })
+}
+
 const MANAGED_KEY_PROVIDERS = ['anthropic', 'openai', 'openrouter'] as const
 
 /**
- * All accounts for the hub: native CLI logins on this machine (observed) plus
- * the managed credentials Podium holds (#216) — provider API keys and the Claude
- * subscription setup-token.
+ * All accounts for the hub: the catalog of native CLI logins plus the managed
+ * credentials Podium holds. Managed rows are read from the accounts table, never
+ * from the settings blob, so credential bytes cannot reach a client.
  *
- * Managed rows are read from the accounts TABLE, never from the settings blob:
- * settings round-trips to every client wholesale, so a credential kept there
- * would ship to the browser. Only the masked `identity` is ever returned.
+ * The third argument accepts an explicit HOME only for legacy unit tests. The
+ * production query passes machine records and therefore has no homedir fallback.
  */
 export function accountViews(
-  /**
-   * Resolve the LEGACY provider key for a provider — POD-419.
-   *
-   * This used to be the whole `PodiumSettings` blob, read for exactly one member
-   * (`apiKeys[provider]`). The material now lives in the server-only keyed store,
-   * and taking a narrow resolver rather than the store object keeps this function
-   * a pure projection that a test can drive without a database.
-   */
   legacyApiKey: (provider: string) => string | undefined,
   accounts: AccountsRepository,
-  homeDir: string = homedir(),
+  machinesOrHome: readonly MachineRecord[] | string = [],
 ): AccountView[] {
-  const native = [
-    detectNative(homeDir, 'claude-code', 'anthropic'),
-    detectNative(homeDir, 'codex', 'openai'),
-    detectNative(homeDir, 'grok', 'xai'),
-  ]
+  const native =
+    typeof machinesOrHome === 'string'
+      ? [
+          detectNative(machinesOrHome, 'claude-code', 'anthropic'),
+          detectNative(machinesOrHome, 'codex', 'openai'),
+          detectNative(machinesOrHome, 'grok', 'xai'),
+        ]
+      : nativeFromCatalog(buildLoginCatalog(machinesOrHome))
 
-  // Managed rows: a stored credential (#216) wins; otherwise fall back to the
-  // legacy settings.apiKeys value so an existing key keeps showing as connected.
-  //
-  // Status keys off the ROW'S EXISTENCE, never the truthiness of its identity: an
-  // identity is only a display mask, and a row with an empty one still holds a
-  // live credential that spawns inject. Keying on identity would render a working
-  // account as "not configured".
   const stored = new Map(accounts.list().map((a) => [a.id, a]))
   const managed: AccountView[] = MANAGED_KEY_PROVIDERS.map((provider) => {
     const id = `managed:${provider}`
@@ -150,8 +163,6 @@ export function accountViews(
     }
   })
 
-  // The Claude subscription OAuth token (`claude setup-token`) — a managed account
-  // with no legacy settings equivalent, so it only ever comes from the store.
   const oauthRow = stored.get('managed:claude-oauth')
   const claudeOauth: AccountView = {
     id: 'managed:claude-oauth',

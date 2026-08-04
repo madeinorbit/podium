@@ -7,6 +7,8 @@ export const JoinPayload = z.object({
   serverUrl: z.string().min(1),
   /** Single-use, server-minted pairing code (~10 min TTL). */
   pairCode: z.string().min(1),
+  /** Pairing mode carried by new join tokens; omitted means managed for old tokens. */ podiumManaged:
+    z.boolean().optional(),
   /** Optional display name for the new machine. */
   name: z.string().optional(),
 })

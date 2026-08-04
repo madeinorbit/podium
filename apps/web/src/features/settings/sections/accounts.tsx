@@ -36,7 +36,10 @@ function StatusConnected({ identity }: { identity: string }): JSX.Element {
 function StatusDisconnected(): JSX.Element {
   return (
     <span className="inline-flex flex-none items-center gap-1.5 text-[11.5px] text-muted-foreground">
-      <span aria-hidden="true" className="size-1.5 flex-none rounded-full ring-1 ring-border-strong ring-inset" />
+      <span
+        aria-hidden="true"
+        className="size-1.5 flex-none rounded-full ring-1 ring-border-strong ring-inset"
+      />
       Not connected
     </span>
   )
@@ -58,7 +61,9 @@ function AccountGroup({
   return (
     <div>
       <div className="mb-1.5 flex items-baseline gap-2 px-0.5">
-        <span className="font-mono text-[8.5px] text-label uppercase tracking-[0.12em]">{label}</span>
+        <span className="font-mono text-[8.5px] text-label uppercase tracking-[0.12em]">
+          {label}
+        </span>
         <span className="text-[10.5px] text-text-dim">{qualifier}</span>
       </div>
       <div className="divide-y divide-hairline-soft overflow-hidden rounded-lg border border-border bg-card/50 px-3.5">
@@ -103,19 +108,19 @@ function ManagedAccountRow({
   const note: React.ReactNode =
     isOauth && !connected ? (
       <>
-        Run <code className="text-[11px]">claude setup-token</code> in a terminal and paste the token
-        here. It is a long-lived subscription token (about a year), not your API key.
+        Run <code className="text-[11px]">claude setup-token</code> in a terminal and paste the
+        token here. It is a long-lived subscription token (about a year), not your API key.
       </>
     ) : legacy && !editing ? (
       <span className="text-warning">
-        Set under Settings → API keys, not held as a managed account — Podium does not inject it into
-        agent spawns and it cannot be disconnected here. Replace it to store it as a managed account,
-        or clear it under API keys.
+        Set under Settings → API keys, not held as a managed account — Podium does not inject it
+        into agent spawns and it cannot be disconnected here. Replace it to store it as a managed
+        account, or clear it under API keys.
       </span>
     ) : !isOauth && connected && !legacy ? (
       <>
-        Injected into agent spawns. The superagent and background LLM roles still read their key from
-        Settings → API keys (issue #469), so this account does not power those.
+        Injected into agent spawns. The superagent and background LLM roles still read their key
+        from Settings → API keys (issue #469), so this account does not power those.
       </>
     ) : undefined
 
@@ -228,9 +233,7 @@ function ManagedAccountRow({
           </div>
         )}
       </Row>
-      {error && (
-        <p className="max-w-[60ch] pb-2.5 text-[11px] text-destructive">{error}</p>
-      )}
+      {error && <p className="max-w-[60ch] pb-2.5 text-[11px] text-destructive">{error}</p>}
     </div>
   )
 }
@@ -261,12 +264,16 @@ export function AccountsSection(): JSX.Element {
   return (
     <Section
       title="Accounts & Keys"
-      hint="How Podium authenticates to LLMs. Native logins are each CLI's own login on this server (managed with their own `login` command). Managed accounts are credentials Podium stores and injects into an agent's environment when it spawns — so any connected machine can run on them."
+      hint="How Podium authenticates to LLMs. Native logins are collected from every connected machine (managed with their own `login` command). Managed accounts are credentials Podium stores and injects into an agent's environment when it spawns — so any connected machine can run on them."
     >
       <div className="mt-3 space-y-5">
-        <AccountGroup label="Native logins" qualifier="this machine">
+        <AccountGroup label="Native logins" qualifier="all connected machines">
           {native.map((a) => (
-            <Row key={a.id} label={harnessAgentLabel((a.harness ?? a.provider) as HarnessAgent)}>
+            <Row
+              key={a.id}
+              label={harnessAgentLabel((a.harness ?? a.provider) as HarnessAgent)}
+              description={a.machines?.length ? 'on ' + a.machines.join(', ') : undefined}
+            >
               {a.status === 'connected' ? (
                 <StatusConnected identity={a.identity ?? 'connected'} />
               ) : (

@@ -38,6 +38,7 @@ export function MachinesPanel(): JSX.Element {
   const [publicUrl, setPublicUrl] = useState<string | null>(null)
   const [addError, setAddError] = useState<string | null>(null)
   const [addLoading, setAddLoading] = useState(false)
+  const [podiumManaged, setPodiumManaged] = useState(true)
 
   // [spec:SP-3701] Hosting affordances (desktop shell, client mode only). A device that
   // paired before gets the inline "Enable" action on its own machine row; the standalone
@@ -58,12 +59,13 @@ export function MachinesPanel(): JSX.Element {
     return () => clearInterval(id)
   }, [])
 
-  const mintCode = async () => {
+  const mintCode = async (managed = podiumManaged) => {
+    setPodiumManaged(managed)
     setAddLoading(true)
     setAddError(null)
     try {
       const [r, info] = await Promise.all([
-        trpc.machines.pairingCode.mutate({ copyAgentCredentials: true }),
+        trpc.machines.pairingCode.mutate({ copyAgentCredentials: true, podiumManaged: managed }),
         trpc.setup.info.query(),
       ])
       setCode(r.code)
@@ -105,7 +107,12 @@ export function MachinesPanel(): JSX.Element {
         >
           <DialogTrigger
             render={
-              <Button variant="outline" size="sm" type="button" onClick={() => void mintCode()} />
+              <Button
+                variant="outline"
+                size="sm"
+                type="button"
+                onClick={() => void mintCode(podiumManaged)}
+              />
             }
           >
             Add machine
@@ -129,13 +136,15 @@ export function MachinesPanel(): JSX.Element {
                 joinCommand={joinCommand}
                 publicUrl={publicUrl}
                 onChangeUrl={goChangeUrl}
+                podiumManaged={podiumManaged}
+                onManagedChange={(managed) => void mintCode(managed)}
               />
             )}
             {code && !joinCommand && !addLoading && (
               // No publicUrl yet ⇒ the server can't build a join command. Let the user set up
               // reachability right here (same flow as the CLI / first-run setup), then re-mint —
               // which now returns a full one-line join command.
-              <NetworkStep embedded trpc={trpc} onSaved={() => void mintCode()} />
+              <NetworkStep embedded trpc={trpc} onSaved={() => void mintCode(podiumManaged)} />
             )}
             {code && joinCommand && (
               <DialogFooter showCloseButton>
@@ -144,7 +153,7 @@ export function MachinesPanel(): JSX.Element {
                   variant="outline"
                   size="sm"
                   disabled={addLoading}
-                  onClick={() => void mintCode()}
+                  onClick={() => void mintCode(podiumManaged)}
                 >
                   New code
                 </Button>
@@ -271,11 +280,15 @@ function PairingCodeDisplay({
   joinCommand,
   publicUrl,
   onChangeUrl,
+  podiumManaged,
+  onManagedChange,
 }: {
   code: string
   joinCommand: string | null
   publicUrl?: string | null
   onChangeUrl?: () => void
+  podiumManaged: boolean
+  onManagedChange: (managed: boolean) => void
 }): JSX.Element {
   const [copied, setCopied] = useState(false)
 
@@ -324,6 +337,20 @@ function PairingCodeDisplay({
           {code}
         </code>
       </div>
+      <label className="flex items-start gap-2 rounded-md border border-border px-2.5 py-2 text-[12px]">
+        <input
+          type="checkbox"
+          className="mt-0.5"
+          checked={podiumManaged}
+          onChange={(event) => onManagedChange(event.currentTarget.checked)}
+        />
+        <span className="flex flex-col gap-0.5">
+          <span className="text-foreground">Podium-managed machine</span>
+          <span className="text-[11px] text-muted-foreground">
+            When off, mark this machine as shared and keep native logins local.
+          </span>
+        </span>
+      </label>
       <div className="flex flex-col gap-1.5">
         <div className="flex items-center justify-between gap-2">
           <span className="text-[11px] text-muted-foreground uppercase tracking-wide">
@@ -515,6 +542,10 @@ function MachineRow({
           this machine
         </span>
       )}
+
+      <span className="flex-none rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground uppercase tracking-wide">
+        {machine.podiumManaged === false ? 'shared' : 'Podium-managed'}
+      </span>
 
       {/* Hostname */}
       <span
