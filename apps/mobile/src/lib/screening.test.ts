@@ -1,8 +1,4 @@
-import {
-  asIssueId,
-  type IssueWire,
-  type IssueWireInput,
-} from '@podium/model'
+import { asIssueId, type IssueWire, type IssueWireInput } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import {
   applyScreeningDecision,
@@ -75,7 +71,11 @@ describe('buildScreeningQueue', () => {
 })
 
 describe('reconcileScreeningOrder', () => {
-  const board = [issue({ id: asIssueId('a'), seq: 3 }), issue({ id: asIssueId('b'), seq: 2 }), issue({ id: asIssueId('c'), seq: 1 })]
+  const board = [
+    issue({ id: asIssueId('a'), seq: 3 }),
+    issue({ id: asIssueId('b'), seq: 2 }),
+    issue({ id: asIssueId('c'), seq: 1 }),
+  ]
 
   it('keeps decided cards, drops undecided ones that left the lane, appends arrivals', () => {
     const next = reconcileScreeningOrder([asIssueId('a'), asIssueId('b'), asIssueId('c')], 1, [

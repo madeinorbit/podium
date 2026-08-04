@@ -1,13 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import {
-  Animated,
-  Modal,
-  PanResponder,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native'
+import { Animated, Modal, PanResponder, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { color, elevation, font, leading, monoLabel, radius, sans, space } from '../theme/theme'
 import { PressableScale } from './PressableScale'

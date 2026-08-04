@@ -10,12 +10,12 @@ import { useIssue, useMobileStore, useSessions } from '../client/hooks'
 import { ActionSheet } from '../components/ActionSheet'
 import { Composer } from '../components/Composer'
 import { Icon } from '../components/Icon'
+import { PressableScale } from '../components/PressableScale'
 import { HeaderButton, Screen } from '../components/Screen'
 import { SessionCard } from '../components/SessionCard'
 import { EmptyState, Pill, SectionHeader } from '../components/ui'
 import { sessionHref } from '../lib/session-route'
 import { color, font, leading, radius, sans, space } from '../theme/theme'
-import { PressableScale } from '../components/PressableScale'
 
 export function IssueScreen() {
   const params = useLocalSearchParams<{ issueId: string | string[] }>()

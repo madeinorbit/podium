@@ -13,10 +13,20 @@ import {
 } from 'react-native'
 import { FLOW_SLATE, flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
-import { color, elevation, font, leading, mono, monoLabel, radius, sans, space } from '../theme/theme'
+import {
+  color,
+  elevation,
+  font,
+  leading,
+  mono,
+  monoLabel,
+  radius,
+  sans,
+  space,
+} from '../theme/theme'
 import { IdSquare } from './IdSquare'
-import { Pill } from './ui'
 import { PressableScale } from './PressableScale'
+import { Pill } from './ui'
 
 /** Horizontal travel that commits a swipe (a flick past it also commits). */
 const COMMIT_PX = 96

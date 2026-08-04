@@ -1,16 +1,9 @@
 import { useEffect, useState } from 'react'
-import {
-  KeyboardAvoidingView,
-  Platform,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native'
+import { KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, View } from 'react-native'
 import { login } from '../client/auth'
 import { AsciiWordmark } from '../components/AsciiWordmark'
-import { font, mono, monoLabel } from '../theme/theme'
 import { PressableScale } from '../components/PressableScale'
+import { font, mono, monoLabel } from '../theme/theme'
 
 /**
  * The web login screen (LoginGate spec 2b) ported 1:1 [POD-131]: ASCII

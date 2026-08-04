@@ -12,11 +12,11 @@ import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useEffect, useMemo, useState } from 'react'
 import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useIssue, useMobileStore, useSessions } from '../client/hooks'
+import { PressableScale } from '../components/PressableScale'
 import { Screen } from '../components/Screen'
 import { SectionHeader } from '../components/ui'
 import { sessionBackTarget, sessionHref } from '../lib/session-route'
 import { color, font, radius, sans, space } from '../theme/theme'
-import { PressableScale } from '../components/PressableScale'
 
 const AGENT_KINDS: { key: AgentKind | undefined; label: string }[] = [
   { key: undefined, label: 'Default' },

@@ -6,6 +6,7 @@ import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useConnected, useIssues, useTrpc } from '../client/hooks'
 import { Icon } from '../components/Icon'
+import { PressableScale } from '../components/PressableScale'
 import { Screen } from '../components/Screen'
 import { ScreeningCard } from '../components/ScreeningCard'
 import { EmptyState } from '../components/ui'
@@ -17,7 +18,6 @@ import {
   screeningTally,
 } from '../lib/screening'
 import { color, font, leading, mono, monoLabel, radius, sans, space } from '../theme/theme'
-import { PressableScale } from '../components/PressableScale'
 
 interface Deck {
   order: IssueId[]

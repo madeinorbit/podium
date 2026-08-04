@@ -11,16 +11,16 @@ import { AskQuestionCard } from '../components/AskQuestionCard'
 import { Icon } from '../components/Icon'
 import { IdSquare } from '../components/IdSquare'
 import { NewWorkButton } from '../components/NewWorkButton'
+import { PressableScale } from '../components/PressableScale'
 import { HeaderButton, Screen } from '../components/Screen'
 import { BrailleSpinner, CountPill } from '../components/StatusGlyphs'
 import { TrayCard, type TrayCardActions } from '../components/TrayCard'
 import { usePendingQuestion } from '../hooks/usePendingQuestion'
+import { useRefreshableTab } from '../hooks/useRefreshableTab'
 import { sessionHref } from '../lib/session-route'
 import { effectiveIssueColorHex, FLOW_SLATE, flow } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
 import { color, font, mono, radius, sans, space } from '../theme/theme'
-import { PressableScale } from '../components/PressableScale'
-import { useRefreshableTab } from '../hooks/useRefreshableTab'
 
 /**
  * The Tray — home [POD-131]. The phone IS the engraved column: a GLOBAL

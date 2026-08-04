@@ -3,7 +3,17 @@ import type { IssueWire } from '@podium/model'
 import { StyleSheet, Text, View } from 'react-native'
 import { flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
-import { type AttentionTone, color, font, leading, mono, radius, sans, space, tone } from '../theme/theme'
+import {
+  type AttentionTone,
+  color,
+  font,
+  leading,
+  mono,
+  radius,
+  sans,
+  space,
+  tone,
+} from '../theme/theme'
 import { IdSquare, type IdSquareState } from './IdSquare'
 import { PressableScale } from './PressableScale'
 import { BrailleSpinner } from './StatusGlyphs'

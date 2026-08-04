@@ -3,10 +3,10 @@ import { useRouter } from 'expo-router'
 import { useEffect, useState } from 'react'
 import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useTrpc } from '../client/hooks'
+import { PressableScale } from '../components/PressableScale'
 import { Screen } from '../components/Screen'
 import { SectionHeader } from '../components/ui'
 import { color, font, radius, sans, space } from '../theme/theme'
-import { PressableScale } from '../components/PressableScale'
 
 const TYPES: IssueType[] = ['task', 'bug', 'feature', 'chore']
 const PRIORITIES = [0, 1, 2, 3, 4]

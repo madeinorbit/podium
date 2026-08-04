@@ -7,13 +7,13 @@ import { SectionList, StyleSheet, Text, View } from 'react-native'
 import { useBooting, useIssues } from '../client/hooks'
 import { Icon } from '../components/Icon'
 import { IdSquare } from '../components/IdSquare'
+import { PressableScale } from '../components/PressableScale'
 import { HeaderButton, Screen } from '../components/Screen'
 import { EmptyState, ListSkeleton, Pill } from '../components/ui'
+import { useRefreshableTab } from '../hooks/useRefreshableTab'
 import { buildScreeningQueue } from '../lib/screening'
 import { flow, issueColorHex } from '../theme/issueColors'
 import { color, font, leading, mono, monoLabel, radius, sans, space } from '../theme/theme'
-import { PressableScale } from '../components/PressableScale'
-import { useRefreshableTab } from '../hooks/useRefreshableTab'
 
 const STAGE_ORDER: IssueStage[] = [
   'in_progress',

@@ -12,13 +12,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { readTranscriptPage, useHub, useMobileStore } from '../client/hooks'
 import { Composer } from '../components/Composer'
 import { Icon } from '../components/Icon'
+import { PressableScale } from '../components/PressableScale'
 import { Screen } from '../components/Screen'
 import { BrailleSpinner } from '../components/StatusGlyphs'
 import { type PendingTurn, TranscriptList } from '../components/TranscriptList'
 import { EmptyState } from '../components/ui'
 import { dropEchoedTurns, markTurnsFailed, renderedTranscript } from '../lib/superagent-transcript'
 import { color, font, mono, monoLabel, sans, space } from '../theme/theme'
-import { PressableScale } from '../components/PressableScale'
 
 /**
  * The Super agent — the phone half of the engraved column's overarching chat

@@ -6,10 +6,10 @@ import { logout } from '../client/auth'
 import { useConnected, useMobileStore } from '../client/hooks'
 import { useMobileShell } from '../client/shell'
 import { Icon } from '../components/Icon'
+import { PressableScale } from '../components/PressableScale'
 import { Screen } from '../components/Screen'
 import { SectionHeader } from '../components/ui'
 import { color, font, leading, radius, sans, space } from '../theme/theme'
-import { PressableScale } from '../components/PressableScale'
 
 function openDesktop() {
   // The web shell is the default at / for every device now [spec:SP-902c]; /desktop is

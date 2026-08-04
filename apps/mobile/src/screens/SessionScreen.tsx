@@ -26,6 +26,7 @@ import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { Composer } from '../components/Composer'
 import { Icon } from '../components/Icon'
 import { IdSquare } from '../components/IdSquare'
+import { PressableScale } from '../components/PressableScale'
 import { HeaderButton, Screen } from '../components/Screen'
 import { TaskPeekSheet } from '../components/TaskPeekSheet'
 import { type PendingTurn, TranscriptList } from '../components/TranscriptList'
@@ -36,7 +37,6 @@ import { TerminalPane } from '../terminal/TerminalPane'
 import { FLOW_SLATE, issueColorHex } from '../theme/issueColors'
 import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
 import { sessionAbsence } from './session-absence'
-import { PressableScale } from '../components/PressableScale'
 
 const WORK_STATES: (WorkState | null)[] = [
   'planning',

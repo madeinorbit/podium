@@ -29,9 +29,9 @@ import {
 import type { TranscriptAssetContext } from '../lib/transcript-assets'
 import { color, font, leading, mono, monoLabel, radius, sans, space } from '../theme/theme'
 import { AskQuestionCard } from './AskQuestionCard'
+import { PressableScale } from './PressableScale'
 import { RichMarkdown } from './RichMarkdown'
 import { SharedFiles } from './SharedFiles'
-import { PressableScale } from './PressableScale'
 
 function itemKey(item: TranscriptItem): string {
   return item.cursor ?? item.id

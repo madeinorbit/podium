@@ -77,10 +77,7 @@ export function PressableScale({
     <AnimatedPressable
       {...rest}
       disabled={disabled}
-      style={[
-        typeof style === 'function' ? style({ pressed }) : style,
-        { transform: [{ scale }] },
-      ]}
+      style={[typeof style === 'function' ? style({ pressed }) : style, { transform: [{ scale }] }]}
       onPressIn={(e) => {
         setPressed(true)
         if (!reduceMotion) spring(scaleTo, 50, 0)

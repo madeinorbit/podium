@@ -121,7 +121,12 @@ export function SharedFiles({
 const styles = StyleSheet.create({
   root: { gap: space.xs + 1, marginVertical: space.xs },
   label: { ...monoLabel(font.micro), color: color.textDim },
-  caption: { ...sans(400), color: color.textDim, fontSize: font.small, lineHeight: leading(font.small) },
+  caption: {
+    ...sans(400),
+    color: color.textDim,
+    fontSize: font.small,
+    lineHeight: leading(font.small),
+  },
   files: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
   chip: {
     maxWidth: 240,

@@ -1,6 +1,6 @@
 import { relativeTime } from '@podium/client-core/focus'
-import type { SessionMeta } from '@podium/model'
 import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
+import type { SessionMeta } from '@podium/model'
 import * as Haptics from 'expo-haptics'
 import { usePathname, useRouter } from 'expo-router'
 import { useEffect } from 'react'

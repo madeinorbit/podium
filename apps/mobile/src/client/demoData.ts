@@ -1,7 +1,7 @@
-import { asSessionId } from '@podium/model'
 import type { SessionId } from '@podium/model'
 import {
   asIssueId,
+  asSessionId,
   type IssueWire,
   type IssueWireInput,
   type SessionMeta,

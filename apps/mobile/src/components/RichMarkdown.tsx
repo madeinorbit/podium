@@ -1,3 +1,4 @@
+import { LinearGradient } from 'expo-linear-gradient'
 import { type ReactNode, useMemo, useRef, useState } from 'react'
 import {
   Linking,
@@ -15,7 +16,6 @@ import {
   safeExternalUrl,
   splitPodiumRefs,
 } from '../lib/markdown'
-import { LinearGradient } from 'expo-linear-gradient'
 import { selectableProps } from '../lib/selectable'
 import { color, font, leading, mono, radius, sans, space } from '../theme/theme'
 
@@ -221,44 +221,44 @@ function MarkdownTable({ token, ctx }: { token: MarkdownToken; ctx: RenderContex
 
   return (
     <View style={styles.tableScroller}>
-    <ScrollView
-      horizontal
-      nestedScrollEnabled
-      showsHorizontalScrollIndicator
-      scrollEventThrottle={64}
-      onLayout={(e) => {
-        viewport.current = e.nativeEvent.layout.width
-        measure()
-      }}
-      onContentSizeChange={(w) => {
-        content.current = w
-        measure()
-      }}
-      onScroll={(e) => {
-        const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent
-        setAtEnd(contentOffset.x + layoutMeasurement.width >= contentSize.width - 2)
-      }}
-      contentContainerStyle={styles.table}
-      accessibilityLabel={`Markdown table, ${header.length} columns and ${rows.length} rows`}
-    >
-      <View>
-        <View style={styles.tableRow}>
-          {header.map((cell, index) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: parsed table cells are immutable and positional
-            <TableCell key={`header:${index}`} cell={cell} ctx={ctx} />
-          ))}
-        </View>
-        {rows.map((row, rowIndex) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: parsed table rows are immutable and positional
-          <View key={`row:${rowIndex}`} style={styles.tableRow}>
-            {row.map((cell, cellIndex) => (
+      <ScrollView
+        horizontal
+        nestedScrollEnabled
+        showsHorizontalScrollIndicator
+        scrollEventThrottle={64}
+        onLayout={(e) => {
+          viewport.current = e.nativeEvent.layout.width
+          measure()
+        }}
+        onContentSizeChange={(w) => {
+          content.current = w
+          measure()
+        }}
+        onScroll={(e) => {
+          const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent
+          setAtEnd(contentOffset.x + layoutMeasurement.width >= contentSize.width - 2)
+        }}
+        contentContainerStyle={styles.table}
+        accessibilityLabel={`Markdown table, ${header.length} columns and ${rows.length} rows`}
+      >
+        <View>
+          <View style={styles.tableRow}>
+            {header.map((cell, index) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: parsed table cells are immutable and positional
-              <TableCell key={`cell:${rowIndex}:${cellIndex}`} cell={cell} ctx={ctx} />
+              <TableCell key={`header:${index}`} cell={cell} ctx={ctx} />
             ))}
           </View>
-        ))}
-      </View>
-    </ScrollView>
+          {rows.map((row, rowIndex) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: parsed table rows are immutable and positional
+            <View key={`row:${rowIndex}`} style={styles.tableRow}>
+              {row.map((cell, cellIndex) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: parsed table cells are immutable and positional
+                <TableCell key={`cell:${rowIndex}:${cellIndex}`} cell={cell} ctx={ctx} />
+              ))}
+            </View>
+          ))}
+        </View>
+      </ScrollView>
       {overflow && !atEnd ? (
         <LinearGradient
           pointerEvents="none"
@@ -374,7 +374,12 @@ const headingStyles = StyleSheet.create({
 
 const styles = StyleSheet.create({
   root: { minWidth: 0 },
-  body: { ...sans(400), color: color.body, fontSize: font.body, lineHeight: leading(font.body, 'prose') },
+  body: {
+    ...sans(400),
+    color: color.body,
+    fontSize: font.body,
+    lineHeight: leading(font.body, 'prose'),
+  },
   paragraph: { marginVertical: 4 },
   strong: { ...sans(600), color: color.text },
   em: { fontStyle: 'italic' },
@@ -407,7 +412,12 @@ const styles = StyleSheet.create({
   },
   list: { marginVertical: space.xs, gap: 3 },
   listItem: { flexDirection: 'row', alignItems: 'flex-start', minWidth: 0 },
-  listMarker: { ...mono(500), color: color.textDim, width: 24, lineHeight: leading(font.body, 'prose') },
+  listMarker: {
+    ...mono(500),
+    color: color.textDim,
+    width: 24,
+    lineHeight: leading(font.body, 'prose'),
+  },
   listBody: { flex: 1, minWidth: 0 },
   codeFrame: {
     backgroundColor: color.surface,

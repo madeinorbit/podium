@@ -99,5 +99,8 @@ const manifest = {
     },
   ],
 }
-writeFileSync(join(ROOT, 'public', 'manifest.webmanifest'), JSON.stringify(manifest, null, 2) + '\n')
+writeFileSync(
+  join(ROOT, 'public', 'manifest.webmanifest'),
+  JSON.stringify(manifest, null, 2) + '\n',
+)
 console.log('manifest.webmanifest')
