@@ -205,18 +205,21 @@ describe('buildInventory', () => {
     expect(gh.path).toBe(join(home, '.local', 'bin', 'gh')) // first candidate wins
   })
   it('extracts a non-secret fingerprint and freshness from the Codex id token', () => {
-    const email = 'mike' + '.com'
+    const email = 'mike' + '@example.com'
     const contents = JSON.stringify({
       tokens: {
         id_token: jwt({
-          email,
+          email: undefined,
           exp: 200,
           iat: 100,
-          'https://api.openai.com/auth.chatgpt_account_id': 'acct-secret',
+          'https://api.openai.com/auth': {
+            chatgpt_account_id: 'acct-secret',
+            workspace_account_id: 'workspace-1',
+          },
+          'https://api.openai.com/profile': { email },
         }),
         expires_at: 250,
       },
-      last_refresh: 300,
       refresh_token: 'credential-bytes',
     })
 
@@ -224,8 +227,9 @@ describe('buildInventory', () => {
       fingerprint: fingerprintForLoginIdentity('acct-secret'),
       email,
       providerAccountId: 'acct-secret',
+      workspaceAccountId: 'workspace-1',
     })
-    expect(readFreshnessFromAuthContents(contents)).toBe(300)
+    expect(readFreshnessFromAuthContents(contents)).toBe(250)
     expect(JSON.stringify(readIdentityFromAuthContents(contents))).not.toContain('credential-bytes')
   })
 })
