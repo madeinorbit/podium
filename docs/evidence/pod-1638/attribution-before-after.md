@@ -33,13 +33,44 @@ Fixture: 1607 issues, 13 repos, 1199 sessions, 7592 `applied_mutations` rows.
 Statement counts over one 30s idle boot (counts and rows — the count is the defect,
 the duration is a symptom that moves with load):
 
+### The numbers that ship — base `ec2cf9928`
+
+Both arms measured on the SAME base (`issue/279-integration` @ `ec2cf9928`), one
+tree, only the three behaviour files reverted for the before-arm (the instrument
+changes carry no behaviour and stayed in both arms so the harness is identical):
+
 | statement | before | after |
 |---|---|---|
-| `SELECT machine_id, path, origin_url, repo_id FROM repos ORDER BY rowid ASC` | 22209x / 288717 rows | **0** |
-| `SELECT repo_id, prefix FROM repo_prefixes` | 22209x / 177672 rows | **0** |
-| `SELECT prefix FROM repo_prefixes WHERE repo_id = ?` | 21902x / 21378 rows | **0** |
-| `SELECT * FROM issues WHERE id = ?` | 34728x / 34119 rows | 24928x / 24493 rows |
-| `SELECT * FROM grants WHERE resource_kind = ? AND resource_id = ?` | 23814x | 17040x |
+| `SELECT * FROM issues WHERE id = ?` | 32474x / 31836 rows | 22198x / 21763 rows |
+| `SELECT * FROM grants WHERE resource_kind = ? AND resource_id = ?` | 24992x | 17040x |
+| `SELECT machine_id, path, origin_url, repo_id FROM repos ORDER BY rowid ASC` | 1278x / 16614 rows | **0** |
+| `SELECT repo_id, prefix FROM repo_prefixes` | 1278x / 10224 rows | **0** |
+| `SELECT prefix FROM repo_prefixes WHERE repo_id = ?` | 971x | **0** |
+
+### Correction: the 24206x/sec in the brief is no longer the base
+
+The brief's repo-scan figure, and the 22209x I first measured, were both true —
+against `9404eab40`, the base this branch was cut from. **POD-1618 landed in
+`ec2cf9928` and memoized the per-session lookups**, which took the same statement
+from 22209x to 1278x before this change touched anything.
+
+So the honest claim for what ships is **1278 -> 0, not 22209 -> 0**. The scan is
+eliminated either way — a repo list is read once per pass rather than per session,
+and that property does not depend on which base you measure it from — but the
+*credit* for the first 20931 belongs to POD-1618.
+
+Recording this because it is the trap the number invites: a count measured on the
+base you branched from stops being true the moment the base moves, and it will
+still look like a clean before/after. Every count here now carries its SHA.
+
+For the record, the original measurement against `9404eab40`:
+
+| statement | before (`9404eab40`) | after |
+|---|---|---|
+| `repos ORDER BY rowid ASC` | 22209x / 288717 rows | 0 |
+| `repo_prefixes` (full) | 22209x / 177672 rows | 0 |
+| `repo_prefixes WHERE repo_id = ?` | 21902x | 0 |
+| `issues WHERE id = ?` | 34728x | 24928x |
 
 `DELETE FROM applied_mutations WHERE applied_at < ?`, on a copy of the live table
 (7592 rows, ~21MB of `result` payload):
