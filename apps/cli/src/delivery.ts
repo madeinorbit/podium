@@ -9,8 +9,10 @@
  * the bytes, while a signature says what those bytes are. Both are required.
  */
 import { createHash } from 'node:crypto'
-import type { PlatformAsset, UpdateArtifact } from '@podium/protocol'
+import type { UpdateArtifact } from '@podium/protocol'
 import { verifyTarball } from './podium-update'
+
+type PlatformAsset = Extract<UpdateArtifact, { delivery: 'feed' }>['platforms'][string]
 
 export interface DeliveryDeps {
   fetch: typeof fetch

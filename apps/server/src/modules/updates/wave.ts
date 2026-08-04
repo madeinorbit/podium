@@ -9,11 +9,7 @@ export interface WaveMachine {
   busy: boolean
 }
 
-const IN_FLIGHT: ReadonlySet<ConvergenceState> = new Set([
-  'granted',
-  'downloading',
-  'restarting',
-])
+const IN_FLIGHT: ReadonlySet<ConvergenceState> = new Set(['granted', 'downloading', 'restarting'])
 const TERMINAL_FAILURE: ReadonlySet<ConvergenceState> = new Set(['rejected', 'stuck'])
 
 export function planWave(ctx: {
@@ -37,7 +33,8 @@ export function planWave(ctx: {
     if (inFlight > 0) return []
     const idle = eligible.filter((machine) => !machine.busy)
     const pool = idle.length > 0 ? idle : eligible
-    return [[...pool].sort((a, b) => a.id.localeCompare(b.id))[0].id]
+    const canary = [...pool].sort((a, b) => a.id.localeCompare(b.id))[0]
+    return canary ? [canary.id] : []
   }
 
   const room = Math.max(0, ctx.concurrency - inFlight)

@@ -13,8 +13,8 @@
  */
 import type { UpdateArtifact, UpdateTarget } from './target'
 
-export type PlatformAsset = Extract<UpdateArtifact, { delivery: 'feed' }>['platforms'][string]
-export type GitArtifact = Extract<UpdateArtifact, { delivery: 'git' }>
+type PlatformAsset = Extract<UpdateArtifact, { delivery: 'feed' }>['platforms'][string]
+type GitArtifact = Extract<UpdateArtifact, { delivery: 'git' }>
 
 /**
  * A feed or bundle plan contains the exact platform asset selected for this
