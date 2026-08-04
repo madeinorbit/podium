@@ -434,7 +434,8 @@ export class SessionStart {
       ...(input.instructions?.length ? { instructions: input.instructions } : {}),
       geometry: { ...DEFAULT_GEOMETRY },
       ...launch,
-      ...this.ports.launchConfig.accountEnv(input.agentKind, accountId),
+      // The suffix is durable session attribution only; launch with the selected account unchanged.
+      ...this.ports.launchConfig.accountEnv(input.agentKind, selectedAccountId),
       ...(this.ports.state.draftSyncEnabled() ? { draftSync: true } : {}),
     })
     this.ports.broadcastSessions()
