@@ -74,13 +74,16 @@ export function AppSheet({
           <h2 className="app-sheet-title">{title}</h2>
           <div className="app-sheet-actions">
             {toolbar}
-            <kbd className="app-sheet-kbd">esc</kbd>
+            {/* The keyboard route is stated on the control that performs it. A
+                free-standing `esc` keycap next to an ✕ that already means close
+                puts two ways to say one thing in the corner the eye checks
+                first — and the shell has no keycap component anywhere else. */}
             <button
               data-pressable
               type="button"
               className="app-sheet-close"
               aria-label={`Close ${label.toLowerCase()}`}
-              title="Close"
+              title="Close — Esc"
               onClick={onClose}
             >
               <X size={14} aria-hidden="true" />

@@ -66,23 +66,52 @@ body {
   display: flex;
   flex: 0 0 44px;
   align-items: center;
-  gap: 8px;
+  /* ONE ZONE GAP. Every seam and every zone boundary in the bar is 10px, so the
+     bar has a single horizontal rhythm instead of the 2/5/8px mixture that made
+     it read as assembled rather than composed. */
+  gap: 10px;
   min-width: 0;
   height: 44px;
-  padding: 0 10px 0 14px;
+  padding: 0 8px 0 12px;
   border-bottom: 1px solid var(--border);
   background: var(--bar);
 }
+/* The wordmark is identity, not state. It sat at full strength and out-shone the
+   mode you were actually in; stepped back, the eye lands on the active mode
+   first and finds the mark when it goes looking for it. */
 .desktop-topbar-logo {
   display: flex;
   flex: none;
   align-items: center;
-  margin-right: 5px;
+  opacity: 0.55;
+}
+/* THE TWO WELLS. Modes on the left and instruments on the right share one
+   recipe — 30px, 8px radius, carved INTO the bar with a black wash under an
+   inset hairline — so the bar is bracketed by two objects of the same make
+   rather than a nav on one end and a lozenge on the other. This is the Affinity
+   Personas pattern's actual mechanism: it is the WELL that stops a row of
+   glyphs reading as links, not a container drawn around the selected one. */
+.topbar-well {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  padding: 2px;
+  border-radius: 8px;
+  /* Recessed is an EDGE, not a tone: the floor of a groove catches ambient
+     light, so it sits a hair above the bar, and the recess comes from a dark lip
+     along the top and a lit one along the bottom. (A ring all the way round is
+     an outline, and an outline around a row of glyphs is one big button.) The
+     raised cell inside inverts the same bevel — lit on top — so the two edges
+     tell you which way each surface faces. --bar is already near-black, so a
+     darker wash here would have read as nothing at all. */
+  background: color-mix(in srgb, var(--secondary) 30%, transparent);
+  box-shadow:
+    inset 0 1px 1px rgb(0 0 0 / 0.75),
+    inset 0 0 0 1px rgb(0 0 0 / 0.35),
+    inset 0 -1px 0 rgb(255 255 255 / 0.05);
 }
 .desktop-topbar-nav {
-  display: inline-flex;
   flex: none;
-  align-items: center;
   gap: 2px;
 }
 /* The dynamic centre. Sized by its contents and allowed to shrink before the
@@ -112,59 +141,60 @@ body {
 /* Zones are divided by hairlines, never by whitespace alone — the same grammar
    every other section of the shell uses. The leading seam belongs to the slot:
    with an empty centre it would point at nothing, so it hides with it. */
+/* Zone seams sit centred in the 10px zone gap and stand 18px — tall enough to
+   divide two 30px wells, short enough not to become a second border. */
 .topbar-seam {
   flex: none;
   width: 1px;
-  height: 16px;
+  height: 18px;
   background: var(--border);
 }
 .desktop-topbar-slot:empty {
   display: none;
 }
-/* One mode. Inactive is a bare glyph + label (the icon carries the "this is a
-   control" signal); only the ACTIVE one is contained. */
+/* One mode: a cell in the well. The ACTIVE one is raised out of the recess onto
+   the chip surface with a 1px material highlight along its top edge — a tone
+   step and a lit edge, which is how a machined segmented control marks its
+   position. It carries NO yellow: a permanently-lit brand hairline in the chrome
+   is exactly the spend The Signal Rule reserves for what is asking something of
+   you, and the well already answers "you are here". */
 .topbar-mode {
   display: inline-flex;
   flex: none;
   align-items: center;
   gap: 6px;
-  height: 28px;
-  padding: 0 10px;
-  border: 1px solid transparent;
-  border-radius: var(--radius);
+  height: 26px;
+  padding: 0 9px;
+  border-radius: 6px;
   background: transparent;
-  color: var(--muted-foreground);
+  color: var(--text-dim);
   font-size: 11.5px;
   font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
   transition:
     background-color 150ms ease,
-    border-color 150ms ease,
     color 150ms ease;
 }
 .topbar-mode:hover {
-  background: var(--accent);
-  color: var(--text-strong);
+  background: rgb(255 255 255 / 0.045);
+  color: var(--muted-foreground);
 }
+/* Raised, not lit. The whole navy ramp gets bluer as it gets lighter, so a full
+   --secondary cell against a black groove lands as a saturated blue slab — the
+   generic "selected pill" again, in a different colour. Two thirds of that step
+   is enough to read as raised while staying chassis-coloured. */
 .topbar-mode[data-active="true"] {
-  border-color: var(--border-strong);
-  background: var(--secondary);
-  /* The 1px signal line the pane tabs already use for "you are here". A hairline
-     rather than a fill, so a permanently-active mode never spends the yellow
-     that The Signal Rule reserves for things asking something of you. */
-  box-shadow: inset 0 1px 0 0 var(--attention);
+  background: color-mix(in srgb, var(--secondary) 85%, transparent);
+  box-shadow:
+    inset 0 1px 0 0 rgb(255 255 255 / 0.07),
+    inset 0 -1px 0 0 rgb(0 0 0 / 0.35);
   color: var(--text-strong);
 }
-/* The proposals count. Attention ink on the chip surface rather than a filled
-   yellow pill: it IS asking something of you, but a solid brand fill sitting
-   permanently in the chrome is the exact spend The Signal Rule guards. */
+/* The proposals count. Bare tabular digits in attention ink — the count IS
+   asking something of you, so it keeps the yellow, but a filled pill is a
+   consumer notification badge and the shell has no such component. */
 .topbar-mode-badge {
-  display: inline-flex;
-  align-items: center;
-  border-radius: 3px;
-  background: var(--secondary);
-  padding: 2px 4px;
   color: var(--attention);
   font-family: var(--font-mono);
   font-size: 9px;
@@ -172,22 +202,26 @@ body {
   font-variant-numeric: tabular-nums;
   line-height: 1;
 }
-.topbar-mode[data-active="true"] .topbar-mode-badge {
-  background: var(--bar);
-}
 /* A mode's controls inside the slot. Everything is 28px so the whole bar sits on
    one optical line with the mode tabs and the instrument well. */
 .topbar-tools {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
 }
 .topbar-tools-search {
   flex: 0 1 220px;
   min-width: 96px;
   height: 28px;
+  border-radius: var(--radius);
   font-size: 12px;
+}
+/* The primary action is the one thing on the bar allowed to be a filled slab,
+   and it sits on the loose-control line with everything else in the slot. */
+.topbar-tools > button[data-slot="button"] {
+  height: 28px;
+  border-radius: var(--radius);
 }
 .topbar-tool-toggle {
   display: inline-flex;
@@ -229,12 +263,45 @@ body {
     flex-basis: 150px;
   }
 }
+/* THE WELL'S SHED ORDER. Below 1180px the bar can no longer hold four meters, a
+   search field and five controls, and the old answer was to let the well's clip
+   behead whatever ran past its edge — a truncated hostname at 900px. Words go
+   before data: the group label first (the CC/CX/GR marks already name the
+   pools), then the hostname (the dot and the meter still say "this host, this
+   pressure", and the chip's panel names it), then — only then — the numbers on
+   pools that are quiet, at 1024px, and last the MEM mark. A number that crossed
+   a threshold is never shed at any width. */
+@media (max-width: 1180px) {
+  .header-quota-label {
+    display: none;
+  }
+}
+@media (max-width: 1100px) {
+  .header-machine-name {
+    display: none;
+  }
+}
 @media (max-width: 940px) {
+  .header-machine-chip .header-mark {
+    display: none;
+  }
   .topbar-mode > span:not(.topbar-mode-badge) {
     display: none;
   }
   .topbar-mode {
     padding: 0 8px;
+  }
+  /* A count with no label to qualify it is a bare number floating in the
+     chrome. The glyph keeps its dot; the digits go with the word. */
+  .topbar-mode-badge {
+    align-self: flex-start;
+    width: 4px;
+    height: 4px;
+    margin-top: 6px;
+    margin-left: -3px;
+    border-radius: 50%;
+    background: var(--attention);
+    font-size: 0;
   }
 }
 html[data-podium-desktop="true"] .desktop-topbar,
@@ -286,11 +353,6 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
   align-items: center;
   justify-content: flex-end;
   gap: 0;
-  height: 28px;
-  padding: 0 2px;
-  border-radius: 7px;
-  background: color-mix(in srgb, var(--secondary) 55%, transparent);
-  box-shadow: inset 0 0 0 1px var(--border);
   overflow: hidden;
 }
 /* POD-318 — the hairline that divides one readout group from the next. It was
@@ -357,8 +419,16 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
   outline: none;
   color: var(--text-strong);
 }
+/* The one shrinkable thing in the well: a hostname ellipsises and still
+   identifies, so it absorbs the squeeze before anything is dropped. The meters
+   and their numbers never shrink — a clipped percentage is a lie. */
+.header-machine-chip {
+  flex: 0 1 auto;
+  min-width: 0;
+}
 /* A hostname is an ID — machine voice, so Geist Mono (DESIGN.md §3). */
 .header-machine-name {
+  min-width: 0;
   max-width: 12ch;
   overflow: hidden;
   color: var(--muted-foreground);
@@ -505,8 +575,11 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
   opacity: 0.85;
 }
 /* A narrow window drops the numbers a quiet pool doesn't need — but never the
-   one that crossed a threshold, which is the whole reason to look. */
-@media (max-width: 1200px) {
+   one that crossed a threshold, which is the whole reason to look. Third in the
+   well's shed order, not first: this fired at 1200px while three labels were
+   still occupying the room, so the bar was giving up data before words. See the
+   ordered block above .topbar-mode's breakpoints. */
+@media (max-width: 1024px) {
   .header-value[data-tone="ok"] {
     display: none;
   }
@@ -2180,6 +2253,16 @@ a.ref-link--session::before {
     0 2px 8px rgb(0 0 0 / 0.5);
   animation: app-sheet-in 200ms cubic-bezier(0.22, 1, 0.36, 1);
 }
+/* A sheet that sizes to its content, capped at the frame. Settings is a browsing
+   surface and earns the full height; Usage is one screen of figures, and forcing
+   it to the frame is what pushed its chart to 660px for seven bars. A utility
+   whose content ends should end with it. */
+.app-sheet-fit {
+  bottom: auto;
+  max-height: calc(
+    100dvh - var(--topbar-h) - var(--status-strip-h) - 2 * var(--sheet-gap)
+  );
+}
 .app-sheet:focus-visible {
   outline: none;
 }
@@ -2204,15 +2287,6 @@ a.ref-link--session::before {
   align-items: center;
   gap: 8px;
   margin-left: auto;
-}
-.app-sheet-kbd {
-  border: 1px solid var(--hairline-soft);
-  border-radius: var(--radius-md, 4.8px);
-  padding: 2px 5px;
-  color: var(--text-faint);
-  font-family: var(--font-mono);
-  font-size: 9px;
-  line-height: 1;
 }
 .app-sheet-close {
   display: inline-flex;
@@ -2271,17 +2345,59 @@ a.ref-link--session::before {
   min-height: 0;
   padding: 16px 18px;
 }
+.usage-summary {
+  display: flex;
+  flex: none;
+  align-items: stretch;
+}
+.usage-window {
+  flex: 1;
+  min-width: 0;
+  padding: 0 16px;
+  border-left: 1px solid var(--hairline-soft);
+}
+.usage-window:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+.usage-window-label {
+  color: var(--label);
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.usage-window-value {
+  margin: 5px 0 3px;
+  color: var(--text-strong);
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.usage-window-sub {
+  color: var(--text-dim);
+  font-size: 11px;
+}
 .usage-chart {
   display: flex;
-  flex: 1;
+  flex: none;
   align-items: flex-end;
   gap: 8px;
-  min-height: 96px;
+  height: 210px;
   padding: 0 4px;
+}
+.usage-bar {
+  width: 100%;
+  max-width: 42px;
+  border-radius: 3px 3px 0 0;
+  background: color-mix(in srgb, var(--live) 82%, transparent);
 }
 .usage-table-scroll {
   flex: none;
-  max-height: 45%;
+  max-height: 40vh;
   overflow: auto;
 }
 .usage-note {

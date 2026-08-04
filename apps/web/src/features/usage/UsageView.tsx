@@ -40,6 +40,9 @@ export function UsageView({ onClose }: { onClose: () => void }): JSX.Element {
       label="Usage & analytics"
       title="Usage & analytics"
       testId="usage-sheet"
+      // One screen of figures, so the sheet ends where they do rather than
+      // stretching them to the frame.
+      className="app-sheet-fit"
       onClose={onClose}
     >
       {buckets === null ? (
@@ -58,38 +61,37 @@ function UsageBody({ buckets }: { buckets: UsageBucketWire[] }): JSX.Element {
   const maxDay = Math.max(1, ...s.days.map((d) => d.totalTokens))
   return (
     <div className="usage-body">
-      <div className="flex flex-none gap-2.5">
-        <div className="flex-1 rounded-md border border-border px-3 py-2.5">
-          <div className="text-[11px] uppercase tracking-[0.06em] text-muted-foreground">
-            Last 5 hours
+      {/* TWO READOUTS, NOT TWO CARDS. Same-size bordered tiles carrying a big
+          number over a small label are the SaaS-dashboard cliché PRODUCT.md
+          names as an anti-reference, and a 24px bold figure is a size jump this
+          type ramp does not have. Both windows are machine voice, so they read
+          the way the instrument well reads: a mono micro-label, a tabular
+          figure, a dim sub-line, divided by a hairline rather than boxed. */}
+      <div className="usage-summary">
+        {[
+          { label: 'Last 5 hours', win: s.fiveHour },
+          { label: 'Last 7 days', win: s.week },
+        ].map(({ label, win }) => (
+          <div key={label} className="usage-window">
+            <div className="usage-window-label">{label}</div>
+            <div className="usage-window-value">{formatTokens(win.totalTokens)}</div>
+            <div className="usage-window-sub">
+              {win.messages} replies · {formatUsd(win.estCostUsd)} API-equivalent
+            </div>
           </div>
-          <div className="my-0.5 text-2xl font-bold text-foreground">
-            {formatTokens(s.fiveHour.totalTokens)}
-          </div>
-          <div className="text-[11px] text-muted-foreground/70">
-            {s.fiveHour.messages} replies · {formatUsd(s.fiveHour.estCostUsd)} API-equivalent
-          </div>
-        </div>
-        <div className="flex-1 rounded-md border border-border px-3 py-2.5">
-          <div className="text-[11px] uppercase tracking-[0.06em] text-muted-foreground">
-            Last 7 days
-          </div>
-          <div className="my-0.5 text-2xl font-bold text-foreground">
-            {formatTokens(s.week.totalTokens)}
-          </div>
-          <div className="text-[11px] text-muted-foreground/70">
-            {s.week.messages} replies · {formatUsd(s.week.estCostUsd)} API-equivalent
-          </div>
-        </div>
+        ))}
       </div>
-      {/* The chart takes the growth, not the table: height is what a bar chart
-          does something with, and a four-row table stretched to fill a sheet is
-          just a void with rules in it. */}
+      {/* A fixed chart height, not a stretched one. Filling the sheet turned one
+          busy day into a 660px monolith and five quiet ones into 4px stubs —
+          proportion is the only thing a bar chart says, so the frame must not be
+          the thing setting it. The sheet sizes to its content instead (see
+          .app-sheet-fit). Bars are DATA and read calm blue: yellow is reserved
+          for what is asking something of you, and a token history asks nothing. */}
       <div className="usage-chart">
         {s.days.map((d) => (
           <div key={d.day} className="flex h-full flex-1 flex-col items-center justify-end gap-1">
             <div
-              className="w-full max-w-[42px] rounded-t-[3px] bg-primary opacity-85"
+              className="usage-bar"
               style={{ height: `${Math.max(2, (d.totalTokens / maxDay) * 100)}%` }}
               title={`${d.day}: ${formatTokens(d.totalTokens)} tokens · ${formatUsd(d.estCostUsd)}`}
             />

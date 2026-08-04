@@ -196,7 +196,7 @@ export function HeaderHostIndicators(): JSX.Element {
         })()
 
   return (
-    <div className="header-host-indicators">
+    <div className="topbar-well header-host-indicators">
       <span className="sr-only" role="status" aria-live="polite">
         {announce}
       </span>

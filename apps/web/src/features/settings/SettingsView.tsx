@@ -633,16 +633,14 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
           )}
           {visibleGroups.map((g) => (
             <div key={g.label}>
-              <div className="mt-3 mb-1 px-2 first:mt-0">
+              {/* The group's sentence is NOT repeated here. The pane's banner
+                    states it verbatim and both were on screen at once — the same
+                    three sentences twice, once ragged into a 20ch rail. A nav
+                    lists destinations; the destination explains itself. */}
+              <div className="mt-5 mb-1 px-2.5 first:mt-0">
                 <div className="font-medium font-mono text-[8.5px] text-label uppercase tracking-[0.12em]">
                   {g.label}
                 </div>
-                {/* The group's own sentence, in the nav rather than only on
-                      the page: the class is the thing a user needs BEFORE
-                      choosing a tab, not after. */}
-                <p className="mt-1 max-w-[20ch] text-[10px] text-text-faint leading-snug">
-                  {g.hint}
-                </p>
               </div>
               {g.tabs.map((t) => (
                 <button
@@ -670,20 +668,27 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
         <div className="settings-pane">
           <div className="settings-pane-scroll">
             <div className="settings-section-enter settings-measure" key={tab}>
-              {/* THE CLASS BANNER. What changing anything on this tab affects,
+              {/* THE CLASS CAPTION. What changing anything on this tab affects,
                     stated on the tab itself — a nav heading is easy to scroll
                     past, and the caveat below is the one thing on this screen a
-                    user must not miss. */}
+                    user must not miss. It was a bordered chip card, which made
+                    the pane's quietest content its loudest object and put a card
+                    above the heading it introduces; a mono class label over the
+                    sentence, closed by the rule that already separates it from
+                    the first section, says the same thing without a box. */}
               {(() => {
                 const surface = TAB_SURFACE[tab]
                 const copy = SURFACE_COPY[surface]
                 return (
                   <div
-                    className="mb-4 rounded-md border border-hairline-soft bg-chip/40 px-3 py-2"
+                    className="mb-5 border-hairline-soft border-b pb-4"
                     data-testid={`surface-banner-${surface}`}
                   >
-                    <div className="font-medium text-[11px] text-text-strong">{copy.label}</div>
-                    <p className="mt-0.5 max-w-[62ch] text-[11px] text-text-dim leading-normal">
+                    {/* No class label here: the rail names the group two
+                        centimetres to the left and on the same line, so
+                        repeating it read as a rendering fault. The sentence is
+                        self-contained. */}
+                    <p className="max-w-[62ch] text-[11.5px] text-text-dim leading-normal">
                       {copy.hint}
                     </p>
                     {copy.caveat && (

@@ -19,6 +19,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { PropertyMenu } from '@/lib/PropertyMenu'
+import { cn } from '@/lib/utils'
 import type { BoardFilter } from './issue-board-filter'
 import { STAGE_LABELS } from './issue-card'
 import { PriorityGlyph, StageGlyph } from './issue-glyphs'
@@ -196,13 +197,28 @@ export function FilterMenu({
   assignees: string[]
 }): JSX.Element {
   const set = (patch: Partial<BoardFilter>): void => onChange({ ...filter, ...patch })
+  // Free-text search has its own field beside this trigger, so it is not one of
+  // the facets this menu reports as engaged.
+  const filtering = Object.entries(filter).some(
+    ([key, value]) => key !== 'text' && value !== undefined && value !== false,
+  )
   return (
     <DropdownMenu>
+      {/* The command bar's grammar, not the generic outline button's: a ringed
+          chip there means ENGAGED, and an always-ringed menu trigger made a
+          dropdown look identical to the active mode tab. Bare at rest, ringed
+          once a filter is actually narrowing the board. */}
       <DropdownMenuTrigger
         render={
-          <Button type="button" variant="outline" size="sm">
-            <ListFilter size={14} aria-hidden="true" /> Filter
-          </Button>
+          <button
+            data-pressable
+            type="button"
+            className={cn('topbar-tool-toggle', filtering && 'topbar-tool-toggle-on')}
+            title={filtering ? 'Filters are narrowing this board' : 'Filter the board'}
+          >
+            <ListFilter size={13} aria-hidden="true" />
+            <span className="topbar-tool-label">Filter</span>
+          </button>
         }
       />
       <DropdownMenuContent align="end" className="w-44">
@@ -318,9 +334,10 @@ export function DisplayMenu({
     <DropdownMenu>
       <DropdownMenuTrigger
         render={
-          <Button type="button" variant="outline" size="sm">
-            <SlidersHorizontal size={14} aria-hidden="true" /> Display
-          </Button>
+          <button data-pressable type="button" className="topbar-tool-toggle" title="Display">
+            <SlidersHorizontal size={13} aria-hidden="true" />
+            <span className="topbar-tool-label">Display</span>
+          </button>
         }
       />
       <DropdownMenuContent align="end" className="w-48">

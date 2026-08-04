@@ -69,7 +69,7 @@ export function TopBar(): JSX.Element {
       <span className="desktop-topbar-logo" {...dragRegion}>
         <PodiumLogo height={19} className="flex-none" />
       </span>
-      <nav className="desktop-topbar-nav" aria-label="Primary">
+      <nav className="topbar-well desktop-topbar-nav" aria-label="Primary">
         <ModeTab
           label="Work"
           target="workspace"
