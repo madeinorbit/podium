@@ -385,6 +385,100 @@ describe('readTranscriptSlice', () => {
     expect(page.hasMore).toBe(true)
   })
 
+  // POD-1627. The doubling loop used to DISCARD the previous window's parse and
+  // re-read `[end - 2w, end)` from scratch, so the bytes it read+parsed summed to
+  // ~2.37x the bytes the final window actually spans. The fix keeps the parsed
+  // items and reads only the newly exposed region, so SUM ≈ UNION.
+  //
+  // The property is asserted as sum-vs-union of the byte ranges rather than as a
+  // duration: it is scale- and machine-independent, and it fails loudly (≈2x) on
+  // the pre-fix reader. A tiny `initialWindowBytes` forces many doublings, which
+  // is what makes the amplification observable at all.
+  for (const dir of ['before', 'after'] as const) {
+    it(`grows its ${dir === 'before' ? 'older' : 'newer'} window by EXTENDING, never re-reading (POD-1627)`, async () => {
+      const { chain } = await bigFile(5000)
+      const all = await readTranscriptSlice(chain, idxToItems, {
+        direction: 'before',
+        limit: 5000,
+      })
+      // Anchor mid-file so both directions have ~2000 items to gather past it.
+      const anchor = all.items.find((i) => i.text === '2500')?.cursor
+      expect(anchor).toBeDefined()
+
+      let sum = 0
+      let minStart = Number.POSITIVE_INFINITY
+      let maxEnd = 0
+      const realReadFileItems = slice.readFileItems
+      const spy = vi
+        .spyOn(slice, 'readFileItems')
+        .mockImplementation(async (p, fileId, toItems, window) => {
+          // A whole-file read would defeat the union metric, so fail on it directly.
+          expect(window).toBeDefined()
+          if (window) {
+            sum += Math.max(0, window.end - window.start)
+            minStart = Math.min(minStart, window.start)
+            maxEnd = Math.max(maxEnd, window.end)
+          }
+          return realReadFileItems(p, fileId, toItems, window)
+        })
+      try {
+        const page = await readTranscriptSlice(chain, idxToItems, {
+          anchor,
+          direction: dir,
+          limit: 1500,
+          initialWindowBytes: 4096, // ~13 records/window → ~7 doublings
+        })
+        // Correctness first: extending must return exactly what re-reading did.
+        expect(page.items.length).toBe(1500)
+        expect(page.items[0]?.text).toBe(dir === 'before' ? '1000' : '2501')
+        expect(page.items.at(-1)?.text).toBe(dir === 'before' ? '2499' : '4000')
+        expect(page.hasMore).toBe(true)
+
+        const union = maxEnd - minStart
+        expect(union).toBeGreaterThan(0)
+        // Pre-fix this ratio is ~2x. Allow 15% for the one-byte seed overlaps and
+        // the record-boundary re-read at each seam.
+        expect(sum).toBeLessThanOrEqual(union * 1.15)
+      } finally {
+        spy.mockRestore()
+      }
+    })
+  }
+
+  // The live shape POD-1627 measured: records (~145KB) far LARGER than the initial
+  // window (256KB holds ~2), so the first window holds zero or one whole record and
+  // the extend path must survive starting from an empty parse. Scaled down here.
+  it('extends correctly when the first window is smaller than one record', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'slice-fat-'))
+    const path = join(dir, 'fat.jsonl')
+    const lines: string[] = []
+    for (let i = 0; i < 40; i++) {
+      const r = JSON.parse(rec(`u${i}`, 'user', String(i)))
+      r.filler = 'x'.repeat(4000) // ~4KB/record, 4x the initial window below
+      lines.push(JSON.stringify(r))
+    }
+    await writeFile(path, `${lines.join('\n')}\n`)
+    const chain: ChainEntry[] = [{ path, fileId: fileIdFor(path) }]
+
+    const newest = await readTranscriptSlice(chain, idxToItems, {
+      direction: 'before',
+      limit: 10,
+      initialWindowBytes: 1024,
+    })
+    expect(newest.items.map((i) => i.text)).toEqual(
+      ['30', '31', '32', '33', '34', '35', '36', '37', '38', '39'], // contiguous, no seam gap
+    )
+    expect(newest.hasMore).toBe(true)
+
+    const after = await readTranscriptSlice(chain, idxToItems, {
+      anchor: newest.items[0]?.cursor,
+      direction: 'after',
+      limit: 6,
+      initialWindowBytes: 1024,
+    })
+    expect(after.items.map((i) => i.text)).toEqual(['31', '32', '33', '34', '35', '36'])
+  })
+
   it('after-anchor at the very last item of a large file reports hasMore false', async () => {
     const { chain } = await bigFile(5000)
     const all = await readTranscriptSlice(chain, idxToItems, {

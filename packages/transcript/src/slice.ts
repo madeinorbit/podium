@@ -246,6 +246,21 @@ interface WindowedResult {
  *    record and grows its END forward (doubling) until it holds `need` items or
  *    reaches EOF.
  *
+ * EXTENDING, NOT RE-READING (POD-1627): each doubling reads only the region the
+ * previous window did NOT cover, and splices onto the items already parsed. The
+ * naive form — re-reading `[end - 2w, end)` from scratch each round — read and
+ * `JSON.parse`d ~2.37x the bytes the FINAL window spans (measured: a 97.6MB
+ * transcript cost 231.5MB of read+parse to return a 0.5MB page). The seam is
+ * placed on a RECORD boundary so the splice cannot duplicate or lose a record:
+ *   - `older`: the new read ends at the first KEPT record's offset. A record whose
+ *     terminating `\n` sits before that offset is emitted by the new read; the one
+ *     starting exactly there is already held. `readFileItems`' end-exclusive
+ *     boundary (a record is emitted at its trailing `\n`) makes this exact.
+ *   - `newer`: the new read STARTS at the last kept record's offset, so the
+ *     leading-partial drop consumes exactly that already-held record and emits
+ *     only what follows. Skipped when that offset is 0 (nothing is dropped at byte
+ *     0, so the record would be emitted twice) — that window is re-read whole.
+ *
  * LEADING-PARTIAL OVER-READ: `readFileItems` unconditionally drops the first line
  * of any window that starts past byte 0 (it is assumed to be a torn prior record).
  * So to KEEP the record at byte O we must start the window STRICTLY BEFORE O — the
@@ -286,13 +301,28 @@ async function readFileWindowed(
     const end = opts.anchorOffset ?? size
     if (end === 0) return { items: [], atBoundary: true }
     let windowBytes = Math.min(end, initialWindow)
+    // Items parsed so far, in file order. Each doubling PREPENDS the newly exposed
+    // older region rather than re-parsing everything (see EXTENDING above).
+    let items: TranscriptItem[] = []
     for (;;) {
       const start = Math.max(0, end - windowBytes)
       const atBoundary = start === 0
-      const items =
-        start === 0 && end === size
-          ? await self.readFileItems(entry.path, entry.fileId, recordToItems)
-          : await self.readFileItems(entry.path, entry.fileId, recordToItems, { start, end })
+      // Read only what the previous round did not: up to the oldest record we hold.
+      // An undecodable cursor (offsetOf → -1) leaves the seam unknown, so fall back
+      // to re-reading the whole window rather than guess a boundary.
+      const held = items.length > 0 ? offsetOf(items[0] as TranscriptItem) : -1
+      const extend = held > 0
+      const readEnd = extend ? held : end
+      if (readEnd > start) {
+        const fresh =
+          start === 0 && readEnd === size
+            ? await self.readFileItems(entry.path, entry.fileId, recordToItems)
+            : await self.readFileItems(entry.path, entry.fileId, recordToItems, {
+                start,
+                end: readEnd,
+              })
+        items = extend ? [...fresh, ...items] : fresh
+      }
       if (atBoundary || items.length >= needed) return { items, atBoundary }
       windowBytes = Math.min(end, windowBytes * 2)
     }
@@ -302,15 +332,29 @@ async function readFileWindowed(
   // leading-partial drop) or at byte 0 (no anchor → file head); grow END forward.
   const anchorOffset = opts.anchorOffset
   let windowBytes = Math.min(size, initialWindow)
+  // Seed start strictly before the anchor record. With no anchor we read from 0.
+  const start = anchorOffset === undefined ? 0 : Math.max(0, anchorOffset - 1)
+  // Items parsed so far, in file order; each doubling APPENDS the newly exposed
+  // newer region rather than re-parsing everything (see EXTENDING above).
+  let items: TranscriptItem[] = []
   for (;;) {
-    // Seed start strictly before the anchor record. With no anchor we read from 0.
-    const start = anchorOffset === undefined ? 0 : Math.max(0, anchorOffset - 1)
     const end = Math.min(size, start + windowBytes)
     const atBoundary = end >= size
-    const items =
-      start === 0
-        ? await self.readFileItems(entry.path, entry.fileId, recordToItems, { start: 0, end })
-        : await self.readFileItems(entry.path, entry.fileId, recordToItems, { start, end })
+    // Resume at the last record we hold: `readFileItems` drops the first line of a
+    // window starting past byte 0, which is exactly that already-held record. At
+    // offset 0 nothing is dropped, so re-read the window whole instead.
+    const held = items.length > 0 ? offsetOf(items[items.length - 1] as TranscriptItem) : -1
+    const extend = held > 0
+    const readStart = extend ? held : start
+    if (end > readStart) {
+      const fresh = await self.readFileItems(entry.path, entry.fileId, recordToItems, {
+        start: readStart,
+        end,
+      })
+      // The prior window's own trailing record was dropped as a non-EOF fragment, so
+      // `fresh` begins after the last held record — append, never splice.
+      items = extend ? [...items, ...fresh] : fresh
+    }
     // Count only items STRICTLY AFTER the anchor — the anchor record (at exactly
     // `anchorOffset`) is excluded by `sliceAfterAnchor`, so counting it would let us
     // stop one item early and wrongly report hasMore=false. No anchor → all count.
