@@ -111,6 +111,56 @@ export class GrantsRepository {
     })
   }
 
+  /**
+   * The same LIVE read as {@link listForResource}, asked about MANY resources at
+   * once [POD-1653].
+   *
+   * This is a batching change, explicitly not a caching one — the header above
+   * rules a cache out, and for a reason that still holds: a revoked grant must
+   * stop working at the next decision, and a whole-table read held across
+   * decisions would be a second source of truth for "who may run code on this
+   * laptop". Every row here is read from SQLite at the moment of asking, exactly
+   * as the per-resource form does; the only thing that changes is how many
+   * round-trips one pass costs.
+   *
+   * Why it was needed: a reader-scoped session projection asked this question
+   * once per session, and for the ~1145 sessions with no issue the resource key
+   * is the session's own id — unique per row, so nothing could ever coalesce
+   * them. That was ~8000 statements per pass returning ZERO rows on the live
+   * host, because the resources genuinely have no grants.
+   *
+   * The result includes NO entry for a resource with no edges. That absence is
+   * the answer, and a caller must read it as "no grants", never as "not looked
+   * at" — {@link primeOwnerMemo} depends on exactly that distinction.
+   */
+  listForResources(resourceKind: string, resourceIds: readonly string[]): Map<string, GrantRow[]> {
+    const out = new Map<string, GrantRow[]>()
+    const unique = [...new Set(resourceIds)]
+    if (unique.length === 0) return out
+    // SQLITE_MAX_VARIABLE_NUMBER is 999 on the builds this ships against, and
+    // the kind occupies one of them. Chunking keeps a 1200-session pass from
+    // failing at the driver rather than merely being slow.
+    const CHUNK = 500
+    for (let i = 0; i < unique.length; i += CHUNK) {
+      const chunk = unique.slice(i, i + CHUNK)
+      const rows = this.db
+        .prepare(
+          `SELECT * FROM grants
+             WHERE resource_kind = ? AND resource_id IN (${chunk.map(() => '?').join(',')})
+             ORDER BY created_at ASC`,
+        )
+        .all(resourceKind, ...chunk) as Record<string, unknown>[]
+      for (const r of rows) {
+        const row = toRow(r)
+        if (!row) continue
+        const bucket = out.get(row.resourceId)
+        if (bucket) bucket.push(row)
+        else out.set(row.resourceId, [row])
+      }
+    }
+    return out
+  }
+
   /** Every edge on every resource of one kind — the fleet-wide read the machine
    *  listing needs, so N machines cost one query rather than N. */
   listForKind(resourceKind: string): GrantRow[] {

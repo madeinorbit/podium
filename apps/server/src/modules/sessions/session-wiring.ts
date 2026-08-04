@@ -175,7 +175,10 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       getSession: (sessionId) => bag.sessions.get(sessionId),
       sessionIds: () => bag.sessions.keys(),
       clients: () => bag.clients.values(),
-      sessionOwner: (sessionId) => bag.sessionOwner(sessionId),
+      // One object, so the memo CANNOT be dropped here again [POD-1653] — see
+      // the port's own comment for why the two-parameter form was unsafe.
+      sessionOwner: ({ sessionId, memo }) => bag.sessionOwner(sessionId, memo),
+      primeOwnerMemo: (memo, sessionIds) => bag.primeOwnerMemo(memo, sessionIds),
       persistSession: (sessionId, additionalWrite) => {
         const session = bag.sessions.get(sessionId)
         if (session) bag.repository.persist(session, additionalWrite)

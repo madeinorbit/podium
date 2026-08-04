@@ -83,11 +83,39 @@ export interface SessionStatePorts {
   readonly getSession: (sessionId: SessionId) => SessionStateRecord | undefined
   readonly sessionIds: () => Iterable<SessionId>
   readonly clients: () => Iterable<ClientConn>
-  readonly sessionOwner: (
-    sessionId: SessionId,
+  /**
+   * ONE OBJECT ARGUMENT, DELIBERATELY [POD-1653].
+   *
+   * This was `(sessionId, memo?)`, and the wiring passed
+   * `(sessionId) => bag.sessionOwner(sessionId)`. TypeScript accepts that — a
+   * 1-arg function IS assignable to a 2-arg function type — so the compiler
+   * could not go red, and POD-1618's memo was silently discarded at the wiring
+   * for every full-list pass. The only symptom was that an optimisation quietly
+   * did nothing, which is why it survived POD-1618, POD-1638 and POD-1639 and
+   * corrupted the per-session cost those issues attributed.
+   *
+   * An OPTIONAL TRAILING PARAMETER threaded through a function-typed port is
+   * invisible to the compiler when a call site drops it. The object form does
+   * NOT restore a compile error here — `bag.sessionOwner` is `(...args: any[])`,
+   * so a wiring that destructures nothing still type-checks (verified: the old
+   * shape compiles clean against this port). What it changes is the FAILURE
+   * MODE, and that is the point. Dropping the parameter now passes the whole
+   * input object where a `SessionId` is expected, so ownership resolves to
+   * undefined and the suite goes red — 150 tests in `modules/sessions` alone.
+   * The two-parameter form failed silently and cost nothing but speed, which is
+   * exactly why it survived three issues. Loud beats invisible; prefer this
+   * shape for any port threading a memo, cache, principal or cancellation
+   * token.
+   */
+  readonly sessionOwner: (input: {
+    sessionId: SessionId
     /** Per-pass read-through memo for full-list callers [POD-1618]. */
-    memo?: SessionOwnerMemo,
-  ) => { owner: UserId | null; grants: readonly string[] } | undefined
+    memo?: SessionOwnerMemo
+  }) => { owner: UserId | null; grants: readonly string[] } | undefined
+  /** Fill a pass's grant memo in one read per resource kind [POD-1653].
+   *  Optional: a fixture that omits it is slow, never wrong, because every key
+   *  it would have primed is still computed on demand by `sessionOwner`. */
+  readonly primeOwnerMemo?: (memo: SessionOwnerMemo, sessionIds: readonly SessionId[]) => void
   /** Persist one session and an optional satellite-row write atomically. */
   readonly persistSession: (sessionId: SessionId, additionalWrite?: () => void) => void
   /** Shared session-field mutation through the host's canonical metadata seam. */
@@ -203,13 +231,19 @@ export class SessionStateService {
    * Absence and invisibility intentionally share one false result, so callers
    * cannot turn this module into a session-existence oracle.
    */
+  /** Prime a full-list pass's memo before the per-session questions start
+   *  [POD-1653] — see `SessionAuthz.primeOwnerMemo`. */
+  primeOwnerMemo(memo: SessionOwnerMemo, sessionIds: readonly SessionId[]): void {
+    this.ports.primeOwnerMemo?.(memo, sessionIds)
+  }
+
   canReadSession(
     principal: SessionStatePrincipal,
     sessionId: SessionId,
     /** Per-pass memo when a full-list caller is asking [POD-1618]. */
     memo?: SessionOwnerMemo,
   ): boolean {
-    const target = this.ports.sessionOwner(sessionId, memo)
+    const target = this.ports.sessionOwner({ sessionId, ...(memo ? { memo } : {}) })
     if (!target) return false
     if (target.owner === principal.userId || target.grants.includes(principal.userId)) {
       return true

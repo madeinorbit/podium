@@ -62,6 +62,7 @@ import type { NotificationFactsRepository } from '../../store/notification-facts
 import { NotificationArbiter } from '../../store/notification-facts'
 import type { IssueService } from '../issues/service'
 import type { InboxPrincipalReference } from '../sessions/inbox'
+import { findSessionById } from '../sessions/session-by-id'
 import { DeliveryBrakes, SPAWN_BUDGET_PER_DAY } from './brakes'
 import { MessageMailbox } from './mailbox'
 import { INLINE_BODY_MAX, MessageRenderer, principalOfRow } from './render'
@@ -157,6 +158,18 @@ export interface MessageDeliveryDeps {
   issues: IssueService
   sessions: {
     listSessions(): SessionMeta[]
+    /** The two NARROW reads delivery actually needs [POD-1653]. `listSessions()`
+     *  is not an accessor — it is a reader-scoped projection that runs an
+     *  authorization check (one issue row + one grants read) and a display-ref
+     *  resolution PER SESSION, so resolving one recipient through it cost a full
+     *  1208-session pass. Both questions delivery asks already have a direct
+     *  answer: `sessionById` (POD-1646) and `listSessionsForIssue` (POD-1639).
+     *  Optional for the same reason those are: many test fixtures supply
+     *  `listSessions` and nothing else, and the fallback computes the identical
+     *  answer — the same predicate applied after the pass rather than instead of
+     *  it — so an unwired fixture is slow, never wrong. */
+    sessionById?(sessionId: SessionId): SessionMeta | undefined
+    listSessionsForIssue?(worktreePath: string | null, issueId: string): SessionMeta[]
     sendText(input: InboxDeliveryInput): {
       ok: boolean
       queued?: boolean
@@ -517,12 +530,11 @@ export class MessageDeliveryService {
   private deliveryRunner(): DeliveryRunner {
     return {
       targetOf: (message) => this.deliveryTargetOf(message),
-      listSessions: () => this.deps.sessions.listSessions(),
       nowMs: () => this.nowMs(),
       drainPreferred: (session, messages, nowMs) => this.drainPreferred(session, messages, nowMs),
-      attemptOne: (message, allSessions, nowMs) => {
+      attemptOne: (message, nowMs) => {
         if (!this.prepareQueuedAttemptSafely(message, nowMs)) return
-        this.attemptDelivery(message, [...allSessions], { viaSweep: true })
+        this.attemptDelivery(message, { viaSweep: true })
         this.scheduleQueuedWakeRetry(message)
       },
     }
@@ -842,15 +854,22 @@ export class MessageDeliveryService {
    * messages stay `queued`; retriggers: session-goes-idle drain (onSessionIdle),
    * the daemon stop-hook (mailPending), and the slow sweep().
    */
-  /** `allSessions` lets the sweep share one listing across its whole pass
-   *  [POD-817] — a per-call listSessions() builds a full wire meta for every
-   *  session. Within-pass staleness is fine: agent-state updates already lag
-   *  sendText, so a fresh list would race the same way. */
-  private attemptDelivery(
-    message: MessageRow,
-    allSessions?: SessionMeta[],
-    opts?: { viaSweep?: boolean },
-  ): DeliveryOutcome {
+  /**
+   * NO FULL SESSION PASS [POD-1653]. This used to take an `allSessions` listing
+   * so a sweep could share one projection across its pass [POD-817]; the sweep
+   * then rebuilt that projection once PER PAGE, and with a 5.5k-message backlog
+   * at 100 rows a page that was ~56 full 1208-session passes per reconcile —
+   * the largest single source of `issues WHERE id = ?` and of the zero-row
+   * `grants` reads in the stall attribution.
+   *
+   * Sharing a listing was the wrong axis. A delivery attempt asks only two
+   * questions — "which session is this id" and "which sessions belong to this
+   * issue" — and both have a direct answer that skips the projection entirely.
+   * So the parameter is gone rather than hoisted: there is no listing left to
+   * share, and no caller can reintroduce the per-page cost by forgetting to
+   * pass one.
+   */
+  private attemptDelivery(message: MessageRow, opts?: { viaSweep?: boolean }): DeliveryOutcome {
     // A dead-letter found at SEND time returns synchronously to a watching sender
     // (no async notice); one found LATER (sweep) must tell the sender once.
     const notifySender = opts?.viaSweep === true
@@ -865,7 +884,6 @@ export class MessageDeliveryService {
       return { ok: true, queued: true, disposition: 'queued' }
     }
     const sessions = this.deps.sessions
-    const all = allSessions ?? sessions.listSessions()
 
     let target: SessionMeta | undefined
     if (message.toKind === 'session') {
@@ -875,7 +893,7 @@ export class MessageDeliveryService {
       if (message.fromSession && message.toId === message.fromSession) {
         return this.suppressSelf(message)
       }
-      target = all.find((s) => s.sessionId === message.toId)
+      target = findSessionById(sessions, message.toId ?? '')
       if (!target) {
         // The session row is GONE (not merely parked — parked sessions still
         // list). A session-addressed row records no issue to re-route to, so
@@ -891,7 +909,14 @@ export class MessageDeliveryService {
       // (or done-but-live) issue with no session is HELD, below.
       if (issue.archived)
         return this.deadLetter(message, `issue #${issue.seq} is archived`, { notifySender })
-      const allMembers = sessionsForIssue(issue.worktreePath ?? null, all, issue.id)
+      // The narrow read applies `isIssueMember` BEFORE the reader-scoped
+      // projection is built (POD-1639); `sessionsForIssue` applies the SAME
+      // predicate after it. Filtering the narrow result again is therefore a
+      // no-op that keeps one spelling of membership on both paths.
+      const candidates =
+        sessions.listSessionsForIssue?.(issue.worktreePath ?? null, issue.id) ??
+        sessions.listSessions()
+      const allMembers = sessionsForIssue(issue.worktreePath ?? null, candidates, issue.id)
       // Self-delivery suppression [spec:SP-a4ba] (§09-H, POD-836): exclude the sender's own
       // session from issue-recipient resolution, so an agent mailing its own
       // issue never picks itself. selectMailNudgeSession picks the single live
@@ -1587,12 +1612,9 @@ export class MessageDeliveryService {
    *  service owns the session→issue resolution, and a key written by one
    *  derivation and checked by another silently disables the brake. */
   private wakeKeyOfRow(m: MessageRow): string {
+    // By-id, not a full pass [POD-1653]: this runs per stored row on the sweep.
     const target =
-      m.toKind === 'session'
-        ? this.deps.sessions
-            .listSessions()
-            .find((s) => s.sessionId === m.toId)
-        : undefined
+      m.toKind === 'session' ? findSessionById(this.deps.sessions, m.toId ?? '') : undefined
     const issueKey = m.toKind === 'issue' ? m.toId : this.issueForSession(target)
     return `${this.senderKeyOfRow(m)}|${issueKey ?? m.toId ?? ''}`
   }

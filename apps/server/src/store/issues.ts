@@ -296,6 +296,96 @@ export class IssuesRepository {
   }
 
   /**
+   * The CWD-RESOLUTION PROJECTION [POD-1653] — five columns, no row mapping.
+   *
+   * `DurableIssueAccessIndex` answers three questions from the issue table
+   * (which worktrees exist, which issue owns this cwd, who solely owns it) and
+   * answered all three with `listIssueRows()`: `SELECT *` over every issue,
+   * each row then run through `mapIssueRow`, which parses several JSON columns.
+   * On the live host that is ~1600 rows fully materialized — and it sat on a
+   * per-message path (`worktreePaths().includes(cwd)`), so a membership test
+   * cost a full scan plus 1600 JSON parses.
+   *
+   * The questions only ever read `worktree_path`, `repo_path`, `deleted_at` and
+   * `archived`. Reading those columns keeps the answer identical while dropping
+   * both the row payload and the mapping entirely.
+   *
+   * Deliberately still a LIVE read, once per call. This index exists to reflect
+   * durable state without a snapshot (see its header); making it cheaper is not
+   * a licence to make it stale.
+   */
+  listIssueCwdRows(): {
+    id: IssueId
+    repoPath: string
+    worktreePath: string | null
+    deletedAt: string | null
+    archived: boolean
+  }[] {
+    const rows = this.db
+      .prepare(
+        'SELECT id, repo_path, worktree_path, deleted_at, archived FROM issues ORDER BY repo_path ASC, seq ASC',
+      )
+      .all() as Record<string, unknown>[]
+    const out: {
+      id: IssueId
+      repoPath: string
+      worktreePath: string | null
+      deletedAt: string | null
+      archived: boolean
+    }[] = []
+    for (const r of rows) {
+      // Same structural quarantine listIssueRows applies: a NULL id or repo_path
+      // is a corrupt row, and it must not reach a cwd decision.
+      if (typeof r.id !== 'string' || typeof r.repo_path !== 'string') continue
+      out.push({
+        id: r.id as IssueId,
+        repoPath: r.repo_path,
+        worktreePath: (r.worktree_path as string | null | undefined) ?? null,
+        deletedAt: (r.deleted_at as string | null | undefined) ?? null,
+        archived: !!r.archived,
+      })
+    }
+    return out
+  }
+
+  /**
+   * The same by-id read, asked about MANY ids at once [POD-1653].
+   *
+   * A reader-scoped session projection resolves the owning issue of every
+   * session it admits. POD-1618's per-pass memo collapses the ~1200 sessions
+   * onto their ~630 distinct issues, which is the right collapse and still
+   * ~630 statements per pass. This asks for all of them in one.
+   *
+   * Rows that do not exist are simply ABSENT from the result — the caller must
+   * treat a missing id as "no such issue", which is what `getIssue` returning
+   * null already means. Mapping failures are quarantined the same way
+   * `listIssueRows` quarantines them, so one corrupt row costs that row.
+   */
+  getIssues(ids: readonly string[]): Map<string, IssueRow> {
+    const out = new Map<string, IssueRow>()
+    const unique = [...new Set(ids)]
+    if (unique.length === 0) return out
+    const CHUNK = 500
+    for (let i = 0; i < unique.length; i += CHUNK) {
+      const chunk = unique.slice(i, i + CHUNK)
+      const rows = this.db
+        .prepare(`SELECT * FROM issues WHERE id IN (${chunk.map(() => '?').join(',')})`)
+        .all(...chunk) as Record<string, unknown>[]
+      for (const r of rows) {
+        try {
+          if (typeof r.id !== 'string') continue
+          out.set(r.id, this.mapIssueRow(r))
+        } catch (err) {
+          console.error(
+            `[podium] issues: quarantined corrupt row ${JSON.stringify(r.id ?? null)} — skipped (${String(err)})`,
+          )
+        }
+      }
+    }
+    return out
+  }
+
+  /**
    * All issue rows (optionally one repo), with ROW-LEVEL QUARANTINE: a row
    * that is structurally corrupt (or whose mapping throws for any reason) is
    * skipped, logged and counted — never propagated. This is the boot-hydration
