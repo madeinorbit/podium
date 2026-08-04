@@ -1,0 +1,834 @@
+<title>Daylight — a light theme for Podium</title>
+<style>
+  /* ═══════════════════════════════════════════════════════════════════════
+     Daylight v2. The document renders in the theme it proposes:
+     light = Daylight, dark = the shipped Superade dark. Specimens carry
+     their own hardcoded tokens so they read as screenshots either way.
+
+     Every neutral below is generated, not picked: oklch(L C 264) for the
+     paper, and one ink (#0e1626) at an alpha ladder for everything else.
+     ═══════════════════════════════════════════════════════════════════════ */
+  :root {
+    --p-bg: #f5f6f9;
+    --p-card: #f9fafc;
+    --p-chip: #ffffff;
+    --p-engraved: #edeff2;
+    --p-bar: #e8eaef;
+    --p-strong: #0e1626;
+    --p-fg: #2a313f;
+    --p-muted: #5d626e;
+    --p-dim: #6f747f;
+    --p-faint: #9da1a9;
+    --p-label: #6a707a;
+    --p-border: #dadce1;
+    --p-hair: #e5e6ea;
+    --p-rule: #c7c9cf;
+    --p-yellow: #f5c518;
+    --p-ochre: #8a6200;
+    --p-rim: #c8990a;
+    --p-blue: #2a62f0;
+    --p-red: #c81e2b;
+    --p-code: #eef0f4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --p-bg: #0a0f1c; --p-card: #121b30; --p-chip: #16223c;
+      --p-engraved: #070b16; --p-bar: #050912;
+      --p-strong: #f3f3f8; --p-fg: #d7d7e0; --p-muted: #9a9aa8;
+      --p-dim: #6c7690; --p-faint: #525c78; --p-label: #7a84a0;
+      --p-border: #243356; --p-hair: #1e2a4c; --p-rule: #364a78;
+      --p-ochre: #f5c518; --p-rim: #f5c518; --p-blue: #6f9dff; --p-red: #e5303f;
+      --p-code: #0c1322;
+    }
+  }
+  :root[data-theme="dark"] {
+    --p-bg: #0a0f1c; --p-card: #121b30; --p-chip: #16223c;
+    --p-engraved: #070b16; --p-bar: #050912;
+    --p-strong: #f3f3f8; --p-fg: #d7d7e0; --p-muted: #9a9aa8;
+    --p-dim: #6c7690; --p-faint: #525c78; --p-label: #7a84a0;
+    --p-border: #243356; --p-hair: #1e2a4c; --p-rule: #364a78;
+    --p-ochre: #f5c518; --p-rim: #f5c518; --p-blue: #6f9dff; --p-red: #e5303f;
+    --p-code: #0c1322;
+  }
+  :root[data-theme="light"] {
+    --p-bg: #f5f6f9; --p-card: #f9fafc; --p-chip: #ffffff;
+    --p-engraved: #edeff2; --p-bar: #e8eaef;
+    --p-strong: #0e1626; --p-fg: #2a313f; --p-muted: #5d626e;
+    --p-dim: #6f747f; --p-faint: #9da1a9; --p-label: #6a707a;
+    --p-border: #dadce1; --p-hair: #e5e6ea; --p-rule: #c7c9cf;
+    --p-ochre: #8a6200; --p-rim: #c8990a; --p-blue: #2a62f0; --p-red: #c81e2b;
+    --p-code: #eef0f4;
+  }
+
+  /* ── Document ──────────────────────────────────────────────────────────── */
+  :root {
+    --sans: "Geist Variable", ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: "Geist Mono Variable", ui-monospace, "SF Mono", Menlo, monospace;
+    color-scheme: light dark;
+  }
+  body {
+    background: var(--p-bg);
+    color: var(--p-fg);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 64px 28px 120px; display: flex; flex-direction: column; gap: 66px; }
+  .col { max-width: 660px; display: flex; flex-direction: column; gap: 18px; }
+
+  h1, h2, h3 { text-wrap: balance; color: var(--p-strong); margin: 0; }
+  h1 { font-size: 40px; font-weight: 600; line-height: 1.1; letter-spacing: -0.025em; }
+  h2 { font-size: 23px; font-weight: 600; line-height: 1.22; letter-spacing: -0.015em; }
+  h3 { font-size: 14px; font-weight: 600; line-height: 1.35; }
+  p { margin: 0; }
+  strong { color: var(--p-strong); font-weight: 600; }
+  em { font-style: italic; }
+
+  .label {
+    font-family: var(--mono); font-size: 9.5px; font-weight: 500;
+    letter-spacing: 0.14em; text-transform: uppercase; color: var(--p-label);
+  }
+  code, .mono { font-family: var(--mono); font-size: 0.88em; }
+  code {
+    background: var(--p-code); border: 1px solid var(--p-hair);
+    border-radius: 4px; padding: 1px 5px; color: var(--p-fg);
+  }
+  .rule { border: 0; border-top: 1px solid var(--p-border); margin: 0; }
+
+  .sec { display: flex; flex-direction: column; gap: 26px; }
+  .sec-head { display: flex; flex-direction: column; gap: 10px; max-width: 660px; }
+
+  .spec { border: 1px solid var(--p-border); border-radius: 10px; overflow: hidden; background: var(--p-card); }
+  .spec-bar {
+    display: flex; align-items: center; justify-content: space-between; gap: 14px;
+    padding: 8px 13px; border-bottom: 1px solid var(--p-hair); background: var(--p-bg);
+  }
+  .spec-note { font-size: 11.5px; color: var(--p-dim); font-family: var(--mono); }
+  .scroller { overflow-x: auto; }
+
+  /* ═══ THE SHELL MOCK — one markup, two token scopes ═══════════════════ */
+  .shell {
+    min-width: 940px; font-family: var(--sans); font-size: 12px; line-height: 1.35;
+    background: var(--s-bg); color: var(--s-fg); user-select: none;
+  }
+  .shell-head {
+    height: 44px; display: flex; align-items: center; gap: 22px; padding: 0 14px;
+    background: var(--s-head); border-bottom: 1px solid var(--s-headline); color: var(--s-head-fg);
+  }
+  .logo { font-family: var(--mono); font-size: 12.5px; font-weight: 600; letter-spacing: 0.2em; color: var(--s-head-strong); }
+  .nav { display: flex; gap: 18px; font-size: 12px; }
+  .nav span { color: var(--s-head-fg); }
+  .nav span.on { color: var(--s-head-strong); font-weight: 500; }
+  .head-right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+  .hchip { display: flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 10.5px; color: var(--s-head-fg); }
+  .meter { width: 34px; height: 3.5px; border-radius: 2px; background: var(--s-meter); overflow: hidden; }
+  .meter i { display: block; height: 100%; background: var(--s-blue); }
+  .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--s-blue); }
+
+  .shell-body { display: flex; height: 372px; }
+  .col-side {
+    width: 214px; flex: none; background: var(--s-card); border-right: 1px solid var(--s-border);
+    padding: 10px 8px; display: flex; flex-direction: column; gap: 4px;
+  }
+  .side-top {
+    display: flex; align-items: center; justify-content: space-between;
+    height: 30px; padding: 0 8px; margin-bottom: 4px;
+    background: var(--s-chip); border: 1px solid var(--s-rule); border-radius: 6px;
+    font-size: 11.5px; font-weight: 500; color: var(--s-strong);
+  }
+  .side-lab { padding: 8px 8px 4px; }
+  .row { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 7px; }
+  .row.sel { background: var(--s-sel); box-shadow: inset 0 0 0 1px var(--s-sel-edge); }
+  .row.attn { box-shadow: inset 2px 0 0 var(--s-attn); background: var(--s-attn-wash); }
+  .sq {
+    width: 22px; height: 22px; flex: none; border-radius: 6px; display: grid; place-items: center;
+    font-family: var(--mono); font-size: 7.5px; font-weight: 600; line-height: 1.05; text-align: center;
+  }
+  .row-txt { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+  .row-t { font-size: 11.5px; font-weight: 500; color: var(--s-fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row.sel .row-t { font-weight: 600; color: var(--s-strong); }
+  .row-s { font-family: var(--mono); font-size: 9px; color: var(--s-dim); font-variant-numeric: tabular-nums; }
+  .row-r { margin-left: auto; display: flex; align-items: center; gap: 5px; }
+
+  .col-eng { width: 226px; flex: none; background: var(--s-engraved); box-shadow: var(--s-carve); display: flex; flex-direction: column; }
+  .eng-bar {
+    height: 30px; display: flex; align-items: center; gap: 9px; padding: 0 11px;
+    background: var(--s-bar); box-shadow: var(--s-bardrop); position: relative; z-index: 1;
+  }
+  .eng-bar b { font-size: 11.5px; font-weight: 600; color: var(--s-strong); }
+  .eng-body { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 22px; text-align: center; }
+  .eng-empty { font-size: 11px; color: var(--s-muted); }
+  .eng-foot { border-top: 1px solid var(--s-hair); padding: 9px 11px; display: flex; align-items: center; gap: 7px; }
+  .eng-foot b { font-size: 11.5px; font-weight: 600; color: var(--s-strong); }
+
+  .col-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--s-bg); }
+  .tabstrip { height: 32px; display: flex; align-items: stretch; background: var(--s-tabstrip); border-bottom: 1px solid var(--s-hair); }
+  .tab { display: flex; align-items: center; gap: 7px; padding: 0 13px; font-size: 11.5px; color: var(--s-muted); border-right: 1px solid var(--s-hair); }
+  .tab i { width: 7px; height: 7px; border-radius: 2.5px; display: block; }
+  .tab.on { color: var(--s-strong); font-weight: 500; background: var(--s-tab-on); box-shadow: inset 0 1px 0 var(--s-tab-line); }
+  .pane-body { flex: 1; padding: 14px 16px; display: flex; flex-direction: column; gap: 11px; overflow: hidden; }
+  .msg { display: flex; gap: 9px; }
+  .av { width: 15px; flex: none; font-family: var(--mono); font-size: 11px; color: var(--s-claude); line-height: 1.5; }
+  .msg p { font-size: 11.5px; line-height: 1.55; color: var(--s-fg); margin: 0; }
+  .tool {
+    display: flex; align-items: center; gap: 9px; padding: 6px 10px; border-radius: 7px;
+    background: var(--s-tool); box-shadow: inset 0 1px 3px -1px var(--s-carve-soft); font-size: 11px;
+  }
+  .tool .k { font-family: var(--mono); font-size: 10px; color: var(--s-strong); font-weight: 500; }
+  .tool .v { font-family: var(--mono); font-size: 10px; color: var(--s-dim); }
+  .tool .t { margin-left: auto; font-family: var(--mono); font-size: 9.5px; color: var(--s-blue); font-variant-numeric: tabular-nums; }
+  .composer {
+    margin: 0 16px 12px; border-radius: 9px; background: var(--s-composer);
+    border: 1px solid var(--s-rule); padding: 9px 11px; display: flex; align-items: center; gap: 9px;
+  }
+  .composer .ph { font-size: 11.5px; color: var(--s-faint); flex: 1; }
+  .btn-primary {
+    height: 26px; padding: 0 11px; border-radius: 6px; display: inline-flex; align-items: center;
+    font-size: 11.5px; font-weight: 500; background: var(--s-primary); color: var(--s-primary-fg);
+    border: 1px solid var(--s-primary-rim);
+  }
+  .foot-bar { display: flex; align-items: center; gap: 8px; padding: 0 16px 11px; font-family: var(--mono); font-size: 9.5px; color: var(--s-faint); }
+
+  .shell.dark {
+    --s-bg: #0a0f1c; --s-card: #0f1626; --s-chip: #16223c;
+    --s-engraved: #070b16; --s-bar: #050912; --s-tabstrip: #0c1322;
+    --s-head: #050912; --s-headline: #1e2a4c; --s-head-fg: #9a9aa8; --s-head-strong: #f3f3f8;
+    --s-fg: #d7d7e0; --s-strong: #f3f3f8; --s-muted: #9a9aa8; --s-dim: #6c7690; --s-faint: #525c78;
+    --s-border: #243356; --s-hair: #1e2a4c; --s-rule: #364a78;
+    --s-primary: #f5c518; --s-primary-fg: #0a0f1c; --s-primary-rim: #f5c518;
+    --s-blue: #6f9dff; --s-claude: #d97757; --s-meter: #17223c; --s-composer: #0a0f1c;
+    --s-attn: #f5c518; --s-attn-wash: color-mix(in srgb, #f5c518 11%, #0f1626);
+    --s-sel: color-mix(in srgb, #8b5cf6 28%, #0f1626);
+    --s-sel-edge: color-mix(in srgb, #8b5cf6 40%, transparent);
+    --s-tab-on: color-mix(in srgb, #8b5cf6 18%, #0c1322); --s-tab-line: #8b5cf6;
+    --s-tool: #101a2e;
+    --s-carve:
+      inset 3px 0 6px -3px rgb(0 0 0 / 0.85),
+      inset -3px 0 6px -3px rgb(0 0 0 / 0.85),
+      inset 0 3px 6px -3px rgb(0 0 0 / 0.85);
+    --s-carve-soft: rgb(0 0 0 / 0.45);
+    --s-bardrop: 0 5px 10px -5px rgb(0 0 0 / 0.9);
+  }
+  .shell.day {
+    --s-bg: #f5f6f9; --s-card: #f9fafc; --s-chip: #ffffff;
+    --s-engraved: #edeff2; --s-bar: #e8eaef; --s-tabstrip: #f0f2f5;
+    --s-head: #edeff2; --s-headline: #dadce1; --s-head-fg: #5d626e; --s-head-strong: #0e1626;
+    --s-fg: #2a313f; --s-strong: #0e1626; --s-muted: #5d626e; --s-dim: #6f747f; --s-faint: #9da1a9;
+    --s-border: #dadce1; --s-hair: #e5e6ea; --s-rule: #c7c9cf;
+    --s-primary: #f5c518; --s-primary-fg: #0e1626; --s-primary-rim: #c8990a;
+    --s-blue: #2a62f0; --s-claude: #b8532e; --s-meter: #dadce1; --s-composer: #ffffff;
+    --s-attn: #d2a308; --s-attn-wash: color-mix(in srgb, #f5c518 15%, #f9fafc);
+    --s-sel: color-mix(in srgb, #8b5cf6 13%, #f9fafc);
+    --s-sel-edge: color-mix(in srgb, #8b5cf6 55%, transparent);
+    --s-tab-on: color-mix(in srgb, #8b5cf6 9%, #f0f2f5); --s-tab-line: #7c4ddb;
+    --s-tool: #eef0f4;
+    --s-carve:
+      inset 3px 0 6px -3px rgb(14 22 38 / 0.26),
+      inset -3px 0 6px -3px rgb(14 22 38 / 0.26),
+      inset 0 3px 6px -3px rgb(14 22 38 / 0.26);
+    --s-carve-soft: rgb(14 22 38 / 0.16);
+    --s-bardrop: 0 4px 9px -5px rgb(14 22 38 / 0.28);
+  }
+
+  /* ── Research table ───────────────────────────────────────────────────── */
+  .tok-wrap { border: 1px solid var(--p-border); border-radius: 10px; overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 11.5px; }
+  thead th {
+    text-align: left; padding: 9px 14px; background: var(--p-engraved);
+    font-size: 9px; letter-spacing: 0.13em; text-transform: uppercase;
+    color: var(--p-label); font-weight: 500; border-bottom: 1px solid var(--p-border);
+  }
+  td { padding: 8px 14px; border-bottom: 1px solid var(--p-hair); vertical-align: middle; }
+  tbody tr:last-child td { border-bottom: 0; }
+  td.name { color: var(--p-fg); white-space: nowrap; }
+  td.val { color: var(--p-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td.why { font-family: var(--sans); font-size: 12px; color: var(--p-dim); line-height: 1.45; }
+  tr.flag td { background: color-mix(in srgb, #f5c518 9%, transparent); }
+  tr.flag td.val { color: var(--p-strong); }
+  .sw {
+    display: inline-block; width: 11px; height: 11px; border-radius: 3px;
+    margin-right: 7px; vertical-align: -1px; box-shadow: inset 0 0 0 1px rgb(128 128 128 / 0.3);
+  }
+
+  /* ── Proof pairs ──────────────────────────────────────────────────────── */
+  .pairs { display: grid; grid-template-columns: repeat(auto-fit, minmax(272px, 1fr)); gap: 20px; }
+  .proof { display: flex; flex-direction: column; gap: 9px; }
+  .proof-stage {
+    border-radius: 9px; border: 1px solid var(--p-border); padding: 22px 20px;
+    display: flex; align-items: center; justify-content: center; gap: 16px; min-height: 116px;
+  }
+  .proof-cap { font-size: 12.5px; color: var(--p-muted); line-height: 1.5; }
+  .proof-cap b { color: var(--p-strong); font-weight: 600; }
+  .verdict { font-family: var(--mono); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; padding: 2px 7px; border-radius: 4px; }
+  .v-no { color: var(--p-red); background: color-mix(in srgb, currentColor 12%, transparent); }
+  .v-yes { color: var(--p-ochre); background: color-mix(in srgb, currentColor 14%, transparent); }
+
+  .carve-demo { width: 128px; height: 68px; border-radius: 8px; }
+  .demo-btn { height: 32px; padding: 0 12px; border-radius: 6px; display: inline-flex; align-items: center; font-family: var(--sans); font-size: 12px; font-weight: 500; }
+  .tint-row { width: 100%; padding: 8px 10px; border-radius: 7px; display: flex; align-items: center; gap: 9px; font-size: 11.5px; font-weight: 600; }
+  .tint-stack { flex-direction: column; align-items: stretch; gap: 8px; }
+
+  /* ── Ink ladder ───────────────────────────────────────────────────────── */
+  .ladder { display: flex; flex-direction: column; border: 1px solid var(--p-border); border-radius: 10px; overflow: hidden; }
+  .lad {
+    display: grid; grid-template-columns: 150px 74px 1fr 62px; gap: 14px; align-items: center;
+    padding: 9px 14px; font-family: var(--mono); font-size: 11px; background: var(--p-bg);
+    border-bottom: 1px solid var(--p-hair);
+  }
+  .ladder .lad:last-child { border-bottom: 0; }
+  .lad .a { color: var(--p-muted); font-variant-numeric: tabular-nums; }
+  .lad .bar { height: 15px; border-radius: 3px; }
+  .lad .cr { text-align: right; color: var(--p-dim); font-variant-numeric: tabular-nums; }
+
+  /* ── Ramp ─────────────────────────────────────────────────────────────── */
+  .ramps { display: flex; flex-wrap: wrap; gap: 30px; align-items: flex-start; }
+  .ramp { display: flex; flex-direction: column; gap: 10px; min-width: 290px; flex: 1; }
+  .ramp-rows { display: flex; flex-direction: column; border-radius: 8px; overflow: hidden; border: 1px solid var(--p-border); }
+  .ramp-row { display: flex; align-items: center; gap: 12px; padding: 9px 13px; font-family: var(--mono); font-size: 10.5px; }
+  .ramp-row .n { flex: 1; letter-spacing: 0.04em; }
+  .ramp-row .h { opacity: 0.62; font-variant-numeric: tabular-nums; }
+  .ramp-row .tier { font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.5; width: 62px; }
+
+  .steps { display: flex; flex-direction: column; border-top: 1px solid var(--p-border); }
+  .step { display: grid; grid-template-columns: 210px 1fr; gap: 24px; padding: 16px 0; border-bottom: 1px solid var(--p-hair); align-items: start; }
+  .step-what { font-family: var(--mono); font-size: 11.5px; color: var(--p-strong); line-height: 1.5; }
+  .step-how { font-size: 13.5px; color: var(--p-muted); line-height: 1.55; }
+  .step-how b { color: var(--p-fg); }
+
+  .callout { border-left: 1px solid var(--p-rim); padding: 2px 0 2px 18px; display: flex; flex-direction: column; gap: 8px; }
+
+  @media (max-width: 720px) {
+    .wrap { padding: 44px 18px 90px; gap: 50px; }
+    h1 { font-size: 30px; }
+    .step { grid-template-columns: 1fr; gap: 8px; }
+    .lad { grid-template-columns: 110px 60px 1fr 50px; gap: 9px; font-size: 10px; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="col">
+    <span class="label">Podium · Superade · light variant · v2</span>
+    <h1>Daylight</h1>
+    <p style="font-size:17px;line-height:1.55;color:var(--p-muted)">
+      A light theme that keeps every idea the dark one is built on — carved depth, one yellow signal,
+      tinted issue surfaces — by mirroring the mechanics instead of inverting the hexes.
+    </p>
+    <p style="color:var(--p-muted)">
+      <strong>What changed in v2.</strong> The dark top bar is gone. And the palette stopped being
+      hand-picked: I measured Linear, Cursor and Conductor's light UIs, found three specific things
+      my first pass got wrong, and rebuilt the neutrals as <em>generated</em> values. Everything
+      below is downstream of that measurement.
+    </p>
+  </header>
+
+  <hr class="rule" />
+
+  <!-- ══ Research ════════════════════════════════════════════════════════ -->
+  <section class="sec">
+    <div class="sec-head">
+      <span class="label">What the references actually do</span>
+      <h2>Three numbers explain why v1 felt simple.</h2>
+      <p style="color:var(--p-muted)">
+        I pulled the live CSS custom properties off cursor.com and conductor.build and read Linear's
+        own write-up on their theme system, then converted everything to OKLCH so the values are
+        comparable. Three patterns show up in all of them, and v1 broke all three.
+      </p>
+    </div>
+
+    <div class="tok-wrap scroller">
+      <table>
+        <thead>
+          <tr><th>Measured</th><th>Chroma</th><th>Lightness</th><th>What it means</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="name"><span class="sw" style="background:#f7f7f4"></span>Cursor · editor</td><td class="val">0.0040</td><td class="val">97.5%</td><td class="why">Warm off-white. Almost no chroma.</td></tr>
+          <tr><td class="name"><span class="sw" style="background:#f2f1ed"></span>Cursor · chrome</td><td class="val">0.0054</td><td class="val">95.8%</td><td class="why">Only <b>4.2 L-points</b> below white — the entire app's tonal range.</td></tr>
+          <tr><td class="name"><span class="sw" style="background:#eae8e6"></span>Conductor · border</td><td class="val">0.0035</td><td class="val">93.2%</td><td class="why">Panels are all white; a hairline does the separating.</td></tr>
+          <tr><td class="name"><span class="sw" style="background:#f7f8f8"></span>Linear · fg</td><td class="val">0.0011</td><td class="val">97.8%</td><td class="why">Effectively neutral.</td></tr>
+          <tr class="flag"><td class="name"><span class="sw" style="background:#eaedf5"></span>v1 · field</td><td class="val">0.0112</td><td class="val">94.6%</td><td class="why"><b>2–10× the chroma of any reference,</b> and 3 points too dark.</td></tr>
+          <tr class="flag"><td class="name"><span class="sw" style="background:#d5dbe9"></span>v1 · bar</td><td class="val">0.0202</td><td class="val">89.1%</td><td class="why">Visibly blue. This is the "cheap grey" tell.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="col" style="gap:22px">
+      <div>
+        <h3>1 · They are neutral, not tinted.</h3>
+        <p style="color:var(--p-muted);font-size:13.5px;margin-top:5px">
+          Linear says it outright — they got a <em>"neutral and timeless appearance"</em> by
+          <strong>limiting blue chrome</strong> in the light theme's color calculations. Cursor and
+          Conductor both go faintly <em>warm</em>. A grey with obvious hue reads as generated; a grey
+          with a whisper of it reads as chosen. v1's blue-grey was the single loudest reason it felt
+          ordinary.
+        </p>
+      </div>
+      <div>
+        <h3>2 · They separate with line, not tone.</h3>
+        <p style="color:var(--p-muted);font-size:13.5px;margin-top:5px">
+          Cursor's whole app lives in <strong>4.2 L-points</strong>. Conductor's panels are all white
+          with one hairline between them. Heavy tonal tiering is a <em>dark-mode</em> idiom — on a dark
+          ground you have room below you and no hairline reads cleanly. v1 ported seven tiers spanning
+          10.9 points straight across, which is what made it feel grey and heavy rather than light.
+        </p>
+      </div>
+      <div>
+        <h3>3 · Their greys are one ink at varying alpha.</h3>
+        <p style="color:var(--p-muted);font-size:13.5px;margin-top:5px">
+          Cursor doesn't define grey hexes at all. Every border and secondary text is
+          <code>color-mix(in oklab, #26251e N%, transparent)</code> — 2.5%, 5%, 10%, 20%, 60% of the
+          same ink. That is why it coheres: everything on screen is literally the same color. Linear
+          reduced two whole themes to <strong>three variables</strong> (base, accent, contrast) in LCH
+          for the same reason. v1 hand-picked six ink hexes, and they drifted.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <!-- ══ The ink ═════════════════════════════════════════════════════════ -->
+  <section class="sec">
+    <div class="sec-head">
+      <span class="label">Decision one · the foundation</span>
+      <h2>One ink. And it was already in the palette.</h2>
+      <p style="color:var(--p-muted)">
+        Generate the ink instead of picking it: take the dark theme's navy hue (264°), the chroma a
+        brand-carrying ink can hold (0.035), and the lightness a near-black needs (20%). That is
+        <code>oklch(0.20 0.035 264)</code> — which resolves to <strong>#0e1626</strong>.
+      </p>
+      <p style="color:var(--p-muted)">
+        <strong>#0e1626 is Rail Navy.</strong> It is already in <code>DESIGN.md</code>, where it is a
+        <em>surface</em> in the dark theme. The mirror turns out to be literal: a navy the dark theme
+        paints panels with becomes the ink the light theme writes with. Nothing was invented — and
+        every screen is quietly navy without a single navy surface, which is what carries the brand
+        now that the dark top bar is gone.
+      </p>
+      <p style="color:var(--p-muted)">
+        Every neutral in the theme is that one ink at an alpha. Not six greys that happen to look
+        related — one color, nine strengths.
+      </p>
+    </div>
+
+    <div class="ladder">
+      <div class="lad" style="background:var(--p-card)">
+        <span style="color:var(--p-label);font-size:9px;letter-spacing:.12em">TOKEN</span>
+        <span style="color:var(--p-label);font-size:9px;letter-spacing:.12em">INK</span>
+        <span style="color:var(--p-label);font-size:9px;letter-spacing:.12em">RESOLVES TO</span>
+        <span class="cr" style="color:var(--p-label);font-size:9px;letter-spacing:.12em">RATIO</span>
+      </div>
+      <div class="lad"><span>--text-strong</span><span class="a">100%</span><span class="bar" style="background:#0e1626"></span><span class="cr">16.7</span></div>
+      <div class="lad"><span>--foreground</span><span class="a">88%</span><span class="bar" style="background:#2a313f"></span><span class="cr">12.1</span></div>
+      <div class="lad"><span>--muted-foreground</span><span class="a">66%</span><span class="bar" style="background:#5d626e"></span><span class="cr">5.7</span></div>
+      <div class="lad"><span>--label</span><span class="a">60%</span><span class="bar" style="background:#6a707a"></span><span class="cr">4.6</span></div>
+      <div class="lad"><span>--text-dim</span><span class="a">58%</span><span class="bar" style="background:#6f747f"></span><span class="cr">4.3</span></div>
+      <div class="lad"><span>--text-faint</span><span class="a">38%</span><span class="bar" style="background:#9da1a9"></span><span class="cr">2.4</span></div>
+      <div class="lad"><span>--border-strong</span><span class="a">20%</span><span class="bar" style="background:#c7c9cf"></span><span class="cr">—</span></div>
+      <div class="lad"><span>--border</span><span class="a">12%</span><span class="bar" style="background:#dadce1"></span><span class="cr">—</span></div>
+      <div class="lad"><span>--hairline-soft</span><span class="a">7%</span><span class="bar" style="background:#e5e6ea"></span><span class="cr">—</span></div>
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <!-- ══ The ramp ════════════════════════════════════════════════════════ -->
+  <section class="sec">
+    <div class="sec-head">
+      <span class="label">Decision two</span>
+      <h2>The ramp mirrors — and compresses.</h2>
+      <p style="color:var(--p-muted)">
+        In the dark theme the chassis is the darkest thing and every surface steps <em>up</em> toward
+        the light: <span class="mono">bar → engraved → tabstrip → rail → panel → chip</span>. Daylight
+        keeps that sentence exactly and runs it the other way — but across <strong>6.2 L-points
+        instead of 10.9</strong>, and at a quarter of v1's chroma. Same seven tiers, half the shout.
+      </p>
+      <p style="color:var(--p-muted)">
+        Every surface is <code>oklch(L C 264)</code> with C between 0.006 and 0 — inside the band the
+        references live in. The field is off-white at 97.4%, not the mid-grey v1 used; pure white is
+        spent only on the raised tier, so "whitest" keeps meaning "closest to you."
+      </p>
+    </div>
+
+    <div class="ramps">
+      <div class="ramp">
+        <span class="label">Superade dark — shipped</span>
+        <div class="ramp-rows">
+          <div class="ramp-row" style="background:#050912;color:#d7d7e0"><span class="tier">deepest</span><span class="n">bar</span><span class="h">#050912</span></div>
+          <div class="ramp-row" style="background:#070b16;color:#d7d7e0"><span class="tier">recessed</span><span class="n">engraved</span><span class="h">#070b16</span></div>
+          <div class="ramp-row" style="background:#0c1322;color:#d7d7e0"><span class="tier"></span><span class="n">tabstrip</span><span class="h">#0c1322</span></div>
+          <div class="ramp-row" style="background:#0e1626;color:#d7d7e0"><span class="tier"></span><span class="n">rail</span><span class="h">#0e1626</span></div>
+          <div class="ramp-row" style="background:#0a0f1c;color:#d7d7e0"><span class="tier">field</span><span class="n">background</span><span class="h">#0a0f1c</span></div>
+          <div class="ramp-row" style="background:#121b30;color:#f3f3f8"><span class="tier"></span><span class="n">card / panel</span><span class="h">#121b30</span></div>
+          <div class="ramp-row" style="background:#16223c;color:#f3f3f8"><span class="tier">raised</span><span class="n">chip / popover</span><span class="h">#16223c</span></div>
+        </div>
+        <span class="spec-note">spread 12.4 L-points · chroma up to 0.030</span>
+      </div>
+
+      <div class="ramp">
+        <span class="label">Daylight v2 — proposed</span>
+        <div class="ramp-rows">
+          <div class="ramp-row" style="background:#e8eaef;color:#2a313f"><span class="tier">deepest</span><span class="n">bar</span><span class="h">#e8eaef</span></div>
+          <div class="ramp-row" style="background:#edeff2;color:#2a313f"><span class="tier">recessed</span><span class="n">engraved</span><span class="h">#edeff2</span></div>
+          <div class="ramp-row" style="background:#f0f2f5;color:#2a313f"><span class="tier"></span><span class="n">tabstrip</span><span class="h">#f0f2f5</span></div>
+          <div class="ramp-row" style="background:#f2f4f6;color:#2a313f"><span class="tier"></span><span class="n">rail</span><span class="h">#f2f4f6</span></div>
+          <div class="ramp-row" style="background:#f5f6f9;color:#2a313f"><span class="tier">field</span><span class="n">background</span><span class="h">#f5f6f9</span></div>
+          <div class="ramp-row" style="background:#f9fafc;color:#0e1626"><span class="tier"></span><span class="n">card / panel</span><span class="h">#f9fafc</span></div>
+          <div class="ramp-row" style="background:#ffffff;color:#0e1626"><span class="tier">raised</span><span class="n">chip / popover</span><span class="h">#ffffff</span></div>
+        </div>
+        <span class="spec-note">spread 6.2 L-points · chroma up to 0.006</span>
+      </div>
+    </div>
+
+    <div class="col callout">
+      <p style="color:var(--p-muted);font-size:13.5px">
+        Compressing the tones means <strong>hairlines have to do more work</strong> — which is exactly
+        the trade the references make. It also raises the stakes on the next decision: with the tiers
+        this close, the engraved groove is no longer a supporting cue. It <em>is</em> the depth.
+      </p>
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <!-- ══ Carving ═════════════════════════════════════════════════════════ -->
+  <section class="sec">
+    <div class="sec-head">
+      <span class="label">Decision three</span>
+      <h2>Carve in navy. Never in black, never upward.</h2>
+      <p style="color:var(--p-muted)">
+        The Carved Rule is the signature: depth goes inward, resting surfaces cast nothing, drop
+        shadows belong only to things that will disappear. It survives — but the shadow has to become
+        <strong>a navy groove at low alpha</strong>, not black at 0.85.
+      </p>
+      <p style="color:var(--p-muted)">
+        This is not a hypothetical port problem. <code>--shadow-engraved</code> is declared
+        <em>constant across presets</em> in <code>index.css</code> today, so the light theme currently
+        paints <code>rgb(0 0 0 / 0.85)</code> onto a near-white field. Black on paper isn't depth,
+        it's dirt. I rendered it against the compressed ramp at 22 / 26 / 32% — 26% is the one that reads as machined, and 32% bands.
+      </p>
+    </div>
+
+    <div class="pairs">
+      <div class="proof">
+        <div class="proof-stage" style="background:#f5f6f9">
+          <div class="carve-demo" style="background:#f5f6f9;box-shadow:inset 3px 0 6px -3px rgb(0 0 0/.85),inset -3px 0 6px -3px rgb(0 0 0/.85),inset 0 3px 6px -3px rgb(0 0 0/.85)"></div>
+        </div>
+        <p class="proof-cap">
+          <span class="verdict v-no">ships today</span><br />
+          The dark theme's black inset on a light field. Not recessed — soiled.
+        </p>
+      </div>
+      <div class="proof">
+        <div class="proof-stage" style="background:#f5f6f9">
+          <div class="carve-demo" style="background:#edeff2;box-shadow:inset 3px 0 6px -3px rgb(14 22 38/.26),inset -3px 0 6px -3px rgb(14 22 38/.26),inset 0 3px 6px -3px rgb(14 22 38/.26)"></div>
+        </div>
+        <p class="proof-cap">
+          <span class="verdict v-yes">daylight</span><br />
+          <b>The ink at 26%,</b> over a surface one tier down. A machined groove — the same engraving,
+          in a material that has light falling on it.
+        </p>
+      </div>
+      <div class="proof">
+        <div class="proof-stage" style="background:#f5f6f9">
+          <div class="carve-demo" style="background:#fff;box-shadow:0 6px 16px -4px rgb(14 22 38/.16),0 1px 3px rgb(14 22 38/.10)"></div>
+        </div>
+        <p class="proof-cap">
+          <span class="verdict v-no">the easy way out</span><br />
+          Float a white card on grey. Legible, competent, indistinguishable from every other tool.
+          This is the drift a derived light theme takes if nobody stops it.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <!-- ══ Yellow ══════════════════════════════════════════════════════════ -->
+  <section class="sec">
+    <div class="sec-head">
+      <span class="label">Decision four · confirmed</span>
+      <h2>Yellow keeps the crown.</h2>
+      <p style="color:var(--p-muted)">
+        <code>DESIGN.md</code> currently hands primary to Royal Blue in light. That call gets reversed:
+        a blue-primary light theme is Linear, Height and Notion, and it surrenders the one thing
+        nobody else has. The premise doesn't hold either — the rule was never <em>yellow text</em>,
+        it's Rail Navy ink on a yellow fill, which measures <strong>11.1:1</strong>.
+      </p>
+      <p style="color:var(--p-muted)">
+        This also becomes the theme's whole chromatic point of view. With the neutrals down at
+        chroma 0.006 and the ink carrying the brand, <strong>Superade Yellow is the only saturated
+        color on a resting screen</strong> — apart from the issue tints, which are the operator's own
+        doing. One hue at rest. That is the restraint the references get from being monochrome, and
+        Podium gets it while keeping a signal color.
+      </p>
+    </div>
+
+    <div class="pairs">
+      <div class="proof">
+        <div class="proof-stage" style="background:#f9fafc"><span class="demo-btn" style="background:#f5c518;color:#0e1626">Run now</span></div>
+        <p class="proof-cap"><span class="verdict v-no">no edge</span><br />Ink is fine; the silhouette isn't. The button's bottom edge evaporates into the panel.</p>
+      </div>
+      <div class="proof">
+        <div class="proof-stage" style="background:#f9fafc"><span class="demo-btn" style="background:#f5c518;color:#0e1626;border:1px solid #c8990a">Run now</span></div>
+        <p class="proof-cap"><span class="verdict v-yes">daylight</span><br /><b>Ochre rim #c8990a.</b> One pixel, and the yellow sits <em>on</em> the surface instead of bleeding into it.</p>
+      </div>
+      <div class="proof">
+        <div class="proof-stage" style="background:#f9fafc;gap:9px;flex-direction:column">
+          <span style="font-family:var(--mono);font-size:11px;color:#f5c518">2 waiting on you</span>
+          <span style="font-family:var(--mono);font-size:11px;color:#8a6200">2 waiting on you</span>
+        </div>
+        <p class="proof-cap"><span class="verdict v-yes">the split</span><br /><b>Yellow fills; Ochre writes.</b> <code>#f5c518</code> as text is 1.6:1 — unusable. <code>#8a6200</code> is 5.3:1 and still unmistakably the brand hue.</p>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <!-- ══ Tint ════════════════════════════════════════════════════════════ -->
+  <section class="sec">
+    <div class="sec-head">
+      <span class="label">Decision five</span>
+      <h2>Halve every tint. Ease the hairlines.</h2>
+      <p style="color:var(--p-muted)">
+        The issue-color channel is the other signature, and its percentages are tuned for navy. A hue
+        mixed into a dark base is absorbed; mixed into a light one it saturates about twice as fast.
+        Ported as-is, a selected row at 28% becomes a flat fill in all but name — which the
+        Tint-Never-Fill Rule exists to prevent.
+        <br /><br />
+        <strong>Correction from implementation.</strong> This section first claimed hairlines had to go
+        <em>up</em>, because a translucent hue on a light ground loses its edge. I asserted that without
+        testing it, and it is wrong — rendered against both grounds, a mid-lightness palette hue reads
+        <em>more</em> strongly on paper than on navy, not less. Hairlines ease slightly <em>down</em>
+        instead (×0.85), which mostly reins in the loud 70–80% values.
+      </p>
+    </div>
+
+    <div class="pairs">
+      <div class="proof">
+        <div class="proof-stage tint-stack" style="background:#f9fafc">
+          <span class="tint-row" style="background:color-mix(in srgb,#8b5cf6 28%,#f9fafc);color:#0e1626">
+            <span class="sq" style="background:#8b5cf6;color:#fff;width:18px;height:18px;border-radius:5px">P</span>Merge lock lease expiry</span>
+          <span class="tint-row" style="background:color-mix(in srgb,#f43f5e 28%,#f9fafc);color:#0e1626">
+            <span class="sq" style="background:#f43f5e;color:#fff;width:18px;height:18px;border-radius:5px">P</span>Duplicate session rows</span>
+        </div>
+        <p class="proof-cap"><span class="verdict v-no">dark percentages, ported</span><br />28% over panel. Loud, and the ID square stops separating from its row.</p>
+      </div>
+      <div class="proof">
+        <div class="proof-stage tint-stack" style="background:#f9fafc">
+          <span class="tint-row" style="background:color-mix(in srgb,#8b5cf6 14%,#f9fafc);color:#0e1626;box-shadow:inset 0 0 0 1px color-mix(in srgb,#8b5cf6 42%,transparent)">
+            <span class="sq" style="background:#8b5cf6;color:#fff;width:18px;height:18px;border-radius:5px">P</span>Merge lock lease expiry</span>
+          <span class="tint-row" style="background:color-mix(in srgb,#f43f5e 14%,#f9fafc);color:#0e1626;box-shadow:inset 0 0 0 1px color-mix(in srgb,#f43f5e 42%,transparent)">
+            <span class="sq" style="background:#f43f5e;color:#fff;width:18px;height:18px;border-radius:5px">P</span>Duplicate session rows</span>
+        </div>
+        <p class="proof-cap"><span class="verdict v-yes">daylight</span><br /><b>14% fill, 42% hairline.</b> The identity is just as legible, the row stays a surface, and the seam does the work the saturation used to.</p>
+      </div>
+    </div>
+
+    <div class="tok-wrap scroller">
+      <table>
+        <thead><tr><th>Surface</th><th>Dark</th><th>Daylight</th><th>Reason</th></tr></thead>
+        <tbody>
+          <tr><td class="name">selected sidebar row</td><td class="val">28%</td><td class="val">14%</td><td class="why">Over panel — the loudest mix in the shell.</td></tr>
+          <tr><td class="name">pane header</td><td class="val">24%</td><td class="val">12%</td><td class="why">Over background.</td></tr>
+          <tr><td class="name">tray card</td><td class="val">20 / 10%</td><td class="val">10 / 5%</td><td class="why">Card and its inner tier.</td></tr>
+          <tr><td class="name">tab strip</td><td class="val">18%</td><td class="val">9%</td><td class="why">The active tab's inset top line stays 1px, full hue.</td></tr>
+          <tr><td class="name">rail fade</td><td class="val">16%</td><td class="val">8%</td><td class="why">Gradient endpoint.</td></tr>
+          <tr><td class="name">attention rows</td><td class="val">11–13%</td><td class="val">14–16%</td><td class="why">Up, not down — this one is yellow, the weakest hue on paper.</td></tr>
+          <tr><td class="name">workspace pane</td><td class="val">10–12%</td><td class="val">5–6%</td><td class="why">Ambient wash behind content.</td></tr>
+          <tr><td class="name">hairlines</td><td class="val">30–50%</td><td class="val">×0.85</td><td class="why">Down, not up — measured, after the original claim proved wrong.</td></tr>
+          <tr><td class="name">selection rings</td><td class="val">35%</td><td class="val">×0.85</td><td class="why">Same scale as hairlines.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <!-- ══ The shell ═══════════════════════════════════════════════════════ -->
+  <section class="sec">
+    <div class="sec-head">
+      <span class="label">The result</span>
+      <h2>The shell, both ways.</h2>
+      <p style="color:var(--p-muted)">
+        The command header is now the deepest paper tier rather than navy — a bezel by tone, the way
+        Cursor's chrome sits against its editor. The wordmark carries in Rail Navy ink.
+      </p>
+      <p style="color:var(--p-muted)">
+        Density, type scale, radii, spacing and the agent-state grammar are untouched. Nothing here is
+        a layout change. The tray column is still engraved and still outside the issue-color channel;
+        the working row still reads calm blue; stillness still means "needs you."
+      </p>
+    </div>
+
+    <div class="spec">
+      <div class="spec-bar"><span class="label">Superade dark — shipped, for reference</span><span class="spec-note">chroma up to 0.030</span></div>
+      <div class="scroller">
+        <div class="shell dark">
+          <div class="shell-head">
+            <span class="logo">PODIUM</span>
+            <nav class="nav"><span class="on">Tasks</span><span>Workflows</span><span>Specs</span><span>Automations</span></nav>
+            <div class="head-right"><span class="hchip"><span class="dot"></span>ripley</span><span class="hchip">quota<span class="meter"><i style="width:64%"></i></span></span></div>
+          </div>
+          <div class="shell-body">
+            <aside class="col-side">
+              <div class="side-top"><span>New Claude in podium</span><span style="color:#6c7690">⌄</span></div>
+              <div class="side-lab label">Podium</div>
+              <div class="row sel"><span class="sq" style="background:#8b5cf6;color:#fff">POD<br />1</span><span class="row-txt"><span class="row-t">Merge lock lease expiry</span><span class="row-s">3 agents · 0/1 subtasks</span></span></div>
+              <div class="row attn"><span class="sq" style="background:#f43f5e;color:#fff">POD<br />4</span><span class="row-txt"><span class="row-t">Duplicate session rows</span><span class="row-s">waiting on you</span></span></div>
+              <div class="row"><span class="sq" style="background:#06b6d4;color:#04222a">POD<br />9</span><span class="row-txt"><span class="row-t">Delivery ledger reader</span><span class="row-s">1:42 · working</span></span><span class="row-r"><span class="dot"></span></span></div>
+              <div class="row"><span class="sq" style="background:#94a3b8;color:#141a24">POD<br />2</span><span class="row-txt"><span class="row-t">Ambient principal sites</span><span class="row-s">queued</span></span></div>
+            </aside>
+            <div class="col-eng">
+              <div class="eng-bar"><b>Tray</b><span class="label">All tasks · newest first</span></div>
+              <div class="eng-body"><span class="eng-empty">Nothing waiting on you — anywhere</span></div>
+              <div class="eng-foot"><b>Super agent</b><span class="label">Overarching</span></div>
+            </div>
+            <div class="col-pane">
+              <div class="tabstrip"><span class="tab on"><i style="background:#8b5cf6"></i>podium · main</span><span class="tab"><i style="background:#06b6d4"></i>ledger</span></div>
+              <div class="pane-body">
+                <div class="msg"><span class="av">⏺</span><p>Rebased onto main and re-ran the placement suite. One case still fails on a stale lease — patching the expiry check now.</p></div>
+                <div class="tool"><span class="k">Edit</span><span class="v">apps/server/src/issues/placement.ts</span><span class="t">0:12</span></div>
+                <div class="tool"><span class="k">Bash</span><span class="v">bun run test placement</span><span class="t">1:14</span></div>
+              </div>
+              <div class="composer"><span class="ph">Ask anything — @ to add context</span><span class="btn-primary">Run now</span></div>
+              <div class="foot-bar"><span>auto-delegate on</span><span>(shift+tab to cycle)</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="spec">
+      <div class="spec-bar"><span class="label">Daylight v2 — proposed</span><span class="spec-note">chroma up to 0.006 · one ink</span></div>
+      <div class="scroller">
+        <div class="shell day">
+          <div class="shell-head">
+            <span class="logo">PODIUM</span>
+            <nav class="nav"><span class="on">Tasks</span><span>Workflows</span><span>Specs</span><span>Automations</span></nav>
+            <div class="head-right"><span class="hchip"><span class="dot"></span>ripley</span><span class="hchip">quota<span class="meter"><i style="width:64%"></i></span></span></div>
+          </div>
+          <div class="shell-body">
+            <aside class="col-side">
+              <div class="side-top"><span>New Claude in podium</span><span style="color:#6f747f">⌄</span></div>
+              <div class="side-lab label">Podium</div>
+              <div class="row sel"><span class="sq" style="background:#8b5cf6;color:#fff">POD<br />1</span><span class="row-txt"><span class="row-t">Merge lock lease expiry</span><span class="row-s">3 agents · 0/1 subtasks</span></span></div>
+              <div class="row attn"><span class="sq" style="background:#f43f5e;color:#fff">POD<br />4</span><span class="row-txt"><span class="row-t">Duplicate session rows</span><span class="row-s" style="color:#8a6200">waiting on you</span></span></div>
+              <div class="row"><span class="sq" style="background:#0891b2;color:#fff">POD<br />9</span><span class="row-txt"><span class="row-t">Delivery ledger reader</span><span class="row-s">1:42 · working</span></span><span class="row-r"><span class="dot"></span></span></div>
+              <div class="row"><span class="sq" style="background:#64748b;color:#fff">POD<br />2</span><span class="row-txt"><span class="row-t">Ambient principal sites</span><span class="row-s">queued</span></span></div>
+            </aside>
+            <div class="col-eng">
+              <div class="eng-bar"><b>Tray</b><span class="label">All tasks · newest first</span></div>
+              <div class="eng-body"><span class="eng-empty">Nothing waiting on you — anywhere</span></div>
+              <div class="eng-foot"><b>Super agent</b><span class="label">Overarching</span></div>
+            </div>
+            <div class="col-pane">
+              <div class="tabstrip"><span class="tab on"><i style="background:#7c4ddb"></i>podium · main</span><span class="tab"><i style="background:#0891b2"></i>ledger</span></div>
+              <div class="pane-body">
+                <div class="msg"><span class="av">⏺</span><p>Rebased onto main and re-ran the placement suite. One case still fails on a stale lease — patching the expiry check now.</p></div>
+                <div class="tool"><span class="k">Edit</span><span class="v">apps/server/src/issues/placement.ts</span><span class="t">0:12</span></div>
+                <div class="tool"><span class="k">Bash</span><span class="v">bun run test placement</span><span class="t">1:14</span></div>
+              </div>
+              <div class="composer"><span class="ph">Ask anything — @ to add context</span><span class="btn-primary">Run now</span></div>
+              <div class="foot-bar"><span>auto-delegate on</span><span>(shift+tab to cycle)</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <!-- ══ Tokens ══════════════════════════════════════════════════════════ -->
+  <section class="sec">
+    <div class="sec-head">
+      <span class="label">Reference</span>
+      <h2>The token set</h2>
+      <p style="color:var(--p-muted)">
+        Everything that changes in <code>[data-theme="superade"]</code>. Surfaces are
+        <code>oklch(L C 264)</code>; neutrals are <code>#0e1626</code> at an alpha. Ratios measured
+        against the field <code>#f5f6f9</code>, semantics against panel <code>#f9fafc</code>.
+      </p>
+    </div>
+
+    <div class="tok-wrap scroller">
+      <table>
+        <thead><tr><th>Token</th><th>Daylight v2</th><th>v1 had</th><th>Note</th></tr></thead>
+        <tbody>
+          <tr><td class="name"><span class="sw" style="background:#f5f6f9"></span>--background</td><td class="val">#f5f6f9</td><td class="val">#eaedf5</td><td class="why">Off-white field. L 97.4%, C 0.004.</td></tr>
+          <tr><td class="name"><span class="sw" style="background:#f9fafc"></span>--card</td><td class="val">#f9fafc</td><td class="val">#f6f8fc</td><td class="why">Panels step up but stop short of white.</td></tr>
+          <tr><td class="name"><span class="sw" style="background:#ffffff"></span>--chip</td><td class="val">#ffffff</td><td class="val">#ffffff</td><td class="why">The only pure white. Raised tier only.</td></tr>
+          <tr><td class="name"><span class="sw" style="background:#edeff2"></span>--engraved</td><td class="val">#edeff2</td><td class="val">#dfe4f0</td><td class="why">Recessed column, flat, no issue tint.</td></tr>
+          <tr><td class="name"><span class="sw" style="background:#e8eaef"></span>--bar</td><td class="val">#e8eaef</td><td class="val">#d5dbe9</td><td class="why">Deepest tier — section bars, command header.</td></tr>
+          <tr><td class="name"><span class="sw" style="background:#f0f2f5"></span>--tabstrip</td><td class="val">#f0f2f5</td><td class="val">#e4e8f2</td><td class="why"></td></tr>
+          <tr><td class="name"><span class="sw" style="background:#f2f4f6"></span>--rail</td><td class="val">#f2f4f6</td><td class="val">#e7ebf4</td><td class="why"></td></tr>
+          <tr class="flag"><td class="name"><span class="sw" style="background:#0e1626"></span>--ink <em style="font-family:var(--sans);font-size:11px">(new)</em></td><td class="val">#0e1626</td><td class="val">—</td><td class="why"><b>Rail Navy.</b> Every neutral below is this at an alpha.</td></tr>
+          <tr><td class="name"><span class="sw" style="background:#0e1626"></span>--text-strong</td><td class="val">ink / 100%</td><td class="val">#0d1530</td><td class="why">16.7:1 — selected titles, headers.</td></tr>
+          <tr><td class="name"><span class="sw" style="background:#2a313f"></span>--foreground</td><td class="val">ink / 88%</td><td class="val">#17203a</td><td class="why">12.1:1 — body.</td></tr>
+          <tr><td class="name"><span class="sw" style="background:#5d626e"></span>--muted-foreground</td><td class="val">ink / 66%</td><td class="val">#56607a</td><td class="why">5.7:1 — secondary.</td></tr>
+          <tr><td class="name"><span class="sw" style="background:#6a707a"></span>--label</td><td class="val">ink / 60%</td><td class="val">#6a7490</td><td class="why">4.6:1 — mono section labels.</td></tr>
+          <tr><td class="name"><span class="sw" style="background:#6f747f"></span>--text-dim</td><td class="val">ink / 58%</td><td class="val">#7c86a0</td><td class="why">4.3:1 — timestamps, sub-lines.</td></tr>
+          <tr><td class="name"><span class="sw" style="background:#9da1a9"></span>--text-faint</td><td class="val">ink / 38%</td><td class="val">#98a1b8</td><td class="why">Micro hints only.</td></tr>
+          <tr><td class="name"><span class="sw" style="background:#c7c9cf"></span>--border-strong</td><td class="val">ink / 20%</td><td class="val">#b9c5e2</td><td class="why">Chip borders, idle composer.</td></tr>
+          <tr><td class="name"><span class="sw" style="background:#dadce1"></span>--border</td><td class="val">ink / 12%</td><td class="val">#d9e0ef</td><td class="why">Panel seams.</td></tr>
+          <tr><td class="name"><span class="sw" style="background:#e5e6ea"></span>--hairline-soft</td><td class="val">ink / 7%</td><td class="val">#e2e8f4</td><td class="why">Inner dividers.</td></tr>
+          <tr class="flag"><td class="name"><span class="sw" style="background:#f5c518"></span>--primary</td><td class="val">#f5c518</td><td class="val">#1d4ed8 <em style="font-family:var(--sans);font-size:11px">(DESIGN.md)</em></td><td class="why"><b>The reversal.</b> Yellow keeps the crown.</td></tr>
+          <tr><td class="name"><span class="sw" style="background:#0e1626"></span>--primary-foreground</td><td class="val">#0e1626</td><td class="val">#ffffff</td><td class="why">11.1:1. Never white on yellow.</td></tr>
+          <tr><td class="name"><span class="sw" style="background:#c8990a"></span>--primary-rim</td><td class="val">#c8990a</td><td class="val">new</td><td class="why">1px edge so the fill has a silhouette.</td></tr>
+          <tr><td class="name"><span class="sw" style="background:#8a6200"></span>--ochre</td><td class="val">#8a6200</td><td class="val">new</td><td class="why">Brand hue as ink. 5.3:1.</td></tr>
+          <tr><td class="name"><span class="sw" style="background:#f5c518"></span>--attention</td><td class="val">#f5c518</td><td class="val">#b45309</td><td class="why">Fill and edge; its text uses --ochre.</td></tr>
+          <tr><td class="name"><span class="sw" style="background:#2a62f0"></span>--live</td><td class="val">#2a62f0</td><td class="val">#2f6bff</td><td class="why">4.9:1. Dark's #6f9dff is 2.5:1 here.</td></tr>
+          <tr><td class="name"><span class="sw" style="background:#1d4ed8"></span>--info / --success</td><td class="val">#1d4ed8</td><td class="val">#1d4ed8 / #059669</td><td class="why">No green in Superade — success is blue.</td></tr>
+          <tr><td class="name"><span class="sw" style="background:#c81e2b"></span>--destructive</td><td class="val">#c81e2b</td><td class="val">#dc2626</td><td class="why">5.5:1. Deepened to stay alarming on paper.</td></tr>
+          <tr><td class="name"><span class="sw" style="background:#b8532e"></span>--claude</td><td class="val">#b8532e</td><td class="val">#d97757</td><td class="why">Terracotta deepened; hue preserved.</td></tr>
+          <tr><td class="name"><span class="sw" style="background:#64748b"></span>--flow</td><td class="val">#64748b</td><td class="val">#64748b</td><td class="why">Neutral issue default.</td></tr>
+          <tr class="flag"><td class="name">--shadow-engraved</td><td class="val">ink / 0.26</td><td class="val">black / 0.85</td><td class="why"><b>Must become theme-scoped</b> — it is a shared constant today.</td></tr>
+          <tr><td class="name">--shadow-bar-drop</td><td class="val">ink / 0.28</td><td class="val">black / 0.90</td><td class="why">Tighter blur; still a fold, not a float.</td></tr>
+          <tr><td class="name">--shadow-popover</td><td class="val">ink / 0.16 + 0.10</td><td class="val">black / 0.65 + 0.50</td><td class="why">The only lifted tier, both themes.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <!-- ══ Scope ═══════════════════════════════════════════════════════════ -->
+  <section class="sec">
+    <div class="sec-head">
+      <span class="label">Execution</span>
+      <h2>What this costs</h2>
+      <p style="color:var(--p-muted)">
+        With the navy top bar dropped, this is <strong>entirely a color change</strong> — no layout,
+        no components, no motion. Two of the five rows are mechanical; the last is the only unknown.
+      </p>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <span class="step-what">index.css<br />[data-theme="superade"]</span>
+        <span class="step-how">Replace the derived light block with the table above. <b>Self-contained</b> — one block, no call sites.</span>
+      </div>
+      <div class="step">
+        <span class="step-what">index.css<br />:root shadow tokens</span>
+        <span class="step-how">Move <code>--shadow-engraved</code>, <code>--shadow-engraved-bar</code>, <code>--shadow-bar-drop</code> and <code>--shadow-popover</code> out of the preset-constant <code>:root</code> into each theme scope. <b>Mechanical, touches both themes</b> — dark keeps its exact current values.</span>
+      </div>
+      <div class="step">
+        <span class="step-what">index.css<br />issue-mix-* call sites</span>
+        <span class="step-how">Every tinted surface needs its light-mode percentage. The <code>issue-mix-slate-*</code> pattern already establishes how a variant overrides by specificity, so the same mechanism carries a light pair — no new architecture. <b>The largest diff by line count.</b></span>
+      </div>
+      <div class="step">
+        <span class="step-what">styles.css<br />--work-line-carve</span>
+        <span class="step-how">Already forked per theme (0.16 / 0.45) — the only place carving was handled correctly. Re-tune to the ink value for consistency.</span>
+      </div>
+      <div class="step">
+        <span class="step-what">hardcoded rgb(0 0 0 / …)</span>
+        <span class="step-how">Anywhere else in the app that assumed a dark ground. <b>Needs a sweep</b> — the count isn't known yet, and it's the one place this could run longer than expected.</span>
+      </div>
+      <div class="step">
+        <span class="step-what">DESIGN.md</span>
+        <span class="step-how">Two amendments: primary in light is Superade Yellow, not Royal Blue; and the Carved Rule gains its light-mode form — compressed ramp, ink grooves, hairlines carrying separation, still no rest shadows.</span>
+      </div>
+    </div>
+  </section>
+
+</div>

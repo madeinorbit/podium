@@ -1118,6 +1118,11 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
   --work-line-face: color-mix(in oklab, var(--background) 88%, black);
   --work-line-carve: rgb(0 0 0 / 0.45);
 }
+/* Superade light carves in its own navy ink, like every other groove there
+   (POD-372) — black on paper reads as dirt even at this alpha. */
+[data-theme='superade']:not(.dark) .work-line {
+  --work-line-carve: rgb(14 22 38 / 0.16);
+}
 .work-line-deck {
   position: absolute;
   inset: 0;

@@ -9,7 +9,14 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: 'bg-primary text-primary-foreground hover:bg-primary/80',
+        // btn-primary-rim gives the fill a silhouette where it needs one (the
+        // yellow primary on Superade's light paper, POD-372). It resolves to
+        // --primary-rim, unset outside Superade and therefore transparent —
+        // painting into the border the base class already reserves, so there is
+        // no layout change in any preset. It is a plain unlayered rule in
+        // index.css, not a `border-[…]` utility: the base class's
+        // `border-transparent` is the same specificity and wins on source order.
+        default: 'btn-primary-rim bg-primary text-primary-foreground hover:bg-primary/80',
         outline:
           'border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50',
         secondary:

@@ -26,6 +26,12 @@ colors:
   border-strong: "#364a78"
   claude-terracotta: "#d97757"
   flow-slate: "#94a3b8"
+  ochre: "#8a6200"
+  ochre-rim: "#c8990a"
+  daylight-paper: "#f5f6f9"
+  daylight-panel: "#f9fafc"
+  daylight-engraved: "#edeff2"
+  daylight-ink: "#0e1626"
 typography:
   headline:
     fontFamily: "Geist Variable, sans-serif"
@@ -107,11 +113,12 @@ This system explicitly rejects the SaaS dashboard cliché (metric-card grids, gr
 
 ## 2. Colors
 
-Team colors: deep navy chassis, Superade Yellow signal, with red and blue as the only other voices — the dark variant is the signature look; the light variant derives with Royal Blue leading.
+Team colors: deep navy chassis, Superade Yellow signal, with red and blue as the only other voices. The dark variant is the signature look; the light variant ("Daylight", POD-372) mirrors its mechanics rather than inverting its hexes — yellow leads in both.
 
 ### Primary
 - **Superade Yellow** (#f5c518): The brand color. Primary buttons, the active ring, quota warnings, and "waiting on you" attention states in the dark theme. On yellow, ink is always Race Navy — never white.
-- **Royal Blue** (#1d4ed8): Carries the primary role in the light variant, where yellow can't hold contrast on paper-white; yellow remains the brand mark.
+- **Ochre** (#8a6200): Superade Yellow as *ink*, for the light variant only. Yellow fills; ochre writes — #f5c518 as text is 1.6:1 on paper and must never be assigned to a text token (`--attention` is a `color:` in six places, so in light it takes the ochre). Its lighter sibling **#c8990a** is `--primary-rim`, the 1px edge that gives the yellow fill a silhouette against paper.
+- **Royal Blue** (#1d4ed8): Info and success in the light variant. It no longer carries primary — that call was reversed in POD-372: a blue-primary light theme is indistinguishable from every other tool, and the premise was wrong. The rule was never yellow *text*; it is Race Navy ink on a yellow fill, which measures 11.1:1. Yellow's problem on paper is edge, not contrast.
 
 ### Secondary
 - **Alert Red** (#e5303f): Destructive actions and alerts only (amended by POD-100/POD-166: live agent activity moved to calm blue). Use sparingly so it stays alarming.
@@ -130,6 +137,8 @@ Team colors: deep navy chassis, Superade Yellow signal, with red and blue as the
 **The Signal Rule.** Yellow marks the primary action or the thing waiting on you — one voice per screen region. If yellow appears somewhere nothing is asked of the operator, it is wrong.
 
 **The Tint, Never Fill Rule.** Issue colors color-mix into their base surface at prescribed percentages (workspace pane 10–12%, tab strip 18%, selected row 28%, hairlines 30–50%). A flat fill of an issue color is prohibited.
+
+The percentages above are the *dark* values; a hue mixed into a light base saturates about twice as fast, so light themes scale them rather than restating them. Two variables do it globally — `--issue-tint-scale` (0.5% in Daylight, so 28 → 14) and `--issue-line-scale` (0.85%) — consumed by the `issue-mix-*` / `issue-hairline-*` utilities, so no call site carries a per-theme percentage. Hairlines scale *down*, not up: measured against both grounds, a mid-lightness hue reads more strongly on paper than on navy, not less.
 
 **The Reserved Hues Rule.** Terracotta (Claude), the motion colors, and the theme's signal hues are excluded from the issue palette so state and identity never collide.
 
@@ -162,6 +171,11 @@ Team colors: deep navy chassis, Superade Yellow signal, with red and blue as the
 
 ### Named Rules
 **The Carved Rule.** If a resting surface needs to look different from its neighbor, change its tone or engrave it — never lift it. Drop shadows are for things that will disappear.
+
+**Carving in light (Daylight).** The rule holds; the material changes. Three things follow from a light ground:
+- **The carve ink is the theme's, never black.** Black at 0.85 on paper reads as dirt, not depth. Themes set `--carve-engraved` / `--carve-drop` / `--carve-popover-*`; the shadow *geometry* stays shared. Daylight carves in `#0e1626` at 26%.
+- **The tonal ramp compresses.** Light UIs separate with **line, not tone** — Daylight's seven tiers span 6.2 L-points against the dark theme's 12.4, so hairlines carry the separation and the engraved groove becomes the depth rather than supporting it. That is why its carve is *stronger* (26%) than a wider ramp would need (22%).
+- **Still nothing lifts at rest.** Floating a white card on grey is the light-mode default and the thing to refuse; it is what makes a product look like every other tool.
 
 ## 5. Components
 

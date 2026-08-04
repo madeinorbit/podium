@@ -34,7 +34,7 @@ export const THEME_BG: Record<string, string> = {
   'shadcn-dark': '#09090b',
   'shadcn-light': '#ffffff',
   'superade-dark': '#0a0f1c',
-  'superade-light': '#f4f6fb',
+  'superade-light': '#f5f6f9',
 }
 
 export function readStoredTheme(): ThemeState {
