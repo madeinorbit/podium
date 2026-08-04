@@ -242,7 +242,7 @@ export function makeOracle(
     daemon,
     call,
     meta: (sessionId) => {
-      const found = reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)
+      const found = reg.modules.sessions.sessionById(sessionId)
       if (!found) throw new Error(`no session meta for ${sessionId}`)
       return found
     },

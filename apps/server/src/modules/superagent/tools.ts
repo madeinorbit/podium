@@ -108,7 +108,7 @@ export function buildSuperagentTools(
   const memoryReader = ownerUserId
     ? { kind: 'agent' as const, id: threadId ?? 'superagent', onBehalfOf: ownerUserId }
     : undefined
-  const getSession = (id: string) => sessions.listSessions().find((s) => s.sessionId === id)
+  const getSession = (id: string) => sessions.sessionById(id as SessionId)
   const tools: SuperagentTool[] = [
     {
       spec: {

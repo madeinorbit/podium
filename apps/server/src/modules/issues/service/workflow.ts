@@ -1,4 +1,3 @@
-import { spawnedByTag } from '@podium/model'
 import {
   asMachineId,
   asUserId,
@@ -7,6 +6,7 @@ import {
   type IssueWire,
   type SessionId,
   type SessionMeta,
+  spawnedByTag,
 } from '@podium/model'
 import { formatIssueRef } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
@@ -15,6 +15,7 @@ import { sessionsForIssue } from '../../../issue-util'
 import { type LinearIssue, searchIssues } from '../../../linear'
 import { assertModelSelectionValid } from '../../../model-validation'
 import type { IssueRow } from '../../../store'
+import { findSessionById } from '../../sessions/session-by-id'
 import { issueRefsPattern, probeGitState } from '../git-state'
 import { IssueAssistantDigestModule } from './assistant'
 import type { IssueAttentionModule } from './attention'
@@ -1056,7 +1057,7 @@ export class IssueGitWorkflowModule {
    *  so they resurface exactly when there's something new (the issue mirror of a
    *  session's `snoozedUntil: null` snooze). */
   onSessionAttention(sessionId: SessionId): void {
-    const sess = this.store.d.listSessions().find((s) => s.sessionId === sessionId)
+    const sess = findSessionById(this.store.d, sessionId)
     if (!sess) return
     for (const row of [...this.store.rows.values()]) {
       if (row.deferUntil !== DEFER_NEXT_MESSAGE || row.deletedAt) continue
@@ -1140,7 +1141,7 @@ export class IssueGitWorkflowModule {
 
   /** The issue a session works: explicit attachment or worktree membership. */
   private issueForSession(sessionId: SessionId): { row: IssueRow; sess: SessionMeta } | null {
-    const sess = this.store.d.listSessions().find((s) => s.sessionId === sessionId)
+    const sess = findSessionById(this.store.d, sessionId)
     if (!sess) return null
     const row = [...this.store.rows.values()].find(
       (r) => !r.deletedAt && sessionsForIssue(r.worktreePath, [sess], r.id).length > 0,

@@ -506,6 +506,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       clientControl: bag.clientControl,
       deps: bag.deps,
       listSessions: () => bag.listSessions(),
+      sessionById: (sessionId: SessionId) => bag.view.byId(sessionId),
       machines: bag.machines,
       sessions: bag.sessions,
       store: bag.store,

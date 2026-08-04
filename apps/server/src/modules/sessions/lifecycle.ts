@@ -306,6 +306,17 @@ export class SessionLifecycle {
   ): SessionMeta[] {
     return this.view.listForIssue(worktreePath, issueId, forPrincipal)
   }
+  /** ONE session by id, without wiring the rest [POD-1646]. Same value as
+   *  `listSessions(p).find((s) => s.sessionId === id)`; see
+   *  {@link SessionView.byId}. */
+  sessionById(sessionId: SessionId, forPrincipal?: SessionWirePrincipal): SessionMeta | undefined {
+    return this.view.byId(sessionId, forPrincipal)
+  }
+  /** One session's `spawnedBy`, skipping the wire entirely [POD-1646];
+   *  see {@link SessionView.spawnedByOf}. */
+  sessionSpawnedBy(sessionId: SessionId, forPrincipal?: SessionWirePrincipal): string | undefined {
+    return this.view.spawnedByOf(sessionId, forPrincipal)
+  }
   // RETIRED at POD-309 (ADR 5 D8): the hub-mirror apply path lived here —
   // `upstreamSessions` / `upstreamStale` / `upstreamOwnMachineIds`, the
   // `setUpstreamSessions` ingest that stamped `viaHub`, the stale-visible flip, and
@@ -496,7 +507,8 @@ export class SessionLifecycle {
       // records as deliberate. This was the third hand-rolled copy of the slice.
       parentSessionOf: (sessionId) =>
         spawnedByParentSessionId(
-          this.listSessions().find((s) => s.sessionId === sessionId)?.spawnedBy,
+          // POD-1646: one field, one visibility check — not a full pass.
+          this.sessionSpawnedBy(sessionId),
         ),
       ownership: ownershipFromMachines(this.machines),
     })

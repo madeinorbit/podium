@@ -150,6 +150,11 @@ export type { IssueTree, IssueTreeNode, IssueTreeSession }
 export interface IssueDeps {
   store: SessionStore
   listSessions(): SessionMeta[]
+  /** ONE session by id, without the full reader-scoped pass [POD-1646].
+   *  Optional for the same reason `listSessionsForIssue` is — the many test
+   *  fixtures that satisfy this interface with `listSessions` alone stay
+   *  correct via {@link findSessionById}'s fallback, just slower. */
+  sessionById?(sessionId: SessionId): SessionMeta | undefined
   /** The member sessions of ONE issue, without wiring every other session
    *  [POD-1639]. Optional so the test fixtures that satisfy this interface with
    *  `listSessions` alone keep working — `IssueStore.sessionsFor` falls back to

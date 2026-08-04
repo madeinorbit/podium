@@ -38,6 +38,7 @@ export function sessionCommandServices(modules: RegistryModules): SessionCommand
     answerAskUserQuestion: sessions.answerAskUserQuestion,
     continueSession: sessions.continueSession.bind(sessions),
     listSessions: sessions.listSessions.bind(sessions),
+    sessionById: sessions.sessionById.bind(sessions),
     resumeSession: issueSessions.resumeSession.bind(issueSessions),
     resurrectSession: issueSessions.resurrectSession.bind(issueSessions),
     stopSession: issueSessions.stopSession.bind(issueSessions),
@@ -72,9 +73,10 @@ export function sessionCommandCtx(
     // the one writer (POD-1133). It brands what it extracts, so `parentSessionOf`
     // hands back a `SessionId` with no cast here.
     parentSessionOf: (sessionId) =>
-      spawnedByParentSessionId(
-        sessions.listSessions().find((s) => s.sessionId === sessionId)?.spawnedBy,
-      ),
+      // POD-1646: the narrow read. Authorization runs on essentially every
+      // request, so the full reader-scoped pass this used to build was pure
+      // waste — `sessionSpawnedBy` reads the one field under the same check.
+      spawnedByParentSessionId(sessions.sessionSpawnedBy(sessionId)),
     onBehalfOfFor: (sessionId) => sessions.sessionOwner(sessionId)?.owner ?? undefined,
   })
   const deps: SessionCommandDeps = {
@@ -106,6 +108,7 @@ export function sessionCommandCtx(
     issueOwner: (issueId) => issues.ownedTarget(issueId, 'read')?.owner ?? undefined,
     access: {
       listSessions: () => sessions.listSessions(),
+      sessionById: (sessionId) => sessions.sessionById(sessionId),
       issues,
       // POD-1075 supplies the owner/grant answer; today one account sees all.
     },

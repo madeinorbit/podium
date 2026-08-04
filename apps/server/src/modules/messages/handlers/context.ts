@@ -21,8 +21,6 @@
  *    delegation — and neither half is reachable from payload.
  */
 
-import { isSpawnedBy } from '@podium/model'
-import { asIssueId, asSessionId, type IssueId, type SessionId } from '@podium/model'
 import {
   type AddressResolution,
   type HumanCeiling,
@@ -31,9 +29,11 @@ import {
   resolveAddress,
   SINGLE_USER_CEILING,
 } from '@podium/commands'
-import { type Capability, checkIssueAccess } from '../../../issue-authz'
+import { asIssueId, asSessionId, type IssueId, isSpawnedBy, type SessionId } from '@podium/model'
 import type { CommandPrincipal } from '../../../command-principal'
+import { type Capability, checkIssueAccess } from '../../../issue-authz'
 import type { MessageRow } from '../../../store'
+import { findSessionById } from '../../sessions/session-by-id'
 import type { MessageGateDeps, MessageWire } from '../gate'
 import type { MessageDeliveryDeps } from '../service'
 
@@ -286,7 +286,7 @@ export class MailAccess {
    *  issueless targets are parent/operator-only (--outside-scope never
    *  substitutes there). */
   assertSessionTargetAccess(caller: MailCaller, sessionId: SessionId, proc: string): void {
-    const target = this.deps.listSessions().find((s) => s.sessionId === sessionId)
+    const target = findSessionById(this.deps, sessionId)
     if (!target) throw new Error('session not found')
     const issues = this.deps.issues
     const targetIssueId = target.issueId ?? issues.issueForCwd(target.cwd)

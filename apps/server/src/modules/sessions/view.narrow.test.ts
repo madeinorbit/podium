@@ -19,8 +19,9 @@ import { SessionView, type SessionViewPorts } from './view'
 const MACHINE = asMachineId('m1')
 const PRINCIPAL = { userId: 'u1', role: 'admin' } as unknown as SessionStatePrincipal
 
-function session(id: string, cwd: string, issueId?: string): Session {
+function session(id: string, cwd: string, issueId?: string, spawnedBy?: string): Session {
   return new Session({
+    ...(spawnedBy ? { spawnedBy } : {}),
     sessionId: asSessionId(id),
     durableLabel: `podium-${id}`,
     agentKind: 'claude-code',
@@ -108,5 +109,73 @@ describe('SessionView.listForIssue [POD-1639]', () => {
     const { view, canReadCalls } = viewOver(CORPUS())
     expect(view.listForIssue(null, asIssueId('iss_none') as IssueId, PRINCIPAL)).toEqual([])
     expect(canReadCalls).toEqual([])
+  })
+})
+
+/**
+ * THE BY-ID READ RETURNS THE FULL READ'S ANSWER [POD-1646].
+ *
+ * Same oracle discipline as above, against the shape 36 call sites spelled:
+ * `list().find((s) => s.sessionId === id)`. The interesting cases are the two
+ * that are not "it found it" — an invisible session must still come back
+ * `undefined` (narrowing the candidate set must not widen visibility), and an
+ * absent id must not throw.
+ */
+describe('SessionView.byId [POD-1646]', () => {
+  const oracleById = (view: SessionView, id: string) =>
+    view.list(PRINCIPAL).find((s) => s.sessionId === id)
+
+  it('returns exactly what finding in the full list returns', () => {
+    const { view } = viewOver(CORPUS())
+    for (const id of CORPUS().map((s) => s.sessionId)) {
+      expect(view.byId(asSessionId(id), PRINCIPAL)).toEqual(oracleById(view, id))
+    }
+    expect(view.byId(asSessionId('mine-by-cwd'), PRINCIPAL)?.sessionId).toBe('mine-by-cwd')
+  })
+
+  it('still applies the visibility rule to the one session', () => {
+    const { view } = viewOver(CORPUS(), new Set(['mine-by-cwd']))
+    expect(oracleById(view, 'mine-by-cwd')).toBeUndefined()
+    expect(view.byId(asSessionId('mine-by-cwd'), PRINCIPAL)).toBeUndefined()
+    // The neighbours are unaffected — the check narrowed, the rule did not.
+    expect(view.byId(asSessionId('unrelated'), PRINCIPAL)?.sessionId).toBe('unrelated')
+  })
+
+  it('an id that names nothing is undefined, not a throw', () => {
+    const { view, canReadCalls } = viewOver(CORPUS())
+    expect(view.byId(asSessionId('ghost'), PRINCIPAL)).toBeUndefined()
+    expect(canReadCalls).toEqual([])
+  })
+
+  it('visibility-checks ONE session — that count IS the fix', () => {
+    const { view, canReadCalls } = viewOver(CORPUS())
+    view.list(PRINCIPAL)
+    expect(canReadCalls.length).toBe(6)
+    canReadCalls.length = 0
+    view.byId(asSessionId('unrelated'), PRINCIPAL)
+    expect(canReadCalls).toEqual(['unrelated'])
+  })
+})
+
+describe('SessionView.spawnedByOf [POD-1646]', () => {
+  const CHILD = () => [
+    session('parent', '/w', undefined),
+    session('child', '/w', undefined, 'session:parent'),
+  ]
+
+  it('returns what the wired lookup put on `spawnedBy`', () => {
+    const { view } = viewOver(CHILD())
+    for (const id of ['parent', 'child']) {
+      const wired = view.list(PRINCIPAL).find((s) => s.sessionId === id)?.spawnedBy
+      expect(view.spawnedByOf(asSessionId(id), PRINCIPAL)).toBe(wired)
+    }
+    expect(view.spawnedByOf(asSessionId('child'), PRINCIPAL)).toBe('session:parent')
+    expect(view.spawnedByOf(asSessionId('parent'), PRINCIPAL)).toBeUndefined()
+  })
+
+  it('refuses an invisible session and an absent one alike', () => {
+    const { view } = viewOver(CHILD(), new Set(['child']))
+    expect(view.spawnedByOf(asSessionId('child'), PRINCIPAL)).toBeUndefined()
+    expect(view.spawnedByOf(asSessionId('ghost'), PRINCIPAL)).toBeUndefined()
   })
 })

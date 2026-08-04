@@ -107,9 +107,59 @@ export class SessionView {
     }
   }
 
-  /** The reader-scoped projection over a candidate set — the body `list()` and
-   *  `listForIssue()` share so the visibility rule and the memo lifetime have
-   *  exactly one definition. */
+  /**
+   * ONE SESSION BY ID, without building the other 1100 [POD-1646].
+   *
+   * `list().find((s) => s.sessionId === id)` was spelled at 36 sites, several of
+   * them on the authorization path — so a by-id lookup paid a full reader-scoped
+   * pass on essentially every request. The narrowing is sound for the same
+   * reason `listForIssue`'s is: the deciding field is the session's OWN id, and
+   * `ports.sessions` is the very map `list()` enumerates, keyed by `sessionId`
+   * at every writer. Visibility is NOT narrowed — the one candidate still goes
+   * through `canReadSession` for the same principal, so a caller sees `undefined`
+   * in exactly the cases the post-filter left it empty.
+   */
+  byId(sessionId: SessionId, forPrincipal?: SessionStatePrincipal): SessionMeta | undefined {
+    const startedAt = performance.now()
+    try {
+      const session = this.ports.sessions.get(sessionId)
+      if (!session) return undefined
+      return this.project([session], forPrincipal)[0]
+    } finally {
+      perf.record('phase', 'sessionView.byId', performance.now() - startedAt, DEPLOYMENT)
+    }
+  }
+
+  /**
+   * `byId(id)?.spawnedBy` WITHOUT THE WIRE [POD-1646].
+   *
+   * The authz sites (layout, fleet, settings, read-position) and the delegation
+   * index want one string, not a `SessionMeta`. Wiring one costs the harness
+   * manifest, the user overlay, the machine name and the display-ref resolution
+   * — every one of them discarded here. `spawnedBy` is a plain field that
+   * `toMeta` copies through unchanged (falsy stripped, which is the same
+   * `undefined` optional chaining produced), so this returns what the wired
+   * lookup returned, under the same visibility check.
+   */
+  spawnedByOf(sessionId: SessionId, forPrincipal?: SessionStatePrincipal): string | undefined {
+    const startedAt = performance.now()
+    try {
+      const session = this.ports.sessions.get(sessionId)
+      if (!session) return undefined
+      const principal = forPrincipal ?? this.defaultPrincipal()
+      if (!principal) return undefined
+      if (!this.ports.state.canReadSession(principal, sessionId, newSessionListMemo())) {
+        return undefined
+      }
+      return session.spawnedBy
+    } finally {
+      perf.record('phase', 'sessionView.spawnedByOf', performance.now() - startedAt, DEPLOYMENT)
+    }
+  }
+
+  /** The reader-scoped projection over a candidate set — the body `list()`,
+   *  `listForIssue()` and `byId()` share so the visibility rule and the memo
+   *  lifetime have exactly one definition. */
   private project(candidates: Session[], forPrincipal?: SessionStatePrincipal): SessionMeta[] {
     const principal = forPrincipal ?? this.defaultPrincipal()
     if (!principal) return []

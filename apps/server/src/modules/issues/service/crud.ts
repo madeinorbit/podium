@@ -17,6 +17,7 @@ import { resolveRole } from '@podium/runtime'
 import type { EntityChangeSpec } from '@podium/sync'
 import type { IssueRow } from '../../../store'
 import { type StoredIssue, toStorage } from '../../../store/issue-storage'
+import { findSessionById } from '../../sessions/session-by-id'
 import type { IssueStore } from './core'
 import type { CreateIssueInput, IssuePanelOp, IssuePatch } from './types'
 import { UNSNOOZE_BACKDATE_MS } from './types'
@@ -178,7 +179,7 @@ export class IssueCrudModule {
     // Owning machine + root: the issue worktree, falling back to the invoking
     // session's machine/cwd — the same resolution the live render route uses.
     const session = opts?.actorSessionId
-      ? this.store.deps.listSessions().find((s) => s.sessionId === opts.actorSessionId)
+      ? findSessionById(this.store.deps, opts.actorSessionId)
       : undefined
     const root = row.worktreePath ?? session?.cwd
     if (!root) throw new Error('no worktree or session to read the artifact from')

@@ -85,6 +85,8 @@ export type SessionCommandServices = Pick<
   | 'answerAskUserQuestion'
   | 'continueSession'
   | 'listSessions'
+  // POD-1646: the by-id read, so a command handler need not build the full list.
+  | 'sessionById'
 > &
   Pick<IssueSessionLifecycle, 'resumeSession' | 'resurrectSession' | 'stopSession'>
 
@@ -635,7 +637,7 @@ export const SESSION_COMMAND_HANDLERS = {
     ctx: SessionCommandCtx,
     input: { sessionId: SessionId; filename: string; mimeType: string; dataBase64: string },
   ) => {
-    const row = ctx.sessions.listSessions().find((s) => s.sessionId === input.sessionId)
+    const row = ctx.sessions.sessionById(input.sessionId)
     if (row?.machineId !== undefined) ctx.assertMachineUse(row.machineId)
     const result = await ctx.deps.rpc().uploadImage(input)
     if (result.error) {

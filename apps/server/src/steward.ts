@@ -1,11 +1,12 @@
-import { asSessionId, spawnedByParentSessionId } from '@podium/model'
 import type { IssueComment, IssueWire, SessionId, SessionMeta, UserId } from '@podium/model'
+import { asSessionId, spawnedByParentSessionId } from '@podium/model'
 import type { PodiumSettings } from '@podium/runtime'
+import { type SystemCommandPrincipal, systemPrincipal } from './command-principal'
 import { sessionsForIssue } from './issue-util'
 import type { IssueService } from './modules/issues/service'
+import { findSessionById } from './modules/sessions/session-by-id'
 import type { SessionStore, Subscription } from './store'
 import { NotificationArbiter } from './store/notification-facts'
-import { systemPrincipal, type SystemCommandPrincipal } from './command-principal'
 
 /** One row read back from the durable event log (`podium_events`). */
 export interface StewardEvent {
@@ -288,6 +289,11 @@ export interface StewardDeps {
   messages: Pick<SessionStore['messages'], 'alreadyCommunicated'>
   issues: Pick<IssueService, 'get' | 'getMeta' | 'list' | 'addComment' | 'ancestorIds' | 'comments'>
   listSessions: () => SessionMeta[]
+  /** ONE session by id, without the full reader-scoped pass [POD-1646].
+   *  Optional for the same reason `listSessionsForIssue` is — the many test
+   *  fixtures that satisfy this interface with `listSessions` alone stay
+   *  correct via {@link findSessionById}'s fallback, just slower. */
+  sessionById?: (sessionId: SessionId) => SessionMeta | undefined
   sessionOwner?: (sessionId: SessionId) => UserId | undefined
   /** Durable-queue a nudge into a session (relay.queueText). For live sessions
    *  this is next-turn delivery; for parked/hibernated/exited sessions with a
@@ -1035,7 +1041,7 @@ export class StewardService {
     if (!this.deps.messaging) return
     const last = batch[batch.length - 1]!
     const p = last.payload as { phase?: string } | null
-    const issueId = this.deps.listSessions().find((s) => s.sessionId === sessionId)?.issueId
+    const issueId = findSessionById(this.deps, sessionId)?.issueId
     const factKey = `settle:${sessionId}`
     if (
       !this.arbiter.claim(factKey, sessionId, {

@@ -42,6 +42,11 @@ export interface MessageGateDeps {
   messages: MessageDeliveryService
   issues: IssueService
   listSessions(): SessionMeta[]
+  /** ONE session by id, without the full reader-scoped pass [POD-1646].
+   *  Optional for the same reason `listSessionsForIssue` is — the many test
+   *  fixtures that satisfy this interface with `listSessions` alone stay
+   *  correct via {@link findSessionById}'s fallback, just slower. */
+  sessionById?(sessionId: SessionId): SessionMeta | undefined
   /** Cross-harness subagent spawn seam (#237 [spec:SP-34d7 cross-harness]) —
    *  SessionLifecycle.createSession, the one spawn path. Absent = spawn proc
    *  reports unwired (tests / partial deployments). */

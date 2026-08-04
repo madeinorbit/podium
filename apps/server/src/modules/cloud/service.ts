@@ -32,7 +32,7 @@
  * "unauthorized stays distinguishable from unreachable" true.
  */
 
-import { isAgentKind } from '@podium/model'
+import { isAgentKind, type SessionId } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { harnessSupportsCloud } from '../../harness-manifest'
 import {
@@ -139,7 +139,7 @@ export class CloudService {
     repo?: CloudRepoRequest | undefined
     hibernateLocal?: boolean | undefined
   }) {
-    const session = this.deps.sessions.listSessions().find((s) => s.sessionId === input.sessionId)
+    const session = this.deps.sessions.sessionById(input.sessionId as SessionId)
     if (!session) {
       throw new TRPCError({ code: 'NOT_FOUND', message: 'session not found' })
     }

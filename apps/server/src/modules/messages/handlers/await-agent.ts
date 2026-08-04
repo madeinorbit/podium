@@ -16,10 +16,11 @@
  * `write` through the session-target gate. See the contract for the working.
  */
 
-import { isSpawnedBy } from '@podium/model'
 import type { awaitAgentContract, ContractInput } from '@podium/commands'
 import type { SessionMeta } from '@podium/model'
+import { isSpawnedBy } from '@podium/model'
 import type { Capability } from '../../../issue-authz'
+import { findSessionById } from '../../sessions/session-by-id'
 import type { MailHandlerContext } from './context'
 
 export async function awaitAgentHandler(
@@ -30,7 +31,7 @@ export async function awaitAgentHandler(
   // The parent relationship (spawnedBy provenance) is sufficient authority to
   // await its own child — even across issue scopes (it already crossed them,
   // confirmed, at spawn time). Everyone else passes the session-target gate.
-  const child = deps.listSessions().find((x) => x.sessionId === input.sessionId)
+  const child = findSessionById(deps, input.sessionId)
   const isParent =
     caller.capability.actorSessionId !== undefined &&
     isSpawnedBy(child?.spawnedBy, { kind: 'session', id: caller.capability.actorSessionId })
@@ -47,7 +48,7 @@ export async function awaitAgentHandler(
   const waitStart = deps.now?.() ?? new Date().toISOString()
   // biome-ignore lint/nursery/noConstantCondition: loop exits via return
   for (;;) {
-    const s = deps.listSessions().find((x) => x.sessionId === input.sessionId)
+    const s = findSessionById(deps, input.sessionId)
     if (!s) {
       return finishAwait(ctx, isParent, caller, input.sessionId, {
         done: true,
