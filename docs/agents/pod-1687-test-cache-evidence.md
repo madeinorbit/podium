@@ -79,6 +79,17 @@ from the package directory vitest does not walk up, so it finds **no config**:
   never run. That is the POD-555 guard stripping ambient Podium session env so a
   suite cannot touch the **live instance**.
 
-Most pass by luck, not scoping. They stay out until POD-1693 gives each package a
-real config — pinned rather than merely `cache: false`, because an unguarded
-suite that can reach the live instance should not run from this task at all.
+Most pass by luck, not scoping.
+
+**This is not "those packages are untested."** They *are* tested today, by the
+root `test:unit` lane: `vitest.config.ts` sets no custom `include`, so the sweep
+runs from the repo root over `**/*.test.ts`, and `nodeTestExclude` carves out
+`apps/web/**` and `apps/mobile/**` but not `packages/**`. Those suites run there
+*with* the hermetic guards applied. What they lack is a per-package task, not
+coverage — and the hazard is precisely that running them **per-package** silently
+drops a guard the root lane supplies.
+
+So they stay out until POD-1693 gives each package a real config — pinned rather
+than merely `cache: false`, because an unguarded suite that can reach the live
+instance should not run from this task at all. The ordering matters: a package
+joins the `test` task only *after* it has a real vitest config, never before.
