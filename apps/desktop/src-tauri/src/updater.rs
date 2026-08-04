@@ -21,6 +21,19 @@ pub const fn production_auto_update_enabled(debug_build: bool) -> bool {
     !debug_build
 }
 
+/// How long the shell waits for its page to say "I own updates" before showing
+/// the native dialog itself. Generous on purpose: in remote mode the page is
+/// fetched from another host, and a short window would race a page that was about
+/// to render its own dialog, showing the user two prompts for one fact.
+pub const OWNERSHIP_GRACE_MS: u64 = 8_000;
+
+/// The shell steps in only when nobody claimed the job and the grace window has
+/// passed. A page that claimed ownership keeps it forever: the shell never
+/// second-guesses a live page.
+pub fn should_show_native_dialog(claimed: bool, elapsed_ms: u64, grace_ms: u64) -> bool {
+    !claimed && elapsed_ms > grace_ms
+}
+
 /// Build the templated updater endpoint from a pluggable base URL.
 ///
 /// The `{{target}}`/`{{arch}}`/`{{current_version}}` placeholders are filled in by
@@ -182,6 +195,36 @@ mod tests {
         // non-dismissible dialog the user cannot escape.
         let json = serde_json::json!({ "version": "0.4.2", "critical": "yes" });
         assert!(!is_critical_update(&json, None));
+    }
+
+    #[test]
+    fn a_claiming_page_owns_the_dialog() {
+        assert!(!should_show_native_dialog(true, 100_000, OWNERSHIP_GRACE_MS));
+    }
+
+    #[test]
+    fn an_unclaimed_shell_falls_back_after_the_grace_window() {
+        // The bundle failed to load, or the page is too old to know about the bridge.
+        // Without this, a broken webview means no update path at all.
+        assert!(should_show_native_dialog(false, OWNERSHIP_GRACE_MS + 1, OWNERSHIP_GRACE_MS));
+    }
+
+    #[test]
+    fn the_shell_waits_out_the_grace_window_before_stepping_in() {
+        // A slow page must not race the native dialog and show two prompts.
+        assert!(!should_show_native_dialog(false, 10, OWNERSHIP_GRACE_MS));
+    }
+
+    #[test]
+    fn a_late_claim_still_wins_at_the_boundary() {
+        assert!(!should_show_native_dialog(true, OWNERSHIP_GRACE_MS, OWNERSHIP_GRACE_MS));
+    }
+
+    #[test]
+    fn the_grace_window_is_generous_enough_for_a_remote_bundle() {
+        // Remote mode fetches the page from another host. Too short a window shows a
+        // native dialog over a page that was about to render its own.
+        assert!(OWNERSHIP_GRACE_MS >= 5_000);
     }
 
     #[test]
