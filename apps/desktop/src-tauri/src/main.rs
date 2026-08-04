@@ -406,12 +406,25 @@ fn main() {
                 .window("main")
                 .permission("sql:default")
                 .permission("sql:allow-execute");
+            // Update bridge (POD-1670): the in-app dialog drives check/install through
+            // these commands. REMOTE MODE IS THE CASE THAT MATTERS — the shell loads the
+            // remote server's own web bundle, so the page invoking them lives on that
+            // origin and the grant must extend there, exactly as the window-controls,
+            // opener, hosting and sqlite grants do. Granted only in the static
+            // capability, a remote-mode shell could never update itself, which is the
+            // scenario this bridge exists for.
+            let mut update_capability = tauri::ipc::CapabilityBuilder::new("update-bridge")
+                .window("main")
+                .permission("allow-claim-update-ownership")
+                .permission("allow-check-update")
+                .permission("allow-install-update");
             if let Some(server_url) = remote_window_server_url {
                 match remote_capability_pattern(&server_url) {
                     Ok(pattern) => {
                         window_capability = window_capability.remote(pattern.clone());
                         opener_capability = opener_capability.remote(pattern.clone());
                         sqlite_capability = sqlite_capability.remote(pattern.clone());
+                        update_capability = update_capability.remote(pattern.clone());
                         hosting_capability = hosting_capability.map(|c| c.remote(pattern));
                     }
                     Err(error) => eprintln!(
@@ -422,6 +435,7 @@ fn main() {
             app.add_capability(window_capability)?;
             app.add_capability(opener_capability)?;
             app.add_capability(sqlite_capability)?;
+            app.add_capability(update_capability)?;
             if let Some(capability) = hosting_capability {
                 app.add_capability(capability)?;
             }
