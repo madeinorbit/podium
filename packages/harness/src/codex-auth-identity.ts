@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto'
 import type { LoginIdentity } from './manifest.js'
 
-
 interface CodexAuthFile {
   tokens?: {
     id_token?: unknown
@@ -31,9 +30,8 @@ function decodeJson(value: unknown): Record<string, unknown> | undefined {
   }
 }
 
-
 function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === "object" && !Array.isArray(value)
+  return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : undefined
 }
@@ -44,8 +42,8 @@ function stringClaim(value: Record<string, unknown> | undefined, key: string): s
 
 function numberClaim(value: Record<string, unknown> | undefined, key: string): number | undefined {
   const raw = value?.[key]
-  if (typeof raw === "number" && Number.isFinite(raw)) return raw
-  if (typeof raw === "string" && raw.trim() !== "") {
+  if (typeof raw === 'number' && Number.isFinite(raw)) return raw
+  if (typeof raw === 'string' && raw.trim() !== '') {
     const parsed = Number(raw)
     if (Number.isFinite(parsed)) return parsed
   }
@@ -69,19 +67,19 @@ export function readIdentityFromAuthContents(contents: string): LoginIdentity | 
   }
 
   const tokens = asRecord(auth.tokens)
-  const idToken = stringClaim(tokens, "id_token") ?? stringClaim(tokens, "idToken")
+  const idToken = stringClaim(tokens, 'id_token') ?? stringClaim(tokens, 'idToken')
   const payload = decodeJson(idToken)
-  const authClaims = asRecord(payload?.["https://api.openai.com/auth"])
-  const profileClaims = asRecord(payload?.["https://api.openai.com/profile"])
-  const email = stringClaim(payload, "email") ?? stringClaim(profileClaims, "email")
+  const authClaims = asRecord(payload?.['https://api.openai.com/auth'])
+  const profileClaims = asRecord(payload?.['https://api.openai.com/profile'])
+  const email = stringClaim(payload, 'email') ?? stringClaim(profileClaims, 'email')
   const providerAccountId =
-    stringClaim(tokens, "account_id") ??
-    stringClaim(tokens, "accountId") ??
-    stringClaim(authClaims, "chatgpt_account_id") ??
-    stringClaim(payload, "chatgpt_account_id") ??
-    stringClaim(payload, "https://api.openai.com/auth.chatgpt_account_id") ??
-    stringClaim(authClaims, "workspace_account_id") ??
-    stringClaim(payload, "workspace_account_id")
+    stringClaim(tokens, 'account_id') ??
+    stringClaim(tokens, 'accountId') ??
+    stringClaim(authClaims, 'chatgpt_account_id') ??
+    stringClaim(payload, 'chatgpt_account_id') ??
+    stringClaim(payload, 'https://api.openai.com/auth.chatgpt_account_id') ??
+    stringClaim(authClaims, 'workspace_account_id') ??
+    stringClaim(payload, 'workspace_account_id')
   const source = providerAccountId ?? email
   if (!source) return undefined
   return {
@@ -90,7 +88,6 @@ export function readIdentityFromAuthContents(contents: string): LoginIdentity | 
     ...(providerAccountId ? { providerAccountId } : {}),
   }
 }
-
 
 /** Return a comparable freshness marker without retaining credential material. */
 export function readFreshnessFromAuthContents(contents: string): number | undefined {
@@ -103,15 +100,15 @@ export function readFreshnessFromAuthContents(contents: string): number | undefi
     return undefined
   }
   const tokens = asRecord(auth.tokens)
-  const idToken = stringClaim(tokens, "id_token") ?? stringClaim(tokens, "idToken")
+  const idToken = stringClaim(tokens, 'id_token') ?? stringClaim(tokens, 'idToken')
   const payload = decodeJson(idToken)
   return (
-    numberClaim(tokens, "expires_at") ??
-    numberClaim(tokens, "expiresAt") ??
-    numberClaim(tokens, "expiry") ??
-    numberClaim(tokens, "expires") ??
-    numberClaim(payload, "exp") ??
-    numberClaim(payload, "iat")
+    numberClaim(tokens, 'expires_at') ??
+    numberClaim(tokens, 'expiresAt') ??
+    numberClaim(tokens, 'expiry') ??
+    numberClaim(tokens, 'expires') ??
+    numberClaim(payload, 'exp') ??
+    numberClaim(payload, 'iat')
   )
 }
 
