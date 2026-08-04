@@ -29,7 +29,12 @@
  * direction (POD-1067) "can write the state dir" stops implying "owner of everything" —
  * a second user's process on the same host would mint a credential carrying the FIRST
  * user's authority. Whoever takes multi-user on must revisit this: the mint needs to be
- * bound to an identity, not to a file mode. Deliberately not solved here.
+ * bound to an identity, not to a file mode.
+ *
+ * Multi-user has since landed, and the mint is still not bound. POD-1637 therefore makes
+ * this fail closed once the instance holds more than one account (see the guard in
+ * `mintBreakGlassSession`) — that removes the discoverable path without pretending the
+ * trust root moved. The binding itself is still not solved here.
  *
  * The mint is NOT automatic. `podium auth mint-session` is an explicit act, so a
  * credential only ever exists because some process on the host asked for one.
@@ -119,10 +124,44 @@ export function openInstanceDatabase(path: string) {
 }
 
 /**
+ * How many accounts the instance models, or `undefined` when it cannot model accounts at
+ * all (no `users` table — a pre-multi-user schema, where "writes the state dir" and "owns
+ * everything" are still the same statement).
+ *
+ * Counts DISABLED accounts too. A disabled row is still a second human the instance has
+ * been told about, and re-enabling it is an in-product action; treating it as absent would
+ * make the guard's answer depend on a flag any admin can flip.
+ */
+function userAccountCount(db: {
+  prepare(sql: string): { get(...params: unknown[]): unknown }
+}): number | undefined {
+  const table = db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'users'")
+    .get() as { name: string } | undefined
+  if (!table) return undefined
+  const row = db.prepare('SELECT count(*) AS n FROM users').get() as { n: number | bigint }
+  return Number(row.n)
+}
+
+/**
  * Insert a revocable `client_sessions` row and return its plaintext token.
  *
  * Safe against a RUNNING server, for the same reason `scripts/mint-upstream-token.ts` is:
  * a single WAL-mode write to a table the server only touches at login/logout.
+ *
+ * FAILS CLOSED ON A MULTI-ACCOUNT INSTANCE (POD-1637, docs/decisions/1634-mint-root-after-multi-user.md).
+ * ADR 3 D14 accepted this mint because it "does not enlarge the set of processes that could
+ * already act as the operator" — it only converted a multi-step attack into one documented
+ * verb. That argument holds on a single-operator host and fails the moment the instance
+ * models a second human: then the verb hands the FIRST admin's authority to any co-resident
+ * process, including a member-grade account holder's agent sessions. Refusing it once a
+ * second account exists reverses exactly the delta D14 named.
+ *
+ * This does NOT make `mintBoundToIdentity` true and must not be recorded as doing so. The
+ * raw-INSERT root survives — anything that can call this can equally write the row by hand —
+ * so the POD-1402 tripwire stays red, correctly. What goes away is the discoverable path,
+ * which is the only thing mint ever added. The actual binding is Part 2, an architecture
+ * call (separate OS users / privileged issuance boundary / per-user datastore).
  */
 export function mintBreakGlassSession(opts: MintOptions = {}): MintedSession {
   const root = opts.stateDir ?? stateDir()
@@ -136,6 +175,14 @@ export function mintBreakGlassSession(opts: MintOptions = {}): MintedSession {
   const expiresAt = new Date(nowMs + (opts.ttlMs ?? DEFAULT_TTL_MS)).toISOString()
   const db = openInstanceDatabase(path)
   try {
+    // Checked on the mint's own connection, before the INSERT, so a refusal writes nothing.
+    const accounts = userAccountCount(db)
+    if (accounts !== undefined && accounts > 1)
+      throw new Error(
+        `refusing to mint: this instance holds ${accounts} user accounts, and a break-glass session carries the first admin's authority to anything that can write ${path}. ` +
+          'Host-local mint is only sound while one person owns the instance (ADR 3 D14 / POD-1402); ' +
+          'sign in as your own account instead. See docs/decisions/1634-mint-root-after-multi-user.md.',
+      )
     // `user_id` is NOT NULL and carries no default (POD-1079): a login session
     // says WHO it is, and the server's own `createClientSession` takes the user
     // as a required parameter for the same reason. A break-glass session is
