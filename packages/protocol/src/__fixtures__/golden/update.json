@@ -44,15 +44,23 @@
           "artifacts": {
             "headless": {
               "delivery": "feed",
-              "url": "target.artifacts.headless.url",
-              "digest": "target.artifacts.headless.digest",
-              "signature": "target.artifacts.headless.signature"
+              "platforms": {
+                "target.artifacts.headless.platforms.key": {
+                  "url": "target.artifacts.headless.platforms.target.artifacts.headless.platforms.key.url",
+                  "digest": "target.artifacts.headless.platforms.target.artifacts.headless.platforms.key.digest",
+                  "signature": "target.artifacts.headless.platforms.target.artifacts.headless.platforms.key.signature"
+                }
+              }
             },
             "desktop": {
               "delivery": "feed",
-              "url": "target.artifacts.desktop.url",
-              "digest": "target.artifacts.desktop.digest",
-              "signature": "target.artifacts.desktop.signature"
+              "platforms": {
+                "target.artifacts.desktop.platforms.key": {
+                  "url": "target.artifacts.desktop.platforms.target.artifacts.desktop.platforms.key.url",
+                  "digest": "target.artifacts.desktop.platforms.target.artifacts.desktop.platforms.key.digest",
+                  "signature": "target.artifacts.desktop.platforms.target.artifacts.desktop.platforms.key.signature"
+                }
+              }
             },
             "web": {
               "digest": "target.artifacts.web.digest"
@@ -63,7 +71,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"updateGrant\",\"grantId\":\"grantId\",\"target\":{\"version\":\"target.version\",\"notes\":{\"summary\":\"target.notes.summary\",\"url\":\"target.notes.url\"},\"critical\":true,\"minRequired\":{\"desktop\":\"target.minRequired.desktop\",\"web\":\"target.minRequired.web\",\"mobile\":{\"ios\":\"target.minRequired.mobile.ios\",\"android\":\"target.minRequired.mobile.android\"}},\"artifacts\":{\"headless\":{\"delivery\":\"feed\",\"url\":\"target.artifacts.headless.url\",\"digest\":\"target.artifacts.headless.digest\",\"signature\":\"target.artifacts.headless.signature\"},\"desktop\":{\"delivery\":\"feed\",\"url\":\"target.artifacts.desktop.url\",\"digest\":\"target.artifacts.desktop.digest\",\"signature\":\"target.artifacts.desktop.signature\"},\"web\":{\"digest\":\"target.artifacts.web.digest\"}}}}"
+      "encoded": "{\"type\":\"updateGrant\",\"grantId\":\"grantId\",\"target\":{\"version\":\"target.version\",\"notes\":{\"summary\":\"target.notes.summary\",\"url\":\"target.notes.url\"},\"critical\":true,\"minRequired\":{\"desktop\":\"target.minRequired.desktop\",\"web\":\"target.minRequired.web\",\"mobile\":{\"ios\":\"target.minRequired.mobile.ios\",\"android\":\"target.minRequired.mobile.android\"}},\"artifacts\":{\"headless\":{\"delivery\":\"feed\",\"platforms\":{\"target.artifacts.headless.platforms.key\":{\"url\":\"target.artifacts.headless.platforms.target.artifacts.headless.platforms.key.url\",\"digest\":\"target.artifacts.headless.platforms.target.artifacts.headless.platforms.key.digest\",\"signature\":\"target.artifacts.headless.platforms.target.artifacts.headless.platforms.key.signature\"}}},\"desktop\":{\"delivery\":\"feed\",\"platforms\":{\"target.artifacts.desktop.platforms.key\":{\"url\":\"target.artifacts.desktop.platforms.target.artifacts.desktop.platforms.key.url\",\"digest\":\"target.artifacts.desktop.platforms.target.artifacts.desktop.platforms.key.digest\",\"signature\":\"target.artifacts.desktop.platforms.target.artifacts.desktop.platforms.key.signature\"}}},\"web\":{\"digest\":\"target.artifacts.web.digest\"}}}}"
     },
     {
       "schema": "UpdateGrantMessage",
@@ -89,15 +97,23 @@
           "artifacts": {
             "headless": {
               "delivery": "bundle",
-              "url": "target.artifacts.headless.url",
-              "digest": "target.artifacts.headless.digest",
-              "signature": "target.artifacts.headless.signature"
+              "platforms": {
+                "target.artifacts.headless.platforms.key": {
+                  "url": "target.artifacts.headless.platforms.target.artifacts.headless.platforms.key.url",
+                  "digest": "target.artifacts.headless.platforms.target.artifacts.headless.platforms.key.digest",
+                  "signature": "target.artifacts.headless.platforms.target.artifacts.headless.platforms.key.signature"
+                }
+              }
             },
             "desktop": {
               "delivery": "bundle",
-              "url": "target.artifacts.desktop.url",
-              "digest": "target.artifacts.desktop.digest",
-              "signature": "target.artifacts.desktop.signature"
+              "platforms": {
+                "target.artifacts.desktop.platforms.key": {
+                  "url": "target.artifacts.desktop.platforms.target.artifacts.desktop.platforms.key.url",
+                  "digest": "target.artifacts.desktop.platforms.target.artifacts.desktop.platforms.key.digest",
+                  "signature": "target.artifacts.desktop.platforms.target.artifacts.desktop.platforms.key.signature"
+                }
+              }
             },
             "web": {
               "digest": "target.artifacts.web.digest"
@@ -108,7 +124,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"updateGrant\",\"grantId\":\"grantId\",\"target\":{\"version\":\"target.version\",\"notes\":{\"summary\":\"target.notes.summary\",\"url\":\"target.notes.url\"},\"critical\":false,\"minRequired\":{\"desktop\":\"target.minRequired.desktop\",\"web\":\"target.minRequired.web\",\"mobile\":{\"ios\":\"target.minRequired.mobile.ios\",\"android\":\"target.minRequired.mobile.android\"}},\"artifacts\":{\"headless\":{\"delivery\":\"bundle\",\"url\":\"target.artifacts.headless.url\",\"digest\":\"target.artifacts.headless.digest\",\"signature\":\"target.artifacts.headless.signature\"},\"desktop\":{\"delivery\":\"bundle\",\"url\":\"target.artifacts.desktop.url\",\"digest\":\"target.artifacts.desktop.digest\",\"signature\":\"target.artifacts.desktop.signature\"},\"web\":{\"digest\":\"target.artifacts.web.digest\"}}}}"
+      "encoded": "{\"type\":\"updateGrant\",\"grantId\":\"grantId\",\"target\":{\"version\":\"target.version\",\"notes\":{\"summary\":\"target.notes.summary\",\"url\":\"target.notes.url\"},\"critical\":false,\"minRequired\":{\"desktop\":\"target.minRequired.desktop\",\"web\":\"target.minRequired.web\",\"mobile\":{\"ios\":\"target.minRequired.mobile.ios\",\"android\":\"target.minRequired.mobile.android\"}},\"artifacts\":{\"headless\":{\"delivery\":\"bundle\",\"platforms\":{\"target.artifacts.headless.platforms.key\":{\"url\":\"target.artifacts.headless.platforms.target.artifacts.headless.platforms.key.url\",\"digest\":\"target.artifacts.headless.platforms.target.artifacts.headless.platforms.key.digest\",\"signature\":\"target.artifacts.headless.platforms.target.artifacts.headless.platforms.key.signature\"}}},\"desktop\":{\"delivery\":\"bundle\",\"platforms\":{\"target.artifacts.desktop.platforms.key\":{\"url\":\"target.artifacts.desktop.platforms.target.artifacts.desktop.platforms.key.url\",\"digest\":\"target.artifacts.desktop.platforms.target.artifacts.desktop.platforms.key.digest\",\"signature\":\"target.artifacts.desktop.platforms.target.artifacts.desktop.platforms.key.signature\"}}},\"web\":{\"digest\":\"target.artifacts.web.digest\"}}}}"
     },
     {
       "schema": "UpdateGrantMessage",
