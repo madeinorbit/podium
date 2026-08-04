@@ -181,10 +181,7 @@ function unquoteIdentifier(identifier: string): string {
   return identifier
 }
 
-function identifierAfter(
-  statement: string,
-  expression: RegExp,
-): string | null {
+function identifierAfter(statement: string, expression: RegExp): string | null {
   return statement.match(expression)?.[1] ?? null
 }
 
@@ -290,7 +287,8 @@ export function findDestructiveDdl(sql: string): DestructiveDdlFinding[] {
       kind = 'not-null-without-default'
     }
 
-    if (kind !== null) findings.push({ start: span.start, finding: { kind, statement: span.original } })
+    if (kind !== null)
+      findings.push({ start: span.start, finding: { kind, statement: span.original } })
   }
 
   findings.sort((left, right) => left.start - right.start)
@@ -394,7 +392,9 @@ if (import.meta.main) {
       )
       process.exit(1)
     }
-    console.log('\nexpand-only migration audit: every check fired on its planted violation and spared the clean tree')
+    console.log(
+      '\nexpand-only migration audit: every check fired on its planted violation and spared the clean tree',
+    )
     process.exit(0)
   }
 

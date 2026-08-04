@@ -29,9 +29,7 @@ CREATE INDEX t_idx ON t (id);`
   })
 
   it('catches a RENAME', () => {
-    expect(
-      findDestructiveDdl('ALTER TABLE machines RENAME COLUMN a TO b;')[0]?.kind,
-    ).toBe('rename')
+    expect(findDestructiveDdl('ALTER TABLE machines RENAME COLUMN a TO b;')[0]?.kind).toBe('rename')
   })
 
   it('catches the SQLite table-rebuild dance', () => {
@@ -47,9 +45,9 @@ ALTER TABLE __new_machines RENAME TO machines;`
   it('catches NOT NULL with no default, which is additive in name only', () => {
     // The old binary does not know the column, so it cannot insert. The rollback
     // breaks writes even though nothing was dropped.
-    expect(
-      findDestructiveDdl('ALTER TABLE machines ADD COLUMN k text NOT NULL;')[0]?.kind,
-    ).toBe('not-null-without-default')
+    expect(findDestructiveDdl('ALTER TABLE machines ADD COLUMN k text NOT NULL;')[0]?.kind).toBe(
+      'not-null-without-default',
+    )
   })
 
   it('passes NOT NULL WITH a default', () => {
@@ -67,9 +65,9 @@ ALTER TABLE __new_machines RENAME TO machines;`
   })
 
   it('ignores the words inside a string literal', () => {
-    expect(
-      findDestructiveDdl("INSERT INTO notes (body) VALUES ('DROP TABLE machines');"),
-    ).toEqual([])
+    expect(findDestructiveDdl("INSERT INTO notes (body) VALUES ('DROP TABLE machines');")).toEqual(
+      [],
+    )
   })
 
   it('reports the offending statement so a human can see what it caught', () => {
