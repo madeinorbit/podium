@@ -140,6 +140,28 @@ describe('useUpdateState server action', () => {
     expect(screen.queryByText('install action')).toBeNull()
   })
 
+  it('claims update ownership and exposes the install action when the shell provides it', async () => {
+    setupTransport()
+    const claim = vi.fn(async () => {})
+    const install = vi.fn(async () => {})
+    vi.stubGlobal('__PODIUM_DESKTOP__', {
+      platform: 'linux',
+      minimize: vi.fn(async () => {}),
+      toggleMaximize: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+      claimUpdateOwnership: claim,
+      installUpdate: install,
+    })
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} />)
+    await waitFor(() => expect(screen.getByText('install action')).toBeTruthy())
+    expect(claim).toHaveBeenCalledTimes(1)
+
+    await results.at(-1)?.actions.installApp?.()
+    expect(install).toHaveBeenCalledTimes(1)
+  })
+
   it('only exposes reload when the app place is touched', async () => {
     setupTransport({
       appVersion: '0.4.1',

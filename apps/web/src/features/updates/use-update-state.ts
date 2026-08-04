@@ -122,6 +122,11 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   )
   const [serverAction, setServerAction] = useState<ServerActionState>({ state: 'idle' })
   const trpc = useMemo(() => makeTrpc(options.httpOrigin), [options.httpOrigin])
+  useEffect(() => {
+    const claim = nativeDesktopBridge()?.claimUpdateOwnership
+    if (!claim) return
+    void claim().catch(() => {})
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -220,13 +225,8 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   }, [fleet.behind, localVersion, options.updateServer, serverBehind, target, trpc])
 
   const actions = useMemo<UpdateActions>(() => {
-    const bridge = nativeDesktopBridge() as
-      | (ReturnType<typeof nativeDesktopBridge> & { installUpdate?: () => MaybePromise })
-      | undefined
-    const installApp =
-      bridge && typeof bridge.installUpdate === 'function'
-        ? () => bridge.installUpdate?.()
-        : undefined
+    const install = nativeDesktopBridge()?.installUpdate
+    const installApp = typeof install === 'function' ? () => install() : undefined
     return {
       ...(options.reload && touched.app ? { reload: options.reload } : {}),
       ...(installApp ? { installApp } : {}),
@@ -248,5 +248,3 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
 
   return { view, actions, server, fleet }
 }
-
-type MaybePromise = void | Promise<void>
