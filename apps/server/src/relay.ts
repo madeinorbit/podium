@@ -123,6 +123,11 @@ export type { MemoryBreakdown }
 interface SessionRegistryOptions {
   /** Boot-resolved deployment identity; every composition root names it explicitly. */
   instanceId: string
+  /**
+   * The server target app label for derived machine version state. The real
+   * composition root supplies the baked app version; fixtures may omit it.
+   */
+  targetVersion?: () => string | undefined
   telegramSetup?: TelegramSetupClient
   generateTelegramSetupCode?: () => string
   now?: () => number
@@ -356,6 +361,7 @@ export class SessionRegistry {
     )
     const machines = new MachinesService({
       instanceId,
+      ...(options.targetVersion ? { targetVersion: options.targetVersion } : {}),
       store: this.store,
       // ONE READER of `<stateDir>/machine.id`: the composition root passes the id to
       // the store, and every consumer takes the store's copy. A second `readOrCreate*`

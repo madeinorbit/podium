@@ -252,6 +252,9 @@ export async function startServer(
   // SessionRegistry without it produce no mirror traffic.
   const registry = new SessionRegistry(store, undefined, {
     instanceId,
+    // The server's baked product label is the Phase 1 target identity. The richer
+    // release-manifest descriptor remains an optional /version publication seam.
+    targetVersion: () => process.env.PODIUM_APP_VERSION ?? 'dev',
     mirrorLakeDir: join(stateDir(), 'transcripts'),
     // Rollout diagnostic only: compare legacy/new semantics while continuing
     // to deliver the worker publication [spec:SP-c29e].

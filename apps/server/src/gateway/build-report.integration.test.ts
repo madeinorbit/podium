@@ -7,6 +7,7 @@ import WebSocket from 'ws'
 import { startServer } from '../server'
 
 const priorStateDir = process.env.PODIUM_STATE_DIR
+const priorAppVersion = process.env.PODIUM_APP_VERSION
 
 describe('machine build report over a live daemon socket', () => {
   let stateDir: string
@@ -15,6 +16,7 @@ describe('machine build report over a live daemon socket', () => {
   beforeAll(async () => {
     stateDir = mkdtempSync(join(tmpdir(), 'podium-build-report-'))
     process.env.PODIUM_STATE_DIR = stateDir
+    process.env.PODIUM_APP_VERSION = '0.4.2'
     server = await startServer({ port: 0 })
   })
 
@@ -23,6 +25,8 @@ describe('machine build report over a live daemon socket', () => {
     rmSync(stateDir, { recursive: true, force: true })
     if (priorStateDir === undefined) delete process.env.PODIUM_STATE_DIR
     else process.env.PODIUM_STATE_DIR = priorStateDir
+    if (priorAppVersion === undefined) delete process.env.PODIUM_APP_VERSION
+    else process.env.PODIUM_APP_VERSION = priorAppVersion
   })
 
   async function connect(build?: PeerBuild): Promise<WebSocket> {
@@ -77,6 +81,7 @@ describe('machine build report over a live daemon socket', () => {
       wireSchemaDigest: 'abc',
       installKind: 'installed',
       deliveryCaps: ['update.delivery.feed'],
+      versionState: 'current',
     })
     await close(ws)
   })
