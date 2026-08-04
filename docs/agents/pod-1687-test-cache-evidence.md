@@ -14,6 +14,29 @@ All measured in the issue worktree on `flatblock`, turbo 2.10.5.
 That is the deliverable: an unrelated edit skips both suites entirely, and a
 covered edit re-runs only the lane that is actually affected.
 
+### Caveat on "green": the web suite flakes under host load
+
+The cold run above was green (207 files, 1661 tests). A later full run on a
+**loaded** host was not: 4 failed / 203 passed, and 5m54s instead of 2m33s — a
+~2.3x slowdown from concurrent work on the same machine.
+
+Those four are **not** broken components, and not caused by this change:
+
+- every one failed with `Test timed out in 5000ms` — **zero** assertion failures;
+- all four pass in isolation (`4 passed, 19 tests`);
+- this branch's diff versus `main` touches no test source at all — only
+  `turbo.json`, `package.json`, `apps/web/package.json` (+1 line), `scripts/test.ts`
+  and docs.
+
+Root cause: the root `vitest.config.ts` sets `testTimeout: 20_000`, but
+`apps/web/vitest.config.ts` is a standalone `defineConfig()` that inherits nothing,
+so the web suite runs at vitest's **5000ms default** — 4x less headroom than every
+other suite in the repo. Filed as POD-1694.
+
+**A cached green from this lane is only as good as the run that produced it.** If
+you cache a green from an unloaded host, that is real; a red under load is most
+likely this timeout gap, so check the failure mode before believing it.
+
 ## The correctness work, which was the harder half
 
 `$TURBO_DEFAULT$` alone would have shipped a **wrong green**. Both suites reach
@@ -61,6 +84,27 @@ uncached test run refused.
 Not hypothetical: **this worktree had no `node_modules` at all** when the issue
 started. That guard is the only thing standing between that state and a
 confident, meaningless green.
+
+## What "vetted" means here — and what it does not
+
+`apps/web` and `apps/mobile` were vetted for **cache-key correctness**: every file
+the suite reads or imports is covered by the task's inputs, so a green cannot
+survive a change it should have noticed. That is the claim the evidence above
+supports, and it is the claim this issue set out to make.
+
+It is **not** a claim that these two suites are hermetic. They are not:
+
+| Guard | Root lane | `apps/web` / `apps/mobile` |
+| --- | --- | --- |
+| `setupFiles` — `test-hermetic-env.ts`, `test-hermetic-vitest-hooks.ts` (POD-555: strips ambient Podium session env so a suite cannot reach the **live instance**) | applied | **not applied** — both report `setup 0ms` |
+| `testTimeout: 20_000` | applied | **not applied** — vitest default 5000ms |
+
+Both app configs are standalone `defineConfig()` calls that inherit nothing from
+the root. This is **pre-existing, not introduced by caching**: `nodeTestExclude`
+carves `apps/web/**` and `apps/mobile/**` out of the root sweep, so these suites
+have always run under their own config. Caching changes how often they run, not
+what they run under. Filed as POD-1694; it is the web/mobile half of POD-1693's
+root cause, where a config exists but does not inherit.
 
 ## What is deliberately NOT cached
 
