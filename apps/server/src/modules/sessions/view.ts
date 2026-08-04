@@ -186,7 +186,7 @@ export class SessionView {
   ): SessionMeta {
     const harnessCapabilities = harnessCapabilitiesFor(session.agentKind)
     const viewer = forPrincipal ?? this.defaultPrincipal()
-    const loginCondition = this.ports.machines.agentLoginCondition(
+    const loginCondition = this.ports.machines.agentLoginCondition?.(
       session.machineId,
       session.agentKind,
     )
