@@ -70,8 +70,16 @@ Only `@podium/web#test` was selected and run. An unrelated re-run on a clean tre
 
 One honest note: the first such run reported 2 failed files out of 207. Re-running the
 identical edit gave 207 passed, and that run's timings were pathological (748s import,
-392s environment) on a loaded host. Treated as flakiness in the web suite under load — not
-caused by this lane and not reproducible.
+392s environment) on a loaded host.
+
+Root cause since identified as **POD-1694**: `apps/web/vitest.config.ts` is a standalone
+`defineConfig()` that inherits nothing from the root, so the web suite runs at vitest's
+5000ms default instead of the root's `testTimeout: 20_000`. Under load the async React
+tests cross 5s. Pre-existing, unrelated to this lane.
+
+**This matters when reading a red from this lane.** `Test timed out in 5000ms` with no
+assertion failure is that flake, not a regression your change caused. An assertion failure
+is real. Check which one you have before believing the selection picked a broken package.
 
 ### The earlier table used `typecheck` as a proxy
 
