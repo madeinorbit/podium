@@ -168,6 +168,52 @@ describe('SessionBinding transition vocabulary', () => {
     })
   })
 
+  // The upgrade case that orphaned a live fleet: a session older than the store
+  // has no record, so its reattach probe was refused before the daemon ever
+  // looked for the durable host it was still running in (POD-1647).
+  it('REATTACH adopts a survivor the server vouches for, under the OWNER not the prober', async () => {
+    const bindings = await store()
+    const outcome = await bindings.transition({
+      event: 'reattach',
+      transitionId: 'reattach:survivor:1',
+      sessionId: asSessionId('survivor'),
+      claimantMachineId: machineA,
+      machineAccess: 'allowed',
+      sessionAccess: 'allowed',
+      principal: { kind: 'system' },
+      requestedGeneration: 1,
+      agentKind: 'claude-code',
+      adopt: { ownerUserId: alice, issueId: issueA },
+    })
+    expect(outcome.status).toBe('applied')
+    const row = applied(outcome)
+    // The delegation is the SESSION's owner, never the system prober — a
+    // placeholder identity here would read as adopted and enforce nothing.
+    expect(bindings.currentDelegation(row)).toMatchObject({
+      onBehalfOf: alice,
+      grantedScope: { kind: 'subtree', rootId: issueA },
+    })
+    expect(row.claimantMachineId).toBe(machineA)
+  })
+
+  // Without a vouched owner there is nothing to adopt UNDER, and inventing one
+  // is worse than refusing.
+  it('REATTACH still refuses an unknown session when the server vouches for no owner', async () => {
+    const bindings = await store()
+    expect(
+      await bindings.transition({
+        event: 'reattach',
+        transitionId: 'reattach:nobody:1',
+        sessionId: asSessionId('nobody'),
+        claimantMachineId: machineA,
+        machineAccess: 'allowed',
+        sessionAccess: 'allowed',
+        principal: { kind: 'system' },
+        requestedGeneration: 1,
+      }),
+    ).toMatchObject({ status: 'denied', reason: 'not-found', terminal: true })
+  })
+
   // A relaunch mints the record when it is absent: sessions born before the
   // binding store exists still resume.
   it('RELAUNCH SPAWN mints a binding for a session that never had one', async () => {

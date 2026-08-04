@@ -83,6 +83,14 @@ export class SessionClientPlane {
         machineAccess: recoveryMachineAccess,
         sessionAccess: 'allowed',
         principal: { kind: 'system' },
+        // WHO this session belongs to, for a survivor the daemon has no binding
+        // record for (every session older than the binding store). The daemon
+        // cannot know it; this row is where it lives. `principal` above is the
+        // probe, not the owner — see SessionBindingReattachInstruction.adopt.
+        adopt: {
+          ownerUserId: session.ownerUserId,
+          ...(session.issueId ? { issueId: session.issueId } : {}),
+        },
       },
       ...(observationLease
         ? {

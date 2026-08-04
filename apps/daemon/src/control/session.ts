@@ -374,7 +374,19 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
       principal: msg.binding.principal,
       requestedGeneration: msg.observationGeneration ?? 1,
       attemptId: msg.durableLabel,
+      agentKind: msg.agentKind,
+      ...(msg.binding.adopt ? { adopt: msg.binding.adopt } : {}),
     })
+    // A refused probe is how a live session goes invisible, so say so. Silence
+    // here is what let 70 running agents sit unreachable behind a Resume button
+    // that could not work (POD-1647).
+    if (outcome.status === 'denied' || outcome.status === 'rejected') {
+      console.warn(
+        `[podium] reattach binding refused for ${msg.sessionId}: ${outcome.status}/${outcome.reason}`,
+      )
+    } else if (outcome.status === 'applied' && outcome.binding.transitionHistory.length === 1) {
+      console.info(`[podium] adopted pre-existing session ${msg.sessionId} into a binding`)
+    }
     const failure = bindingFailureMessage(outcome)
     if (failure) {
       ctx.send({
