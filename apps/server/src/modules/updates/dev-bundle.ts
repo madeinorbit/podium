@@ -116,8 +116,6 @@ function developmentSigningKey(root: string): string {
     const key = readFileSync(path, 'utf8').trim()
     if (key) return key
   }
-  const key = process.env.PODIUM_UPDATE_SIGNING_KEY?.trim()
-  if (key) return key
   throw new Error('development signing key missing at ' + path)
 }
 
