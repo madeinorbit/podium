@@ -10,6 +10,8 @@ export {
   formatTopQueries,
   queryAttributionEnabled,
   queryAttributionSnapshot,
+  queryAttributionTotals,
+  queryCallerStacks,
   queryKey,
   resetQueryAttribution,
   type QueryCost,

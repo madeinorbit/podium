@@ -14,6 +14,25 @@ import type { IssueReportsModule } from './reads'
 import { AUTO_ARCHIVE_READ_WINDOW_MS } from './types'
 
 /**
+ * The reads a draft SWEEP does once and shares across every draft it visits
+ * (POD-1638). Optional at the call site precisely so the single-draft kill path
+ * keeps its own read-per-call semantics rather than inheriting a snapshot it did
+ * not take.
+ */
+interface ReapPass {
+  sessions: SessionMeta[]
+  childCountByParent: Map<string, number>
+}
+
+function countChildren(rows: IssueRow[]): Map<string, number> {
+  const counts = new Map<string, number>()
+  for (const r of rows) {
+    if (r.parentId) counts.set(r.parentId, (counts.get(r.parentId) ?? 0) + 1)
+  }
+  return counts
+}
+
+/**
  * Attention and subscriptions capability:
  * archive + the read-gated auto-archive sweep (#127), the session-attach /
  * draft-vessel flows (issue-as-workspace), and event subscriptions (Phase B).
@@ -186,13 +205,24 @@ export class IssueAttentionModule {
    *  produce work: exited or archived sessions don't count (hibernated ones DO —
    *  hibernation is an intentional park, the draft must survive it). Any dead
    *  sessions still pointing at the deleted issue are detached so nothing
-   *  dangles. Returns true iff the issue was deleted. */
-  reapIfEmptyDraft(id: string): boolean {
+   *  dangles. Returns true iff the issue was deleted.
+   *
+   *  `pass` carries the reads a SWEEP has already done (POD-1638). `listSessions`
+   *  is the reader-scoped session PROJECTION, not an accessor — building it runs
+   *  an authorization check and a display-ref resolution per session, each of
+   *  which hits SQLite — so calling it once per draft made the boot sweep cost
+   *  drafts x sessions and blocked the event loop for seconds. A single-draft
+   *  caller passes nothing and reads for itself, exactly as before. */
+  reapIfEmptyDraft(id: string, pass?: ReapPass): boolean {
     const row = this.store.rows.get(id)
     if (!row || row.deletedAt || !row.draft || row.worktreePath) return false
-    const hasChildren = [...this.store.rows.values()].some((r) => r.parentId === id)
+    const hasChildren = pass
+      ? (pass.childCountByParent.get(id) ?? 0) > 0
+      : [...this.store.rows.values()].some((r) => r.parentId === id)
     if (hasChildren) return false
-    const attached = this.store.deps.listSessions().filter((s) => s.issueId === id)
+    const attached = (pass?.sessions ?? this.store.deps.listSessions()).filter(
+      (s) => s.issueId === id,
+    )
     const blocking = attached.some((s) => !s.archived && s.status !== 'exited')
     if (blocking) return false
     // Detach the remaining dead sessions BEFORE deleting so their broadcasts
@@ -200,7 +230,9 @@ export class IssueAttentionModule {
     if (this.store.deps.setSessionIssueId) {
       for (const s of attached) this.store.deps.setSessionIssueId(s.sessionId, null)
     }
-    this.crud().purgeEmptyDraft(id)
+    // A sweep publishes ONE reconcile for the whole pass (see reapLeakedDrafts);
+    // a single-draft caller publishes its own, as it always did.
+    this.crud().purgeEmptyDraft(id, pass ? { publish: false } : undefined)
     return true
   }
 
@@ -213,9 +245,27 @@ export class IssueAttentionModule {
    *  reaper existed left orphaned "Draft" vessels behind). Returns the number
    *  of drafts reaped. */
   reapLeakedDrafts(): number {
+    // Both reads are hoisted out of the loop. The sweep is SYNCHRONOUS, so
+    // nothing can attach a session or re-parent an issue while it runs; the only
+    // writes it makes itself are detaching sessions from — and deleting — drafts
+    // it has already passed, and neither can turn a later draft reapable or
+    // unreapable (a detached session's issueId becomes null, which matches no
+    // draft, and ids are visited once).
+    const pass: ReapPass = {
+      sessions: this.store.deps.listSessions(),
+      childCountByParent: countChildren([...this.store.rows.values()]),
+    }
     let n = 0
     for (const id of [...this.store.rows.keys()]) {
-      if (this.store.rows.get(id)?.draft && this.reapIfEmptyDraft(id)) n++
+      if (this.store.rows.get(id)?.draft && this.reapIfEmptyDraft(id, pass)) n++
+    }
+    // The one reconcile the batched purges above deferred. Derived from full
+    // truth after every delete has committed, so it says exactly what a
+    // per-draft republish would have said last — one message instead of n.
+    if (n > 0) {
+      this.store.reconcileAndPublish(
+        this.store.deps.publishSpecs.issuesChanged(this.store.allWire()),
+      )
     }
     return n
   }
