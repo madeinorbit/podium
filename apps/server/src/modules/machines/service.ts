@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto'
 import {
   type AgentKind,
   agentCapabilityRejection,
+  agentCapabilityRejectionForSelection,
+  agentLoginCondition,
   asMachineId,
   type Inventory,
   type MachineId,
@@ -400,13 +402,14 @@ export class MachinesService {
     // capability predicate refuse them for us, in the same branch as offline.
     const machines = this.listMachines(use)
     const selected = machines.find((machine) => machine.id === legacy)
-    if (selected && agentCapabilityRejection(selected, agentKind) === undefined) return legacy
+    if (selected && agentCapabilityRejectionForSelection(selected, agentKind) === undefined)
+      return legacy
 
     // Prefer another capable ONLINE machine that actually owns this cwd. This
     // keeps implicit routing useful without ever launching against a foreign path.
     const byRepo = machines.find(
       (machine) =>
-        agentCapabilityRejection(machine, agentKind) === undefined &&
+        agentCapabilityRejectionForSelection(machine, agentKind) === undefined &&
         this.deps.store.repos
           .listRepos(machine.id)
           .some((repo) => cwd === repo.path || cwd.startsWith(`${repo.path}/`)),
@@ -440,8 +443,6 @@ export class MachinesService {
         throw new Error(`machine '${machine.name}' is offline`)
       case 'harness-missing':
         throw new Error(`${agentKind} is not installed on machine '${machine.name}'`)
-      case 'logged-out':
-        throw new Error(`${agentKind} is not logged in on machine '${machine.name}'`)
       default: {
         const exhaustive: never = rejection
         throw new Error(`machine '${machine.name}' cannot run ${agentKind}: ${String(exhaustive)}`)
@@ -523,6 +524,12 @@ export class MachinesService {
     }))
   }
 
+  /** Current login condition for a session's machine and harness. */
+  agentLoginCondition(machineId: string, agentKind: AgentKind): 'logged-out' | undefined {
+    const machine = this.listMachines().find((candidate) => candidate.id === machineId)
+    return machine ? agentLoginCondition(machine, agentKind) : undefined
+  }
+
   /**
    * The ownership facts for every machine row — `machine-access.ts`'s
    * `MachineRowSource` (POD-1079).
@@ -559,6 +566,8 @@ export class MachinesService {
   recordInventory(machineId: string, inventory: Inventory): void {
     this.deps.store.machines.setMachineInventory(machineId, JSON.stringify(inventory))
     this.invalidateMachineCache()
+    if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId })
+    else this.deps.sessionsChangedForMachine?.(machineId)
     this.broadcastMachines()
   }
 
