@@ -130,3 +130,27 @@ test('chat-versus-native mode switch persists across reload', async ({ page }) =
     .toBe('true')
   await expect(page.getByTestId('mode-native')).toHaveAttribute('aria-selected', 'false')
 })
+
+test('native mode stays selected after a delayed layout feed', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 820 })
+  await openApp(page)
+
+  await page.waitForFunction(
+    () => !!(window as unknown as { __podium?: unknown }).__podium,
+    undefined,
+    { timeout: 30_000 },
+  )
+
+  const nativeTab = page.getByTestId('mode-native')
+  const chatTab = page.getByTestId('mode-chat')
+  await expect(nativeTab).toHaveAttribute('aria-selected', 'true')
+
+  // Reproduce the direction reported in the live session: select native and
+  // leave enough time for a stale layout feed to arrive after the click.
+  await chatTab.click()
+  await expect(chatTab).toHaveAttribute('aria-selected', 'true')
+  await nativeTab.click()
+  await expect(nativeTab).toHaveAttribute('aria-selected', 'true')
+  await page.waitForTimeout(5_000)
+  await expect(nativeTab).toHaveAttribute('aria-selected', 'true')
+})

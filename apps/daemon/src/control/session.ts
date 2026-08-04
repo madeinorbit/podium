@@ -6,6 +6,7 @@ import {
   type AgentSession,
   abducoHasSession,
   abducoSocketPath,
+  waitForAbducoSocket,
   attachAbducoAgent,
   attachTmuxAgent,
   killAbducoSession,
@@ -492,7 +493,17 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     let found: { session: AgentSession; cmd: string } | undefined
     // Backend-agnostic: try whichever durable host owns the label, so sessions
     // created under tmux before an abduco upgrade still reattach (no flag day).
-    const socketPath = ctx.backend !== 'none' ? abducoSocketPath(msg.durableLabel) : undefined
+    let socketPath: string | undefined
+    if (ctx.backend !== 'none') {
+      socketPath = abducoSocketPath(msg.durableLabel)
+      if (socketPath === undefined) {
+        try {
+          socketPath = await waitForAbducoSocket(msg.durableLabel, process.env, { timeoutMs: 1500 })
+        } catch {
+          // The durable host may be absent; keep the tmux compatibility fallback below.
+        }
+      }
+    }
     if (socketPath) {
       found = {
         session: attachAbducoAgent({ ...attach, socketPath }),
@@ -532,6 +543,10 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
       geometry: msg.geometry,
       ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
     })
+    // attachAbducoAgent nudges the PTY before the bridge is wired, so that
+    // initial repaint can be lost. Nudge once more after bind to make a fresh
+    // daemon reattach paint native view reliably.
+    found.session.redraw()
   })
 }
 
