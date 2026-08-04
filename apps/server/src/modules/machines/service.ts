@@ -112,6 +112,8 @@ export interface PairingGrant {
 export interface MachinesDeps {
   /** Deployment configuration only; never an owner or grant input. */
   instanceId: string
+  /** Public half of the server update-signing key, sent only at pairing. */
+  updatePubkey?: () => string
   /**
    * The version in the server's injected update target. Absent means this
    * deployment has no target descriptor yet, so every machine is unreported.

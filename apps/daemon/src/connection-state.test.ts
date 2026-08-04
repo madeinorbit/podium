@@ -7,6 +7,7 @@ import { type PeerHello, type PeerHelloReply, WIRE_VERSION } from '@podium/proto
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RawData } from 'ws'
 import { createDaemonConnection } from './connection-state'
+import { loadIdentity } from './identity'
 import type { DaemonOptions, ReconnectTimers } from './daemon-options'
 
 const roots: string[] = []
@@ -46,7 +47,7 @@ function localOptions(
   }
 }
 
-function connection(options: DaemonOptions, identity: { token?: string } = {}) {
+function connection(options: DaemonOptions, identity: { token?: string; updatePubkey?: string } = {}) {
   return createDaemonConnection({
     options,
     machineId: MACHINE_ID,
@@ -98,6 +99,78 @@ describe('daemon connection credential state machine', () => {
       )
     }
     await state.close()
+  })
+
+
+  it('pins the key on pairing and leaves it unchanged on reconnect', async () => {
+    const firstOptions = localOptions(() => {}, { pairCode: 'PAIR-1' })
+    const identityDir = firstOptions.identityDir as string
+    firstOptions.localLink = {
+      attach: () => ({
+        established: true,
+        reply: {
+          ...ok,
+          issuedToken: 'token-1',
+          updatePubkey: 'server-key-1',
+        },
+        machineId: MACHINE_ID,
+        deliver: vi.fn(),
+        close: vi.fn(),
+      }),
+    }
+
+    const first = connection(firstOptions)
+    await first.start()
+    expect(loadIdentity({ dir: identityDir })).toMatchObject({
+      token: 'token-1',
+      updatePubkey: 'server-key-1',
+    })
+    await first.close()
+
+    const secondOptions = localOptions(() => {}, { identityDir })
+    const second = connection(secondOptions, loadIdentity({ dir: identityDir }))
+    await second.start()
+
+    expect(loadIdentity({ dir: identityDir }).updatePubkey).toBe('server-key-1')
+    await second.close()
+  })
+
+  it('refuses a changed server key on ordinary reconnect', async () => {
+    const firstOptions = localOptions(() => {}, { pairCode: 'PAIR-1' })
+    const identityDir = firstOptions.identityDir as string
+    firstOptions.localLink = {
+      attach: () => ({
+        established: true,
+        reply: {
+          ...ok,
+          issuedToken: 'token-1',
+          updatePubkey: 'server-key-1',
+        },
+        machineId: MACHINE_ID,
+        deliver: vi.fn(),
+        close: vi.fn(),
+      }),
+    }
+
+    const first = connection(firstOptions)
+    await first.start()
+    await first.close()
+
+    const secondOptions = localOptions(() => {}, { identityDir })
+    secondOptions.localLink = {
+      attach: () => ({
+        established: true,
+        reply: { ...ok, updatePubkey: 'server-key-2' },
+        machineId: MACHINE_ID,
+        deliver: vi.fn(),
+        close: vi.fn(),
+      }),
+    }
+
+    const second = connection(secondOptions, loadIdentity({ dir: identityDir }))
+    await expect(second.start()).rejects.toThrow(/server update key changed/i)
+    expect(second.state).toBe('blocked')
+    expect(loadIdentity({ dir: identityDir }).updatePubkey).toBe('server-key-1')
   })
 
   it('classifies authorization denial as terminal and never enters reconnect backoff', async () => {

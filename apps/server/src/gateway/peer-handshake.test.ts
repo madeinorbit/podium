@@ -172,7 +172,7 @@ describe('payload identity is inert at the real MachinesService', () => {
   it('pairing passes the peer name through and mints a token once', () => {
     const store = new SessionStore(':memory:')
     const pairing = new PairingManager()
-    const reg = new SessionRegistry(store, undefined, { instanceId: 'default', pairing })
+    const reg = new SessionRegistry(store, undefined, { instanceId: 'default', pairing, updatePubkey: () => 'server-key-1' })
     const code = pairing.mint({})
     const directory = createMachineDirectory(reg.modules.machines)
     const paired = directory.redeemPairCode(code, {
@@ -181,7 +181,7 @@ describe('payload identity is inert at the real MachinesService', () => {
       hostname: 'new.local',
     })
     expect(paired).toMatchObject({ machine: 'm-new', name: 'New Box' })
-    expect(paired?.issuedToken).toBeTruthy()
+    expect(paired).toMatchObject({ issuedToken: expect.any(String), updatePubkey: 'server-key-1' })
     // Single use.
     expect(directory.redeemPairCode(code, { machineId: 'm-new' })).toBeNull()
   })

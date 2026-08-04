@@ -26,11 +26,28 @@ describe('fetchArtifact', () => {
     const { bytes } = await fetchArtifact(
       { url: 'https://server.test/a.tgz', digest, signature },
       'bundle',
-      { fetch: okFetch, pubkey },
+      { fetch: okFetch, pubkey: 'release-key-is-not-used', pinnedPubkey: pubkey },
     )
     expect(bytes.length).toBe(4)
   })
 
+  it('uses the committed release key for feed delivery', async () => {
+    const { bytes } = await fetchArtifact(
+      { url: 'https://x.test/a.tgz', digest, signature },
+      'feed',
+      { fetch: okFetch, pubkey, pinnedPubkey: 'wrong-pinned-key' },
+    )
+    expect(bytes.length).toBe(4)
+  })
+
+  it('rejects bundle delivery without a pairing pin', async () => {
+    await expect(
+      fetchArtifact({ url: 'https://server.test/a.tgz', digest, signature }, 'bundle', {
+        fetch: okFetch,
+        pubkey,
+      }),
+    ).rejects.toThrow(/pinned/i)
+  })
   it('throws on a bad digest before returning bytes', async () => {
     await expect(
       fetchArtifact({ url: 'https://x.test/a.tgz', digest: 'sha256-wrong', signature }, 'feed', {

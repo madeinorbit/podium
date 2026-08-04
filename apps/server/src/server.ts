@@ -53,6 +53,7 @@ import { registerMaintenanceRoute } from './modules/maintenance/route'
 import { MaintenanceService } from './modules/maintenance/service'
 import { DEVELOPMENT_SOURCE_ROOT } from './modules/updates/dev-bundle'
 import { wireDevBundlePublisher } from './modules/updates/dev-publisher-wiring'
+import { readOrCreateUpdateSigningKey } from './modules/updates/signing-key'
 import { MessagingService } from './modules/messaging'
 import { DEPLOYMENT, perf } from './modules/perf/registry'
 import type { PublicationAuthority } from './modules/sessions/session'
@@ -215,6 +216,7 @@ export async function startServer(
   // and in-process daemon link below name this same value. The split-mode daemon
   // reads the same file in its own process; all-in-one is handed it in memory.
   const hostMachineId = readOrCreateLocalMachineId()
+  const updateSigningKey = readOrCreateUpdateSigningKey()
   const store = new SessionStore(undefined, hostMachineId)
   // RETIRING THE INSTANCE PASSWORD (POD-1554), before anything can serve a login and
   // before the open-exposure check below. Order matters between these two: the legacy
@@ -270,6 +272,7 @@ export async function startServer(
     // Node role = no manager = `pair` handshakes rejected, minting throws; the
     // local daemon's `hello` path is untouched.
     ...(role.hub ? { pairing: new PairingManager() } : {}),
+    updatePubkey: () => updateSigningKey.publicKey,
     // Live model enumeration is only wired in the real process; tests get the empty
     // default and nothing is ever asked of a daemon.
     // TODO(#251-followup): fold the remaining settings-coupled env reads
@@ -394,6 +397,7 @@ export async function startServer(
     port: () => boundPort,
     artifactToken: devArtifactToken,
     setTarget: (target) => registry.modules.updates.setTarget(target),
+    signingKey: updateSigningKey.privateKey,
   })
 
   const app = new Hono()

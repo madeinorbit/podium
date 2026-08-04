@@ -56,7 +56,7 @@ const DEFAULT_HOST_METRICS_INTERVAL_MS = 5_000
 
 export interface DaemonHostRuntime {
   readonly machineId: string
-  readonly identity: { token?: string }
+  readonly identity: { token?: string; updatePubkey?: string }
   readonly backend: DurableBackend
   readonly frameGuard: FrameGuard
   readonly hookPort: number

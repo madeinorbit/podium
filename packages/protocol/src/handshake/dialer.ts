@@ -42,6 +42,8 @@ export type DialerStep =
        * this end must PERSIST before doing anything else (ADR 5 D5).
        */
       readonly issuedToken?: string
+      /** The server update-signing key to persist alongside the pairing token. */
+      readonly updatePubkey?: string
     }
   | { readonly action: 'rejected'; readonly reply: PeerHelloRejected }
   | { readonly action: 'protocol-error'; readonly error: DialerProtocolError }
@@ -142,6 +144,7 @@ export const createHandshakeDialer = (deps: DialerDeps): HandshakeDialer => {
         caps: negotiateCapabilities(reply.caps, offered),
         ...(reply.name === undefined ? {} : { name: reply.name }),
         ...(reply.issuedToken === undefined ? {} : { issuedToken: reply.issuedToken }),
+        ...(reply.updatePubkey === undefined ? {} : { updatePubkey: reply.updatePubkey }),
       }
     },
   }

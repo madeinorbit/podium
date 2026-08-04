@@ -43,6 +43,7 @@ export function wireDevBundlePublisher(deps: {
   /** Read lazily: the port is not known until the listener binds. */
   readonly port: () => number
   readonly artifactToken: string
+  readonly signingKey: string
   readonly setTarget: (target: UpdateTarget) => void
   readonly env?: NodeJS.ProcessEnv
 }): DevPublisherWiring {
@@ -52,6 +53,7 @@ export function wireDevBundlePublisher(deps: {
         isSourceRun: true,
         root: deps.sourceRoot,
         headSha: () => developmentHeadSha(deps.sourceRoot as string),
+        signingKey: deps.signingKey,
         artifactUrl: (version) => {
           const base = (
             env.PODIUM_DEV_ARTIFACT_BASE_URL ?? 'http://127.0.0.1:' + deps.port()

@@ -64,6 +64,8 @@ export type AuthOutcome =
       readonly principal: Principal
       /** Set only by the pairing branch: a minted token the peer must persist. */
       readonly issuedToken?: string
+      /** Set only by the pairing branch: the server update key the peer must pin. */
+      readonly updatePubkey?: string
       /** Operator-facing name the acceptor settled on. */
       readonly name?: string
       /**
@@ -204,6 +206,8 @@ export interface ResolvedMachine {
 export interface PairedMachine extends ResolvedMachine {
   /** Handed to the peer exactly once; the peer persists it. */
   readonly issuedToken: string
+  /** The server's update-signing key, handed to the peer exactly once at pairing. */
+  readonly updatePubkey?: string
 }
 
 export type MachineVerb = 'see' | 'use' | 'manage'

@@ -137,8 +137,12 @@ export const machineRecord = (
 export const pairedMachineRecord = (
   machine: string,
   issuedToken: string,
-  opts: { owner?: string | null; name?: string } = {},
-): PairedMachine => ({ ...machineRecord(machine, opts), issuedToken })
+  opts: { owner?: string | null; name?: string; updatePubkey?: string } = {},
+): PairedMachine => ({
+  ...machineRecord(machine, opts),
+  issuedToken,
+  ...(opts.updatePubkey === undefined ? {} : { updatePubkey: opts.updatePubkey }),
+})
 
 export const fakeDelegations = (
   links: readonly DelegationLink[],

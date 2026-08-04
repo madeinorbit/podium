@@ -22,6 +22,7 @@ export const PairedReply = z.object({
   token: z.string(),
   machineId: z.string(),
   name: z.string(),
+  updatePubkey: z.string().min(1).optional(),
 })
 export const PairRejectedReply = z.object({ type: z.literal('pairRejected'), reason: z.string() })
 export const HelloOkReply = z.object({ type: z.literal('helloOk'), name: z.string() })

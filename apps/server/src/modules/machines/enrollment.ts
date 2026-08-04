@@ -65,7 +65,14 @@ export function authenticateDaemon(
   host: EnrollmentHost,
   frame: DaemonHandshake,
 ):
-  | { ok: true; machineId: string; name: string; token?: string; pairingGrant?: PairingGrant }
+  | {
+      ok: true
+      machineId: string
+      name: string
+      token?: string
+      pairingGrant?: PairingGrant
+      updatePubkey?: string
+    }
   | { ok: false; reason: string } {
   const deps = host.deps
   if (frame.type === 'pair') {
@@ -82,6 +89,7 @@ export function authenticateDaemon(
     if (!pairingGrant) {
       return { ok: false, reason: 'invalid or expired code' }
     }
+    const updatePubkey = deps.updatePubkey?.()
     const name = frame.name ?? frame.hostname
     const ownerUserId = pairingGrant.ownerUserId ?? null
     const token = mintEnrolledToken(host, frame.machineId, ownerUserId)
@@ -98,7 +106,14 @@ export function authenticateDaemon(
     // a deliberate re-pair with a new pairer. The ledger enroll is the commit.
     deps.store.machines.setMachineOwner(frame.machineId, ownerUserId)
     host.invalidateMachineCache()
-    return { ok: true, machineId: frame.machineId, name, token, pairingGrant }
+    return {
+      ok: true,
+      machineId: frame.machineId,
+      name,
+      token,
+      pairingGrant,
+      ...(updatePubkey === undefined ? {} : { updatePubkey }),
+    }
   }
   if (deps.store.machines.getMachineByToken(frame.machineId, frame.token)) {
     // Even with a live row, a ledger revoke that outranks the token must win

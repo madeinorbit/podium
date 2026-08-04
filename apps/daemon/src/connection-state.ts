@@ -15,7 +15,7 @@ import { consumePairCode } from '@podium/runtime/setup'
 import WebSocket, { type RawData } from 'ws'
 import { buildReport, deliveryCaps } from './build-report'
 import type { DaemonOptions, ReconnectTimers } from './daemon-options'
-import { saveToken } from './identity'
+import { savePairingToken } from './identity'
 import { decideOnProtocolMismatch, decidePostUpdate } from './self-update'
 
 const RECONNECT_MIN_MS = 500
@@ -57,7 +57,7 @@ interface SocketLike {
 export interface DaemonConnectionDeps {
   readonly options: DaemonOptions
   readonly machineId: MachineId
-  readonly identity: { token?: string }
+  readonly identity: { token?: string; updatePubkey?: string }
   readonly receiveApplicationFrame: (raw: RawData) => void
   readonly sendApplicationFrame: (socket: SocketLike | undefined, msg: DaemonMessage) => void
   readonly onConnected: () => void
@@ -174,9 +174,15 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     options.onBlocked?.({ type, reason })
   }
 
-  const persistPairing = (issuedToken: string): void => {
+  const persistPairing = (issuedToken: string, updatePubkey: string | undefined): void => {
     identity.token = issuedToken
-    saveToken(issuedToken, options.identityDir ? { dir: options.identityDir } : {})
+    if (updatePubkey === undefined) delete identity.updatePubkey
+    else identity.updatePubkey = updatePubkey
+    savePairingToken(
+      issuedToken,
+      updatePubkey,
+      options.identityDir ? { dir: options.identityDir } : {},
+    )
     if (!options.pairCode) return
     try {
       consumePairCode(options.pairCode)
@@ -185,8 +191,22 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     }
   }
 
-  const established = (issuedToken?: string): void => {
-    if (issuedToken) persistPairing(issuedToken)
+  const established = (
+    issuedToken?: string,
+    updatePubkey?: string,
+    active?: SocketLike,
+  ): void => {
+    if (issuedToken) {
+      persistPairing(issuedToken, updatePubkey)
+    } else if (updatePubkey !== undefined && updatePubkey !== identity.updatePubkey) {
+      terminal(
+        'blocked',
+        'server-update-key',
+        'server update key changed outside pairing',
+        active,
+      )
+      return
+    }
     state = 'connected'
     reconnectBackoffMs = RECONNECT_MIN_MS
     lastSocketError = undefined
@@ -243,7 +263,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       return
     }
     if (step.action === 'established') {
-      established(step.issuedToken)
+      established(step.issuedToken, step.updatePubkey, active)
       return
     }
     if (step.action === 'protocol-error') {

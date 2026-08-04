@@ -99,12 +99,13 @@
         "type": "paired",
         "token": "token",
         "machineId": "machineId",
-        "name": "name"
+        "name": "name",
+        "updatePubkey": "updatePubkey"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"paired\",\"token\":\"token\",\"machineId\":\"machineId\",\"name\":\"name\"}"
+      "encoded": "{\"type\":\"paired\",\"token\":\"token\",\"machineId\":\"machineId\",\"name\":\"name\",\"updatePubkey\":\"updatePubkey\"}"
     },
     {
       "schema": "PairFrame",

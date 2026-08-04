@@ -95,6 +95,7 @@ export const legacyReplyFor = (
       // when the acceptor did not name one.
       machineId: reply.assignedId ?? frame.machineId,
       name: reply.name ?? frame.name ?? frame.hostname,
+      ...(reply.updatePubkey === undefined ? {} : { updatePubkey: reply.updatePubkey }),
     }
   return { type: 'helloOk', name: reply.name ?? frame.hostname }
 }

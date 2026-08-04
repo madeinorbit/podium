@@ -31,6 +31,7 @@ const acceptor = () =>
           'code-1': pairedMachineRecord('mach-new', 'tok-minted', {
             owner: 'usr-ada',
             name: 'new-box',
+            updatePubkey: 'server-key-1',
           }),
         },
       }),
@@ -97,6 +98,7 @@ describe('legacy daemon frames ride the permanent mechanism', () => {
       token: 'tok-minted',
       machineId: 'mach-new',
       name: 'new-box',
+      updatePubkey: 'server-key-1',
     })
   })
 

@@ -13,6 +13,8 @@ export interface DaemonIdentity {
   machineId: string
   /** The paired auth token, once issued (absent until the first successful pair). */
   token?: string
+  /** The server update-signing key pinned during pairing. */
+  updatePubkey?: string
 }
 
 /**
@@ -25,7 +27,7 @@ export interface DaemonIdentity {
 export function loadIdentity(opts: { dir?: string } = {}): DaemonIdentity {
   const base = dirFor(opts.dir)
   const path = join(base, 'daemon.json')
-  let data: { machineId?: string; token?: string } = {}
+  let data: { machineId?: string; token?: string; updatePubkey?: string } = {}
   try {
     data = JSON.parse(readFileSync(path, 'utf8'))
   } catch {
@@ -36,7 +38,11 @@ export function loadIdentity(opts: { dir?: string } = {}): DaemonIdentity {
     mkdirSync(base, { recursive: true })
     writeFileSync(path, JSON.stringify(data, null, 2), { mode: 0o600 })
   }
-  return { machineId: data.machineId, ...(data.token ? { token: data.token } : {}) }
+  return {
+    machineId: data.machineId,
+    ...(data.token ? { token: data.token } : {}),
+    ...(data.updatePubkey ? { updatePubkey: data.updatePubkey } : {}),
+  }
 }
 
 /**
@@ -54,6 +60,31 @@ export function saveToken(token: string, opts: { dir?: string } = {}): void {
     // No file yet — saveToken can land before the first loadIdentity.
   }
   data.token = token
+  mkdirSync(base, { recursive: true })
+  writeFileSync(path, JSON.stringify(data, null, 2), { mode: 0o600 })
+}
+
+/**
+ * Persist a token and replace the server update-key pin at the pairing boundary.
+ * An absent key deliberately clears any previous pin: pairing to another server
+ * must not inherit the old server's trust root.
+ */
+export function savePairingToken(
+  token: string,
+  updatePubkey: string | undefined,
+  opts: { dir?: string } = {},
+): void {
+  const base = dirFor(opts.dir)
+  const path = join(base, 'daemon.json')
+  let data: Record<string, unknown> = {}
+  try {
+    data = JSON.parse(readFileSync(path, 'utf8'))
+  } catch {
+    // No file yet — savePairingToken can land before the first loadIdentity.
+  }
+  data.token = token
+  if (updatePubkey === undefined) delete data.updatePubkey
+  else data.updatePubkey = updatePubkey
   mkdirSync(base, { recursive: true })
   writeFileSync(path, JSON.stringify(data, null, 2), { mode: 0o600 })
 }

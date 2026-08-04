@@ -129,6 +129,8 @@ interface SessionRegistryOptions {
    * composition root supplies the baked app version; fixtures may omit it.
    */
   targetVersion?: () => string | undefined
+  /** Public half of this server's update-signing key, sent only on pairing. */
+  updatePubkey?: () => string
   telegramSetup?: TelegramSetupClient
   generateTelegramSetupCode?: () => string
   now?: () => number
@@ -365,6 +367,7 @@ export class SessionRegistry {
     const machines = new MachinesService({
       instanceId,
       ...(options.targetVersion ? { targetVersion: options.targetVersion } : {}),
+      ...(options.updatePubkey ? { updatePubkey: options.updatePubkey } : {}),
       store: this.store,
       targetVersion: () => updates?.targetVersion() ?? options.targetVersion?.(),
       // ONE READER of `<stateDir>/machine.id`: the composition root passes the id to
