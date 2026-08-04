@@ -64,6 +64,24 @@ migration chain** before serving anything:
   roll a binary back past a schema change, restore the matching database backup (below)
   or move forward again.
 
+## Expand-and-contract policy
+
+Releases use an **expand-and-contract** migration policy. Release N may add
+tables, indexes, or columns that the older binary can ignore; a destructive
+contract step ships no earlier than release N+1, after the old schema contract is
+no longer needed.
+
+This makes a one-release rollback a plain binary swap: the older binary ignores
+columns it does not know, so rolling back the release needs no down migration and
+no database work. A destructive change is never hidden behind a pretend inverse;
+the next release performs the contract step only after the compatibility window
+has closed.
+
+The `bun run audit:expand-only` gate enforces this policy against every generated
+migration. It flags dropped tables or columns, renames, SQLite table rebuilds, and
+`ADD COLUMN ... NOT NULL` without a default. If the gate reports a finding, split
+`--probe` mode proves each check can fire before a clean result is trusted.
+the migration into an additive expand step and a later contract step. Its
 ## Backups before migrations
 
 Before any **version-advancing** migration run (i.e. a startup that will actually
