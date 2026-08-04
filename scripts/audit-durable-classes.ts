@@ -436,6 +436,11 @@ export const NON_CLASS_WRITE_SITES: readonly { readonly file: string; readonly r
         'Materializes the embedded `abduco` BINARY under `<stateDir>/bin` so a PTY can be attached. An executable extracted from the shipped bundle is not state: it is byte-identical for every install and is re-extracted if deleted.',
     },
     {
+      file: 'apps/daemon/src/pending-grant.ts',
+      reason:
+        '`pending-update.json` records that a convergence is IN FLIGHT — which target, which version to roll back to, how many attempts — and exists only to survive the daemon restart that sits in the middle of a swap (POD-1670). It is written immediately before the restart and cleared the moment the boot health gate resolves, so it describes an operation rather than anything anybody owns. A corrupt or absent marker is read as absent BY DESIGN, because a daemon that crashed mid-write must still boot; forgetting an in-flight convergence is recoverable by the next grant, an unbootable daemon is not.',
+    },
+    {
       file: 'apps/server/src/migrations/restore.ts',
       reason:
         'Restores a backup by COPYING database files — the backup over the live database, and the replaced database to a timestamped sibling. A copy of a classified store is that store, not a new one, and the only row it writes is the re-minted `feed_identity` (classified above, ADR 2 D1). Deliberately creates no schema: the doc comment on `remintRestoredEpoch` records why `CREATE TABLE IF NOT EXISTS` here would leave the restored server unable to boot.',
