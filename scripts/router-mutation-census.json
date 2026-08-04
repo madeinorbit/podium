@@ -28,7 +28,8 @@
       "auth",
       "telemetry",
       "accounts",
-      "cloud"
+      "cloud",
+      "updates"
     ],
     "allowed": {
       "$note": "`discovery.scan` scans CONVERSATIONS (`rpc.scan()` returns `{ conversations, diagnostics }`) and belongs to the session-discovery family; it shares the fleet router's name and nothing else, so POD-384 deliberately left it out of the fleet contract table. Allowlisted BY KEY and only on `discovery` \u2014 the same key under `repos` is still a finding. `layout` is POD-1350 \u2014 writes derived from LAYOUT_CONTRACTS via layoutFamilyProcedures(), zero hand-written mutations.",
