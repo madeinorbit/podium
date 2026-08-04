@@ -40,6 +40,17 @@ export function bunSqliteClient(db: SqlDatabase): BunDb | undefined {
   return rawByWrapper.get(db)
 }
 
+/**
+ * Carry the raw-handle registration from a wrapper onto a wrapper OF that wrapper,
+ * so decorating a database (POD-1630's query attribution) does not cost the drizzle
+ * migrator the native handle it resolves by wrapper identity. A no-op when
+ * `original` was not bun-backed, which keeps this safe to call unconditionally.
+ */
+export function aliasBunSqliteClient(original: SqlDatabase, alias: SqlDatabase): void {
+  const raw = rawByWrapper.get(original)
+  if (raw) rawByWrapper.set(alias, raw)
+}
+
 export function openBunDatabase(path: string, opts?: OpenOptions): SqlDatabase {
   // bun:sqlite: `readonly` (lowercase), and read-write must opt into file creation.
   const db = opts?.readOnly

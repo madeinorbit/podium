@@ -23,6 +23,7 @@ import {
   stateDir,
 } from '@podium/runtime/local-machine'
 import { formatStallClassification, startLoopMetrics } from '@podium/runtime/loop-metrics'
+import { formatTopQueries, resetQueryAttribution } from '@podium/runtime/sqlite'
 import { prepareLedgerBoot } from '@podium/sync'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
@@ -630,18 +631,28 @@ export async function startServer(
         // Server-side stall reporter (POD-600): a lightweight analog of the
         // daemon's reportLongTick — starved-vs-busy classification + heap/RSS,
         // no activity counters (this process does no PTY work).
-        if (process.env.PODIUM_LOOP_PROFILE)
+        if (process.env.PODIUM_LOOP_PROFILE) {
+          // POD-1630: the per-second window that scopes SQL attribution to the
+          // stall rather than to all of uptime — the same cadence the daemon's
+          // loop-attribution uses, and for the same reason.
+          const attributionWindow = setInterval(() => resetQueryAttribution(), 1000)
+          attributionWindow.unref?.()
           startLoopMetrics({
             label: 'server',
             onLongTick: (ms, classification) => {
               const mu = process.memoryUsage()
               const mb = (b: number) => (b / 1048576).toFixed(0)
               const cls = classification ? ` | ${formatStallClassification(classification)}` : ''
+              // The stall reporter could name the COST but never the CAUSE; the
+              // tRPC and phase counters could not fill the gap because the work
+              // is not on either path. The top statements are that missing name.
+              const sql = formatTopQueries()
               console.warn(
-                `[podium:loop] server stall ${ms.toFixed(0)}ms${cls} | heap=${mb(mu.heapUsed)}MB rss=${mb(mu.rss)}MB`,
+                `[podium:loop] server stall ${ms.toFixed(0)}ms${cls} | heap=${mb(mu.heapUsed)}MB rss=${mb(mu.rss)}MB${sql ? ` | sql=${sql}` : ''}`,
               )
             },
           })
+        }
         // In-process daemon link [POD-196]: the local-machine equivalent of
         // wireDaemonSocket, minus serialization. It still drives the SAME
         // acceptor and daemonSecret strategy. Composition-root reachability is
