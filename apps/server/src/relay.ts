@@ -60,6 +60,7 @@ import { DurableIssueAccessIndex } from './modules/issues/access-index'
 import { IssueArtifactStore } from './modules/issues/artifact-store'
 import { IssueAutoArchive } from './modules/issues/auto-archive'
 import { IssueCommandDispatcher } from './modules/issues/dispatcher'
+import { IssueGitWatch } from './modules/issues/git-watch'
 import { repoProjectionRows } from './modules/issues/projection'
 import { IssuePublisher } from './modules/issues/publish'
 import { AgentRelayGate } from './modules/issues/relay-gate'
@@ -275,6 +276,8 @@ export class SessionRegistry {
   private readonly messageSweep: ReturnType<typeof setInterval>
   /** Read-gated auto-archive timers (issue #127) — modules/issues. */
   private readonly issueAutoArchive: IssueAutoArchive
+  /** Parent-branch movement watch (POD-384) — modules/issues. */
+  private readonly issueGitWatch: IssueGitWatch
   /** Cron tick for scheduled automations (#470) [spec:SP-17db] — modules/automations. */
   private readonly automationScheduler: AutomationScheduler
   private readonly store: SessionStore
@@ -2133,6 +2136,11 @@ export class SessionRegistry {
       },
     })
     this.issueAutoArchive = new IssueAutoArchive(issues)
+    // STARTED, unlike the two retired timers around it: the watch refreshes only
+    // the ephemeral in-memory git-state cache, so there is no durable write for
+    // the janitor's fence to protect — see IssueGitWatch.
+    this.issueGitWatch = new IssueGitWatch(issues)
+    this.issueGitWatch.start()
     // Automations scheduler timer RETIRED [POD-925]: janitor owns automation-fire.
     this.automationScheduler = new AutomationScheduler(automations)
     // this.automationScheduler.start()
@@ -2231,6 +2239,7 @@ export class SessionRegistry {
     clearInterval(this.messageSweep)
     this.modules.messages.dispose()
     this.issueAutoArchive.dispose()
+    this.issueGitWatch.dispose()
     this.automationScheduler.dispose()
     // Also drains any coalesced session broadcast + pending delta batch (the
     // durable change log is already complete — commits happen at persist time).

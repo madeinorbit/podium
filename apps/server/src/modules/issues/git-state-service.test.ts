@@ -14,7 +14,12 @@ function harness(sessions: SessionMeta[], repoOpScript: Record<string, string>) 
   const store = new SessionStore(':memory:')
   const broadcast = vi.fn()
   const repoOp = vi.fn(async (op: string, _cwd: string, args?: Record<string, string>) => {
-    const key = op === 'revListCount' ? `${op}:${args?.from}..${args?.to}` : op
+    const key =
+      op === 'revListCount'
+        ? `${op}:${args?.from}..${args?.to}`
+        : op === 'revParseVerify'
+          ? `${op}:${args?.ref}`
+          : op
     const output = repoOpScript[key]
     return output !== undefined ? { ok: true, output } : { ok: false, output: '' }
   })
@@ -31,7 +36,7 @@ function harness(sessions: SessionMeta[], repoOpScript: Record<string, string>) 
         },
         sessionDefaults: { agent: 'claude-code' },
       }),
-    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') , machine: 'machine-under-test' })),
+    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
     repoOp: repoOp as IssueDeps['repoOp'],
     ...plumbing,
     setSessionArchived: vi.fn(),
@@ -290,6 +295,138 @@ describe('POD-98 git-state service wiring', () => {
     ]
     const { svc, repoOp } = harness(sessions, {})
     svc.onSessionTurnEnd(asSessionId('sess-x'))
+    expect(repoOp).not.toHaveBeenCalled()
+  })
+})
+
+// POD-384: the merge that settles an issue happens in ANOTHER checkout, so no
+// session edge of that issue's own ever re-probes it. The watch closes that hole
+// by tracking the one ref such a merge must move — the parent branch.
+describe('POD-384 parent-branch movement watch', () => {
+  /** Row-level private worktree, no git: the merge axis is only live for an
+   *  issue that owns a checkout and a branch. */
+  function giveWorktree(svc: IssueService, id: string, parentBranch = 'main'): void {
+    const rows = (
+      svc as unknown as {
+        rows: Map<
+          string,
+          { seq: number; worktreePath: string | null; branch: string | null; parentBranch: string }
+        >
+      }
+    ).rows
+    const row = rows.get(id)
+    if (!row) throw new Error(`no row for ${id}`)
+    row.worktreePath = `/repo/wt-${row.seq}`
+    row.branch = `issue/${row.seq}`
+    row.parentBranch = parentBranch
+  }
+
+  /** A branch one commit ahead of `main`, whose reflog proves the tip has moved
+   *  off its creation point (so containment reads as "landed", not "fresh"). */
+  const unlandedScript = (): Record<string, string> => ({
+    'revParseVerify:main': 'tip-1',
+    statusProbe: '## issue/1',
+    logHead: 'sha-tip\t2026-07-20T11:00:00Z',
+    'revListCount:main..HEAD': '1',
+    isMergedInto: '',
+    branchReflog: 'sha-tip\nsha-created',
+  })
+
+  it('records a parent tip on first sight instead of fanning out at boot', async () => {
+    const script = unlandedScript()
+    const { svc, repoOp } = harness([], script)
+    const id = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
+    giveWorktree(svc, id)
+
+    await svc.sweepParentBranchMovement()
+
+    expect(repoOp.mock.calls.map(([op]) => op)).toEqual(['revParseVerify'])
+    expect(svc.get(id)?.gitState).toBeUndefined()
+  })
+
+  it('re-probes a branch merged from another checkout when the parent tip moves', async () => {
+    const script = unlandedScript()
+    const { svc } = harness([], script)
+    const id = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
+    giveWorktree(svc, id)
+    await svc.sweepParentBranchMovement()
+
+    // The snapshot that strands the row: one unlanded commit, no merged verdict.
+    await svc.refreshGitState(id)
+    expect(svc.get(id)?.gitState).toMatchObject({ shared: false, ahead: 1 })
+    expect(svc.get(id)?.gitState?.merged).toBeUndefined()
+
+    // Somebody fast-forwards main from a different checkout — no commit in this
+    // worktree, no turn edge on this issue's sessions, nothing else to notice it.
+    script['revParseVerify:main'] = 'tip-2'
+    script['revListCount:main..HEAD'] = '0'
+    await svc.sweepParentBranchMovement()
+
+    expect(svc.get(id)?.gitState).toMatchObject({ ahead: 0, merged: true })
+  })
+
+  it('answers a whole repo group with one rev-parse and refreshes all of it', async () => {
+    const script = unlandedScript()
+    const { svc, repoOp } = harness([], script)
+    const a = svc.create({ repoPath: '/repo', title: 'a', startNow: false }).id
+    const b = svc.create({ repoPath: '/repo', title: 'b', startNow: false }).id
+    giveWorktree(svc, a)
+    giveWorktree(svc, b)
+    await svc.sweepParentBranchMovement()
+    expect(repoOp.mock.calls.filter(([op]) => op === 'revParseVerify')).toHaveLength(1)
+
+    script['revParseVerify:main'] = 'tip-2'
+    script['revListCount:main..HEAD'] = '0'
+    await svc.sweepParentBranchMovement()
+
+    expect(svc.get(a)?.gitState).toMatchObject({ merged: true })
+    expect(svc.get(b)?.gitState).toMatchObject({ merged: true })
+  })
+
+  it('costs one rev-parse and nothing else while the parent tip holds still', async () => {
+    const script = unlandedScript()
+    const { svc, repoOp } = harness([], script)
+    const id = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
+    giveWorktree(svc, id)
+    await svc.sweepParentBranchMovement()
+    repoOp.mockClear()
+
+    await svc.sweepParentBranchMovement()
+
+    expect(repoOp.mock.calls.map(([op]) => op)).toEqual(['revParseVerify'])
+  })
+
+  it('keeps the last known tip when the parent branch is unreadable', async () => {
+    const script = unlandedScript()
+    const { svc, repoOp } = harness([], script)
+    const id = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
+    giveWorktree(svc, id)
+    await svc.sweepParentBranchMovement()
+
+    // Machine offline / ref not there: no observation, so no recorded tip either.
+    delete script['revParseVerify:main']
+    await svc.sweepParentBranchMovement()
+
+    // Back, and unmoved — a recovery must not read as movement and re-probe.
+    script['revParseVerify:main'] = 'tip-1'
+    repoOp.mockClear()
+    await svc.sweepParentBranchMovement()
+    expect(repoOp.mock.calls.map(([op]) => op)).toEqual(['revParseVerify'])
+  })
+
+  it('watches neither a shared checkout nor an issue without a branch', async () => {
+    const script = unlandedScript()
+    const { svc, repoOp } = harness([], script)
+    // Shared: no worktree of its own, so no merge axis to keep fresh.
+    svc.create({ repoPath: '/repo', title: 'shared', startNow: false })
+    const branchless = svc.create({ repoPath: '/repo', title: 'branchless', startNow: false }).id
+    giveWorktree(svc, branchless)
+    ;(svc as unknown as { rows: Map<string, { branch: string | null }> }).rows.get(
+      branchless,
+    )!.branch = null
+
+    await svc.sweepParentBranchMovement()
+
     expect(repoOp).not.toHaveBeenCalled()
   })
 })

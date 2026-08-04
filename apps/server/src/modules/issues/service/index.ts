@@ -99,6 +99,7 @@ export type IssueGitWorkflowCapability = Pick<
   | 'onSessionTurnEnd'
   | 'onSessionRemovedOrArchived'
   | 'refreshGitState'
+  | 'sweepParentBranchMovement'
   | 'refreshAssistant'
 >
 

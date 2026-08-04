@@ -24,6 +24,30 @@ import type { IssueCrudModule } from './crud'
 import type { IssueCommentsMailModule } from './mail'
 import type { CreateIssueInput } from './types'
 
+/** Issues whose merge axis is a live question [POD-384]: a private worktree on a
+ *  branch, still in the worklist. A shared checkout has no merge axis; an issue
+ *  without a worktree has nowhere to probe from; and an archived or deleted row
+ *  is off the sidebar, so a stale `ahead` on it strands nothing and buying a
+ *  probe for it would let the fan-out grow with history instead of with work. */
+function watchesParentBranch(row: IssueRow): boolean {
+  return (
+    !row.deletedAt &&
+    !row.archived &&
+    row.worktreePath !== null &&
+    row.branch !== null &&
+    // No parent branch, nothing to watch it move against — and `rev-parse ''`
+    // is a round trip to the daemon to be told so, every tick.
+    row.parentBranch !== ''
+  )
+}
+
+/** Group key for {@link IssueGitWorkflowModule.sweepParentBranchMovement}: every
+ *  issue sharing one machine's copy of one repo's parent branch is answered by a
+ *  single `rev-parse`. JSON so no separator can collide with a path. */
+function parentBranchKey(row: IssueRow): string {
+  return JSON.stringify([row.machineId ?? '', row.repoPath, row.parentBranch])
+}
+
 /**
  * Git-workflow capability: worktree
  * start/cleanup, PR/merge actions, epic integration (#70), extra sessions,
@@ -430,7 +454,13 @@ export class IssueGitWorkflowModule {
     }
     const r = await this.store.d.repoOp('mergeFfOnly', row.repoPath, { branch: row.branch })
     if (r.ok) {
-      return { ...r, issue: this.crud().close(id, 'done') }
+      const issue = this.crud().close(id, 'done')
+      // This branch just landed [POD-384]: settle its merge axis now, so the
+      // operator who pressed merge sees the "ready to merge" chip go rather than
+      // watching it outlive the merge until the next watch tick. Siblings whose
+      // own counts moved are the watch's job, not this action's.
+      void this.refreshGitState(id).catch(() => {})
+      return { ...r, issue }
     }
     return { ...r, issue: this.store.toWire(row) }
   }
@@ -1086,6 +1116,11 @@ export class IssueGitWorkflowModule {
   >()
   private gitCommitsBySession = new Map<string, string[]>()
   private gitTouchedBySession = new Map<string, Set<string>>()
+  /** Last observed tip of every parent branch under watch, keyed by
+   *  {@link parentBranchKey} — the movement detector for
+   *  {@link sweepParentBranchMovement}. Ephemeral like `gitStates`, and for the
+   *  same reason: it caches a git fact, never a decision. */
+  private parentTips = new Map<string, string>()
 
   /** Daemon-captured git activity for a session: commit shas from the HEAD
    *  delta around the session's own tool call, and/or files its Edit/Write
@@ -1184,6 +1219,69 @@ export class IssueGitWorkflowModule {
     })
     this.gitRefreshes.set(id, refresh)
     return refresh.promise
+  }
+
+  /**
+   * Parent-branch movement watch [POD-384].
+   *
+   * A merge is the one git event that SETTLES an issue's merge axis, and it
+   * almost never happens anywhere the three session-scoped triggers above can
+   * see it: agents are instructed to merge with `git -C <repo>` from their own
+   * checkout, and a human merges from a terminal. Neither writes a commit into
+   * the merged issue's worktree nor moves any of ITS sessions across a turn
+   * edge, so nothing re-probes and the cached `ahead > 0` keeps a finished issue
+   * out of the sidebar's closed fold indefinitely — it renders as a delivery
+   * that never landed, hours after it landed.
+   *
+   * So watch the one ref a merge MUST move: the parent branch. One `rev-parse`
+   * per (machine, repo, parentBranch) group answers "did anything land?" for
+   * every issue in that group, and only a MOVED tip costs a probe — the steady
+   * state is one cheap git call per repo per tick.
+   *
+   * A tip seen for the first time is recorded, not acted on. `gitStates` is
+   * ephemeral, so a fresh process holds no stale snapshot to correct, and
+   * fanning out across every issue at boot would be pure cost.
+   */
+  async sweepParentBranchMovement(): Promise<void> {
+    const groups = new Map<
+      string,
+      { repoPath: string; parentBranch: string; machineId?: string; ids: string[] }
+    >()
+    for (const row of this.store.rows.values()) {
+      if (!watchesParentBranch(row)) continue
+      const key = parentBranchKey(row)
+      const group = groups.get(key)
+      if (group) group.ids.push(row.id)
+      else {
+        groups.set(key, {
+          repoPath: row.repoPath,
+          parentBranch: row.parentBranch,
+          machineId: row.machineId ?? undefined,
+          ids: [row.id],
+        })
+      }
+    }
+    // Forget tips no live issue watches any more (closed out, worktree freed) so
+    // the map stays bounded by current work rather than by history.
+    for (const key of [...this.parentTips.keys()]) if (!groups.has(key)) this.parentTips.delete(key)
+
+    await Promise.all(
+      [...groups].map(async ([key, group]) => {
+        const res = await this.store.d
+          .repoOp('revParseVerify', group.repoPath, { ref: group.parentBranch }, group.machineId)
+          .catch(() => ({ ok: false, output: '' }))
+        // An unreadable parent branch (offline machine, ref not there yet) leaves
+        // the last known tip intact: the next readable sweep compares against a
+        // real observation instead of treating recovery as movement.
+        if (!res.ok) return
+        const tip = res.output.trim()
+        if (tip === '') return
+        const seen = this.parentTips.get(key)
+        this.parentTips.set(key, tip)
+        if (seen === undefined || seen === tip) return
+        await Promise.all(group.ids.map((id) => this.refreshGitState(id).catch(() => {})))
+      }),
+    )
   }
 
   /** Run one coalesced probe and retain its issue's final state for publication. */
