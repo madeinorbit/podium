@@ -23,10 +23,25 @@ import {
 export const RENDER_WINDOW = 300
 // Items in the initial transcript window (the newest N off disk, via
 // sessions.transcriptRead). ≤ the protocol's 2000 read cap.
-const INITIAL_LIMIT = 1000
+//
+// Sized for TIME-TO-FIRST-PAINT, not for recall [POD-1631]. Measured over 8 real
+// transcripts (8-94MB), uncached, with POD-1627's extend fix in place: 1000 costs
+// p50 69ms / p99 135ms; 200 costs p50 21ms / p99 60ms — inside the ~50ms
+// interactive budget, and the knee (100 saves another 10ms at p50 but p99 turns
+// back UP). It is also exactly REPLICA_TRANSCRIPT_ITEM_CAP, so the offline
+// write-through at `putTranscriptWindow` below keeps the depth it always had: it
+// has always sliced to the newest 200, which made the other 800 items of the old
+// read pure waste. What the smaller window DOES cost is search recall, which runs
+// over LOADED blocks — `ensureSearchDepth` below buys that depth back on demand.
+const INITIAL_LIMIT = 200
 // On-demand older-page size fetched off disk when the user scrolls past the items
 // already held locally (anchored read, direction 'before').
 const PAGE_LIMIT = 400
+// How deep the loaded window is back-paged when the user opens search. Search
+// matches only what is LOADED, so the initial window's paint-sized depth would
+// silently narrow recall; deepening to the depth every open used to load eagerly
+// keeps recall identical to before POD-1631 while only searchers pay for it.
+const SEARCH_DEPTH = 1000
 
 export interface UseTranscriptWindowOptions {
   sessionId: SessionId
@@ -56,6 +71,9 @@ export interface UseTranscriptWindowResult {
   moreAbove: boolean
   hasMoreOlder: boolean
   loadingOlder: boolean
+  /** True while the search deepen is still back-paging — the match count on screen
+   *  is over a window that is still growing. */
+  deepeningSearch: boolean
   /** False until the initial read resolves — gates the loader vs "No transcript yet". */
   initialLoaded: boolean
   /** Non-null when the window is the replica's offline copy (epoch ms cached at). */
@@ -63,6 +81,9 @@ export interface UseTranscriptWindowResult {
   /** Reveal more above the current window: widen it over rows already held
    *  locally, or fetch+prepend the next older page off disk. */
   loadOlder: () => void
+  /** Deepen the LOADED (not rendered) window to search depth — call when the user
+   *  opens search, since matching is scoped to what is loaded. Idempotent per session. */
+  ensureSearchDepth: () => void
   /** Reset or widen the rendered window — e.g. RENDER_WINDOW on session switch,
    *  or to reveal a search match sitting above it. */
   setRenderCount: Dispatch<SetStateAction<number>>
@@ -109,6 +130,9 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
   // True while we still believe earlier items exist on disk beyond what's loaded.
   const [hasMoreOlder, setHasMoreOlder] = useState(true)
   const [loadingOlder, setLoadingOlder] = useState(false)
+  // True while `ensureSearchDepth` is still back-paging: the match count on screen
+  // is over a window that is still growing, and the search bar says so.
+  const [deepeningSearch, setDeepeningSearch] = useState(false)
   // How many trailing blocks to render (bounded DOM). Grows in RENDER_WINDOW
   // steps as the user scrolls up; reset per session by the caller.
   const [renderCount, setRenderCount] = useState(RENDER_WINDOW)
@@ -122,6 +146,14 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
   const prependAnchor = useRef<{ scrollHeight: number; scrollTop: number } | null>(null)
   // Guards re-entrant older-page loads (a single scroll fires onScroll repeatedly).
   const loadingOlderRef = useRef(false)
+  // `hasMoreOlder` mirrored for `ensureSearchDepth`'s loop, which must see each
+  // page's answer before React commits it — same render-time ref-mirror pattern as
+  // headCursorRef. Written by the paging paths as well as by this render.
+  const hasMoreOlderRef = useRef(true)
+  hasMoreOlderRef.current = hasMoreOlder
+  // One-shot per session: the search deepen has already run (or is running), so a
+  // second search on the same transcript doesn't re-page a window that's already deep.
+  const deepenedRef = useRef(false)
 
   // Window health [POD-725]: true only while the held window is trustworthy for a
   // skip-the-re-read warm activation — it's NON-EMPTY and its live subscription has
@@ -196,8 +228,12 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     setInitialLoaded(false)
     setOfflineAsOf(null)
     setLoadingOlder(false)
+    setDeepeningSearch(false)
     setRenderCount(RENDER_WINDOW)
     loadingOlderRef.current = false
+    hasMoreOlderRef.current = true
+    // A different transcript starts shallow again — the next search re-deepens.
+    deepenedRef.current = false
     pinnedToBottom.current = true
     didInitialScroll.current = false
     // Fresh session → no trustworthy window yet; the read below restores health.
@@ -394,6 +430,69 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
       })
   }, [renderStart, hasMoreOlder, trpc, sessionId, scrollerRef])
 
+  // Back-page the LOADED window out to SEARCH_DEPTH — called when the user opens
+  // search. `transcriptSearchState` matches over loaded blocks only, so the
+  // paint-sized initial window would quietly narrow recall (and the n/total beside
+  // it) with no affordance saying so; this buys back the depth every open used to
+  // pay for eagerly. Unlike `loadOlder` it deliberately does NOT touch
+  // `renderCount` or `prependAnchor`: the pages join the searchable window without
+  // mounting rows or moving the viewport, so a deepen behind a scrolled-to-bottom
+  // view is invisible. Runs at most once per session and yields to scroll paging,
+  // which owns the same anchor.
+  const ensureSearchDepth = useCallback(() => {
+    if (deepenedRef.current) return
+    deepenedRef.current = true
+    void (async () => {
+      try {
+        while (loadedRef.current.length < SEARCH_DEPTH && hasMoreOlderRef.current) {
+          // The user is scroll-paging right now — it advances the same headCursor,
+          // so stepping on it would double-fetch or skip a page. Its pages count
+          // toward the depth anyway; stop and let it drive.
+          if (loadingOlderRef.current) return
+          const anchor = headCursorRef.current
+          if (!anchor) return
+          loadingOlderRef.current = true
+          setDeepeningSearch(true)
+          try {
+            const r = await trpc.sessions.transcriptRead.query({
+              sessionId,
+              anchor,
+              direction: 'before',
+              limit: PAGE_LIMIT,
+            })
+            if (sessionIdRef.current !== sessionId) return // switched mid-page
+            // Same rolled-away-anchor guard as `loadOlder`: a page we already hold
+            // in full is the reader's newest-window fallback, not an older page.
+            const fresh = freshOlderPage(r.items, loadedRef.current)
+            if (fresh.length === 0) {
+              setHasMoreOlder(false)
+              hasMoreOlderRef.current = false
+              return
+            }
+            setOlder((prev) => [...fresh, ...prev])
+            setHeadCursor(fresh[0]?.cursor ?? r.head ?? anchor)
+            headCursorRef.current = fresh[0]?.cursor ?? r.head ?? anchor
+            setHasMoreOlder(r.hasMore)
+            hasMoreOlderRef.current = r.hasMore
+            // Advance the mirrors this loop reads BEFORE React commits the state
+            // above — otherwise every iteration would re-read from the same anchor.
+            loadedRef.current = dedupeByCursor([...fresh, ...loadedRef.current])
+          } finally {
+            loadingOlderRef.current = false
+          }
+        }
+      } finally {
+        setDeepeningSearch(false)
+      }
+    })().catch(() => {
+      // Transient read failure: leave the window as deep as it got and re-arm, so
+      // clearing and re-opening search retries.
+      deepenedRef.current = false
+      loadingOlderRef.current = false
+      setDeepeningSearch(false)
+    })
+  }, [trpc, sessionId])
+
   return {
     blocks,
     rows,
@@ -402,9 +501,11 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     moreAbove,
     hasMoreOlder,
     loadingOlder,
+    deepeningSearch,
     initialLoaded,
     offlineAsOf,
     loadOlder,
+    ensureSearchDepth,
     setRenderCount,
     pinnedToBottom,
     didInitialScroll,

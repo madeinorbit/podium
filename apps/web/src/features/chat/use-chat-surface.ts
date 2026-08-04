@@ -104,6 +104,9 @@ export interface ChatSurface {
   setQuery: (q: string) => void
   search: TranscriptSearchState
   moveMatchCursor: (delta: number) => void
+  /** True while the query's window deepen is still reading — the count beside the
+   *  query is over a still-growing window, and the bar marks it as provisional. */
+  deepeningSearch: boolean
 
   // -- composing and sending -------------------------------------------------
   draft: string
@@ -207,9 +210,11 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     renderStart,
     moreAbove,
     loadingOlder,
+    deepeningSearch,
     initialLoaded,
     offlineAsOf,
     loadOlder,
+    ensureSearchDepth,
     setRenderCount,
     pinnedToBottom,
     didInitialScroll,
@@ -387,10 +392,18 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     [trpc, sessionId],
   )
 
-  const setQuery = useCallback((q: string) => {
-    setQueryState(q)
-    setMatchCursor(0)
-  }, [])
+  // Searching matches over LOADED blocks, and the initial window is sized for a
+  // fast first paint rather than for recall [POD-1631] — so the first keystroke of
+  // a query deepens the loaded window back to search depth. Off the paint path and
+  // idempotent per session: a non-searching open never pays for it.
+  const setQuery = useCallback(
+    (q: string) => {
+      if (q.trim() !== '') ensureSearchDepth()
+      setQueryState(q)
+      setMatchCursor(0)
+    },
+    [ensureSearchDepth],
+  )
   const moveMatchCursor = useCallback(
     (delta: number) =>
       setMatchCursor((c) => (c + delta + Math.max(1, search.total)) % Math.max(1, search.total)),
@@ -451,6 +464,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     setQuery,
     search,
     moveMatchCursor,
+    deepeningSearch,
 
     draft,
     setDraft,

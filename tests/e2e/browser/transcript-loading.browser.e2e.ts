@@ -688,3 +688,64 @@ test('(re-seed) the transcript re-loads on a fresh ChatView mount (chat→native
     page.getByText('No transcript yet.', { exact: false }).locator('visible=true'),
   ).toHaveCount(0)
 })
+
+test('search deepens the loaded window so a match older than the initial read is still found (POD-1631)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+
+  // POD-1631 cut the initial read from 1000 items to 200 (p50 69ms → 21ms) because
+  // a screen shows a fraction of either. Matching, however, runs over LOADED blocks
+  // — so the shallower window would silently narrow search recall unless typing a
+  // query back-pages the loaded window to search depth. This proves the whole loop
+  // through the real stack: the initial read really is shallow (the old marker is
+  // NOT matched at first) and the deepen really repairs it (it IS matched after).
+  const transcriptId = '77777777-7777-4777-8777-777777777777'
+  const transcriptPath = join(BUCKET, `${transcriptId}.jsonl`)
+  const t = '2026-08-04T04:00:00.000Z'
+  const OLD_MARKER = 'DEEPEN_MARKER_ZULU buried far above the initial window'
+  // 500 records: the marker is the OLDEST, so it sits ~300 items beyond the newest
+  // 200 the initial read takes — reachable only after the search deepen back-pages.
+  const lines = [userRec('deep-0', OLD_MARKER, t)]
+  for (let i = 1; i < 500; i++) {
+    lines.push(
+      i % 2 === 0
+        ? userRec(`deep-${i}`, `filler prompt ${i}`, t)
+        : answerRec(`deep-${i}`, `filler answer ${i}`, t),
+    )
+  }
+  await seedTranscript(transcriptId, lines)
+
+  await openApp(page)
+  await newSession(page, 'Claude')
+  const activeId = await page
+    .locator('.flex.min-h-0 > div[data-session]:visible')
+    .first()
+    .getAttribute('data-session')
+  expect(activeId).not.toBeNull()
+  await bindTranscript(activeId as string, transcriptPath)
+
+  await expect(chatToggle(page)).toBeVisible({ timeout: 15_000 })
+  await chatToggle(page).click()
+  // The newest end rendered — the window is loaded and we are measuring search, not
+  // a still-empty transcript.
+  await expect(
+    page.locator('.chat-md').locator('visible=true').filter({ hasText: 'filler answer 499' }),
+  ).toBeVisible({ timeout: 15_000 })
+
+  const searchBox = page.getByPlaceholder('Search transcript…').locator('visible=true')
+  // A term present ONLY in the newest window matches immediately — the counter works
+  // and the shallow window is genuinely loaded.
+  await searchBox.fill('filler answer 499')
+  await expect(page.getByText('1/1', { exact: true }).locator('visible=true')).toBeVisible({
+    timeout: 10_000,
+  })
+
+  // Now the buried marker. Typing it kicks off the deepen; the count settles at 1/1
+  // once the back-pages land. Before POD-1631's ensureSearchDepth this stayed at 0
+  // forever (nothing but a scroll to the very top could repair it).
+  await searchBox.fill('DEEPEN_MARKER_ZULU')
+  await expect(page.getByText('1/1', { exact: true }).locator('visible=true')).toBeVisible({
+    timeout: 20_000,
+  })
+})

@@ -123,6 +123,7 @@ export function ChatView({
           onQueryChange={chat.setQuery}
           search={chat.search}
           onCursorMove={chat.moveMatchCursor}
+          deepeningSearch={chat.deepeningSearch}
           lastAnswerText={chat.lastAnswerText}
           onTldr={chat.tldr}
         />
