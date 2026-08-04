@@ -346,9 +346,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       prepareSend: (sessionId, attribution, kind) =>
         bag.prepareInboxSend(sessionId, attribution, kind),
       ownerOf: (sessionId) => bag.sessionOwner(sessionId)?.owner,
-      resurrect: async (sessionId, principal) => {
+      resurrect: (sessionId, principal) => {
         bag.bus.emit('session.wakeRequested', { sessionId, principal })
-        return { ok: true }
       },
       // Take-control / hold-control re-auth at every apply (POD-1081).
       authorizeDrive: (principal, sessionId) => bag.authorizeClientDrive(principal, sessionId),
