@@ -10,9 +10,11 @@
  */
 import { createHash } from 'node:crypto'
 import type { UpdateArtifact } from '@podium/protocol'
+import { convergeViaGit, type GitRun } from './delivery-git'
 import { verifyTarball } from './podium-update'
 
 type PlatformAsset = Extract<UpdateArtifact, { delivery: 'feed' }>['platforms'][string]
+type GitArtifact = Extract<UpdateArtifact, { delivery: 'git' }>
 
 export interface DeliveryDeps {
   fetch: typeof fetch
@@ -23,6 +25,10 @@ export interface DeliveryDeps {
    * callers leave it enabled (the default).
    */
   verifyDigest?: boolean
+  /** Runner for the development checkout delivery path. */
+  git?: {
+    run: GitRun
+  }
 }
 
 function matchesDigest(bytes: Uint8Array, expected: string): boolean {
@@ -32,14 +38,30 @@ function matchesDigest(bytes: Uint8Array, expected: string): boolean {
   return actual === expected
 }
 
-export async function fetchArtifact(
+export function fetchArtifact(
   asset: PlatformAsset,
+  delivery: 'feed' | 'bundle',
+  deps: DeliveryDeps,
+): Promise<{ bytes: Uint8Array }>
+export function fetchArtifact(
+  artifact: GitArtifact,
+  delivery: 'git',
+  deps: DeliveryDeps,
+): Promise<{ git: true }>
+export async function fetchArtifact(
+  asset: PlatformAsset | GitArtifact,
   delivery: UpdateArtifact['delivery'],
   deps: DeliveryDeps,
-): Promise<{ bytes: Uint8Array }> {
+): Promise<{ bytes: Uint8Array } | { git: true }> {
   if (delivery === 'git') {
-    throw new Error('git delivery is not implemented in this phase (Phase 5 owns it)')
+    if (!('repo' in asset) || !('sha' in asset) || !deps.git) {
+      throw new Error('git delivery requires a configured checkout runner')
+    }
+    const result = convergeViaGit({ repo: asset.repo, sha: asset.sha }, deps.git)
+    if (!result.ok) throw new Error('git delivery failed: ' + result.reason)
+    return { git: true }
   }
+  if (!('url' in asset)) throw new Error('platform delivery requires an artifact URL')
 
   const res = await deps.fetch(asset.url)
   if (!res.ok) throw new Error(`artifact download returned ${res.status}`)
