@@ -79,7 +79,8 @@ describe('PWA shell height + safe-area inset', () => {
 describe('update prompt', () => {
   it('UpdatePrompt uses the SW registration to detect and apply new builds', () => {
     const src = readWeb('src/app/UpdatePrompt.tsx')
-    expect(src).toContain("from 'virtual:pwa-register/react'")
+    expect(src).toContain("from './pwa-register'")
+    expect(readWeb('src/app/pwa-register.ts')).toContain("from 'virtual:pwa-register/react'")
     expect(src).toContain('useRegisterSW')
     expect(src).toContain('onRegisteredSW')
     expect(src).toContain('registration.update()')
