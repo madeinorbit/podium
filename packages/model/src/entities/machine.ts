@@ -104,6 +104,9 @@ import { AgentKind, HarnessAgent } from './agent'
 // daemon (packages/harness buildInventory) and pushed AFTER the handshake
 // authenticates — never inside pair/hello, which must stay fast and pre-auth.
 
+/** External provider account identifier; it is not a Podium entity id. */
+const ProviderAccountIdField = z.string().optional()
+
 /** `USE` — one agent CLI's install + login status on the daemon's machine.
  *  Use-gated: `login.account` names a person, and the install set describes what
  *  the owner's hardware can run. */
@@ -123,7 +126,7 @@ export const AgentInventory = z.object({
       .object({
         fingerprint: z.string().min(1),
         email: z.string().optional(),
-        providerAccountId: z.string().optional(),
+        providerAccountId: ProviderAccountIdField,
       })
       .optional(),
     freshness: z.number().optional(),
