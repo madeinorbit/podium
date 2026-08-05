@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
@@ -241,16 +239,11 @@ describe('SELF_REF_RULE', () => {
     expect(SELF_REF_RULE).not.toContain('reports')
   })
 
-  // The guide quotes the rule verbatim so an agent reading docs gets the same
-  // words as an agent reading prime. A quote can drift; this is what stops it.
-  it('is reproduced verbatim in the committed agent guide', () => {
-    const guide = readFileSync(
-      join(import.meta.dirname, '../../../docs/agents/podium-issues.md'),
-      'utf8',
-    )
-    const flatten = (s: string) => s.replace(/^>\s?/gm, '').replace(/\s+/g, ' ').trim()
-    expect(flatten(guide)).toContain(flatten(SELF_REF_RULE))
-  })
+  // The guide quotes the rule verbatim; the drift test that holds it to that
+  // lives in apps/server (issues.attach.test.ts). It cannot live here: this
+  // package typechecks under the lean base config with `types: []`, so a
+  // `node:fs` import reddens the protocol typecheck and blocks everything
+  // downstream of it in turbo (POD-365 hit exactly that, POD-389).
 
   it('the nudge names the ref and the surface it was written on', () => {
     const note = selfRefNudge('POD-389', 'offer message')

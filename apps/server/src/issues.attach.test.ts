@@ -1,4 +1,7 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { FIRST_ADMIN_USER_ID, asIssueId, asSessionId, asUserId, type IssueId, type SessionId, type SessionMeta } from '@podium/model'
+import { SELF_REF_RULE } from '@podium/protocol'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { type IssueDeps, IssueService } from './modules/issues/service'
@@ -317,12 +320,29 @@ describe('prime draft/attach variants', () => {
     expect(text).toContain('You are working on this issue — `#1` (A)')
     // POD-389: the opening line demonstrates the self-reference rule instead of
     // contradicting it, and the rule itself still ships in the same prime.
-    expect(text).toContain('is "this issue", and what you did on it is "I"')
+    expect(text).toContain(SELF_REF_RULE)
     expect(text).toContain('podium issue attach --spinoff')
     expect(text).toContain('podium issue attach --subissue')
     expect(text).toContain('close with the new work untouched')
     expect(text).toContain('--confirm-rehome')
     expect(text).toContain('native subagent must not self-attach')
+  })
+
+  /**
+   * The agent guide quotes SELF_REF_RULE verbatim so an agent reading docs gets
+   * the same words as one reading prime. A hand-copied quote can drift; this is
+   * what stops it. It lives HERE rather than beside the rule in
+   * packages/protocol because that package typechecks under the lean base
+   * config (`types: []`) on purpose — a `node:fs` import there reddens the
+   * protocol typecheck and, through turbo, everything downstream of it.
+   */
+  it('the committed agent guide reproduces SELF_REF_RULE verbatim (POD-389)', () => {
+    const guide = readFileSync(
+      join(import.meta.dirname, '../../../docs/agents/podium-issues.md'),
+      'utf8',
+    )
+    const flatten = (s: string) => s.replace(/^>\s?/gm, '').replace(/\s+/g, ' ').trim()
+    expect(flatten(guide)).toContain(flatten(SELF_REF_RULE))
   })
 
   // Agents attached to their own freshly-retitled issue left it in `backlog`
