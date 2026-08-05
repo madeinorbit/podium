@@ -546,14 +546,16 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
   {
     file: 'apps/server/src/relay.ts',
     kind: 'composition-root',
-    // Extra headroom on purpose: POD-1386 is landing an additive dispatch arm
-    // here beside the quota arm. A budget that refused a neighbour's in-flight
-    // additive change would be an audit that blocks the work it exists to
-    // describe, and would be re-baselined rather than read.
+    // UNCHANGED at 2300 across POD-418's two decompositions, deliberately, and
+    // the file now sits ~600 lines under it. The gap is the point: this bound
+    // exists to catch growth so large the reviewer's model of the file is gone,
+    // not to ratchet onto whatever the tree last measured — re-pinning it to
+    // 1704 would fire on the next additive arm a neighbouring issue lands and
+    // teach everyone to re-baseline it without reading the argument beside it.
     budget: 2300,
-    review: 'POD-1385 / POD-321 / POD-734',
+    review: 'POD-1385 / POD-321 / POD-734 / POD-418',
     argument:
-      'The server composition root: `SessionRegistry` names and constructs every runtime module once, in dependency order, inside one constructor. Its size is the size of the system rather than an accretion of responsibility — it decides nothing, it only wires, and the one piece of domain logic it still holds is flagged separately below. Splitting it into sub-roots is the specific move that would defeat the guarantee: `scripts/server-construction-order.ts` proves the order is topological by walking THIS constructor, and edges moved into a sub-root would leave its view. The committed record reports 52 declarations, 0 forward dependencies, 0 deferred service closures and 0 non-null late bindings, and this entry is void the moment any of those stops being zero.',
+      'The server composition root: `SessionRegistry` names and constructs every runtime module once, in dependency order, inside one constructor. Its size is the size of the system rather than an accretion of responsibility — it decides nothing, it only wires. Splitting it into SUB-ROOTS is the specific move that would defeat the guarantee: `scripts/server-construction-order.ts` proves the order is topological by walking THIS constructor, and edges moved into a sub-root would leave its view. The committed record reports 55 declarations, 0 forward dependencies, 0 deferred service closures and 0 non-null late bindings, and this entry is void the moment any of those stops being zero. POD-418 re-reviewed it after it reached 2501 lines and found that what had accreted was not more wiring but TWO SECOND JOBS, both of which decide things about services that are already built and neither of which participates in the construction order at all. The feed VISIBILITY POLICY — bootstrap read tracing, the bulk prefetch, the grant checks behind `mayRead`, and the generation-keyed read cache, with two pieces of protected state of its own — moved to `feed-visibility.ts` behind `VisibilityStatePort` and `VisibilityAnchorPort`, the ports the sync kernel already declares; the root still names `GrantEdgeVisibilityPolicy` and `Ledger`, because those are services. The AGENT-RELAY DISPATCH ARM — router/proc routing, the hand-rolled validation for the two inputs with no contract, the scope gates `relay-gate.ts` deliberately leaves to it, and the issue-prime tail with its `sessionTitlePrime` helper — moved to `modules/issues/relay-dispatch.ts` behind `AgentRelayGateDeps.dispatch`, the port whose own doc comment already called it "the dispatch arm in the composition root". Each left a one-line delegate. Neither cut was cosmetic: the visibility block also declared a local `issues` that shadowed the `issues` service, which made the construction-order generator report a false forward dependency and THROW, so the record this entry cites had been stale and unregenerable while still reading green to the zero-grep above. It regenerates and passes now.',
   },
 
   // -- Surfaces: many operations, nothing shared to entangle through ----------
@@ -680,12 +682,7 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
     budget: 1300,
     review:
       'POD-1385 / POD-320 / POD-1606 (re-review after the main reconciliation) / POD-417 (re-review after the POD-384 watch)',
-    protectedState: [
-      'gitRefreshes',
-      'gitCommitsBySession',
-      'gitTouchedBySession',
-      'parentTips',
-    ],
+    protectedState: ['gitRefreshes', 'gitCommitsBySession', 'gitTouchedBySession', 'parentTips'],
     argument:
       "The git-workflow capability of the POD-320 composition: ONE issue's git life — branch/worktree lifecycle, PR/merge actions, and the git projection the sidebar reads. Its four fields are one debounce mechanism over one subject. `gitRefreshes` holds the in-flight refresh per issue; `gitCommitsBySession`/`gitTouchedBySession` are the per-session accumulations that refresh coalesces and publishes, and splitting the accumulators from the debounce would let a refresh publish a half-accumulated projection, a race with no local test that could catch it. `parentTips` (POD-384) is the fourth TRIGGER into that same debounce — the last observed tip per (machine, repo, parentBranch), which is how a merge performed in another checkout is noticed at all, since none of the three session-scoped triggers can see one. It is on this list rather than in a module of its own because the watch owns no output: its entire effect is deciding when this module's own projection is stale, and it is bounded by the same liveness rule the probe applies (a live, non-archived issue with a worktree and a branch). That is the OPPOSITE of the two cuts below, each of which took a whole second output with it. Twice re-reviewed and twice decomposed rather than re-argued. POD-1606, after POD-1439 pushed the file past 1300: `assistantTimers` debounced an LLM ACTIVITY DIGEST, not a git probe, and neither it nor `refreshAssistant` touched any git field — two debounces over two subjects sharing an owner because both happened to be triggered by session activity, a trigger in common, not state. It went to `issues/service/assistant.ts`. POD-417, after POD-384's watch pushed it past 1300 again: EPIC INTEGRATION was still here — `integrate` rebuilds an epic's integration branch by replaying its closed children into a branch and worktree the epic does not own and no session runs in, and its `integratingEpics` guard was named on this list while being read by nothing else on it. The question this kind asks is which fields a split would force two owners to SHARE, and that was never one of them; it left with its code to `issues/service/integration.ts`. Both cuts go behind the same `IssueStore` port the capabilities already compose over, with one-line delegates left here so the registry, the capability interface and every existing test keep calling one object. The budget is UNCHANGED at 1300 across all three reviews and the file sits ~1165 after this cut.",
   },
