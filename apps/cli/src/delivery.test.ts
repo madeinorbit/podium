@@ -1,6 +1,6 @@
 import { createHash, generateKeyPairSync, sign as cryptoSign } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
-import { fetchArtifact } from './delivery'
+import { fetchArtifact } from '@podium/runtime/update-delivery'
 
 // An ephemeral keypair makes this test independent of the gitignored dev key
 // while exercising the same verifier used by `podium update`.

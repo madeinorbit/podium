@@ -13,7 +13,7 @@ INSTALL_AGENTS=""
 AUTO_UPDATE="1"
 INSTANCE="default"
 # Ed25519 pubkey (SPKI/DER, base64). Commit the SAME value as PODIUM_UPDATE_PUBKEY in
-# apps/cli/src/podium-update-pubkey.ts — the lockstep test in Step 5 enforces they match. (A test
+# packages/runtime/src/update-delivery.ts — the lockstep test in Step 5 enforces they match. (A test
 # override is allowed via PODIUM_INSTALL_PUBKEY.) The key is public; committing it is safe.
 PUBKEY="${PODIUM_INSTALL_PUBKEY:-MCowBQYDK2VwAyEAG12/153QJI/SePyYeJQhBSbh1ZsFgkoMkwb823NiYOU=}"
 GITHUB_AUTH_TOKEN="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
