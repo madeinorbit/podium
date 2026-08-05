@@ -2637,13 +2637,19 @@ a.ref-link--session::before {
   font-size: 12px;
 }
 
-/* THE SETTINGS SHEET'S OWN WIDTH. 220 rail + 1 seam + 48 padding + the 780
-   measure = 1049, so the sheet asks for exactly what it will use. At the shared
-   1180 cap it ran 131px wider than its widest possible content and left a dead
-   column down the right — three nested measures, the outermost of which nothing
-   ever reached. Every tab is inside `.settings-measure`, so this cap costs no
-   tab any room. The horizontal counterpart of `.app-sheet-fit`: a utility that
-   ends where its content ends, in both axes. */
+/* THE SETTINGS SHEET'S OWN WIDTH. The sheet asks for exactly what it will use,
+   rather than the shared 1180 cap, which left a dead column down its right.
+   The horizontal counterpart of `.app-sheet-fit`: a utility that ends where its
+   content ends, in both axes.
+
+   The number is arithmetic on the parts, and POD-395 changed every one of them —
+   184 rail (was 220) + 1 seam + 56 pane padding (was 48) + 808 content = 1049.
+   It is the same total by coincidence, not by inheritance: 780 was the old
+   `.settings-measure` cap, and that cap is gone. The measure now lives on
+   `.settings-prose`, so the content column is not a measure at all — it is a
+   row: a 62ch text column, a 32px gutter and the 264px control column, which
+   808 holds with room for a label longer than its own prose. Recompute from
+   those four parts if any of them moves. */
 .app-sheet-settings {
   --sheet-max: 1049px;
 }
