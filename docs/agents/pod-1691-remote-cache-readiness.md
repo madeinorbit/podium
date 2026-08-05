@@ -4,7 +4,7 @@ Remote caching is intentionally not enabled by this issue. The repository has no
 
 ## Cache-key audit
 
-The environment fingerprint reaches the two current Turbo test tasks through the same path as typecheck:
+The environment fingerprint reaches the two audited Turbo test tasks in this tree through the same path as typecheck:
 
 - `scripts/test.ts` imports `readCensus` and `fingerprint` from `scripts/typecheck.ts`, refuses a missing or dangling `node_modules/@podium` install, and passes `PODIUM_CHECK_ENV_HASH` to `turbo run test`.
 - `scripts/test-affected.ts` computes the same fingerprint for both its dry task-graph probe and the selected test run.
@@ -16,6 +16,12 @@ Evidence from the rebased `origin/main` tree (Turbo 2.10.5, Bun 1.3.14):
 - A controlled Turbo dry run changed only the environment value. The web task hash moved from `28533195e6d7e923` (`probe-env-a`) to `7e81b2d3e6b32b4d` (`probe-env-b`).
 - The focused fingerprint and lane-configuration tests passed: 2 files, 21 tests.
 - The existing task inputs explicitly include `packages/*/src/**` for both app tasks and `apps/daemon/src/**` for web, covering the known out-of-package source read identified by POD-1687.
+
+## POD-1699 graph expansion
+
+POD-1699 reports 19 new cacheable package tasks in addition to the existing web and mobile tasks (21 total); `terminal-client-react` is intentionally excluded because it has no tests. Its package suites and typecheck pass according to that workstream.
+
+That `turbo.json` edit is owned by POD-1699 and is not in this worktree, so the dry-run and controlled hash evidence above covers only web/mobile. The expanded graph increases the value of sharing but widens the review surface: after integration, repeat per-task input/hash probes and confirm each new package's resolved sources and link targets/content are covered before enabling remote reads.
 
 The fingerprint itself is SHA-256 over the `bunfig.toml` contents plus the sorted names under `node_modules/@podium`, marking entries with no `package.json` as dangling. This closes the measured POD-1343 linker/layout failure: a missing or dangling workspace-link census cannot reuse a green. Turbo also includes the lockfile/package metadata in the global cache inputs.
 
@@ -38,6 +44,6 @@ The census also does not hash valid symlink targets or their content. Before sha
 1. Merge the `POD-1698` app-config safety fix. It is now in review with nonzero setup time and passing ambient-environment stripping proof; the unrelated POD-1402 root-gate tripwire does not change this cache audit.
 2. Choose and approve a self-hosted endpoint on the shared box, or explicitly authorize a hosted service. Keep tokens in CI/agent environment secrets; do not commit them or put them in `turbo.json`.
 3. Configure the endpoint through the `TURBO_API`/token/team environment expected by the selected service, then verify one writer and an independent reader with `TURBO_REMOTE_ONLY=1`. Treat remote timeouts as infrastructure load unless the test task itself reports an assertion failure.
-4. Keep the Turbo task pinned to the vetted packages until `POD-1699` gives additional packages real Vitest configurations. The current dry graph has only the web and mobile tasks; the other package `test` scripts are not safe task definitions yet.
+4. After `POD-1699` integrates its 19 new cacheable package tasks, repeat per-task input/hash audits and the runtime/link checks above. Keep `terminal-client-react` intentionally excluded because it has no tests; do not enable remote reads until the expanded graph passes those gates.
 
 CI currently ran the web package script directly (`bun run --cwd apps/web test:unit`), bypassing Turbo. This issue changes that step to `bun run test:web`, so CI will use the same task and can participate once an approved remote endpoint is configured. No remote cache is active in the current workflow.
