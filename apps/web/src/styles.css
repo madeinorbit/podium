@@ -2234,6 +2234,10 @@ a.ref-link--session::before {
      settings-micro  12px      muted@85 status crumbs, never an instruction
      settings-eyebrow 9.5px mono label  a class name over a group of rows
 
+   plus one voice, not a sixth rank: `settings-value` is the field rank spoken
+   in mono (13px ink, the 0.95 optical step below the label that names it), for
+   the version strings and prefixes a row exists to show you.
+
    Sizes alone would be a muddy ramp at these deltas, so every step moves on
    two axes at once: the heading gains weight AND strong ink, the label gains
    weight over the prose beneath it, the prose keeps muted ink at body weight.
@@ -2290,6 +2294,18 @@ a.ref-link--session::before {
 .settings-prose code,
 .settings-micro code {
   font-size: 0.95em;
+}
+/* The machine voice as a field's ANSWER — a version string, a repo prefix, an
+   id the row exists to show you. It belongs to the field rank (the label's
+   13.5px: one names, one answers) but takes the same 0.95 step down the inline
+   `code` above takes, because mono set at a sans size reads larger than it. Ink
+   is `--foreground`, not the prose muting: this is the value, not a gloss on
+   it. Body weight, so the label keeps the 500 and the pair stays a hierarchy. */
+.settings-value {
+  color: var(--foreground);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 /* Sections separate by ONE rule. The `first:border-t-0` this replaces was a

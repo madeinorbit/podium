@@ -143,23 +143,28 @@ export function UpdatesSection(): JSX.Element {
       hint="Which builds the self-updater (podium update) pulls. stable = released builds · edge = latest from main."
     >
       <Row label="Running version">
-        <code className="font-mono text-[11px] text-foreground">
-          {versionInfo?.appVersion ?? <span className="font-sans text-muted-foreground">Loading…</span>}
+        <code className="settings-value">
+          {versionInfo?.appVersion ?? <span className="settings-micro font-sans">Loading…</span>}
         </code>
       </Row>
-      <Row label="Target version" description="The version this server is asking its places to run.">
-        <code className="font-mono text-[11px] text-foreground">
+      <Row
+        label="Target version"
+        description="The version this server is asking its places to run."
+      >
+        <code className="settings-value">
           {fleet === null ? (
-            <span className="font-sans text-muted-foreground">Loading…</span>
+            <span className="settings-micro font-sans">Loading…</span>
           ) : (
-            fleet.targetVersion ?? <span className="font-sans text-muted-foreground">None published</span>
+            (fleet.targetVersion ?? (
+              <span className="settings-micro font-sans">None published</span>
+            ))
           )}
         </code>
       </Row>
       <Row label="Machines" description="Each machine's reported version compared with the target.">
         <div className="w-full overflow-hidden rounded-md border border-border/70 bg-muted/15">
           {machineRows.length === 0 ? (
-            <p className="px-3 py-2 text-[11px] text-muted-foreground">
+            <p className="settings-prose px-3 py-2">
               {fleet === null ? 'Loading…' : 'No machines connected.'}
             </p>
           ) : (
@@ -170,13 +175,15 @@ export function UpdatesSection(): JSX.Element {
                   data-testid={`update-machine-${machine.id}`}
                   className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-2"
                 >
+                  {/* A machine reads as prose ink lifted to `--foreground` over its
+                      version in the machine voice — the same name-then-answer pair
+                      the rows above make, one step in because this panel sits
+                      inside a row rather than beside one. */}
                   <div className="min-w-0">
-                    <p className="truncate text-[11px] text-foreground">{machine.label}</p>
-                    <code className="font-mono text-[10px] text-muted-foreground">
-                      {machine.version}
-                    </code>
+                    <p className="truncate settings-prose text-foreground">{machine.label}</p>
+                    <code className="settings-micro font-mono">{machine.version}</code>
                   </div>
-                  <span className="text-right text-[10px] text-muted-foreground">
+                  <span className="settings-micro text-right">
                     {versionStateLabel(machine.versionState)}
                   </span>
                 </div>

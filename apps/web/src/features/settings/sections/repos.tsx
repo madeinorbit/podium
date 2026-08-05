@@ -162,7 +162,7 @@ function RepoPrefixRow({
           </>
         ) : (
           <>
-            <span className="flex-none font-mono text-[13px] text-foreground">
+            <span className="settings-value flex-none">
               {row.prefix ?? <span className="text-muted-foreground">none</span>}
             </span>
             <Button

@@ -333,7 +333,10 @@ function PairingCodeDisplay({
           {code}
         </code>
       </div>
-      <label className="flex items-start gap-2 rounded-md border border-border px-2.5 py-2 text-[12px]">
+      {/* A control that names itself and then explains itself: the same
+          label-over-prose pair a settings Row makes, so this checkbox reads at
+          the sheet's scale rather than a size of its own. */}
+      <label className="flex items-start gap-2 rounded-md border border-border px-2.5 py-2">
         <input
           type="checkbox"
           className="mt-0.5"
@@ -341,8 +344,8 @@ function PairingCodeDisplay({
           onChange={(event) => onManagedChange(event.currentTarget.checked)}
         />
         <span className="flex flex-col gap-0.5">
-          <span className="text-foreground">Podium-managed machine</span>
-          <span className="text-[11px] text-muted-foreground">
+          <span className="settings-label">Podium-managed machine</span>
+          <span className="settings-prose">
             When off, mark this machine as shared and keep native logins local.
           </span>
         </span>
@@ -537,7 +540,7 @@ function MachineRow({
         </span>
       )}
 
-      <span className="flex-none rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground uppercase tracking-wide">
+      <span className="flex-none rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground uppercase tracking-wide">
         {machine.podiumManaged === false ? 'shared' : 'Podium-managed'}
       </span>
 
