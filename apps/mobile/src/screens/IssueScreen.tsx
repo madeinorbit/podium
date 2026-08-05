@@ -4,7 +4,7 @@ import { ISSUE_STAGES } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { Plus } from 'lucide-react-native'
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useIssue, useMobileStore, useSessions } from '../client/hooks'
 import { ActionSheet } from '../components/ActionSheet'
@@ -31,6 +31,21 @@ export function IssueScreen() {
   const [error, setError] = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
 
+  /**
+   * Back, with somewhere to go [POD-402, the trap in POD-358].
+   *
+   * A bare `router.back()` is fine when you arrived by tapping a row and empty
+   * when you did not — reload the app on a task URL, or open one from a
+   * notification, and there is no history behind this screen. The chevron then
+   * did nothing at all, which on a standalone PWA (no browser back, no browser
+   * chrome) leaves the task view with no exit. SessionScreen already resolved
+   * this the same way; this is the other half.
+   */
+  const goBack = useCallback(() => {
+    if (router.canGoBack()) router.back()
+    else router.replace('/work')
+  }, [router])
+
   const sessions = useMemo(
     () => withoutShells(allSessions).filter((s) => s.issueId === issueId && !s.archived),
     [allSessions, issueId],
@@ -38,7 +53,7 @@ export function IssueScreen() {
 
   if (!issue) {
     return (
-      <Screen title="Task" onBack={() => router.back()}>
+      <Screen title="Task" onBack={goBack}>
         <EmptyState title="Task not found." />
       </Screen>
     )
@@ -87,7 +102,7 @@ export function IssueScreen() {
   return (
     <Screen
       title={`${issueDisplayRef(issue)} ${issue.title}`}
-      onBack={() => router.back()}
+      onBack={goBack}
       right={
         <HeaderButton label="Add agent" onPress={addAgent}>
           <Icon as={Plus} size={17} color={color.text} />

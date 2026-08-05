@@ -84,7 +84,7 @@ export default defineConfig({
     ...sharedVitestConfig.test,
     setupFiles: sharedSetupFiles,
     environment: 'happy-dom',
-    include: ['src/**/*.test.{ts,tsx}'],
+    include: ['src/**/*.test.{ts,tsx}', 'scripts/**/*.test.ts'],
     passWithNoTests: false,
   },
 })

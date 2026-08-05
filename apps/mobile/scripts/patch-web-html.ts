@@ -28,6 +28,9 @@ const html = readFileSync(file, 'utf8')
 
 const viewport = 'width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover'
 
+/** Proof the patch ran. Kept in sync with test/dist-patched.test.ts. */
+const MARKER = '<style id="podium-shell">'
+
 /** Every iPhone the launch images cover; must match generate-web-icons.ts. */
 const LAUNCH: [number, number, number][] = [
   [750, 1334, 2],
@@ -81,6 +84,27 @@ ${startupImages}
         -webkit-touch-callout: default;
       }
     </style>`
+
+// `--check` asserts an export was patched without touching it, so a stale
+// `expo export -p web` cannot ship silently [POD-402]. See the dist tripwire in
+// test/dist-patched.test.ts.
+const checkOnly = process.argv.includes('--check')
+
+if (html.includes(MARKER)) {
+  // Re-running the patch would inject a second copy of every tag: the viewport
+  // regex still matches its own output and </head> is still there. Exports are
+  // fresh, so an already-patched file means the patch ran twice.
+  console.log(`${file} is already patched`)
+  process.exit(0)
+}
+if (checkOnly) {
+  throw new Error(
+    `patch-web-html --check: ${file} was exported without the install metadata.\n` +
+      'Add to Home Screen would produce a Safari bookmark named "Podium Mobile" with a\n' +
+      'screenshot instead of the icon. Run `bun run build:web`, or patch this export in\n' +
+      'place with `bun scripts/patch-web-html.ts <dir>`.',
+  )
+}
 
 let patched = html.replace(
   /<meta name="viewport" content="[^"]*"/,

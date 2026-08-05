@@ -1,5 +1,6 @@
 const path = require('node:path')
 const { getDefaultConfig } = require('expo/metro-config')
+const { redirectGestureHandler } = require('./scripts/metro-gesture-handler-web')
 
 const projectRoot = __dirname
 const workspaceRoot = path.resolve(projectRoot, '../..')
@@ -18,6 +19,16 @@ config.resolver.unstable_conditionsByPlatform = {
   web: ['@podium/source', ...(config.resolver.unstable_conditionsByPlatform?.web || [])],
   ios: ['@podium/source', ...(config.resolver.unstable_conditionsByPlatform?.ios || [])],
   android: ['@podium/source', ...(config.resolver.unstable_conditionsByPlatform?.android || [])],
+}
+
+// Point the web build at a gesture handler that actually handles gestures; the
+// rule and the reasons live in ./scripts/metro-gesture-handler-web.js [POD-402].
+const baseResolveRequest = config.resolver.resolveRequest
+config.resolver.resolveRequest = (context, moduleName, platform) => {
+  const resolved = (baseResolveRequest ?? context.resolveRequest)(context, moduleName, platform)
+  if (resolved?.type !== 'sourceFile') return resolved
+  const real = redirectGestureHandler(resolved.filePath, platform)
+  return real ? { type: 'sourceFile', filePath: real } : resolved
 }
 
 module.exports = config

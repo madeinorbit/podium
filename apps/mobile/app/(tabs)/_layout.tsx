@@ -21,7 +21,13 @@ export default function TabsLayout() {
       />
       <Tabs.Screen name="work" options={{ title: 'Work' }} />
       <Tabs.Screen name="issues" options={{ title: 'Tasks' }} />
-      <Tabs.Screen name="superagent" options={{ title: 'Super Agent' }} />
+      {/* "Super", not "Super Agent": a quarter of a 393pt bar cannot hold two
+          words, and the screen's own section bar says "Super agent" [POD-402].
+          The accessibility label keeps the full name. */}
+      <Tabs.Screen
+        name="superagent"
+        options={{ title: 'Super', tabBarAccessibilityLabel: 'Super agent' }}
+      />
     </Tabs>
   )
 }
