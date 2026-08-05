@@ -52,10 +52,98 @@ bun run typecheck -- --uncached-because="<what the cache key is missing>"
 ```
 
 and file the gap as an issue so the key gets fixed. Bare `--force` and `TURBO_FORCE`
-exit with an error. Test lanes (`bun run test*`) are not turbo tasks and always
-execute for real; there is no cached/uncached split to choose there.
+exit with an error.
+
+### Cached test lanes
+
+Two test lanes are turbo tasks and reuse a cache (POD-1687):
+
+| Lane | Runs | Cached |
+| --- | --- | --- |
+| `bun run test:web` | the `apps/web` suite | yes |
+| `bun run test:mobile` | the `apps/mobile` suite | yes |
+| `bun run test:cached` | both of the above | yes |
+| every other `bun run test*` | root/integration/bun lanes | no — always executes for real |
+
+They go through `scripts/test.ts`, which reuses `scripts/typecheck.ts`'s environment
+fingerprint, so **the same rules apply**: a checkout with no usable
+`node_modules/@podium` links is refused outright, bare `--force`/`TURBO_FORCE` exit
+with an error, and `-- --uncached-because="<reason>"` is the only way past the cache.
+Cold, the two lanes cost ~2m33s; a hit returns in well under a second.
+
+Tell a hit from a miss by turbo's summary line — you do not have to guess:
+
+```
+Cached:    2 cached, 2 total          Time:   302ms >>> FULL TURBO   <- hit, nothing ran
+Cached:    1 cached, 2 total          Time:   4m17s                  <- miss, the suite really ran
+```
+
+`>>> FULL TURBO` means nothing executed. That is the intended outcome of an unrelated
+edit, and it is evidence — the key covers each suite's own files *plus* the workspace
+sources it reaches (`packages/*/src`, and `apps/daemon/src` for web), because both
+suites import `@podium/*` as source and `apps/web/test/shell.structure.test.ts` reads
+`packages/client-core/src` off disk. `dependsOn: ["^test"]` does **not** cover that.
+
+The `test` task is deliberately **pinned** to those two packages — there is no generic
+`test` entry, so `turbo run test` resolves to `@podium/web#test` and `@podium/mobile#test`
+and nothing else — including under `--filter`. About twenty other packages define a bare
+`vitest run --passWithNoTests` script, but those are deliberately OUT: run from the
+package directory vitest does not walk up, so it finds no config — no `@podium/source`
+condition, and no `setupFiles`, meaning the `test-hermetic-*.ts` guards that strip
+ambient Podium session env never run. Most pass by luck, not scoping. Adding a package
+to this task requires giving it a real config first — see POD-1693.
 
 Evidence for the cache-key coverage table: **[docs/agents/pod-1378-cache-evidence.md](docs/agents/pod-1378-cache-evidence.md)**.
+
+## Affected-only tests
+
+`bun run test:affected` runs the `test` turbo task filtered to the packages your change
+actually touches — the ones whose sources changed, plus every package that depends on them.
+
+**Today that means `apps/web` and `apps/mobile`, and nothing else.** The `test` task is
+pinned to those two (see "Cached test lanes" above), so an `apps/web` edit runs the web
+suite, a `packages/*` edit runs both (they import those packages as source), and everything
+else refuses. The lane reads the task graph rather than package.json, so the day POD-1693
+gives another package a real config and a task, it widens automatically.
+
+**This is a fast inner-loop approximation. It does not replace `bun run test` before a
+commit.** It structurally cannot run the root-level lanes, which sweep the whole
+monorepo from root vitest configs rather than from any package:
+
+- `test:unit` — root vitest sweep
+- `test:integration` — real processes, PTYs, server boots
+- `test:acceptance` — loop-split load suite
+- `test:bun:unit` — bun-native `*.bun.test.ts` suites
+
+Because those lanes are invisible to a package filter, the entry point **refuses to run
+rather than print a green it did not earn**: if any changed file is not in a package turbo
+can actually run `test` for, it exits 1, names the file and the reason, and tells you to
+run `bun run test`. Use `--allow-uncovered` only once you have run the full lane yourself.
+
+Note that the ~20 packages outside the pinned task **are** tested — by the root `test:unit`
+sweep, which collects `packages/**` from the repo root. They are covered by `bun run test`
+and structurally uncoverable here, which is exactly why refusing on them is right.
+
+Inert files — `*.md`, `LICENSE`, `NOTICE` — do not trigger the refusal, since prose cannot
+change a test outcome. The exception is a doc a test actually reads: `docs/TELEMETRY.md`
+is asserted against `packages/telemetry/src/docs-drift.test.ts`, so editing it still
+refuses. If you add a test that reads a repo-root doc, the drift guard in
+`scripts/test-affected.test.ts` will fail and tell you to list it in `DOCS_READ_BY_TESTS`.
+
+The base is resolved, never hardcoded: the merge base against the *closest* of your
+upstream, `origin/main`, and `origin/project/*`. Worktrees cut from a long-lived project
+branch therefore diff against that branch, not against main. Override when needed:
+
+```
+bun run test:affected -- --base=<ref>     # or PODIUM_TEST_BASE=<ref>
+```
+
+Uncommitted and untracked changes count, and a checkout with no usable
+`node_modules/@podium` links is refused for the same reason `typecheck` refuses it.
+Note that editing `turbo.json` or anything in `globalDependencies` selects all 24
+packages — safe, but you get no speedup on such a branch.
+
+Measured selection sets: **[docs/agents/pod-1688-affected-evidence.md](docs/agents/pod-1688-affected-evidence.md)**.
 
 ## Testing policy
 
