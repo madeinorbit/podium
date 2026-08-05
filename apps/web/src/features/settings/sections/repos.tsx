@@ -63,7 +63,7 @@ export function ReposSection(): JSX.Element {
       title="Repositories"
       hint="Each registered repo has a short uppercase prefix used in human-facing ids like POD-13. Prefixes are unique across the server."
     >
-      {loadError && <p className="py-1 text-[12px] text-destructive">{loadError}</p>}
+      {loadError && <p className="py-1 settings-prose text-destructive">{loadError}</p>}
       {!rows ? (
         !loadError && <p className="settings-prose py-1">Loading repos…</p>
       ) : rows.length === 0 ? (
@@ -121,7 +121,7 @@ function RepoPrefixRow({
 
   return (
     <div className="border-border/60 border-b py-1.5 last:border-b-0">
-      <div className="flex items-center gap-2.5 text-[12.5px]">
+      <div className="flex items-center gap-2.5 text-[13.5px]">
         <span className="min-w-0 flex-1 truncate" title={row.path}>
           <span className="text-foreground">{repoName(row.path)}</span>
           <span className="settings-micro ml-2">{row.path}</span>
@@ -162,7 +162,7 @@ function RepoPrefixRow({
           </>
         ) : (
           <>
-            <span className="flex-none font-mono text-[12px] text-foreground">
+            <span className="flex-none font-mono text-[13px] text-foreground">
               {row.prefix ?? <span className="text-muted-foreground">none</span>}
             </span>
             <Button
@@ -183,7 +183,7 @@ function RepoPrefixRow({
         </p>
       )}
       {editing && error && (
-        <p className="mt-1 max-w-[62ch] text-[12px] text-destructive">{error}</p>
+        <p className="mt-1 max-w-[62ch] settings-prose text-destructive">{error}</p>
       )}
     </div>
   )

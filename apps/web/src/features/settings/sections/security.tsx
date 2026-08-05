@@ -173,11 +173,11 @@ export function LoginPasswordSection({ trpc }: { trpc: Trpc }): JSX.Element {
             onChange={(e) => setConfirm(e.target.value)}
           />
           {error && (
-            <p role="alert" className="text-[12px] text-destructive">
+            <p role="alert" className="settings-prose text-destructive">
               {error}
             </p>
           )}
-          {done && <p className="text-[12px] text-muted-foreground">{done}</p>}
+          {done && <p className="settings-prose">{done}</p>}
           <div className="flex items-center gap-2">
             <Button
               type="button"
@@ -207,7 +207,7 @@ export function LoginPasswordSection({ trpc }: { trpc: Trpc }): JSX.Element {
             <div className="mt-1 flex flex-col gap-2 rounded-md border border-border bg-muted/25 p-3">
               <div>
                 <h4 className="settings-h2">Disable login for this instance</h4>
-                <p className="text-[12px] text-muted-foreground">
+                <p className="settings-prose">
                   This removes the login requirement for everyone. Nobody’s password is deleted —
                   turning login back on restores every account’s existing password.
                 </p>
@@ -219,7 +219,7 @@ export function LoginPasswordSection({ trpc }: { trpc: Trpc }): JSX.Element {
                 value={disableCurrent}
                 onChange={(e) => setDisableCurrent(e.target.value)}
               />
-              <Label className="cursor-pointer items-start rounded-md border border-border bg-background px-3 py-2 text-[12px] text-muted-foreground">
+              <Label className="cursor-pointer items-start rounded-md border border-border bg-background px-3 py-2 text-[13px] text-muted-foreground">
                 <Checkbox
                   checked={disableAck}
                   onCheckedChange={(checked) => setDisableAck(checked === true)}
@@ -259,7 +259,7 @@ export function LoginPasswordSection({ trpc }: { trpc: Trpc }): JSX.Element {
           title="Instance login"
           hint="Login is turned off for this instance — anyone who can reach this server can use it. Set your password above to require login again."
         >
-          <p className="text-[12px] text-muted-foreground">
+          <p className="settings-prose">
             Existing passwords were kept, so turning login back on signs everyone in with the
             password they already had.
           </p>

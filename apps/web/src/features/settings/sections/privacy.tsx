@@ -117,7 +117,7 @@ export function PrivacySection(): JSX.Element {
       {suppressed && (
         <p
           data-testid="telemetry-suppressed"
-          className="mb-3 rounded-md border border-border px-3 py-2 text-[12px] text-warning"
+          className="mb-3 rounded-md border border-border px-3 py-2 text-[13px] text-warning"
         >
           {suppressed} is set in this server's environment — telemetry is disabled entirely,
           whatever these switches say.
@@ -146,7 +146,7 @@ export function PrivacySection(): JSX.Element {
         ))}
 
       {error && (
-        <p role="alert" className="text-[12px] text-destructive">
+        <p role="alert" className="settings-prose text-destructive">
           {error}
         </p>
       )}
@@ -157,7 +157,7 @@ export function PrivacySection(): JSX.Element {
         </span>
         <pre
           data-testid="telemetry-report"
-          className="max-w-full overflow-x-auto rounded bg-muted px-2 py-1.5 text-[11px] leading-relaxed"
+          className="max-w-full overflow-x-auto rounded bg-muted px-2 py-1.5 text-[12px] leading-relaxed"
         >
           {shown}
         </pre>
@@ -168,9 +168,9 @@ export function PrivacySection(): JSX.Element {
       </div>
 
       {state && (
-        <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px]">
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-[13px]">
           <span className="text-muted-foreground">Install id</span>
-          <code className="rounded bg-muted px-1.5 py-0.5 text-[11px]">
+          <code className="rounded bg-muted px-1.5 py-0.5 text-[12px]">
             {state.installId ?? '(none — created only when you opt in)'}
           </code>
           {state.installId && (

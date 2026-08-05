@@ -4,7 +4,7 @@
  * single reusable RoleBackendEditor (SP-6454 B3) used by the sessions,
  * superagent, and background-LLM tabs. Extracted verbatim from SettingsView.tsx.
  */
-import { asAccountId, type AccountId } from '@podium/model'
+import { type AccountId, asAccountId } from '@podium/model'
 import type { ApiProvider, HarnessAgent, RoleBackend } from '@podium/runtime'
 import type { JSX } from 'react'
 import { Input } from '@/components/ui/input'
@@ -34,8 +34,8 @@ export function Section({
   // because the class banner — not this section — is the pane's first child.
   return (
     <section>
-      <h3 className="settings-h mb-1">{title}</h3>
-      {hint && <p className="settings-prose mb-3">{hint}</p>}
+      <h3 className="settings-h mb-1.5">{title}</h3>
+      {hint && <p className="settings-prose mb-4">{hint}</p>}
       {children}
     </section>
   )
@@ -54,9 +54,9 @@ export function Subsection({
   children: React.ReactNode
 }): JSX.Element {
   return (
-    <div className="mt-5 border-hairline-soft/70 border-t pt-4">
+    <div className="mt-6 border-hairline-soft/70 border-t pt-5">
       <h4 className="settings-h2 mb-1">{title}</h4>
-      {hint && <p className="settings-prose mb-3">{hint}</p>}
+      {hint && <p className="settings-prose mb-3.5">{hint}</p>}
       {children}
     </div>
   )

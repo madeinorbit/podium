@@ -70,7 +70,7 @@ export function UpdatesSection(): JSX.Element {
           </div>
         )}
       </Row>
-      {channelError && <p className="mt-2 text-[12px] text-destructive">{channelError}</p>}
+      {channelError && <p className="mt-2 settings-prose text-destructive">{channelError}</p>}
     </Section>
   )
 }

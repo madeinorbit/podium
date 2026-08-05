@@ -2214,20 +2214,29 @@ a.ref-link--session::before {
   accent-color: var(--muted-foreground);
 }
 
-/* ── The settings type scale (POD-395) ─────────────────────────────────────
-   Seventeen tabs had grown ten font sizes (13 / 12.5 / 12 / 11.5 / 11 / 10.5 /
-   10 / 9 / 8.5 / text-xs), two greys doing the same job, and six prose measures
-   (44 / 58 / 60 / 62 / 68 / 72ch). Nothing on the screen could be read as a
-   rank, because no two ranks were spelled the same way twice.
+/* ── The settings reading tier (POD-407, replacing POD-395's scale) ────────
+   POD-395 gave this screen ONE scale where it had ten sizes. It set that scale
+   at the shell's own 12px, and that was the part to revisit: the shell is 12px
+   because you LIVE in it — forty rows of work held on one screen. Settings is a
+   surface you visit, read a sentence on, decide, and leave. Reading beats
+   density there, and 12px prose in a 62ch column asks a person to lean in to a
+   thing they will look at for ninety seconds.
 
-   Four sizes carry the whole surface. They live here rather than in class
-   strings so a new section inherits the scale instead of inventing a size:
+   So the sheet's CONTENT gets a reading tier, one step above the chassis, and
+   the sheet's CHROME (its header, the command bar behind it) stays at the
+   shell's density — a utility that is quieter than the app around it is a
+   utility that reads as part of the app. Five ranks, no more:
 
-     settings-h      13px/600  strong   the tab's section heading
-     settings-h2     12px/600  strong   a group inside a section
-     settings-label  12.5px    ink      the thing a row controls
-     settings-prose  12px/1.55 muted    every explanation, one 62ch measure
-     settings-micro  11px      muted@85 status crumbs, never an instruction
+     settings-h      15px/600  strong   the tab's section heading
+     settings-h2     13px/600  strong   a group inside a section
+     settings-label  13.5px/500 ink     the thing a row controls
+     settings-prose  13px/1.6  muted    every explanation, one 62ch measure
+     settings-micro  12px      muted@85 status crumbs, never an instruction
+     settings-eyebrow 9.5px mono label  a class name over a group of rows
+
+   Sizes alone would be a muddy ramp at these deltas, so every step moves on
+   two axes at once: the heading gains weight AND strong ink, the label gains
+   weight over the prose beneath it, the prose keeps muted ink at body weight.
 
    PROSE INK IS `--muted-foreground`, NOT `--text-dim`. Dim is #6c7690 — 3.8:1
    on the panel, under the 4.5:1 floor — and it was carrying the row
@@ -2235,35 +2244,48 @@ a.ref-link--session::before {
    jobs it can do: single words in chrome, never a sentence. */
 .settings-h {
   color: var(--text-strong);
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
   line-height: 1.3;
+  letter-spacing: -0.006em;
 }
 .settings-h2 {
   color: var(--text-strong);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   line-height: 1.35;
 }
 .settings-label {
   color: var(--foreground);
-  font-size: 12.5px;
-  line-height: 1.35;
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.4;
 }
 /* THE ONE MEASURE. Every explanation on the screen wraps in the same place, so
    the ragged right edges stack instead of scattering. It caps the TEXT and not
-   the row — the row still spans the pane, which is what keeps the controls on
-   the pane's right edge rather than at an arbitrary 780px. */
+   the row — the row still spans the form column, which is what keeps the
+   controls on one right edge rather than at an arbitrary per-row distance. */
 .settings-prose {
   max-width: 62ch;
   color: var(--muted-foreground);
-  font-size: 12px;
-  line-height: 1.55;
+  font-size: 13px;
+  line-height: 1.6;
 }
 .settings-micro {
   color: color-mix(in oklab, var(--muted-foreground) 85%, transparent);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
+}
+/* The machine voice naming a GROUP — the rail's three classes, and the account
+   groups inside the Accounts tab. One class, because two places spelling the
+   same label two ways is how the ten-size drift started. */
+.settings-eyebrow {
+  color: var(--label);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 .settings-prose code,
 .settings-micro code {
@@ -2275,9 +2297,9 @@ a.ref-link--session::before {
    banner is — so every tab opened with two rules 24px apart and a band of dead
    air between them. `:first-of-type` asks the question the guard meant to ask. */
 .settings-measure > section {
-  margin-top: 26px;
+  margin-top: 32px;
   border-top: 1px solid var(--hairline-soft);
-  padding-top: 20px;
+  padding-top: 24px;
 }
 .settings-measure > section:first-of-type {
   margin-top: 0;
@@ -2292,15 +2314,18 @@ a.ref-link--session::before {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 8px;
-  padding: 12px 0;
+  /* Taller than the 12px POD-395 set, because the type inside it grew: a row
+     is a line of 13.5px label over 13px prose, and the air around a row must
+     stay larger than the air inside it or the run reads as one block. */
+  padding: 14px 0;
 }
 @media (min-width: 768px) {
   .settings-row {
     /* One column for what it is, one for what it does. The control column is
        fixed so every control on every tab lands on the same right edge. */
-    grid-template-columns: minmax(0, 1fr) 264px;
+    grid-template-columns: minmax(0, 1fr) var(--settings-control-w);
     align-items: center;
-    gap: 12px 32px;
+    gap: 12px 36px;
   }
   /* A row that explains itself is taller than its control, and centring a
      switch against a four-line paragraph parks it beside the middle sentence.
@@ -2321,15 +2346,15 @@ a.ref-link--session::before {
   min-width: 0;
   width: 100%;
 }
-/* A field's VALUE was the largest text on the screen. The shared Input/Select
-   ship `text-sm` (14px) from the shadcn base, which is a step ABOVE the 13px
-   section heading on a surface whose base is 12px — so "Auto" outranked
-   "New sessions". Scoped to the sheet, not the component: 14px is right where
-   the app puts a lone field, wrong in a column of forty. */
+/* A field's VALUE must not be the largest text on the screen. The shared
+   Input/Select ship `text-sm` (14px) from the shadcn base, which would sit a
+   half-step under the 15px section heading and ABOVE its own row label — so
+   "Auto" would outrank "New sessions". A field reads at the label's size:
+   they are the same rank, one naming and one answering. */
 .settings-pane :is(input, textarea),
 .settings-pane [data-slot="select-trigger"],
 .settings-pane [data-slot="select-value"] {
-  font-size: 12.5px;
+  font-size: 13.5px;
 }
 @media (min-width: 768px) {
   .settings-control {
@@ -2833,21 +2858,34 @@ a.ref-link--session::before {
   }
 }
 
-/* THE SETTINGS SHEET'S OWN WIDTH. The sheet asks for exactly what it will use,
-   rather than the shared 1180 cap, which left a dead column down its right.
-   The horizontal counterpart of `.app-sheet-fit`: a utility that ends where its
-   content ends, in both axes.
+/* THE SETTINGS SHEET'S OWN WIDTH — NOW COMPUTED, NOT COMMENTED (POD-407).
+   The sheet asks for exactly what it will use, rather than the shared 1180 cap,
+   which left a dead column down its right. The horizontal counterpart of
+   `.app-sheet-fit`: a utility that ends where its content ends, in both axes.
 
-   The number is arithmetic on the parts, and POD-395 changed every one of them —
-   184 rail (was 220) + 1 seam + 56 pane padding (was 48) + 808 content = 1049.
-   It is the same total by coincidence, not by inheritance: 780 was the old
-   `.settings-measure` cap, and that cap is gone. The measure now lives on
-   `.settings-prose`, so the content column is not a measure at all — it is a
-   row: a 62ch text column, a 32px gutter and the 264px control column, which
-   808 holds with room for a label longer than its own prose. Recompute from
-   those four parts if any of them moves. */
+   POD-395 wrote this as one number with the arithmetic in a comment, and every
+   part of that arithmetic moved when the type grew. So the parts are variables
+   and the total is a `calc`: the sheet is the rail, its seam, the pane's two
+   paddings and the form column, and it cannot drift from them again.
+
+   The form column is itself a sum: a 62ch prose measure (558px, measured in
+   the browser at 13px Geist rather than scaled from the 12px figure — `ch` is
+   the zero-advance and does not track a font-size ratio exactly), a 36px
+   gutter, and the 280px control column — 876 on the 4px grid, with room for a
+   label longer than its own prose. Set it short and the measure silently
+   becomes 60ch; the comment would still say 62. */
 .app-sheet-settings {
-  --sheet-max: 1049px;
+  --settings-rail-w: 200px;
+  --settings-pane-pad: 32px;
+  --settings-control-w: 280px;
+  --settings-form-w: 876px;
+  --sheet-max: calc(
+    var(--settings-rail-w) +
+    1px +
+    2 *
+    var(--settings-pane-pad) +
+    var(--settings-form-w)
+  );
 }
 /* Settings: a fixed rail and a pane that fills the sheet (POD-365). */
 .settings-panes {
@@ -2867,47 +2905,51 @@ a.ref-link--session::before {
   display: flex;
   flex: none;
   flex-direction: column;
-  width: 184px;
-  padding: 12px 8px 20px;
+  width: var(--settings-rail-w);
+  padding: 16px 10px 24px;
   border-right: 1px solid var(--border);
   background: var(--bar);
   overflow-y: auto;
 }
 /* A class is one block: seam, its name, then its rows. The seam is the same
    device the pane uses between sections — the rail separates classes the way
-   the page separates sections, so the two columns rhyme. */
+   the page separates sections, so the two columns rhyme.
+
+   The gap is bigger than the gap between rows inside a class by more than a
+   hair (16 vs 2), because that ratio is the only thing telling a reader the
+   seventeen destinations are three groups and not one long list. */
 .settings-rail-section + .settings-rail-section {
-  margin-top: 14px;
-  padding-top: 14px;
+  margin-top: 16px;
+  padding-top: 16px;
   border-top: 1px solid var(--hairline-soft);
 }
 .settings-rail-group {
-  margin: 0 0 6px;
-  padding: 0 10px;
-  color: var(--label);
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  margin: 0 0 8px;
+  /* Aligned with the rows' TEXT, not with their hover cell: an eyebrow that
+     hangs a pixel off its own column is the tell that a nav was assembled
+     rather than set. */
+  padding: 0 11px;
 }
-/* The rail lists destinations; the pane is the content. It was set at 12.5px —
-   the same size as the section heading it navigates to — so the nav read as
-   loud as the page. A step down puts it back in its place. */
+/* The rail lists destinations; the pane is the content. It stays one step
+   under the pane's prose so the nav never reads as loud as the page — the
+   ranking POD-395 established, carried up onto the reading tier. */
 .settings-rail-item {
   display: block;
   width: 100%;
-  padding: 5px 10px;
+  padding: 6px 11px;
   border-radius: 6px;
   color: var(--muted-foreground);
-  font-size: 12px;
-  line-height: 1.4;
+  font-size: 13px;
+  line-height: 1.45;
   text-align: left;
   white-space: nowrap;
   cursor: pointer;
   transition:
     background-color 150ms ease,
     color 150ms ease;
+}
+.settings-rail-item + .settings-rail-item {
+  margin-top: 2px;
 }
 .settings-rail-item:hover {
   background: color-mix(in oklab, var(--accent) 60%, transparent);
@@ -2935,7 +2977,10 @@ a.ref-link--session::before {
 .settings-pane-scroll {
   flex: 1;
   min-height: 0;
-  padding: 22px 28px 96px;
+  /* The bottom is deep on purpose: the save bar floats over the last rows, and
+     a form whose final control can be hidden under its own Save is the oldest
+     settings-screen defect there is. */
+  padding: 28px var(--settings-pane-pad) 104px;
   overflow-y: auto;
 }
 /* The measure constrains the TEXT, never the pane — that inversion is what made
@@ -2944,9 +2989,16 @@ a.ref-link--session::before {
    inversion, one level down. It stopped the rows short of the pane edge, which
    put a dead gutter to the right of every control and a second dead gutter
    between a 44ch description and the control it described. The cap now lives on
-   `.settings-prose`, where "the text" actually is; the rows span the pane. */
+   `.settings-prose`, where "the text" actually is.
+
+   What is left here is not a measure but the FORM's own width — prose + gutter
+   + control — and the sheet is sized from the same variable, so on the sheet's
+   own width the two are equal and this cap never bites. It bites only when
+   something else opens the sheet wider (a future utility sharing the tier),
+   and then it keeps the controls where the eye learned to find them instead of
+   letting them drift to a far edge. */
 .settings-measure {
-  max-width: 1040px;
+  max-width: var(--settings-form-w);
 }
 .settings-section-enter {
   animation: settings-section-in 160ms cubic-bezier(0.22, 1, 0.36, 1);

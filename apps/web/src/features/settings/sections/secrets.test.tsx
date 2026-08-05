@@ -43,6 +43,14 @@ const view = (over: Partial<Parameters<typeof SecretsSection>[0]> = {}) =>
   )
 
 describe('presence and fingerprint are shown; a value is not', () => {
+  it('states the never-leaves-the-server promise on this tab (POD-407)', () => {
+    // The sentence used to be a class banner repeated on every settings tab.
+    // It now lives here, on the one surface it is true about — so this is the
+    // assertion that it did not simply get deleted with the banner.
+    view()
+    expect(screen.getByText(/never the value, which never leaves the server/i)).toBeTruthy()
+  })
+
   it('renders presence per key — the positive half', () => {
     view()
     expect(screen.getByTestId('secret-presence-apiKeys.openai').textContent).toBe('Configured')

@@ -24,7 +24,7 @@ function managedLabel(a: AccountView): string {
  *  token so it stays on-brand per theme. */
 function StatusConnected({ identity }: { identity: string }): JSX.Element {
   return (
-    <span className="inline-flex flex-none items-center gap-1.5 rounded-full bg-success/10 py-0.5 pr-2 pl-1.5 text-[11px] text-success">
+    <span className="inline-flex flex-none items-center gap-1.5 rounded-full bg-success/10 py-0.5 pr-2 pl-1.5 text-[12px] text-success">
       <span aria-hidden="true" className="size-1.5 flex-none rounded-full bg-success" />
       <span className="max-w-[170px] truncate font-mono">{identity}</span>
     </span>
@@ -35,7 +35,7 @@ function StatusConnected({ identity }: { identity: string }): JSX.Element {
  *  states read as one on/off column rather than two unrelated treatments. */
 function StatusDisconnected(): JSX.Element {
   return (
-    <span className="inline-flex flex-none items-center gap-1.5 text-[12px] text-muted-foreground">
+    <span className="inline-flex flex-none items-center gap-1.5 settings-prose">
       <span
         aria-hidden="true"
         className="size-1.5 flex-none rounded-full ring-1 ring-border-strong ring-inset"
@@ -60,10 +60,8 @@ function AccountGroup({
 }): JSX.Element {
   return (
     <div>
-      <div className="mb-1.5 flex items-baseline gap-2 px-0.5">
-        <span className="font-mono text-[9px] font-semibold text-label uppercase tracking-[0.12em]">
-          {label}
-        </span>
+      <div className="mb-2 flex items-baseline gap-2 px-0.5">
+        <span className="settings-eyebrow">{label}</span>
         <span className="settings-micro">{qualifier}</span>
       </div>
       <div className="divide-y divide-hairline-soft overflow-hidden rounded-lg border border-border bg-card/50 px-3.5">
@@ -233,7 +231,7 @@ function ManagedAccountRow({
           </div>
         )}
       </Row>
-      {error && <p className="max-w-[62ch] pb-2.5 text-[12px] text-destructive">{error}</p>}
+      {error && <p className="max-w-[62ch] pb-2.5 settings-prose text-destructive">{error}</p>}
     </div>
   )
 }

@@ -28,13 +28,7 @@ import { SuperagentSection } from './sections/superagent'
 import { UpdatesSection } from './sections/updates'
 import { WorkflowSection } from './sections/workflow'
 import { WorkLlmSection } from './sections/workllm'
-import {
-  SETTINGS_SURFACES,
-  type SettingsSurface,
-  SURFACE_COPY,
-  TAB_SURFACE,
-  tabsOnSurface,
-} from './surfaces'
+import { SETTINGS_SURFACES, type SettingsSurface, SURFACE_COPY, tabsOnSurface } from './surfaces'
 
 export type SettingsTab =
   | 'appearance'
@@ -115,14 +109,10 @@ const TAB_LABEL: Record<SettingsTab, string> = {
 export const SETTINGS_GROUPS: {
   label: string
   surface: SettingsSurface
-  hint: string
-  caveat?: string
   tabs: { key: SettingsTab; label: string }[]
 }[] = SETTINGS_SURFACES.map((surface) => ({
   label: SURFACE_COPY[surface].label,
   surface,
-  hint: SURFACE_COPY[surface].hint,
-  ...(SURFACE_COPY[surface].caveat ? { caveat: SURFACE_COPY[surface].caveat } : {}),
   tabs: tabsOnSurface(surface).map((key) => ({ key, label: TAB_LABEL[key] })),
 }))
 
@@ -643,15 +633,15 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
           aria-label="Settings sections"
         >
           {searchEnabled && (
-            // Same 14px the class blocks put between themselves, so the filter
+            // Same 16px the class blocks put between themselves, so the filter
             // reads as its own block rather than as a caption on the first one.
-            <div className="relative mb-3.5">
+            <div className="relative mb-4">
               <input
                 ref={filterRef}
                 type="text"
                 value={filter}
                 placeholder="Find a setting"
-                className="h-7 w-full rounded-md border border-hairline-soft bg-background px-2.5 text-[12px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring/40"
+                className="h-8 w-full rounded-md border border-hairline-soft bg-background px-2.5 text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring/40"
                 onChange={(e) => setFilter(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
@@ -665,7 +655,7 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
                 }}
               />
               {filter === '' && (
-                <kbd className="-translate-y-1/2 pointer-events-none absolute top-1/2 right-2 rounded border border-hairline-soft px-1 font-mono text-[10px] text-text-dim">
+                <kbd className="-translate-y-1/2 pointer-events-none absolute top-1/2 right-2 rounded border border-hairline-soft px-1 font-mono text-[11px] text-text-dim">
                   /
                 </kbd>
               )}
@@ -681,7 +671,7 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
                     states it verbatim and both were on screen at once — the same
                     three sentences twice, once ragged into a 20ch rail. A nav
                     lists destinations; the destination explains itself. */}
-              <div className="settings-rail-group">{g.label}</div>
+              <div className="settings-eyebrow settings-rail-group">{g.label}</div>
               {g.tabs.map((t) => (
                 <button
                   data-pressable
@@ -706,38 +696,19 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
         <div className="settings-pane">
           <div className="settings-pane-scroll">
             <div className="settings-section-enter settings-measure" key={tab}>
-              {/* THE CLASS CAPTION. What changing anything on this tab affects,
-                    stated on the tab itself — a nav heading is easy to scroll
-                    past, and the caveat below is the one thing on this screen a
-                    user must not miss. It was a bordered chip card, which made
-                    the pane's quietest content its loudest object and put a card
-                    above the heading it introduces; a mono class label over the
-                    sentence, closed by the rule that already separates it from
-                    the first section, says the same thing without a box. */}
-              {(() => {
-                const surface = TAB_SURFACE[tab]
-                const copy = SURFACE_COPY[surface]
-                return (
-                  <div
-                    className="mb-5 border-hairline-soft border-b pb-4"
-                    data-testid={`surface-banner-${surface}`}
-                  >
-                    {/* No class label here: the rail names the group two
-                        centimetres to the left and on the same line, so
-                        repeating it read as a rendering fault. The sentence is
-                        self-contained. */}
-                    <p className="settings-prose">{copy.hint}</p>
-                    {copy.caveat && (
-                      <p
-                        className="settings-prose mt-1.5 text-warning"
-                        data-testid="surface-caveat"
-                      >
-                        {copy.caveat}
-                      </p>
-                    )}
-                  </div>
-                )
-              })()}
+              {/* NO CLASS BANNER (POD-407). Every tab opened with the same
+                  sentence about the class it belongs to — the preferences one
+                  on seven tabs, the instance one on eight — above the heading
+                  that actually says what the tab is. A caption that is
+                  identical on eight destinations is not a caption; it is
+                  furniture the eye learns to jump, and it pushed the first real
+                  heading a third of the way down the pane.
+
+                  The class stays legible where a nav states it once: the rail's
+                  group headings (POD-421's requirement, satisfied by the
+                  grouping itself). What a specific surface genuinely has to
+                  explain — the secrets promise — now lives on that section's
+                  own hint, on the one tab where it is true. */}
               {settings ? (
                 SECTION_VIEWS[tab]({
                   settings,
@@ -762,17 +733,21 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
                   },
                 })
               ) : (
-                <div className="animate-pulse pt-2" aria-hidden="true">
+                // The skeleton is the row grammar at rest: same 14px padding,
+                // same control column, so nothing shifts when the blob lands.
+                <div className="animate-pulse" aria-hidden="true">
                   {[0, 1, 2, 3, 4].map((i) => (
                     <div
                       key={i}
-                      className="flex items-center justify-between gap-4 border-hairline-soft/50 border-b py-3.5 last:border-b-0"
+                      className="flex items-center justify-between gap-9 border-hairline-soft/50 border-b py-4 last:border-b-0"
                     >
-                      <div className="min-w-0 space-y-1.5">
-                        <div className="h-3 w-36 rounded bg-chip" />
-                        {i % 2 === 0 && <div className="h-2 w-56 max-w-full rounded bg-chip/60" />}
+                      <div className="min-w-0 space-y-2">
+                        <div className="h-3.5 w-40 rounded bg-chip" />
+                        {i % 2 === 0 && (
+                          <div className="h-2.5 w-64 max-w-full rounded bg-chip/60" />
+                        )}
                       </div>
-                      <div className="h-8 w-[264px] flex-none rounded-md bg-chip/80" />
+                      <div className="h-8 w-[var(--settings-control-w)] flex-none rounded-md bg-chip/80" />
                     </div>
                   ))}
                 </div>
@@ -783,7 +758,10 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
             className={cn(
               // The lifted tier read from the token rather than restated: black
               // at that alpha is depth on navy and dirt on paper (POD-388).
-              'absolute right-6 bottom-4 left-6 z-10 flex max-w-[780px] items-center gap-2 rounded-lg border border-border-strong bg-chip py-1.5 pr-1.5 pl-3.5 shadow-[var(--shadow-popover)] transition-[transform,opacity] duration-200 ease-out motion-reduce:transition-none',
+              // Left edge on the form's own left edge, and no wider than the
+              // form: a bar that spans further than the column it belongs to
+              // reads as the sheet's furniture rather than as this form's.
+              'absolute right-8 bottom-4 left-8 z-10 flex max-w-[var(--settings-form-w)] items-center gap-2 rounded-lg border border-border-strong bg-chip py-2 pr-2 pl-4 shadow-[var(--shadow-popover)] transition-[transform,opacity] duration-200 ease-out motion-reduce:transition-none',
               showBar
                 ? 'translate-y-0 opacity-100'
                 : 'pointer-events-none translate-y-16 opacity-0',
@@ -797,7 +775,7 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
           >
             <span
               className={cn(
-                'min-w-0 flex-1 truncate text-[12px]',
+                'min-w-0 flex-1 truncate text-[13px]',
                 error || refusalText ? 'text-destructive' : 'text-foreground',
               )}
               // A refusal — of a write, or of the close that would have thrown

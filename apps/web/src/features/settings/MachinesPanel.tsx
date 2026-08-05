@@ -119,7 +119,7 @@ export function MachinesPanel(): JSX.Element {
                   : 'Run the command below on the other machine. It installs the three supported agents and copies existing native logins from one of your online machines.'}
               </DialogDescription>
             </DialogHeader>
-            {addError && <p className="text-[12px] text-destructive">{addError}</p>}
+            {addError && <p className="settings-prose text-destructive">{addError}</p>}
             {addLoading && <p className="settings-prose">Generating pairing code…</p>}
             {code && joinCommand && (
               <PairingCodeDisplay
@@ -297,7 +297,7 @@ function PairingCodeDisplay({
             Server URL this code points at
           </span>
           <div className="flex items-start gap-2">
-            <code className="min-w-0 flex-1 break-all rounded bg-muted px-2 py-1 text-[12px]">
+            <code className="min-w-0 flex-1 break-all rounded bg-muted px-2 py-1 text-[13px]">
               {publicUrl}
             </code>
             {onChangeUrl && (
@@ -316,7 +316,7 @@ function PairingCodeDisplay({
       )}
       <div className="flex flex-col gap-1">
         <span className="settings-micro uppercase tracking-wide">Pairing code</span>
-        <code className="block rounded bg-muted px-2 py-1 font-mono text-[12.5px] tracking-widest">
+        <code className="block rounded bg-muted px-2 py-1 font-mono text-[13.5px] tracking-widest">
           {code}
         </code>
       </div>
@@ -336,7 +336,7 @@ function PairingCodeDisplay({
           // scrolls horizontally, so a long install command can't balloon and dominate the
           // dialog. The Copy button above is the real affordance; `title` exposes the full text.
           <code
-            className="block max-w-full overflow-x-auto whitespace-nowrap rounded-md border bg-muted px-2.5 py-2 font-mono text-[11px] leading-relaxed text-muted-foreground [scrollbar-width:thin]"
+            className="block max-w-full overflow-x-auto whitespace-nowrap rounded-md border bg-muted px-2.5 py-2 font-mono text-[12px] leading-relaxed text-muted-foreground [scrollbar-width:thin]"
             title={joinCommand}
           >
             {joinCommand}
@@ -460,7 +460,7 @@ function MachineRow({
   }
 
   return (
-    <div className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-[12.5px]">
+    <div className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-[13.5px]">
       {/* Online/offline dot */}
       <span
         role="img"
@@ -476,7 +476,7 @@ function MachineRow({
       <div className="min-w-0 flex-1">
         {editing ? (
           <Input
-            className="h-6 px-1.5 text-[12.5px]"
+            className="h-6 px-1.5 text-[13.5px]"
             value={name}
             autoFocus
             disabled={renaming}
@@ -505,14 +505,14 @@ function MachineRow({
       </div>
 
       {isThisMachine && (
-        <span className="flex-none rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground uppercase tracking-wide">
+        <span className="flex-none rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground uppercase tracking-wide">
           this machine
         </span>
       )}
 
       {/* Hostname */}
       <span
-        className="hidden max-w-[140px] flex-none truncate text-[12px] text-muted-foreground sm:block"
+        className="hidden max-w-[140px] flex-none truncate settings-micro sm:block"
         title={machine.hostname}
       >
         {machine.hostname}
@@ -529,7 +529,7 @@ function MachineRow({
       )}
       {needsUpdate && (
         <span
-          className="flex-none rounded bg-warning/15 px-1.5 py-0.5 text-[10px] text-warning uppercase tracking-wide"
+          className="flex-none rounded bg-warning/15 px-1.5 py-0.5 text-[11px] text-warning uppercase tracking-wide"
           title={`This machine runs Podium ${daemonVersion}; the server is on ${serverAppVersion}. Update the daemon (podium update).`}
         >
           update available
@@ -559,7 +559,7 @@ function MachineRow({
         <>
           {hosting.error && (
             <span
-              className="max-w-[24ch] truncate text-[12px] text-destructive"
+              className="max-w-[24ch] truncate settings-micro text-destructive"
               title={hosting.error}
             >
               {hosting.error}
@@ -619,7 +619,7 @@ function MachineRow({
                 back.
               </DialogDescription>
             </DialogHeader>
-            <div className="flex flex-col gap-3 text-[12.5px]">
+            <div className="flex flex-col gap-3 text-[13.5px]">
               <label className="flex flex-col gap-1">
                 <span className="text-muted-foreground">New owner's account name</span>
                 <Input
@@ -643,7 +643,7 @@ function MachineRow({
                 />
               </label>
               {transferError && (
-                <p className="text-[12px] text-destructive" role="alert">
+                <p className="settings-prose text-destructive" role="alert">
                   {transferError}
                 </p>
               )}

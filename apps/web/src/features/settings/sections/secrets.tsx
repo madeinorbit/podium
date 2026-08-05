@@ -92,7 +92,7 @@ function Unavailable(): JSX.Element {
 function Fingerprint({ value }: { value: string }): JSX.Element {
   return (
     <span
-      className="rounded bg-chip px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground"
+      className="rounded bg-chip px-1.5 py-0.5 font-mono settings-micro"
       title="An opaque tag derived on the server. It tells two keys apart; it reveals nothing about either."
       data-testid="secret-fingerprint"
     >
@@ -225,12 +225,16 @@ export function SecretsSection({
   }
 
   return (
-    // No `hint`, and the title is the CONTENT rather than the class: the
-    // surface banner above already reads "Secrets" with the class sentence, and
-    // repeating both rendered the same heading and the same paragraph twice.
-    <Section title="Managed credentials">
+    // The title is the CONTENT rather than the class — the rail already says
+    // "Secrets". The hint is the one thing the class banner said that was worth
+    // saying, kept on the single tab where it is true and beside the rows it
+    // describes (POD-407).
+    <Section
+      title="Managed credentials"
+      hint="Server-owned credentials. Podium shows whether one is configured and a fingerprint for telling one key from another — never the value, which never leaves the server."
+    >
       {error && (
-        <p className="py-1 text-[12px] text-destructive" role="alert">
+        <p className="settings-prose py-1 text-destructive" role="alert">
           {error}
         </p>
       )}

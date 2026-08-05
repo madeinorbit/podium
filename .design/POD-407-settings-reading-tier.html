@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Settings — the reading tier (POD-407)</title>
+    <style>
+      :root {
+        --bar: #050912;
+        --bg: #0a0f1c;
+        --panel: #121b30;
+        --chip: #16223c;
+        --seam: #243356;
+        --hair: #1e2a4c;
+        --ink: #d7d7e0;
+        --strong: #f3f3f8;
+        --muted: #9a9aa8;
+        --dim: #6c7690;
+        --label: #7a84a0;
+        --yellow: #f5c518;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        padding: 56px 32px 96px;
+        background: var(--bg);
+        color: var(--ink);
+        font: 400 15px/1.6 "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+      }
+      main { max-width: 1180px; margin: 0 auto; }
+      .eyebrow {
+        margin: 0 0 10px;
+        color: var(--label);
+        font-family: "Geist Mono Variable", ui-monospace, monospace;
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+      h1 { margin: 0 0 12px; color: var(--strong); font-size: 30px; font-weight: 600; letter-spacing: -0.015em; }
+      .lede { max-width: 68ch; margin: 0 0 44px; color: var(--muted); font-size: 16px; }
+      h2 {
+        margin: 56px 0 6px;
+        padding-top: 22px;
+        border-top: 1px solid var(--hair);
+        color: var(--strong);
+        font-size: 19px;
+        font-weight: 600;
+      }
+      h2:first-of-type { margin-top: 40px; }
+      .sub { max-width: 68ch; margin: 0 0 22px; color: var(--muted); font-size: 14.5px; }
+      .pair { display: grid; gap: 18px; grid-template-columns: 1fr 1fr; align-items: start; }
+      @media (max-width: 900px) { .pair { grid-template-columns: 1fr; } }
+      figure { margin: 0; }
+      figcaption {
+        margin: 0 0 8px;
+        color: var(--dim);
+        font-family: "Geist Mono Variable", ui-monospace, monospace;
+        font-size: 10.5px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+      figcaption.now { color: var(--yellow); }
+      img {
+        display: block;
+        width: 100%;
+        border: 1px solid var(--seam);
+        border-radius: 8px;
+        background: var(--panel);
+      }
+      table { width: 100%; border-collapse: collapse; margin: 8px 0 0; font-size: 14px; }
+      th, td { padding: 9px 12px; border-bottom: 1px solid var(--hair); text-align: left; }
+      th { color: var(--label); font-family: "Geist Mono Variable", ui-monospace, monospace; font-size: 10px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; }
+      td:first-child { color: var(--strong); }
+      td.was { color: var(--dim); font-variant-numeric: tabular-nums; }
+      td.now { color: var(--ink); font-variant-numeric: tabular-nums; }
+      ul { max-width: 72ch; padding-left: 20px; color: var(--muted); font-size: 14.5px; }
+      li { margin-bottom: 8px; }
+      li b { color: var(--ink); font-weight: 500; }
+      code { font-family: "Geist Mono Variable", ui-monospace, monospace; font-size: 0.92em; color: var(--strong); }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">POD-407 · settings sheet</p>
+      <h1>The settings sheet gets a reading tier</h1>
+      <p class="lede">
+        The shell is 12px because you live in it. Settings is a surface you visit, read one
+        sentence on, decide, and leave — so its content moves one step up, its spacing grows with
+        it, and the class banner that opened every single tab is gone.
+      </p>
+
+      <h2>New sessions</h2>
+      <p class="sub">
+        The repeated banner is gone, so the pane now opens on the tab's own heading instead of on
+        the same paragraph the previous six tabs opened with.
+      </p>
+      <div class="pair">
+        <figure>
+          <figcaption>Before</figcaption>
+          <img src="POD-407-before-sessions.png" alt="Settings New sessions tab before the change" />
+        </figure>
+        <figure>
+          <figcaption class="now">After</figcaption>
+          <img src="POD-407-after-sessions.png" alt="Settings New sessions tab after the change" />
+        </figure>
+      </div>
+
+      <h2>The scale</h2>
+      <p class="sub">
+        Five ranks carry the whole surface, and every step moves on two axes — size plus weight or
+        ink — because 13 against 13.5 is not a hierarchy on its own.
+      </p>
+      <table>
+        <thead>
+          <tr><th>Rank</th><th>Was</th><th>Now</th><th>Job</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Section heading</td><td class="was">13 / 600</td><td class="now">15 / 600</td><td>the tab's subject</td></tr>
+          <tr><td>Group heading</td><td class="was">12 / 600</td><td class="now">13 / 600</td><td>a group inside a section</td></tr>
+          <tr><td>Row label</td><td class="was">12.5 / 400</td><td class="now">13.5 / 500</td><td>the thing a row controls</td></tr>
+          <tr><td>Field value</td><td class="was">12.5</td><td class="now">13.5</td><td>never louder than its label</td></tr>
+          <tr><td>Prose</td><td class="was">12 / 1.55</td><td class="now">13 / 1.6</td><td>every explanation, one 62ch measure</td></tr>
+          <tr><td>Micro</td><td class="was">11</td><td class="now">12</td><td>status crumbs, never an instruction</td></tr>
+          <tr><td>Rail item</td><td class="was">12</td><td class="now">13</td><td>a step under the pane it navigates to</td></tr>
+          <tr><td>Mono eyebrow</td><td class="was">9</td><td class="now">9.5</td><td>the class over a group of rows</td></tr>
+        </tbody>
+      </table>
+
+      <h2>The rail</h2>
+      <p class="sub">
+        Seventeen destinations in three classes. Wider (184 → 200), taller rows, and a bigger gap
+        between classes than inside them — that ratio is the only thing telling a reader this is
+        three groups and not one long list.
+      </p>
+      <div class="pair">
+        <figure>
+          <figcaption>Before</figcaption>
+          <img src="POD-407-before-secrets.png" alt="Settings rail and Secrets tab before" />
+        </figure>
+        <figure>
+          <figcaption class="now">After — and the secrets promise moved here</figcaption>
+          <img src="POD-407-after-secrets.png" alt="Settings rail and Secrets tab after" />
+        </figure>
+      </div>
+
+      <h2>What else moved</h2>
+      <ul>
+        <li>
+          <b>The class banner is gone from every tab.</b> The same sentence rendered on seven
+          preference tabs and eight instance tabs, above the heading that says what the tab
+          actually is. The rail's three group headings still name the class, once. The one
+          sentence worth keeping — that a secret's value never leaves the server — now sits on the
+          Secrets section itself.
+        </li>
+        <li>
+          <b>The sheet's width is computed, not asserted.</b> <code>rail + seam + padding + form</code>
+          as a <code>calc()</code>, so it cannot drift from its parts again: 1049 → 1141px, with the
+          form column holding a true 62ch measure, a 36px gutter and a 280px control column.
+        </li>
+        <li>
+          <b>Rhythm scaled with the type.</b> Rows 12 → 14px of padding, sections 26/20 → 32/24,
+          pane padding 22/28 → 28/32, and a deeper bottom so the floating Save bar can never cover
+          the last control.
+        </li>
+        <li>
+          <b>Chrome did not join the tier.</b> The sheet header and the command bar behind it stay
+          at the shell's 12px — a utility whose frame grew with its content stops reading as part
+          of the app.
+        </li>
+        <li>
+          <b>Forty-six hand-spelled sizes were folded into the scale</b> across the seventeen tabs,
+          so a new section inherits the ranks instead of inventing a size.
+        </li>
+      </ul>
+
+      <h2>Daylight, and the dirty bar</h2>
+      <p class="sub">Both checked in the running app, not asserted.</p>
+      <div class="pair">
+        <figure>
+          <figcaption class="now">Light theme</figcaption>
+          <img src="POD-407-after-light.png" alt="Settings in the light theme" />
+        </figure>
+        <figure>
+          <figcaption class="now">Unsaved changes</figcaption>
+          <img src="POD-407-after-savebar.png" alt="The save bar over the settings form" />
+        </figure>
+      </div>
+    </main>
+  </body>
+</html>

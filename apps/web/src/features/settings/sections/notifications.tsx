@@ -104,7 +104,7 @@ export function NotificationsSection({
           address is displayed and not edited.
         */}
         <span
-          className="min-w-0 truncate text-right font-mono text-[12px] text-muted-foreground"
+          className="min-w-0 truncate text-right font-mono settings-micro"
           data-testid="telegram-chat-id"
         >
           {settings.notifications.telegramChatId.trim() || '—'}
@@ -176,7 +176,7 @@ function TelegramSetupStatus({
 }): JSX.Element | null {
   if (setup.status === 'idle' || setup.status === 'starting') return null
   if (setup.status === 'failed') {
-    return <p className="text-[12px] text-destructive">{setup.message}</p>
+    return <p className="settings-prose text-destructive">{setup.message}</p>
   }
   if (setup.status === 'expired') {
     return <p className="settings-prose">Setup expired. Start again.</p>
@@ -184,17 +184,17 @@ function TelegramSetupStatus({
   if (setup.status === 'connected') {
     const target = setup.chatLabel ?? setup.chatId
     return (
-      <p className="inline-flex items-center gap-1.5 text-[12px] text-foreground">
+      <p className="inline-flex items-center gap-1.5 text-[13px] text-foreground">
         <CheckCircle2 className="size-3.5 flex-none text-success" /> Connected to {target}.
       </p>
     )
   }
 
   return (
-    <div className="max-w-[62ch] space-y-1.5 rounded-md border border-border bg-muted/30 p-2.5 text-[12px]">
+    <div className="max-w-[62ch] space-y-1.5 rounded-md border border-border bg-muted/30 p-2.5 text-[13px]">
       <div className="flex flex-wrap items-center gap-2 text-foreground">
         <span>Waiting for Telegram</span>
-        <code className="rounded bg-background px-1.5 py-0.5 font-mono text-[11px]">
+        <code className="rounded bg-background px-1.5 py-0.5 font-mono text-[12px]">
           {setup.code}
         </code>
         <span className="text-muted-foreground">

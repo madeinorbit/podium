@@ -39,33 +39,26 @@ export const SETTINGS_SURFACES = ['your-preferences', 'instance', 'secrets'] as 
 export type SettingsSurface = (typeof SETTINGS_SURFACES)[number]
 
 /**
- * The heading, and the sentence under it.
+ * THE NAME OF EACH CLASS — AND NOTHING ELSE (POD-407).
  *
- * THE PREFERENCES BLURB NOW STATES THE STORAGE GUARANTEE POD-1213 SHIPPED.
- * Each personal leaf is stored under `(user_id, key)`, reads resolve for the
- * authenticated caller, and the shared blob no longer holds personal values.
- * This is deliberately narrower than a generic privacy promise.
+ * This table used to carry a `hint` sentence per surface, rendered as a banner
+ * at the top of EVERY tab on that surface: the same paragraph on seven
+ * preference tabs and eight instance tabs, always above the heading that says
+ * what the tab actually is. Repetition at that rate stops being information —
+ * the eye learns to skip the top of the pane, which is where the tab's own
+ * subject lives.
  *
- * The previous caveat said the opposite while classification preceded storage.
- * Keeping it after POD-1213 would turn an honest warning into a false current
- * claim, so tests require it to disappear when this statement appears.
+ * The classification is still legible to the user, which is what
+ * `docs/multi-user-readiness.md` §3.1.1 requires: the rail groups the
+ * seventeen destinations under these three labels, stated once each. Where a
+ * surface has something particular to promise — that a secret's value never
+ * leaves the server — it is said on that section's own hint, on the one tab
+ * where it is true, next to the rows it is true about.
  */
-export const SURFACE_COPY: Readonly<
-  Record<SettingsSurface, { label: string; hint: string; caveat?: string }>
-> = {
-  'your-preferences': {
-    label: 'Your preferences',
-    hint:
-      'How Podium behaves for you — saved for your account, with other members’ preference values kept separate.',
-  },
-  instance: {
-    label: 'Instance settings',
-    hint: 'Properties of this deployment. Everyone sees them because they govern everyone’s sessions; only an admin can change them.',
-  },
-  secrets: {
-    label: 'Secrets',
-    hint: 'Server-owned credentials. Podium shows whether one is configured and a fingerprint for telling one key from another — never the value, which never leaves the server.',
-  },
+export const SURFACE_COPY: Readonly<Record<SettingsSurface, { label: string }>> = {
+  'your-preferences': { label: 'Your preferences' },
+  instance: { label: 'Instance settings' },
+  secrets: { label: 'Secrets' },
 }
 
 /**

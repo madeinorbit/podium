@@ -69,7 +69,7 @@ export function ExperimentalSection({
               <span className="settings-label inline-flex flex-wrap items-center gap-1.5">
                 {flag.name}
                 {showDevBadge && (
-                  <Badge variant="outline" className="h-4 px-1.5 text-[10px]">
+                  <Badge variant="outline" className="h-4 px-1.5 text-[11px]">
                     Dev
                   </Badge>
                 )}

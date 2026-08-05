@@ -22,8 +22,8 @@ import {
   NOT_ON_THIS_SCREEN,
   pathIsUnder,
   SETTINGS_SURFACES,
-  SURFACE_COPY,
   type SettingsSurface,
+  SURFACE_COPY,
   TAB_PATHS,
   TAB_SURFACE,
   tabsOnSurface,
@@ -64,9 +64,10 @@ describe("every tab's declared paths are classified in its surface's tier", () =
       // The per-tab non-vacuity floor: a prefix that matches NOTHING would make
       // the tier assertion below pass without checking anything, and a renamed
       // model path is exactly how that happens.
-      expect(matched.length, `${tab} declares prefixes that match no classified path`).toBeGreaterThan(
-        0,
-      )
+      expect(
+        matched.length,
+        `${tab} declares prefixes that match no classified path`,
+      ).toBeGreaterThan(0)
       for (const c of matched) {
         expect(c.tier, `${c.path} is ${c.tier} but sits on a ${tier} tab`).toBe(tier)
       }
@@ -127,7 +128,10 @@ describe('the SECRETS surface is exactly the closed vocabulary', () => {
       const leaked = CLASSIFIED.filter(
         (c) => c.tier === 'server-secret' && TAB_PATHS[tab].some((p) => pathIsUnder(c.path, p)),
       )
-      expect(leaked.map((c) => c.path), `${tab} claims a secret path`).toEqual([])
+      expect(
+        leaked.map((c) => c.path),
+        `${tab} claims a secret path`,
+      ).toEqual([])
     }
   })
 })
@@ -148,21 +152,17 @@ describe('pathIsUnder matches on a DOT BOUNDARY', () => {
   })
 })
 
-describe('the preferences copy states the storage guarantee this build keeps', () => {
-  it('says accounts are separate and retires the pre-POD-1213 caveat', () => {
-    // Both directions: the new guarantee is visible, and the obsolete warning
-    // cannot survive beside it and leave the user with contradictory answers.
-    const copy = SURFACE_COPY['your-preferences']
-    expect(copy.hint).toMatch(/saved for your account/i)
-    expect(copy.hint).toMatch(/other members.*kept separate/i)
-    expect(copy.caveat).toBeUndefined()
-  })
-
-  it('the instance surface says a member can SEE but not change', () => {
-    expect(SURFACE_COPY.instance.hint).toMatch(/admin/i)
-  })
-
-  it('the secrets surface promises presence and fingerprint, never a value', () => {
-    expect(SURFACE_COPY.secrets.hint).toMatch(/never the value/i)
+describe('each class is NAMED, and says nothing else (POD-407)', () => {
+  it('carries a label per surface and no per-tab banner copy', () => {
+    // The `hint` these used to carry rendered at the top of every tab on the
+    // surface — the same paragraph on seven preference tabs and eight instance
+    // tabs. Asserting its ABSENCE keeps the banner from growing back one
+    // helpful sentence at a time; the class stays legible through the rail's
+    // group headings, which is what §3.1.1 asks for.
+    for (const surface of SETTINGS_SURFACES) {
+      const copy = SURFACE_COPY[surface] as { label: string; hint?: string }
+      expect(copy.label.length).toBeGreaterThan(0)
+      expect(copy.hint).toBeUndefined()
+    }
   })
 })
