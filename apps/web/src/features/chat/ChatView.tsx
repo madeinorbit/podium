@@ -1,10 +1,13 @@
+import { isSwitchTraced, markSwitch } from '@podium/client-core/perf'
 import type { SuperThreadRef } from '@podium/client-core/viewmodels'
 import type { SessionId } from '@podium/model'
+import { SWITCH_TRACE_MARKS } from '@podium/protocol'
 import { ArrowDownToLine } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect } from 'react'
 import { cn } from '@/lib/utils'
 import { ChatComposer } from './ChatComposer'
+import { isChatInteractable } from './chat-interactable'
 import { ImageLightbox } from './ImageLightbox'
 import { Minimap } from './Minimap'
 import { TranscriptFeed } from './TranscriptFeed'
@@ -113,6 +116,55 @@ export function ChatView({
     ro.observe(el)
     return () => ro.disconnect()
   }, [scrollerRef])
+
+  // `chat:interactable` is the actual chat finish line: wait until the textarea
+  // exists, is enabled and focusable, and the transcript has either committed
+  // its settled (including empty) state or is already scrollable. Two rAFs keep
+  // the paint mark ahead of this one, so the trace exposes the paint→input gap.
+  // Retry while the browser is still laying out a committed transcript; the
+  // switch collector's timeout is the outer backstop.
+  // Keep checking until that 10s confirmation deadline. If the predicate never
+  // becomes true, no interactable mark is emitted: timedOut means unconfirmed,
+  // not a measured 10s interactability latency.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: DOM refs are stable; the frame retry observes their mounted/layout state.
+  useEffect(() => {
+    if (!active || !isSwitchTraced(sessionId)) return
+    let cancelled = false
+    let firstFrame: number | undefined
+    let checkFrame: number | undefined
+
+    const check = (): void => {
+      if (cancelled || !isSwitchTraced(sessionId)) return
+      const textarea = chat.taRef.current
+      const transcript = chat.scrollerRef.current
+      const transcriptCommitted = chat.phase !== 'loading'
+      if (isChatInteractable({ textarea, transcript, transcriptCommitted })) {
+        markSwitch(sessionId, SWITCH_TRACE_MARKS.chatInteractable, {
+          composerEnabled: textarea?.disabled === false,
+          composerFocusable: true,
+          transcriptCommitted,
+          transcriptScrollable:
+            transcript !== null && transcript.scrollHeight > transcript.clientHeight,
+        })
+        return
+      }
+      if (typeof requestAnimationFrame === 'function') checkFrame = requestAnimationFrame(check)
+      else return
+    }
+
+    if (typeof requestAnimationFrame === 'function') {
+      firstFrame = requestAnimationFrame(() => {
+        checkFrame = requestAnimationFrame(check)
+      })
+    } else {
+      check()
+    }
+    return () => {
+      cancelled = true
+      if (firstFrame !== undefined) cancelAnimationFrame(firstFrame)
+      if (checkFrame !== undefined) cancelAnimationFrame(checkFrame)
+    }
+  }, [active, chat.phase, sessionId])
 
   return (
     <div className={cn('flex min-h-0 flex-1 flex-col', compact && 'chat-compact')}>
