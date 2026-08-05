@@ -359,6 +359,8 @@ describe('Ludovico-scale frontend budgets [spec:SP-0b2e] [spec:SP-e2c8] [spec:SP
     markSwitch(asSessionId('session-0001'), 'transcript:read-end', { items: 200 })
     now = 64
     markSwitch(asSessionId('session-0001'), 'chat:first-paint', { paintedRows: 40 })
+    now = 81
+    markSwitch(asSessionId('session-0001'), 'chat:interactable')
 
     expect(traces).toHaveLength(1)
     expect(traces[0]?.cold).toBe(false)
@@ -369,6 +371,7 @@ describe('Ludovico-scale frontend budgets [spec:SP-0b2e] [spec:SP-e2c8] [spec:SP
       'transcript:read-start',
       'transcript:read-end',
       'chat:first-paint',
+      'chat:interactable',
     ])
 
     metric('switch-trace', {

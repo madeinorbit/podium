@@ -123,13 +123,15 @@ export function ChatView({
   // the paint mark ahead of this one, so the trace exposes the paint→input gap.
   // Retry while the browser is still laying out a committed transcript; the
   // switch collector's timeout is the outer backstop.
+  // Keep checking until that 10s confirmation deadline. If the predicate never
+  // becomes true, no interactable mark is emitted: timedOut means unconfirmed,
+  // not a measured 10s interactability latency.
   // biome-ignore lint/correctness/useExhaustiveDependencies: DOM refs are stable; the frame retry observes their mounted/layout state.
   useEffect(() => {
     if (!active || !isSwitchTraced(sessionId)) return
     let cancelled = false
     let firstFrame: number | undefined
     let checkFrame: number | undefined
-    let attempts = 0
 
     const check = (): void => {
       if (cancelled || !isSwitchTraced(sessionId)) return
@@ -146,8 +148,6 @@ export function ChatView({
         })
         return
       }
-      if (attempts >= 120) return
-      attempts += 1
       if (typeof requestAnimationFrame === 'function') checkFrame = requestAnimationFrame(check)
       else return
     }

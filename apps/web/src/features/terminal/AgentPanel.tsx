@@ -472,12 +472,14 @@ export function AgentPanel({
   // mounted terminal has a connected PTY, so xterm can receive keystrokes.
   // Retry through reveal/layout frames for warm native switches; a timeout
   // trace remains evidence if the terminal never reaches this boundary.
+  // There is no shorter frame cap: the collector's 10s deadline is the
+  // confirmation window. timedOut means keystroke readiness was unconfirmed,
+  // not that the terminal took 10s.
   // biome-ignore lint/correctness/useExhaustiveDependencies: mountedRef is a stable ref from useTerminalSession, not app state.
   useEffect(() => {
     if (!active || !gates.terminalActive || !ready || !isSwitchTraced(sessionId)) return
     let cancelled = false
     let frame: number | undefined
-    let attempts = 0
 
     const check = (): void => {
       if (cancelled || !isSwitchTraced(sessionId)) return
@@ -485,8 +487,6 @@ export function AgentPanel({
       const surface = termSurfaceRef.current
       const rects = surface?.getClientRects() ?? []
       if (!mounted || rects.length === 0 || !mounted.connection.state().connected) {
-        if (attempts >= 120) return
-        attempts += 1
         if (typeof requestAnimationFrame === 'function') frame = requestAnimationFrame(check)
         else return
         return
