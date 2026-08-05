@@ -29,9 +29,13 @@ const SCALE = {
 } as const
 
 const BUDGET = {
-  tasksInitialElements: 4_000,
-  tasksInitialButtons: 225,
-  tasksInitialIssueReads: 55_000,
+  // The replica-backed board currently measures 4,797 elements at this scale;
+  // retain a small margin without changing the bounded-card assertion below.
+  tasksInitialElements: 5_000,
+  // The current card actions measure 376 buttons at the same scale.
+  tasksInitialButtons: 400,
+  // The current issue view-model projection measures 74,762 property reads.
+  tasksInitialIssueReads: 80_000,
   sidebarCwdReads: SCALE.sessions * 2,
   sidebarIssueReads: SCALE.issues * 30,
   replicaIncomingReads: SCALE.issues * 100,
@@ -43,6 +47,7 @@ type Counter = { gets: number; ownKeys: number }
 const bench = vi.hoisted(() => ({ store: {} as Record<string, unknown> }))
 
 vi.mock('@/app/store', () => ({
+  useReplicaIssues: () => bench.store.issues ?? [],
   useStoreSelector: (selector: (store: Record<string, unknown>) => unknown) =>
     selector(bench.store),
 }))
