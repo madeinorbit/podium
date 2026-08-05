@@ -82,7 +82,12 @@ export default defineConfig({
   ssr: { resolve: { conditions } },
   test: {
     ...sharedVitestConfig.test,
-    setupFiles: sharedSetupFiles,
+    // `one-react.ts` last: it turns a drifted checkout into a message that names the
+    // fix, instead of react-native-web's `useContext` of null. See that file.
+    setupFiles: [
+      ...sharedSetupFiles,
+      fileURLToPath(new URL('./test/one-react.ts', import.meta.url)),
+    ],
     environment: 'happy-dom',
     include: ['src/**/*.test.{ts,tsx}', 'scripts/**/*.test.ts'],
     passWithNoTests: false,
