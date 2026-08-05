@@ -97,18 +97,19 @@ body {
   height: 30px;
   padding: 2px;
   border-radius: 8px;
-  /* Recessed is an EDGE, not a tone: the floor of a groove catches ambient
-     light, so it sits a hair above the bar, and the recess comes from a dark lip
-     along the top and a lit one along the bottom. (A ring all the way round is
-     an outline, and an outline around a row of glyphs is one big button.) The
-     raised cell inside inverts the same bevel — lit on top — so the two edges
-     tell you which way each surface faces. --bar is already near-black, so a
-     darker wash here would have read as nothing at all. */
-  background: color-mix(in srgb, var(--secondary) 30%, transparent);
+  /* Recessed is an EDGE, not a tone: the recess comes from a dark lip along the
+     top and a lit one along the bottom, and the raised cell inside inverts that
+     same bevel, so the two edges tell you which way each surface faces. (A ring
+     all the way round is an outline, and an outline around a row of glyphs is
+     one big button.) Which way the FLOOR goes is per-ground and lives in the
+     --well-* tokens: above the bar on navy, where a groove catches ambient light
+     a near-black wash could not show; below it on paper, where there is no
+     ambient left to catch. */
+  background: var(--well-floor);
   box-shadow:
-    inset 0 1px 1px rgb(0 0 0 / 0.75),
-    inset 0 0 0 1px rgb(0 0 0 / 0.35),
-    inset 0 -1px 0 rgb(255 255 255 / 0.05);
+    inset 0 1px 1px var(--well-lip),
+    inset 0 0 0 1px var(--well-rim),
+    inset 0 -1px 0 var(--well-lit);
 }
 .desktop-topbar-nav {
   flex: none;
@@ -177,18 +178,20 @@ body {
     color 150ms ease;
 }
 .topbar-mode:hover {
-  background: rgb(255 255 255 / 0.045);
+  background: var(--well-hover);
   color: var(--muted-foreground);
 }
-/* Raised, not lit. The whole navy ramp gets bluer as it gets lighter, so a full
-   --secondary cell against a black groove lands as a saturated blue slab — the
-   generic "selected pill" again, in a different colour. Two thirds of that step
-   is enough to read as raised while staying chassis-coloured. */
+/* Raised, not lit. On navy the whole ramp gets bluer as it gets lighter, so a
+   full --secondary cell against the groove lands as a saturated blue slab — the
+   generic "selected pill" again, in a different colour; --well-cell holds it at
+   two thirds of that step. On paper the same cell is the card surface, brighter
+   than both bar and groove, which is how the selection stays legible with no
+   ring on either ground. */
 .topbar-mode[data-active="true"] {
-  background: color-mix(in srgb, var(--secondary) 85%, transparent);
+  background: var(--well-cell);
   box-shadow:
-    inset 0 1px 0 0 rgb(255 255 255 / 0.07),
-    inset 0 -1px 0 0 rgb(0 0 0 / 0.35);
+    inset 0 1px 0 0 var(--well-cell-lit),
+    inset 0 -1px 0 0 var(--well-cell-lip);
   color: var(--text-strong);
 }
 /* The proposals count. Bare tabular digits in attention ink — the count IS
@@ -2247,10 +2250,9 @@ a.ref-link--session::before {
   border-radius: 10px;
   background: var(--card);
   /* The popover tier — the only lifted tier, and a sheet is by definition
-     something that will disappear. */
-  box-shadow:
-    0 14px 34px rgb(0 0 0 / 0.65),
-    0 2px 8px rgb(0 0 0 / 0.5);
+     something that will disappear. Read from the token, not restated: black at
+     that alpha is depth on navy and dirt on paper (POD-388/POD-372). */
+  box-shadow: var(--shadow-popover);
   animation: app-sheet-in 200ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 /* A sheet that sizes to its content, capped at the frame. Settings is a browsing
@@ -2259,9 +2261,7 @@ a.ref-link--session::before {
    whose content ends should end with it. */
 .app-sheet-fit {
   bottom: auto;
-  max-height: calc(
-    100dvh - var(--topbar-h) - var(--status-strip-h) - 2 * var(--sheet-gap)
-  );
+  max-height: calc(100dvh - var(--topbar-h) - var(--status-strip-h) - 2 * var(--sheet-gap));
 }
 .app-sheet:focus-visible {
   outline: none;

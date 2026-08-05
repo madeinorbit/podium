@@ -134,6 +134,26 @@
   --shadow-popover:
     0 14px 34px var(--carve-popover-far),
     0 2px 8px var(--carve-popover-near);
+
+  /* The command bar's wells (POD-365) — same contract as --carve-*: the bevel
+     GEOMETRY is constant, the two inks are not. A groove is a dark lip along the
+     top and a lit one along the bottom, and BOTH flip with the ground: black on
+     paper reads as dirt, and white on navy is the only thing that catches light.
+     The defaults below are the dark-ground values.
+     --well-floor is the only one that may be a color-mix: if Lightning CSS emits
+     its no-color-mix fallback the floor collapses to opaque --secondary, which
+     is a slightly brighter groove rather than a wrong one. The alpha inks are
+     literal rgb() precisely because that fallback would paint them as an opaque
+     black rule (POD-372's lesson on --carve-engraved). */
+  --well-floor: color-mix(in srgb, var(--secondary) 30%, transparent);
+  --well-lip: rgb(0 0 0 / 0.75);
+  --well-rim: rgb(0 0 0 / 0.35);
+  --well-lit: rgb(255 255 255 / 0.05);
+  --well-hover: rgb(255 255 255 / 0.045);
+  /* The raised cell inside the well inverts the same bevel. */
+  --well-cell: color-mix(in srgb, var(--secondary) 85%, transparent);
+  --well-cell-lit: rgb(255 255 255 / 0.07);
+  --well-cell-lip: rgb(0 0 0 / 0.35);
 }
 
 /* ── shadcn (Nova) preset — light (default: no data-theme + no .dark) ───────────── */
@@ -479,6 +499,21 @@
   --carve-popover-far: rgb(14 22 38 / 0.16);
   --carve-popover-near: rgb(14 22 38 / 0.1);
 
+  /* The wells, inverted for paper. On navy the groove's floor sits a hair ABOVE
+     the bar because a recess catches ambient light against a near-black ground;
+     on paper there is no ambient left to catch, so the floor goes a hair BELOW
+     and the highlight moves to real white along the bottom lip. The raised cell
+     becomes the card surface — brighter than both bar and groove — which is how
+     a selection stays legible without a ring. */
+  --well-floor: rgb(14 22 38 / 0.05);
+  --well-lip: rgb(14 22 38 / 0.16);
+  --well-rim: rgb(14 22 38 / 0.1);
+  --well-lit: rgb(255 255 255 / 0.85);
+  --well-hover: rgb(14 22 38 / 0.045);
+  --well-cell: var(--card);
+  --well-cell-lit: rgb(255 255 255 / 0.9);
+  --well-cell-lip: rgb(14 22 38 / 0.12);
+
   /* Issue-tint scales — see the issue-accent channel below. */
   --issue-tint-scale: 0.5%;
   --issue-line-scale: 0.85%;
@@ -550,6 +585,14 @@
   --carve-drop: rgb(0 0 0 / 0.9);
   --carve-popover-far: rgb(0 0 0 / 0.65);
   --carve-popover-near: rgb(0 0 0 / 0.5);
+  --well-floor: color-mix(in srgb, var(--secondary) 30%, transparent);
+  --well-lip: rgb(0 0 0 / 0.75);
+  --well-rim: rgb(0 0 0 / 0.35);
+  --well-lit: rgb(255 255 255 / 0.05);
+  --well-hover: rgb(255 255 255 / 0.045);
+  --well-cell: color-mix(in srgb, var(--secondary) 85%, transparent);
+  --well-cell-lit: rgb(255 255 255 / 0.07);
+  --well-cell-lip: rgb(0 0 0 / 0.35);
   --issue-tint-scale: 1%;
   --issue-line-scale: 1%;
 }
