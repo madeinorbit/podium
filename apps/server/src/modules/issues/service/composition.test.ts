@@ -55,6 +55,10 @@ describe('issue tracker capability composition', () => {
       'mail.ts',
       'attention.ts',
       'workflow.ts',
+      // The collaborators workflow.ts was decomposed into (POD-1606, POD-417) are
+      // held to the same no-inheritance/one-store rule as the capabilities.
+      'assistant.ts',
+      'integration.ts',
       'index.ts',
     ]
     const service = files.map((file) => source(file)).join('\n')
