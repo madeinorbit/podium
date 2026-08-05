@@ -30,7 +30,7 @@
   "scripts": {
     "typecheck": "tsgo --noEmit",
     "typecheck:tsc": "tsc --noEmit",
-    "test": "bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests"
+    "test": "bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests && bun test --conditions=@podium/source test/sqlite.bun.test.ts --test-name-pattern ''"
   },
   "devDependencies": {
     "typescript": "^6.0.3"

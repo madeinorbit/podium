@@ -1,11 +1,15 @@
 /**
- * Cached entry point for the per-package test lanes (POD-1687). `bun run
- * test:web`, `test:mobile` and `test:cached` land here.
+ * Cached entry point for the package-owned test lanes (POD-1687/POD-1689). `bun
+ * run test`, `test:web`, `test:mobile` and `test:cached` land here.
  *
- * Only apps/web and apps/mobile are routed through turbo: they are genuinely
- * per-package, so a cache key can describe them honestly. The root-level lanes
- * (test:unit, test:integration, test:bun, ...) still always execute for real —
- * they reach shared state that no package-scoped hash covers.
+ * Every default unit suite now has a package owner and a real turbo task. The
+ * root-level integration, acceptance, e2e, browser, multi-instance, and agent
+ * smoke lanes remain explicit opt-ins because they spawn real processes, browsers,
+ * or agent CLIs and cannot share this unit-task cache safely.
+ *
+ * Package tasks are deliberately run one at a time. Each Vitest task is already
+ * capped at two workers, and serial task execution keeps the default safe on the
+ * shared six-core host instead of multiplying that cap by the number of packages.
  *
  * The environment hole is the same one typecheck closes (POD-1343): turbo's key
  * covers tracked file content but is blind to the install, so a missing or
@@ -14,14 +18,10 @@
  * imports typecheck.ts's census/fingerprint/force-decision directly — one
  * definition, so the two entry points cannot drift apart.
  *
- * What the cache key covers for these lanes is wider than the package dir,
- * because both suites reach outside it: apps/web/test/shell.structure.test.ts
- * reads packages/client-core/src off disk, and both suites import @podium/*
- * packages as SOURCE via the `@podium/source` condition. `dependsOn: ["^test"]`
- * does not carry that content in — the dependency packages have no `test`
- * script, so there is no task hash to chain from. turbo.json therefore declares
- * those sources as explicit $TURBO_ROOT$ inputs. See the per-package overrides
- * `@podium/web#test` / `@podium/mobile#test`.
+ * What each cache key covers is declared in turbo.json. The web/mobile tasks
+ * include their source-imported workspace packages and the scripts task includes
+ * the repository trees its architecture/configuration audits read. The environment
+ * fingerprint below is global to every task, so install/linker drift is a miss too.
  */
 import { join } from 'node:path'
 import { runWithHeavyTestLease } from './test-heavy'
@@ -70,7 +70,13 @@ async function main() {
   if (decision.reason) console.error(`uncached run, reason: ${decision.reason}`)
   process.exit(
     await runWithHeavyTestLease(
-      [join(root, 'node_modules', '.bin', 'turbo'), 'run', 'test', ...decision.forwardArgs],
+      [
+        join(root, 'node_modules', '.bin', 'turbo'),
+        'run',
+        'test',
+        '--concurrency=1',
+        ...decision.forwardArgs,
+      ],
       {
         cwd: root,
         env: { ...process.env, PODIUM_CHECK_ENV_HASH: fingerprint(census), TURBO_FORCE: undefined },

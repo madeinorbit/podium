@@ -54,44 +54,44 @@ bun run typecheck -- --uncached-because="<what the cache key is missing>"
 and file the gap as an issue so the key gets fixed. Bare `--force` and `TURBO_FORCE`
 exit with an error.
 
-### Cached test lanes
+### Cached package test lanes
 
-Two test lanes are turbo tasks and reuse a cache (POD-1687):
+`bun run test` is the default. It enters `scripts/test.ts`, which runs the 23
+package-owned `test` tasks through Turbo with task concurrency set to one.
 
-| Lane | Runs | Cached |
+| Lane | Scope | Cache / safety |
 | --- | --- | --- |
-| `bun run test:web` | the `apps/web` suite | yes |
-| `bun run test:mobile` | the `apps/mobile` suite | yes |
-| `bun run test:cached` | both of the above | yes |
-| every other `bun run test*` | root/integration/bun lanes | no — always executes for real |
+| `bun run test` | all 23 package tasks, including scripts, desktop, web/mobile, server normalized-wire, and the runtime Bun unit | Turbo-cached; package tasks run one at a time |
+| `bun run test:unit` | compatibility alias for the default command | same |
+| `bun run test:web`, `test:mobile`, `test:cached` | focused cached app probes | Turbo-cached |
+| `bun run test:affected` | changed package tasks and their dependents | refuses files no package task can cover |
 
-They go through `scripts/test.ts`, which reuses `scripts/typecheck.ts`'s environment
-fingerprint, so **the same rules apply**: a checkout with no usable
-`node_modules/@podium` links is refused outright, bare `--force`/`TURBO_FORCE` exit
-with an error, and `-- --uncached-because="<reason>"` is the only way past the cache.
-Cold, the two lanes cost ~2m33s; a hit returns in well under a second.
+Every package task inherits the shared `@podium/source` resolution, hermetic setup
+files, two-worker ceiling, retry policy, and unit exclusion list. The server task
+keeps normalized-wire in a separate one-worker config; the runtime task owns the
+focused `*.bun.test.ts` unit file instead of invoking it from a root sweep.
 
-Tell a hit from a miss by turbo's summary line — you do not have to guess:
+All commands pass through the install fingerprint (`PODIUM_CHECK_ENV_HASH`) and the
+same missing-link refusal as typecheck. Bare `--force`/`TURBO_FORCE` is rejected;
+use `-- --uncached-because="<reason>"` only when a cache-key gap is understood and
+filed.
+
+Tell a hit from a miss by Turbo's summary line:
 
 ```
-Cached:    2 cached, 2 total          Time:   302ms >>> FULL TURBO   <- hit, nothing ran
-Cached:    1 cached, 2 total          Time:   4m17s                  <- miss, the suite really ran
+Cached:    23 cached, 23 total          Time:   ... >>> FULL TURBO   <- hit, nothing ran
+Cached:    22 cached, 23 total          Time:   ...                  <- one task executed
 ```
 
-`>>> FULL TURBO` means nothing executed. That is the intended outcome of an unrelated
-edit, and it is evidence — the key covers each suite's own files *plus* the workspace
-sources it reaches (`packages/*/src`, and `apps/daemon/src` for web), because both
-suites import `@podium/*` as source and `apps/web/test/shell.structure.test.ts` reads
-`packages/client-core/src` off disk. `dependsOn: ["^test"]` does **not** cover that.
+`>>> FULL TURBO` means no task executed. The cache key is honest: every task includes its
+package files plus the shared configs, hermetic hooks, lockfile, and install fingerprint;
+web/mobile include source-imported workspace packages, while scripts includes the repository
+trees its architecture/configuration audits read. `dependsOn: ["^test"]` does not carry source
+content into a task whose dependency has no test task, so those inputs are explicit.
 
-The `test` task is deliberately **pinned** to those two packages — there is no generic
-`test` entry, so `turbo run test` resolves to `@podium/web#test` and `@podium/mobile#test`
-and nothing else — including under `--filter`. About twenty other packages define a bare
-`vitest run --passWithNoTests` script, but those are deliberately OUT: run from the
-package directory vitest does not walk up, so it finds no config — no `@podium/source`
-condition, and no `setupFiles`, meaning the `test-hermetic-*.ts` guards that strip
-ambient Podium session env never run. Most pass by luck, not scoping. Adding a package
-to this task requires giving it a real config first — see POD-1693.
+The 23-task graph is deliberate. `@podium/terminal-client-react` has no test files and no
+task; every default test file has a package owner and a real config/task. Adding another
+package requires the same config, hermetic setup, exclusion, and Turbo-input audit.
 
 Evidence for the cache-key coverage table: **[docs/agents/pod-1378-cache-evidence.md](docs/agents/pod-1378-cache-evidence.md)**.
 
@@ -100,29 +100,29 @@ Evidence for the cache-key coverage table: **[docs/agents/pod-1378-cache-evidenc
 `bun run test:affected` runs the `test` turbo task filtered to the packages your change
 actually touches — the ones whose sources changed, plus every package that depends on them.
 
-**Today that means `apps/web` and `apps/mobile`, and nothing else.** The `test` task is
-pinned to those two (see "Cached test lanes" above), so an `apps/web` edit runs the web
-suite, a `packages/*` edit runs both (they import those packages as source), and everything
-else refuses. The lane reads the task graph rather than package.json, so the day POD-1693
-gives another package a real config and a task, it widens automatically.
+**Today that means all 23 package test tasks.** The graph includes scripts, desktop,
+web/mobile, the server normalized-wire pair, and the runtime Bun unit file. It reads the
+task graph rather than package.json, so a package task is selected for changed package
+sources and for every package that depends on them.
 
 **This is a fast inner-loop approximation. It does not replace `bun run test` before a
-commit.** It structurally cannot run the root-level lanes, which sweep the whole
-monorepo from root vitest configs rather than from any package:
+commit.** It cannot scope the root-level lanes that start real processes or external tools:
 
-- `test:unit` — root vitest sweep
 - `test:integration` — real processes, PTYs, server boots
 - `test:acceptance` — loop-split load suite
-- `test:bun:unit` — bun-native `*.bun.test.ts` suites
+- `test:e2e` — full-stack server/daemon suites
+- `test:browser` — Playwright browser suites
+- `test:multi-instance` — separate concurrent runtimes
+- `test:smoke:agents` — real agent CLIs and LLM quota
 
 Because those lanes are invisible to a package filter, the entry point **refuses to run
 rather than print a green it did not earn**: if any changed file is not in a package turbo
 can actually run `test` for, it exits 1, names the file and the reason, and tells you to
 run `bun run test`. Use `--allow-uncovered` only once you have run the full lane yourself.
 
-Note that the ~20 packages outside the pinned task **are** tested — by the root `test:unit`
-sweep, which collects `packages/**` from the repo root. They are covered by `bun run test`
-and structurally uncoverable here, which is exactly why refusing on them is right.
+Every default unit/Bun file is now owned by a package task. Root integration, acceptance,
+browser, multi-instance, and agent-smoke files remain explicit opt-in lanes and are listed
+as uncovered by design when `test:affected` sees them.
 
 Inert files — `*.md`, `LICENSE`, `NOTICE` — do not trigger the refusal, since prose cannot
 change a test outcome. The exception is a doc a test actually reads: `docs/TELEMETRY.md`
@@ -140,8 +140,8 @@ bun run test:affected -- --base=<ref>     # or PODIUM_TEST_BASE=<ref>
 
 Uncommitted and untracked changes count, and a checkout with no usable
 `node_modules/@podium` links is refused for the same reason `typecheck` refuses it.
-Note that editing `turbo.json` or anything in `globalDependencies` selects all 24
-packages — safe, but you get no speedup on such a branch.
+Note that editing `turbo.json` or anything in `globalDependencies` selects every package
+task in the graph — safe, but you get no speedup on such a branch.
 
 Measured selection sets: **[docs/agents/pod-1688-affected-evidence.md](docs/agents/pod-1688-affected-evidence.md)**.
 
@@ -153,7 +153,7 @@ For a quick edit-run loop, use the root Vitest scripts:
 - `bun run test:related -- path/to/file.ts` runs tests reachable from an explicit file list; pass more paths after `--` when needed.
 - `bun run test:watch` keeps the unit projects warm in plain watch mode for repeated edits.
 
-These scripts use the same direct Bun-backed Vitest invocation as `test:unit` and run its `node` and `normalized-wire` projects. They are a fast approximation for the inner loop, not a CI lane: Vitest rebuilds its module graph for each invocation, and module-graph selection cannot see tests that consume files through filesystem reads instead of imports. For example, changing `docs/TELEMETRY.md` does not select `packages/telemetry/src/docs-drift.test.ts`, which reads that file with `readFileSync`; `test:changed` can therefore pass with zero selected tests for that edit. This is a documented limit, not a detected dependency: target the reader explicitly with `bun run test:related -- packages/telemetry/src/docs-drift.test.ts` when needed. This lane does **not** replace `bun run test` before a commit; the full suite is still required before committing.
+These scripts use the root Vitest config and its `node`/`normalized-wire` projects as a fast inner loop. They do not replace the package-owned default lane: Vitest rebuilds its module graph for each invocation, and module-graph selection cannot see tests that consume files through filesystem reads instead of imports. For example, changing `docs/TELEMETRY.md` does not select `packages/telemetry/src/docs-drift.test.ts`, which reads that file with `readFileSync`; `test:changed` can therefore pass with zero selected tests for that edit. This is a documented limit, not a detected dependency: target the reader explicitly with `bun run test:related -- packages/telemetry/src/docs-drift.test.ts` when needed. This lane does **not** replace `bun run test` before a commit; the full suite is still required before committing.
 `test:affected` takes the opposite posture—refusing with exit 1 when a changed file is invisible to its package task graph—because this inner loop deliberately keeps zero-test green useful for ordinary docs/inert edits and leaves `bun run test` as the commit gate.
 
 ## Testing policy

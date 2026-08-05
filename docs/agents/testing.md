@@ -1,20 +1,30 @@
 # Running tests — which lane, when
 
-Doctrine for agents working in this repo [spec:SP-0be7]. The suite is split into four
-lanes so the default stays fast and hermetic, and nothing expensive (real processes,
-real PTYs, real agent CLIs billing LLM quota) runs implicitly.
+Doctrine for agents working in this repo [spec:SP-0be7]. The normal path is one
+cacheable package-owned default; the remaining lanes stay explicit because they start
+real processes, browsers, PTYs, or agent CLIs that cannot be safely hidden in a unit cache.
 
-## The four lanes
+## Default and explicit lanes
 
-| Lane | Command | What's in it | Cost |
+| Lane | Command | What's in it | Cost / guard |
 | --- | --- | --- | --- |
-| **Unit (default)** | `bun run test` (= `test:unit` + `test:web` + `test:bun:unit`) | Hermetic vitest suites (`vitest.unit.config.ts`), apps/web happy-dom tests, bun:sqlite runtime store. No real servers, PTYs, or agent binaries. Retries: 0 — a flaky unit test is a bug. | Target <1min |
-| **Integration** | `bun run test:integration` | `vitest.integration.config.ts`: process/PTY/abduco/daemon suites, `*.integration.*`, `*.pty.test.ts`, real-port server boots, `tests/e2e/**`. Spawns real processes; resource flakes may retry here. | Minutes |
-| **E2E** | `bun run test:e2e` | The 7 vitest files under `tests/e2e/**` (real server + daemon + abduco), via the integration config with the `@podium/source` condition. **No browser**: the Playwright suite has its own lane, below (POD-1227). | Minutes, heavy |
-| **Browser** | `bun run test:browser` | The 70 Playwright suites `tests/e2e/browser/**.browser.e2e.ts` under their own `playwright.config.ts` (real Chromium + WebKit against the harness relay). Runs `scripts/browser-lane.ts`; quarantine is `scripts/browser-quarantine.ts`. In CI **non-blocking** while the red baseline is burned down — read the step output, never the checkmark. Census: [browser-lane-census.md](browser-lane-census.md). | Tens of minutes, heavy |
-| **Agent smoke** | `bun run test:smoke:agents` | `vitest.agent-smoke.config.ts`: launches all five REAL agent CLIs (claude/codex/opencode/cursor/grok) when installed. Gated on `PODIUM_REAL_CLI=1`, which only the npm script sets — never set it yourself implicitly. **Bills real LLM quota.** | Real money |
-| **Multi-instance** | `bun run test:multi-instance` | Acceptance lane for instance identity/state/endpoints/CLI routing/lifecycle ([docs/multi-instance.md](../multi-instance.md)): starts fully separate concurrent runtimes plus the installer suite. Do not substitute multiple clients routed to one server. | Minutes |
+| **Default package tests** | `bun run test` (`test:unit` is a compatibility alias) | 23 Turbo tasks covering all 998 default files: package Vitest suites, scripts, desktop, web/mobile, server normalized-wire, and the runtime Bun unit | Cached; tasks serial, Vitest capped at 2 workers |
+| **Focused package probes** | `bun run test:web`, `bun run test:mobile`, `bun run test:cached` | One or both app package tasks | Cached; same install fingerprint |
+| **Affected package tests** | `bun run test:affected` | Package tasks for changed packages and dependents | Refuses files no package task can cover |
+| **Inner loop** | `bun run test:changed`, `test:related`, `test:watch` | Root `node` and `normalized-wire` projects selected by Vitest | Fast approximation; not a commit gate |
+| **Integration** | `bun run test:integration` | `vitest.integration.config.ts` plus acceptance: process/PTY/abduco/daemon suites, real-port boots, and loop-split load | Minutes; shared test lease |
+| **E2E** | `bun run test:e2e` | Full-stack server + daemon Vitest files under `tests/e2e/**` with `@podium/source` | Minutes; heavy; no browser |
+| **Browser** | `bun run test:browser` | Playwright browser suites under `tests/e2e/browser/**.browser.e2e.ts` | Tens of minutes; heavy; see browser census |
+| **Agent smoke** | `bun run test:smoke:agents` | Five real agent CLIs, gated by `PODIUM_REAL_CLI=1` | Real money; explicit human request only |
+| **Multi-instance** | `bun run test:multi-instance` | Separate concurrent runtimes plus installer coverage | Minutes; heavy; see [multi-instance.md](../multi-instance.md) |
+| **Full Bun lane** | `bun run test:bun` | All `*.bun.test.ts` suites, including compiled-daemon/lifecycle integration | Heavy; `bun test`, never Vitest |
 
+The default package task is the command to run before a commit. It keeps every default
+test attributable to an owner and lets Turbo repeat only tasks whose inputs changed.
+The root process lanes remain explicit so a green unit cache cannot imply a green server,
+browser, multi-instance, or real-agent run.
+`test:bun:unit` remains a compatibility probe for the runtime file; normal agents should use
+`bun run test` so that file is not run twice.
 The agent-smoke reporter prints ran-versus-skipped totals for each CLI. A CLI's
 viability case starts a real turn and resumes it with retained context; an
 installed but unauthenticated or broken binary runs and fails rather than being
@@ -28,14 +38,14 @@ a three-sentence prose contract despite successful start, turn, and resume; that
 is stochastic instruction compliance, not evidence that the CLI transport works.
 The lexical response-contract behavior remains protected by deterministic tests.
 
-Bun-test files (`*.bun.test.ts`) run via `bun test`, never vitest; `bun run test:bun`
-covers the full bun-test set (compiled daemon + lifecycle integration stay out of CI).
 
 ## Shared-host resource guard
 
 The shared forked Vitest configuration defaults to at most two workers and keeps one worker available as the floor. This is the safe setting for the six-core, 11 GB development host so a test run leaves headroom for the live Podium instance and other agent sessions. Set `PODIUM_TEST_WORKERS=<positive integer>` to choose another ceiling, or `PODIUM_TEST_WORKERS=auto` to restore Vitest's CPU-count default on a dedicated CI/test host. `fileParallelism` remains enabled.
 
-The root Vitest lanes (unit, integration, acceptance, E2E, and agent-smoke) and the cached web/mobile runner automatically acquire the test:heavy advisory lease when launched from a live Podium session. Other heavy commands, including browser or multi-instance lanes and direct package invocations, should acquire it before starting and release it immediately afterward:
+The package default (`bun run test`) and `bun run test:affected` automatically acquire the
+`test:heavy` advisory lease from a live Podium session. The root process lanes that call
+`scripts/test-heavy.ts` do the same; direct package, browser, and multi-instance commands
 
     podium lock acquire test:heavy --ttl 30m --wait
     bun run test:integration
@@ -79,12 +89,16 @@ tests. This is a documented limit, not a detected dependency; target the reader 
 ## Invariants
 
 - **Lane membership is guarded**: `scripts/test-configuration.test.ts` asserts the
-  unit/integration/agent-smoke split and package.json script shape. If you add a test
-  that spawns processes/PTYs/servers, name it so a lane pattern catches it
+  package-owned scopes, normalized-wire serialization, hermetic setup, worker caps,
+  heavy-lane split, and package.json script shape. Every new package test needs a real
+  config and matching Turbo task/input audit. If you add a test that spawns processes/PTYs/servers, name it so a lane pattern catches it
   (`*.integration.test.ts`, `*.pty.test.ts`, `*.smoke.test.ts`) or add it to the
   explicit lists in `vitest.integration.config.ts` (and its mirror exclusion in
   `vitest.unit.config.ts`).
 - **Tmp hygiene**: never a bare `mkdtemp` without cleanup in tests. Per-run TMPDIR
+- **Root exclusions remain load-bearing**: `vitest.unit.config.ts` still excludes
+  integration/e2e/PTY/agent-smoke and named heavy suites, while normalized-wire remains
+  a separate serialized project; package configs reuse that exclusion list.
   containment exists (`test-hermetic-env.ts`) but it is a backstop, not a license —
   pair every `mkdtempSync` with `rmSync(..., { recursive: true, force: true })` in
   an afterAll/finally.
