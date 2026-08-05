@@ -1,22 +1,54 @@
 import type {
   ChatActivity,
   ChatBlock,
+  ChatRow,
   RenderableRow,
   TranscriptAttributionTable,
   TranscriptPhase,
   TranscriptSearchState,
 } from '@podium/client-core/viewmodels'
-import { attributionForRole, blockMatches } from '@podium/client-core/viewmodels'
+import { attributionForRole, blockMatches, isInteractiveTool } from '@podium/client-core/viewmodels'
 import type { SessionId, SessionMeta } from '@podium/model'
 import { Image as ImageIcon } from 'lucide-react'
 import type { JSX, RefObject } from 'react'
 import { renderMarkdown } from '@/lib/markdown'
 import { cn } from '@/lib/utils'
-import { ChatBlockView } from './ChatBlockView'
+import { ChatBlockView, type TurnPosition } from './ChatBlockView'
 import type { PendingItem, QueuedChatMessage } from './chat'
-import { SinceStopTimer } from './SinceStopTimer'
 import { ToolBatchView } from './ToolBatchView'
+import { TranscriptTail } from './TranscriptTail'
 import type { HeadlessOverlay } from './use-headless-turn'
+
+/**
+ * TURN STRUCTURE (POD-376). Thirty-one blocks used to render as thirty-one
+ * siblings at one uniform gap: a one-line aside and a four-minute thirteen-call
+ * run were spaced identically, and an exchange had no start and no end.
+ *
+ * The rule is proximity, not decoration — no boxes, no separators, no new
+ * chrome. Every row falls into one of three relationships with the row above:
+ *
+ *   open   the operator's prompt. It BEGINS an exchange, so the air goes here —
+ *          in front of it, between exchanges, where a reader's eye is looking
+ *          for the seam.
+ *   bind   machine activity: a work line, a stray tool row, the "Churned for"
+ *          divider. It is the consequence of the prose that introduced it and
+ *          sits right under it, close enough to read as one unit.
+ *   (beat) everything else — prose, the answer, a question addressed to the
+ *          reader. Keeps the feed's original rhythm.
+ *
+ * Because activity rows are most of a long turn, the feed also gets SHORTER:
+ * the space comes back out of the middle of exchanges and is spent on their
+ * edges, which is the trade the teardown asked for.
+ */
+export function turnPosition(row: ChatRow): TurnPosition | undefined {
+  if (row.kind === 'tools') return 'bind'
+  const { item } = row.block
+  // A call that addresses the human is not machine activity, whatever its role
+  // — it stops the turn and waits, so it keeps its own air.
+  if (item.role === 'tool') return isInteractiveTool(item) ? undefined : 'bind'
+  if (item.role === 'system' && item.systemKind === 'duration') return 'bind'
+  return undefined
+}
 
 /**
  * THE FEED (POD-405) — the scrollable transcript body and everything that rides
@@ -66,6 +98,7 @@ export function TranscriptFeed({
   activity,
   attribution,
   expandRuns = false,
+  onQuote,
 }: {
   scrollerRef: RefObject<HTMLDivElement | null>
   onScroll: () => void
@@ -105,6 +138,10 @@ export function TranscriptFeed({
    *  how a run LOOKS, not which rows exist, so it rides down here rather than
    *  through the row derivation. */
   expandRuns?: boolean
+  /** Quote a message into the composer (POD-376 per-message actions). Absent →
+   *  the Quote action is not offered, which is what a host without a composer
+   *  should get rather than a button that does nothing. */
+  onQuote?: (markdown: string) => void
 }): JSX.Element {
   return (
     <div
@@ -167,10 +204,16 @@ export function TranscriptFeed({
           )}
         </button>
       )}
-      {rows.map(({ row, index: idx }, pos) =>
+      {rows.map(({ row, index: idx }, pos) => {
+        // An operator prompt opens an exchange — except at the very top of the
+        // mounted window, where the air would only pad the scrollport (and
+        // where the row is often the sticky continuation of an exchange whose
+        // opening is scrolled away above).
+        const turn: TurnPosition | undefined =
+          pos > 0 && isOperatorPromptRow(row) ? 'open' : turnPosition(row)
         // Absolute row index into `rows` keeps minimap/search and
         // [data-block] aligned even for the one-row sticky continuation.
-        row.kind === 'tools' ? (
+        return row.kind === 'tools' ? (
           <ToolBatchView
             // A tools row always folds ≥1 block, so [0] and blocks[bi] exist.
             key={`${idx}-${row.blocks[0]!.item.id}`}
@@ -189,6 +232,7 @@ export function TranscriptFeed({
             // trailing window and `idx` is the ABSOLUTE index into the full row
             // list, so the last mounted row is `pos === rows.length - 1`.
             live={activity?.tone === 'working' && pos === rows.length - 1}
+            turn={turn}
             sessionId={sessionId}
             cwd={cwd}
             openFile={openFile}
@@ -215,14 +259,19 @@ export function TranscriptFeed({
             ctxSeq={compact && row.blockIndex === lastAnswerBlockIndex ? ctxSeq : null}
             stickyOperator={stickyEnabled && isOperatorPromptRow(row)}
             attribution={attributionForRole(attribution, row.block.item.role)}
+            turn={turn}
+            onQuote={onQuote}
           />
-        ),
-      )}
+        )
+      })}
       {pending.map((p) => (
         <div
           key={p.id}
           className={cn(
-            'transcript-row mx-auto w-full max-w-[960px]',
+            // An optimistic bubble is the operator opening an exchange, and is
+            // spaced like one — otherwise the feed's rhythm changes at the
+            // moment the real row replaces it.
+            'transcript-row transcript-turn-open mx-auto w-full max-w-[960px]',
             p.state === 'failed' && 'opacity-60',
           )}
         >
@@ -262,7 +311,7 @@ export function TranscriptFeed({
       {restoredQueued.map((message) => (
         <div
           key={message.id}
-          className="transcript-row mx-auto w-full max-w-[960px]"
+          className="transcript-row transcript-turn-open mx-auto w-full max-w-[960px]"
           data-testid="queued-chat-message"
         >
           <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
@@ -296,34 +345,14 @@ export function TranscriptFeed({
           </div>
         </div>
       )}
-      {activity && !overlay?.status && (
-        <div
-          role="status"
-          aria-live="polite"
-          className={cn(
-            // Match the shared status palette: working → the theme's live
-            // hue, needs-you → warning, everything else muted.
-            'mx-auto flex w-full max-w-[960px] items-center gap-2 py-3 pl-[calc(3px+12px)] text-xs',
-            activity.tone === 'attention'
-              ? 'text-warning'
-              : activity.tone === 'working'
-                ? 'text-live'
-                : 'text-muted-foreground',
-          )}
-        >
-          <span className="inline-flex gap-0.5">
-            <span className="size-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.2s]" />
-            <span className="size-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.1s]" />
-            <span className="size-1.5 animate-bounce rounded-full bg-current" />
-          </span>
-          {activity.label}
-        </div>
-      )}
-      {/* General live timer since the agent last stopped — shown when it's
-          idle (no active working/attention indicator). */}
-      {!activity && session?.agentState?.since && (
-        <SinceStopTimer since={session.agentState.since} />
-      )}
+      {/* Where the transcript ENDS: working, waiting on you, or idle — one
+          object in three weights (TranscriptTail). The headless driver's own
+          status line already says what the agent is doing, so the tail defers
+          to it and falls back to the idle clock underneath. */}
+      <TranscriptTail
+        activity={overlay?.status ? null : activity}
+        since={session?.agentState?.since}
+      />
     </div>
   )
 }

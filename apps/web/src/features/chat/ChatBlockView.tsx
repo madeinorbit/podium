@@ -11,14 +11,17 @@ import {
 } from '@podium/client-core/viewmodels'
 import type { SessionId } from '@podium/model'
 import {
+  Check,
   Clock,
+  Copy,
   FileText,
   Image as ImageIcon,
   Mail as MailIcon,
   MessageCircleQuestion,
+  Quote,
 } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
-import { memo, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { assetUrl } from '@/lib/asset-url'
 import { handleCodeCopyClick } from '@/lib/code-copy'
 import { resolveAgainstCwd } from '@/lib/file-path'
@@ -57,6 +60,88 @@ function handleChatMdClick(
   e.preventDefault()
   const p = a.getAttribute('data-path')
   if (p) openFile(sessionId, resolveAgainstCwd(cwd, p))
+}
+
+/** A row's place in its exchange (POD-376). `open` puts the air of a turn
+ *  boundary in front of the row; `bind` pulls machine activity up under the
+ *  prose that produced it. Absent → the feed's ordinary beat. The rule that
+ *  decides which is which lives in TranscriptFeed, where the whole row sequence
+ *  is visible. */
+export type TurnPosition = 'open' | 'bind'
+
+export function turnClass(turn: TurnPosition | undefined): string | undefined {
+  return turn === 'open'
+    ? 'transcript-turn-open'
+    : turn === 'bind'
+      ? 'transcript-turn-bind'
+      : undefined
+}
+
+/** How long the copy button holds its acknowledgement before returning to rest. */
+const COPY_ACK_MS = 1400
+
+/**
+ * PER-MESSAGE ACTIONS (POD-376). Measured before this: zero buttons on zero
+ * messages — the transcript was a surface you could only read.
+ *
+ * Copy takes the message's own markdown, not the rendered HTML, because what a
+ * reader pastes into an issue or a commit should be the text the agent wrote.
+ * Quote hands the composer a blockquote so a reply can point at the line it is
+ * answering.
+ *
+ * The group is ABSOLUTELY positioned and only fades in, so a row never changes
+ * height or reflows when the pointer crosses it — a feed that twitches under
+ * the cursor is worse than one with no actions at all. It stays in the tab
+ * order and reveals itself on focus, so the keyboard route is the same route.
+ */
+function MessageActions({
+  text,
+  onQuote,
+}: {
+  text: string
+  onQuote?: ((markdown: string) => void) | undefined
+}): JSX.Element | null {
+  const [copied, setCopied] = useState(false)
+  const ack = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const copy = useCallback(() => {
+    const clipboard = navigator.clipboard
+    if (!clipboard) return
+    void clipboard.writeText(text).then(() => {
+      setCopied(true)
+      if (ack.current) clearTimeout(ack.current)
+      ack.current = setTimeout(() => setCopied(false), COPY_ACK_MS)
+    })
+  }, [text])
+  const quote = useCallback(() => {
+    onQuote?.(`${text.trim().replace(/^/gm, '> ')}\n\n`)
+  }, [text, onQuote])
+  if (!text.trim()) return null
+  return (
+    <div className="msg-actions" data-testid="message-actions">
+      <button
+        data-pressable
+        type="button"
+        className="msg-action"
+        onClick={copy}
+        title="Copy message"
+        aria-label={copied ? 'Message copied' : 'Copy message'}
+      >
+        {copied ? <Check size={12} aria-hidden="true" /> : <Copy size={12} aria-hidden="true" />}
+      </button>
+      {onQuote && (
+        <button
+          data-pressable
+          type="button"
+          className="msg-action"
+          onClick={quote}
+          title="Quote in composer"
+          aria-label="Quote in composer"
+        >
+          <Quote size={12} aria-hidden="true" />
+        </button>
+      )}
+    </div>
+  )
 }
 
 /** An envelope-header principal: the nice-id issue ref renders as the same
@@ -168,11 +253,18 @@ function BlockClock({ ts }: { ts?: string | undefined }): JSX.Element | null {
 }
 
 /** scrollHeight/clientHeight are integers rounded from fractional layout, so a
- *  message that fits perfectly still reports a couple of pixels of "overflow"
- *  (measured: 24 vs 22 for a single 21.59px line). Anything genuinely cut off
- *  hides at least a line, so require more than half of one before offering to
- *  expand — otherwise short prompts sprout a Read more that reveals nothing. */
-const PROMPT_OVERFLOW_SLACK_PX = 8
+ *  message that fits perfectly still reports a pixel or two of "overflow"
+ *  (measured: 24 vs 22 for a single 21.59px line). That rounding is the ONLY
+ *  thing this slack is allowed to absorb.
+ *
+ *  It used to be 8px, which is most of a line — and the fade rendered whether
+ *  or not the toggle did, so a prompt measuring 45px of content in a 43px box
+ *  got its last line greyed out with no way to expand it (POD-376). Two changes
+ *  fix that class of bug rather than that instance: the slack now covers only
+ *  rounding, and the fade is drawn by `data-cut`, which is set from the SAME
+ *  verdict that renders the toggle. The cut and the way out of it cannot
+ *  disagree again. */
+const PROMPT_OVERFLOW_SLACK_PX = 4
 
 /** A sticky operator prompt is pinned over the very transcript it belongs to,
  *  so a long message would blanket the whole feed (POD-1368). Cap the prompt
@@ -239,7 +331,14 @@ function ClampedPromptBody({
           </button>
         )}
       </div>
-      <div className="transcript-you-clamp" data-clamped={clamped ? 'true' : undefined} ref={ref}>
+      <div
+        className="transcript-you-clamp"
+        data-clamped={clamped ? 'true' : undefined}
+        // The fade + ellipsis, drawn only where something is genuinely hidden —
+        // and therefore only where the toggle above offers a way to see it.
+        data-cut={clamped && overflowing ? 'true' : undefined}
+        ref={ref}
+      >
         {children}
       </div>
     </>
@@ -267,6 +366,8 @@ export const ChatBlockView = memo(function ChatBlockView({
   ctxSeq = null,
   stickyOperator = false,
   attribution,
+  turn,
+  onQuote,
 }: {
   block: ChatBlock
   index: number
@@ -298,6 +399,10 @@ export const ChatBlockView = memo(function ChatBlockView({
    *  — so the object identity stays stable across renders and this memoized
    *  component keeps skipping work. */
   attribution?: TranscriptAttribution
+  /** This row's place in its exchange (POD-376) — see {@link TurnPosition}. */
+  turn?: TurnPosition
+  /** Quote this message into the composer. Absent → no Quote action. */
+  onQuote?: ((markdown: string) => void) | undefined
 }): JSX.Element | null {
   const { item } = block
   // Delivered-message envelope (#237) [spec:SP-34d7 web]: an inter-agent /
@@ -321,8 +426,14 @@ export const ChatBlockView = memo(function ChatBlockView({
   }, [compact, item.role, item.answer, item.text])
   const displayText = envelopeBatch?.operatorText || nextSplit?.body || item.text
   const html = useMemo(() => renderMarkdown(displayText), [displayText])
+  // Envelopes render as rows AHEAD of this block's own row (a provider turn can
+  // deliver several frames before the operator's text), so when they exist they
+  // are what opens the exchange and the body row binds to them.
+  const hasEnvelopes = (envelopeBatch?.envelopes.length ?? 0) > 0
+  const bodyTurnClass = turnClass(hasEnvelopes && turn === 'open' ? 'bind' : turn)
   const rowClass = cn(
     'group transcript-row isolate mx-auto w-full max-w-[960px]',
+    bodyTurnClass,
     stickyOperator &&
       'sticky -top-6 z-[3] transition-[box-shadow] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
     highlighted && 'rounded-md outline outline-1 outline-primary outline-offset-4',
@@ -464,7 +575,12 @@ export const ChatBlockView = memo(function ChatBlockView({
     <MessageEnvelopeRow
       key={envelope.id}
       envelope={envelope}
-      className={nonStickyRowClass}
+      className={cn(
+        nonStickyRowClass,
+        // Delivered mail arrives as one exchange: the first frame takes the
+        // turn's air, the rest stack under it.
+        turnClass(envelopeIndex === 0 ? turn : 'bind'),
+      )}
       blockIndex={envelopeBatch.operatorText === '' && envelopeIndex === 0 ? index : undefined}
       sessionId={sessionId}
       cwd={cwd}
@@ -577,6 +693,10 @@ export const ChatBlockView = memo(function ChatBlockView({
             isAnswer && 'transcript-answer',
           )}
         >
+          {/* Copy / quote, on every row that carries a message a reader might
+              want to take with them. Machine activity is excluded — a work line
+              is a summary of rows that each have their own affordances. */}
+          <MessageActions text={displayText} onQuote={onQuote} />
           {isUser && !stickyOperator && (
             <div className="transcript-you-label">
               You

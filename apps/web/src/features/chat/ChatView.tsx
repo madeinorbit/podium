@@ -214,6 +214,15 @@ export function ChatView({
           activity={chat.activity}
           attribution={chat.attribution}
           expandRuns={chat.expandRuns}
+          // Per-message Quote (POD-376): the feed builds the blockquote, the
+          // shell owns the draft. Appended rather than replacing, so quoting
+          // twice — or quoting into a half-written reply — never eats text.
+          onQuote={(markdown) => {
+            chat.setDraft(
+              chat.draft ? `${chat.draft.replace(/\s*$/, '\n\n')}${markdown}` : markdown,
+            )
+            chat.taRef.current?.focus()
+          }}
         />
         {/* Minimap maps the RENDERED window (visibleRows), so its segments line
             up with the scrollable content. For a very long transcript that means

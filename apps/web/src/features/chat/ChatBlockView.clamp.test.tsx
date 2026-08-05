@@ -83,9 +83,10 @@ describe('sticky operator prompt clamp', () => {
   it('clamps a long sticky prompt and offers an expand control', () => {
     contentHeight = 900
     mount('a very long prompt', true)
-    // data-clamped both applies the height cap and draws the ellipsis marker
-    // over the cut edge (both live in .transcript-you-clamp).
+    // data-clamped applies the height cap; data-cut draws the fade + ellipsis
+    // over the edge, and is set from the same verdict as the toggle below.
     expect(clampBox()?.dataset.clamped).toBe('true')
+    expect(clampBox()?.dataset.cut).toBe('true')
     const button = toggle()
     expect(button).not.toBeNull()
     expect(button?.textContent).toContain('Read more')
@@ -126,6 +127,31 @@ describe('sticky operator prompt clamp', () => {
     contentHeight = CAP + 2
     mount('a prompt that exactly fills the cap', true)
     expect(toggle()).toBeNull()
+  })
+
+  it('never fades an edge it is not offering to expand (POD-376)', () => {
+    // The confirmed bug: 45px of content in a 43px box sat under the slack, so
+    // no toggle rendered — and the fade rendered anyway, greying out a live last
+    // line with no way to reveal it. The fade and the toggle now share one
+    // verdict, so a prompt can be capped without being marked as cut.
+    contentHeight = CAP + 2
+    mount('a prompt that exactly fills the cap', true)
+    expect(clampBox()?.dataset.clamped).toBe('true')
+    expect(clampBox()?.dataset.cut).toBeUndefined()
+    // …and where something IS hidden, both appear together.
+    contentHeight = CAP + 40
+    mount('a prompt with a hidden line', true)
+    expect(clampBox()?.dataset.cut).toBe('true')
+    expect(toggle()).not.toBeNull()
+  })
+
+  it('drops the fade with the clamp when the prompt is expanded', () => {
+    contentHeight = 900
+    mount('a very long prompt', true)
+    act(() => {
+      toggle()?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    expect(clampBox()?.dataset.cut).toBeUndefined()
   })
 
   it('leaves a non-sticky prompt unclamped', () => {

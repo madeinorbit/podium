@@ -1403,9 +1403,22 @@ html[data-density="balanced"] .header-quota-pools {
 /* The operator's turn — the ONLY elevated surface class in the field. Embossed
    per the Carved Rule: depth goes inward, so the panel is engraved into the
    chassis rather than floated above it. */
+/* THE ISSUE TINT CHANNEL, SPENT ON THE FEED (POD-376). `--issue` is scoped on
+   the shell root, so the chat inherits the selected issue's colour for free and
+   used it nowhere. It is spent here and only here: the operator's panel is the
+   head of every exchange, so tinting it says "this whole conversation belongs to
+   POD-411" once per exchange instead of once per screen. Tint, never fill —
+   6% into the panel, 32% into its hairline, both below DESIGN.md's selected-row
+   dose because this surface repeats down the column. The yellow keyline on the
+   answer is untouched: colour that means "your issue" must not collide with
+   colour that means "this is for you". */
 .transcript-you {
-  --transcript-you-bg: color-mix(in oklab, var(--background) 82%, black);
-  border: 1px solid var(--border);
+  --transcript-you-bg: color-mix(
+    in oklab,
+    color-mix(in oklab, var(--background) 82%, black) 94%,
+    var(--issue, var(--background))
+  );
+  border: 1px solid color-mix(in srgb, var(--issue, var(--border)) 32%, var(--border));
   border-radius: 9px;
   background: var(--transcript-you-bg);
   padding: 10px 15px;
@@ -1466,8 +1479,13 @@ html[data-density="balanced"] .header-quota-pools {
   );
 }
 /* Mark the cut with an ellipsis over a fade into the panel, so the clamp reads
-   as "there is more" and never as a message that ends mid-sentence. */
-.transcript-you-clamp[data-clamped="true"]::after {
+   as "there is more" and never as a message that ends mid-sentence.
+   Keyed on `data-cut`, NOT on `data-clamped` (POD-376): the cap is applied to
+   every collapsed prompt to hold the row's height steady as it sticks, but only
+   a prompt that is genuinely hiding something may be faded — and that is the
+   same verdict that renders the "Read more" toggle. The two cannot disagree,
+   which is what produced a greyed-out last line with no way to reveal it. */
+.transcript-you-clamp[data-cut="true"]::after {
   content: "…";
   display: flex;
   align-items: flex-end;
@@ -1511,6 +1529,14 @@ html[data-density="balanced"] .header-quota-pools {
   border-top: 2px solid color-mix(in oklab, var(--primary) 55%, transparent);
   padding-top: 10px;
 }
+/* The conclusion is the one thing in the feed a reader came for, and it used to
+   be set at exactly the size of the narration it followed. A point and a half of
+   type does what a second keyline could not (POD-376). */
+.transcript-answer .chat-md {
+  font-size: 15px;
+  line-height: 1.62;
+  color: var(--text-strong, var(--foreground));
+}
 .transcript-answer-label {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: var(--shell-type-micro);
@@ -1531,7 +1557,8 @@ html[data-density="balanced"] .header-quota-pools {
   min-width: 0;
   width: 100%;
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 11px;
+  /* DESIGN.md's mono size — the bottom of the feed's type band (POD-376). */
+  font-size: 10.5px;
   color: var(--muted-foreground);
 }
 .tool-glyph {
@@ -1553,7 +1580,7 @@ html[data-density="balanced"] .header-quota-pools {
   border-left: 2px solid var(--border);
   color: color-mix(in oklab, var(--destructive) 75%, var(--muted-foreground));
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 10.5px;
+  font-size: 10px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1581,7 +1608,9 @@ html[data-density="balanced"] .header-quota-pools {
   font-size: 9.5px;
   letter-spacing: 0.06em;
   color: color-mix(in oklab, var(--muted-foreground) 70%, transparent);
-  transition: color 120ms ease, background-color 120ms ease;
+  transition:
+    color 120ms ease,
+    background-color 120ms ease;
 }
 .verbosity-seg:hover {
   color: var(--foreground);
@@ -1592,7 +1621,7 @@ html[data-density="balanced"] .header-quota-pools {
 }
 /* Search is overriding a Summary setting — the strip dims so it reads as "not
    currently in effect" rather than as a control that stopped working. */
-.verbosity[data-overridden='true'] .verbosity-seg--on {
+.verbosity[data-overridden="true"] .verbosity-seg--on {
   opacity: 0.55;
 }
 @media (prefers-reduced-motion: reduce) {
@@ -1645,7 +1674,7 @@ html[data-density="balanced"] .header-quota-pools {
 /* The agent's description of a command, demoted beneath the command itself. */
 .tool-aside {
   margin: 0 0 1px 21px;
-  font-size: 10.5px;
+  font-size: 10px;
   color: color-mix(in oklab, var(--muted-foreground) 65%, transparent);
   white-space: nowrap;
   overflow: hidden;
@@ -1662,7 +1691,7 @@ html[data-density="balanced"] .header-quota-pools {
   padding: 2px 9px;
   border-left: 2px solid color-mix(in oklab, var(--border) 60%, transparent);
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 10.5px;
+  font-size: 10px;
   color: color-mix(in oklab, var(--muted-foreground) 78%, transparent);
   min-width: 0;
 }
@@ -1773,7 +1802,8 @@ html[data-density="balanced"] .header-quota-pools {
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
-  font-size: 12px;
+  /* Machine voice, a step below prose (POD-376 type scale). */
+  font-size: 11.5px;
   white-space: nowrap;
   text-overflow: ellipsis;
   color: var(--muted-foreground);
@@ -1866,8 +1896,211 @@ html[data-density="balanced"] .header-quota-pools {
   }
 }
 
-/* The main content column */
+/* ── POD-376 feed ────────────────────────────────────────────────────────────
+   Composition, one level above the tokens: turn structure, per-message actions,
+   and the tail that ends the transcript. Nothing here re-skins anything — Flat
+   Field, the Carved Rule and the Signal Rule are already implemented and
+   correct, and the gap was that the feed had no composition at all.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+/* TURN STRUCTURE. Thirty-one blocks used to render at one uniform 24px gap, so
+   a one-line aside and a four-minute thirteen-call run were spaced identically
+   and an exchange had no start or end. The air now goes BETWEEN exchanges and
+   comes out of the middle of them:
+
+     open   the operator's prompt — the seam a reader's eye looks for.
+     bind   machine activity, pulled up under the prose that produced it.
+     ·      everything else keeps the original beat.
+
+   Which row is which is decided in TranscriptFeed, where the whole sequence is
+   visible. Margin, not padding, on the opener: the prompt row is `position:
+   sticky` and its offset is measured from its border box, so spacing it this
+   way cannot move where it pins. */
+.transcript-turn-open {
+  margin-top: 22px;
+}
+.transcript-turn-bind {
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+/* The narrow dock runs the same grammar at its own scale (§2.5). Specificity
+   has to match `.chat-compact .transcript-row`, which would otherwise win. */
+.chat-compact .transcript-turn-open {
+  margin-top: 15px;
+}
+.chat-compact .transcript-turn-bind {
+  padding-top: 1px;
+  padding-bottom: 1px;
+}
+/* The narrow column is half the width, so the answer takes a smaller step up
+   than it does at full width — 14 against a 13px body. */
+.chat-compact .transcript-answer .chat-md {
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+/* PER-MESSAGE ACTIONS. Absolutely positioned and fading only in opacity, so a
+   row can never change height or reflow as the pointer crosses it. They stay in
+   the tab order and reveal themselves on focus — the keyboard route is the same
+   route, not a second one. */
+.msg-actions {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  z-index: 2;
+  display: flex;
+  gap: 1px;
+  padding: 2px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: color-mix(in oklab, var(--background) 88%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+.transcript-row:hover > .transcript-body > .msg-actions,
+.msg-actions:focus-within {
+  border-color: color-mix(in oklab, var(--border) 70%, transparent);
+  opacity: 1;
+  pointer-events: auto;
+}
+.msg-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    background-color 120ms ease;
+}
+.msg-action:hover {
+  background: var(--muted);
+  color: var(--text-strong, var(--foreground));
+}
+/* The label rows keep a lane clear on the right so the overlay never lands on
+   "Read more" or on an attribution mark. */
+.transcript-you-label,
+.transcript-answer-label,
+.transcript-header {
+  padding-inline-end: 52px;
+}
+
+/* THE TAIL — where the transcript ENDS, in three weights. One shape (mark,
+   phrase, mono figure, rule running out to the right edge); what changes is
+   what the state deserves. See TranscriptTail.tsx for the reasoning. */
+.feed-tail {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 13px 0 5px;
+}
+.feed-tail-body {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.feed-tail-mark {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+}
+.feed-tail-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.feed-tail-label {
+  font-size: 11.5px;
+}
+/* Machine voice, tabular — the figure must not change width as it counts. */
+.feed-tail-figure {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+}
+.feed-tail-rule {
+  flex: 1 1 auto;
+  height: 1px;
+  background: currentColor;
+  opacity: 0.2;
+}
+/* Working: the live hue, and the one place in the feed licensed to move. */
+.feed-tail[data-tail="working"] {
+  color: var(--live, var(--info));
+}
+/* Waiting on you: the brightest of the three and the only one with a keyline —
+   the same warning-keyline object "Asked you" already uses, because it is the
+   same news. Stillness is what makes it read as needing you, so it holds
+   perfectly still once it has arrived. */
+.feed-tail[data-tail="waiting"] {
+  color: var(--attention, var(--warning));
+  padding-bottom: 8px;
+}
+.feed-tail[data-tail="waiting"] .feed-tail-body {
+  padding: 5px 11px 5px 8px;
+  border-left: 2px solid currentColor;
+  border-radius: 0 6px 6px 0;
+  background: color-mix(in oklab, currentColor 10%, transparent);
+}
+.feed-tail[data-tail="waiting"] .feed-tail-label {
+  font-weight: 600;
+}
+.feed-tail[data-tail="note"] {
+  color: var(--muted-foreground);
+}
+/* Idle recedes, and recedes again once it has been quiet for ten minutes:
+   nothing is happening and nothing is being asked, so the row should cost the
+   eye about what it costs the session. The alpha rides on `color`, so the dot,
+   the rule and the text dim as one. */
+.feed-tail[data-tail="idle"] {
+  color: color-mix(in oklab, var(--text-dim, var(--muted-foreground)) 62%, transparent);
+}
+.feed-tail[data-tail="idle"][data-stale="true"] {
+  color: color-mix(in oklab, var(--text-dim, var(--muted-foreground)) 38%, transparent);
+}
+.chat-compact .feed-tail {
+  padding: 9px 0 4px;
+}
+/* One one-shot morph per phase change (the row is keyed on its state, so it
+   remounts and replays), then total stillness. */
+@media (prefers-reduced-motion: no-preference) {
+  .feed-tail {
+    animation: feed-tail-arrive 260ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+}
+@keyframes feed-tail-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .msg-actions,
+  .msg-action {
+    transition: none;
+  }
+}
+
+/* The main content column. Positioned so the per-message actions can overlay
+   its top-right corner without ever entering the flow (POD-376). */
 .transcript-body {
+  position: relative;
   flex: 1 1 0;
   min-width: 0;
 }
@@ -1967,6 +2200,11 @@ html[data-density="balanced"] .header-quota-pools {
 
 /* ── Chat markdown body ──────────────────────────────────────────────────── */
 
+/* The feed's four registers used to live inside three pixels — prose 14, prompt
+   13.5, work line 13, tool row 11 — so every distinction had to be carried by a
+   box. The band is now 15 / 13.5 / 11.5 / 10.5 (POD-376): the ANSWER is the only
+   thing that got bigger, intermediate narration steps back a half point, and
+   machine voice steps down to DESIGN.md's mono size. Net reading load falls. */
 .chat-md {
   font-size: var(--shell-type-reading);
   line-height: var(--shell-leading-reading);

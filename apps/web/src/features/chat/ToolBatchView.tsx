@@ -6,6 +6,7 @@ import { useState } from 'react'
 import { BrailleSpinner } from '@/lib/motion/BrailleSpinner'
 import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
+import { type TurnPosition, turnClass } from './ChatBlockView'
 import { type ToolBatchRow, toolCallPhrase, toolRunElapsedMs, toolRunFailures } from './chat'
 import { ToolBlock } from './ToolBlock'
 
@@ -43,6 +44,7 @@ export function ToolBatchView({
   dimmed,
   forceOpen,
   live = false,
+  turn,
   sessionId,
   cwd,
   openFile,
@@ -54,6 +56,9 @@ export function ToolBatchView({
   forceOpen: boolean
   /** True only for the trailing run of a turn the agent is still working on. */
   live?: boolean
+  /** This row's place in its exchange (POD-376) — a run binds to the prose that
+   *  produced it, so it is normally 'bind'. See TranscriptFeed. */
+  turn?: TurnPosition
   sessionId: SessionId
   cwd: string
   openFile: (sessionId: SessionId, path: string) => void
@@ -62,6 +67,7 @@ export function ToolBatchView({
   const expanded = open || forceOpen
   const rowClass = cn(
     'transcript-row mx-auto w-full max-w-[960px]',
+    turnClass(turn),
     highlighted && 'rounded-md outline outline-1 outline-primary outline-offset-4',
     dimmed && 'opacity-35',
   )
