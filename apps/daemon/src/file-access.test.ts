@@ -140,6 +140,18 @@ describe('readAssetSandboxed', () => {
     expect(r.ok).toBe(true)
     expect(r.contentType).toBe('text/css; charset=utf-8')
   })
+  it('serves an unlisted text extension as plain text, not a download', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'asset-'))
+    await writeFileFs(join(dir, 'notes.md'), '# hi')
+    const r = await readAssetSandboxed({ cwd: dir, path: join(dir, 'notes.md'), knownPath: false })
+    expect(r.contentType).toBe('text/plain; charset=utf-8')
+  })
+  it('keeps an unlisted binary extension a download', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'asset-'))
+    await writeFileFs(join(dir, 'blob.bin'), Buffer.from([0x01, 0x00, 0x02]))
+    const r = await readAssetSandboxed({ cwd: dir, path: join(dir, 'blob.bin'), knownPath: false })
+    expect(r.contentType).toBe('application/octet-stream')
+  })
   it('rejects a path outside the sandbox', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'asset-'))
     const r = await readAssetSandboxed({ cwd: dir, path: '/etc/hosts', knownPath: false })

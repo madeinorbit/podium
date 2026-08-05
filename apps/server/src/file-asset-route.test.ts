@@ -16,6 +16,32 @@ describe('GET /files/asset', () => {
     expect(res.headers.get('content-type')).toBe('image/png')
     expect(Buffer.from(await res.arrayBuffer()).toString()).toBe('PNGDATA')
   })
+  it('sandboxes HTML so a repo page cannot ride the session cookie', async () => {
+    const app = new Hono()
+    registerAssetRoute(
+      app,
+      stub({
+        ok: true,
+        dataBase64: Buffer.from('<h1>hi</h1>').toString('base64'),
+        contentType: 'text/html; charset=utf-8',
+      }),
+    )
+    const res = await app.request('/files/asset?root=/w&path=/w/mock.html')
+    expect(res.headers.get('content-security-policy')).toContain('sandbox')
+    expect(res.headers.get('content-security-policy')).not.toContain('allow-same-origin')
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff')
+  })
+  it('leaves an embedded image unsandboxed', async () => {
+    const app = new Hono()
+    registerAssetRoute(
+      app,
+      stub({ ok: true, dataBase64: Buffer.from('PNG').toString('base64'), contentType: 'image/png' }),
+    )
+    const res = await app.request('/files/asset?root=/w&path=/w/a.png', {
+      headers: { 'sec-fetch-dest': 'image' },
+    })
+    expect(res.headers.get('content-security-policy')).toBeNull()
+  })
   it('404s when the read is not ok (e.g. outside sandbox)', async () => {
     const app = new Hono()
     registerAssetRoute(app, stub({ ok: false, error: 'outside workspace' }))

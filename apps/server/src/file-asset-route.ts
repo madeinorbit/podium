@@ -1,6 +1,7 @@
 // apps/server/src/file-asset-route.ts
 import { asSessionId, type SessionId } from '@podium/model'
 import type { Hono } from 'hono'
+import { rawFileHeaders } from './raw-file-headers'
 
 export interface AssetReader {
   readAsset(
@@ -14,7 +15,8 @@ export interface AssetReader {
   }>
 }
 
-/** Serve a markdown-relative asset (image) as raw bytes. Auth model matches the rest
+/** Serve a checkout file as raw bytes: the markdown preview's images, and the file
+ *  viewer's Open in browser, which points a real browser tab here. Auth model matches the rest
  *  of the HTTP surface: the session must exist (readAsset returns ok:false otherwise);
  *  the daemon enforces the path sandbox. Worktree variant (`root` [+ `machineId`]
  *  instead of `sessionId`) serves issue-panel artifacts from a worktree checkout. */
@@ -32,9 +34,14 @@ export function registerAssetRoute(app: Hono, registry: AssetReader): void {
     )
     if (!r.ok || !r.dataBase64) return c.text(r.error ?? 'not found', r.tooLarge ? 413 : 404)
     const bytes = Buffer.from(r.dataBase64, 'base64')
-    return c.body(bytes, 200, {
-      'content-type': r.contentType ?? 'application/octet-stream',
-      'cache-control': 'no-cache',
-    })
+    return c.body(
+      bytes,
+      200,
+      rawFileHeaders({
+        contentType: r.contentType ?? 'application/octet-stream',
+        cacheControl: 'no-cache',
+        secFetchDest: c.req.header('sec-fetch-dest'),
+      }),
+    )
   })
 }

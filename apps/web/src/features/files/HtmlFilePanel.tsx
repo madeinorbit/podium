@@ -17,6 +17,7 @@ import {
   buildStaticHtmlPreview,
   linkedStylesheetPathsForStaticHtml,
 } from './html-preview-transform'
+import { OpenInBrowserButton } from './OpenInBrowserButton'
 import { SourceEditor } from './SourceEditor'
 import { useFileDocument } from './useFileDocument'
 
@@ -155,6 +156,7 @@ export function HtmlFilePanel({
         >
           {doc.saveFeedback?.message ?? ''}
         </span>
+        <OpenInBrowserButton scope={scope} path={path} dirty={doc.dirty} />
         <Button
           type="button"
           variant="ghost"

@@ -126,11 +126,17 @@ export async function readAssetSandboxed(opts: {
       buf = await readFile(real)
     }
     const ext = real.split('.').pop()?.toLowerCase() ?? ''
+    // Unlisted extension: sniff rather than default to octet-stream. A .md, .ts or
+    // .toml opened in a browser tab (the file viewer's Open in browser) should be
+    // readable text; only actual binaries deserve the download fallback.
+    const contentType =
+      ASSET_CONTENT_TYPES[ext] ??
+      (isBinary(buf) ? 'application/octet-stream' : 'text/plain; charset=utf-8')
     return {
       ok: true,
       path,
       dataBase64: buf.toString('base64'),
-      contentType: ASSET_CONTENT_TYPES[ext] ?? 'application/octet-stream',
+      contentType,
       size: st.size,
     }
   } catch {

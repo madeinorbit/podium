@@ -1,5 +1,6 @@
 // apps/server/src/file-artifact-route.ts
 import type { Hono } from 'hono'
+import { rawFileHeaders } from './raw-file-headers'
 
 /** The store face the route needs (IssueArtifactStore, structurally). */
 export interface ArtifactBundleReader {
@@ -28,9 +29,14 @@ export function registerArtifactRoute(app: Hono, store: ArtifactBundleReader): v
     if (!rel) return c.text('bad request', 400)
     const r = await store.read(issueId, artifactId, rel)
     if (!r) return c.text('not found', 404)
-    return c.body(new Uint8Array(r.bytes), 200, {
-      'content-type': r.contentType,
-      'cache-control': 'private, max-age=31536000, immutable',
-    })
+    return c.body(
+      new Uint8Array(r.bytes),
+      200,
+      rawFileHeaders({
+        contentType: r.contentType,
+        cacheControl: 'private, max-age=31536000, immutable',
+        secFetchDest: c.req.header('sec-fetch-dest'),
+      }),
+    )
   })
 }
