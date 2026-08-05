@@ -52,7 +52,7 @@ import { SnoozeControl } from '@/lib/SnoozeControl'
 import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
 import { KindIcon, sessionDisplayName } from '@/lib/WorkerLabel'
-import { paneTintedBackground, withBackground } from './appearance'
+import { applyInitialTerminalAppearance, paneTintedBackground, withBackground } from './appearance'
 import { createDraftSync } from './draft-sync'
 import { EchoHud, echoHudEnabled } from './EchoHud'
 import { HandoverPane, useHandoverView } from './HandoverPane'
@@ -383,6 +383,14 @@ export function AgentPanel({
     () => (termSettings.background ? termAppearance : withBackground(termAppearance, termBg)),
     [termSettings.background, termAppearance, termBg],
   )
+  // The hook's mount effect already receives the terminal-client defaults. Apply
+  // the panel tint directly after mount so its initial appearance does not
+  // schedule a second, identical fit. Custom font metrics still get one fit
+  // when the pane is eligible; hidden panes wait for their normal reveal path.
+  const initialAppearanceAppliedRef = useRef<typeof appearance | null>(null)
+  const canFitInitialAppearance =
+    gates.ptySizingAllowed &&
+    (typeof document === 'undefined' || document.visibilityState === 'visible')
 
   const {
     containerRef: termRef,
@@ -410,9 +418,13 @@ export function AgentPanel({
     focusOnMount: false,
     focusWhenReady: true,
     test: E2E,
-    appearance,
+    // Applied synchronously in onMounted below. Passing it here would make
+    // useTerminalSession apply it a second time in its initial appearance
+    // effect, which also schedules a redundant fit.
     onFrame: () => scheduleSampleRef.current(),
     onMounted: (mounted) => {
+      applyInitialTerminalAppearance(mounted, appearance, canFitInitialAppearance)
+      initialAppearanceAppliedRef.current = appearance
       // Seed the file-link provider immediately after mount with whatever paths
       // are already known (from the transcript subscription effect below).
       // Without this the provider is a no-op until the next transcript callback.
@@ -448,6 +460,17 @@ export function AgentPanel({
       }
     },
   })
+
+  // Keep later appearance changes on the shared, eligibility-gated path. The
+  // initial mount is handled directly above because the hook's first appearance
+  // effect would otherwise fit the same theme twice.
+  useEffect(() => {
+    const mounted = mountedRef.current
+    const previous = initialAppearanceAppliedRef.current
+    if (!mounted || previous === appearance) return
+    mounted.setAppearance(appearance)
+    initialAppearanceAppliedRef.current = appearance
+  }, [appearance, mountedRef])
 
   // Native-mode dictation: transcribed speech types straight into the PTY as
   // keystrokes — no auto-submit, so the user can edit before hitting Enter.

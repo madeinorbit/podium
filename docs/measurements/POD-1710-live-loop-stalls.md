@@ -246,3 +246,69 @@ change-log fold itself fell from 4809 ms/call to ~125 ms/call in the attribution
 so the cost was removed where it was measured. But the end-to-end phase is at
 n=3 and cannot carry a conclusion either way. Grading it needs a longer window
 with real navigation traffic.
+
+---
+
+# ROUND 2: the native-view wait, attributed by name
+
+Main at `28a7cafea`. Round 2 landed POD-1723 (conversation-list batching),
+POD-1730 (bootstrap attribution markers) and POD-1718 (terminal fit).
+
+## Search, three measurements deep
+
+| | baseline | round 1 | round 2 |
+|---|---|---|---|
+| `conversations.search` p50 | 5840 ms | 126 ms | **94 ms** |
+| p95 | 13 914 ms | 247 ms | **177 ms** |
+| worst fixed term, wall | 14.4 s | 0.252 s | **0.182 s** |
+
+**62x on the median, 79x on the tail** from baseline, same six fixed terms via
+`scripts/perf/pod1710-ab.sh` each time.
+
+## The 1.4s native-view wait, decomposed
+
+POD-1730's markers went live. Server pid 771019, main at `dc8c814bf`:
+
+| phase | p50 | p90 | share of read |
+|---|---|---|---|
+| `feedBootstrap.read` | **1096.0 ms** | 1441.1 ms | — |
+| ↳ `visibility.issue.getIssue` | **489.6 ms** | 708.5 ms | **45%** |
+| ↳ `visibility.conversation.findSessionByResumeValue` | **345.1 ms** | 440.6 ms | **31%** |
+| ↳ `visibility.session.getSession` | **87.6 ms** | 104.9 ms | **8%** |
+| ↳ `visibility.automation.ownerOf` | 0.2 ms | 0.3 ms | ~0 |
+| ↳ `visibility.automationRun.runOwnerOf` | 0.1 ms | 1.4 ms | ~0 |
+
+**Three point-read N+1s are 84% of the wait** (922 ms of 1096 ms) — about 3,400
+issue lookups and 3,000 session lookups per bootstrap. `verdict=busy` with
+`own-cpu` near the stall duration, so this is CPU, not I/O.
+
+The grants phases do not appear at all: POD-1723's batching removed them from
+this path entirely.
+
+**n=2.** The decomposition is internally consistent — the parts sum to the whole
+— but the exact milliseconds are soft. The CALL COUNTS are the reliable figure.
+
+## The pattern, three times over
+
+A full-table SCAN gets replaced by a point QUERY; the point query then gets
+called once per row, and the N+1 costs what the scan did.
+
+1. POD-1711 — `loadSessions()` per FTS candidate → request-scoped index.
+2. POD-1723 — `getIssue` + `listForResource` per conversation → batched.
+3. POD-1732 (open) — `getIssue` / `findSessionByResumeValue` / `getSession` per
+   bootstrap row → to be batched.
+
+`findSessionByResumeValue` is the sharpest case: POD-1614 introduced it
+*specifically to replace a full-table scan here*, and it is now called ~3,000
+times per bootstrap.
+
+## What is still NOT measured
+
+**Nothing here is time-to-interactable.** Every client number in this document
+stops at `chat:first-paint` or `term:ready`; there is still no mark for typeable
+or scrollable (POD-1727, open). POD-1718 was explicit about this and reported its
+own result as "2→1 initial fit count and observed term:ready, NOT proven
+typeable/scrollable" — the correct framing, and the one to keep using until the
+sentinels land.
+
+Fresh-agent-start and cold-IndexedDB-load remain unmeasured.

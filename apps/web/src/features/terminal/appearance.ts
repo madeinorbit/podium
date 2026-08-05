@@ -117,3 +117,45 @@ export function toTerminalAppearance(s: TerminalAppearanceSettings): TerminalApp
   }
   return a
 }
+
+type InitialAppearanceTarget = {
+  view: {
+    setAppearance(appearance: TerminalAppearance): void
+    cols(): number
+    rows(): number
+    fit(): { cols: number; rows: number } | undefined
+  }
+  connection: {
+    sendResize(cols: number, rows: number): void
+  }
+}
+
+/**
+ * Apply the web panel's first appearance without scheduling a redundant fit.
+ * `useTerminalSession` passes an appearance to `mountSession` and then its
+ * initial appearance effect applies the same value again. The panel's usual
+ * appearance is theme-only, so the second pass cannot change the grid; custom
+ * font metrics are the exception and get one local fit, with a resize only when
+ * the grid actually changed.
+ *
+ * `canFit` is supplied by the panel's visibility foundation. A warm hidden
+ * panel must receive its theme, but it must not measure a zero-sized terminal.
+ */
+export function applyInitialTerminalAppearance(
+  mounted: InitialAppearanceTarget,
+  appearance: TerminalAppearance,
+  canFit: boolean,
+): void {
+  mounted.view.setAppearance(appearance)
+
+  const hasMetricOverride =
+    appearance.fontSize !== undefined ||
+    appearance.fontFamily !== undefined ||
+    appearance.lineHeight !== undefined
+  if (!canFit || !hasMetricOverride) return
+
+  const before = { cols: mounted.view.cols(), rows: mounted.view.rows() }
+  const grid = mounted.view.fit()
+  if (!grid || (grid.cols === before.cols && grid.rows === before.rows)) return
+  mounted.connection.sendResize(grid.cols, grid.rows)
+}
