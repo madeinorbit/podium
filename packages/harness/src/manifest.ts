@@ -131,6 +131,8 @@ export interface LaunchSpec {
 export interface HarnessExecOptions {
   prompt: string
   model?: string
+  /** Provider-specific reasoning/effort variant (OpenCode uses --variant). */
+  effort?: string
   systemPrompt?: string
   /** Path to a written MCP config JSON (Claude `--mcp-config`). */
   mcpConfigPath?: string
@@ -320,6 +322,8 @@ export interface HarnessObserverHost {
   /** Live transcript items pushed by the observer itself (opencode: SQLite
    *  store, no file to tail; items arrive already cursor-stamped). */
   onTranscriptItems(items: TranscriptItem[], reset: boolean): void
+  /** The provider reports the model/effort it actually used. */
+  onModel?(model: string, effort?: string): void
 }
 
 export interface HarnessObservation {

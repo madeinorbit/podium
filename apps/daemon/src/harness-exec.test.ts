@@ -131,4 +131,21 @@ describe('buildHarnessExec', () => {
       args: ['-p', '--model', 'auto', 'p'],
     })
   })
+
+  it('passes OpenCode model and effort to one-shot runs', () => {
+    expect(
+      buildHarnessExec(
+        'opencode',
+        {
+          prompt: 'p',
+          model: 'opencode/deepseek-v4-flash-free',
+          effort: 'high',
+        },
+        bins,
+      ),
+    ).toEqual({
+      cmd: '/bin/opencode',
+      args: ['run', '-m', 'opencode/deepseek-v4-flash-free', '--variant', 'high', 'p'],
+    })
+  })
 })

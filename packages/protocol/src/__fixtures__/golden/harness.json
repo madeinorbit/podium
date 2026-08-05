@@ -24,6 +24,7 @@
         "requestId": "requestId",
         "agent": "claude-code",
         "model": "model",
+        "effort": "effort",
         "prompt": "prompt",
         "cwd": "cwd",
         "systemPrompt": "systemPrompt",
@@ -34,7 +35,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"harnessExecRequest\",\"requestId\":\"requestId\",\"agent\":\"claude-code\",\"model\":\"model\",\"prompt\":\"prompt\",\"cwd\":\"cwd\",\"systemPrompt\":\"systemPrompt\",\"mcpConfig\":\"mcpConfig\",\"allowedTools\":[\"allowedTools[0]\"],\"timeoutMs\":1}"
+      "encoded": "{\"type\":\"harnessExecRequest\",\"requestId\":\"requestId\",\"agent\":\"claude-code\",\"model\":\"model\",\"effort\":\"effort\",\"prompt\":\"prompt\",\"cwd\":\"cwd\",\"systemPrompt\":\"systemPrompt\",\"mcpConfig\":\"mcpConfig\",\"allowedTools\":[\"allowedTools[0]\"],\"timeoutMs\":1}"
     },
     {
       "schema": "HarnessExecResultMessage",

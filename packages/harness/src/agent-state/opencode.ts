@@ -62,6 +62,7 @@ export function observeOpencodeState(opts: {
   pollMs?: number
   statTick?: StatTick
   onSession?: (sessionId: string) => void
+  onModel?: (model: string, effort?: string) => void
   onEvents: (events: AgentStateEvent[]) => void
   onTranscriptItems?: (items: TranscriptItem[], reset: boolean) => void
 }): OpencodeStateObserver {
@@ -70,7 +71,10 @@ export function observeOpencodeState(opts: {
   let stopped = false
   let attached: OpencodeSessionRow | undefined
   let lastPartTime = 0
+  let lastPartId: string | undefined
   let lastCompacting: number | null | undefined
+  let lastObservedModel: string | undefined
+  let lastObservedEffort: string | undefined
   let firstTranscript = true
 
   // A single opencode DB handle reused across every ~700ms poll tick (was opened
@@ -103,12 +107,21 @@ export function observeOpencodeState(opts: {
     if (attached?.id === session.id) return
     attached = session
     lastPartTime = 0
+    lastPartId = undefined
     lastCompacting = session.timeCompacting
+    lastObservedModel = undefined
+    lastObservedEffort = undefined
     firstTranscript = true
     // Force the next poll tick to read regardless of the mtime gate, so a freshly
     // attached session isn't skipped on a coincidentally-equal mtime.
     lastPollMtimeMs = undefined
     opts.onSession?.(session.id)
+    const observed = parseOpencodeModel(session.model)
+    if (observed.model) {
+      lastObservedModel = observed.model
+      lastObservedEffort = observed.effort
+      opts.onModel?.(observed.model, observed.effort)
+    }
     void emitTranscript(true)
   }
 
@@ -139,9 +152,13 @@ export function observeOpencodeState(opts: {
     try {
       const rows = firstTranscript
         ? rt.loadOpencodeTranscriptTail(handle, attached.id)
-        : rt.loadOpencodeMessageParts(handle, attached.id, lastPartTime)
+        : rt.loadOpencodeMessageParts(handle, attached.id, lastPartTime, lastPartId)
       if (rows.length === 0) return
-      lastPartTime = Math.max(lastPartTime, ...rows.map((r) => r.timeUpdated))
+      const last = rows.at(-1)
+      if (last) {
+        lastPartTime = last.timeUpdated
+        lastPartId = last.partId
+      }
       // Cursor-stamp via the SAME helper the on-demand read uses, so a live delta's
       // cursors interoperate with a paged read's (dedup / subscribe-from-cursor).
       const items = rt.stampOpencodeItems(rows, attached.id)
@@ -163,6 +180,12 @@ export function observeOpencodeState(opts: {
     try {
       const session = rt.getOpencodeSession(handle, attached.id)
       if (!session) return
+      const observed = parseOpencodeModel(session.model)
+      if (observed.model && (observed.model !== lastObservedModel || observed.effort !== lastObservedEffort)) {
+        lastObservedModel = observed.model
+        lastObservedEffort = observed.effort
+        opts.onModel?.(observed.model, observed.effort)
+      }
       const events: AgentStateEvent[] = []
       if (session.timeCompacting && session.timeCompacting !== lastCompacting) {
         events.push(
@@ -176,9 +199,13 @@ export function observeOpencodeState(opts: {
       }
       lastCompacting = session.timeCompacting
 
-      const rows = rt.loadOpencodeMessageParts(handle, attached.id, lastPartTime)
+      const rows = rt.loadOpencodeMessageParts(handle, attached.id, lastPartTime, lastPartId)
       if (rows.length > 0) {
-        lastPartTime = Math.max(lastPartTime, ...rows.map((r) => r.timeUpdated))
+        const last = rows.at(-1)
+        if (last) {
+          lastPartTime = last.timeUpdated
+          lastPartId = last.partId
+        }
         for (const row of rows) {
           const messageInfo = parseJson(row.messageData)
           const part = parseJson(row.partData)
@@ -331,4 +358,28 @@ function parseJson(raw: string): Record<string, unknown> | undefined {
 function stringField(v: Record<string, unknown>, key: string): string | undefined {
   const field = v[key]
   return typeof field === 'string' && field.length > 0 ? field : undefined
+}
+
+function parseOpencodeModel(raw: string | null | undefined): {
+  model?: string
+  effort?: string
+} {
+  if (!raw) return {}
+  let value: unknown
+  try {
+    value = JSON.parse(raw)
+  } catch {
+    return {}
+  }
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return {}
+  const record = value as Record<string, unknown>
+  const id = typeof record.id === "string" && record.id.trim() ? record.id.trim() : undefined
+  const provider =
+    typeof record.providerID === "string" && record.providerID.trim()
+      ? record.providerID.trim()
+      : undefined
+  const model = id ? (id.includes('/') || !provider ? id : provider + '/' + id) : undefined
+  const effort =
+    typeof record.variant === "string" && record.variant.trim() ? record.variant.trim() : undefined
+  return { ...(model ? { model } : {}), ...(effort ? { effort } : {}) }
 }

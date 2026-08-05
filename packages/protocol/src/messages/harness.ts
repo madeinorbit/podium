@@ -28,6 +28,8 @@ export const HarnessExecRequestMessage = z.object({
   requestId: z.string(),
   agent: HarnessAgent,
   model: z.string().optional(),
+  /** Provider-specific reasoning/effort variant for the one-shot run. */
+  effort: z.string().optional(),
   prompt: z.string(),
   cwd: z.string().optional(),
   /** Extra system prompt injected into the harness turn (the superagent's

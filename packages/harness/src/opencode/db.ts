@@ -12,6 +12,8 @@ export type OpencodeSessionRow = {
   id: string
   directory: string
   title: string
+  /** JSON encoded provider model selection, e.g. { id, providerID, variant }. */
+  model: string | null
   timeCreated: number
   timeUpdated: number
   timeCompacting: number | null
@@ -80,6 +82,7 @@ export function listOpencodeSessions(db: SqlDatabase): OpencodeSessionRow[] {
   return db
     .prepare(
       `SELECT s.id, s.directory, s.title, s.time_created AS timeCreated,
+              s.model AS model,
               s.time_updated AS timeUpdated, s.time_compacting AS timeCompacting,
               (SELECT COUNT(*) FROM message m WHERE m.session_id = s.id) AS messageCount
        FROM session s
@@ -96,6 +99,7 @@ export function getOpencodeSession(
   return db
     .prepare(
       `SELECT s.id, s.directory, s.title, s.time_created AS timeCreated,
+              s.model AS model,
               s.time_updated AS timeUpdated, s.time_compacting AS timeCompacting,
               (SELECT COUNT(*) FROM message m WHERE m.session_id = s.id) AS messageCount
        FROM session s
@@ -113,6 +117,7 @@ export function findLatestOpencodeSession(
   const rows = db
     .prepare(
       `SELECT s.id, s.directory, s.title, s.time_created AS timeCreated,
+              s.model AS model,
               s.time_updated AS timeUpdated, s.time_compacting AS timeCompacting,
               (SELECT COUNT(*) FROM message m WHERE m.session_id = s.id) AS messageCount
        FROM session s
@@ -129,7 +134,16 @@ export function loadOpencodeMessageParts(
   db: SqlDatabase,
   sessionId: string,
   sinceTimeUpdated = 0,
+  sincePartId?: string,
 ): OpencodeMessagePartRow[] {
+  const cursorClause =
+    sincePartId === undefined
+      ? 'p.time_updated > ?'
+      : '(p.time_updated > ? OR (p.time_updated = ? AND p.id > ?))'
+  const params =
+    sincePartId === undefined
+      ? [sessionId, sinceTimeUpdated]
+      : [sessionId, sinceTimeUpdated, sinceTimeUpdated, sincePartId]
   return db
     .prepare(
       `SELECT m.id AS messageId, p.id AS partId, p.session_id AS sessionId,
@@ -138,10 +152,10 @@ export function loadOpencodeMessageParts(
        FROM part p
        JOIN message m ON m.id = p.message_id
        WHERE p.session_id = ?
-         AND p.time_updated > ?
+         AND ${cursorClause}
        ORDER BY p.time_updated ASC, p.id ASC`,
     )
-    .all(sessionId, sinceTimeUpdated) as OpencodeMessagePartRow[]
+    .all(...params) as OpencodeMessagePartRow[]
 }
 
 export function loadOpencodeTranscriptTail(

@@ -27,7 +27,7 @@ const agentPrincipal = (): InboxPrincipalReference => ({
   },
 })
 
-function harness(options: { owner?: typeof ALICE | null; status?: string } = {}) {
+function harness(options: { owner?: typeof ALICE | null; status?: string; agentKind?: 'codex' | 'opencode' } = {}) {
   const rows: Array<QueuedInboxMessage & { sessionId: SessionId; queuedAt: number }> = []
   const sent: unknown[] = []
   const rejected: unknown[] = []
@@ -38,7 +38,7 @@ function harness(options: { owner?: typeof ALICE | null; status?: string } = {})
     sessionId: SID,
     machineId: 'machine-1',
     status: options.status ?? 'live',
-    agentKind: 'codex',
+    agentKind: options.agentKind ?? 'codex',
     resume: { kind: 'codex', value: 'resume-1' },
     queuedMessageCount: 0,
     agentState: { phase: 'idle' },
@@ -141,6 +141,17 @@ describe('SessionInbox authorization and identity', () => {
         reason: 'revoked',
       }),
     ])
+  })
+
+  it("delivers OpenCode mail through the generic bracketed-paste route", () => {
+    vi.useFakeTimers()
+    const h = harness({ agentKind: "opencode" })
+    const principal = agentPrincipal()
+    expect(h.inbox.sendText({ sessionId: SID, text: "mail", inputOrigin: "mail", principal })).toEqual({ ok: true })
+    const decode = (entry: unknown) => Buffer.from((entry as { data: string }).data, "base64").toString()
+    expect(decode(h.sent[0])).toBe(String.fromCharCode(27) + "[200~mail" + String.fromCharCode(27) + "[201~")
+    vi.advanceTimersByTime(100)
+    expect(decode(h.sent[1])).toBe(String.fromCharCode(13))
   })
 
   it('carries the browser principal through controller gating into PTY attribution', () => {

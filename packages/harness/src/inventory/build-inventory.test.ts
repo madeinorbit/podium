@@ -146,8 +146,8 @@ describe('buildInventory', () => {
       state: 'in',
       account: 'Grace Hopper · grace@example.com',
     })
-    // No detector exists for these two — honest 'unknown', not a lying 'out'.
-    expect(byKind['opencode']!.login).toEqual({ state: 'unknown' })
+    // OpenCode has a local auth detector; a missing auth file is logged out.
+    expect(byKind['opencode']!.login).toEqual({ state: 'out' })
     expect(byKind['cursor']!.login).toEqual({ state: 'unknown' })
     expect(byKind['claude-code']!.installed).toBe(false)
   })
