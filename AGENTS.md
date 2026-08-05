@@ -145,6 +145,17 @@ packages — safe, but you get no speedup on such a branch.
 
 Measured selection sets: **[docs/agents/pod-1688-affected-evidence.md](docs/agents/pod-1688-affected-evidence.md)**.
 
+## Vitest inner loop
+
+For a quick edit-run loop, use the root Vitest scripts:
+
+- `bun run test:changed` runs the Vitest unit tests reachable from files changed since `HEAD`.
+- `bun run test:related -- path/to/file.ts` runs tests reachable from an explicit file list; pass more paths after `--` when needed.
+- `bun run test:watch` keeps the unit projects warm in plain watch mode for repeated edits.
+
+These scripts use the same direct Bun-backed Vitest invocation as `test:unit` and run its `node` and `normalized-wire` projects. They are a fast approximation for the inner loop, not a CI lane: Vitest rebuilds its module graph for each invocation, and module-graph selection cannot see tests that consume files through filesystem reads instead of imports. For example, changing `docs/TELEMETRY.md` does not select `packages/telemetry/src/docs-drift.test.ts`, which reads that file with `readFileSync`; `test:changed` can therefore pass with zero selected tests for that edit. This is a documented limit, not a detected dependency: target the reader explicitly with `bun run test:related -- packages/telemetry/src/docs-drift.test.ts` when needed. This lane does **not** replace `bun run test` before a commit; the full suite is still required before committing.
+`test:affected` takes the opposite posture—refusing with exit 1 when a changed file is invisible to its package task graph—because this inner loop deliberately keeps zero-test green useful for ordinary docs/inert edits and leaves `bun run test` as the commit gate.
+
 ## Testing policy
 
 Match testing effort to regression risk. Simple, low-risk changes may skip automated tests when
