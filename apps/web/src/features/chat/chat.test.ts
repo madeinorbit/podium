@@ -163,8 +163,11 @@ describe('toolCallPhrase — what the live work line says', () => {
     )
   })
   it('falls back to the agent-supplied title, then the raw input', () => {
+    // POD-376: with no command captured the subject is the agent's DESCRIPTION,
+    // which keeps its quotes here for the same reason it does on a settled work
+    // line — prose about a command must not read as the command.
     expect(toolCallPhrase({ ...tool('Bash', 'b'), toolTitle: 'bun run test' })).toBe(
-      'Running bun run test',
+      'Running "bun run test"',
     )
     expect(toolCallPhrase({ ...tool('Grep', 'g'), toolInput: 'pinnedMachineId' })).toBe(
       'Searching pinnedMachineId',

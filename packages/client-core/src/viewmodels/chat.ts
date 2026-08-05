@@ -312,7 +312,13 @@ export function toolSubject(item: TranscriptItem): string | undefined {
     ''
   const first = raw.split('\n', 1)[0]?.trim() ?? ''
   if (!first) return undefined
-  return shorten(name === 'Bash' ? significantCommand(first) : first, SUBJECT_MAX)
+  if (name !== 'Bash') return shorten(first, SUBJECT_MAX)
+  // A command speaks for itself and reads as the code it is. The agent's
+  // DESCRIPTION of a command does not, so it keeps the quotes it has always had
+  // — otherwise "Ran render the mockups to PNG" reads as a shell invocation
+  // that was never typed.
+  if (item.toolInput) return shorten(significantCommand(first), SUBJECT_MAX)
+  return `"${shorten(first, SUBJECT_MAX - 2)}"`
 }
 
 /** Leading `cd <somewhere> ;` / `&&` — preamble, not the command. */

@@ -132,14 +132,18 @@ describe('toolBatchTitle', () => {
   it('joins mixed kinds in first-appearance order, only the first capitalized', () => {
     expect(title('Read', 'Read', 'Bash')).toBe('Read 2 files, ran a command')
     expect(title('Bash', 'Read')).toBe('Ran a command, read a file')
-    expect(title('Bash', 'Task', 'Task', 'Task')).toBe('Ran a command, ran 3 agents')
+    // POD-376: Task reads as "delegated" — an agent is handed work, not run.
+    expect(title('Bash', 'Task', 'Task', 'Task')).toBe('Ran a command, delegated 3 agents')
   })
 
-  it('quotes a lone command using the agent description, then the shell, else generic', () => {
+  it('names a lone command by the shell, quotes the description, else generic', () => {
+    // POD-376: a captured COMMAND is the object and reads as the code it is —
+    // unquoted, and capped so a run of them still fits one line. A DESCRIPTION
+    // keeps its quotes, so prose about a command never reads as the command.
     expect(
       toolBatchTitle([tool('Bash', { toolTitle: 'Render the three chat-view mockups to PNG' })]),
-    ).toBe('Ran "Render the three chat-view mockups to PNG"')
-    expect(toolBatchTitle([tool('Bash', { toolInput: 'bun test' })])).toBe('Ran "bun test"')
+    ).toBe('Ran "Render the three chat-view…"')
+    expect(toolBatchTitle([tool('Bash', { toolInput: 'bun test' })])).toBe('Ran bun test')
     expect(toolBatchTitle([tool('Bash')])).toBe('Ran a command')
   })
 
@@ -147,7 +151,7 @@ describe('toolBatchTitle', () => {
     expect(title('Read')).toBe('Read a file')
     expect(title('Write')).toBe('Created a file')
     expect(title('Edit')).toBe('Edited a file')
-    expect(title('Task')).toBe('Ran an agent')
+    expect(title('Task')).toBe('Delegated an agent')
   })
 })
 
