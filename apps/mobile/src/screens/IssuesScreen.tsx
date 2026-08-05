@@ -11,6 +11,7 @@ import { PressableScale } from '../components/PressableScale'
 import { HeaderButton, Screen } from '../components/Screen'
 import { EmptyState, ListSkeleton, Pill } from '../components/ui'
 import { useRefreshableTab } from '../hooks/useRefreshableTab'
+import { useTabBarInset } from '../hooks/useTabBarInset'
 import { buildScreeningQueue } from '../lib/screening'
 import { flow, issueColorHex } from '../theme/issueColors'
 import { color, font, leading, mono, monoLabel, radius, sans, space } from '../theme/theme'
@@ -39,6 +40,7 @@ export function IssuesScreen() {
   const [showDone, setShowDone] = useState(false)
   const booting = useBooting()
   const { listRef, refreshControl } = useRefreshableTab('issues')
+  const tabBarInset = useTabBarInset()
 
   // The board's population is the desktop board's population (POD-338): no
   // archived or tombstoned rows, no DRAFT vessels (the placeholder issue every
@@ -95,7 +97,7 @@ export function IssuesScreen() {
         keyExtractor={(issue) => issue.id}
         stickySectionHeadersEnabled
         refreshControl={refreshControl}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[styles.listContent, { paddingBottom: tabBarInset + space.lg }]}
         ListHeaderComponent={
           proposals.length === 0 ? null : (
             <PressableScale
@@ -188,7 +190,6 @@ export function IssuesScreen() {
 
 const styles = StyleSheet.create({
   listContent: {
-    paddingBottom: 120,
     flexGrow: 1,
   },
   toggle: {

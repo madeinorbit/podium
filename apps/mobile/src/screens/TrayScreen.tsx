@@ -17,6 +17,7 @@ import { BrailleSpinner, CountPill } from '../components/StatusGlyphs'
 import { TrayCard, type TrayCardActions } from '../components/TrayCard'
 import { usePendingQuestion } from '../hooks/usePendingQuestion'
 import { useRefreshableTab } from '../hooks/useRefreshableTab'
+import { useTabBarInset } from '../hooks/useTabBarInset'
 import { sessionHref } from '../lib/session-route'
 import { effectiveIssueColorHex, FLOW_SLATE, flow } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
@@ -93,6 +94,7 @@ export function TrayScreen() {
   const issues = useIssues()
   const connected = useConnected()
   const { listRef, refreshControl } = useRefreshableTab('index')
+  const tabBarInset = useTabBarInset()
   const { error } = useMobileShell()
   const now = Date.now()
   const [lightbox, setLightbox] = useState<{ uri: string; label: string } | null>(null)
@@ -177,7 +179,7 @@ export function TrayScreen() {
         <ScrollView
           ref={listRef as never}
           refreshControl={refreshControl}
-          contentContainerStyle={styles.queueContent}
+          contentContainerStyle={[styles.queueContent, { paddingBottom: tabBarInset + 10 }]}
         >
           {askSessions.map((session) => (
             <AskCard
@@ -291,7 +293,6 @@ const styles = StyleSheet.create({
   },
   queueContent: {
     padding: 10,
-    paddingBottom: 24,
     gap: 7,
     flexGrow: 1,
   },

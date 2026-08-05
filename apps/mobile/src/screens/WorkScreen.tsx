@@ -38,6 +38,7 @@ import { TaskPeekSheet } from '../components/TaskPeekSheet'
 import { EmptyState, ListSkeleton, StatusDot } from '../components/ui'
 import { useCollapsed } from '../hooks/useCollapsed'
 import { useRefreshableTab } from '../hooks/useRefreshableTab'
+import { useTabBarInset } from '../hooks/useTabBarInset'
 import { sessionHref } from '../lib/session-route'
 import { FLOW_SLATE, flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
@@ -117,6 +118,7 @@ export function WorkScreen() {
   const sessionsAll = useSessions()
   const booting = useBooting()
   const { listRef, refreshControl } = useRefreshableTab('work')
+  const tabBarInset = useTabBarInset()
   // THE SAME LIST THE DESKTOP SIDEBAR RENDERS, DERIVED ONCE (POD-331/POD-332).
   // This screen used to call `sidebarSections` → `unifiedWorkList` →
   // `splitPinnedWork` → `groupUnifiedWorkRows` itself, on a private
@@ -228,7 +230,7 @@ export function WorkScreen() {
         sections={sections}
         keyExtractor={(row) => (row.kind === 'issue' ? row.issue.id : row.worktree.path)}
         refreshControl={refreshControl}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[styles.listContent, { paddingBottom: tabBarInset + space.lg }]}
         stickySectionHeadersEnabled={false}
         renderSectionHeader={({ section }) => (
           <View style={styles.groupLabel}>
@@ -580,7 +582,6 @@ function AgentRow({
 const styles = StyleSheet.create({
   listContent: {
     flexGrow: 1,
-    paddingBottom: 120,
     paddingHorizontal: space.sm + 2,
   },
   groupLabel: {

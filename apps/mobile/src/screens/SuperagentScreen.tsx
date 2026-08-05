@@ -17,6 +17,7 @@ import { Screen } from '../components/Screen'
 import { BrailleSpinner } from '../components/StatusGlyphs'
 import { type PendingTurn, TranscriptList } from '../components/TranscriptList'
 import { EmptyState } from '../components/ui'
+import { useTabBarInset } from '../hooks/useTabBarInset'
 import { dropEchoedTurns, markTurnsFailed, renderedTranscript } from '../lib/superagent-transcript'
 import { color, font, mono, monoLabel, sans, space } from '../theme/theme'
 
@@ -57,6 +58,7 @@ export function SuperagentScreen() {
   // (doc §3.1.6 S2).
   const superagent = useSlice(superagentSlice)
   const insets = useSafeAreaInsets()
+  const tabBarInset = useTabBarInset()
   const [items, setItems] = useState<TranscriptItem[]>([])
   const [liveText, setLiveText] = useState('')
   const [statusLabel, setStatusLabel] = useState<string | null>(null)
@@ -350,7 +352,12 @@ export function SuperagentScreen() {
               <Text style={styles.status}>{statusLabel ?? 'thinking'}</Text>
             </View>
           ) : null}
-          <Composer placeholder="Delegate a task…" onSend={send} />
+          {/* The tab bar floats over the content now, so the composer has to
+              hold itself above it — it is the one thing on this screen that
+              must never be scrolled under [POD-420]. */}
+          <View style={{ paddingBottom: tabBarInset + space.sm }}>
+            <Composer placeholder="Delegate a task…" onSend={send} />
+          </View>
         </KeyboardAvoidingView>
       </View>
     </Screen>

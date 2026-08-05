@@ -66,6 +66,15 @@ for (const [name, size] of SQUARES) {
  * media query matches the device exactly, so every supported iPhone needs its
  * own file; anything unmatched falls back to a white flash. Portrait only —
  * the app is `orientation: portrait`.
+ *
+ * Bare navy, no mark [POD-420]. They used to centre the P, which made a cold
+ * launch play two different logos back to back: iOS held the static P, then the
+ * bundle booted and replaced it with BootSplash's animated wordmark. Apple's own
+ * guidance is that a launch screen resembles the first screen of the app rather
+ * than being a splash of its own — and the first screen here is navy with a
+ * wordmark that reveals itself cell by cell FROM empty. Starting from the same
+ * empty navy makes the handoff invisible and leaves one brand moment instead of
+ * two competing ones.
  */
 export const LAUNCH: { w: number; h: number; ratio: number }[] = [
   { w: 750, h: 1334, ratio: 2 }, // SE (2nd/3rd gen), 8
@@ -80,10 +89,7 @@ export const LAUNCH: { w: number; h: number; ratio: number }[] = [
   { w: 1320, h: 2868, ratio: 3 }, // 16 Pro Max
 ]
 for (const { w, h } of LAUNCH) {
-  const art = Math.round(Math.min(w, h) * 0.28)
-  const icon = await sharp(ICON_PNG).resize(art, art, { fit: 'cover' }).toBuffer()
   const buf = await sharp({ create: { width: w, height: h, channels: 4, background: BG } })
-    .composite([{ input: icon, gravity: 'center' }])
     .png({ compressionLevel: 9, palette: true })
     .toBuffer()
   writeFileSync(join(OUT, `launch-${w}x${h}.png`), buf)
