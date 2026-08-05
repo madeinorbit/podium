@@ -1,5 +1,5 @@
 import type { FileScope } from '@podium/client-core/viewmodels'
-import { asSessionId } from '@podium/model'
+import { asArtifactId, asIssueId, asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { rawFileUrl } from './open-in-browser'
 
@@ -26,14 +26,22 @@ describe('rawFileUrl', () => {
   })
 
   it('serves an artifact snapshot from its path-style route', () => {
-    const scope: FileScope = { kind: 'artifact', issueId: 'iss_1', artifactId: 'art_1' }
+    const scope: FileScope = {
+      kind: 'artifact',
+      issueId: asIssueId('iss_1'),
+      artifactId: asArtifactId('art_1'),
+    }
     expect(rawFileUrl({ httpOrigin, scope, path: 'sub/page.html' })).toBe(
       'https://podium.test/files/artifact/iss_1/art_1/sub/page.html',
     )
   })
 
   it('handles an artifact entry sitting at the snapshot root', () => {
-    const scope: FileScope = { kind: 'artifact', issueId: 'iss_1', artifactId: 'art_1' }
+    const scope: FileScope = {
+      kind: 'artifact',
+      issueId: asIssueId('iss_1'),
+      artifactId: asArtifactId('art_1'),
+    }
     expect(rawFileUrl({ httpOrigin, scope, path: 'page.html' })).toBe(
       'https://podium.test/files/artifact/iss_1/art_1/page.html',
     )
