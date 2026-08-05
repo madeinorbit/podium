@@ -4,12 +4,13 @@ import type { SessionId } from '@podium/model'
 import { SWITCH_TRACE_MARKS } from '@podium/protocol'
 import { ArrowDownToLine } from 'lucide-react'
 import type { JSX } from 'react'
-import { useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { ChatComposer } from './ChatComposer'
 import { isChatInteractable } from './chat-interactable'
+import { ChatRail } from './ChatRail'
 import { ImageLightbox } from './ImageLightbox'
-import { Minimap } from './Minimap'
+import { OpenTodosNotice, stoppedWithOpenTodos, useIssueTodos } from './TodoBridge'
 import { TranscriptFeed } from './TranscriptFeed'
 import { TranscriptSearchBar } from './TranscriptSearchBar'
 import { useChatSurface } from './use-chat-surface'
@@ -28,13 +29,34 @@ import { useChatSurface } from './use-chat-surface'
  *  - `use-chat-send.ts` — sending, optimistic bubbles and their reconciliation;
  *  - `use-headless-turn.ts` — headless superagent-thread routing;
  *  - `use-attachments.ts` — image paste / drop / attach and upload;
- *  - `TranscriptSearchBar` / `TranscriptFeed` / `Minimap` / `ChatComposer`
- *    (with `VoiceButton` + `AttachmentStrip`) / `ImageLightbox` — the pieces.
+ *  - `ChatRail` (with `Minimap` + `VerbosityControl` + the todo chip) /
+ *    `TranscriptSearchBar` / `TranscriptFeed` / `ChatComposer` (with
+ *    `VoiceButton` + `AttachmentStrip`) / `ImageLightbox` — the pieces.
  *
- * This file holds the LAYOUT: header, feed, minimap, jump-to-bottom, composer.
+ * This file holds the LAYOUT: feed, rail, find, jump-to-bottom, composer.
  * Narrow-dock mode (`compact`) is expressed by which of those it mounts rather
- * than by conditions scattered through a thousand lines — the header and minimap
- * are simply absent there (engraved-column.md §2.5: bar → feed → composer).
+ * than by conditions scattered through a thousand lines — the rail and find are
+ * simply absent there (engraved-column.md §2.5: bar → feed → composer).
+ *
+ * ---------------------------------------------------------------------------
+ * THERE IS NO HEADER (POD-413)
+ * ---------------------------------------------------------------------------
+ *
+ * There used to be one, and it was a full-width row carrying a search field the
+ * majority of sessions never touched. It is gone rather than shrunk: a permanent
+ * horizontal band is subtracted from the transcript on every session forever,
+ * and a thinner one is the same trade at a discount. What was in it went to the
+ * two places that were already permanent —
+ *
+ *   the RAIL   the minimap's gutter, widened from 14px to 24px, now carrying
+ *              todo progress, find, density and tl;dr above the map (ChatRail);
+ *   ⌘F         search itself, which is a mode you enter, not furniture
+ *              (TranscriptSearchBar, floating over the feed).
+ *
+ * Net: one row of vertical space returned to the conversation, 7px of width
+ * spent, and nothing lost — the match cursor, the provisional n/m and the map
+ * integration all survive, the last of them stronger than before, because the
+ * map now marks every hit and keeps marking them once the bar is closed.
  *
  * ---------------------------------------------------------------------------
  * WHEN THE SESSION LEAVES YOUR VIEW
@@ -68,8 +90,8 @@ export function ChatView({
   /** Present when this ChatView is embedded in the superagent panel over a
    *  HEADLESS session — routes sends through the superagent turn mutations. */
   superThread?: SuperThreadRef
-  /** Narrow-dock mode (the superagent side panel): hides the search header,
-   *  minimap + tl;dr. */
+  /** Narrow-dock mode (the superagent side panel): hides the reading rail (map,
+   *  density, todos, tl;dr) and find. */
   compact?: boolean
   /** Query-backed headless state for clients that mounted after turn-start. */
   initialTurnRunning?: boolean
@@ -97,6 +119,52 @@ export function ChatView({
   useEffect(() => {
     if (chat.gone) onLeave?.(sessionId)
   }, [chat.gone, onLeave, sessionId])
+
+  // FIND (⌘F / Ctrl-F). `findSeq` bumps on every open so a second press over an
+  // already-open bar remounts it, which re-focuses and selects the surviving
+  // query — the behaviour every browser's find has, and the reason a shortcut
+  // is worth more than a permanent field.
+  const [find, setFind] = useState<{ open: boolean; seq: number }>({ open: false, seq: 0 })
+  const { setQuery } = chat
+  const closeFind = useCallback(() => {
+    setFind((f) => ({ ...f, open: false }))
+    // Clear as we leave: a query that survives an invisible bar keeps overriding
+    // the reader's Summary setting and keeps marking the map, with no visible
+    // cause. Closing find means finding is over.
+    setQuery('')
+  }, [setQuery])
+  useEffect(() => {
+    if (compact || !active) return
+    const onKey = (e: KeyboardEvent): void => {
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'f') {
+        e.preventDefault()
+        setFind((f) => ({ open: true, seq: f.seq + 1 }))
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [compact, active])
+
+  // Esc closes find from anywhere in the pane, not only from inside its input —
+  // you may well have clicked into the transcript to read a hit.
+  useEffect(() => {
+    if (!find.open) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') closeFind()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [find.open, closeFind])
+
+  // The todo bridge (POD-413): the issue's published plan, counted. Null when
+  // this session has no issue or the issue has no todos — the rail chip and the
+  // end-of-transcript notice both simply don't exist in that case.
+  const todos = useIssueTodos(chat.session)
+  const showTodoStop = stoppedWithOpenTodos({
+    session: chat.session,
+    todos,
+    working: chat.activity?.tone === 'working',
+  })
 
   // Publish the scroller's own height so a sticky operator prompt can cap
   // itself at a fraction of the chat viewport in CSS (POD-1368 — the clamp
@@ -168,20 +236,6 @@ export function ChatView({
 
   return (
     <div className={cn('flex min-h-0 flex-1 flex-col', compact && 'chat-compact')}>
-      {/* Search + tl;dr header — hidden in the compact superagent dock. */}
-      {!compact && (
-        <TranscriptSearchBar
-          query={chat.query}
-          onQueryChange={chat.setQuery}
-          search={chat.search}
-          onCursorMove={chat.moveMatchCursor}
-          deepeningSearch={chat.deepeningSearch}
-          lastAnswerText={chat.lastAnswerText}
-          onTldr={chat.tldr}
-          verbosity={chat.verbosity}
-          onVerbosityChange={chat.setVerbosity}
-        />
-      )}
       <div className="relative flex min-h-0 flex-1">
         <TranscriptFeed
           scrollerRef={chat.scrollerRef}
@@ -224,11 +278,40 @@ export function ChatView({
             chat.taRef.current?.focus()
           }}
         />
-        {/* Minimap maps the RENDERED window (visibleRows), so its segments line
-            up with the scrollable content. For a very long transcript that means
-            it reflects the loaded/visible tail, not the entire on-disk history;
-            scrolling up to page in older items extends what it covers. */}
-        {!compact && <Minimap rows={chat.visibleRows} scrollerRef={chat.scrollerRef} />}
+        {/* The reading rail. Its map covers the RENDERED window (visibleRows), so
+            its bands line up with the scrollable content. For a very long
+            transcript that means it reflects the loaded/visible tail, not the
+            entire on-disk history; scrolling up to page in older items extends
+            what it covers. */}
+        {!compact && (
+          <ChatRail
+            rows={chat.visibleRows}
+            scrollerRef={chat.scrollerRef}
+            matches={chat.search.matches}
+            activeMatch={chat.search.activeMatch}
+            verbosity={chat.verbosity}
+            onVerbosityChange={chat.setVerbosity}
+            verbosityOverridden={chat.verbosity === 'summary' && chat.query !== ''}
+            todos={todos}
+            findOpen={find.open}
+            onFind={() => setFind((f) => ({ open: true, seq: f.seq + 1 }))}
+            lastAnswerText={chat.lastAnswerText}
+            onTldr={chat.tldr}
+          />
+        )}
+        {/* Find floats OVER the feed rather than displacing it, so entering and
+            leaving the mode never reflows what you were reading. */}
+        {!compact && find.open && (
+          <TranscriptSearchBar
+            key={find.seq}
+            query={chat.query}
+            onQueryChange={chat.setQuery}
+            search={chat.search}
+            onCursorMove={chat.moveMatchCursor}
+            deepeningSearch={chat.deepeningSearch}
+            onClose={closeFind}
+          />
+        )}
         {!chat.scroll.atBottom && (
           <button
             data-pressable
@@ -240,6 +323,10 @@ export function ChatView({
           </button>
         )}
       </div>
+      {/* The agent stopped and the plan still has items on it. Said once, at the
+          end of the transcript where the reader already is, and pointing at the
+          panel — chat does not keep a second copy of the list (TodoBridge). */}
+      {!compact && showTodoStop && todos && <OpenTodosNotice todos={todos} />}
       <ChatComposer
         taRef={chat.taRef}
         draft={chat.draft}

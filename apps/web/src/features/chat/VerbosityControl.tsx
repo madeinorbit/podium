@@ -17,10 +17,14 @@ const LABEL: Record<ChatVerbosity, string> = {
  * they are ordered (less → more), and the ordering is the affordance — you read
  * your current density off the strip's position without opening anything. The
  * filled segment is the current one, which is the same grammar the Chat/Native
- * mode switch uses one row above.
+ * mode switch uses in the pane header.
  *
- * Deliberately quiet. This sits above every conversation, and a control the
- * reader touches once a week must not compete with the conversation itself.
+ * Deliberately quiet, and since POD-413 quiet by POSITION as well: the strip
+ * lives inside the reading rail's density popover, and the rail draws its
+ * current level at rest as three filled-to-level bars. A control the reader
+ * touches once a week does not get a permanent row above every conversation —
+ * but it does keep a permanent, readable resting state, which is why the rail
+ * shows the level rather than only an icon.
  */
 export function VerbosityControl({
   value,

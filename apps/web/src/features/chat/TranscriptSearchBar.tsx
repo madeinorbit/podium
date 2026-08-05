@@ -1,19 +1,25 @@
-import type { ChatVerbosity, TranscriptSearchState } from '@podium/client-core/viewmodels'
-import { ChevronDown, ChevronUp, ScrollText } from 'lucide-react'
+import type { TranscriptSearchState } from '@podium/client-core/viewmodels'
+import { ChevronDown, ChevronUp, X } from 'lucide-react'
 import type { JSX } from 'react'
+import { useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { VerbosityControl } from './VerbosityControl'
 
 /**
- * TRANSCRIPT SEARCH + tl;dr (POD-405) — the chat header, hidden in the narrow
- * dock (engraved-column.md §2.5: bar → feed → composer, no extra chrome).
+ * FIND IN TRANSCRIPT (POD-413) — the same search, no longer a permanent row.
  *
- * It renders a derived {@link TranscriptSearchState} and reports cursor moves.
- * It computes nothing: which blocks match, which row renders the active match,
- * and the 1-based position beside the count all come from the chat slice, so the
- * minimap, the scroll jump and this counter can never disagree about what "match
- * 3 of 7" means.
+ * This control used to own a full-width strip above EVERY conversation, for a
+ * thing most sessions never do. Nothing about the search itself was wrong: the
+ * match cursor, the honest n/m over a still-deepening window, and the map marks
+ * are ahead of every product we compared. What was wrong was the rent. So this
+ * is a RE-HOUSING, not a removal — ⌘F / Ctrl-F opens it, Esc closes it, and it
+ * floats over the top of the feed the way find has worked in every browser and
+ * editor for twenty years.
+ *
+ * It still renders a derived {@link TranscriptSearchState} and reports cursor
+ * moves. It computes nothing: which blocks match, which row renders the active
+ * match, and the 1-based position beside the count all come from the chat slice,
+ * so the map, the scroll jump and this counter can never disagree about what
+ * "match 3 of 7" means.
  */
 export function TranscriptSearchBar({
   query,
@@ -21,10 +27,7 @@ export function TranscriptSearchBar({
   search,
   onCursorMove,
   deepeningSearch = false,
-  lastAnswerText,
-  onTldr,
-  verbosity,
-  onVerbosityChange,
+  onClose,
 }: {
   query: string
   onQueryChange: (query: string) => void
@@ -34,74 +37,85 @@ export function TranscriptSearchBar({
   /** The loaded window is still being deepened for this query, so the count is a
    *  floor rather than the final answer — shown as a trailing ellipsis. */
   deepeningSearch?: boolean
-  /** The agent's latest prose — what tl;dr summarises, and the button's gate. */
-  lastAnswerText: string
-  onTldr: () => void
-  /** Transcript detail (POD-376) — the STORED preference, so the strip keeps
-   *  showing what the reader chose even while a query overrides it. */
-  verbosity: ChatVerbosity
-  onVerbosityChange: (v: ChatVerbosity) => void
+  /** Esc, the ✕, or a second ⌘F on an empty query. Clearing is the host's job. */
+  onClose: () => void
 }): JSX.Element {
+  const inputRef = useRef<HTMLInputElement | null>(null)
+
+  // Opening the bar IS the request to type in it. A re-open over a surviving
+  // query selects it, so the next keystroke replaces rather than appends.
+  useEffect(() => {
+    const el = inputRef.current
+    if (!el) return
+    el.focus()
+    el.select()
+  }, [])
+
   return (
-    <div className="flex items-center gap-2 border-b border-border px-2.5 py-1.5">
-      <Input
+    <div className="chat-find">
+      <input
+        ref={inputRef}
         type="text"
-        placeholder="Search transcript…"
-        className="h-auto flex-1 rounded-md bg-background px-2.5 py-1 text-xs text-foreground"
+        placeholder="Find in transcript…"
+        aria-label="Find in transcript"
+        className="chat-find-input"
         value={query}
         onChange={(e) => onQueryChange(e.target.value)}
-      />
-      {query && (
-        <span
-          className="inline-flex items-center gap-0.5 whitespace-nowrap text-[11px] text-muted-foreground"
-          title={
-            deepeningSearch ? 'Still loading earlier messages — more matches may appear' : undefined
+        onKeyDown={(e) => {
+          // Enter walks the matches (Shift walks back) and Esc gives the
+          // transcript back — the two keys a reader already has in muscle memory.
+          if (e.key === 'Escape') {
+            e.preventDefault()
+            onClose()
+          } else if (e.key === 'Enter') {
+            e.preventDefault()
+            onCursorMove(e.shiftKey ? -1 : 1)
           }
-        >
-          {/* Matching is scoped to the LOADED transcript, so while the window is
-              still deepening the count is a floor. The ellipsis says so without
-              stealing the counter's width. */}
-          {search.total === 0 ? '0' : `${search.position}/${search.total}`}
-          {deepeningSearch && <span aria-hidden="true">…</span>}
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-xs"
-            title="Previous match"
-            className="size-auto rounded-none p-0.5 text-muted-foreground hover:bg-transparent hover:text-foreground"
-            onClick={() => onCursorMove(-1)}
-          >
-            <ChevronUp size={13} aria-hidden="true" />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-xs"
-            title="Next match"
-            className="size-auto rounded-none p-0.5 text-muted-foreground hover:bg-transparent hover:text-foreground"
-            onClick={() => onCursorMove(1)}
-          >
-            <ChevronDown size={13} aria-hidden="true" />
-          </Button>
-        </span>
-      )}
-      <VerbosityControl
-        value={verbosity}
-        onChange={onVerbosityChange}
-        overridden={verbosity === 'summary' && query !== ''}
+        }}
       />
-      {/* tl;dr — open this session's BTW superagent thread and ask for a concise
-          summary of the agent's last answer (seeded with the answer + context). */}
+      <span
+        className="chat-find-count"
+        title={
+          deepeningSearch ? 'Still loading earlier messages — more matches may appear' : undefined
+        }
+      >
+        {/* Matching is scoped to the LOADED transcript, so while the window is
+            still deepening the count is a floor. The ellipsis says so without
+            stealing the counter's width. */}
+        {query === '' ? '' : search.total === 0 ? 'none' : `${search.position}/${search.total}`}
+        {query !== '' && deepeningSearch && <span aria-hidden="true">…</span>}
+      </span>
       <Button
         type="button"
         variant="ghost"
-        size="sm"
-        className="h-auto flex-none gap-1 px-1.5 py-1 text-[11px] text-muted-foreground hover:text-foreground"
-        title="tl;dr — summarize the last answer via the superagent"
-        disabled={!lastAnswerText}
-        onClick={onTldr}
+        size="icon-xs"
+        title="Previous match (Shift+Enter)"
+        className="chat-find-step"
+        disabled={search.total === 0}
+        onClick={() => onCursorMove(-1)}
       >
-        <ScrollText size={13} aria-hidden="true" /> tl;dr
+        <ChevronUp size={13} aria-hidden="true" />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-xs"
+        title="Next match (Enter)"
+        className="chat-find-step"
+        disabled={search.total === 0}
+        onClick={() => onCursorMove(1)}
+      >
+        <ChevronDown size={13} aria-hidden="true" />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-xs"
+        title="Close find (Esc)"
+        className="chat-find-step"
+        onClick={onClose}
+      >
+        <X size={13} aria-hidden="true" />
       </Button>
     </div>
   )

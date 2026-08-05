@@ -1638,6 +1638,388 @@ html[data-density="balanced"] .header-quota-pools {
   }
 }
 
+/* ── POD-376 header ──────────────────────────────────────────────────────────
+   THE READING RAIL, FIND, THE TRANSCRIPT MAP, THE TODO BRIDGE (POD-413).
+
+   The chat's header row is gone. What it carried moved into the gutter the
+   minimap already owned (the rail) and behind ⌘F (find). One row of vertical
+   space returned to every conversation for 7px of width — and the gutter, which
+   used to be an unlabelled barcode, now carries the controls as well as the map.
+
+   Everything below is carved, never floated (DESIGN.md, the Carved Rule): the
+   rail is a recess in the chassis, its buttons are flush until touched, and the
+   two things that DO float — the find bar and the map flyout — are the two that
+   are transient by definition. */
+
+:root {
+  /* One number, so the rail, the map's marks and find's right edge cannot
+     disagree about where the gutter starts. */
+  --chat-rail-w: 24px;
+}
+
+.chat-rail {
+  display: flex;
+  flex: 0 0 var(--chat-rail-w);
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+  padding: 4px 2px 4px 0;
+}
+.chat-rail-head {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+}
+.chat-rail-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 18px;
+  border-radius: 4px;
+  color: color-mix(in oklab, var(--muted-foreground) 62%, transparent);
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    background-color 120ms ease;
+}
+.chat-rail-btn:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--foreground) 7%, transparent);
+  color: var(--foreground);
+}
+.chat-rail-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.chat-rail-btn--on {
+  background: color-mix(in oklab, var(--foreground) 9%, transparent);
+  color: var(--foreground);
+}
+
+/* Density at rest: three bars filled to the current level. Ordered like the
+   strip it opens, so the resting glyph and the control agree. */
+.chat-rail-bars {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 11px;
+}
+.chat-rail-bar {
+  height: 1.5px;
+  border-radius: 1px;
+  background: currentColor;
+  opacity: 0.28;
+}
+.chat-rail-bar:nth-child(1) {
+  width: 5px;
+}
+.chat-rail-bar:nth-child(2) {
+  width: 8px;
+}
+.chat-rail-bar:nth-child(3) {
+  width: 11px;
+}
+.chat-rail-bar--on {
+  opacity: 1;
+}
+/* Search is overriding a Summary setting — the resting glyph says so, matching
+   what the strip inside does, rather than showing a level that isn't in effect. */
+.chat-rail-btn[data-overridden="true"] .chat-rail-bar--on {
+  opacity: 0.5;
+}
+
+.chat-rail-density {
+  position: relative;
+}
+.chat-rail-pop {
+  position: absolute;
+  top: 0;
+  right: calc(100% + 6px);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  width: max-content;
+  max-width: 230px;
+  padding: 8px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--popover, var(--card));
+  box-shadow: 0 10px 26px var(--carve-popover-far, rgb(0 0 0 / 0.4));
+}
+.chat-rail-pop-title {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 8.5px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+.chat-rail-pop-hint {
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--muted-foreground);
+}
+
+/* The todo bridge's resting state: a stacked fraction, because at 9px two short
+   lines are both narrower and faster to read than "4/7" on one. */
+.chat-rail-todo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  width: 20px;
+  padding: 2px 0;
+  border-radius: 4px;
+  cursor: pointer;
+  color: color-mix(in oklab, var(--muted-foreground) 75%, transparent);
+  transition:
+    color 120ms ease,
+    background-color 120ms ease;
+}
+.chat-rail-todo:hover {
+  background: color-mix(in oklab, var(--foreground) 7%, transparent);
+  color: var(--foreground);
+}
+/* Work still on the list reads in the success hue the panel's progress bar uses
+   — the same fact, the same colour, two surfaces. */
+.chat-rail-todo[data-open="true"] {
+  color: color-mix(in oklab, var(--success) 85%, var(--foreground));
+}
+.chat-rail-todo-n {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 9px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.chat-rail-todo-rule {
+  width: 9px;
+  height: 1px;
+  background: currentColor;
+  opacity: 0.45;
+}
+
+/* ── The transcript map ───────────────────────────────────────────────────── */
+
+.minimap {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.minimap-track {
+  position: relative;
+  flex: 1 1 auto;
+  overflow: hidden;
+  border-radius: 3px;
+  background: color-mix(in oklab, var(--foreground) 6%, transparent);
+  cursor: pointer;
+  touch-action: none;
+}
+.minimap-tick {
+  position: absolute;
+  inset-inline: 0;
+  min-height: 2px;
+  pointer-events: none;
+}
+/* The four bands, in priority of attention — encoded in WIDTH as well as hue,
+   because the old map's two blues (--info and --live) were a barcode partly for
+   being two blues. Your prompts and the final answer run the full column; agent
+   prose and machine work step inward, so the rhythm of a session reads as a
+   shape before any colour is decoded. The flyout's swatch reuses these exact
+   classes, which is what makes the hover legend a legend: the colour you are
+   pointing at and the colour beside the word come from one rule.
+
+   The answer band is Superade (the Signal Rule): the feed already marks a final
+   answer with a yellow keyline, and one keyline in nine screenfuls is too low a
+   dose to read as a system. The map is where that dose becomes visible. */
+.minimap-tick--you {
+  inset-inline: 0;
+  background: var(--info);
+}
+.minimap-tick--answer {
+  inset-inline: 0;
+  background: color-mix(in oklab, var(--primary) 85%, transparent);
+}
+.minimap-tick--agent {
+  inset-inline: 0 6px;
+  background: color-mix(in oklab, var(--foreground) 32%, transparent);
+}
+.minimap-tick--work {
+  inset-inline: 0 12px;
+  background: color-mix(in oklab, var(--foreground) 18%, transparent);
+}
+.minimap-tick--hover {
+  filter: brightness(1.6);
+}
+/* A search hit rides the right edge rather than repainting the band, so "what
+   is this" and "is it a match" stay two separate questions with two answers. */
+.minimap-mark {
+  position: absolute;
+  right: 0;
+  width: 3px;
+  min-height: 3px;
+  border-radius: 1px;
+  pointer-events: none;
+  background: color-mix(in oklab, var(--foreground) 55%, transparent);
+}
+.minimap-mark--active {
+  width: 5px;
+  background: var(--foreground);
+  box-shadow: 0 0 6px color-mix(in oklab, var(--foreground) 45%, transparent);
+}
+.minimap-view {
+  position: absolute;
+  inset-inline: 0;
+  pointer-events: none;
+  border: 1px solid color-mix(in oklab, var(--foreground) 35%, transparent);
+  border-radius: 2px;
+  background: color-mix(in oklab, var(--foreground) 15%, transparent);
+}
+
+/* The legend, delivered on hover and tied to the band under the pointer. */
+.minimap-flyout {
+  position: absolute;
+  right: calc(100% + 6px);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: min(46ch, 60vw);
+  padding: 4px 8px;
+  transform: translateY(-50%);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--popover, var(--card));
+  box-shadow: 0 8px 22px var(--carve-popover-far, rgb(0 0 0 / 0.4));
+  pointer-events: none;
+  white-space: nowrap;
+}
+.minimap-swatch {
+  flex: none;
+  width: 3px;
+  height: 12px;
+  border-radius: 1px;
+}
+.minimap-flyout-kind {
+  flex: none;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 8.5px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+.minimap-flyout-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  color: var(--foreground);
+}
+
+/* ── Find in transcript ──────────────────────────────────────────────────── */
+
+.chat-find {
+  position: absolute;
+  top: 8px;
+  right: calc(var(--chat-rail-w) + 8px);
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 4px 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--popover, var(--card));
+  box-shadow: 0 10px 26px var(--carve-popover-far, rgb(0 0 0 / 0.45));
+}
+.chat-find-input {
+  width: 190px;
+  border: 0;
+  background: transparent;
+  font-size: 12px;
+  color: var(--foreground);
+  outline: none;
+}
+.chat-find-input::placeholder {
+  color: var(--muted-foreground);
+}
+.chat-find-count {
+  flex: none;
+  min-width: 34px;
+  text-align: right;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+}
+.chat-find-step {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  color: var(--muted-foreground);
+}
+.chat-find-step:hover:not(:disabled) {
+  color: var(--foreground);
+}
+@media (max-width: 640px) {
+  .chat-find-input {
+    width: 120px;
+  }
+}
+
+/* ── The agent stopped with the plan unfinished ──────────────────────────── */
+
+.chat-todo-notice {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 6px 12px 6px calc(3px + 12px);
+  border-top: 1px solid color-mix(in oklab, var(--warning) 22%, transparent);
+  background: color-mix(in oklab, var(--warning) 5%, transparent);
+  font-size: 11.5px;
+  text-align: left;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+.chat-todo-notice:hover {
+  background: color-mix(in oklab, var(--warning) 9%, transparent);
+}
+.chat-todo-notice-go {
+  margin-left: auto;
+  flex: none;
+  font-size: 10.5px;
+  color: color-mix(in oklab, var(--warning) 75%, var(--foreground));
+}
+
+/* ── Model provenance, in the pane header ────────────────────────────────── */
+
+/* The model token is a READOUT, not a setting: the harness owns model selection
+   and Podium reports what it observed (AgentPanel.modelToken). A value we have
+   only REQUESTED — spawn selection, nothing seen in the transcript yet — carries
+   a dotted rule, the long-standing typographic mark for provisional. Observed
+   values are written plainly, because they are simply true. */
+.model-token[data-provenance="requested"] .model-token-text {
+  border-bottom: 1px dotted color-mix(in oklab, currentColor 55%, transparent);
+  opacity: 0.8;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-rail-btn,
+  .chat-rail-todo,
+  .chat-todo-notice {
+    transition: none;
+  }
+}
+
 /* ── "Asked you" (POD-376) ───────────────────────────────────────────────────
    A tool call that stopped and addressed the operator, on a harness whose
    parser gives us no structured questions to build a card from. It is the one

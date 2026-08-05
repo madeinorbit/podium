@@ -644,14 +644,24 @@ export function AgentPanel({
           <SessionWatchers sessionId={sessionId} view={effectiveMode} />
           {/* The running model + requested effort ("fable 5 · med"): observed
               model from the transcript tail (resolves a spawn-time `auto`),
-              effort from the spawn selection — hidden until either is known. */}
+              effort from the spawn selection — hidden until either is known.
+
+              PROVENANCE IS THE POINT (POD-413). This is a READOUT, and the one
+              thing a reader must not conclude from it is that Podium chose the
+              model. It does not: across Claude Code, Codex, Grok and shells the
+              harness owns model selection, and a `/model` typed into the harness
+              changes it under us. So the token says which of two things it is —
+              OBSERVED in the transcript (plain, because it is simply true) or
+              merely REQUESTED at spawn and not yet seen (dotted rule, the
+              typographic mark for provisional). The tooltip names it in words. */}
           {session && modelToken(session) && (
             <span
-              className="hidden flex-none items-center gap-[5px] font-mono text-[10px] text-(--issue-muted) lg:inline-flex"
+              className="model-token hidden flex-none items-center gap-[5px] font-mono text-[10px] text-(--issue-muted) lg:inline-flex"
+              data-provenance={session.observedModel ? 'observed' : 'requested'}
               title={
                 session.observedModel
-                  ? `Model observed in the transcript${session.effort ? ' · effort as requested at spawn' : ''}`
-                  : 'Model as requested at spawn'
+                  ? `Observed — the model this agent is actually running, read from its transcript. The harness owns this; Podium reports it.${session.effort ? ' Effort is the spawn request.' : ''}`
+                  : 'Requested at spawn — not yet seen in the transcript. The harness owns model selection; Podium reports it rather than setting it.'
               }
             >
               {/* Brand mark for harnesses that have one — a table lookup, so a new
@@ -665,7 +675,7 @@ export function AgentPanel({
                   aria-hidden="true"
                 />
               )}
-              {modelToken(session)}
+              <span className="model-token-text">{modelToken(session)}</span>
             </span>
           )}
           {/* Mode switch [POD-121, replaces #20's toggle]: one two-segment
