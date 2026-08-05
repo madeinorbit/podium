@@ -159,7 +159,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 3,
-    paddingHorizontal: 12,
+    // Wide enough that the fill reads as a chip around the label rather than a
+    // patch behind it — the shortest label ("Tray") is what sets this.
+    paddingHorizontal: 18,
     paddingTop: 6,
     paddingBottom: 5,
     borderRadius: 20,
