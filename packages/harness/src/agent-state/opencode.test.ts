@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { agentStateProviderFor } from '../registry.js'
+import { loadOpencodeMessageParts } from '../opencode/db.js'
 import { observeOpencodeState, opencodeStateProvider } from './opencode.js'
 
 // Mock the opencode DB module so the gate test can (a) count handle opens and the
@@ -156,6 +157,51 @@ describe('opencode state provider', () => {
         at: new Date(2).toISOString(), // the assistant part row's time_updated
       },
     ])
+  })
+
+  it('emits the provider-qualified model and variant from the session row', async () => {
+    home = await mkdtemp(join(tmpdir(), 'podium-opencode-model-'))
+    const root = join(home, '.local', 'share', 'opencode')
+    await mkdir(root, { recursive: true })
+    await seedSessionDb(root, 'ses_model', '/repo/model', 'ready')
+    const db = openDatabase(join(root, 'opencode.db'))
+    db.prepare('UPDATE session SET model = ? WHERE id = ?').run(
+      JSON.stringify({ id: 'deepseek-v4-flash-free', providerID: 'opencode', variant: 'max' }),
+      'ses_model',
+    )
+    db.close()
+
+    const models: [string, string | undefined][] = []
+    const obs = observeOpencodeState({
+      cwd: '/repo/model',
+      homeDir: home,
+      resumeValue: 'ses_model',
+      pollMs: 10,
+      onEvents: () => {},
+      onModel: (model, effort) => models.push([model, effort]),
+    })
+    try {
+      await waitFor(() => models.length > 0)
+      await new Promise((r) => setTimeout(r, 50))
+      expect(models).toEqual([['opencode/deepseek-v4-flash-free', 'max']])
+    } finally {
+      obs.stop()
+    }
+  })
+
+  it('does not skip parts sharing the cursor timestamp', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-opencode-cursor-'))
+    const root = join(home, '.local', 'share', 'opencode')
+    await mkdir(root, { recursive: true })
+    await seedSessionDb(root, 'ses_cursor', '/repo/cursor', 'initial')
+    const db = openDatabase(join(root, 'opencode.db'))
+    db.prepare('INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)').run('msg-b', 'ses_cursor', 3, 3, JSON.stringify({ role: 'assistant' }))
+    db.prepare('INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)').run('msg-c', 'ses_cursor', 3, 3, JSON.stringify({ role: 'assistant' }))
+    db.prepare('INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?)').run('prt-b', 'msg-b', 'ses_cursor', 3, 2, JSON.stringify({ type: 'text', text: 'b' }))
+    db.prepare('INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?)').run('prt-c', 'msg-c', 'ses_cursor', 3, 2, JSON.stringify({ type: 'text', text: 'c' }))
+    const rows = loadOpencodeMessageParts(db, 'ses_cursor', 2, 'prt-a')
+    db.close()
+    expect(rows.map((row) => row.partId)).toEqual(['prt-b', 'prt-c'])
   })
 })
 
