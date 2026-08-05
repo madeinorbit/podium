@@ -66,6 +66,14 @@ export interface UseTerminalSessionResult {
   mountedRef: RefObject<MountedSession | null>
   /** True once the session is usable (attach confirmed / first frame / backstop). */
   ready: boolean
+  /**
+   * Has the PTY produced any output since it was spawned? False means the child
+   * is attached but has printed NOTHING yet — a CLI still booting (first-run
+   * setup, a self-update) rather than a session sitting at a prompt whose screen
+   * we merely lack. A panel uses it to keep a startup affordance up instead of
+   * revealing a blank terminal [POD-385]. True until an attach says otherwise.
+   */
+  outputSeen: boolean
   /** True while the view is pinned to the live tail — drives "Jump to bottom". */
   atBottom: boolean
 }
@@ -92,6 +100,7 @@ export function useTerminalSession(opts: UseTerminalSessionOptions): UseTerminal
   const mountedRef = useRef<MountedSession | null>(null)
   const [ready, setReady] = useState(false)
   const [atBottom, setAtBottom] = useState(true)
+  const [outputSeen, setOutputSeen] = useState(true)
 
   // Latest callbacks via refs so identity churn on every render never tears
   // down and re-attaches the terminal (only [hub, sessionId, enabled] do that).
@@ -124,6 +133,9 @@ export function useTerminalSession(opts: UseTerminalSessionOptions): UseTerminal
     if (!el) return
     setReady(false)
     setAtBottom(true)
+    // Optimistic until the attach reports the session's durable output counter:
+    // a mount that never gets that far must not accuse the PTY of silence.
+    setOutputSeen(true)
     const mounted = mountSession(el, {
       hub,
       sessionId,
@@ -137,7 +149,10 @@ export function useTerminalSession(opts: UseTerminalSessionOptions): UseTerminal
         : {}),
       onReady: () => setReady(true),
       onFrame: () => onFrameRef.current?.(),
-      onState: (state) => onStateRef.current?.(state),
+      onState: (state) => {
+        setOutputSeen(state.outputSeen)
+        onStateRef.current?.(state)
+      },
     })
     mountedRef.current = mounted
     const offScroll = mounted.view.onScroll(() => setAtBottom(mounted.view.atBottom()))
@@ -169,5 +184,5 @@ export function useTerminalSession(opts: UseTerminalSessionOptions): UseTerminal
     if (focusWhenReady && active && enabled && ready) mountedRef.current?.view.focus()
   }, [focusWhenReady, active, enabled, ready])
 
-  return { containerRef, toolbarRef, mountedRef, ready, atBottom }
+  return { containerRef, toolbarRef, mountedRef, ready, outputSeen, atBottom }
 }

@@ -414,6 +414,93 @@ describe('SessionConnection (hub-backed)', () => {
     expect(onAttached).toHaveBeenCalledTimes(1)
   })
 
+  // POD-385: a blank screen alone cannot say whether the child has printed
+  // nothing yet or whether we simply don't hold its replay, so the attach
+  // carries the server's durable answer and the first frame latches it.
+  describe('outputSeen', () => {
+    const attach = (sock: FakeSocket, outputSeen?: boolean): void => {
+      sock.recv({
+        type: 'attached',
+        sessionId: asSessionId('s1'),
+        controllerId: 'c0',
+        geometry: { cols: 80, rows: 24 },
+        epoch: 0,
+        ...(outputSeen === undefined ? {} : { outputSeen }),
+      })
+    }
+
+    it('is true before any attach, so nothing claims silence on no evidence', () => {
+      const { sock, hub } = setup()
+      hub.connect()
+      sock.open()
+      expect(hub.attach(asSessionId('s1')).state().outputSeen).toBe(true)
+    })
+
+    it('is false while the attach reports a PTY that has never produced output', () => {
+      const { sock, hub } = setup()
+      hub.connect()
+      sock.open()
+      const conn = hub.attach(asSessionId('s1'))
+      attach(sock, false)
+      expect(conn.state().outputSeen).toBe(false)
+    })
+
+    it('latches true on the first non-empty frame', () => {
+      const { sock, hub } = setup()
+      hub.connect()
+      sock.open()
+      const states: boolean[] = []
+      const conn = hub.attach(asSessionId('s1'), { onState: (s) => states.push(s.outputSeen) })
+      attach(sock, false)
+      sock.recv({
+        type: 'outputFrame',
+        sessionId: asSessionId('s1'),
+        seq: 0,
+        epoch: 0,
+        data: b64(''),
+      })
+      expect(conn.state().outputSeen).toBe(false) // an empty frame said nothing
+      sock.recv({
+        type: 'outputFrame',
+        sessionId: asSessionId('s1'),
+        seq: 1,
+        epoch: 0,
+        data: b64('$ '),
+      })
+      expect(conn.state().outputSeen).toBe(true)
+      // The state published WITH the first real frame already says so — a panel
+      // clearing its waiting affordance on the state must not see one more
+      // "silent" snapshot after the PTY has spoken.
+      expect(states.at(-1)).toBe(true)
+    })
+
+    it('assumes output against a server too old to report it', () => {
+      const { sock, hub } = setup()
+      hub.connect()
+      sock.open()
+      const conn = hub.attach(asSessionId('s1'))
+      attach(sock, undefined)
+      expect(conn.state().outputSeen).toBe(true)
+    })
+
+    it('never un-sees output a later attach forgot', () => {
+      const { sock, hub } = setup()
+      hub.connect()
+      sock.open()
+      const conn = hub.attach(asSessionId('s1'))
+      attach(sock, true)
+      sock.recv({
+        type: 'outputFrame',
+        sessionId: asSessionId('s1'),
+        seq: 0,
+        epoch: 0,
+        data: b64('hi'),
+      })
+      attach(sock, false)
+      expect(conn.state().outputSeen).toBe(true)
+    })
+  })
+
   it('updates lastSeq/epoch and emits the decoded frame', () => {
     const { sock, hub } = setup()
     hub.connect()

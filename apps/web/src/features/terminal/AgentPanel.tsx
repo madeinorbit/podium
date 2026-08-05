@@ -6,7 +6,12 @@ import { effectivePanelMode, type PanelMode } from '@podium/client-core/ui-state
 export { effectivePanelMode, effectivePanelMode as initialPanelMode, type PanelMode }
 
 import { attentionGroup } from '@podium/client-core/focus'
-import { isKnownWorktreePath, panelLabel, resumeCommand } from '@podium/client-core/viewmodels'
+import {
+  formatClock,
+  isKnownWorktreePath,
+  panelLabel,
+  resumeCommand,
+} from '@podium/client-core/viewmodels'
 import type { SessionId } from '@podium/model'
 import { isSnoozed } from '@podium/model'
 import { keySequence, type SpecialKey } from '@podium/terminal-client'
@@ -59,6 +64,7 @@ import { HandoverPane, useHandoverView } from './HandoverPane'
 import { hibernateAction } from './lifecycle-actions'
 import { ExitedBanner, ExitedPane, HibernatedBanner, HibernatedPane } from './SessionLifecyclePanes'
 import { SessionWatchers } from './SessionWatchers'
+import { sessionAgeMs, startupOverlay } from './startup-overlay'
 import { usePanelSurface } from './use-panel-surface'
 import { useTerminalAppearance } from './use-terminal-appearance'
 
@@ -395,6 +401,7 @@ export function AgentPanel({
     toolbarRef,
     mountedRef,
     ready,
+    outputSeen,
     atBottom,
   } = useTerminalSession({
     hub,
@@ -453,6 +460,20 @@ export function AgentPanel({
         sync.dispose()
       }
     },
+  })
+
+  // A terminal that has painted NOTHING keeps its startup affordance instead of
+  // revealing a blank surface [POD-385]. `outputSeen` is the server's durable
+  // "has this PTY ever spoken", so a child that is genuinely still booting — a
+  // CLI that self-updates on launch went four minutes silent once — is told
+  // apart from a session whose screen we merely don't hold (POD-379's case,
+  // where dropping the overlay at attach is right). The per-second clock runs
+  // only while such a wait is actually on screen in this pane.
+  const silenceNow = useNow(1_000, gates.terminalActive && (!ready || !outputSeen))
+  const overlay = startupOverlay({
+    ready,
+    outputSeen,
+    ageMs: sessionAgeMs(session?.createdAt, silenceNow),
   })
 
   // Native-mode dictation: transcribed speech types straight into the PTY as
@@ -790,10 +811,11 @@ export function AgentPanel({
             style={{ backgroundColor: termBg }}
           >
             <div ref={termRef} className="term min-h-0 flex-1 px-[13px] pt-3 pb-5" />
-            {!ready && (
+            {overlay.kind !== 'hidden' && (
               <div
-                className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 text-[13px] text-zinc-400"
+                className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 px-8 text-center text-[13px] text-zinc-400"
                 style={{ backgroundColor: termBg }}
+                data-testid="terminal-startup-overlay"
                 role="status"
                 aria-live="polite"
               >
@@ -802,6 +824,25 @@ export function AgentPanel({
                   aria-hidden="true"
                 />
                 <span>Starting {session ? panelLabel(session.agentKind) : 'session'}…</span>
+                {/* Machine voice, mono and tabular so the digits don't jitter.
+                    aria-hidden: a per-second counter inside a live region would
+                    re-announce itself every tick; the lines around it carry the
+                    meaning a screen reader needs. */}
+                {overlay.kind === 'silent' && overlay.elapsedMs !== null && (
+                  <span
+                    className="font-mono text-[11px] text-zinc-500 tabular-nums"
+                    data-testid="startup-silence"
+                    aria-hidden="true"
+                  >
+                    no output yet · {formatClock(overlay.elapsedMs)}
+                  </span>
+                )}
+                {overlay.kind === 'silent' && overlay.hint && (
+                  <span className="max-w-[44ch] text-[11px] text-balance text-zinc-500 leading-relaxed">
+                    Still attached — some CLIs update themselves or run first-time setup before
+                    printing anything.
+                  </span>
+                )}
               </div>
             )}
             {ready && !atBottom && (

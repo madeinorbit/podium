@@ -224,6 +224,14 @@ export const AttachedMessage = z.object({
   // full replay, so the client clears first. Optional for back-compat (an older
   // server omits it; the client treats that as a full replay and clears).
   resumed: z.boolean().optional(),
+  // Has this PTY ever produced output since it was spawned? Counted durably
+  // (`output_count`), so it survives a server restart that emptied the replay
+  // window — which is what separates "attached, but the child has printed
+  // NOTHING yet" (a CLI still booting, e.g. one that self-updates on launch)
+  // from "old session whose buffer we simply don't have" [POD-385]. Optional
+  // for back-compat: an older server omits it and the client assumes output
+  // has been seen, i.e. shows no waiting affordance.
+  outputSeen: z.boolean().optional(),
 })
 export const TerminalOutcomeMessage = z.object({
   type: z.literal('terminalOutcome'),

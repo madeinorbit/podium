@@ -349,6 +349,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
         state.rows,
         state.epoch,
         state.controllerId,
+        state.outputSeen,
       ])
       if (signature !== lastTracedState) {
         lastTracedState = signature

@@ -195,6 +195,12 @@ export class SessionTerminal {
       geometry: { ...this.geometry },
       epoch: this.epoch,
       resumed,
+      // The client cannot tell a PTY that has printed nothing since spawn from
+      // one whose replay window we no longer hold — both attach onto a blank
+      // screen. The durable output counter can, so it travels with the attach
+      // and the panel keeps a startup affordance up while this is false
+      // [POD-385].
+      outputSeen: this.outputCount_ > 0,
     })
     const startedAt = performance.now()
     let replayBytes = 0

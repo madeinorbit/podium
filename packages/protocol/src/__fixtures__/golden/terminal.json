@@ -219,12 +219,13 @@
           "rows": 1
         },
         "epoch": 1,
-        "resumed": true
+        "resumed": true,
+        "outputSeen": true
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"attached\",\"sessionId\":\"sessionId\",\"controllerId\":\"controllerId\",\"controllerIdentity\":{\"kind\":\"user\",\"user\":\"controllerIdentity.user\"},\"geometry\":{\"cols\":1,\"rows\":1},\"epoch\":1,\"resumed\":true}"
+      "encoded": "{\"type\":\"attached\",\"sessionId\":\"sessionId\",\"controllerId\":\"controllerId\",\"controllerIdentity\":{\"kind\":\"user\",\"user\":\"controllerIdentity.user\"},\"geometry\":{\"cols\":1,\"rows\":1},\"epoch\":1,\"resumed\":true,\"outputSeen\":true}"
     },
     {
       "schema": "AttachedMessage",
@@ -243,12 +244,13 @@
           "rows": 2
         },
         "epoch": 2,
-        "resumed": false
+        "resumed": false,
+        "outputSeen": false
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"attached\",\"sessionId\":\"sessionId\",\"controllerId\":\"controllerId\",\"controllerIdentity\":{\"kind\":\"agent\",\"agentIdentity\":\"controllerIdentity.agentIdentity\",\"onBehalfOf\":\"controllerIdentity.onBehalfOf\"},\"geometry\":{\"cols\":2,\"rows\":2},\"epoch\":2,\"resumed\":false}"
+      "encoded": "{\"type\":\"attached\",\"sessionId\":\"sessionId\",\"controllerId\":\"controllerId\",\"controllerIdentity\":{\"kind\":\"agent\",\"agentIdentity\":\"controllerIdentity.agentIdentity\",\"onBehalfOf\":\"controllerIdentity.onBehalfOf\"},\"geometry\":{\"cols\":2,\"rows\":2},\"epoch\":2,\"resumed\":false,\"outputSeen\":false}"
     },
     {
       "schema": "AttachMessage",

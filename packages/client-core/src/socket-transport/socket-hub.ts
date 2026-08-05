@@ -73,6 +73,16 @@ export interface ConnectionState {
   rows: number
   epoch: number
   lastSeq: number
+  /**
+   * Has the PTY behind this session produced ANY output since it was spawned?
+   * True as soon as a frame lands here, or when the attach reports the server's
+   * durable output counter as non-zero. False therefore means one specific
+   * thing: we are attached to a child that has printed NOTHING yet — which a
+   * blank screen alone cannot say, because a lost replay window looks identical
+   * [POD-385]. True before the first attach, and against a server too old to
+   * report it, so nothing ever claims a session is silent on a guess.
+   */
+  outputSeen: boolean
 }
 
 export interface SessionCallbacks {
@@ -1569,6 +1579,13 @@ export class SessionConnection {
   private rows: number
   private epoch = 0
   private lastSeq = -1
+  /** What the last attach said about the session's durable output counter. An
+   *  older server omits the flag; that reads as "already produced", so the
+   *  silent-startup affordance stays off rather than firing on no evidence. */
+  private attachOutputSeen = true
+  /** A non-empty frame has landed on THIS connection. Latched separately from
+   *  the attach flag so a later attach can never un-see output we rendered. */
+  private frameSeen = false
   private readonly echo = new EchoLatencyTracker()
 
   constructor(
@@ -1631,6 +1648,7 @@ export class SessionConnection {
       rows: this.rows,
       epoch: this.epoch,
       lastSeq: this.lastSeq,
+      outputSeen: this.attachOutputSeen || this.frameSeen,
     }
   }
 
@@ -1649,6 +1667,7 @@ export class SessionConnection {
       this.cols = msg.geometry.cols
       this.rows = msg.geometry.rows
       this.epoch = msg.epoch
+      this.attachOutputSeen = msg.outputSeen !== false
       // A full replay (not a `resumed` catch-up) is about to re-send the whole
       // buffer: clear the screen first so it rebuilds cleanly. A resume keeps the
       // screen and appends the missed frames.
@@ -1660,8 +1679,13 @@ export class SessionConnection {
       this.lastSeq = msg.seq
       this.epoch = msg.epoch
       this.echo.onOutput(Date.now())
+      const text = fromBase64Utf8(msg.data)
+      // Latch before emit so the state this frame publishes already says the
+      // PTY has spoken — a subscriber that clears a waiting affordance on the
+      // state must not see one more "silent" snapshot after real output.
+      if (text.length > 0) this.frameSeen = true
       this.emit()
-      this.cb.onFrame?.(fromBase64Utf8(msg.data))
+      this.cb.onFrame?.(text)
     },
     controllerChanged: (msg) => {
       this.controllerId = msg.controllerId

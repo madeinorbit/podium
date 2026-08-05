@@ -180,6 +180,17 @@ if (realAgentCodexEnv) {
   await ensurePodiumCodexHooks({ homeDir: realAgentCodexEnv.discoveryHomeDir })
 }
 
+/**
+ * PODIUM_E2E_SILENT_START=<ms> — every spawn is a child that prints NOTHING for
+ * that long, then starts behaving (POD-385).
+ *
+ * This is the shape of a CLI that updates itself on launch: attached, alive,
+ * and pixel-identical to a dead session until it finally paints. Nothing about
+ * it is grok-specific — the harness only has to produce silence, which is the
+ * one thing the panel has to survive.
+ */
+const SILENT_START_MS = Number(process.env.PODIUM_E2E_SILENT_START ?? 0)
+
 const launchLogFile = join(stateDir, 'launch-log.jsonl')
 const launch = (kind: AgentKind, opts: LaunchOptions): LaunchSpec => {
   appendFileSync(
@@ -190,6 +201,18 @@ const launch = (kind: AgentKind, opts: LaunchOptions): LaunchSpec => {
       ...(opts.effort ? { effort: opts.effort } : {}),
     }) + '\n',
   )
+  if (SILENT_START_MS > 0) {
+    return {
+      cmd: process.execPath,
+      args: [
+        '-e',
+        // Silent, then a prompt and a live process: the panel must show the
+        // wait for the first stretch and get out of the way for the second.
+        `setTimeout(() => { process.stdout.write('booted $ '); setInterval(() => {}, 1000) }, ${SILENT_START_MS})`,
+      ],
+      cwd: REPO_ROOT,
+    }
+  }
   if (kind === 'shell' || REAL_AGENTS) {
     const spec = agentLaunchCommand(kind, opts)
     // The isolated CODEX_HOME contains only the reviewed Podium hook. This

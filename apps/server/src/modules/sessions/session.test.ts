@@ -15,8 +15,9 @@ function state(phase: AgentRuntimeState['phase'], since: string): AgentRuntimeSt
   return { phase, since, nativeSubagentCount: 0 }
 }
 
-function makeSession(toDaemon = vi.fn()) {
+function makeSession(toDaemon = vi.fn(), seed: { outputCount?: number } = {}) {
   return new Session({
+    ...seed,
     sessionId: asSessionId('s1'),
     durableLabel: 'podium-s1',
     agentKind: 'claude-code',
@@ -105,6 +106,7 @@ describe('Session', () => {
       geometry: geo,
       epoch: 0,
       resumed: false,
+      outputSeen: false,
     })
   })
 
@@ -434,6 +436,30 @@ describe('Session', () => {
       { type: 'outputFrame', sessionId: asSessionId('s1'), seq: 0, epoch: 0, data: 'ZGF0YQ==' },
       { type: 'outputFrame', sessionId: asSessionId('s1'), seq: 1, epoch: 0, data: 'ZGF0Yg==' },
     ])
+  })
+
+  it('tells the attaching client whether the PTY has ever produced output', () => {
+    // POD-385: an empty screen means either "the child has printed nothing yet"
+    // (a CLI still booting) or "we no longer hold its replay". Only the server
+    // knows which, so the attach says it.
+    const s = makeSession()
+    const first = makeClient('a')
+    s.terminal.attachClient(first)
+    expect(first.sent.find((m) => m.type === 'attached')).toMatchObject({ outputSeen: false })
+    s.terminal.onFrame('ZGF0YQ==')
+    const second = makeClient('b')
+    s.terminal.attachClient(second)
+    expect(second.sent.find((m) => m.type === 'attached')).toMatchObject({ outputSeen: true })
+  })
+
+  it('reports output a restart inherited, even with an empty replay window', () => {
+    // The counter is durable; the replay buffer is not. A session revived with
+    // no frames to replay must NOT read as a child that has never spoken.
+    const s = makeSession(undefined, { outputCount: 12 })
+    const a = makeClient('a')
+    s.terminal.attachClient(a)
+    expect(a.sent.find((m) => m.type === 'attached')).toMatchObject({ outputSeen: true })
+    expect(a.sent.filter((m) => m.type === 'outputFrame')).toEqual([])
   })
 
   it('resumes from a cursor: replays only newer frames and marks the attach resumed', () => {
