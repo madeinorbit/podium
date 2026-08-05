@@ -13,6 +13,7 @@ import { SettingsView } from '@/features/settings/SettingsView'
 import { OnboardingWizard } from '@/features/setup/OnboardingWizard'
 import { SUPER_CHAT_OPEN_KEY, TRAY_OPEN_KEY } from '@/features/superagent/column-state'
 import { SuperagentView } from '@/features/superagent/SuperagentView'
+import { UsageView } from '@/features/usage/UsageView'
 import { SidebarRail } from '@/features/worklist/SidebarRail'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import { ResizableAside, ResizableColumn } from '@/features/worklist/sidebar-common'
@@ -33,7 +34,10 @@ import { FoldedSuperagentBar } from './FoldedSuperagentBar'
 import { RightDock } from './RightDock'
 import { RightRail } from './RightRail'
 import { MainViewOutlet } from './routes'
+import { StatusStrip } from './StatusStrip'
 import {
+  isOverlayView,
+  nextBaseView,
   OPEN_RIGHT_PANEL_EVENT,
   RIGHT_PANEL_KEY,
   type RightPanelTab,
@@ -45,7 +49,8 @@ import {
   type SuperagentMode,
 } from './shell-state'
 import { describeWireSkew, reportSkew } from './skew-notice'
-import { StoreProvider, useReplicaIssues, useStoreSelector } from './store'
+import { type MainView, StoreProvider, useReplicaIssues, useStoreSelector } from './store'
+import { ToolbarSlotProvider } from './ToolbarSlot'
 import { TopBar } from './TopBar'
 import { ThemeUiStateMirror } from './theme'
 import { makeTrpc, serverConfig } from './trpc'
@@ -155,7 +160,11 @@ export function AppShell(): JSX.Element {
             <ThemeUiStateMirror />
             <BrowserOpenOverlay />
             <ConfirmProvider>
-              <AppBody />
+              {/* Above both TopBar and the view outlet: the command bar's centre
+                  is a portal target the active mode fills (POD-365). */}
+              <ToolbarSlotProvider>
+                <AppBody />
+              </ToolbarSlotProvider>
             </ConfirmProvider>
           </StoreProvider>
         </ErrorBoundary>
@@ -195,7 +204,19 @@ function AppBody(): JSX.Element {
     shallowEqual,
   )
   const view = useStoreSelector((s) => s.view)
+  const setView = useStoreSelector((s) => s.setView)
   const issues = useReplicaIssues()
+  // Settings and Usage are utilities layered OVER a mode, not modes themselves
+  // (POD-365). The shell keeps rendering the mode underneath, and closing the
+  // sheet returns you to the one you actually came from rather than always
+  // dumping you in the workspace.
+  const overlay = isOverlayView(view)
+  const [baseView, setBaseView] = useState<MainView>(() => (overlay ? 'workspace' : view))
+  useEffect(() => {
+    setBaseView((current) => nextBaseView(current, view))
+  }, [view])
+  const closeOverlay = (): void => setView(baseView)
+  const workspaceActive = baseView === 'workspace'
   const sessions = useStoreSelector((s) => s.sessions)
   const [dismissed, setDismissed] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsedState] = useState(() =>
@@ -315,39 +336,42 @@ function AppBody(): JSX.Element {
       >
         <TopBar />
         <div className="desktop-shell-row" data-sidebar-collapsed={sidebarCollapsed}>
-          {view === 'workspace' &&
-            (sidebarCollapsed ? (
-              <aside className="collapsed-sidebar" aria-label="Collapsed work sidebar">
-                <button
-                  data-pressable
-                  type="button"
-                  className="collapsed-sidebar-expand"
-                  aria-label="Expand sidebar"
-                  title="Expand sidebar"
-                  onClick={() => setSidebarCollapsed(false)}
-                >
-                  <ChevronRight size={13} aria-hidden="true" />
-                </button>
-                <SidebarRail />
-              </aside>
-            ) : (
-              <div className="relative z-10 flex flex-none">
-                <ResizableAside>
-                  <SidebarUnified />
-                </ResizableAside>
-                <button
-                  data-pressable
-                  type="button"
-                  className="sidebar-collapse-control"
-                  aria-label="Collapse sidebar"
-                  title="Collapse sidebar"
-                  onClick={() => setSidebarCollapsed(true)}
-                >
-                  <ChevronLeft size={12} aria-hidden="true" />
-                </button>
-              </div>
-            ))}
-          {view === 'workspace' && superMode === 'open' && (
+          {/* The work list is persistent chrome: it stays mounted in every mode,
+              so switching modes swaps the CONTENT REGION rather than the window
+              (POD-365). The engraved column, dock and rail are workspace
+              instruments and stay with the workspace. */}
+          {sidebarCollapsed ? (
+            <aside className="collapsed-sidebar" aria-label="Collapsed work sidebar">
+              <button
+                data-pressable
+                type="button"
+                className="collapsed-sidebar-expand"
+                aria-label="Expand sidebar"
+                title="Expand sidebar"
+                onClick={() => setSidebarCollapsed(false)}
+              >
+                <ChevronRight size={13} aria-hidden="true" />
+              </button>
+              <SidebarRail />
+            </aside>
+          ) : (
+            <div className="relative z-10 flex flex-none">
+              <ResizableAside>
+                <SidebarUnified />
+              </ResizableAside>
+              <button
+                data-pressable
+                type="button"
+                className="sidebar-collapse-control"
+                aria-label="Collapse sidebar"
+                title="Collapse sidebar"
+                onClick={() => setSidebarCollapsed(true)}
+              >
+                <ChevronLeft size={12} aria-hidden="true" />
+              </button>
+            </div>
+          )}
+          {workspaceActive && superMode === 'open' && (
             <ResizableColumn
               storageKey="podium:superagent:width"
               min={320}
@@ -361,7 +385,7 @@ function AppBody(): JSX.Element {
               </aside>
             </ResizableColumn>
           )}
-          {view === 'workspace' && superMode === 'folded' && (
+          {workspaceActive && superMode === 'folded' && (
             <FoldedSuperagentBar
               trayCount={trayCount(issues, sessions)}
               onExpand={(target) => {
@@ -373,8 +397,8 @@ function AppBody(): JSX.Element {
               }}
             />
           )}
-          <MainViewOutlet workspace={<Workspace />} />
-          {view === 'workspace' && visibleRightPanel && (
+          <MainViewOutlet workspace={<Workspace />} view={baseView} />
+          {workspaceActive && visibleRightPanel && (
             <ResizableColumn
               storageKey="podium:rightdock:width"
               min={280}
@@ -389,7 +413,7 @@ function AppBody(): JSX.Element {
               </aside>
             </ResizableColumn>
           )}
-          {view === 'workspace' && (
+          {workspaceActive && (
             <RightRail
               issue={selectedIssue}
               rightPanel={visibleRightPanel}
@@ -398,10 +422,13 @@ function AppBody(): JSX.Element {
             />
           )}
         </div>
+        <StatusStrip />
       </div>
-      {/* Settings is a full-viewport takeover above the shell (POD-127) — the
-          board stays mounted underneath, so closing is instant. */}
-      {view === 'settings' && <SettingsView />}
+      {/* The utility tier (POD-365): an inset sheet over a live shell. The mode
+          underneath stays mounted, so closing is instant and the chrome never
+          blinks out of existence. */}
+      {view === 'settings' && <SettingsView onClose={closeOverlay} />}
+      {view === 'usage' && <UsageView onClose={closeOverlay} />}
       <AutoContinueDialog />
       <ApprovalDialog />
       {commandPaletteEnabled && <CommandPalette />}

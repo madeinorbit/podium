@@ -2,10 +2,9 @@ import type { JSX, ReactNode } from 'react'
 import { lazy, Suspense } from 'react'
 import { AutomationsView } from '@/features/automations/AutomationsView'
 import { IssuesView } from '@/features/issues/IssuesView'
-import { UsageView } from '@/features/usage/UsageView'
 import { WorkflowsView } from '@/features/workflows/WorkflowsView'
 import { useFeature } from '@/lib/use-feature'
-import { useStoreSelector } from './store'
+import { type MainView, useStoreSelector } from './store'
 
 // Lazy: BlockNote (the spec WYSIWYG editor) is a heavy chunk only Specs needs —
 // keeping it out of the shell bundle also keeps every precached file under
@@ -22,22 +21,27 @@ const SpecsView = lazy(() =>
 export function MainViewOutlet({
   workspace,
   issues,
+  view: viewOverride,
 }: {
   workspace: ReactNode
   issues?: ReactNode
+  /** The MODE to render. Overlay views (Settings, Usage) pass the mode they are
+   *  floating over, so the shell behind a sheet keeps showing real work
+   *  (POD-365) instead of blinking out of existence. */
+  view?: MainView
 }): JSX.Element {
-  const view = useStoreSelector((s) => s.view)
+  const storeView = useStoreSelector((s) => s.view)
+  const view = viewOverride ?? storeView
   const workflowsEnabled = useFeature('workflows')
   const specsEnabled = useFeature('specs')
   const automationsEnabled = useFeature('automations')
   const issuesView = <>{issues ?? <IssuesView />}</>
   switch (view) {
     case 'settings':
-      // Settings is a full-viewport takeover layer rendered by AppShell (POD-127);
-      // the outlet keeps the board mounted underneath so closing is instant.
-      return issuesView
     case 'usage':
-      return <UsageView />
+      // Both are utility SHEETS rendered by AppShell over a live shell; the
+      // outlet never sees them unless the base view was somehow one of them.
+      return <>{workspace}</>
     case 'issues':
       return issuesView
     case 'workflows':

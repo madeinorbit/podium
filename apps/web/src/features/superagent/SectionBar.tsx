@@ -41,7 +41,10 @@ export function SectionBar({
       data-testid={testId}
       data-open={open}
       className={cn(
-        'flex flex-none cursor-pointer select-none items-center gap-2 border-hairline-bar bg-bar px-[13px] py-[5px]',
+        // POD-365 puts the bar on the shell's single horizontal datum (the
+        // fixed height replaces the padding that used to set it); POD-388 reads
+        // the drop from the theme rather than a literal dark-palette rgba.
+        'flex h-(--section-bar-h) flex-none cursor-pointer select-none items-center gap-2 border-hairline-bar bg-bar px-[13px]',
         shadow && 'shadow-[var(--shadow-bar-drop)]',
         className,
       )}

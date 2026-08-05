@@ -302,7 +302,7 @@ export function Workspace(): JSX.Element {
           bottom edge (pt only, no pb). */}
       <div
         data-testid="native-tab-strip"
-        className="relative flex h-[34px] flex-none items-stretch gap-[2px] border-b issue-hairline-50 issue-hairline-slate-45 issue-mix-18 issue-mix-slate-14 issue-base-tabstrip px-[6px] pt-[4px]"
+        className="relative flex h-(--section-bar-h) flex-none items-stretch gap-[2px] border-b issue-hairline-50 issue-hairline-slate-45 issue-mix-18 issue-mix-slate-14 issue-base-tabstrip px-[6px] pt-[4px]"
       >
         <DndContext
           sensors={sensors}

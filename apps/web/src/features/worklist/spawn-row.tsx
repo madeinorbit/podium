@@ -227,9 +227,11 @@ export function NewWorkRow({ sections }: { sections?: SidebarSections } = {}): J
   const newAgentAnchorRef = useRef<HTMLDivElement | null>(null)
 
   return (
-    // mr-4 clears the absolutely-positioned collapse control on the sidebar's
-    // right edge (translateX(50%) into the content column).
-    <div className="ml-2 mr-4 mt-2.5 flex items-center gap-2">
+    // The sidebar's section bar, on the shell's single horizontal datum
+    // (--section-bar-h, POD-365) so one seam runs across sidebar | tray | tab
+    // strip. pr-4 clears the absolutely-positioned collapse control on the
+    // sidebar's right edge (translateX(50%) into the content column).
+    <div className="flex h-(--section-bar-h) flex-none items-center gap-2 border-b border-hairline-soft pr-4 pl-2">
       <div
         ref={newAgentAnchorRef}
         data-testid="new-agent-button"
@@ -240,7 +242,9 @@ export function NewWorkRow({ sections }: { sections?: SidebarSections } = {}): J
         <button
           data-pressable
           type="button"
-          className="flex w-full min-w-0 items-center gap-2 rounded-lg border border-border-strong bg-chip px-[10px] py-2 pr-[32px] text-[12px] leading-[normal] font-medium text-text-strong transition-colors hover:border-text-faint hover:bg-accent disabled:opacity-50"
+          // h-7 rather than py-2 (POD-365: the row is on the shell's datum, so
+          // its control takes a fixed height), painted from the ramp (POD-388).
+          className="flex h-7 w-full min-w-0 items-center gap-2 rounded-lg border border-border-strong bg-chip px-[10px] pr-[32px] text-[12px] leading-[normal] font-medium text-text-strong transition-colors hover:border-text-faint hover:bg-accent disabled:opacity-50"
           disabled={!defaultRepo}
           title={
             defaultTarget

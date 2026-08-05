@@ -58,6 +58,12 @@ typography:
     fontSize: "10.5px"
     fontWeight: 400
     lineHeight: 1.7
+shell:
+  topbarHeight: "44px"
+  statusStripHeight: "24px"
+  sectionBarHeight: "36px"
+  sheetGap: "14px"
+  sheetMaxWidth: "1180px"
 rounded:
   md: "4.8px"
   lg: "6px"
@@ -204,9 +210,35 @@ Refined and restrained: quiet borders, subtle states, nothing decorative. Every 
 - **Error / Disabled:** Invalid controls get a destructive border + 20% red ring; disabled drops to 50% opacity and loses pointer events.
 
 ### Navigation
-- **Shell:** A 44px command header (logo, nav, host/quota chips) over independently folding columns: sidebar (52px collapsed) | engraved column | native pane | dock | rail. Every section is resizable.
+- **Shell:** A 44px command bar over independently folding columns — sidebar (52px collapsed) | engraved column | native pane | dock | rail — closed by a 24px status strip. Every section is resizable. The sidebar is persistent chrome and stays mounted in every mode; the engraved column, dock and rail are workspace instruments and go with it.
 - **Tabs:** Native-pane tabs carry a 7×7px issue-color square (2.5px radius) and, when active, a 1px issue-color inset top line.
 - **States:** Hover on chrome cells = accent wash + Strong ink; selection = issue tint at its prescribed percentage.
+- **One datum:** every column header is `--section-bar-h` (36px), so a single seam runs edge to edge across sidebar | tray | tab strip. A column needing more room takes a second row below the datum, never a taller first row.
+- **Two bands, ever:** the 44px command bar and at most one 40px contextual strip. Anything else belongs inside a column, not spanning the window. Content regions carry no page title — the mode tab already said where you are.
+
+### The Command Bar (signature)
+**Four zones, left to right. The zones are fixed; only the third changes.**
+
+```
+mark │ mode tabs │ ─ │ mode-contextual slot │ ⇠gap⇢ │ instrument well │ ─ │ utilities
+```
+
+1. **Mode tabs.** One per tool (Work, Tasks, Workflows, Specs, Automations): a 13px glyph plus an 11.5px label in a 26px cell, all cells inside **one 30px well** (see The Wells). The ACTIVE cell is the well's raised one — Chip Navy at 85%, lit along its top edge, Strong ink; the rest are bare at Dim ink. **No yellow anywhere in the switcher:** the well already answers "you are here", and a permanently-lit brand hairline in the chrome is the exact spend The Signal Rule guards. A count that is genuinely waiting on you (Tasks' proposals) keeps Attention ink, as bare tabular digits — never a filled badge, which is a consumer notification and has no home in this system.
+2. **The dynamic centre** (`ToolbarSlot`). Belongs to the active mode, filled by portal from the view that owns the state. **A control earns it only when its scope is the whole mode AND no column already owns it.** Work renders nothing here — starting an agent belongs to the sidebar's spawn row, adding a session to the tab strip's `+`, splitting to the glyph beside it, and branch state to `GitStamp`'s four densities — and an empty centre is evidence the workspace is well organised, not an omission. Tasks fills it with search / Flatten / Filter / Display / New Task, which is why it no longer needs bars of its own.
+3. **The instrument well.** Host and quota in ONE well divided by hairlines, never loose readouts on the bar: one object with internal structure reads as an instrument, five evenly-spaced numbers read as a website's account row. Always visible, in every mode.
+4. **Utilities.** Usage and Settings as 28px icon cells at the far right, after a hairline, followed by the native window controls on Windows/Linux. The only bare cells on the bar — everything else belongs to a well or the slot.
+
+**Surface:** `--bar`, the darkest tier — one step below the panels beneath it, so every column reads as carved INTO the chassis. **Rhythm:** one 10px gap between every zone, seams 18px tall centred in it; containers are 30px, loose controls 28px, cells inside a container 26px. Three heights, one gap — a bar whose spacings all differ reads as assembled rather than composed.
+
+**The Wells (signature).** Modes on the left and instruments on the right are the same object: 30px, 8px radius, 2px inset, carved into the bar. It is the WELL that stops a row of glyphs reading as hyperlinks — not a container drawn around the selected one, which just makes the selection look like a button. Because `--bar` is already near-black, a groove cannot be a darker tone: its floor sits a hair ABOVE the bar (Chip Navy at 30%) and the recess comes from the edges — a dark lip along the top, a lit one along the bottom. The raised cell inside inverts exactly that bevel. Never ring a well all the way round; an outline around a group is one big button.
+
+**Narrow behaviour:** the bar gives up words before it gives up data, and data before controls. In order: tool labels at 1180px and the QUOTA group label with them; the hostname at 1100px; the numbers on *quiet* pools at 1024px; mode labels and the MEM mark at 940px, tooltips carrying the names. A number that crossed a threshold is never shed, and no control is ever removed. Nothing is ever clipped — the well truncates the hostname, not the percentages.
+
+### The Sheet Tier
+Utilities are visited and left, so they open as a **bounded inset sheet over a live shell** (≤1180px, centred, gapped from the command bar and status strip), never as a route that replaces the window. The chrome stays visible around and behind them; Esc, the backdrop and the ✕ all close, returning to the mode you came from — and the keyboard route is stated on the ✕'s own tooltip rather than as a free-standing keycap, because the system has no keycap component and two ways to say "close" in one corner is one too many. A sheet is the one thing licensed to lift — The Carved Rule reserves drop shadows for what will disappear. Inside, panes fill the sheet and the measure caps the *text*, never the pane.
+
+### The Status Strip
+24px, `--bar`, mono at label scale. Closes the frame at the bottom: a page ends by scrolling off into nothing, a window closes. It carries only what is window-scoped and unstated elsewhere — how many agents are computing, which task the window is pointed at, and link health while it is degraded. **Not branch or commit state:** `GitStamp` owns that in four densities and its rule is that one git fact is never restated in two places.
 
 ### The Issue-Color Channel (signature)
 Every issue-tinted surface derives from one `--issue` custom property scoped per subtree, mixed over its base surface (`issue-mix-*` utilities), with a derived text ramp per scope. Reselecting or recoloring crossfades every derived mix together over 0.4s via a registered `@property`. Uncolored issues run identical mechanics in Flow Slate, slightly quieter.

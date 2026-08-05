@@ -6,6 +6,15 @@
   --safe-right: env(safe-area-inset-right, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
+  /* Shell chrome geometry (POD-365). One source for the command bar, the status
+     strip and the gap a sheet leaves around itself, so the three stay in step. */
+  --topbar-h: 44px;
+  --status-strip-h: 24px;
+  --sheet-gap: 14px;
+  --sheet-max: 1180px;
+  /* The single horizontal datum every column header aligns to. Three columns
+     used to sit at 88 / 74 / 78px, so no line ran across the window. */
+  --section-bar-h: 36px;
 }
 html,
 body,
@@ -47,22 +56,256 @@ body {
      doesn't shrink to exclude the home-indicator area the way dvh does. */
   height: 100dvh;
 }
-/* The desktop shell is a 44px command header over independently folding columns. */
+/* THE COMMAND BAR (POD-365) — 44px, four zones over independently folding
+   columns: mode tabs │ mode-contextual slot │ instrument well │ utilities.
+   Its surface is --bar, the DARKEST tier, one step below the panels beneath it,
+   so the columns read as carved into the chassis instead of stacked beside it.
+   (It was --card, the same tone as the sidebar directly below, which is what
+   made it read as one more content band.) */
 .desktop-topbar {
   display: flex;
   flex: 0 0 44px;
   align-items: center;
+  /* ONE ZONE GAP. Every seam and every zone boundary in the bar is 10px, so the
+     bar has a single horizontal rhythm instead of the 2/5/8px mixture that made
+     it read as assembled rather than composed. */
   gap: 10px;
   min-width: 0;
   height: 44px;
-  padding: 0 14px;
+  padding: 0 8px 0 12px;
   border-bottom: 1px solid var(--border);
-  background: var(--card);
+  background: var(--bar);
 }
+/* The wordmark is identity, not state. It sat at full strength and out-shone the
+   mode you were actually in; stepped back, the eye lands on the active mode
+   first and finds the mark when it goes looking for it. */
 .desktop-topbar-logo {
   display: flex;
   flex: none;
   align-items: center;
+  opacity: 0.55;
+}
+/* THE TWO WELLS. Modes on the left and instruments on the right share one
+   recipe — 30px, 8px radius, carved INTO the bar with a black wash under an
+   inset hairline — so the bar is bracketed by two objects of the same make
+   rather than a nav on one end and a lozenge on the other. This is the Affinity
+   Personas pattern's actual mechanism: it is the WELL that stops a row of
+   glyphs reading as links, not a container drawn around the selected one. */
+.topbar-well {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  padding: 2px;
+  border-radius: 8px;
+  /* Recessed is an EDGE, not a tone: the recess comes from a dark lip along the
+     top and a lit one along the bottom, and the raised cell inside inverts that
+     same bevel, so the two edges tell you which way each surface faces. (A ring
+     all the way round is an outline, and an outline around a row of glyphs is
+     one big button.) Which way the FLOOR goes is per-ground and lives in the
+     --well-* tokens: above the bar on navy, where a groove catches ambient light
+     a near-black wash could not show; below it on paper, where there is no
+     ambient left to catch. */
+  background: var(--well-floor);
+  box-shadow:
+    inset 0 1px 1px var(--well-lip),
+    inset 0 0 0 1px var(--well-rim),
+    inset 0 -1px 0 var(--well-lit);
+}
+.desktop-topbar-nav {
+  flex: none;
+  gap: 2px;
+}
+/* The dynamic centre. Sized by its contents and allowed to shrink before the
+   instrument well does — a mode's controls may truncate, the machine readouts
+   must not. Empty in Work, so it collapses to nothing and takes its seam with
+   it (:empty below). */
+.desktop-topbar-slot {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+/* The elastic middle. Also the drag handle on the native title bar, which is
+   why it is an element rather than `margin-left:auto` on the next child. */
+.desktop-topbar-gap {
+  flex: 1 1 auto;
+  min-width: 8px;
+  align-self: stretch;
+}
+.desktop-topbar-utilities {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+}
+/* Zones are divided by hairlines, never by whitespace alone — the same grammar
+   every other section of the shell uses. The leading seam belongs to the slot:
+   with an empty centre it would point at nothing, so it hides with it. */
+/* Zone seams sit centred in the 10px zone gap and stand 18px — tall enough to
+   divide two 30px wells, short enough not to become a second border. */
+.topbar-seam {
+  flex: none;
+  width: 1px;
+  height: 18px;
+  background: var(--border);
+}
+.desktop-topbar-slot:empty {
+  display: none;
+}
+/* One mode: a cell in the well. The ACTIVE one is raised out of the recess onto
+   the chip surface with a 1px material highlight along its top edge — a tone
+   step and a lit edge, which is how a machined segmented control marks its
+   position. It carries NO yellow: a permanently-lit brand hairline in the chrome
+   is exactly the spend The Signal Rule reserves for what is asking something of
+   you, and the well already answers "you are here". */
+.topbar-mode {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 9px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 11.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+.topbar-mode:hover {
+  background: var(--well-hover);
+  color: var(--muted-foreground);
+}
+/* Raised, not lit. On navy the whole ramp gets bluer as it gets lighter, so a
+   full --secondary cell against the groove lands as a saturated blue slab — the
+   generic "selected pill" again, in a different colour; --well-cell holds it at
+   two thirds of that step. On paper the same cell is the card surface, brighter
+   than both bar and groove, which is how the selection stays legible with no
+   ring on either ground. */
+.topbar-mode[data-active="true"] {
+  background: var(--well-cell);
+  box-shadow:
+    inset 0 1px 0 0 var(--well-cell-lit),
+    inset 0 -1px 0 0 var(--well-cell-lip);
+  color: var(--text-strong);
+}
+/* The proposals count. Bare tabular digits in attention ink — the count IS
+   asking something of you, so it keeps the yellow, but a filled pill is a
+   consumer notification badge and the shell has no such component. */
+.topbar-mode-badge {
+  color: var(--attention);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+/* A mode's controls inside the slot. Everything is 28px so the whole bar sits on
+   one optical line with the mode tabs and the instrument well. */
+.topbar-tools {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+.topbar-tools-search {
+  flex: 0 1 220px;
+  min-width: 96px;
+  height: 28px;
+  border-radius: var(--radius);
+  font-size: 12px;
+}
+/* The primary action is the one thing on the bar allowed to be a filled slab,
+   and it sits on the loose-control line with everything else in the slot. */
+.topbar-tools > button[data-slot="button"] {
+  height: 28px;
+  border-radius: var(--radius);
+}
+.topbar-tool-toggle {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  white-space: nowrap;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease;
+}
+.topbar-tool-toggle:hover {
+  background: var(--accent);
+  color: var(--text-strong);
+}
+/* Pressed is a real rung, not a tint: the chip surface plus the strong ring, the
+   same "this is engaged" vocabulary the mode tabs and header chips use. */
+.topbar-tool-toggle-on {
+  border-color: var(--border-strong);
+  background: var(--secondary);
+  color: var(--text-strong);
+}
+/* The label/icon breakpoint. Under 1180px the bar gives up words before it gives
+   up controls: tool labels go first, then the mode labels, leaving glyphs whose
+   tooltips still name them. Nothing is ever dropped. */
+@media (max-width: 1180px) {
+  .topbar-tool-label {
+    display: none;
+  }
+  .topbar-tools-search {
+    flex-basis: 150px;
+  }
+}
+/* THE WELL'S SHED ORDER. Below 1180px the bar can no longer hold four meters, a
+   search field and five controls, and the old answer was to let the well's clip
+   behead whatever ran past its edge — a truncated hostname at 900px. Words go
+   before data: the group label first (the CC/CX/GR marks already name the
+   pools), then the hostname (the dot and the meter still say "this host, this
+   pressure", and the chip's panel names it), then — only then — the numbers on
+   pools that are quiet, at 1024px, and last the MEM mark. A number that crossed
+   a threshold is never shed at any width. */
+@media (max-width: 1180px) {
+  .header-quota-label {
+    display: none;
+  }
+}
+@media (max-width: 1100px) {
+  .header-machine-name {
+    display: none;
+  }
+}
+@media (max-width: 940px) {
+  .header-machine-chip .header-mark {
+    display: none;
+  }
+  .topbar-mode > span:not(.topbar-mode-badge) {
+    display: none;
+  }
+  .topbar-mode {
+    padding: 0 8px;
+  }
+  /* A count with no label to qualify it is a bare number floating in the
+     chrome. The glyph keeps its dot; the digits go with the word. */
+  .topbar-mode-badge {
+    align-self: flex-start;
+    width: 4px;
+    height: 4px;
+    margin-top: 6px;
+    margin-left: -3px;
+    border-radius: 50%;
+    background: var(--attention);
+    font-size: 0;
+  }
 }
 html[data-podium-desktop="true"] .desktop-topbar,
 html[data-podium-desktop="true"] .desktop-topbar-logo {
@@ -99,23 +342,37 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
   background: #c42b1c;
   color: #fff;
 }
+/* THE INSTRUMENT WELL (POD-365). The host and quota readouts used to sit
+   directly on the bar at one tone, evenly spaced, with nothing grouping them —
+   five separate things the eye had to parse and then decide were one thing.
+   Bounding them in a single ringed well with internal hairlines makes them one
+   object with internal structure, which is how a machined instrument reads.
+   The chips inside keep their own hover/pin states: the well is a container,
+   not a control. */
 .header-host-indicators {
   display: flex;
+  flex: 0 1 auto;
   min-width: 0;
   align-items: center;
   justify-content: flex-end;
-  gap: 4px;
+  gap: 0;
   overflow: hidden;
 }
-/* POD-318 — the seam that ends the chrome-action run (usage, settings) and
-   starts the health readouts. Grouping by hairline is how every other section
-   of the shell divides; a wider gap alone read as one undifferentiated run. */
+/* POD-318 — the hairline that divides one readout group from the next. It was
+   the seam between the chrome actions and the health strip; POD-365 moved the
+   actions past the well, so it now does its dividing INSIDE it, which is the
+   job it was always describing. */
 .header-strip-seam {
   flex: none;
   width: 1px;
-  height: 16px;
-  margin-right: 3px;
-  background: var(--border);
+  height: 14px;
+  margin: 0 1px;
+  background: var(--hairline-soft, var(--border));
+}
+/* A divider needs something on both sides. The quota chip renders nothing when
+   no plan is reporting, which would otherwise leave a rule at the well's edge. */
+.header-host-indicators > .header-strip-seam:last-child {
+  display: none;
 }
 /* POD-318 — both health chips are real chrome cells: a 26px target in the 44px
    bar carrying the accent wash every other chrome cell uses. Previously they
@@ -165,8 +422,16 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
   outline: none;
   color: var(--text-strong);
 }
+/* The one shrinkable thing in the well: a hostname ellipsises and still
+   identifies, so it absorbs the squeeze before anything is dropped. The meters
+   and their numbers never shrink — a clipped percentage is a lie. */
+.header-machine-chip {
+  flex: 0 1 auto;
+  min-width: 0;
+}
 /* A hostname is an ID — machine voice, so Geist Mono (DESIGN.md §3). */
 .header-machine-name {
+  min-width: 0;
   max-width: 12ch;
   overflow: hidden;
   color: var(--muted-foreground);
@@ -313,8 +578,11 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
   opacity: 0.85;
 }
 /* A narrow window drops the numbers a quiet pool doesn't need — but never the
-   one that crossed a threshold, which is the whole reason to look. */
-@media (max-width: 1200px) {
+   one that crossed a threshold, which is the whole reason to look. Third in the
+   well's shed order, not first: this fired at 1200px while three labels were
+   still occupying the room, so the bar was giving up data before words. See the
+   ordered block above .topbar-mode's breakpoints. */
+@media (max-width: 1024px) {
   .header-value[data-tone="ok"] {
     display: none;
   }
@@ -679,6 +947,123 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
   min-height: 0;
   width: 100%;
   overflow: hidden;
+}
+/* ---- the status strip (POD-365) ----
+   The bottom edge of the frame. A page ends by scrolling off into nothing; a
+   window closes. Quiet by construction: mono at label scale, dim ink, and
+   nothing in it that a column already says. */
+.status-strip {
+  display: flex;
+  flex: 0 0 var(--status-strip-h);
+  align-items: center;
+  gap: 10px;
+  height: var(--status-strip-h);
+  padding: 0 10px 0 12px;
+  border-top: 1px solid var(--border);
+  background: var(--bar);
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  user-select: none;
+}
+.status-strip-seam {
+  flex: none;
+  width: 1px;
+  height: 11px;
+  background: var(--hairline-soft);
+}
+.status-strip-live {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  color: var(--live);
+}
+.status-strip-idle {
+  flex: none;
+  color: var(--text-faint);
+}
+/* The braille spinner — the shell's one piece of perpetual motion, reusing the
+   agent-state grammar's frames and cadence. */
+.status-strip-spinner::after {
+  content: '⠋';
+  animation: status-strip-braille 800ms steps(1) infinite;
+}
+@keyframes status-strip-braille {
+  0% {
+    content: '⠋';
+  }
+  10% {
+    content: '⠙';
+  }
+  20% {
+    content: '⠹';
+  }
+  30% {
+    content: '⠸';
+  }
+  40% {
+    content: '⠼';
+  }
+  50% {
+    content: '⠴';
+  }
+  60% {
+    content: '⠦';
+  }
+  70% {
+    content: '⠧';
+  }
+  80% {
+    content: '⠇';
+  }
+  90% {
+    content: '⠏';
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .status-strip-spinner::after {
+    animation: none;
+  }
+}
+.status-strip-issue {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+.status-strip-ref {
+  flex: none;
+  color: var(--muted-foreground);
+}
+.status-strip-issue-title {
+  overflow: hidden;
+  color: var(--text-faint);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.status-strip-hint {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  padding: 0 4px;
+  border-radius: var(--radius-md, 4.8px);
+  color: var(--text-faint);
+  font-family: inherit;
+  font-size: inherit;
+  transition: color 150ms ease;
+}
+.status-strip-hint:hover {
+  color: var(--muted-foreground);
+}
+.status-strip-hint kbd {
+  font-family: inherit;
+  font-size: inherit;
 }
 .sidebar-collapse-control {
   position: absolute;
@@ -1828,14 +2213,245 @@ a.ref-link--session::before {
 
 /* Settings takeover (POD-127): one-shot entrance morphs per the agent-state
    motion grammar — a single ease-out settle, then stillness. */
-.settings-overlay {
-  animation: settings-overlay-in 200ms cubic-bezier(0.22, 1, 0.36, 1);
+/* ---- the sheet tier (POD-365) ----
+   Utilities open INSET over a live shell instead of replacing the window. The
+   chrome stays visible around them, which is the structural difference between
+   an application and a page. */
+@supports (backdrop-filter: blur(2px)) {
+  .app-sheet-backdrop {
+    backdrop-filter: blur(2px);
+  }
 }
-@keyframes settings-overlay-in {
+.app-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  /* The dialog overlay's own recipe (components/ui/dialog.tsx): a light wash
+     plus a hair of blur. Heavier would hide the live shell, which is the whole
+     point of a sheet. */
+  background: rgb(0 0 0 / 0.1);
+  animation: app-sheet-fade 160ms ease-out;
+}
+.app-sheet {
+  position: fixed;
+  top: calc(var(--topbar-h) + var(--sheet-gap));
+  bottom: calc(var(--status-strip-h) + var(--sheet-gap));
+  /* Bounded and centred. A sheet is a window over the shell — letting it run
+     edge to edge on a wide display just moves the empty chassis inside it. */
+  left: 50%;
+  width: min(var(--sheet-max), calc(100% - 2 * var(--sheet-gap)));
+  transform: translateX(-50%);
+  z-index: 41;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--card);
+  /* The popover tier — the only lifted tier, and a sheet is by definition
+     something that will disappear. Read from the token, not restated: black at
+     that alpha is depth on navy and dirt on paper (POD-388/POD-372). */
+  box-shadow: var(--shadow-popover);
+  animation: app-sheet-in 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* A sheet that sizes to its content, capped at the frame. Settings is a browsing
+   surface and earns the full height; Usage is one screen of figures, and forcing
+   it to the frame is what pushed its chart to 660px for seven bars. A utility
+   whose content ends should end with it. */
+.app-sheet-fit {
+  bottom: auto;
+  max-height: calc(100dvh - var(--topbar-h) - var(--status-strip-h) - 2 * var(--sheet-gap));
+}
+.app-sheet:focus-visible {
+  outline: none;
+}
+.app-sheet-header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  height: 36px;
+  padding: 0 8px 0 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bar);
+}
+.app-sheet-title {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 12px;
+  font-weight: 600;
+}
+.app-sheet-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+.app-sheet-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius);
+  color: var(--muted-foreground);
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+.app-sheet-close:hover {
+  background: var(--accent);
+  color: var(--text-strong);
+}
+/* The sheet's content region fills the sheet — a utility never leaves the frame
+   half empty, and never centres a measure inside acres of chassis. */
+.app-sheet-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+@keyframes app-sheet-in {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateX(-50%) translateY(6px) scale(0.995);
   }
+  to {
+    transform: translateX(-50%);
+  }
+}
+@keyframes app-sheet-fade {
+  from {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-sheet,
+  .app-sheet-backdrop {
+    animation: none;
+  }
+}
+/* Usage: the summary and chart are fixed height, the model table takes whatever
+   is left and scrolls inside it, the note is pinned to the bottom of the sheet.
+   Content that stops halfway down an empty frame is a page; a window's regions
+   stretch to their frame. */
+.usage-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+  padding: 16px 18px;
+}
+.usage-summary {
+  display: flex;
+  flex: none;
+  align-items: stretch;
+}
+.usage-window {
+  flex: 1;
+  min-width: 0;
+  padding: 0 16px;
+  border-left: 1px solid var(--hairline-soft);
+}
+.usage-window:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+.usage-window-label {
+  color: var(--label);
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.usage-window-value {
+  margin: 5px 0 3px;
+  color: var(--text-strong);
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.usage-window-sub {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+.usage-chart {
+  display: flex;
+  flex: none;
+  align-items: flex-end;
+  gap: 8px;
+  height: 210px;
+  padding: 0 4px;
+}
+.usage-bar {
+  width: 100%;
+  max-width: 42px;
+  border-radius: 3px 3px 0 0;
+  background: color-mix(in srgb, var(--live) 82%, transparent);
+}
+.usage-table-scroll {
+  flex: none;
+  max-height: 40vh;
+  overflow: auto;
+}
+.usage-note {
+  flex: none;
+  margin: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--hairline-soft);
+  max-width: 72ch;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  line-height: 1.55;
+}
+.usage-empty {
+  display: grid;
+  flex: 1;
+  place-items: center;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+/* Settings: a fixed rail and a pane that fills the sheet (POD-365). */
+.settings-panes {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.settings-rail {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  width: 220px;
+  padding: 14px 10px 20px;
+  border-right: 1px solid var(--border);
+  background: var(--bar);
+  overflow-y: auto;
+}
+.settings-pane {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.settings-pane-scroll {
+  flex: 1;
+  min-height: 0;
+  padding: 20px 24px 96px;
+  overflow-y: auto;
+}
+/* The measure constrains the TEXT, never the pane — that inversion is what made
+   the old layout read as a documentation site. */
+.settings-measure {
+  max-width: 780px;
 }
 .settings-section-enter {
   animation: settings-section-in 160ms cubic-bezier(0.22, 1, 0.36, 1);
