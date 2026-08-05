@@ -192,7 +192,7 @@ describe('Ludovico-scale frontend budgets [spec:SP-0b2e] [spec:SP-e2c8] [spec:SP
     const initialIssueReads = issueReads.gets
     const boundedInitialCards = ISSUE_STAGES.length * ISSUE_RENDER_CHUNK
 
-    expect(ISSUE_RENDER_CHUNK).toBe(40)
+    expect(ISSUE_RENDER_CHUNK).toBe(16)
     expect(initialCards).toBe(boundedInitialCards)
     expect(initialCards).toBeLessThan(SCALE.issues)
     expect(initialElements).toBeLessThanOrEqual(BUDGET.tasksInitialElements)

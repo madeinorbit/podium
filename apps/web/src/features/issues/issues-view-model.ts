@@ -79,22 +79,24 @@ export function deriveIssuesViewModel({
     boardIssues.map((issue) => issue.id),
   )
   const orderedByStage = groupIssuesByStage(boardIssues, display.ordering)
-  const rowGroups = issueRowsByStage(active, display.ordering, {
-    flatten: display.flatten,
-    expanded,
-  })
-  const listIds = flattenRowGroups(rowGroups)
   const layout: IssuesLayout = isMobile ? 'list' : display.layout
+  const needsRows = isMobile || display.layout === 'list' || openIssueId !== null
+  const rowGroups = needsRows
+    ? issueRowsByStage(active, display.ordering, {
+        flatten: display.flatten,
+        expanded,
+      })
+    : []
+  const listIds = needsRows ? flattenRowGroups(rowGroups) : []
   const nav: IssuesNav =
     layout === 'list'
       ? { kind: 'rows', ids: listIds }
       : { kind: 'columns', columns: orderedByStage.map((column) => column.issues.map((i) => i.id)) }
   const presentIds = new Set(nav.kind === 'rows' ? nav.ids : nav.columns.flat())
   const open = openIssueId ? issues.find((issue) => issue.id === openIssueId) : undefined
-  const flatRows = issueRowsByStage(active, display.ordering, {
-    flatten: true,
-    expanded,
-  })
+  const flatRows = open
+    ? issueRowsByStage(active, display.ordering, { flatten: true, expanded })
+    : []
   const orderedIdsForOpen = open
     ? issuePageOrderIds(listIds, flattenRowGroups(flatRows), open.id)
     : []

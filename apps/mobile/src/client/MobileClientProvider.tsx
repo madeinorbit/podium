@@ -69,6 +69,7 @@ import * as SQLite from 'expo-sqlite'
 import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import { BootSplash } from '../components/BootSplash'
 import { fetchAuthStatus } from './auth'
+import { useAuthStatus } from './auth-context'
 import {
   DEMO_ISSUES,
   DEMO_SESSIONS,
@@ -454,6 +455,7 @@ function MobileHubAttach({ attachHub }: { attachHub: (hub: SocketHub) => void })
 function LiveProvider({ children }: { children: ReactNode }) {
   const config = useMemo(readServerConfig, [])
   const trpc = useMemo(() => makeMobileTrpc(config.httpOrigin), [config.httpOrigin])
+  const inheritedAuthStatus = useAuthStatus()
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   // AsyncStorage is Promise-only; hydrate the side-cache bridge before the store
@@ -466,7 +468,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
     void (async () => {
       const [bridge, status] = await Promise.all([
         createAsyncStorageReplicaStorage(AsyncStorage, LEGACY_HYDRATE_PREFIXES),
-        fetchAuthStatus(config.httpOrigin),
+        inheritedAuthStatus ?? fetchAuthStatus(config.httpOrigin),
       ])
       if (status.userId === null) throw new Error('authenticated account is unavailable')
       // The live server's v2 catch-up. Typed through the hand-written MobileTrpc
@@ -513,7 +515,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
     return () => {
       alive = false
     }
-  }, [config.httpOrigin, trpc])
+  }, [config.httpOrigin, trpc, inheritedAuthStatus])
   const routerWindow = useMemo(() => createMemoryRouterWindow(), [])
   // `info` stays a no-op: the engine's only info is a transient "a session moved
   // to X" toast, and `notice` below is a STICKY banner for the storage facts the

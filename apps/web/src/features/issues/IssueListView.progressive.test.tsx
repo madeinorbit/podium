@@ -73,16 +73,28 @@ describe('IssueListView progressive rendering', () => {
     )
 
     expect(container.querySelectorAll('[data-issue-id]')).toHaveLength(ISSUE_RENDER_CHUNK)
-    fireEvent.click(screen.getByRole('button', { name: 'Show 40 more tasks (55 remaining)' }))
-    expect(container.querySelectorAll('[data-issue-id]')).toHaveLength(80)
-    expect(screen.getByRole('button', { name: 'Show 15 more tasks (15 remaining)' })).toBeDefined()
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: `Show ${ISSUE_RENDER_CHUNK} more tasks (${95 - ISSUE_RENDER_CHUNK} remaining)`,
+      }),
+    )
+    expect(container.querySelectorAll('[data-issue-id]')).toHaveLength(ISSUE_RENDER_CHUNK * 2)
+    expect(
+      screen.getByRole('button', {
+        name: `Show ${ISSUE_RENDER_CHUNK} more tasks (${95 - ISSUE_RENDER_CHUNK * 2} remaining)`,
+      }),
+    ).toBeDefined()
   })
 
   it('resets a stale large reveal when a filtered stage is restored', () => {
     const large = [{ stage: 'backlog' as const, rows: rows(95) }]
     const { container, rerender } = render(<IssueListView groups={large} {...baseProps} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Show 40 more tasks (55 remaining)' }))
-    expect(container.querySelectorAll('[data-issue-id]')).toHaveLength(80)
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: `Show ${ISSUE_RENDER_CHUNK} more tasks (${95 - ISSUE_RENDER_CHUNK} remaining)`,
+      }),
+    )
+    expect(container.querySelectorAll('[data-issue-id]')).toHaveLength(ISSUE_RENDER_CHUNK * 2)
 
     rerender(<IssueListView groups={[{ stage: 'backlog', rows: rows(5) }]} {...baseProps} />)
     expect(container.querySelectorAll('[data-issue-id]')).toHaveLength(5)
@@ -117,7 +129,7 @@ describe('IssueListView progressive rendering', () => {
   it('reveals children inserted beyond the current boundary when their parent expands', () => {
     function ExpansionHarness() {
       const [expanded, setExpanded] = useState(false)
-      const parentIssue = issue(39)
+      const parentIssue = issue(ISSUE_RENDER_CHUNK - 1)
       parentIssue.title = 'Boundary parent'
       const parent: IssueRow = {
         issue: parentIssue,
@@ -125,7 +137,7 @@ describe('IssueListView progressive rendering', () => {
         childCount: 1,
         expanded,
       }
-      const childIssue = issue(40)
+      const childIssue = issue(ISSUE_RENDER_CHUNK)
       childIssue.title = 'Boundary child'
       const child: IssueRow = {
         issue: childIssue,
@@ -133,7 +145,7 @@ describe('IssueListView progressive rendering', () => {
         childCount: 0,
         expanded: false,
       }
-      const groupRows = [...rows(39), parent, ...(expanded ? [child] : [])]
+      const groupRows = [...rows(ISSUE_RENDER_CHUNK - 1), parent, ...(expanded ? [child] : [])]
       return (
         <IssueListView
           groups={[{ stage: 'backlog', rows: groupRows }]}

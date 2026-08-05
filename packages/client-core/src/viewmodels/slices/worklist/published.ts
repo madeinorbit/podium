@@ -129,6 +129,20 @@ function issuesOf<TApi extends PodiumClientApi>(store: Store<TApi>): IssueNaviga
  */
 export const worklistSlice = defineSlice<Store<PodiumClientApi>, WorklistSlice>({
   name: 'worklist',
+  // Worklist derivation is one of the largest client-side projections. The
+  // store also carries transcript, connection, approval and host-metric
+  // updates that cannot affect this slice, so keep the published value across
+  // those snapshots. Every field named here is read by `derive` above; rows
+  // and collections remain identity-keyed so an eviction/rescope always
+  // invalidates the worklist.
+  sourceEqual: (previous, next) =>
+    previous.repos === next.repos &&
+    previous.machines === next.machines &&
+    previous.sessions === next.sessions &&
+    previous.pins === next.pins &&
+    previous.issues === next.issues &&
+    previous.coarseNow === next.coarseNow &&
+    previous.selectedIssueId === next.selectedIssueId,
   derive: (store) => {
     const issues = issuesOf(store)
     // The repo/project tree is bounded by machine SEE before it is built (POD-407):

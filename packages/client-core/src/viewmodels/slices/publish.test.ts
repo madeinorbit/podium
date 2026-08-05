@@ -45,7 +45,12 @@ describe('createSlicePublisher', () => {
     const pub = createSlicePublisher(() => snapshot)
     pub.read(idsSlice)
     pub.read(idsSlice)
-    snapshot = { rows: [{ id: 'a', rev: 1 }, { id: 'b', rev: 1 }] }
+    snapshot = {
+      rows: [
+        { id: 'a', rev: 1 },
+        { id: 'b', rev: 1 },
+      ],
+    }
     pub.read(idsSlice)
     pub.read(idsSlice)
     pub.read(idsSlice)
@@ -78,7 +83,12 @@ describe('createSlicePublisher', () => {
     let snapshot: World = { rows: [{ id: 'a', rev: 1 }] }
     const pub = createSlicePublisher(() => snapshot)
     pub.read(idsSlice)
-    snapshot = { rows: [{ id: 'x', rev: 1 }, { id: 'y', rev: 1 }] }
+    snapshot = {
+      rows: [
+        { id: 'x', rev: 1 },
+        { id: 'y', rev: 1 },
+      ],
+    }
     expect(pub.read(idsSlice)).toEqual(['x', 'y'])
   })
 
@@ -108,6 +118,28 @@ describe('createSlicePublisher', () => {
     const second = pub.read(stable)
     expect(pub.derivations().stable).toBe(2)
     expect(second).toBe(first)
+  })
+
+  it('can skip a derivation when unrelated source fields change', () => {
+    interface NoisyWorld extends World {
+      readonly noise: number
+    }
+    const relevant = defineSlice<NoisyWorld, string[]>({
+      name: 'relevant',
+      sourceEqual: (previous, next) => previous.rows === next.rows,
+      derive: (world) => world.rows.map((row) => row.id),
+    })
+    let snapshot: NoisyWorld = { rows: [{ id: 'a', rev: 1 }], noise: 0 }
+    const pub = createSlicePublisher(() => snapshot)
+    const first = pub.read(relevant)
+
+    snapshot = { rows: snapshot.rows, noise: 1 }
+    expect(pub.read(relevant)).toBe(first)
+    expect(pub.derivations().relevant).toBe(1)
+
+    snapshot = { rows: [{ id: 'a', rev: 2 }], noise: 1 }
+    expect(pub.read(relevant)).not.toBe(first)
+    expect(pub.derivations().relevant).toBe(2)
   })
 
   it('defaults to Object.is, so a fresh object is a fresh value', () => {
