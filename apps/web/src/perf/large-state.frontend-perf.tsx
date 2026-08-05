@@ -29,13 +29,9 @@ const SCALE = {
 } as const
 
 const BUDGET = {
-  // The replica-backed board currently measures 4,797 elements at this scale;
-  // retain a small margin without changing the bounded-card assertion below.
-  tasksInitialElements: 5_000,
-  // The current card actions measure 376 buttons at the same scale.
-  tasksInitialButtons: 400,
-  // The current issue view-model projection measures 74,762 property reads.
-  tasksInitialIssueReads: 80_000,
+  tasksInitialElements: 4_000,
+  tasksInitialButtons: 225,
+  tasksInitialIssueReads: 55_000,
   sidebarCwdReads: SCALE.sessions * 2,
   sidebarIssueReads: SCALE.issues * 30,
   replicaIncomingReads: SCALE.issues * 100,
