@@ -31,6 +31,18 @@ The lexical response-contract behavior remains protected by deterministic tests.
 Bun-test files (`*.bun.test.ts`) run via `bun test`, never vitest; `bun run test:bun`
 covers the full bun-test set (compiled daemon + lifecycle integration stay out of CI).
 
+## Shared-host resource guard
+
+The shared forked Vitest configuration runs at most two workers and keeps one worker available as the floor. This is sized for the six-core, 11 GB development host so a test run leaves headroom for the live Podium instance and other agent sessions.
+
+The root Vitest lanes (unit, integration, acceptance, E2E, and agent-smoke) and the cached web/mobile runner automatically acquire the test:heavy advisory lease when launched from a live Podium session. Other heavy commands, including browser or multi-instance lanes and direct package invocations, should acquire it before starting and release it immediately afterward:
+
+    podium lock acquire test:heavy --ttl 30m --wait
+    bun run test:integration
+    podium lock release test:heavy
+
+CI and non-session runs do not have a lease identity, so they skip the coordination step but retain the two-worker ceiling. If a run is interrupted, the 30-minute lease TTL is the recovery path; release it manually when the process is gone.
+
 ## Decision table
 
 | Situation | Run |

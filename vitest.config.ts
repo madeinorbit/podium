@@ -20,6 +20,16 @@ export const nodeTestExclude = [
   'apps/mobile/**',
 ]
 
+// Keep forked test runs below the shared development host resource ceiling.
+// The default is one worker per CPU, which is unsafe on the six-core/11 GB box
+// where the live Podium instance and several agent sessions run alongside tests.
+// Two workers preserve useful file parallelism while leaving headroom for them.
+export const sharedTestWorkerLimits = {
+  fileParallelism: true,
+  minWorkers: 1,
+  maxWorkers: 2,
+} as const
+
 /** Shared resolve (workspace aliases + @podium/source condition) and common node test
  * options, spread into every lane config (vitest.unit/integration/agent-smoke). */
 export const sharedVitestConfig = {

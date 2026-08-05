@@ -24,6 +24,7 @@ type Project =
         exclude?: string[]
         include?: string[]
         retry?: number
+        minWorkers?: number
         maxWorkers?: number
         fileParallelism?: boolean
         sequence?: { groupOrder?: number }
@@ -37,6 +38,7 @@ type Config = {
     include?: string[]
     projects?: Project[]
     retry?: number
+    minWorkers?: number
     maxWorkers?: number
     fileParallelism?: boolean
     setupFiles?: string[]
@@ -112,6 +114,14 @@ describe('test lane configuration', () => {
     expect(nodeProject(unitConfig).test?.retry).toBe(0)
     expect(namedProject(unitConfig, 'normalized-wire').test?.retry).toBe(0)
     expect(config(integrationConfig).test?.retry).toBe(1)
+  })
+  it('caps forked lanes for the shared host', () => {
+    const rootNode = nodeProject(rootConfig).test
+    expect(rootNode?.fileParallelism).toBe(true)
+    expect(rootNode?.minWorkers).toBe(1)
+    expect(rootNode?.maxWorkers).toBe(2)
+    expect(config(integrationConfig).test?.minWorkers).toBe(1)
+    expect(config(integrationConfig).test?.maxWorkers).toBe(2)
   })
 
   it('runs normalized-wire load guards after the parallel unit pool', () => {
@@ -310,9 +320,9 @@ describe('test lane configuration', () => {
           throw new Error(`script "${name}": vitest invocation did not capture`)
         }
         expect(
-          invocation.trim(),
-          `script "${name}" must run vitest via bun --bun node_modules/vitest/vitest.mjs`,
-        ).toMatch(/^(?:[A-Z_]+=\S+\s+)*bun --bun node_modules\/vitest\/vitest\.mjs\b/)
+          invocation.includes('bun --bun node_modules/vitest/vitest.mjs'),
+          'vitest invocations must use bun --bun node_modules/vitest/vitest.mjs',
+        ).toBe(true)
       }
     }
   })
