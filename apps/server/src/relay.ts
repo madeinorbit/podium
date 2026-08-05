@@ -1,4 +1,3 @@
-import { type Principal } from '@podium/protocol'
 import { isSpawnedBy } from '@podium/model'
 import { randomUUID } from 'node:crypto'
 import { hostname } from 'node:os'
@@ -6,14 +5,7 @@ import { join } from 'node:path'
 import { isExposedOn, sessionCommandPlane, sessionHandoffInput } from '@podium/commands'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness/metadata'
 import type { AgentKind, SessionId, SessionMeta } from '@podium/model'
-import {
-  asSessionId,
-  asUserId,
-  FIRST_ADMIN_USER_ID,
-  parseReadPositionRowId,
-  parseIssueDepId,
-  parseLayoutRowId,
-} from '@podium/model'
+import { asSessionId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import type { LiveServerMessage, VisibilityResolver } from '@podium/protocol'
 import {
   bareSelfRefCount,
@@ -30,10 +22,6 @@ import {
   GrantEdgeVisibilityPolicy,
   Ledger,
   MutationLedger,
-  type VisibilityAnchorPort,
-  type ChangeLogReadRow,
-  type EntityRef,
-  type VisibilityStatePort,
   NoDelegationsGranted,
   kernelVisibilityResolver,
 } from '@podium/sync'
@@ -46,8 +34,8 @@ import {
   userCommandPrincipal,
 } from './command-principal'
 import { composeReactions, REACTIONS, type ReactionDefinition } from './composition/reactions'
-import { deviceGradeSoleOwner } from './device-grade-owner'
 import { getFeatureStates, isFeatureEnabled } from './features'
+import { makeFeedVisibility } from './feed-visibility'
 import { ClientMux } from './gateway/client-mux'
 import { ClientRegistry } from './gateway/client-registry'
 import { DaemonMux } from './gateway/daemon-mux'
@@ -98,7 +86,6 @@ import {
   type SessionNoticeInfo,
 } from './modules/notify/service'
 import { DEPLOYMENT, type PerfRegistry, perf } from './modules/perf/registry'
-import { perfPrincipal } from './modules/perf/principal'
 import {
   fleetViewFor,
   machinesForPrincipal,
@@ -107,7 +94,7 @@ import {
 } from './modules/sessions/command-ctx'
 import { dispatchSessionCommand, isCommandPlaneProc } from './modules/sessions/command-plane'
 import { SessionInstructionRegistry } from './modules/sessions/instructions'
-import { DEFAULT_GEOMETRY, SessionLifecycle } from './modules/sessions/lifecycle'
+import { SessionLifecycle } from './modules/sessions/lifecycle'
 import type { SnapshotTail } from './modules/sessions/publication/coordinator'
 import type { PublishWorkerClient } from './modules/sessions/publish-worker-client'
 import { SessionReadToolkit } from './modules/sessions/read-toolkit'
@@ -122,7 +109,7 @@ import { WorkflowService } from './modules/workflows/service'
 import { inferRepoFromRoots } from './repo-registry'
 import { spawnedByParentSessionId } from '@podium/model'
 import { StewardService } from './steward'
-import { SessionStore, type IssueRow, type SessionRow } from './store'
+import { SessionStore } from './store'
 import { isGenericClaudeTitle, isTransientTitle } from './title-filter'
 
 // Re-exported so repo-registry/superagent/tests keep importing the daemon-RPC
@@ -133,20 +120,6 @@ export type {
   ScanResult,
 } from './modules/machines/rpc'
 export type { MemoryBreakdown }
-
-type BootstrapReadPhase =
-  | 'visibility.issue.getIssue'
-  | 'visibility.issue.grants.listForResource'
-  | 'visibility.session.getSession'
-  | 'visibility.session.grants.listForResource'
-  | 'visibility.conversation.findSessionByResumeValue'
-  | 'visibility.conversation.grants.listForResource'
-  | 'visibility.automation.ownerOf'
-  | 'visibility.automationRun.runOwnerOf'
-
-interface BootstrapReadTrace {
-  readonly phases: Map<BootstrapReadPhase, number>
-}
 
 interface SessionRegistryOptions {
   /** Boot-resolved deployment identity; every composition root names it explicitly. */
@@ -464,307 +437,14 @@ export class SessionRegistry {
     // AND conversation writes append their change rows ATOMICALLY with the
     // entity write (one transact span on the shared connection). One changes
     // table + one seq sequence — changesSince consumers see one unified feed.
-    const bootstrapReadTraces: BootstrapReadTrace[] = []
-    const measureBootstrapReadPhase = <T>(phase: BootstrapReadPhase, fn: () => T): T => {
-      const trace = bootstrapReadTraces[bootstrapReadTraces.length - 1]
-      if (trace === undefined) return fn()
-      const startedAt = performance.now()
-      try {
-        return fn()
-      } finally {
-        trace.phases.set(phase, (trace.phases.get(phase) ?? 0) + (performance.now() - startedAt))
-      }
-    }
-    const beginBootstrapRead = (): void => {
-      bootstrapReadTraces.push({ phases: new Map() })
-    }
-    const finishBootstrapRead = (principal: Principal): void => {
-      const trace = bootstrapReadTraces.pop()
-      if (trace === undefined) return
-      const perfKey = perfPrincipal(principal)
-      for (const [phase, durationMs] of trace.phases) {
-        perf.record('phase', `feedBootstrap.${phase}`, durationMs, perfKey)
-      }
-    }
-    type BootstrapVisibilityPrefetch = {
-      readonly issueIds: ReadonlySet<string>
-      readonly issues: ReadonlyMap<string, IssueRow>
-      readonly sessionIds: ReadonlySet<string>
-      readonly sessions: ReadonlyMap<string, SessionRow>
-      readonly resumeValues: ReadonlySet<string>
-      readonly sessionsByResumeValue: ReadonlyMap<string, SessionRow>
-    }
-
-    const readIssue = (
-      issueId: string,
-      prefetch?: BootstrapVisibilityPrefetch,
-    ): IssueRow | null => {
-      if (prefetch?.issueIds.has(issueId)) return prefetch.issues.get(issueId) ?? null
-      return measureBootstrapReadPhase('visibility.issue.getIssue', () =>
-        this.store.issues.getIssue(issueId),
-      )
-    }
-
-    const readSession = (
-      sessionId: string,
-      prefetch?: BootstrapVisibilityPrefetch,
-    ): SessionRow | undefined => {
-      if (prefetch?.sessionIds.has(sessionId)) return prefetch.sessions.get(sessionId)
-      return measureBootstrapReadPhase('visibility.session.getSession', () =>
-        this.store.sessions.getSession(asSessionId(sessionId)),
-      )
-    }
-
-    const readConversationSession = (
-      resumeValue: string,
-      prefetch?: BootstrapVisibilityPrefetch,
-    ): SessionRow | undefined => {
-      if (prefetch?.resumeValues.has(resumeValue)) {
-        return prefetch.sessionsByResumeValue.get(resumeValue)
-      }
-      return measureBootstrapReadPhase('visibility.conversation.findSessionByResumeValue', () =>
-        this.store.sessions.findSessionByResumeValue(resumeValue),
-      )
-    }
-
-    const feedMayReadIssue = (
-      userId: string,
-      issueId: string,
-      prefetch?: BootstrapVisibilityPrefetch,
-    ): boolean => {
-      // Authority publishes after the transaction commits but before IssueService
-      // installs a newly-created row in its live map. Read the durable row here so
-      // the creation frame is scoped from the same committed truth catch-up sees.
-      const row = readIssue(issueId, prefetch)
-      if (row?.ownerUserId === userId) return true
-      return measureBootstrapReadPhase('visibility.issue.grants.listForResource', () =>
-        this.store.grants
-          .listForResource('issue', issueId)
-          .some(
-            (edge) =>
-              edge.grantee === userId &&
-              (edge.verb === 'read' || edge.verb === 'write' || edge.verb === 'manage'),
-          ),
-      )
-    }
-    const makeVisibilityState = (prefetch?: BootstrapVisibilityPrefetch): VisibilityStatePort => ({
-      classOf: (entity) => {
-        if (entity === 'repo') return 'deployment-substrate'
-        // Per-user shell layout (POD-1350): never grantable; keyedUserOf owns the
-        // filter. Must NOT fall through to personal or unclassified.
-        if (entity === 'userLayout') return 'per-user-state'
-        // Per-user read positions (POD-1380): same class, same reason. A cursor
-        // that fell through to `personal` would be grantable, and "share my read
-        // state" is not a verb — it is the privacy defect this member exists to
-        // avoid.
-        if (entity === 'userReadPosition') return 'per-user-state'
-        if (
-          entity === 'session' ||
-          entity === 'issue' ||
-          entity === 'issueProjection' ||
-          entity === 'issueDep' ||
-          entity === 'conversation' ||
-          entity === 'automation' ||
-          entity === 'automationRun'
-        )
-          return 'personal'
-        return null
-      },
-      mayRead: (userId, ref) => {
-        if (userId === 'device:shared-instance-password') return true
-        if (ref.entity === 'issue' || ref.entity === 'issueProjection') {
-          return feedMayReadIssue(userId, ref.entityId, prefetch)
-        }
-        if (ref.entity === 'issueDep') {
-          const dep = parseIssueDepId(ref.entityId)
-          return dep !== null && feedMayReadIssue(userId, dep.fromId, prefetch)
-        }
-        if (ref.entity === 'session') {
-          const row = readSession(ref.entityId, prefetch)
-          if (row?.ownerUserId === userId) return true
-          return measureBootstrapReadPhase('visibility.session.grants.listForResource', () =>
-            this.store.grants
-              .listForResource('session', ref.entityId)
-              .some((edge) => edge.grantee === userId && edge.verb === 'read'),
-          )
-        }
-        if (ref.entity === 'conversation') {
-          // BY QUERY, NEVER BY SCAN (POD-1614). This arm is evaluated once per
-          // conversation row of a bootstrap, so a `loadSessions().find(…)` here
-          // made the read O(conversation rows x sessions) — 18.9 s of blocked
-          // event loop on the live corpus, which is what force-closed the
-          // client's 10 s heartbeat mid-bootstrap and made the app take ~60 s
-          // and two dropped sockets to become usable.
-          const row = readConversationSession(ref.entityId, prefetch)
-          if (!row) return false
-          if (row.ownerUserId === userId) return true
-          return measureBootstrapReadPhase('visibility.conversation.grants.listForResource', () =>
-            this.store.grants
-              .listForResource('session', row.id)
-              .some((edge) => edge.grantee === userId && edge.verb === 'read'),
-          )
-        }
-        // THROUGH THE TOMBSTONE, and that is the whole point (POD-1509). A
-        // commit writes before it scopes, so when a `remove` reaches this
-        // decision the row is already deleted. `get()` would answer `undefined`,
-        // the policy would refuse the row as `personal-not-granted`, and the
-        // deletion would leave as an empty watermark — certified as delivered
-        // and never sent. `ownerOf`/`runOwnerOf` read past the tombstone, which
-        // is the only state from which a removal's audience is answerable.
-        if (ref.entity === 'automation') {
-          return (
-            measureBootstrapReadPhase('visibility.automation.ownerOf', () =>
-              this.store.automations.ownerOf(ref.entityId),
-            ) === userId
-          )
-        }
-        if (ref.entity === 'automationRun') {
-          return (
-            measureBootstrapReadPhase('visibility.automationRun.runOwnerOf', () =>
-              this.store.automations.runOwnerOf(ref.entityId),
-            ) === userId
-          )
-        }
-        // per-user-state is decided by keyedUserOf, not mayRead.
-        if (ref.entity === 'userLayout') return false
-        if (ref.entity === 'userReadPosition') return false
-        return false
-      },
-      keyedUserOf: (ref) => {
-        if (ref.entity === 'userReadPosition') {
-          try {
-            return parseReadPositionRowId(ref.entityId).userId
-          } catch {
-            return null
-          }
-        }
-        if (ref.entity !== 'userLayout') return null
-        try {
-          return parseLayoutRowId(ref.entityId).userId
-        } catch {
-          return null
-        }
-      },
-      forBootstrap: (refs: readonly EntityRef[]) => {
-        const issueIds = new Set<string>()
-        const sessionIds = new Set<string>()
-        const resumeValues = new Set<string>()
-        for (const ref of refs) {
-          if (ref.entity === 'issue' || ref.entity === 'issueProjection') {
-            issueIds.add(ref.entityId)
-          } else if (ref.entity === 'issueDep') {
-            const dep = parseIssueDepId(ref.entityId)
-            if (dep !== null) issueIds.add(dep.fromId)
-          } else if (ref.entity === 'session') {
-            sessionIds.add(ref.entityId)
-          } else if (ref.entity === 'conversation') {
-            resumeValues.add(ref.entityId)
-          }
-        }
-        const issues =
-          issueIds.size === 0
-            ? new Map<string, IssueRow>()
-            : measureBootstrapReadPhase('visibility.issue.getIssue', () =>
-                this.store.issues.getIssues([...issueIds]),
-              )
-        const sessions =
-          sessionIds.size === 0
-            ? new Map<string, SessionRow>()
-            : measureBootstrapReadPhase('visibility.session.getSession', () =>
-                this.store.sessions.getSessions([...sessionIds]),
-              )
-        const sessionsByResumeValue =
-          resumeValues.size === 0
-            ? new Map<string, SessionRow>()
-            : measureBootstrapReadPhase('visibility.conversation.findSessionByResumeValue', () =>
-                this.store.sessions.findSessionsByResumeValues([...resumeValues]),
-              )
-        return makeVisibilityState({
-          issueIds,
-          issues,
-          sessionIds,
-          sessions,
-          resumeValues,
-          sessionsByResumeValue,
-        })
-      },
-    })
+    const feedVisibility = makeFeedVisibility({ store: this.store })
     const visibility = new GrantEdgeVisibilityPolicy(
-      makeVisibilityState(),
+      feedVisibility.state,
       new NoDelegationsGranted(),
     )
-    type IssueDepSubject = {
-      entity: 'issueDep'
-      entityId: string
-    }
-    type BootstrapReadCache = {
-      generation: number
-      latestByRef: Map<string, Map<string, ChangeLogReadRow>>
-      issueDepsByFromId: Map<string, IssueDepSubject[]>
-      sessions?: SessionRow[]
-    }
-    let bootstrapReadCache: BootstrapReadCache | undefined
-    const currentBootstrapReadCache = (): BootstrapReadCache => {
-      const generation = this.store.sync.latestChangeStatesGeneration()
-      if (bootstrapReadCache?.generation === generation) return bootstrapReadCache
-      const latestByRef = new Map<string, Map<string, ChangeLogReadRow>>()
-      const issueDepsByFromId = new Map<string, IssueDepSubject[]>()
-      for (const row of this.store.sync.latestChangeStates()) {
-        const byEntity = latestByRef.get(row.entity) ?? new Map<string, ChangeLogReadRow>()
-        byEntity.set(row.entityId, row)
-        latestByRef.set(row.entity, byEntity)
-        if (row.entity !== 'issueDep' || row.op !== 'upsert') continue
-        const dep = parseIssueDepId(row.entityId)
-        if (dep === null) continue
-        const subjects = issueDepsByFromId.get(dep.fromId) ?? []
-        subjects.push({ entity: 'issueDep', entityId: row.entityId })
-        issueDepsByFromId.set(dep.fromId, subjects)
-      }
-      bootstrapReadCache = { generation, latestByRef, issueDepsByFromId }
-      return bootstrapReadCache
-    }
-    const durableChangeValueOf = (ref: { entity: string; entityId: string }): unknown => {
-      const row = currentBootstrapReadCache().latestByRef.get(ref.entity)?.get(ref.entityId)
-      if (!row || row.op !== 'upsert' || row.payload === null) return undefined
-      try {
-        return JSON.parse(row.payload)
-      } catch {
-        return undefined
-      }
-    }
-    const anchors: VisibilityAnchorPort = {
-      visibilityEdge: (ref) => {
-        if (ref.entity !== 'issue') return null
-        const audience = this.store.grants.visibilityAudienceFor('issue', ref.entityId)
-        if (audience.length === 0) return null
-        const cache = currentBootstrapReadCache()
-        let sessions = cache.sessions
-        if (sessions === undefined) {
-          sessions = this.store.sessions.loadSessions()
-          cache.sessions = sessions
-        }
-        const issueSessions = sessions.filter((session) => session.issueId === ref.entityId)
-        const subjects = [
-          { entity: 'issue' as const, entityId: ref.entityId },
-          { entity: 'issueProjection' as const, entityId: ref.entityId },
-          ...issueSessions.map((session) => ({
-            entity: 'session' as const,
-            entityId: session.id,
-          })),
-          ...issueSessions.flatMap((session) =>
-            session.resumeValue
-              ? [{ entity: 'conversation' as const, entityId: session.resumeValue }]
-              : [],
-          ),
-          ...(cache.issueDepsByFromId.get(ref.entityId) ?? []),
-        ]
-        return { audience, subjects }
-      },
-      currentValueOf: (ref) => durableChangeValueOf(ref),
-    }
     const ledger = new Ledger({
       visibility,
-      anchors,
+      anchors: feedVisibility.anchors,
       listenerPrincipal: DEVICE_GRADE_PRINCIPAL,
       repo: this.store.sync,
       now: () => this.now(),
@@ -811,8 +491,8 @@ export class SessionRegistry {
     })
     const feedServing = new FeedServing({
       authority: ledger.authority,
-      onBootstrapReadStart: beginBootstrapRead,
-      onBootstrapReadEnd: (principal) => finishBootstrapRead(principal),
+      onBootstrapReadStart: feedVisibility.beginBootstrapRead,
+      onBootstrapReadEnd: (principal) => feedVisibility.finishBootstrapRead(principal),
       identity: new FeedIdentityRegistry(
         {
           readIdentity: () => this.store.sync.readFeedIdentity(),
@@ -988,7 +668,7 @@ export class SessionRegistry {
             canSee: (ref) => {
               if (principal.kind === 'system') return true
               if (userId === null) return false
-              if (ref.kind === 'issue') return feedMayReadIssue(userId, ref.id)
+              if (ref.kind === 'issue') return feedVisibility.mayReadIssue(userId, ref.id)
               if (ref.kind === 'session') {
                 const owner = liveSessionOwnership(asSessionId(ref.id))
                 return owner?.owner === userId || owner?.grants.includes(userId) === true
