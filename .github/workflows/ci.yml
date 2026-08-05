@@ -110,6 +110,26 @@ jobs:
       - run: bun install --frozen-lockfile --ignore-scripts
       - run: bun run typecheck
 
+  # Dedicated blocking process-level updater lane. The verifier builds and
+  # stages isolated headless installs, serves a local signed feed, and checks
+  # both a valid atomic swap and a tampered-artifact rejection. Keep it out of
+  # the non-blocking browser lane and the oracle matrix so its red is visible.
+  headless-update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.14'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - name: signed headless update verifier
+        run: bash scripts/verify-headless-update.sh
+
   # Schema migrations [spec:SP-4428]: drizzle-kit check fails when two branches
   # authored non-commutative migrations (touching the same table) — the merge
   # conflict our hand-rolled runner could never see. Also guards the bundled
