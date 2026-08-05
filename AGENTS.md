@@ -153,7 +153,7 @@ For a quick edit-run loop, use the root Vitest scripts:
 - `bun run test:related -- path/to/file.ts` runs tests reachable from an explicit file list; pass more paths after `--` when needed.
 - `bun run test:watch` keeps the unit projects warm in plain watch mode for repeated edits.
 
-These scripts use the same direct Bun-backed Vitest invocation as `test:unit` and run its `node` and `normalized-wire` projects. They are a fast approximation for the inner loop, not a CI lane: Vitest rebuilds its module graph for each invocation, and module-graph selection cannot see tests that consume files through filesystem reads instead of imports. This lane does **not** replace `bun run test` before a commit; the full suite is still required before committing.
+These scripts use the same direct Bun-backed Vitest invocation as `test:unit` and run its `node` and `normalized-wire` projects. They are a fast approximation for the inner loop, not a CI lane: Vitest rebuilds its module graph for each invocation, and module-graph selection cannot see tests that consume files through filesystem reads instead of imports. For example, changing `docs/TELEMETRY.md` does not select `packages/telemetry/src/docs-drift.test.ts`, which reads that file with `readFileSync`; `test:changed` can therefore pass with zero selected tests for that edit. This is a documented limit, not a detected dependency: target the reader explicitly with `bun run test:related -- packages/telemetry/src/docs-drift.test.ts` when needed. This lane does **not** replace `bun run test` before a commit; the full suite is still required before committing.
 
 ## Testing policy
 

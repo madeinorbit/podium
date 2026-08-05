@@ -53,8 +53,12 @@ for the full suite. They run only the root unit projects (`node` and
 `normalized-wire`); they do not cover the web/mobile, integration, acceptance, or
 `bun:test` lanes. Vitest rebuilds its module graph for each invocation, so these scripts
 do not provide CI caching. Module-graph selection also cannot discover tests that read a
-changed file directly from disk rather than importing it. Run `bun run test` before a
-commit.
+changed file directly from disk rather than importing it. For example,
+`packages/telemetry/src/docs-drift.test.ts` reads `docs/TELEMETRY.md` with
+`readFileSync`, so changing only that doc can make `test:changed` pass with no selected
+tests. This is a documented limit, not a detected dependency; target the reader with
+`bun run test:related -- packages/telemetry/src/docs-drift.test.ts` when needed. Run
+`bun run test` before a commit.
 
 ## Invariants
 
