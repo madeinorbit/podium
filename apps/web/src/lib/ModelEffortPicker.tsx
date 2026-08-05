@@ -1,4 +1,4 @@
-import { ChevronsUpDown, Cpu, Gauge } from 'lucide-react'
+import { ChevronDown, Cpu, Gauge } from 'lucide-react'
 import type { ComponentProps, JSX, ReactNode } from 'react'
 import { forwardRef } from 'react'
 import { Button } from '@/components/ui/button'
@@ -40,7 +40,13 @@ const PickerTrigger = forwardRef<
         {icon}
         <span className="truncate">{label}</span>
       </span>
-      <ChevronsUpDown size={14} aria-hidden="true" className="shrink-0 opacity-50" />
+      {/* The same glyph `Select` uses (components/ui/select.tsx). This is a
+          field-shaped trigger for a menu that opens DOWNWARD, sitting in a
+          Settings row directly above real Selects — ChevronsUpDown promised a
+          different interaction and delivered the same one, which is two control
+          languages for one control. The `pill` variant carries no chevron at
+          all and is unaffected. */}
+      <ChevronDown size={14} aria-hidden="true" className="shrink-0 opacity-50" />
     </Button>
   ) : (
     <Button

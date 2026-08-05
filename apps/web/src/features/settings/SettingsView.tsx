@@ -547,10 +547,43 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
   const refusalText = refusalMessage(refusals)
   const showBar =
     BLOB_TABS.has(tab) && (dirty || saving || savedFlash || Boolean(error) || Boolean(refusalText))
+  /**
+   * CLOSING WITH UNSAVED EDITS. Escape and a backdrop click are both one
+   * keystroke or one stray click away at all times, and both used to drop a
+   * half-finished settings edit on the floor silently. They now REFUSE while the
+   * dirty bar is up.
+   *
+   * A refusal rather than a confirm dialog, deliberately: a sheet may not open a
+   * second modal layer over itself (DESIGN.md §The Sheet Tier), and the bar this
+   * points at already carries the only two answers a confirm would offer —
+   * Discard and Save changes. So the refusal sends the eye to the control that
+   * resolves it rather than stacking a copy of that control on top of it.
+   *
+   * It must not be silent, or Escape reads as broken: the bar takes the message
+   * for a beat, announces it, and nudges once.
+   */
+  const [closeBlockedAt, setCloseBlockedAt] = useState(0)
+  const closeBlocked = closeBlockedAt > 0 && Date.now() - closeBlockedAt < 2600
   const discard = () => {
     setSettings(lastSaved)
     setError(null)
     setRefusals([])
+    setCloseBlockedAt(0)
+  }
+  useEffect(() => {
+    if (!closeBlocked) return
+    const id = window.setTimeout(() => forceTick((n) => n + 1), 2700)
+    return () => window.clearTimeout(id)
+  }, [closeBlocked])
+  // Gated on the same condition as the bar itself: a refusal the user has no
+  // visible reason for is indistinguishable from a broken Escape key.
+  const blocksClose = BLOB_TABS.has(tab) && (dirty || saving)
+  const requestClose = (): void => {
+    if (blocksClose) {
+      setCloseBlockedAt(Date.now())
+      return
+    }
+    onClose()
   }
 
   const filterRef = useRef<HTMLInputElement | null>(null)
@@ -590,7 +623,10 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
       label="Settings"
       title="Settings"
       testId="settings-sheet"
-      onClose={onClose}
+      className="app-sheet-settings"
+      // Escape, the backdrop and the ✕ all route through the guard — one answer
+      // to "close", however it was asked for.
+      onClose={requestClose}
       toolbar={
         error && !settings ? <span className="text-destructive text-xs">{error}</span> : undefined
       }
@@ -745,10 +781,17 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
           </div>
           <div
             className={cn(
-              'absolute right-6 bottom-4 left-6 z-10 flex max-w-[780px] items-center gap-2 rounded-lg border border-border-strong bg-chip py-1.5 pr-1.5 pl-3.5 shadow-[0_14px_34px_rgb(0_0_0_/_0.65),0_2px_8px_rgb(0_0_0_/_0.5)] transition-[transform,opacity] duration-200 ease-out motion-reduce:transition-none',
+              // The lifted tier read from the token rather than restated: black
+              // at that alpha is depth on navy and dirt on paper (POD-388).
+              'absolute right-6 bottom-4 left-6 z-10 flex max-w-[780px] items-center gap-2 rounded-lg border border-border-strong bg-chip py-1.5 pr-1.5 pl-3.5 shadow-[var(--shadow-popover)] transition-[transform,opacity] duration-200 ease-out motion-reduce:transition-none',
               showBar
                 ? 'translate-y-0 opacity-100'
                 : 'pointer-events-none translate-y-16 opacity-0',
+              // One nudge when a close was refused — a single one-shot morph,
+              // then stillness, which is the shell's whole motion grammar. The
+              // ring is what makes the bar findable if it had scrolled out of
+              // the eye's attention.
+              closeBlocked && 'settings-bar-nudge ring-1 ring-attention/60',
             )}
             aria-hidden={!showBar}
           >
@@ -757,13 +800,23 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
                 'min-w-0 flex-1 truncate text-[12px]',
                 error || refusalText ? 'text-destructive' : 'text-foreground',
               )}
-              // The refusal is the message a user acts on, so it is announced
-              // rather than left to be noticed in a bar they were not reading.
-              role={refusalText ? 'alert' : undefined}
+              // A refusal — of a write, or of the close that would have thrown
+              // the edit away — is the message a user acts on, so it is
+              // announced rather than left to be noticed in a bar they were not
+              // reading.
+              role={refusalText || closeBlocked ? 'alert' : undefined}
               data-settings-refusal={refusalText ? 'true' : undefined}
+              data-settings-close-blocked={closeBlocked ? 'true' : undefined}
               title={refusalText ?? undefined}
             >
-              {error ? error : (refusalText ?? (dirty || saving ? 'Unsaved changes' : 'Saved ✓'))}
+              {error
+                ? error
+                : (refusalText ??
+                  (closeBlocked
+                    ? 'Unsaved changes — save or discard first'
+                    : dirty || saving
+                      ? 'Unsaved changes'
+                      : 'Saved ✓'))}
             </span>
             {(dirty || error) && (
               <Button type="button" variant="ghost" size="sm" onClick={discard}>

@@ -107,6 +107,11 @@ export function localDay(ms: number): string {
 
 /** "1.2M" / "840k" / "312" token shorthand. */
 export function formatTokens(n: number): string {
+  // The ramp stopped at M, so a busy week printed "1000.0M" — four digits and a
+  // unit that has stopped doing its job. The chart's axis is where it showed
+  // first (its top tick is a rounded number, so it lands on 1000M exactly), but
+  // the summary and the model table read the same scale and the same fix.
+  if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B`
   if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`
   if (n >= 1e3) return `${Math.round(n / 1e3)}k`
   return String(n)
@@ -114,4 +119,33 @@ export function formatTokens(n: number): string {
 
 export function formatUsd(n: number): string {
   return n >= 100 ? `$${Math.round(n)}` : `$${n.toFixed(2)}`
+}
+
+/**
+ * A tick is a ruler mark, not a readout: it drops the decimal zero a value
+ * keeps, so the axis reads 1B / 500M rather than 1.0B / 500.0M. `niceAxisMax`
+ * only ever produces 1/2/5 × 10ⁿ, so a tick's decimal is always either absent
+ * or a genuine half (2.5B), and only the zero is ever stripped.
+ */
+export function formatTick(n: number): string {
+  return formatTokens(n).replace(/\.0(?=[kMB]?$)/, '')
+}
+
+/**
+ * The top of a chart's y-axis: the smallest 1/2/5 × 10ⁿ at or above `peak`.
+ *
+ * A scale has to be readable, not merely correct — an axis topped at the raw
+ * peak labels its gridlines 347.2M / 173.6M, which is three digits of noise per
+ * line and a top gridline that means nothing but "the tallest bar". Snapping to
+ * a round number makes every tick a number a person can hold, and leaves the
+ * peak bar visibly short of the ceiling, which is itself information.
+ */
+export function niceAxisMax(peak: number): number {
+  if (!Number.isFinite(peak) || peak <= 0) return 1
+  const magnitude = 10 ** Math.floor(Math.log10(peak))
+  const steps = [1, 2, 5, 10]
+  for (const step of steps) {
+    if (peak <= step * magnitude) return step * magnitude
+  }
+  return 10 * magnitude
 }
