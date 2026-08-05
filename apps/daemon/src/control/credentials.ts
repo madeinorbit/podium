@@ -23,10 +23,7 @@ import { reportInventory } from './inventory'
 
 const MAX_CREDENTIAL_BYTES = 1_000_000
 
-const PORTABLE_CREDENTIAL_PATHS: Record<
-  PortableCredentialKind,
-  (home: string) => string
-> = {
+const PORTABLE_CREDENTIAL_PATHS: Record<PortableCredentialKind, (home: string) => string> = {
   codex: (home) => join(process.env.CODEX_HOME?.trim() || join(home, '.codex'), 'auth.json'),
   grok: (home) => join(process.env.GROK_HOME?.trim() || join(home, '.grok'), 'auth.json'),
   'claude-code-state': (home) => join(home, '.claude.json'),
@@ -77,13 +74,25 @@ interface CredentialSnapshot {
   contents?: Buffer
 }
 
+function isMissingPath(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === 'ENOENT'
+  )
+}
+
 function snapshot(path: string): CredentialSnapshot {
   try {
     const stat = lstatSync(path)
     if (!stat.isFile() || stat.size > MAX_CREDENTIAL_BYTES) return { exists: true }
     return { exists: true, contents: readFileSync(path) }
-  } catch {
-    return { exists: false }
+  } catch (error: unknown) {
+    // Only a genuinely absent path is an empty compare-and-swap value. A
+    // permissions error, directory race, or other read failure must not turn
+    // into permission to overwrite a file we could not inspect.
+    return isMissingPath(error) ? { exists: false } : { exists: true }
   }
 }
 
@@ -112,11 +121,7 @@ function atomicInstall(path: string, content: Buffer): void {
   }
 }
 
-function guardedInstall(
-  bundle: PortableCredentialBundle,
-  path: string,
-  content: Buffer,
-): boolean {
+function guardedInstall(bundle: PortableCredentialBundle, path: string, content: Buffer): boolean {
   if (bundle.kind !== 'codex' && bundle.kind !== 'claude-code') {
     throw new Error('credential propagation only supports native Codex and Claude files')
   }
