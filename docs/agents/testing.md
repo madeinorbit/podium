@@ -35,7 +35,9 @@ covers the full bun-test set (compiled daemon + lifecycle integration stay out o
 
 | Situation | Run |
 | --- | --- |
-| Iterating on one package/file | Scoped: `bun --bun vitest run <path> --config vitest.unit.config.ts` |
+| Iterating on changed source | `bun run test:changed` — Vitest's module graph selects tests reachable from the files changed since `HEAD` |
+| Iterating on an explicit file list | `bun run test:related -- path/to/file.ts` — add more paths after `--` as needed |
+| Repeating edits interactively | `bun run test:watch` — plain watch mode keeps the Vitest process warm |
 | Before every commit | `bun run test` (fast default) |
 | Touched agent-bridge / daemon / server process, PTY, or abduco code | Also `bun run test:integration` |
 | Full-stack flows, before landing UI/server interaction work | `bun run test:e2e` |
@@ -43,8 +45,16 @@ covers the full bun-test set (compiled daemon + lifecycle integration stay out o
 | Changed a web UI surface a `*.browser.e2e.ts` suite covers | Also `bun run test:browser` (scope it: `bun run test:browser -- --grep …`) — and do not cite a suite as runtime verification without re-running it |
 | Real agent CLI behavior | `bun run test:smoke:agents` — ONLY on explicit human request |
 
-Always run vitest under Bun (`bun --bun vitest run ...`), never plain `vitest` and
+Always invoke Vitest through the repo's direct Bun entry point (`bun --bun node_modules/vitest/vitest.mjs run ...`), never plain `vitest` and
 never `bun test` for vitest files.
+
+The three inner-loop scripts are deliberately a fast approximation, not a replacement
+for the full suite. They run only the root unit projects (`node` and
+`normalized-wire`); they do not cover the web/mobile, integration, acceptance, or
+`bun:test` lanes. Vitest rebuilds its module graph for each invocation, so these scripts
+do not provide CI caching. Module-graph selection also cannot discover tests that read a
+changed file directly from disk rather than importing it. Run `bun run test` before a
+commit.
 
 ## Invariants
 
