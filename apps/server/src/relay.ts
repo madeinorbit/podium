@@ -86,6 +86,7 @@ import {
   type SessionNoticeInfo,
 } from './modules/notify/service'
 import { DEPLOYMENT, type PerfRegistry, perf } from './modules/perf/registry'
+import { perfPrincipal } from './modules/perf/principal'
 import {
   fleetViewFor,
   machinesForPrincipal,
@@ -120,6 +121,20 @@ export type {
   ScanResult,
 } from './modules/machines/rpc'
 export type { MemoryBreakdown }
+
+type BootstrapReadPhase =
+  | 'visibility.issue.getIssue'
+  | 'visibility.issue.grants.listForResource'
+  | 'visibility.session.getSession'
+  | 'visibility.session.grants.listForResource'
+  | 'visibility.conversation.findSessionByResumeValue'
+  | 'visibility.conversation.grants.listForResource'
+  | 'visibility.automation.ownerOf'
+  | 'visibility.automationRun.runOwnerOf'
+
+interface BootstrapReadTrace {
+  readonly phases: Map<BootstrapReadPhase, number>
+}
 
 interface SessionRegistryOptions {
   /** Boot-resolved deployment identity; every composition root names it explicitly. */
@@ -433,19 +448,45 @@ export class SessionRegistry {
     // AND conversation writes append their change rows ATOMICALLY with the
     // entity write (one transact span on the shared connection). One changes
     // table + one seq sequence — changesSince consumers see one unified feed.
+    const bootstrapReadTraces: BootstrapReadTrace[] = []
+    const measureBootstrapReadPhase = <T>(phase: BootstrapReadPhase, fn: () => T): T => {
+      const trace = bootstrapReadTraces[bootstrapReadTraces.length - 1]
+      if (trace === undefined) return fn()
+      const startedAt = performance.now()
+      try {
+        return fn()
+      } finally {
+        trace.phases.set(phase, (trace.phases.get(phase) ?? 0) + (performance.now() - startedAt))
+      }
+    }
+    const beginBootstrapRead = (): void => {
+      bootstrapReadTraces.push({ phases: new Map() })
+    }
+    const finishBootstrapRead = (principal: Principal): void => {
+      const trace = bootstrapReadTraces.pop()
+      if (trace === undefined) return
+      const perfKey = perfPrincipal(principal)
+      for (const [phase, durationMs] of trace.phases) {
+        perf.record('phase', `feedBootstrap.${phase}`, durationMs, perfKey)
+      }
+    }
     const feedMayReadIssue = (userId: string, issueId: string): boolean => {
       // Authority publishes after the transaction commits but before IssueService
       // installs a newly-created row in its live map. Read the durable row here so
       // the creation frame is scoped from the same committed truth catch-up sees.
-      const row = this.store.issues.getIssue(issueId)
+      const row = measureBootstrapReadPhase('visibility.issue.getIssue', () =>
+        this.store.issues.getIssue(issueId),
+      )
       if (row?.ownerUserId === userId) return true
-      return this.store.grants
-        .listForResource('issue', issueId)
-        .some(
-          (edge) =>
-            edge.grantee === userId &&
-            (edge.verb === 'read' || edge.verb === 'write' || edge.verb === 'manage'),
-        )
+      return measureBootstrapReadPhase('visibility.issue.grants.listForResource', () =>
+        this.store.grants
+          .listForResource('issue', issueId)
+          .some(
+            (edge) =>
+              edge.grantee === userId &&
+              (edge.verb === 'read' || edge.verb === 'write' || edge.verb === 'manage'),
+          ),
+      )
     }
     const visibility = new GrantEdgeVisibilityPolicy({
       classOf: (entity) => {
@@ -480,11 +521,15 @@ export class SessionRegistry {
           return dep !== null && feedMayReadIssue(userId, dep.fromId)
         }
         if (ref.entity === 'session') {
-          const row = this.store.sessions.getSession(asSessionId(ref.entityId))
+          const row = measureBootstrapReadPhase('visibility.session.getSession', () =>
+            this.store.sessions.getSession(asSessionId(ref.entityId)),
+          )
           if (row?.ownerUserId === userId) return true
-          return this.store.grants
-            .listForResource('session', ref.entityId)
-            .some((edge) => edge.grantee === userId && edge.verb === 'read')
+          return measureBootstrapReadPhase('visibility.session.grants.listForResource', () =>
+            this.store.grants
+              .listForResource('session', ref.entityId)
+              .some((edge) => edge.grantee === userId && edge.verb === 'read'),
+          )
         }
         if (ref.entity === 'conversation') {
           // BY QUERY, NEVER BY SCAN (POD-1614). This arm is evaluated once per
@@ -493,12 +538,17 @@ export class SessionRegistry {
           // event loop on the live corpus, which is what force-closed the
           // client's 10 s heartbeat mid-bootstrap and made the app take ~60 s
           // and two dropped sockets to become usable.
-          const row = this.store.sessions.findSessionByResumeValue(ref.entityId)
+          const row = measureBootstrapReadPhase(
+            'visibility.conversation.findSessionByResumeValue',
+            () => this.store.sessions.findSessionByResumeValue(ref.entityId),
+          )
           if (!row) return false
           if (row.ownerUserId === userId) return true
-          return this.store.grants
-            .listForResource('session', row.id)
-            .some((edge) => edge.grantee === userId && edge.verb === 'read')
+          return measureBootstrapReadPhase('visibility.conversation.grants.listForResource', () =>
+            this.store.grants
+              .listForResource('session', row.id)
+              .some((edge) => edge.grantee === userId && edge.verb === 'read'),
+          )
         }
         // THROUGH THE TOMBSTONE, and that is the whole point (POD-1509). A
         // commit writes before it scopes, so when a `remove` reaches this
@@ -508,10 +558,18 @@ export class SessionRegistry {
         // and never sent. `ownerOf`/`runOwnerOf` read past the tombstone, which
         // is the only state from which a removal's audience is answerable.
         if (ref.entity === 'automation') {
-          return this.store.automations.ownerOf(ref.entityId) === userId
+          return (
+            measureBootstrapReadPhase('visibility.automation.ownerOf', () =>
+              this.store.automations.ownerOf(ref.entityId),
+            ) === userId
+          )
         }
         if (ref.entity === 'automationRun') {
-          return this.store.automations.runOwnerOf(ref.entityId) === userId
+          return (
+            measureBootstrapReadPhase('visibility.automationRun.runOwnerOf', () =>
+              this.store.automations.runOwnerOf(ref.entityId),
+            ) === userId
+          )
         }
         // per-user-state is decided by keyedUserOf, not mayRead.
         if (ref.entity === 'userLayout') return false
@@ -652,6 +710,8 @@ export class SessionRegistry {
     })
     const feedServing = new FeedServing({
       authority: ledger.authority,
+      onBootstrapReadStart: beginBootstrapRead,
+      onBootstrapReadEnd: (principal) => finishBootstrapRead(principal),
       identity: new FeedIdentityRegistry(
         {
           readIdentity: () => this.store.sync.readFeedIdentity(),
