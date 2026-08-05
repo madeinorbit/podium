@@ -1,4 +1,9 @@
-import { beginSwitch, getRecentSwitchTraces, resetSwitchTraces } from '@podium/client-core/perf'
+import {
+  beginSwitch,
+  getRecentSwitchTraces,
+  markSwitch,
+  resetSwitchTraces,
+} from '@podium/client-core/perf'
 import {
   asSessionId,
   type SessionId,
@@ -25,8 +30,9 @@ import {
 // POD-725: a warm chat panel that stays mounted (with a live delta subscription)
 // must NOT re-read its transcript window on every re-activation. These tests
 // drive the hook directly with controllable hub/tRPC/replica fakes and assert
-// both the read behaviour and the switch-trace mark contract (chat:cache-hit +
-// chat:first-paint on a skipped-read activation; a full re-read otherwise).
+// both the read behaviour and the switch-trace lifecycle marks (chat:cache-hit +
+// chat:first-paint on a skipped-read activation; ChatView's DOM-level
+// chat:interactable sentinel is supplied by the test harness helper).
 // ---------------------------------------------------------------------------
 
 type DeltaCb = (items: TranscriptItem[], meta: { reset: boolean }) => void
@@ -147,6 +153,14 @@ async function flushFrames(): Promise<void> {
     await new Promise((r) => setTimeout(r, 40))
     await new Promise((r) => setTimeout(r, 40))
     await new Promise((r) => setTimeout(r, 40))
+  })
+  // The hook-only probe has no ChatView/DOM composer to produce the real
+  // sentinel. Keep these lifecycle tests focused on window reuse and provide
+  // the same settled-chat boundary explicitly.
+  markSwitch(asSessionId('s1'), 'chat:interactable', {
+    composerEnabled: true,
+    composerFocusable: true,
+    transcriptCommitted: true,
   })
 }
 

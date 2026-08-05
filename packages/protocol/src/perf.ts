@@ -45,6 +45,19 @@
 import { IssueIdField, SessionIdField } from '@podium/model'
 import { z } from 'zod'
 
+/** Stable client-switch mark names shared by emitters and trace readers.
+ * `chat:first-paint` and `term:ready` remain diagnostic lifecycle marks;
+ * `chat:interactable` and `term:interactable` are the honest quiesce sentinels.
+ */
+export const SWITCH_TRACE_MARKS = {
+  chatFirstPaint: 'chat:first-paint',
+  chatInteractable: 'chat:interactable',
+  termReady: 'term:ready',
+  termInteractable: 'term:interactable',
+} as const
+
+export type SwitchTraceSentinel = (typeof SWITCH_TRACE_MARKS)[keyof typeof SWITCH_TRACE_MARKS]
+
 /** One named point in a client switch trace, offset from gesture t0. */
 export const switchMarkSchema = z.object({
   name: z.string().max(64),
@@ -55,7 +68,8 @@ export type SwitchMark = z.infer<typeof switchMarkSchema>
 /**
  * A completed client-side switch trace: one user gesture that changed the
  * focused session/issue, with everything observed until the view quiesced
- * (chat first paint + terminal ready, or timeout).
+ * (chat/terminal interactable, or timeout). Paint and transport-ready marks
+ * remain in the trace so the paint-to-interactable gap is measurable.
  */
 export const clientSwitchTraceSchema = z.object({
   switchId: z.string().max(64),

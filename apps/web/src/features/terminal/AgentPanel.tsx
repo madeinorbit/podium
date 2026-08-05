@@ -1,5 +1,5 @@
 import { randomUUID } from '@podium/client-core/id'
-import { markSwitch } from '@podium/client-core/perf'
+import { beginSwitch, isSwitchTraced, markSwitch } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
 import { effectivePanelMode, type PanelMode } from '@podium/client-core/ui-state'
 
@@ -9,6 +9,7 @@ import { attentionGroup } from '@podium/client-core/focus'
 import { panelLabel, resumeCommand } from '@podium/client-core/viewmodels'
 import type { SessionId } from '@podium/model'
 import { isSnoozed } from '@podium/model'
+import { SWITCH_TRACE_MARKS } from '@podium/protocol'
 import { keySequence, type SpecialKey } from '@podium/terminal-client'
 import { ArrowSwipeKey, useTerminalSession, useVoiceInput } from '@podium/terminal-client-react'
 import {
@@ -178,6 +179,17 @@ export function AgentPanel({
   // "Starting…" overlay covers the wait, and the mount effect (which depends on
   // this) fires the instant it flips true.
   const spawnConfirmed = !pendingSpawnIds.has(sessionId)
+  const traceIssueId = session?.issueId ?? selectedIssueId ?? null
+  const freshStartTracedRef = useRef(false)
+  // A fresh optimistic spawn has no existing session-tab click to start a
+  // trace. Fast spawns can already be reconciled by the time this panel lays
+  // out, so use the first active layout as the fallback boundary too. Do not
+  // replace a trace already armed by Workspace's tab gesture.
+  useLayoutEffect(() => {
+    if (freshStartTracedRef.current || !active) return
+    freshStartTracedRef.current = true
+    if (!isSwitchTraced(sessionId)) beginSwitch({ sessionId, issueId: traceIssueId })
+  }, [active, sessionId, traceIssueId])
   // Moving to another machine ([spec:SP-3f7a]) is one deliberate state, not the
   // sequence of read-only states the move happens to pass through: the session is
   // stopped here, shipped, and resumed there. `handover` covers the pane for the
@@ -206,6 +218,12 @@ export function AgentPanel({
     inTransit,
     onEnterNative: () => rearmFlushRef.current?.(),
   })
+  const pickModeWithTrace = (mode: PanelMode): void => {
+    if (active && mode !== effectiveMode) {
+      beginSwitch({ sessionId, issueId: traceIssueId })
+    }
+    pickMode(mode)
+  }
 
   // Switch-latency trace marks [POD-701] — both are no-ops (one null check in
   // markSwitch) unless a switch to THIS session is being traced.
@@ -449,6 +467,45 @@ export function AgentPanel({
     },
   })
 
+  // `term:ready` is transport/UI-ready: it can come from attach, first output,
+  // or the timeout backstop. The interactable mark is stricter: this visible
+  // mounted terminal has a connected PTY, so xterm can receive keystrokes.
+  // Retry through reveal/layout frames for warm native switches; a timeout
+  // trace remains evidence if the terminal never reaches this boundary.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mountedRef is a stable ref from useTerminalSession, not app state.
+  useEffect(() => {
+    if (!active || !gates.terminalActive || !ready || !isSwitchTraced(sessionId)) return
+    let cancelled = false
+    let frame: number | undefined
+    let attempts = 0
+
+    const check = (): void => {
+      if (cancelled || !isSwitchTraced(sessionId)) return
+      const mounted = mountedRef.current
+      const surface = termSurfaceRef.current
+      const rects = surface?.getClientRects() ?? []
+      if (!mounted || rects.length === 0 || !mounted.connection.state().connected) {
+        if (attempts >= 120) return
+        attempts += 1
+        if (typeof requestAnimationFrame === 'function') frame = requestAnimationFrame(check)
+        else return
+        return
+      }
+      markSwitch(sessionId, SWITCH_TRACE_MARKS.termInteractable, {
+        terminalConnected: true,
+        terminalVisible: true,
+        terminalReady: true,
+      })
+    }
+
+    if (typeof requestAnimationFrame === 'function') frame = requestAnimationFrame(check)
+    else check()
+    return () => {
+      cancelled = true
+      if (frame !== undefined) cancelAnimationFrame(frame)
+    }
+  }, [active, gates.terminalActive, ready, sessionId])
+
   // Native-mode dictation: transcribed speech types straight into the PTY as
   // keystrokes — no auto-submit, so the user can edit before hitting Enter.
   const voice = useVoiceInput((text) => mountedRef.current?.connection.sendInput(`${text} `))
@@ -597,7 +654,7 @@ export function AgentPanel({
                       ? 'bg-secondary text-text-strong'
                       : 'text-(--issue-muted) hover:text-(--issue-bright)',
                   )}
-                  onClick={() => pickMode(m)}
+                  onClick={() => pickModeWithTrace(m)}
                 >
                   {m === 'chat' ? (
                     <MessageSquareText size={12} aria-hidden="true" />

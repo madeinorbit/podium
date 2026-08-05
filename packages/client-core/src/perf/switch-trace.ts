@@ -1,7 +1,7 @@
 /**
  * Client switch-latency collector [POD-701]: one correlated ClientSwitchTrace
  * per user gesture that switches the focused session, showing where the time
- * went until the view quiesced (chat first paint / terminal ready).
+ * went until the view became interactable (chat typeable/scrollable / terminal keystroke-ready).
  *
  * Always-on and inert-cheap: when no trace is active every mark() call is a
  * single null check. At most ONE trace is in flight at a time — a new gesture
@@ -14,7 +14,7 @@
  */
 
 import type { IssueId, SessionId } from '@podium/model'
-import type { ClientSwitchTrace, SwitchMark } from '@podium/protocol'
+import { type ClientSwitchTrace, SWITCH_TRACE_MARKS, type SwitchMark } from '@podium/protocol'
 
 type MarkMeta = Record<string, number | string | boolean>
 
@@ -37,7 +37,7 @@ const MARKS_MAX = 200
 const QUIESCE_TIMEOUT_MS = 10_000
 
 /** Marks that must be recorded at most once — quiesce sentinels. */
-const ONCE_MARKS = new Set(['chat:first-paint', 'term:ready'])
+const ONCE_MARKS: ReadonlySet<string> = new Set(Object.values(SWITCH_TRACE_MARKS))
 
 /** Terminal-diagnostics lifecycle events worth forwarding as `term:` marks.
  *  Deliberately excludes chatty per-frame/state events. */
@@ -55,6 +55,9 @@ const TERM_FORWARD = new Set([
   'panel:active-change',
 ])
 
+/** Hiding/revealing a warm terminal is diagnostic context, not terminal work
+ * that the current view owes before its own interactable sentinel. */
+const TERM_NON_QUIESCING_MARKS = new Set(['term:panel:active-change'])
 let active: ActiveTrace | null = null
 const recent: ClientSwitchTrace[] = []
 let reporter: ((trace: ClientSwitchTrace) => void) | null = null
@@ -123,40 +126,51 @@ function ensureTerminalTap(): void {
     if (!t || entry.sessionId !== t.sessionId) return
     if (!TERM_FORWARD.has(entry.event)) return
     markSwitch(entry.sessionId, `term:${entry.event}`)
-    // A warm reveal never re-fires the mount's one-shot `ready`; treat the
-    // reveal's measured/refit point (xterm has re-laid-out and repainted) as
-    // the terminal-usable moment so warm native switches quiesce too.
-    if (entry.event === 'reveal:measured') markSwitch(entry.sessionId, 'term:ready')
+    // A warm reveal never re-fires the mount's one-shot `ready`; retain the
+    // reveal's measured/refit point as a lifecycle mark. AgentPanel records
+    // `term:interactable` separately after the visible terminal can accept input.
+    if (entry.event === 'reveal:measured') markSwitch(entry.sessionId, SWITCH_TRACE_MARKS.termReady)
   })
 }
 
 function quiesced(marks: readonly SwitchMark[]): boolean {
   let chatSeen = false
   let termSeen = false
-  let chatPainted = false
-  let termReady = false
+  let chatInteractable = false
+  let termInteractable = false
   for (const m of marks) {
     if (m.name.startsWith('chat:') || m.name.startsWith('transcript:')) chatSeen = true
-    if (m.name.startsWith('term:')) termSeen = true
-    if (m.name === 'chat:first-paint') chatPainted = true
-    if (m.name === 'term:ready') termReady = true
+    if (m.name.startsWith('term:') && !TERM_NON_QUIESCING_MARKS.has(m.name)) termSeen = true
+    if (m.name === SWITCH_TRACE_MARKS.chatInteractable) chatInteractable = true
+    if (m.name === SWITCH_TRACE_MARKS.termInteractable) termInteractable = true
   }
-  // Every subsystem that showed activity must have reached its paint/ready
+  // Every subsystem that showed activity must have reached its interactable
   // sentinel, and at least one sentinel must exist at all.
-  return (chatPainted || termReady) && (!chatSeen || chatPainted) && (!termSeen || termReady)
+  return (
+    (chatInteractable || termInteractable) &&
+    (!chatSeen || chatInteractable) &&
+    (!termSeen || termInteractable)
+  )
 }
 
 function finalize(t: ActiveTrace, timedOut: boolean): void {
   if (active === t) active = null
   clearTimeout(t.timer)
-  const chatPainted = t.marks.some((m) => m.name === 'chat:first-paint')
-  const termReady = t.marks.some((m) => m.name === 'term:ready')
+  const chatPainted = t.marks.some((m) => m.name === SWITCH_TRACE_MARKS.chatFirstPaint)
+  const chatInteractable = t.marks.some((m) => m.name === SWITCH_TRACE_MARKS.chatInteractable)
+  const termReady = t.marks.some((m) => m.name === SWITCH_TRACE_MARKS.termReady)
+  const termInteractable = t.marks.some((m) => m.name === SWITCH_TRACE_MARKS.termInteractable)
   const trace: ClientSwitchTrace = {
     switchId: t.switchId,
     startedAt: t.startedAt,
     sessionId: t.sessionId,
     issueId: t.issueId,
-    mode: chatPainted ? 'chat' : termReady ? 'native' : 'unknown',
+    mode:
+      chatInteractable || chatPainted
+        ? 'chat'
+        : termInteractable || termReady
+          ? 'native'
+          : 'unknown',
     cold: t.marks.some((m) => m.name === 'panel:mount'),
     totalMs: timedOut ? now() - t.t0 : t.marks.reduce((max, m) => Math.max(max, m.atMs), 0),
     timedOut,
@@ -208,8 +222,8 @@ export function beginSwitch(input: { sessionId: SessionId; issueId?: IssueId | n
 /**
  * Record a named point in the active trace — a no-op (one null check) unless a
  * trace is in flight AND targets `sessionId`. `meta` merges into the trace's
- * free-form counters. Finalizes the trace when it quiesces (chat first paint
- * and/or terminal ready — see quiesced()).
+ * free-form counters. Finalizes the trace when it quiesces (chat/terminal
+ * interactable — see quiesced()); paint and transport-ready remain diagnostic marks.
  */
 export function markSwitch(sessionId: SessionId, name: string, meta?: MarkMeta): void {
   const t = active
