@@ -11,6 +11,10 @@ import { useReplicaIssues, useSlice, useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { ChatView } from '@/features/chat/ChatView'
+import { AtMentionMenu } from '@/lib/at-mention/AtMentionMenu'
+import type { AtOption } from '@/lib/at-mention/at-mention'
+import { issueMentions } from '@/lib/at-mention/mention-sources'
+import { useAtMenu, useAtTrigger } from '@/lib/at-mention/useAtMention'
 import { BlockCaret } from '@/lib/BlockCaret'
 import { useConversationSearch } from '@/lib/useConversationSearch'
 import { cn } from '@/lib/utils'
@@ -27,14 +31,6 @@ import { CountPill, SectionBar, UnreadDot } from './SectionBar'
 import { Tray } from './Tray'
 import type { TrayActions } from './TrayCard'
 import { useIssueEvents } from './useIssueEvents'
-
-interface AtOption {
-  kind: 'repo' | 'worktree' | 'conversation'
-  label: string
-  detail: string
-  /** What lands in the input: @label(ref). */
-  ref: string
-}
 
 /** ONE chat across all issues (engraved-column.md §2.5): the column always
  *  binds the global thread; per-turn issue context rides the focus payload.
@@ -472,6 +468,13 @@ export function SuperagentView({
  * podiumSessionId flows back via listThreads and the parent swaps this
  * composer for the embedded ChatView. The just-sent text stays visible as an
  * optimistic bubble until the swap.
+ *
+ * THE @ MENU LIVES IN `@/lib/at-mention` NOW (POD-412). It was written here and
+ * this composer was its only mount; the chat composer needed the same thing, so
+ * the mechanism moved out and both surfaces mount it. What stays here is the one
+ * thing that is genuinely this composer's: WHAT it offers — the orchestrator's
+ * own vocabulary of repos, worktrees and past conversations, plus the issues it
+ * spends its day working.
  */
 function FreshThreadComposer({
   threadId,
@@ -488,11 +491,10 @@ function FreshThreadComposer({
     (s) => ({ trpc: s.trpc, repos: s.repos, getUserFocus: s.getUserFocus }),
     shallowEqual,
   )
+  const issues = useReplicaIssues()
   const [draft, setDraft] = useState(initialDraft)
   const [busy, setBusy] = useState(false)
   const [sentText, setSentText] = useState<string | null>(null)
-  const [atQuery, setAtQuery] = useState<string | null>(null)
-  const [atIndex, setAtIndex] = useState(0)
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const voice = useVoiceInput((text) => setDraft((d) => (d ? `${d} ${text}` : text)))
 
@@ -520,19 +522,31 @@ function FreshThreadComposer({
     ta.style.height = `${target}px`
   }, [draft])
 
-  // ---- @ context menu (repos, worktrees, conversations) ----
+  // ---- @ context: repos, worktrees, past conversations, issues ----
+  // The orchestrator's token stays `@label(path)`: it is what the seed prompt
+  // tells the agent to expect, and a picker is not the place to renegotiate a
+  // protocol. Issue rows insert a bare ref like everywhere else.
+  const trigger = useAtTrigger({ taRef: inputRef })
   const localAtOptions = useMemo<AtOption[]>(() => {
     const views = reposToViews(repos)
     const out: AtOption[] = []
     for (const repo of views) {
-      out.push({ kind: 'repo', label: repo.name, detail: repo.path, ref: repo.path })
+      out.push({
+        kind: 'repo',
+        id: `repo:${repo.path}`,
+        label: repo.name,
+        detail: repo.path,
+        insert: `@${repo.name}(${repo.path})`,
+      })
       for (const wt of repo.worktrees) {
         if (wt.isMain) continue
+        const label = `${repo.name}/${wt.branch ?? wt.path.split('/').pop()}`
         out.push({
           kind: 'worktree',
-          label: `${repo.name}/${wt.branch ?? wt.path.split('/').pop()}`,
+          id: `worktree:${wt.path}`,
+          label,
           detail: wt.path,
-          ref: wt.path,
+          insert: `@${label}(${wt.path})`,
         })
       }
     }
@@ -540,51 +554,46 @@ function FreshThreadComposer({
   }, [repos])
 
   const { hits: convHits } = useConversationSearch({
-    query: atQuery ?? '',
+    query: trigger.query ?? '',
     limit: 4,
-    enabled: atQuery !== null,
+    enabled: trigger.query !== null,
     debounceMs: 150,
   })
-  const atHits = useMemo<AtOption[]>(() => {
-    if (atQuery === null) return []
-    const q = atQuery.toLowerCase()
+  const atOptions = useMemo<AtOption[]>(() => {
+    const q = trigger.query
+    if (q === null) return []
+    const needle = q.toLowerCase()
     const local = localAtOptions
-      .filter((o) => o.label.toLowerCase().includes(q) || o.detail.toLowerCase().includes(q))
+      .filter(
+        (o) => o.label.toLowerCase().includes(needle) || o.detail.toLowerCase().includes(needle),
+      )
       .slice(0, 6)
-    const convs = convHits.map(
-      (hit): AtOption => ({
+    const convs = convHits.map((hit): AtOption => {
+      const label = hit.name || hit.title || hit.id
+      return {
         kind: 'conversation',
-        label: hit.name || hit.title || hit.id,
+        id: `conversation:${hit.id}`,
+        label,
         detail: hit.projectPath?.split('/').slice(-2).join('/') ?? '',
-        ref: `conversation:${hit.id}`,
-      }),
-    )
-    return [...local, ...convs].slice(0, 10)
-  }, [atQuery, localAtOptions, convHits])
-  // biome-ignore lint/correctness/useExhaustiveDependencies: reset on query change
-  useEffect(() => setAtIndex(0), [atQuery])
+        insert: `@${label}(conversation:${hit.id})`,
+      }
+    })
+    return [...local, ...issueMentions(issues, q, 4), ...convs].slice(0, 10)
+  }, [trigger.query, localAtOptions, convHits, issues])
 
-  const syncAtState = (value: string, caret: number) => {
-    const before = value.slice(0, caret)
-    const match = /(?:^|\s)@([\w./-]*)$/.exec(before)
-    setAtQuery(match ? (match[1] ?? '') : null)
-  }
-
-  const insertAt = (option: AtOption) => {
-    const el = inputRef.current
-    const caret = el?.selectionStart ?? draft.length
-    const before = draft.slice(0, caret).replace(/@([\w./-]*)$/, '')
-    const token = `@${option.label}(${option.ref}) `
-    setDraft(before + token + draft.slice(caret))
-    setAtQuery(null)
-    el?.focus()
-  }
+  const mention = useAtMenu({
+    trigger,
+    taRef: inputRef,
+    value: draft,
+    onChange: setDraft,
+    options: atOptions,
+  })
 
   const send = async () => {
     const text = draft.trim()
     if (!text || busy) return
     setDraft('')
-    setAtQuery(null)
+    trigger.close()
     setBusy(true)
     setSentText(text)
     onError(null)
@@ -614,7 +623,7 @@ function FreshThreadComposer({
             Your orchestrator. Ask it to start agents, set up worktrees, dig through past
             conversations, or work tickets. Type{' '}
             <code className="rounded-sm bg-background px-[3px] font-mono text-[0.92em]">@</code> to
-            reference a repo, worktree, or conversation.
+            reference a repo, worktree, task or past conversation.
           </div>
         )}
         {sentText !== null && (
@@ -637,41 +646,7 @@ function FreshThreadComposer({
       </div>
       <div className="flex-none border-t border-hairline-soft px-3.5 pt-2.5 pb-[calc(10px+env(safe-area-inset-bottom,0px))] font-mono">
         <div className="relative flex items-end gap-2 rounded-lg border border-border-strong bg-bar/70 px-3 py-1.5 transition-colors focus-within:border-primary">
-          {atQuery !== null && atHits.length > 0 && (
-            <div
-              className="absolute right-0 bottom-[calc(100%+10px)] left-0 z-30 flex max-w-[460px] flex-col overflow-hidden rounded-md border border-input bg-muted font-sans shadow-[0_-8px_24px_var(--carve-popover-far)]"
-              role="listbox"
-            >
-              {atHits.map((option, i) => (
-                <button
-                  data-pressable
-                  key={`${option.kind}-${option.ref}`}
-                  type="button"
-                  role="option"
-                  aria-selected={i === atIndex}
-                  className={cn(
-                    'flex w-full min-w-0 cursor-pointer items-baseline gap-2 px-2.5 py-[7px] text-left text-xs',
-                    i === atIndex ? 'bg-accent text-foreground' : 'text-foreground',
-                  )}
-                  onMouseEnter={() => setAtIndex(i)}
-                  onClick={() => insertAt(option)}
-                >
-                  <span className="w-[86px] flex-none text-[10px] uppercase tracking-[0.05em] text-primary">
-                    {option.kind}
-                  </span>
-                  <span className="max-w-[45%] flex-none overflow-hidden text-ellipsis whitespace-nowrap font-semibold">
-                    {option.label}
-                  </span>
-                  <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-muted-foreground/70">
-                    {option.detail}
-                  </span>
-                </button>
-              ))}
-              <div className="border-t border-border px-2.5 pt-1 pb-1.5 text-[10px] text-muted-foreground/70">
-                files: coming later
-              </div>
-            </div>
-          )}
+          <AtMentionMenu mention={mention} hint="↑↓ to move · ↵ to insert · esc to dismiss" />
           <span
             className="flex-none pt-[3px] text-[13px] leading-[1.45] text-text-dim"
             aria-hidden="true"
@@ -687,30 +662,19 @@ function FreshThreadComposer({
             value={draft}
             onChange={(e) => {
               setDraft(e.target.value)
-              syncAtState(e.target.value, e.target.selectionStart ?? e.target.value.length)
+              trigger.sync()
             }}
+            onSelect={trigger.sync}
             onKeyDown={(e) => {
-              if (atQuery !== null && atHits.length > 0) {
-                if (e.key === 'ArrowDown') {
-                  e.preventDefault()
-                  setAtIndex((i) => (i + 1) % atHits.length)
-                  return
-                }
-                if (e.key === 'ArrowUp') {
-                  e.preventDefault()
-                  setAtIndex((i) => (i - 1 + atHits.length) % atHits.length)
-                  return
-                }
-                if (e.key === 'Enter' || e.key === 'Tab') {
-                  e.preventDefault()
-                  const pick = atHits[atIndex]
-                  if (pick) insertAt(pick)
-                  return
-                }
-                if (e.key === 'Escape') {
-                  setAtQuery(null)
-                  return
-                }
+              if (mention.onKeyDown(e)) return
+              // Let an IME candidate confirm itself: some browsers clear
+              // isComposing on the confirming Enter but still report the legacy
+              // keyCode, so both are checked (as the chat composer does).
+              if (
+                e.key === 'Enter' &&
+                (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229)
+              ) {
+                return
               }
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault()

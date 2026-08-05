@@ -60,8 +60,16 @@ async function runRepoOp(
     const opts =
       cmd.bin === 'git'
         ? {
+            // lsFiles [POD-412] is the one op whose output scales with the size
+            // of the checkout rather than with a fixed record count: ~46 bytes
+            // per path here, so the shared 1 MiB ceiling would start truncating
+            // — as an execFile ERROR, not a short read — at roughly 23k tracked
+            // files. 8 MiB carries ~180k. Past that the op fails and the picker
+            // simply offers no file rows (see `files.search`), which is the
+            // right failure: an @-menu is a convenience, never a correctness
+            // surface.
             timeout: 120_000,
-            maxBuffer: 1024 * 1024,
+            maxBuffer: msg.op === 'lsFiles' ? 8 * 1024 * 1024 : 1024 * 1024,
             ...(msg.op === 'clone' ? { env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } } : {}),
           }
         : { cwd: msg.cwd, timeout: 120_000, maxBuffer: 1024 * 1024 }

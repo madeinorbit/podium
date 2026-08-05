@@ -74,6 +74,13 @@ export function repoOpCommand(op: RepoOp, args: Record<string, string> = {}): Re
       if (!path) return { error: 'missing args' }
       return { bin: 'git', argv: ['--no-optional-locks', 'diff', 'HEAD', '--', path] }
     }
+    case 'lsFiles':
+      // Composer @-file autocomplete [POD-412]: every tracked path in the
+      // checkout, relative to its root, NUL-separated (-z also suppresses the
+      // quoting git would otherwise apply to unusual bytes). No pathspec — the
+      // caller ranks; this op only reads the index, which is why it can afford
+      // --no-optional-locks and never contends with a concurrent commit.
+      return { bin: 'git', argv: ['--no-optional-locks', 'ls-files', '-z'] }
     case 'log':
       return { bin: 'git', argv: ['log', '--oneline', '-20'] }
     case 'branches':

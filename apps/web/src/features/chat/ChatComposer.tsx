@@ -2,9 +2,14 @@ import type { SessionMeta } from '@podium/model'
 import type { useVoiceInput } from '@podium/terminal-client-react'
 import { ArrowUp, Clock, CloudOff, Paperclip, Square } from 'lucide-react'
 import type { JSX, RefObject } from 'react'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
+import { useReplicaIssues } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
+import { AtMentionMenu } from '@/lib/at-mention/AtMentionMenu'
+import { issueMentions } from '@/lib/at-mention/mention-sources'
+import { useAtMenu, useAtTrigger } from '@/lib/at-mention/useAtMention'
+import { useFileMentions } from '@/lib/at-mention/useFileMentions'
 import { BlockCaret } from '@/lib/BlockCaret'
 import { cn } from '@/lib/utils'
 import { AttachmentStrip } from './AttachmentStrip'
@@ -36,6 +41,24 @@ import { VoiceButton } from './VoiceButton'
  * action behind `onChange` changes and this component does not.
  *
  * See `CHAT_DRAFT_CLASSIFICATION` in the chat slice for the full record.
+ *
+ * ---------------------------------------------------------------------------
+ * @ REFERENCES ISSUES AND FILES (POD-412)
+ * ---------------------------------------------------------------------------
+ *
+ * The picker is `@/lib/at-mention` — the same hook and the same menu the
+ * superagent composer mounts, extracted from it rather than copied. What differs
+ * per composer is only the SOURCES, and this one has two:
+ *
+ *   issues — from the replica the client already holds, matched on ref and on
+ *            title, inserting the bare `POD-412` the transcript already
+ *            linkifies into a chip and an agent already knows how to resolve.
+ *   files  — the session's own checkout, ranked on the server (`files.search`)
+ *            so the path list never reaches the browser.
+ *
+ * The picker takes no keys the composer needs: `mention.onKeyDown` reports
+ * whether it consumed one, and the send/newline/IME handling below is reached
+ * unchanged whenever it did not.
  */
 export function ChatComposer({
   taRef,
@@ -125,6 +148,26 @@ export function ChatComposer({
     ta.style.height = `${target}px`
   }, [draft])
 
+  // ---- @ context: issues from the replica, files from the session's checkout ----
+  // Both lists are capped: the menu is a shortlist, and a menu long enough to
+  // scroll past a screen is a search result, which is a different feature.
+  const issues = useReplicaIssues()
+  const trigger = useAtTrigger({ taRef, enabled })
+  const issueOptions = useMemo(
+    () => (trigger.query === null ? [] : issueMentions(issues, trigger.query, 5)),
+    [issues, trigger.query],
+  )
+  const fileOptions = useFileMentions({
+    query: trigger.query,
+    root: session?.cwd,
+    machineId: session?.machineId,
+    enabled,
+  })
+  // Issues first, then files: an issue row is the shorter list and the surer
+  // match, and a mention that looks like a ref finds no files anyway.
+  const options = useMemo(() => [...issueOptions, ...fileOptions], [issueOptions, fileOptions])
+  const mention = useAtMenu({ trigger, taRef, value: draft, onChange: onDraftChange, options })
+
   const sendDisabled =
     !enabled || (!draft.trim() && attachments.attachments.length === 0) || attachments.uploading
 
@@ -176,6 +219,7 @@ export function ChatComposer({
         </div>
       )}
       <div className="relative flex flex-col gap-0.5 rounded-lg border border-border-strong bg-background px-3 py-1.5 focus-within:border-primary">
+        <AtMentionMenu mention={mention} hint="↑↓ to move · ↵ to insert · esc to dismiss" />
         {attachments.dragOver && (
           <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl border-2 border-dashed border-primary bg-primary/5">
             <span className="text-sm font-medium text-primary">Drop image to attach</span>
@@ -201,8 +245,18 @@ export function ChatComposer({
             className="shell-type-primary block max-h-44 min-h-0 w-full resize-none overflow-y-auto rounded-none border-0 bg-transparent p-0.5 text-foreground caret-transparent outline-none transition-[height] duration-300 ease-[cubic-bezier(0.25,1,0.35,1)] [field-sizing:fixed] placeholder:text-text-faint focus-visible:border-0 focus-visible:ring-0 disabled:bg-transparent disabled:text-muted-foreground disabled:opacity-100 dark:bg-transparent dark:disabled:bg-transparent"
             value={draft}
             disabled={!enabled}
-            onChange={(e) => onDraftChange(e.target.value)}
+            onChange={(e) => {
+              onDraftChange(e.target.value)
+              trigger.sync()
+            }}
+            // Caret moves that are not edits — a click, an arrow, a selection —
+            // open and close a mention just as typing does.
+            onSelect={trigger.sync}
             onKeyDown={(e) => {
+              // The @ menu gets first refusal, and takes ONLY the keys it uses
+              // while it is open (never during an IME composition). Everything
+              // below is reached unchanged when it declines.
+              if (mention.onKeyDown(e)) return
               // Desktop: Enter submits, Shift+Enter is a newline (⌘/Ctrl+Enter
               // still submits). Mobile keeps plain Enter as a newline — the
               // send button submits there.

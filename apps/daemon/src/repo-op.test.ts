@@ -29,6 +29,14 @@ describe('repoOpCommand', () => {
     })
     expect(repoOpCommand('diffFile', {})).toEqual({ error: 'missing args' })
   })
+  it('lists tracked paths NUL-separated for the composer @-menu [POD-412]', () => {
+    // The server's `files.search` parses this output by splitting on NUL and
+    // runs the identical argv in its own seam test — the two must not drift.
+    expect(repoOpCommand('lsFiles')).toEqual({
+      bin: 'git',
+      argv: ['--no-optional-locks', 'ls-files', '-z'],
+    })
+  })
   it('builds clone with an absolute destination and literal origin', () => {
     expect(
       repoOpCommand('clone', { originUrl: '--upload-pack=evil', path: '/home/u/src/repo' }),
