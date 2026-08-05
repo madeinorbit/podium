@@ -1925,6 +1925,14 @@ html[data-density="balanced"] .header-quota-pools {
 
 /* ── Find in transcript ──────────────────────────────────────────────────── */
 
+/* z-10 is load-bearing, not a round number. The bar parks at the TOP of the
+   scrollport, which is exactly where a sticky operator prompt pins itself, so it
+   has to clear everything that floats in this container: the stuck prompt
+   (z-[3], ChatBlockView), per-message actions (.msg-actions, z-2, scoped inside
+   a row) and jump-to-bottom (z-[4], ChatView). Anything at 4 or below renders
+   UNDER a stuck prompt at the one moment the bar matters. The rail's popover and
+   the map's flyout sit above this again at 20 — they overhang the feed from the
+   gutter and must clear the bar too. [POD-413, flagged by POD-411] */
 .chat-find {
   position: absolute;
   top: 8px;
