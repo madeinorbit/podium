@@ -237,7 +237,7 @@ describe('MemoryService omni-search', () => {
     expect(grantLookups).toBe(expectedGrantResources.size)
   })
 
-  it('batches issue ownership reads for the native conversation list', () => {
+  it('batches issue ownership and grant reads for the native conversation list', () => {
     const store = new SessionStore(':memory:')
     const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
     registries.push(registry)
@@ -245,13 +245,27 @@ describe('MemoryService omni-search', () => {
 
     const issueIds: string[] = []
     const conversationIds: string[] = []
+    const issueOwner = asUserId('usr_issue_owner')
     for (let i = 0; i < 4; i++) {
       const issue = registry.issues.create({
         repoPath: '/repo',
         title: `conversation issue ${i}`,
         startNow: false,
+        ownerUserId: issueOwner,
       })
       issueIds.push(issue.id)
+      store.grants.upsert({
+        resourceKind: 'issue',
+        resourceId: issue.id,
+        grantee: READER.id,
+        verb: 'read',
+        owner: issueOwner,
+        visibility: 'personal',
+        createdAt: '2026-08-05T00:00:00.000Z',
+        actorKind: 'user',
+        actorId: READER.id,
+        onBehalfOf: READER.id,
+      })
       const { sessionId } = registry.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: `/repo/session-${i}`,
@@ -277,8 +291,12 @@ describe('MemoryService omni-search', () => {
 
     const getIssue = store.issues.getIssue.bind(store.issues)
     const getIssues = store.issues.getIssues.bind(store.issues)
+    const listForResource = store.grants.listForResource.bind(store.grants)
+    const listForResources = store.grants.listForResources.bind(store.grants)
     let singleReads = 0
     const batchReads: string[][] = []
+    let singleGrantReads = 0
+    const batchGrantReads: string[][] = []
     store.issues.getIssue = (id) => {
       singleReads++
       return getIssue(id)
@@ -287,6 +305,14 @@ describe('MemoryService omni-search', () => {
       batchReads.push([...ids])
       return getIssues(ids)
     }
+    store.grants.listForResource = (kind, id) => {
+      if (kind === 'issue') singleGrantReads++
+      return listForResource(kind, id)
+    }
+    store.grants.listForResources = (kind, ids) => {
+      if (kind === 'issue') batchGrantReads.push([...ids])
+      return listForResources(kind, ids)
+    }
 
     let visible: ReturnType<typeof registry.modules.memory.searchConversations>
     try {
@@ -294,6 +320,8 @@ describe('MemoryService omni-search', () => {
     } finally {
       store.issues.getIssue = getIssue
       store.issues.getIssues = getIssues
+      store.grants.listForResource = listForResource
+      store.grants.listForResources = listForResources
     }
 
     expect(visible.map((row) => row.id).sort()).toEqual([...conversationIds].sort())
@@ -302,6 +330,9 @@ describe('MemoryService omni-search', () => {
     expect(singleReads).toBe(0)
     expect(batchReads).toHaveLength(1)
     expect(new Set(batchReads[0])).toEqual(new Set(issueIds))
+    expect(singleGrantReads).toBe(0)
+    expect(batchGrantReads).toHaveLength(1)
+    expect(new Set(batchGrantReads[0])).toEqual(new Set(issueIds))
   })
 
   it('returns nothing for blank text (the router schema rejects it upstream too)', () => {

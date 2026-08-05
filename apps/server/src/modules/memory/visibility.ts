@@ -1,6 +1,7 @@
 import { asIssueId, asSessionId, ROW, type VisibilityClass, visibilityClassOf } from '@podium/model'
 import { mayReadOwned } from '../../issue-authz'
 import type { IssueRow, SessionRow, SessionStore } from '../../store'
+import type { GrantRow } from '../../store/grants'
 import type { MemoryReader } from './types'
 
 export const INDEXED_MEMORY_DOCUMENT_CLASSES = [
@@ -73,6 +74,11 @@ type VisibilityRequest = {
 
 const nativeKey = (machineId: string, nativeId: string): string => `${machineId}\0${nativeId}`
 
+const readGranteesFrom = (edges: readonly GrantRow[]): string[] =>
+  edges
+    .filter((edge) => edge.verb === 'read' || edge.verb === 'write' || edge.verb === 'manage')
+    .map((edge) => edge.grantee)
+
 const visibilityRequestFor = (sessions: readonly SessionRow[]): VisibilityRequest => {
   const sessionsById = new Map<string, SessionRow>()
   const sessionsByNativeKey = new Map<string, SessionRow[]>()
@@ -134,6 +140,16 @@ export class MemoryVisibilityPolicy {
       if (issueIds.length > 0) {
         const rows = this.store.issues.getIssues(issueIds)
         for (const id of issueIds) request.issues.set(id, rows.get(id) ?? null)
+
+        // The same distinct issue ids drive the grant read in mayReadSessionRow.
+        // Prime every key, including ids with no edges, so the lazy fallback does
+        // not repeat the query. Sessions without issueId resolve grants against
+        // their own session id; leave those keys lazy because they are outside
+        // this issue-owner fanout and the live fallback preserves their semantics.
+        const grants = this.store.grants.listForResources('issue', issueIds)
+        for (const id of issueIds) {
+          request.grants.set(`issue\0${id}`, readGranteesFrom(grants.get(id) ?? []))
+        }
       }
     }
     return new MemoryVisibilityPolicy(this.store, request)
@@ -247,10 +263,7 @@ export class MemoryVisibilityPolicy {
   private readGranteesOf(resourceKind: string, resourceId: string): string[] {
     const key = `${resourceKind}\0${resourceId}`
     if (this.request?.grants.has(key)) return this.request.grants.get(key) ?? []
-    const grantees = this.store.grants
-      .listForResource(resourceKind, resourceId)
-      .filter((edge) => edge.verb === 'read' || edge.verb === 'write' || edge.verb === 'manage')
-      .map((edge) => edge.grantee)
+    const grantees = readGranteesFrom(this.store.grants.listForResource(resourceKind, resourceId))
     this.request?.grants.set(key, grantees)
     return grantees
   }

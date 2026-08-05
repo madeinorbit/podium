@@ -67,9 +67,9 @@ export class MemorySearchService {
       visibility ??
       this.visibility.forRequest(this.store.sessions.loadSessions(), {
         // The native conversation-list RPC can return one row per distinct
-        // issue. Prime those owner rows as one request-local batch; the omni
-        // search caller passes its own visibility context and keeps its
-        // existing memoized path unchanged.
+        // issue. Prime those owner and grant rows as one request-local batch;
+        // the omni search caller passes its own visibility context and keeps
+        // its existing memoized path unchanged.
         batchIssueOwners: true,
       })
     return this.store.conversations.index
