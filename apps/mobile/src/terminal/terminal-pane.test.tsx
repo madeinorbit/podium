@@ -1,5 +1,9 @@
 // @vitest-environment happy-dom
 /**
+ * The mobile pane's two contracts that are not xterm's: WHEN it attaches, and
+ * WHAT it says while there is nothing to look at.
+ *
+ * ---------------------------------------------------------------------------
  * THE CREATE PATH MUST NOT ATTACH TO A SESSION THE SERVER HAS NEVER HEARD OF
  * (POD-1613).
  *
@@ -31,34 +35,51 @@
  */
 import { useStore } from '@podium/client-core/react'
 import { asSessionId, type SessionId, type SessionMeta } from '@podium/model'
+import { cleanup } from '@testing-library/react'
 import { act, useState } from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { renderWithMobileStore } from '../client/test-support'
 import type { MobileTrpc } from '../client/trpc'
+
+/**
+ * The mount's callbacks, kept from the last `mountSession` call so a test can
+ * play the server's side of the attach by hand: `onReady` is the confirmation,
+ * `onState` is how the durable "has this PTY ever spoken" reaches the pane
+ * [POD-385]. Nothing else here can produce them — the socket in this lane never
+ * connects, by design (see test-support).
+ */
+type MountCallbacks = {
+  onReady?: () => void
+  onState?: (state: { outputSeen: boolean }) => void
+}
+let lastMountOpts: MountCallbacks | null = null
 
 // The terminal itself is not under test — only WHETHER it is mounted, and when.
 // A call to `mountSession` IS the attach: it is what constructs the hub
 // connection that emits the one-shot `attach` frame.
-const mountSessionMock = vi.fn((_el: unknown, _opts: unknown) => ({
-  connection: {
-    state: () => ({ role: 'controller' }),
-    sendInput: vi.fn(),
-    requestControl: vi.fn(),
-  },
-  view: {
-    setFileLinks: vi.fn(),
-    setRefLinks: vi.fn(),
-    onScroll: () => () => {},
-    atBottom: () => true,
-    focus: vi.fn(),
-    screenText: () => '',
-    scrollToBottom: vi.fn(),
-    requestPaste: vi.fn(),
-  },
-  setActive: vi.fn(),
-  setAppearance: vi.fn(),
-  dispose: vi.fn(),
-}))
+const mountSessionMock = vi.fn((_el: unknown, opts: unknown) => {
+  lastMountOpts = opts as MountCallbacks
+  return {
+    connection: {
+      state: () => ({ role: 'controller' }),
+      sendInput: vi.fn(),
+      requestControl: vi.fn(),
+    },
+    view: {
+      setFileLinks: vi.fn(),
+      setRefLinks: vi.fn(),
+      onScroll: () => () => {},
+      atBottom: () => true,
+      focus: vi.fn(),
+      screenText: () => '',
+      scrollToBottom: vi.fn(),
+      requestPaste: vi.fn(),
+    },
+    setActive: vi.fn(),
+    setAppearance: vi.fn(),
+    dispose: vi.fn(),
+  }
+})
 
 vi.mock('@podium/terminal-client', async (orig) => {
   const real = (await orig()) as Record<string, unknown>
@@ -116,7 +137,13 @@ function confirmedRow(sessionId: SessionId): SessionMeta {
 
 beforeEach(() => {
   mountSessionMock.mockClear()
+  lastMountOpts = null
 })
+
+// This lane registers no setup file, so testing-library's auto-cleanup is not
+// installed: without this every render stacks up in the same document and a
+// text query matches the PREVIOUS case's pane as well as this one's.
+afterEach(cleanup)
 
 describe('TerminalPane on the create path (POD-1613)', () => {
   it('holds the attach back while the spawn is unconfirmed, then attaches when it lands', async () => {
@@ -156,5 +183,63 @@ describe('TerminalPane on the create path (POD-1613)', () => {
       sessions: [confirmedRow(sessionId)],
     })
     expect(mountSessionMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+/**
+ * A CLI THAT PRINTS NOTHING ON LAUNCH IS NOT A DEAD SESSION (POD-393).
+ *
+ * The pane's status sentences all ended at the attach, so a child still doing
+ * first-run setup — or self-updating, which held one PTY silent for four
+ * measured minutes (POD-385) — dropped the operator onto an empty grid with no
+ * sentence at all. The distinguishing fact is the server's durable output
+ * counter, delivered on the attach and republished on ConnectionState; a
+ * session merely idling at a prompt has it TRUE and must keep its bare grid.
+ */
+describe('TerminalPane startup status (POD-393)', () => {
+  const SILENT = 'Attached — no output yet…'
+
+  /** Play the attach: confirm it, and report the PTY's output history with it. */
+  async function attach(outputSeen: boolean): Promise<void> {
+    const opts = lastMountOpts
+    if (!opts) throw new Error('the pane never mounted a session')
+    await act(async () => {
+      opts.onState?.({ outputSeen })
+      opts.onReady?.()
+      await Promise.resolve()
+    })
+  }
+
+  it('says the PTY has printed nothing yet, and stops as soon as it does', async () => {
+    const sessionId = asSessionId('sess-silent')
+    const view = await renderWithMobileStore(<TerminalPane sessionId={sessionId} active />, {
+      sessions: [confirmedRow(sessionId)],
+    })
+
+    // Before the attach lands, the wait that is on screen is ours, not the
+    // child's — one sentence at a time is the whole idiom.
+    expect(view.queryByText('Attaching terminal…')).not.toBeNull()
+    expect(view.queryByText(SILENT)).toBeNull()
+
+    await attach(false)
+    expect(view.queryByText('Attaching terminal…')).toBeNull()
+    expect(view.queryByText(SILENT)).not.toBeNull()
+
+    // First output: the terminal itself is the affordance from here on.
+    await act(async () => {
+      lastMountOpts?.onState?.({ outputSeen: true })
+      await Promise.resolve()
+    })
+    expect(view.queryByText(SILENT)).toBeNull()
+  })
+
+  it('stays out of the way of a session that has already spoken', async () => {
+    const sessionId = asSessionId('sess-talked')
+    const view = await renderWithMobileStore(<TerminalPane sessionId={sessionId} active />, {
+      sessions: [confirmedRow(sessionId)],
+    })
+    await attach(true)
+    expect(view.queryByText(SILENT)).toBeNull()
+    expect(view.queryByText('Attaching terminal…')).toBeNull()
   })
 })

@@ -54,7 +54,7 @@ export function TerminalPane({ sessionId, active }: { sessionId: SessionId; acti
   // Flipping this false→true remounts, so the attach that runs is the one with
   // a live PTY behind it. Same gate the desktop spends as `spawnConfirmed`.
   const spawnPending = useSpawnPending(sessionId)
-  const { containerRef, toolbarRef, mountedRef, ready } = useTerminalSession({
+  const { containerRef, toolbarRef, mountedRef, ready, outputSeen } = useTerminalSession({
     hub,
     sessionId,
     enabled: connected && !spawnPending,
@@ -71,12 +71,26 @@ export function TerminalPane({ sessionId, active }: { sessionId: SessionId; acti
   return (
     <View style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
       {!connected ? <Text style={statusStyle}>Connecting terminal…</Text> : null}
-      {/* Three waits, three sentences. "Attaching" while the spawn is still
+      {/* Four waits, four sentences, at most one on screen at a time.
+          "Attaching" while the spawn is still
           pending would name a step that has not begun — the create path waits
           on the SERVER, not on the socket. */}
       {connected && spawnPending ? <Text style={statusStyle}>Starting agent…</Text> : null}
       {connected && !spawnPending && !ready ? (
         <Text style={statusStyle}>Attaching terminal…</Text>
+      ) : null}
+      {/* A FOURTH WAIT, WHICH IS THE CHILD'S AND NOT OURS (POD-393). The three
+          above end at the attach; a CLI that prints nothing on launch (first-run
+          setup, a self-update — grok held its PTY silent for four measured
+          minutes) then leaves an empty grid that looks exactly like a dead
+          session. `outputSeen` is the server's durable "has this PTY ever
+          spoken", carried on the attach [POD-385], so this is a fact rather than
+          a guess from an empty screen — a session idling at a prompt whose
+          scrollback we simply don't hold has it true and shows nothing here.
+          Naming the attach first is the point: the reassurance is that we ARE
+          connected, so the quiet belongs to the CLI. */}
+      {connected && !spawnPending && ready && !outputSeen ? (
+        <Text style={statusStyle}>Attached — no output yet…</Text>
       ) : null}
       {/* `minHeight: 0` (the desktop AgentPanel's `min-h-0`) lets this flex child
           SHRINK to the viewport. The old `minHeight: 260` floor meant a short
