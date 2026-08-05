@@ -3,7 +3,7 @@ import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { AppSheet } from '@/app/AppSheet'
 import { useStoreSelector } from '@/app/store'
-import { formatTokens, formatUsd, usageSummary } from './usage'
+import { formatTick, formatTokens, formatUsd, niceAxisMax, usageSummary } from './usage'
 
 /**
  * Usage & analytics — rolling 5h + 7d token consumption across the machine's
@@ -58,7 +58,11 @@ export function UsageView({ onClose }: { onClose: () => void }): JSX.Element {
 
 function UsageBody({ buckets }: { buckets: UsageBucketWire[] }): JSX.Element {
   const s = usageSummary(buckets, Date.now())
-  const maxDay = Math.max(1, ...s.days.map((d) => d.totalTokens))
+  const peakDay = Math.max(0, ...s.days.map((d) => d.totalTokens))
+  const axisMax = niceAxisMax(peakDay)
+  // Three lines, not five. A seven-bar chart needs enough grid to read a value
+  // off and no more; denser than this is chart junk competing with the data.
+  const ticks = [0, axisMax / 2, axisMax]
   return (
     <div className="usage-body">
       {/* TWO READOUTS, NOT TWO CARDS. Same-size bordered tiles carrying a big
@@ -86,19 +90,67 @@ function UsageBody({ buckets }: { buckets: UsageBucketWire[] }): JSX.Element {
           proportion is the only thing a bar chart says, so the frame must not be
           the thing setting it. The sheet sizes to its content instead (see
           .app-sheet-fit). Bars are DATA and read calm blue: yellow is reserved
-          for what is asking something of you, and a token history asks nothing. */}
-      <div className="usage-chart">
-        {s.days.map((d) => (
-          <div key={d.day} className="flex h-full flex-1 flex-col items-center justify-end gap-1">
-            <div
-              className="usage-bar"
-              style={{ height: `${Math.max(2, (d.totalTokens / maxDay) * 100)}%` }}
-              title={`${d.day}: ${formatTokens(d.totalTokens)} tokens · ${formatUsd(d.estCostUsd)}`}
-            />
-            <div className="text-[10px] text-muted-foreground/70">{d.day.slice(5)}</div>
+          for what is asking something of you, and a token history asks nothing.
+
+          AND IT HAS A SCALE NOW. Without one the chart answered "which day was
+          biggest" and nothing else — you could compare bars and not read a
+          single value. Three recessive gridlines off a rounded axis top, the
+          axis labelled in the same units as the summary above it, and the peak
+          bar direct-labelled. Only the peak: a number on every bar is the habit
+          that turns a chart back into a table, and five of these days are 4px
+          tall with nowhere to put one. */}
+      <figure className="usage-figure">
+        <figcaption className="usage-figure-caption">Tokens per day</figcaption>
+        <div className="usage-plot">
+          {/* The scale. aria-hidden because the table below carries the same
+              numbers to a screen reader in a form it can actually read. */}
+          <div className="usage-axis" aria-hidden="true">
+            {ticks.map((t) => (
+              <span
+                key={t}
+                className="usage-axis-tick"
+                style={{ bottom: `${(t / axisMax) * 100}%` }}
+              >
+                {formatTick(t)}
+              </span>
+            ))}
           </div>
-        ))}
-      </div>
+          <div className="usage-chart">
+            {ticks.map((t) => (
+              <span
+                key={t}
+                className="usage-gridline"
+                style={{ bottom: `${(t / axisMax) * 100}%` }}
+                aria-hidden="true"
+              />
+            ))}
+            {s.days.map((d) => {
+              const pct = Math.max(2, (d.totalTokens / axisMax) * 100)
+              return (
+                <div key={d.day} className="usage-day">
+                  <div
+                    className="usage-bar"
+                    style={{ height: `${pct}%` }}
+                    title={`${d.day}: ${formatTokens(d.totalTokens)} tokens · ${formatUsd(d.estCostUsd)}`}
+                  />
+                  {d.totalTokens === peakDay && peakDay > 0 && (
+                    <span className="usage-bar-value" style={{ bottom: `${pct}%` }}>
+                      {formatTokens(d.totalTokens)}
+                    </span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+          <div className="usage-days" aria-hidden="true">
+            {s.days.map((d) => (
+              <span key={d.day} className="usage-day-label">
+                {d.day.slice(5)}
+              </span>
+            ))}
+          </div>
+        </div>
+      </figure>
       <div className="usage-table-scroll">
         <table className="w-full border-collapse text-xs">
           <thead>
