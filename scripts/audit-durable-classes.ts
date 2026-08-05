@@ -381,6 +381,18 @@ export const DURABLE_STORES: readonly DurableStore[] = [
     writeSites: ['apps/daemon/src/host-runtime.ts', 'apps/daemon/src/pending-grant.ts'],
   },
   {
+    store: '<stateDir>/update-signing-key.json',
+    kind: 'filesystem',
+    row: null,
+    notEntityState:
+      "The server's own Ed25519 keypair for signing the update bundles it hosts (POD-1725). " +
+      'Server infrastructure, not product state: no user owns it, it is never replicated, and it ' +
+      'names nothing on the ownership matrix. Its PUBLIC half is what daemons pin at pairing, so ' +
+      'losing this file costs a re-pair rather than any user data. Written 0600 with flag wx so a ' +
+      'second mint cannot silently replace a key daemons have already pinned.',
+    writeSites: ['apps/server/src/modules/updates/signing-key.ts'],
+  },
+  {
     store: '<stateDir>/daemon.secret',
     kind: 'filesystem',
     row: 'pairing-token',
