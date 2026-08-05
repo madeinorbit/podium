@@ -67,6 +67,49 @@ export class SessionsRepository {
     return this.readSessions('resume_value = ? AND deleted_at IS NULL', resumeValue)[0]
   }
 
+  /**
+   * The same durable-row read as {@link getSession}, asked about MANY ids at
+   * once. Tombstones remain included because feed visibility must preserve the
+   * delete-audience answer. The 500-row chunks stay below SQLite's variable
+   * limit while keeping one repository call for a bootstrap pass.
+   */
+  getSessions(sessionIds: readonly string[]): Map<string, SessionRow> {
+    const out = new Map<string, SessionRow>()
+    const unique = [...new Set(sessionIds)]
+    const CHUNK = 500
+    for (let i = 0; i < unique.length; i += CHUNK) {
+      const chunk = unique.slice(i, i + CHUNK)
+      for (const row of this.readSessions(`id IN (${chunk.map(() => '?').join(',')})`, ...chunk)) {
+        out.set(row.id, row)
+      }
+    }
+    return out
+  }
+
+  /**
+   * The live resume lookup asked about MANY conversation ids at once. The
+   * `readSessions` ordering is deliberately retained so the first row per
+   * resume value is exactly the row returned by
+   * {@link findSessionByResumeValue} when duplicate values exist.
+   */
+  findSessionsByResumeValues(resumeValues: readonly string[]): Map<string, SessionRow> {
+    const out = new Map<string, SessionRow>()
+    const unique = [...new Set(resumeValues)]
+    const CHUNK = 500
+    for (let i = 0; i < unique.length; i += CHUNK) {
+      const chunk = unique.slice(i, i + CHUNK)
+      for (const row of this.readSessions(
+        `resume_value IN (${chunk.map(() => '?').join(',')}) AND deleted_at IS NULL`,
+        ...chunk,
+      )) {
+        if (row.resumeValue !== null && !out.has(row.resumeValue)) {
+          out.set(row.resumeValue, row)
+        }
+      }
+    }
+    return out
+  }
+
   /** All session tombstones, for repository-level inspection and maintenance. */
   loadDeletedSessions(): SessionRow[] {
     return this.readSessions('deleted_at IS NOT NULL')

@@ -227,6 +227,13 @@ export interface VisibilityStatePort {
    * `null` when the row does not carry one (which is malformed, and refused).
    */
   keyedUserOf(ref: EntityRef): UserRef | null
+  /**
+   * Optionally prepare a request-scoped state port for one bootstrap. The
+   * returned port may memoise the rows named by `refs`, but it must keep the
+   * same live point-read behavior for any ref outside that set. This is a
+   * batching seam, not a long-lived authorization cache.
+   */
+  forBootstrap?(refs: readonly EntityRef[]): VisibilityStatePort
 }
 
 /**
@@ -296,6 +303,12 @@ export interface FeedVisibilityPolicy {
    */
   readonly grade: FeedScopingGrade
   decide(principal: Principal, ref: EntityRef): VisibilityDecision
+  /**
+   * Return a request-scoped policy for one bootstrap, when the data port can
+   * batch the refs that bootstrap will evaluate. The ordinary policy remains
+   * the fallback for live deltas and refs outside the prepared set.
+   */
+  forBootstrap?(refs: readonly EntityRef[]): FeedVisibilityPolicy
 }
 
 /**
@@ -342,6 +355,13 @@ export class GrantEdgeVisibilityPolicy implements FeedVisibilityPolicy {
     private readonly state: VisibilityStatePort,
     private readonly delegations: DelegationScopePort,
   ) {}
+
+  forBootstrap(refs: readonly EntityRef[]): FeedVisibilityPolicy {
+    const prepared = this.state.forBootstrap?.(refs)
+    return prepared === undefined || prepared === this.state
+      ? this
+      : new GrantEdgeVisibilityPolicy(prepared, this.delegations)
+  }
 
   decide(principal: Principal, ref: EntityRef): VisibilityDecision {
     const declared = this.state.classOf(ref.entity)
