@@ -521,6 +521,11 @@ export const NON_CLASS_WRITE_SITES: readonly { readonly file: string; readonly r
         'BUILD tooling — patches the built web index.html for the mobile shell. Runs at package time and writes into the build output.',
     },
     {
+      file: 'apps/mobile/scripts/generate-web-icons.ts',
+      reason:
+        'BUILD tooling — renders assets/icon.svg into the installed-app icons, launch images and manifest under assets/ and public/icons/ (POD-366, POD-392). Run by hand after the SVG changes; the outputs are committed so the normal build never needs sharp, and nothing is written at runtime.',
+    },
+    {
       file: 'apps/web/scripts/generate-login-ascii.ts',
       reason:
         'BUILD tooling — generates a static ASCII asset checked into the web app. Runs by hand, writes source, and stores nothing at runtime.',
