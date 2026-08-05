@@ -1,10 +1,10 @@
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
-  DOCS_READ_BY_TESTS,
-  type Git,
   assessCoverage,
   changedFiles,
+  DOCS_READ_BY_TESTS,
+  type Git,
   isInert,
   longLivedCandidates,
   parseArgs,
@@ -116,7 +116,7 @@ describe('assessCoverage', () => {
     { dir: 'packages/model', name: '@podium/model' },
     { dir: 'scripts', name: '@podium/scripts' },
   ].sort((a, b) => b.dir.length - a.dir.length)
-  // What POD-1687 actually pinned: web and mobile only.
+  // A minimal fixture keeps coverage logic independent of the full task graph.
   const capable = new Set(['@podium/web', '@podium/mobile'])
 
   it('a file in a package turbo can run is covered', () => {

@@ -401,6 +401,43 @@
         "$TURBO_ROOT$/packages/*/src/**"
       ],
       "outputs": []
+    },
+    "@podium/desktop#test": {
+      "dependsOn": [],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/vitest.config.ts",
+        "$TURBO_ROOT$/vitest.unit.config.ts",
+        "$TURBO_ROOT$/vitest.smoke-requirements.ts",
+        "$TURBO_ROOT$/scripts/package-vitest-config.ts",
+        "$TURBO_ROOT$/test-hermetic-env.ts",
+        "$TURBO_ROOT$/test-hermetic-vitest-hooks.ts",
+        "$TURBO_ROOT$/test-hermetic-state-guard.ts"
+      ],
+      "outputs": []
+    },
+    "@podium/scripts#test": {
+      "dependsOn": [],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/vitest.config.ts",
+        "$TURBO_ROOT$/vitest.unit.config.ts",
+        "$TURBO_ROOT$/vitest.integration.config.ts",
+        "$TURBO_ROOT$/vitest.acceptance.config.ts",
+        "$TURBO_ROOT$/vitest.agent-smoke.config.ts",
+        "$TURBO_ROOT$/vitest.smoke-requirements.ts",
+        "$TURBO_ROOT$/scripts/package-vitest-config.ts",
+        "$TURBO_ROOT$/test-hermetic-env.ts",
+        "$TURBO_ROOT$/test-hermetic-vitest-hooks.ts",
+        "$TURBO_ROOT$/test-hermetic-state-guard.ts",
+        "$TURBO_ROOT$/.github/**",
+        "$TURBO_ROOT$/apps/**",
+        "$TURBO_ROOT$/packages/**",
+        "$TURBO_ROOT$/services/**",
+        "$TURBO_ROOT$/tests/**",
+        "$TURBO_ROOT$/docs/TELEMETRY.md"
+      ],
+      "outputs": []
     }
   }
 }

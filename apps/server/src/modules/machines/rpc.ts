@@ -642,6 +642,7 @@ export class DaemonRpcService {
   harnessExec(input: {
     agent: 'claude-code' | 'codex' | 'grok' | 'opencode' | 'cursor'
     model?: string
+    effort?: string
     prompt: string
     cwd?: string
     systemPrompt?: string
@@ -661,6 +662,7 @@ export class DaemonRpcService {
         agent: input.agent,
         prompt: input.prompt,
         ...(input.model && input.model !== 'auto' ? { model: input.model } : {}),
+        ...(input.effort && input.effort !== 'auto' ? { effort: input.effort } : {}),
         ...(input.cwd ? { cwd: input.cwd } : {}),
         ...(input.systemPrompt ? { systemPrompt: input.systemPrompt } : {}),
         ...(input.mcpConfig ? { mcpConfig: input.mcpConfig } : {}),

@@ -3,8 +3,8 @@
  *
  * Runs `turbo run test` filtered to the packages a change actually touches —
  * `--filter='...[<base>]'` selects packages whose own sources changed plus every
- * package that depends on them. In a 22-package workspace that is the difference
- * between "re-run everything" and "re-run the blast radius".
+ * package that depends on them. In this workspace that is the difference between
+ * "re-run everything" and "re-run the blast radius".
  *
  * Three things this file exists to get right:
  *
@@ -13,13 +13,13 @@
  *      We take the merge base against the closest of {explicit override, upstream,
  *      origin/main, long-lived project branches} — see resolveBase().
  *
- *   2. IT REFUSES TO REPORT A GREEN IT DID NOT EARN. A package filter cannot scope
- *      the root-level lanes (test:unit / test:integration / test:acceptance), which
- *      sweep the whole monorepo from root vitest configs. Any changed file that no
- *      `test`-capable package owns is therefore INVISIBLE to this lane, and that is
- *      a hard error (exit 1), not a warning — under-running tests and printing green
- *      is the one failure this lane must never produce. Override with
- *      --allow-uncovered once you have run the full lane yourself.
+ *   2. IT REFUSES TO REPORT A GREEN IT DID NOT EARN. The package task graph covers
+ *      the default unit/Bun lane, but it cannot scope the root-level integration,
+ *      acceptance, browser, multi-instance, or agent-smoke lanes. Any changed file
+ *      that no `test`-capable package owns is therefore INVISIBLE to this lane, and
+ *      that is a hard error (exit 1), not a warning — under-running tests and
+ *      printing green is the one failure this lane must never produce. Override
+ *      with --allow-uncovered once you have run the full lane yourself.
  *
  *   3. A BROKEN INSTALL IS A MISS, NOT A HIT. Reuses the environment fingerprint from
  *      scripts/typecheck.ts (PODIUM_CHECK_ENV_HASH, declared in turbo.json globalEnv)
@@ -30,6 +30,7 @@
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { runWithHeavyTestLease } from './test-heavy'
 import { fingerprint, readCensus } from './typecheck'
 
 /** Runs a git command, returning trimmed stdout, or null if git exited non-zero. */
@@ -200,8 +201,8 @@ export function isInert(file: string): boolean {
 
 /**
  * A changed file is covered only if it lives in a package `turbo run test` can actually
- * execute. Root configs, tooling, and every package outside the pinned task are INVISIBLE
- * to this lane — exactly the cases where a green here would be a lie.
+ * execute. Root configs, tooling, and heavy lanes outside the package task graph are
+ * INVISIBLE to this lane — exactly the cases where a green here would be a lie.
  *
  * `capable` comes from the task graph (see testCapablePackages), NOT from package.json.
  */
@@ -234,10 +235,12 @@ export function assessCoverage(
 
 /** Lanes this entry point structurally cannot scope. Printed on every single run. */
 export const NOT_COVERED = [
-  'test:unit         — root vitest sweep over the whole monorepo',
   'test:integration  — real processes, PTYs, server boots',
   'test:acceptance   — loop-split load suite',
-  'test:bun:unit     — bun-native suites (*.bun.test.ts)',
+  'test:e2e          — full-stack server/daemon suites',
+  'test:browser      — Playwright browser suites',
+  'test:multi-instance — separate concurrent runtimes',
+  'test:smoke:agents — real agent CLIs and LLM quota',
 ]
 
 export function parseArgs(argv: string[]): {
@@ -276,9 +279,7 @@ async function main() {
     process.exit(1)
   }
 
-  const { explicitBase, allowUncovered, forward } = parseArgs(
-    process.argv.slice(2),
-  )
+  const { explicitBase, allowUncovered, forward } = parseArgs(process.argv.slice(2))
   const envBase = process.env.PODIUM_TEST_BASE || null
   const decision = resolveBase(git, { explicit: explicitBase ?? envBase })
   if ('error' in decision) {
@@ -287,7 +288,7 @@ async function main() {
   }
 
   const turboBin = join(root, 'node_modules', '.bin', 'turbo')
-  const dry = Bun.spawnSync([turboBin, 'run', 'test', '--dry=json'], {
+  const dry = Bun.spawnSync([turboBin, 'run', 'test', '--concurrency=1', '--dry=json'], {
     cwd: root,
     env: { ...process.env, PODIUM_CHECK_ENV_HASH: fingerprint(census) },
   })
@@ -328,15 +329,15 @@ async function main() {
     process.exit(1)
   }
 
-  const proc = Bun.spawn(
-    [turboBin, 'run', 'test', `--filter=...[${decision.base}]`, ...forward],
-    {
-      cwd: root,
-      stdio: ['inherit', 'inherit', 'inherit'],
-      env: { ...process.env, PODIUM_CHECK_ENV_HASH: fingerprint(census) },
-    },
+  process.exit(
+    await runWithHeavyTestLease(
+      [turboBin, 'run', 'test', '--concurrency=1', `--filter=...[${decision.base}]`, ...forward],
+      {
+        cwd: root,
+        env: { ...process.env, PODIUM_CHECK_ENV_HASH: fingerprint(census) },
+      },
+    ),
   )
-  process.exit(await proc.exited)
 }
 
 if (import.meta.main) await main()
