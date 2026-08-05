@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import { brotliCompressSync, brotliDecompressSync, gunzipSync } from 'node:zlib'
@@ -210,6 +210,44 @@ describe('registerWebStatic', () => {
       expect(await asset.text()).toBe('console.log(1)')
       expect((await app.request('/apple-touch-icon.png')).status, suffix).toBe(200)
       expect((await app.request('/settings/machines')).status, suffix).toBe(200)
+    }
+  })
+  it('never serves outside the dist, whatever shape the dist path arrives in [POD-421]', async () => {
+    // End-to-end property, pinned because normalising webDir touched the
+    // containment comparison. Note what actually holds it: dot segments are
+    // resolved by WHATWG URL parsing (including their %2e spellings) before the
+    // handler reads `pathname`, so these never reach the filesystem at all.
+    // Verified by deleting BOTH the containment guard and the rel-normalising
+    // in static-web.ts and watching this still pass — the handler's own checks
+    // are defence in depth behind the URL layer, not the front line. So this
+    // guards the behaviour, and will NOT go red if that guard alone regresses.
+    const parent = mkdtempSync(join(tmpdir(), 'podium-parent-'))
+    try {
+      const inside = join(parent, 'dist')
+      mkdirSync(inside)
+      writeFileSync(join(inside, 'index.html'), '<!doctype html><title>Podium</title>')
+      writeFileSync(join(parent, 'secret.txt'), 'TOP SECRET')
+      // The file really is there and readable — so a 200 below would be a leak,
+      // not a missing fixture.
+      expect(readFileSync(join(parent, 'secret.txt'), 'utf8')).toBe('TOP SECRET')
+
+      for (const webDirArg of [inside, `${inside}/`, join(inside, 'assets', '..')]) {
+        const app = new Hono()
+        registerWebStatic(app, webDirArg)
+        for (const attack of [
+          '/../secret.txt',
+          '/%2e%2e/secret.txt',
+          '/..%2fsecret.txt',
+          '/assets/../../secret.txt',
+          '/./../secret.txt',
+        ]) {
+          const res = await app.request(attack)
+          const body = await res.text()
+          expect(body, `${webDirArg} ${attack}`).not.toContain('TOP SECRET')
+        }
+      }
+    } finally {
+      rmSync(parent, { recursive: true, force: true })
     }
   })
   it('returns false and registers nothing when no build is present', () => {
