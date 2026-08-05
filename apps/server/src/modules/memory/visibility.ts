@@ -116,8 +116,27 @@ export class MemoryVisibilityPolicy {
    * supplies the session snapshot it already needs, while this context owns
    * only request-local indexes and memoized reads.
    */
-  forRequest(sessions: readonly SessionRow[]): MemoryVisibilityPolicy {
-    return new MemoryVisibilityPolicy(this.store, visibilityRequestFor(sessions))
+  forRequest(
+    sessions: readonly SessionRow[],
+    options: { batchIssueOwners?: boolean } = {},
+  ): MemoryVisibilityPolicy {
+    const request = visibilityRequestFor(sessions)
+    // The native conversation list asks visibility about each matching session.
+    // Its issue owner is the same live fact for every session on that issue, so
+    // load the distinct issue ids from the already-captured session snapshot in
+    // one batch before the filter starts. This is BATCHING, not a shared cache:
+    // getIssues reads SQLite now, the result lives only for this request, and
+    // missing ids are recorded as null just like issueById's lazy path.
+    if (options.batchIssueOwners) {
+      const issueIds = [
+        ...new Set(sessions.flatMap((row) => (row.issueId ? [String(row.issueId)] : []))),
+      ]
+      if (issueIds.length > 0) {
+        const rows = this.store.issues.getIssues(issueIds)
+        for (const id of issueIds) request.issues.set(id, rows.get(id) ?? null)
+      }
+    }
+    return new MemoryVisibilityPolicy(this.store, request)
   }
 
   classOf(value: string): VisibilityClass | undefined {

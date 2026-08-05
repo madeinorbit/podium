@@ -60,11 +60,18 @@ export class MemorySearchService {
   searchConversations(
     reader: MemoryReader,
     opts: { query?: string; projectPath?: string; limit?: number },
-    visibility: MemoryVisibilityPolicy = this.visibility.forRequest(
-      this.store.sessions.loadSessions(),
-    ),
+    visibility?: MemoryVisibilityPolicy,
   ) {
     const limit = Math.min(200, Math.max(1, opts.limit ?? 50))
+    const scopedVisibility =
+      visibility ??
+      this.visibility.forRequest(this.store.sessions.loadSessions(), {
+        // The native conversation-list RPC can return one row per distinct
+        // issue. Prime those owner rows as one request-local batch; the omni
+        // search caller passes its own visibility context and keeps its
+        // existing memoized path unchanged.
+        batchIssueOwners: true,
+      })
     return this.store.conversations.index
       .searchCandidates(opts)
       .filter(
@@ -73,7 +80,7 @@ export class MemorySearchService {
           // no placeholder left to substitute — a machine-less row is unreadable
           // rather than readable-as-local.
           row.machineId !== undefined &&
-          visibility.mayRead(reader, {
+          scopedVisibility.mayRead(reader, {
             class: 'conversation',
             machineId: row.machineId,
             nativeId: row.id,

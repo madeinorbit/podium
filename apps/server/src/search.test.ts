@@ -237,6 +237,73 @@ describe('MemoryService omni-search', () => {
     expect(grantLookups).toBe(expectedGrantResources.size)
   })
 
+  it('batches issue ownership reads for the native conversation list', () => {
+    const store = new SessionStore(':memory:')
+    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    registries.push(registry)
+    registry.gateway.attachDaemon('m1', () => {})
+
+    const issueIds: string[] = []
+    const conversationIds: string[] = []
+    for (let i = 0; i < 4; i++) {
+      const issue = registry.issues.create({
+        repoPath: '/repo',
+        title: `conversation issue ${i}`,
+        startNow: false,
+      })
+      issueIds.push(issue.id)
+      const { sessionId } = registry.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: `/repo/session-${i}`,
+        issueId: issue.id,
+      })
+      const nativeId = `native-conversation-${i}`
+      conversationIds.push(nativeId)
+      registry.gateway.routeDaemonFrame('m1', {
+        type: 'sessionResumeRef',
+        sessionId,
+        resume: { kind: 'claude-session', value: nativeId },
+      })
+      store.conversations.index.upsert([
+        {
+          id: nativeId,
+          agentKind: 'claude-code',
+          providerId: 'claude-code-jsonl',
+          projectPath: '/repo',
+          machineId: 'm1',
+        },
+      ])
+    }
+
+    const getIssue = store.issues.getIssue.bind(store.issues)
+    const getIssues = store.issues.getIssues.bind(store.issues)
+    let singleReads = 0
+    const batchReads: string[][] = []
+    store.issues.getIssue = (id) => {
+      singleReads++
+      return getIssue(id)
+    }
+    store.issues.getIssues = (ids) => {
+      batchReads.push([...ids])
+      return getIssues(ids)
+    }
+
+    let visible: ReturnType<typeof registry.modules.memory.searchConversations>
+    try {
+      visible = registry.modules.memory.searchConversations(READER, { projectPath: '/repo' })
+    } finally {
+      store.issues.getIssue = getIssue
+      store.issues.getIssues = getIssues
+    }
+
+    expect(visible.map((row) => row.id).sort()).toEqual([...conversationIds].sort())
+    // THE DEFECT IS THE CONSERVED SQL COUNT, not a duration: four distinct
+    // issue owners still require one live batch and no per-owner statements.
+    expect(singleReads).toBe(0)
+    expect(batchReads).toHaveLength(1)
+    expect(new Set(batchReads[0])).toEqual(new Set(issueIds))
+  })
+
   it('returns nothing for blank text (the router schema rejects it upstream too)', () => {
     const { store, registry } = seed()
     expect(registry.modules.memory.search(READER, { text: '   ' })).toEqual([])
