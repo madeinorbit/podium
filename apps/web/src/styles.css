@@ -1409,16 +1409,24 @@ html[data-density="balanced"] .header-quota-pools {
    head of every exchange, so tinting it says "this whole conversation belongs to
    POD-411" once per exchange instead of once per screen. Tint, never fill —
    6% into the panel, 32% into its hairline, both below DESIGN.md's selected-row
-   dose because this surface repeats down the column. The yellow keyline on the
-   answer is untouched: colour that means "your issue" must not collide with
-   colour that means "this is for you". */
+   dose because this surface repeats down the column. Both percentages ride the
+   theme's `--issue-tint-scale` / `--issue-line-scale`, like every other tinted
+   surface: a hue mixed into a light ground saturates about twice as fast, and a
+   percentage written out here would be a second place that has to know it. The
+   yellow keyline on the answer is untouched: colour that means "your issue" must
+   not collide with colour that means "this is for you". */
 .transcript-you {
   --transcript-you-bg: color-mix(
-    in oklab,
-    color-mix(in oklab, var(--background) 82%, black) 94%,
-    var(--issue, var(--background))
+    in srgb,
+    var(--issue, transparent) calc(6 * var(--issue-tint-scale, 1%)),
+    color-mix(in oklab, var(--background) 82%, black)
   );
-  border: 1px solid color-mix(in srgb, var(--issue, var(--border)) 32%, var(--border));
+  border: 1px solid
+    color-mix(
+      in srgb,
+      var(--issue, transparent) calc(32 * var(--issue-line-scale, 1%)),
+      var(--border)
+    );
   border-radius: 9px;
   background: var(--transcript-you-bg);
   padding: 10px 15px;
@@ -1953,7 +1961,10 @@ html[data-density="balanced"] .header-quota-pools {
   padding: 2px;
   border: 1px solid transparent;
   border-radius: 7px;
-  background: color-mix(in oklab, var(--background) 88%, transparent);
+  /* Opaque, because it lands over the first line of the message: a translucent
+     chip leaves the words showing through its icons, which is unreadable at
+     both layers. Chip Navy is the system's raised-control surface. */
+  background: var(--chip, var(--muted));
   opacity: 0;
   pointer-events: none;
   transition: opacity 120ms ease;
