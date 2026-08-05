@@ -20,6 +20,7 @@
     "@podium/transcript": "workspace:*"
   },
   "scripts": {
+    "test": "bun --bun ../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests",
     "typecheck": "tsgo --noEmit",
     "typecheck:tsc": "tsc --noEmit"
   },

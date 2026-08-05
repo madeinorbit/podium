@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { AccountConnectInput } from '@podium/commands'
+import { asMachineId, Inventory } from '@podium/model'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -242,6 +243,61 @@ describe('accountViews', () => {
     const openai = views.find((v) => v.id === 'managed:openai')!
     expect(openai.identity).toBe('sk-s…9999')
     expect(JSON.stringify(views)).not.toContain('sk-stored-9999')
+  })
+})
+
+describe('accountViews catalog', () => {
+  function catalogMachine(id: string, name: string, fingerprint: string, email: string) {
+    return {
+      id: asMachineId(id),
+      name,
+      hostname: name,
+      createdAt: '2026-08-04T00:00:00.000Z',
+      lastSeenAt: '2026-08-04T00:00:00.000Z',
+      podiumManaged: true,
+      ownerUserId: null,
+      // Nothing has reported a build for these fixtures — the shape a machine
+      // row carries before its daemon hands up version/delivery detail.
+      appVersion: null,
+      wireSchemaDigest: null,
+      installKind: null,
+      deliveryCaps: [],
+      buildReportedAt: null,
+      inventory: Inventory.parse({
+        os: 'linux',
+        arch: 'x64',
+        agents: [
+          {
+            kind: 'codex',
+            installed: true,
+            login: { state: 'in', account: email, identity: { fingerprint, email } },
+          },
+        ],
+      }),
+    }
+  }
+
+  it('keys native accounts by identity and lists every holding machine', () => {
+    const views = accountViews(settings(), accounts, [
+      catalogMachine('m1', 'macbook', 'fp-a', 'a@example.com'),
+      catalogMachine('m2', 'vmi', 'fp-a', 'a@example.com'),
+      catalogMachine('m3', 'linux-box', 'fp-b', 'b@example.com'),
+    ])
+    const native = views.filter((view) => view.harness === 'codex')
+
+    expect(native.map((view) => view.id)).toEqual(['native:codex:fp-a', 'native:codex:fp-b'])
+    expect(native[0]).toMatchObject({
+      identity: 'a@example.com',
+      identityFingerprint: 'fp-a',
+      machines: ['macbook', 'vmi'],
+      status: 'connected',
+    })
+    expect(native[1]).toMatchObject({
+      identity: 'b@example.com',
+      identityFingerprint: 'fp-b',
+      machines: ['linux-box'],
+      status: 'connected',
+    })
   })
 })
 

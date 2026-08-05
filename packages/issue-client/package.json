@@ -14,7 +14,7 @@
   "scripts": {
     "typecheck": "tsgo --noEmit",
     "typecheck:tsc": "tsc --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests"
   },
   "dependencies": {
     "@podium/commands": "workspace:*",

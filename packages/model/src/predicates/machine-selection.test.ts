@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   agentCapabilityRejection,
+  agentCapabilityRejectionForSelection,
+  agentLoginCondition,
   handoffAvailability,
   handoffSource,
   handoffTargets,
@@ -40,15 +42,13 @@ describe('agent machine capability', () => {
   }
   const sessions = [{ machineId: 'a', createdAt: '2026-01-02' }]
 
-  it('requires an online installed harness that is not explicitly logged out', () => {
+  it('separates capability rejection from a logged-out session condition', () => {
     expect(agentCapabilityRejection({ id: 'a', online: false }, 'codex')).toBe('offline')
     expect(agentCapabilityRejection({ id: 'a', online: true }, 'codex')).toBe('harness-missing')
-    expect(
-      agentCapabilityRejection(
-        { id: 'a', online: true, inventory: { agents: [agent('out')] } },
-        'codex',
-      ),
-    ).toBe('logged-out')
+    const loggedOut = { id: 'a', online: true, inventory: { agents: [agent('out')] } }
+    expect(agentCapabilityRejection(loggedOut, 'codex')).toBeUndefined()
+    expect(agentCapabilityRejectionForSelection(loggedOut, 'codex')).toBe('logged-out')
+    expect(agentLoginCondition(loggedOut, 'codex')).toBe('logged-out')
     expect(
       agentCapabilityRejection(
         { id: 'a', online: true, inventory: { agents: [agent('unknown')] } },
@@ -157,7 +157,7 @@ describe('agent machine capability', () => {
 })
 
 describe('handoffTargets', () => {
-  it('requires another online repo machine with the harness installed and not logged out', () => {
+  it('requires another online repo machine with the harness installed', () => {
     const session = { cwd: '/a/.worktrees/x', machineId: 'source', agentKind: 'codex' }
     const machines = [
       { id: 'source', online: true, inventory: { agents: [agent('in')] } },
@@ -166,8 +166,8 @@ describe('handoffTargets', () => {
     ]
     expect(handoffTargets(session, repos, machines).map((m) => m.id)).toEqual(['target'])
     expect(
-      handoffTargets(session, repos, [{ ...machines[1]!, inventory: { agents: [agent('out')] } }]),
-    ).toEqual([])
+      handoffTargets(session, repos, [{ ...machines[1]!, inventory: { agents: [agent('out')] } }]).map((m) => m.id),
+    ).toEqual(['target'])
   })
 
   it('rejects main checkouts, unsupported harnesses, and missing inventory', () => {
@@ -302,7 +302,7 @@ describe('handoffAvailability (POD-821)', () => {
     ).toEqual(['offline'])
     expect(
       rejected([{ id: 'target', online: true, inventory: { agents: [agent('out')] } }]),
-    ).toEqual(['logged-out'])
+    ).toEqual([undefined])
     expect(
       rejected([{ id: 'target', online: true, inventory: { agents: [agent('in', false)] } }]),
     ).toEqual(['harness-missing'])

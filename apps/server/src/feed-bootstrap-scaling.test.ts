@@ -39,12 +39,12 @@
  * corpus sizes differ instead of matching.
  */
 
-import { asUserId, SOLE_USER_ID } from '@podium/model'
+import { asUserId, issueDepId, SOLE_USER_ID } from '@podium/model'
 import { asCapabilityRef, asDeviceId, type Principal } from '@podium/protocol'
 import type { EntityChangeSpec, Ledger } from '@podium/sync'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
-import type { SessionsRepository } from './store/sessions'
+import type { SessionStore } from './store'
 
 const OWNER = asUserId(SOLE_USER_ID)
 
@@ -61,7 +61,7 @@ const feedPrincipal: Principal = {
  *  once here rather than cast at every call site (as `automation-removal-
  *  scoping.test.ts` does for the same reason). */
 const internals = (reg: SessionRegistry) =>
-  reg as unknown as { ledger: Ledger; store: { sessions: SessionsRepository } }
+  reg as unknown as { ledger: Ledger; store: SessionStore }
 
 /**
  * Append `count` conversation rows to the change log, through the Ledger — the
@@ -95,6 +95,69 @@ function loadSessionsCallsDuringBootstrap(reg: SessionRegistry): number {
   return calls
 }
 
+/**
+ * How many times a bootstrap reaches the repository for issues and sessions,
+ * split into BATCHED calls and POINT reads.
+ *
+ * The point-read counters are what state the defect: POD-1732 measured
+ * ~3,400 `getIssue` and ~3,000 `findSessionByResumeValue` calls in a single
+ * live bootstrap, which was 76% of `feedBootstrap.read` on its own. Counting
+ * batches AND points separately is deliberate — a fix that merely memoized
+ * would drive points down without ever producing a batch, and this has to tell
+ * those two apart.
+ */
+function bootstrapRepositoryCalls(reg: SessionRegistry): {
+  batches: number
+  pointReads: number
+} {
+  const { ledger, store } = internals(reg)
+  const originals = {
+    getIssue: store.issues.getIssue.bind(store.issues),
+    getIssues: store.issues.getIssues.bind(store.issues),
+    getSession: store.sessions.getSession.bind(store.sessions),
+    getSessions: store.sessions.getSessions.bind(store.sessions),
+    findOne: store.sessions.findSessionByResumeValue.bind(store.sessions),
+    findMany: store.sessions.findSessionsByResumeValues.bind(store.sessions),
+  }
+  let batches = 0
+  let pointReads = 0
+  store.issues.getIssue = (id) => {
+    pointReads++
+    return originals.getIssue(id)
+  }
+  store.sessions.getSession = (id) => {
+    pointReads++
+    return originals.getSession(id)
+  }
+  store.sessions.findSessionByResumeValue = (v) => {
+    pointReads++
+    return originals.findOne(v)
+  }
+  store.issues.getIssues = (ids) => {
+    batches++
+    return originals.getIssues(ids)
+  }
+  store.sessions.getSessions = (ids) => {
+    batches++
+    return originals.getSessions(ids)
+  }
+  store.sessions.findSessionsByResumeValues = (vs) => {
+    batches++
+    return originals.findMany(vs)
+  }
+  try {
+    ledger.authority.bootstrap(feedPrincipal)
+  } finally {
+    store.issues.getIssue = originals.getIssue
+    store.issues.getIssues = originals.getIssues
+    store.sessions.getSession = originals.getSession
+    store.sessions.getSessions = originals.getSessions
+    store.sessions.findSessionByResumeValue = originals.findOne
+    store.sessions.findSessionsByResumeValues = originals.findMany
+  }
+  return { batches, pointReads }
+}
+
 describe('POD-1614 — a bootstrap does not re-read the sessions table per row', () => {
   it('never loads the whole sessions table while scoping conversation rows', () => {
     const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
@@ -120,5 +183,114 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
     // The property, stated directly: growing the corpus 8x must not grow the
     // per-row table scans at all. Before the fix these read 8 and 64.
     expect(loadSessionsCallsDuringBootstrap(large)).toBe(loadSessionsCallsDuringBootstrap(small))
+  })
+  it('memoizes authorization snapshots across anchored issue refs and refreshes after append', () => {
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const { ledger, store } = internals(reg)
+    for (const issueId of ['i1', 'i2']) {
+      store.grants.upsert({
+        resourceKind: 'issue',
+        resourceId: issueId,
+        grantee: OWNER,
+        verb: 'read',
+        owner: OWNER,
+        visibility: 'personal',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        actorKind: 'user',
+        actorId: 'cache-test',
+        onBehalfOf: OWNER,
+      })
+    }
+    const latestStates = vi.spyOn(store.sync, 'latestChangeStates')
+    const sessionLoads = vi.spyOn(store.sessions, 'loadSessions')
+    const dependencyId = issueDepId('i1', 'i-target', 'blocks')
+    store.sync.appendChanges(
+      [
+        { entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{"v":1}' },
+        { entity: 'issue', entityId: 'i2', op: 'upsert', payload: '{"v":1}' },
+        { entity: 'issueDep', entityId: dependencyId, op: 'upsert', payload: '{"dep":true}' },
+      ],
+      1000,
+    )
+    const first = ledger.authority.changesSince(0, feedPrincipal)
+    if (first === null || first.kind !== 'batch') {
+      throw new Error('expected the first scoped delivery to be a batch')
+    }
+    // Before the fix, this fixture made 5 latest-state folds (one anchor scan
+    // plus current values) and 2 full session loads. The conserved quantities
+    // are now one fold and one session read.
+    expect(latestStates).toHaveBeenCalledTimes(1)
+    expect(sessionLoads).toHaveBeenCalledTimes(1)
+    expect(
+      first.changes.filter(
+        (change) => change.entity === 'issue' && change.entityId === 'i1' && change.op === 'upsert',
+      ),
+    ).toHaveLength(2)
+    expect(first.changes).toContainEqual(
+      expect.objectContaining({
+        entity: 'issue',
+        entityId: 'i1',
+        op: 'upsert',
+        value: { v: 1 },
+      }),
+    )
+    expect(first.changes).toContainEqual(
+      expect.objectContaining({
+        entity: 'issueDep',
+        entityId: dependencyId,
+        op: 'upsert',
+        value: { dep: true },
+      }),
+    )
+
+    const cursor = store.sync.maxChangeSeq()
+    store.sync.appendChanges(
+      [{ entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{"v":2}' }],
+      2000,
+    )
+    const second = ledger.authority.changesSince(cursor, feedPrincipal)
+    if (second === null || second.kind !== 'batch') {
+      throw new Error('expected the refreshed scoped delivery to be a batch')
+    }
+    // A durable append changes the generation before evaluation, so current
+    // values cannot come from the previous authorization snapshot.
+    expect(latestStates).toHaveBeenCalledTimes(2)
+    expect(sessionLoads).toHaveBeenCalledTimes(2)
+    expect(second.changes).toContainEqual(
+      expect.objectContaining({
+        entity: 'issue',
+        entityId: 'i1',
+        op: 'upsert',
+        value: { v: 2 },
+      }),
+    )
+  })
+})
+
+describe('POD-1732 — a bootstrap resolves visibility in batches, not per row', () => {
+  it('grows its corpus without growing its point-read count', () => {
+    const small = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const large = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+
+    // CONTROL, same reason as the POD-1614 case above: prove the rows landed,
+    // or a count of 0 passes against an empty world for the wrong reason.
+    expect(seedConversations(small, 8)).toBe(8)
+    expect(seedConversations(large, 64)).toBe(64)
+
+    const a = bootstrapRepositoryCalls(small)
+    const b = bootstrapRepositoryCalls(large)
+
+    // THE CONSERVED QUANTITY. An 8x corpus must not multiply the reads. Before
+    // POD-1732 the point reads scaled with the row count — the live bootstrap
+    // did ~3,400 getIssue and ~3,000 findSessionByResumeValue calls — so this
+    // read 8-vs-64 instead of matching.
+    expect(b.pointReads).toBe(a.pointReads)
+
+    // AND IT MUST BE A BATCH, not a memo. A memoizing fix also flattens the
+    // point-read count, so without this a cache would pass a batching test.
+    // The prefetch runs once per non-empty set, so the count is bounded and
+    // identical at both sizes rather than proportional to either.
+    expect(b.batches).toBe(a.batches)
+    expect(b.batches).toBeLessThanOrEqual(3)
   })
 })

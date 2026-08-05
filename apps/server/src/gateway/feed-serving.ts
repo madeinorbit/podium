@@ -125,6 +125,9 @@ export interface FeedPeer extends EdgePeer {}
 export interface FeedServingDeps {
   /** The kernel role. Both reads come from it, which is the whole point. */
   readonly authority: AuthorityPort
+  /** Optional composition-root hooks for attributing the synchronous bootstrap read. */
+  readonly onBootstrapReadStart?: () => void
+  readonly onBootstrapReadEnd?: (principal: Principal, durationMs: number) => void
   /** Persisted `(feedId, epoch)` — ADR 2 D1. */
   readonly identity: FeedIdentityRegistry
   /** ADR 2 D5's floor, read live per frame. */
@@ -201,7 +204,13 @@ export class FeedServing {
   private serveWorld(peer: FeedPeer, principal: Principal, routingPrincipal: Principal): void {
     // ONE synchronous pass: the world, and the position it was read at.
     const t0 = performance.now()
-    const world = this.deps.authority.bootstrap(principal)
+    this.deps.onBootstrapReadStart?.()
+    let world: ReturnType<AuthorityPort['bootstrap']>
+    try {
+      world = this.deps.authority.bootstrap(principal)
+    } finally {
+      this.deps.onBootstrapReadEnd?.(principal, performance.now() - t0)
+    }
     const perfKey = perfPrincipal(principal)
     // THE SLICE SIZE, measured at the ONE point the whole visible world is
     // enumerated [POD-736]. A delta batch's `changes.length` is churn and would

@@ -3,15 +3,12 @@
   "dialect": "sqlite",
   "id": "1aeb15ab-52dd-40e4-80aa-0a005d89f83f",
   "prevIds": [
+    "b1c3d327-4320-4676-a31a-b8cdf27c396a",
     "d82670a4-c094-4f5a-b298-2aec084d79d3"
   ],
   "ddl": [
     {
       "name": "accounts",
-      "entityType": "tables"
-    },
-    {
-      "name": "applied_mutations",
       "entityType": "tables"
     },
     {
@@ -24,10 +21,6 @@
     },
     {
       "name": "automations",
-      "entityType": "tables"
-    },
-    {
-      "name": "changes",
       "entityType": "tables"
     },
     {
@@ -51,6 +44,10 @@
       "entityType": "tables"
     },
     {
+      "name": "grants",
+      "entityType": "tables"
+    },
+    {
       "name": "issue_comments",
       "entityType": "tables"
     },
@@ -63,11 +60,19 @@
       "entityType": "tables"
     },
     {
+      "name": "issue_message_user_state",
+      "entityType": "tables"
+    },
+    {
       "name": "issue_messages",
       "entityType": "tables"
     },
     {
       "name": "issue_ref_letters",
+      "entityType": "tables"
+    },
+    {
+      "name": "issue_user_state",
       "entityType": "tables"
     },
     {
@@ -151,6 +156,10 @@
       "entityType": "tables"
     },
     {
+      "name": "server_secrets",
+      "entityType": "tables"
+    },
+    {
       "name": "session_drafts",
       "entityType": "tables"
     },
@@ -167,7 +176,15 @@
       "entityType": "tables"
     },
     {
+      "name": "session_user_state",
+      "entityType": "tables"
+    },
+    {
       "name": "sessions",
+      "entityType": "tables"
+    },
+    {
+      "name": "settings_audit_events",
       "entityType": "tables"
     },
     {
@@ -203,15 +220,27 @@
       "entityType": "tables"
     },
     {
-      "name": "sync_feed",
-      "entityType": "tables"
-    },
-    {
       "name": "tab_order",
       "entityType": "tables"
     },
     {
+      "name": "telegram_chat_bindings",
+      "entityType": "tables"
+    },
+    {
       "name": "upstream_outbox",
+      "entityType": "tables"
+    },
+    {
+      "name": "user_credentials",
+      "entityType": "tables"
+    },
+    {
+      "name": "user_preferences",
+      "entityType": "tables"
+    },
+    {
+      "name": "users",
       "entityType": "tables"
     },
     {
@@ -236,6 +265,18 @@
     },
     {
       "name": "workflows",
+      "entityType": "tables"
+    },
+    {
+      "name": "applied_mutations",
+      "entityType": "tables"
+    },
+    {
+      "name": "changes",
+      "entityType": "tables"
+    },
+    {
+      "name": "feed_identity",
       "entityType": "tables"
     },
     {
@@ -314,46 +355,6 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "mutation_id",
-      "entityType": "columns",
-      "table": "applied_mutations"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "proc",
-      "entityType": "columns",
-      "table": "applied_mutations"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "result",
-      "entityType": "columns",
-      "table": "applied_mutations"
-    },
-    {
-      "type": "integer",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "applied_at",
-      "entityType": "columns",
-      "table": "applied_mutations"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
       "name": "id",
       "entityType": "columns",
       "table": "approval_requests"
@@ -424,6 +425,26 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
+      "name": "actor",
+      "entityType": "columns",
+      "table": "approval_requests"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "on_behalf_of",
+      "entityType": "columns",
+      "table": "approval_requests"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
       "name": "decided_at",
       "entityType": "columns",
       "table": "approval_requests"
@@ -445,6 +466,26 @@
       "default": null,
       "generated": null,
       "name": "id",
+      "entityType": "columns",
+      "table": "automation_runs"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'system:automation-migration'",
+      "generated": null,
+      "name": "actor",
+      "entityType": "columns",
+      "table": "automation_runs"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "on_behalf_of",
       "entityType": "columns",
       "table": "automation_runs"
     },
@@ -505,6 +546,36 @@
       "default": null,
       "generated": null,
       "name": "id",
+      "entityType": "columns",
+      "table": "automations"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "owner_user_id",
+      "entityType": "columns",
+      "table": "automations"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "created_by_actor",
+      "entityType": "columns",
+      "table": "automations"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "created_by_on_behalf_of",
       "entityType": "columns",
       "table": "automations"
     },
@@ -659,72 +730,22 @@
       "table": "automations"
     },
     {
-      "type": "integer",
-      "notNull": false,
-      "autoincrement": true,
-      "default": null,
-      "generated": null,
-      "name": "seq",
-      "entityType": "columns",
-      "table": "changes"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "entity",
-      "entityType": "columns",
-      "table": "changes"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "entity_id",
-      "entityType": "columns",
-      "table": "changes"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "op",
-      "entityType": "columns",
-      "table": "changes"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "payload",
-      "entityType": "columns",
-      "table": "changes"
-    },
-    {
-      "type": "integer",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "event_time",
-      "entityType": "columns",
-      "table": "changes"
-    },
-    {
       "type": "text",
       "notNull": false,
       "autoincrement": false,
       "default": null,
       "generated": null,
       "name": "token_hash",
+      "entityType": "columns",
+      "table": "client_sessions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "user_id",
       "entityType": "columns",
       "table": "client_sessions"
     },
@@ -1032,7 +1053,7 @@
       "type": "text",
       "notNull": true,
       "autoincrement": false,
-      "default": "'__local__'",
+      "default": null,
       "generated": null,
       "name": "machine_id",
       "entityType": "columns",
@@ -1160,6 +1181,116 @@
     },
     {
       "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "owner_user_id",
+      "entityType": "columns",
+      "table": "execution_profiles"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "resource_kind",
+      "entityType": "columns",
+      "table": "grants"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "resource_id",
+      "entityType": "columns",
+      "table": "grants"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "grantee",
+      "entityType": "columns",
+      "table": "grants"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "verb",
+      "entityType": "columns",
+      "table": "grants"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "owner",
+      "entityType": "columns",
+      "table": "grants"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "visibility",
+      "entityType": "columns",
+      "table": "grants"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "grants"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "actor_kind",
+      "entityType": "columns",
+      "table": "grants"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "actor_id",
+      "entityType": "columns",
+      "table": "grants"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "on_behalf_of",
+      "entityType": "columns",
+      "table": "grants"
+    },
+    {
+      "type": "text",
       "notNull": false,
       "autoincrement": false,
       "default": null,
@@ -1205,6 +1336,26 @@
       "default": null,
       "generated": null,
       "name": "created_at",
+      "entityType": "columns",
+      "table": "issue_comments"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "actor",
+      "entityType": "columns",
+      "table": "issue_comments"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "on_behalf_of",
       "entityType": "columns",
       "table": "issue_comments"
     },
@@ -1260,6 +1411,36 @@
     },
     {
       "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "user_id",
+      "entityType": "columns",
+      "table": "issue_message_user_state"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "issue_message_id",
+      "entityType": "columns",
+      "table": "issue_message_user_state"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "read_at",
+      "entityType": "columns",
+      "table": "issue_message_user_state"
+    },
+    {
+      "type": "text",
       "notNull": false,
       "autoincrement": false,
       "default": null,
@@ -1310,6 +1491,26 @@
     },
     {
       "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "actor",
+      "entityType": "columns",
+      "table": "issue_messages"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "on_behalf_of",
+      "entityType": "columns",
+      "table": "issue_messages"
+    },
+    {
+      "type": "text",
       "notNull": true,
       "autoincrement": false,
       "default": "'unread'",
@@ -1325,16 +1526,6 @@
       "default": null,
       "generated": null,
       "name": "claimed_by",
-      "entityType": "columns",
-      "table": "issue_messages"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "read_at",
       "entityType": "columns",
       "table": "issue_messages"
     },
@@ -1370,11 +1561,101 @@
     },
     {
       "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "user_id",
+      "entityType": "columns",
+      "table": "issue_user_state"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "issue_id",
+      "entityType": "columns",
+      "table": "issue_user_state"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "read_at",
+      "entityType": "columns",
+      "table": "issue_user_state"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "tucked_at",
+      "entityType": "columns",
+      "table": "issue_user_state"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "pinned_at",
+      "entityType": "columns",
+      "table": "issue_user_state"
+    },
+    {
+      "type": "text",
       "notNull": false,
       "autoincrement": false,
       "default": null,
       "generated": null,
       "name": "id",
+      "entityType": "columns",
+      "table": "issues"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "owner_user_id",
+      "entityType": "columns",
+      "table": "issues"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'personal'",
+      "generated": null,
+      "name": "visibility",
+      "entityType": "columns",
+      "table": "issues"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "created_by_actor",
+      "entityType": "columns",
+      "table": "issues"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_by_on_behalf_of",
       "entityType": "columns",
       "table": "issues"
     },
@@ -1734,16 +2015,6 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "tucked_at",
-      "entityType": "columns",
-      "table": "issues"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
       "name": "superseded_by",
       "entityType": "columns",
       "table": "issues"
@@ -1755,16 +2026,6 @@
       "default": null,
       "generated": null,
       "name": "duplicate_of",
-      "entityType": "columns",
-      "table": "issues"
-    },
-    {
-      "type": "integer",
-      "notNull": true,
-      "autoincrement": false,
-      "default": "0",
-      "generated": null,
-      "name": "pinned",
       "entityType": "columns",
       "table": "issues"
     },
@@ -1870,6 +2131,26 @@
     },
     {
       "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "actor",
+      "entityType": "columns",
+      "table": "issues"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "on_behalf_of",
+      "entityType": "columns",
+      "table": "issues"
+    },
+    {
+      "type": "text",
       "notNull": true,
       "autoincrement": false,
       "default": null,
@@ -1905,16 +2186,6 @@
       "default": "0",
       "generated": null,
       "name": "draft",
-      "entityType": "columns",
-      "table": "issues"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "read_at",
       "entityType": "columns",
       "table": "issues"
     },
@@ -2190,6 +2461,16 @@
     },
     {
       "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "owner_user_id",
+      "entityType": "columns",
+      "table": "machines"
+    },
+    {
+      "type": "text",
       "notNull": true,
       "autoincrement": false,
       "default": null,
@@ -2415,6 +2696,46 @@
       "default": null,
       "generated": null,
       "name": "from_issue",
+      "entityType": "columns",
+      "table": "messages"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "actor_kind",
+      "entityType": "columns",
+      "table": "messages"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "actor_id",
+      "entityType": "columns",
+      "table": "messages"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "on_behalf_of",
+      "entityType": "columns",
+      "table": "messages"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "delegation_ref",
       "entityType": "columns",
       "table": "messages"
     },
@@ -2834,6 +3155,16 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
+      "name": "user_id",
+      "entityType": "columns",
+      "table": "pins"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
       "name": "kind",
       "entityType": "columns",
       "table": "pins"
@@ -2982,6 +3313,76 @@
       "type": "text",
       "notNull": true,
       "autoincrement": false,
+      "default": "'system'",
+      "generated": null,
+      "name": "principal_kind",
+      "entityType": "columns",
+      "table": "queued_messages"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'legacy-session-inbox'",
+      "generated": null,
+      "name": "principal_ref",
+      "entityType": "columns",
+      "table": "queued_messages"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "delegation_ref",
+      "entityType": "columns",
+      "table": "queued_messages"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'system'",
+      "generated": null,
+      "name": "actor_kind",
+      "entityType": "columns",
+      "table": "queued_messages"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'legacy-session-inbox'",
+      "generated": null,
+      "name": "actor_id",
+      "entityType": "columns",
+      "table": "queued_messages"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "on_behalf_of",
+      "entityType": "columns",
+      "table": "queued_messages"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "source_message_id",
+      "entityType": "columns",
+      "table": "queued_messages"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
       "default": null,
       "generated": null,
       "name": "reader",
@@ -3062,7 +3463,7 @@
       "type": "text",
       "notNull": true,
       "autoincrement": false,
-      "default": "'__local__'",
+      "default": null,
       "generated": null,
       "name": "machine_id",
       "entityType": "columns",
@@ -3117,6 +3518,36 @@
       "name": "repo_id",
       "entityType": "columns",
       "table": "repos"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "key",
+      "entityType": "columns",
+      "table": "server_secrets"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "value",
+      "entityType": "columns",
+      "table": "server_secrets"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "table": "server_secrets"
     },
     {
       "type": "text",
@@ -3400,11 +3831,51 @@
     },
     {
       "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "user_id",
+      "entityType": "columns",
+      "table": "session_user_state"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "session_id",
+      "entityType": "columns",
+      "table": "session_user_state"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "read_at",
+      "entityType": "columns",
+      "table": "session_user_state"
+    },
+    {
+      "type": "text",
       "notNull": false,
       "autoincrement": false,
       "default": null,
       "generated": null,
       "name": "id",
+      "entityType": "columns",
+      "table": "sessions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "owner_user_id",
       "entityType": "columns",
       "table": "sessions"
     },
@@ -3602,7 +4073,7 @@
       "type": "text",
       "notNull": true,
       "autoincrement": false,
-      "default": "'__local__'",
+      "default": null,
       "generated": null,
       "name": "machine_id",
       "entityType": "columns",
@@ -3665,16 +4136,6 @@
       "default": null,
       "generated": null,
       "name": "issue_id",
-      "entityType": "columns",
-      "table": "sessions"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "read_at",
       "entityType": "columns",
       "table": "sessions"
     },
@@ -3859,8 +4320,108 @@
       "table": "sessions"
     },
     {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": true,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "settings_audit_events"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "command",
+      "entityType": "columns",
+      "table": "settings_audit_events"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "outcome",
+      "entityType": "columns",
+      "table": "settings_audit_events"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "actor_kind",
+      "entityType": "columns",
+      "table": "settings_audit_events"
+    },
+    {
       "type": "text",
       "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "actor_id",
+      "entityType": "columns",
+      "table": "settings_audit_events"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "on_behalf_of",
+      "entityType": "columns",
+      "table": "settings_audit_events"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'{}'",
+      "generated": null,
+      "name": "detail_json",
+      "entityType": "columns",
+      "table": "settings_audit_events"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'[]'",
+      "generated": null,
+      "name": "redacted_paths",
+      "entityType": "columns",
+      "table": "settings_audit_events"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "settings_audit_events"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "user_id",
+      "entityType": "columns",
+      "table": "snoozes"
+    },
+    {
+      "type": "text",
+      "notNull": true,
       "autoincrement": false,
       "default": null,
       "generated": null,
@@ -4052,6 +4613,16 @@
       "type": "text",
       "notNull": true,
       "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "owner_user_id",
+      "entityType": "columns",
+      "table": "superagent_messages"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
       "default": null,
       "generated": null,
       "name": "role",
@@ -4120,6 +4691,16 @@
     },
     {
       "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "owner_user_id",
+      "entityType": "columns",
+      "table": "superagent_pending_turns"
+    },
+    {
+      "type": "text",
       "notNull": false,
       "autoincrement": false,
       "default": null,
@@ -4184,6 +4765,36 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
+      "name": "actor",
+      "entityType": "columns",
+      "table": "superagent_pending_turns"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "on_behalf_of",
+      "entityType": "columns",
+      "table": "superagent_pending_turns"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "owner_user_id",
+      "entityType": "columns",
+      "table": "superagent_queued_inputs"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
       "name": "input_id",
       "entityType": "columns",
       "table": "superagent_queued_inputs"
@@ -4234,7 +4845,37 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
+      "name": "actor",
+      "entityType": "columns",
+      "table": "superagent_queued_inputs"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "on_behalf_of",
+      "entityType": "columns",
+      "table": "superagent_queued_inputs"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
       "name": "id",
+      "entityType": "columns",
+      "table": "superagent_threads"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "owner_user_id",
       "entityType": "columns",
       "table": "superagent_threads"
     },
@@ -4369,38 +5010,18 @@
       "table": "superagent_threads"
     },
     {
-      "type": "integer",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "id",
-      "entityType": "columns",
-      "table": "sync_feed"
-    },
-    {
       "type": "text",
       "notNull": true,
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "feed_id",
+      "name": "user_id",
       "entityType": "columns",
-      "table": "sync_feed"
+      "table": "tab_order"
     },
     {
       "type": "text",
       "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "epoch",
-      "entityType": "columns",
-      "table": "sync_feed"
-    },
-    {
-      "type": "text",
-      "notNull": false,
       "autoincrement": false,
       "default": null,
       "generated": null,
@@ -4427,6 +5048,66 @@
       "name": "updated_at",
       "entityType": "columns",
       "table": "tab_order"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "chat_id",
+      "entityType": "columns",
+      "table": "telegram_chat_bindings"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "user_id",
+      "entityType": "columns",
+      "table": "telegram_chat_bindings"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "bound_at",
+      "entityType": "columns",
+      "table": "telegram_chat_bindings"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "actor_kind",
+      "entityType": "columns",
+      "table": "telegram_chat_bindings"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "actor_id",
+      "entityType": "columns",
+      "table": "telegram_chat_bindings"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "on_behalf_of",
+      "entityType": "columns",
+      "table": "telegram_chat_bindings"
     },
     {
       "type": "text",
@@ -4477,6 +5158,136 @@
       "name": "attempts",
       "entityType": "columns",
       "table": "upstream_outbox"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "user_id",
+      "entityType": "columns",
+      "table": "user_credentials"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "source",
+      "entityType": "columns",
+      "table": "user_credentials"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "password_hash",
+      "entityType": "columns",
+      "table": "user_credentials"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "table": "user_credentials"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "user_id",
+      "entityType": "columns",
+      "table": "user_preferences"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "key",
+      "entityType": "columns",
+      "table": "user_preferences"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "value",
+      "entityType": "columns",
+      "table": "user_preferences"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "table": "user_preferences"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "users"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "display_name",
+      "entityType": "columns",
+      "table": "users"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "role",
+      "entityType": "columns",
+      "table": "users"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "users"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "disabled_at",
+      "entityType": "columns",
+      "table": "users"
     },
     {
       "type": "text",
@@ -4539,6 +5350,16 @@
       "table": "workflow_bindings"
     },
     {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "owner_user_id",
+      "entityType": "columns",
+      "table": "workflow_bindings"
+    },
+    {
       "type": "integer",
       "notNull": false,
       "autoincrement": true,
@@ -4595,6 +5416,16 @@
       "default": null,
       "generated": null,
       "name": "actor_id",
+      "entityType": "columns",
+      "table": "workflow_events"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "on_behalf_of",
       "entityType": "columns",
       "table": "workflow_events"
     },
@@ -4970,6 +5801,16 @@
     },
     {
       "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "owner_user_id",
+      "entityType": "columns",
+      "table": "workflow_runs"
+    },
+    {
+      "type": "text",
       "notNull": false,
       "autoincrement": false,
       "default": null,
@@ -5077,6 +5918,186 @@
       "name": "updated_at",
       "entityType": "columns",
       "table": "workflows"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'user:sole'",
+      "generated": null,
+      "name": "owner_user_id",
+      "entityType": "columns",
+      "table": "workflows"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "mutation_id",
+      "entityType": "columns",
+      "table": "applied_mutations"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "proc",
+      "entityType": "columns",
+      "table": "applied_mutations"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "result",
+      "entityType": "columns",
+      "table": "applied_mutations"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "applied_at",
+      "entityType": "columns",
+      "table": "applied_mutations"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": true,
+      "default": null,
+      "generated": null,
+      "name": "seq",
+      "entityType": "columns",
+      "table": "changes"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "entity",
+      "entityType": "columns",
+      "table": "changes"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "entity_id",
+      "entityType": "columns",
+      "table": "changes"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "op",
+      "entityType": "columns",
+      "table": "changes"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "payload",
+      "entityType": "columns",
+      "table": "changes"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "event_time",
+      "entityType": "columns",
+      "table": "changes"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "origin_id",
+      "entityType": "columns",
+      "table": "changes"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "causation_id",
+      "entityType": "columns",
+      "table": "changes"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "mutation_id",
+      "entityType": "columns",
+      "table": "changes"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "singleton",
+      "entityType": "columns",
+      "table": "feed_identity"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "feed_id",
+      "entityType": "columns",
+      "table": "feed_identity"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "epoch",
+      "entityType": "columns",
+      "table": "feed_identity"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "minted_at",
+      "entityType": "columns",
+      "table": "feed_identity"
     },
     {
       "columns": [
@@ -5330,6 +6351,18 @@
     },
     {
       "columns": [
+        "resource_kind",
+        "resource_id",
+        "grantee",
+        "verb"
+      ],
+      "nameExplicit": true,
+      "name": "grants_pk",
+      "entityType": "pks",
+      "table": "grants"
+    },
+    {
+      "columns": [
         "from_id",
         "to_id",
         "type"
@@ -5348,6 +6381,26 @@
       "name": "issue_labels_pk",
       "entityType": "pks",
       "table": "issue_labels"
+    },
+    {
+      "columns": [
+        "user_id",
+        "issue_message_id"
+      ],
+      "nameExplicit": true,
+      "name": "issue_message_user_state_pk",
+      "entityType": "pks",
+      "table": "issue_message_user_state"
+    },
+    {
+      "columns": [
+        "user_id",
+        "issue_id"
+      ],
+      "nameExplicit": true,
+      "name": "issue_user_state_pk",
+      "entityType": "pks",
+      "table": "issue_user_state"
     },
     {
       "columns": [
@@ -5401,6 +6454,7 @@
     },
     {
       "columns": [
+        "user_id",
         "kind",
         "id"
       ],
@@ -5431,6 +6485,26 @@
     },
     {
       "columns": [
+        "user_id",
+        "session_id"
+      ],
+      "nameExplicit": true,
+      "name": "session_user_state_pk",
+      "entityType": "pks",
+      "table": "session_user_state"
+    },
+    {
+      "columns": [
+        "user_id",
+        "session_id"
+      ],
+      "nameExplicit": true,
+      "name": "snoozes_pk",
+      "entityType": "pks",
+      "table": "snoozes"
+    },
+    {
+      "columns": [
         "subscription_id",
         "event_id"
       ],
@@ -5438,6 +6512,26 @@
       "name": "subscription_deliveries_pk",
       "entityType": "pks",
       "table": "subscription_deliveries"
+    },
+    {
+      "columns": [
+        "user_id",
+        "worktree"
+      ],
+      "nameExplicit": true,
+      "name": "tab_order_pk",
+      "entityType": "pks",
+      "table": "tab_order"
+    },
+    {
+      "columns": [
+        "user_id",
+        "key"
+      ],
+      "nameExplicit": true,
+      "name": "user_preferences_pk",
+      "entityType": "pks",
+      "table": "user_preferences"
     },
     {
       "columns": [
@@ -5470,15 +6564,6 @@
     },
     {
       "columns": [
-        "mutation_id"
-      ],
-      "nameExplicit": false,
-      "name": "applied_mutations_pk",
-      "table": "applied_mutations",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
         "id"
       ],
       "nameExplicit": false,
@@ -5502,15 +6587,6 @@
       "nameExplicit": false,
       "name": "automations_pk",
       "table": "automations",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "seq"
-      ],
-      "nameExplicit": false,
-      "name": "changes_pk",
-      "table": "changes",
       "entityType": "pks"
     },
     {
@@ -5686,6 +6762,15 @@
     },
     {
       "columns": [
+        "key"
+      ],
+      "nameExplicit": false,
+      "name": "server_secrets_pk",
+      "table": "server_secrets",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
         "session_id"
       ],
       "nameExplicit": false,
@@ -5731,11 +6816,11 @@
     },
     {
       "columns": [
-        "session_id"
+        "id"
       ],
       "nameExplicit": false,
-      "name": "snoozes_pk",
-      "table": "snoozes",
+      "name": "settings_audit_events_pk",
+      "table": "settings_audit_events",
       "entityType": "pks"
     },
     {
@@ -5794,20 +6879,11 @@
     },
     {
       "columns": [
-        "id"
+        "chat_id"
       ],
       "nameExplicit": false,
-      "name": "sync_feed_pk",
-      "table": "sync_feed",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "worktree"
-      ],
-      "nameExplicit": false,
-      "name": "tab_order_pk",
-      "table": "tab_order",
+      "name": "telegram_chat_bindings_pk",
+      "table": "telegram_chat_bindings",
       "entityType": "pks"
     },
     {
@@ -5817,6 +6893,24 @@
       "nameExplicit": false,
       "name": "upstream_outbox_pk",
       "table": "upstream_outbox",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "user_id"
+      ],
+      "nameExplicit": false,
+      "name": "user_credentials_pk",
+      "table": "user_credentials",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "users_pk",
+      "table": "users",
       "entityType": "pks"
     },
     {
@@ -5857,6 +6951,33 @@
     },
     {
       "columns": [
+        "mutation_id"
+      ],
+      "nameExplicit": false,
+      "name": "applied_mutations_pk",
+      "table": "applied_mutations",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "seq"
+      ],
+      "nameExplicit": false,
+      "name": "changes_pk",
+      "table": "changes",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "singleton"
+      ],
+      "nameExplicit": false,
+      "name": "feed_identity_pk",
+      "table": "feed_identity",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
         {
           "value": "status",
           "isExpression": false
@@ -5890,42 +7011,6 @@
       "name": "idx_automation_runs_automation",
       "entityType": "indexes",
       "table": "automation_runs"
-    },
-    {
-      "columns": [
-        {
-          "value": "entity",
-          "isExpression": false
-        },
-        {
-          "value": "entity_id",
-          "isExpression": false
-        },
-        {
-          "value": "seq",
-          "isExpression": false
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "origin": "manual",
-      "name": "changes_entity",
-      "entityType": "indexes",
-      "table": "changes"
-    },
-    {
-      "columns": [
-        {
-          "value": "event_time",
-          "isExpression": false
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "origin": "manual",
-      "name": "changes_event_time",
-      "entityType": "indexes",
-      "table": "changes"
     },
     {
       "columns": [
@@ -6458,6 +7543,24 @@
     {
       "columns": [
         {
+          "value": "command",
+          "isExpression": false
+        },
+        {
+          "value": "id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "settings_audit_events_command",
+      "entityType": "indexes",
+      "table": "settings_audit_events"
+    },
+    {
+      "columns": [
+        {
           "value": "subscriber_id",
           "isExpression": false
         }
@@ -6598,6 +7701,42 @@
       "name": "workflows_scope_name_active",
       "entityType": "indexes",
       "table": "workflows"
+    },
+    {
+      "columns": [
+        {
+          "value": "entity",
+          "isExpression": false
+        },
+        {
+          "value": "entity_id",
+          "isExpression": false
+        },
+        {
+          "value": "seq",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "changes_entity",
+      "entityType": "indexes",
+      "table": "changes"
+    },
+    {
+      "columns": [
+        {
+          "value": "event_time",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "changes_event_time",
+      "entityType": "indexes",
+      "table": "changes"
     },
     {
       "columns": [
@@ -6745,16 +7884,40 @@
       "table": "messages"
     },
     {
+      "value": "principal_kind IN ('user','agent','system')",
+      "name": "queued_messages_principal_kind",
+      "entityType": "checks",
+      "table": "queued_messages"
+    },
+    {
+      "value": "actor_kind IN ('user','agent','system')",
+      "name": "queued_messages_actor_kind",
+      "entityType": "checks",
+      "table": "queued_messages"
+    },
+    {
       "value": "stop_reason IS NULL OR stop_reason IN ('self', 'parent', 'forced', 'exited')",
       "name": "sessions_stop_reason_check",
       "entityType": "checks",
       "table": "sessions"
     },
     {
-      "value": "id = 1",
-      "name": "sync_feed_check_1",
+      "value": "outcome IN ('applied', 'refused')",
+      "name": "settings_audit_events_outcome",
       "entityType": "checks",
-      "table": "sync_feed"
+      "table": "settings_audit_events"
+    },
+    {
+      "value": "actor_kind IN ('user', 'agent', 'machine', 'system')",
+      "name": "settings_audit_events_actor_kind",
+      "entityType": "checks",
+      "table": "settings_audit_events"
+    },
+    {
+      "value": "actor_kind <> 'system' OR on_behalf_of IS NULL",
+      "name": "settings_audit_events_system_has_no_human",
+      "entityType": "checks",
+      "table": "settings_audit_events"
     },
     {
       "value": "target_kind IN ('global', 'repository', 'issue', 'session')",
@@ -6827,6 +7990,12 @@
       "name": "workflows_check_22",
       "entityType": "checks",
       "table": "workflows"
+    },
+    {
+      "value": "\"singleton\" = 1",
+      "name": "feed_identity_singleton",
+      "entityType": "checks",
+      "table": "feed_identity"
     }
   ],
   "renames": []

@@ -183,6 +183,9 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
   // effects can call it to refresh the window without re-mounting the subscription.
   const readNewest = useCallback(async () => {
     const sid = sessionId
+    // These marks intentionally enclose only the awaited tRPC read. The interval
+    // therefore includes browser↔server transport and response decoding; JS/React
+    // materialization is measured separately by `chat:rows-built` below.
     markSwitch(sid, 'transcript:read-start')
     const r = await trpc.sessions.transcriptRead.query({
       sessionId: sid,
@@ -285,7 +288,7 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
       windowHealthy.current = false
       unsub()
     }
-  }, [hub, sessionId, trpc, readNewest, replica])
+  }, [hub, sessionId, readNewest, replica])
 
   // Re-read the newest window at the two moments the held window can silently go
   // stale, both of which the sticky read-then-subscribe above can miss:
@@ -311,8 +314,9 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     // held window instead of re-reading 1000 items off disk. `chat:cache-hit` records
     // the skip so a switch trace can tell the two paths apart (its absence of
     // transcript:read-start/read-end IS the signal that no read happened); the
-    // quiesce sentinel chat:first-paint still fires from the paint effect below, which
-    // keys off `active`. Gated on isSwitchTraced so it's inert outside a traced switch.
+    // paint mark chat:first-paint still fires from the paint effect below, which
+    // keys off `active`; ChatView owns the later chat:interactable boundary.
+    // Gated on isSwitchTraced so this remains inert outside a traced switch.
     if (becameActive && !wokeToLive && windowHealthy.current) {
       if (isSwitchTraced(sessionId))
         markSwitch(sessionId, 'chat:cache-hit', { items: windowLenRef.current })

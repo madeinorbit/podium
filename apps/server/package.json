@@ -29,7 +29,7 @@
   "scripts": {
     "typecheck": "tsgo --noEmit",
     "typecheck:tsc": "tsc --noEmit",
-    "test": "bun --bun vitest run --passWithNoTests"
+    "test": "bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests && bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.normalized-wire.config.ts --passWithNoTests"
   },
   "devDependencies": {
     "typescript": "^6.0.3",

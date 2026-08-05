@@ -26,15 +26,12 @@ export function countContextAwarePendingMail(
   sessionId?: string,
 ): { unread: number; senders: string[] } {
   const target = { kind: 'issue' as const, id: issueId }
-  const queuedSenders = sessionId
-    ? store.messages.listPendingSendersForSession(issueId, sessionId)
-    : store.messages.listPendingSenders(target)
-  const queuedCount = sessionId
-    ? store.messages.countPendingForSession(issueId, sessionId)
-    : store.messages.countPending(target)
+  const queued = sessionId
+    ? store.messages.pendingSummaryForSession(issueId, sessionId)
+    : store.messages.pendingSummary(target)
   // Legacy fallback covers pre-substrate writers only. Shared ids: if a twin
   // exists on the substrate, trust that ledger (even when status is still
-  // queued — those are already in `queuedCount` above).
+  // queued — those are already in `queued.count` above).
   const legacyUnread = store.issues
     .listIssueMessages(issueId, { status: 'unread' })
     .filter((m) => !store.messages.getMessage(m.id))
@@ -49,12 +46,12 @@ export function countContextAwarePendingMail(
   const pureLegacy = legacyUnread.filter((m) => !seen.has(m.id))
   const senders = [
     ...new Set(
-      queuedSenders.map((m) => {
+      queued.senders.map((m) => {
         if (m.fromKind !== 'agent') return m.fromKind
         if (m.fromIssue) return formatFromIssue(m.fromIssue)
         return m.fromSession ? `session:${m.fromSession}` : 'agent'
       }),
     ),
   ]
-  return { unread: queuedCount + pureLegacy.length, senders }
+  return { unread: queued.count + pureLegacy.length, senders }
 }

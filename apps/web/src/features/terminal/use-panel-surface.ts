@@ -96,14 +96,24 @@ export function usePanelSurface(input: {
   // chat-on-mobile/native-on-desktop. ONE derivation (client-core ui-state) makes
   // the modeled, persisted and reported mode the same value.
   const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches
+  const savedMode = panelMode[sessionId]
   const mode: PanelMode = effectivePanelMode({
     startScreen,
     chatCapable,
     isMobile,
-    saved: panelMode[sessionId],
+    saved: savedMode,
     deviceDefault: uiState.get(PANEL_MODE_DEFAULT_KEY),
   })
+  // Effects can run after a newer render has already handled a user click. Read
+  // the current saved value at effect time so the initial materialization cannot
+  // write the mode captured by an older render back over that pick.
+  const savedModeRef = useRef(savedMode)
+  savedModeRef.current = savedMode
   useEffect(() => {
+    // An explicit per-session choice is already durable. Rewriting it from the
+    // derived fallback creates a stale writer when a warm/hidden panel mounts
+    // while another panel is being switched.
+    if (savedModeRef.current !== undefined) return
     setPanelMode(sessionId, mode)
   }, [sessionId, mode, setPanelMode])
 

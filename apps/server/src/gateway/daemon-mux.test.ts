@@ -67,6 +67,7 @@ function fakePorts() {
     headless: proxyFor('headless'),
     approvals: proxyFor('approvals'),
     agentRelay: proxyFor('agentRelay'),
+    updates: proxyFor('updates'),
   } as unknown as DaemonFeaturePorts
   return { ports, calls }
 }
@@ -223,6 +224,7 @@ describe('machine scope and the writer class', () => {
     const audited = new Set(Object.keys(MACHINE_SCOPE_CARRIER))
     const machineAdjacent = [
       'inventoryReport',
+      'updateStatus',
       'hostMetrics',
       'memoryBreakdownResult',
       'scanResult',

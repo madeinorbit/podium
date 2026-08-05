@@ -104,6 +104,57 @@ describe('checkServerVersion', () => {
     expect(store.get(COUNTER_KEY)).toBe('1') // first reload recorded
   })
 
+  it('does not reload when this client is ahead of its server', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        versionResponse({
+          wireVersion: WIRE_VERSION - 1,
+          minSupportedVersion: WIRE_VERSION - 1,
+          appVersion: 'test',
+        }),
+      ),
+    )
+    const result = await checkServerVersion(ORIGIN)
+    expect(result).toBe('server-behind')
+    expect(reload).not.toHaveBeenCalled()
+  })
+
+  it('tells the user the server is behind, not that the build is stale', async () => {
+    resetSkewNotice()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        versionResponse({
+          wireVersion: WIRE_VERSION - 1,
+          minSupportedVersion: WIRE_VERSION - 1,
+          appVersion: 'test',
+        }),
+      ),
+    )
+    await checkServerVersion(ORIGIN)
+    expect(currentSkew()).toEqual(
+      expect.objectContaining({
+        message: expect.stringContaining('server'),
+      }),
+    )
+    expect(currentSkew()?.message).not.toContain('bun run build')
+  })
+
+  it('does not burn a reload attempt on the server-behind path', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        versionResponse({
+          wireVersion: WIRE_VERSION - 1,
+          minSupportedVersion: WIRE_VERSION - 1,
+        }),
+      ),
+    )
+    await checkServerVersion(ORIGIN)
+    expect(store.has(COUNTER_KEY)).toBe(false)
+  })
+
   it('hard-reloads when the bundle is older than the server minimum', async () => {
     vi.stubGlobal(
       'fetch',

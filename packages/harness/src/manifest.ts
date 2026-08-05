@@ -136,6 +136,8 @@ export interface LaunchSpec {
 export interface HarnessExecOptions {
   prompt: string
   model?: string
+  /** Provider-specific reasoning/effort variant (OpenCode uses --variant). */
+  effort?: string
   systemPrompt?: string
   /** Path to a written MCP config JSON (Claude `--mcp-config`). */
   mcpConfigPath?: string
@@ -167,9 +169,22 @@ export interface HarnessBins {
 
 /** Best-effort native login state for one harness on one machine. `account` is
  * a safe, human-facing label only (never a token or raw credential). */
+export interface LoginIdentity {
+  fingerprint: string
+  email?: string
+  providerAccountId?: string
+}
+
+export interface PortableCredential {
+  files: readonly string[]
+  compareFreshness(a: string, b: string): -1 | 0 | 1 | null
+}
+
 export interface HarnessLogin {
   state: 'in' | 'out' | 'unknown'
   account?: string
+  identity?: LoginIdentity
+  freshness?: number
 }
 
 export interface HarnessInventory {
@@ -182,6 +197,8 @@ export interface HarnessInventory {
   }
   /** Read-only local credential/profile detection. Uneven support is explicit. */
   detectLogin(homeDir: string): HarnessLogin
+  loginIdentity: Declared<(homeDir: string) => LoginIdentity | undefined>
+  portableCredential: Declared<PortableCredential>
 }
 
 /** Prefer a recognizable name + email without duplicating equal values. */
@@ -325,6 +342,8 @@ export interface HarnessObserverHost {
   /** Live transcript items pushed by the observer itself (opencode: SQLite
    *  store, no file to tail; items arrive already cursor-stamped). */
   onTranscriptItems(items: TranscriptItem[], reset: boolean): void
+  /** The provider reports the model/effort it actually used. */
+  onModel?(model: string, effort?: string): void
 }
 
 export interface HarnessObservation {

@@ -126,19 +126,29 @@ export const fakeMachines = (seed: FakeMachinesSeed): FakeMachines => {
 
 export const machineRecord = (
   machine: string,
-  opts: { owner?: string | null; grants?: readonly MachineGrant[]; name?: string } = {},
+  opts: {
+    owner?: string | null
+    grants?: readonly MachineGrant[]
+    name?: string
+    updatePubkey?: string
+  } = {},
 ): ResolvedMachine => ({
   machine: machine as MachineId,
   owner: opts.owner === undefined || opts.owner === null ? null : asUserId(opts.owner),
   grants: opts.grants ?? [],
   ...(opts.name === undefined ? {} : { name: opts.name }),
+  ...(opts.updatePubkey === undefined ? {} : { updatePubkey: opts.updatePubkey }),
 })
 
 export const pairedMachineRecord = (
   machine: string,
   issuedToken: string,
-  opts: { owner?: string | null; name?: string } = {},
-): PairedMachine => ({ ...machineRecord(machine, opts), issuedToken })
+  opts: { owner?: string | null; name?: string; updatePubkey?: string } = {},
+): PairedMachine => ({
+  ...machineRecord(machine, opts),
+  issuedToken,
+  ...(opts.updatePubkey === undefined ? {} : { updatePubkey: opts.updatePubkey }),
+})
 
 export const fakeDelegations = (
   links: readonly DelegationLink[],

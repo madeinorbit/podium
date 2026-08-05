@@ -178,25 +178,28 @@ export interface HandoffMachine extends SelectableMachine {
  *  - `unauthorized` — we KNOW, and the answer is no: the principal has no `use`
  *    grant on this machine. Not a temporary condition and not fixable by waiting.
  *  - `offline` — we DON'T know: the daemon is unreachable, so nothing about the
- *    harness there is currently knowable. `harness-missing` and `logged-out` are
- *    PROBED facts and therefore only meaningful while reachable.
+ *    harness there is currently knowable. `harness-missing` is a PROBED fact and
+ *    therefore only meaningful while reachable. A logged-out harness is a
+ *    startable session condition, not a capability refusal.
  *  - `harness-missing` — reachable, and this harness is not installed there. Also
  *    the answer for a `HarnessId` this build has never heard of: an unknown
  *    harness is simply absent from the machine's inventory, which degrades to
  *    "cannot run it here" rather than throwing or guessing another CLI.
- *  - `logged-out` — reachable and installed, but the CLI has no credentials.
  */
-export type AgentCapabilityRejection =
-  | 'unauthorized'
-  | 'offline'
-  | 'harness-missing'
-  | 'logged-out'
+export type AgentCapabilityRejection = 'unauthorized' | 'offline' | 'harness-missing'
+
+/** A condition that can be reported for a session after it starts. */
+export type AgentLoginCondition = 'logged-out'
+
+/** Rejections used while choosing an implicit target. */
+export type AgentSelectionRejection = AgentCapabilityRejection | AgentLoginCondition
 
 /**
  * One authoritative capability rule for new sessions and handoff. Shells need
- * only an online daemon; harnesses must be installed and must not be explicitly
- * logged out. An unknown login state remains usable (some adapters cannot prove
- * login without actually starting the CLI).
+ * only an online daemon; harnesses must be installed. An unknown login state
+ * remains usable (some adapters cannot prove login without actually starting
+ * the CLI). A known logged-out harness is startable when explicitly pinned; the
+ * implicit-selection helpers below continue to avoid it when they can.
  *
  * `agentKind` is an OPEN identifier (a `HarnessId`, an `AgentKind`, or a name from
  * a newer peer) and is compared against the machine's inventory by value — never
@@ -223,12 +226,14 @@ export function agentCapabilityRejection<M extends HandoffMachine>(
   if (agentKind === 'shell') return undefined
   const harness = machine.inventory?.agents.find((agent) => agent.kind === agentKind)
   if (harness?.installed !== true) return 'harness-missing'
-  return harness.login.state === 'out' ? 'logged-out' : undefined
+  return undefined
 }
 
 /** Online machines that can run `agentKind` according to their latest inventory. */
 export function machinesForAgent<M extends HandoffMachine>(machines: M[], agentKind: string): M[] {
-  return machines.filter((machine) => agentCapabilityRejection(machine, agentKind) === undefined)
+  return machines.filter(
+    (machine) => agentCapabilityRejectionForSelection(machine, agentKind) === undefined,
+  )
 }
 export interface HandoffSourceRef<R extends HandoffRepo> {
   repo: R
@@ -410,8 +415,30 @@ export function resolveTargetMachineForAgent<S extends RecentSession, M extends 
   agentKind: string,
 ): string | undefined {
   const eligible = onlineMachinesForRepoOrClone(repo, machines).filter(
-    (machine) => agentCapabilityRejection(machine, agentKind) === undefined,
+    (machine) => agentCapabilityRejectionForSelection(machine, agentKind) === undefined,
   )
   if (eligible.length === 0) return undefined
   return lastUsedMachine(sessions, eligible) ?? eligible[0]?.id
+}
+
+/** Rejection used by implicit placement, where a logged-out machine is skipped. */
+export function agentCapabilityRejectionForSelection<M extends HandoffMachine>(
+  machine: M,
+  agentKind: string,
+): AgentSelectionRejection | undefined {
+  const rejection = agentCapabilityRejection(machine, agentKind)
+  if (rejection !== undefined) return rejection
+  if (agentKind === 'shell') return undefined
+  const harness = machine.inventory?.agents.find((agent) => agent.kind === agentKind)
+  return harness?.login.state === 'out' ? 'logged-out' : undefined
+}
+
+/** Return the login condition that a started session should expose. */
+export function agentLoginCondition<M extends HandoffMachine>(
+  machine: M,
+  agentKind: string,
+): AgentLoginCondition | undefined {
+  return agentCapabilityRejectionForSelection(machine, agentKind) === 'logged-out'
+    ? 'logged-out'
+    : undefined
 }

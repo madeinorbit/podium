@@ -1,7 +1,9 @@
 import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import { BootSplash } from '../components/BootSplash'
 import { LoginScreen } from '../screens/LoginScreen'
-import { fetchAuthStatus } from './auth'
+import { type AuthStatus, fetchAuthStatus } from './auth'
+import { AuthStatusContext } from './auth-context'
+import { demoEnabled } from './demoData'
 import { readServerConfig } from './trpc'
 
 type GateState = 'checking' | 'open' | 'login' | 'unreachable'
@@ -13,13 +15,17 @@ type GateState = 'checking' | 'open' | 'login' | 'unreachable'
  */
 export function AuthGate({ children }: { children: ReactNode }) {
   const config = useMemo(readServerConfig, [])
-  const [state, setState] = useState<GateState>('checking')
+  const demo = demoEnabled()
+  const [state, setState] = useState<GateState>(() => (demo ? 'open' : 'checking'))
+  const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null)
 
   useEffect(() => {
+    if (demo) return
     let alive = true
     fetchAuthStatus(config.httpOrigin)
       .then((status) => {
         if (!alive) return
+        setAuthStatus(status)
         setState(status.needsAuth && !status.authed ? 'login' : 'open')
       })
       .catch(() => {
@@ -31,11 +37,21 @@ export function AuthGate({ children }: { children: ReactNode }) {
     return () => {
       alive = false
     }
-  }, [config.httpOrigin])
+  }, [config.httpOrigin, demo])
 
   if (state === 'checking') return <BootSplash />
   if (state === 'login') {
-    return <LoginScreen httpOrigin={config.httpOrigin} onAuthed={() => setState('open')} />
+    return (
+      <LoginScreen
+        httpOrigin={config.httpOrigin}
+        onAuthed={() => {
+          // The login response does not carry the user id. Let the provider
+          // perform one fresh status read for the newly authenticated account.
+          setAuthStatus(null)
+          setState('open')
+        }}
+      />
+    )
   }
-  return <>{children}</>
+  return <AuthStatusContext.Provider value={authStatus}>{children}</AuthStatusContext.Provider>
 }

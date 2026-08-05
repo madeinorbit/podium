@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
-import { loadIdentity, saveToken } from './identity'
+import { loadIdentity, savePairingToken, savePinnedUpdatePubkey, saveToken } from './identity'
 
 // POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
 // tests finish, so a suite run leaves nothing behind in tmp.
@@ -50,5 +50,33 @@ describe('daemon identity', () => {
     expect(id.machineId).toMatch(/^[0-9a-f-]{36}$/)
     // The token survives the id-generating write.
     expect(loadIdentity({ dir }).token).toBe('t0')
+  })
+
+  it('replaces the update-key pin only through pairing persistence', () => {
+    const dir = trackTmp('podium-id-')
+    loadIdentity({ dir })
+
+    savePairingToken('token-1', 'server-key-1', { dir })
+    expect(loadIdentity({ dir })).toMatchObject({ token: 'token-1', updatePubkey: 'server-key-1' })
+
+    // A token-only write represents a reconnect/legacy caller and preserves the pin.
+    saveToken('token-2', { dir })
+    expect(loadIdentity({ dir }).updatePubkey).toBe('server-key-1')
+
+    savePairingToken('token-3', 'server-key-2', { dir })
+    expect(loadIdentity({ dir })).toMatchObject({ token: 'token-3', updatePubkey: 'server-key-2' })
+
+    // Pairing to a server that cannot publish a key must not retain the old server's key.
+    savePairingToken('token-4', undefined, { dir })
+    expect(loadIdentity({ dir }).updatePubkey).toBeUndefined()
+  })
+  it('persists a bootstrap server key without inventing a token', () => {
+    const dir = trackTmp('podium-id-')
+    loadIdentity({ dir })
+    savePinnedUpdatePubkey('server-key-bootstrap', { dir })
+    expect(loadIdentity({ dir })).toMatchObject({
+      updatePubkey: 'server-key-bootstrap',
+    })
+    expect(loadIdentity({ dir }).token).toBeUndefined()
   })
 })

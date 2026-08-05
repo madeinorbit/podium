@@ -78,6 +78,10 @@ export type ResumeRef = z.infer<typeof ResumeRef>
 export const SessionStatus = z.enum(['starting', 'live', 'reconnecting', 'hibernated', 'exited'])
 export type SessionStatus = z.infer<typeof SessionStatus>
 
+/** A known harness condition that should be visible on the started session. */
+export const SessionCondition = z.enum(['logged-out'])
+export type SessionCondition = z.infer<typeof SessionCondition>
+
 // ---------------------------------------------------------------------------
 // Agent runtime state (harness-observed, distinct from SessionStatus)
 // ---------------------------------------------------------------------------
@@ -248,6 +252,8 @@ export const SessionMetaEntity = z.object({
   lastInputAt: z.string().optional(),
   origin: SessionOrigin,
   agentState: AgentRuntimeState.optional(),
+  /** Server-derived harness condition; a logged-out session remains startable. */
+  condition: SessionCondition.optional(),
   archived: z.boolean(),
   /** Email-style read state (issue #124). PER-USER since POD-1076 — the ISO time
    *  THIS READER last opened the session, or null if they never opened it. Read

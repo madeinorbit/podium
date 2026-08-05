@@ -53,6 +53,7 @@ import * as server from '../messages/server'
 import * as sync from '../messages/sync'
 import * as terminal from '../messages/terminal'
 import * as transcript from '../messages/transcript'
+import * as update from '../messages/update'
 import * as workflows from '../messages/workflows'
 import * as workspace from '../messages/workspace'
 import * as perf from '../perf'
@@ -90,6 +91,7 @@ const MODULES: ReadonlyArray<readonly [family: string, module: Record<string, un
   ['sync', sync],
   ['terminal', terminal],
   ['transcript', transcript],
+  ['update', update],
   ['workflows', workflows],
   ['workspace', workspace],
 ]

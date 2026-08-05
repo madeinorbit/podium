@@ -209,6 +209,7 @@ export const CONTROL_PLANE_CLASS = {
   redraw: 'control.command',
   memoryBreakdownRequest: 'control.command',
   inventoryRequest: 'control.command',
+  updateGrant: 'control.command',
   transcriptRead: 'bulk.bulk',
   fileReadRequest: 'control.command',
   fileAssetRequest: 'control.command',
@@ -255,6 +256,7 @@ export const DAEMON_PLANE_CLASS = {
   // Draft Sync v2 (POD-859): the daemon's scraped native composer — a live
   // runtime stream the server sequences into a durable draft edit.
   nativeDraft: 'stream.live',
+  updateStatus: 'control.command',
   inventoryReport: 'control.command',
   // Host-local configuration warning, durably routed to the machine owner/admins.
   machineDiagnostic: 'control.command',

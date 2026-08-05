@@ -64,6 +64,24 @@ describe('machine (local) — shared host secret', () => {
     expect(outcome.ok && outcome.principal).toMatchObject({ machine: 'local' })
   })
 
+  it('is payload-inert: a build report does not change the principal', () => {
+    const strategy = createMachineLocalSecretStrategy({
+      machines: fakeMachines(seed),
+      mint: createRecordingMinter(),
+    })
+    const outcome = strategy.authenticate({
+      credential: { kind: 'daemonSecret', secret: 'secret-ok' },
+      hello: helloFor(
+        { kind: 'daemonSecret', secret: 'secret-ok' },
+        {
+          build: { appVersion: 'dev+attacker', wireSchemaDigest: 'forged', installKind: 'source' },
+        },
+      ),
+      transport: transportFacts(),
+    })
+    expect(outcome.ok && outcome.principal).toMatchObject({ kind: 'machine', machine: 'local' })
+  })
+
   it('fails closed on a wrong secret — and being on the local socket is not proof', () => {
     const strategy = createMachineLocalSecretStrategy({
       machines: fakeMachines(seed),
@@ -95,7 +113,7 @@ describe('machine (local) — shared host secret', () => {
 })
 
 describe('machine (remote) — one-shot pair code', () => {
-  const paired = pairedMachineRecord('mach-vps', 'tok-minted', { owner: 'usr-ada', name: 'vps' })
+  const paired = pairedMachineRecord('mach-vps', 'tok-minted', { owner: 'usr-ada', name: 'vps', updatePubkey: 'server-key-1' })
 
   it('redeems the code, mints a token exactly once, and names the resolved machine', () => {
     const machines = fakeMachines({ codes: { 'code-1': paired } })
@@ -105,7 +123,7 @@ describe('machine (remote) — one-shot pair code', () => {
       hello: helloFor({ kind: 'pairCode', code: 'code-1' }),
       transport: transportFacts(),
     })
-    expect(first).toMatchObject({ ok: true, issuedToken: 'tok-minted', assignedId: 'mach-vps' })
+    expect(first).toMatchObject({ ok: true, issuedToken: 'tok-minted', assignedId: 'mach-vps', updatePubkey: 'server-key-1' })
 
     // Single-use: the same code again authenticates nothing (PairingManager).
     const second = strategy.authenticate({

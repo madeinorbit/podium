@@ -26,7 +26,7 @@ describe('progressiveRenderLimit', () => {
 
 describe('nextProgressiveRenderLimit', () => {
   it('advances by one chunk and clamps at the total', () => {
-    expect(nextProgressiveRenderLimit(ISSUE_RENDER_CHUNK, 100)).toBe(80)
-    expect(nextProgressiveRenderLimit(80, 100)).toBe(100)
+    expect(nextProgressiveRenderLimit(ISSUE_RENDER_CHUNK, 100)).toBe(ISSUE_RENDER_CHUNK * 2)
+    expect(nextProgressiveRenderLimit(100 - ISSUE_RENDER_CHUNK, 100)).toBe(100)
   })
 })

@@ -87,6 +87,7 @@ import { settingsFamilyProcedures } from './modules/settings/trpc'
 import { specsInputs } from './modules/specs/service'
 import { specFamilyProcedures } from './modules/specs/trpc'
 import { superagentFamilyProcedures } from './modules/superagent/trpc'
+import { updateProcedures } from './modules/updates/trpc'
 import type { RegistryModules } from './relay'
 import { canonicalizeRepoOrigin } from './repo-id'
 import { browseDirectories } from './repo-registry'
@@ -246,11 +247,16 @@ import type { PinState, SnoozeMap } from './store/types'
  * importing it. This file is a composition root, so it supplies the port.
  */
 const fleet = fleetProcedures({
-  joinCommand: (pairCode) => {
+  joinCommand: (pairCode, podiumManaged) => {
     const config = loadConfig()
     const publicUrl = config.publicUrl
     return publicUrl
-      ? buildJoinCommand({ publicUrl, pairCode, channel: resolveUpdateChannel(config) })
+      ? buildJoinCommand({
+          publicUrl,
+          pairCode,
+          podiumManaged,
+          channel: resolveUpdateChannel(config),
+        })
       : null
   },
 })
@@ -406,6 +412,7 @@ export const appRouter = t.router({
     ...fleet.machines,
   }),
   setup: t.router(setupFamilyProcedures()),
+  updates: t.router(updateProcedures()),
   /**
    * THE AUTH SURFACE IS DERIVED (POD-314) — the human-client login password on
    * an already-configured instance. These run under the same /trpc guard, so

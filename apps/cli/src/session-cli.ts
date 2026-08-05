@@ -141,13 +141,14 @@ function renderRead(r: SessionReadResult): string {
       return `--- ${head} ---\n${i.text}`.trim()
     })
     .join('\n')
+  const truncationNotice = r.truncated ? '(truncated to the per-call cap)' : null
   const tail = [
     r.cursor && r.hasMore ? `(more: --cursor ${r.cursor})` : null,
-    r.truncated ? '(truncated to the per-call cap)' : null,
+    truncationNotice,
   ]
     .filter(Boolean)
     .join(' ')
-  return [body || '(no transcript items)', tail].filter(Boolean).join('\n')
+  return [truncationNotice, body || '(no transcript items)', tail].filter(Boolean).join('\n')
 }
 
 function renderRecap(r: SessionRecapResult): string {

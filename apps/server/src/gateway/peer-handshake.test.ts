@@ -36,10 +36,13 @@ function fakeWs() {
   }
 }
 
-const registryWithMachine = (id = 'm1', token = 'tok') => {
+const registryWithMachine = (id = 'm1', token = 'tok', updatePubkey?: string) => {
   const store = new SessionStore(':memory:')
   store.machines.upsertMachine({ id, name: 'box', hostname: 'box', tokenHash: sha256(token), ownerUserId: 'user:sole' })
-  return new SessionRegistry(store, undefined, { instanceId: 'default' })
+  return new SessionRegistry(store, undefined, {
+    instanceId: 'default',
+    ...(updatePubkey === undefined ? {} : { updatePubkey: () => updatePubkey }),
+  })
 }
 
 const frame = (o: unknown) => Buffer.from(JSON.stringify(o))
@@ -65,6 +68,26 @@ describe('the daemon socket speaks the permanent envelope', () => {
     // resolved rather than anything the peer claimed.
     const reply = ws.sent.map((s) => JSON.parse(s) as { type: string; assignedId?: string })
     expect(reply[0]).toMatchObject({ type: 'peerHelloOk', assignedId: 'm1' })
+  })
+
+  it('publishes the current server key on an ordinary reconnect', () => {
+    const reg = registryWithMachine('m1', 'tok', 'server-key-1')
+    const ws = fakeWs()
+    wireDaemonSocket(ws as never, reg)
+    ws.emit(
+      'message',
+      frame({
+        type: 'peerHello',
+        v: WIRE_VERSION,
+        caps: [],
+        credential: { kind: 'machineToken', token: 'tok', machineHint: 'm1' },
+        claims: { hostname: 'box' },
+      }),
+    )
+    expect(JSON.parse(ws.sent[0] ?? '{}')).toMatchObject({
+      type: 'peerHelloOk',
+      updatePubkey: 'server-key-1',
+    })
   })
 
   it('refuses an envelope hello on an unsupported wire version, before auth', () => {
@@ -172,7 +195,7 @@ describe('payload identity is inert at the real MachinesService', () => {
   it('pairing passes the peer name through and mints a token once', () => {
     const store = new SessionStore(':memory:')
     const pairing = new PairingManager()
-    const reg = new SessionRegistry(store, undefined, { instanceId: 'default', pairing })
+    const reg = new SessionRegistry(store, undefined, { instanceId: 'default', pairing, updatePubkey: () => 'server-key-1' })
     const code = pairing.mint({})
     const directory = createMachineDirectory(reg.modules.machines)
     const paired = directory.redeemPairCode(code, {
@@ -181,7 +204,7 @@ describe('payload identity is inert at the real MachinesService', () => {
       hostname: 'new.local',
     })
     expect(paired).toMatchObject({ machine: 'm-new', name: 'New Box' })
-    expect(paired?.issuedToken).toBeTruthy()
+    expect(paired).toMatchObject({ issuedToken: expect.any(String), updatePubkey: 'server-key-1' })
     // Single use.
     expect(directory.redeemPairCode(code, { machineId: 'm-new' })).toBeNull()
   })

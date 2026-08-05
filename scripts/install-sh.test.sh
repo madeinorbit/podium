@@ -31,6 +31,8 @@ case "$1" in
   setup)
     if [ -n "${PODIUM_STUB_JOIN_FAIL:-}" ]; then echo "stub: setup fails" >&2; exit 1; fi
     UD="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"; mkdir -p "$UD"
+    mkdir -p "$state_dir"
+    printf '%s\n' '{"mode":"daemon","serverUrl":"wss://hub.test"}' > "$state_dir/config.json"
     printf '%s\n' "# stub unit written by podium setup --join" > "$UD/$daemon_unit"
     [ -n "${PODIUM_STUB_LOG:-}" ] && echo "stub-setup $*" >> "$PODIUM_STUB_LOG"
     if [ -n "${PODIUM_STUB_DAEMON_MARKER:-}" ]; then
@@ -39,6 +41,8 @@ case "$1" in
     fi
     ;;
   join-config)
+    mkdir -p "$state_dir"
+    printf '%s\n' '{"mode":"daemon","serverUrl":"wss://hub.test"}' > "$state_dir/config.json"
     [ -n "${PODIUM_STUB_LOG:-}" ] && echo "stub-join-config $*" >> "$PODIUM_STUB_LOG"
     ;;
   daemon)
@@ -323,30 +327,28 @@ printf '#!/bin/sh\nexit 0\n' > "$STUB/loginctl"; chmod +x "$STUB/loginctl"
 export PATH="$STUB:$PATH"
 UNIT="$HOME/.config/systemd/user"
 
-echo "== named join owns only named supervision and update units =="
+echo "== named join leaves update waves to its server =="
 rm -rf "$HOME/.local/share/podium-instances/blue" "$HOME/.local/bin/podium-blue" "$HOME/.config/systemd" "$WORK/stub.log"
-env -u PODIUM_STATE_DIR PODIUM_STUB_LOG="$WORK/stub.log" sh "$ROOT/install.sh" --instance blue --join TESTTOKEN
+named_join_output="$(env -u PODIUM_STATE_DIR PODIUM_STUB_LOG="$WORK/stub.log" sh "$ROOT/install.sh" --instance blue --join TESTTOKEN 2>&1)"
 grep -F 'stub-instance blue setup --join TESTTOKEN --persist systemd' "$WORK/stub.log" >/dev/null \
   || { echo "FAIL: named join did not route through named command"; exit 1; }
 test -f "$UNIT/podium-blue-daemon.service" || { echo FAIL: named join did not write named daemon unit; exit 1; }
-test -f "$UNIT/podium-blue-update.service" || { echo FAIL: named join did not write named update unit; exit 1; }
-test -f "$UNIT/podium-blue-update.timer" || { echo FAIL: named join did not write named update timer; exit 1; }
-grep -F 'Environment=PODIUM_INSTANCE=blue' "$UNIT/podium-blue-update.service" >/dev/null \
-  || { echo "FAIL: named update unit lacks identity"; exit 1; }
-grep -F 'podium-blue update' "$UNIT/podium-blue-update.service" >/dev/null \
-  || { echo "FAIL: named update unit targets another install"; exit 1; }
-grep -F 'try-restart podium-blue-daemon.service' "$UNIT/podium-blue-update.service" >/dev/null \
-  || { echo "FAIL: named update unit restarts another daemon"; exit 1; }
+printf '%s\n' "$named_join_output" | grep -F 'server, which manages updates in canary waves' >/dev/null \
+  || { echo "FAIL: named join did not explain server-managed updates"; exit 1; }
+test ! -e "$UNIT/podium-blue-update.service" || { echo "FAIL: attached named join wrote update service"; exit 1; }
+test ! -e "$UNIT/podium-blue-update.timer" || { echo "FAIL: attached named join wrote update timer"; exit 1; }
 test ! -e "$UNIT/podium-update-user.timer" || { echo "FAIL: named join wrote default update timer"; exit 1; }
 
-echo "== join delegates to podium setup --join (one engine, one unit source) =="
+echo "== join delegates to podium setup --join and leaves update waves to its server =="
 rm -rf "$HOME/.local/share/podium" "$HOME/.local/bin/podium" "$HOME/.config/systemd"
-env PODIUM_STUB_LOG="$WORK/stub.log" sh "$ROOT/install.sh" --join TESTTOKEN
+default_join_output="$(env PODIUM_STUB_LOG="$WORK/stub.log" sh "$ROOT/install.sh" --join TESTTOKEN 2>&1)"
 grep -F 'stub-setup setup --join TESTTOKEN --persist systemd' "$WORK/stub.log" >/dev/null \
   || { echo "FAIL: join did not delegate to podium setup --join --persist systemd"; exit 1; }
 test -f "$UNIT/podium-daemon.service"       || { echo FAIL: join did not write daemon unit; exit 1; }
-test -f "$UNIT/podium-update-user.service"  || { echo FAIL: join did not write update service; exit 1; }
-test -f "$UNIT/podium-update-user.timer"    || { echo FAIL: join did not write update timer; exit 1; }
+printf '%s\n' "$default_join_output" | grep -F 'server, which manages updates in canary waves' >/dev/null \
+  || { echo "FAIL: default join did not explain server-managed updates"; exit 1; }
+test ! -e "$UNIT/podium-update-user.service" || { echo "FAIL: attached join wrote update service"; exit 1; }
+test ! -e "$UNIT/podium-update-user.timer" || { echo "FAIL: attached join wrote update timer"; exit 1; }
 
 echo "== join falls back to a manual unit when podium setup fails =="
 rm -rf "$HOME/.local/share/podium" "$HOME/.local/bin/podium" "$HOME/.config/systemd" "$WORK/stub.log"
@@ -354,6 +356,8 @@ env PODIUM_STUB_JOIN_FAIL=1 PODIUM_STUB_LOG="$WORK/stub.log" sh "$ROOT/install.s
 grep -F 'stub-join-config join-config TESTTOKEN' "$WORK/stub.log" >/dev/null \
   || { echo "FAIL: fallback did not run join-config"; exit 1; }
 test -f "$UNIT/podium-daemon.service"       || { echo FAIL: fallback did not write daemon unit; exit 1; }
+test ! -e "$UNIT/podium-update-user.service" || { echo "FAIL: attached fallback wrote update service"; exit 1; }
+test ! -e "$UNIT/podium-update-user.timer" || { echo "FAIL: attached fallback wrote update timer"; exit 1; }
 grep -F 'RestartPreventExitStatus=78' "$UNIT/podium-daemon.service" >/dev/null \
   || { echo "FAIL: fallback unit drifted from renderDaemonUnit (no RestartPreventExitStatus)"; exit 1; }
 # A service context inherits none of the login shell's PATH, so the unit must carry its own

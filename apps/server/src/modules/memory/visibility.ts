@@ -1,6 +1,7 @@
 import { asIssueId, asSessionId, ROW, type VisibilityClass, visibilityClassOf } from '@podium/model'
 import { mayReadOwned } from '../../issue-authz'
-import type { SessionRow, SessionStore } from '../../store'
+import type { IssueRow, SessionRow, SessionStore } from '../../store'
+import type { GrantRow } from '../../store/grants'
 import type { MemoryReader } from './types'
 
 export const INDEXED_MEMORY_DOCUMENT_CLASSES = [
@@ -60,12 +61,99 @@ export type MemoryDocumentRef =
   | { class: 'superagent-thread'; id: string; ownerUserId: string }
   | { class: 'setting'; id: string }
 
+type VisibilityRequest = {
+  /** The live session snapshot for one memory read request. */
+  readonly sessionsById: ReadonlyMap<string, SessionRow>
+  /** Live sessions keyed by every native identity that can resume them. */
+  readonly sessionsByNativeKey: ReadonlyMap<string, readonly SessionRow[]>
+  /** Per-request memo; `null` is a cached missing issue, not a cache miss. */
+  readonly issues: Map<string, IssueRow | null>
+  /** Per-request memo of the grant edges used by the owner-or-grant rule. */
+  readonly grants: Map<string, string[]>
+}
+
+const nativeKey = (machineId: string, nativeId: string): string => `${machineId}\0${nativeId}`
+
+const readGranteesFrom = (edges: readonly GrantRow[]): string[] =>
+  edges
+    .filter((edge) => edge.verb === 'read' || edge.verb === 'write' || edge.verb === 'manage')
+    .map((edge) => edge.grantee)
+
+const visibilityRequestFor = (sessions: readonly SessionRow[]): VisibilityRequest => {
+  const sessionsById = new Map<string, SessionRow>()
+  const sessionsByNativeKey = new Map<string, SessionRow[]>()
+
+  for (const row of sessions) {
+    sessionsById.set(row.id, row)
+    const nativeIds = new Set(
+      [row.resumeValue, row.conversationId].filter((value): value is string => Boolean(value)),
+    )
+    for (const id of nativeIds) {
+      const key = nativeKey(row.machineId, id)
+      const matching = sessionsByNativeKey.get(key)
+      if (matching) matching.push(row)
+      else sessionsByNativeKey.set(key, [row])
+    }
+  }
+
+  return {
+    sessionsById,
+    sessionsByNativeKey,
+    issues: new Map(),
+    grants: new Map(),
+  }
+}
+
 /**
  * The one query-time visibility policy for every memory source. Unknown classes
  * are private by default and therefore refused.
  */
 export class MemoryVisibilityPolicy {
-  constructor(private readonly store: SessionStore) {}
+  constructor(
+    private readonly store: SessionStore,
+    private readonly request?: VisibilityRequest,
+  ) {}
+
+  /**
+   * Start a short-lived visibility context for one memory read request.
+   *
+   * The policy itself is shared by the memory service, so its memo must not be
+   * shared: grants and issue ownership are live authorization facts. Search
+   * supplies the session snapshot it already needs, while this context owns
+   * only request-local indexes and memoized reads.
+   */
+  forRequest(
+    sessions: readonly SessionRow[],
+    options: { batchIssueOwners?: boolean } = {},
+  ): MemoryVisibilityPolicy {
+    const request = visibilityRequestFor(sessions)
+    // The native conversation list asks visibility about each matching session.
+    // Its issue owner is the same live fact for every session on that issue, so
+    // load the distinct issue ids from the already-captured session snapshot in
+    // one batch before the filter starts. This is BATCHING, not a shared cache:
+    // getIssues reads SQLite now, the result lives only for this request, and
+    // missing ids are recorded as null just like issueById's lazy path.
+    if (options.batchIssueOwners) {
+      const issueIds = [
+        ...new Set(sessions.flatMap((row) => (row.issueId ? [String(row.issueId)] : []))),
+      ]
+      if (issueIds.length > 0) {
+        const rows = this.store.issues.getIssues(issueIds)
+        for (const id of issueIds) request.issues.set(id, rows.get(id) ?? null)
+
+        // The same distinct issue ids drive the grant read in mayReadSessionRow.
+        // Prime every key, including ids with no edges, so the lazy fallback does
+        // not repeat the query. Sessions without issueId resolve grants against
+        // their own session id; leave those keys lazy because they are outside
+        // this issue-owner fanout and the live fallback preserves their semantics.
+        const grants = this.store.grants.listForResources('issue', issueIds)
+        for (const id of issueIds) {
+          request.grants.set(`issue\0${id}`, readGranteesFrom(grants.get(id) ?? []))
+        }
+      }
+    }
+    return new MemoryVisibilityPolicy(this.store, request)
+  }
 
   classOf(value: string): VisibilityClass | undefined {
     return Object.hasOwn(MEMORY_DOCUMENT_VISIBILITY, value)
@@ -81,12 +169,11 @@ export class MemoryVisibilityPolicy {
     const userId = reader.kind === 'user' ? reader.id : reader.onBehalfOf
     switch (ref.class) {
       case 'session': {
-        const row =
-          'id' in ref ? this.store.sessions.getSession(asSessionId(String(ref.id))) : undefined
+        const row = 'id' in ref ? this.sessionById(String(ref.id)) : undefined
         return row ? this.mayReadSessionRow(userId, row) : false
       }
       case 'issue': {
-        const row = 'id' in ref ? this.store.issues.getIssue(asIssueId(String(ref.id))) : undefined
+        const row = 'id' in ref ? this.issueById(asIssueId(String(ref.id))) : undefined
         if (!row) return false
         return mayReadOwned(userId, {
           id: row.id,
@@ -110,15 +197,30 @@ export class MemoryVisibilityPolicy {
 
   mayReadSession(reader: MemoryReader, sessionId: string): boolean {
     if (reader.kind === 'system') return true
-    const row = this.store.sessions.getSession(asSessionId(sessionId))
+    const row = this.sessionById(sessionId)
     if (!row) return false
     return this.mayReadSessionRow(reader.kind === 'user' ? reader.id : reader.onBehalfOf, row)
+  }
+
+  private sessionById(sessionId: string): SessionRow | undefined {
+    return (
+      this.request?.sessionsById.get(sessionId) ??
+      this.store.sessions.getSession(asSessionId(sessionId))
+    )
+  }
+
+  private issueById(issueId: string): IssueRow | null {
+    if (!this.request) return this.store.issues.getIssue(issueId)
+    if (!this.request.issues.has(issueId)) {
+      this.request.issues.set(issueId, this.store.issues.getIssue(issueId))
+    }
+    return this.request.issues.get(issueId) ?? null
   }
 
   private mayReadSessionRow(userId: string, row: SessionRow): boolean {
     const issueId = row.issueId ?? undefined
     const owner = issueId
-      ? (this.store.issues.getIssue(issueId)?.ownerUserId ?? row.ownerUserId)
+      ? (this.issueById(issueId)?.ownerUserId ?? row.ownerUserId)
       : row.ownerUserId
     // The owner-or-grant rule itself comes from `@podium/model`'s `authorize`
     // (POD-335). What stays here is the RESOLUTION — which row carries the
@@ -134,13 +236,16 @@ export class MemoryVisibilityPolicy {
   private mayReadNativeConversation(userId: string, machineId: string, nativeId: string): boolean {
     const siblings = this.store.conversations.registry.siblingSegments(machineId, nativeId)
     const evidence = siblings.length > 0 ? siblings : [{ machineId, nativeId }]
-    const keys = new Set(evidence.map((segment) => `${segment.machineId}\0${segment.nativeId}`))
-    return this.store.sessions.loadSessions().some((row) => {
+    const keys = new Set(evidence.map((segment) => nativeKey(segment.machineId, segment.nativeId)))
+    const sessions = this.request
+      ? [...new Set([...keys].flatMap((key) => this.request?.sessionsByNativeKey.get(key) ?? []))]
+      : this.store.sessions.loadSessions()
+    return sessions.some((row) => {
       if (!row.resumeValue && !row.conversationId) return false
       const rowMachine = row.machineId
       const matches =
-        (row.resumeValue && keys.has(`${rowMachine}\0${row.resumeValue}`)) ||
-        (row.conversationId && keys.has(`${rowMachine}\0${row.conversationId}`))
+        (row.resumeValue && keys.has(nativeKey(rowMachine, row.resumeValue))) ||
+        (row.conversationId && keys.has(nativeKey(rowMachine, row.conversationId)))
       return Boolean(matches) && this.mayReadSessionRow(userId, row)
     })
   }
@@ -156,9 +261,10 @@ export class MemoryVisibilityPolicy {
    * leaves it the decision.
    */
   private readGranteesOf(resourceKind: string, resourceId: string): string[] {
-    return this.store.grants
-      .listForResource(resourceKind, resourceId)
-      .filter((edge) => edge.verb === 'read' || edge.verb === 'write' || edge.verb === 'manage')
-      .map((edge) => edge.grantee)
+    const key = `${resourceKind}\0${resourceId}`
+    if (this.request?.grants.has(key)) return this.request.grants.get(key) ?? []
+    const grantees = readGranteesFrom(this.store.grants.listForResource(resourceKind, resourceId))
+    this.request?.grants.set(key, grantees)
+    return grantees
   }
 }

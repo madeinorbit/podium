@@ -24,7 +24,7 @@ import { existsSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSyn
 import { dirname, join } from 'node:path'
 import { resolveInstallDir, resolveUpdateTarget } from '@podium/runtime/config'
 import { instanceServiceName, resolveInstanceId } from '@podium/runtime/instance'
-import { PODIUM_UPDATE_PUBKEY } from './podium-update-pubkey'
+import { PODIUM_UPDATE_PUBKEY } from '@podium/runtime/update-delivery'
 
 export type SystemctlExec = (command: string, args: string[]) => string
 

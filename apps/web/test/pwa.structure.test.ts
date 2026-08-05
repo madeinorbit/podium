@@ -16,7 +16,8 @@ describe('installable PWA wiring', () => {
     expect(cfg).toContain("navigateFallback: '/index.html'")
     expect(cfg).toContain('navigateFallbackDenylist: NAVIGATION_FALLBACK_DENYLIST')
     expect(cfg).toContain("'/mobile': { target: BACKEND")
-    expect(cfg).toContain('mobileEntryRedirectPlugin()')
+    expect(cfg).toContain('\x27/version\x27: { target: BACKEND')
+    expect(cfg).toContain('\x27/podium-build.json\x27: { target: BACKEND')
   })
 
   // Workbox tests the denylist against `pathname + search`, so these are the
@@ -79,7 +80,8 @@ describe('PWA shell height + safe-area inset', () => {
 describe('update prompt', () => {
   it('UpdatePrompt uses the SW registration to detect and apply new builds', () => {
     const src = readWeb('src/app/UpdatePrompt.tsx')
-    expect(src).toContain("from 'virtual:pwa-register/react'")
+    expect(src).toContain("from './pwa-register'")
+    expect(readWeb('src/app/pwa-register.ts')).toContain("from 'virtual:pwa-register/react'")
     expect(src).toContain('useRegisterSW')
     expect(src).toContain('onRegisteredSW')
     expect(src).toContain('registration.update()')

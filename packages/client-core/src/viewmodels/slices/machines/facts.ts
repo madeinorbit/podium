@@ -136,14 +136,25 @@ export function repoBranchForCwd(
   return null
 }
 
-/** Does `cwd` still resolve to a live, scanned worktree? False when the path is
- *  no longer among any repo's worktrees — e.g. a session whose git worktree was
- *  removed out from under it (an "orphaned" session). Also false when no repos
- *  are loaded yet; callers that must not flag orphans during the boot window
- *  should gate on `repos.length > 0` themselves. */
-export function isKnownWorktreePath(repos: GitRepositoryWire[], cwd: string): boolean {
-  return repoBranchForCwd(repos, cwd) !== null
-}
+/*
+ * `isKnownWorktreePath` USED TO LIVE HERE, and it is deliberately gone (POD-1704).
+ *
+ * It answered `repoBranchForCwd(...) !== null` and its one caller read the FALSE
+ * as "this session's worktree was deleted", then offered to destroy the session
+ * row. That inverts what this index can support. The scan is a POSITIVE index:
+ * it says where a worktree IS. It cannot say one does not exist, because "absent
+ * from the snapshot" also covers a scan that timed out, a machine that went
+ * offline, a fan-out narrowed by `use` authz, and the boot window before the
+ * first scan lands — none of which are facts about the directory.
+ *
+ * Whether a path exists is observable, and observable by exactly one party: the
+ * daemon on that machine. Ask it (`ensureWorktree` already does, and rebuilds
+ * from the branch when it is really missing) instead of inferring it from a list
+ * that was never complete by contract.
+ *
+ * `repoBranchForCwd` below stays, because its callers use it POSITIVELY — a
+ * match names the repo/branch badge, and a miss simply means no badge.
+ */
 
 /** Most-recent session activity per raw repo wire (containment over the repo
  *  root and its linked worktrees) — for sorting repo pickers by recent use. */

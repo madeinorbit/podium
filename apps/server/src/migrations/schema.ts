@@ -522,6 +522,11 @@ export const machines = sqliteTable('machines', {
   createdAt: text('created_at').notNull(),
   lastSeenAt: text('last_seen_at').notNull(),
   inventoryJson: text('inventory_json'),
+  /** Pairing mode: managed hosts may receive copied native credentials. */ podiumManaged: integer(
+    'podium_managed',
+  )
+    .default(1)
+    .notNull(),
   // MACHINE OWNERSHIP (POD-1079, ADR 9 D6 M1/M3). The person a paired machine
   // belongs to. NULLABLE and null is MEANINGFUL: `machineUseAllowed` refuses
   // `use` on an owner-less machine to EVERYONE, which is the default-closed
@@ -533,6 +538,15 @@ export const machines = sqliteTable('machines', {
   // verb)` — NOT in a column here. ADR 4 D7.1: a grant is its own aggregate and
   // a granted row never embeds its grants.
   ownerUserId: text('owner_user_id'),
+  // BUILD REPORT (POD-1670). What the daemon last told us it is running.
+  // ADVISORY: peer-asserted, unverified, never used to grant anything. Additive
+  // and nullable because an existing row has simply not reported yet, and that
+  // is the truthful answer until the daemon reconnects.
+  appVersion: text('app_version'),
+  wireSchemaDigest: text('wire_schema_digest'),
+  installKind: text('install_kind'),
+  deliveryCapsJson: text('delivery_caps_json'),
+  buildReportedAt: text('build_reported_at'),
 })
 
 export const repos = sqliteTable(
@@ -711,30 +725,34 @@ export const telegramChatBindings = sqliteTable('telegram_chat_bindings', {
 // table is not owning it — they are the session inbox and the node->hub
 // forwarder's queue, which are feature-owned.
 
-export const queuedMessages = sqliteTable("queued_messages", {
-	id: text().primaryKey(),
-	sessionId: text("session_id").notNull(),
-	text: text().notNull(),
-	queuedAt: integer("queued_at").notNull(),
-	inputOrigin: text("input_origin").default("unknown").notNull(),
-	attempts: integer().default(0).notNull(),
-	// Authorization identity is a REFERENCE, never a capability snapshot. Agent
-	// rows carry the SessionBinding/delegation seam; every drain resolves it live.
-	principalKind: text("principal_kind").default("system").notNull(),
-	principalRef: text("principal_ref").default("legacy-session-inbox").notNull(),
-	delegationRef: text("delegation_ref"),
-	// ADR 9 D5 A3: actor and on-behalf-of are separate and transport-stamped.
-	actorKind: text("actor_kind").default("system").notNull(),
-	actorId: text("actor_id").default("legacy-session-inbox").notNull(),
-	onBehalfOf: text("on_behalf_of"),
-	// When the queued input is the daemon leg of a durable message, retain the
-	// source row reference so a drain-time refusal dead-letters the same intent.
-	sourceMessageId: text("source_message_id"),
-},
-(table) => [index("queued_messages_session").on(table.sessionId, table.queuedAt),
-check("queued_messages_principal_kind", sql`principal_kind IN ('user','agent','system')`),
-check("queued_messages_actor_kind", sql`actor_kind IN ('user','agent','system')`),
-]);
+export const queuedMessages = sqliteTable(
+  'queued_messages',
+  {
+    id: text().primaryKey(),
+    sessionId: text('session_id').notNull(),
+    text: text().notNull(),
+    queuedAt: integer('queued_at').notNull(),
+    inputOrigin: text('input_origin').default('unknown').notNull(),
+    attempts: integer().default(0).notNull(),
+    // Authorization identity is a REFERENCE, never a capability snapshot. Agent
+    // rows carry the SessionBinding/delegation seam; every drain resolves it live.
+    principalKind: text('principal_kind').default('system').notNull(),
+    principalRef: text('principal_ref').default('legacy-session-inbox').notNull(),
+    delegationRef: text('delegation_ref'),
+    // ADR 9 D5 A3: actor and on-behalf-of are separate and transport-stamped.
+    actorKind: text('actor_kind').default('system').notNull(),
+    actorId: text('actor_id').default('legacy-session-inbox').notNull(),
+    onBehalfOf: text('on_behalf_of'),
+    // When the queued input is the daemon leg of a durable message, retain the
+    // source row reference so a drain-time refusal dead-letters the same intent.
+    sourceMessageId: text('source_message_id'),
+  },
+  (table) => [
+    index('queued_messages_session').on(table.sessionId, table.queuedAt),
+    check('queued_messages_principal_kind', sql`principal_kind IN ('user','agent','system')`),
+    check('queued_messages_actor_kind', sql`actor_kind IN ('user','agent','system')`),
+  ],
+)
 
 export const conversationIdentities = sqliteTable('conversation_identities', {
   podiumId: text('podium_id').primaryKey(),
@@ -1109,62 +1127,81 @@ export const superagentPendingTurns = sqliteTable(
   (table) => [unique('superagent_pending_turns_thread_id_unique').on(table.threadId)],
 )
 
-export const messages = sqliteTable("messages", {
-	id: text().primaryKey(),
-	threadId: text("thread_id").notNull(),
-	inReplyTo: text("in_reply_to"),
-	fromKind: text("from_kind").notNull(),
-	fromSession: text("from_session"),
-	fromIssue: text("from_issue"),
-	// Transport-stamped attribution pair plus the opaque reference needed to
-	// re-resolve an agent's delegation live on every apply.
-	actorKind: text("actor_kind"),
-	actorId: text("actor_id"),
-	onBehalfOf: text("on_behalf_of"),
-	delegationRef: text("delegation_ref"),
-	toKind: text("to_kind").notNull(),
-	toId: text("to_id"),
-	kind: text().default("message").notNull(),
-	urgency: text().default("fyi").notNull(),
-	lifecycle: text().default("wait").notNull(),
-	body: text().notNull(),
-	expiresAt: text("expires_at"),
-	createdAt: text("created_at").notNull(),
-	status: text().default("queued").notNull(),
-	deliveredAt: text("delivered_at"),
-	deliveredTo: text("delivered_to"),
-	ackedBy: text("acked_by"),
-	hop: integer().default(0).notNull(),
-	clampedFrom: text("clamped_from"),
-	remindedAt: text("reminded_at"),
-	fromName: text("from_name"),
-	readAt: text("read_at"),
-	injectedAt: text("injected_at"),
-	deadLetteredAt: text("dead_lettered_at"),
-	// A response is OPT-IN [POD-835 §04b]: only a `--expect-response` send (or a
-	// `question`) sets this. It is the sole trigger for the stop-hook reminder and
-	// the steward settle-nag — an ordinary message owes no reply, so receipt alone
-	// (mechanically proven by the ledger, POD-834) never generates ack traffic.
-	expectsResponse: integer("expects_response").default(0).notNull(),
-	// Message-backed notification identity [spec:SP-ba61]. Both are null for
-	// ordinary mail; consume/dismiss retires the matching arbiter fact.
-	factKey: text("fact_key"),
-	factTarget: text("fact_target"),
-},
-(table) => [index("idx_messages_delivered_to").on(table.deliveredTo),
-index("idx_messages_thread").on(table.threadId),
-index("idx_messages_recipient").on(table.toKind, table.toId, table.status),
-index("idx_messages_recipient_order").on(table.toKind, table.toId, table.status, table.createdAt, table.id),
-index("idx_messages_queue_order").on(table.status, table.createdAt, table.id),
-index("idx_messages_expiry_explicit").on(table.status, table.expiresAt, table.id),
-index("idx_messages_expiry_implicit").on(table.status, table.lifecycle, table.expiresAt, table.createdAt, table.id),
-check("messages_check_5", sql`from_kind IN ('operator','superagent','agent','system')`),
-check("messages_check_6", sql`to_kind IN ('issue','session','operator')`),
-check("messages_check_7", sql`kind IN ('message','ack','notification','question')`),
-check("messages_check_8", sql`urgency IN ('fyi','next-turn','interrupt')`),
-check("messages_check_9", sql`lifecycle IN ('wait','wake')`),
-check("messages_check_10", sql`status IN ('queued','delivered','read','dead_letter','expired','cancelled')`),
-]);
+export const messages = sqliteTable(
+  'messages',
+  {
+    id: text().primaryKey(),
+    threadId: text('thread_id').notNull(),
+    inReplyTo: text('in_reply_to'),
+    fromKind: text('from_kind').notNull(),
+    fromSession: text('from_session'),
+    fromIssue: text('from_issue'),
+    // Transport-stamped attribution pair plus the opaque reference needed to
+    // re-resolve an agent's delegation live on every apply.
+    actorKind: text('actor_kind'),
+    actorId: text('actor_id'),
+    onBehalfOf: text('on_behalf_of'),
+    delegationRef: text('delegation_ref'),
+    toKind: text('to_kind').notNull(),
+    toId: text('to_id'),
+    kind: text().default('message').notNull(),
+    urgency: text().default('fyi').notNull(),
+    lifecycle: text().default('wait').notNull(),
+    body: text().notNull(),
+    expiresAt: text('expires_at'),
+    createdAt: text('created_at').notNull(),
+    status: text().default('queued').notNull(),
+    deliveredAt: text('delivered_at'),
+    deliveredTo: text('delivered_to'),
+    ackedBy: text('acked_by'),
+    hop: integer().default(0).notNull(),
+    clampedFrom: text('clamped_from'),
+    remindedAt: text('reminded_at'),
+    fromName: text('from_name'),
+    readAt: text('read_at'),
+    injectedAt: text('injected_at'),
+    deadLetteredAt: text('dead_lettered_at'),
+    // A response is OPT-IN [POD-835 §04b]: only a `--expect-response` send (or a
+    // `question`) sets this. It is the sole trigger for the stop-hook reminder and
+    // the steward settle-nag — an ordinary message owes no reply, so receipt alone
+    // (mechanically proven by the ledger, POD-834) never generates ack traffic.
+    expectsResponse: integer('expects_response').default(0).notNull(),
+    // Message-backed notification identity [spec:SP-ba61]. Both are null for
+    // ordinary mail; consume/dismiss retires the matching arbiter fact.
+    factKey: text('fact_key'),
+    factTarget: text('fact_target'),
+  },
+  (table) => [
+    index('idx_messages_delivered_to').on(table.deliveredTo),
+    index('idx_messages_thread').on(table.threadId),
+    index('idx_messages_recipient').on(table.toKind, table.toId, table.status),
+    index('idx_messages_recipient_order').on(
+      table.toKind,
+      table.toId,
+      table.status,
+      table.createdAt,
+      table.id,
+    ),
+    index('idx_messages_queue_order').on(table.status, table.createdAt, table.id),
+    index('idx_messages_expiry_explicit').on(table.status, table.expiresAt, table.id),
+    index('idx_messages_expiry_implicit').on(
+      table.status,
+      table.lifecycle,
+      table.expiresAt,
+      table.createdAt,
+      table.id,
+    ),
+    check('messages_check_5', sql`from_kind IN ('operator','superagent','agent','system')`),
+    check('messages_check_6', sql`to_kind IN ('issue','session','operator')`),
+    check('messages_check_7', sql`kind IN ('message','ack','notification','question')`),
+    check('messages_check_8', sql`urgency IN ('fyi','next-turn','interrupt')`),
+    check('messages_check_9', sql`lifecycle IN ('wait','wake')`),
+    check(
+      'messages_check_10',
+      sql`status IN ('queued','delivered','read','dead_letter','expired','cancelled')`,
+    ),
+  ],
+)
 
 export const messageWakeCooldowns = sqliteTable('message_wake_cooldowns', {
   key: text().primaryKey(),

@@ -72,6 +72,7 @@ export const createMachinePairCodeStrategy = (
       // Handed back exactly once; the peer persists it and reconnects with the
       // machine-token strategy from then on.
       issuedToken: paired.issuedToken,
+      ...(paired.updatePubkey === undefined ? {} : { updatePubkey: paired.updatePubkey }),
       principal: machinePrincipalOf(paired, transport, deps.mint),
     }
   },

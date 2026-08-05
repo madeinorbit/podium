@@ -24,6 +24,8 @@ import {
   isLegacyDaemonFrame,
   legacyReplyFor,
   type MachinePrincipal,
+  type PeerBuild,
+  PeerHello,
   type PeerHelloReply,
   type UserId,
 } from '@podium/protocol'
@@ -98,6 +100,10 @@ export type DaemonFrameOutcome =
       /** The legacy reply to send BEFORE attaching (see `wireDaemonSocket`). */
       readonly reply: DaemonHandshakeReply | PeerHelloReply
       readonly pairingGrant: unknown
+      /** Peer-asserted build metadata; recorded only after this step authenticates. */
+      readonly build?: PeerBuild
+      /** The capability offer from the authenticated hello, before intersection. */
+      readonly offeredCaps: string[]
     }
   | { readonly kind: 'rejected'; readonly reply: DaemonHandshakeReply | PeerHelloReply }
   | { readonly kind: 'deliver'; readonly machineId: string; readonly raw: string }
@@ -132,6 +138,8 @@ export const receiveDaemonFrame = (
           kind: 'rejected',
           reply: reply({ type: 'peerHelloRejected', reason: 'unknown-role' }),
         }
+      const hello =
+        legacy === null ? PeerHello.parse(JSON.parse(raw)) : helloFromLegacyDaemonFrame(legacy)
       return {
         kind: 'established',
         principal,
@@ -139,6 +147,8 @@ export const receiveDaemonFrame = (
         name: step.peer.name ?? principal.machine,
         reply: reply(step.reply),
         pairingGrant: step.peer.directoryContext,
+        offeredCaps: [...hello.caps],
+        ...(hello.build === undefined ? {} : { build: hello.build }),
       }
     }
     case 'deliver': {
@@ -162,4 +172,20 @@ const asLegacyFrame = (raw: string): DaemonHandshake | null => {
     return null
   }
   return isLegacyDaemonFrame(parsed) ? (parsed as DaemonHandshake) : null
+}
+
+/**
+ * A hello with no build report says NOTHING about the build, which is not the
+ * same as saying the build is unknown. An older daemon reconnecting must not
+ * erase what a newer one already reported, so absence is a no-op.
+ */
+export function recordHelloBuild(
+  store: {
+    setMachineBuild: (id: string, build: PeerBuild, caps: string[], at: string) => void
+  },
+  machineId: string,
+  hello: { build: PeerBuild | undefined; caps: string[]; at: string },
+): void {
+  if (!hello.build) return
+  store.setMachineBuild(machineId, hello.build, hello.caps, hello.at)
 }

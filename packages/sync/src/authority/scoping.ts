@@ -194,6 +194,12 @@ export function scopeBootstrap(
   state: readonly SequencedChange[],
   throughSeq: number,
 ): ScopedBootstrap {
+  // The state list is the complete world this pass will evaluate. Give a policy
+  // that supports it one chance to build request-scoped batch maps before the
+  // per-row decisions start; policies without that seam retain the same path.
+  const policy =
+    deps.policy.forBootstrap?.(state.map(({ entity, entityId }) => ({ entity, entityId }))) ??
+    deps.policy
   const changes: ScopedChange[] = []
   for (const row of state) {
     // Positive state ONLY (D15): a bootstrap installs what exists. A `remove` or
@@ -201,7 +207,7 @@ export function scopeBootstrap(
     // cache that does not exist yet, and a replica that applied one would be
     // holding a tombstone for an entity it was never told about.
     if (row.op !== 'upsert') continue
-    if (!deps.policy.decide(principal, row).visible) continue
+    if (!policy.decide(principal, row).visible) continue
     changes.push(row as ScopedChange)
   }
   return { throughSeq, changes: changes.sort((a, b) => a.seq - b.seq) }

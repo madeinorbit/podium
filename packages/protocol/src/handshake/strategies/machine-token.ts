@@ -58,6 +58,7 @@ export const createMachineTokenStrategy = (
       ...(machine.directoryContext === undefined
         ? {}
         : { directoryContext: machine.directoryContext }),
+      ...(machine.updatePubkey === undefined ? {} : { updatePubkey: machine.updatePubkey }),
       principal: machinePrincipalOf(machine, transport, deps.mint),
     }
   },

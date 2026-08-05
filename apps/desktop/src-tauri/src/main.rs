@@ -6,6 +6,7 @@ mod updater;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use updater::{check_update, claim_update_ownership, install_update};
 use tauri::menu::{Menu, MenuItem};
 #[cfg(target_os = "macos")]
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
@@ -113,6 +114,9 @@ fn native_desktop_hook(launch_mode: &str, machine_id: Option<&str>) -> String {
     } else {
         ""
     };
+    // Desktop updates are available in every launch mode. The page may be remote or older
+    // than this shell, so these methods are always present and are feature-detected by the page.
+    let update_commands = ",\n            claimUpdateOwnership: () => window.__TAURI_INTERNALS__.invoke('claim_update_ownership'),\n            checkUpdate: (channel) => window.__TAURI_INTERNALS__.invoke('check_update', { channel }),\n            installUpdate: () => window.__TAURI_INTERNALS__.invoke('install_update')";
     // This device's paired machine identity (daemon.json), so the web UI can mark the
     // matching row "this machine". serde_json escaping — the value comes from disk.
     let machine_id = machine_id
@@ -125,7 +129,7 @@ fn native_desktop_hook(launch_mode: &str, machine_id: Option<&str>) -> String {
             launchMode: "{launch_mode}"{machine_id},
             minimize: () => window.__TAURI_INTERNALS__.invoke('plugin:window|minimize', {{ label: 'main' }}),
             toggleMaximize: () => window.__TAURI_INTERNALS__.invoke('plugin:window|toggle_maximize', {{ label: 'main' }}),
-            close: () => window.__TAURI_INTERNALS__.invoke('plugin:window|close', {{ label: 'main' }}){enable_hosting}
+            close: () => window.__TAURI_INTERNALS__.invoke('plugin:window|close', {{ label: 'main' }}){update_commands}{enable_hosting}
         }});"#
     )
 }
@@ -181,7 +185,12 @@ fn main() {
         // app config dir. Granted to the main window (incl. remote-loaded
         // client/daemon modes) via the replica-sqlite capability below.
         .plugin(tauri_plugin_sql::Builder::default().build())
-        .invoke_handler(tauri::generate_handler![enable_hosting])
+        .invoke_handler(tauri::generate_handler![
+            enable_hosting,
+            claim_update_ownership,
+            check_update,
+            install_update
+        ])
         .setup(|app| {
             // TEST AID: record the running app version so the e2e can deterministically
             // distinguish 0.1.0 from 0.1.1 across a self-replace+restart. Only writes when
@@ -217,6 +226,10 @@ fn main() {
             // (Always managed so the exit handlers have it, even in ClientOnly with no child.)
             let shutting_down = Arc::new(AtomicBool::new(false));
             app.manage(shutting_down.clone());
+
+            let update_ownership: updater::UpdateOwnership = Arc::new(AtomicBool::new(false));
+            app.manage(update_ownership.clone());
+            app.manage(updater::PendingUpdate::default());
 
             // Child slot is always managed so the window-event / exit handlers can reap whatever
             // (if anything) we spawned. ClientOnly leaves it None.
@@ -365,6 +378,11 @@ fn main() {
                     // windows — the static capability file only covers local URLs, so without
                     // this a mode change from a remote page (SetupGate, the hosting toggle
                     // [spec:SP-3701]) throws "process.restart not allowed".
+                    // Update commands are available in every launch mode. Keeping them on this
+                    // capability also lets the remote() grant below cover the loaded origin.
+                    .permission("allow-claim-update-ownership")
+                    .permission("allow-check-update")
+                    .permission("allow-install-update")
                     .permission("process:allow-restart");
             // External-link opener for the injected shim (see bootstrap::opener_shim_script).
             // Runtime-granted next to the window-controls capability so remote-mode windows
@@ -388,12 +406,25 @@ fn main() {
                 .window("main")
                 .permission("sql:default")
                 .permission("sql:allow-execute");
+            // Update bridge (POD-1670): the in-app dialog drives check/install through
+            // these commands. REMOTE MODE IS THE CASE THAT MATTERS — the shell loads the
+            // remote server's own web bundle, so the page invoking them lives on that
+            // origin and the grant must extend there, exactly as the window-controls,
+            // opener, hosting and sqlite grants do. Granted only in the static
+            // capability, a remote-mode shell could never update itself, which is the
+            // scenario this bridge exists for.
+            let mut update_capability = tauri::ipc::CapabilityBuilder::new("update-bridge")
+                .window("main")
+                .permission("allow-claim-update-ownership")
+                .permission("allow-check-update")
+                .permission("allow-install-update");
             if let Some(server_url) = remote_window_server_url {
                 match remote_capability_pattern(&server_url) {
                     Ok(pattern) => {
                         window_capability = window_capability.remote(pattern.clone());
                         opener_capability = opener_capability.remote(pattern.clone());
                         sqlite_capability = sqlite_capability.remote(pattern.clone());
+                        update_capability = update_capability.remote(pattern.clone());
                         hosting_capability = hosting_capability.map(|c| c.remote(pattern));
                     }
                     Err(error) => eprintln!(
@@ -404,6 +435,7 @@ fn main() {
             app.add_capability(window_capability)?;
             app.add_capability(opener_capability)?;
             app.add_capability(sqlite_capability)?;
+            app.add_capability(update_capability)?;
             if let Some(capability) = hosting_capability {
                 app.add_capability(capability)?;
             }
@@ -480,6 +512,9 @@ fn main() {
             // Wait for the local backend (if any) to accept connections, then open the window.
             // Remote modes (daemon/client) skip the wait — the web client handles connect/retry.
             let handle = app.handle().clone();
+            let update_ownership_for_window = update_ownership.clone();
+            let updater_handle = app.handle().clone();
+            let update_channel = cfg.update_channel;
             // The window also gets a restart hook so a setup mode-change can re-run the shell:
             // raw plugin invoke avoids adding a Tauri JS dependency to apps/web.
             let restart_hook = "window.__PODIUM_RESTART__ = () => \
@@ -517,20 +552,42 @@ fn main() {
                     #[cfg(not(target_os = "macos"))]
                     let window_builder = window_builder.decorations(false);
 
-                    if let Err(e) = window_builder.build() {
-                        eprintln!("[podium-desktop] window build failed: {e}");
+                    match window_builder.build() {
+                        Ok(_) => {
+                            let update_started_at = std::time::Instant::now();
+                            tauri::async_runtime::spawn(async move {
+                                let _ = tauri::async_runtime::spawn_blocking(move || {
+                                    std::thread::sleep(std::time::Duration::from_millis(
+                                        crate::updater::OWNERSHIP_GRACE_MS + 1,
+                                    ));
+                                })
+                                .await;
+                                let elapsed_ms = update_started_at
+                                    .elapsed()
+                                    .as_millis()
+                                    .min(u64::MAX as u128)
+                                    as u64;
+                                if crate::updater::should_show_native_dialog(
+                                    update_ownership_for_window.load(Ordering::Acquire),
+                                    elapsed_ms,
+                                    crate::updater::OWNERSHIP_GRACE_MS,
+                                ) {
+                                    if std::env::var("PODIUM_UPDATE_AUTOCONFIRM").as_deref() == Ok("1") {
+                                        crate::updater::check_and_prompt_update(
+                                            updater_handle,
+                                            update_channel,
+                                        )
+                                        .await;
+                                    } else {
+                                        eprintln!("[podium-desktop] web update surface did not claim ownership; native interactive fallback disabled");
+                                    }
+                                }
+                            });
+                        }
+                        Err(e) => eprintln!("[podium-desktop] window build failed: {e}"),
                     }
                 });
             });
-
-            // Check the persisted stable/edge channel on launch (non-blocking). The
-            // updater itself returns before network/UI work in debug builds. [spec:SP-7f2c]
-            let updater_handle = app.handle().clone();
-            let update_channel = cfg.update_channel;
-            tauri::async_runtime::spawn(async move {
-                crate::updater::check_and_prompt_update(updater_handle, update_channel).await;
-            });
-
             Ok(())
         })
         .on_menu_event(|app, event| match event.id.as_ref() {
@@ -628,6 +685,16 @@ mod tests {
         // Hosting is inherent outside client mode — no toggle exposed.
         assert!(!hook.contains("enableHosting"));
         assert!(!hook.contains("machineId"));
+    }
+
+    #[test]
+    fn native_hook_exposes_update_commands_in_every_launch_mode() {
+        for mode in ["all-in-one", "server", "daemon", "client"] {
+            let hook = native_desktop_hook(mode, None);
+            assert!(hook.contains("claimUpdateOwnership"));
+            assert!(hook.contains("checkUpdate: (channel)"));
+            assert!(hook.contains("installUpdate"));
+        }
     }
 
     #[test]

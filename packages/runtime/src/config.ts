@@ -116,6 +116,9 @@ export const PodiumConfig = z.object({
   agentHome: z.string().min(1).optional(),
   /** One-shot pairing code for daemon mode (consumed once → token; a stale value is harmless). */
   pairCode: z.string().optional(),
+  /** Whether this joined daemon is a Podium-managed host (default true). */ podiumManaged: z
+    .boolean()
+    .optional(),
   /** Base URL of the self-update feed (`podium update`). Env PODIUM_UPDATE_FEED wins. */
   updateFeed: z.string().optional(),
   /** Self-update channel for the headless build (desktop is always stable). Default 'stable'. */

@@ -30,6 +30,7 @@ const mountSessionMock = vi.fn((_el: unknown, _opts: { active?: boolean }) => ({
   },
   view: {
     setFileLinks: vi.fn(),
+    setAppearance: vi.fn(),
     setRefLinks: vi.fn(),
     onScroll: () => () => {},
     atBottom: () => true,
@@ -175,6 +176,14 @@ async function render(props: { active: boolean }): Promise<void> {
   })
   await flush()
 }
+
+describe('AgentPanel panel-mode persistence', () => {
+  it('does not rewrite an existing per-session mode during mount arbitration', async () => {
+    storePanelMode = { s1: 'chat' }
+    await render({ active: true })
+    expect(stableStoreFns.setPanelMode).not.toHaveBeenCalled()
+  })
+})
 
 describe('AgentPanel PTY sizing is gated on the visibility foundation', () => {
   it('winches the PTY when an offer docks on the VISIBLE pane', async () => {

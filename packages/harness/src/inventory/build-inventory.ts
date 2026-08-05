@@ -9,7 +9,7 @@ import { execFile } from 'node:child_process'
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import type { AgentManifest } from '../manifest.js'
+import { declaredValue, type AgentManifest } from '../manifest.js'
 import { AGENT_MANIFESTS } from '../registry.js'
 import type { AgentInventory, Inventory, ToolInventory } from '@podium/model'
 
@@ -34,7 +34,16 @@ async function probeAgent(
   home: string,
   exec: ProbeExec,
 ): Promise<AgentInventory> {
-  const login = manifest.inventory.detectLogin(home)
+  const detected = manifest.inventory.detectLogin(home)
+  const identityReader = declaredValue(manifest.inventory.loginIdentity)
+  let identity: ReturnType<NonNullable<typeof identityReader>> | undefined
+  try {
+    identity = identityReader?.(home)
+  } catch {
+    // Login identity is best-effort metadata; a broken reader must not hide the
+    // install/version facts or turn inventory into an unavailable report.
+  }
+  const login = identity ? { ...detected, identity } : detected
   for (const candidate of manifest.inventory.binCandidates(home)) {
     try {
       const version = (await exec([candidate, '--version'], VERSION_TIMEOUT_MS)).trim()

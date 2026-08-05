@@ -104,6 +104,9 @@ import { AgentKind, HarnessAgent } from './agent'
 // daemon (packages/harness buildInventory) and pushed AFTER the handshake
 // authenticates — never inside pair/hello, which must stay fast and pre-auth.
 
+/** External provider account identifier; it is not a Podium entity id. */
+const ProviderAccountIdField = z.string().optional()
+
 /** `USE` — one agent CLI's install + login status on the daemon's machine.
  *  Use-gated: `login.account` names a person, and the install set describes what
  *  the owner's hardware can run. */
@@ -119,6 +122,14 @@ export const AgentInventory = z.object({
     state: z.enum(['in', 'out', 'unknown']),
     /** Email / account label when known (claude, codex, grok). */
     account: z.string().optional(),
+    identity: z
+      .object({
+        fingerprint: z.string().min(1),
+        email: z.string().optional(),
+        providerAccountId: ProviderAccountIdField,
+      })
+      .optional(),
+    freshness: z.number().optional(),
   }),
 })
 export type AgentInventory = z.infer<typeof AgentInventory>
@@ -228,8 +239,23 @@ export const MachineWire = z.object({
    * "yes".
    */
   owned: z.boolean().optional(),
+  /** Whether this machine was paired as a Podium-managed host. */ podiumManaged: z
+    .boolean()
+    .optional(),
   /** `USE` — see {@link Inventory}. */
   inventory: Inventory.optional(),
+  /** Peer-asserted build label; absent/null until the daemon reports one. */
+  appVersion: z.string().nullable().optional(),
+  /** Peer-asserted protocol schema digest; informational only. */
+  wireSchemaDigest: z.string().nullable().optional(),
+  /** Whether the daemon runs an installed bundle or a source checkout. */
+  installKind: z.string().nullable().optional(),
+  /** Delivery methods the daemon offered in its last authenticated hello. */
+  deliveryCaps: z.array(z.string()).optional(),
+  /** When the server last accepted the build report. */
+  buildReportedAt: z.string().nullable().optional(),
+  /** Derived relative state; never persisted. */
+  versionState: z.enum(['unreported', 'current', 'behind', 'ahead']).optional(),
 })
 export type MachineWire = z.infer<typeof MachineWire>
 

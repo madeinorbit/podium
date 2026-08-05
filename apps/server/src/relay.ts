@@ -31,6 +31,9 @@ import {
   Ledger,
   MutationLedger,
   type VisibilityAnchorPort,
+  type ChangeLogReadRow,
+  type EntityRef,
+  type VisibilityStatePort,
   NoDelegationsGranted,
   kernelVisibilityResolver,
 } from '@podium/sync'
@@ -77,6 +80,7 @@ import { LockCommandDispatcher } from './modules/lock/registry'
 import { LockService } from './modules/lock/service'
 import { routeMachineDiagnostic } from './modules/machines/diagnostics'
 import { DaemonRpcService } from './modules/machines/rpc'
+import { LoginPropagationService } from './modules/machines/login-propagation'
 import { MachinesService, type PairingCodes } from './modules/machines/service'
 import { MemoryService } from './modules/memory/service'
 import { MessageGate } from './modules/messages/gate'
@@ -92,6 +96,7 @@ import {
   type SessionNoticeInfo,
 } from './modules/notify/service'
 import { DEPLOYMENT, type PerfRegistry, perf } from './modules/perf/registry'
+import { perfPrincipal } from './modules/perf/principal'
 import {
   fleetViewFor,
   machinesForPrincipal,
@@ -109,12 +114,13 @@ import { SettingsService, type TelegramSetupClient } from './modules/settings/se
 import { SpecsService } from './modules/specs/service'
 import { deliverAnswerToSession } from './modules/superagent/answer-delivery'
 import type { HeadlessService } from './modules/superagent/headless'
+import { UpdatesService } from './modules/updates/service'
 import { dispatchWorkflowRpc } from './modules/workflows/rpc'
 import { WorkflowService } from './modules/workflows/service'
 import { inferRepoFromRoots } from './repo-registry'
 import { spawnedByParentSessionId } from '@podium/model'
 import { StewardService } from './steward'
-import { SessionStore } from './store'
+import { SessionStore, type IssueRow, type SessionRow } from './store'
 import { isGenericClaudeTitle, isTransientTitle } from './title-filter'
 
 // Re-exported so repo-registry/superagent/tests keep importing the daemon-RPC
@@ -126,9 +132,30 @@ export type {
 } from './modules/machines/rpc'
 export type { MemoryBreakdown }
 
+type BootstrapReadPhase =
+  | 'visibility.issue.getIssue'
+  | 'visibility.issue.grants.listForResource'
+  | 'visibility.session.getSession'
+  | 'visibility.session.grants.listForResource'
+  | 'visibility.conversation.findSessionByResumeValue'
+  | 'visibility.conversation.grants.listForResource'
+  | 'visibility.automation.ownerOf'
+  | 'visibility.automationRun.runOwnerOf'
+
+interface BootstrapReadTrace {
+  readonly phases: Map<BootstrapReadPhase, number>
+}
+
 interface SessionRegistryOptions {
   /** Boot-resolved deployment identity; every composition root names it explicitly. */
   instanceId: string
+  /**
+   * The server target app label for derived machine version state. The real
+   * composition root supplies the baked app version; fixtures may omit it.
+   */
+  targetVersion?: () => string | undefined
+  /** Public half of this server's update-signing key, sent on every successful machine hello. */
+  updatePubkey?: () => string
   telegramSetup?: TelegramSetupClient
   generateTelegramSetupCode?: () => string
   now?: () => number
@@ -168,7 +195,9 @@ export interface RegistryModules {
   funnel: WriteFunnel
   sessions: SessionLifecycle
   machines: MachinesService
+  updates: UpdatesService
   rpc: DaemonRpcService
+  loginPropagation: LoginPropagationService
   memory: MemoryService
   hosts: HostsService
   settings: SettingsService
@@ -362,9 +391,13 @@ export class SessionRegistry {
       this.store.grants,
       this.store.repos,
     )
+    let updates: UpdatesService | undefined
     const machines = new MachinesService({
       instanceId,
+      ...(options.targetVersion ? { targetVersion: options.targetVersion } : {}),
+      ...(options.updatePubkey ? { updatePubkey: options.updatePubkey } : {}),
       store: this.store,
+      targetVersion: () => updates?.targetVersion() ?? options.targetVersion?.(),
       // ONE READER of `<stateDir>/machine.id`: the composition root passes the id to
       // the store, and every consumer takes the store's copy. A second `readOrCreate*`
       // call anywhere in the process would be a second opinion about who this host is.
@@ -390,6 +423,21 @@ export class SessionRegistry {
     // again with the real hostname and the loopback bootstrap secret; that call is
     // an idempotent UPDATE of this row, not a rival insert.
     machines.ensureHostMachine(hostname())
+    const updatesService = new UpdatesService({
+      machines: () =>
+        machines.listMachines().map((machine) => ({
+          id: machine.id,
+          version: machine.appVersion ?? 'unreported',
+          state: 'current',
+          online: machine.online,
+          busy: false,
+        })),
+      send: (machineId, message) => machines.toMachine(machineId, message),
+      now: this.now,
+      nextGrantId: () => randomUUID(),
+      concurrency: 3,
+    })
+    updates = updatesService
     const requestBroker = new DaemonRequestBroker({
       toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
       defaultMachine: () => machines.defaultMachine(),
@@ -413,21 +461,90 @@ export class SessionRegistry {
     // AND conversation writes append their change rows ATOMICALLY with the
     // entity write (one transact span on the shared connection). One changes
     // table + one seq sequence — changesSince consumers see one unified feed.
-    const feedMayReadIssue = (userId: string, issueId: string): boolean => {
+    const bootstrapReadTraces: BootstrapReadTrace[] = []
+    const measureBootstrapReadPhase = <T>(phase: BootstrapReadPhase, fn: () => T): T => {
+      const trace = bootstrapReadTraces[bootstrapReadTraces.length - 1]
+      if (trace === undefined) return fn()
+      const startedAt = performance.now()
+      try {
+        return fn()
+      } finally {
+        trace.phases.set(phase, (trace.phases.get(phase) ?? 0) + (performance.now() - startedAt))
+      }
+    }
+    const beginBootstrapRead = (): void => {
+      bootstrapReadTraces.push({ phases: new Map() })
+    }
+    const finishBootstrapRead = (principal: Principal): void => {
+      const trace = bootstrapReadTraces.pop()
+      if (trace === undefined) return
+      const perfKey = perfPrincipal(principal)
+      for (const [phase, durationMs] of trace.phases) {
+        perf.record('phase', `feedBootstrap.${phase}`, durationMs, perfKey)
+      }
+    }
+    type BootstrapVisibilityPrefetch = {
+      readonly issueIds: ReadonlySet<string>
+      readonly issues: ReadonlyMap<string, IssueRow>
+      readonly sessionIds: ReadonlySet<string>
+      readonly sessions: ReadonlyMap<string, SessionRow>
+      readonly resumeValues: ReadonlySet<string>
+      readonly sessionsByResumeValue: ReadonlyMap<string, SessionRow>
+    }
+
+    const readIssue = (
+      issueId: string,
+      prefetch?: BootstrapVisibilityPrefetch,
+    ): IssueRow | null => {
+      if (prefetch?.issueIds.has(issueId)) return prefetch.issues.get(issueId) ?? null
+      return measureBootstrapReadPhase('visibility.issue.getIssue', () =>
+        this.store.issues.getIssue(issueId),
+      )
+    }
+
+    const readSession = (
+      sessionId: string,
+      prefetch?: BootstrapVisibilityPrefetch,
+    ): SessionRow | undefined => {
+      if (prefetch?.sessionIds.has(sessionId)) return prefetch.sessions.get(sessionId)
+      return measureBootstrapReadPhase('visibility.session.getSession', () =>
+        this.store.sessions.getSession(asSessionId(sessionId)),
+      )
+    }
+
+    const readConversationSession = (
+      resumeValue: string,
+      prefetch?: BootstrapVisibilityPrefetch,
+    ): SessionRow | undefined => {
+      if (prefetch?.resumeValues.has(resumeValue)) {
+        return prefetch.sessionsByResumeValue.get(resumeValue)
+      }
+      return measureBootstrapReadPhase('visibility.conversation.findSessionByResumeValue', () =>
+        this.store.sessions.findSessionByResumeValue(resumeValue),
+      )
+    }
+
+    const feedMayReadIssue = (
+      userId: string,
+      issueId: string,
+      prefetch?: BootstrapVisibilityPrefetch,
+    ): boolean => {
       // Authority publishes after the transaction commits but before IssueService
       // installs a newly-created row in its live map. Read the durable row here so
       // the creation frame is scoped from the same committed truth catch-up sees.
-      const row = this.store.issues.getIssue(issueId)
+      const row = readIssue(issueId, prefetch)
       if (row?.ownerUserId === userId) return true
-      return this.store.grants
-        .listForResource('issue', issueId)
-        .some(
-          (edge) =>
-            edge.grantee === userId &&
-            (edge.verb === 'read' || edge.verb === 'write' || edge.verb === 'manage'),
-        )
+      return measureBootstrapReadPhase('visibility.issue.grants.listForResource', () =>
+        this.store.grants
+          .listForResource('issue', issueId)
+          .some(
+            (edge) =>
+              edge.grantee === userId &&
+              (edge.verb === 'read' || edge.verb === 'write' || edge.verb === 'manage'),
+          ),
+      )
     }
-    const visibility = new GrantEdgeVisibilityPolicy({
+    const makeVisibilityState = (prefetch?: BootstrapVisibilityPrefetch): VisibilityStatePort => ({
       classOf: (entity) => {
         if (entity === 'repo') return 'deployment-substrate'
         // Per-user shell layout (POD-1350): never grantable; keyedUserOf owns the
@@ -453,18 +570,20 @@ export class SessionRegistry {
       mayRead: (userId, ref) => {
         if (userId === 'device:shared-instance-password') return true
         if (ref.entity === 'issue' || ref.entity === 'issueProjection') {
-          return feedMayReadIssue(userId, ref.entityId)
+          return feedMayReadIssue(userId, ref.entityId, prefetch)
         }
         if (ref.entity === 'issueDep') {
           const dep = parseIssueDepId(ref.entityId)
-          return dep !== null && feedMayReadIssue(userId, dep.fromId)
+          return dep !== null && feedMayReadIssue(userId, dep.fromId, prefetch)
         }
         if (ref.entity === 'session') {
-          const row = this.store.sessions.getSession(asSessionId(ref.entityId))
+          const row = readSession(ref.entityId, prefetch)
           if (row?.ownerUserId === userId) return true
-          return this.store.grants
-            .listForResource('session', ref.entityId)
-            .some((edge) => edge.grantee === userId && edge.verb === 'read')
+          return measureBootstrapReadPhase('visibility.session.grants.listForResource', () =>
+            this.store.grants
+              .listForResource('session', ref.entityId)
+              .some((edge) => edge.grantee === userId && edge.verb === 'read'),
+          )
         }
         if (ref.entity === 'conversation') {
           // BY QUERY, NEVER BY SCAN (POD-1614). This arm is evaluated once per
@@ -473,12 +592,14 @@ export class SessionRegistry {
           // event loop on the live corpus, which is what force-closed the
           // client's 10 s heartbeat mid-bootstrap and made the app take ~60 s
           // and two dropped sockets to become usable.
-          const row = this.store.sessions.findSessionByResumeValue(ref.entityId)
+          const row = readConversationSession(ref.entityId, prefetch)
           if (!row) return false
           if (row.ownerUserId === userId) return true
-          return this.store.grants
-            .listForResource('session', row.id)
-            .some((edge) => edge.grantee === userId && edge.verb === 'read')
+          return measureBootstrapReadPhase('visibility.conversation.grants.listForResource', () =>
+            this.store.grants
+              .listForResource('session', row.id)
+              .some((edge) => edge.grantee === userId && edge.verb === 'read'),
+          )
         }
         // THROUGH THE TOMBSTONE, and that is the whole point (POD-1509). A
         // commit writes before it scopes, so when a `remove` reaches this
@@ -488,10 +609,18 @@ export class SessionRegistry {
         // and never sent. `ownerOf`/`runOwnerOf` read past the tombstone, which
         // is the only state from which a removal's audience is answerable.
         if (ref.entity === 'automation') {
-          return this.store.automations.ownerOf(ref.entityId) === userId
+          return (
+            measureBootstrapReadPhase('visibility.automation.ownerOf', () =>
+              this.store.automations.ownerOf(ref.entityId),
+            ) === userId
+          )
         }
         if (ref.entity === 'automationRun') {
-          return this.store.automations.runOwnerOf(ref.entityId) === userId
+          return (
+            measureBootstrapReadPhase('visibility.automationRun.runOwnerOf', () =>
+              this.store.automations.runOwnerOf(ref.entityId),
+            ) === userId
+          )
         }
         // per-user-state is decided by keyedUserOf, not mayRead.
         if (ref.entity === 'userLayout') return false
@@ -513,11 +642,86 @@ export class SessionRegistry {
           return null
         }
       },
-    }, new NoDelegationsGranted())
+      forBootstrap: (refs: readonly EntityRef[]) => {
+        const issueIds = new Set<string>()
+        const sessionIds = new Set<string>()
+        const resumeValues = new Set<string>()
+        for (const ref of refs) {
+          if (ref.entity === 'issue' || ref.entity === 'issueProjection') {
+            issueIds.add(ref.entityId)
+          } else if (ref.entity === 'issueDep') {
+            const dep = parseIssueDepId(ref.entityId)
+            if (dep !== null) issueIds.add(dep.fromId)
+          } else if (ref.entity === 'session') {
+            sessionIds.add(ref.entityId)
+          } else if (ref.entity === 'conversation') {
+            resumeValues.add(ref.entityId)
+          }
+        }
+        const issues =
+          issueIds.size === 0
+            ? new Map<string, IssueRow>()
+            : measureBootstrapReadPhase('visibility.issue.getIssue', () =>
+                this.store.issues.getIssues([...issueIds]),
+              )
+        const sessions =
+          sessionIds.size === 0
+            ? new Map<string, SessionRow>()
+            : measureBootstrapReadPhase('visibility.session.getSession', () =>
+                this.store.sessions.getSessions([...sessionIds]),
+              )
+        const sessionsByResumeValue =
+          resumeValues.size === 0
+            ? new Map<string, SessionRow>()
+            : measureBootstrapReadPhase('visibility.conversation.findSessionByResumeValue', () =>
+                this.store.sessions.findSessionsByResumeValues([...resumeValues]),
+              )
+        return makeVisibilityState({
+          issueIds,
+          issues,
+          sessionIds,
+          sessions,
+          resumeValues,
+          sessionsByResumeValue,
+        })
+      },
+    })
+    const visibility = new GrantEdgeVisibilityPolicy(
+      makeVisibilityState(),
+      new NoDelegationsGranted(),
+    )
+    type IssueDepSubject = {
+      entity: 'issueDep'
+      entityId: string
+    }
+    type BootstrapReadCache = {
+      generation: number
+      latestByRef: Map<string, Map<string, ChangeLogReadRow>>
+      issueDepsByFromId: Map<string, IssueDepSubject[]>
+      sessions?: SessionRow[]
+    }
+    let bootstrapReadCache: BootstrapReadCache | undefined
+    const currentBootstrapReadCache = (): BootstrapReadCache => {
+      const generation = this.store.sync.latestChangeStatesGeneration()
+      if (bootstrapReadCache?.generation === generation) return bootstrapReadCache
+      const latestByRef = new Map<string, Map<string, ChangeLogReadRow>>()
+      const issueDepsByFromId = new Map<string, IssueDepSubject[]>()
+      for (const row of this.store.sync.latestChangeStates()) {
+        const byEntity = latestByRef.get(row.entity) ?? new Map<string, ChangeLogReadRow>()
+        byEntity.set(row.entityId, row)
+        latestByRef.set(row.entity, byEntity)
+        if (row.entity !== 'issueDep' || row.op !== 'upsert') continue
+        const dep = parseIssueDepId(row.entityId)
+        if (dep === null) continue
+        const subjects = issueDepsByFromId.get(dep.fromId) ?? []
+        subjects.push({ entity: 'issueDep', entityId: row.entityId })
+        issueDepsByFromId.set(dep.fromId, subjects)
+      }
+      bootstrapReadCache = { generation, latestByRef, issueDepsByFromId }
+      return bootstrapReadCache
+    }
     const durableChangeValueOf = (ref: { entity: string; entityId: string }): unknown => {
-      const row = this.store.sync
-        .latestChangeStates()
-        .find((candidate) => candidate.entity === ref.entity && candidate.entityId === ref.entityId)
+      const row = currentBootstrapReadCache().latestByRef.get(ref.entity)?.get(ref.entityId)
       if (!row || row.op !== 'upsert' || row.payload === null) return undefined
       try {
         return JSON.parse(row.payload)
@@ -530,9 +734,13 @@ export class SessionRegistry {
         if (ref.entity !== 'issue') return null
         const audience = this.store.grants.visibilityAudienceFor('issue', ref.entityId)
         if (audience.length === 0) return null
-        const issueSessions = this.store.sessions
-          .loadSessions()
-          .filter((session) => session.issueId === ref.entityId)
+        const cache = currentBootstrapReadCache()
+        let sessions = cache.sessions
+        if (sessions === undefined) {
+          sessions = this.store.sessions.loadSessions()
+          cache.sessions = sessions
+        }
+        const issueSessions = sessions.filter((session) => session.issueId === ref.entityId)
         const subjects = [
           { entity: 'issue' as const, entityId: ref.entityId },
           { entity: 'issueProjection' as const, entityId: ref.entityId },
@@ -545,15 +753,7 @@ export class SessionRegistry {
               ? [{ entity: 'conversation' as const, entityId: session.resumeValue }]
               : [],
           ),
-          ...this.store.sync
-            .latestChangeStates()
-            .filter(
-              (row) =>
-                row.entity === 'issueDep' &&
-                row.op === 'upsert' &&
-                parseIssueDepId(row.entityId)?.fromId === ref.entityId,
-            )
-            .map((row) => ({ entity: 'issueDep' as const, entityId: row.entityId })),
+          ...(cache.issueDepsByFromId.get(ref.entityId) ?? []),
         ]
         return { audience, subjects }
       },
@@ -608,6 +808,8 @@ export class SessionRegistry {
     })
     const feedServing = new FeedServing({
       authority: ledger.authority,
+      onBootstrapReadStart: beginBootstrapRead,
+      onBootstrapReadEnd: (principal) => finishBootstrapRead(principal),
       identity: new FeedIdentityRegistry(
         {
           readIdentity: () => this.store.sync.readFeedIdentity(),
@@ -715,6 +917,12 @@ export class SessionRegistry {
           : undefined
       },
     })
+    const loginPropagation = new LoginPropagationService({
+      store: this.store,
+      machines,
+      rpc,
+      now: () => this.now(),
+    })
     const capabilityForLiveSession = (sessionId: SessionId) => {
       const session = liveSessions.get(sessionId)
       if (!session) return { role: 'worker', scope: { kind: 'none' } } as const
@@ -813,6 +1021,12 @@ export class SessionRegistry {
         : {}),
       machines,
       rpc,
+      onSpawnTargetLogin: ({ machineId, agentKind, ownerUserId }) =>
+        loginPropagation.trigger({
+          targetMachineId: machineId,
+          agentKind,
+          principalUserId: ownerUserId,
+        }),
       memory,
       issueAccess,
       snapshotTail,
@@ -827,6 +1041,17 @@ export class SessionRegistry {
         presence.ensureJoined(client, { kind: 'session', id: sessionId }),
       sessionRoomLeave: (client, sessionId) =>
         presence.ensureLeft(client, { kind: 'session', id: sessionId }),
+    })
+    this.bus.on('superagent.turnEnded', (event) => {
+      if (event.ok || event.harnessErrorKind !== 'provider-auth' || !event.harness) return
+      const session = sessionsSvc.sessionById(asSessionId(event.podiumSessionId))
+      if (!session?.machineId) return
+      loginPropagation.trigger({
+        targetMachineId: session.machineId,
+        agentKind: event.harness,
+        force: true,
+        ...(event.ownerUserId ? { principalUserId: event.ownerUserId } : {}),
+      })
     })
     const hosts = new HostsService(
       {
@@ -1584,7 +1809,9 @@ export class SessionRegistry {
       funnel,
       sessions: sessionsSvc,
       machines,
+      updates: updatesService,
       rpc,
+      loginPropagation,
       memory,
       hosts,
       settings,
@@ -2194,6 +2421,7 @@ export class SessionRegistry {
         headless,
         approvals,
         agentRelay: { run: (machineId, msg) => void agentRelayGate.run(machineId, msg) },
+        updates: { onUpdateStatus: (machineId, msg) => updatesService.onStatus(machineId, msg) },
       },
     })
   }

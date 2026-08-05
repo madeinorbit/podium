@@ -54,6 +54,8 @@ export const cursorManifest: AgentManifest = {
 
   inventory: {
     binCandidates: (homeDir) => [...cursorBinCandidates(homeDir), 'cursor-agent'],
+    loginIdentity: unsupported('Cursor does not expose a stable local account identity yet'),
+    portableCredential: unsupported('Cursor credential portability is not supported yet'),
     // Cursor deliberately installs as the generic `agent` executable. Grok also
     // exposes an `agent` alias, so require Cursor's own help marker before
     // reporting this machine as Cursor-capable.

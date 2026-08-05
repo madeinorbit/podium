@@ -95,6 +95,8 @@ export interface AccountView {
   kind?: 'api-key' | 'oauth'
   harness?: string
   identity?: string
+  machines?: string[]
+  identityFingerprint?: string
   status: 'connected' | 'not-configured'
   /** Managed only: 'stored' = the accounts table (Podium injects it, and can drop
    *  it again); 'legacy' = a pre-hub Settings → API keys value the server has no
@@ -190,20 +192,30 @@ export function managedCodingHarnesses(accountId: AccountId): HarnessAgent[] {
  *  managed provider keys plus Codex's local-login Responses API. */
 export function accountOptions(
   role: 'coding' | 'superagent' | 'background',
+  accounts: AccountView[] = [],
 ): { id: AccountId; label: string }[] {
-  // MINT-ADJACENT: the synthetic `native:<harness>` id is composed here, matching
-  // packages/runtime's nativeAccountId() (POD-362).
   const native = NATIVE_HARNESSES.map((o) => ({
-    id: asAccountId(`native:${o.harness}`),
+    id: asAccountId('native:' + o.harness),
     label: o.label,
   }))
-  if (role === 'coding') {
-    return [...native, ...MANAGED_CODING_ACCOUNTS.map((o) => ({ id: o.id, label: o.label }))]
-  }
-  if (role === 'superagent') return native
+  const discovered = accounts
+    .filter((account) => account.source === 'native' && account.harness)
+    .map((account) => ({
+      id: asAccountId(account.id),
+      label:
+        harnessAgentLabel(account.harness as HarnessAgent) +
+        (account.identity ? ' · ' + account.identity : '') +
+        (account.machines?.length ? ' · ' + account.machines.join(', ') : ''),
+    }))
+  const allNative = [
+    ...new Map([...native, ...discovered].map((option) => [option.id, option])).values(),
+  ]
+  if (role === 'coding')
+    return [...allNative, ...MANAGED_CODING_ACCOUNTS.map((o) => ({ id: o.id, label: o.label }))]
+  if (role === 'superagent') return allNative
   return [
-    { id: asAccountId('native:codex'), label: 'Codex (ChatGPT)' },
-    ...MANAGED_PROVIDERS.map((o) => ({ id: asAccountId(`managed:${o.provider}`), label: o.label })),
+    ...allNative.filter((option) => option.id.startsWith('native:codex')),
+    ...MANAGED_PROVIDERS.map((o) => ({ id: asAccountId('managed:' + o.provider), label: o.label })),
   ]
 }
 
@@ -225,7 +237,7 @@ export function RoleBackendEditor({
   onChange: (b: RoleBackend) => void
 }): JSX.Element {
   const modelCatalog = useModelCatalog()
-  const options = accountOptions(role)
+  const options = accountOptions(role, accounts)
   const accountId = backend.accountId || options[0]?.id || asAccountId('native:claude-code')
   const selectedOption = options.find((option) => option.id === accountId)
   const selectedAccount = accounts.find((account) => account.id === accountId)
@@ -233,7 +245,9 @@ export function RoleBackendEditor({
     selectedAccount?.status === 'connected' ? ` · ${selectedAccount.identity ?? 'connected'}` : ''
   const selectedLabel = selectedOption ? `${selectedOption.label}${selectedStatus}` : accountId
   const isNative = accountId.startsWith('native:')
-  const nativeHarness = isNative ? (accountId.slice('native:'.length) as HarnessAgent) : undefined
+  const nativeHarness = isNative
+    ? (accountId.slice('native:'.length).split(':', 1)[0] as HarnessAgent)
+    : undefined
   // A managed credential for the coding role needs a harness to run it on: the
   // account says WHAT authenticates, `harness` says WHICH CLI. resolveRole() reads
   // exactly this field, so it must be written — without it the role is ambiguous.
@@ -255,7 +269,7 @@ export function RoleBackendEditor({
    *  written so switching back to a native account CLEARS a stale harness). */
   const harnessFor = (id: AccountId, chosen?: HarnessAgent): HarnessAgent | undefined => {
     if (id.startsWith('native:')) {
-      const h = id.slice('native:'.length) as HarnessAgent
+      const h = id.slice('native:'.length).split(':', 1)[0] as HarnessAgent
       return role === 'superagent' ? h : undefined
     }
     if (role !== 'coding') return undefined

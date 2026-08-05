@@ -3,6 +3,11 @@ import { platform, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { buildInventory, type ProbeExec } from './build-inventory.js'
+import {
+  fingerprintForLoginIdentity,
+  readFreshnessFromAuthContents,
+  readIdentityFromAuthContents,
+} from '../codex-auth-identity.js'
 
 let home: string
 const prevCodexHome = process.env.CODEX_HOME
@@ -137,17 +142,27 @@ describe('buildInventory', () => {
     // No CLI installed anywhere (fake exec always throws) — logins still detected.
     const inv = await buildInventory({ homeDir: home, exec: fakeExec({}) })
     const byKind = Object.fromEntries(inv.agents.map((a) => [a.kind, a]))
-    expect(byKind['claude-code']!.login).toEqual({ state: 'in', account: 'mike@example.com' })
-    expect(byKind['codex']!.login).toEqual({
+    expect(byKind['claude-code']!.login).toMatchObject({
+      state: 'in',
+      account: 'mike@example.com',
+      identity: { email: 'mike@example.com', fingerprint: expect.any(String) },
+    })
+    expect(byKind['codex']!.login).toMatchObject({
       state: 'in',
       account: 'Mike Example · mike@example.com',
+      identity: {
+        email: 'mike@example.com',
+        providerAccountId: 'acct-1',
+        fingerprint: expect.any(String),
+      },
     })
-    expect(byKind['grok']!.login).toEqual({
+    expect(byKind['grok']!.login).toMatchObject({
       state: 'in',
       account: 'Grace Hopper · grace@example.com',
+      identity: { email: 'grace@example.com', fingerprint: expect.any(String) },
     })
-    // No detector exists for these two — honest 'unknown', not a lying 'out'.
-    expect(byKind['opencode']!.login).toEqual({ state: 'unknown' })
+    // OpenCode has a local auth detector; a missing auth file is logged out.
+    expect(byKind['opencode']!.login).toEqual({ state: 'out' })
     expect(byKind['cursor']!.login).toEqual({ state: 'unknown' })
     expect(byKind['claude-code']!.installed).toBe(false)
   })
@@ -188,5 +203,32 @@ describe('buildInventory', () => {
     expect(gh.installed).toBe(true)
     expect(gh.version).toBe('gh version 2.40.0 (2024-01-01)') // first line, trimmed
     expect(gh.path).toBe(join(home, '.local', 'bin', 'gh')) // first candidate wins
+  })
+  it('extracts a non-secret fingerprint and freshness from the Codex id token', () => {
+    const email = 'mike' + '@example.com'
+    const contents = JSON.stringify({
+      tokens: {
+        id_token: jwt({
+          email: undefined,
+          exp: 200,
+          iat: 100,
+          'https://api.openai.com/auth': {
+            chatgpt_account_id: 'acct-secret',
+            workspace_account_id: 'workspace-1',
+          },
+          'https://api.openai.com/profile': { email },
+        }),
+        expires_at: 250,
+      },
+      refresh_token: 'credential-bytes',
+    })
+
+    expect(readIdentityFromAuthContents(contents)).toEqual({
+      fingerprint: fingerprintForLoginIdentity('acct-secret'),
+      email,
+      providerAccountId: 'acct-secret',
+    })
+    expect(readFreshnessFromAuthContents(contents)).toBe(250)
+    expect(JSON.stringify(readIdentityFromAuthContents(contents))).not.toContain('credential-bytes')
   })
 })

@@ -251,6 +251,7 @@ export const createHandshakeAcceptor = (deps: AcceptorDeps): HandshakeAcceptor =
           ...(outcome.name === undefined ? {} : { name: outcome.name }),
           ...(outcome.assignedId === undefined ? {} : { assignedId: outcome.assignedId }),
           ...(outcome.issuedToken === undefined ? {} : { issuedToken: outcome.issuedToken }),
+          ...(outcome.updatePubkey === undefined ? {} : { updatePubkey: outcome.updatePubkey }),
         },
         peer,
       }

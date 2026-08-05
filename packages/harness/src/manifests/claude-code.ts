@@ -8,8 +8,10 @@ import {
 } from '../agent-state/claude-code.js'
 import { claudeProjectSlug, locateClaudeSessionFile } from '../agent-state/claude-locate.js'
 import { createTranscriptClassifier } from '../agent-state/transcript-classifier.js'
+import { compareClaudeCredentialFreshness } from '../credential-freshness.js'
 import { createClaudeCodeConversationProvider } from '../discovery/providers/claude-code.js'
 import { composeAgentInstructions } from '../instructions.js'
+import { fingerprintForLoginIdentity } from '../codex-auth-identity.js'
 import {
   type AgentManifest,
   fileTranscript,
@@ -65,6 +67,24 @@ export const claudeCodeManifest: AgentManifest = {
 
   inventory: {
     binCandidates: (homeDir) => [join(homeDir, '.local', 'bin', 'claude'), 'claude'],
+    loginIdentity: supported((homeDir) => {
+      try {
+        const raw = JSON.parse(readFileSync(join(homeDir, '.claude.json'), 'utf8')) as {
+          oauthAccount?: { emailAddress?: unknown }
+        }
+        const email =
+          typeof raw.oauthAccount?.emailAddress === 'string'
+            ? raw.oauthAccount.emailAddress.trim()
+            : ''
+        return email ? { fingerprint: fingerprintForLoginIdentity(email), email } : undefined
+      } catch {
+        return undefined
+      }
+    }),
+    portableCredential: supported({
+      files: ['.claude/.credentials.json', '.claude.json'],
+      compareFreshness: compareClaudeCredentialFreshness,
+    }),
     detectLogin(homeDir) {
       const configDir = process.env.CLAUDE_CONFIG_DIR?.trim() || join(homeDir, '.claude')
       try {
@@ -80,7 +100,13 @@ export const claudeCodeManifest: AgentManifest = {
           oauthAccount?: { emailAddress?: string }
         }
         const email = raw.oauthAccount?.emailAddress?.trim()
-        return email ? { state: 'in', account: email } : { state: 'in', account: 'Claude login' }
+        return email
+          ? {
+              state: 'in',
+              account: email,
+              identity: { fingerprint: fingerprintForLoginIdentity(email), email },
+            }
+          : { state: 'in', account: 'Claude login' }
       } catch {
         return { state: 'in', account: 'Claude login' }
       }

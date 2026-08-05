@@ -88,6 +88,11 @@ export interface DaemonContext {
   }
   /** Usage-scan memo (mutable box — handlers replace the value). */
   usageMemo: { value?: { atMs: number; sinceMs: number; buckets: UsageBucketWire[] } }
+
+  /** Server-granted convergence is wired by the production composition root. */
+  applyUpdateGrant: (
+    grant: Extract<ControlMessage, { type: 'updateGrant' }>,
+  ) => void | Promise<void>
 }
 
 /** The frame-handler registry shape: one handler per control-frame type,

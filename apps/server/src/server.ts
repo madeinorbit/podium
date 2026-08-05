@@ -12,6 +12,7 @@ import {
   type LocalDaemonLink,
   MIN_SUPPORTED_VERSION,
   PeerHelloReply,
+  type UpdateTarget,
   WIRE_VERSION,
   wireSchemaDigest,
 } from '@podium/protocol'
@@ -38,7 +39,11 @@ import { userCommandPrincipal } from './command-principal'
 import { openEnrollmentLedger } from './enrollment-ledger'
 import { registerArtifactRoute } from './file-artifact-route'
 import { registerAssetRoute } from './file-asset-route'
-import { createDaemonAcceptor, receiveDaemonFrame } from './gateway/peer-handshake'
+import {
+  createDaemonAcceptor,
+  receiveDaemonFrame,
+  recordHelloBuild,
+} from './gateway/peer-handshake'
 import { attachWebSockets } from './gateway/ws-server'
 import { PairingManager } from './hub/pairing'
 import { applyEnvFirstAdminPassword, retireInstancePassword } from './instance-password-migration'
@@ -46,6 +51,9 @@ import { IssueToolProvider } from './issue-mcp'
 import { registerMcpRoute } from './mcp-route'
 import { registerMaintenanceRoute } from './modules/maintenance/route'
 import { MaintenanceService } from './modules/maintenance/service'
+import { DEVELOPMENT_SOURCE_ROOT } from './modules/updates/dev-bundle'
+import { wireDevBundlePublisher } from './modules/updates/dev-publisher-wiring'
+import { readOrCreateUpdateSigningKey } from './modules/updates/signing-key'
 import { MessagingService } from './modules/messaging'
 import { DEPLOYMENT, perf } from './modules/perf/registry'
 import type { PublicationAuthority } from './modules/sessions/session'
@@ -152,27 +160,31 @@ export function registerVersionRoute(
      * fires on every stripped-down deployment.
      */
     visibilityGrade?: () => string
+    updateTarget?: () => UpdateTarget | undefined
   },
 ): void {
-  app.get('/version', (c) =>
-    c.json({
+  app.get('/version', (c) => {
+    let target: UpdateTarget | undefined
+    try {
+      target = deps.updateTarget?.()
+    } catch {
+      target = undefined
+    }
+    return c.json({
       wireVersion: WIRE_VERSION,
       minSupportedVersion: MIN_SUPPORTED_VERSION,
       /**
-       * The structural fingerprint of THIS server's message schemas (POD-1610).
-       *
-       * Alongside `wireVersion`, never instead of it: the version answers "can we
-       * be served" and stays coarse on purpose, while this answers "were we built
-       * from the same source". A client compares it to its own and SAYS SO — it
-       * does not refuse, because a digest difference is a build-plumbing fact, not
-       * a protocol incompatibility, and the two must not be conflated (ADR 2 D4).
+       * Structural fingerprint of this server's message schemas. Alongside the
+       * wire version, it lets clients report build drift without treating it as
+       * a hard compatibility decision.
        */
       wireSchemaDigest: wireSchemaDigest(),
       appVersion: process.env.PODIUM_APP_VERSION ?? 'dev',
       instanceId: deps.instanceId,
       feedScoping: deps.visibilityGrade?.() ?? 'device-unscoped',
-    }),
-  )
+      ...(target ? { target } : {}),
+    })
+  })
 }
 
 export async function startServer(
@@ -204,6 +216,7 @@ export async function startServer(
   // and in-process daemon link below name this same value. The split-mode daemon
   // reads the same file in its own process; all-in-one is handed it in memory.
   const hostMachineId = readOrCreateLocalMachineId()
+  const updateSigningKey = readOrCreateUpdateSigningKey()
   const store = new SessionStore(undefined, hostMachineId)
   // RETIRING THE INSTANCE PASSWORD (POD-1554), before anything can serve a login and
   // before the open-exposure check below. Order matters between these two: the legacy
@@ -243,6 +256,9 @@ export async function startServer(
   // SessionRegistry without it produce no mirror traffic.
   const registry = new SessionRegistry(store, undefined, {
     instanceId,
+    // The server's baked product label is the Phase 1 target identity. The richer
+    // release-manifest descriptor remains an optional /version publication seam.
+    targetVersion: () => process.env.PODIUM_APP_VERSION ?? 'dev',
     mirrorLakeDir: join(stateDir(), 'transcripts'),
     // Rollout diagnostic only: compare legacy/new semantics while continuing
     // to deliver the worker publication [spec:SP-c29e].
@@ -256,6 +272,7 @@ export async function startServer(
     // Node role = no manager = `pair` handshakes rejected, minting throws; the
     // local daemon's `hello` path is untouched.
     ...(role.hub ? { pairing: new PairingManager() } : {}),
+    updatePubkey: () => updateSigningKey.publicKey,
     // Live model enumeration is only wired in the real process; tests get the empty
     // default and nothing is ever asked of a daemon.
     // TODO(#251-followup): fold the remaining settings-coupled env reads
@@ -373,13 +390,28 @@ export async function startServer(
   })
   messaging.configure()
   const cloud = createCloudRuntimeProviderFromEnv()
+  const devArtifactToken = randomUUID()
+  let boundPort = opts.port ?? 0
+  const devPublisher = wireDevBundlePublisher({
+    sourceRoot: process.env.PODIUM_HOME ? undefined : DEVELOPMENT_SOURCE_ROOT,
+    port: () => boundPort,
+    artifactToken: devArtifactToken,
+    setTarget: (target) => registry.modules.updates.setTarget(target),
+    signingKey: updateSigningKey.privateKey,
+  })
+
   const app = new Hono()
   app.get('/health', (c) => c.text('ok'))
+  devPublisher.registerRoute(app)
   registerVersionRoute(app, {
     instanceId,
     // Straight through to the Authority, which delegates to the policy object it
     // was constructed with. No copy on the path (POD-376).
     visibilityGrade: () => registry.modules.funnel.visibilityGrade(),
+    updateTarget: () => {
+      devPublisher.requestBuild(false)
+      return devPublisher.publishTarget() ?? registry.modules.updates.target()
+    },
   })
   registerMaintenanceRoute(app, {
     // The maintenance realm is THIS HOST's credential, named by its real id rather
@@ -595,6 +627,8 @@ export async function startServer(
       server = serve({ fetch: app.fetch, port: requestedPort, hostname: host }, (info) => {
         if (settled) return
         settled = true
+        boundPort = info.port
+        devPublisher.requestBuild(true)
         // The in-process MCP issue surface is the trusted superagent orchestrator. It calls
         // the issue command registry DIRECTLY (not the cookie-gated HTTP /trpc, which would
         // 401 it) as the OPERATOR — router-equal authz, no router caller involved. This is
@@ -699,6 +733,11 @@ export async function startServer(
               return { established: false as const, reply }
             }
             const { principal } = outcome
+            recordHelloBuild(registry.modules.machines, outcome.machineId, {
+              build: outcome.build,
+              caps: outcome.offeredCaps,
+              at: new Date().toISOString(),
+            })
             const send = (msg: ControlMessage): void => queueMicrotask(() => deliver(msg))
             registry.gateway.attachDaemon(principal, send)
             return {

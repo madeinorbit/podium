@@ -5,7 +5,6 @@ import {
   exitedRecovery,
   formatMemBytes,
   hostMemoryView,
-  isKnownWorktreePath,
   orderTabs,
   orphanSessionFor,
   panelLabel,
@@ -103,76 +102,44 @@ describe('sessionsForWorktree', () => {
   })
 })
 
-describe('isKnownWorktreePath', () => {
-  it('is true for the repo checkout and its linked worktrees', () => {
-    expect(isKnownWorktreePath([repo], '/src/app')).toBe(true)
-    expect(isKnownWorktreePath([repo], '/src/app-feat')).toBe(true)
-  })
-
-  it('is false for a path that no live worktree covers (e.g. a removed worktree)', () => {
-    expect(isKnownWorktreePath([repo], '/src/app-gone')).toBe(false)
-  })
-
-  it('is false when no repos are loaded', () => {
-    expect(isKnownWorktreePath([], '/src/app')).toBe(false)
-  })
-})
+// `isKnownWorktreePath` and its tests were removed with POD-1704. The third case
+// here ("is false when no repos are loaded") is worth remembering as the tell:
+// the function returned the same FALSE for "no scan has happened yet" as for "the
+// directory is gone", and its caller acted on that as proof of deletion.
+// `repoBranchForCwd` covers the surviving positive lookup.
 
 describe('exitedRecovery', () => {
   it('a resumable agent resumes; a shell restarts; a dead-end agent is removed', () => {
-    expect(
-      exitedRecovery({ exitCode: 0, isShell: false, resumable: true, worktreeMissing: false })
-        .action,
-    ).toBe('resume')
-    expect(
-      exitedRecovery({ exitCode: 0, isShell: true, resumable: false, worktreeMissing: false })
-        .action,
-    ).toBe('restart')
-    expect(
-      exitedRecovery({ exitCode: 0, isShell: false, resumable: false, worktreeMissing: false })
-        .action,
-    ).toBe('remove')
+    expect(exitedRecovery({ exitCode: 0, isShell: false, resumable: true }).action).toBe('resume')
+    expect(exitedRecovery({ exitCode: 0, isShell: true, resumable: false }).action).toBe('restart')
+    expect(exitedRecovery({ exitCode: 0, isShell: false, resumable: false }).action).toBe('remove')
   })
 
-  it('forces remove and explains when the worktree is missing — even for a resumable agent', () => {
-    const r = exitedRecovery({
-      exitCode: 0,
-      isShell: false,
-      resumable: true,
-      worktreeMissing: true,
-    })
-    expect(r.action).toBe('remove')
-    expect(r.detail).toMatch(/worktree/i)
-    expect(r.detail).toMatch(/can'?t be resumed/i)
-  })
+  /*
+   * FOUR TESTS WERE DELETED HERE, and they all passed (POD-1704). They pinned a
+   * `worktreeMissing` flag that forced `remove` — including over a resumable
+   * agent, and over a shell restart — and asserted the notice said the worktree
+   * "can't be resumed". The behaviour was faithfully covered; it was the premise
+   * that was wrong. The flag was a client-side guess ("absent from the last repo
+   * scan"), a scan that merely timed out set it on every worktree-backed session,
+   * and the only offered action deleted the session row. A missing worktree is
+   * rebuilt from the branch by `ensureWorktree` before the spawn, so the state
+   * those tests protected should never have been reachable.
+   *
+   * Kept as a note because a green suite is not evidence the premise was right —
+   * it only shows the code did what someone believed it should.
+   */
 
-  it('a missing worktree also blocks a shell restart (its directory is gone)', () => {
-    expect(
-      exitedRecovery({ exitCode: 0, isShell: true, resumable: false, worktreeMissing: true })
-        .action,
-    ).toBe('remove')
-  })
-
-  it('names the worktree path in the notice when given one', () => {
-    const r = exitedRecovery({
-      exitCode: -1,
-      isShell: false,
-      resumable: true,
-      worktreeMissing: true,
-      worktreePath: '~/src/app-feat',
-    })
-    expect(r.detail).toContain('~/src/app-feat')
-  })
-
-  it('describes the exit cause when the worktree is intact', () => {
-    expect(
-      exitedRecovery({ exitCode: 137, isShell: false, resumable: true, worktreeMissing: false })
-        .detail,
-    ).toContain('137')
-    expect(
-      exitedRecovery({ exitCode: -1, isShell: false, resumable: true, worktreeMissing: false })
-        .detail,
-    ).toMatch(/failed to start/i)
+  it('describes the exit cause and never speculates about the workspace', () => {
+    expect(exitedRecovery({ exitCode: 137, isShell: false, resumable: true }).detail).toContain(
+      '137',
+    )
+    expect(exitedRecovery({ exitCode: -1, isShell: false, resumable: true }).detail).toMatch(
+      /failed to start/i,
+    )
+    expect(exitedRecovery({ exitCode: 0, isShell: false, resumable: true }).detail).not.toMatch(
+      /worktree/i,
+    )
   })
 })
 

@@ -201,6 +201,7 @@ export function applyJoin(token: string): { name: string; warning?: string } {
     mode: 'daemon',
     serverUrl: p.serverUrl,
     pairCode: p.pairCode,
+    ...(p.podiumManaged !== undefined ? { podiumManaged: p.podiumManaged } : {}),
     // See applySetup: web/join-config surfaces can't start the backend themselves,
     // so they record the CHOICE and the next `podium` invocation brings it up.
     // CLI setup overwrites it right after with the effective result.

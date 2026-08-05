@@ -17,6 +17,7 @@
  */
 
 import {
+  type PeerBuild,
   type PeerCredential,
   type PeerHello,
   PeerHelloReply,
@@ -41,6 +42,8 @@ export type DialerStep =
        * this end must PERSIST before doing anything else (ADR 5 D5).
        */
       readonly issuedToken?: string
+      /** The server update-signing key to persist alongside the pairing token. */
+      readonly updatePubkey?: string
     }
   | { readonly action: 'rejected'; readonly reply: PeerHelloRejected }
   | { readonly action: 'protocol-error'; readonly error: DialerProtocolError }
@@ -57,6 +60,7 @@ export interface DialerDeps {
   readonly peerRole?: PeerRole
   readonly credential: PeerCredential
   readonly caps?: readonly string[]
+  readonly build?: PeerBuild
   /**
    * INERT identity-shaped fields. Sent for logs and for the operator-facing name
    * request; the acceptor resolves no identity from them, and a dialer that
@@ -91,6 +95,7 @@ export const createHandshakeDialer = (deps: DialerDeps): HandshakeDialer => {
         v: support.wire,
         ...(deps.peerRole === undefined ? {} : { peerRole: deps.peerRole }),
         caps: [...offered],
+        ...(deps.build === undefined ? {} : { build: deps.build }),
         credential: deps.credential,
         ...(deps.claims === undefined ? {} : { claims: deps.claims }),
       }
@@ -139,6 +144,7 @@ export const createHandshakeDialer = (deps: DialerDeps): HandshakeDialer => {
         caps: negotiateCapabilities(reply.caps, offered),
         ...(reply.name === undefined ? {} : { name: reply.name }),
         ...(reply.issuedToken === undefined ? {} : { issuedToken: reply.issuedToken }),
+        ...(reply.updatePubkey === undefined ? {} : { updatePubkey: reply.updatePubkey }),
       }
     },
   }

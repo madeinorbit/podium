@@ -30,13 +30,21 @@
  * a blank and a reader cannot mistake one for a configured secret.
  */
 
+import { createHash, randomUUID } from 'node:crypto'
 import { SERVER_SECRET_KEYS, type SecretPresenceWire, type ServerSecretKey } from '@podium/model'
+import { PortableCredentialBundle } from '@podium/protocol'
+import type { PortableCredentialBundle as PortableCredentialBundleValue } from '@podium/protocol'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 
 interface SecretRow {
   key: string
   value: string
   updated_at: string
+}
+
+function nativeLoginTransferKey(principalUserId: string, transferId: string): string {
+  const principal = createHash('sha256').update(principalUserId).digest('hex')
+  return 'native-login-transfer:' + principal + ':' + transferId
 }
 
 export class ServerSecretsRepository {
@@ -50,6 +58,62 @@ export class ServerSecretsRepository {
    * at the moment of injection rather than holding a copy, so a rotation takes
    * effect on the next use rather than on the next restart.
    */
+  /**
+   * Store one native login snapshot for the duration of a server-side transfer.
+   * The principal is hashed into the private key, so a different principal can
+   * never retrieve the row. These rows are intentionally outside the closed
+   * settings-secret vocabulary and are never part of presence().
+   */
+  putNativeLoginTransfer(
+    principalUserId: string,
+    bundle: PortableCredentialBundleValue,
+    updatedAt = new Date().toISOString(),
+  ): string {
+    const transferId = randomUUID()
+    this.writeNativeLoginTransfer(principalUserId, transferId, bundle, updatedAt)
+    return transferId
+  }
+
+  getNativeLoginTransfer(
+    principalUserId: string,
+    transferId: string,
+  ): PortableCredentialBundleValue | undefined {
+    const row = this.db
+      .prepare('SELECT value FROM server_secrets WHERE key = ?')
+      .get(nativeLoginTransferKey(principalUserId, transferId)) as { value: string } | undefined
+    if (!row) return undefined
+    try {
+      const parsed = PortableCredentialBundle.safeParse(JSON.parse(row.value))
+      return parsed.success ? parsed.data : undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  clearNativeLoginTransfer(principalUserId: string, transferId: string): void {
+    this.db
+      .prepare('DELETE FROM server_secrets WHERE key = ?')
+      .run(nativeLoginTransferKey(principalUserId, transferId))
+  }
+
+  private writeNativeLoginTransfer(
+    principalUserId: string,
+    transferId: string,
+    bundle: PortableCredentialBundleValue,
+    updatedAt: string,
+  ): void {
+    this.db
+      .prepare(
+        'INSERT INTO server_secrets (key, value, updated_at) VALUES (?, ?, ?) ' +
+          'ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
+      )
+      .run(
+        nativeLoginTransferKey(principalUserId, transferId),
+        JSON.stringify(bundle),
+        updatedAt,
+      )
+  }
+
   get(key: ServerSecretKey): string | undefined {
     const row = this.db.prepare('SELECT value FROM server_secrets WHERE key = ?').get(key) as
       | { value: string }

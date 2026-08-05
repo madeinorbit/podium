@@ -120,6 +120,7 @@ async function runHarnessExec(
       {
         prompt: msg.prompt,
         ...(msg.model ? { model: msg.model } : {}),
+        ...(msg.effort ? { effort: msg.effort } : {}),
         ...(msg.systemPrompt ? { systemPrompt: msg.systemPrompt } : {}),
         ...(mcpConfigPath ? { mcpConfigPath } : {}),
         ...(msg.mcpConfig ? { mcpConfig: msg.mcpConfig } : {}),

@@ -339,6 +339,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@podium/model": "workspace:*",
+        "@podium/protocol": "workspace:*",
         "zod": "^3.24.0",
       },
       "devDependencies": {

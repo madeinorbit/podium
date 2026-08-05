@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import { hostname } from 'node:os'
+import { dirname } from 'node:path'
 import type { MachineId } from '@podium/model'
 import {
   createHandshakeDialer,
@@ -12,8 +13,9 @@ import { stateDir } from '@podium/runtime/config'
 import { writeConnectivity } from '@podium/runtime/connectivity'
 import { consumePairCode } from '@podium/runtime/setup'
 import WebSocket, { type RawData } from 'ws'
+import { buildReport, deliveryCaps } from './build-report'
 import type { DaemonOptions, ReconnectTimers } from './daemon-options'
-import { saveToken } from './identity'
+import { savePairingToken, savePinnedUpdatePubkey } from './identity'
 import { decideOnProtocolMismatch, decidePostUpdate } from './self-update'
 
 const RECONNECT_MIN_MS = 500
@@ -55,7 +57,7 @@ interface SocketLike {
 export interface DaemonConnectionDeps {
   readonly options: DaemonOptions
   readonly machineId: MachineId
-  readonly identity: { token?: string }
+  readonly identity: { token?: string; updatePubkey?: string }
   readonly receiveApplicationFrame: (raw: RawData) => void
   readonly sendApplicationFrame: (socket: SocketLike | undefined, msg: DaemonMessage) => void
   readonly onConnected: () => void
@@ -172,9 +174,15 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     options.onBlocked?.({ type, reason })
   }
 
-  const persistPairing = (issuedToken: string): void => {
+  const persistPairing = (issuedToken: string, updatePubkey: string | undefined): void => {
     identity.token = issuedToken
-    saveToken(issuedToken, options.identityDir ? { dir: options.identityDir } : {})
+    if (updatePubkey === undefined) delete identity.updatePubkey
+    else identity.updatePubkey = updatePubkey
+    savePairingToken(
+      issuedToken,
+      updatePubkey,
+      options.identityDir ? { dir: options.identityDir } : {},
+    )
     if (!options.pairCode) return
     try {
       consumePairCode(options.pairCode)
@@ -183,8 +191,34 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     }
   }
 
-  const established = (issuedToken?: string): void => {
-    if (issuedToken) persistPairing(issuedToken)
+  const persistBootstrapPin = (updatePubkey: string): void => {
+    identity.updatePubkey = updatePubkey
+    savePinnedUpdatePubkey(
+      updatePubkey,
+      options.identityDir ? { dir: options.identityDir } : {},
+    )
+  }
+
+  const established = (
+    issuedToken?: string,
+    updatePubkey?: string,
+    active?: SocketLike,
+  ): void => {
+    if (issuedToken) {
+      persistPairing(issuedToken, updatePubkey)
+    } else if (updatePubkey !== undefined) {
+      if (identity.updatePubkey === undefined && options.bootstrapToken) {
+        persistBootstrapPin(updatePubkey)
+      } else if (updatePubkey !== identity.updatePubkey) {
+        terminal(
+          'blocked',
+          'server-update-key',
+          'server update key changed outside pairing',
+          active,
+        )
+        return
+      }
+    }
     state = 'connected'
     reconnectBackoffMs = RECONNECT_MIN_MS
     lastSocketError = undefined
@@ -203,7 +237,14 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     source: 'handshake-rejection' | 'http-426',
   ): void => {
     const installed = !!process.env.PODIUM_HOME || /(?:^|[\\/])podium$/.test(process.execPath)
-    const { action } = decideOnProtocolMismatch({ installed, source })
+    // A configured server is the authority for this daemon. A wire mismatch is
+    // therefore a signal to wait for a granted convergence, not permission to
+    // race the server with a self-update.
+    const { action } = decideOnProtocolMismatch({
+      installed,
+      source,
+      attached: Boolean(options.serverUrl),
+    })
     if (action === 'backoff') {
       console.error('[podium:daemon] protocol mismatch; update the daemon to match the server.')
       active.close()
@@ -234,7 +275,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       return
     }
     if (step.action === 'established') {
-      established(step.issuedToken)
+      established(step.issuedToken, step.updatePubkey, active)
       return
     }
     if (step.action === 'protocol-error') {
@@ -273,9 +314,15 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   const makeDialer = () => {
     const selected = credential()
     if (!selected) throw new Error('daemon has no machine credential; pair it first')
+    const installDir =
+      process.env.PODIUM_HOME ??
+      (/(?:^|[\\/])podium$/.test(process.execPath) ? dirname(process.execPath) : undefined)
+    const build = buildReport(process.env, installDir)
     return createHandshakeDialer({
       peerRole: 'machine',
       credential: selected,
+      caps: deliveryCaps(build.installKind),
+      build,
       claims: {
         machineId: deps.machineId,
         hostname: hostname(),

@@ -71,7 +71,8 @@ const legacyClaims = (frame: z.infer<typeof PairFrame>): PeerHello['claims'] => 
 
 /**
  * Permanent reply → legacy reply. `paired` must carry the minted token and the
- * settled name; `helloOk` carries the name only. The rejection branch keeps
+ * settled name; `helloOk` carries the settled name and the current server key.
+ * The rejection branch keeps
  * today's human-readable reason where the strategy supplied one — and falls back
  * to the closed reason code otherwise, which discloses nothing.
  */
@@ -95,6 +96,11 @@ export const legacyReplyFor = (
       // when the acceptor did not name one.
       machineId: reply.assignedId ?? frame.machineId,
       name: reply.name ?? frame.name ?? frame.hostname,
+      ...(reply.updatePubkey === undefined ? {} : { updatePubkey: reply.updatePubkey }),
     }
-  return { type: 'helloOk', name: reply.name ?? frame.hostname }
+  return {
+    type: 'helloOk',
+    name: reply.name ?? frame.hostname,
+    ...(reply.updatePubkey === undefined ? {} : { updatePubkey: reply.updatePubkey }),
+  }
 }

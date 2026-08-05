@@ -23,18 +23,21 @@
     "./session-mint": "./src/session-mint.ts",
     "./process-safety": "./src/process-safety.ts",
     "./sd-notify": "./src/sd-notify.ts",
-    "./boot": "./src/boot.ts"
+    "./boot": "./src/boot.ts",
+    "./update-delivery": "./src/update-delivery.ts",
+    "./update-delivery-git": "./src/update-delivery-git.ts"
   },
   "scripts": {
     "typecheck": "tsgo --noEmit",
     "typecheck:tsc": "tsc --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests && bun test --conditions=@podium/source test/sqlite.bun.test.ts --test-name-pattern ''"
   },
   "devDependencies": {
     "typescript": "^6.0.3"
   },
   "dependencies": {
     "@podium/model": "workspace:*",
+    "@podium/protocol": "workspace:*",
     "zod": "^3.24.0"
   }
 }

@@ -373,6 +373,26 @@ export const DURABLE_STORES: readonly DurableStore[] = [
     writeSites: ['apps/daemon/src/identity.ts'],
   },
   {
+    store: '<stateDir>/pending-update.json',
+    kind: 'filesystem',
+    row: null,
+    notEntityState:
+      'Daemon-local convergence recovery marker. It records one server grant and its bounded retry count so boot can confirm, retry, or stop after a failed restart; it is not an owned product entity, is never replicated, and deleting it only discards recovery context.',
+    writeSites: ['apps/daemon/src/host-runtime.ts', 'apps/daemon/src/pending-grant.ts'],
+  },
+  {
+    store: '<stateDir>/update-signing-key.json',
+    kind: 'filesystem',
+    row: null,
+    notEntityState:
+      "The server's own Ed25519 keypair for signing the update bundles it hosts (POD-1725). " +
+      'Server infrastructure, not product state: no user owns it, it is never replicated, and it ' +
+      'names nothing on the ownership matrix. Its PUBLIC half is what daemons pin at pairing, so ' +
+      'losing this file costs a re-pair rather than any user data. Written 0600 with flag wx so a ' +
+      'second mint cannot silently replace a key daemons have already pinned.',
+    writeSites: ['apps/server/src/modules/updates/signing-key.ts'],
+  },
+  {
     store: '<stateDir>/daemon.secret',
     kind: 'filesystem',
     row: 'pairing-token',
@@ -436,6 +456,11 @@ export const NON_CLASS_WRITE_SITES: readonly { readonly file: string; readonly r
         'Materializes the embedded `abduco` BINARY under `<stateDir>/bin` so a PTY can be attached. An executable extracted from the shipped bundle is not state: it is byte-identical for every install and is re-extracted if deleted.',
     },
     {
+      file: 'apps/daemon/src/pending-grant.ts',
+      reason:
+        '`pending-update.json` records that a convergence is IN FLIGHT — which target, which version to roll back to, how many attempts — and exists only to survive the daemon restart that sits in the middle of a swap (POD-1670). It is written immediately before the restart and cleared the moment the boot health gate resolves, so it describes an operation rather than anything anybody owns. A corrupt or absent marker is read as absent BY DESIGN, because a daemon that crashed mid-write must still boot; forgetting an in-flight convergence is recoverable by the next grant, an unbootable daemon is not.',
+    },
+    {
       file: 'apps/server/src/migrations/restore.ts',
       reason:
         'Restores a backup by COPYING database files — the backup over the live database, and the replaced database to a timestamped sibling. A copy of a classified store is that store, not a new one, and the only row it writes is the re-minted `feed_identity` (classified above, ADR 2 D1). Deliberately creates no schema: the doc comment on `remintRestoredEpoch` records why `CREATE TABLE IF NOT EXISTS` here would leave the restored server unable to boot.',
@@ -459,6 +484,11 @@ export const NON_CLASS_WRITE_SITES: readonly { readonly file: string; readonly r
       file: 'apps/cli/src/podium-update.ts',
       reason:
         'Stages downloaded release binaries and a VERSION marker during self-update. Installation artefacts, replaced wholesale by the next update.',
+    },
+    {
+      file: 'apps/daemon/src/update-install.ts',
+      reason:
+        'Stages downloaded grant artifacts beside the installed daemon and swaps the release tree. These installation bytes are replaced wholesale by the next update and are not Podium product state or an entity class.',
     },
     {
       file: 'apps/daemon/src/control/exec.ts',

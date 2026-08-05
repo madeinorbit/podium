@@ -211,6 +211,28 @@ describe('engine action ownership boundary', () => {
     expect(h.retireAwaiting).toHaveBeenCalledWith(accepted!.mutationId)
   })
 
+  it('holds an accepted layout value across a stale feed snapshot', async () => {
+    const h = harness()
+    h.actions.replicatedLayout.set('superOpen', '1')
+    await Promise.resolve()
+    await Promise.resolve()
+    const accepted = h.pending.shift()
+    expect(accepted).toBeDefined()
+    h.awaiting.push(accepted!)
+
+    expect(h.actions.replicatedLayout.commandApplied(accepted!)).toBe(true)
+    h.actions.replicatedLayout.reconcile({ superOpen: '1' }, [accepted!.mutationId])
+
+    h.actions.replicatedLayout.replace({ superOpen: '0' })
+    expect(h.actions.replicatedLayout.get('superOpen')).toBe('1')
+
+    // The next matching feed snapshot releases the guard; later snapshots are
+    // then allowed to represent a real newer-device change.
+    h.actions.replicatedLayout.replace({ superOpen: '1' })
+    h.actions.replicatedLayout.replace({ superOpen: '0' })
+    expect(h.actions.replicatedLayout.get('superOpen')).toBe('0')
+  })
+
   it('suppresses old-scope layout overlays on rescope while keeping the command recoverable', async () => {
     const h = harness()
     h.actions.replicatedLayout.set('superOpen', '1')

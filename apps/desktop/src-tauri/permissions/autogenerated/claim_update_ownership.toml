@@ -1,0 +1,10 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-claim-update-ownership"
+description = "Enables the claim_update_ownership command without any pre-configured scope."
+commands.allow = ["claim_update_ownership"]
+
+[[permission]]
+identifier = "deny-claim-update-ownership"
+description = "Denies the claim_update_ownership command without any pre-configured scope."

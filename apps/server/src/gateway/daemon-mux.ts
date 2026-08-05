@@ -135,6 +135,7 @@ const DISPATCH: Dispatcher = {
     ports.machines.recordInventory(principal.machine, msg.inventory),
   machineDiagnostic: (ports, principal, msg) =>
     ports.machines.recordDiagnostic(principal.machine, msg),
+  updateStatus: (ports, principal, msg) => ports.updates.onUpdateStatus(principal.machine, msg),
 
   // ---- hosts: a per-machine fact, so the machine rides the delivery path ----
   hostMetrics: (ports, principal, msg) => {

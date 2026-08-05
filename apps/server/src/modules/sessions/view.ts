@@ -186,6 +186,10 @@ export class SessionView {
   ): SessionMeta {
     const harnessCapabilities = harnessCapabilitiesFor(session.agentKind)
     const viewer = forPrincipal ?? this.defaultPrincipal()
+    const loginCondition = this.ports.machines.agentLoginCondition?.(
+      session.machineId,
+      session.agentKind,
+    )
     const meta = session.toMeta(
       viewer ? this.ports.state.overlay(viewer.userId, session.sessionId) : NO_SESSION_USER_STATE,
     )
@@ -196,6 +200,7 @@ export class SessionView {
       // stream plane is wired; attach-set size remains the fallback for fixtures.
       ...(occupancy !== undefined ? { clientCount: occupancy } : {}),
       machineName: this.ports.machines.machineName(session.machineId),
+      ...(loginCondition ? { condition: loginCondition } : {}),
       ...(harnessCapabilities
         ? {
             harnessHandoff: harnessCapabilities.handoff,

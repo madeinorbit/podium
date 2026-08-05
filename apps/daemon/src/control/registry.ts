@@ -33,6 +33,9 @@ export const CONTROL_HANDLERS: ControlHandlers = {
   ...credentialHandlers,
   ...inventoryHandlers,
   agentRelayResult: (ctx, msg) => ctx.agentRelayHub.onResult(msg),
+  updateGrant: (ctx, msg) => {
+    void ctx.applyUpdateGrant(msg)
+  },
 }
 
 /** Dispatch one parsed control frame to its family handler. */

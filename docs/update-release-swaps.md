@@ -27,7 +27,7 @@ from the desktop minisign key.
   `PODIUM_UPDATE_SIGNING_KEY` (base64 pkcs8/DER private key) if set, else the gitignored dev key
   `scripts/.podium-update-dev.key`.
 - `podium update` verifies the manifest's `signature` over the downloaded bytes against
-  `PODIUM_UPDATE_PUBKEY` (`apps/cli/src/podium-update-pubkey.ts`) **before** extracting/swapping. A bad/
+  `PODIUM_UPDATE_PUBKEY` (`packages/runtime/src/update-delivery.ts`) **before** extracting/swapping. A bad/
   missing signature → no swap, `exitCode=1`.
 
 **Release steps:**
@@ -35,7 +35,7 @@ from the desktop minisign key.
    `bun -e 'const{generateKeyPairSync}=require("node:crypto");const{privateKey,publicKey}=generateKeyPairSync("ed25519");console.log("PRIV",privateKey.export({type:"pkcs8",format:"der"}).toString("base64"));console.log("PUB",publicKey.export({type:"spki",format:"der"}).toString("base64"))'`
 2. Keep `PRIV` in the operator's secret store; set it as `PODIUM_UPDATE_SIGNING_KEY` in the build/CI
    env (never commit it).
-3. Replace the `PODIUM_UPDATE_PUBKEY` constant in `apps/cli/src/podium-update-pubkey.ts` with `PUB` and
+3. Replace the `PODIUM_UPDATE_PUBKEY` constant in `packages/runtime/src/update-delivery.ts` with `PUB` and
    commit it. The pubkey and the build-env private key must stay in lockstep.
 
 ## Swap 2 — desktop minisign key (Tauri)
@@ -58,10 +58,36 @@ Production feeds are GitHub Releases:
 Desktop artifacts are cut only through the manual workflow documented in
 [Desktop releases](desktop-releases.md).
 
+## Update manifest levers
+
+The release manifest adds structured update metadata without changing the manual version-bump workflow.
+
+### `critical`
+
+Pass `--critical` when the release contains a change that must be installed before the user continues.
+
+### `minRequired`
+
+Pass `--min-required '<json>'` explicitly to set minimum versions for the surfaces that need a retirement floor.
+
+The object may contain `desktop`, `web`, and `mobile` floors; `mobile` may set `ios` and `android` independently.
+
+For a mobile/store platform, raise its floor only after the replacement is confirmed live in that store. Raising it earlier can strand users whose replacement has not shipped, and a store release cannot be rolled back.
+
+Never derive `minRequired` from the version being cut. If it is not passed, it is absent from the manifest.
+
+### Digests and notes
+
+Artifact digests are computed automatically from the prepared bytes for each platform; operators do not provide them and they never gate compatibility.
+
+Release notes come from the matching version section in root `CHANGELOG.md`; the `[Unreleased]` section is never shipped.
+
+If the version has no changelog section, or its section is empty, the manifest omits `notes`; the dialog correctly omits "What's new".
+
 ## Summary
 
 | # | Swap | Where |
 |---|------|-------|
-| 1 | Headless Ed25519 key | env `PODIUM_UPDATE_SIGNING_KEY` (build) + `apps/cli/src/podium-update-pubkey.ts` (commit) |
+| 1 | Headless Ed25519 key | env `PODIUM_UPDATE_SIGNING_KEY` (build) + `packages/runtime/src/update-delivery.ts` (commit) |
 | 2 | Desktop minisign key | Tauri signing env + `tauri.conf.json` `updater.pubkey` |
 | — | Version bump | `package.json` `"version"` (single source; flows to both) |

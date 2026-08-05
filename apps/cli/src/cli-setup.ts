@@ -54,7 +54,7 @@ export async function startBackendEngine(opts: StartBackendOpts): Promise<StartB
   const what = mode === 'daemon' ? 'daemon' : 'server + daemon'
   if (persistence === 'systemd') {
     const { installSystemd } = await import('./cli-systemd')
-    const res = installSystemd(mode, port)
+    const res = installSystemd(mode, port, undefined, loadConfig().serverUrl)
     if (res.ok)
       return {
         effectivePersistence: 'systemd',

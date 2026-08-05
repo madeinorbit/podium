@@ -65,7 +65,14 @@ export function authenticateDaemon(
   host: EnrollmentHost,
   frame: DaemonHandshake,
 ):
-  | { ok: true; machineId: string; name: string; token?: string; pairingGrant?: PairingGrant }
+  | {
+      ok: true
+      machineId: string
+      name: string
+      token?: string
+      pairingGrant?: PairingGrant
+      updatePubkey?: string
+    }
   | { ok: false; reason: string } {
   const deps = host.deps
   if (frame.type === 'pair') {
@@ -82,6 +89,7 @@ export function authenticateDaemon(
     if (!pairingGrant) {
       return { ok: false, reason: 'invalid or expired code' }
     }
+    const updatePubkey = deps.updatePubkey?.()
     const name = frame.name ?? frame.hostname
     const ownerUserId = pairingGrant.ownerUserId ?? null
     const token = mintEnrolledToken(host, frame.machineId, ownerUserId)
@@ -93,12 +101,20 @@ export function authenticateDaemon(
       // The pairer, carried from mint. `?? null` is the fail-closed arm, not a
       // default: a code with no owner produces an unowned machine.
       ownerUserId,
+      podiumManaged: pairingGrant.podiumManaged ?? true,
     })
     // Force the owner projection: upsert COALESCE would keep a stale owner after
     // a deliberate re-pair with a new pairer. The ledger enroll is the commit.
     deps.store.machines.setMachineOwner(frame.machineId, ownerUserId)
     host.invalidateMachineCache()
-    return { ok: true, machineId: frame.machineId, name, token, pairingGrant }
+    return {
+      ok: true,
+      machineId: frame.machineId,
+      name,
+      token,
+      pairingGrant,
+      ...(updatePubkey === undefined ? {} : { updatePubkey }),
+    }
   }
   if (deps.store.machines.getMachineByToken(frame.machineId, frame.token)) {
     // Even with a live row, a ledger revoke that outranks the token must win
@@ -112,7 +128,8 @@ export function authenticateDaemon(
     const name =
       deps.store.machines.listMachines().find((m) => m.id === frame.machineId)?.name ??
       frame.hostname
-    return { ok: true, machineId: frame.machineId, name }
+    const updatePubkey = deps.updatePubkey?.()
+    return { ok: true, machineId: frame.machineId, name, ...(updatePubkey ? { updatePubkey } : {}) }
   }
   // Row missing — D19.4 verdict algorithm (pairing root → revoke serial → re-enrol).
   return helloMissingRow(host, frame)
@@ -163,7 +180,7 @@ function isTokenRevoked(host: EnrollmentHost, machineId: string, token: string):
 function helloMissingRow(
   host: EnrollmentHost,
   frame: Extract<DaemonHandshake, { type: 'hello' }>,
-): { ok: true; machineId: string; name: string } | { ok: false; reason: string } {
+): { ok: true; machineId: string; name: string; updatePubkey?: string } | { ok: false; reason: string } {
   const ledger = host.deps.enrollment
   if (!ledger) return { ok: false, reason: HELLO_DENIED_REASON }
   const result = verdictForMissingRow(ledger, frame.token)
@@ -186,7 +203,8 @@ function helloMissingRow(
     hostname: frame.hostname,
   })
   logVerdict(host, 're-enrolled', frame.machineId)
-  return { ok: true, machineId: frame.machineId, name }
+  const updatePubkey = host.deps.updatePubkey?.()
+  return { ok: true, machineId: frame.machineId, name, ...(updatePubkey ? { updatePubkey } : {}) }
 }
 
 /**
@@ -209,6 +227,7 @@ function reEnrolMachine(
     name: input.name,
     hostname: input.hostname,
     tokenHash: sha256(input.token),
+    podiumManaged: true,
     ownerUserId: resolvedOwner,
   })
   // upsert COALESCE keeps a prior owner; recovery must apply the ledger owner.

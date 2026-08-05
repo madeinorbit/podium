@@ -1,17 +1,23 @@
 import { readdirSync, readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import desktopConfig from '../apps/desktop/vitest.config'
+import mobileConfig from '../apps/mobile/vitest.config'
+import normalizedWirePackageConfig from '../apps/server/vitest.normalized-wire.config'
+import webConfig from '../apps/web/vitest.config'
 import frontendPerfConfig from '../apps/web/vitest.frontend-perf.config'
 import phase3BrowserConfig from '../tests/e2e/.phase3-playwright.config'
 import browserConfig from '../tests/e2e/playwright.config'
 import acceptanceConfig from '../vitest.acceptance.config'
 import agentSmokeConfig from '../vitest.agent-smoke.config'
-import rootConfig from '../vitest.config'
+import rootConfig, { resolveTestWorkerLimit, sharedVitestConfig } from '../vitest.config'
 import integrationConfig from '../vitest.integration.config'
 import { ptySmokeTests, realAgentSmokeTests } from '../vitest.smoke-requirements'
 import unitConfig, { normalizedWireTests } from '../vitest.unit.config'
 import { REAL_AGENT_CLIS } from './agent-smoke-reporter'
 import { QUARANTINE } from './browser-quarantine'
 import { HEAVY_LANES, ORACLE_LANES } from './oracle'
+import scriptsConfig from './vitest.config'
 
 type Project =
   | string
@@ -21,6 +27,7 @@ type Project =
         exclude?: string[]
         include?: string[]
         retry?: number
+        minWorkers?: number
         maxWorkers?: number
         fileParallelism?: boolean
         sequence?: { groupOrder?: number }
@@ -29,17 +36,26 @@ type Project =
     }
 type Config = {
   test?: {
+    name?: string
     env?: Record<string, string>
     exclude?: string[]
     include?: string[]
     projects?: Project[]
     retry?: number
+    minWorkers?: number
     maxWorkers?: number
     fileParallelism?: boolean
+    setupFiles?: string[]
+    testTimeout?: number
   }
 }
 
 const config = (value: unknown): Config => value as Config
+const repoRoot = new URL('../', import.meta.url)
+const sharedSetupFiles = sharedVitestConfig.test.setupFiles.map((file) =>
+  fileURLToPath(new URL(file, repoRoot)),
+)
+
 const smokeTestFiles = (dir: URL, prefix = ''): string[] =>
   readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const relative = prefix ? `${prefix}/${entry.name}` : entry.name
@@ -83,11 +99,55 @@ describe('test lane configuration', () => {
     expect(bunfig).toContain('preload = ["./test-hermetic-env.ts", "./test-hermetic-bun-hooks.ts"]')
   })
 
+  it('keeps web and mobile on the shared Vitest hardening', () => {
+    for (const [name, appConfig] of [
+      ['web', webConfig],
+      ['mobile', mobileConfig],
+    ] as const) {
+      expect(config(appConfig).test?.setupFiles, `${name} lost hermetic setup files`).toEqual(
+        sharedSetupFiles,
+      )
+      expect(config(appConfig).test?.testTimeout, `${name} lost the shared timeout`).toBe(
+        sharedVitestConfig.test.testTimeout,
+      )
+    }
+  })
+
+  it('keeps package-owned lanes on shared Vitest hardening', () => {
+    for (const packageConfig of [scriptsConfig, desktopConfig]) {
+      expect(config(packageConfig).test?.setupFiles).toEqual(sharedVitestConfig.test.setupFiles)
+      expect(config(packageConfig).test?.maxWorkers).toBe(sharedVitestConfig.test.maxWorkers)
+    }
+    expect(config(normalizedWirePackageConfig).test?.include).toEqual(normalizedWireTests)
+    expect(config(normalizedWirePackageConfig).test?.fileParallelism).toBe(false)
+    expect(config(normalizedWirePackageConfig).test?.maxWorkers).toBe(1)
+  })
+
   it('keeps retries out of the default project and scopes them to integration', () => {
     expect(nodeProject(rootConfig).test?.retry).toBeUndefined()
     expect(nodeProject(unitConfig).test?.retry).toBe(0)
     expect(namedProject(unitConfig, 'normalized-wire').test?.retry).toBe(0)
     expect(config(integrationConfig).test?.retry).toBe(1)
+  })
+  it('caps forked lanes for the shared host', () => {
+    const rootNode = nodeProject(rootConfig).test
+    expect(rootNode?.fileParallelism).toBe(true)
+    expect(rootNode?.minWorkers).toBe(1)
+    expect(rootNode?.maxWorkers).toBe(2)
+    expect(config(integrationConfig).test?.minWorkers).toBe(1)
+    expect(config(integrationConfig).test?.maxWorkers).toBe(2)
+    for (const appConfig of [webConfig, mobileConfig]) {
+      expect(config(appConfig).test?.maxWorkers).toBe(sharedVitestConfig.test.maxWorkers)
+    }
+  })
+
+  it('defaults worker limits safely and accepts explicit host overrides', () => {
+    expect(resolveTestWorkerLimit(undefined)).toBe(2)
+    expect(resolveTestWorkerLimit('6')).toBe(6)
+    expect(resolveTestWorkerLimit(' auto ')).toBeUndefined()
+    expect(() => resolveTestWorkerLimit('0')).toThrow(
+      'PODIUM_TEST_WORKERS must be a positive integer or "auto"',
+    )
   })
 
   it('runs normalized-wire load guards after the parallel unit pool', () => {
@@ -154,19 +214,21 @@ describe('test lane configuration', () => {
     expect(config(frontendPerfConfig).test?.fileParallelism).toBe(false)
   })
 
-  it('runs the web project exactly once in the default scripts', () => {
+  it('routes the default unit lane through cached package tasks', () => {
     const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
       scripts: Record<string, string>
     }
-    expect(pkg.scripts['test:unit']).toContain('--project node')
-    expect(pkg.scripts['test:unit']).toContain('--project normalized-wire')
+    expect(pkg.scripts.test).toBe('bun scripts/test.ts')
+    expect(pkg.scripts['test:unit']).toBe('bun scripts/test.ts')
+    expect(pkg.scripts.test).not.toContain('vitest.unit.config.ts')
+    expect(pkg.scripts.test).not.toContain('test:web')
+    expect(pkg.scripts.test).not.toContain('test:bun:unit')
+    expect(pkg.scripts.test).not.toContain('test:integration')
+    expect(pkg.scripts.test).not.toContain('test:smoke:agents')
     expect(pkg.scripts['test:integration']).toContain('test:acceptance')
     expect(pkg.scripts['test:acceptance:process']).toContain(
       'loop-split-process.acceptance.bun.test.ts',
     )
-    expect(pkg.scripts.test).toContain('test:web')
-    expect(pkg.scripts.test).not.toContain('test:integration')
-    expect(pkg.scripts.test).not.toContain('test:smoke:agents')
     expect(pkg.scripts['test:perf:frontend']).toBe('bun run --cwd apps/web test:perf:large-state')
     expect(pkg.scripts['test:e2e']).toContain('NODE_OPTIONS=--conditions=@podium/source')
     expect(pkg.scripts['test:smoke:agents']).toContain('PODIUM_REAL_CLI=1')
@@ -286,9 +348,9 @@ describe('test lane configuration', () => {
           throw new Error(`script "${name}": vitest invocation did not capture`)
         }
         expect(
-          invocation.trim(),
-          `script "${name}" must run vitest via bun --bun node_modules/vitest/vitest.mjs`,
-        ).toMatch(/^(?:[A-Z_]+=\S+\s+)*bun --bun node_modules\/vitest\/vitest\.mjs\b/)
+          invocation.includes('bun --bun node_modules/vitest/vitest.mjs'),
+          'vitest invocations must use bun --bun node_modules/vitest/vitest.mjs',
+        ).toBe(true)
       }
     }
   })

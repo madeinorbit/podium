@@ -262,12 +262,16 @@ export function AccountsSection(): JSX.Element {
   return (
     <Section
       title="Accounts & Keys"
-      hint="How Podium authenticates to LLMs. Native logins are each CLI's own login on this server (managed with their own `login` command). Managed accounts are credentials Podium stores and injects into an agent's environment when it spawns — so any connected machine can run on them."
+      hint="How Podium authenticates to LLMs. Native logins are collected from every connected machine (managed with their own `login` command). Managed accounts are credentials Podium stores and injects into an agent's environment when it spawns — so any connected machine can run on them."
     >
       <div className="mt-3 space-y-5">
-        <AccountGroup label="Native logins" qualifier="this machine">
+        <AccountGroup label="Native logins" qualifier="all connected machines">
           {native.map((a) => (
-            <Row key={a.id} label={harnessAgentLabel((a.harness ?? a.provider) as HarnessAgent)}>
+            <Row
+              key={a.id}
+              label={harnessAgentLabel((a.harness ?? a.provider) as HarnessAgent)}
+              description={a.machines?.length ? 'on ' + a.machines.join(', ') : undefined}
+            >
               {a.status === 'connected' ? (
                 <StatusConnected identity={a.identity ?? 'connected'} />
               ) : (

@@ -22,6 +22,22 @@ interface TemporaryOperation {
   readonly operation: LayoutOperation
 }
 
+/**
+ * A successful layout command has a short hand-off window between the command
+ * response and the feed/read that proves it. Keep its per-key value painted
+ * across that window. A late bootstrap or feed snapshot can otherwise replace
+ * the just-confirmed value with the older snapshot it was already carrying.
+ */
+interface AcceptedLayoutValue {
+  readonly mutationId: string
+  readonly present: boolean
+  readonly value?: unknown
+  /** The command's covering read/feed has observed this value. Keep the hold
+   * until a later feed snapshot also observes it, so an older bootstrap cannot
+   * repaint over a successful local write. */
+  feedConfirmed: boolean
+}
+
 function canonicalLayoutKey(key: string): string {
   if (isLayoutKey(key)) return key
   const mapped = layoutKeyFromLegacy(key)
@@ -96,6 +112,7 @@ export function createReplicatedLayoutController(init: {
   let nextToken = 1
   let temporary: TemporaryOperation[] = []
   const ignoredAwaiting = new Set<string>()
+  const accepted = new Map<string, AcceptedLayoutValue>()
   const listeners = new Set<() => void>()
 
   const emit = (): void => {
@@ -118,11 +135,73 @@ export function createReplicatedLayoutController(init: {
         return operation === null ? [] : [operation]
       })
 
+  const acceptedOperations = (): LayoutOperation[] => {
+    const values: Record<string, unknown> = {}
+    const keys: string[] = []
+    for (const [key, entry] of accepted) {
+      if (entry.present) values[key] = entry.value
+      else keys.push(key)
+    }
+    return [
+      ...(Object.keys(values).length > 0 ? [{ kind: 'set' as const, values }] : []),
+      ...(keys.length > 0 ? [{ kind: 'clear' as const, keys }] : []),
+    ]
+  }
+
   const projection = (): LayoutSnapshot =>
     reduceLayoutSnapshot(base, [
+      ...acceptedOperations(),
       ...durableOperations(),
       ...temporary.map((entry) => entry.operation),
     ])
+
+  const snapshotMatches = (
+    snapshot: LayoutSnapshot,
+    key: string,
+    value: AcceptedLayoutValue,
+  ): boolean => (value.present ? Object.is(snapshot[key], value.value) : snapshot[key] === undefined)
+
+  const rememberAccepted = (entry: OutboxEntry): boolean => {
+    const operation = operationForEntry(entry)
+    if (operation === null) return false
+    if (operation.kind === 'set') {
+      for (const [key, value] of Object.entries(operation.values)) {
+        if (isLayoutKey(key)) {
+          accepted.set(key, {
+            mutationId: entry.mutationId,
+            present: true,
+            value,
+            feedConfirmed: false,
+          })
+        }
+      }
+    } else {
+      for (const key of operation.keys) {
+        if (isLayoutKey(key))
+          accepted.set(key, { mutationId: entry.mutationId, present: false, feedConfirmed: false })
+      }
+    }
+    return true
+  }
+
+  /** Install feed truth without letting a confirmed local write move backwards. */
+  const installFeedBase = (snapshot: LayoutSnapshot): void => {
+    const guarded = { ...snapshot }
+    for (const [key, value] of accepted) {
+      if (snapshotMatches(snapshot, key, value)) {
+        // A command that is still awaiting its covering read must remain held
+        // until reconcile retires it. Once retired, this matching feed is the
+        // point at which the hold can disappear.
+        if (value.feedConfirmed) accepted.delete(key)
+        else value.feedConfirmed = true
+        continue
+      }
+      if (!value.feedConfirmed) continue
+      if (value.present) guarded[key] = value.value
+      else delete guarded[key]
+    }
+    installBase(guarded)
+  }
 
   const removeTemporary = (token: number): void => {
     const next = temporary.filter((entry) => entry.token !== token)
@@ -177,16 +256,17 @@ export function createReplicatedLayoutController(init: {
       return () => listeners.delete(listener)
     },
     hydrate: async () => {
-      installBase(await api.layout.get.query())
+      installFeedBase(await api.layout.get.query())
       emit()
     },
     replace: (snapshot) => {
-      installBase(snapshot)
+      installFeedBase(snapshot)
       emit()
     },
     rescope: (snapshot) => {
       installBase(snapshot)
       temporary = []
+      accepted.clear()
       for (const entry of layoutEntries()) ignoredAwaiting.add(entry.mutationId)
       for (const entry of outbox.awaiting()) {
         if (operationForEntry(entry) !== null) outbox.retireAwaiting(entry.mutationId)
@@ -200,15 +280,31 @@ export function createReplicatedLayoutController(init: {
       }
       emit()
     },
-    commandApplied: (entry) => operationForEntry(entry) !== null,
+    commandApplied: (entry) => {
+      const applied = rememberAccepted(entry)
+      if (applied) emit()
+      return applied
+    },
     commandDropped: (entry) => {
-      if (operationForEntry(entry) !== null) emit()
+      const operation = operationForEntry(entry)
+      if (operation === null) return
+      const keys = operation.kind === 'set' ? Object.keys(operation.values) : operation.keys
+      for (const key of keys) {
+        if (accepted.get(key)?.mutationId !== entry.mutationId) continue
+        accepted.delete(key)
+      }
+      emit()
     },
     reconcile: (snapshot, mutationIds) => {
       installBase(snapshot)
       for (const mutationId of mutationIds) {
         ignoredAwaiting.add(mutationId)
         outbox.retireAwaiting(mutationId)
+      }
+      for (const [key, value] of accepted) {
+        if (!mutationIds.includes(value.mutationId)) continue
+        if (snapshotMatches(snapshot, key, value)) value.feedConfirmed = true
+        else accepted.delete(key)
       }
       emit()
     },

@@ -2,7 +2,11 @@ import { type Principal } from '@podium/protocol'
 import { randomUUID } from 'node:crypto'
 import {
   type AgentKind,
+  type AccountId,
   agentCapabilityRejection,
+  asAccountId,
+  agentCapabilityRejectionForSelection,
+  agentLoginCondition,
   asMachineId,
   type Inventory,
   type MachineId,
@@ -15,6 +19,7 @@ import type {
   DaemonMessage,
   LiveServerMessage,
   MachineVerb,
+  PeerBuild,
   ServerMessage,
 } from '@podium/protocol'
 import { deviceGradeSoleOwner } from '../../device-grade-owner'
@@ -57,6 +62,25 @@ export type MachineOwnedResolver = (machineId: string) => boolean
  */
 export type MachineListing = MachineWire
 
+/** The machine's position relative to the version this server says it should run. */
+export type MachineVersionState = 'unreported' | 'current' | 'behind' | 'ahead'
+
+/**
+ * DERIVED, NEVER STORED. The server target may move independently of the last
+ * hello, so persisting this verdict would make the read model stale.
+ *
+ * `appVersion` is a label, not a semver. A development identity such as
+ * `dev+<sha>` compares by exact string equality only. `ahead` is reserved for
+ * the delivery layer; Phase 1 has no downgrade-aware verdict to add here.
+ */
+export function deriveVersionState(
+  reported: string | null,
+  target: string | undefined,
+): MachineVersionState {
+  if (!reported || !target) return 'unreported'
+  return reported === target ? 'current' : 'behind'
+}
+
 /**
  * The pairing-code surface this core module consumes WITHOUT importing the hub
  * module that implements it (`hub/pairing.ts` — core never imports hub, see
@@ -87,11 +111,19 @@ export interface PairingGrant {
    */
   ownerUserId?: string
   copyAgentCredentials?: boolean
+  podiumManaged?: boolean
 }
 
 export interface MachinesDeps {
   /** Deployment configuration only; never an owner or grant input. */
   instanceId: string
+  /** Public half of the server update-signing key, sent on every successful machine hello. */
+  updatePubkey?: () => string
+  /**
+   * The version in the server's injected update target. Absent means this
+   * deployment has no target descriptor yet, so every machine is unreported.
+   */
+  targetVersion?: () => string | undefined
   store: SessionStore
   /**
    * THIS HOST'S machine id — the UUID in `<stateDir>/machine.id`, read once by the
@@ -324,6 +356,22 @@ export class MachinesService {
     return this.machineRecordsCache
   }
 
+  /** Resolve the native login identity available on the machine that will run a session. */
+  nativeAccountIdForMachine(
+    machineId: string,
+    agentKind: AgentKind,
+    accountId: AccountId,
+  ): AccountId {
+    const unsuffixed = 'native:' + agentKind
+    if (accountId !== unsuffixed) return accountId
+    const identity = this.machineRecords()
+      .find((machine) => machine.id === machineId)
+      ?.inventory?.agents.find((agent) => agent.kind === agentKind)?.login.identity
+    return identity?.fingerprint
+      ? asAccountId('native:' + agentKind + ':' + identity.fingerprint)
+      : accountId
+  }
+
   invalidateMachineCache(): void {
     this.machineRecordsCache = null
   }
@@ -400,13 +448,14 @@ export class MachinesService {
     // capability predicate refuse them for us, in the same branch as offline.
     const machines = this.listMachines(use)
     const selected = machines.find((machine) => machine.id === legacy)
-    if (selected && agentCapabilityRejection(selected, agentKind) === undefined) return legacy
+    if (selected && agentCapabilityRejectionForSelection(selected, agentKind) === undefined)
+      return legacy
 
     // Prefer another capable ONLINE machine that actually owns this cwd. This
     // keeps implicit routing useful without ever launching against a foreign path.
     const byRepo = machines.find(
       (machine) =>
-        agentCapabilityRejection(machine, agentKind) === undefined &&
+        agentCapabilityRejectionForSelection(machine, agentKind) === undefined &&
         this.deps.store.repos
           .listRepos(machine.id)
           .some((repo) => cwd === repo.path || cwd.startsWith(`${repo.path}/`)),
@@ -440,8 +489,6 @@ export class MachinesService {
         throw new Error(`machine '${machine.name}' is offline`)
       case 'harness-missing':
         throw new Error(`${agentKind} is not installed on machine '${machine.name}'`)
-      case 'logged-out':
-        throw new Error(`${agentKind} is not logged in on machine '${machine.name}'`)
       default: {
         const exhaustive: never = rejection
         throw new Error(`machine '${machine.name}' cannot run ${agentKind}: ${String(exhaustive)}`)
@@ -509,6 +556,12 @@ export class MachinesService {
    * supplying it here is what turns the whole placement surface on.
    */
   listMachines(use?: MachineUseResolver, owned?: MachineOwnedResolver): MachineListing[] {
+    let target: string | undefined
+    try {
+      target = this.deps.targetVersion?.()
+    } catch {
+      target = undefined
+    }
     return this.machineRecords().map((m) => ({
       ...(use ? { use: use(m.id) } : {}),
       // POD-1495: same contract as `use` one line up — supplied means evaluated,
@@ -519,8 +572,21 @@ export class MachinesService {
       hostname: m.hostname,
       online: this.daemons.has(m.id),
       lastSeenAt: m.lastSeenAt,
+      appVersion: m.appVersion,
+      wireSchemaDigest: m.wireSchemaDigest,
+      installKind: m.installKind,
+      deliveryCaps: m.deliveryCaps,
+      buildReportedAt: m.buildReportedAt,
+      versionState: deriveVersionState(m.appVersion, target),
+      ...(m.podiumManaged === false ? { podiumManaged: false } : {}),
       ...(m.inventory ? { inventory: m.inventory } : {}),
     }))
+  }
+
+  /** Current login condition for a session's machine and harness. */
+  agentLoginCondition(machineId: string, agentKind: AgentKind): 'logged-out' | undefined {
+    const machine = this.listMachines().find((candidate) => candidate.id === machineId)
+    return machine ? agentLoginCondition(machine, agentKind) : undefined
   }
 
   /**
@@ -558,6 +624,15 @@ export class MachinesService {
   /** Persist a daemon's inventoryReport (#222) on its machine row. */
   recordInventory(machineId: string, inventory: Inventory): void {
     this.deps.store.machines.setMachineInventory(machineId, JSON.stringify(inventory))
+    this.invalidateMachineCache()
+    if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId })
+    else this.deps.sessionsChangedForMachine?.(machineId)
+    this.broadcastMachines()
+  }
+
+  /** Persist a daemon's advisory build report and offered delivery capabilities. */
+  setMachineBuild(machineId: string, build: PeerBuild, caps: string[], at: string): void {
+    this.deps.store.machines.setMachineBuild(machineId, build, caps, at)
     this.invalidateMachineCache()
     this.broadcastMachines()
   }

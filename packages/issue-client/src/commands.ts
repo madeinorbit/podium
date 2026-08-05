@@ -463,11 +463,14 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         // escalations than blind doubling. Both clamped to the proc's own input
         // bounds so the suggested command is always one the server accepts.
         const nextNodes = Math.min(1000, Math.max(maxNodes * 4, (t.totalNodes + t.omitted) * 2))
+        const truncationNotice =
+          `TRUNCATED: ${t.totalNodes} nodes shown, ${t.omitted} child issue${t.omitted === 1 ? '' : 's'} omitted by the ${hitNodes ? `node cap (--max-nodes ${maxNodes})` : `depth cap (--max-depth ${maxDepth})`}.`
         out.push(
           '',
-          `TRUNCATED: ${t.totalNodes} nodes shown, ${t.omitted} child issue${t.omitted === 1 ? '' : 's'} omitted by the ${hitNodes ? `node cap (--max-nodes ${maxNodes})` : `depth cap (--max-depth ${maxDepth})`}.`,
+          truncationNotice,
           `  More: podium issue tree ${a.id} --max-depth ${Math.min(20, maxDepth + 3)} --max-nodes ${nextNodes}`,
         )
+        out.unshift(truncationNotice, '')
       }
       return { text: out.join('\n'), data: t }
     },
@@ -1460,11 +1463,13 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         ]
           .filter(Boolean)
           .join(' ')
+        const truncationNotice = `TRUNCATED: hit the ${limit}-event limit; there may be more.`
         lines.push(
           '',
-          `TRUNCATED: hit the ${limit}-event limit; there may be more.`,
+          truncationNotice,
           `  Next page: ${next}`,
         )
+        lines.unshift(truncationNotice, '')
       }
       return { text: lines.length ? lines.join('\n') : '(no events)', data: rows }
     },

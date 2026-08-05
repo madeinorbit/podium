@@ -118,6 +118,12 @@ export interface SessionLifecycleDeps {
   publicationShadowCompare?: boolean
   machines: MachinesService
   rpc: DaemonRpcService
+  /** Start-path notification; the propagation service decides whether login is needed. */
+  onSpawnTargetLogin?(input: {
+    machineId: string
+    agentKind: AgentKind
+    ownerUserId: UserId
+  }): void
   memory: MemoryService
   /** Live repository-backed issue access; re-read on every apply and replay. */
   issueAccess: DurableIssueAccessIndex

@@ -64,6 +64,8 @@ export type AuthOutcome =
       readonly principal: Principal
       /** Set only by the pairing branch: a minted token the peer must persist. */
       readonly issuedToken?: string
+      /** Current server update key; the daemon persists it only when pairing issues a token. */
+      readonly updatePubkey?: string
       /** Operator-facing name the acceptor settled on. */
       readonly name?: string
       /**
@@ -191,6 +193,8 @@ export interface ResolvedMachine {
   /** Subjects holding an explicit grant on this machine, per verb (D18.1). */
   readonly grants: readonly MachineGrant[]
   readonly name?: string
+  /** Current server update-signing key, published on every successful machine hello. */
+  readonly updatePubkey?: string
   /**
    * Opaque data the DIRECTORY attaches to a resolution and the gateway reads back
    * off the established peer. The handshake never interprets it — it exists so a

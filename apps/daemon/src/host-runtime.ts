@@ -1,9 +1,10 @@
-import { stat } from 'node:fs/promises'
+import { spawnSync } from 'node:child_process'
+import { mkdir, stat } from 'node:fs/promises'
 import { hostname } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { agentLaunchCommand, declaredValue } from '@podium/harness'
 import { FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
-import type { DaemonMessage } from '@podium/protocol'
+import type { ControlMessage, DaemonMessage } from '@podium/protocol'
 import type { AgentSession } from '@podium/pty'
 import { killAbducoSession, killTmuxServer } from '@podium/pty'
 import {
@@ -15,6 +16,7 @@ import {
 } from '@podium/runtime/config'
 import { durableSessionLabel } from '@podium/runtime/instance'
 import { startLoopMetrics } from '@podium/runtime/loop-metrics'
+import { PODIUM_UPDATE_PUBKEY, fetchArtifact } from '@podium/runtime/update-delivery'
 import type { RawData } from 'ws'
 import { createAgentRelayHub, startAgentRelayServer } from './agent-relay'
 import { BindingStore } from './binding-store'
@@ -24,7 +26,9 @@ import { ComposerSyncEngine } from './composer-sync'
 import type { DaemonContext, DurableBackend } from './control/context'
 import { reportInventory, startInventoryRefresh } from './control/inventory'
 import type { DaemonOptions } from './daemon-options'
+import { buildReport, deliveryCaps } from './build-report'
 import { createDiscoveryLoop, DEFAULT_DISCOVERY_SCAN_INTERVAL_MS } from './discovery-loop'
+import { applyGrant } from './grant-apply'
 import { selectDurableBackend } from './durable-backend'
 import { createFrameGuard, type FrameGuard } from './frame-guards'
 import { ensurePodiumGrokHooks } from './grok-hooks'
@@ -37,6 +41,9 @@ import type { DaemonInstanceBootstrap } from './instance-bootstrap'
 import { reportLongTick, startLoopAttribution } from './loop-attribution'
 import { composeResponders, createAckReminderInjector, createMailInjector } from './mail-injector'
 import { OutputScheduler } from './output-scheduler'
+import { resolveOnBoot } from './convergence'
+import { clearPendingGrant, readPendingGrant, writePendingGrant } from './pending-grant'
+import { swapHeadlessBundle } from './update-install'
 import { createPrimeInjector } from './prime-injector'
 import { makeQuotaFetcher } from './quota-fetch'
 import { createReattachGates } from './reattach-gates'
@@ -50,7 +57,7 @@ const DEFAULT_HOST_METRICS_INTERVAL_MS = 5_000
 
 export interface DaemonHostRuntime {
   readonly machineId: string
-  readonly identity: { token?: string }
+  readonly identity: { token?: string; updatePubkey?: string }
   readonly backend: DurableBackend
   readonly frameGuard: FrameGuard
   readonly hookPort: number
@@ -78,6 +85,7 @@ export async function createDaemonHostRuntime(args: {
   const identityStateDir = opts.identityDir ?? stateDir()
   const identity = loadIdentity({ dir: identityStateDir })
   const machineId = opts.machineId ?? identity.machineId
+  await mkdir(instance.runtimeDir, { recursive: true })
   const bindingStore = await BindingStore.open({
     dir: join(instance.runtimeDir, 'session-bindings'),
     legacyStateDir: identityStateDir,
@@ -246,6 +254,78 @@ export async function createDaemonHostRuntime(args: {
     flush: (sessionId, frames) => send({ type: 'agentFrameBatch', sessionId, frames }),
   })
 
+  const installDir =
+    process.env.PODIUM_HOME ??
+    (process.execPath.endsWith('/podium') ? dirname(process.execPath) : undefined)
+  const build = buildReport(process.env, installDir)
+  const runGit = (command: string, args: string[]): { status: number | null; stdout: string } => {
+    const result = spawnSync(command, args, {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+    return {
+      status: result.status,
+      stdout: typeof result.stdout === 'string' ? result.stdout : '',
+    }
+  }
+  const reconcilePendingUpdate = (): void => {
+    const pending = readPendingGrant(instance.runtimeDir)
+    if (!pending) return
+
+    const runningVersion = build.appVersion ?? 'dev'
+    const verdict = resolveOnBoot({ pending, runningVersion })
+    if (!verdict) return
+
+    let state: 'current' | 'rejected' | 'stuck'
+    let detail: string | undefined
+    if (verdict.action === 'confirm') {
+      state = 'current'
+    } else if (verdict.action === 'rollback') {
+      state = verdict.state
+      detail = verdict.detail
+    } else {
+      state = 'stuck'
+      detail =
+        'did not reach ' +
+        pending.targetVersion +
+        ' after ' +
+        pending.attempts +
+        ' attempt(s); running ' +
+        runningVersion +
+        '; manual convergence is required'
+    }
+
+    send({
+      type: 'updateStatus',
+      grantId: pending.grantId,
+      state,
+      version: runningVersion,
+      ...(detail ? { detail } : {}),
+    })
+    clearPendingGrant(instance.runtimeDir)
+  }
+
+  const applyUpdateGrant = (grant: Extract<ControlMessage, { type: 'updateGrant' }>) =>
+    applyGrant(grant, {
+      currentVersion: () => build.appVersion ?? 'dev',
+      caps: deliveryCaps(build.installKind),
+      fetchArtifact: (asset, delivery) =>
+        fetchArtifact(asset, delivery, {
+          fetch: globalThis.fetch,
+          pubkey: PODIUM_UPDATE_PUBKEY,
+          pinnedPubkey: identity.updatePubkey,
+          git: { run: runGit },
+        }),
+      swap: (bytes) => {
+        if (!installDir) throw new Error('binary delivery requires an installed daemon')
+        swapHeadlessBundle(bytes, installDir)
+      },
+      writePending: (pending) => writePendingGrant(instance.runtimeDir, pending),
+      restart: opts.restartAfterUpdate ?? (() => process.exit(0)),
+      report: (status) => send(status),
+      now: Date.now,
+    })
+
   const ctx: DaemonContext = {
     send,
     machineId,
@@ -276,6 +356,7 @@ export async function createDaemonHostRuntime(args: {
     refreshAndPublishConversations: (full) => discoveryLoop.refreshAndPublishConversations(full),
     quotaFetcher: makeQuotaFetcher({ ...(homeDir ? { homeDir } : {}) }),
     usageMemo: {},
+    applyUpdateGrant,
   }
   const frameGuard = createFrameGuard(ctx)
 
@@ -309,6 +390,7 @@ export async function createDaemonHostRuntime(args: {
       stopInventoryRefresh = startInventoryRefresh(ctx)
       void sweepHandoffStage({ ...(homeDir ? { homeDir } : {}) }).catch(() => undefined)
     }
+    reconcilePendingUpdate()
     void reportInventory(ctx)
     void replayPendingBindingReceipts().catch((error) =>
       console.warn('[podium] Codex identity receipt replay failed:', error),

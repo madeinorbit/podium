@@ -1,19 +1,15 @@
 import { randomUUID } from '@podium/client-core/id'
-import { markSwitch } from '@podium/client-core/perf'
+import { beginSwitch, isSwitchTraced, markSwitch } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
 import { effectivePanelMode, type PanelMode } from '@podium/client-core/ui-state'
 
 export { effectivePanelMode, effectivePanelMode as initialPanelMode, type PanelMode }
 
 import { attentionGroup } from '@podium/client-core/focus'
-import {
-  formatClock,
-  isKnownWorktreePath,
-  panelLabel,
-  resumeCommand,
-} from '@podium/client-core/viewmodels'
+import { formatClock, panelLabel, resumeCommand } from '@podium/client-core/viewmodels'
 import type { SessionId } from '@podium/model'
 import { isSnoozed } from '@podium/model'
+import { SWITCH_TRACE_MARKS } from '@podium/protocol'
 import { keySequence, type SpecialKey } from '@podium/terminal-client'
 import { ArrowSwipeKey, useTerminalSession, useVoiceInput } from '@podium/terminal-client-react'
 import {
@@ -57,7 +53,7 @@ import { SnoozeControl } from '@/lib/SnoozeControl'
 import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
 import { KindIcon, sessionDisplayName } from '@/lib/WorkerLabel'
-import { paneTintedBackground, withBackground } from './appearance'
+import { applyInitialTerminalAppearance, paneTintedBackground, withBackground } from './appearance'
 import { createDraftSync } from './draft-sync'
 import { EchoHud, echoHudEnabled } from './EchoHud'
 import { HandoverPane, useHandoverView } from './HandoverPane'
@@ -147,7 +143,6 @@ export function AgentPanel({
     sessions,
     pendingSpawnIds,
     machines,
-    repos,
     trpc,
     drafts,
     startBtw,
@@ -162,7 +157,9 @@ export function AgentPanel({
       sessions: s.sessions,
       pendingSpawnIds: s.pendingSpawnIds,
       machines: s.machines,
-      repos: s.repos,
+      // `repos` is deliberately NOT selected (POD-1704). Its only use here was the
+      // worktree-missing guess; subscribing to it re-rendered every agent panel on
+      // each repo scan for a fact the panel had no business deriving.
       trpc: s.trpc,
       drafts: s.drafts,
       startBtw: s.startBtw,
@@ -183,6 +180,17 @@ export function AgentPanel({
   // "Starting…" overlay covers the wait, and the mount effect (which depends on
   // this) fires the instant it flips true.
   const spawnConfirmed = !pendingSpawnIds.has(sessionId)
+  const traceIssueId = session?.issueId ?? selectedIssueId ?? null
+  const freshStartTracedRef = useRef(false)
+  // A fresh optimistic spawn has no existing session-tab click to start a
+  // trace. Fast spawns can already be reconciled by the time this panel lays
+  // out, so use the first active layout as the fallback boundary too. Do not
+  // replace a trace already armed by Workspace's tab gesture.
+  useLayoutEffect(() => {
+    if (freshStartTracedRef.current || !active) return
+    freshStartTracedRef.current = true
+    if (!isSwitchTraced(sessionId)) beginSwitch({ sessionId, issueId: traceIssueId })
+  }, [active, sessionId, traceIssueId])
   // Moving to another machine ([spec:SP-3f7a]) is one deliberate state, not the
   // sequence of read-only states the move happens to pass through: the session is
   // stopped here, shipped, and resumed there. `handover` covers the pane for the
@@ -211,6 +219,12 @@ export function AgentPanel({
     inTransit,
     onEnterNative: () => rearmFlushRef.current?.(),
   })
+  const pickModeWithTrace = (mode: PanelMode): void => {
+    if (active && mode !== effectiveMode) {
+      beginSwitch({ sessionId, issueId: traceIssueId })
+    }
+    pickMode(mode)
+  }
 
   // Switch-latency trace marks [POD-701] — both are no-ops (one null check in
   // markSwitch) unless a switch to THIS session is being traced.
@@ -228,13 +242,6 @@ export function AgentPanel({
     prevActiveForTrace.current = active
   }, [active, sessionId, effectiveMode])
 
-  // The session's worktree was removed out from under it (an orphaned session):
-  // its cwd no longer matches any scanned worktree. Gate on repos being loaded so
-  // the boot window (no repos yet) doesn't transiently flag every session. Feeds
-  // the exited banners — a missing worktree forces "remove" (can't resume in a
-  // directory that's gone), while the header's copy-resume-command stays for
-  // resuming by hand elsewhere.
-  const worktreeMissing = !!session && repos.length > 0 && !isKnownWorktreePath(repos, session.cwd)
   // The native CLI resume command for this session (#119), or null when no
   // resume ref is known. Also the first right-aligned header control, so the
   // `ml-auto` fallbacks below defer to it when present.
@@ -395,6 +402,14 @@ export function AgentPanel({
     () => (termSettings.background ? termAppearance : withBackground(termAppearance, termBg)),
     [termSettings.background, termAppearance, termBg],
   )
+  // The hook's mount effect already receives the terminal-client defaults. Apply
+  // the panel tint directly after mount so its initial appearance does not
+  // schedule a second, identical fit. Custom font metrics still get one fit
+  // when the pane is eligible; hidden panes wait for their normal reveal path.
+  const initialAppearanceAppliedRef = useRef<typeof appearance | null>(null)
+  const canFitInitialAppearance =
+    gates.ptySizingAllowed &&
+    (typeof document === 'undefined' || document.visibilityState === 'visible')
 
   const {
     containerRef: termRef,
@@ -423,9 +438,13 @@ export function AgentPanel({
     focusOnMount: false,
     focusWhenReady: true,
     test: E2E,
-    appearance,
+    // Applied synchronously in onMounted below. Passing it here would make
+    // useTerminalSession apply it a second time in its initial appearance
+    // effect, which also schedules a redundant fit.
     onFrame: () => scheduleSampleRef.current(),
     onMounted: (mounted) => {
+      applyInitialTerminalAppearance(mounted, appearance, canFitInitialAppearance)
+      initialAppearanceAppliedRef.current = appearance
       // Seed the file-link provider immediately after mount with whatever paths
       // are already known (from the transcript subscription effect below).
       // Without this the provider is a no-op until the next transcript callback.
@@ -461,6 +480,56 @@ export function AgentPanel({
       }
     },
   })
+
+  // Keep later appearance changes on the shared, eligibility-gated path. The
+  // initial mount is handled directly above because the hook's first appearance
+  // effect would otherwise fit the same theme twice.
+  useEffect(() => {
+    const mounted = mountedRef.current
+    const previous = initialAppearanceAppliedRef.current
+    if (!mounted || previous === appearance) return
+    mounted.setAppearance(appearance)
+    initialAppearanceAppliedRef.current = appearance
+  }, [appearance, mountedRef])
+
+  // `term:ready` is transport/UI-ready: it can come from attach, first output,
+  // or the timeout backstop. The interactable mark is stricter: this visible
+  // mounted terminal has a connected PTY, so xterm can receive keystrokes.
+  // Retry through reveal/layout frames for warm native switches; a timeout
+  // trace remains evidence if the terminal never reaches this boundary.
+  // There is no shorter frame cap: the collector's 10s deadline is the
+  // confirmation window. timedOut means keystroke readiness was unconfirmed,
+  // not that the terminal took 10s.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mountedRef is a stable ref from useTerminalSession, not app state.
+  useEffect(() => {
+    if (!active || !gates.terminalActive || !ready || !isSwitchTraced(sessionId)) return
+    let cancelled = false
+    let frame: number | undefined
+
+    const check = (): void => {
+      if (cancelled || !isSwitchTraced(sessionId)) return
+      const mounted = mountedRef.current
+      const surface = termSurfaceRef.current
+      const rects = surface?.getClientRects() ?? []
+      if (!mounted || rects.length === 0 || !mounted.connection.state().connected) {
+        if (typeof requestAnimationFrame === 'function') frame = requestAnimationFrame(check)
+        else return
+        return
+      }
+      markSwitch(sessionId, SWITCH_TRACE_MARKS.termInteractable, {
+        terminalConnected: true,
+        terminalVisible: true,
+        terminalReady: true,
+      })
+    }
+
+    if (typeof requestAnimationFrame === 'function') frame = requestAnimationFrame(check)
+    else check()
+    return () => {
+      cancelled = true
+      if (frame !== undefined) cancelAnimationFrame(frame)
+    }
+  }, [active, gates.terminalActive, ready, sessionId])
 
   // A terminal that has painted NOTHING keeps its startup affordance instead of
   // revealing a blank surface [POD-385]. `outputSeen` is the server's durable
@@ -624,7 +693,7 @@ export function AgentPanel({
                       ? 'bg-secondary text-text-strong'
                       : 'text-(--issue-muted) hover:text-(--issue-bright)',
                   )}
-                  onClick={() => pickMode(m)}
+                  onClick={() => pickModeWithTrace(m)}
                 >
                   {m === 'chat' ? (
                     <MessageSquareText size={12} aria-hidden="true" />
@@ -743,6 +812,15 @@ export function AgentPanel({
           </span>
         </span>
       </div>
+      {session?.condition === 'logged-out' && (
+        <div
+          role="status"
+          className="flex flex-none items-center gap-2 border-b border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning"
+        >
+          <strong>{panelLabel(session.agentKind)} isn&apos;t logged in</strong>
+          <span>Run its login command in this pane to continue.</span>
+        </div>
+      )}
       {handover && <HandoverPane view={handover} background={termBg} />}
       {surface.kind === 'transit' ? (
         // The veil owns this window; underneath it only the pane's own surface
@@ -773,8 +851,6 @@ export function AgentPanel({
               spawnFailure={session.spawnFailure}
               isShell={session.agentKind === 'shell'}
               resumable={session.resumable === true}
-              worktreeMissing={worktreeMissing}
-              worktreePath={prettyCwd(session.cwd)}
             />
             <ChatView sessionId={sessionId} active={active} />
           </>
@@ -785,8 +861,6 @@ export function AgentPanel({
             spawnFailure={session.spawnFailure}
             isShell={session.agentKind === 'shell'}
             resumable={session.resumable === true}
-            worktreeMissing={worktreeMissing}
-            worktreePath={prettyCwd(session.cwd)}
           />
         )
       ) : (

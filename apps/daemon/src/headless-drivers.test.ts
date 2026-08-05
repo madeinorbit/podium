@@ -95,12 +95,12 @@ describe('buildHeadlessExec argv shapes', () => {
     expect(resumed.args).toEqual(['--resume', 'uuid-1', '--single', 'again'])
   })
 
-  it('opencode: run --format json, -s only when resuming', () => {
-    const first = buildHeadlessExec('opencode', { prompt: 'hi' }, bins)
+  it('opencode: forwards model and variant on first and resumed turns', () => {
+    const first = buildHeadlessExec('opencode', { prompt: 'hi', model: 'opencode/deepseek-v4-flash-free', effort: 'high' }, bins)
     expect(first.cmd).toBe('/opt/opencode')
-    expect(first.args).toEqual(['run', '--format', 'json', 'hi'])
-    const resumed = buildHeadlessExec('opencode', { prompt: 'hi', resumeValue: 'ses_1' }, bins)
-    expect(resumed.args).toEqual(['run', '--format', 'json', '-s', 'ses_1', 'hi'])
+    expect(first.args).toEqual(['run', '--format', 'json', '-m', 'opencode/deepseek-v4-flash-free', '--variant', 'high', 'hi'])
+    const resumed = buildHeadlessExec('opencode', { prompt: 'go on', resumeValue: 'ses_1', effort: 'max' }, bins)
+    expect(resumed.args).toEqual(['run', '--format', 'json', '-s', 'ses_1', '--variant', 'max', 'go on'])
   })
 
   it('cursor: pins Auto unless a named model overrides it', () => {

@@ -1184,6 +1184,8 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         ...(tail ? { tail } : {}),
       })
     },
+    onModel: (model, effort) =>
+      send({ type: 'agentModel', sessionId, model, ...(effort ? { effort } : {}) }),
   })
 
   const stopObservation = (sessionId: SessionId): void => {

@@ -375,19 +375,29 @@ export type ExitedAction = 'restart' | 'resume' | 'remove'
 /** Copy + recovery action for an exited session, shared by the inline
  *  `ExitedBanner` and the full-pane `ExitedPane` so the two never drift.
  *
- *  Orthogonal to the exit cause, a missing worktree (an orphaned session whose
- *  directory was removed out from under it) forces `remove`: the conversation
- *  can't be resumed in place — Claude buckets transcripts by their original cwd,
- *  and a shell can't restart in a directory that's gone. The header's
- *  copy-resume-command stays available for resuming by hand elsewhere. */
+ *  THE WORKTREE IS A CACHE; THE BRANCH IS THE TRUTH (POD-1704). This used to take
+ *  a `worktreeMissing` flag and force `remove` on it, which was wrong twice over.
+ *  Wrong in fact: the flag was a CLIENT-SIDE guess — "absent from the last repo
+ *  scan" — and a scan that merely timed out came back with the repo root present
+ *  and its worktrees empty, so every worktree-backed session got told its
+ *  directory was gone while it sat there on disk. Wrong in principle even when
+ *  the directory really IS gone: `ensureWorktree` rebuilds it from the preserved
+ *  branch before the spawn, which is why `issue stop` is documented as
+ *  reversible. A recoverable state was being rendered as a dead end whose only
+ *  offered action destroyed the session row.
+ *
+ *  So existence is not consulted here at all. Resume is always offered to an
+ *  agent that left a ref, and a genuine failure to rebuild the workspace is
+ *  reported by the daemon that tried it — at the moment of the attempt, with a
+ *  real reason, rather than predicted from stale state at render time.
+ *
+ *  `remove` survives for its one honest case: nothing to resume (`resumable`
+ *  false — e.g. a spawn that never produced a ref). */
 export function exitedRecovery(opts: {
   exitCode: number | undefined
   spawnFailure?: string
   isShell: boolean
   resumable: boolean
-  worktreeMissing: boolean
-  /** Pretty worktree path, woven into the notice when the worktree is missing. */
-  worktreePath?: string
 }): { detail: string; action: ExitedAction } {
   const what = opts.isShell ? 'shell' : 'agent process'
   // Exit code 0 can still be an external kill of the durable host (the PTY
@@ -400,13 +410,6 @@ export function exitedRecovery(opts: {
           ? `The ${what} failed to start: ${opts.spawnFailure}`
           : `The ${what} failed to start.`
         : `The ${what} exited with code ${opts.exitCode}.`
-  if (opts.worktreeMissing) {
-    const where = opts.worktreePath ? ` (${opts.worktreePath})` : ''
-    return {
-      detail: `${cause} Its worktree${where} no longer exists, so it can't be resumed here.`,
-      action: 'remove',
-    }
-  }
   return { detail: cause, action: opts.isShell ? 'restart' : opts.resumable ? 'resume' : 'remove' }
 }
 

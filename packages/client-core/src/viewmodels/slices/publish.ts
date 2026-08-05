@@ -9,7 +9,7 @@
  * handed to every reader.
  *
  * ---------------------------------------------------------------------------
- * THE MEMOIZATION KEY IS SNAPSHOT IDENTITY, AND NOTHING ELSE.
+ * THE MEMOIZATION KEY IS SNAPSHOT IDENTITY BY DEFAULT.
  * ---------------------------------------------------------------------------
  *
  * `packages/client-core/src/react/provider.tsx` sets the bar this mechanism had
@@ -31,6 +31,17 @@
  * indistinguishable to this cache: all three miss, all three re-derive from
  * whatever rows are visible NOW. It never remembers rows — only the last answer
  * for the last snapshot — so it cannot hold a row past its visibility.
+ *
+ * A slice may opt into `sourceEqual` when it explicitly names every source
+ * identity and scalar its derivation reads. That is for large derived views
+ * whose source contains unrelated, frequently changing fields. The guard is
+ * owned by the slice definition rather than inferred here, so a scoped/evicted
+ * collection remains a miss whenever that slice declares the collection as a
+ * dependency. Definitions that cannot make that proof keep the identity key.
+ *
+ * This remains correct across the PRINCIPAL boundary because a new principal is
+ * a new runtime and therefore a new publisher. Nothing here carries a value
+ * across sign-out or account switching.
  *
  * Note what makes that structural rather than disciplined: this publisher is
  * GENERIC over its source and never sees an id, a revision or a collection. It
@@ -78,9 +89,18 @@ export interface SliceDefinition<TSource, T> {
    * two different objects as one is how a stale row survives an eviction.
    */
   isEqual?(a: T, b: T): boolean
+  /**
+   * Optional dependency guard for derivations that read only part of a larger
+   * source. When it reports equal, the previous value is reused without
+   * running `derive`; the definition must include every input its derivation
+   * reads. Defaults to Object.is, preserving snapshot-identity invalidation.
+   */
+  sourceEqual?(previous: TSource, next: TSource): boolean
 }
 
-export function defineSlice<TSource, T>(def: SliceDefinition<TSource, T>): SliceDefinition<TSource, T> {
+export function defineSlice<TSource, T>(
+  def: SliceDefinition<TSource, T>,
+): SliceDefinition<TSource, T> {
   return def
 }
 
@@ -116,9 +136,17 @@ export function createSlicePublisher<TSource>(getSource: () => TSource): SlicePu
     read<T>(def: SliceDefinition<TSource, T>): T {
       const source = getSource()
       const cached = entries.get(def.name)
-      // SNAPSHOT IDENTITY, not contents: a shrink that moves no revision still
-      // produces a new snapshot object, so it misses here exactly like an update.
-      if (cached && cached.source === source) return cached.value as T
+      // SNAPSHOT IDENTITY, not contents, is the safe default: a shrink that
+      // moves no revision still produces a new snapshot object, so it misses
+      // here exactly like an update. A definition may provide a complete,
+      // explicit dependency guard for a large slice with unrelated source
+      // fields; store the newest source even when the value is reused so the
+      // next comparison is against the current snapshot.
+      const sourceEqual = def.sourceEqual ?? Object.is
+      if (cached && sourceEqual(cached.source as TSource, source)) {
+        entries.set(def.name, { source, value: cached.value })
+        return cached.value as T
+      }
       const next = def.derive(source)
       counts.set(def.name, (counts.get(def.name) ?? 0) + 1)
       const isEqual = def.isEqual ?? Object.is

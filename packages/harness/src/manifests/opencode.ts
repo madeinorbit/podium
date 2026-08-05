@@ -10,6 +10,7 @@ import { withStateChannel } from '../agent-state/types.js'
 import { createOpencodeConversationProvider } from '../discovery/providers/opencode.js'
 import { composeAgentInstructions } from '../instructions.js'
 import { type AgentManifest, isSet, supported, unsupported } from '../manifest.js'
+import { detectOpencodeLogin } from '../opencode/auth.js'
 import { opencodeBinCandidates, resolveOpencodeBin } from '../opencode/cli.js'
 import { loadOpencodeTranscriptTail, openOpencodeDb } from '../opencode/db.js'
 
@@ -71,7 +72,9 @@ export const opencodeManifest: AgentManifest = {
 
   inventory: {
     binCandidates: opencodeBinCandidates,
-    detectLogin: () => ({ state: 'unknown' }),
+    loginIdentity: unsupported('OpenCode does not expose a stable local account identity yet'),
+    portableCredential: unsupported('OpenCode credential portability is not supported yet'),
+    detectLogin: detectOpencodeLogin,
   },
 
   launch(opts) {
@@ -116,7 +119,15 @@ export const opencodeManifest: AgentManifest = {
     const model = opts.model && opts.model !== 'auto' ? opts.model : undefined
     const sys = opts.systemPrompt?.trim() ? opts.systemPrompt.trim() : undefined
     const prompt = sys ? `${sys}\n\n---\n\n${opts.prompt}` : opts.prompt
-    return { cmd: bins.opencode(), args: ['run', ...(model ? ['-m', model] : []), prompt] }
+    return {
+      cmd: bins.opencode(),
+      args: [
+        'run',
+        ...(model ? ['-m', model] : []),
+        ...(opts.effort && opts.effort !== 'auto' ? ['--variant', opts.effort] : []),
+        prompt,
+      ],
+    }
   }),
 
   headless: supported({
@@ -138,6 +149,7 @@ export const opencodeManifest: AgentManifest = {
           'json',
           ...(opts.resumeValue ? ['-s', opts.resumeValue] : []),
           ...(model ? ['-m', model] : []),
+          ...(opts.effort && opts.effort !== 'auto' ? ['--variant', opts.effort] : []),
           prompt,
         ],
       }
@@ -165,6 +177,7 @@ export const opencodeManifest: AgentManifest = {
       ...(input.homeDir ? { homeDir: input.homeDir } : {}),
       ...(input.startedAtMs !== undefined ? { startedAtMs: input.startedAtMs } : {}),
       onSession: (opencodeSessionId) => host.onResumeValue(opencodeSessionId),
+      onModel: (model, effort) => host.onModel?.(model, effort),
       onEvents: (events) => host.onStateEvents(withStateChannel(events, 'poll')),
       onTranscriptItems: (items, reset) => host.onTranscriptItems(items, reset),
     })

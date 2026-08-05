@@ -4,7 +4,7 @@
  * The complete issue order remains outside this module and continues to drive
  * keyboard navigation; this only decides how much of that order is mounted.
  */
-export const ISSUE_RENDER_CHUNK = 40
+export const ISSUE_RENDER_CHUNK = 16
 
 /**
  * Keep the ordinary mounted prefix bounded, but never hide focused/selected

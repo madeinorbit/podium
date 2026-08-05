@@ -1,32 +1,40 @@
-import { useRegisterSW } from 'virtual:pwa-register/react'
+import { useRegisterSW } from './pwa-register'
 import type { JSX } from 'react'
-import { useEffect, useRef } from 'react'
-import { toast } from 'sonner'
+import { useCallback, useEffect, useRef } from 'react'
+import { UpdateDialog } from '@/features/updates/UpdateDialog'
+import { useUpdateState } from '@/features/updates/use-update-state'
+import { serverConfig } from './trpc'
 
-// Stable id so the prompt shows as a single toast (no stacking across
-// re-renders) and can be dismissed when the user picks "Later".
-const UPDATE_TOAST_ID = 'pwa-update-available'
-
-// How often an open tab asks the service worker to look for a freshly
-// deployed build. A redeploy restarts the web service, which serves a new
-// content-hashed shell; this poll is how a long-lived tab notices.
 const UPDATE_CHECK_MS = 60_000
 
-export function UpdatePrompt(): JSX.Element | null {
+export interface UpdatePromptProps {
+  httpOrigin?: string
+}
+
+export function UpdatePrompt({ httpOrigin }: UpdatePromptProps): JSX.Element {
   const registrationRef = useRef<ServiceWorkerRegistration | null>(null)
+  const intervalRef = useRef<number | null>(null)
   const {
-    needRefresh: [needRefresh, setNeedRefresh],
+    needRefresh: [needRefresh],
     updateServiceWorker,
   } = useRegisterSW({
     onRegisteredSW(_swUrl, registration) {
       if (!registration) return
       registrationRef.current = registration
-      setInterval(() => void registration.update(), UPDATE_CHECK_MS)
+      if (intervalRef.current !== null) window.clearInterval(intervalRef.current)
+      intervalRef.current = window.setInterval(() => void registration.update(), UPDATE_CHECK_MS)
     },
   })
 
+  useEffect(
+    () => () => {
+      if (intervalRef.current !== null) window.clearInterval(intervalRef.current)
+    },
+    [],
+  )
+
   // The decisive check for an installed PWA: the moment it returns to the
-  // foreground, ask the SW whether a new build shipped while it was hidden.
+  // foreground, ask the service worker whether a new build shipped while hidden.
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState === 'visible') void registrationRef.current?.update()
@@ -35,36 +43,21 @@ export function UpdatePrompt(): JSX.Element | null {
     return () => document.removeEventListener('visibilitychange', onVisible)
   }, [])
 
-  // Reload robustly in BOTH installed-PWA and normal-browser tabs. The library's
-  // updateServiceWorker(true) only reloads when workbox flags the activation as
-  // an update (event.isUpdate), which is false for a tab that loaded uncontrolled
-  // (common in a normal browser) — so on desktop Chrome the button did nothing.
-  // Drive it ourselves: reload the instant the new SW takes control, with a short
-  // fallback for a tab the freshly-activated SW never claims (it still serves the
-  // new build, since skipWaiting has made it the active worker by then).
-  const reload = () => {
+  // Take over the new worker, then reload on controllerchange. The fallback is
+  // still needed for a normal browser tab the new worker never claims.
+  const reload = useCallback(() => {
     navigator.serviceWorker?.addEventListener('controllerchange', () => window.location.reload(), {
       once: true,
     })
     void updateServiceWorker(true)
     window.setTimeout(() => window.location.reload(), 2000)
-  }
+  }, [updateServiceWorker])
 
-  // Surface the prompt through sonner (the shared <Toaster/> mounted in
-  // AppShell) instead of a hand-rolled fixed-position toast. Sticky (no
-  // auto-dismiss); "Reload" drives the SW takeover, "Later" hides it.
-  useEffect(() => {
-    if (!needRefresh) return
-    toast('New version available', {
-      id: UPDATE_TOAST_ID,
-      duration: Number.POSITIVE_INFINITY,
-      action: { label: 'Reload', onClick: reload },
-      cancel: { label: 'Later', onClick: () => setNeedRefresh(false) },
-    })
-    return () => {
-      toast.dismiss(UPDATE_TOAST_ID)
-    }
-  }, [needRefresh, setNeedRefresh])
-
-  return null
+  const resolvedOrigin = httpOrigin ?? serverConfig(window.location).httpOrigin
+  const { view, actions } = useUpdateState({
+    httpOrigin: resolvedOrigin,
+    needRefresh,
+    reload,
+  })
+  return <UpdateDialog view={view} actions={actions} />
 }

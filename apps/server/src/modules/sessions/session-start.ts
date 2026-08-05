@@ -121,12 +121,22 @@ export interface SessionStartPorts {
   sessionMachineId(sessionId: SessionId): string | undefined
   defaultMachine(): MachineId
   machineName(machineId: string): string
+  nativeAccountIdForMachine(
+    machineId: string,
+    agentKind: AgentKind,
+    accountId: AccountId,
+  ): AccountId
   resolveMachineForAgent(
     requested: string | undefined,
     cwd: string,
     agentKind: AgentKind,
     use?: MachineUseResolver,
   ): MachineId
+  onSpawnTargetLogin?(input: {
+    machineId: string
+    agentKind: AgentKind
+    ownerUserId: UserId
+  }): void
   toMachine(machineId: string, message: ControlMessage): void
   broadcastSessions(): void
   /** The issue that owns this cwd's worktree, if exactly one does. */
@@ -334,13 +344,18 @@ export class SessionStart {
     }
     const sessionId = input.sessionId ?? asSessionId(randomUUID())
     const machineId = input.machineId ? asMachineId(input.machineId) : this.ports.defaultMachine()
+    this.ports.onSpawnTargetLogin?.({
+      machineId,
+      agentKind: input.agentKind,
+      ownerUserId: input.ownerUserId ?? FIRST_ADMIN_USER_ID,
+    })
     const launch = this.ports.launchConfig.modelDefaults(
       input.agentKind,
       input.model !== undefined || input.effort !== undefined
         ? { model: input.model, effort: input.effort }
         : undefined,
     )
-    const accountId =
+    const selectedAccountId =
       input.agentKind === 'shell'
         ? undefined
         : (input.accountId ??
@@ -348,6 +363,10 @@ export class SessionStart {
             this.ports.store.settings.getSettingsFor(this.ports.settingsViewer()),
             'coding',
           ).accountId)
+    const accountId =
+      input.agentKind === 'shell' || selectedAccountId === undefined
+        ? undefined
+        : this.ports.nativeAccountIdForMachine(machineId, input.agentKind, selectedAccountId)
     const session = new Session({
       sessionId,
       durableLabel: this.ports.durableLabelFor(sessionId),
@@ -425,7 +444,8 @@ export class SessionStart {
       ...(input.instructions?.length ? { instructions: input.instructions } : {}),
       geometry: { ...DEFAULT_GEOMETRY },
       ...launch,
-      ...this.ports.launchConfig.accountEnv(input.agentKind, accountId),
+      // The suffix is durable session attribution only; launch with the selected account unchanged.
+      ...this.ports.launchConfig.accountEnv(input.agentKind, selectedAccountId),
       ...(this.ports.state.draftSyncEnabled() ? { draftSync: true } : {}),
     })
     this.ports.broadcastSessions()

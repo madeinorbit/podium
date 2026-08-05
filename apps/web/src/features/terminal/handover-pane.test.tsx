@@ -27,6 +27,7 @@ vi.mock('@podium/terminal-client', async (orig) => {
       },
       view: {
         setFileLinks: vi.fn(),
+        setAppearance: vi.fn(),
         setRefLinks: vi.fn(),
         onScroll: () => () => {},
         atBottom: () => true,

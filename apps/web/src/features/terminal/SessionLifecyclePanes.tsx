@@ -100,15 +100,18 @@ function LifecycleButton({
  * keys and inherits their types, so the model stays the single place that says
  * what `spawnFailure` is.
  *
- * The other three are NOT session fields and are deliberately hand-declared:
- * each is a DERIVATION the panel computes (`agentKind === 'shell'`, the cwd
- * matched against the scanned worktrees, that path prettified). Picking them
- * would be claiming the model publishes something it does not.
+ * The one remaining non-session field is deliberately hand-declared: `isShell`
+ * is a DERIVATION the panel computes (`agentKind === 'shell'`). Picking it would
+ * be claiming the model publishes something it does not.
+ *
+ * `worktreeMissing`/`worktreePath` are GONE (POD-1704). They carried a
+ * client-side guess about whether a directory still existed, and a degraded repo
+ * scan turned that guess into a false claim with a destructive button under it.
+ * A missing worktree is rebuilt from the branch on resume, so it is not a fact
+ * this surface needs.
  */
 type ExitedProps = Pick<SessionMeta, 'sessionId' | 'exitCode' | 'spawnFailure' | 'resumable'> & {
   isShell: boolean
-  worktreeMissing: boolean
-  worktreePath?: string
 }
 
 function exitedAction(p: ExitedProps): { detail: string; action: LifecycleAction } {
@@ -117,10 +120,8 @@ function exitedAction(p: ExitedProps): { detail: string; action: LifecycleAction
     ...(p.spawnFailure ? { spawnFailure: p.spawnFailure } : {}),
     isShell: p.isShell,
     resumable: p.resumable === true,
-    worktreeMissing: p.worktreeMissing,
-    ...(p.worktreePath ? { worktreePath: p.worktreePath } : {}),
   })
-  return { detail, action: recoveryAction('ended', action, p.worktreeMissing) }
+  return { detail, action: recoveryAction('ended', action) }
 }
 
 /**
@@ -152,7 +153,8 @@ export function ExitedBanner(props: ExitedProps): JSX.Element {
   const { detail, action } = exitedAction(props)
   return (
     // items-start (not -center) so the action stays put when the notice wraps to
-    // a second line — the worktree-missing message is longer than a bare exit line.
+    // a second line — a spawn-failure message carries the daemon's diagnosis and
+    // runs longer than a bare exit line.
     <div className="flex shrink-0 items-start gap-2 border-b border-warning/30 bg-warning/10 px-3 py-1.5 text-xs text-warning">
       <RotateCcw size={14} aria-hidden="true" className="mt-0.5 shrink-0" />
       <span className="min-w-0 flex-1">{detail} Transcript is read-only.</span>
