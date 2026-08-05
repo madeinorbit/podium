@@ -30,7 +30,6 @@ import {
   encode,
   type MachinePrincipal,
   type PeerHelloReply,
-  type PortableCredentialBundle,
   parseDaemonMessage,
 } from '@podium/protocol'
 import type { PairingGrant } from '../modules/machines/service'
@@ -143,7 +142,13 @@ export function wireDaemonSocket(ws: import('ws').WebSocket, registry: SessionRe
       // The pairing grant rides back as the directory's opaque context: the
       // handshake carries it and never interprets it (see `directoryContext`).
       if ((outcome.pairingGrant as PairingGrant | undefined)?.copyAgentCredentials) {
-        void relayAgentCredentials(registry, outcome.principal.machine)
+        for (const agentKind of ['claude-code', 'codex'] as const) {
+          registry.modules.loginPropagation.trigger({
+            targetMachineId: outcome.principal.machine,
+            agentKind,
+            force: true,
+          })
+        }
       }
       return
     }
@@ -172,46 +177,4 @@ export function wireDaemonSocket(ws: import('ws').WebSocket, registry: SessionRe
     // holds the new socket and this close must not evict it.
     if (principal && send) registry.gateway.detachDaemon(principal, send)
   })
-}
-
-/**
- * Pair-granted, memory-only secret relay. Each agent login is read from an
- * already-authenticated owned daemon and written directly to the new daemon;
- * no credential content enters SQLite or logs.
- */
-async function relayAgentCredentials(
-  registry: SessionRegistry,
-  targetMachineId: string,
-): Promise<void> {
-  const agents = [
-    { agentKind: 'claude-code', credentialKinds: ['claude-code', 'claude-code-state'] as const },
-    { agentKind: 'codex', credentialKinds: ['codex'] as const },
-    { agentKind: 'grok', credentialKinds: ['grok'] as const },
-  ] as const
-  const machines = registry.modules.machines.listMachines()
-  const bundles: PortableCredentialBundle[] = []
-  for (const agent of agents) {
-    const source = machines.find(
-      (machine) =>
-        machine.id !== targetMachineId &&
-        machine.online &&
-        machine.inventory?.agents.some(
-          (inventoryAgent) =>
-            inventoryAgent.kind === agent.agentKind &&
-            inventoryAgent.installed &&
-            inventoryAgent.login.state === 'in',
-        ),
-    )
-    if (!source) continue
-    const exported = await registry.modules.rpc.credentialExport(
-      [...agent.credentialKinds],
-      source.id,
-    )
-    bundles.push(...exported.bundles)
-  }
-  if (bundles.length === 0) return
-  const result = await registry.modules.rpc.credentialInstall(bundles, targetMachineId)
-  if (result.failed.length > 0) {
-    console.warn(`[podium] credential provisioning failed for: ${result.failed.join(', ')}`)
-  }
 }

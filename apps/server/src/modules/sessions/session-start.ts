@@ -132,6 +132,11 @@ export interface SessionStartPorts {
     agentKind: AgentKind,
     use?: MachineUseResolver,
   ): MachineId
+  onSpawnTargetLogin?(input: {
+    machineId: string
+    agentKind: AgentKind
+    ownerUserId: UserId
+  }): void
   toMachine(machineId: string, message: ControlMessage): void
   broadcastSessions(): void
   /** The issue that owns this cwd's worktree, if exactly one does. */
@@ -339,6 +344,11 @@ export class SessionStart {
     }
     const sessionId = input.sessionId ?? asSessionId(randomUUID())
     const machineId = input.machineId ? asMachineId(input.machineId) : this.ports.defaultMachine()
+    this.ports.onSpawnTargetLogin?.({
+      machineId,
+      agentKind: input.agentKind,
+      ownerUserId: input.ownerUserId ?? FIRST_ADMIN_USER_ID,
+    })
     const launch = this.ports.launchConfig.modelDefaults(
       input.agentKind,
       input.model !== undefined || input.effort !== undefined

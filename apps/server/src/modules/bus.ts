@@ -6,6 +6,7 @@ import type {
   IssueWire,
   SessionId,
   SessionMeta,
+  HarnessAgent,
   TranscriptItem,
   UserId,
 } from '@podium/model'
@@ -16,6 +17,7 @@ import type {
   SessionOpenUrlMessage,
 } from '@podium/protocol'
 import type { InboxPrincipalReference } from './sessions/inbox'
+import type { HarnessErrorKind } from './superagent/harness-error'
 
 /**
  * The typed in-process event map (architecture redesign, issue #13 Phase 2).
@@ -122,6 +124,9 @@ export interface EventMap {
     ok: boolean
     output?: string
     error?: string
+    /** Present when a failed turn was classified by the harness classifier. */
+    harness?: HarnessAgent
+    harnessErrorKind?: HarnessErrorKind
   }
 }
 

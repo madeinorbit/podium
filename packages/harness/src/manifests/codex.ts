@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { basename, dirname, join, relative } from 'node:path'
 import { codexRecordToItems, codexRuntime } from '@podium/transcript'
 import {
@@ -8,6 +8,7 @@ import {
   resolvePinnedCodexRollout,
 } from '../agent-state/codex.js'
 import { withStateChannel } from '../agent-state/types.js'
+import { CodexCredentialAbsenceGrace } from '../codex-credential-absence-grace.js'
 import { createCodexConversationProvider } from '../discovery/providers/codex.js'
 import { composeAgentInstructions } from '../instructions.js'
 import {
@@ -63,6 +64,8 @@ function maskedAccountId(accountId: string): string {
  *  Streamable-HTTP client must receive this as a FIRST-CLASS `bearer_token_env_var`
  *  (see below) — a raw `http_headers` bearer makes it attempt OAuth and die. */
 const CODEX_AUTH_HEADERS = new Set(['x-podium-mcp-token', 'authorization'])
+
+const codexCredentialAbsenceGrace = new CodexCredentialAbsenceGrace()
 
 /** Deterministic per-server env var carrying the bearer token to codex. */
 function bearerEnvVar(serverName: string): string {
@@ -187,28 +190,39 @@ export const codexManifest: AgentManifest = {
       compareFreshness: compareCodexAuthFreshness,
     }),
     detectLogin(homeDir) {
+      const path = codexAuthPath(homeDir)
+      let contents: string
       try {
-        const path = codexAuthPath(homeDir)
-        const contents = readFileSync(path, 'utf8')
-        const file = JSON.parse(contents) as CodexAuthFile
-        const tokens = file.tokens
-        if (!tokens?.access_token || !tokens.refresh_token) return { state: 'out' }
-        const account =
-          codexProfile(tokens.id_token) ??
-          (tokens.account_id
-            ? `ChatGPT · ${maskedAccountId(tokens.account_id)}`
-            : 'ChatGPT subscription')
-        const identity = readIdentityFromAuthContents(contents)
-        const freshness = readFreshnessFromAuthContents(contents)
-        return {
-          state: 'in',
-          account,
-          ...(identity ? { identity } : {}),
-          ...(freshness !== undefined ? { freshness } : {}),
-        }
+        contents = readFileSync(path, 'utf8')
       } catch {
-        return { state: 'out' }
+        // auth.json is replaced in place. A missing file under an existing
+        // .codex directory is a write in progress; a missing directory is a
+        // settled structural absence and must be reported immediately.
+        return codexCredentialAbsenceGrace.missing(path, existsSync(dirname(path)))
       }
+      let file: CodexAuthFile
+      try {
+        file = JSON.parse(contents) as CodexAuthFile
+      } catch {
+        return codexCredentialAbsenceGrace.present(path, { state: 'out' })
+      }
+      const tokens = file.tokens
+      if (!tokens?.access_token || !tokens.refresh_token) {
+        return codexCredentialAbsenceGrace.present(path, { state: 'out' })
+      }
+      const account =
+        codexProfile(tokens.id_token) ??
+        (tokens.account_id
+          ? `ChatGPT · ${maskedAccountId(tokens.account_id)}`
+          : 'ChatGPT subscription')
+      const identity = readIdentityFromAuthContents(contents)
+      const freshness = readFreshnessFromAuthContents(contents)
+      return codexCredentialAbsenceGrace.present(path, {
+        state: 'in',
+        account,
+        ...(identity ? { identity } : {}),
+        ...(freshness !== undefined ? { freshness } : {}),
+      })
     },
   },
 

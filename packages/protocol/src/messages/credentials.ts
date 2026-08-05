@@ -16,6 +16,8 @@ export const CredentialExportRequestMessage = z.object({
   type: z.literal('credentialExportRequest'),
   requestId: z.string(),
   kinds: z.array(PortableCredentialKind).max(4),
+  /** Server-only native login propagation; absent keeps legacy pairing behavior. */
+  propagation: z.boolean().optional(),
 })
 export const CredentialExportResultMessage = z.object({
   type: z.literal('credentialExportResult'),
@@ -29,6 +31,8 @@ export const CredentialInstallRequestMessage = z.object({
   type: z.literal('credentialInstallRequest'),
   requestId: z.string(),
   bundles: z.array(PortableCredentialBundle).max(4),
+  /** Server-only native login propagation; absent keeps legacy pairing behavior. */
+  propagation: z.boolean().optional(),
 })
 export const CredentialInstallResultMessage = z.object({
   type: z.literal('credentialInstallResult'),
