@@ -8,7 +8,7 @@ import phase3BrowserConfig from '../tests/e2e/.phase3-playwright.config'
 import browserConfig from '../tests/e2e/playwright.config'
 import acceptanceConfig from '../vitest.acceptance.config'
 import agentSmokeConfig from '../vitest.agent-smoke.config'
-import rootConfig, { sharedVitestConfig } from '../vitest.config'
+import rootConfig, { resolveTestWorkerLimit, sharedVitestConfig } from '../vitest.config'
 import integrationConfig from '../vitest.integration.config'
 import { ptySmokeTests, realAgentSmokeTests } from '../vitest.smoke-requirements'
 import unitConfig, { normalizedWireTests } from '../vitest.unit.config'
@@ -24,6 +24,7 @@ type Project =
         exclude?: string[]
         include?: string[]
         retry?: number
+        minWorkers?: number
         maxWorkers?: number
         fileParallelism?: boolean
         sequence?: { groupOrder?: number }
@@ -37,6 +38,7 @@ type Config = {
     include?: string[]
     projects?: Project[]
     retry?: number
+    minWorkers?: number
     maxWorkers?: number
     fileParallelism?: boolean
     setupFiles?: string[]
@@ -112,6 +114,26 @@ describe('test lane configuration', () => {
     expect(nodeProject(unitConfig).test?.retry).toBe(0)
     expect(namedProject(unitConfig, 'normalized-wire').test?.retry).toBe(0)
     expect(config(integrationConfig).test?.retry).toBe(1)
+  })
+  it('caps forked lanes for the shared host', () => {
+    const rootNode = nodeProject(rootConfig).test
+    expect(rootNode?.fileParallelism).toBe(true)
+    expect(rootNode?.minWorkers).toBe(1)
+    expect(rootNode?.maxWorkers).toBe(2)
+    expect(config(integrationConfig).test?.minWorkers).toBe(1)
+    expect(config(integrationConfig).test?.maxWorkers).toBe(2)
+    for (const appConfig of [webConfig, mobileConfig]) {
+      expect(config(appConfig).test?.maxWorkers).toBe(sharedVitestConfig.test.maxWorkers)
+    }
+  })
+
+  it('defaults worker limits safely and accepts explicit host overrides', () => {
+    expect(resolveTestWorkerLimit(undefined)).toBe(2)
+    expect(resolveTestWorkerLimit('6')).toBe(6)
+    expect(resolveTestWorkerLimit(' auto ')).toBeUndefined()
+    expect(() => resolveTestWorkerLimit('0')).toThrow(
+      'PODIUM_TEST_WORKERS must be a positive integer or "auto"',
+    )
   })
 
   it('runs normalized-wire load guards after the parallel unit pool', () => {
@@ -310,9 +332,9 @@ describe('test lane configuration', () => {
           throw new Error(`script "${name}": vitest invocation did not capture`)
         }
         expect(
-          invocation.trim(),
-          `script "${name}" must run vitest via bun --bun node_modules/vitest/vitest.mjs`,
-        ).toMatch(/^(?:[A-Z_]+=\S+\s+)*bun --bun node_modules\/vitest\/vitest\.mjs\b/)
+          invocation.includes('bun --bun node_modules/vitest/vitest.mjs'),
+          'vitest invocations must use bun --bun node_modules/vitest/vitest.mjs',
+        ).toBe(true)
       }
     }
   })

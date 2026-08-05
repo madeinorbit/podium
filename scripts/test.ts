@@ -24,6 +24,7 @@
  * `@podium/web#test` / `@podium/mobile#test`.
  */
 import { join } from 'node:path'
+import { runWithHeavyTestLease } from './test-heavy'
 import { decideForce, fingerprint, readCensus } from './typecheck'
 
 const REFUSAL = `\
@@ -67,15 +68,15 @@ async function main() {
     process.exit(1)
   }
   if (decision.reason) console.error(`uncached run, reason: ${decision.reason}`)
-  const proc = Bun.spawn(
-    [join(root, 'node_modules', '.bin', 'turbo'), 'run', 'test', ...decision.forwardArgs],
-    {
-      cwd: root,
-      stdio: ['inherit', 'inherit', 'inherit'],
-      env: { ...process.env, PODIUM_CHECK_ENV_HASH: fingerprint(census), TURBO_FORCE: undefined },
-    },
+  process.exit(
+    await runWithHeavyTestLease(
+      [join(root, 'node_modules', '.bin', 'turbo'), 'run', 'test', ...decision.forwardArgs],
+      {
+        cwd: root,
+        env: { ...process.env, PODIUM_CHECK_ENV_HASH: fingerprint(census), TURBO_FORCE: undefined },
+      },
+    ),
   )
-  process.exit(await proc.exited)
 }
 
 if (import.meta.main) await main()
