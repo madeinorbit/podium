@@ -47,6 +47,47 @@ const CONTENT_TYPES: Record<string, string> = {
 }
 
 /**
+ * Extensions that mean "this request wants a FILE, not a page" [POD-421]. An
+ * unmatched path ending in one of these gets a 404 rather than the SPA shell:
+ * answering an icon probe with 200 text/html is a lie every consumer of it
+ * mishandles differently — iOS's Add to Home Screen silently keeps whatever it
+ * had, crawlers index the shell under an image URL, unfurlers show nothing.
+ *
+ * A DENYLIST of known asset types, deliberately not "the path contains a dot":
+ * SPA routes carry user-authored segments (branch names, repo names, file
+ * paths) that may well contain one, and 404ing those would break navigation to
+ * them. Erring toward serving the shell is the safe direction here.
+ */
+const ASSET_EXTENSIONS = new Set([
+  '.avif',
+  '.br',
+  '.css',
+  '.eot',
+  '.gif',
+  '.gz',
+  '.ico',
+  '.jpeg',
+  '.jpg',
+  '.js',
+  '.json',
+  '.map',
+  '.mjs',
+  '.mp4',
+  '.otf',
+  '.png',
+  '.svg',
+  '.ttf',
+  '.txt',
+  '.wasm',
+  '.webm',
+  '.webmanifest',
+  '.webp',
+  '.woff',
+  '.woff2',
+  '.xml',
+])
+
+/**
  * Content types worth compressing. Everything else here (png, ico, woff/woff2)
  * is already compressed — running deflate over it burns CPU for ~0% gain, so the
  * bytes go out as-is. Keyed by extension rather than by sniffing the body.
@@ -271,6 +312,66 @@ function isBackendRoute(pathname: string): boolean {
 }
 
 /**
+ * Whether an unmatched path may fall back to the SPA shell [POD-421]. Only a
+ * NAVIGATION may: everything else asked for a specific file that is not there,
+ * and deserves to hear so.
+ *
+ * Two independent tells, either of which is enough to refuse:
+ *
+ *  - the path ends in a known asset extension (see ASSET_EXTENSIONS);
+ *  - `Accept` names concrete types and text/html is not among them — an image
+ *    probe sends `image/png,image/*;q=0.8`, a fetch() for JSON sends
+ *    `application/json`.
+ *
+ * `Sec-Fetch-Mode: navigate` would be the direct answer and is checked first
+ * when present, but it is not something to REQUIRE: it rides only on secure
+ * contexts, and a plain-http LAN instance (how Podium is usually reached) sees
+ * it on no request at all. The two tells above work everywhere.
+ *
+ * A wildcard Accept, or no Accept at all, still gets the shell — that is what
+ * curl and a lot of tooling send, and guessing against them would 404 real
+ * navigations.
+ */
+function isNavigationRequest(pathname: string, c: Context): boolean {
+  const mode = c.req.header('sec-fetch-mode')
+  if (mode) return mode === 'navigate'
+  if (ASSET_EXTENSIONS.has(extname(pathname).toLowerCase())) return false
+  const accept = c.req.header('accept')
+  if (!accept) return true
+  return accept.split(',').some((entry) => {
+    const type = entry.split(';')[0]?.trim().toLowerCase()
+    return type === 'text/html' || type === '*/*' || type === 'text/*'
+  })
+}
+
+/**
+ * iOS probes these two EXACT names at the origin root when a page's declared
+ * apple-touch-icon cannot be used, and it is the only icon path that Add to
+ * Home Screen has when the declaration is missed [POD-421]. Neither name is
+ * emitted by @vite-pwa/assets-generator (which writes the sized name) or by
+ * Expo, so both are served here as aliases of whatever 180x180 the dist does
+ * ship. `-precomposed` is the older spelling and means "already has the gloss
+ * baked in" — the same bytes answer it.
+ */
+const APPLE_TOUCH_ICON_NAMES = new Set([
+  '/apple-touch-icon.png',
+  '/apple-touch-icon-precomposed.png',
+])
+const APPLE_TOUCH_ICON_SOURCES = [
+  'apple-touch-icon-180x180.png', // apps/web, via pwa-assets.config.ts
+  join('icons', 'apple-touch-icon.png'), // apps/mobile, via scripts/generate-web-icons.ts
+]
+
+function appleTouchIcon(webDir: string, inside: string): string | null {
+  if (!APPLE_TOUCH_ICON_NAMES.has(inside)) return null
+  for (const name of APPLE_TOUCH_ICON_SOURCES) {
+    const candidate = join(webDir, name)
+    if (existsSync(candidate) && statSync(candidate).isFile()) return candidate
+  }
+  return null
+}
+
+/**
  * Mobile entry routing [POD-102, reverses SP-902c]: the Expo app at /mobile is
  * the ONLY mobile UX — phone browsers hitting exactly `/` are redirected there.
  * The responsive web shell is gone; /desktop remains as the Expo app's escape
@@ -362,6 +463,11 @@ export function registerWebStatic(app: Hono, webDir: string, opts: StaticWebOpti
     ) {
       return await serveFile(filePath, accepted)
     }
+    const icon = appleTouchIcon(webDir, inside)
+    if (icon) return await serveFile(icon, accepted)
+    // A missing FILE is a 404, not the web page. Only navigations fall through
+    // to the shell [POD-421].
+    if (!isNavigationRequest(pathname, c)) return c.notFound()
     // index.html goes out through ONE path — the fallback — even when it was
     // asked for by name. The service worker precaches `/index.html` explicitly,
     // so a second, un-annotated route for the same file is how the stale-build

@@ -9,6 +9,8 @@ import { registerMobileRouting, registerWebStatic } from './static-web'
 /** Big and highly compressible, like a real JS chunk. */
 const BIG_JS = 'export const x = "podium";\n'.repeat(400)
 const PRE_BR = brotliCompressSync(Buffer.from('pre-compressed at build time'))
+/** Stands in for the 180x180 the pwa-assets build writes into the dist root. */
+const APPLE_ICON = Buffer.alloc(2048, 9)
 
 describe('registerWebStatic', () => {
   let dir: string
@@ -29,6 +31,7 @@ describe('registerWebStatic', () => {
     writeFileSync(join(dir, 'assets', 'pre.js'), 'pre-compressed at build time')
     writeFileSync(join(dir, 'assets', 'pre.js.br'), PRE_BR)
     writeFileSync(join(dir, 'assets', 'logo.png'), Buffer.alloc(4096, 7))
+    writeFileSync(join(dir, 'apple-touch-icon-180x180.png'), APPLE_ICON)
     registerWebStatic(app, dir)
   })
   afterAll(() => rmSync(dir, { recursive: true, force: true }))
@@ -48,6 +51,48 @@ describe('registerWebStatic', () => {
     const res = await app.request('/settings/machines')
     expect(res.status).toBe(200)
     expect(await res.text()).toContain('Podium')
+  })
+  it('404s an unmatched asset path instead of serving the web page [POD-421]', async () => {
+    // The bug: iOS probes these two exact names at the origin root, got
+    // 200 text/html, and could not decode a web page as an icon.
+    for (const path of ['/nope.png', '/missing.js', '/absent.webmanifest', '/gone.ico']) {
+      const res = await app.request(path)
+      expect(res.status, path).toBe(404)
+    }
+  })
+  it('404s an unmatched path whose Accept rules out HTML [POD-421]', async () => {
+    const res = await app.request('/settings/machines', {
+      headers: { accept: 'image/avif,image/webp,image/png' },
+    })
+    expect(res.status).toBe(404)
+  })
+  it('still serves the shell for a real navigation [POD-421]', async () => {
+    // Every shape a genuine navigation arrives in: a browser's Accept, the
+    // Sec-Fetch-Mode tell, a bare */* from curl, and no Accept at all.
+    const navigations: Record<string, string>[] = [
+      { accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' },
+      { 'sec-fetch-mode': 'navigate', accept: 'text/html' },
+      { accept: '*/*' },
+      {},
+    ]
+    for (const headers of navigations) {
+      const res = await app.request('/settings/machines', { headers })
+      expect(res.status, JSON.stringify(headers)).toBe(200)
+      expect(await res.text()).toContain('Podium')
+    }
+  })
+  it('does not 404 a SPA route that merely contains a dot [POD-421]', async () => {
+    // Branch and repo names reach the router verbatim; `.` in a segment is not
+    // evidence of an asset request.
+    const res = await app.request('/repo/podium.web/branch/release-1.2')
+    expect(res.status).toBe(200)
+    expect(await res.text()).toContain('Podium')
+  })
+  it('refuses a non-navigation even when Sec-Fetch-Mode says so [POD-421]', async () => {
+    const res = await app.request('/settings/machines', {
+      headers: { 'sec-fetch-mode': 'no-cors', accept: 'text/html' },
+    })
+    expect(res.status).toBe(404)
   })
   it('does not shadow API routes', async () => {
     const res = await app.request('/trpc/x')
@@ -115,6 +160,43 @@ describe('registerWebStatic', () => {
     expect(shell.headers.get('cache-control')).toBe('no-cache')
     const unhashed = await app.request('/assets/app.js')
     expect(unhashed.headers.get('cache-control')).toBe('no-cache')
+  })
+  it('serves both classic Apple touch-icon names at the root [POD-421]', async () => {
+    // iOS asks for exactly these when a page's declared icon cannot be used;
+    // neither name is emitted by the pwa-assets build.
+    for (const path of ['/apple-touch-icon.png', '/apple-touch-icon-precomposed.png']) {
+      const res = await app.request(path)
+      expect(res.status, path).toBe(200)
+      expect(res.headers.get('content-type'), path).toBe('image/png')
+      expect(Buffer.from(await res.arrayBuffer()).equals(APPLE_ICON), path).toBe(true)
+    }
+  })
+  it('aliases the Apple touch-icon to the Expo icon set under /mobile [POD-421]', async () => {
+    const mobile = mkdtempSync(join(tmpdir(), 'podium-mobile-'))
+    try {
+      writeFileSync(join(mobile, 'index.html'), '<!doctype html><title>Podium Mobile</title>')
+      mkdirSync(join(mobile, 'icons'))
+      writeFileSync(join(mobile, 'icons', 'apple-touch-icon.png'), APPLE_ICON)
+      const app = new Hono()
+      registerWebStatic(app, mobile, { basePath: '/mobile' })
+
+      const res = await app.request('/mobile/apple-touch-icon-precomposed.png')
+      expect(res.status).toBe(200)
+      expect(Buffer.from(await res.arrayBuffer()).equals(APPLE_ICON)).toBe(true)
+    } finally {
+      rmSync(mobile, { recursive: true, force: true })
+    }
+  })
+  it('404s the Apple touch-icon when the dist ships none [POD-421]', async () => {
+    const bare = mkdtempSync(join(tmpdir(), 'podium-bare-'))
+    try {
+      writeFileSync(join(bare, 'index.html'), '<!doctype html><title>Podium</title>')
+      const app = new Hono()
+      registerWebStatic(app, bare)
+      expect((await app.request('/apple-touch-icon.png')).status).toBe(404)
+    } finally {
+      rmSync(bare, { recursive: true, force: true })
+    }
   })
   it('returns false and registers nothing when no build is present', () => {
     const empty = mkdtempSync(join(tmpdir(), 'podium-empty-'))
