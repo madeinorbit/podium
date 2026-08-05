@@ -100,6 +100,36 @@ describe('toolBatchTitle — the work line names its objects (POD-376)', () => {
     ).toBe('Read one.ts, two.ts +1')
   })
 
+  // Both found by reading the rendered feed on a real session, not by reasoning.
+  it('names each file once, however often it was touched', () => {
+    // Was: "Read AgentPanel.tsx, AgentPanel.tsx +1" — the budget spent saying
+    // one name twice. The count still reports all three calls.
+    expect(
+      toolBatchTitle([
+        withPath('Read', 'a', '/repo/AgentPanel.tsx'),
+        withPath('Read', 'b', '/repo/AgentPanel.tsx'),
+        withPath('Read', 'c', '/repo/AgentPanel.tsx'),
+      ]),
+    ).toBe('Read AgentPanel.tsx +2')
+  })
+
+  it('skips cd and env preamble to reach the command that ran', () => {
+    // Was: "Ran cd /home/podium/podium; WT=/t…" — thirty characters of nothing.
+    expect(toolBatchTitle([bash('a', 'cd /home/podium/podium; bun run test')])).toBe(
+      'Ran bun run test',
+    )
+    expect(toolBatchTitle([bash('b', 'TMPDIR=/tmp/claude-1000 bun run build')])).toBe(
+      'Ran bun run build',
+    )
+    expect(toolBatchTitle([bash('c', 'cd /repo && FOO=1 BAR=2 bunx vitest run')])).toBe(
+      'Ran bunx vitest run',
+    )
+  })
+
+  it('keeps a bare cd rather than reducing it to nothing', () => {
+    expect(toolBatchTitle([bash('a', 'cd /home/podium/podium')])).toBe('Ran cd /home/podium/podium')
+  })
+
   it('stays within one line for a long run', () => {
     const many = Array.from({ length: 12 }, (_, i) =>
       bash(`b${i}`, `bun run some-quite-long-command-name-${i} --with --flags`),

@@ -312,7 +312,37 @@ export function toolSubject(item: TranscriptItem): string | undefined {
     ''
   const first = raw.split('\n', 1)[0]?.trim() ?? ''
   if (!first) return undefined
-  return shorten(first, SUBJECT_MAX)
+  return shorten(name === 'Bash' ? significantCommand(first) : first, SUBJECT_MAX)
+}
+
+/** Leading `cd <somewhere> ;` / `&&` — preamble, not the command. */
+const CD_PREAMBLE_RE = /^cd\s+[^;&|]+(?:;|&&)\s*/i
+/** Leading `VAR=value ` environment assignments — also preamble. */
+const ENV_PREAMBLE_RE = /^[A-Za-z_][\w]*=(?:"[^"]*"|'[^']*'|\S*)\s+/
+
+/**
+ * The part of a shell command a reader is actually looking for.
+ *
+ * A one-line summary truncates at thirty characters, and agents habitually
+ * prefix commands with a `cd` into the worktree and a run of environment
+ * assignments — so the whole budget went to preamble and the row read
+ * "Ran cd /home/podium/podium; WT=/t…" or, worse, started mid-variable:
+ * "Running S=/tmp/claude-1000/-home-podi…". Strip the preamble and the
+ * remaining text is the command that ran.
+ *
+ * Falls back to the original whenever stripping would leave nothing, so a bare
+ * `cd somewhere` still names itself rather than vanishing.
+ */
+export function significantCommand(command: string): string {
+  let out = command.trim()
+  // Loop: `cd x && FOO=1 BAR=2 bun test` is all four shapes in sequence.
+  for (let i = 0; i < 8; i++) {
+    const stripped = out.replace(CD_PREAMBLE_RE, '').replace(ENV_PREAMBLE_RE, '')
+    if (stripped === out) break
+    if (stripped.trim() === '') return out
+    out = stripped.trim()
+  }
+  return out || command.trim()
 }
 
 const pluralizeNoun = (noun: string): string =>
@@ -362,9 +392,15 @@ export function toolBatchTitle(blocks: ChatBlock[]): string {
     const { verb, noun, subjects, count } = tally.get(key)!
     // Nothing nameable in this whole clause — count it the old way.
     if (subjects.length === 0) return clauseFor(verb, noun, count)
-    const shown = subjects.slice(0, SUBJECTS_PER_CLAUSE)
-    // The tail counts every call the clause covers, not just the named ones, so
-    // "+2" never under-reports a run that mixed named and unnamed calls.
+    // DEDUPE FIRST. An agent re-reading one file four times produced "Read
+    // AgentPanel.tsx, AgentPanel.tsx +2", which spends the line's whole budget
+    // saying one name twice. Distinct names are the information; the count
+    // already carries how much happened.
+    const distinct = [...new Set(subjects)]
+    const shown = distinct.slice(0, SUBJECTS_PER_CLAUSE)
+    // The tail counts every CALL the clause covers, not the names dropped from
+    // it, so "+2" never under-reports a run that mixed named and unnamed calls
+    // — and repeated work on one file still shows up in the total.
     const rest = count - shown.length
     return `${verb} ${shown.join(', ')}${rest > 0 ? ` +${rest}` : ''}`
   })
