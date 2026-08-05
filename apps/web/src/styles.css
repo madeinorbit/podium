@@ -204,10 +204,13 @@ body {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   line-height: 1;
-  /* The digits stay on the label's baseline. Raising them to sit on its
-     CAP-height centre was tried (POD-398) and read as sprung loose: at 9px the
-     count's own centre already lands on the label's x-height band, which is the
-     line the eye reads a small number against. No nudge. */
+  /* Dropped one pixel BELOW the label's baseline, which puts the digits' cap
+     top on its x-height line: the count reads as sitting inside the lowercase
+     band of "Tasks" rather than standing level with it. Raising it instead — to
+     the label's cap-height centre — was tried on POD-398 and read as sprung
+     loose, and shared-baseline read top-heavy against the 11.5px word. Two
+     pixels droops. This is the tuned value, arrived at in the live bar. */
+  transform: translateY(1px);
 }
 /* A mode's controls inside the slot. Everything is 28px so the whole bar sits on
    one optical line with the mode tabs and the instrument well. */
@@ -309,6 +312,9 @@ body {
     border-radius: 50%;
     background: var(--attention);
     font-size: 0;
+    /* The dot is placed off the glyph, not off a label that is no longer here,
+       so it does not take the digits' drop. */
+    transform: none;
   }
 }
 html[data-podium-desktop="true"] .desktop-topbar,
