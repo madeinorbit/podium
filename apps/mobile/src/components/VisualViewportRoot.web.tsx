@@ -17,6 +17,17 @@ function measure(): number {
   return Math.round(window.visualViewport?.height ?? window.innerHeight)
 }
 
+/**
+ * The screen itself — the one height WebKit's leak does not touch, because it
+ * is not a viewport [POD-420]. An installed app is full-screen by definition, so
+ * in that mode this is what the root should fill. Returns null where it cannot
+ * be trusted or read.
+ */
+function screenHeight(): number | null {
+  const height = Math.round(window.screen?.height ?? 0)
+  return height > 0 ? height : null
+}
+
 /** True in an Add-to-Home-Screen launch, false in a Safari tab. */
 function isInstalled(): boolean {
   return (
@@ -54,6 +65,16 @@ export function VisualViewportRoot({ children }: { children: ReactNode }) {
     }
     const update = () => {
       const measured = measure()
+      // Holding the tallest measurement only rescues a launch that saw a full
+      // one FIRST [POD-420]. It does not, and the app came back from the
+      // background already docked — so every measurement this launch was short,
+      // `tallest` had nothing better to hold, and the app ran a toolbar's worth
+      // above the bottom of the screen for good. Once the tab bar stopped
+      // owning that strip, the band showed: a dead margin the list would not
+      // scroll into. The screen is the arbiter, and only within leak range, so
+      // a genuinely smaller viewport is still believed.
+      const screen = installed ? screenHeight() : null
+      if (screen !== null && screen - measured < KEYBOARD_MIN) tallest = Math.max(tallest, screen)
       tallest = Math.max(tallest, measured)
       const keyboardOpen = tallest - measured >= KEYBOARD_MIN
       setHeight(installed && !keyboardOpen ? tallest : measured)

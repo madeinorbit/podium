@@ -38,6 +38,7 @@ import { TaskPeekSheet } from '../components/TaskPeekSheet'
 import { EmptyState, ListSkeleton, StatusDot } from '../components/ui'
 import { useCollapsed } from '../hooks/useCollapsed'
 import { useRefreshableTab } from '../hooks/useRefreshableTab'
+import { useMinimizeTabBarOnScroll } from '../hooks/useMinimizeTabBarOnScroll'
 import { useTabBarInset } from '../hooks/useTabBarInset'
 import { sessionHref } from '../lib/session-route'
 import { FLOW_SLATE, flow, issueColorHex } from '../theme/issueColors'
@@ -119,6 +120,7 @@ export function WorkScreen() {
   const booting = useBooting()
   const { listRef, refreshControl } = useRefreshableTab('work')
   const tabBarInset = useTabBarInset()
+  const minimizeOnScroll = useMinimizeTabBarOnScroll()
   // THE SAME LIST THE DESKTOP SIDEBAR RENDERS, DERIVED ONCE (POD-331/POD-332).
   // This screen used to call `sidebarSections` → `unifiedWorkList` →
   // `splitPinnedWork` → `groupUnifiedWorkRows` itself, on a private
@@ -231,6 +233,7 @@ export function WorkScreen() {
         keyExtractor={(row) => (row.kind === 'issue' ? row.issue.id : row.worktree.path)}
         refreshControl={refreshControl}
         contentContainerStyle={[styles.listContent, { paddingBottom: tabBarInset + space.lg }]}
+        {...minimizeOnScroll}
         stickySectionHeadersEnabled={false}
         renderSectionHeader={({ section }) => (
           <View style={styles.groupLabel}>

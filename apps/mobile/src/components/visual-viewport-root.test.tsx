@@ -30,9 +30,10 @@ class FakeViewport extends EventTarget {
 
 let viewport: FakeViewport
 
-function install(standalone: boolean) {
+function install(standalone: boolean, screen = SCREEN) {
   viewport = new FakeViewport()
   Object.defineProperty(window, 'visualViewport', { value: viewport, configurable: true })
+  Object.defineProperty(window, 'screen', { value: { height: screen }, configurable: true })
   Object.defineProperty(window, 'matchMedia', {
     value: (query: string) => ({
       matches: standalone && query.includes('standalone'),
@@ -70,6 +71,26 @@ describe('installed app', () => {
     // The keyboard goes; WebKit hands back less than it took and stays there.
     act(() => viewport.resizeTo(LEAKED))
     expect(rootHeight(container)).toBe(`${SCREEN}px`)
+  })
+
+  it('fills the screen when EVERY measurement this launch is already leaked', () => {
+    // POD-420: the app resumed from the background already docked, so there was
+    // never a full-height measurement for `tallest` to hold. It rendered short
+    // for the whole launch — invisible until the tab bar stopped covering the
+    // strip, then a band the list would not scroll into.
+    install(true)
+    viewport.height = LEAKED
+    const { container } = render(<VisualViewportRoot>app</VisualViewportRoot>)
+    expect(rootHeight(container)).toBe(`${SCREEN}px`)
+  })
+
+  it('still believes a viewport that is genuinely smaller than the screen', () => {
+    // Only a shortfall within leak range is the leak. A real keyboard, or a
+    // window that is honestly not full-screen, has to be followed.
+    install(true)
+    viewport.height = KEYBOARD
+    const { container } = render(<VisualViewportRoot>app</VisualViewportRoot>)
+    expect(rootHeight(container)).toBe(`${KEYBOARD}px`)
   })
 })
 

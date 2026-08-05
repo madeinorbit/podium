@@ -11,6 +11,7 @@ import { PressableScale } from '../components/PressableScale'
 import { HeaderButton, Screen } from '../components/Screen'
 import { EmptyState, ListSkeleton, Pill } from '../components/ui'
 import { useRefreshableTab } from '../hooks/useRefreshableTab'
+import { useMinimizeTabBarOnScroll } from '../hooks/useMinimizeTabBarOnScroll'
 import { useTabBarInset } from '../hooks/useTabBarInset'
 import { buildScreeningQueue } from '../lib/screening'
 import { flow, issueColorHex } from '../theme/issueColors'
@@ -41,6 +42,7 @@ export function IssuesScreen() {
   const booting = useBooting()
   const { listRef, refreshControl } = useRefreshableTab('issues')
   const tabBarInset = useTabBarInset()
+  const minimizeOnScroll = useMinimizeTabBarOnScroll()
 
   // The board's population is the desktop board's population (POD-338): no
   // archived or tombstoned rows, no DRAFT vessels (the placeholder issue every
@@ -98,6 +100,7 @@ export function IssuesScreen() {
         stickySectionHeadersEnabled
         refreshControl={refreshControl}
         contentContainerStyle={[styles.listContent, { paddingBottom: tabBarInset + space.lg }]}
+        {...minimizeOnScroll}
         ListHeaderComponent={
           proposals.length === 0 ? null : (
             <PressableScale

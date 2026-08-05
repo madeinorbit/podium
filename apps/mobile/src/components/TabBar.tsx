@@ -2,9 +2,23 @@ import { BlurView } from 'expo-blur'
 import * as Haptics from 'expo-haptics'
 import { BottomTabBarHeightCallbackContext } from 'expo-router/build/react-navigation/bottom-tabs'
 import { Inbox, KanbanSquare, MessagesSquare, Rows3 } from 'lucide-react-native'
-import { useContext } from 'react'
-import { type LayoutChangeEvent, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
+import { useContext, useEffect, useRef, useState } from 'react'
+import {
+  Animated,
+  type LayoutChangeEvent,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { useReduceMotion } from '../hooks/useReduceMotion'
+import {
+  getTabBarMinimized,
+  setTabBarMinimized,
+  subscribeTabBarMinimized,
+} from '../lib/tab-bar-minimize'
 import { emitTabReselect } from '../lib/tab-reselect'
 import { color, font, mono, radius, sans } from '../theme/theme'
 import { Icon } from './Icon'
@@ -18,6 +32,15 @@ const ICONS: Record<string, typeof Inbox> = {
 
 /** Gap between the capsule and the screen edges it floats over. */
 const INSET = 12
+/**
+ * Height the label row gives up when the bar folds to icons — the label plus
+ * the gap above it, which lives inside the row so folding reclaims both.
+ *
+ * How far the bar can actually shrink is set by the 44pt touch target below,
+ * not by this: a minimized tab is still a tab. Expanded ~66pt, minimized ~54pt,
+ * against iOS 26's own 68 → 49.
+ */
+const LABEL_ROW = 20
 
 /**
  * Structural slice of react-navigation's BottomTabBarProps (the package is not
@@ -67,9 +90,10 @@ interface TabBarProps {
  *    `useBottomTabBarHeight()`. Screens pad their scrollers by it (see
  *    ../hooks/useTabBarInset) so the last row still clears the bar.
  *
- * Deliberately NOT included: minimize-on-scroll. On iOS 26 that is opt-in
- * (`tabBarMinimizeBehavior`), not the default tab bar, and it would couple this
- * component to every screen's scroll handler.
+ * Minimize-on-scroll [POD-420]: scrolling down folds the labels away and leaves
+ * the icons, scrolling back up restores them — iOS 26's `tabBarMinimizeBehavior`,
+ * which is opt-in there rather than the default. Screens drive it through
+ * ../lib/tab-bar-minimize; see ../hooks/useMinimizeTabBarOnScroll.
  *
  * The active tab is a Superade Yellow chip; the Tray badge is the needs-you
  * count pill.
@@ -77,10 +101,33 @@ interface TabBarProps {
 export function TabBar({ state, descriptors, navigation }: TabBarProps) {
   const insets = useSafeAreaInsets()
   const onHeightChange = useContext(BottomTabBarHeightCallbackContext)
+  const reduceMotion = useReduceMotion()
 
-  // The navigator starts from an estimate and corrects on this measurement;
-  // reporting it is what makes the floating bar safe to scroll under.
-  const handleLayout = (e: LayoutChangeEvent) => onHeightChange?.(e.nativeEvent.layout.height)
+  const [minimized, setMinimized] = useState(getTabBarMinimized)
+  useEffect(() => subscribeTabBarMinimized(setMinimized), [])
+
+  // A folded bar must not follow you to the next tab: you arrive at the top of
+  // a list you have not scrolled, and the labels are the thing naming where you
+  // just landed.
+  const focusedRoute = state.routes[state.index]?.name
+  useEffect(() => setTabBarMinimized(false), [focusedRoute])
+
+  const fold = useRef(new Animated.Value(0)).current
+  useEffect(() => {
+    Animated.timing(fold, {
+      toValue: minimized ? 1 : 0,
+      duration: reduceMotion ? 0 : 200,
+      // Height is not a transform, so this cannot leave the JS thread.
+      useNativeDriver: false,
+    }).start()
+  }, [minimized, reduceMotion, fold])
+
+  // Report the EXPANDED height only. The inset it feeds is what keeps the last
+  // row reachable, and re-reporting a shorter bar mid-scroll would reflow the
+  // very list being scrolled — the content would creep upward under the thumb.
+  const handleLayout = (e: LayoutChangeEvent) => {
+    if (!minimized) onHeightChange?.(e.nativeEvent.layout.height)
+  }
 
   return (
     <View
@@ -132,9 +179,22 @@ export function TabBar({ state, descriptors, navigation }: TabBarProps) {
                     </View>
                   ) : null}
                 </View>
-                <Text style={[styles.label, focused && styles.labelActive]} numberOfLines={1}>
-                  {label}
-                </Text>
+                <Animated.View
+                  style={[
+                    styles.labelRow,
+                    {
+                      height: fold.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [LABEL_ROW, 0],
+                      }),
+                      opacity: fold.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
+                    },
+                  ]}
+                >
+                  <Text style={[styles.label, focused && styles.labelActive]} numberOfLines={1}>
+                    {label}
+                  </Text>
+                </Animated.View>
               </View>
             </Pressable>
           )
@@ -175,8 +235,9 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    // 44pt of tappable height even though the chip drawn inside is shorter.
-    minHeight: 46,
+    // The accessibility floor, and it is what limits how far the bar can fold:
+    // a minimized tab still has to be 44pt of thumb.
+    minHeight: 44,
   },
   chip: {
     // Hugs its label rather than filling the cell: a quarter-width block of
@@ -185,14 +246,21 @@ const styles = StyleSheet.create({
     maxWidth: '100%',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 3,
     paddingHorizontal: 18,
-    paddingTop: 6,
-    paddingBottom: 5,
+    paddingTop: 8,
+    paddingBottom: 7,
     borderRadius: 20,
   },
   chipActive: {
     backgroundColor: color.accentSoft,
+  },
+  labelRow: {
+    // The fold animates this box's height, so the text has to be clipped by it
+    // rather than pushing it open. The icon/label gap lives in here rather than
+    // as the chip's `gap`, so folding reclaims it instead of leaving a 3px
+    // ghost of a row that is no longer there.
+    overflow: 'hidden',
+    justifyContent: 'flex-end',
   },
   label: {
     ...sans(600),
