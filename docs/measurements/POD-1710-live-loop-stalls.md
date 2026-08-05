@@ -312,3 +312,49 @@ typeable/scrollable" — the correct framing, and the one to keep using until th
 sentinels land.
 
 Fresh-agent-start and cold-IndexedDB-load remain unmeasured.
+
+---
+
+# ROUND 2 AFTER: the bootstrap fix, measured live
+
+Server pid 1041388, main at `dc1b8ef57`, 65 min uptime, real browser traffic.
+
+## feedBootstrap.read — 3.1x faster, and the N+1s are gone from the top
+
+| phase | before p50 | **after p50** | change |
+|---|---|---|---|
+| `feedBootstrap.read` | 1096.0 ms | **351.9 ms** | **3.1x** |
+| ↳ `visibility.issue.getIssue` | 489.6 ms | **89.7 ms** | **5.5x** |
+| ↳ `visibility.conversation.findSessionByResumeValue` | 345.1 ms | **16.3 ms** | **21x** |
+| ↳ `visibility.session.getSession` | 87.6 ms | **14.7 ms** | **6.0x** |
+
+The three point-read N+1s fell from **922 ms to 121 ms**, and from **84% of the
+read to 34%**. POD-1732 did what it claimed.
+
+**Caveat, stated plainly:** n=3 after, n=2 before. The p90 reads *worse*
+(1873.6 ms vs 1441.1 ms), but at n=3 the p90 is effectively the single worst
+sample, and the worst sample here is the first bootstrap after a restart with
+cold caches. The p50 is the defensible figure; the tail needs more samples.
+
+## The client traces name the next two costs
+
+These traces still finalize at `chat:first-paint` / `term:ready` — the browser
+was running a CACHED bundle, so the interactable sentinels did not fire even
+though they are present in the shipped `dist`. Everything below is therefore
+still time-to-PAINT.
+
+| switch | total | dominant gap |
+|---|---|---|
+| **chat, cold** | **3838 ms** | **3489 ms in one `transcript:read-end` gap** |
+| **native, cold** | **1377 ms** | `term:connection:reset` 599 ms, `term:mount` 318 ms, `panel:mount` 179 ms |
+| native, warm | 92 ms | — |
+
+**The single largest interaction cost now measured anywhere in this
+investigation is the 3489 ms transcript read on a cold chat open.** It is one
+gap, in one mark interval, and it dwarfs everything POD-1710 has fixed so far.
+This matches `sessions.transcriptRead` p95 2377 ms seen earlier and is
+unaddressed.
+
+Cold native view open is 1377 ms, of which the terminal connection reset
+(599 ms) is the largest single piece — POD-1718 removed one of the two initial
+fits, and the remaining fit pair costs 273 ms.
