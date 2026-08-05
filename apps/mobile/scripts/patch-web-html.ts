@@ -20,7 +20,10 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-const file = join(import.meta.dir, '..', 'dist', 'index.html')
+// Takes the export directory, so a build can be patched and checked somewhere
+// other than the `dist/` the live instance is serving [POD-392].
+const out = process.argv[2] ?? join(import.meta.dir, '..', 'dist')
+const file = join(out, 'index.html')
 const html = readFileSync(file, 'utf8')
 
 const viewport = 'width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover'
