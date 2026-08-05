@@ -3,6 +3,7 @@ import {
   type IssueShowWire,
   type IssueTreeNode,
   type IssueTreeSession,
+  type IssueWire,
   machineByRef,
   type NameableMachine,
 } from '@podium/model'
@@ -1481,16 +1482,18 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     args: z.strictObject({ id: idArg, set: z.string().optional() }),
     positionals: ['id'],
     async run(c, a) {
+      // The seam is structural, so this reads `unknown` and casts at the use site
+      // like every other body here — but the cast PICKS its four members off
+      // `IssueWire` instead of respelling their types. Both procedures answer with
+      // the wire issue, so a hand-written copy would be a second declaration of
+      // the same four fields, free to drift from the wire without anything saying
+      // so (`scripts/representation-audit.ts`). The optionality is unchanged: all
+      // three tail members are `.optional()` on the wire too.
       const i = (
         a.set != null
           ? await c.issues.setState.mutate({ id: a.id as string, text: a.set as string })
           : await c.issues.get.query({ id: a.id as string })
-      ) as {
-        seq: number
-        displayRef?: string
-        activityNotes?: string
-        notesUpdatedAt?: string
-      } | null
+      ) as Pick<IssueWire, 'seq' | 'displayRef' | 'activityNotes' | 'notesUpdatedAt'> | null
       if (!i) throw new Error(`unknown issue ${a.id}`)
       // Self-reference nudge (POD-389): the state paragraph is read inside this
       // issue's own sidebar panel, so naming the issue in it is pure redundancy.

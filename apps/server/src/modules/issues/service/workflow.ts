@@ -48,6 +48,18 @@ function parentBranchKey(row: IssueRow): string {
   return JSON.stringify([row.machineId ?? '', row.repoPath, row.parentBranch])
 }
 
+/** What one {@link parentBranchKey} group carries into the sweep: the three row
+ *  fields the `rev-parse` needs, plus the issues answered by it.
+ *
+ *  PICKED from {@link IssueRow} rather than restated. The three are read straight
+ *  off the row and are never re-derived here, so a second spelling of their types
+ *  would be a copy of the issue vocabulary that could drift from it silently —
+ *  the thing `scripts/representation-audit.ts` counts. `ids` is this sweep's own
+ *  accumulator and belongs to no entity, which is why it is written out. */
+type ParentBranchGroup = Pick<IssueRow, 'repoPath' | 'parentBranch' | 'machineId'> & {
+  ids: string[]
+}
+
 /**
  * Git-workflow capability: ONE issue's git life — worktree start/cleanup, PR/merge
  * actions, extra sessions, Linear search, and the per-session git projection whose
@@ -1058,10 +1070,7 @@ export class IssueGitWorkflowModule {
    * fanning out across every issue at boot would be pure cost.
    */
   async sweepParentBranchMovement(): Promise<void> {
-    const groups = new Map<
-      string,
-      { repoPath: string; parentBranch: string; machineId?: string; ids: string[] }
-    >()
+    const groups = new Map<string, ParentBranchGroup>()
     for (const row of this.store.rows.values()) {
       if (!watchesParentBranch(row)) continue
       const key = parentBranchKey(row)
@@ -1071,7 +1080,7 @@ export class IssueGitWorkflowModule {
         groups.set(key, {
           repoPath: row.repoPath,
           parentBranch: row.parentBranch,
-          machineId: row.machineId ?? undefined,
+          machineId: row.machineId,
           ids: [row.id],
         })
       }
@@ -1083,7 +1092,15 @@ export class IssueGitWorkflowModule {
     await Promise.all(
       [...groups].map(async ([key, group]) => {
         const res = await this.store.d
-          .repoOp('revParseVerify', group.repoPath, { ref: group.parentBranch }, group.machineId)
+          .repoOp(
+            'revParseVerify',
+            group.repoPath,
+            { ref: group.parentBranch },
+            // The row carries "no machine" as null; the rpc reads it as undefined
+            // (= pick by repo affinity). Narrowed here, at the one call, rather
+            // than by giving the group its own spelling of the field.
+            group.machineId ?? undefined,
+          )
           .catch(() => ({ ok: false, output: '' }))
         // An unreadable parent branch (offline machine, ref not there yet) leaves
         // the last known tip intact: the next readable sweep compares against a
