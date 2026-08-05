@@ -71,6 +71,7 @@ export const grokManifest: AgentManifest = {
     argvPrompt: true,
     effortFlag: 'effort',
     systemPromptFlag: false,
+    newSessionIdFlag: true,
     quota: false,
     cloud: false,
     composerScrape: false,
@@ -115,6 +116,13 @@ export const grokManifest: AgentManifest = {
       cmd: 'grok',
       args: [
         ...(opts.resume ? ['--resume', opts.resume.value] : []),
+        // A bare `grok` creates no session state at all until the first turn —
+        // no ~/.grok/sessions/<cwd>/<id>/ directory, not even a SessionStart
+        // hook — so a spawned-but-unused session has nothing to discover and no
+        // transcript. Naming the new session up front materializes its directory
+        // (chat_history/summary/updates) at boot. `--session-id` is new-session
+        // only: with --resume it is an error unless --fork-session. [POD-386]
+        ...(!opts.resume && opts.newSessionId ? ['--session-id', opts.newSessionId] : []),
         ...(isSet(opts.model) ? ['--model', opts.model] : []),
         ...(isSet(opts.effort) ? ['--effort', opts.effort] : []),
         ...(instructions ? ['--rules', instructions] : []),
@@ -179,13 +187,16 @@ export const grokManifest: AgentManifest = {
   ],
 
   // Grok's native hooks carry lifecycle/state, but the payload names only the
-  // session id — not its on-disk transcript — so a polling observer still
-  // discovers the session dir the CLI creates and tails its update stream. On a
-  // fresh spawn `startedAtMs` is
-  // the spawn time, so discovery skips older sibling sessions in the same cwd.
-  // On reattach it's absent → observeGrokState defaults watermarkMs to 0 (no
-  // floor), so the latest-by-activity session is found even if it predates
-  // this daemon process start.
+  // session id — not its on-disk transcript — so the observer still tails the
+  // session dir's update stream. A Podium spawn names that session itself
+  // (newSessionIdFlag → `--session-id`), so `resumeValue` is set from the start
+  // and no discovery poll is involved. Discovery remains for the paths that
+  // don't know the id: reattach without a recorded resume ref, and sessions the
+  // user started outside Podium. On a fresh spawn `startedAtMs` is the spawn
+  // time, so discovery skips older sibling sessions in the same cwd. On reattach
+  // it's absent → observeGrokState defaults watermarkMs to 0 (no floor), so the
+  // latest-by-activity session is found even if it predates this daemon process
+  // start.
   observer: supported((input, host) => {
     let lease = input.observationLease
     let active: ReturnType<typeof observeGrokState> | undefined

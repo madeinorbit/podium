@@ -33,6 +33,7 @@ export const cursorManifest: AgentManifest = {
     argvPrompt: false,
     effortFlag: 'none',
     systemPromptFlag: false,
+    newSessionIdFlag: false,
     quota: false,
     cloud: false,
     composerScrape: false,

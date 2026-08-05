@@ -150,6 +150,7 @@ export const codexManifest: AgentManifest = {
     argvPrompt: true,
     effortFlag: 'codex-config',
     systemPromptFlag: false,
+    newSessionIdFlag: false,
     quota: true,
     cloud: true,
     composerScrape: true,

@@ -53,6 +53,12 @@ export interface SessionObserverInit {
   /** Freshness floor for spawn-time session discovery (grok/codex/opencode/cursor);
    *  omitted on reattach so discovery has no floor. */
   startedAtMs?: number
+  /** The native id this spawn told the CLI to create under
+   *  (capabilities.newSessionIdFlag). The session it names is the one the CLI is
+   *  starting, so the observer binds it directly instead of polling for whatever
+   *  appears in the cwd — which for grok is nothing at all until the first turn.
+   *  Spawn-only; a reattach carries the recorded resume ref instead. [POD-386] */
+  newSessionId?: string
 }
 
 export interface SessionObserversDeps {
@@ -1321,7 +1327,11 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         cwd: msg.cwd,
         statTick,
         podiumSessionId: msg.sessionId,
-        ...(msg.resume?.value ? { resumeValue: msg.resume.value } : {}),
+        ...(msg.resume?.value
+          ? { resumeValue: msg.resume.value }
+          : init.newSessionId
+            ? { resumeValue: init.newSessionId }
+            : {}),
         ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
         ...(init.startedAtMs !== undefined ? { startedAtMs: init.startedAtMs } : {}),
         // Reattach carries the session's original spawn time — the codex

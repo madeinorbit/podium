@@ -44,6 +44,7 @@ export const claudeCodeManifest: AgentManifest = {
     argvPrompt: true,
     effortFlag: 'effort',
     systemPromptFlag: true,
+    newSessionIdFlag: false,
     quota: true,
     cloud: true,
     composerScrape: true,

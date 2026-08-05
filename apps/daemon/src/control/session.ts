@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { delimiter, dirname, join } from 'node:path'
 import { agentStateProviderFor, harnessCapabilitiesFor, type LaunchFile } from '@podium/harness'
@@ -186,10 +187,21 @@ async function launchSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
     void ctx.sessionCwdTracker.setLaunchCwd(msg.sessionId, msg.cwd)
     const spawnStartedAt = Date.now()
     const runtimeDir = instructionRuntimeDir(ctx, msg.sessionId)
+    // Harnesses that let the caller name a NEW conversation get their native id
+    // minted here rather than discovered from disk afterwards. Grok creates no
+    // session directory at all until its first turn, so an unused session would
+    // otherwise never bind and its chat would stay empty. Minted per spawn (never
+    // derived from the session id): the CLI rejects an id that already exists, so
+    // a re-spawn of the same row must not reuse one. [POD-386]
+    const newSessionId =
+      !msg.resume && harnessCapabilitiesFor(msg.agentKind)?.newSessionIdFlag
+        ? randomUUID()
+        : undefined
     const cmd = ctx.launch(msg.agentKind, {
       cwd: msg.cwd,
       podiumSessionId: msg.sessionId,
       ...(msg.resume ? { resume: msg.resume } : {}),
+      ...(newSessionId ? { newSessionId } : {}),
       ...(msg.model ? { model: msg.model } : {}),
       ...(msg.effort ? { effort: msg.effort } : {}),
       ...(msg.initialPrompt ? { initialPrompt: msg.initialPrompt } : {}),
@@ -264,6 +276,7 @@ async function launchSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
     ctx.observers.initSessionObservers(msg, session, provider, {
       seedOnFrame: true,
       startedAtMs: spawnStartedAt,
+      ...(newSessionId ? { newSessionId } : {}),
     })
     // Draft Sync v2 (POD-859): begin composer sync for a flagged, composer-capable
     // session. attach() is a no-op for harnesses without a driver.

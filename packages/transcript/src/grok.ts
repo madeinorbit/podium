@@ -6,6 +6,12 @@ export function grokRecordToItems(record: unknown): TranscriptItem[] {
   if (!isRecord(record)) return []
   const kind = normalizeName(stringField(record, 'type') ?? stringField(record, 'role'))
   if (!kind || kind === 'reasoning') return []
+  // Grok marks its own injected turns with synthetic_reason (system_reminder,
+  // project_instructions, task_completed). They wear role 'user' but nobody
+  // typed them, and the first is written into chat_history at session creation —
+  // so without this an untouched session opens on an 8KB skill listing posing as
+  // the user's first message. Same call as Claude Code's isMeta turns. [POD-386]
+  if (stringField(record, 'synthetic_reason')) return []
 
   const ts =
     stringField(record, 'timestamp') ??
@@ -193,7 +199,9 @@ function taggedContent(text: string, tag: string): string | undefined {
 }
 
 function isInjectedGrokContext(text: string): boolean {
-  return /<(user_info|rules|agent_skills|mcp_file_system|system_reminder)(>|\s)/i.test(text)
+  // Grok writes the reminder tag hyphenated (`<system-reminder>`); keep the
+  // underscore spelling too so older transcripts stay covered.
+  return /<(user_info|rules|agent_skills|mcp_file_system|system[_-]reminder)(>|\s)/i.test(text)
 }
 
 function contentText(content: unknown): string {

@@ -71,6 +71,27 @@ describe('agentLaunchCommand', () => {
     ).toEqual({ cmd: 'grok', args: ['--resume', 'g9'], cwd: '/w' })
   })
 
+  // A bare `grok` writes no session directory until its first turn, so naming the
+  // new session is what gives an idle one a transcript at all. [POD-386]
+  it('names the new grok session so it exists from boot', () => {
+    expect(agentLaunchCommand('grok', { cwd: '/w', newSessionId: 'g-new' }).args).toEqual([
+      '--session-id',
+      'g-new',
+    ])
+  })
+
+  // `--session-id` is new-session only: with --resume grok rejects it unless
+  // --fork-session, which would fork the conversation instead of continuing it.
+  it('drops the new-session id when resuming grok', () => {
+    expect(
+      agentLaunchCommand('grok', {
+        cwd: '/w',
+        resume: { kind: 'grok-session', value: 'g9' },
+        newSessionId: 'g-new',
+      }).args,
+    ).toEqual(['--resume', 'g9'])
+  })
+
   it.each([
     'grok-4.5',
     'grok-composer-2.5-fast',

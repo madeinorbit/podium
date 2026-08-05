@@ -50,6 +50,7 @@ export const opencodeManifest: AgentManifest = {
     argvPrompt: false,
     effortFlag: 'variant',
     systemPromptFlag: false,
+    newSessionIdFlag: false,
     quota: false,
     cloud: false,
     composerScrape: false,

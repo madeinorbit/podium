@@ -4,7 +4,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { agentStateProviderFor, claudeProjectSlug } from '@podium/harness'
+import { agentStateProviderFor, claudeProjectSlug, type LaunchOptions } from '@podium/harness'
 import type { ConversationDiagnosticWire, ConversationSummaryWire } from '@podium/model'
 import { asSessionId, asUserId, FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
 import {
@@ -245,9 +245,11 @@ describe('daemon multi-bridge', () => {
   let serverSocket: WS
   let received: DaemonMessage[]
   let daemon: DaemonHandle
+  let launchOpts: LaunchOptions[]
 
   beforeEach(async () => {
     received = []
+    launchOpts = []
     wss = new WebSocketServer({ port: 0 })
     await new Promise<void>((r) => wss.once('listening', () => r()))
     const port = (wss.address() as { port: number }).port
@@ -268,7 +270,10 @@ describe('daemon multi-bridge', () => {
       discovery: { background: false, cachePath: ':memory:' },
       workerClient: fakeDeltaWorkerClient({ changed: [], removed: [], diagnostics: [] }),
       // inject the deterministic fixture instead of real claude/codex
-      launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
+      launch: (_kind, opts) => {
+        launchOpts.push(opts)
+        return { cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }
+      },
     })
     await connected
   })
@@ -309,6 +314,49 @@ describe('daemon multi-bridge', () => {
     await waitFor(() => fixtureFrame('s2') !== undefined)
     const sids = new Set(frames().map((f) => f.sessionId))
     expect([...sids].sort()).toEqual(['s1', 's2'])
+  })
+
+  // Grok writes no session directory until its first turn, so a spawned-but-idle
+  // session had nothing to discover and its chat stayed empty. The daemon now
+  // names the session at spawn, which both makes grok create it at boot and lets
+  // the observer bind it without waiting for the user to type. [POD-386]
+  it('mints a native session id for a fresh grok spawn and binds it immediately', async () => {
+    send({ type: 'spawn', sessionId: 'g1', agentKind: 'grok', cwd: '/tmp', geometry: G })
+    await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === 'g1'))
+
+    const minted = launchOpts.at(-1)?.newSessionId
+    expect(minted).toMatch(/^[0-9a-f-]{36}$/)
+
+    // Nothing exists under ~/.grok for this id — the binding comes from the
+    // minted id alone, which is exactly the idle case that used to stay unbound.
+    await waitFor(() =>
+      received.some(
+        (m) =>
+          m.type === 'sessionResumeRef' &&
+          m.sessionId === 'g1' &&
+          m.resume.kind === 'grok-session' &&
+          m.resume.value === minted,
+      ),
+    )
+  })
+
+  it('does not mint a native session id for harnesses that cannot be told one', async () => {
+    send({ type: 'spawn', sessionId: 'c1', agentKind: 'claude-code', cwd: '/tmp', geometry: G })
+    await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === 'c1'))
+    expect(launchOpts.at(-1)?.newSessionId).toBeUndefined()
+  })
+
+  it('resumes grok by its recorded id instead of minting a new one', async () => {
+    send({
+      type: 'spawn',
+      sessionId: 'g2',
+      agentKind: 'grok',
+      cwd: '/tmp',
+      geometry: G,
+      resume: { kind: 'grok-session', value: 'existing-grok-id' },
+    })
+    await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === 'g2'))
+    expect(launchOpts.at(-1)?.newSessionId).toBeUndefined()
   })
 
   it('forwards a changed cwd from the hook payload as sessionCwd (de-duped)', async () => {

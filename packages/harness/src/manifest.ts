@@ -93,6 +93,11 @@ export interface HarnessLaunchOptions {
   podiumSessionId?: SessionId
   /** Present to resume an existing on-disk conversation; absent to start fresh. */
   resume?: ResumeRef
+  /** A caller-chosen native id for a NEW conversation (capabilities.newSessionIdFlag).
+   *  Mutually exclusive with `resume`: it names the session the CLI is about to
+   *  create, so the host knows the native id — and its transcript path — from the
+   *  spawn instead of discovering it after the first turn. [POD-386] */
+  newSessionId?: string
   /** Model override from settings; absent (or 'auto') = the CLI's own default. */
   model?: string
   /** Reasoning-effort override; absent (or 'auto') = the CLI's own default. */
@@ -528,6 +533,12 @@ export interface HarnessCapabilities {
   effortFlag: 'effort' | 'codex-config' | 'variant' | 'none'
   /** Has a native extra-system-prompt flag. */
   systemPromptFlag: boolean
+  /** An interactive launch accepts a caller-chosen id for a NEW conversation
+   *  (HarnessLaunchOptions.newSessionId), and creating the session that way
+   *  materializes its transcript at boot rather than at the first turn. Declaring
+   *  it makes the daemon mint the id, so a session that is spawned and left idle
+   *  is still bound and readable. [POD-386] */
+  newSessionIdFlag: boolean
   /** The host can read local quota/rate-limit state. */
   quota: boolean
   /** Sessions of this kind can move to a cloud runtime. */

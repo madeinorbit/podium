@@ -46,6 +46,20 @@ describe('grokRecordToItems', () => {
 
     expect(grokRecordToItems({ type: 'system', content: 'system prompt' })).toEqual([])
 
+    // Grok's own injected turns wear role 'user'. The system_reminder one is
+    // written at session creation, so leaving it in would make an untouched
+    // session open on a skill listing posing as the user's first message.
+    for (const reason of ['system_reminder', 'project_instructions', 'task_completed']) {
+      expect(
+        grokRecordToItems({
+          type: 'user',
+          id: `synthetic-${reason}`,
+          synthetic_reason: reason,
+          content: [{ type: 'text', text: '<system-reminder>skills…</system-reminder>' }],
+        }),
+      ).toEqual([])
+    }
+
     expect(
       grokRecordToItems({
         type: 'user',
