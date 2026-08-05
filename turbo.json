@@ -1,7 +1,16 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "daemon": false,
-  "globalDependencies": ["tooling/tsconfig/**", "package.json", "bun.lock"],
+  "globalDependencies": [
+    "tooling/tsconfig/**",
+    "package.json",
+    "bun.lock",
+    "vitest.config.ts",
+    "vitest.unit.config.ts",
+    "vitest.smoke-requirements.ts",
+    "test-hermetic-*.ts",
+    "scripts/package-vitest-config.ts"
+  ],
   "globalEnv": ["PODIUM_CHECK_ENV_HASH"],
   "tasks": {
     "typecheck": {
@@ -21,6 +30,101 @@
         "$TURBO_ROOT$/packages/*/src/**",
         "$TURBO_ROOT$/apps/daemon/src/**"
       ],
+      "outputs": []
+    },
+    "@podium/cli#test": {
+      "dependsOn": ["^test"],
+      "inputs": ["$TURBO_DEFAULT$"],
+      "outputs": []
+    },
+    "@podium/client-core#test": {
+      "dependsOn": ["^test"],
+      "inputs": ["$TURBO_DEFAULT$"],
+      "outputs": []
+    },
+    "@podium/commands#test": {
+      "dependsOn": ["^test"],
+      "inputs": ["$TURBO_DEFAULT$"],
+      "outputs": []
+    },
+    "@podium/composer#test": {
+      "dependsOn": ["^test"],
+      "inputs": ["$TURBO_DEFAULT$"],
+      "outputs": []
+    },
+    "@podium/daemon#test": {
+      "dependsOn": ["^test"],
+      "inputs": ["$TURBO_DEFAULT$"],
+      "outputs": []
+    },
+    "@podium/harness#test": {
+      "dependsOn": ["^test"],
+      "inputs": ["$TURBO_DEFAULT$"],
+      "outputs": []
+    },
+    "@podium/issue-client#test": {
+      "dependsOn": ["^test"],
+      "inputs": ["$TURBO_DEFAULT$"],
+      "outputs": []
+    },
+    "@podium/janitor#test": {
+      "dependsOn": ["^test"],
+      "inputs": ["$TURBO_DEFAULT$"],
+      "outputs": []
+    },
+    "@podium/keyecho#test": {
+      "dependsOn": ["^test"],
+      "inputs": ["$TURBO_DEFAULT$"],
+      "outputs": []
+    },
+    "@podium/model#test": {
+      "dependsOn": ["^test"],
+      "inputs": ["$TURBO_DEFAULT$"],
+      "outputs": []
+    },
+    "@podium/protocol#test": {
+      "dependsOn": ["^test"],
+      "inputs": ["$TURBO_DEFAULT$"],
+      "outputs": []
+    },
+    "@podium/pty#test": {
+      "dependsOn": ["^test"],
+      "inputs": ["$TURBO_DEFAULT$"],
+      "outputs": []
+    },
+    "@podium/runtime#test": {
+      "dependsOn": ["^test"],
+      "inputs": ["$TURBO_DEFAULT$"],
+      "outputs": []
+    },
+    "@podium/server#test": {
+      "dependsOn": ["^test"],
+      "inputs": ["$TURBO_DEFAULT$"],
+      "outputs": []
+    },
+    "@podium/sync#test": {
+      "dependsOn": ["^test"],
+      "inputs": ["$TURBO_DEFAULT$"],
+      "outputs": []
+    },
+    "@podium/telemetry#test": {
+      "dependsOn": ["^test"],
+      "inputs": ["$TURBO_DEFAULT$"],
+      "outputs": []
+    },
+    "@podium/telemetry-relay#test": {
+      "dependsOn": ["^test"],
+      "inputs": ["$TURBO_DEFAULT$"],
+      "outputs": []
+    },
+    "@podium/terminal-client#test": {
+      "dependsOn": ["^test"],
+      "inputs": ["$TURBO_DEFAULT$"],
+      "outputs": []
+    },
+    "@podium/transcript#test": {
+      "dependsOn": ["^test"],
+      "inputs": ["$TURBO_DEFAULT$"],
       "outputs": []
     },
     "@podium/mobile#test": {
