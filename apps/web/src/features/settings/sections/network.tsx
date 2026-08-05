@@ -39,11 +39,11 @@ export function NetworkSection(): JSX.Element {
         hint="This machine connects to a Podium running elsewhere; it isn't reachable on its own."
       >
         <Row label="Connected to">
-          <span className="min-w-0 flex-1 truncate text-[13px] text-foreground">
+          <span className="min-w-0 flex-1 truncate text-[12.5px] text-foreground">
             {info?.serverUrl ?? <span className="text-muted-foreground">unknown</span>}
           </span>
         </Row>
-        <p className="max-w-[60ch] text-[12px] text-muted-foreground">
+        <p className="settings-prose mt-1">
           To point this machine at a different server, re-run <code>podium setup</code> on it and
           paste a new join code.
         </p>
@@ -57,7 +57,7 @@ export function NetworkSection(): JSX.Element {
       hint="How this server is reached from your browser and other machines. The join tokens you hand out to new machines embed this URL — change it here when you switch to a different address."
     >
       <Row label="Reachable URL">
-        <span className="min-w-0 flex-1 truncate text-[13px] text-foreground">
+        <span className="min-w-0 flex-1 truncate text-[12.5px] text-foreground">
           {info?.publicUrl ?? <span className="text-muted-foreground">not set</span>}
         </span>
         <Button

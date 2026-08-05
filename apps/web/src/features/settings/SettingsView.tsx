@@ -628,7 +628,9 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
       // to "close", however it was asked for.
       onClose={requestClose}
       toolbar={
-        error && !settings ? <span className="text-destructive text-xs">{error}</span> : undefined
+        error && !settings ? (
+          <span className="text-[12px] text-destructive">{error}</span>
+        ) : undefined
       }
     >
       {/* TWO PANES, FULL BLEED (POD-365). This was a 1100px column centred in the
@@ -647,7 +649,7 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
                 type="text"
                 value={filter}
                 placeholder="Find a setting"
-                className="h-7 w-full rounded-md border border-hairline-soft bg-background px-2.5 text-[11.5px] text-foreground placeholder:text-text-faint focus:outline-none focus:ring-1 focus:ring-ring/40"
+                className="h-7 w-full rounded-md border border-hairline-soft bg-background px-2.5 text-[12px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring/40"
                 onChange={(e) => setFilter(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
@@ -661,7 +663,7 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
                 }}
               />
               {filter === '' && (
-                <kbd className="-translate-y-1/2 pointer-events-none absolute top-1/2 right-2 rounded border border-hairline-soft px-1 font-mono text-[9px] text-text-faint">
+                <kbd className="-translate-y-1/2 pointer-events-none absolute top-1/2 right-2 rounded border border-hairline-soft px-1 font-mono text-[10px] text-text-dim">
                   /
                 </kbd>
               )}
@@ -673,20 +675,13 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
                     states it verbatim and both were on screen at once — the same
                     three sentences twice, once ragged into a 20ch rail. A nav
                     lists destinations; the destination explains itself. */}
-              <div className="mt-5 mb-1 px-2.5 first:mt-0">
-                <div className="font-medium font-mono text-[8.5px] text-label uppercase tracking-[0.12em]">
-                  {g.label}
-                </div>
-              </div>
+              <div className="settings-rail-group">{g.label}</div>
               {g.tabs.map((t) => (
                 <button
                   data-pressable
                   key={t.key}
                   type="button"
-                  className={cn(
-                    'block w-full cursor-pointer whitespace-nowrap rounded-md px-2.5 py-[5px] text-left text-[12.5px] text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground',
-                    t.key === tab && 'bg-chip font-medium text-text-strong hover:bg-chip',
-                  )}
+                  className="settings-rail-item"
                   aria-current={t.key === tab}
                   onClick={() => setSettingsTab(t.key)}
                 >
@@ -696,9 +691,7 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
             </div>
           ))}
           {query !== '' && visibleGroups.length === 0 && (
-            <p className="px-2 pt-1 text-[11.5px] text-text-dim">
-              No section matches “{filter.trim()}”.
-            </p>
+            <p className="settings-prose px-2.5 pt-1">No section matches “{filter.trim()}”.</p>
           )}
         </nav>
         <div className="settings-pane">
@@ -724,12 +717,10 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
                         centimetres to the left and on the same line, so
                         repeating it read as a rendering fault. The sentence is
                         self-contained. */}
-                    <p className="max-w-[62ch] text-[11.5px] text-text-dim leading-normal">
-                      {copy.hint}
-                    </p>
+                    <p className="settings-prose">{copy.hint}</p>
                     {copy.caveat && (
                       <p
-                        className="mt-1 max-w-[62ch] text-[11px] text-warning leading-normal"
+                        className="settings-prose mt-1.5 text-warning"
                         data-testid="surface-caveat"
                       >
                         {copy.caveat}
@@ -772,7 +763,7 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
                         <div className="h-3 w-36 rounded bg-chip" />
                         {i % 2 === 0 && <div className="h-2 w-56 max-w-full rounded bg-chip/60" />}
                       </div>
-                      <div className="h-7 w-[240px] flex-none rounded-md bg-chip/80" />
+                      <div className="h-8 w-[264px] flex-none rounded-md bg-chip/80" />
                     </div>
                   ))}
                 </div>

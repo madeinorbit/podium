@@ -63,36 +63,41 @@ export function HibernationSection({
           }
         />
       </Row>
-      <Row label="Maximum idle sessions">
-        <div className="flex min-w-0 flex-1 flex-col items-start gap-1">
-          <Input
-            aria-label="Maximum idle sessions"
-            className="w-[90px] flex-none"
-            type="number"
-            min={0}
-            placeholder="Unlimited"
-            value={settings.hibernation.maxIdleSessions ?? ''}
-            onChange={(e) =>
-              patch({
-                hibernation: {
-                  ...settings.hibernation,
-                  maxIdleSessions:
-                    e.target.value === '' ? null : clampInt(e.target.value, 0, 10000, 30),
-                },
-              })
-            }
-          />
-          <p className="max-w-md text-left text-xs text-muted-foreground">
+      {/* The explanation belongs under the label like every other row's — it was
+          left-aligned prose inside the right-hand CONTROL cell, which is the one
+          place on this screen that is not a text column. */}
+      <Row
+        label="Maximum idle sessions"
+        description={
+          <>
             Per machine. Empty means unlimited. This is a convergence target for eligible idle live
             sessions, not a hard cap; protected or ineligible sessions stay live. Count and memory
             pressure act independently.
-          </p>
-          {unmet > 0 && (
-            <p className="text-left text-xs font-medium text-amber-600 dark:text-amber-400">
-              Cap unmet: {unmet} protected/ineligible
-            </p>
-          )}
-        </div>
+            {unmet > 0 && (
+              <span className="mt-1 block font-medium text-warning">
+                Cap unmet: {unmet} protected/ineligible
+              </span>
+            )}
+          </>
+        }
+      >
+        <Input
+          aria-label="Maximum idle sessions"
+          className="w-[90px] flex-none"
+          type="number"
+          min={0}
+          placeholder="Unlimited"
+          value={settings.hibernation.maxIdleSessions ?? ''}
+          onChange={(e) =>
+            patch({
+              hibernation: {
+                ...settings.hibernation,
+                maxIdleSessions:
+                  e.target.value === '' ? null : clampInt(e.target.value, 0, 10000, 30),
+              },
+            })
+          }
+        />
       </Row>
     </Section>
   )

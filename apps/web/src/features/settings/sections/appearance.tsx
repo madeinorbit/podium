@@ -12,7 +12,7 @@ import {
   TERMINAL_DEFAULTS,
 } from '@/features/terminal/appearance'
 import { useTerminalAppearance } from '@/features/terminal/use-terminal-appearance'
-import { Row, Section } from './shared'
+import { Row, Section, Subsection } from './shared'
 
 /** Theme + light/dark switcher. Theme state is UI-local (not part of the settings
  *  blob), so it applies instantly via useTheme and persists on its own. */
@@ -144,11 +144,10 @@ function TerminalAppearanceRows(): JSX.Element {
     settings.lineHeight === undefined &&
     settings.background === undefined
   return (
-    <>
-      <h4 className="mt-3 mb-0.5 font-medium text-[13px] text-foreground">Terminal</h4>
-      <p className="mb-2 max-w-[60ch] text-[12px] text-muted-foreground">
-        Font and colors of the native terminal panels. Applies to running sessions instantly.
-      </p>
+    <Subsection
+      title="Terminal"
+      hint="Font and colors of the native terminal panels. Applies to running sessions instantly."
+    >
       <Row label="Font size">
         <NumberField
           min={FONT_SIZE_MIN}
@@ -204,7 +203,7 @@ function TerminalAppearanceRows(): JSX.Element {
           type="button"
           size="sm"
           variant="ghost"
-          className="mt-1 text-muted-foreground"
+          className="mt-3 text-muted-foreground"
           onClick={() =>
             update({
               fontSize: undefined,
@@ -217,6 +216,6 @@ function TerminalAppearanceRows(): JSX.Element {
           Reset terminal appearance to defaults
         </Button>
       )}
-    </>
+    </Subsection>
   )
 }

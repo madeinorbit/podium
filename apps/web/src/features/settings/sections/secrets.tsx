@@ -78,10 +78,7 @@ export const SECRET_SURFACE_UNAVAILABLE =
 function Unavailable(): JSX.Element {
   return (
     <Section title="Managed credentials" hint={undefined}>
-      <p
-        className="max-w-[58ch] py-2 text-[12.5px] text-text-dim"
-        data-testid="secrets-unavailable"
-      >
+      <p className="settings-prose py-2" data-testid="secrets-unavailable">
         {SECRET_SURFACE_UNAVAILABLE}
       </p>
     </Section>
@@ -95,7 +92,7 @@ function Unavailable(): JSX.Element {
 function Fingerprint({ value }: { value: string }): JSX.Element {
   return (
     <span
-      className="rounded bg-chip px-1.5 py-0.5 font-mono text-[10.5px] text-text-dim"
+      className="rounded bg-chip px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground"
       title="An opaque tag derived on the server. It tells two keys apart; it reveals nothing about either."
       data-testid="secret-fingerprint"
     >
@@ -131,7 +128,7 @@ function SecretRow({
           </span>
           {row.present && row.fingerprint && <Fingerprint value={row.fingerprint} />}
           {row.present && row.updatedAt && (
-            <span className="text-text-faint">
+            <span className="text-text-dim">
               set {new Date(row.updatedAt).toLocaleDateString()}
             </span>
           )}
@@ -140,7 +137,7 @@ function SecretRow({
             // reason is on the row rather than only in a tooltip, because a
             // disabled control whose explanation requires hovering is a control
             // that reads as broken.
-            <span className="text-text-faint">· admin only</span>
+            <span className="text-text-dim">· admin only</span>
           )}
         </span>
       }
@@ -247,7 +244,7 @@ export function SecretsSection({
           busy={busy}
         />
       ))}
-      <p className="mt-2 max-w-[62ch] text-[11.5px] text-text-dim">
+      <p className="settings-prose mt-3">
         Replacing a key takes effect immediately and cannot be undone — the previous value is
         overwritten on the server. These writes are never queued offline.
       </p>

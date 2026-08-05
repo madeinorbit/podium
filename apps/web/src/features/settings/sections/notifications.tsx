@@ -51,17 +51,7 @@ export function NotificationsSection({
       title="Notifications"
       hint="Web notifications fire when this page is open in the background. External push targets use the same smart routing: they stay quiet while a Podium window is visible."
     >
-      <Row label="Web notifications">
-        <Switch
-          checked={settings.notifications.web}
-          onCheckedChange={(checked) =>
-            patch({
-              notifications: { ...settings.notifications, web: checked },
-            })
-          }
-        />
-        <NotificationPermissionButton />
-      </Row>
+      <WebNotificationsRow settings={settings} patch={patch} />
       <SoundsRow />
       <Row label="ntfy.sh topic">
         <Input
@@ -114,7 +104,7 @@ export function NotificationsSection({
           address is displayed and not edited.
         */}
         <span
-          className="w-full truncate text-right font-mono text-[11.5px] text-text-dim"
+          className="min-w-0 truncate text-right font-mono text-[12px] text-muted-foreground"
           data-testid="telegram-chat-id"
         >
           {settings.notifications.telegramChatId.trim() || '—'}
@@ -141,24 +131,27 @@ export function NotificationsSection({
           <TelegramSetupStatus setup={telegramSetup} now={telegramSetupNow} />
         </div>
       </Row>
-      <div className="mt-2 max-w-[68ch] border-border border-l pl-3 text-[12px] text-muted-foreground">
-        <div className="mb-1 font-medium text-foreground">Telegram setup</div>
-        <ol className="list-decimal space-y-1 pl-4">
+      {/* The heading this block used to carry said "Telegram setup" — the same
+          words as the row three lines above it. The steps are what is new here,
+          so they say so. */}
+      <div className="settings-prose mt-4 border-border border-l pl-3.5">
+        <div className="settings-h2 mb-1.5">How to connect</div>
+        <ol className="list-decimal space-y-1.5 pl-4">
           <li>
-            In Telegram, message <code className="text-[11px]">@BotFather</code> and use{' '}
-            <code className="text-[11px]">/newbot</code> to create a bot. An admin saves its token
-            under <span className="font-medium text-foreground">Secrets</span>.
+            In Telegram, message <code>@BotFather</code> and use <code>/newbot</code> to create a
+            bot. An admin saves its token under{' '}
+            <span className="font-medium text-foreground">Secrets</span>.
           </li>
           <li>
             Click <span className="font-medium text-foreground">Connect Telegram</span>. Podium
             shows a Telegram link with a setup code and polls for 5 minutes.
           </li>
           <li>
-            Send the prefilled start message. When Podium sees your code it binds that chat to
-            you and sends a confirmation. A chat Podium has no binding for is ignored.
+            Send the prefilled start message. When Podium sees your code it binds that chat to you
+            and sends a confirmation. A chat Podium has no binding for is ignored.
           </li>
         </ol>
-        <p className="mt-1.5">
+        <p className="mt-2">
           The chat is bound by the ceremony and cannot be typed in: an address configured without
           one would let whoever holds the bot act as you.
         </p>
@@ -183,22 +176,22 @@ function TelegramSetupStatus({
 }): JSX.Element | null {
   if (setup.status === 'idle' || setup.status === 'starting') return null
   if (setup.status === 'failed') {
-    return <p className="text-destructive text-xs">{setup.message}</p>
+    return <p className="text-[12px] text-destructive">{setup.message}</p>
   }
   if (setup.status === 'expired') {
-    return <p className="text-muted-foreground text-xs">Setup expired. Start again.</p>
+    return <p className="settings-prose">Setup expired. Start again.</p>
   }
   if (setup.status === 'connected') {
     const target = setup.chatLabel ?? setup.chatId
     return (
-      <p className="inline-flex items-center gap-1 text-success text-xs">
-        <CheckCircle2 className="size-3.5" /> Connected to {target}.
+      <p className="inline-flex items-center gap-1.5 text-[12px] text-foreground">
+        <CheckCircle2 className="size-3.5 flex-none text-success" /> Connected to {target}.
       </p>
     )
   }
 
   return (
-    <div className="max-w-[68ch] space-y-1 rounded-md border border-border bg-muted/30 p-2 text-xs">
+    <div className="max-w-[62ch] space-y-1.5 rounded-md border border-border bg-muted/30 p-2.5 text-[12px]">
       <div className="flex flex-wrap items-center gap-2 text-foreground">
         <span>Waiting for Telegram</span>
         <code className="rounded bg-background px-1.5 py-0.5 font-mono text-[11px]">
@@ -229,8 +222,13 @@ function TelegramSetupStatus({
 function SoundsRow(): JSX.Element {
   const uiState = useStoreSelector((s) => s.uiState)
   const [enabled, setEnabled] = useState(() => uiState.get(SOUNDS_ENABLED_KEY) !== 'false')
+  // The sentence explaining the cues is a DESCRIPTION, and it used to sit in the
+  // control cell — right-aligned, wrapped into 240px, and touching the switch.
   return (
-    <Row label="Notification sounds">
+    <Row
+      label="Notification sounds"
+      description="Cues on agent done, questions, approvals, and errors. This device only."
+    >
       <Switch
         checked={enabled}
         onCheckedChange={(checked) => {
@@ -239,33 +237,67 @@ function SoundsRow(): JSX.Element {
           if (checked) play(CUE_SOUNDS.done)
         }}
       />
-      <span className="text-muted-foreground text-xs">
-        agent done, questions, approvals, errors — this device only
-      </span>
     </Row>
   )
 }
 
-/** Browser notification permission needs a user gesture — this is the gesture. */
-function NotificationPermissionButton(): JSX.Element | null {
+/**
+ * Browser permission state belongs to the row's EXPLANATION, not beside its
+ * switch. It used to render as a bare span in the control cell — right-aligned
+ * against the Switch with no gap (they touched), and it knocked that switch off
+ * the right edge every other switch on the screen sits on. The only thing in
+ * this cell that is a control is the gesture that grants permission.
+ */
+function useNotificationPermission(): {
+  note: string | null
+  grant: (() => void) | null
+} {
   const [perm, setPerm] = useState(() =>
     typeof Notification === 'undefined' ? 'unsupported' : Notification.permission,
   )
   if (perm === 'unsupported')
-    return <span className="text-muted-foreground text-xs">not supported here</span>
-  if (perm === 'granted') return <span className="text-success text-xs">permission granted</span>
+    return { note: 'This browser cannot show notifications.', grant: null }
+  if (perm === 'granted') return { note: null, grant: null }
   if (perm === 'denied')
-    return <span className="text-muted-foreground text-xs">blocked in browser settings</span>
+    return { note: 'Blocked in your browser settings — allow them there first.', grant: null }
+  return {
+    note: 'This browser has not been asked for permission yet.',
+    grant: () => void Notification.requestPermission().then(setPerm),
+  }
+}
+
+function WebNotificationsRow({
+  settings,
+  patch,
+}: {
+  settings: PodiumSettings
+  patch: (p: Partial<PodiumSettings>) => void
+}): JSX.Element {
+  const { note, grant } = useNotificationPermission()
   return (
-    <Button
-      type="button"
-      variant="outline"
-      size="sm"
-      onClick={() => {
-        void Notification.requestPermission().then(setPerm)
-      }}
+    <Row
+      label="Web notifications"
+      description={
+        <>
+          Desktop notifications from this browser, for agents that need you while Podium is in the
+          background.
+          {note && <span className="mt-1 block text-warning">{note}</span>}
+        </>
+      }
     >
-      Grant permission
-    </Button>
+      {grant && (
+        <Button type="button" variant="outline" size="sm" onClick={grant}>
+          Grant permission
+        </Button>
+      )}
+      <Switch
+        checked={settings.notifications.web}
+        onCheckedChange={(checked) =>
+          patch({
+            notifications: { ...settings.notifications, web: checked },
+          })
+        }
+      />
+    </Row>
   )
 }

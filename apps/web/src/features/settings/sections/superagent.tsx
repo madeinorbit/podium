@@ -60,7 +60,7 @@ function RestartSuperagentButton(): JSX.Element {
       >
         {busy ? 'Restarting…' : 'Restart superagent'}
       </Button>
-      <p className="mt-1.5 mb-0.5 max-w-[60ch] text-[12px] text-muted-foreground">
+      <p className="settings-prose mt-2">
         Starts a fresh harness session on your next message (keeps the conversation history). Use if
         the orchestrator seems stuck on a stale session.
         {done ? ' Done — your next message starts fresh.' : ''}

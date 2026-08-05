@@ -86,8 +86,8 @@ export function MachinesPanel(): JSX.Element {
     <div className="py-3">
       <div className="mb-3 flex items-center justify-between">
         <div>
-          <h3 className="font-medium text-[13px] text-foreground">Machines</h3>
-          <p className="mt-0.5 max-w-[60ch] text-[12px] text-muted-foreground">
+          <h3 className="settings-h">Machines</h3>
+          <p className="settings-prose mt-1">
             Every machine running a Podium daemon that has paired with this server. Sessions from
             all machines appear together in your workspace.
           </p>
@@ -119,10 +119,8 @@ export function MachinesPanel(): JSX.Element {
                   : 'Run the command below on the other machine. It installs the three supported agents and copies existing native logins from one of your online machines.'}
               </DialogDescription>
             </DialogHeader>
-            {addError && <p className="text-destructive text-xs">{addError}</p>}
-            {addLoading && (
-              <p className="text-muted-foreground text-xs">Generating pairing code…</p>
-            )}
+            {addError && <p className="text-[12px] text-destructive">{addError}</p>}
+            {addLoading && <p className="settings-prose">Generating pairing code…</p>}
             {code && joinCommand && (
               <PairingCodeDisplay
                 code={code}
@@ -157,7 +155,7 @@ export function MachinesPanel(): JSX.Element {
       {hosting && !alreadyPaired && <HostThisDeviceCard hosting={hosting} />}
 
       {machines.length === 0 ? (
-        <p className="py-2 text-[12px] text-muted-foreground">
+        <p className="settings-prose py-2">
           No machines paired yet. Click "Add machine" to get started.
         </p>
       ) : (
@@ -247,8 +245,8 @@ export function HostThisDeviceCard({ hosting }: { hosting: EnableHosting }): JSX
   return (
     <div className="mb-3 flex items-center gap-3 rounded-md border border-border px-3 py-2">
       <div className="min-w-0 flex-1">
-        <div className="text-[13px] text-foreground">This device</div>
-        <p className="mt-0.5 text-[12px] text-muted-foreground">
+        <div className="settings-label">This device</div>
+        <p className="settings-prose mt-1">
           {error ?? 'Run sessions on this computer too. The app will restart to pair it.'}
         </p>
       </div>
@@ -295,7 +293,7 @@ function PairingCodeDisplay({
         // Show which URL the join code points at — the #1 thing that goes wrong (a throwaway
         // tunnel URL). One click to change it in Settings → Network.
         <div className="flex flex-col gap-1">
-          <span className="text-[11px] text-muted-foreground uppercase tracking-wide">
+          <span className="settings-micro uppercase tracking-wide">
             Server URL this code points at
           </span>
           <div className="flex items-start gap-2">
@@ -317,16 +315,14 @@ function PairingCodeDisplay({
         </div>
       )}
       <div className="flex flex-col gap-1">
-        <span className="text-[11px] text-muted-foreground uppercase tracking-wide">
-          Pairing code
-        </span>
-        <code className="block rounded bg-muted px-2 py-1 font-mono text-[13px] tracking-widest">
+        <span className="settings-micro uppercase tracking-wide">Pairing code</span>
+        <code className="block rounded bg-muted px-2 py-1 font-mono text-[12.5px] tracking-widest">
           {code}
         </code>
       </div>
       <div className="flex flex-col gap-1.5">
         <div className="flex items-center justify-between gap-2">
-          <span className="text-[11px] text-muted-foreground uppercase tracking-wide">
+          <span className="settings-micro uppercase tracking-wide">
             Command to run on the other machine
           </span>
           {joinCommand && (
@@ -346,12 +342,10 @@ function PairingCodeDisplay({
             {joinCommand}
           </code>
         ) : (
-          <p className="text-[12px] text-muted-foreground">
-            Finish setup to get a one-line join command.
-          </p>
+          <p className="settings-prose">Finish setup to get a one-line join command.</p>
         )}
       </div>
-      <p className="text-[11px] text-muted-foreground">The code expires after one use or 1 hour.</p>
+      <p className="settings-micro">The code expires after one use or 1 hour.</p>
     </div>
   )
 }
@@ -466,7 +460,7 @@ function MachineRow({
   }
 
   return (
-    <div className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-[13px]">
+    <div className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-[12.5px]">
       {/* Online/offline dot */}
       <span
         role="img"
@@ -482,7 +476,7 @@ function MachineRow({
       <div className="min-w-0 flex-1">
         {editing ? (
           <Input
-            className="h-6 px-1.5 text-[13px]"
+            className="h-6 px-1.5 text-[12.5px]"
             value={name}
             autoFocus
             disabled={renaming}
@@ -518,7 +512,7 @@ function MachineRow({
 
       {/* Hostname */}
       <span
-        className="hidden flex-none max-w-[140px] truncate text-muted-foreground text-[12px] sm:block"
+        className="hidden max-w-[140px] flex-none truncate text-[12px] text-muted-foreground sm:block"
         title={machine.hostname}
       >
         {machine.hostname}
@@ -527,7 +521,7 @@ function MachineRow({
       {/* Daemon build version + skew badge [POD-838] */}
       {daemonVersion && (
         <span
-          className="hidden flex-none text-[11px] text-muted-foreground/70 sm:block"
+          className="settings-micro hidden flex-none sm:block"
           title={`Podium ${daemonVersion} on this machine`}
         >
           {daemonVersion}
@@ -543,7 +537,7 @@ function MachineRow({
       )}
 
       {/* Last seen */}
-      <span className="flex-none text-muted-foreground/70 text-[11px]">
+      <span className="settings-micro flex-none">
         {machine.online ? 'now' : relativeTime(machine.lastSeenAt, now)}
       </span>
 
@@ -565,7 +559,7 @@ function MachineRow({
         <>
           {hosting.error && (
             <span
-              className="max-w-[24ch] truncate text-[11px] text-destructive"
+              className="max-w-[24ch] truncate text-[12px] text-destructive"
               title={hosting.error}
             >
               {hosting.error}
@@ -625,7 +619,7 @@ function MachineRow({
                 back.
               </DialogDescription>
             </DialogHeader>
-            <div className="flex flex-col gap-3 text-[13px]">
+            <div className="flex flex-col gap-3 text-[12.5px]">
               <label className="flex flex-col gap-1">
                 <span className="text-muted-foreground">New owner's account name</span>
                 <Input
@@ -649,7 +643,7 @@ function MachineRow({
                 />
               </label>
               {transferError && (
-                <p className="text-destructive text-[12px]" role="alert">
+                <p className="text-[12px] text-destructive" role="alert">
                   {transferError}
                 </p>
               )}

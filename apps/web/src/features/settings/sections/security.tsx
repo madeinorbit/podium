@@ -131,7 +131,7 @@ export function LoginPasswordSection({ trpc }: { trpc: Trpc }): JSX.Element {
   if (status === null) {
     return (
       <Section title="Login password">
-        <p className="text-[12px] text-muted-foreground">Loading…</p>
+        <p className="settings-prose">Loading…</p>
       </Section>
     )
   }
@@ -206,9 +206,7 @@ export function LoginPasswordSection({ trpc }: { trpc: Trpc }): JSX.Element {
           {canManageInstance && loginRequired && disableOpen && (
             <div className="mt-1 flex flex-col gap-2 rounded-md border border-border bg-muted/25 p-3">
               <div>
-                <h4 className="font-medium text-[13px] text-foreground">
-                  Disable login for this instance
-                </h4>
+                <h4 className="settings-h2">Disable login for this instance</h4>
                 <p className="text-[12px] text-muted-foreground">
                   This removes the login requirement for everyone. Nobody’s password is deleted —
                   turning login back on restores every account’s existing password.

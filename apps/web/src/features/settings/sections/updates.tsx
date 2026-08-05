@@ -52,7 +52,7 @@ export function UpdatesSection(): JSX.Element {
     >
       <Row label="Update channel">
         {channel === null ? (
-          <span className="text-muted-foreground text-xs">Loading…</span>
+          <span className="settings-micro">Loading…</span>
         ) : (
           <div className="flex gap-1">
             {options.map((o) => (
@@ -70,7 +70,7 @@ export function UpdatesSection(): JSX.Element {
           </div>
         )}
       </Row>
-      {channelError && <p className="text-destructive text-xs">{channelError}</p>}
+      {channelError && <p className="mt-2 text-[12px] text-destructive">{channelError}</p>}
     </Section>
   )
 }

@@ -65,9 +65,9 @@ export function ReposSection(): JSX.Element {
     >
       {loadError && <p className="py-1 text-[12px] text-destructive">{loadError}</p>}
       {!rows ? (
-        !loadError && <p className="py-1 text-[12px] text-muted-foreground">Loading repos…</p>
+        !loadError && <p className="settings-prose py-1">Loading repos…</p>
       ) : rows.length === 0 ? (
-        <p className="py-1 text-[12px] text-muted-foreground">No repositories registered.</p>
+        <p className="settings-prose py-1">No repositories registered.</p>
       ) : (
         <div className="flex flex-col">
           {rows.map((row) => (
@@ -121,10 +121,10 @@ function RepoPrefixRow({
 
   return (
     <div className="border-border/60 border-b py-1.5 last:border-b-0">
-      <div className="flex items-center gap-2.5 text-[13px]">
+      <div className="flex items-center gap-2.5 text-[12.5px]">
         <span className="min-w-0 flex-1 truncate" title={row.path}>
           <span className="text-foreground">{repoName(row.path)}</span>
-          <span className="ml-2 text-[11px] text-muted-foreground">{row.path}</span>
+          <span className="settings-micro ml-2">{row.path}</span>
         </span>
         {editing ? (
           <>
@@ -178,12 +178,12 @@ function RepoPrefixRow({
         )}
       </div>
       {editing && row.prefix && (
-        <p className="mt-1 max-w-[60ch] text-[12px] text-warning">
+        <p className="settings-prose mt-1 text-warning">
           Previously written refs (e.g. {row.prefix}-13) will stop resolving.
         </p>
       )}
       {editing && error && (
-        <p className="mt-1 max-w-[60ch] text-[12px] text-destructive">{error}</p>
+        <p className="mt-1 max-w-[62ch] text-[12px] text-destructive">{error}</p>
       )}
     </div>
   )

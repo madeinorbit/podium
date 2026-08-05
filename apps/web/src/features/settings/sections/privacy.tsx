@@ -112,12 +112,12 @@ export function PrivacySection(): JSX.Element {
       title="Privacy"
       hint="Podium sends nothing unless you turn it on here. Opt-in, per report type, and reversible at any time."
     >
-      {!state && !error && <p className="text-[12px] text-muted-foreground">Loading…</p>}
+      {!state && !error && <p className="settings-prose">Loading…</p>}
 
       {suppressed && (
         <p
           data-testid="telemetry-suppressed"
-          className="mb-2 rounded-md border border-border px-3 py-2 text-[12px] text-amber-500"
+          className="mb-3 rounded-md border border-border px-3 py-2 text-[12px] text-warning"
         >
           {suppressed} is set in this server's environment — telemetry is disabled entirely,
           whatever these switches say.
@@ -126,24 +126,22 @@ export function PrivacySection(): JSX.Element {
 
       {state &&
         TIERS.map((tier) => (
-          <div key={tier.key} className="flex items-start gap-2.5 py-1.5 text-[13px]">
-            <div className="min-w-0 flex-1">
-              <div className="text-foreground">{tier.name}</div>
-              <p className="mt-0.5 max-w-[60ch] text-[12px] text-muted-foreground">
-                {tier.description}
-              </p>
-              {state[tier.key] === 'absent' && (
-                <p className="mt-0.5 text-[11px] text-muted-foreground/80">Never enabled</p>
-              )}
+          <div key={tier.key} className="settings-row">
+            <div className="min-w-0">
+              <span className="settings-label">{tier.name}</span>
+              <p className="settings-prose mt-1">{tier.description}</p>
+              {state[tier.key] === 'absent' && <p className="settings-micro mt-1">Never enabled</p>}
             </div>
-            <Switch
-              aria-label={tier.name}
-              data-testid={`telemetry-${tier.key}`}
-              className="mt-0.5 flex-none"
-              checked={state[tier.key] === 'on'}
-              disabled={busy || Boolean(suppressed)}
-              onCheckedChange={(next) => void setTier(tier.key, next === true)}
-            />
+            <div className="settings-control">
+              <Switch
+                aria-label={tier.name}
+                data-testid={`telemetry-${tier.key}`}
+                className="flex-none"
+                checked={state[tier.key] === 'on'}
+                disabled={busy || Boolean(suppressed)}
+                onCheckedChange={(next) => void setTier(tier.key, next === true)}
+              />
+            </div>
           </div>
         ))}
 
@@ -154,7 +152,7 @@ export function PrivacySection(): JSX.Element {
       )}
 
       <div className="mt-2 flex flex-col gap-1">
-        <span className="text-[11px] text-muted-foreground uppercase tracking-wide">
+        <span className="settings-micro uppercase tracking-wide">
           {preview ? 'Your next report' : 'What a report looks like'}
         </span>
         <pre
@@ -163,7 +161,7 @@ export function PrivacySection(): JSX.Element {
         >
           {shown}
         </pre>
-        <p className="text-[11px] text-muted-foreground">
+        <p className="settings-micro">
           Never sent: paths, repo names, branch names, prompts, code, agent output, env vars,
           hostnames, usernames. Your IP is dropped at ingest and never reaches analytics.
         </p>
@@ -190,7 +188,7 @@ export function PrivacySection(): JSX.Element {
       )}
 
       {state && (
-        <p className="mt-1.5 text-[11px] text-muted-foreground">
+        <p className="settings-micro mt-2">
           Reports go to <code>{state.endpoint}</code>, which drops your IP and forwards to PostHog.
           From a terminal: <code>podium telemetry show</code> · <code>podium telemetry off</code>
         </p>

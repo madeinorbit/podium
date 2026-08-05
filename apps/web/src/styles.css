@@ -997,39 +997,39 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
 /* The braille spinner — the shell's one piece of perpetual motion, reusing the
    agent-state grammar's frames and cadence. */
 .status-strip-spinner::after {
-  content: '⠋';
+  content: "⠋";
   animation: status-strip-braille 800ms steps(1) infinite;
 }
 @keyframes status-strip-braille {
   0% {
-    content: '⠋';
+    content: "⠋";
   }
   10% {
-    content: '⠙';
+    content: "⠙";
   }
   20% {
-    content: '⠹';
+    content: "⠹";
   }
   30% {
-    content: '⠸';
+    content: "⠸";
   }
   40% {
-    content: '⠼';
+    content: "⠼";
   }
   50% {
-    content: '⠴';
+    content: "⠴";
   }
   60% {
-    content: '⠦';
+    content: "⠦";
   }
   70% {
-    content: '⠧';
+    content: "⠧";
   }
   80% {
-    content: '⠇';
+    content: "⠇";
   }
   90% {
-    content: '⠏';
+    content: "⠏";
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -2212,9 +2212,128 @@ a.ref-link--session::before {
   accent-color: var(--muted-foreground);
 }
 
+/* ── The settings type scale (POD-395) ─────────────────────────────────────
+   Seventeen tabs had grown ten font sizes (13 / 12.5 / 12 / 11.5 / 11 / 10.5 /
+   10 / 9 / 8.5 / text-xs), two greys doing the same job, and six prose measures
+   (44 / 58 / 60 / 62 / 68 / 72ch). Nothing on the screen could be read as a
+   rank, because no two ranks were spelled the same way twice.
+
+   Four sizes carry the whole surface. They live here rather than in class
+   strings so a new section inherits the scale instead of inventing a size:
+
+     settings-h      13px/600  strong   the tab's section heading
+     settings-h2     12px/600  strong   a group inside a section
+     settings-label  12.5px    ink      the thing a row controls
+     settings-prose  12px/1.55 muted    every explanation, one 62ch measure
+     settings-micro  11px      muted@85 status crumbs, never an instruction
+
+   PROSE INK IS `--muted-foreground`, NOT `--text-dim`. Dim is #6c7690 — 3.8:1
+   on the panel, under the 4.5:1 floor — and it was carrying the row
+   descriptions, i.e. the copy that explains what a control does. Dim keeps the
+   jobs it can do: single words in chrome, never a sentence. */
+.settings-h {
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.settings-h2 {
+  color: var(--text-strong);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.settings-label {
+  color: var(--foreground);
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+/* THE ONE MEASURE. Every explanation on the screen wraps in the same place, so
+   the ragged right edges stack instead of scattering. It caps the TEXT and not
+   the row — the row still spans the pane, which is what keeps the controls on
+   the pane's right edge rather than at an arbitrary 780px. */
+.settings-prose {
+  max-width: 62ch;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.settings-micro {
+  color: color-mix(in oklab, var(--muted-foreground) 85%, transparent);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.settings-prose code,
+.settings-micro code {
+  font-size: 0.95em;
+}
+
+/* Sections separate by ONE rule. The `first:border-t-0` this replaces was a
+   `:first-child` guard on an element that is never the first child — the class
+   banner is — so every tab opened with two rules 24px apart and a band of dead
+   air between them. `:first-of-type` asks the question the guard meant to ask. */
+.settings-measure > section {
+  margin-top: 26px;
+  border-top: 1px solid var(--hairline-soft);
+  padding-top: 20px;
+}
+.settings-measure > section:first-of-type {
+  margin-top: 0;
+  border-top: 0;
+  padding-top: 0;
+}
+
 /* Settings rows (POD-127): hairline seam between adjacent rows only — never
    above the first or below the last, and prose/notes between rows break the
    run naturally. */
+.settings-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  padding: 12px 0;
+}
+@media (min-width: 768px) {
+  .settings-row {
+    /* One column for what it is, one for what it does. The control column is
+       fixed so every control on every tab lands on the same right edge. */
+    grid-template-columns: minmax(0, 1fr) 264px;
+    align-items: center;
+    gap: 12px 32px;
+  }
+  /* A row that explains itself is taller than its control, and centring a
+     switch against a four-line paragraph parks it beside the middle sentence.
+     Top-align instead: the control sits on the label's line, where the eye
+     already is. */
+  .settings-row:has(.settings-prose) {
+    align-items: start;
+  }
+  .settings-row:has(.settings-prose) .settings-control {
+    padding-top: 1px;
+  }
+}
+.settings-control {
+  display: flex;
+  align-items: center;
+  /* The gap a switch and its status text were missing: they touched. */
+  gap: 10px;
+  min-width: 0;
+  width: 100%;
+}
+/* A field's VALUE was the largest text on the screen. The shared Input/Select
+   ship `text-sm` (14px) from the shadcn base, which is a step ABOVE the 13px
+   section heading on a surface whose base is 12px — so "Auto" outranked
+   "New sessions". Scoped to the sheet, not the component: 14px is right where
+   the app puts a lone field, wrong in a column of forty. */
+.settings-pane :is(input, textarea),
+.settings-pane [data-slot="select-trigger"],
+.settings-pane [data-slot="select-value"] {
+  font-size: 12.5px;
+}
+@media (min-width: 768px) {
+  .settings-control {
+    justify-content: flex-end;
+  }
+}
 .settings-row + .settings-row {
   border-top: 1px solid color-mix(in oklab, var(--hairline-soft) 60%, transparent);
 }
@@ -2544,6 +2663,47 @@ a.ref-link--session::before {
   background: var(--bar);
   overflow-y: auto;
 }
+/* The rail lists destinations; the pane is the content. It was set at 12.5px —
+   the same size as the section heading it navigates to — so the nav read as
+   loud as the page. A step down puts it back in its place. */
+.settings-rail-item {
+  display: block;
+  width: 100%;
+  padding: 5px 10px;
+  border-radius: 6px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+.settings-rail-item:hover {
+  background: color-mix(in oklab, var(--accent) 60%, transparent);
+  color: var(--foreground);
+}
+.settings-rail-item[aria-current="true"] {
+  background: var(--chip);
+  color: var(--text-strong);
+  font-weight: 500;
+}
+.settings-rail-group {
+  margin: 18px 0 4px;
+  padding: 0 10px;
+  color: var(--label);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.settings-rail-group:first-child,
+.settings-rail > div:first-child .settings-rail-group {
+  margin-top: 0;
+}
 .settings-pane {
   position: relative;
   display: flex;
@@ -2555,13 +2715,18 @@ a.ref-link--session::before {
 .settings-pane-scroll {
   flex: 1;
   min-height: 0;
-  padding: 20px 24px 96px;
+  padding: 22px 28px 96px;
   overflow-y: auto;
 }
 /* The measure constrains the TEXT, never the pane — that inversion is what made
-   the old layout read as a documentation site. */
+   the old layout read as a documentation site. POD-365 wrote the rule and
+   POD-395 finished applying it: a 780px cap on this element WAS the pane
+   inversion, one level down. It stopped the rows short of the pane edge, which
+   put a dead gutter to the right of every control and a second dead gutter
+   between a 44ch description and the control it described. The cap now lives on
+   `.settings-prose`, where "the text" actually is; the rows span the pane. */
 .settings-measure {
-  max-width: 780px;
+  max-width: 1040px;
 }
 .settings-section-enter {
   animation: settings-section-in 160ms cubic-bezier(0.22, 1, 0.36, 1);

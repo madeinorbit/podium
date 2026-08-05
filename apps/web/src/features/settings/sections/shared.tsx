@@ -29,12 +29,36 @@ export function Section({
   hint?: string
   children: React.ReactNode
 }): JSX.Element {
+  // The separating rule and its spacing live in `.settings-measure > section`
+  // (styles.css): the `first:` guard that used to be here could never fire,
+  // because the class banner — not this section — is the pane's first child.
   return (
-    <section className="mt-6 border-hairline-soft border-t pt-4 first:mt-0 first:border-t-0 first:pt-1">
-      <h3 className="mb-0.5 font-semibold text-[12.5px] text-text-strong">{title}</h3>
-      {hint && <p className="mb-1.5 max-w-[58ch] text-[11.5px] text-text-dim">{hint}</p>}
+    <section>
+      <h3 className="settings-h mb-1">{title}</h3>
+      {hint && <p className="settings-prose mb-3">{hint}</p>}
       {children}
     </section>
+  )
+}
+
+/** A named group INSIDE a section (Terminal, Reset settings, …). One step below
+ *  `Section`'s heading — it used to be a step ABOVE it at 13px, so a subgroup
+ *  outranked the section that contained it. */
+export function Subsection({
+  title,
+  hint,
+  children,
+}: {
+  title: string
+  hint?: React.ReactNode
+  children: React.ReactNode
+}): JSX.Element {
+  return (
+    <div className="mt-5 border-hairline-soft/70 border-t pt-4">
+      <h4 className="settings-h2 mb-1">{title}</h4>
+      {hint && <p className="settings-prose mb-3">{hint}</p>}
+      {children}
+    </div>
   )
 }
 
@@ -51,17 +75,14 @@ export function Row({
 }): JSX.Element {
   // Every Row holds exactly one control, but the type system can't prove that to
   // the a11y lint — a div keeps it honest; the visible text still sits beside it.
+  // Layout, type and the control-cell gap are all `.settings-row` in styles.css.
   return (
-    <div className="settings-row grid grid-cols-1 gap-1.5 py-2.5 text-[13px] md:grid-cols-[minmax(0,1fr)_240px] md:items-center md:gap-4">
+    <div className="settings-row">
       <div className="min-w-0">
-        <span className="text-[12.5px] text-foreground">{label}</span>
-        {description && (
-          <p className="mt-0.5 max-w-[44ch] text-[11px] text-text-dim leading-normal">
-            {description}
-          </p>
-        )}
+        <span className="settings-label">{label}</span>
+        {description && <p className="settings-prose mt-1">{description}</p>}
       </div>
-      <div className="flex w-full min-w-0 items-center md:justify-end">{children}</div>
+      <div className="settings-control">{children}</div>
     </div>
   )
 }
@@ -149,7 +170,11 @@ export const MANAGED_CODING_ACCOUNTS: {
     label: 'Claude subscription (managed)',
     harnesses: ['claude-code'],
   },
-  { id: asAccountId('managed:anthropic'), label: 'Anthropic API key (managed)', harnesses: ['claude-code'] },
+  {
+    id: asAccountId('managed:anthropic'),
+    label: 'Anthropic API key (managed)',
+    harnesses: ['claude-code'],
+  },
   { id: asAccountId('managed:openai'), label: 'OpenAI API key (managed)', harnesses: ['codex'] },
 ]
 
@@ -245,14 +270,14 @@ export function RoleBackendEditor({
   const accountNote: React.ReactNode =
     accountId === 'native:claude-code' ? (
       <>
-        Runs Claude Code&apos;s programmatic mode (<code className="text-[10px]">claude -p</code>)
-        on this account — <span className="text-warning">usage counts against its limits</span>. API
-        users are billed by token; subscribers consume plan usage.
+        Runs Claude Code&apos;s programmatic mode (<code>claude -p</code>) on this account —{' '}
+        <span className="text-warning">usage counts against its limits</span>. API users are billed
+        by token; subscribers consume plan usage.
       </>
     ) : accountId === 'native:codex' ? (
       <>
-        Uses your local ChatGPT login (<code className="text-[10px]">codex login</code> on the
-        server) — no API key; it uses your plan&apos;s included Codex capacity while limits allow.
+        Uses your local ChatGPT login (<code>codex login</code> on the server) — no API key; it uses
+        your plan&apos;s included Codex capacity while limits allow.
       </>
     ) : isNative ? (
       <>Runs a real {harness} agent with its own tool belt, using its local login on this server.</>
