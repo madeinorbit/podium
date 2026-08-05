@@ -4,6 +4,7 @@ import type { JSX } from 'react'
 import { toast } from 'sonner'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
+import { openInSystemBrowser } from '@/lib/nativeDesktop'
 import { rawFileUrl } from './open-in-browser'
 
 /**
@@ -13,6 +14,11 @@ import { rawFileUrl } from './open-in-browser'
  *
  * A plain anchor rather than a scripted `window.open`: ⌘-click, middle-click and
  * "copy link" all work, and no popup blocker gets in the way.
+ *
+ * In the desktop shell that anchor sometimes needs help: when the page is loaded from the
+ * server itself (client/daemon mode), this URL is same-origin, and a same-origin `_blank`
+ * gets answered with an in-app webview window — the one place this button must not land.
+ * `openInSystemBrowser` takes those over and declines the rest.
  */
 export function OpenInBrowserButton({
   scope,
@@ -36,8 +42,14 @@ export function OpenInBrowserButton({
       size="icon-xs"
       aria-label="Open in browser"
       title="Open in browser"
-      onClick={() => {
+      onClick={(event) => {
         if (dirty) toast.info('Opened the version saved on disk — this tab has unsaved changes.')
+        const handoff = openInSystemBrowser(url)
+        if (!handoff) return
+        event.preventDefault()
+        handoff.catch(() => {
+          toast.error('Could not hand the file to your browser.')
+        })
       }}
     >
       <ExternalLink size={14} />

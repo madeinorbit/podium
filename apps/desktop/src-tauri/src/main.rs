@@ -117,6 +117,12 @@ fn native_desktop_hook(launch_mode: &str, machine_id: Option<&str>) -> String {
     // Desktop updates are available in every launch mode. The page may be remote or older
     // than this shell, so these methods are always present and are feature-detected by the page.
     let update_commands = ",\n            claimUpdateOwnership: () => window.__TAURI_INTERNALS__.invoke('claim_update_ownership'),\n            checkUpdate: (channel) => window.__TAURI_INTERNALS__.invoke('check_update', { channel }),\n            installUpdate: () => window.__TAURI_INTERNALS__.invoke('install_update')";
+    // Hand a URL to the OS browser on purpose. The injected opener shim only rescues
+    // CROSS-origin links (bootstrap::opener_shim_script); a page that wants the real browser
+    // for one of the server's OWN URLs — "Open in browser" on a file — has no other route,
+    // because the webview answers a same-origin `_blank` with an in-app window. Runs on the
+    // opener:default grant the shim already uses ("external-link-opener" capability).
+    let open_external = ",\n            openExternal: (url) => window.__TAURI_INTERNALS__.invoke('plugin:opener|open_url', { url })";
     // This device's paired machine identity (daemon.json), so the web UI can mark the
     // matching row "this machine". serde_json escaping — the value comes from disk.
     let machine_id = machine_id
@@ -129,7 +135,7 @@ fn native_desktop_hook(launch_mode: &str, machine_id: Option<&str>) -> String {
             launchMode: "{launch_mode}"{machine_id},
             minimize: () => window.__TAURI_INTERNALS__.invoke('plugin:window|minimize', {{ label: 'main' }}),
             toggleMaximize: () => window.__TAURI_INTERNALS__.invoke('plugin:window|toggle_maximize', {{ label: 'main' }}),
-            close: () => window.__TAURI_INTERNALS__.invoke('plugin:window|close', {{ label: 'main' }}){update_commands}{enable_hosting}
+            close: () => window.__TAURI_INTERNALS__.invoke('plugin:window|close', {{ label: 'main' }}){update_commands}{open_external}{enable_hosting}
         }});"#
     )
 }
@@ -694,6 +700,19 @@ mod tests {
             assert!(hook.contains("claimUpdateOwnership"));
             assert!(hook.contains("checkUpdate: (channel)"));
             assert!(hook.contains("installUpdate"));
+        }
+    }
+
+    #[test]
+    fn native_hook_opens_a_url_in_the_os_browser_in_every_launch_mode() {
+        // The link shim skips same-origin URLs, so "Open in browser" on one of the server's
+        // own files reaches the OS only through this method. Present in every mode — the page
+        // decides when it needs it (it is same-origin with the server in the remote modes),
+        // and it feature-detects, so a mode-dependent bridge would only create dead ends.
+        for mode in ["all-in-one", "server", "daemon", "client"] {
+            let hook = native_desktop_hook(mode, None);
+            assert!(hook.contains("openExternal: (url) =>"));
+            assert!(hook.contains("invoke('plugin:opener|open_url', { url })"));
         }
     }
 
