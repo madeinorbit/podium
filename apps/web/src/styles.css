@@ -204,11 +204,10 @@ body {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   line-height: 1;
-  /* 9px digits share the tab's baseline with an 11.5px label, so flex centring
-     lands the count's cap-height a pixel below the word's and it reads as
-     having slipped. The eye centres the number against "Tasks", not against the
-     cell, so the digits go where that comparison wants them. */
-  transform: translateY(-1px);
+  /* The digits stay on the label's baseline. Raising them to sit on its
+     CAP-height centre was tried (POD-398) and read as sprung loose: at 9px the
+     count's own centre already lands on the label's x-height band, which is the
+     line the eye reads a small number against. No nudge. */
 }
 /* A mode's controls inside the slot. Everything is 28px so the whole bar sits on
    one optical line with the mode tabs and the instrument well. */
@@ -310,9 +309,6 @@ body {
     border-radius: 50%;
     background: var(--attention);
     font-size: 0;
-    /* The dot is placed off the glyph, not off a label that is no longer there,
-       so it does not want the digits' optical nudge. */
-    transform: none;
   }
 }
 html[data-podium-desktop="true"] .desktop-topbar,
