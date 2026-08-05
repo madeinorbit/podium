@@ -26,7 +26,13 @@ const acceptor = () =>
   createHandshakeAcceptor({
     registry: createDefaultAuthRegistry({
       machines: fakeMachines({
-        tokens: { 'tok-ok': machineRecord('mach-vps', { owner: 'usr-ada', name: 'vps' }) },
+        tokens: {
+          'tok-ok': machineRecord('mach-vps', {
+            owner: 'usr-ada',
+            name: 'vps',
+            updatePubkey: 'server-key-2',
+          }),
+        },
         codes: {
           'code-1': pairedMachineRecord('mach-new', 'tok-minted', {
             owner: 'usr-ada',
@@ -69,7 +75,11 @@ describe('legacy daemon frames ride the permanent mechanism', () => {
     if (step.action !== 'establish') return
     expect(step.peer.strategy).toBe('machine-token')
     expect(step.peer.principal).toMatchObject({ kind: 'machine', machine: 'mach-vps' })
-    expect(legacyReplyFor(legacyHello, step.reply)).toEqual({ type: 'helloOk', name: 'vps' })
+    expect(legacyReplyFor(legacyHello, step.reply)).toEqual({
+      type: 'helloOk',
+      name: 'vps',
+      updatePubkey: 'server-key-2',
+    })
   })
 
   it("a legacy hello's machineId becomes a hint, not the identity", () => {

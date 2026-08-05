@@ -243,7 +243,7 @@ export const PeerHelloOk = z.object({
    * long-lived machine token for the peer to persist (ADR 5 D5, remote row).
    */
   issuedToken: z.string().optional(),
-  /** The server update-signing key, sent only when this reply completes pairing. */
+  /** The server update-signing key, sent on pairing and every successful reconnect. */
   updatePubkey: z.string().min(1).optional(),
 })
 export type PeerHelloOk = z.infer<typeof PeerHelloOk>

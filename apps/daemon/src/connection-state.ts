@@ -15,7 +15,7 @@ import { consumePairCode } from '@podium/runtime/setup'
 import WebSocket, { type RawData } from 'ws'
 import { buildReport, deliveryCaps } from './build-report'
 import type { DaemonOptions, ReconnectTimers } from './daemon-options'
-import { savePairingToken } from './identity'
+import { savePairingToken, savePinnedUpdatePubkey } from './identity'
 import { decideOnProtocolMismatch, decidePostUpdate } from './self-update'
 
 const RECONNECT_MIN_MS = 500
@@ -191,6 +191,14 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     }
   }
 
+  const persistBootstrapPin = (updatePubkey: string): void => {
+    identity.updatePubkey = updatePubkey
+    savePinnedUpdatePubkey(
+      updatePubkey,
+      options.identityDir ? { dir: options.identityDir } : {},
+    )
+  }
+
   const established = (
     issuedToken?: string,
     updatePubkey?: string,
@@ -198,14 +206,18 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   ): void => {
     if (issuedToken) {
       persistPairing(issuedToken, updatePubkey)
-    } else if (updatePubkey !== undefined && updatePubkey !== identity.updatePubkey) {
-      terminal(
-        'blocked',
-        'server-update-key',
-        'server update key changed outside pairing',
-        active,
-      )
-      return
+    } else if (updatePubkey !== undefined) {
+      if (identity.updatePubkey === undefined && options.bootstrapToken) {
+        persistBootstrapPin(updatePubkey)
+      } else if (updatePubkey !== identity.updatePubkey) {
+        terminal(
+          'blocked',
+          'server-update-key',
+          'server update key changed outside pairing',
+          active,
+        )
+        return
+      }
     }
     state = 'connected'
     reconnectBackoffMs = RECONNECT_MIN_MS

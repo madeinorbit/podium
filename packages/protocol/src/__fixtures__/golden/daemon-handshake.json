@@ -47,12 +47,13 @@
       "variant": "full",
       "wire": {
         "type": "helloOk",
-        "name": "name"
+        "name": "name",
+        "updatePubkey": "updatePubkey"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"helloOk\",\"name\":\"name\"}"
+      "encoded": "{\"type\":\"helloOk\",\"name\":\"name\",\"updatePubkey\":\"updatePubkey\"}"
     },
     {
       "schema": "HelloRejectedReply",

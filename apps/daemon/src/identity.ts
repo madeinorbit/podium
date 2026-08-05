@@ -88,3 +88,25 @@ export function savePairingToken(
   mkdirSync(base, { recursive: true })
   writeFileSync(path, JSON.stringify(data, null, 2), { mode: 0o600 })
 }
+
+/**
+ * Persist the server key learned on the first local bootstrap handshake without
+ * manufacturing a pairing token. Later bootstrap reconnects compare this pin
+ * rather than replacing it.
+ */
+export function savePinnedUpdatePubkey(
+  updatePubkey: string,
+  opts: { dir?: string } = {},
+): void {
+  const base = dirFor(opts.dir)
+  const path = join(base, 'daemon.json')
+  let data: Record<string, unknown> = {}
+  try {
+    data = JSON.parse(readFileSync(path, 'utf8'))
+  } catch {
+    // No file yet — the pin can land before the first loadIdentity.
+  }
+  data.updatePubkey = updatePubkey
+  mkdirSync(base, { recursive: true })
+  writeFileSync(path, JSON.stringify(data, null, 2), { mode: 0o600 })
+}

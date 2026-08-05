@@ -129,7 +129,7 @@ interface SessionRegistryOptions {
    * composition root supplies the baked app version; fixtures may omit it.
    */
   targetVersion?: () => string | undefined
-  /** Public half of this server's update-signing key, sent only on pairing. */
+  /** Public half of this server's update-signing key, sent on every successful machine hello. */
   updatePubkey?: () => string
   telegramSetup?: TelegramSetupClient
   generateTelegramSetupCode?: () => string

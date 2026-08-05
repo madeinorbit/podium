@@ -64,7 +64,7 @@ export type AuthOutcome =
       readonly principal: Principal
       /** Set only by the pairing branch: a minted token the peer must persist. */
       readonly issuedToken?: string
-      /** Set only by the pairing branch: the server update key the peer must pin. */
+      /** Current server update key; the daemon persists it only when pairing issues a token. */
       readonly updatePubkey?: string
       /** Operator-facing name the acceptor settled on. */
       readonly name?: string

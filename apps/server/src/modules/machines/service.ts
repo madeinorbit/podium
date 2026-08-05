@@ -112,7 +112,7 @@ export interface PairingGrant {
 export interface MachinesDeps {
   /** Deployment configuration only; never an owner or grant input. */
   instanceId: string
-  /** Public half of the server update-signing key, sent only at pairing. */
+  /** Public half of the server update-signing key, sent on every successful machine hello. */
   updatePubkey?: () => string
   /**
    * The version in the server's injected update target. Absent means this

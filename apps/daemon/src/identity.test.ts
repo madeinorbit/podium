@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
-import { loadIdentity, savePairingToken, saveToken } from './identity'
+import { loadIdentity, savePairingToken, savePinnedUpdatePubkey, saveToken } from './identity'
 
 // POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
 // tests finish, so a suite run leaves nothing behind in tmp.
@@ -69,5 +69,14 @@ describe('daemon identity', () => {
     // Pairing to a server that cannot publish a key must not retain the old server's key.
     savePairingToken('token-4', undefined, { dir })
     expect(loadIdentity({ dir }).updatePubkey).toBeUndefined()
+  })
+  it('persists a bootstrap server key without inventing a token', () => {
+    const dir = trackTmp('podium-id-')
+    loadIdentity({ dir })
+    savePinnedUpdatePubkey('server-key-bootstrap', { dir })
+    expect(loadIdentity({ dir })).toMatchObject({
+      updatePubkey: 'server-key-bootstrap',
+    })
+    expect(loadIdentity({ dir }).token).toBeUndefined()
   })
 })

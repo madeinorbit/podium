@@ -102,6 +102,40 @@ describe('daemon connection credential state machine', () => {
   })
 
 
+  it('pins the server key on first bootstrap and refuses later rotation', async () => {
+    const firstOptions = localOptions(() => {}, { bootstrapToken: 'local-secret' })
+    const identityDir = firstOptions.identityDir as string
+    firstOptions.localLink = {
+      attach: () => ({
+        established: true,
+        reply: { ...ok, updatePubkey: 'server-key-1' },
+        machineId: MACHINE_ID,
+        deliver: vi.fn(),
+        close: vi.fn(),
+      }),
+    }
+
+    const first = connection(firstOptions)
+    await first.start()
+    expect(loadIdentity({ dir: identityDir }).updatePubkey).toBe('server-key-1')
+    await first.close()
+
+    const secondOptions = localOptions(() => {}, { bootstrapToken: 'local-secret', identityDir })
+    secondOptions.localLink = {
+      attach: () => ({
+        established: true,
+        reply: { ...ok, updatePubkey: 'server-key-2' },
+        machineId: MACHINE_ID,
+        deliver: vi.fn(),
+        close: vi.fn(),
+      }),
+    }
+    const second = connection(secondOptions, loadIdentity({ dir: identityDir }))
+    await expect(second.start()).rejects.toThrow(/server update key changed/i)
+    expect(second.state).toBe('blocked')
+    expect(loadIdentity({ dir: identityDir }).updatePubkey).toBe('server-key-1')
+  })
+
   it('pins the key on pairing and leaves it unchanged on reconnect', async () => {
     const firstOptions = localOptions(() => {}, { pairCode: 'PAIR-1' })
     const identityDir = firstOptions.identityDir as string
