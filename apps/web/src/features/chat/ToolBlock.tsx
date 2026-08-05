@@ -3,13 +3,18 @@ import type { JSX } from 'react'
 import { useState } from 'react'
 import { resolveAgainstCwd } from '@/lib/file-path'
 import { cn } from '@/lib/utils'
-import { type ChatBlock, failLine, toolVerdict } from './chat'
+import { type ChatBlock, failLine, mcpLabel, resultPreview, toolVerdict } from './chat'
 
 /** One tool call inside an expanded batch (Flat Field, POD-159): a muted
  *  one-line mono row — verdict glyph, name, input preview, inline file links —
  *  with a failed call's first result line surfaced beneath it. Click toggles
  *  the full result. No outer row/rail/[data-block] — the batch row owns the
- *  layout column and the minimap tick. */
+ *  layout column and the minimap tick.
+ *
+ *  POD-376: the row now shows the call's OWN subject rather than only the
+ *  agent's description of it, and previews what the call returned. Reaching a
+ *  command's output used to take three clicks (open the run, open the row, read)
+ *  — a reader who unfolded the run has already asked for this. */
 export function ToolBlock({
   block,
   sessionId,
@@ -25,8 +30,15 @@ export function ToolBlock({
   const { item } = block
   const result = block.result ?? item.toolResult
   const verdict = toolVerdict(result)
+  const preview = resultPreview(result)
   // Orphan results render as a bare result row; calls render name + input.
-  const label = item.toolName ?? 'result'
+  // An MCP call is labelled by its server, not by the raw `mcp__a__b` id.
+  const label = item.toolName ? (mcpLabel(item.toolName) ?? item.toolName) : 'result'
+  // Bash shows the COMMAND, with the agent's description beneath it — the
+  // command is the thing that ran, and it is what a reader is checking for.
+  const command = item.toolName === 'Bash' ? item.toolInput : undefined
+  const subject = command ?? item.toolTitle ?? item.toolInput
+  const aside = command && item.toolTitle ? item.toolTitle : undefined
   return (
     <div className="min-w-0">
       <button
@@ -50,8 +62,10 @@ export function ToolBlock({
             up to a single left edge; a long one (NotebookEdit) still shows in
             full rather than truncating to nothing. */}
         <span className="min-w-[46px] flex-none font-semibold text-[10.5px]">{label}</span>
-        {(item.toolTitle ?? item.toolInput) && (
-          <span className="min-w-0 truncate opacity-70">{item.toolTitle ?? item.toolInput}</span>
+        {subject && (
+          <span className={cn('min-w-0 truncate', command ? 'tool-cmd' : 'opacity-70')}>
+            {subject}
+          </span>
         )}
         {item.toolPaths && item.toolPaths.length > 0 && (
           <span className="ml-auto flex flex-none gap-2">
@@ -76,7 +90,23 @@ export function ToolBlock({
           </span>
         )}
       </button>
+      {/* The agent's own words about a command it ran — kept, but demoted below
+          the command itself. */}
+      {aside && !open && <div className="tool-aside">{aside}</div>}
       {verdict === 'err' && !open && <div className="tool-fail-line">{failLine(result)}</div>}
+      {/* What the call returned, one line, without a further click. Suppressed
+          for failures (the fail line above already carries the first line) and
+          once the full result is open. */}
+      {verdict !== 'err' && !open && preview && (
+        <div className="tool-out">
+          <span className="tool-out-line">{preview.line}</span>
+          {preview.more > 0 && (
+            <span className="tool-out-more">
+              +{preview.more} {preview.more === 1 ? 'line' : 'lines'}
+            </span>
+          )}
+        </div>
+      )}
       {open && (
         <pre className="my-1 max-h-[280px] overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted/40 px-2.5 py-2 font-mono text-[11px] text-muted-foreground">
           {result ?? '(no result captured)'}

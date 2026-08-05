@@ -9,6 +9,7 @@ import {
   mergeByCursor,
   pairToolResults,
   reconcileReset,
+  toolBatchTitle,
   toolCallPhrase,
   toolRunElapsedMs,
   toolRunFailures,
@@ -24,10 +25,86 @@ const tool = (toolName: string, id: string): TranscriptItem => ({
 describe('isBatchableTool', () => {
   it('folds ordinary tools', () => {
     expect(isBatchableTool(tool('Read', 'r'))).toBe(true)
+    expect(isBatchableTool(tool('mcp__playwright__browser_click', 'm'))).toBe(true)
   })
   it('does not fold AskUserQuestion or SendUserFile', () => {
     expect(isBatchableTool(tool('AskUserQuestion', 'a'))).toBe(false)
     expect(isBatchableTool(tool('SendUserFile', 's'))).toBe(false)
+  })
+  // POD-376: only the Claude parser has an interactive-tool branch, so a Codex /
+  // Grok / MCP tool that stops to ask the human used to fold into "Ran a tool"
+  // and read as the chat showing nothing at all.
+  it('does not fold a tool that addresses the human, whatever the harness', () => {
+    expect(isBatchableTool(tool('mcp__impeccable__interview', 'i'))).toBe(false)
+    expect(isBatchableTool(tool('elicit_input', 'e'))).toBe(false)
+    expect(isBatchableTool(tool('ask_user_question', 'q'))).toBe(false)
+    expect(isBatchableTool(tool('ExitPlanMode', 'p'))).toBe(false)
+  })
+  it('still folds tools that merely start with a matching word', () => {
+    expect(isBatchableTool(tool('Grep', 'g'))).toBe(true)
+    expect(isBatchableTool(tool('mcp__github__request_review', 'r'))).toBe(false)
+  })
+})
+
+describe('toolBatchTitle — the work line names its objects (POD-376)', () => {
+  const withPath = (name: string, id: string, path: string): { item: TranscriptItem } => ({
+    item: { ...tool(name, id), toolPaths: [path] },
+  })
+  const bash = (id: string, command: string): { item: TranscriptItem } => ({
+    item: { ...tool('Bash', id), toolInput: command },
+  })
+
+  it('names the files a run touched instead of counting them', () => {
+    expect(
+      toolBatchTitle([
+        withPath('Read', 'a', '/repo/apps/web/src/ChatView.tsx'),
+        withPath('Read', 'b', '/repo/apps/web/src/TranscriptFeed.tsx'),
+      ]),
+    ).toBe('Read ChatView.tsx, TranscriptFeed.tsx')
+  })
+
+  it('counts the overflow past the first two subjects', () => {
+    const reads = ['a', 'b', 'c', 'd', 'e'].map((id, i) =>
+      withPath('Read', id, `/repo/file${i}.ts`),
+    )
+    expect(toolBatchTitle(reads)).toBe('Read file0.ts, file1.ts +3')
+  })
+
+  it('mixes clauses per kind, first capitalized', () => {
+    expect(
+      toolBatchTitle([withPath('Edit', 'e', '/repo/chat.ts'), bash('b', 'bun run test')]),
+    ).toBe('Edited chat.ts, ran bun run test')
+  })
+
+  it('names an MCP call by its server rather than "a tool"', () => {
+    expect(toolBatchTitle([{ item: tool('mcp__playwright__browser_click', 'm') }])).toBe(
+      'Used playwright · browser click',
+    )
+  })
+
+  it('falls back to counting when a clause has no nameable subject', () => {
+    expect(toolBatchTitle([{ item: tool('Bash', 'b') }, { item: tool('Bash', 'c') }])).toBe(
+      'Ran 2 commands',
+    )
+  })
+
+  it('keeps the overflow count honest when only some calls are nameable', () => {
+    // 3 reads, one of which carries no path at all — the tail still says +1 so
+    // the row never under-reports how much it folded.
+    expect(
+      toolBatchTitle([
+        withPath('Read', 'a', '/repo/one.ts'),
+        withPath('Read', 'b', '/repo/two.ts'),
+        { item: tool('Read', 'c') },
+      ]),
+    ).toBe('Read one.ts, two.ts +1')
+  })
+
+  it('stays within one line for a long run', () => {
+    const many = Array.from({ length: 12 }, (_, i) =>
+      bash(`b${i}`, `bun run some-quite-long-command-name-${i} --with --flags`),
+    )
+    expect(toolBatchTitle(many).length).toBeLessThanOrEqual(78)
   })
 })
 

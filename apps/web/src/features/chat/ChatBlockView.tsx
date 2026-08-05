@@ -2,13 +2,21 @@ import {
   envelopePrincipal,
   formatChurn,
   isImagePath,
+  isInteractiveTool,
   MACHINE_CONTEXT_RE,
+  mcpLabel,
   type ParsedEnvelope,
   parseEnvelopeBatch,
   type TranscriptAttribution,
 } from '@podium/client-core/viewmodels'
 import type { SessionId } from '@podium/model'
-import { Clock, FileText, Image as ImageIcon, Mail as MailIcon } from 'lucide-react'
+import {
+  Clock,
+  FileText,
+  Image as ImageIcon,
+  Mail as MailIcon,
+  MessageCircleQuestion,
+} from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { memo, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { assetUrl } from '@/lib/asset-url'
@@ -395,9 +403,35 @@ export const ChatBlockView = memo(function ChatBlockView({
         <span className="h-px flex-1 bg-border/60" />
       </div>
     )
+  // A call that ADDRESSED THE HUMAN but carries no structured input to build a
+  // card from (POD-376). Only the Claude parser fills `toolInputJson`, so on a
+  // Codex / Grok / MCP session this is every interview the agent ever ran — and
+  // it used to render as a muted one-line tool row indistinguishable from a
+  // file read, which is why the chat looked like it showed nothing at all while
+  // the native view showed a prompt. It gets a named block of its own.
+  if (item.role === 'tool' && isInteractiveTool(item))
+    return (
+      <div className={rowClass} data-block={index} data-testid="asked-you">
+        <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
+        <div className="transcript-body">
+          <div className="asked-you">
+            <div className="asked-you-label">
+              <MessageCircleQuestion size={11} aria-hidden="true" />
+              Asked you
+              <span className="asked-you-tool">
+                {item.toolName ? (mcpLabel(item.toolName) ?? item.toolName) : 'a question'}
+              </span>
+            </div>
+            {(item.toolTitle ?? item.toolInput) && (
+              <div className="asked-you-body">{item.toolTitle ?? item.toolInput}</div>
+            )}
+            <ToolBlock block={block} sessionId={sessionId} cwd={cwd} openFile={openFile} />
+          </div>
+        </div>
+      </div>
+    )
   // Ordinary tool calls render inside a collapsed ToolBatchView, so they don't
-  // reach here. The only stray case is an AskUserQuestion without structured input
-  // (no card) — show it as a lone quiet tool row so it isn't dropped.
+  // reach here. Anything else stray shows as a lone quiet tool row.
   if (item.role === 'tool')
     return (
       <div className={rowClass} data-block={index}>

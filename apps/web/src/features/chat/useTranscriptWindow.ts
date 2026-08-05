@@ -1,4 +1,5 @@
 import { isSwitchTraced, markSwitch } from '@podium/client-core/perf'
+import { applyChatVerbosity, type ChatVerbosity } from '@podium/client-core/viewmodels'
 import type { SessionId, SessionMeta, TranscriptItem } from '@podium/model'
 import type { Dispatch, RefObject, SetStateAction } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -55,6 +56,11 @@ export interface UseTranscriptWindowOptions {
   /** The scroller housing the rendered rows — read (never written) to anchor
    *  scroll position across a prepend; ChatView owns the actual scrolling. */
   scrollerRef: RefObject<HTMLDivElement | null>
+  /** How much of the transcript to render (POD-376). Applied HERE, at the one
+   *  place rows are built, so the window, the search cursor and the minimap
+   *  cannot disagree about which rows exist. `normal` (the default) filters
+   *  nothing, so this is inert until someone changes it. */
+  verbosity?: ChatVerbosity
 }
 
 export interface UseTranscriptWindowResult {
@@ -110,7 +116,7 @@ export interface UseTranscriptWindowResult {
  * with (`pinnedToBottom`, `didInitialScroll`, `prependAnchor`).
  */
 export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTranscriptWindowResult {
-  const { sessionId, hub, trpc, replica, active, session, scrollerRef } = opts
+  const { sessionId, hub, trpc, replica, active, session, scrollerRef, verbosity = 'normal' } = opts
 
   const [items, setItems] = useState<TranscriptItem[]>([])
   // Cursor of the OLDEST loaded item (the read's `head`) — the anchor for
@@ -339,7 +345,13 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
   const blocks = useMemo(() => pairToolResults(effectiveItems), [effectiveItems])
   // Render unit: consecutive tool calls fold into one collapsed batch row; the
   // minimap, scroll-to-match, and [data-block] indices are all keyed by ROW.
-  const rows = useMemo(() => buildChatRows(blocks), [blocks])
+  // Verbosity is applied at the ONE place rows are built, so `renderStart`, the
+  // search cursor and the minimap all index the same list (POD-376). `normal`
+  // returns the array referentially, so the default path allocates nothing.
+  const rows = useMemo(
+    () => applyChatVerbosity(buildChatRows(blocks), verbosity) as ChatRow[],
+    [blocks, verbosity],
+  )
 
   // Switch-latency trace marks [POD-701] — both no-ops unless a switch to this
   // session is being traced. `chat:rows-built` stamps the commit in which the

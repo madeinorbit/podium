@@ -65,6 +65,7 @@ export function TranscriptFeed({
   overlay,
   activity,
   attribution,
+  expandRuns = false,
 }: {
   scrollerRef: RefObject<HTMLDivElement | null>
   onScroll: () => void
@@ -100,6 +101,10 @@ export function TranscriptFeed({
    *  slice. Each row picks its pair by role; the objects are stable, so the
    *  memoized block views keep skipping renders. */
   attribution: TranscriptAttributionTable
+  /** Verbose mode (POD-376): every run renders already unfolded. Verbose changes
+   *  how a run LOOKS, not which rows exist, so it rides down here rather than
+   *  through the row derivation. */
+  expandRuns?: boolean
 }): JSX.Element {
   return (
     <div
@@ -172,7 +177,7 @@ export function TranscriptFeed({
             row={row}
             index={idx}
             highlighted={idx === search.activeRow}
-            forceOpen={idx === search.activeRow}
+            forceOpen={expandRuns || idx === search.activeRow}
             dimmed={
               search.filtering && !row.blockIndices.some((bi) => blockMatches(blocks[bi]!, query))
             }

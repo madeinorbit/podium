@@ -14,7 +14,11 @@ export {
   type ChatRow,
   failLine,
   isBatchableTool,
+  isInteractiveTool,
+  mcpLabel,
+  mcpParts,
   pairToolResults,
+  resultPreview,
   type SingleRow,
   type ToolBatchRow,
   type ToolVerdict,
@@ -22,6 +26,7 @@ export {
   toolCallPhrase,
   toolRunElapsedMs,
   toolRunFailures,
+  toolSubject,
   toolVerdict,
 } from '@podium/client-core/viewmodels'
 

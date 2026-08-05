@@ -176,6 +176,9 @@ export const UI_STATE_ROUTES = {
  * screen geometry, or a cursor describing what this screen displayed. */
 export const CLIENT_DEVICE_LOCAL_UI_KEYS = [
   'podium.chat.stickyPrompts',
+  /** How much of a transcript the chat feed renders (POD-376) — a reading
+   *  preference belonging to the screen you read on, not to the session. */
+  'podium.chat.verbosity',
   'podium.sounds.enabled',
   'podium.sounds.ownerWindow',
   'podium.terminal.appearance',
@@ -191,6 +194,7 @@ export const CLIENT_DEVICE_LOCAL_UI_KEYS = [
 ] as const
 
 export const STICKY_PROMPTS_KEY = 'podium.chat.stickyPrompts'
+export const CHAT_VERBOSITY_KEY = 'podium.chat.verbosity'
 export const SOUNDS_ENABLED_KEY = 'podium.sounds.enabled'
 export const SOUND_OWNER_KEY = 'podium.sounds.ownerWindow'
 export const TERMINAL_APPEARANCE_KEY = 'podium.terminal.appearance'

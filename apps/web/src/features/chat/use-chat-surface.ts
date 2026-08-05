@@ -3,6 +3,7 @@ import {
   type ChatActivity,
   type ChatRow,
   type ChatSessionReference,
+  type ChatVerbosity,
   type ComposerState,
   chatActivityState,
   chatSessionReference,
@@ -11,6 +12,7 @@ import {
   lastAnswer as lastAnswerOf,
   livePendingAskIndex as livePendingAskIndexOf,
   type OperatorPromptOptions,
+  parseEnvelopeBatch,
   queuedState,
   type RenderableRow,
   renderableRows,
@@ -28,10 +30,10 @@ import { useVoiceInput } from '@podium/terminal-client-react'
 import type { RefObject } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
+import { useChatVerbosityPreference } from '@/lib/chat-verbosity'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { useStickyPromptsPreference } from '@/lib/sticky-prompts'
 import type { PendingItem, QueuedChatMessage } from './chat'
-import { parseEnvelopeBatch } from '@podium/client-core/viewmodels'
 import { type UseAttachmentsResult, useAttachments } from './use-attachments'
 import { useChatSend } from './use-chat-send'
 import { type UseHeadlessTurnResult, useHeadlessTurn } from './use-headless-turn'
@@ -98,6 +100,14 @@ export interface ChatSurface {
   stickyEnabled: boolean
   /** The session's ACTOR + ON-BEHALF-OF pairs, one per role (doc §3.1.3 A3). */
   attribution: TranscriptAttributionTable
+
+  // -- verbosity (POD-376) ----------------------------------------------------
+  /** The STORED preference, which the control renders. The EFFECTIVE verbosity
+   *  can differ: a search query overrides `summary` so a hit is never hidden. */
+  verbosity: ChatVerbosity
+  setVerbosity: (v: ChatVerbosity) => void
+  /** True while runs should render already unfolded. */
+  expandRuns: boolean
 
   // -- search ----------------------------------------------------------------
   query: string
@@ -203,6 +213,15 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
   // go, so sticky questions are suppressed there regardless of the preference.
   const stickyEnabled = stickyPrompts.enabled && !compact
 
+  // Transcript verbosity (POD-376). SEARCH OVERRIDES SUMMARY: a query the reader
+  // typed is a request to find something, and hiding the rows it could be in
+  // would answer "no matches" for work that is right there. This mirrors what
+  // search already does to the fold (auto-expands a run) and to the prompt clamp
+  // (yields so the hit is visible) — one rule, three places.
+  const chatVerbosity = useChatVerbosityPreference()
+  const verbosity: ChatVerbosity =
+    query && chatVerbosity.verbosity === 'summary' ? 'normal' : chatVerbosity.verbosity
+
   const {
     blocks,
     rows,
@@ -219,7 +238,16 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     pinnedToBottom,
     didInitialScroll,
     prependAnchor,
-  } = useTranscriptWindow({ sessionId, hub, trpc, replica, active, session, scrollerRef })
+  } = useTranscriptWindow({
+    sessionId,
+    hub,
+    trpc,
+    replica,
+    active,
+    session,
+    scrollerRef,
+    verbosity,
+  })
 
   // Operator-prompt recognition needs the message-envelope parser, which is a
   // web module; the slice takes it as an injected resolver so the predicate has
@@ -459,6 +487,14 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     isOperatorPromptRow,
     stickyEnabled,
     attribution,
+
+    /** The stored preference and its setter — NOT the effective `verbosity`
+     *  above, which search may have overridden. The control must show what the
+     *  reader chose, or toggling search would look like it changed the setting. */
+    verbosity: chatVerbosity.verbosity,
+    setVerbosity: chatVerbosity.setVerbosity,
+    /** True while a run should render already-unfolded. */
+    expandRuns: verbosity === 'verbose',
 
     query,
     setQuery,

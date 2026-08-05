@@ -1559,6 +1559,126 @@ html[data-density="balanced"] .header-quota-pools {
   text-overflow: ellipsis;
 }
 
+/* ── Transcript verbosity strip (POD-376) ────────────────────────────────────
+   Three ordered segments, carved into the chassis like every other control in
+   the field. The filled segment is the current one — the same grammar as the
+   Chat/Native mode switch a row above. */
+.verbosity {
+  display: inline-flex;
+  flex: none;
+  align-items: stretch;
+  gap: 1px;
+  padding: 1px;
+  border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
+  border-radius: 6px;
+  background: color-mix(in oklab, var(--background) 88%, black);
+  box-shadow: inset 0 1px 2px -1px rgb(0 0 0 / 0.5);
+}
+.verbosity-seg {
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  color: color-mix(in oklab, var(--muted-foreground) 70%, transparent);
+  transition: color 120ms ease, background-color 120ms ease;
+}
+.verbosity-seg:hover {
+  color: var(--foreground);
+}
+.verbosity-seg--on {
+  background: color-mix(in oklab, var(--muted) 90%, transparent);
+  color: var(--foreground);
+}
+/* Search is overriding a Summary setting — the strip dims so it reads as "not
+   currently in effect" rather than as a control that stopped working. */
+.verbosity[data-overridden='true'] .verbosity-seg--on {
+  opacity: 0.55;
+}
+@media (prefers-reduced-motion: reduce) {
+  .verbosity-seg {
+    transition: none;
+  }
+}
+
+/* ── "Asked you" (POD-376) ───────────────────────────────────────────────────
+   A tool call that stopped and addressed the operator, on a harness whose
+   parser gives us no structured questions to build a card from. It is the one
+   kind of tool activity that is ABOUT the reader, so it carries the warning
+   keyline rather than receding like the rest of the machine voice. */
+.asked-you {
+  position: relative;
+  border-left: 2px solid color-mix(in oklab, var(--warning) 70%, transparent);
+  border-radius: 0 6px 6px 0;
+  background: color-mix(in oklab, var(--warning) 5%, transparent);
+  padding: 8px 12px 6px;
+}
+.asked-you-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--warning);
+}
+.asked-you-tool {
+  margin-left: auto;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  font-weight: 400;
+  color: color-mix(in oklab, var(--muted-foreground) 75%, transparent);
+}
+.asked-you-body {
+  margin-top: 5px;
+  font-size: 13px;
+  color: var(--foreground);
+}
+
+/* A shell command reads as the code it is, not as prose about it (POD-376). */
+.tool-cmd {
+  color: color-mix(in oklab, var(--foreground) 78%, transparent);
+}
+
+/* The agent's description of a command, demoted beneath the command itself. */
+.tool-aside {
+  margin: 0 0 1px 21px;
+  font-size: 10.5px;
+  color: color-mix(in oklab, var(--muted-foreground) 65%, transparent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* What a call returned, one line, inside an already-unfolded run. Quiet enough
+   to skim past and specific enough to answer "did that work?" without a click. */
+.tool-out {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 1px 0 2px 21px;
+  padding: 2px 9px;
+  border-left: 2px solid color-mix(in oklab, var(--border) 60%, transparent);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+  color: color-mix(in oklab, var(--muted-foreground) 78%, transparent);
+  min-width: 0;
+}
+.tool-out-line {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tool-out-more {
+  flex: none;
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  color: color-mix(in oklab, var(--muted-foreground) 55%, transparent);
+}
+
 /* ── The work line (POD-364) ─────────────────────────────────────────────────
    A run of tool calls is ONE progress object: while the agent works the row
    mutates in place (spinner, the call in flight, a counting timer, a ticking

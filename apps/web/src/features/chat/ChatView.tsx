@@ -178,6 +178,8 @@ export function ChatView({
           deepeningSearch={chat.deepeningSearch}
           lastAnswerText={chat.lastAnswerText}
           onTldr={chat.tldr}
+          verbosity={chat.verbosity}
+          onVerbosityChange={chat.setVerbosity}
         />
       )}
       <div className="relative flex min-h-0 flex-1">
@@ -211,6 +213,7 @@ export function ChatView({
           overlay={chat.headless ? chat.headlessTurn.overlay : null}
           activity={chat.activity}
           attribution={chat.attribution}
+          expandRuns={chat.expandRuns}
         />
         {/* Minimap maps the RENDERED window (visibleRows), so its segments line
             up with the scrollable content. For a very long transcript that means

@@ -1,8 +1,9 @@
-import type { TranscriptSearchState } from '@podium/client-core/viewmodels'
+import type { ChatVerbosity, TranscriptSearchState } from '@podium/client-core/viewmodels'
 import { ChevronDown, ChevronUp, ScrollText } from 'lucide-react'
 import type { JSX } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { VerbosityControl } from './VerbosityControl'
 
 /**
  * TRANSCRIPT SEARCH + tl;dr (POD-405) — the chat header, hidden in the narrow
@@ -22,6 +23,8 @@ export function TranscriptSearchBar({
   deepeningSearch = false,
   lastAnswerText,
   onTldr,
+  verbosity,
+  onVerbosityChange,
 }: {
   query: string
   onQueryChange: (query: string) => void
@@ -34,6 +37,10 @@ export function TranscriptSearchBar({
   /** The agent's latest prose — what tl;dr summarises, and the button's gate. */
   lastAnswerText: string
   onTldr: () => void
+  /** Transcript detail (POD-376) — the STORED preference, so the strip keeps
+   *  showing what the reader chose even while a query overrides it. */
+  verbosity: ChatVerbosity
+  onVerbosityChange: (v: ChatVerbosity) => void
 }): JSX.Element {
   return (
     <div className="flex items-center gap-2 border-b border-border px-2.5 py-1.5">
@@ -78,6 +85,11 @@ export function TranscriptSearchBar({
           </Button>
         </span>
       )}
+      <VerbosityControl
+        value={verbosity}
+        onChange={onVerbosityChange}
+        overridden={verbosity === 'summary' && query !== ''}
+      />
       {/* tl;dr — open this session's BTW superagent thread and ask for a concise
           summary of the agent's last answer (seeded with the answer + context). */}
       <Button
