@@ -1,11 +1,14 @@
 import { readdirSync, readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import mobileConfig from '../apps/mobile/vitest.config'
+import webConfig from '../apps/web/vitest.config'
 import frontendPerfConfig from '../apps/web/vitest.frontend-perf.config'
 import phase3BrowserConfig from '../tests/e2e/.phase3-playwright.config'
 import browserConfig from '../tests/e2e/playwright.config'
 import acceptanceConfig from '../vitest.acceptance.config'
 import agentSmokeConfig from '../vitest.agent-smoke.config'
-import rootConfig from '../vitest.config'
+import rootConfig, { sharedVitestConfig } from '../vitest.config'
 import integrationConfig from '../vitest.integration.config'
 import { ptySmokeTests, realAgentSmokeTests } from '../vitest.smoke-requirements'
 import unitConfig, { normalizedWireTests } from '../vitest.unit.config'
@@ -36,10 +39,17 @@ type Config = {
     retry?: number
     maxWorkers?: number
     fileParallelism?: boolean
+    setupFiles?: string[]
+    testTimeout?: number
   }
 }
 
 const config = (value: unknown): Config => value as Config
+const repoRoot = new URL('../', import.meta.url)
+const sharedSetupFiles = sharedVitestConfig.test.setupFiles.map((file) =>
+  fileURLToPath(new URL(file, repoRoot)),
+)
+
 const smokeTestFiles = (dir: URL, prefix = ''): string[] =>
   readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const relative = prefix ? `${prefix}/${entry.name}` : entry.name
@@ -81,6 +91,20 @@ describe('test lane configuration', () => {
     ])
     const bunfig = readFileSync(new URL('../bunfig.toml', import.meta.url), 'utf8')
     expect(bunfig).toContain('preload = ["./test-hermetic-env.ts", "./test-hermetic-bun-hooks.ts"]')
+  })
+
+  it('keeps web and mobile on the shared Vitest hardening', () => {
+    for (const [name, appConfig] of [
+      ['web', webConfig],
+      ['mobile', mobileConfig],
+    ] as const) {
+      expect(config(appConfig).test?.setupFiles, `${name} lost hermetic setup files`).toEqual(
+        sharedSetupFiles,
+      )
+      expect(config(appConfig).test?.testTimeout, `${name} lost the shared timeout`).toBe(
+        sharedVitestConfig.test.testTimeout,
+      )
+    }
   })
 
   it('keeps retries out of the default project and scopes them to integration', () => {
