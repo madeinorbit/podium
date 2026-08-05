@@ -251,6 +251,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       bag.machines.nativeAccountIdForMachine(machineId, agentKind, accountId),
     resolveMachineForAgent: (requested, cwd, agentKind, use) =>
       bag.machines.resolveMachineForAgent(requested, cwd, agentKind, use),
+    onSpawnTargetLogin: (input) => bag.deps.onSpawnTargetLogin?.(input),
     toMachine: (machineId, message) => bag.toMachine(machineId, message),
     broadcastSessions: () => bag.broadcastSessions(),
     soleOwnerForCwd: (cwd) => bag.deps.issueAccess.soleOwnerForCwd(cwd) ?? undefined,

@@ -53,7 +53,7 @@ import {
   type GlobalQuestion,
   type GlobalRepoDigest,
 } from './global'
-import { classifyHarnessError } from './harness-error'
+import { classifyHarnessError, type HarnessErrorKind } from './harness-error'
 import {
   type Args,
   buildSuperagentTools,
@@ -626,6 +626,7 @@ export class SuperagentService {
   ): void {
     const agent = HarnessAgent.safeParse(pending.payload.agent)
     const sessionUuid = pending.payload.sessionUuid
+    let harnessErrorKind: HarnessErrorKind | undefined
     try {
       if (agent.success) {
         // Bind the harness session on the FIRST turn whether it succeeded or not.
@@ -661,6 +662,7 @@ export class SuperagentService {
           // issue (not a login failure), a 429 as a usage limit, an expired
           // token as "re-authenticate" — each with distinct guidance.
           const classified = classifyHarnessError(rawError, agent.data)
+          harnessErrorKind = classified.kind
           // Persisted failure notice: visible on the thread's legacy history,
           // never a silent fallback to the buffered path.
           this.store.superagent.appendSuperagentMessage(pending.threadId, {
@@ -690,6 +692,8 @@ export class SuperagentService {
         ok: result.ok,
         ...(result.output ? { output: result.output } : {}),
         ...(result.error ? { error: result.error } : {}),
+        ...(agent.success ? { harness: agent.data } : {}),
+        ...(harnessErrorKind ? { harnessErrorKind } : {}),
       })
     }
   }

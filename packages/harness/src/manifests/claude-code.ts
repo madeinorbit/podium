@@ -8,6 +8,7 @@ import {
 } from '../agent-state/claude-code.js'
 import { claudeProjectSlug, locateClaudeSessionFile } from '../agent-state/claude-locate.js'
 import { createTranscriptClassifier } from '../agent-state/transcript-classifier.js'
+import { compareClaudeCredentialFreshness } from '../credential-freshness.js'
 import { createClaudeCodeConversationProvider } from '../discovery/providers/claude-code.js'
 import { composeAgentInstructions } from '../instructions.js'
 import { fingerprintForLoginIdentity } from '../codex-auth-identity.js'
@@ -81,7 +82,7 @@ export const claudeCodeManifest: AgentManifest = {
     }),
     portableCredential: supported({
       files: ['.claude/.credentials.json', '.claude.json'],
-      compareFreshness: () => null,
+      compareFreshness: compareClaudeCredentialFreshness,
     }),
     detectLogin(homeDir) {
       const configDir = process.env.CLAUDE_CONFIG_DIR?.trim() || join(homeDir, '.claude')

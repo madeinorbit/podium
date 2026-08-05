@@ -73,6 +73,7 @@ import { LockCommandDispatcher } from './modules/lock/registry'
 import { LockService } from './modules/lock/service'
 import { routeMachineDiagnostic } from './modules/machines/diagnostics'
 import { DaemonRpcService } from './modules/machines/rpc'
+import { LoginPropagationService } from './modules/machines/login-propagation'
 import { MachinesService, type PairingCodes } from './modules/machines/service'
 import { MemoryService } from './modules/memory/service'
 import { MessageGate } from './modules/messages/gate'
@@ -189,6 +190,7 @@ export interface RegistryModules {
   machines: MachinesService
   updates: UpdatesService
   rpc: DaemonRpcService
+  loginPropagation: LoginPropagationService
   memory: MemoryService
   hosts: HostsService
   settings: SettingsService
@@ -906,6 +908,12 @@ export class SessionRegistry {
           : undefined
       },
     })
+    const loginPropagation = new LoginPropagationService({
+      store: this.store,
+      machines,
+      rpc,
+      now: () => this.now(),
+    })
     const capabilityForLiveSession = (sessionId: SessionId) => {
       const session = liveSessions.get(sessionId)
       if (!session) return { role: 'worker', scope: { kind: 'none' } } as const
@@ -1004,6 +1012,12 @@ export class SessionRegistry {
         : {}),
       machines,
       rpc,
+      onSpawnTargetLogin: ({ machineId, agentKind, ownerUserId }) =>
+        loginPropagation.trigger({
+          targetMachineId: machineId,
+          agentKind,
+          principalUserId: ownerUserId,
+        }),
       memory,
       issueAccess,
       snapshotTail,
@@ -1018,6 +1032,17 @@ export class SessionRegistry {
         presence.ensureJoined(client, { kind: 'session', id: sessionId }),
       sessionRoomLeave: (client, sessionId) =>
         presence.ensureLeft(client, { kind: 'session', id: sessionId }),
+    })
+    this.bus.on('superagent.turnEnded', (event) => {
+      if (event.ok || event.harnessErrorKind !== 'provider-auth' || !event.harness) return
+      const session = sessionsSvc.sessionById(asSessionId(event.podiumSessionId))
+      if (!session?.machineId) return
+      loginPropagation.trigger({
+        targetMachineId: session.machineId,
+        agentKind: event.harness,
+        force: true,
+        ...(event.ownerUserId ? { principalUserId: event.ownerUserId } : {}),
+      })
     })
     const hosts = new HostsService(
       {
@@ -1777,6 +1802,7 @@ export class SessionRegistry {
       machines,
       updates: updatesService,
       rpc,
+      loginPropagation,
       memory,
       hosts,
       settings,

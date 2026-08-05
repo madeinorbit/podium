@@ -452,12 +452,18 @@ export class DaemonRpcService {
   credentialExport(
     kinds: PortableCredentialKind[],
     machineId: string,
+    options?: { propagation?: boolean },
   ): Promise<Omit<CredentialExportResultMessage, 'type' | 'requestId'>> {
     return this.request(
       CREDENTIAL_EXPORT,
       15_000,
       () => ({ bundles: [], unavailable: kinds }),
-      (requestId) => ({ type: 'credentialExportRequest', requestId, kinds }),
+      (requestId) => ({
+        type: 'credentialExportRequest',
+        requestId,
+        kinds,
+        ...(options?.propagation ? { propagation: true } : {}),
+      }),
       machineId,
     )
   }
@@ -466,12 +472,18 @@ export class DaemonRpcService {
   credentialInstall(
     bundles: PortableCredentialBundle[],
     machineId: string,
+    options?: { propagation?: boolean },
   ): Promise<Omit<CredentialInstallResultMessage, 'type' | 'requestId'>> {
     return this.request(
       CREDENTIAL_INSTALL,
       15_000,
       () => ({ installed: [], failed: bundles.map((bundle) => bundle.kind) }),
-      (requestId) => ({ type: 'credentialInstallRequest', requestId, bundles }),
+      (requestId) => ({
+        type: 'credentialInstallRequest',
+        requestId,
+        bundles,
+        ...(options?.propagation ? { propagation: true } : {}),
+      }),
       machineId,
     )
   }
