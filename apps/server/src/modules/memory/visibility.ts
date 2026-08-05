@@ -1,6 +1,7 @@
 import { asIssueId, asSessionId, ROW, type VisibilityClass, visibilityClassOf } from '@podium/model'
 import { mayReadOwned } from '../../issue-authz'
 import type { IssueRow, SessionRow, SessionStore } from '../../store'
+import type { GrantRow } from '../../store/grants'
 import type { MemoryReader } from './types'
 
 export const INDEXED_MEMORY_DOCUMENT_CLASSES = [
@@ -73,6 +74,11 @@ type VisibilityRequest = {
 
 const nativeKey = (machineId: string, nativeId: string): string => `${machineId}\0${nativeId}`
 
+const readGranteesFrom = (edges: readonly GrantRow[]): string[] =>
+  edges
+    .filter((edge) => edge.verb === 'read' || edge.verb === 'write' || edge.verb === 'manage')
+    .map((edge) => edge.grantee)
+
 const visibilityRequestFor = (sessions: readonly SessionRow[]): VisibilityRequest => {
   const sessionsById = new Map<string, SessionRow>()
   const sessionsByNativeKey = new Map<string, SessionRow[]>()
@@ -116,8 +122,37 @@ export class MemoryVisibilityPolicy {
    * supplies the session snapshot it already needs, while this context owns
    * only request-local indexes and memoized reads.
    */
-  forRequest(sessions: readonly SessionRow[]): MemoryVisibilityPolicy {
-    return new MemoryVisibilityPolicy(this.store, visibilityRequestFor(sessions))
+  forRequest(
+    sessions: readonly SessionRow[],
+    options: { batchIssueOwners?: boolean } = {},
+  ): MemoryVisibilityPolicy {
+    const request = visibilityRequestFor(sessions)
+    // The native conversation list asks visibility about each matching session.
+    // Its issue owner is the same live fact for every session on that issue, so
+    // load the distinct issue ids from the already-captured session snapshot in
+    // one batch before the filter starts. This is BATCHING, not a shared cache:
+    // getIssues reads SQLite now, the result lives only for this request, and
+    // missing ids are recorded as null just like issueById's lazy path.
+    if (options.batchIssueOwners) {
+      const issueIds = [
+        ...new Set(sessions.flatMap((row) => (row.issueId ? [String(row.issueId)] : []))),
+      ]
+      if (issueIds.length > 0) {
+        const rows = this.store.issues.getIssues(issueIds)
+        for (const id of issueIds) request.issues.set(id, rows.get(id) ?? null)
+
+        // The same distinct issue ids drive the grant read in mayReadSessionRow.
+        // Prime every key, including ids with no edges, so the lazy fallback does
+        // not repeat the query. Sessions without issueId resolve grants against
+        // their own session id; leave those keys lazy because they are outside
+        // this issue-owner fanout and the live fallback preserves their semantics.
+        const grants = this.store.grants.listForResources('issue', issueIds)
+        for (const id of issueIds) {
+          request.grants.set(`issue\0${id}`, readGranteesFrom(grants.get(id) ?? []))
+        }
+      }
+    }
+    return new MemoryVisibilityPolicy(this.store, request)
   }
 
   classOf(value: string): VisibilityClass | undefined {
@@ -228,10 +263,7 @@ export class MemoryVisibilityPolicy {
   private readGranteesOf(resourceKind: string, resourceId: string): string[] {
     const key = `${resourceKind}\0${resourceId}`
     if (this.request?.grants.has(key)) return this.request.grants.get(key) ?? []
-    const grantees = this.store.grants
-      .listForResource(resourceKind, resourceId)
-      .filter((edge) => edge.verb === 'read' || edge.verb === 'write' || edge.verb === 'manage')
-      .map((edge) => edge.grantee)
+    const grantees = readGranteesFrom(this.store.grants.listForResource(resourceKind, resourceId))
     this.request?.grants.set(key, grantees)
     return grantees
   }

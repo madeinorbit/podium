@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { convergeViaGit } from './delivery-git'
+import { convergeViaGit } from '@podium/runtime/update-delivery-git'
 
 type Call = { cmd: string; args: string[] }
 

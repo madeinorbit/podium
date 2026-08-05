@@ -1,6 +1,7 @@
 import type { ConvergenceState } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
-import { type Context, mods, t } from '../../trpc'
+import { type Context, t } from '../../trpc'
+import { familyState } from '../derived-family'
 import type { UpdatesService } from './service'
 
 const IN_FLIGHT: ReadonlySet<ConvergenceState> = new Set(['granted', 'downloading', 'restarting'])
@@ -42,7 +43,7 @@ function fleetSnapshot(updates: UpdatesService): UpdateFleetSnapshot {
 
 /** The fleet read model used by the dialog and Settings. */
 export function updateFleet(ctx: Context): UpdateFleetSnapshot {
-  return fleetSnapshot(mods(ctx).updates)
+  return fleetSnapshot(familyState(ctx).modules.updates)
 }
 
 /**
@@ -92,6 +93,6 @@ export function convergeThisServer(
 export function updateProcedures() {
   return {
     fleet: t.procedure.query(({ ctx }) => updateFleet(ctx)),
-    converge: t.procedure.mutation(({ ctx }) => convergeThisServer(mods(ctx).updates)),
+    converge: t.procedure.mutation(({ ctx }) => convergeThisServer(familyState(ctx).modules.updates)),
   }
 }
