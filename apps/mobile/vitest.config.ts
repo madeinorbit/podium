@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitest/config'
+import { sharedVitestConfig } from '../../vitest.config'
 
 /**
  * The mobile unit lane (POD-1220).
@@ -29,18 +30,27 @@ import { defineConfig } from 'vitest/config'
  *   `__DEV__` — expo's runtime reads Metro's global at module scope. `false` is
  *     the honest value: a test run is not a Metro dev server.
  */
-const conditions = ['@podium/source']
+const conditions = sharedVitestConfig.resolve.conditions
+const sharedSetupFiles = sharedVitestConfig.test.setupFiles.map((file) =>
+  fileURLToPath(new URL(`../../${file}`, import.meta.url)),
+)
+// The root `@` alias points at web, and terminal-client's bare alias breaks subpaths.
+// Keep only shared aliases that are safe for mobile before adding app-specific mappings.
+const sharedAliases = sharedVitestConfig.resolve.alias.filter(
+  ({ find }) => find !== '@' && find !== '@podium/terminal-client',
+)
 
 export default defineConfig({
   define: { __DEV__: 'false' },
   resolve: {
-    conditions,
+    ...sharedVitestConfig.resolve,
     // Platform suffixes, as Metro and `expo export -p web` resolve them. A
     // screen that imports `../terminal/TerminalPane` has only `.native.tsx` and
     // `.web.tsx` on disk; without this the import is unresolvable and the
     // failure names the module rather than the missing extension list.
     extensions: ['.web.tsx', '.web.ts', '.tsx', '.ts', '.jsx', '.js', '.json'],
     alias: [
+      ...sharedAliases,
       { find: 'react-native', replacement: 'react-native-web' },
       {
         find: 'expo-sqlite',
@@ -71,6 +81,8 @@ export default defineConfig({
   },
   ssr: { resolve: { conditions } },
   test: {
+    ...sharedVitestConfig.test,
+    setupFiles: sharedSetupFiles,
     environment: 'happy-dom',
     include: ['src/**/*.test.{ts,tsx}'],
     passWithNoTests: false,
