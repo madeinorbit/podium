@@ -572,11 +572,15 @@ fn main() {
                                     elapsed_ms,
                                     crate::updater::OWNERSHIP_GRACE_MS,
                                 ) {
-                                    crate::updater::check_and_prompt_update(
-                                        updater_handle,
-                                        update_channel,
-                                    )
-                                    .await;
+                                    if std::env::var("PODIUM_UPDATE_AUTOCONFIRM").as_deref() == Ok("1") {
+                                        crate::updater::check_and_prompt_update(
+                                            updater_handle,
+                                            update_channel,
+                                        )
+                                        .await;
+                                    } else {
+                                        eprintln!("[podium-desktop] web update surface did not claim ownership; native interactive fallback disabled");
+                                    }
                                 }
                             });
                         }

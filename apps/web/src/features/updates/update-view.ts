@@ -29,21 +29,36 @@ export type UpdateView =
   | { state: 'in-progress'; version: string; done: number; total: number }
   | { state: 'failed'; detail: string }
 
+export interface DesktopUpdateInfo {
+  version: string
+  critical: boolean
+  notes?: string | null
+}
+
 export interface UpdateInput {
   localVersion: string
   server: ServerVersion
   surface: 'web' | 'desktop-all-in-one' | 'desktop-remote' | 'mobile'
   serverName?: string
-  fleet: { total: number; behind: number; converging: number; failed: number }
+  fleet: {
+    total: number
+    behind: number
+    converging: number
+    failed: number
+    machines?: readonly { state: string; detail?: string }[]
+  }
   touched: { app: boolean; server: boolean; machines: boolean }
   skew: SkewVerdict
+  desktopUpdate?: DesktopUpdateInfo
 }
 
 function machineLabel(count: number): string {
   return `${count} machine${count === 1 ? '' : 's'}`
 }
 
-function targetNotes(notes: UpdateNotes | undefined): { summary?: string; url?: string } | undefined {
+function targetNotes(
+  notes: UpdateNotes | undefined,
+): { summary?: string; url?: string } | undefined {
   if (!notes) return undefined
   return {
     ...(notes.summary !== undefined ? { summary: notes.summary } : {}),
@@ -58,7 +73,8 @@ function restartNote(input: UpdateInput): string {
 }
 
 function appPlace(input: UpdateInput): Place {
-  const effect = input.surface === 'desktop-all-in-one' ? 'will refresh, about 5 seconds' : 'will refresh'
+  const effect =
+    input.surface === 'desktop-all-in-one' ? 'will refresh, about 5 seconds' : 'will refresh'
   return { kind: 'this-app', label: 'This app', effect }
 }
 
@@ -68,8 +84,7 @@ function placesFor(input: UpdateInput): Place[] {
   // The all-in-one desktop shell is one place to the operator. Its embedded
   // server must not become a second row in the dialog.
   const appTouched =
-    input.touched.app ||
-    (input.surface === 'desktop-all-in-one' && input.touched.server)
+    input.touched.app || (input.surface === 'desktop-all-in-one' && input.touched.server)
   if (appTouched) places.push(appPlace(input))
 
   if (input.touched.server && input.surface !== 'desktop-all-in-one') {
@@ -103,12 +118,16 @@ function skewReason(skew: SkewVerdict): string | undefined {
 
 export function describeUpdate(input: UpdateInput): UpdateView {
   const target = input.server.target
-  const version = target?.version ?? input.server.appVersion ?? input.localVersion
+  const version =
+    target?.version ?? input.desktopUpdate?.version ?? input.server.appVersion ?? input.localVersion
 
   if (input.fleet.failed > 0) {
+    const failure = input.fleet.machines?.find(
+      (machine) => machine.state === 'rejected' || machine.state === 'stuck',
+    )
     return {
       state: 'failed',
-      detail: `${machineLabel(input.fleet.failed)} could not update.`,
+      detail: failure?.detail ?? machineLabel(input.fleet.failed) + ' could not update.',
     }
   }
 
@@ -118,7 +137,8 @@ export function describeUpdate(input: UpdateInput): UpdateView {
     return { state: 'in-progress', version, done, total }
   }
 
-  const required = input.skew !== 'ok' || target?.critical === true
+  const required =
+    input.skew !== 'ok' || target?.critical === true || input.desktopUpdate?.critical === true
   const places = placesFor(input)
   if (!required && places.length === 0) return { state: 'none' }
 
@@ -129,7 +149,11 @@ export function describeUpdate(input: UpdateInput): UpdateView {
     restartNote: restartNote(input),
   }
 
-  const notes = targetNotes(target?.notes)
+  const targetUpdateNotes = targetNotes(target?.notes)
+  const desktopNotes = input.desktopUpdate?.notes
+    ? { summary: input.desktopUpdate.notes }
+    : undefined
+  const notes = targetUpdateNotes ?? desktopNotes
   if (notes !== undefined) result.notes = notes
 
   const reason = skewReason(input.skew)

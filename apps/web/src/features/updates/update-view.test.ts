@@ -41,9 +41,9 @@ describe('describeUpdate', () => {
 
   it('pluralises machines and says they are not interrupted', () => {
     const v = describeUpdate(base as never)
-    const machines = (v as { places: { kind: string; label: string; effect: string }[] }).places.find(
-      (p) => p.kind === 'machines',
-    )
+    const machines = (
+      v as { places: { kind: string; label: string; effect: string }[] }
+    ).places.find((p) => p.kind === 'machines')
     expect(machines?.label).toBe('3 machines')
     expect(machines?.effect).toMatch(/not be interrupted/i)
   })
@@ -107,6 +107,23 @@ describe('describeUpdate', () => {
     expect((describeUpdate(base as never) as { notes?: unknown }).notes).toBeUndefined()
   })
 
+  it('shows a native feed update in the shared app place', () => {
+    const v = describeUpdate({
+      ...base,
+      server: { appVersion: '0.4.1' },
+      surface: 'desktop-remote',
+      fleet: { total: 0, behind: 0, converging: 0, failed: 0 },
+      touched: { app: true, server: false, machines: false },
+      desktopUpdate: { version: '0.4.2', critical: false, notes: 'A calmer update flow.' },
+    } as never)
+    expect(v).toMatchObject({
+      state: 'available',
+      version: '0.4.2',
+      places: [{ kind: 'this-app' }],
+      notes: { summary: 'A calmer update flow.' },
+    })
+  })
+
   it('is required, not available, for a critical target', () => {
     const v = describeUpdate({
       ...base,
@@ -145,9 +162,15 @@ describe('describeUpdate', () => {
   it('reports failure when a machine gave up', () => {
     const v = describeUpdate({
       ...base,
-      fleet: { total: 3, behind: 0, converging: 0, failed: 1 },
+      fleet: {
+        total: 3,
+        behind: 0,
+        converging: 0,
+        failed: 1,
+        machines: [{ state: 'rejected', detail: 'cannot converge: unsupported-delivery' }],
+      },
       touched: { app: false, server: false, machines: false },
     } as never)
-    expect(v.state).toBe('failed')
+    expect(v).toEqual({ state: 'failed', detail: 'cannot converge: unsupported-delivery' })
   })
 })

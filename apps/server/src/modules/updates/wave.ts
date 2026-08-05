@@ -7,6 +7,7 @@ export interface WaveMachine {
   online: boolean
   /** Busy is only a canary preference; sessions survive the restart. */
   busy: boolean
+  detail?: string
 }
 
 const IN_FLIGHT: ReadonlySet<ConvergenceState> = new Set(['granted', 'downloading', 'restarting'])

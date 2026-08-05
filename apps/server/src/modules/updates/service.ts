@@ -17,6 +17,7 @@ export interface UpdatesDeps {
 interface MachineConvergenceState {
   state: ConvergenceState
   version: string
+  detail?: string
 }
 
 /**
@@ -75,6 +76,7 @@ export class UpdatesService {
     this.machineStates.set(machineId, {
       state: effectiveState,
       version: message.version,
+      ...(message.detail ? { detail: message.detail } : {}),
     })
 
     if (message.state === 'current' && message.version === target.version) {
@@ -123,9 +125,26 @@ export class UpdatesService {
 
   /** Wave-machine projection used by the fleet read model and the planner. */
   fleet(): WaveMachine[] {
+    const targetVersion = this.targetValue?.version
     return this.deps.machines().map((machine) => {
       const state = this.machineStates.get(machine.id)
-      return state ? { ...machine, state: state.state, version: state.version } : { ...machine }
+      // The machine directory is refreshed from the daemon handshake. Once it
+      // reports the target version, that durable fact wins over the old in-memory
+      // grant state left behind by the restart.
+      if (targetVersion !== undefined && machine.version === targetVersion) {
+        if (state) this.canaryHealthy = true
+        this.machineStates.delete(machine.id)
+        this.pendingGrants.delete(machine.id)
+        return { ...machine, state: 'current', version: machine.version }
+      }
+      return state
+        ? {
+            ...machine,
+            state: state.state,
+            version: state.version,
+            ...(state.detail ? { detail: state.detail } : {}),
+          }
+        : { ...machine }
     })
   }
 }

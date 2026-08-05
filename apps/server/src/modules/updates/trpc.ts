@@ -13,6 +13,7 @@ export interface UpdateFleetMachine {
   state: ConvergenceState
   online: boolean
   busy: boolean
+  detail?: string
 }
 
 export interface UpdateFleetSnapshot {
@@ -93,6 +94,8 @@ export function convergeThisServer(
 export function updateProcedures() {
   return {
     fleet: t.procedure.query(({ ctx }) => updateFleet(ctx)),
-    converge: t.procedure.mutation(({ ctx }) => convergeThisServer(familyState(ctx).modules.updates)),
+    converge: t.procedure.mutation(({ ctx }) =>
+      convergeThisServer(familyState(ctx).modules.updates),
+    ),
   }
 }

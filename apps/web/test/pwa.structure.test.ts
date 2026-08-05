@@ -16,7 +16,8 @@ describe('installable PWA wiring', () => {
     expect(cfg).toContain("navigateFallback: '/index.html'")
     expect(cfg).toContain('navigateFallbackDenylist: NAVIGATION_FALLBACK_DENYLIST')
     expect(cfg).toContain("'/mobile': { target: BACKEND")
-    expect(cfg).toContain('mobileEntryRedirectPlugin()')
+    expect(cfg).toContain('\x27/version\x27: { target: BACKEND')
+    expect(cfg).toContain('\x27/podium-build.json\x27: { target: BACKEND')
   })
 
   // Workbox tests the denylist against `pathname + search`, so these are the

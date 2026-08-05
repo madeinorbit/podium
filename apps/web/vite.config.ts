@@ -32,6 +32,10 @@ const BACKEND_WS = `ws://localhost:${BACKEND_PORT}`
 const MOBILE_INDEX = fileURLToPath(new URL('../mobile/dist/index.html', import.meta.url))
 const proxy = {
   '/health': { target: BACKEND, changeOrigin: true },
+  // The update story reads these frozen server contracts directly. Keep them on the
+  // same backend origin in source-mode Vite, just as the production server does.
+  '/version': { target: BACKEND, changeOrigin: true },
+  '/podium-build.json': { target: BACKEND, changeOrigin: true },
   '/trpc': { target: BACKEND, changeOrigin: true },
   // Backend HTTP route that streams sandboxed file bytes (e.g. markdown-preview
   // relative images). Same-origin from the browser, so it must reach the backend.

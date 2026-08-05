@@ -10,9 +10,15 @@ import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { makeTrpc } from '@/app/trpc'
 import type { UpdateActions } from './UpdateDialog'
 import { computeTouched } from './touched'
-import { describeUpdate, type UpdateInput, type UpdateView } from './update-view'
+import {
+  describeUpdate,
+  type DesktopUpdateInfo,
+  type UpdateInput,
+  type UpdateView,
+} from './update-view'
 
 const BUILD_STAMP_FILE = 'podium-build.json'
+const FLEET_POLL_MS = 1_000
 
 export interface UpdateMachineState {
   id: string
@@ -20,6 +26,7 @@ export interface UpdateMachineState {
   state: 'current' | 'granted' | 'downloading' | 'restarting' | 'rejected' | 'stuck'
   online: boolean
   busy: boolean
+  detail?: string
 }
 
 export interface UpdateFleetState {
@@ -90,9 +97,7 @@ function localBuildFrom(raw: unknown): LocalBuild {
   const value = raw as { appVersion?: unknown; wireSchemaDigest?: unknown }
   return {
     appVersion: typeof value.appVersion === 'string' ? value.appVersion : 'dev',
-    ...(typeof value.wireSchemaDigest === 'string'
-      ? { appDigest: value.wireSchemaDigest }
-      : {}),
+    ...(typeof value.wireSchemaDigest === 'string' ? { appDigest: value.wireSchemaDigest } : {}),
   }
 }
 
@@ -117,16 +122,31 @@ export interface UpdateStateResult {
 export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResult {
   const [server, setServer] = useState<ServerVersion>({})
   const [localBuild, setLocalBuild] = useState<LocalBuild>({ appVersion: 'dev' })
-  const [fleetState, setFleetState] = useState<UpdateFleetState>(
-    options.fleet ?? EMPTY_FLEET,
-  )
+  const [fleetState, setFleetState] = useState<UpdateFleetState>(options.fleet ?? EMPTY_FLEET)
   const [serverAction, setServerAction] = useState<ServerActionState>({ state: 'idle' })
+  const [desktopUpdate, setDesktopUpdate] = useState<DesktopUpdateInfo | undefined>()
   const trpc = useMemo(() => makeTrpc(options.httpOrigin), [options.httpOrigin])
   useEffect(() => {
-    const claim = nativeDesktopBridge()?.claimUpdateOwnership
-    if (!claim) return
-    void claim().catch(() => {})
-  }, [])
+    const bridge = nativeDesktopBridge()
+    const claim = bridge?.claimUpdateOwnership
+    if (claim) void claim().catch(() => {})
+
+    const check = bridge?.checkUpdate
+    if (!check) return
+
+    let cancelled = false
+    const channel = trpc.setup.channel.query().catch(() => 'stable' as const)
+    void channel
+      .then((selected) => check(selected))
+      .then((next) => {
+        if (!cancelled) setDesktopUpdate(next ?? undefined)
+      })
+      .catch(() => {})
+
+    return () => {
+      cancelled = true
+    }
+  }, [trpc])
 
   useEffect(() => {
     let cancelled = false
@@ -148,26 +168,71 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   useEffect(() => {
     if (options.fleet !== undefined) return
 
+    const active = serverAction.state === 'in-progress' || fleetState.converging > 0
     let cancelled = false
+    let inFlight = false
     const load = async (): Promise<void> => {
+      if (inFlight) return
+      inFlight = true
       try {
-        const next = await trpc.updates.fleet.query()
-        if (!cancelled) setFleetState(next)
+        const [next, serverRaw] = await Promise.all([
+          trpc.updates.fleet.query(),
+          active ? readJson(options.httpOrigin + '/version') : Promise.resolve(undefined),
+        ])
+        if (cancelled) return
+        setFleetState(next)
+
+        if (active) {
+          const nextServer = parseServerVersion(serverRaw)
+          if (serverRaw !== undefined) setServer(nextServer)
+          setServerAction((current) => {
+            if (current.state !== 'in-progress') return current
+            if (next.failed > 0) {
+              const failure = next.machines?.find(
+                (machine) => machine.state === 'rejected' || machine.state === 'stuck',
+              )
+              return {
+                state: 'failed',
+                detail:
+                  failure?.detail ??
+                  (next.failed === 1 ? 'A machine' : String(next.failed) + ' machines') +
+                    ' could not finish this update.',
+              }
+            }
+            if (next.converging === 0) return { state: 'idle' }
+            const serverDone =
+              next.targetVersion !== null && nextServer.appVersion === next.targetVersion
+            const total = Math.max(current.total, 1 + next.total)
+            const done = Math.max(0, total - next.behind - next.converging - (serverDone ? 0 : 1))
+            return {
+              state: 'in-progress',
+              version: next.targetVersion ?? current.version,
+              done,
+              total,
+            }
+          })
+        }
       } catch {
         // The version dialog still has useful app/server information when the
         // fleet read is unavailable, so leave its last known snapshot intact.
+      } finally {
+        inFlight = false
       }
     }
     void load()
+    if (!active) return
+    const interval = window.setInterval(() => void load(), FLEET_POLL_MS)
     return () => {
       cancelled = true
+      window.clearInterval(interval)
     }
-  }, [options.fleet, trpc])
+  }, [fleetState.converging, options.fleet, options.httpOrigin, serverAction.state, trpc])
 
   const fleet = options.fleet ?? fleetState
   const localVersion = localBuild.appVersion
   const surface = options.surface ?? surfaceFromDesktopBridge()
   const target = server.target
+  const desktopTargeted = surface !== 'web' && target?.artifacts.desktop !== undefined
   const serverBehind = Boolean(
     target?.version !== undefined &&
       server.appVersion !== undefined &&
@@ -181,7 +246,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
         serverBehind,
       })
     : { app: false, server: serverBehind, machines: fleet.behind > 0 }
-  if (options.needRefresh) touched.app = true
+  if (options.needRefresh || desktopUpdate !== undefined || desktopTargeted) touched.app = true
 
   const skew = classifySkew(server, { wire: WIRE_VERSION, digest: wireSchemaDigest() })
   const input: UpdateInput = {
@@ -192,6 +257,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     fleet,
     touched,
     skew,
+    desktopUpdate,
   }
   const baseView = describeUpdate(input)
 
@@ -226,13 +292,15 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
 
   const actions = useMemo<UpdateActions>(() => {
     const install = nativeDesktopBridge()?.installUpdate
-    const installApp = typeof install === 'function' ? () => install() : undefined
+    const canInstallDesktop = desktopUpdate !== undefined || desktopTargeted
+    const installApp =
+      typeof install === 'function' && canInstallDesktop ? () => install() : undefined
     return {
       ...(options.reload && touched.app ? { reload: options.reload } : {}),
       ...(installApp ? { installApp } : {}),
       ...(updateServer ? { updateServer } : {}),
     }
-  }, [options.reload, touched.app, updateServer])
+  }, [desktopTargeted, desktopUpdate, options.reload, touched.app, updateServer])
 
   const view: UpdateView =
     serverAction.state === 'in-progress'

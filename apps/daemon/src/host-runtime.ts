@@ -41,7 +41,8 @@ import type { DaemonInstanceBootstrap } from './instance-bootstrap'
 import { reportLongTick, startLoopAttribution } from './loop-attribution'
 import { composeResponders, createAckReminderInjector, createMailInjector } from './mail-injector'
 import { OutputScheduler } from './output-scheduler'
-import { writePendingGrant } from './pending-grant'
+import { resolveOnBoot } from './convergence'
+import { clearPendingGrant, readPendingGrant, writePendingGrant } from './pending-grant'
 import { swapHeadlessBundle } from './update-install'
 import { createPrimeInjector } from './prime-injector'
 import { makeQuotaFetcher } from './quota-fetch'
@@ -267,6 +268,43 @@ export async function createDaemonHostRuntime(args: {
       stdout: typeof result.stdout === 'string' ? result.stdout : '',
     }
   }
+  const reconcilePendingUpdate = (): void => {
+    const pending = readPendingGrant(instance.runtimeDir)
+    if (!pending) return
+
+    const runningVersion = build.appVersion ?? 'dev'
+    const verdict = resolveOnBoot({ pending, runningVersion })
+    if (!verdict) return
+
+    let state: 'current' | 'rejected' | 'stuck'
+    let detail: string | undefined
+    if (verdict.action === 'confirm') {
+      state = 'current'
+    } else if (verdict.action === 'rollback') {
+      state = verdict.state
+      detail = verdict.detail
+    } else {
+      state = 'stuck'
+      detail =
+        'did not reach ' +
+        pending.targetVersion +
+        ' after ' +
+        pending.attempts +
+        ' attempt(s); running ' +
+        runningVersion +
+        '; manual convergence is required'
+    }
+
+    send({
+      type: 'updateStatus',
+      grantId: pending.grantId,
+      state,
+      version: runningVersion,
+      ...(detail ? { detail } : {}),
+    })
+    clearPendingGrant(instance.runtimeDir)
+  }
+
   const applyUpdateGrant = (grant: Extract<ControlMessage, { type: 'updateGrant' }>) =>
     applyGrant(grant, {
       currentVersion: () => build.appVersion ?? 'dev',
@@ -352,6 +390,7 @@ export async function createDaemonHostRuntime(args: {
       stopInventoryRefresh = startInventoryRefresh(ctx)
       void sweepHandoffStage({ ...(homeDir ? { homeDir } : {}) }).catch(() => undefined)
     }
+    reconcilePendingUpdate()
     void reportInventory(ctx)
     void replayPendingBindingReceipts().catch((error) =>
       console.warn('[podium] Codex identity receipt replay failed:', error),

@@ -75,6 +75,18 @@ describe('UpdatesService', () => {
     expect(send).toHaveBeenCalledTimes(1)
   })
 
+  it('reconciles a restarted machine from its reported target version', () => {
+    const machines = [m('a'), m('b')]
+    const { svc } = make(machines)
+    svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
+    svc.tick()
+
+    const first = machines[0]
+    if (!first) throw new Error('test machine missing')
+    first.version = '0.4.2'
+    expect(svc.fleet()[0]).toMatchObject({ state: 'current', version: '0.4.2' })
+  })
+
   it('is idempotent: a second tick with nothing changed grants nothing new', () => {
     const { svc, send } = make([m('a'), m('b')])
     svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)

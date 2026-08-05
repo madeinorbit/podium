@@ -45,6 +45,23 @@ describe('UpdateDialog', () => {
       />,
     )
     expect(screen.queryByRole('button', { name: /later/i })).toBeNull()
+    expect(screen.getByTestId('update-dialog').getAttribute('aria-modal')).toBe('false')
+  })
+
+  it('stays in one panel while the phase changes', () => {
+    const { rerender } = render(<UpdateDialog view={available} actions={{}} />)
+    const panel = screen.getByTestId('update-dialog')
+    expect(panel.className).toContain('fixed')
+    expect(panel.className).toContain('right-4')
+    expect(panel.className).toContain('bottom-4')
+
+    rerender(
+      <UpdateDialog
+        view={{ state: 'in-progress', version: '0.4.2', done: 1, total: 3 }}
+        actions={{}}
+      />,
+    )
+    expect(screen.getByTestId('update-dialog')).toBe(panel)
   })
 
   it('shows the reason on a required update', () => {
@@ -79,9 +96,7 @@ describe('UpdateDialog', () => {
       <UpdateDialog
         view={{
           ...available,
-          places: [
-            { kind: 'server', label: 'Your server', effect: 'will briefly reconnect' },
-          ],
+          places: [{ kind: 'server', label: 'Your server', effect: 'will briefly reconnect' }],
         }}
         actions={{ reload: vi.fn() }}
       />,

@@ -21,14 +21,16 @@ const reloadAction = vi.fn()
 function Probe({
   onResult,
   withReload = false,
+  liveFleet = false,
 }: {
   onResult: (result: UpdateStateResult) => void
   withReload?: boolean
+  liveFleet?: boolean
 }) {
   const result = useUpdateState({
     httpOrigin: 'http://podium.test',
     needRefresh: false,
-    fleet: { total: 1, behind: 1, converging: 0, failed: 0 },
+    ...(liveFleet ? {} : { fleet: { total: 1, behind: 1, converging: 0, failed: 0 } }),
     reload: withReload ? reloadAction : undefined,
   })
   useEffect(() => {
@@ -63,6 +65,7 @@ afterEach(() => {
 
 function setupTransport(version = { appVersion: '0.4.1', target }): void {
   mocks.makeTrpc.mockReturnValue({
+    setup: { channel: { query: vi.fn(async () => 'stable') } },
     updates: {
       fleet: { query: mocks.query },
       converge: { mutate: mocks.mutate },
@@ -93,7 +96,9 @@ describe('useUpdateState server action', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /update server/i })).toBeTruthy())
 
     screen.getByRole('button', { name: /update server/i }).click()
-    await waitFor(() => expect(screen.getByTestId('view-state').textContent).toContain('in-progress'))
+    await waitFor(() =>
+      expect(screen.getByTestId('view-state').textContent).toContain('in-progress'),
+    )
 
     expect(mocks.mutate).toHaveBeenCalledTimes(1)
     expect(results.at(-1)?.view).toMatchObject({
@@ -102,6 +107,37 @@ describe('useUpdateState server action', () => {
       done: 0,
       total: 2,
     })
+  })
+
+  it('polls fleet state so progress advances beyond the initial zero', async () => {
+    setupTransport()
+    let calls = 0
+    mocks.query.mockImplementation(async () => {
+      calls += 1
+      if (calls === 1) return { total: 3, behind: 3, converging: 0, failed: 0 }
+      if (calls === 2)
+        return { total: 3, behind: 2, converging: 2, failed: 0, targetVersion: '0.4.2' }
+      if (calls === 3)
+        return { total: 3, behind: 1, converging: 1, failed: 0, targetVersion: '0.4.2' }
+      return { total: 3, behind: 0, converging: 0, failed: 0, targetVersion: '0.4.2' }
+    })
+    mocks.mutate.mockResolvedValue({
+      state: 'in-progress',
+      version: '0.4.2',
+      done: 0,
+      total: 4,
+      fleet: { total: 3, behind: 3, converging: 3, failed: 0, targetVersion: '0.4.2' },
+    })
+
+    render(<Probe onResult={() => {}} liveFleet />)
+    await waitFor(() => expect(screen.getByRole('button', { name: /update server/i })).toBeTruthy())
+    screen.getByRole('button', { name: /update server/i }).click()
+
+    await waitFor(
+      () => expect(screen.getByTestId('view-state').textContent).toContain('in-progress:0.4.2:1:4'),
+      { timeout: 4_000 },
+    )
+    expect(calls).toBeGreaterThanOrEqual(3)
   })
 
   it('moves the shared dialog to failed with the server detail', async () => {
@@ -150,6 +186,12 @@ describe('useUpdateState server action', () => {
       toggleMaximize: vi.fn(async () => {}),
       close: vi.fn(async () => {}),
       claimUpdateOwnership: claim,
+      checkUpdate: vi.fn(async () => ({
+        current_version: '0.4.1',
+        version: '0.4.2',
+        critical: false,
+        notes: 'A calmer update flow.',
+      })),
       installUpdate: install,
     })
     const results: UpdateStateResult[] = []

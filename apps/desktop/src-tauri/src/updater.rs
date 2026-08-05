@@ -199,18 +199,17 @@ pub async fn install_update(
     app.restart();
 }
 
-/// On launch: check the feed; if a newer signed version exists, ask the user, then
-/// download+install and restart. Errors are logged, never fatal (no network = no-op).
-///
-/// TEST-ONLY: when the env var `PODIUM_UPDATE_AUTOCONFIRM=1` is set, the interactive
-/// confirmation dialog is SKIPPED and the install proceeds unattended. This exists
-/// solely so Task 2's headless e2e (no display server, no human) can exercise the
-/// full check → download → install → restart path. Do NOT set it in production.
+/// The production web surface owns the update prompt. This retained launch hook is
+/// deliberately non-interactive: it only installs when the headless verifier sets
+/// `PODIUM_UPDATE_AUTOCONFIRM=1`, so a native shell can never block the app with a
+/// second operating-system dialog. Errors are logged, never fatal (no network = no-op).
 pub async fn check_and_prompt_update(app: AppHandle, channel: UpdateChannel) {
-    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
-
     if !production_auto_update_enabled(cfg!(debug_assertions)) {
         eprintln!("[podium-desktop] production auto-update disabled in debug builds");
+        return;
+    }
+    if std::env::var("PODIUM_UPDATE_AUTOCONFIRM").as_deref() != Ok("1") {
+        eprintln!("[podium-desktop] native interactive fallback disabled; the shared web surface owns updates");
         return;
     }
 
@@ -223,47 +222,17 @@ pub async fn check_and_prompt_update(app: AppHandle, channel: UpdateChannel) {
     };
     match updater.check().await {
         Ok(Some(update)) => {
-            // A critical release is non-dismissible: the dialog offers Ok only (no Cancel) so
-            // the user cannot decline, and it always installs. Policy comes from the structured
-            // manifest field, never from release-note prose.
-            let critical = is_critical_update(&update.raw_json, update.body.as_deref());
-            let msg = if critical {
-                format!(
-                    "Critical update ({} → {}). This update is required and will be installed now.",
-                    update.current_version, update.version
-                )
-            } else {
-                format!(
-                    "Update available ({} → {}). Restart to apply?",
-                    update.current_version, update.version
-                )
-            };
-
-            // TEST-ONLY autoconfirm: skip the dialog entirely for headless e2e.
-            let confirmed = if std::env::var("PODIUM_UPDATE_AUTOCONFIRM").as_deref() == Ok("1") {
-                eprintln!("[podium-desktop] PODIUM_UPDATE_AUTOCONFIRM=1 — skipping dialog (test-only)");
-                true
-            } else {
-                // Critical → Ok-only (cannot decline); normal → OkCancel.
-                let buttons = if critical {
-                    MessageDialogButtons::Ok
-                } else {
-                    MessageDialogButtons::OkCancel
-                };
-                app.dialog()
-                    .message(msg)
-                    .title("Podium update")
-                    .buttons(buttons)
-                    .blocking_show()
-            };
-
-            if confirmed {
-                if let Err(e) = update.download_and_install(|_chunk, _total| {}, || {}).await {
-                    eprintln!("[podium-desktop] update install failed: {e}");
-                    return;
-                }
-                app.restart();
+            eprintln!(
+                "[podium-desktop] PODIUM_UPDATE_AUTOCONFIRM=1 — installing the fallback update (test-only)",
+            );
+            if let Err(e) = update
+                .download_and_install(|_chunk, _total| {}, || {})
+                .await
+            {
+                eprintln!("[podium-desktop] update install failed: {e}");
+                return;
             }
+            app.restart();
         }
         Ok(None) => { /* up to date */ }
         Err(e) => eprintln!("[podium-desktop] update check failed: {e}"),
