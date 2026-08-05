@@ -3,7 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildChatRows, pairToolResults, type ToolBatchRow } from './chat'
-import { ToolBatchView } from './ToolBatchView'
+import { ToolBatchView, WorkLinePreviewList } from './ToolBatchView'
 
 // The work line (POD-364): a run of tool calls is one progress object. Live it
 // names the call in flight and counts up; settled it summarizes. What must never
@@ -130,5 +130,73 @@ describe('ToolBatchView — the work line', () => {
   it('shows no timer at all when the transcript carries no timestamps', () => {
     mount(batchOf([call({ id: 'a' }), call({ id: 'b' })]))
     expect(host.querySelector('.work-line-time')).toBeNull()
+  })
+})
+
+// POD-423: what the fold still cost a reader — seeing WHICH calls it holds, and
+// noticing WHEN a live run finished.
+describe('ToolBatchView — the folded run’s preview', () => {
+  it('drops the native title on a previewable row so two tooltips cannot race', () => {
+    mount(batchOf([call({ id: 'a' }), call({ id: 'b' })]))
+    expect(host.querySelector('.work-line-row')?.hasAttribute('title')).toBe(false)
+  })
+
+  it('keeps the native title on a lone call — there is no "which" to answer', () => {
+    mount(batchOf([call({ id: 'a' })]))
+    expect(host.querySelector('.work-line-row')?.getAttribute('title')).toBe('Read a file')
+  })
+
+  it('lists the calls the fold would reveal, naming each subject', () => {
+    const row = batchOf([
+      call({ id: 'a', toolPaths: ['/r/apps/web/src/ChatView.tsx'], toolTitle: 'ChatView' }),
+      call({ id: 'b', toolName: 'Bash', toolInput: 'bun test', toolTitle: 'Run the tests' }),
+    ])
+    act(() => root.render(<WorkLinePreviewList blocks={row.blocks} />))
+    const items = [...host.querySelectorAll('.work-line-preview-item')]
+    expect(items).toHaveLength(2)
+    expect(items[0]?.textContent).toContain('ChatView')
+    // Bash names the COMMAND, not the agent's description of it — same rule the
+    // unfolded row follows, because the preview must match what unfolding shows.
+    expect(items[1]?.textContent).toContain('bun test')
+    expect(items[1]?.textContent).not.toContain('Run the tests')
+  })
+
+  it('defers to the fold past a glanceable number of calls', () => {
+    const row = batchOf(Array.from({ length: 12 }, (_, i) => call({ id: `c${i}` })))
+    act(() => root.render(<WorkLinePreviewList blocks={row.blocks} />))
+    expect(host.querySelectorAll('.work-line-preview-item')).toHaveLength(8)
+    expect(host.querySelector('.work-line-preview-more')?.textContent).toContain('+4 more')
+  })
+
+  it('marks a failed call in the preview — the fold never hides a failure', () => {
+    const row = batchOf([
+      call({ id: 'a', toolUseId: 'u1' }),
+      call({ id: 'a-res', toolUseId: 'u1', toolResult: 'ok' }),
+      call({ id: 'b', toolName: 'Bash', toolUseId: 'u2' }),
+      call({ id: 'b-res', toolUseId: 'u2', toolResult: 'Error: exit code 1' }),
+    ])
+    act(() => root.render(<WorkLinePreviewList blocks={row.blocks} />))
+    expect(host.querySelectorAll('.work-line-preview-glyph--err')).toHaveLength(1)
+  })
+})
+
+describe('ToolBatchView — the settle', () => {
+  it('does not settle on mount — a transcript of finished runs replays nothing', () => {
+    mount(batchOf([call({ id: 'a' }), call({ id: 'b' })]))
+    expect(host.querySelector('[data-testid="work-line"]')?.hasAttribute('data-settle')).toBe(false)
+  })
+
+  it('plays one morph when a live run resolves, then holds still', () => {
+    vi.useFakeTimers()
+    const row = batchOf([call({ id: 'a' }), call({ id: 'b' })])
+    mount(row, true)
+    const line = (): Element => host.querySelector('[data-testid="work-line"]')!
+    expect(line().hasAttribute('data-settle')).toBe(false)
+    mount(row, false)
+    expect(line().getAttribute('data-settle')).toBe('true')
+    act(() => {
+      vi.advanceTimersByTime(1000)
+    })
+    expect(line().hasAttribute('data-settle')).toBe(false)
   })
 })

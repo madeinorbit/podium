@@ -11,12 +11,14 @@ import { attributionForRole, blockMatches, isInteractiveTool } from '@podium/cli
 import type { SessionId, SessionMeta } from '@podium/model'
 import { Image as ImageIcon } from 'lucide-react'
 import type { JSX, RefObject } from 'react'
+import { useMemo } from 'react'
 import { renderMarkdown } from '@/lib/markdown'
 import { cn } from '@/lib/utils'
 import { ChatBlockView, type TurnPosition } from './ChatBlockView'
 import type { PendingItem, QueuedChatMessage } from './chat'
 import { ToolBatchView } from './ToolBatchView'
 import { TranscriptTail } from './TranscriptTail'
+import { rowIdentity, useFeedArrivals } from './use-feed-arrivals'
 import type { HeadlessOverlay } from './use-headless-turn'
 
 /**
@@ -143,6 +145,10 @@ export function TranscriptFeed({
    *  should get rather than a button that does nothing. */
   onQuote?: (markdown: string) => void
 }): JSX.Element {
+  // Which rows LANDED, as opposed to which rows merely rendered — see
+  // use-feed-arrivals. Identity is per row and index-free, so paging older
+  // messages in above does not read as the whole feed arriving at once.
+  const arriving = useFeedArrivals(useMemo(() => rows.map(({ row }) => rowIdentity(row)), [rows]))
   return (
     <div
       className={cn(
@@ -211,6 +217,7 @@ export function TranscriptFeed({
         // opening is scrolled away above).
         const turn: TurnPosition | undefined =
           pos > 0 && isOperatorPromptRow(row) ? 'open' : turnPosition(row)
+        const arrived = arriving.has(rowIdentity(row))
         // Absolute row index into `rows` keeps minimap/search and
         // [data-block] aligned even for the one-row sticky continuation.
         return row.kind === 'tools' ? (
@@ -232,6 +239,7 @@ export function TranscriptFeed({
             // trailing window and `idx` is the ABSOLUTE index into the full row
             // list, so the last mounted row is `pos === rows.length - 1`.
             live={activity?.tone === 'working' && pos === rows.length - 1}
+            arrived={arrived}
             turn={turn}
             sessionId={sessionId}
             cwd={cwd}
@@ -260,6 +268,7 @@ export function TranscriptFeed({
             stickyOperator={stickyEnabled && isOperatorPromptRow(row)}
             attribution={attributionForRole(attribution, row.block.item.role)}
             turn={turn}
+            arrived={arrived}
             onQuote={onQuote}
           />
         )
@@ -327,14 +336,19 @@ export function TranscriptFeed({
       {/* Headless streaming overlay: the in-progress assistant text (or the
           driver's status label) below the last transcript row. Replaced by
           the real item when it lands via the transcript tail; cleared on
-          turn-end. Native sessions never emit these frames. */}
+          turn-end. Native sessions never emit these frames.
+
+          The text carries a caret while it is still being written (POD-423):
+          the overlay exists only mid-turn, so its presence IS the signal, and
+          it goes away when the finished item takes over. */}
       {overlay && (
         <div className="transcript-row mx-auto w-full max-w-[960px]" data-headless-overlay>
           <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
           <div className="transcript-body">
             {overlay.text !== undefined && (
               <div
-                className="chat-md opacity-80"
+                className="chat-md chat-md--streaming opacity-80"
+                data-testid="streaming-text"
                 // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized by DOMPurify
                 dangerouslySetInnerHTML={{ __html: renderMarkdown(overlay.text) }}
               />

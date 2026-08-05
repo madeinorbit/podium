@@ -1,9 +1,17 @@
-import type { SessionId } from '@podium/model'
+import type { SessionId, TranscriptItem } from '@podium/model'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { resolveAgainstCwd } from '@/lib/file-path'
 import { cn } from '@/lib/utils'
 import { type ChatBlock, failLine, mcpLabel, resultPreview, toolVerdict } from './chat'
+
+/** How a call NAMES ITSELF in a list: the tool that ran, in the operator's
+ *  words rather than the wire's. Shared with the folded run's hover preview
+ *  (POD-423) so the two lists can't drift apart. An MCP call is labelled by its
+ *  server, not by the raw `mcp__a__b` id. */
+export function toolCallLabel(item: TranscriptItem): string {
+  return item.toolName ? (mcpLabel(item.toolName) ?? item.toolName) : 'result'
+}
 
 /** One tool call inside an expanded batch (Flat Field, POD-159): a muted
  *  one-line mono row — verdict glyph, name, input preview, inline file links —
@@ -32,8 +40,7 @@ export function ToolBlock({
   const verdict = toolVerdict(result)
   const preview = resultPreview(result)
   // Orphan results render as a bare result row; calls render name + input.
-  // An MCP call is labelled by its server, not by the raw `mcp__a__b` id.
-  const label = item.toolName ? (mcpLabel(item.toolName) ?? item.toolName) : 'result'
+  const label = toolCallLabel(item)
   // Bash shows the COMMAND, with the agent's description beneath it — the
   // command is the thing that ran, and it is what a reader is checking for.
   const command = item.toolName === 'Bash' ? item.toolInput : undefined

@@ -367,6 +367,7 @@ export const ChatBlockView = memo(function ChatBlockView({
   stickyOperator = false,
   attribution,
   turn,
+  arrived = false,
   onQuote,
 }: {
   block: ChatBlock
@@ -401,6 +402,9 @@ export const ChatBlockView = memo(function ChatBlockView({
   attribution?: TranscriptAttribution
   /** This row's place in its exchange (POD-376) — see {@link TurnPosition}. */
   turn?: TurnPosition
+  /** This row landed after the feed was already on screen (POD-423) — it plays
+   *  its one-shot arrival. See `useFeedArrivals`. */
+  arrived?: boolean
   /** Quote this message into the composer. Absent → no Quote action. */
   onQuote?: ((markdown: string) => void) | undefined
 }): JSX.Element | null {
@@ -436,11 +440,13 @@ export const ChatBlockView = memo(function ChatBlockView({
     bodyTurnClass,
     stickyOperator &&
       'sticky -top-6 z-[3] transition-[box-shadow] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
+    arrived && 'transcript-arrive',
     highlighted && 'rounded-md outline outline-1 outline-primary outline-offset-4',
     dimmed && 'opacity-35',
   )
   const nonStickyRowClass = cn(
     'transcript-row mx-auto w-full max-w-[960px]',
+    arrived && 'transcript-arrive',
     highlighted && 'rounded-md outline outline-1 outline-primary outline-offset-4',
     dimmed && 'opacity-35',
   )

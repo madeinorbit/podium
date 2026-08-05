@@ -2282,11 +2282,119 @@ html[data-density="balanced"] .header-quota-pools {
     transform: none;
   }
 }
+/* ── POD-423 work line ───────────────────────────────────────────────────────
+   Two things the fold still cost a reader: seeing WHICH calls it holds, and
+   noticing WHEN a live run finished. */
+
+/* THE SETTLE. A run resolving from live to done used to swap silently — spinner
+   to verdict, live blue to dim — in the same frame as everything else on the
+   row. One morph marks the moment and then the row is still, per the motion
+   grammar. The colour transitions are unconditional (they only ever run on a
+   state change; a resting row has nothing to transition), while the glyph's
+   one-shot is gated on `data-settle` so painting a transcript of a hundred
+   finished runs replays none of them. */
+.work-line-phrase,
+.work-line-time,
+.work-line-glyph {
+  transition: color 320ms ease;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .work-line[data-settle="true"] .work-line-glyph {
+    animation: work-line-settle 260ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+}
+@keyframes work-line-settle {
+  from {
+    opacity: 0;
+    transform: scale(0.55);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* THE PREVIEW — the calls a folded run holds, on hover or on focus, without
+   unfolding it. Portalled (see WorkLinePreview), so unlike the per-message
+   actions it copies it can be taller than the row it hangs off without
+   contributing a pixel to the feed's scrollable overflow.
+
+   A transient overlay, so this is the one place the Carved Rule yields to a
+   real shadow — the same popover surface the minimap's flyout and the find bar
+   already use. */
+.work-line-preview-pos {
+  z-index: 50;
+}
+.work-line-preview {
+  max-width: min(64ch, 72vw);
+  padding: 5px 9px 6px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--popover, var(--card));
+  box-shadow: 0 10px 26px var(--carve-popover-far, rgb(0 0 0 / 0.45));
+}
+/* Mono and one line per call, matching the rows the fold would reveal — a
+   reader who then clicks must find the same list, in the same order. */
+.work-line-preview-item {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  min-width: 0;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+  line-height: 1.7;
+  white-space: nowrap;
+}
+.work-line-preview-glyph {
+  flex: none;
+  width: 7px;
+  color: color-mix(in oklab, var(--muted-foreground) 70%, transparent);
+}
+.work-line-preview-glyph--err {
+  color: var(--destructive);
+}
+/* A floor, not a cap — the same column the unfolded row keeps, so subjects line
+   up to a single left edge while a long name (NotebookEdit) still shows in
+   full rather than truncating to nothing. */
+.work-line-preview-label {
+  flex: none;
+  min-width: 42px;
+  color: var(--text-strong, var(--foreground));
+}
+.work-line-preview-subject {
+  overflow: hidden;
+  color: var(--muted-foreground);
+  text-overflow: ellipsis;
+}
+.work-line-preview-more {
+  padding-top: 3px;
+  font-size: 10px;
+  color: var(--text-dim, var(--muted-foreground));
+}
+@media (prefers-reduced-motion: no-preference) {
+  .work-line-preview {
+    animation: work-line-preview-in 120ms ease-out;
+  }
+}
+@keyframes work-line-preview-in {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .work-line-deck i,
   .work-line-chev,
   .work-line-count,
-  .work-line-row {
+  .work-line-row,
+  .work-line-phrase,
+  .work-line-time,
+  .work-line-glyph {
     transition: none;
   }
   .work-line-list {
@@ -2491,7 +2599,55 @@ html[data-density="balanced"] .header-quota-pools {
     transform: none;
   }
 }
+
+/* ── POD-423 arrival ─────────────────────────────────────────────────────────
+   A row that just landed was indistinguishable from one that had been there an
+   hour. It now reads as news for one beat and is then identical to every other
+   row — the tail's morph, borrowed for the rows above it, in the same weight
+   and the same curve.
+
+   It costs nothing at rest: opacity and transform only, so no row changes
+   height and nothing below it moves, and the class is only ever on rows that
+   actually arrived (see use-feed-arrivals — NOT every row that mounts, which
+   would fire three hundred times on opening a session). One shot, then
+   stillness; there is no resting state to make louder. */
+@media (prefers-reduced-motion: no-preference) {
+  .transcript-arrive {
+    animation: transcript-arrive 240ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+}
+@keyframes transcript-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* THE STREAMING CARET. An answer being written now looks like one that finished
+   an hour ago; the caret says which. It does NOT blink: the braille spinner and
+   its timer are the system's only perpetual motion (DESIGN.md §5), and a caret
+   at the end of text that is itself growing already moves — the tokens push it
+   along, so the motion is the content's, not a loop's. It exists only while the
+   overlay does, which is only mid-turn. */
+.chat-md--streaming > :last-child::after {
+  content: "";
+  display: inline-block;
+  width: 2px;
+  height: 0.95em;
+  margin-left: 2px;
+  border-radius: 1px;
+  background: var(--live, var(--info));
+  vertical-align: text-bottom;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .transcript-arrive {
+    animation: none;
+  }
   .msg-actions,
   .msg-action {
     transition: none;
