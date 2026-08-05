@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { brotliCompressSync, brotliDecompressSync, gunzipSync } from 'node:zlib'
 import { Hono } from 'hono'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -196,6 +196,20 @@ describe('registerWebStatic', () => {
       expect((await app.request('/apple-touch-icon.png')).status).toBe(404)
     } finally {
       rmSync(bare, { recursive: true, force: true })
+    }
+  })
+  it('serves real files when the dist path needs normalising [POD-421]', async () => {
+    // The containment guard compares a join()ed path against webDir, so an
+    // un-normalised dir made every real asset fall through to the shell — and
+    // before the catch-all was fixed, that fell through as a silent 200.
+    for (const suffix of ['/', `${sep}.${sep}`, `${sep}assets${sep}..${sep}`]) {
+      const app = new Hono()
+      registerWebStatic(app, dir + suffix)
+      const asset = await app.request('/assets/app.js')
+      expect(asset.status, suffix).toBe(200)
+      expect(await asset.text()).toBe('console.log(1)')
+      expect((await app.request('/apple-touch-icon.png')).status, suffix).toBe(200)
+      expect((await app.request('/settings/machines')).status, suffix).toBe(200)
     }
   })
   it('returns false and registers nothing when no build is present', () => {

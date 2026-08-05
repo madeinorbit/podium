@@ -440,7 +440,19 @@ function serveIndex(webDir: string, indexPath: string, stampCheck: boolean): str
  * UI, not this route. Returns false (registers nothing) when no build is present, so a
  * source/dev run or an API-only server is unaffected. Call AFTER the API routes.
  */
-export function registerWebStatic(app: Hono, webDir: string, opts: StaticWebOptions = {}): boolean {
+export function registerWebStatic(
+  app: Hono,
+  rawWebDir: string,
+  opts: StaticWebOptions = {},
+): boolean {
+  // Normalised ONCE, here, because the containment guard below compares a
+  // `join`ed (and therefore already normalised) path against this string. Handed
+  // a dir with a `..` or a trailing slash in it — `<root>/.claude/../apps/web/dist`
+  // is exactly how a preview harness writes it — every real file failed that
+  // prefix test and fell through to the SPA shell. Silently: the dist was fine
+  // and the server answered 200 text/html for all of it, which looked like a
+  // working site until the catch-all stopped lying [POD-421].
+  const webDir = normalize(rawWebDir).replace(/[/\\]+$/, '')
   const indexPath = join(webDir, 'index.html')
   if (!opts.lazy && !existsSync(indexPath)) return false
 
