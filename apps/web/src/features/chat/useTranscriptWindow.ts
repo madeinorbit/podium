@@ -183,6 +183,9 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
   // effects can call it to refresh the window without re-mounting the subscription.
   const readNewest = useCallback(async () => {
     const sid = sessionId
+    // These marks intentionally enclose only the awaited tRPC read. The interval
+    // therefore includes browser↔server transport and response decoding; JS/React
+    // materialization is measured separately by `chat:rows-built` below.
     markSwitch(sid, 'transcript:read-start')
     const r = await trpc.sessions.transcriptRead.query({
       sessionId: sid,

@@ -737,22 +737,37 @@ export class DaemonRpcService {
     },
     reader: TranscriptReader,
   ): Promise<TranscriptSlice> {
+    const startedAt = performance.now()
+    const recordTotal = (): void => {
+      perf.record('phase', 'transcriptRead.total', performance.now() - startedAt, DEPLOYMENT)
+    }
     if (!this.deps.memory.canReadSession(reader, input.sessionId)) {
+      recordTotal()
       return { items: [], hasMore: false }
     }
     const session = this.deps.getSession(input.sessionId)
-    if (!session) return { items: [], hasMore: false }
+    if (!session) {
+      recordTotal()
+      return { items: [], hasMore: false }
+    }
     // Leg timing [POD-701]: transcriptRead.daemon / transcriptRead.lake record
     // the leg that actually served the response. Payload bytes aren't cheaply
     // available (summing item JSON lengths would cost a full pass), so a second
     // record carries the item count in the ms slot instead: transcriptRead.items.
-    const t0 = performance.now()
+    // The `.wait` phases also record an attempted leg when it returns an empty
+    // page and the other source wins; otherwise a daemon timeout/empty answer
+    // vanishes from attribution and the client gap cannot be closed.
+    const hasDaemon = this.deps.hasDaemon(session.machineId)
+    let fromDaemon: TranscriptSlice | undefined
+    let daemonMs: number | undefined
     // Daemon-first (docs/spec/search-v1.md §2.2): the native file is fresher than
     // the mirror. But a machine with no live daemon socket can't answer at all —
     // skip straight to the lake rather than stalling the chat view for the full
     // request timeout to learn that.
-    const fromDaemon = this.deps.hasDaemon(session.machineId)
-      ? await this.request<TranscriptSlice>(
+    if (hasDaemon) {
+      const tDaemon0 = performance.now()
+      try {
+        fromDaemon = await this.request<TranscriptSlice>(
           TRANSCRIPT_READ,
           SCAN_TIMEOUT_MS,
           () => ({ items: [], hasMore: false }),
@@ -773,19 +788,32 @@ export class DaemonRpcService {
           }),
           session.machineId, // the transcript file lives on the session's machine
         )
-      : undefined
+      } finally {
+        daemonMs = performance.now() - tDaemon0
+        perf.record('phase', 'transcriptRead.daemon.wait', daemonMs, DEPLOYMENT)
+      }
+    }
     if (fromDaemon && fromDaemon.items.length > 0) {
-      perf.record('phase', 'transcriptRead.daemon', performance.now() - t0, DEPLOYMENT)
+      perf.record('phase', 'transcriptRead.daemon', daemonMs ?? 0, DEPLOYMENT)
       perf.record('phase', 'transcriptRead.items', fromDaemon.items.length, DEPLOYMENT)
+      recordTotal()
       return fromDaemon
     }
     // Empty/timeout daemon answer (or no daemon): serve from the mirrored copy.
     const tLake0 = performance.now()
-    const fromLake = await this.deps.memory.readTranscriptFromLake(session, input)
+    let fromLake: TranscriptSlice | undefined
+    let lakeMs = 0
+    try {
+      fromLake = await this.deps.memory.readTranscriptFromLake(session, input)
+    } finally {
+      lakeMs = performance.now() - tLake0
+      perf.record('phase', 'transcriptRead.lake.wait', lakeMs, DEPLOYMENT)
+    }
     if (fromLake) {
-      perf.record('phase', 'transcriptRead.lake', performance.now() - tLake0, DEPLOYMENT)
+      perf.record('phase', 'transcriptRead.lake', lakeMs, DEPLOYMENT)
       perf.record('phase', 'transcriptRead.items', fromLake.items.length, DEPLOYMENT)
     }
+    recordTotal()
     return fromLake ?? fromDaemon ?? { items: [], hasMore: false }
   }
 
