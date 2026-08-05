@@ -20,14 +20,32 @@ export const nodeTestExclude = [
   'apps/mobile/**',
 ]
 
-// Keep forked test runs below the shared development host resource ceiling.
-// The default is one worker per CPU, which is unsafe on the six-core/11 GB box
-// where the live Podium instance and several agent sessions run alongside tests.
-// Two workers preserve useful file parallelism while leaving headroom for them.
+// Keep forked test runs below the shared development host resource ceiling by default.
+// Dedicated CI/test hosts can set PODIUM_TEST_WORKERS=auto or a positive integer.
+export const DEFAULT_TEST_WORKERS = 2
+
+export function resolveTestWorkerLimit(
+  value = process.env.PODIUM_TEST_WORKERS,
+): number | undefined {
+  const normalized = value?.trim().toLowerCase()
+  if (!normalized) return DEFAULT_TEST_WORKERS
+  if (normalized === 'auto') return undefined
+  if (!/^[1-9]\d*$/.test(normalized)) {
+    throw new Error('PODIUM_TEST_WORKERS must be a positive integer or "auto"')
+  }
+  const workers = Number(normalized)
+  if (!Number.isSafeInteger(workers)) {
+    throw new Error('PODIUM_TEST_WORKERS is too large')
+  }
+  return workers
+}
+
+const configuredTestWorkers = resolveTestWorkerLimit()
+
 export const sharedTestWorkerLimits = {
   fileParallelism: true,
   minWorkers: 1,
-  maxWorkers: 2,
+  ...(configuredTestWorkers === undefined ? {} : { maxWorkers: configuredTestWorkers }),
 } as const
 
 /** Shared resolve (workspace aliases + @podium/source condition) and common node test
@@ -154,7 +172,7 @@ export const sharedVitestConfig = {
     // A broad suite creates one Bun/Vite module graph per fork. Keep the default
     // lanes inside the host memory budget instead of using the CPU-count default.
     // POD-1678: the rewrite exposed the old fan-out as a host-wide OOM risk.
-    maxWorkers: 2,
+    ...sharedTestWorkerLimits,
     // Shared-vCPU hosts make sqlite-heavy tests (migrations) overrun the
     // 5s default; 20s keeps them honest without flaking on CPU steal.
     testTimeout: 20_000,

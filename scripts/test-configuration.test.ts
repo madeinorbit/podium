@@ -8,7 +8,7 @@ import phase3BrowserConfig from '../tests/e2e/.phase3-playwright.config'
 import browserConfig from '../tests/e2e/playwright.config'
 import acceptanceConfig from '../vitest.acceptance.config'
 import agentSmokeConfig from '../vitest.agent-smoke.config'
-import rootConfig, { sharedVitestConfig } from '../vitest.config'
+import rootConfig, { resolveTestWorkerLimit, sharedVitestConfig } from '../vitest.config'
 import integrationConfig from '../vitest.integration.config'
 import { ptySmokeTests, realAgentSmokeTests } from '../vitest.smoke-requirements'
 import unitConfig, { normalizedWireTests } from '../vitest.unit.config'
@@ -122,6 +122,18 @@ describe('test lane configuration', () => {
     expect(rootNode?.maxWorkers).toBe(2)
     expect(config(integrationConfig).test?.minWorkers).toBe(1)
     expect(config(integrationConfig).test?.maxWorkers).toBe(2)
+    for (const appConfig of [webConfig, mobileConfig]) {
+      expect(config(appConfig).test?.maxWorkers).toBe(sharedVitestConfig.test.maxWorkers)
+    }
+  })
+
+  it('defaults worker limits safely and accepts explicit host overrides', () => {
+    expect(resolveTestWorkerLimit(undefined)).toBe(2)
+    expect(resolveTestWorkerLimit('6')).toBe(6)
+    expect(resolveTestWorkerLimit(' auto ')).toBeUndefined()
+    expect(() => resolveTestWorkerLimit('0')).toThrow(
+      'PODIUM_TEST_WORKERS must be a positive integer or "auto"',
+    )
   })
 
   it('runs normalized-wire load guards after the parallel unit pool', () => {

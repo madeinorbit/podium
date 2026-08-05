@@ -86,7 +86,5 @@ export default defineConfig({
     environment: 'happy-dom',
     include: ['src/**/*.test.{ts,tsx}'],
     passWithNoTests: false,
-    // Match the repo-wide cap; this config is intentionally standalone.
-    maxWorkers: 2,
   },
 })

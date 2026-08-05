@@ -33,7 +33,7 @@ covers the full bun-test set (compiled daemon + lifecycle integration stay out o
 
 ## Shared-host resource guard
 
-The shared forked Vitest configuration runs at most two workers and keeps one worker available as the floor. This is sized for the six-core, 11 GB development host so a test run leaves headroom for the live Podium instance and other agent sessions.
+The shared forked Vitest configuration defaults to at most two workers and keeps one worker available as the floor. This is the safe setting for the six-core, 11 GB development host so a test run leaves headroom for the live Podium instance and other agent sessions. Set `PODIUM_TEST_WORKERS=<positive integer>` to choose another ceiling, or `PODIUM_TEST_WORKERS=auto` to restore Vitest's CPU-count default on a dedicated CI/test host. `fileParallelism` remains enabled.
 
 The root Vitest lanes (unit, integration, acceptance, E2E, and agent-smoke) and the cached web/mobile runner automatically acquire the test:heavy advisory lease when launched from a live Podium session. Other heavy commands, including browser or multi-instance lanes and direct package invocations, should acquire it before starting and release it immediately afterward:
 
@@ -41,7 +41,11 @@ The root Vitest lanes (unit, integration, acceptance, E2E, and agent-smoke) and 
     bun run test:integration
     podium lock release test:heavy
 
-CI and non-session runs do not have a lease identity, so they skip the coordination step but retain the two-worker ceiling. If a run is interrupted, the 30-minute lease TTL is the recovery path; release it manually when the process is gone.
+The wrapper renews the 30-minute lease every 10 minutes while the child runs. If renewal fails, it terminates the child rather than allowing an unleased test to continue; an interrupted process still has the 30-minute TTL as the recovery path.
+
+Automatic lease acquisition is identity-gated on `PODIUM_SESSION_ID`. CI and other non-session runs retain the safe two-worker default but do not serialize against live sessions; a dedicated host can opt out explicitly with `PODIUM_TEST_WORKERS=auto bun run test`.
+
+A human running `bun run test` in a terminal without `PODIUM_SESSION_ID` takes no automatic lease and can still collide with an agent run. On the shared host, acquire `test:heavy` manually first, or leave the default worker ceiling in place.
 
 ## Decision table
 

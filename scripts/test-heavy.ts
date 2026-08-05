@@ -2,6 +2,7 @@ import { join } from 'node:path'
 
 const HEAVY_TEST_LOCK = 'test:heavy'
 const HEAVY_TEST_LOCK_TTL = '30m'
+const HEAVY_TEST_RENEW_INTERVAL_MS = 10 * 60 * 1000
 
 export type TestProcessOptions = {
   cwd: string
@@ -13,13 +14,17 @@ export function shouldAcquireHeavyTestLease(env: Record<string, string | undefin
   return Boolean(env.PODIUM_SESSION_ID)
 }
 
-async function runProcess(command: string[], options: TestProcessOptions): Promise<number> {
+function spawnProcess(command: string[], options: TestProcessOptions) {
   const proc = Bun.spawn(command, {
     cwd: options.cwd,
     env: options.env,
     stdio: ['inherit', 'inherit', 'inherit'],
   })
-  return proc.exited
+  return proc
+}
+
+async function runProcess(command: string[], options: TestProcessOptions): Promise<number> {
+  return spawnProcess(command, options).exited
 }
 
 /** Serialize resource-heavy test commands when invoked from a live session. */
@@ -44,9 +49,50 @@ export async function runWithHeavyTestLease(
   }
 
   let exitCode = 1
+  let testProcess: ReturnType<typeof spawnProcess> | undefined
   try {
-    exitCode = await runProcess(command, options)
+    testProcess = spawnProcess(command, options)
+  } catch (error) {
+    await runProcess(['podium', 'lock', 'release', HEAVY_TEST_LOCK], options)
+    throw error
+  }
+  if (!testProcess) throw new Error('test process was not started')
+
+  let leaseRenewalFailed = false
+  let renewalPromise = Promise.resolve()
+  const renewalTimer = setInterval(() => {
+    renewalPromise = renewalPromise
+      .then(async () => {
+        const renewed = await runProcess(
+          ['podium', 'lock', 'renew', HEAVY_TEST_LOCK, '--ttl', HEAVY_TEST_LOCK_TTL],
+          options,
+        )
+        if (renewed === 0) return
+        leaseRenewalFailed = true
+        console.error(
+          'test run stopped: could not renew ' +
+            HEAVY_TEST_LOCK +
+            '; the test process is being terminated to avoid an unleased run',
+        )
+        testProcess?.kill()
+      })
+      .catch(() => {
+        leaseRenewalFailed = true
+        console.error(
+          'test run stopped: lease renewal failed; ' +
+            HEAVY_TEST_LOCK +
+            ' is being terminated to avoid an unleased run',
+        )
+        testProcess?.kill()
+      })
+  }, HEAVY_TEST_RENEW_INTERVAL_MS)
+
+  try {
+    exitCode = await testProcess.exited
   } finally {
+    clearInterval(renewalTimer)
+    await renewalPromise
+    if (leaseRenewalFailed && exitCode === 0) exitCode = 1
     const released = await runProcess(['podium', 'lock', 'release', HEAVY_TEST_LOCK], options)
     if (released !== 0) {
       console.error(
