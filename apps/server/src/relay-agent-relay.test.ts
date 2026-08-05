@@ -93,6 +93,40 @@ describe('server agent relay handler (P1b)', () => {
     expect(r.error).toMatch(/outside your subtree/)
   })
 
+  /**
+   * Self-reference nudge on the offer headline (POD-389). The rule ships in prime,
+   * but prime is injected once per session and the headline is written at the far
+   * end of a long one — so the reminder has to ride back on the write itself. It is
+   * advisory: the offer is set either way, and a message that already says "this
+   * issue" must come back silent (a nudge that cries wolf gets tuned out).
+   */
+  it('flags an offer headline that names the agent own issue, and stays silent otherwise', async () => {
+    const ownRef = registry.issues.niceRef(
+      registry.issues.get(A.id) as { repoPath: string; seq: number },
+    )
+    const setOffer = async (requestId: string, message: string) => {
+      const reply = captureReply(registry, machineId)
+      registry.gateway.routeDaemonFrame(machineId, {
+        type: 'agentRelayRequest',
+        requestId,
+        sessionId: asSessionId(sA),
+        router: 'offer',
+        proc: 'set',
+        input: { message, actions: [] },
+      })
+      return (await reply).result as { ok: boolean; notice?: string }
+    }
+
+    const flagged = await setOffer('ir-offer-selfref', `${ownRef} is ready for review`)
+    expect(flagged.ok).toBe(true)
+    expect(flagged.notice).toContain(ownRef)
+    expect(flagged.notice).toContain('this issue')
+
+    const clean = await setOffer('ir-offer-clean', 'Retry backoff is ready for review')
+    expect(clean.ok).toBe(true)
+    expect(clean.notice).toBeUndefined()
+  })
+
   it('override lets a scoped op write outside its subtree', async () => {
     const reply = captureReply(registry, machineId)
     registry.gateway.routeDaemonFrame(machineId, {

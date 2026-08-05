@@ -141,6 +141,8 @@ function helpText(): string {
     'Writing rules — the card is judged in five seconds, cold:',
     '  - First line of --message = the card headline. State the outcome as done',
     '    ("Login screen ready to merge"), never the activity. Max ~3 lines total.',
+    '  - The issue you are on is "this issue" and your work is "I" — never a bare',
+    '    "POD-12". The user is reading YOUR card; they know which issue it is.',
     '  - One decision per offer; prefer 2-3 actions (6 allowed when it truly branches).',
     '    Labels imperative, <=3 words; recommended action FIRST (renders primary).',
     '  - Attach the evidence (--artifact) so the user can judge without opening',
@@ -150,9 +152,9 @@ function helpText(): string {
     '  podium offer --message "Tests are red on main" \\',
     '    --action "Fix them::Please fix the failing tests" \\',
     '    --action "Show failures::Show me the failing test output"',
-    '  podium offer --message "POD-12 is ready for review" \\',
-    '    --action "Merge it::Merge POD-12 to main" \\',
-    '    --action-input "Send back::Revise POD-12 per this feedback:"',
+    '  podium offer --message "Retry backoff is ready for review" \\',
+    '    --action "Merge it::Merge this issue to main" \\',
+    '    --action-input "Send back::Revise this issue per this feedback:"',
     '  podium offer --message "New header layout is ready" \\',
     '    --artifact .design/header-concept.html \\',
     '    --artifact e2e/header-after.png \\',
@@ -209,6 +211,9 @@ export async function runOfferCli(argv: string[], client: OfferClient): Promise<
   })) as {
     ok: boolean
     reason?: string
+    /** Advisory self-reference reminder from the server (POD-389) — the offer is
+     *  already set; this only tells the agent the headline named its own issue. */
+    notice?: string
   }
   if (!r.ok) throw new OfferCliError(r.reason ?? 'offer was not accepted')
   const note = [
@@ -217,7 +222,8 @@ export async function runOfferCli(argv: string[], client: OfferClient): Promise<
       ? [`${artifactPaths.length} artifact${artifactPaths.length > 1 ? 's' : ''}`]
       : []),
   ].join(', ')
-  return done(`offer set (${note})`, r)
+  const set = `offer set (${note})`
+  return done(r.notice ? `${set}\n${r.notice}` : set, r)
 }
 
 export async function offerCliMain(argv: string[]): Promise<void> {

@@ -104,6 +104,15 @@ describe('podium offer CLI (behavior)', () => {
     expect(out).toContain('offer set')
   })
 
+  // POD-389: the server flags a headline that named the agent's own issue. The
+  // offer is already set — the note must reach the agent without failing the call.
+  it('surfaces the server self-reference notice alongside the success line', async () => {
+    const c = client({ set: { ok: true, notice: 'note: this offer message names POD-389 …' } })
+    const out = await runOfferCli(['--message', 'POD-389 is ready for review'], c)
+    expect(out).toContain('offer set')
+    expect(out).toContain('note: this offer message names POD-389')
+  })
+
   it('sets a message-only offer (no actions)', async () => {
     const c = client()
     await runOfferCli(['--message', 'Heads up: deploy is queued'], c)

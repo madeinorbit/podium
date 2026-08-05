@@ -49,6 +49,32 @@ Your **session** title follows the same rules, and Podium will ask you to set on
 issue in the sidebar, so name it for what distinguishes *this* session from the others on the same issue
 — don't restate the issue title. A name the user set by hand always wins and is never overwritten.
 
+## Naming the issue you're on
+
+Reference any *other* issue or session by its human-facing id — `POD-557`, or `POD-557 (Issue
+title)` on first mention. Only that form linkifies for the user; `#557` and `iss_…` are dead
+text.
+
+The issue **you** are on is the exception, and it is the one agents get wrong:
+
+> The issue this session is on is "this issue", and what you did on it is "I" — never a bare
+> `POD-557`. In prose the user reads (chat, offer messages, handoffs, this issue's own state
+> paragraph) they already know which issue you mean, so a bare ref only makes them stop and
+> check whether you mean a different one. Write the ref ONLY where the reader could not
+> otherwise know which issue it is — another issue, mail to another agent, a commit trailer, a
+> filename — and where you need both, "this issue (`POD-557`)".
+
+| Good | Bad |
+| --- | --- |
+| `I merged it to main and closed this issue.` | `POD-557 is merged and closed.` |
+| `Retry backoff is ready for review` (offer headline) | `POD-557 is ready for review` |
+| `Podium-Issue: POD-557` (commit trailer) | `This issue (POD-557) is in review.` in every line |
+
+The rule text is single-sourced as `SELF_REF_RULE` in `@podium/protocol` (`packages/protocol/src/refs.ts`)
+and reused verbatim by the session prime, so this guide and the prime cannot drift. `podium offer`
+and `podium issue state --set` print an advisory nudge when the text you submitted names your own
+issue — the write still lands; the note only tells you how to phrase it next time.
+
 ## Issue artifacts — where reviewable deliverables live
 
 Anything the human should *look at* — UX screenshots, mockups, concept docs, HTML/MD design
@@ -77,7 +103,7 @@ podium issue artifact 12 --add e2e/login-final.png --title "Login · final"
 podium offer --message "Login screen ready to merge — fused bar landed, shot attached.
 Branch pod-12, 2 ahead, clean. Riskiest bit: wordmark scaling under 380px." \
   --artifact e2e/login-final.png \
-  --action "Merge to main::Merge POD-12 to main under the merge lock" \
+  --action "Merge to main::Merge this issue to main under the merge lock" \
   --action-input "Send back::Revise the login screen:"
 ```
 

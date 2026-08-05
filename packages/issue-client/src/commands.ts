@@ -7,9 +7,11 @@ import {
   type NameableMachine,
 } from '@podium/model'
 import {
+  bareSelfRefCount,
   ISSUE_EVENTS_DEFAULT_LIMIT,
   ISSUE_TREE_DEFAULT_MAX_DEPTH,
   ISSUE_TREE_DEFAULT_MAX_NODES,
+  selfRefNudge,
   TITLE_RULE_TERSE,
 } from '@podium/protocol'
 import { z } from 'zod'
@@ -1480,14 +1482,23 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
           : await c.issues.get.query({ id: a.id as string })
       ) as {
         seq: number
+        displayRef?: string
         activityNotes?: string
         notesUpdatedAt?: string
       } | null
       if (!i) throw new Error(`unknown issue ${a.id}`)
+      // Self-reference nudge (POD-389): the state paragraph is read inside this
+      // issue's own sidebar panel, so naming the issue in it is pure redundancy.
+      // Advisory — the state is already saved; this only says how to write it.
+      const ref = i.displayRef ?? `#${i.seq}`
+      const nudge =
+        a.set != null && bareSelfRefCount(a.set as string, ref) > 0
+          ? `\n\n${selfRefNudge(ref, 'state paragraph')}`
+          : ''
       return {
         text: i.activityNotes
-          ? `${i.activityNotes}${i.notesUpdatedAt ? `\n(updated ${i.notesUpdatedAt})` : ''}`
-          : '(no state posted)',
+          ? `${i.activityNotes}${i.notesUpdatedAt ? `\n(updated ${i.notesUpdatedAt})` : ''}${nudge}`
+          : `(no state posted)${nudge}`,
         data: i.activityNotes
           ? { text: i.activityNotes, updatedAt: i.notesUpdatedAt ?? null }
           : null,

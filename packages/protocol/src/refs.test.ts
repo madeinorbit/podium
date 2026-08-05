@@ -1,7 +1,10 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   anyRefMatcher,
+  bareSelfRefCount,
   derivePrefix,
   formatIssueRef,
   formatLong,
@@ -14,6 +17,8 @@ import {
   parseIssueRef,
   parseSessionRef,
   resolveSessionIdentifier,
+  SELF_REF_RULE,
+  selfRefNudge,
   truncateTitle,
 } from './refs'
 
@@ -176,5 +181,81 @@ describe('display formatter', () => {
 
   it('leaves short titles intact', () => {
     expect(truncateTitle('short', 40)).toBe('short')
+  })
+})
+
+// The self-reference rule (POD-162, POD-389). The nudge fires on text an agent
+// already wrote, so a false positive nags about a legitimate ref — every
+// sanctioned shape below has to stay silent.
+describe('bareSelfRefCount', () => {
+  it('counts the plain self-reference that should have been "this issue"', () => {
+    expect(bareSelfRefCount('POD-389 is merged and closed.', 'POD-389')).toBe(1)
+    expect(bareSelfRefCount('Here is where POD-389 stands:', 'POD-389')).toBe(1)
+    expect(bareSelfRefCount('`POD-389` is closed.', 'POD-389')).toBe(1)
+  })
+
+  it('counts each occurrence', () => {
+    expect(bareSelfRefCount('POD-389 is ready. Merge POD-389 to main.', 'POD-389')).toBe(2)
+  })
+
+  it('stays silent on the sanctioned "this issue (POD-N)" pairing', () => {
+    expect(bareSelfRefCount('This issue (POD-389) is in review.', 'POD-389')).toBe(0)
+    expect(bareSelfRefCount('this issue (`POD-389`) is in review.', 'POD-389')).toBe(0)
+  })
+
+  it('stays silent on a commit trailer', () => {
+    expect(bareSelfRefCount('Added the Podium-Issue: POD-389 trailer.', 'POD-389')).toBe(0)
+  })
+
+  it('stays silent on session refs, paths and filenames carrying the ref', () => {
+    expect(bareSelfRefCount('POD-389-B verified the fix.', 'POD-389')).toBe(0)
+    expect(bareSelfRefCount('Attached .design/POD-389-nudge.html', 'POD-389')).toBe(0)
+    expect(bareSelfRefCount('See docs/POD-389.md for the trail.', 'POD-389')).toBe(0)
+    expect(bareSelfRefCount('Snapshot at POD-389/state.json', 'POD-389')).toBe(0)
+  })
+
+  it('still counts a ref that merely ends a sentence', () => {
+    expect(bareSelfRefCount('The remaining work lives in POD-389.', 'POD-389')).toBe(1)
+  })
+
+  it("ignores a different issue — only the agent's own ref is the tic", () => {
+    expect(bareSelfRefCount('Blocked by POD-275 until it lands.', 'POD-389')).toBe(0)
+    expect(bareSelfRefCount('POD-3890 is someone else.', 'POD-389')).toBe(0)
+  })
+
+  // A repo with no prefix yet falls back to `#12`, which has no leading word
+  // boundary — the first cut of this matcher silently never fired on it.
+  it('handles the prefixless `#seq` fallback ref', () => {
+    expect(bareSelfRefCount('#12 is ready for review', '#12')).toBe(1)
+    expect(bareSelfRefCount('This issue (#12) is ready', '#12')).toBe(0)
+    expect(bareSelfRefCount('#123 is a different issue', '#12')).toBe(0)
+  })
+})
+
+describe('SELF_REF_RULE', () => {
+  // POD-389: the old wording hedged with "e.g. in mail or reports", which agents
+  // read as permission for every handoff. An audience test replaced the genre list.
+  it('draws the exception by audience, not by genre', () => {
+    expect(SELF_REF_RULE).toContain('this issue')
+    expect(SELF_REF_RULE).toContain('could not')
+    expect(SELF_REF_RULE).not.toContain('reports')
+  })
+
+  // The guide quotes the rule verbatim so an agent reading docs gets the same
+  // words as an agent reading prime. A quote can drift; this is what stops it.
+  it('is reproduced verbatim in the committed agent guide', () => {
+    const guide = readFileSync(
+      join(import.meta.dirname, '../../../docs/agents/podium-issues.md'),
+      'utf8',
+    )
+    const flatten = (s: string) => s.replace(/^>\s?/gm, '').replace(/\s+/g, ' ').trim()
+    expect(flatten(guide)).toContain(flatten(SELF_REF_RULE))
+  })
+
+  it('the nudge names the ref and the surface it was written on', () => {
+    const note = selfRefNudge('POD-389', 'offer message')
+    expect(note).toContain('POD-389')
+    expect(note).toContain('offer message')
+    expect(note).toContain('this issue')
   })
 })

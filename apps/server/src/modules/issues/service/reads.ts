@@ -19,6 +19,7 @@ import {
   ISSUE_TREE_DEFAULT_MAX_DEPTH,
   ISSUE_TREE_DEFAULT_MAX_NODES,
   LOCK_RULE,
+  SELF_REF_RULE,
   SPINOFF_RULE,
   TITLE_RULE,
 } from '@podium/protocol'
@@ -633,11 +634,14 @@ export class IssueReportsModule {
       // Human-facing ids (#474): agents must name issues/sessions by their nice id.
       // Bare `#N` never linkifies in the UI — only the `PREFIX-seq` grammar does
       // (protocol refs.ts anyRefMatcher), so `#557` is a dead string to the user.
-      'Reference issues and sessions ONLY by their human-facing id (e.g. `POD-557`) — NEVER the bare `#557` shorthand and never the internal `iss_…`/UUID. Only the `POD-…` form renders as a clickable link for the user; anything else is dead text.',
+      // The two ref rules are unconditional as written, which is why the self-reference
+      // exception below read as a footnote and lost (POD-389). They now hand off to it.
+      'Reference OTHER issues and sessions ONLY by their human-facing id (e.g. `POD-557`) — NEVER the bare `#557` shorthand and never the internal `iss_…`/UUID. Only the `POD-…` form renders as a clickable link for the user; anything else is dead text. The issue YOU are on is the exception — see two rules down.',
       "The canonical long form is `POD-557 (Issue title)`. Use it when the reader may not know the issue (first mention, reports, mail); the bare short form `POD-557` is fine for repeat mentions. Every listing (`podium issue show/ready/list`, this prime) gives you the title next to the ref — if you don't have it, `podium issue show <id>` does.",
-      // Own-issue self-reference (POD-162): a bare ref to the agent's own issue makes the
-      // reader check whether it is the current one. Say "this issue" instead.
-      'When you mean YOUR OWN issue — the one this session is attached to — write "this issue" (or "this issue (`POD-557`)" where the ref matters, e.g. in mail or reports), never a bare `POD-557`: a bare ref makes the reader stop and check whether it is the current issue or a different one.',
+      // Own-issue self-reference (POD-162, reworded POD-389): a bare ref to the agent's
+      // own issue makes the reader check whether it is the current one. Single-sourced in
+      // @podium/protocol so this and docs/agents/podium-issues.md cannot drift.
+      SELF_REF_RULE,
       'Workflow: pull `ready` → move it out of `backlog` → work → file discovered work (`discovered-from`) → checkpoint notes → close.',
       'Nothing advances an issue for you: set the stage yourself as the work moves — `podium issue update --id <id> --stage planning|in_progress|review` — and `podium issue close <id>` when it is done. An issue you are actively working must never sit in `backlog`.',
       'Track durable/discovered/cross-session work as issues, not markdown TODO files. Discovered work that can ship separately is top-level plus `discovered-from` and lands in Proposed automatically; do not stage or claim it. Decomposition and blocking adjacent work are sub-issues under the current deliverable.',
@@ -706,7 +710,11 @@ export class IssueReportsModule {
           opts.sessionId,
         ).unread
         return [
-          `You are working on ${this.niceRef(me)}: ${me.title}`,
+          // The opening line is the agent's first and most salient framing of its own
+          // issue, so it DEMONSTRATES the self-reference rule rather than contradicting
+          // it — the old `You are working on POD-N: title` taught the bare ref that
+          // SELF_REF_RULE then forbade 25 lines later, and the ref won (POD-389).
+          `You are working on this issue — \`${this.niceRef(me)}\` (${me.title}). "This issue" is what you call it when you write to the user; the ref is for commands and for readers who cannot know which issue you mean.`,
           me.stage === 'backlog'
             ? `This issue is still in \`backlog\` but you are working it — fix that now: \`podium issue update --id ${me.seq} --stage planning\` (designing/investigating) or \`--stage in_progress\` (changing code).`
             : null,

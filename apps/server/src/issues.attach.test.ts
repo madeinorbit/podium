@@ -314,7 +314,10 @@ describe('prime draft/attach variants', () => {
     const { svc } = harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     const text = svc.prime({ boundIssueId: a.id })
-    expect(text).toContain('You are working on #1: A')
+    expect(text).toContain('You are working on this issue — `#1` (A)')
+    // POD-389: the opening line demonstrates the self-reference rule instead of
+    // contradicting it, and the rule itself still ships in the same prime.
+    expect(text).toContain('is "this issue", and what you did on it is "I"')
     expect(text).toContain('podium issue attach --spinoff')
     expect(text).toContain('podium issue attach --subissue')
     expect(text).toContain('close with the new work untouched')

@@ -255,6 +255,62 @@ export function formatLong(
   return `${ref} · ${truncateTitle(t, max)}`
 }
 
+// ---------------------------------------------------------------------------
+// Self-reference — naming the issue you are ON (POD-162, POD-389)
+// ---------------------------------------------------------------------------
+
+/**
+ * How an agent names the issue it is working on. Single-sourced here (like
+ * TITLE_RULE / SPINOFF_RULE / LOCK_RULE) so the prime, the committed agent
+ * guide, and the CLI nudges cannot drift apart.
+ *
+ * POD-389 found the earlier wording lost 87 of 117 sessions. Two changes: the
+ * exception is now drawn by AUDIENCE (a reader who could not know which issue
+ * you mean) rather than by genre — the old "e.g. in mail or reports" hedge read
+ * as blanket permission for every handoff — and it covers the agent as well as
+ * the issue, since "POD-557 merged it" is the same tic as naming the issue.
+ */
+export const SELF_REF_RULE =
+  'The issue this session is on is "this issue", and what you did on it is "I" — never a bare ' +
+  "`POD-557`. In prose the user reads (chat, offer messages, handoffs, this issue's own state " +
+  'paragraph) they already know which issue you mean, so a bare ref only makes them stop and ' +
+  'check whether you mean a different one. Write the ref ONLY where the reader could not ' +
+  'otherwise know which issue it is — another issue, mail to another agent, a commit trailer, a ' +
+  'filename — and where you need both, "this issue (`POD-557`)".'
+
+/** One-line reminder for the CLI nudges. `surface` names what was written. */
+export function selfRefNudge(ref: string, surface: string): string {
+  return (
+    `note: this ${surface} names ${ref} — the issue you are on. The reader already knows ` +
+    `which issue you mean; write "this issue" (or "I") unless the ref is what they are missing.`
+  )
+}
+
+/**
+ * Count the occurrences of `ref` in `text` that the self-reference rule targets:
+ * the agent naming its OWN issue where "this issue" would do. Sanctioned uses do
+ * not count — the `this issue (POD-557)` pairing, a `Podium-Issue:` trailer, a
+ * session ref (`POD-557-A`), or a ref inside a path, branch or filename.
+ */
+export function bareSelfRefCount(text: string, ref: string): number {
+  const esc = ref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  // Trailing lookaheads keep session refs (`-A`), extensions (`.png`), path
+  // segments (`/`) and longer seqs (`POD-3890`) out; the preceding-character check
+  // below keeps the ref out when it is already inside a path or branch name. No
+  // leading `\b` — the prefixless fallback ref is `#12`, and `\b` never matches
+  // before a `#`.
+  const re = new RegExp(`${esc}(?![A-Za-z0-9])(?!-[A-Za-z0-9])(?!\\.[A-Za-z0-9])(?!/)`, 'g')
+  let count = 0
+  for (const m of text.matchAll(re)) {
+    const before = text.slice(Math.max(0, m.index - 24), m.index)
+    if (/this issue\s*\(`?$/i.test(before)) continue
+    if (/Podium-Issue:\s*$/i.test(before)) continue
+    if (/[\w/.-]$/.test(before)) continue
+    count++
+  }
+  return count
+}
+
 /**
  * The human-facing reference for an issue-like wire object. Prefers the
  * server-derived `displayRef`; falls back to `#seq` for legacy/mock payloads

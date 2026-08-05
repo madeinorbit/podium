@@ -15,7 +15,13 @@ import {
   parseLayoutRowId,
 } from '@podium/model'
 import type { LiveServerMessage, VisibilityResolver } from '@podium/protocol'
-import { formatIssueRef, SubscriptionRegistry, sessionTitleRule } from '@podium/protocol'
+import {
+  bareSelfRefCount,
+  formatIssueRef,
+  selfRefNudge,
+  SubscriptionRegistry,
+  sessionTitleRule,
+} from '@podium/protocol'
 import { durableSessionLabel } from '@podium/runtime/instance'
 import { stateDir } from '@podium/runtime/local-machine'
 import {
@@ -1795,7 +1801,20 @@ export class SessionRegistry {
               actions,
               ...(artifacts && artifacts.length > 0 ? { artifacts } : {}),
             })
-            return Promise.resolve({ ok: true })
+            // Self-reference nudge (POD-389). The offer headline is the most-read
+            // sentence an agent writes, and ~1 in 4 named the agent's own issue in
+            // it. The rule ships in prime, but prime is injected once per session
+            // and the headline is written at the far end of a long one — so remind
+            // at the moment of the mistake instead. Advisory only: the offer is
+            // already set; the notice just rides back on the result.
+            const ownIssueId = capability.scope.kind === 'subtree' ? capability.scope.rootId : null
+            const ownRow = ownIssueId ? issues.getMeta(ownIssueId) : null
+            const ownRef = ownRow ? issues.niceRef(ownRow) : null
+            const notice =
+              ownRef && bareSelfRefCount(message, ownRef) > 0
+                ? selfRefNudge(ownRef, 'offer message')
+                : undefined
+            return Promise.resolve({ ok: true, ...(notice ? { notice } : {}) })
           }
           return undefined
         }
