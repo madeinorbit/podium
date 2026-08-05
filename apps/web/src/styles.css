@@ -2653,15 +2653,41 @@ a.ref-link--session::before {
   flex: 1;
   min-height: 0;
 }
+/* ── The settings rail (POD-395) ───────────────────────────────────────────
+   Seventeen destinations in three visibility classes. It was 220px holding a
+   95px longest label — more than twice as wide as anything in it — and the
+   three classes did not read as three: a group's mono label sat ~5px under the
+   last row of the PREVIOUS group and ~8px above the first row of its own, so it
+   captioned the wrong block. (Its 18px top margin collapsed straight through
+   the wrapper div and never rendered; the spacing now lives on the wrapper,
+   which cannot collapse because the seam gives it a border.) */
 .settings-rail {
   display: flex;
   flex: none;
   flex-direction: column;
-  width: 220px;
-  padding: 14px 10px 20px;
+  width: 184px;
+  padding: 12px 8px 20px;
   border-right: 1px solid var(--border);
   background: var(--bar);
   overflow-y: auto;
+}
+/* A class is one block: seam, its name, then its rows. The seam is the same
+   device the pane uses between sections — the rail separates classes the way
+   the page separates sections, so the two columns rhyme. */
+.settings-rail-section + .settings-rail-section {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--hairline-soft);
+}
+.settings-rail-group {
+  margin: 0 0 6px;
+  padding: 0 10px;
+  color: var(--label);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 /* The rail lists destinations; the pane is the content. It was set at 12.5px —
    the same size as the section heading it navigates to — so the nav read as
@@ -2685,24 +2711,16 @@ a.ref-link--session::before {
   background: color-mix(in oklab, var(--accent) 60%, transparent);
   color: var(--foreground);
 }
-.settings-rail-item[aria-current="true"] {
+.settings-rail-item[aria-current="page"] {
   background: var(--chip);
   color: var(--text-strong);
   font-weight: 500;
 }
-.settings-rail-group {
-  margin: 18px 0 4px;
-  padding: 0 10px;
-  color: var(--label);
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-.settings-rail-group:first-child,
-.settings-rail > div:first-child .settings-rail-group {
-  margin-top: 0;
+/* Keyboard users get the same ring the rest of the shell uses; the rail had
+   only a hover state, so tabbing through it was invisible. */
+.settings-rail-item:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--ring) 40%, transparent);
 }
 .settings-pane {
   position: relative;

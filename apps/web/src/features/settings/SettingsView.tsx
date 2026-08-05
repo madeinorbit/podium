@@ -643,7 +643,9 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
           aria-label="Settings sections"
         >
           {searchEnabled && (
-            <div className="relative mb-2">
+            // Same 14px the class blocks put between themselves, so the filter
+            // reads as its own block rather than as a caption on the first one.
+            <div className="relative mb-3.5">
               <input
                 ref={filterRef}
                 type="text"
@@ -670,7 +672,11 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
             </div>
           )}
           {visibleGroups.map((g) => (
-            <div key={g.label}>
+            // The visibility class is a BLOCK, not a run of rows with a caption
+            // floating somewhere near it. Its seam and spacing belong to this
+            // wrapper — put on the label as a margin, they collapsed straight
+            // through it and the label ended up nearer the group above.
+            <div className="settings-rail-section" key={g.label}>
               {/* The group's sentence is NOT repeated here. The pane's banner
                     states it verbatim and both were on screen at once — the same
                     three sentences twice, once ragged into a 20ch rail. A nav
@@ -682,7 +688,10 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
                   key={t.key}
                   type="button"
                   className="settings-rail-item"
-                  aria-current={t.key === tab}
+                  // `page`, like every other nav cell in the shell (TopBar). It
+                  // was the boolean, which renders aria-current="false" on all
+                  // sixteen unselected rows instead of leaving them silent.
+                  aria-current={t.key === tab ? 'page' : undefined}
                   onClick={() => setSettingsTab(t.key)}
                 >
                   {t.label}
