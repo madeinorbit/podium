@@ -1,5 +1,4 @@
-import { asSessionId, type SessionId } from '@podium/model'
-import { appendFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -8,13 +7,16 @@ import {
   acceptAgentObservation,
   agentStateProviderFor,
   captureClaudeTranscript,
+  claudeProjectSlug,
   claudeTranscriptSegmentId,
   type HarnessObserveInput,
   type HarnessObserverHost,
   harnessAdapterFor,
+  parseClaudeTranscriptSegmentId,
   supported,
   withStateChannelEvent,
 } from '@podium/harness'
+import { asSessionId, type SessionId } from '@podium/model'
 import type {
   AgentObservation,
   DaemonMessage,
@@ -1071,6 +1073,225 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
     } finally {
       first.clearSession(asSessionId('podium-late-flush'))
       await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('follows a transcript Claude re-buckets mid-turn instead of latching the phase [POD-390]', async () => {
+    // Claude stores a conversation under ~/.claude/projects/<slug(cwd)>/ and
+    // RENAMES the file into a new bucket when the session's cwd changes. The
+    // observer used to pin the path it bootstrapped with and drop every hook
+    // naming any other one, so the turn's Stop never landed and the session
+    // reported 'working' for a day after it went quiet.
+    const at = '2026-08-05T00:00:00.000Z'
+    const root = await mkdtemp(join(tmpdir(), 'podium-claude-rebucket-'))
+    const before = join(root, '-home-repo', 'claude-1.jsonl')
+    const after = join(root, '-home-repo--worktrees-pod-372', 'claude-1.jsonl')
+    await mkdir(join(root, '-home-repo'), { recursive: true })
+    await mkdir(join(root, '-home-repo--worktrees-pod-372'), { recursive: true })
+    await writeFile(before, '')
+    const sessionId = asSessionId('podium-rebucket')
+    const lease = {
+      provider: 'claude-code' as const,
+      providerSessionId: 'claude-1',
+      bindingVersion: 2,
+      observationGeneration: 7,
+    }
+    const sent: DaemonMessage[] = []
+    const observers = createSessionObservers({
+      send: (message) => sent.push(message),
+      onTranscriptDirty: vi.fn(),
+      cwdTracker: { onHookCwd: vi.fn(async () => {}) },
+    })
+    const observations = () => sent.filter((message) => message.type === 'agentObservation')
+    const ack = (
+      observation: AgentObservation,
+      result: Exclude<ReturnType<typeof acceptAgentObservation>, { kind: 'rejected' }>,
+    ) =>
+      observers.onObservationAck({
+        type: 'agentObservationAck',
+        sessionId,
+        observerGeneration: 7,
+        bindingVersion: 2,
+        transitionId: observation.transitionId,
+        result: result.kind,
+        acceptedCursor: result.checkpoint.providerCursor,
+        checkpoint: result.checkpoint,
+      })
+    try {
+      observers.initSessionObservers(
+        {
+          type: 'spawn',
+          sessionId,
+          agentKind: 'claude-code',
+          cwd: root,
+          geometry: G,
+          durableLabel: 'podium-podium-rebucket',
+          resume: { kind: 'claude-session', value: 'claude-1' },
+          observationGeneration: 7,
+          observationBindingVersion: 2,
+          observationProviderSessionId: 'claude-1',
+        },
+        { onFrame: () => () => {} } as never,
+        claudeProvider(),
+        { seedOnFrame: false },
+      )
+
+      // A turn opens while the transcript still sits in its original bucket.
+      observers.onHookPayload(sessionId, {
+        hook_event_name: 'UserPromptSubmit',
+        session_id: 'claude-1',
+        transcript_path: before,
+        cwd: root,
+        prompt_id: 'prompt-1',
+      })
+      await vi.waitFor(() => expect(observations()).toHaveLength(1))
+      const bootstrap = observations()[0]!.observation
+      const bootResult = acceptAgentObservation(null, lease, bootstrap, at)
+      if (bootResult.kind === 'rejected') throw new Error(bootResult.rejectionReason)
+      ack(bootstrap, bootResult)
+      await vi.waitFor(() => expect(observations()).toHaveLength(2))
+      const opened = observations()[1]!.observation
+      expect(opened).toMatchObject({ transitionKind: 'turn_opened', nextPhase: 'working' })
+      const openedResult = acceptAgentObservation(bootResult.checkpoint, lease, opened, at)
+      if (openedResult.kind === 'rejected') throw new Error(openedResult.rejectionReason)
+      ack(opened, openedResult)
+
+      // The agent moves worktree; Claude renames the same file into the bucket
+      // for its new cwd. Every hook from here names the new path.
+      await rename(before, after)
+      observers.onHookPayload(sessionId, {
+        hook_event_name: 'Stop',
+        session_id: 'claude-1',
+        transcript_path: after,
+        cwd: root,
+        prompt_id: 'prompt-1',
+      })
+
+      await vi.waitFor(() => expect(observations()).toHaveLength(3))
+      const terminal = observations()[2]!.observation
+      expect(terminal).toMatchObject({
+        provenance: 'live',
+        transitionKind: 'turn_terminal',
+        priorPhase: 'working',
+        nextPhase: 'idle',
+      })
+      // The move rotates the segment, so the successor must name the segment the
+      // server last accepted — otherwise the gate reads it as an unproven
+      // rotation and the phase stays latched at 'working' forever.
+      const acceptedSegment = openedResult.checkpoint.providerCursor?.segmentId
+      expect(acceptedSegment).toBeTruthy()
+      expect(terminal.providerCursor.predecessorSegmentId).toBe(acceptedSegment)
+      expect(acceptAgentObservation(openedResult.checkpoint, lease, terminal, at).kind).toBe(
+        'live_transition_accepted',
+      )
+    } finally {
+      observers.clearSession(sessionId)
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('re-locates a moved transcript at bootstrap instead of re-cementing the checkpoint phase [POD-390]', async () => {
+    // Reattach replays the last transcript path this daemon saw. When Claude has
+    // since re-bucketed the file that path is gone, and bootstrapping off the
+    // resulting "missing" capture reads nothing — so the checkpoint's phase was
+    // carried forward verbatim and stamped again on every server restart.
+    const at = '2026-08-05T00:00:00.000Z'
+    const home = await mkdtemp(join(tmpdir(), 'podium-claude-relocate-home-'))
+    const cwd = await mkdtemp(join(tmpdir(), 'podium-claude-relocate-cwd-'))
+    const bucket = join(home, '.claude', 'projects', claudeProjectSlug(cwd))
+    await mkdir(bucket, { recursive: true })
+    const moved = join(bucket, 'claude-1.jsonl')
+    const finishedTurn =
+      `${JSON.stringify({ type: 'user', message: { role: 'user', content: 'do it' } })}\n` +
+      `${JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: 'done' } })}\n`
+    await writeFile(moved, finishedTurn)
+    const sessionId = asSessionId('podium-relocate')
+    const sent: DaemonMessage[] = []
+    const observers = createSessionObservers({
+      send: (message) => sent.push(message),
+      onTranscriptDirty: vi.fn(),
+      cwdTracker: { onHookCwd: vi.fn(async () => {}) },
+      // The locator sweeps ~/.claude/projects; point it at this test's HOME
+      // through the injected seam rather than mutating process.env, which the
+      // shared worker would leak and which os.homedir() does not honour under
+      // every runtime the suite runs on.
+      homeDir: home,
+    })
+    const stale = join(cwd, 'gone', 'claude-1.jsonl')
+    try {
+      // A checkpoint frozen mid-turn, pinned to a path that no longer exists.
+      const checkpoint: SessionObservationCheckpointV1 = {
+        schemaVersion: 1,
+        podiumSessionId: sessionId,
+        provider: 'claude-code',
+        providerSessionId: 'claude-1',
+        bindingVersion: 2,
+        lifecycleObservationGeneration: 7,
+        providerCursor: {
+          segmentId: claudeTranscriptSegmentId('claude-1', {
+            path: stale,
+            device: '2049',
+            inode: '1',
+          }),
+          components: { transcript: 0, hook: 1 },
+        },
+        bootstrapCursor: null,
+        lastAcceptedLiveCursor: null,
+        turnEpoch: 1,
+        providerTurnId: null,
+        providerPromptId: 'prompt-1',
+        turnState: {
+          phase: 'working',
+          since: '2026-08-04T15:31:14.352Z',
+          workingMsTotal: 0,
+          nativeSubagentCount: 0,
+        },
+        terminalFence: null,
+        providerAt: null,
+        acceptedAt: at,
+        lastLiveReceiptAt: null,
+        lastTransitionId: 'transition-1',
+        acceptedTransitionIds: ['transition-1'],
+      }
+      observers.initSessionObservers(
+        {
+          type: 'reattach',
+          sessionId,
+          durableLabel: 'podium-podium-relocate',
+          agentKind: 'claude-code',
+          cwd,
+          geometry: G,
+          resume: { kind: 'claude-session', value: 'claude-1' },
+          pathHint: stale,
+          observationGeneration: 8,
+          observationBindingVersion: 2,
+          observationCheckpoint: checkpoint,
+        },
+        { onFrame: () => () => {} } as never,
+        claudeProvider(),
+        { seedOnFrame: false },
+      )
+      observers.onHookPayload(sessionId, {
+        hook_event_name: 'SessionStart',
+        session_id: 'claude-1',
+        transcript_path: stale,
+        cwd,
+      })
+      await vi.waitFor(() =>
+        expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(1),
+      )
+      const bootstrap = sent.find((message) => message.type === 'agentObservation')!.observation
+      // Read the real file, so the finished turn is seen and the stale 'working'
+      // is replaced rather than re-stamped onto a phantom missing-file segment.
+      expect(bootstrap.nextPhase).toBe('idle')
+      expect(bootstrap.providerCursor.components.transcript).toBe(Buffer.byteLength(finishedTurn))
+      expect(parseClaudeTranscriptSegmentId(bootstrap.providerCursor.segmentId)).toMatchObject({
+        path: moved,
+      })
+    } finally {
+      observers.clearSession(sessionId)
+      await rm(home, { recursive: true, force: true })
+      await rm(cwd, { recursive: true, force: true })
     }
   })
 

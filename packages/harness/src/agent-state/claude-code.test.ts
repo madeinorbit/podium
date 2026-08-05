@@ -645,6 +645,33 @@ describe('ClaudeCausalObserver [spec:SP-cdb2]', () => {
     })
   })
 
+  it('follows its own transcript across buckets but not onto another file [POD-390]', async () => {
+    const causal = observer()
+    causal.bootstrap()
+    await causal.observeHook(hook('UserPromptSubmit', { prompt_id: 'p1' }), 110)
+
+    // A hook naming some OTHER transcript must not walk the binding onto it,
+    // even though it carries this session's id (a subagent's, say).
+    expect(
+      await causal.observeHook(
+        { ...hook('Stop', { prompt_id: 'p1' }), transcript_path: '/exact/other-agent.jsonl' },
+        120,
+      ),
+    ).toBeNull()
+    expect(causal.currentTranscriptPath).toBe('/exact/claude-1.jsonl')
+
+    // Claude re-buckets this conversation on a cwd move: same filename (its
+    // native id), new directory. That one is followed, and the terminal lands.
+    const moved = '/worktree/claude-1.jsonl'
+    expect(
+      await causal.observeHook(
+        { ...hook('Stop', { prompt_id: 'p1' }), transcript_path: moved },
+        130,
+      ),
+    ).toMatchObject({ transitionKind: 'turn_terminal', priorPhase: 'working', nextPhase: 'idle' })
+    expect(causal.currentTranscriptPath).toBe(moved)
+  })
+
   it('captures only complete JSONL boundaries and recognizes a prompt when a torn record completes', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'podium-claude-capture-'))
     const path = join(dir, 'claude.jsonl')

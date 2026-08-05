@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { open } from 'node:fs/promises'
+import { basename } from 'node:path'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
 import type {
   AgentObservation,
@@ -254,6 +255,19 @@ export interface ClaudePromptHookIdentity {
  */
 export class ClaudeCausalObserver {
   private segmentId: string
+  /**
+   * The transcript file this conversation is CURRENTLY written to — mutable,
+   * because Claude re-buckets a conversation's JSONL into
+   * `~/.claude/projects/<slug(cwd)>/` whenever the session's cwd changes, and
+   * renames the existing file rather than starting a new one. This used to be
+   * pinned to `options.transcriptPath` and compared for exact equality against
+   * every hook's `transcript_path`; after such a move EVERY hook mismatched and
+   * was dropped, freezing the session's phase at whatever it last was (POD-390:
+   * one session reported 'working' for a day after it went quiet). The provider
+   * session id is the identity that matters — the path is only where the file
+   * happens to live right now, and the hook is Claude telling us it moved.
+   */
+  private transcriptPath: string
   private predecessorSegmentId: string | null = null
   private readonly now: () => string
   private state: AgentRuntimeState
@@ -287,6 +301,7 @@ export class ClaudeCausalObserver {
       this.currentOrigin = options.bootstrapPromptOrigin
     }
     this.now = options.now ?? (() => new Date().toISOString())
+    this.transcriptPath = options.transcriptPath
     this.segmentId =
       options.transcriptSegmentId ?? `claude:${options.providerSessionId}:${options.transcriptPath}`
     this.bootstrapOffset = options.bootstrapOffset
@@ -320,6 +335,12 @@ export class ClaudeCausalObserver {
   }
   get pendingInputOriginCount(): number {
     return this.pendingOrigins.length
+  }
+
+  /** Where this conversation's transcript lives now — see {@link transcriptPath}.
+   *  The daemon reads it back so a reboot bootstraps from the moved file. */
+  get currentTranscriptPath(): string {
+    return this.transcriptPath
   }
 
   get seenRecordCount(): number {
@@ -376,9 +397,10 @@ export class ClaudeCausalObserver {
   ): Promise<AgentObservation | null> {
     if (typeof payload !== 'object' || payload === null || !this.bootstrapped) return null
     const p = payload as Record<string, unknown>
+    const hookPath = str(p.transcript_path)
     if (
       p.session_id !== this.options.providerSessionId ||
-      p.transcript_path !== this.options.transcriptPath ||
+      !hookPath ||
       !Number.isSafeInteger(transcriptOffset) ||
       transcriptOffset < 0
     ) {
@@ -388,11 +410,25 @@ export class ClaudeCausalObserver {
     const hook = str(p.hook_event_name)
     if (!hook) return null
 
+    // The hook is Claude reporting where THIS conversation's transcript lives
+    // now. A different DIRECTORY means it re-bucketed the file (cwd move), not a
+    // different conversation, so adopt the path — the segment block below then
+    // mints the successor that keeps the cursor chain provable across the move,
+    // instead of dropping every hook forever. The FILENAME still has to be this
+    // conversation's native id: that is what stops a hook naming some other
+    // transcript (a subagent's, say) from walking the binding onto the wrong
+    // file, and anything else is rejected here exactly as every mismatching
+    // path used to be.
+    if (hookPath !== this.transcriptPath) {
+      if (basename(hookPath) !== `${this.options.providerSessionId}.jsonl`) return null
+      this.transcriptPath = hookPath
+    }
+
     if (transcriptSegmentId) {
       const identity = parseClaudeTranscriptSegmentId(transcriptSegmentId)
       if (
         !identity ||
-        identity.path !== this.options.transcriptPath ||
+        identity.path !== this.transcriptPath ||
         !transcriptSegmentId.startsWith(`claude:${this.options.providerSessionId}:`)
       ) {
         return null

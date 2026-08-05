@@ -16,6 +16,7 @@ import {
   type HarnessProviderRebind,
   harnessAdapterFor,
   initialAgentState,
+  locateClaudeSessionFile,
   parseClaudeTranscriptSegmentId,
   reduceAgentState,
   transcriptRecordMapperFor,
@@ -401,6 +402,10 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     try {
       capture = await captureTranscript(path)
     } catch {
+      // An unreadable transcript costs this hook, not the queue behind it —
+      // returning without draining left buffered hooks parked until the next
+      // one happened to arrive.
+      drainClaudeHooks(causal)
       return
     }
     const baseSegmentId = claudeTranscriptSegmentId(String(p.session_id), capture)
@@ -420,6 +425,11 @@ export function createSessionObservers(deps: SessionObserversDeps) {
           }
         : undefined,
     )
+    // Claude re-buckets a conversation's JSONL when the session's cwd changes.
+    // The observer follows the hook's path; the tracker has to follow too, or a
+    // later reboot/live-confirmation would capture the file's old location and
+    // bootstrap from a path that no longer exists [POD-390].
+    causal.transcriptPath = causal.observer.currentTranscriptPath
     if (observation) {
       causal.pendingObservation = observation
       applyCausalAgentState(observation.podiumSessionId, observation.state)
@@ -461,34 +471,54 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     const acceptedCursor = checkpoint?.providerCursor
     const acceptedOffset = acceptedCursor?.components.transcript
     const acceptedIdentity = parseClaudeTranscriptSegmentId(acceptedCursor?.segmentId)
-    let capture: Awaited<ReturnType<typeof captureClaudeTranscript>>
+    const captureOptions =
+      checkpoint && p?.hook_event_name !== 'UserPromptSubmit'
+        ? {
+            promptScanStart:
+              acceptedIdentity && Number.isSafeInteger(acceptedOffset) ? (acceptedOffset ?? 0) : 0,
+            ...(acceptedIdentity ? { promptScanIdentity: acceptedIdentity } : {}),
+          }
+        : {}
+    // The path a bootstrap is handed can be stale: Claude re-buckets a
+    // conversation's JSONL into ~/.claude/projects/<slug(cwd)>/ when the
+    // session's cwd changes, and a reattach replays the last path this daemon
+    // saw. Bootstrapping off the resulting "missing" capture is the worst
+    // outcome available — boundary 0 means nothing is reclassified, so the
+    // previous checkpoint's phase is carried forward verbatim and re-cemented
+    // on every restart (POD-390: a session stuck at 'working' for a day). Sweep
+    // for the conversation by its native id before accepting that fate.
+    let effectivePath = transcriptPath
+    let capture: Awaited<ReturnType<typeof captureClaudeTranscript>> | null = null
     try {
-      capture = await captureTranscript(
-        transcriptPath,
-        checkpoint && p?.hook_event_name !== 'UserPromptSubmit'
-          ? {
-              promptScanStart:
-                acceptedIdentity && Number.isSafeInteger(acceptedOffset)
-                  ? (acceptedOffset ?? 0)
-                  : 0,
-              ...(acceptedIdentity ? { promptScanIdentity: acceptedIdentity } : {}),
-            }
-          : {},
-      )
+      capture = await captureTranscript(effectivePath, captureOptions)
     } catch {
-      capture = {
-        boundary: 0,
-        capturedSize: 0,
-        path: transcriptPath,
-        device: 'missing',
-        inode: 'missing',
-        fileIdentity: 'missing',
-        bootEvents: [{ kind: 'session_started' as const }],
-        prompts: [],
-        promptCount: 0,
-        firstPrompt: null,
-        latestPrompt: null,
+      const located = await locateClaudeSessionFile({
+        cwd: lease.cwd,
+        resumeValue: providerSessionId,
+        ...(acceptedIdentity?.path ? { pathHint: acceptedIdentity.path } : {}),
+        ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
+      }).catch(() => null)
+      if (located !== null && located !== effectivePath) {
+        try {
+          capture = await captureTranscript(located, captureOptions)
+          effectivePath = located
+        } catch {
+          capture = null
+        }
       }
+    }
+    capture ??= {
+      boundary: 0,
+      capturedSize: 0,
+      path: effectivePath,
+      device: 'missing',
+      inode: 'missing',
+      fileIdentity: 'missing',
+      bootEvents: [{ kind: 'session_started' as const }],
+      prompts: [],
+      promptCount: 0,
+      firstPrompt: null,
+      latestPrompt: null,
     }
     const bootstrapOffset = capture.boundary
     // Capture is asynchronous; Spawn/Reattach may have replaced this exact
@@ -573,7 +603,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       observerGeneration: lease.observerGeneration,
       bindingVersion: lease.bindingVersion,
       providerSessionId,
-      transcriptPath,
+      transcriptPath: effectivePath,
       transcriptSegmentId: segmentId,
       bootstrapState,
       ...(checkpoint ? { acceptedCheckpoint: checkpoint } : {}),
@@ -591,7 +621,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     const causal: ClaudeCausalTracker = {
       observerGeneration: snapshot.observerGeneration,
       providerSessionId,
-      transcriptPath,
+      transcriptPath: effectivePath,
       observer,
       bootstrapTransitionId: snapshot.transitionId,
       bootstrapCursor: snapshot.providerCursor,
