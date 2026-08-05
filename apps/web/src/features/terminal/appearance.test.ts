@@ -2,10 +2,11 @@
 // out-of-range stored value must never break the terminal — bad fields fall
 // back to "default" (absent), numeric fields clamp to their bounds.
 import { DEFAULT_THEME } from '@podium/terminal-client/terminal-view'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   FONT_SIZE_MAX,
   FONT_SIZE_MIN,
+  applyInitialTerminalAppearance,
   mixHex,
   paneTintedBackground,
   parseTerminalAppearance,
@@ -95,5 +96,60 @@ describe('pane-tinted terminal background (native-pane spec §2.5)', () => {
     expect(a.theme?.background).toBe('#1a1622')
     expect(a.theme?.cursorAccent).toBe('#1a1622')
     expect(a.theme?.foreground).toBe(DEFAULT_THEME.foreground)
+  })
+})
+
+describe('initial terminal appearance application', () => {
+  it('applies a theme-only tint without a second fit', () => {
+    const setAppearance = vi.fn()
+    const fit = vi.fn(() => ({ cols: 80, rows: 24 }))
+    const sendResize = vi.fn()
+    const mounted = {
+      view: { setAppearance, cols: () => 80, rows: () => 24, fit },
+      connection: { sendResize },
+    }
+
+    applyInitialTerminalAppearance(
+      mounted,
+      { theme: { ...DEFAULT_THEME, background: '#1a1622' } },
+      true,
+    )
+
+    expect(setAppearance).toHaveBeenCalledTimes(1)
+    expect(fit).not.toHaveBeenCalled()
+    expect(sendResize).not.toHaveBeenCalled()
+  })
+
+  it('fits and resizes once when a custom metric changes the grid', () => {
+    const setAppearance = vi.fn()
+    const fit = vi.fn(() => ({ cols: 100, rows: 30 }))
+    const sendResize = vi.fn()
+    const mounted = {
+      view: { setAppearance, cols: () => 80, rows: () => 24, fit },
+      connection: { sendResize },
+    }
+
+    applyInitialTerminalAppearance(mounted, { fontSize: 18 }, true)
+
+    expect(setAppearance).toHaveBeenCalledTimes(1)
+    expect(fit).toHaveBeenCalledTimes(1)
+    expect(sendResize).toHaveBeenCalledTimes(1)
+    expect(sendResize).toHaveBeenCalledWith(100, 30)
+  })
+
+  it('does not measure a hidden panel, even when its appearance has metrics', () => {
+    const setAppearance = vi.fn()
+    const fit = vi.fn(() => ({ cols: 100, rows: 30 }))
+    const sendResize = vi.fn()
+    const mounted = {
+      view: { setAppearance, cols: () => 80, rows: () => 24, fit },
+      connection: { sendResize },
+    }
+
+    applyInitialTerminalAppearance(mounted, { fontSize: 18 }, false)
+
+    expect(setAppearance).toHaveBeenCalledTimes(1)
+    expect(fit).not.toHaveBeenCalled()
+    expect(sendResize).not.toHaveBeenCalled()
   })
 })
