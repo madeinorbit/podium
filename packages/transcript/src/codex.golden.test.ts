@@ -34,11 +34,11 @@ describe('codexRecordToItems golden fixture', () => {
       // line 6: event_msg user_message
       { role: 'user', tool: undefined },
       // line 8: function_call exec_command
-      { role: 'tool', tool: 'exec_command' },
+      { role: 'tool', tool: 'Bash' },
       // line 9: function_call_output
       { role: 'tool', tool: undefined },
       // line 12: function_call exec_command
-      { role: 'tool', tool: 'exec_command' },
+      { role: 'tool', tool: 'Bash' },
       // line 13: function_call_output
       { role: 'tool', tool: undefined },
       // line 17: response_item message role=assistant
@@ -50,10 +50,10 @@ describe('codexRecordToItems golden fixture', () => {
       // line 24: response_item message role=assistant
       { role: 'assistant', tool: undefined },
       // lines 25-28: parallel function_calls exec_command
-      { role: 'tool', tool: 'exec_command' },
-      { role: 'tool', tool: 'exec_command' },
-      { role: 'tool', tool: 'exec_command' },
-      { role: 'tool', tool: 'exec_command' },
+      { role: 'tool', tool: 'Bash' },
+      { role: 'tool', tool: 'Bash' },
+      { role: 'tool', tool: 'Bash' },
+      { role: 'tool', tool: 'Bash' },
       // lines 29-32: parallel function_call_outputs
       { role: 'tool', tool: undefined },
       { role: 'tool', tool: undefined },
@@ -62,7 +62,7 @@ describe('codexRecordToItems golden fixture', () => {
       // line 33: function_call_output with EMPTY output — must still emit (not drop)
       { role: 'tool', tool: undefined },
       // line 34: custom_tool_call apply_patch
-      { role: 'tool', tool: 'apply_patch' },
+      { role: 'tool', tool: 'Write' },
       // line 35: custom_tool_call_output
       { role: 'tool', tool: undefined },
     ])
@@ -85,7 +85,7 @@ describe('codexRecordToItems golden fixture', () => {
       )
     })
     expect(emptyOutputLine).toBeTruthy()
-    const items = codexRecordToItems(JSON.parse(emptyOutputLine!))
+    const items = codexRecordToItems(JSON.parse(emptyOutputLine ?? 'null'))
     expect(items).toHaveLength(1)
     expect(items[0]).toMatchObject({ role: 'tool', toolUseId: 'call_orphan_empty' })
   })
