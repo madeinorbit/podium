@@ -201,6 +201,7 @@ const DISPATCH: Dispatcher = {
   credentialExportResult: toRpc,
   credentialInstallResult: toRpc,
 
+  serverTransferResult: toRpc,
   // ---- headless ----
   headlessTurnEvent: (ports, _p, msg) => ports.headless.onTurnEvent(msg),
   headlessTurnResult: (ports, _p, msg) => ports.headless.onTurnResult(msg),

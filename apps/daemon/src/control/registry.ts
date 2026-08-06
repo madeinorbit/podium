@@ -1,4 +1,5 @@
 import type { ControlMessage } from '@podium/protocol'
+import { serverTransferHandlers } from '../server-transfer'
 import { approvalHandlers } from './approvals'
 import type { ControlHandlers, DaemonContext } from './context'
 import { credentialHandlers } from './credentials'
@@ -32,6 +33,7 @@ export const CONTROL_HANDLERS: ControlHandlers = {
   ...approvalHandlers,
   ...credentialHandlers,
   ...inventoryHandlers,
+  ...serverTransferHandlers,
   agentRelayResult: (ctx, msg) => ctx.agentRelayHub.onResult(msg),
   updateGrant: (ctx, msg) => {
     void ctx.applyUpdateGrant(msg)

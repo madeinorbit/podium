@@ -172,6 +172,11 @@ export const machineShareInput = z.object({
 export const machineUnshareInput = machineShareInput
 
 export const machineRevokeInput = z.object({ id: z.string() })
+export const machineTransferServerInput = z.object({
+  targetMachineId: z.string().min(1),
+  publicUrl: z.string().min(1).max(2048),
+  confirmation: z.literal(true),
+})
 
 /** WHO the machine goes to is a payload field; WHO IS ASKING is not, and never
  *  appears here — that identity comes from the authenticated transport (ADR 3
@@ -718,6 +723,42 @@ export const machineRevokeContract = {
     'Removes the machine row and every surviving grant edge in one Authority commit; a second revoke of an already-revoked machine is a no-op',
 } as const satisfies FleetCommandContract<typeof machineRevokeInput>
 
+/** Move the server authority and portable state to an already-paired machine. */
+export const machineTransferServerContract = {
+  name: 'machines.transferServer',
+  version: 1,
+  visibility: 'owned-compute',
+  input: machineTransferServerInput,
+  policy: {
+    action: 'manage',
+    roleFloor: 'member',
+    resource: 'machine',
+    machineVerb: 'manage',
+    machineSharingAuthority: 'owner-only',
+    confirmation: 'confirm',
+    rationale:
+      'Transfers the server authority and portable state to an online paired machine. Only the current machine owner may start it; the target daemon must validate every byte before promotion and pre-promotion failures must be abortable.',
+  },
+  exposure: SERVED_ON,
+  delivery: FLEET_DELIVERY,
+  redaction: PUBLIC_REDACTION,
+  ownership: {
+    creates: [],
+    note: 'Moves existing server state; machine identity, daemon credentials, and target-local configuration remain on the target.',
+  },
+  attribution: FLEET_ATTRIBUTION,
+  errorConsistency: {
+    callerSuppliedTargetId: true,
+    invisibleFailsAs: 'nonexistent',
+    distinguishesUnauthorizedFromUnreachable: false,
+    note: 'Authorization is resolved before the handler. An authorized offline target is reported as unreachable; it is never queued.',
+  },
+  serverRole: 'hub',
+  cli: { summary: 'Move server authority to another machine' },
+  conflict: 'cmd',
+  conflictRule:
+    'One durable source journal and one source lock serialize transfers; promotion is idempotent, while an uncertain commit requires operator recovery rather than rollback.',
+} as const satisfies FleetCommandContract<typeof machineTransferServerInput>
 /**
  * Mint a short-lived pairing code — THE ONE CONTRACT IN THIS FAMILY THAT IS NOT
  * `owned-compute`, and the classification the brief flagged as costly to guess.
@@ -1068,7 +1109,7 @@ export const discoveryScanMachineContract = {
   exposure: SERVED_ON,
   delivery: FLEET_DELIVERY,
   redaction: PUBLIC_REDACTION,
-  ownership: REPO_ROW_OWNERSHIP('Auto-registers origin matches. ' + REPO_ROW_NOTE),
+  ownership: REPO_ROW_OWNERSHIP(`Auto-registers origin matches. ${REPO_ROW_NOTE}`),
   attribution: FLEET_ATTRIBUTION,
   errorConsistency: USE_ERRORS,
   serverRole: 'core',
@@ -1098,6 +1139,7 @@ export const FLEET_CONTRACTS = {
   'machines.transferOwnership': machineTransferOwnershipContract,
   'machines.adopt': machineAdoptContract,
   'machines.revoke': machineRevokeContract,
+  'machines.transferServer': machineTransferServerContract,
   'machines.pairingCode': machinePairingCodeContract,
   'repos.add': repoAddContract,
   'repos.addMany': repoAddManyContract,

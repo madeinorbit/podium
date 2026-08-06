@@ -258,6 +258,26 @@ export class SessionStore {
     this.repos.healLocalOrigins()
   }
 
+  /** Force SQLite WAL contents into the portable database before a transfer snapshot. */
+  checkpointForTransfer(): void {
+    this.db.exec('PRAGMA wal_checkpoint(TRUNCATE)')
+  }
+  private transferFenceHeld = false
+
+  /** Reject new SQLite writes while the target is being promoted. */
+  beginTransferFence(): void {
+    if (this.transferFenceHeld) throw new Error('transfer fence is already held')
+    this.db.exec('PRAGMA query_only = ON')
+    this.transferFenceHeld = true
+  }
+
+  /** Reopen SQLite writes after a confirmed pre-promotion abort. */
+  endTransferFence(): void {
+    if (!this.transferFenceHeld) return
+    this.db.exec('PRAGMA query_only = OFF')
+    this.transferFenceHeld = false
+  }
+
   /** Run `fn` atomically on the shared connection (nesting-safe: BEGIN at depth
    *  0, SAVEPOINT inside an open transaction). Narrow seam for cross-aggregate
    *  atomic writes — the write-seam Ledger binds an entity write and its change

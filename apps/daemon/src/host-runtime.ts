@@ -16,21 +16,22 @@ import {
 } from '@podium/runtime/config'
 import { durableSessionLabel } from '@podium/runtime/instance'
 import { startLoopMetrics } from '@podium/runtime/loop-metrics'
-import { PODIUM_UPDATE_PUBKEY, fetchArtifact } from '@podium/runtime/update-delivery'
+import { fetchArtifact, PODIUM_UPDATE_PUBKEY } from '@podium/runtime/update-delivery'
 import type { RawData } from 'ws'
 import { createAgentRelayHub, startAgentRelayServer } from './agent-relay'
 import { BindingStore } from './binding-store'
 import { createBrowserOpenManager } from './browser-open'
+import { buildReport, deliveryCaps } from './build-report'
 import { ensurePodiumCodexHooks } from './codex-hooks'
 import { ComposerSyncEngine } from './composer-sync'
 import type { DaemonContext, DurableBackend } from './control/context'
 import { reportInventory, startInventoryRefresh } from './control/inventory'
+import { resolveOnBoot } from './convergence'
 import type { DaemonOptions } from './daemon-options'
-import { buildReport, deliveryCaps } from './build-report'
 import { createDiscoveryLoop, DEFAULT_DISCOVERY_SCAN_INTERVAL_MS } from './discovery-loop'
-import { applyGrant } from './grant-apply'
 import { selectDurableBackend } from './durable-backend'
 import { createFrameGuard, type FrameGuard } from './frame-guards'
+import { applyGrant } from './grant-apply'
 import { ensurePodiumGrokHooks } from './grok-hooks'
 import { sweepHandoffStage } from './handoff-package'
 import type { HeadlessTurnHandle } from './headless-drivers.js'
@@ -41,15 +42,15 @@ import type { DaemonInstanceBootstrap } from './instance-bootstrap'
 import { reportLongTick, startLoopAttribution } from './loop-attribution'
 import { composeResponders, createAckReminderInjector, createMailInjector } from './mail-injector'
 import { OutputScheduler } from './output-scheduler'
-import { resolveOnBoot } from './convergence'
 import { clearPendingGrant, readPendingGrant, writePendingGrant } from './pending-grant'
-import { swapHeadlessBundle } from './update-install'
 import { createPrimeInjector } from './prime-injector'
 import { makeQuotaFetcher } from './quota-fetch'
 import { createReattachGates } from './reattach-gates'
 import { SessionBinding } from './session-binding'
 import { createSessionObservers } from './session-observers'
 import { sweepUploads, UPLOADS_GC_INTERVAL_MS } from './session-uploads'
+import { restartAsServer } from './transfer-lifecycle'
+import { swapHeadlessBundle } from './update-install'
 import { DiscoveryWorkerClient } from './worker-client'
 import { createCwdResolver, createSessionCwdTracker } from './worktree-resolve'
 
@@ -356,6 +357,7 @@ export async function createDaemonHostRuntime(args: {
     refreshAndPublishConversations: (full) => discoveryLoop.refreshAndPublishConversations(full),
     quotaFetcher: makeQuotaFetcher({ ...(homeDir ? { homeDir } : {}) }),
     usageMemo: {},
+    restartAfterTransfer: opts.restartAfterTransfer ?? restartAsServer,
     applyUpdateGrant,
   }
   const frameGuard = createFrameGuard(ctx)

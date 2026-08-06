@@ -31,6 +31,7 @@ const FOURTEEN: readonly FleetContractName[] = [
   'machines.transferOwnership',
   'machines.adopt',
   'machines.revoke',
+  'machines.transferServer',
   'machines.pairingCode',
   'repos.add',
   'repos.addMany',
@@ -127,6 +128,7 @@ describe('the thirteen fleet contracts', () => {
       'machines.adopt': 'machine',
       'machines.unshare': 'machine',
       'machines.revoke': 'machine',
+      'machines.transferServer': 'machine',
       'machines.pairingCode': 'pairing-token',
       'repos.add': 'repo-prefix',
       'repos.addMany': 'repo-prefix',
@@ -172,6 +174,7 @@ describe('the thirteen fleet contracts', () => {
       'machines.rename': 'manage',
       'machines.share': 'manage',
       'machines.transferOwnership': 'manage',
+      'machines.transferServer': 'manage',
       // ADOPTION IS THE ONE `see`, and it is a rule rather than a weaker check:
       // `machineVerbsFor` grants an admin `see` only while the owner is null, so
       // `see` here resolves to "an admin, on an unowned machine" and nothing
@@ -233,6 +236,7 @@ describe('the thirteen fleet contracts', () => {
       'machines.rename': 'hub',
       'machines.share': 'hub',
       'machines.transferOwnership': 'hub',
+      'machines.transferServer': 'hub',
       'machines.adopt': 'hub',
       'machines.unshare': 'hub',
       'machines.revoke': 'hub',

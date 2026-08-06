@@ -1,5 +1,5 @@
-import { asMachineId } from '@podium/model'
 import type { MachineWire } from '@podium/model'
+import { asMachineId } from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Store } from '@/app/store'
@@ -87,7 +87,10 @@ describe('MachinesPanel hosting affordances', () => {
 
   it('marks the paired row and offers inline Enable when offline, instead of the card', () => {
     stubBridge({ machineId: asMachineId('m-1') })
-    storeState.machines = [machine({ id: asMachineId('m-1'), online: false }), machine({ id: asMachineId('other') })]
+    storeState.machines = [
+      machine({ id: asMachineId('m-1'), online: false }),
+      machine({ id: asMachineId('other') }),
+    ]
     setTrpc(vi.fn())
     render(<MachinesPanel />)
     expect(enableCard()).toBeNull()
@@ -315,5 +318,69 @@ describe('MachinesPanel ownership transfer', () => {
     // The dialog stays open on refusal: the owner has typed two fields, and
     // closing it would discard them along with the reason it failed.
     expect(screen.getByRole('dialog')).toBeTruthy()
+  })
+})
+
+describe('MachinesPanel server transfer', () => {
+  function setServerTransferTrpc(transferMutate: () => Promise<unknown>) {
+    storeState.trpc = {
+      machines: {
+        pairingCode: { mutate: vi.fn().mockResolvedValue({ code: 'CODE', joinCommand: 'join' }) },
+        transferServer: { mutate: transferMutate },
+      },
+      setup: {
+        info: { query: vi.fn().mockResolvedValue({ publicUrl: 'https://podium.example.com' }) },
+      },
+    } as unknown as Store['trpc']
+  }
+
+  it('offers Make server only for an owned online target', () => {
+    storeState.machines = [
+      machine({ id: asMachineId('target'), name: 'vps', online: true, owned: true }),
+      machine({ id: asMachineId('other'), name: 'shared', online: true, owned: false }),
+    ]
+    setServerTransferTrpc(vi.fn())
+    render(<MachinesPanel />)
+
+    expect(screen.getAllByRole('button', { name: 'Make server' })).toHaveLength(1)
+  })
+
+  it('requires the target name and passes the stable URL to the transfer command', async () => {
+    const transferMutate = vi.fn().mockResolvedValue({ state: 'committed' })
+    storeState.machines = [
+      machine({ id: asMachineId('target'), name: 'vps', online: true, owned: true }),
+    ]
+    setServerTransferTrpc(transferMutate)
+    render(<MachinesPanel />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Make server' }))
+    const confirm = await screen.findByRole('button', { name: 'Transfer server' })
+    expect(confirm).toHaveProperty('disabled', true)
+
+    fireEvent.change(await screen.findByLabelText('Type the target machine name to confirm'), {
+      target: { value: 'vps' },
+    })
+    expect(confirm).toHaveProperty('disabled', false)
+    fireEvent.click(confirm)
+
+    await waitFor(() =>
+      expect(transferMutate).toHaveBeenCalledWith({
+        targetMachineId: 'target',
+        publicUrl: 'https://podium.example.com',
+        confirmation: true,
+      }),
+    )
+    expect((await screen.findByRole('status')).textContent).toMatch(/transfer committed/i)
+  })
+
+  it('recommends making the first added machine the server', async () => {
+    storeState.machines = [
+      machine({ id: asMachineId('current'), name: 'mac', online: true, owned: true }),
+    ]
+    setServerTransferTrpc(vi.fn())
+    render(<MachinesPanel />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add machine' }))
+    expect(await screen.findByText(/recommended: make this the server/i)).toBeTruthy()
   })
 })

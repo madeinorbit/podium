@@ -155,6 +155,8 @@ export {
   machineShareInput,
   machineTransferOwnershipContract,
   machineTransferOwnershipInput,
+  machineTransferServerContract,
+  machineTransferServerInput,
   machineUnshareContract,
   machineUnshareInput,
   repoAddContract,

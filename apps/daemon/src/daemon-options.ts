@@ -62,4 +62,6 @@ export interface DaemonOptions {
   reconnectTimers?: ReconnectTimers
   /** Test/embedding seam; production exits so the process manager restarts the daemon. */
   restartAfterUpdate?: () => void
+  /** Called after a successful server promotion; production starts the server role. */
+  restartAfterTransfer?: () => void
 }

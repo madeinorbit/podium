@@ -41,7 +41,7 @@
  */
 
 import { FLEET_CONTRACTS, type FleetContractName } from '@podium/commands'
-import { isAdminGrade, type UserRole } from '@podium/model'
+import { isAdminGrade, spawnedByParentSessionId, type UserRole } from '@podium/model'
 import type { MachineVerb } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
 import { type CommandPrincipal, onBehalfOfUser, resolvePrincipal } from '../../command-principal'
@@ -52,7 +52,6 @@ import {
   machineAccessMessage,
   ownershipFromMachines,
 } from '../../machine-access'
-import { spawnedByParentSessionId } from '@podium/model'
 import type { Context } from '../../trpc'
 import { mods } from '../../trpc'
 
@@ -105,6 +104,8 @@ export const FLEET_TARGETS = {
   // the person it is being adopted FOR.
   'machines.adopt': (input: unknown) => named((input as { id: string }).id),
   'machines.revoke': (input: unknown) => named((input as { id: string }).id),
+  'machines.transferServer': (input: unknown) =>
+    named((input as { targetMachineId: string }).targetMachineId),
   // No machine exists yet, so there is no owner column that could admit anyone —
   // the `admin` floor is the only gate, exactly as POD-384's rationale says.
   'machines.pairingCode': () => ({ kind: 'none' }) as FleetTarget,

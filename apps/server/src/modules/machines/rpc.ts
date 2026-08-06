@@ -37,6 +37,8 @@ import type {
   PortableCredentialBundle,
   PortableCredentialKind,
   RepoOp,
+  ServerTransferManifestEntry,
+  ServerTransferResultMessage,
   WorkspaceCleanResultMessage,
   WorkspaceExportResultMessage,
   WorkspaceImportResultMessage,
@@ -158,6 +160,7 @@ const WORKSPACE_IMPORT = daemonRequestKind<Payload<WorkspaceImportResultMessage>
 const WORKSPACE_CLEAN = daemonRequestKind<Payload<WorkspaceCleanResultMessage>>('wc')
 const CREDENTIAL_EXPORT = daemonRequestKind<Payload<CredentialExportResultMessage>>('ce')
 const CREDENTIAL_INSTALL = daemonRequestKind<Payload<CredentialInstallResultMessage>>('ci')
+const SERVER_TRANSFER = daemonRequestKind<Payload<ServerTransferResultMessage>>('st')
 
 /** How ONE reply frame settles: pick the family, project the payload, hand both
  *  to the correlator along with the machine that answered. */
@@ -252,6 +255,8 @@ const RPC_REPLY_SETTLERS: { [K in RpcDaemonFrameType]: ReplySettler<K> } = {
     void broker.settle(WORKSPACE_CLEAN, msg.requestId, machineId, payloadOf(msg)),
   credentialExportResult: (broker, machineId, msg) =>
     void broker.settle(CREDENTIAL_EXPORT, msg.requestId, machineId, payloadOf(msg)),
+  serverTransferResult: (broker, machineId, msg) =>
+    void broker.settle(SERVER_TRANSFER, msg.requestId, machineId, payloadOf(msg)),
   credentialInstallResult: (broker, machineId, msg) =>
     void broker.settle(CREDENTIAL_INSTALL, msg.requestId, machineId, payloadOf(msg)),
 }
@@ -968,6 +973,137 @@ export class DaemonRpcService {
     )
   }
 
+  /** Stage a portable server snapshot on a named target daemon. */
+  serverTransferPrepare(
+    input: {
+      transferId: string
+      manifest: ServerTransferManifestEntry[]
+      manifestDigest: string
+      totalBytes: number
+    },
+    machineId: string,
+  ): Promise<Payload<ServerTransferResultMessage>> {
+    return this.request(
+      SERVER_TRANSFER,
+      120_000,
+      () => ({
+        transferId: input.transferId,
+        operation: 'prepare',
+        ok: false,
+        state: 'aborted',
+        error: 'target prepare timed out',
+      }),
+      (requestId) => ({ type: 'serverTransferPrepareRequest', requestId, ...input }),
+      machineId,
+    )
+  }
+
+  /** Send one contiguous, retry-safe transfer chunk to a target daemon. */
+  serverTransferChunk(
+    input: { transferId: string; path: string; offset: number; data: Buffer },
+    machineId: string,
+  ): Promise<Payload<ServerTransferResultMessage>> {
+    return this.request(
+      SERVER_TRANSFER,
+      30_000,
+      () => ({
+        transferId: input.transferId,
+        operation: 'chunk',
+        ok: false,
+        state: 'staging',
+        error: 'target chunk timed out',
+      }),
+      (requestId) => ({
+        type: 'serverTransferChunkRequest',
+        requestId,
+        transferId: input.transferId,
+        path: input.path,
+        offset: input.offset,
+        data: input.data.toString('base64'),
+      }),
+      machineId,
+    )
+  }
+
+  /** Ask the target to hash every staged file before the source is fenced. */
+  serverTransferValidate(
+    transferId: string,
+    manifestDigest: string,
+    machineId: string,
+  ): Promise<Payload<ServerTransferResultMessage>> {
+    return this.request(
+      SERVER_TRANSFER,
+      120_000,
+      () => ({
+        transferId,
+        operation: 'validate',
+        ok: false,
+        state: 'staging',
+        error: 'target validation timed out',
+      }),
+      (requestId) => ({
+        type: 'serverTransferValidateRequest',
+        requestId,
+        transferId,
+        manifestDigest,
+      }),
+      machineId,
+    )
+  }
+
+  /** Promote a validated target and switch its persisted mode to server. */
+  serverTransferPromote(
+    transferId: string,
+    manifestDigest: string,
+    publicUrl: string,
+    machineId: string,
+  ): Promise<Payload<ServerTransferResultMessage>> {
+    return this.request(
+      SERVER_TRANSFER,
+      120_000,
+      () => ({
+        transferId,
+        operation: 'promote',
+        ok: false,
+        state: 'uncertain',
+        error: 'target promotion timed out; inspect the target before retrying',
+      }),
+      (requestId) => ({
+        type: 'serverTransferPromoteRequest',
+        requestId,
+        transferId,
+        manifestDigest,
+        publicUrl,
+      }),
+      machineId,
+    )
+  }
+
+  /** Remove a target stage. A promoted transfer is deliberately not abortable. */
+  serverTransferAbort(
+    transferId: string,
+    reason: string | undefined,
+    machineId: string,
+  ): Promise<Payload<ServerTransferResultMessage>> {
+    return this.request(
+      SERVER_TRANSFER,
+      30_000,
+      () => ({
+        transferId,
+        operation: 'abort',
+        ok: false,
+        state: 'aborted',
+        error: 'target abort timed out',
+      }),
+      (requestId) => ({
+        type: 'serverTransferAbortRequest',
+        requestId,
+        transferId,
+        ...(reason ? { reason } : {}),
+      }),
+      machineId,
+    )
+  }
   /**
    * THE ONE FAN-IN — every request-correlated daemon reply this module owns.
    *

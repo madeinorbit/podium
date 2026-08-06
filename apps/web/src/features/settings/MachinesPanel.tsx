@@ -39,6 +39,9 @@ export function MachinesPanel(): JSX.Element {
   const [addError, setAddError] = useState<string | null>(null)
   const [addLoading, setAddLoading] = useState(false)
   const [podiumManaged, setPodiumManaged] = useState(true)
+  const [makeServerAfterPair, setMakeServerAfterPair] = useState(false)
+  const [pairingBaselineIds, setPairingBaselineIds] = useState<Set<string>>(() => new Set())
+  const [serverTransferTarget, setServerTransferTarget] = useState<MachineWire | null>(null)
 
   // [spec:SP-3701] Hosting affordances (desktop shell, client mode only). A device that
   // paired before gets the inline "Enable" action on its own machine row; the standalone
@@ -52,6 +55,12 @@ export function MachinesPanel(): JSX.Element {
   // The server's own build version — the reference each daemon's reported version is
   // compared against for the "update available" badge [POD-838].
   const serverAppVersion = useServerAppVersion(trpc)
+  const newlyPairedMachine = makeServerAfterPair
+    ? (machines.find(
+        (machine) =>
+          !pairingBaselineIds.has(machine.id) && machine.online && machine.owned === true,
+      ) ?? null)
+    : null
 
   // Tick so relative times stay fresh.
   useEffect(() => {
@@ -78,6 +87,13 @@ export function MachinesPanel(): JSX.Element {
     }
   }
 
+  const openAddMachine = (): void => {
+    setPairingBaselineIds(new Set(machines.map((machine) => machine.id)))
+    setMakeServerAfterPair(machines.length === 1)
+    setAddOpen(true)
+    void mintCode(podiumManaged)
+  }
+
   // Jump to Settings → Network to change the server's reachable URL.
   const goChangeUrl = (): void => {
     setAddOpen(false)
@@ -102,18 +118,13 @@ export function MachinesPanel(): JSX.Element {
               setCode(null)
               setJoinCommand(null)
               setAddError(null)
+              setMakeServerAfterPair(false)
+              setPairingBaselineIds(new Set())
             }
           }}
         >
           <DialogTrigger
-            render={
-              <Button
-                variant="outline"
-                size="sm"
-                type="button"
-                onClick={() => void mintCode(podiumManaged)}
-              />
-            }
+            render={<Button variant="outline" size="sm" type="button" onClick={openAddMachine} />}
           >
             Add machine
           </DialogTrigger>
@@ -136,6 +147,16 @@ export function MachinesPanel(): JSX.Element {
                 onChangeUrl={goChangeUrl}
                 podiumManaged={podiumManaged}
                 onManagedChange={(managed) => void mintCode(managed)}
+                recommendServer={machines.length === 1}
+                makeServerAfterPair={makeServerAfterPair}
+                onMakeServerAfterPairChange={setMakeServerAfterPair}
+                pairedMachine={newlyPairedMachine}
+                onReviewPairedMachine={() => {
+                  if (newlyPairedMachine) {
+                    setAddOpen(false)
+                    setServerTransferTarget(newlyPairedMachine)
+                  }
+                }}
               />
             )}
             {code && !joinCommand && !addLoading && (
@@ -159,6 +180,16 @@ export function MachinesPanel(): JSX.Element {
             )}
           </DialogContent>
         </Dialog>
+        {serverTransferTarget && (
+          <ServerTransferDialog
+            machine={serverTransferTarget}
+            trpc={trpc}
+            open
+            onOpenChange={(open) => {
+              if (!open) setServerTransferTarget(null)
+            }}
+          />
+        )}
       </div>
 
       {hosting && !alreadyPaired && <HostThisDeviceCard hosting={hosting} />}
@@ -176,6 +207,9 @@ export function MachinesPanel(): JSX.Element {
               now={now}
               trpc={trpc}
               isThisMachine={m.id === thisMachineId}
+              onTransferServer={
+                m.online && m.id !== thisMachineId ? () => setServerTransferTarget(m) : null
+              }
               // Inline "Enable": only on this device's own row, only while it is offline
               // (online means the daemon is already running) [spec:SP-3701].
               hosting={m.id === thisMachineId && !m.online ? hosting : null}
@@ -280,6 +314,11 @@ function PairingCodeDisplay({
   onChangeUrl,
   podiumManaged,
   onManagedChange,
+  recommendServer,
+  makeServerAfterPair,
+  onMakeServerAfterPairChange,
+  pairedMachine,
+  onReviewPairedMachine,
 }: {
   code: string
   joinCommand: string | null
@@ -287,6 +326,11 @@ function PairingCodeDisplay({
   onChangeUrl?: () => void
   podiumManaged: boolean
   onManagedChange: (managed: boolean) => void
+  recommendServer: boolean
+  makeServerAfterPair: boolean
+  onMakeServerAfterPairChange: (value: boolean) => void
+  pairedMachine: MachineWire | null
+  onReviewPairedMachine: () => void
 }): JSX.Element {
   const [copied, setCopied] = useState(false)
 
@@ -350,6 +394,37 @@ function PairingCodeDisplay({
           </span>
         </span>
       </label>
+      {recommendServer && (
+        <label className="flex items-start gap-2 rounded-md border border-primary/30 bg-primary/5 px-2.5 py-2 text-[12px]">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={makeServerAfterPair}
+            onChange={(event) => onMakeServerAfterPairChange(event.currentTarget.checked)}
+          />
+          <span className="flex flex-col gap-0.5">
+            <span className="text-foreground">Recommended: make this the server</span>
+            <span className="text-[11px] text-muted-foreground">
+              For a Mac all-in-one, pair a VPS first, then review moving the server and its portable
+              state to it.
+            </span>
+          </span>
+        </label>
+      )}
+      {pairedMachine && (
+        <div
+          className="flex items-center gap-2 rounded-md border border-success/30 bg-success/5 px-2.5 py-2 text-[12px]"
+          role="status"
+        >
+          <span className="min-w-0 flex-1 text-muted-foreground">
+            <strong className="text-foreground">{pairedMachine.name}</strong> is online and ready to
+            review as the server.
+          </span>
+          <Button type="button" size="sm" className="flex-none" onClick={onReviewPairedMachine}>
+            Review transfer
+          </Button>
+        </div>
+      )}
       <div className="flex flex-col gap-1.5">
         <div className="flex items-center justify-between gap-2">
           <span className="settings-micro uppercase tracking-wide">
@@ -380,6 +455,184 @@ function PairingCodeDisplay({
   )
 }
 
+function ServerTransferDialog({
+  machine,
+  trpc,
+  open,
+  onOpenChange,
+}: {
+  machine: MachineWire
+  trpc: Store['trpc']
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+}): JSX.Element {
+  const [internalOpen, setInternalOpen] = useState(false)
+  const [publicUrl, setPublicUrl] = useState('')
+  const [loadingInfo, setLoadingInfo] = useState(false)
+  const [transferring, setTransferring] = useState(false)
+  const [confirmName, setConfirmName] = useState('')
+  const [transferError, setTransferError] = useState<string | null>(null)
+  const [outcome, setOutcome] = useState<'committed' | 'uncertain' | null>(null)
+  const isOpen = open ?? internalOpen
+
+  useEffect(() => {
+    if (!isOpen) return
+    let cancelled = false
+    setTransferError(null)
+    setOutcome(null)
+    setConfirmName('')
+    setLoadingInfo(true)
+    void trpc.setup.info
+      .query()
+      .then((info) => {
+        if (!cancelled) setPublicUrl(info.publicUrl ?? '')
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setPublicUrl('')
+          setTransferError(error instanceof Error ? error.message : String(error))
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingInfo(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [isOpen, trpc])
+
+  const setDialogOpen = (next: boolean): void => {
+    if (onOpenChange) onOpenChange(next)
+    else setInternalOpen(next)
+  }
+
+  const transfer = async (): Promise<void> => {
+    const url = publicUrl.trim()
+    if (!url || confirmName.trim() !== machine.name) return
+    setTransferring(true)
+    setTransferError(null)
+    try {
+      const result = await trpc.machines.transferServer.mutate({
+        targetMachineId: machine.id,
+        publicUrl: url,
+        confirmation: true,
+      })
+      const reply = result as { state?: string; error?: string }
+      if (reply.state === 'committed') {
+        setOutcome('committed')
+        setConfirmName('')
+      } else {
+        setOutcome('uncertain')
+        setTransferError(
+          reply.error ??
+            'The target did not prove promotion. Do not retry until the target is inspected.',
+        )
+      }
+    } catch (error) {
+      setTransferError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setTransferring(false)
+    }
+  }
+
+  return (
+    <Dialog open={isOpen} onOpenChange={setDialogOpen}>
+      {open === undefined && (
+        <DialogTrigger
+          render={
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="flex-none"
+              disabled={!machine.online || machine.owned !== true}
+            />
+          }
+        >
+          Make server
+        </DialogTrigger>
+      )}
+      <DialogContent showCloseButton className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Make {machine.name} the server?</DialogTitle>
+          <DialogDescription>
+            Podium copies only portable server state to this machine. It stays a daemon until every
+            file validates; the current server remains in place if staging fails. Promotion can only
+            finish after the target proves it became the server.
+          </DialogDescription>
+        </DialogHeader>
+        {outcome === 'committed' ? (
+          <p
+            className="rounded-md border border-success/30 bg-success/5 px-3 py-2 text-[12px]"
+            role="status"
+          >
+            Transfer committed. {machine.name} is taking over and this server will reconnect as a
+            daemon.
+          </p>
+        ) : (
+          <div className="flex flex-col gap-3 text-[13px]">
+            <label htmlFor="server-transfer-url" className="flex flex-col gap-1">
+              <span className="text-muted-foreground">Reachable server URL</span>
+              <Input
+                id="server-transfer-url"
+                value={publicUrl}
+                disabled={transferring || loadingInfo}
+                onChange={(event) => setPublicUrl(event.currentTarget.value)}
+                aria-label="Reachable server URL"
+                placeholder="https://podium.example.com"
+              />
+              <span className="text-[11px] text-muted-foreground">
+                Keep this stable URL if clients should reconnect without another setup.
+              </span>
+            </label>
+            <label htmlFor="server-transfer-name" className="flex flex-col gap-1">
+              <span className="text-muted-foreground">
+                Type <strong>{machine.name}</strong> to confirm
+              </span>
+              <Input
+                id="server-transfer-name"
+                value={confirmName}
+                disabled={transferring}
+                onChange={(event) => setConfirmName(event.currentTarget.value)}
+                aria-label="Type the target machine name to confirm"
+              />
+            </label>
+            {transferError && (
+              <p className="text-destructive text-[12px]" role="alert">
+                {transferError}
+              </p>
+            )}
+          </div>
+        )}
+        {outcome === 'uncertain' && (
+          <p className="text-[12px] text-warning">
+            The source has stopped before it could prove the final handoff. Inspect the target and
+            transfer journal before retrying.
+          </p>
+        )}
+        <DialogFooter showCloseButton>
+          {outcome !== 'committed' && (
+            <Button
+              type="button"
+              variant="default"
+              size="sm"
+              disabled={
+                transferring ||
+                loadingInfo ||
+                publicUrl.trim() === '' ||
+                confirmName.trim() !== machine.name
+              }
+              onClick={() => void transfer()}
+            >
+              {transferring ? 'Transferring...' : 'Transfer server'}
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function MachineRow({
   machine,
   now,
@@ -387,6 +640,7 @@ function MachineRow({
   isThisMachine = false,
   hosting = null,
   onFindRepos = null,
+  onTransferServer = null,
   serverAppVersion = null,
 }: {
   machine: MachineWire
@@ -398,6 +652,8 @@ function MachineRow({
   hosting?: EnableHosting | null
   /** POD-787: open the repo scan flow preset to this (online) machine. */
   onFindRepos?: (() => void) | null
+  /** Open the server-transfer confirmation for this online target. */
+  onTransferServer?: (() => void) | null
   /** POD-838: the server's own build version; null while unknown. */
   serverAppVersion?: string | null
 }): JSX.Element {
@@ -612,6 +868,18 @@ function MachineRow({
         </>
       )}
 
+      {onTransferServer && machine.owned === true && (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="flex-none"
+          onClick={onTransferServer}
+        >
+          Make server
+        </Button>
+      )}
+
       {/* Transfer ownership — OWNER ONLY (POD-1495); see `mayTransfer` above. */}
       {mayTransfer && (
         <Dialog
@@ -654,9 +922,10 @@ function MachineRow({
               </DialogDescription>
             </DialogHeader>
             <div className="flex flex-col gap-3 text-[13.5px]">
-              <label className="flex flex-col gap-1">
+              <label htmlFor="ownership-recipient" className="flex flex-col gap-1">
                 <span className="text-muted-foreground">New owner's account name</span>
                 <Input
+                  id="ownership-recipient"
                   value={recipientId}
                   autoFocus
                   disabled={transferring}
@@ -665,11 +934,12 @@ function MachineRow({
                   aria-label="New owner's account name"
                 />
               </label>
-              <label className="flex flex-col gap-1">
+              <label htmlFor="ownership-name" className="flex flex-col gap-1">
                 <span className="text-muted-foreground">
                   Type <strong>{machine.name}</strong> to confirm
                 </span>
                 <Input
+                  id="ownership-name"
                   value={confirmName}
                   disabled={transferring}
                   onChange={(e) => setConfirmName(e.target.value)}

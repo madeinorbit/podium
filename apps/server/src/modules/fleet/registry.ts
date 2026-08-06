@@ -24,12 +24,13 @@ import {
   discoveryScanFolderHandler,
   discoveryScanMachineHandler,
   type FleetHandler,
-  machinePairingCodeHandler,
   machineAdoptHandler,
+  machinePairingCodeHandler,
   machineRenameHandler,
   machineRevokeHandler,
   machineShareHandler,
   machineTransferOwnershipHandler,
+  machineTransferServerHandler,
   machineUnshareHandler,
   repoAddHandler,
   repoAddManyHandler,
@@ -40,10 +41,7 @@ import {
 /** One contract joined to the handler that implements it. */
 export interface FleetCommand {
   readonly contract: AnyCommandContract & { readonly serverRole: FleetServerRole }
-  // biome-ignore lint/suspicious/noExplicitAny: the table is heterogeneous by
-  // construction; each entry's input type is pinned by its own contract and
-  // checked at the handler declaration, and `never` here would make the table
-  // untypeable rather than safer.
+  // biome-ignore lint/suspicious/noExplicitAny: heterogeneous fleet handler table
   readonly handler: FleetHandler<any, unknown>
 }
 
@@ -80,6 +78,10 @@ export const FLEET_COMMANDS = {
   'machines.revoke': {
     contract: FLEET_CONTRACTS['machines.revoke'],
     handler: machineRevokeHandler,
+  },
+  'machines.transferServer': {
+    contract: FLEET_CONTRACTS['machines.transferServer'],
+    handler: machineTransferServerHandler,
   },
   'machines.pairingCode': {
     contract: FLEET_CONTRACTS['machines.pairingCode'],

@@ -218,6 +218,11 @@ export const CONTROL_PLANE_CLASS = {
   approvalExecRequest: 'control.command',
   sessionOpenUrlCallback: 'control.command',
   sessionOpenUrlDismiss: 'control.command',
+  serverTransferPrepareRequest: 'control.command',
+  serverTransferChunkRequest: 'control.command',
+  serverTransferValidateRequest: 'control.command',
+  serverTransferPromoteRequest: 'control.command',
+  serverTransferAbortRequest: 'control.command',
 } as const satisfies Record<ControlMessage['type'], PlaneClass>
 
 /**
@@ -292,6 +297,7 @@ export const DAEMON_PLANE_CLASS = {
   approvalExecResult: 'control.command',
   sessionOpenUrl: 'stream.live',
   sessionOpenUrlResult: 'stream.live',
+  serverTransferResult: 'control.command',
 } as const satisfies Record<DaemonMessage['type'], PlaneClass>
 
 // ---- Derived legacy vocabulary (ADR 7 D1 bridge; one migration window) ------

@@ -39,13 +39,13 @@ import {
 } from './host'
 import { InventoryReportMessage, ModelProbeResultMessage } from './inventory'
 import { AgentRelayRequestMessage } from './issues'
-import { UpdateStatusMessage } from './update'
 import {
   AgentObservationMessage,
   AgentObservationRebindMessage,
   AgentObserverLiveConfirmationMessage,
   AgentStateMessage,
 } from './runtime-state'
+import { ServerTransferResultMessage } from './server-transfer'
 import {
   AgentColorMessage,
   AgentContextMessage,
@@ -63,6 +63,7 @@ import {
   TranscriptMirrorResultMessage,
   TranscriptReadResultMessage,
 } from './transcript'
+import { UpdateStatusMessage } from './update'
 import {
   WorkspaceCleanResultMessage,
   WorkspaceExportResultMessage,
@@ -199,5 +200,6 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   DirListResultMessage,
   SessionOpenUrlMessage,
   SessionOpenUrlResultMessage,
+  ServerTransferResultMessage,
 ])
 export type DaemonMessage = z.infer<typeof DaemonMessage>

@@ -160,6 +160,13 @@ export const machineRevokeHandler = ({ ctx, input }: FleetArgs<{ id: string }>) 
   return mods(ctx).machines.listMachines()
 }
 
+/** Move authority only after the target reports a durable promotion. */
+export const machineTransferServerHandler = ({
+  ctx,
+  input,
+}: FleetArgs<{ targetMachineId: string; publicUrl: string; confirmation: true }>) =>
+  mods(ctx).serverTransfer.transfer(input)
+
 export const machinePairingCodeHandler = ({
   ctx,
   input,

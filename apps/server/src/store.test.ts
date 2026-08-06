@@ -103,6 +103,15 @@ describe('SessionStore repos', () => {
     store.close()
   })
 
+  it('rejects SQLite writes while a transfer fence is held, then reopens them', () => {
+    const store = new SessionStore(':memory:')
+    store.beginTransferFence()
+    expect(() => store.repos.addRepo('/home/u/fenced', store.hostMachineId)).toThrow()
+    store.endTransferFence()
+    expect(() => store.repos.addRepo('/home/u/reopened', store.hostMachineId)).not.toThrow()
+    store.close()
+  })
+
   it('persists repos across instances on the same file', async () => {
     const file = await tmpDbPath()
     const a = new SessionStore(file)
@@ -252,8 +261,12 @@ describe('SessionStore sessions', () => {
   it('persists a cwd change when an existing session moves machines', async () => {
     const file = await tmpDbPath()
     const source = new SessionStore(file)
-    source.sessions.upsertSession(row({ cwd: '/source/repo/.worktrees/x', machineId: asMachineId('m1') }))
-    source.sessions.upsertSession(row({ cwd: '/target/repo/.worktrees/x', machineId: asMachineId('m2') }))
+    source.sessions.upsertSession(
+      row({ cwd: '/source/repo/.worktrees/x', machineId: asMachineId('m1') }),
+    )
+    source.sessions.upsertSession(
+      row({ cwd: '/target/repo/.worktrees/x', machineId: asMachineId('m2') }),
+    )
     source.close()
 
     const restarted = new SessionStore(file)

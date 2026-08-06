@@ -83,6 +83,8 @@ import { DaemonRpcService } from './modules/machines/rpc'
 import { LoginPropagationService } from './modules/machines/login-propagation'
 import { MachinesService, type PairingCodes } from './modules/machines/service'
 import { MemoryService } from './modules/memory/service'
+import { restartAsDaemon } from './modules/server-transfer/lifecycle'
+import { ServerTransferService } from './modules/server-transfer/service'
 import { MessageGate } from './modules/messages/gate'
 import { principalMailPolicy } from './modules/messages/handlers/context'
 import { QueuedMessageApply } from './modules/messages/queued-apply'
@@ -197,6 +199,7 @@ export interface RegistryModules {
   machines: MachinesService
   updates: UpdatesService
   rpc: DaemonRpcService
+  serverTransfer: ServerTransferService
   loginPropagation: LoginPropagationService
   memory: MemoryService
   hosts: HostsService
@@ -916,6 +919,16 @@ export class SessionRegistry {
             }
           : undefined
       },
+    })
+    const serverTransfer = new ServerTransferService({
+      stateRoot: stateDir(),
+      sourceMachineId: this.store.hostMachineId,
+      rpc,
+      online: (machineId) => machines.hasDaemon(machineId),
+      checkpoint: () => this.store.checkpointForTransfer(),
+      fence: () => this.store.beginTransferFence(),
+      releaseFence: () => this.store.endTransferFence(),
+      restartAsDaemon,
     })
     const loginPropagation = new LoginPropagationService({
       store: this.store,
@@ -1811,6 +1824,7 @@ export class SessionRegistry {
       machines,
       updates: updatesService,
       rpc,
+      serverTransfer,
       loginPropagation,
       memory,
       hosts,

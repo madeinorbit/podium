@@ -89,6 +89,9 @@ export interface DaemonContext {
   /** Usage-scan memo (mutable box — handlers replace the value). */
   usageMemo: { value?: { atMs: number; sinceMs: number; buckets: UsageBucketWire[] } }
 
+  /** Starts the promoted server and waits for its local readiness proof before replying. */
+  restartAfterTransfer?: () => Promise<void> | void
+
   /** Server-granted convergence is wired by the production composition root. */
   applyUpdateGrant: (
     grant: Extract<ControlMessage, { type: 'updateGrant' }>,

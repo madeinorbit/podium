@@ -102,6 +102,7 @@ export const DAEMON_FRAME_PORTS = {
   workspaceCleanResult: ['rpc'],
   credentialExportResult: ['rpc'],
   credentialInstallResult: ['rpc'],
+  serverTransferResult: ['rpc'],
 
   // ---- headless-owned ----
   headlessTurnEvent: ['headless'],

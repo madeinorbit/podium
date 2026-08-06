@@ -37,7 +37,13 @@ import {
 import { InventoryRequestMessage, ModelProbeRequestMessage } from './inventory'
 import { AgentRelayResultMessage } from './issues'
 import { AgentObservationAckMessage, AgentObservationRebindAckMessage } from './runtime-state'
-import { UpdateGrantMessage } from './update'
+import {
+  ServerTransferAbortRequestMessage,
+  ServerTransferChunkRequestMessage,
+  ServerTransferPrepareRequestMessage,
+  ServerTransferPromoteRequestMessage,
+  ServerTransferValidateRequestMessage,
+} from './server-transfer'
 import {
   DraftTargetMessage,
   InputMessage,
@@ -52,6 +58,7 @@ import {
   SpawnMessage,
 } from './terminal'
 import { TranscriptMirrorReadMessage, TranscriptReadRequestMessage } from './transcript'
+import { UpdateGrantMessage } from './update'
 import {
   WorkspaceCleanRequestMessage,
   WorkspaceExportRequestMessage,
@@ -109,5 +116,10 @@ export const ControlMessage = z.discriminatedUnion('type', [
   DirListRequestMessage,
   SessionOpenUrlCallbackMessage,
   SessionOpenUrlDismissMessage,
+  ServerTransferPrepareRequestMessage,
+  ServerTransferChunkRequestMessage,
+  ServerTransferValidateRequestMessage,
+  ServerTransferPromoteRequestMessage,
+  ServerTransferAbortRequestMessage,
 ])
 export type ControlMessage = z.infer<typeof ControlMessage>
