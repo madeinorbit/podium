@@ -2413,6 +2413,13 @@ a.ref-link--session::before {
     align-items: center;
     gap: 12px 36px;
   }
+  /* Account identities can be substantially wider than ordinary settings
+     controls. Let this section use the available sheet width so an email stays
+     on one line at desktop sizes; truly narrow viewports still wrap at word
+     boundaries instead of splitting every arbitrary character. */
+  .settings-account-group .settings-row {
+    grid-template-columns: minmax(0, 1fr) minmax(var(--settings-control-w), 1fr);
+  }
   /* A row that explains itself is taller than its control, and centring a
      switch against a four-line paragraph parks it beside the middle sentence.
      Top-align instead: the control sits on the label's line, where the eye

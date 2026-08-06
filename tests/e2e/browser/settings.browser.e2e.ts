@@ -93,13 +93,22 @@ test('native account profile labels render when available', async ({ page }) => 
   for (const identity of identities) {
     const value = section.locator('span').filter({ hasText: identity }).first()
     await expect(value).toBeVisible()
-    const layout = await value.evaluate((element) => ({
-      clientWidth: element.clientWidth,
-      scrollWidth: element.scrollWidth,
-      whiteSpace: getComputedStyle(element).whiteSpace,
-    }))
+    const layout = await value.evaluate((element) => {
+      const range = document.createRange()
+      range.selectNodeContents(element)
+      const lineCount = new Set(
+        [...range.getClientRects()].filter((rect) => rect.width > 0).map((rect) => Math.round(rect.top)),
+      ).size
+      return {
+        clientWidth: element.clientWidth,
+        scrollWidth: element.scrollWidth,
+        whiteSpace: getComputedStyle(element).whiteSpace,
+        lineCount,
+      }
+    })
     expect(layout.whiteSpace).toBe('normal')
     expect(layout.scrollWidth).toBeLessThanOrEqual(layout.clientWidth + 1)
+    expect(layout.lineCount).toBe(1)
   }
 })
 

@@ -15,6 +15,7 @@ export interface UpdateActions {
 interface UpdateDialogProps {
   view: UpdateView
   actions: UpdateActions
+  onDismiss?: () => void
 }
 
 type ActionName = 'reload' | 'installApp' | 'updateServer'
@@ -25,7 +26,7 @@ function viewKey(view: UpdateView): string {
   return `${view.state}:${view.version}`
 }
 
-export function UpdateDialog({ view, actions }: UpdateDialogProps): JSX.Element | null {
+export function UpdateDialog({ view, actions, onDismiss }: UpdateDialogProps): JSX.Element | null {
   const [dismissed, setDismissed] = useState(false)
   const [pendingAction, setPendingAction] = useState<ActionName | null>(null)
 
@@ -117,7 +118,15 @@ export function UpdateDialog({ view, actions }: UpdateDialogProps): JSX.Element 
 
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-muted/30 px-4 py-3">
             {canClose ? (
-              <Button type="button" variant="ghost" size="sm" onClick={() => setDismissed(true)}>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  onDismiss?.()
+                  setDismissed(true)
+                }}
+              >
                 Later
               </Button>
             ) : null}

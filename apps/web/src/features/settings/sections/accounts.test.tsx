@@ -58,13 +58,14 @@ afterEach(() => {
 })
 
 describe('AccountsSection', () => {
-  it('wraps a long connected identity instead of clipping it to a fixed-width badge', async () => {
+  it('keeps a long connected identity readable without arbitrary character breaks', async () => {
     const identity = 'Tillmann Felippi · tillmann.felippi+podium@example.com'
     serveList([{ ...NATIVE, status: 'connected', identity }])
     render(<AccountsSection />)
 
     const value = await screen.findByText(identity)
-    expect(value.className).toContain('break-all')
+    expect(value.className).toContain('break-words')
+    expect(value.className).not.toContain('break-all')
     expect(value.className).not.toContain('truncate')
   })
 

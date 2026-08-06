@@ -94,6 +94,15 @@ describe('registerWebStatic', () => {
     })
     expect(res.status).toBe(404)
   })
+  it('serves the exact SPA shell to a service-worker precache request [POD-456]', async () => {
+    const res = await app.request('/index.html?__WB_REVISION__=current', {
+      headers: { 'sec-fetch-mode': 'same-origin', accept: '*/*' },
+    })
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toContain('text/html')
+    expect(res.headers.get('cache-control')).toBe('no-cache')
+    expect(await res.text()).toContain('Podium')
+  })
   it('does not shadow API routes', async () => {
     const res = await app.request('/trpc/x')
     expect(await res.text()).toBe('api')

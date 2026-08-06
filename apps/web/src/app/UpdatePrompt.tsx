@@ -15,7 +15,7 @@ export function UpdatePrompt({ httpOrigin }: UpdatePromptProps): JSX.Element {
   const registrationRef = useRef<ServiceWorkerRegistration | null>(null)
   const intervalRef = useRef<number | null>(null)
   const {
-    needRefresh: [needRefresh],
+    needRefresh: [needRefresh, setNeedRefresh],
     updateServiceWorker,
   } = useRegisterSW({
     onRegisteredSW(_swUrl, registration) {
@@ -59,5 +59,5 @@ export function UpdatePrompt({ httpOrigin }: UpdatePromptProps): JSX.Element {
     needRefresh,
     reload,
   })
-  return <UpdateDialog view={view} actions={actions} />
+  return <UpdateDialog view={view} actions={actions} onDismiss={() => setNeedRefresh(false)} />
 }

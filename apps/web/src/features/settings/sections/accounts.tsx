@@ -26,7 +26,7 @@ function StatusConnected({ identity }: { identity: string }): JSX.Element {
   return (
     <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full bg-success/10 py-0.5 pr-2 pl-1.5 text-[12px] text-success">
       <span aria-hidden="true" className="size-1.5 flex-none rounded-full bg-success" />
-      <span className="min-w-0 break-all font-mono">{identity}</span>
+      <span className="min-w-0 break-words font-mono">{identity}</span>
     </span>
   )
 }
@@ -178,7 +178,7 @@ function AccountGroup({
   children: React.ReactNode
 }): JSX.Element {
   return (
-    <div>
+    <div className="settings-account-group">
       <div className="mb-2 flex items-baseline gap-2 px-0.5">
         <span className="settings-eyebrow">{label}</span>
         <span className="settings-micro">{qualifier}</span>

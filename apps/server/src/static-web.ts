@@ -477,6 +477,17 @@ export function registerWebStatic(
     }
     const icon = appleTouchIcon(webDir, inside)
     if (icon) return await serveFile(icon, accepted)
+    // Workbox precaches `/index.html` with a normal same-origin fetch, not a
+    // navigation request. Keep the shell on the single annotated path below,
+    // but admit that exact existing file regardless of Sec-Fetch-Mode; otherwise
+    // its 404 aborts the entire service-worker installation.
+    if (filePath === indexPath) {
+      return await serveFile(
+        indexPath,
+        accepted,
+        Buffer.from(serveIndex(webDir, indexPath, opts.stampCheck === true), 'utf8'),
+      )
+    }
     // A missing FILE is a 404, not the web page. Only navigations fall through
     // to the shell [POD-421].
     if (!isNavigationRequest(pathname, c)) return c.notFound()

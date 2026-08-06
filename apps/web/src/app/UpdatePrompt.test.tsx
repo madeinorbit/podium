@@ -47,5 +47,8 @@ describe('UpdatePrompt', () => {
     const stateOptions = mocks.useUpdateState.mock.calls[0]?.[0]
     expect(stateOptions.needRefresh).toBe(true)
     expect(typeof stateOptions.reload).toBe('function')
+
+    screen.getByRole('button', { name: /later/i }).click()
+    expect(mocks.setNeedRefresh).toHaveBeenCalledWith(false)
   })
 })

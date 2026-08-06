@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { UpdateDialog } from './UpdateDialog'
 
@@ -33,8 +33,11 @@ describe('UpdateDialog', () => {
   })
 
   it('is dismissible when available', () => {
-    render(<UpdateDialog view={available} actions={{}} />)
-    expect(screen.getByRole('button', { name: /later/i })).toBeTruthy()
+    const onDismiss = vi.fn()
+    render(<UpdateDialog view={available} actions={{}} onDismiss={onDismiss} />)
+    fireEvent.click(screen.getByRole('button', { name: /later/i }))
+    expect(onDismiss).toHaveBeenCalledOnce()
+    expect(screen.queryByTestId('update-dialog')).toBeNull()
   })
 
   it('is NOT dismissible when required', () => {
