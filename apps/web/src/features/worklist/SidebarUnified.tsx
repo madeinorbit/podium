@@ -108,6 +108,7 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
     issueId: string
     folded: boolean
   } | null>(null)
+  const [archivingIssueIds, setArchivingIssueIds] = useState<ReadonlySet<string>>(() => new Set())
   useEffect(() => {
     setSelectedClosedPlacement((placement) =>
       placement && placement.issueId !== selectedIssueId ? null : placement,
@@ -131,6 +132,16 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
   }
   const selectedWasFolded =
     selectedClosedPlacement?.issueId === selectedIssueId && selectedClosedPlacement.folded
+  const archiveClosedIssue = (id: string): void => {
+    setArchivingIssueIds((current) => new Set(current).add(id))
+    void archiveIssue(id).catch(() => {
+      setArchivingIssueIds((current) => {
+        const next = new Set(current)
+        next.delete(id)
+        return next
+      })
+    })
+  }
 
   // The pinned split and the project-group tree come from the PUBLISHED slice
   // (POD-407) — derived once per snapshot for every reader, rather than once per
@@ -150,6 +161,18 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
         : publishedGroups,
     [publishedGroups, selectedWasFolded, work, selectedIssueId, now],
   )
+  useEffect(() => {
+    const closedIds = new Set<string>(
+      targetGroups.flatMap((group) => group.closedRows.map((row) => row.issue.id)),
+    )
+    setArchivingIssueIds((current) => {
+      const next = new Set(current)
+      for (const id of current) {
+        if (!closedIds.has(id)) next.delete(id)
+      }
+      return next.size === current.size ? current : next
+    })
+  }, [targetGroups])
   const transitionTargets = useMemo<RowTransitionTarget<WorkPlacement>[]>(
     () => [
       ...pinned.map((row) => ({
@@ -183,21 +206,23 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
             row,
           },
         })),
-        ...group.closedRows.map((row) => ({
-          key: `issue:${row.issue.id}`,
-          placement: `closed:${group.key}`,
-          value: {
-            lane: 'closed' as const,
-            groupKey: group.key,
-            groupLabel: group.label,
-            row,
-          },
-        })),
+        ...group.closedRows
+          .filter((row) => !archivingIssueIds.has(row.issue.id))
+          .map((row) => ({
+            key: `issue:${row.issue.id}`,
+            placement: `closed:${group.key}`,
+            value: {
+              lane: 'closed' as const,
+              groupKey: group.key,
+              groupLabel: group.label,
+              row,
+            },
+          })),
       ]),
     ],
-    [pinned, targetGroups],
+    [archivingIssueIds, pinned, targetGroups],
   )
-  const { items: transitionRows, settle } = useRowTransitions(transitionTargets)
+  const { items: transitionRows, settle, discardExit } = useRowTransitions(transitionTargets)
 
   // Grip-drag manual sort (POD-168): drops persist fractional sortKeys through
   // issues.update; crossing the PINNED boundary toggles `pinned`. The preview
@@ -246,6 +271,7 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
     const folded = lane === 'closed' || lane === 'snoozed'
     const arriving = animate && item.phase === 'entering'
     const exiting = item.phase === 'exiting'
+    const quickArchiveExit = exiting && row.kind === 'issue' && archivingIssueIds.has(row.issue.id)
     const draggable = row.kind === 'issue' && !isIssueDeferred(row.issue, now)
     const inner =
       folded && row.kind === 'issue' ? (
@@ -333,14 +359,22 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
         <motion.div
           initial={arriving && !shouldReduceMotion ? { opacity: 0, y: -8 } : false}
           animate={exiting ? { opacity: 0, y: -6 } : { opacity: 1, y: 0 }}
+          onAnimationComplete={
+            quickArchiveExit ? () => discardExit(item.key, item.placement) : undefined
+          }
           transition={
             shouldReduceMotion
               ? { duration: 0 }
               : exiting
-                ? {
-                    opacity: { duration: 0.64, ease: 'easeInOut' },
-                    y: { duration: 0.7, ease: [0.4, 0, 1, 1] },
-                  }
+                ? quickArchiveExit
+                  ? {
+                      opacity: { duration: 0.14, ease: 'easeOut' },
+                      y: { duration: 0.18, ease: [0.4, 0, 1, 1] },
+                    }
+                  : {
+                      opacity: { duration: 0.64, ease: 'easeInOut' },
+                      y: { duration: 0.7, ease: [0.4, 0, 1, 1] },
+                    }
                 : {
                     opacity: {
                       duration: 0.72,
@@ -450,7 +484,8 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
                   rows={group.closedRows}
                   renderRow={renderWorkRow}
                   issueForRow={(item) => item.value.row as UnifiedIssueRowView}
-                  onArchive={archiveIssue}
+                  archivingIssueIds={archivingIssueIds}
+                  onArchive={archiveClosedIssue}
                 />
               </motion.div>
             )}

@@ -58,6 +58,14 @@ vi.mock('@/app/store', () => {
     deferUntil: '2099-01-01T00:00:00.000Z',
     deferred: true,
   }
+  const closedSecond = {
+    ...closed,
+    id: 'closed-second',
+    seq: 45,
+    displayRef: 'POD-45',
+    title: 'Another settled issue',
+    closedAt: '2026-07-22T10:00:00.000Z',
+  }
   const returned = {
     ...snoozed,
     id: 'returned',
@@ -74,10 +82,12 @@ vi.mock('@/app/store', () => {
     machines: [],
     pins: { panels: [], worktrees: [], repos: [] },
     setPinned: vi.fn(),
-    issues: [closed, snoozed, returned],
+    issues: [closed, closedSecond, snoozed, returned],
     trpc: {
       settings: {
-        get: { query: vi.fn(async () => ({ sessionDefaults: { agent: 'codex' } })) },
+        get: {
+          query: vi.fn(async () => ({ sessionDefaults: { agent: 'codex' } })),
+        },
       },
       issues: {
         archive: { mutate: archiveMutate },
@@ -115,7 +125,9 @@ vi.mock('@/app/store', () => {
   }
 })
 
-vi.mock('@/features/machines/HostIndicators', () => ({ HostIndicators: () => null }))
+vi.mock('@/features/machines/HostIndicators', () => ({
+  HostIndicators: () => null,
+}))
 vi.mock('@/lib/hooks/use-session-guard', () => ({
   useSessionGuard: () => ({ guardedKill: vi.fn(), guardedArchive: vi.fn() }),
 }))
@@ -154,7 +166,21 @@ describe('closed issue fold lifecycle', () => {
   it('archives a closed issue from its hover/focus action', () => {
     render(<SidebarUnified />)
     fireEvent.click(screen.getByTestId('closed-fold-toggle'))
-    fireEvent.click(screen.getByRole('button', { name: 'Archive POD-42' }))
+    const archiveButton = screen.getByRole('button', {
+      name: 'Archive POD-42',
+    })
+    fireEvent.click(archiveButton)
     expect(archiveMutate).toHaveBeenCalledWith({ id: 'closed' })
+    expect(archiveButton.querySelector('svg')?.getAttribute('class')).toContain('opacity-0')
+    expect(archiveButton).toHaveProperty('disabled', true)
+  })
+
+  it('archives every closed issue from the fold title action', () => {
+    render(<SidebarUnified />)
+    fireEvent.click(screen.getByRole('button', { name: 'Archive all 2 closed issues' }))
+
+    expect(archiveMutate).toHaveBeenCalledTimes(2)
+    expect(archiveMutate).toHaveBeenCalledWith({ id: 'closed' })
+    expect(archiveMutate).toHaveBeenCalledWith({ id: 'closed-second' })
   })
 })

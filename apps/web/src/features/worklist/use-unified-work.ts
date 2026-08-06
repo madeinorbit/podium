@@ -242,9 +242,7 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
   }
   const setIssueColor = (id: string, color: IssueColorSlot | null): Promise<unknown> =>
     trpc.issues.update.mutate({ id, patch: { color } })
-  const archiveIssue = (id: string): void => {
-    void trpc.issues.archive.mutate({ id }).catch(() => {})
-  }
+  const archiveIssue = (id: string): Promise<unknown> => trpc.issues.archive.mutate({ id })
   // Manual-sort persistence (POD-168): one patch per row whose key changes
   // (fast path = exactly the dragged row; legacy backfill = the whole scope).
   const applySortPatches = (

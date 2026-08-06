@@ -77,4 +77,15 @@ describe('useRowTransitions', () => {
     act(() => latest.settle('a', 'closed'))
     expect(content(container)).toBe('A:closed:stable')
   })
+
+  it('can discard an exiting row as soon as a short gesture animation finishes', () => {
+    const { container, rerender } = render(
+      <Probe targets={[{ key: 'a', placement: 'closed', value: 'A' }]} />,
+    )
+    rerender(<Probe targets={[]} />)
+    expect(content(container)).toBe('A:closed:exiting')
+
+    act(() => latest.discardExit('a', 'closed'))
+    expect(content(container)).toBe('')
+  })
 })

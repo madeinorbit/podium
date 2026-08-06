@@ -25,6 +25,7 @@ const slot = (item: Pick<RowTransitionTarget<unknown>, 'key' | 'placement'>) =>
 export function useRowTransitions<T>(targets: readonly RowTransitionTarget<T>[]): {
   items: readonly RowTransitionItem<T>[]
   settle: (key: string, placement: string) => void
+  discardExit: (key: string, placement: string) => void
 } {
   const latestTargets = useRef(targets)
   latestTargets.current = targets
@@ -109,5 +110,12 @@ export function useRowTransitions<T>(targets: readonly RowTransitionTarget<T>[])
     })
   }
 
-  return { items, settle }
+  const discardExit = (key: string, placement: string): void => {
+    const discardedSlot = slot({ key, placement })
+    setItems((current) =>
+      current.filter((item) => slot(item) !== discardedSlot || item.phase !== 'exiting'),
+    )
+  }
+
+  return { items, settle, discardExit }
 }

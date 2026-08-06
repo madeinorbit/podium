@@ -263,39 +263,67 @@ export function ClosedIssueFold<T>({
   rows,
   renderRow,
   issueForRow,
+  archivingIssueIds,
   onArchive,
 }: {
   groupKey: string
   rows: T[]
   renderRow: (row: T) => JSX.Element
   issueForRow: (row: T) => UnifiedIssueRowView
+  archivingIssueIds: ReadonlySet<string>
   onArchive: (id: string) => void
 }): JSX.Element {
   const [collapsed, toggle] = useCollapsed(closedFoldKey(groupKey), true)
   const contentId = useId()
+  const issueRows = rows.map(issueForRow)
+  const allArchiving = issueRows.every((row) => archivingIssueIds.has(row.issue.id))
+  const archiveAll = (event: ReactMouseEvent): void => {
+    event.preventDefault()
+    event.stopPropagation()
+    for (const row of issueRows) {
+      if (!archivingIssueIds.has(row.issue.id)) onArchive(row.issue.id)
+    }
+  }
   return (
     <div className="min-w-0" data-testid="closed-issue-fold">
-      <button
-        data-pressable
-        type="button"
-        className="group/fold flex min-h-[31px] w-full items-center gap-1.5 rounded-[5px] px-2 py-0.5 text-left font-mono text-[10px] font-medium tracking-[.035em] text-text-faint hover:text-muted-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong focus-visible:outline-offset-[-2px]"
-        aria-expanded={!collapsed}
-        aria-controls={contentId}
-        onClick={toggle}
-        data-testid="closed-fold-toggle"
-      >
-        <ChevronRight
-          size={11}
-          className={cn('flex-none transition-transform duration-150', !collapsed && 'rotate-90')}
-          aria-hidden="true"
-        />
-        <span>Closed · {rows.length}</span>
-        <span className="h-px min-w-4 flex-1 bg-hairline-soft" aria-hidden="true" />
-      </button>
+      <div className="group/fold relative flex min-h-[31px] items-center">
+        <button
+          data-pressable
+          type="button"
+          className="flex min-h-[31px] w-full items-center gap-1.5 rounded-[5px] px-2 py-0.5 text-left font-mono text-[10px] font-medium tracking-[.035em] text-text-faint hover:text-muted-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong focus-visible:outline-offset-[-2px]"
+          aria-expanded={!collapsed}
+          aria-controls={contentId}
+          onClick={toggle}
+          data-testid="closed-fold-toggle"
+        >
+          <ChevronRight
+            size={11}
+            className={cn('flex-none transition-transform duration-150', !collapsed && 'rotate-90')}
+            aria-hidden="true"
+          />
+          <span>Closed · {rows.length}</span>
+          <span className="h-px min-w-4 flex-1 bg-hairline-soft" aria-hidden="true" />
+        </button>
+        <button
+          data-pressable
+          data-hover-reveal
+          type="button"
+          aria-label={`Archive all ${issueRows.length} closed issues`}
+          title="Archive all closed issues"
+          disabled={allArchiving}
+          onClick={archiveAll}
+          className="absolute right-1.5 flex h-5 items-center gap-1 rounded-[5px] border border-hairline-bar bg-chip px-1.5 font-mono text-[9px] font-medium tracking-[.02em] text-label opacity-0 shadow-sm transition-[color,opacity,background-color] duration-100 group-hover/fold:opacity-100 group-focus-within/fold:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong disabled:pointer-events-none disabled:opacity-0"
+          data-testid="closed-issues-archive-all"
+        >
+          <Archive size={10} aria-hidden="true" />
+          <span>All</span>
+        </button>
+      </div>
       {!collapsed && (
         <div id={contentId} className="min-w-0" data-testid="closed-fold-rows">
           {rows.map((row) => {
             const issueRow = issueForRow(row)
+            const archiving = archivingIssueIds.has(issueRow.issue.id)
             return (
               <div
                 key={issueRow.issue.id}
@@ -314,13 +342,18 @@ export function ClosedIssueFold<T>({
                   aria-label={`Archive ${issueDisplayRef(issueRow.issue)}`}
                   title="Archive — remove from sidebar"
                   data-testid="closed-issue-archive"
+                  disabled={archiving}
                   onClick={(event) => {
                     event.preventDefault()
                     event.stopPropagation()
                     onArchive(issueRow.issue.id)
                   }}
                 >
-                  <Archive size={11} aria-hidden="true" />
+                  <Archive
+                    size={11}
+                    className={cn('transition-opacity duration-100', archiving && 'opacity-0')}
+                    aria-hidden="true"
+                  />
                 </button>
               </div>
             )
