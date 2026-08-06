@@ -44,15 +44,25 @@ function exportHandoffPackage(
 const roots: string[] = []
 const git = (cwd: string, ...args: string[]): string =>
   execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim()
+function configureGitIdentity(path: string): void {
+  git(path, 'config', 'user.email', 'test@podium.local')
+  git(path, 'config', 'user.name', 'Podium Test')
+}
 async function repo(name: string): Promise<string> {
   const path = await mkdtemp(join(tmpdir(), `podium-${name}-`))
   roots.push(path)
   git(path, 'init', '-b', 'main')
-  git(path, 'config', 'user.email', 'test@podium.local')
-  git(path, 'config', 'user.name', 'Podium Test')
+  configureGitIdentity(path)
   await writeFile(join(path, 'tracked.txt'), 'base\n')
   git(path, 'add', '.')
   git(path, 'commit', '-m', 'base')
+  return path
+}
+async function cloneRepo(origin: string, prefix: string): Promise<string> {
+  const path = await mkdtemp(join(tmpdir(), prefix))
+  roots.push(path)
+  execFileSync('git', ['clone', origin, path])
+  configureGitIdentity(path)
   return path
 }
 /** A linked worktree — the only thing a handoff may move ([spec:SP-3f7a]). Lives
@@ -184,11 +194,7 @@ describe('handoff package', () => {
     // worktree (round trip) and hard-sync it to the package state.
     const origin = await repo('dirty-only')
     const base = git(origin, 'rev-parse', 'HEAD')
-    const target = await mkdtemp(join(tmpdir(), 'podium-target-dirty-'))
-    roots.push(target)
-    execFileSync('git', ['clone', origin, target])
-    git(target, 'config', 'user.email', 'test@podium.local')
-    git(target, 'config', 'user.name', 'Podium Test')
+    const target = await cloneRepo(origin, 'podium-target-dirty-')
     const source = await worktree(origin, 'feat/dirty-only')
     await writeFile(join(source, 'untracked.txt'), 'v1\n')
 
@@ -238,9 +244,7 @@ describe('handoff package', () => {
   it('preserves a Claude-owned worktree path on the target', async () => {
     const origin = await repo('path-origin')
     const base = git(origin, 'rev-parse', 'HEAD')
-    const target = await mkdtemp(join(tmpdir(), 'podium-path-target-'))
-    roots.push(target)
-    execFileSync('git', ['clone', origin, target])
+    const target = await cloneRepo(origin, 'podium-path-target-')
     const relativePath = join('.claude', 'worktrees', 'path-preserved')
     const source = await worktreeAt(origin, 'issue/1013-path-preserved', relativePath)
     const sourceHome = await home('path-source')
@@ -277,9 +281,7 @@ describe('handoff package', () => {
     const machineBId = asMachineId('b')
     const machineA = await repo('roundtrip-a')
     const base = git(machineA, 'rev-parse', 'HEAD')
-    const machineB = await mkdtemp(join(tmpdir(), 'podium-roundtrip-b-'))
-    roots.push(machineB)
-    execFileSync('git', ['clone', machineA, machineB])
+    const machineB = await cloneRepo(machineA, 'podium-roundtrip-b-')
     const relativePath = join('.claude', 'worktrees', 'roundtrip')
     const sourceA = await worktreeAt(machineA, 'issue/1013-roundtrip', relativePath)
     await writeFile(join(sourceA, 'state.txt'), 'from-a\n')
@@ -517,9 +519,7 @@ describe('handoff package', () => {
   it('reclaims a clean pre-fingerprint worktree by branch after an old path conversion', async () => {
     const machineA = await repo('legacy-a')
     const base = git(machineA, 'rev-parse', 'HEAD')
-    const machineB = await mkdtemp(join(tmpdir(), 'podium-legacy-b-'))
-    roots.push(machineB)
-    execFileSync('git', ['clone', machineA, machineB])
+    const machineB = await cloneRepo(machineA, 'podium-legacy-b-')
     const branch = 'worktree-buzzing-swinging-dawn'
     const originalA = await worktreeAt(
       machineA,
@@ -589,9 +589,7 @@ describe('handoff package', () => {
   it('refuses to reclaim a checkout occupied by another target session', async () => {
     const origin = await repo('occupied')
     const base = git(origin, 'rev-parse', 'HEAD')
-    const target = await mkdtemp(join(tmpdir(), 'podium-occupied-target-'))
-    roots.push(target)
-    execFileSync('git', ['clone', origin, target])
+    const target = await cloneRepo(origin, 'podium-occupied-target-')
     const source = await worktree(origin, 'issue/1013-occupied')
     const occupied = await worktree(target, 'issue/1013-occupied')
     const sourceHome = await home('occupied-source')
@@ -626,11 +624,7 @@ describe('handoff package', () => {
   it('exports and imports dirty state plus Claude transcript between repositories', async () => {
     const origin = await repo('source')
     const base = git(origin, 'rev-parse', 'HEAD')
-    const target = await mkdtemp(join(tmpdir(), 'podium-target-'))
-    roots.push(target)
-    execFileSync('git', ['clone', origin, target])
-    git(target, 'config', 'user.email', 'test@podium.local')
-    git(target, 'config', 'user.name', 'Podium Test')
+    const target = await cloneRepo(origin, 'podium-target-')
     const source = await worktree(origin, 'issue/498-handoff')
     await writeFile(join(source, 'branch.txt'), 'branch\n')
     git(source, 'add', '.')
@@ -786,9 +780,7 @@ describe('handoff manifest read path across file formats ([POD-1153])', () => {
     // format and not to the fixture.
     const origin = await repo('v2-origin')
     const base = git(origin, 'rev-parse', 'HEAD')
-    const target = await mkdtemp(join(tmpdir(), 'podium-v2-target-'))
-    roots.push(target)
-    execFileSync('git', ['clone', origin, target])
+    const target = await cloneRepo(origin, 'podium-v2-target-')
     const source = await worktree(origin, 'issue/1153-v2')
     await writeFile(join(source, 'state.txt'), 'from-v2\n')
     const sourceHome = await home('v2-source')
@@ -898,9 +890,7 @@ describe('handoff source resolution ([spec:SP-3f7a])', () => {
   it('exports the worktree CONTAINING a drifted cwd and lands the agent in the same subdir', async () => {
     const origin = await repo('subpath')
     const base = git(origin, 'rev-parse', 'HEAD')
-    const target = await mkdtemp(join(tmpdir(), 'podium-target-subpath-'))
-    roots.push(target)
-    execFileSync('git', ['clone', origin, target])
+    const target = await cloneRepo(origin, 'podium-target-subpath-')
     const source = await worktree(origin, 'issue/657-subpath')
     await mkdir(join(source, 'apps', 'web'), { recursive: true })
     await writeFile(join(source, 'apps', 'web', 'app.ts'), 'export const x = 1\n')
@@ -954,9 +944,7 @@ describe('handoff source resolution ([spec:SP-3f7a])', () => {
     // path — the handoff must still land, at the root.
     const origin = await repo('subpath-missing')
     const base = git(origin, 'rev-parse', 'HEAD')
-    const target = await mkdtemp(join(tmpdir(), 'podium-target-missing-'))
-    roots.push(target)
-    execFileSync('git', ['clone', origin, target])
+    const target = await cloneRepo(origin, 'podium-target-missing-')
     const source = await worktree(origin, 'issue/657-missing')
     const agentCwd = join(source, 'scratch')
     await mkdir(agentCwd, { recursive: true })
@@ -1092,9 +1080,7 @@ describe('abandoned stage files ([POD-742])', () => {
     // a half-done import — the next attempt re-exports and re-transfers.
     const origin = await repo('import-fail')
     const base = git(origin, 'rev-parse', 'HEAD')
-    const target = await mkdtemp(join(tmpdir(), 'podium-target-import-fail-'))
-    roots.push(target)
-    execFileSync('git', ['clone', origin, target])
+    const target = await cloneRepo(origin, 'podium-target-import-fail-')
     const source = await worktree(origin, 'issue/742-import-fail')
     await writeFile(join(source, 'work.txt'), 'in progress\n')
     const sourceHome = await home('import-fail')
