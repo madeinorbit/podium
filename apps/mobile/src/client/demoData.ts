@@ -234,6 +234,15 @@ export const DEMO_ISSUES: IssueWire[] = [
         createdAt: min(180),
       },
     ],
+    panel: {
+      todos: [
+        { text: 'Reproduce the rotation race', done: true },
+        { text: 'Add the grace-window guard', done: true },
+        { text: 'Verify Safari multi-tab recovery', done: false },
+      ],
+      artifacts: [],
+      deferred: [],
+    },
     ready: true,
     blocked: false,
     deferred: false,

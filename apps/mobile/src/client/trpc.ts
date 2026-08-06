@@ -98,6 +98,11 @@ interface MobileTrpcExtras {
       body: string
       mutationId?: string
     }>
+    /** Toggle one agent-published todo; the positional API is 1-based. */
+    panelApply: MutationProcedure<
+      { id: string; op: 'todo-done' | 'todo-undone'; index: number },
+      IssueWire
+    >
     /** Quiet-dismiss a humanQuestion card (the tray's resolve ✓). */
     clearNeedsHuman: MutationProcedure<{ id: string }>
     /** Acknowledge a finished task — removes its card and board row. */

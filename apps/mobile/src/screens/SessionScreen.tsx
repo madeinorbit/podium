@@ -78,6 +78,8 @@ export function SessionScreen() {
   const turnSeq = useRef(0)
   const [menuOpen, setMenuOpen] = useState(false)
   const [workMenuOpen, setWorkMenuOpen] = useState(false)
+  const [draftInsertion, setDraftInsertion] = useState<{ id: number; text: string } | null>(null)
+  const insertionSeq = useRef(0)
   const goBack = useCallback(() => {
     if (hasBackTarget) {
       router.dismissTo(backTarget)
@@ -206,6 +208,11 @@ export function SessionScreen() {
 
   const title = session ? sessionTitle(session) : 'Session'
   const issue = useIssue(session?.issueId)
+  // A peek stores the selected identity, but renders the replica's live row so
+  // a todo toggle updates in the still-open sheet instead of waiting for reopen.
+  const livePeekIssue = peekIssue
+    ? (issues.find((candidate) => candidate.id === peekIssue.id) ?? peekIssue)
+    : null
   // The issue colour flows through the chrome; slate when the issue is uncoloured.
   const accent = issue ? (issueColorHex(issue.color) ?? FLOW_SLATE) : undefined
 
@@ -287,6 +294,10 @@ export function SessionScreen() {
     )
   }
   const activity = chatActivity(session, false)
+  const issueTodos = issue?.panel?.todos ?? []
+  const todoProgress = issueTodos.length
+    ? { done: issueTodos.filter((todo) => todo.done).length, total: issueTodos.length }
+    : undefined
 
   return (
     <Screen
@@ -341,6 +352,21 @@ export function SessionScreen() {
             }}
             pendingTurns={pendingTurns}
             onRetryPending={retry}
+            onQuote={(text) => setDraftInsertion({ id: insertionSeq.current++, text })}
+            todos={todoProgress}
+            onOpenTodos={issue ? () => setPeekIssue(issue) : undefined}
+            showOpenTodos={session.agentState?.phase === 'idle'}
+            streaming={
+              activity?.tone === 'working' &&
+              items.at(-1)?.role === 'assistant' &&
+              items.at(-1)?.answer !== true
+            }
+            tail={{
+              label:
+                activity?.label ?? (session.agentState?.phase === 'idle' ? 'Idle' : session.status),
+              tone: activity?.tone === 'attention' ? 'attention' : activity ? 'working' : 'idle',
+              since: session.agentState?.since,
+            }}
             refreshControl={refreshControl}
             refreshAccessibilityProps={refreshAccessibilityProps}
             emptyComponent={
@@ -384,15 +410,22 @@ export function SessionScreen() {
         <Composer
           placeholder="Message the agent…"
           onSend={send}
-          caption={activity?.label}
-          captionTone={activity?.tone === 'attention' ? 'attention' : 'working'}
+          draftInsertion={draftInsertion}
         />
       </KeyboardAvoidingView>
       <TaskPeekSheet
-        issue={peekIssue}
+        issue={livePeekIssue}
         session={session}
         sessions={allSessions}
         onClose={() => setPeekIssue(null)}
+        onToggleTodo={(index, done) => {
+          if (!livePeekIssue) return
+          void trpc.issues.panelApply.mutate({
+            id: livePeekIssue.id,
+            op: done ? 'todo-done' : 'todo-undone',
+            index,
+          })
+        }}
       />
       <ActionSheet
         visible={menuOpen}

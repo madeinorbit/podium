@@ -1,7 +1,7 @@
 import { BlurView } from 'expo-blur'
 import { LinearGradient } from 'expo-linear-gradient'
 import { ArrowUp } from 'lucide-react-native'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { NativeSyntheticEvent, TextInputKeyPressEventData } from 'react-native'
 import { Platform, StyleSheet, Text, TextInput, View } from 'react-native'
 import { color, font, leading, mono, radius, space } from '../theme/theme'
@@ -27,6 +27,7 @@ export function Composer({
   disabled,
   caption,
   captionTone = 'working',
+  draftInsertion,
 }: {
   placeholder: string
   onSend: (text: string) => void
@@ -34,11 +35,23 @@ export function Composer({
   /** Compact agent activity inside the composer chrome; absent takes no space. */
   caption?: string | null
   captionTone?: 'working' | 'attention'
+  /** A keyed insertion from a transcript action (for example Quote in reply). */
+  draftInsertion?: { id: number; text: string } | null
 }) {
   const [text, setText] = useState('')
   const [focused, setFocused] = useState(false)
+  const inputRef = useRef<TextInput>(null)
   const canSend = !disabled && text.trim().length > 0
   const armed = focused || canSend
+
+  useEffect(() => {
+    if (!draftInsertion) return
+    setText(
+      (current) =>
+        `${current}${current && !current.endsWith('\n') ? '\n' : ''}${draftInsertion.text}`,
+    )
+    inputRef.current?.focus()
+  }, [draftInsertion])
 
   const send = () => {
     const trimmed = text.trim()
@@ -74,6 +87,7 @@ export function Composer({
         <View style={[styles.field, armed && styles.fieldArmed]}>
           <Text style={styles.gt}>{'>'}</Text>
           <TextInput
+            ref={inputRef}
             accessibilityLabel={placeholder}
             style={styles.input}
             value={text}

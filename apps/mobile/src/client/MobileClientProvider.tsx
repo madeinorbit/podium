@@ -431,6 +431,7 @@ function demoTrpc(): MobileTrpc {
       close: { mutate: async () => ({}) },
       update: { mutate: noop },
       addComment: { mutate: noop },
+      panelApply: { mutate: async () => ({}) },
       clearNeedsHuman: { mutate: noop },
       archive: { mutate: noop },
     },

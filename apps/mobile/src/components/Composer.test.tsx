@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -26,5 +26,25 @@ describe('Composer activity caption', () => {
 
     rerender(<Composer placeholder="Message the agent…" onSend={vi.fn()} caption={null} />)
     expect(screen.queryByTestId('composer-caption')).toBeNull()
+  })
+
+  it('appends a keyed transcript quote without replacing the current draft', () => {
+    const { container, rerender } = render(
+      <Composer placeholder="Message the agent…" onSend={vi.fn()} draftInsertion={null} />,
+    )
+    const input = container.querySelector('textarea')
+    expect(input).not.toBeNull()
+    if (!input) return
+    fireEvent.change(input, { target: { value: 'My note' } })
+
+    rerender(
+      <Composer
+        placeholder="Message the agent…"
+        onSend={vi.fn()}
+        draftInsertion={{ id: 1, text: '> quoted\n\n' }}
+      />,
+    )
+
+    expect(input.value).toBe('My note\n> quoted\n\n')
   })
 })

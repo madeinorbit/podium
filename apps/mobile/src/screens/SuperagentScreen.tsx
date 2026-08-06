@@ -15,8 +15,8 @@ import { Composer } from '../components/Composer'
 import { Icon } from '../components/Icon'
 import { PressableScale } from '../components/PressableScale'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
-import { Screen } from '../components/Screen'
 import { BrailleSpinner } from '../components/StatusGlyphs'
+import { Screen } from '../components/Screen'
 import { type PendingTurn, TranscriptList } from '../components/TranscriptList'
 import { EmptyState } from '../components/ui'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
@@ -74,6 +74,8 @@ export function SuperagentScreen() {
   const [ackedSid, setAckedSid] = useState<SessionId | undefined>(undefined)
   const podiumSid = ackedSid ?? superagent.activeSessionId
   const [pendingTurns, setPendingTurns] = useState<PendingTurn[]>([])
+  const [draftInsertion, setDraftInsertion] = useState<{ id: number; text: string } | null>(null)
+  const insertionSeq = useRef(0)
   // Monotonic per-mount counter behind each optimistic row's id. Date.now()
   // alone collides when two sends land in the same millisecond.
   const turnSeq = useRef(0)
@@ -341,6 +343,12 @@ export function SuperagentScreen() {
               }
               pendingTurns={pendingTurns}
               onRetryPending={retry}
+              onQuote={(text) => setDraftInsertion({ id: insertionSeq.current++, text })}
+              streaming={running && liveText.trim().length > 0}
+              tail={{
+                label: running ? (statusLabel ?? 'Thinking') : 'Idle',
+                tone: running ? 'working' : 'idle',
+              }}
               onLoadOlder={loadOlder}
               refreshControl={refreshControl}
               refreshAccessibilityProps={refreshAccessibilityProps}
@@ -372,7 +380,11 @@ export function SuperagentScreen() {
               hold itself above it — it is the one thing on this screen that
               must never be scrolled under [POD-420]. */}
           <View style={{ paddingBottom: tabBarInset + space.sm }}>
-            <Composer placeholder="Delegate a task…" onSend={send} />
+            <Composer
+              placeholder="Delegate a task…"
+              onSend={send}
+              draftInsertion={draftInsertion}
+            />
           </View>
         </KeyboardAvoidingView>
       </View>
