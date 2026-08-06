@@ -358,3 +358,63 @@ unaddressed.
 Cold native view open is 1377 ms, of which the terminal connection reset
 (599 ms) is the largest single piece — POD-1718 removed one of the two initial
 fits, and the remaining fit pair costs 273 ms.
+
+---
+
+# TIME-TO-INTERACTABLE, measured at last
+
+Server pid 3388846, main `8e28496d1`, real browser after a hard reload, so
+`chat:interactable` / `term:interactable` finally fire. **These are the first
+numbers in this document that measure "can I type", not "has it painted".**
+
+| switch | total to INTERACTABLE | paint→interactable gap |
+|---|---|---|
+| native, warm | **51 ms** | 5 ms |
+| native, cold | 304 ms | 8 ms |
+| native, cold | 575 ms | 120 ms |
+| native, cold | 2252 ms | 220 ms |
+| native, cold | **13 438 ms** | **never confirmed — timed out** |
+| chat, cold | 1145 ms | — |
+
+## Two things this settles
+
+**The paint→interactable gap is real but small: 5–220 ms.** POD-1727 predicted
+its 0.6 ms harness figure was an artifact (case b) and would not relabel the old
+paint numbers from it. It was right to refuse, and the live gap is 10–350x its
+harness value — but still small enough that the earlier paint-based numbers were
+not badly wrong. Both halves of that prediction hold.
+
+**Warm switching is genuinely fast.** 51 ms to typeable.
+
+## The finding: cold native opens are wildly variable, and the tail is 13 s
+
+304 ms, 575 ms, 2252 ms, 13 438 ms — same interaction, same session. The worst
+one decomposes to a SINGLE unmarked gap:
+
+```
++     32ms  panel:mount
++     85ms  term:mount
++      8ms  term:fit:measured
++    297ms  term:fit:measured
++  12857ms  term:ready        <-- one gap, no marks inside
+```
+
+The 2252 ms case has the same shape at smaller scale: 1910 ms before
+`term:connection:reset`.
+
+**Why the 12 857 ms gap is probably NOT the server.** `session-mount.ts:384`
+arms a `READY_TIMEOUT_MS = 2000` backstop that reveals the terminal even if the
+attach handshake stalls. A 12.9 s gap is impossible if that timer fired on
+schedule — and a `setTimeout` cannot fire while JS is busy. That points at a
+**blocked browser main thread**, not a slow attach. `ws.attach` measures 2.7 ms
+server-side, which exonerates the server leg.
+
+**Why it is not yet PROVEN.** `markReady` records its source
+(`'attach' | 'frame' | 'timeout'`) via `trace('ready', { source })`, but
+`packages/protocol/src/perf.ts:62` `switchMarkSchema` carries only
+`{ name, atMs }` — **per-mark meta is discarded at the wire boundary**. The one
+datum that would distinguish "the attach really took 13 s" from "the main thread
+was blocked for 11 s" is thrown away before it reaches the server.
+
+That gap is now POD-1759, which also adds main-thread block detection — all of it
+off by default and runtime-toggleable.
