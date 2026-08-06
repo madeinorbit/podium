@@ -55,6 +55,16 @@ afterEach(() => {
 })
 
 describe('AccountsSection', () => {
+  it('wraps a long connected identity instead of clipping it to a fixed-width badge', async () => {
+    const identity = 'Tillmann Felippi · tillmann.felippi+podium@example.com'
+    serveList([{ ...NATIVE, status: 'connected', identity }])
+    render(<AccountsSection />)
+
+    const value = await screen.findByText(identity)
+    expect(value.className).toContain('break-all')
+    expect(value.className).not.toContain('truncate')
+  })
+
   it('renders an unavailable native probe as unknown instead of claiming a logout', async () => {
     serveList([{ ...NATIVE, status: 'unknown' }])
     render(<AccountsSection />)

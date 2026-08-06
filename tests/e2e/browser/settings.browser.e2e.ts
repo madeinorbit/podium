@@ -91,7 +91,15 @@ test('native account profile labels render when available', async ({ page }) => 
 
   const section = accountsSection(page)
   for (const identity of identities) {
-    await expect(section.locator('span').filter({ hasText: identity }).first()).toBeVisible()
+    const value = section.locator('span').filter({ hasText: identity }).first()
+    await expect(value).toBeVisible()
+    const layout = await value.evaluate((element) => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+      whiteSpace: getComputedStyle(element).whiteSpace,
+    }))
+    expect(layout.whiteSpace).toBe('normal')
+    expect(layout.scrollWidth).toBeLessThanOrEqual(layout.clientWidth + 1)
   }
 })
 

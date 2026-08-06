@@ -24,9 +24,9 @@ function managedLabel(a: AccountView): string {
  *  token so it stays on-brand per theme. */
 function StatusConnected({ identity }: { identity: string }): JSX.Element {
   return (
-    <span className="inline-flex flex-none items-center gap-1.5 rounded-full bg-success/10 py-0.5 pr-2 pl-1.5 text-[12px] text-success">
+    <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full bg-success/10 py-0.5 pr-2 pl-1.5 text-[12px] text-success">
       <span aria-hidden="true" className="size-1.5 flex-none rounded-full bg-success" />
-      <span className="max-w-[170px] truncate font-mono">{identity}</span>
+      <span className="min-w-0 break-all font-mono">{identity}</span>
     </span>
   )
 }
