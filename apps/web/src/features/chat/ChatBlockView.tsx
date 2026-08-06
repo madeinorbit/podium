@@ -25,7 +25,7 @@ import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'r
 import { assetUrl } from '@/lib/asset-url'
 import { handleCodeCopyClick } from '@/lib/code-copy'
 import { resolveAgainstCwd } from '@/lib/file-path'
-import { isKnownRefPrefix, renderMarkdown } from '@/lib/markdown'
+import { type IssueReferenceLookup, isKnownRefPrefix, renderMarkdown } from '@/lib/markdown'
 import { activateRef } from '@/lib/ref-activation'
 import { cn } from '@/lib/utils'
 import { AskUserQuestionCard } from './AskUserQuestionCard'
@@ -34,6 +34,8 @@ import type { ChatBlock } from './chat'
 import { MachineContextRow } from './MachineContextRow'
 import { SendUserFileBlock, SentImageThumb } from './SendUserFileBlock'
 import { ToolBlock } from './ToolBlock'
+
+const EMPTY_ISSUE_REFERENCES: IssueReferenceLookup = new Map()
 
 /** Shared chat-md click handling: code-copy buttons, ref-link chips (#474 —
  *  plain click opens the floating miniview, Cmd/Ctrl-click jumps to the full
@@ -148,7 +150,13 @@ function MessageActions({
  *  clickable ref-link chip the markdown pass emits, so the sender/recipient
  *  are as navigable as refs in the body. Legacy `#seq` labels and sessions
  *  stay plain text. */
-function PrincipalLabel({ label }: { label: string }): JSX.Element {
+function PrincipalLabel({
+  label,
+  issueReferences,
+}: {
+  label: string
+  issueReferences: IssueReferenceLookup
+}): JSX.Element {
   const p = envelopePrincipal(label)
   const chip = p.ref !== null && isKnownRefPrefix(p.ref.split('-')[0] ?? '')
   return (
@@ -157,7 +165,13 @@ function PrincipalLabel({ label }: { label: string }): JSX.Element {
       {p.ref !== null &&
         (chip ? (
           // biome-ignore lint/a11y/useValidAnchor: in-window chip like the markdown-emitted ref links — navigation is store-driven, there is no URL to href
-          <a className="ref-link ref-link--issue" data-ref={p.ref}>
+          <a
+            className="ref-link ref-link--issue"
+            data-ref={p.ref}
+            data-issue-stage={issueReferences.get(p.ref)?.stage}
+            data-issue-availability={issueReferences.get(p.ref)?.availability}
+            aria-label={issueReferences.get(p.ref)?.accessibleLabel}
+          >
             {p.ref}
           </a>
         ) : (
@@ -175,6 +189,7 @@ function MessageEnvelopeRow({
   sessionId,
   cwd,
   openFile,
+  issueReferences,
 }: {
   envelope: ParsedEnvelope
   className: string
@@ -182,8 +197,12 @@ function MessageEnvelopeRow({
   sessionId: SessionId
   cwd: string
   openFile: (sessionId: SessionId, path: string) => void
+  issueReferences: IssueReferenceLookup
 }): JSX.Element {
-  const html = useMemo(() => renderMarkdown(envelope.body), [envelope.body])
+  const html = useMemo(
+    () => renderMarkdown(envelope.body, issueReferences),
+    [envelope.body, issueReferences],
+  )
   return (
     <div
       className={className}
@@ -206,9 +225,9 @@ function MessageEnvelopeRow({
             </span>
             <span aria-hidden="true" className="h-3 w-px bg-border" />
             <span className="tracking-normal text-muted-foreground normal-case">
-              <PrincipalLabel label={envelope.from} />
+              <PrincipalLabel label={envelope.from} issueReferences={issueReferences} />
               <span className="px-1.5 text-muted-foreground/40">→</span>
-              <PrincipalLabel label={envelope.to} />
+              <PrincipalLabel label={envelope.to} issueReferences={issueReferences} />
             </span>
             {envelope.question && (
               <span className="shell-type-micro rounded-sm bg-amber-500/10 px-1.5 py-0.5 font-semibold tracking-wide text-amber-600 dark:text-amber-400">
@@ -369,6 +388,7 @@ export const ChatBlockView = memo(function ChatBlockView({
   turn,
   arrived = false,
   onQuote,
+  issueReferences = EMPTY_ISSUE_REFERENCES,
 }: {
   block: ChatBlock
   index: number
@@ -407,6 +427,7 @@ export const ChatBlockView = memo(function ChatBlockView({
   arrived?: boolean
   /** Quote this message into the composer. Absent → no Quote action. */
   onQuote?: ((markdown: string) => void) | undefined
+  issueReferences?: IssueReferenceLookup
 }): JSX.Element | null {
   const { item } = block
   // Delivered-message envelope (#237) [spec:SP-34d7 web]: an inter-agent /
@@ -429,7 +450,10 @@ export const ChatBlockView = memo(function ChatBlockView({
       : null
   }, [compact, item.role, item.answer, item.text])
   const displayText = envelopeBatch?.operatorText || nextSplit?.body || item.text
-  const html = useMemo(() => renderMarkdown(displayText), [displayText])
+  const html = useMemo(
+    () => renderMarkdown(displayText, issueReferences),
+    [displayText, issueReferences],
+  )
   // Envelopes render as rows AHEAD of this block's own row (a provider turn can
   // deliver several frames before the operator's text), so when they exist they
   // are what opens the exchange and the body row binds to them.
@@ -591,6 +615,7 @@ export const ChatBlockView = memo(function ChatBlockView({
       sessionId={sessionId}
       cwd={cwd}
       openFile={openFile}
+      issueReferences={issueReferences}
     />
   ))
 

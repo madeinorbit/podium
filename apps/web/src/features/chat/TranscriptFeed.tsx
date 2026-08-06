@@ -12,7 +12,7 @@ import type { SessionId, SessionMeta } from '@podium/model'
 import { Image as ImageIcon } from 'lucide-react'
 import type { JSX, RefObject } from 'react'
 import { useMemo } from 'react'
-import { renderMarkdown } from '@/lib/markdown'
+import { type IssueReferenceLookup, renderMarkdown } from '@/lib/markdown'
 import { cn } from '@/lib/utils'
 import { ChatBlockView, type TurnPosition } from './ChatBlockView'
 import type { PendingItem, QueuedChatMessage } from './chat'
@@ -20,6 +20,8 @@ import { ToolBatchView } from './ToolBatchView'
 import { TranscriptTail } from './TranscriptTail'
 import { rowIdentity, useFeedArrivals } from './use-feed-arrivals'
 import type { HeadlessOverlay } from './use-headless-turn'
+
+const EMPTY_ISSUE_REFERENCES: IssueReferenceLookup = new Map()
 
 /**
  * TURN STRUCTURE (POD-376). Thirty-one blocks used to render as thirty-one
@@ -101,6 +103,7 @@ export function TranscriptFeed({
   attribution,
   expandRuns = false,
   onQuote,
+  issueReferences = EMPTY_ISSUE_REFERENCES,
 }: {
   scrollerRef: RefObject<HTMLDivElement | null>
   onScroll: () => void
@@ -144,6 +147,7 @@ export function TranscriptFeed({
    *  the Quote action is not offered, which is what a host without a composer
    *  should get rather than a button that does nothing. */
   onQuote?: (markdown: string) => void
+  issueReferences?: IssueReferenceLookup
 }): JSX.Element {
   // Which rows LANDED, as opposed to which rows merely rendered — see
   // use-feed-arrivals. Identity is per row and index-free, so paging older
@@ -270,6 +274,7 @@ export function TranscriptFeed({
             turn={turn}
             arrived={arrived}
             onQuote={onQuote}
+            issueReferences={issueReferences}
           />
         )
       })}
@@ -350,7 +355,9 @@ export function TranscriptFeed({
                 className="chat-md chat-md--streaming opacity-80"
                 data-testid="streaming-text"
                 // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized by DOMPurify
-                dangerouslySetInnerHTML={{ __html: renderMarkdown(overlay.text) }}
+                dangerouslySetInnerHTML={{
+                  __html: renderMarkdown(overlay.text, issueReferences),
+                }}
               />
             )}
             {overlay.status && (

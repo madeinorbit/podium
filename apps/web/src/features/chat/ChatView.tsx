@@ -1,10 +1,11 @@
 import { isSwitchTraced, markSwitch } from '@podium/client-core/perf'
-import type { SuperThreadRef } from '@podium/client-core/viewmodels'
+import { issueReferenceModel, type SuperThreadRef } from '@podium/client-core/viewmodels'
 import type { SessionId } from '@podium/model'
 import { SWITCH_TRACE_MARKS } from '@podium/protocol'
 import { ArrowDownToLine } from 'lucide-react'
 import type { JSX } from 'react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useReplicaIssues } from '@/app/store'
 import { cn } from '@/lib/utils'
 import { ChatComposer } from './ChatComposer'
 import { isChatInteractable } from './chat-interactable'
@@ -114,6 +115,14 @@ export function ChatView({
       ? { initialPendingText }
       : { initialPendingText: undefined }),
   })
+  const issues = useReplicaIssues()
+  const issueReferences = useMemo(
+    () => new Map(issues.map((issue) => {
+      const model = issueReferenceModel(issue)
+      return [model.ref, model] as const
+    })),
+    [issues],
+  )
 
   // Leave once, quietly. Not a toast and not an animation — see the header.
   useEffect(() => {
@@ -277,6 +286,7 @@ export function ChatView({
             )
             chat.taRef.current?.focus()
           }}
+          issueReferences={issueReferences}
         />
         {/* The reading rail. Its map covers the RENDERED window (visibleRows), so
             its bands line up with the scrollable content. For a very long

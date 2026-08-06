@@ -1,4 +1,5 @@
 import { anyRefMatcher, parseAnyRef } from '@podium/protocol'
+import type { IssueReferenceModel } from '@podium/client-core/viewmodels'
 import DOMPurify from 'dompurify'
 import { marked, type Tokens } from 'marked'
 
@@ -114,7 +115,9 @@ export function isKnownRefPrefix(prefix: string): boolean {
  * href, so externalizeLinks leaves it in-window); the click handler reads
  * data-ref. The kind modifier picks the chip icon (issue vs session).
  */
-export function linkifyRefs(html: string): string {
+export type IssueReferenceLookup = ReadonlyMap<string, IssueReferenceModel>
+
+export function linkifyRefs(html: string, issueReferences?: IssueReferenceLookup): string {
   if (knownRefPrefixes.size === 0) return html
   const parts = html.split(/(<[^>]+>)/)
   let inAnchor = 0
@@ -132,14 +135,18 @@ export function linkifyRefs(html: string): string {
     parts[i] = p.replace(anyRefMatcher(), (tok) => {
       const ref = parseAnyRef(tok)
       if (!ref || !knownRefPrefixes.has(ref.prefix)) return tok
-      return `<a class="ref-link ref-link--${ref.kind}" data-ref="${tok}">${tok}</a>`
+      const issue = ref.kind === 'issue' ? issueReferences?.get(tok) : undefined
+      const liveAttrs = issue
+        ? ` data-issue-stage="${issue.stage ?? ''}" data-issue-availability="${issue.availability}" aria-label="${escapeHtml(issue.accessibleLabel)}"`
+        : ''
+      return `<a class="ref-link ref-link--${ref.kind}" data-ref="${tok}"${liveAttrs}>${tok}</a>`
     })
   }
   return parts.join('')
 }
 
 /** Markdown → sanitized HTML. The single render path for all chat surfaces. */
-export function renderMarkdown(text: string): string {
+export function renderMarkdown(text: string, issueReferences?: IssueReferenceLookup): string {
   const rendered = linkifyCodePaths(marked.parse(text, { async: false }))
-  return externalizeLinks(linkifyRefs(DOMPurify.sanitize(rendered)))
+  return externalizeLinks(linkifyRefs(DOMPurify.sanitize(rendered), issueReferences))
 }
