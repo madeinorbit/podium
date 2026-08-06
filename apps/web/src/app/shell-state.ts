@@ -1,4 +1,5 @@
 import type { MainView } from '@podium/client-core/router'
+import type { FeatureId } from '@podium/protocol'
 
 export {
   RIGHT_PANEL_KEY,
@@ -9,7 +10,26 @@ export {
 /** The engraved column's two states (#65): human preview feedback removed the
  *  fully-closed state — every collapse resolves to the in-place folded bar. */
 export type SuperagentMode = 'open' | 'folded'
-export type RightPanelTab = 'issue' | 'git' | 'files' | 'shell' | 'mail'
+export type RightPanelTab = 'issue' | 'git' | 'files' | 'shell' | 'mail' | 'merge-queue'
+
+/** Typed here while the default-off declaration is owned by POD-476. */
+export const MERGE_QUEUE_FEATURE_ID = 'merge-queue' as FeatureId
+
+export interface RightPanelFeatures {
+  git: boolean
+  messages: boolean
+  mergeQueue: boolean
+}
+
+export function rightPanelAllowed(
+  panel: RightPanelTab | null,
+  features: RightPanelFeatures,
+): boolean {
+  if (panel === 'git') return features.git
+  if (panel === 'mail') return features.messages
+  if (panel === 'merge-queue') return features.mergeQueue
+  return true
+}
 
 /** Window event asking the shell to open a right-dock panel [POD-98] — fired by
  *  deep surfaces (the pane header's git stamp) that don't hold the AppShell's
@@ -35,7 +55,8 @@ export function readRightPanel(value: string | null): RightPanelTab | null {
     value === 'git' ||
     value === 'files' ||
     value === 'shell' ||
-    value === 'mail'
+    value === 'mail' ||
+    value === 'merge-queue'
     ? value
     : null
 }

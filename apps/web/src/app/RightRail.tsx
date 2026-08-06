@@ -5,7 +5,7 @@ import { IdSquare, type IdSquareBadge, idSquareLabel } from '@/components/IdSqua
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { RIGHT_PANELS } from './RightDock'
-import type { RightPanelTab } from './shell-state'
+import { MERGE_QUEUE_FEATURE_ID, type RightPanelTab, rightPanelAllowed } from './shell-state'
 import type { IssueViewModel } from './store'
 import { useStoreSelector } from './store'
 
@@ -40,12 +40,13 @@ export function RightRail({
   const sessions = useStoreSelector((store) => store.sessions)
   const gitPanelEnabled = useFeature('git-panel')
   const messagesPanelEnabled = useFeature('messages-panel')
+  const mergeQueueEnabled = useFeature(MERGE_QUEUE_FEATURE_ID)
   const panelAllowed = (panel: RightPanelTab): boolean =>
-    panel !== 'git' && panel !== 'mail'
-      ? true
-      : panel === 'git'
-        ? gitPanelEnabled
-        : messagesPanelEnabled
+    rightPanelAllowed(panel, {
+      git: gitPanelEnabled,
+      messages: messagesPanelEnabled,
+      mergeQueue: mergeQueueEnabled,
+    })
   const memberIds = new Set(issue?.memberSessionIds ?? [])
   const memberSessions = sessions.filter((session) => memberIds.has(session.sessionId))
   const phase = issue ? aggregateMotionPhase(memberSessions) : 'queued'

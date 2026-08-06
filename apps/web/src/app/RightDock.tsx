@@ -4,6 +4,7 @@ import {
   CircleDot,
   FolderTree,
   GitBranch,
+  ListOrdered,
   type LucideIcon,
   Mail,
   SquareTerminal,
@@ -33,6 +34,7 @@ export const RIGHT_PANELS: { id: RightPanelTab; label: string; icon: LucideIcon 
   // The message ledger (#237) [spec:SP-34d7 web] — the active session's and
   // its issue's delivery ledger ("what happened to my message").
   { id: 'mail', label: 'Messages', icon: Mail },
+  { id: 'merge-queue', label: 'Merge queue', icon: ListOrdered },
 ]
 
 /** The right dock panel: Files / Git / Issue for the active worktree. Opened

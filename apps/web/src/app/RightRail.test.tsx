@@ -7,6 +7,7 @@ vi.mock('./store', () => ({
   useStoreSelector: (selector: (store: { sessions: never[] }) => unknown) =>
     selector({ sessions: [] }),
 }))
+
 import { RightRail } from './RightRail'
 
 const featureEnabled = vi.hoisted(() => ({ value: true }))
@@ -38,6 +39,7 @@ describe('RightRail', () => {
 
     expect(screen.queryByRole('button', { name: 'Git' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Messages' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Merge queue' })).toBeNull()
   })
 
   it('toggles the active panel closed', () => {
@@ -45,6 +47,13 @@ describe('RightRail', () => {
     render(<RightRail rightPanel="shell" onPanelChange={onPanelChange} />)
     fireEvent.click(screen.getByRole('button', { name: 'Shell' }))
     expect(onPanelChange).toHaveBeenCalledWith(null)
+  })
+
+  it('opens the opt-in merge queue panel when its feature is enabled', () => {
+    const onPanelChange = vi.fn()
+    render(<RightRail rightPanel={null} onPanelChange={onPanelChange} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Merge queue' }))
+    expect(onPanelChange).toHaveBeenCalledWith('merge-queue')
   })
 
   it('renders the selected issue as the designed ID square and toggles the Issue panel on click', () => {

@@ -5,6 +5,7 @@ import {
   readBooleanState,
   readRightPanel,
   readSuperagentMode,
+  rightPanelAllowed,
 } from './shell-state'
 
 describe('desktop shell persistence readers', () => {
@@ -26,7 +27,16 @@ describe('desktop shell persistence readers', () => {
 
   it('accepts only a known right-dock panel', () => {
     expect(readRightPanel('git')).toBe('git')
+    expect(readRightPanel('merge-queue')).toBe('merge-queue')
     expect(readRightPanel('unknown')).toBeNull()
+  })
+
+  it('gates experimental dock panels independently', () => {
+    const features = { git: true, messages: true, mergeQueue: false }
+    expect(rightPanelAllowed('files', features)).toBe(true)
+    expect(rightPanelAllowed('git', features)).toBe(true)
+    expect(rightPanelAllowed('merge-queue', features)).toBe(false)
+    expect(rightPanelAllowed('merge-queue', { ...features, mergeQueue: true })).toBe(true)
   })
 })
 
