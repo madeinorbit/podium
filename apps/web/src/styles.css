@@ -1079,6 +1079,140 @@ html[data-density="balanced"] .header-quota-pools {
   flex: none;
   color: var(--text-faint);
 }
+.status-strip-history {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  height: 23px;
+  align-items: center;
+  gap: 5px;
+  outline: none;
+}
+.status-strip-history-graph:focus-visible {
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px var(--live);
+}
+.status-strip-history-label {
+  color: var(--text-faint);
+  font-size: 8px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.status-strip-history-graph {
+  display: grid;
+  width: 71px;
+  height: 12px;
+  grid-template-columns: repeat(24, 2px);
+  align-items: end;
+  gap: 1px;
+}
+.status-strip-history-stack {
+  position: relative;
+  display: flex;
+  width: 2px;
+  height: 12px;
+  flex-direction: column-reverse;
+  color: var(--live);
+  opacity: var(--history-strength, 0.54);
+}
+.status-strip-history-stack[data-current="true"] {
+  opacity: 1;
+}
+.status-strip-history-stack[data-active="true"]::after {
+  position: absolute;
+  inset: -2px -1px;
+  border: 1px solid color-mix(in srgb, var(--live) 78%, transparent);
+  content: "";
+}
+.status-strip-history-stack[data-over-cap="true"]::before {
+  position: absolute;
+  top: -2px;
+  left: 0;
+  width: 2px;
+  height: 1px;
+  background: color-mix(in srgb, var(--live) 60%, white);
+  content: "";
+}
+.status-strip-history-pixel {
+  display: block;
+  width: 2px;
+  height: var(--history-height, 0);
+  flex: none;
+  background: currentColor;
+}
+.status-strip-history-tooltip {
+  position: absolute;
+  z-index: 30;
+  bottom: 21px;
+  left: -4px;
+  display: grid;
+  width: 226px;
+  padding: 10px 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--popover);
+  box-shadow: 0 12px 34px var(--carve-popover-far, rgb(0 0 0 / 0.65));
+  color: var(--foreground);
+  letter-spacing: 0;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(2px);
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+  visibility: hidden;
+}
+.status-strip-history:hover .status-strip-history-tooltip,
+.status-strip-history:focus-within .status-strip-history-tooltip {
+  opacity: 1;
+  transform: translateY(0);
+  visibility: visible;
+}
+.status-strip-history-tip-head,
+.status-strip-history-reading {
+  display: flex;
+  align-items: baseline;
+}
+.status-strip-history-tip-head {
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.status-strip-history-tip-head b {
+  color: var(--text-strong);
+  font-family: var(--font-sans);
+  font-size: 11px;
+}
+.status-strip-history-tip-head span {
+  color: var(--text-faint);
+  font-size: 8px;
+  text-transform: uppercase;
+}
+.status-strip-history-reading {
+  gap: 6px;
+}
+.status-strip-history-reading b {
+  color: var(--live);
+  font-size: 18px;
+  line-height: 1;
+}
+.status-strip-history-reading span {
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 500;
+}
+.status-strip-history-reading time {
+  margin-left: auto;
+  color: var(--text-dim);
+  font-size: 9px;
+}
+.status-strip-history-foot {
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px solid var(--hairline-soft);
+  color: var(--text-faint);
+  font-size: 8px;
+}
 /* The braille spinner — the shell's one piece of perpetual motion, reusing the
    agent-state grammar's frames and cadence. */
 .status-strip-spinner::after {
@@ -1120,6 +1254,9 @@ html[data-density="balanced"] .header-quota-pools {
 @media (prefers-reduced-motion: reduce) {
   .status-strip-spinner::after {
     animation: none;
+  }
+  .status-strip-history-tooltip {
+    transition: none;
   }
 }
 .status-strip-issue {

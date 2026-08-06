@@ -22,6 +22,7 @@ import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
 import { HeadlessService } from '../superagent/headless'
 import { SessionClientControl } from './client-control'
 import { machinesForPrincipal as projectMachinesForPrincipal } from './command-ctx'
+import { AgentConcurrencyHistory } from './concurrency-history'
 import { SessionDaemonLifecycle } from './daemon-lifecycle'
 import { SessionDaemonProjection } from './daemon-projection'
 import {
@@ -72,6 +73,12 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   bag.rpc = deps.rpc
   bag.activityFlushTimer.unref?.()
   bag.funnel = deps.funnel
+  bag.concurrencyHistory = new AgentConcurrencyHistory({
+    sessions: () => bag.sessions.values(),
+    events: bag.store.events,
+    bus: bag.bus,
+    now: () => bag.now(),
+  })
   bag.terminalProof = new SessionTerminalProof({
     now: () => bag.now(),
     leases: bag.observationLeases,

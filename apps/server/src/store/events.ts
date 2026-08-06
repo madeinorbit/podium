@@ -9,6 +9,30 @@ import { ISSUE_EVENTS_DEFAULT_LIMIT } from '@podium/protocol'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import type { Subscription } from './types'
 
+export interface PodiumEventRecord {
+  id: number
+  ts: string
+  kind: string
+  subject: string
+  repoPath: string | null
+  payload: unknown
+}
+
+function rowToEvent(r: Record<string, unknown>): PodiumEventRecord {
+  let payload: unknown = {}
+  try {
+    payload = JSON.parse(r.payload as string)
+  } catch {}
+  return {
+    id: Number(r.id),
+    ts: r.ts as string,
+    kind: r.kind as string,
+    subject: r.subject as string,
+    repoPath: (r.repo_path as string | null) ?? null,
+    payload,
+  }
+}
+
 function rowToSubscription(r: Record<string, unknown>): Subscription {
   return {
     id: r.id as string,
@@ -53,14 +77,7 @@ export class EventsRepository {
   listEventsSince(
     sinceId: number,
     opts?: { kinds?: string[]; repoPath?: string; limit?: number },
-  ): Array<{
-    id: number
-    ts: string
-    kind: string
-    subject: string
-    repoPath: string | null
-    payload: unknown
-  }> {
+  ): PodiumEventRecord[] {
     const where = ['id > ?']
     const params: unknown[] = [sinceId]
     if (opts?.kinds?.length) {
@@ -75,20 +92,33 @@ export class EventsRepository {
     const rows = this.db
       .prepare(`SELECT * FROM podium_events WHERE ${where.join(' AND ')} ORDER BY id ASC LIMIT ?`)
       .all(...(params as never[])) as Record<string, unknown>[]
-    return rows.map((r) => {
-      let payload: unknown = {}
-      try {
-        payload = JSON.parse(r.payload as string)
-      } catch {}
-      return {
-        id: Number(r.id),
-        ts: r.ts as string,
-        kind: r.kind as string,
-        subject: r.subject as string,
-        repoPath: (r.repo_path as string | null) ?? null,
-        payload,
-      }
-    })
+    return rows.map(rowToEvent)
+  }
+
+  /**
+   * One event kind over a time window, plus the last row before the window.
+   *
+   * A step-function reader needs the prior row to know the value carried into
+   * its first bucket. Keeping that lookup here avoids teaching feature modules
+   * about the event table's JSON column or ordering tie-breaker.
+   */
+  listKindSinceWithPrior(kind: string, since: string): PodiumEventRecord[] {
+    const prior = this.db
+      .prepare(
+        `SELECT * FROM podium_events
+         WHERE kind = ? AND ts < ?
+         ORDER BY ts DESC, id DESC
+         LIMIT 1`,
+      )
+      .get(kind, since) as Record<string, unknown> | undefined
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM podium_events
+         WHERE kind = ? AND ts >= ?
+         ORDER BY ts ASC, id ASC`,
+      )
+      .all(kind, since) as Record<string, unknown>[]
+    return [...(prior ? [rowToEvent(prior)] : []), ...rows.map(rowToEvent)]
   }
 
   /** The highest event id in the log (0 when empty) — the "now" mark for

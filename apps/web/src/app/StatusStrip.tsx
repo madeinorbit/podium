@@ -4,6 +4,7 @@ import type { JSX } from 'react'
 import { IssueReference } from '@/components/IssueReference'
 import { ConnectionIndicator, useStableConnection } from '@/features/machines/ConnectionIndicator'
 import { useFeature } from '@/lib/use-feature'
+import { AgentConcurrencyHistory } from './AgentConcurrencyHistory'
 import { useReplicaIssues, useStoreSelector } from './store'
 
 /**
@@ -29,12 +30,13 @@ import { useReplicaIssues, useStoreSelector } from './store'
  * two problems".
  */
 export function StatusStrip(): JSX.Element {
-  const { sessions, selectedIssueId, paletteOpen, setPaletteOpen } = useStoreSelector(
+  const { sessions, selectedIssueId, paletteOpen, setPaletteOpen, trpc } = useStoreSelector(
     (s) => ({
       sessions: s.sessions,
       selectedIssueId: s.selectedIssueId,
       paletteOpen: s.paletteOpen,
       setPaletteOpen: s.setPaletteOpen,
+      trpc: s.trpc,
     }),
     shallowEqual,
   )
@@ -67,6 +69,7 @@ export function StatusStrip(): JSX.Element {
           no agents working
         </span>
       )}
+      <AgentConcurrencyHistory working={working} trpc={trpc} />
       {issue && (
         <>
           <span className="status-strip-seam" aria-hidden="true" />

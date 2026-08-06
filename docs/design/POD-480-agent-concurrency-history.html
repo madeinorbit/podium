@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent concurrency history — status strip concept</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --page: #080d18;
+      --background: #0a0f1c;
+      --bar: #050912;
+      --card: #121b30;
+      --card-2: #0c1322;
+      --engraved: #070b16;
+      --border: #243356;
+      --hairline: #1e2a4c;
+      --strong-line: #364a78;
+      --ink: #f3f3f8;
+      --body: #d7d7e0;
+      --muted: #9a9aa8;
+      --dim: #818ba5;
+      --faint: #737e9a;
+      --live: #6f9dff;
+      --blue: #2f6bff;
+      --yellow: #f5c518;
+      --red: #e5303f;
+      --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    }
+
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    html { background: var(--page); }
+    body {
+      margin: 0;
+      min-width: 920px;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 76% -14%, rgb(47 107 255 / .11), transparent 42rem),
+        var(--page);
+      color: var(--body);
+      font-family: var(--sans);
+      -webkit-font-smoothing: antialiased;
+    }
+    button { font: inherit; }
+    main { width: min(1180px, calc(100% - 64px)); margin: 0 auto; padding: 42px 0 72px; }
+    .eyebrow {
+      margin: 0 0 10px;
+      color: var(--yellow);
+      font: 650 9px/1 var(--mono);
+      letter-spacing: .16em;
+      text-transform: uppercase;
+    }
+    h1 { max-width: 790px; margin: 0; color: var(--ink); font-size: 28px; line-height: 1.14; letter-spacing: -.025em; }
+    .lede { max-width: 770px; margin: 12px 0 28px; color: var(--muted); font-size: 13px; line-height: 1.6; }
+    .stage {
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--background);
+      box-shadow: 0 24px 70px rgb(0 0 0 / .42);
+    }
+    .stage-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 38px;
+      padding: 0 14px;
+      border-bottom: 1px solid var(--hairline);
+      background: var(--card-2);
+      color: var(--dim);
+      font: 600 9px/1 var(--mono);
+      letter-spacing: .11em;
+      text-transform: uppercase;
+    }
+    .recommended { padding: 5px 7px; border-radius: 4px; background: rgb(47 107 255 / .14); color: #8ba9ff; }
+
+    /* A deliberately quiet shell: enough real geometry to judge the 24px strip. */
+    .app { height: 500px; display: flex; flex-direction: column; background: var(--background); }
+    .topbar { height: 44px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-bottom: 1px solid var(--border); background: var(--bar); }
+    .logo { color: var(--muted); font: 800 14px/1 Impact, var(--sans); letter-spacing: -.04em; transform: skew(-5deg); }
+    .well { display: inline-flex; gap: 2px; padding: 2px; border-radius: 8px; background: rgb(34 53 100 / .3); box-shadow: inset 0 1px rgb(0 0 0 / .7), 0 1px rgb(255 255 255 / .04); }
+    .well span { display: inline-flex; height: 26px; align-items: center; padding: 0 9px; border-radius: 6px; color: var(--faint); font-size: 10px; }
+    .well .on { background: #223564; color: var(--ink); box-shadow: inset 0 1px rgb(255 255 255 / .06); }
+    .machine { margin-left: auto; color: var(--dim); font: 500 9px/1 var(--mono); letter-spacing: .04em; }
+    .machine::before { content: "●"; margin-right: 6px; color: var(--blue); }
+    .layout { min-height: 0; flex: 1; display: grid; grid-template-columns: 230px 300px 1fr 42px; }
+    .sidebar, .tray, .work, .rail { min-width: 0; border-right: 1px solid var(--border); }
+    .sidebar { background: #0f1626; }
+    .tray { background: var(--engraved); }
+    .work { background: #101728; }
+    .rail { border-right: 0; background: #0e1626; }
+    .section-bar { height: 36px; display: flex; align-items: center; gap: 7px; padding: 0 12px; border-bottom: 1px solid var(--border); color: var(--muted); font: 600 9px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+    .section-bar b { color: var(--ink); font-family: var(--sans); font-size: 11px; letter-spacing: 0; text-transform: none; }
+    .rows { padding: 12px 8px; display: grid; gap: 6px; }
+    .row { display: grid; grid-template-columns: 25px 1fr; gap: 8px; align-items: center; min-height: 47px; padding: 5px 7px; border-radius: 7px; color: var(--dim); }
+    .row.selected { background: #1a2949; color: var(--body); box-shadow: inset 2px 0 var(--blue); }
+    .square { display: grid; place-items: center; width: 25px; height: 30px; border: 1px solid #354c7e; border-radius: 6px; color: var(--faint); font: 600 7px/1.05 var(--mono); text-align: center; }
+    .row-copy { overflow: hidden; }
+    .row-title { overflow: hidden; color: inherit; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+    .row-state { margin-top: 4px; color: var(--faint); font: 8px/1 var(--mono); }
+    .chat-lines { padding: 22px; display: grid; gap: 12px; }
+    .line { height: 7px; border-radius: 4px; background: #1b2640; }
+    .line.w70 { width: 70%; }
+    .line.w88 { width: 88%; }
+    .line.w44 { width: 44%; }
+    .reply { margin-top: 12px; padding: 16px; border-left: 2px solid var(--blue); border-radius: 0 8px 8px 0; background: #121b30; }
+    .reply .line { background: #293959; }
+    .rail { display: grid; align-content: start; justify-items: center; gap: 13px; padding-top: 14px; color: var(--faint); font-size: 12px; }
+
+    /* The actual proposed status strip geometry. */
+    .status-strip {
+      position: relative;
+      display: flex;
+      flex: 0 0 24px;
+      align-items: center;
+      gap: 10px;
+      height: 24px;
+      padding: 0 10px 0 12px;
+      border-top: 1px solid var(--border);
+      background: var(--bar);
+      color: var(--dim);
+      font: 400 9px/1 var(--mono);
+      font-variant-numeric: tabular-nums;
+      letter-spacing: .02em;
+      white-space: nowrap;
+    }
+    .live-cluster { display: inline-flex; flex: none; align-items: center; gap: 6px; color: var(--live); }
+    .spinner { display: inline-block; width: 7px; }
+    .spinner::after { content: "⠋"; animation: spin 800ms steps(1) infinite; }
+    @keyframes spin {
+      0% { content: "⠋"; } 10% { content: "⠙"; } 20% { content: "⠹"; }
+      30% { content: "⠸"; } 40% { content: "⠼"; } 50% { content: "⠴"; }
+      60% { content: "⠦"; } 70% { content: "⠧"; } 80% { content: "⠇"; } 90% { content: "⠏"; }
+    }
+    .idle-label { flex: none; color: var(--faint); }
+    .history-wrap { position: relative; display: inline-flex; flex: none; align-items: center; gap: 5px; height: 23px; outline: none; }
+    .history-label { color: var(--faint); font-size: 8px; letter-spacing: .06em; text-transform: uppercase; }
+    .history {
+      display: grid;
+      grid-template-columns: repeat(24, 2px);
+      align-items: end;
+      gap: 1px;
+      width: 71px;
+      height: 12px;
+    }
+    .stack { position: relative; display: flex; width: 2px; height: 12px; flex-direction: column-reverse; }
+    .pixel { display: block; width: 2px; height: 1px; flex: none; background: var(--live); opacity: .54; }
+    .stack:nth-child(-n+8) .pixel { opacity: .36; }
+    .stack:nth-child(n+17) .pixel { opacity: .68; }
+    .stack.latest .pixel { opacity: 1; }
+    .stack.over-cap::before { position: absolute; top: -2px; left: 0; width: 2px; height: 1px; background: #b5c9ff; content: ""; }
+    .stack.hovered::after { position: absolute; inset: -2px -1px; border: 1px solid rgb(181 201 255 / .8); content: ""; }
+    .history-wrap:focus-visible { border-radius: 2px; box-shadow: 0 0 0 1px var(--blue); }
+    .seam { flex: none; width: 1px; height: 11px; background: var(--hairline); }
+    .issue { display: inline-flex; min-width: 0; align-items: center; gap: 6px; }
+    .issue-ref { flex: none; color: var(--muted); }
+    .issue-title { overflow: hidden; color: var(--faint); text-overflow: ellipsis; }
+    .command { margin-left: auto; color: var(--faint); }
+    .tooltip {
+      position: absolute;
+      z-index: 10;
+      bottom: 21px;
+      left: 0;
+      display: none;
+      width: 226px;
+      padding: 10px 11px;
+      border: 1px solid var(--strong-line);
+      border-radius: 7px;
+      background: #121b30;
+      box-shadow: 0 12px 34px rgb(0 0 0 / .65);
+      color: var(--body);
+      letter-spacing: 0;
+      pointer-events: none;
+    }
+    .history-wrap:hover .tooltip, .history-wrap:focus .tooltip, .history-wrap.pinned .tooltip { display: block; }
+    .tip-top { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 8px; }
+    .tip-title { color: var(--ink); font: 650 11px/1 var(--sans); }
+    .tip-peak { color: var(--faint); font-size: 8px; text-transform: uppercase; }
+    .tip-reading { display: flex; align-items: baseline; gap: 6px; }
+    .tip-value { color: var(--live); font: 650 18px/1 var(--mono); }
+    .tip-copy { color: var(--body); font: 500 10px/1 var(--sans); }
+    .tip-time { margin-left: auto; color: var(--dim); font-size: 9px; }
+    .tip-foot { margin-top: 8px; padding-top: 7px; border-top: 1px solid var(--hairline); color: var(--faint); font-size: 8px; }
+
+    .control-row { display: flex; align-items: center; gap: 6px; margin-top: 14px; }
+    .control-label { margin-right: 4px; color: var(--dim); font: 600 9px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+    .scenario {
+      padding: 6px 9px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: #0c1322;
+      color: var(--dim);
+      cursor: pointer;
+      font-size: 10px;
+    }
+    .scenario:hover { color: var(--body); border-color: var(--strong-line); }
+    .scenario.active { border-color: #35599b; background: rgb(47 107 255 / .12); color: #a8bcff; }
+    .hint { margin-left: auto; color: var(--faint); font: 400 9px/1 var(--mono); }
+
+    section { margin-top: 42px; }
+    h2 { margin: 0 0 8px; color: var(--ink); font-size: 17px; line-height: 1.25; letter-spacing: -.01em; }
+    .sub { max-width: 760px; margin: 0 0 17px; color: var(--muted); font-size: 12px; line-height: 1.55; }
+    .detail-grid { display: grid; grid-template-columns: 1.15fr .85fr; gap: 16px; }
+    .card { padding: 17px 18px; border: 1px solid var(--border); border-radius: 10px; background: var(--card-2); }
+    .card-label { margin-bottom: 15px; color: var(--dim); font: 600 9px/1 var(--mono); letter-spacing: .11em; text-transform: uppercase; }
+    .zoom-strip {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      height: 92px;
+      padding: 0 28px;
+      border: 1px solid var(--border);
+      background: var(--bar);
+      font: 400 20px/1 var(--mono);
+    }
+    .zoom-live { display: inline-flex; align-items: center; gap: 13px; color: var(--live); }
+    .zoom-live .spinner { width: 15px; }
+    .zoom-history { display: inline-flex; align-items: center; gap: 11px; }
+    .zoom-history .history-label { font-size: 16px; }
+    .zoom-history .history { grid-template-columns: repeat(24, 5px); gap: 3px; width: 189px; height: 48px; }
+    .zoom-history .stack { width: 5px; height: 48px; }
+    .zoom-history .pixel { width: 5px; height: 4px; }
+    .zoom-history .stack.over-cap::before { top: -7px; width: 5px; height: 4px; }
+    .zoom-seam { width: 1px; height: 44px; background: var(--hairline); }
+    .annotations { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 14px; }
+    .annotation { color: var(--dim); font-size: 10.5px; line-height: 1.48; }
+    .annotation b { display: block; margin-bottom: 4px; color: var(--body); font: 600 9px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; }
+    .rules { display: grid; gap: 12px; }
+    .rule { padding-left: 12px; border-left: 2px solid var(--blue); }
+    .rule b { display: block; margin-bottom: 4px; color: var(--ink); font-size: 11px; }
+    .rule p { margin: 0; color: var(--dim); font-size: 10.5px; line-height: 1.5; }
+
+    .state-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .state { overflow: hidden; border: 1px solid var(--border); border-radius: 8px; background: var(--card-2); }
+    .state-head { padding: 10px 12px 8px; color: var(--dim); font: 600 8.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+    .state .status-strip { border-top-color: var(--hairline); }
+    .state p { min-height: 49px; margin: 0; padding: 10px 12px 12px; color: var(--dim); font-size: 10.5px; line-height: 1.45; }
+    .decision {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 12px;
+      padding: 16px 18px;
+      border: 1px solid #35599b;
+      border-radius: 10px;
+      background: linear-gradient(140deg, rgb(47 107 255 / .1), #0c1322 58%);
+    }
+    .decision-mark { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 6px; background: var(--blue); color: white; font: 700 12px/1 var(--mono); }
+    .decision h3 { margin: 1px 0 5px; color: var(--ink); font-size: 12px; }
+    .decision p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+    @media (prefers-reduced-motion: reduce) { .spinner::after { animation: none; } }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="eyebrow">POD-480 · UI concept</p>
+    <h1>A tiny skyline for the agent fleet</h1>
+    <p class="lede">Keep the useful “11 agents working” live readout exactly where it is, then let a 71×12px history trace answer the second question: is this a quiet moment, a steady workload, or the crest of a surge?</p>
+
+    <div class="stage">
+      <div class="stage-head"><span>Recommended · in the real 24px status strip</span><span class="recommended">12-hour pixel stack</span></div>
+      <div class="app">
+        <div class="topbar">
+          <span class="logo">PODIUM</span>
+          <span class="well"><span class="on">▦&nbsp; Work</span><span>▣&nbsp; Tasks</span></span>
+          <span class="machine">vmi3431366&nbsp;&nbsp; MEM&nbsp; ▬▬▬</span>
+        </div>
+        <div class="layout">
+          <aside class="sidebar">
+            <div class="section-bar"><b>🤖&nbsp; New Codex in podium</b></div>
+            <div class="rows">
+              <div class="row"><span class="square">POD<br>474</span><span class="row-copy"><span class="row-title">Merge queue sidebar tool</span><span class="row-state">planning · 8m ago</span></span></div>
+              <div class="row selected"><span class="square">POD<br>480</span><span class="row-copy"><span class="row-title">Agent concurrency history</span><span class="row-state">working · now</span></span></div>
+              <div class="row"><span class="square">POD<br>469</span><span class="row-copy"><span class="row-title">Live chat issue references</span><span class="row-state">ready to merge · 42m ago</span></span></div>
+            </div>
+          </aside>
+          <aside class="tray">
+            <div class="section-bar"><b>✦&nbsp; Super agent</b></div>
+          </aside>
+          <section class="work">
+            <div class="section-bar"><b>🤖&nbsp; Agent concurrency history concept</b></div>
+            <div class="chat-lines"><div class="line w70"></div><div class="line w88"></div><div class="reply"><div class="line w88"></div><div class="line w70" style="margin-top:10px"></div><div class="line w44" style="margin-top:10px"></div></div></div>
+          </section>
+          <aside class="rail"><span>⌁</span><span>⌘</span><span>□</span><span>✉</span></aside>
+        </div>
+        <div class="status-strip" id="hero-strip">
+          <span class="live-cluster" id="hero-live"><span class="spinner" aria-hidden="true"></span><span id="hero-label">11 agents working</span></span>
+          <span class="idle-label" id="hero-idle" hidden>no agents working</span>
+          <span class="history-wrap pinned" id="hero-history" tabindex="0" aria-label="Agent concurrency over the last 12 hours">
+            <span class="history-label">12h</span><span class="history" aria-hidden="true"></span>
+            <span class="tooltip">
+              <span class="tip-top"><span class="tip-title">Agent concurrency</span><span class="tip-peak"></span></span>
+              <span class="tip-reading"><span class="tip-value"></span><span class="tip-copy"></span><span class="tip-time"></span></span>
+            <span class="tip-foot">Last 12 hours · 30-minute peaks · hover a column</span>
+            </span>
+          </span>
+          <span class="seam" aria-hidden="true"></span>
+          <span class="issue"><span class="issue-ref">POD-480</span><span class="issue-title">Agent concurrency history concept</span></span>
+          <span class="command">⌘K commands</span>
+        </div>
+      </div>
+    </div>
+    <div class="control-row">
+      <span class="control-label">Try a fleet shape</span>
+      <button class="scenario active" data-scenario="current">Current · 11 now</button>
+      <button class="scenario" data-scenario="quiet">Quiet · 0 now</button>
+      <button class="scenario" data-scenario="surge">Surge · 16 peak</button>
+      <span class="hint">Hover the graph for the exact count</span>
+    </div>
+
+    <section>
+      <h2>The graph is history, not a second running indicator</h2>
+      <p class="sub">The spinner and sentence keep owning “right now.” The graph stays still between bucket updates, so the shell retains one piece of perpetual motion and the history never competes with the current count.</p>
+      <div class="detail-grid">
+        <div class="card">
+          <div class="card-label">4× anatomy · every mark has a job</div>
+          <div class="zoom-strip">
+            <span class="zoom-live"><span class="spinner"></span><span>11 agents working</span></span>
+            <span class="zoom-history"><span class="history-label">12h</span><span class="history" data-static="current"></span></span>
+            <span class="zoom-seam"></span>
+          </div>
+          <div class="annotations">
+            <div class="annotation"><b>Current</b>The existing spinner and count stay full-strength and first in reading order.</div>
+            <div class="annotation"><b>History</b>24 half-hour columns. Each stack records that bucket’s peak concurrency.</div>
+            <div class="annotation"><b>Direction</b>Older columns are quieter; the newest eight strengthen toward the right edge.</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-label">Interaction and truthfulness</div>
+          <div class="rules">
+            <div class="rule"><b>Exact on demand</b><p>Hover or keyboard focus reveals the selected bucket’s exact peak and the 12-hour peak.</p></div>
+            <div class="rule"><b>Literal until twelve</b><p>One pixel equals one agent. Above 12, the stack caps and gets a small over-cap glint; the tooltip still gives the exact number.</p></div>
+            <div class="rule"><b>No new alert color</b><p>The trace reuses calm live blue. Yellow and red remain reserved for attention and failure.</p></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>It still tells a useful story when nothing is running</h2>
+      <p class="sub">Past activity remains visible after the spinner disappears. A surge is allowed to exceed the 12-pixel plotting height without silently pretending the peak was twelve.</p>
+      <div class="state-grid">
+        <div class="state">
+          <div class="state-head">Steady · live</div>
+          <div class="status-strip"><span class="live-cluster"><span class="spinner"></span>11 agents working</span><span class="history-wrap"><span class="history-label">12h</span><span class="history" data-static="current"></span></span></div>
+          <p>The familiar current-state signal leads. History adds texture without delaying the glance.</p>
+        </div>
+        <div class="state">
+          <div class="state-head">Quiet now · history remains</div>
+          <div class="status-strip"><span class="idle-label">no agents working</span><span class="history-wrap"><span class="history-label">12h</span><span class="history" data-static="quiet"></span></span></div>
+          <p>The trace answers “was today busy?” even when the current fleet is still.</p>
+        </div>
+        <div class="state">
+          <div class="state-head">Over cap · exact on hover</div>
+          <div class="status-strip"><span class="live-cluster"><span class="spinner"></span>14 agents working</span><span class="history-wrap"><span class="history-label">12h</span><span class="history" data-static="surge"></span></span></div>
+          <p>A 13+ stack gets a pale top glint. The silhouette stays compact; hover reports 14 or 16 exactly.</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="decision">
+        <div class="decision-mark">✓</div>
+        <div><h3>Recommended handoff</h3><p>Ship the 71×12px, half-hour pixel stack immediately after the existing count. Preserve the current spinner and copy, keep the chart non-clicking, and add a hover/focus readout for exact values and peak. This fits the current 24px strip without increasing its height or stealing the selected issue’s role.</p></div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const scenarios = {
+      current: [2,2,3,3,4,3,2,2,3,4,4,5,6,5,4,6,7,8,9,8,10,12,10,11],
+      quiet:   [4,5,6,7,7,8,9,8,7,6,5,4,4,3,3,2,3,2,2,1,1,1,0,0],
+      surge:   [1,2,1,3,2,4,5,4,6,8,7,9,11,13,16,14,12,9,8,10,12,15,16,14],
+    }
+    const times = Array.from({ length: 24 }, (_, i) => {
+      if (i === 23) return 'Now'
+      const hours = (23 - i) / 2
+      return `${Number.isInteger(hours) ? hours : hours.toFixed(1)}h ago`
+    })
+
+    function paint(history, values, interactive = false) {
+      history.innerHTML = ''
+      values.forEach((value, i) => {
+        const stack = document.createElement('span')
+        stack.className = `stack${value > 12 ? ' over-cap' : ''}${i === values.length - 1 ? ' latest' : ''}`
+        stack.dataset.value = value
+        stack.dataset.index = i
+        const shown = Math.min(value, 12)
+        for (let p = 0; p < shown; p += 1) {
+          const pixel = document.createElement('i')
+          pixel.className = 'pixel'
+          stack.appendChild(pixel)
+        }
+        if (interactive) {
+          stack.addEventListener('mouseenter', () => selectBucket(history, values, i))
+        }
+        history.appendChild(stack)
+      })
+    }
+
+    function selectBucket(history, values, index) {
+      history.querySelectorAll('.stack').forEach((stack, i) => stack.classList.toggle('hovered', i === index))
+      const wrap = history.closest('.history-wrap')
+      const value = values[index]
+      wrap.querySelector('.tip-value').textContent = value
+      wrap.querySelector('.tip-copy').textContent = `${value === 1 ? 'agent' : 'agents'} working`
+      wrap.querySelector('.tip-time').textContent = times[index]
+      wrap.querySelector('.tip-peak').textContent = `peak ${Math.max(...values)}`
+    }
+
+    const heroHistory = document.querySelector('#hero-history .history')
+    function setScenario(name) {
+      const values = scenarios[name]
+      paint(heroHistory, values, true)
+      selectBucket(heroHistory, values, 23)
+      const now = values[23]
+      document.querySelector('#hero-live').hidden = now === 0
+      document.querySelector('#hero-idle').hidden = now !== 0
+      document.querySelector('#hero-label').textContent = `${now} ${now === 1 ? 'agent' : 'agents'} working`
+      document.querySelectorAll('.scenario').forEach((button) => button.classList.toggle('active', button.dataset.scenario === name))
+    }
+
+    document.querySelectorAll('[data-static]').forEach((history) => paint(history, scenarios[history.dataset.static]))
+    document.querySelectorAll('.scenario').forEach((button) => button.addEventListener('click', () => setScenario(button.dataset.scenario)))
+    heroHistory.addEventListener('mouseleave', () => selectBucket(heroHistory, scenarios[document.querySelector('.scenario.active').dataset.scenario], 23))
+    setScenario('current')
+  </script>
+</body>
+</html>

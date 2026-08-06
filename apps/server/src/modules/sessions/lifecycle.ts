@@ -123,6 +123,7 @@ export type { SessionSpawnResult }
 export { DEFAULT_GEOMETRY }
 export { APPLIED_MUTATIONS_MAX_AGE_MS } from './session-shared'
 
+import type { AgentConcurrencyHistory, AgentConcurrencyHistoryResult } from './concurrency-history'
 import type { SessionLaunchConfig } from './launch-config'
 import type { SessionMachineReconciler } from './machine-reconciler'
 import { normalizeAgentName } from './naming'
@@ -233,6 +234,8 @@ export class SessionLifecycle {
   readonly broadcasts!: SessionBroadcastCoordinator
   private readonly browserOpen!: BrowserOpenGateway
   private readonly bindingReceipts!: SessionBindingReceipts
+  /** Durable 12-hour fleet-concurrency read model for the global status strip. */
+  private readonly concurrencyHistory!: AgentConcurrencyHistory
   // Single timer that persists only sessions whose activity counters advanced
   // since the last tick — keeps the per-frame / per-keystroke path off the DB.
   private readonly activityFlushTimer = setInterval(() => this.repository.flushActivity(), 12_000)
@@ -248,6 +251,7 @@ export class SessionLifecycle {
     return (this.sessionAuthz as any).authorizeQueuedInputAtApply(...args)
   }
   dispose(): void {
+    this.concurrencyHistory.dispose()
     this.autoContinue.dispose()
     clearInterval(this.activityFlushTimer)
     this.browserOpen.dispose()
@@ -295,6 +299,9 @@ export class SessionLifecycle {
   }
   listSessions(forPrincipal?: SessionWirePrincipal): SessionMeta[] {
     return this.view.list(forPrincipal)
+  }
+  agentConcurrencyHistory(): AgentConcurrencyHistoryResult {
+    return this.concurrencyHistory.history()
   }
   /** The member sessions of ONE issue, without wiring the rest [POD-1639].
    *  Same set and same fields as `sessionsForIssue(path, listSessions(), id)`;

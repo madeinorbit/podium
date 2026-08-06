@@ -52,6 +52,35 @@ describe('SessionStore event log', () => {
     expect(store.events.listEventsSince(0, { repoPath: '/r2' }).map((e) => e.kind)).toEqual(['b'])
     expect(store.events.listEventsSince(0, { limit: 2 }).length).toBe(2)
   })
+
+  it('reads a kind window with the last prior value for step-function consumers', () => {
+    const store = new SessionStore(':memory:')
+    store.events.appendEvent({
+      ts: '2026-08-06T09:00:00.000Z',
+      kind: 'fleet',
+      subject: 'all',
+      payload: { count: 2 },
+    })
+    store.events.appendEvent({ ts: '2026-08-06T10:00:00.000Z', kind: 'other', subject: 'all' })
+    store.events.appendEvent({
+      ts: '2026-08-06T11:00:00.000Z',
+      kind: 'fleet',
+      subject: 'all',
+      payload: { count: 5 },
+    })
+    store.events.appendEvent({
+      ts: '2026-08-06T12:00:00.000Z',
+      kind: 'fleet',
+      subject: 'all',
+      payload: { count: 3 },
+    })
+
+    expect(
+      store.events
+        .listKindSinceWithPrior('fleet', '2026-08-06T10:30:00.000Z')
+        .map((row) => row.payload),
+    ).toEqual([{ count: 2 }, { count: 5 }, { count: 3 }])
+  })
 })
 
 describe('SessionStore event log retention', () => {

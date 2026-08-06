@@ -51,6 +51,10 @@ export const SESSION_QUERIES = {
   list: q(z.object({}).passthrough().optional(), (s) =>
     s.modules.sessions.listSessions().filter((session) => mayReadSession(s, session.sessionId)),
   ),
+  /** Fleet-wide 12-hour concurrency samples for the global shell status strip. */
+  concurrencyHistory: q(z.object({}).passthrough().optional(), (s) =>
+    s.modules.sessions.agentConcurrencyHistory(),
+  ),
   /** On-demand transcript window for the chat view — a pure disk read via the
    *  daemon (disk = source of truth). `anchor` is a cursor; `direction` reads the
    *  `limit` items before (older) or after (newer) it. No anchor = the latest
