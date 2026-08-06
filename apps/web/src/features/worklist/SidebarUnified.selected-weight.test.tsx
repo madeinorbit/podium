@@ -1,7 +1,21 @@
 // @vitest-environment happy-dom
+import { existsSync, readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SidebarUnified } from './SidebarUnified'
+
+const stylesPath = ['src/styles.css', 'apps/web/src/styles.css']
+  .map((path) => resolve(process.cwd(), path))
+  .find(existsSync)
+const styles = readFileSync(stylesPath ?? 'src/styles.css', 'utf8')
+
+function cssBlock(selector: string): string {
+  const start = styles.indexOf(`${selector} {`)
+  expect(start, `${selector} not found in styles.css`).toBeGreaterThan(-1)
+  const end = styles.indexOf('\n}', start)
+  return styles.slice(start, end)
+}
 
 // A single idle session so its issue renders as a plain WORK row (not lifted to
 // WORKING, whose suppress-unread logic would muddy the weight assertions).
@@ -169,14 +183,28 @@ describe('SidebarUnified selection weight (#41 redesign)', () => {
     expect(unreadLabel.className).toContain('font-medium')
   })
 
-  it('selection never changes row geometry: same padding, no border class (POD-81)', () => {
+  it('selection never changes density-owned row geometry (POD-81)', () => {
     render(<SidebarUnified />)
     const active = rowButton('Read selected issue').closest('[class*="group/row"]') as HTMLElement
     const plain = rowButton('Unread issue').closest('[class*="group/row"]') as HTMLElement
-    // The selection ring is an inset box-shadow (inline style), never a border
-    // or padding change — a click must not shift the list by a pixel.
-    expect(active.className).toContain('py-[6.5px]')
-    expect(plain.className).toContain('py-[6.5px]')
+    // Both selection states delegate vertical geometry to the same density-aware
+    // CSS class. Any remaining padding utilities must also be identical, so a
+    // click cannot introduce a state-specific shift on either axis.
+    expect(active.className).toContain('shell-work-row')
+    expect(plain.className).toContain('shell-work-row')
+    const paddingClasses = (row: HTMLElement) =>
+      row.className.split(/\s+/).filter((token) => /^p(?:[xytrlb])?-/.test(token))
+    expect(paddingClasses(active)).toEqual(paddingClasses(plain))
+
+    // Balanced and compact density own their distinct vertical padding in CSS,
+    // rather than baking one mode's geometry into the component utility list.
+    expect(cssBlock('.shell-work-row')).toContain('padding-block: 8px')
+    expect(cssBlock('html[data-density="compact"] .shell-work-row')).toContain(
+      'padding-block: 6.5px',
+    )
+
+    // The selection ring is an inset box-shadow, never a border that changes
+    // the shared box dimensions.
     expect(active.className.split(/\s+/)).not.toContain('border')
     expect(active.style.boxShadow).toContain('inset')
   })
