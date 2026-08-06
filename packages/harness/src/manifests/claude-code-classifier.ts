@@ -173,6 +173,68 @@ function todoCount(input: unknown): number {
   return i.todos.filter((todo) => isRecord(todo) && todo.status !== 'completed').length
 }
 
+/** Claude Code's create result names the id it assigned: "Task #3 created
+ *  successfully: <subject>". That numbering is authoritative — the create INPUT
+ *  carries no id, so counting creates would only ever be a guess at it. */
+const TASK_CREATE_RESULT = /^task #(\d+) created/i
+
+/** Statuses that leave an item ON the list. Tasks are born `pending`; `completed`
+ *  closes one and `deleted` removes it, and neither is an unfinished todo. */
+function taskIsOpen(status: string): boolean {
+  return status === 'pending' || status === 'in_progress'
+}
+
+/**
+ * How many items the agent's own task list still has open, reconstructed from
+ * the CURRENT todo tools (`TaskCreate` / `TaskUpdate`).
+ *
+ * `TodoWrite` — which `todoCount` above reads — rewrote the whole list on every
+ * call, so one snapshot from the current turn told you everything. Its
+ * replacement is INCREMENTAL: the list is created in one turn and ticked off
+ * over the next several, so the state has to be folded over the whole window
+ * rather than the current turn. [POD-415]
+ *
+ * A window that opens mid-session can miss the creates, so an update for an
+ * unseen id still registers its task — undercounting a list we cannot fully see
+ * beats inventing one, and this feature only ever earns a quiet row label.
+ *
+ * That caveat BITES on the live Stop path, which classifies the last 128KB of
+ * transcript (≈ a couple of dozen records): a list the agent created several
+ * turns ago and then abandoned without a single update is invisible from there,
+ * and the turn reads as a plain `done`. Ticking items off as it goes — what an
+ * agent normally does — keeps the list inside the window, because any update
+ * registers its task. Making the long-abandoned case visible needs the observer
+ * to FOLD this state as it streams instead of re-deriving it from a tail, which
+ * is its own piece of work (POD-453).
+ */
+function openTaskListCount(records: unknown[]): number {
+  const statuses = new Map<string, string>()
+  const creates = new Set<string>()
+  for (const record of records) {
+    for (const tool of toolUses(record)) {
+      if (tool.name === 'TaskCreate') {
+        if (tool.id) creates.add(tool.id)
+        continue
+      }
+      if (tool.name !== 'TaskUpdate') continue
+      const input = isRecord(tool.input) ? tool.input : undefined
+      const id = str(input?.taskId)
+      if (!id) continue
+      // An update that changes only owner/subject/dependencies carries no status
+      // and must not reset one.
+      statuses.set(id, str(input?.status) ?? statuses.get(id) ?? 'pending')
+    }
+    for (const result of toolResults(record)) {
+      // Match the RESULT to its create rather than the text alone: "Task #4
+      // created successfully" is a string any tool output could contain.
+      if (!result.id || !creates.has(result.id)) continue
+      const id = TASK_CREATE_RESULT.exec(result.content.trim())?.[1]
+      if (id && !statuses.has(id)) statuses.set(id, 'pending')
+    }
+  }
+  return [...statuses.values()].filter(taskIsOpen).length
+}
+
 function summarizeTool(tool: ClaudeToolUse): unknown {
   if (tool.name === 'Bash') return commandSummary(tool.input)
   if (tool.name === 'Agent') return agentSummary(tool.input)
@@ -217,7 +279,7 @@ export function extractClaudeTranscriptFeatures(
   let lastAssistantStopReason: string | null = null
   let terminalEvent: ClaudeTranscriptFeatures['terminalEvent'] = null
   let terminalToolName: string | null = null
-  let openTodoCount = 0
+  let todoWriteCount: number | undefined
   let scheduledSelfWake = false
   let launchedBackgroundAgent = false
   let launchedBackgroundShell = false
@@ -252,7 +314,7 @@ export function extractClaudeTranscriptFeatures(
           agentCalls.push(summary)
           if (summary.runInBackground) launchedBackgroundAgent = true
         }
-        if (tool.name === 'TodoWrite') openTodoCount = todoCount(tool.input)
+        if (tool.name === 'TodoWrite') todoWriteCount = todoCount(tool.input)
       }
     }
 
@@ -313,7 +375,9 @@ export function extractClaudeTranscriptFeatures(
     terminalToolName,
     unresolvedTools,
     currentAskUserQuestions,
-    openTodoCount,
+    // A whole-list `TodoWrite` snapshot from THIS turn is the most direct
+    // evidence there is; without one, fold the incremental Task* list.
+    openTodoCount: todoWriteCount ?? openTaskListCount(records),
     scheduledSelfWake,
     launchedBackgroundAgent,
     launchedBackgroundShell,
@@ -487,7 +551,17 @@ export function classifyClaudeFeatures(
       'possible autonomous continuation needs semantic judgment',
     )
   }
-  if (features.openTodoCount > 0 && !genericWorkingText(text) && !terminalQuestion(text)) {
+  // An unfinished list is the QUIETEST thing a stop can mean, so it may only win
+  // where nothing louder is true. `requiredUserAction` joined the guard with
+  // POD-415: while `openTodoCount` was structurally always 0 this branch could
+  // never steal anything, and the moment it started firing a turn that both left
+  // a todo open AND asked the human to do something would have read as quiet.
+  if (
+    features.openTodoCount > 0 &&
+    !genericWorkingText(text) &&
+    !terminalQuestion(text) &&
+    !requiredUserAction(text)
+  ) {
     return resolvedState(
       'idle.needs_input.open_todo_list',
       'open todo list and no autonomous continuation signal',

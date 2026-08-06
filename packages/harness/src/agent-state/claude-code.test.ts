@@ -884,6 +884,243 @@ describe('classifyIdleTranscript', () => {
     })
   })
 
+  it('the CURRENT todo tools count too: TaskCreate/TaskUpdate, not just TodoWrite (POD-415)', () => {
+    // Real shapes off this host's transcripts: the create's INPUT has no id (the
+    // RESULT names it), and the list is incremental — created here, ticked off
+    // over later turns — so the fold spans the window, not the current turn.
+    const records = parse([
+      userLine('Ship the migration'),
+      assistantLine([
+        {
+          type: 'tool_use',
+          id: 'c1',
+          name: 'TaskCreate',
+          input: { subject: 'write the migration', description: 'the up/down pair' },
+        },
+      ]),
+      userLine([
+        {
+          type: 'tool_result',
+          tool_use_id: 'c1',
+          content: 'Task #1 created successfully: write the migration',
+        },
+      ]),
+      assistantLine([
+        {
+          type: 'tool_use',
+          id: 'c2',
+          name: 'TaskCreate',
+          input: { subject: 'backfill the column', description: 'batched' },
+        },
+      ]),
+      userLine([
+        {
+          type: 'tool_result',
+          tool_use_id: 'c2',
+          content: 'Task #2 created successfully: backfill the column',
+        },
+      ]),
+      assistantLine([
+        {
+          type: 'tool_use',
+          id: 'u1',
+          name: 'TaskUpdate',
+          input: { taskId: '1', status: 'completed' },
+        },
+      ]),
+      userLine([{ type: 'tool_result', tool_use_id: 'u1', content: 'Updated task #1 status' }]),
+      userLine('and now stop'),
+      assistantLine([text('Migration written.')]),
+    ])
+    expect(classifyIdleTranscript(records, 'default')).toEqual({
+      kind: 'open_todos',
+      summary: 'open todo list',
+    })
+  })
+
+  it('a Task list ticked all the way through → plain done', () => {
+    const created = (n: number, id: string, subject: string) => [
+      assistantLine([
+        { type: 'tool_use', id, name: 'TaskCreate', input: { subject, description: subject } },
+      ]),
+      userLine([
+        {
+          type: 'tool_result',
+          tool_use_id: id,
+          content: `Task #${n} created successfully: ${subject}`,
+        },
+      ]),
+    ]
+    const records = parse([
+      userLine('Ship it'),
+      ...created(1, 'c1', 'write the migration'),
+      ...created(2, 'c2', 'backfill the column'),
+      assistantLine([
+        {
+          type: 'tool_use',
+          id: 'u1',
+          name: 'TaskUpdate',
+          input: { taskId: '1', status: 'completed' },
+        },
+        {
+          type: 'tool_use',
+          id: 'u2',
+          name: 'TaskUpdate',
+          input: { taskId: '2', status: 'completed' },
+        },
+      ]),
+      userLine([
+        { type: 'tool_result', tool_use_id: 'u1', content: 'Updated task #1 status' },
+        { type: 'tool_result', tool_use_id: 'u2', content: 'Updated task #2 status' },
+      ]),
+      assistantLine([text('Both done. All 42 tests pass.')]),
+    ])
+    expect(classifyIdleTranscript(records, 'default')).toEqual({ kind: 'done' })
+  })
+
+  it('an in-progress task left open still counts as open', () => {
+    const records = parse([
+      userLine('Ship it'),
+      assistantLine([
+        {
+          type: 'tool_use',
+          id: 'c1',
+          name: 'TaskCreate',
+          input: { subject: 'backfill', description: 'batched' },
+        },
+      ]),
+      userLine([
+        {
+          type: 'tool_result',
+          tool_use_id: 'c1',
+          content: 'Task #1 created successfully: backfill',
+        },
+      ]),
+      assistantLine([
+        {
+          type: 'tool_use',
+          id: 'u1',
+          name: 'TaskUpdate',
+          input: { taskId: '1', status: 'in_progress' },
+        },
+      ]),
+      userLine([{ type: 'tool_result', tool_use_id: 'u1', content: 'Updated task #1 status' }]),
+      assistantLine([text('Backfill started.')]),
+    ])
+    expect(classifyIdleTranscript(records, 'default')?.kind).toBe('open_todos')
+  })
+
+  it('a deleted task is off the list, not an open todo', () => {
+    const records = parse([
+      userLine('Ship it'),
+      assistantLine([
+        {
+          type: 'tool_use',
+          id: 'c1',
+          name: 'TaskCreate',
+          input: { subject: 'spike', description: 'maybe' },
+        },
+      ]),
+      userLine([
+        { type: 'tool_result', tool_use_id: 'c1', content: 'Task #1 created successfully: spike' },
+      ]),
+      assistantLine([
+        {
+          type: 'tool_use',
+          id: 'u1',
+          name: 'TaskUpdate',
+          input: { taskId: '1', status: 'deleted' },
+        },
+      ]),
+      userLine([{ type: 'tool_result', tool_use_id: 'u1', content: 'Deleted task #1' }]),
+      assistantLine([text('Dropped the spike. Shipped the rest.')]),
+    ])
+    expect(classifyIdleTranscript(records, 'default')).toEqual({ kind: 'done' })
+  })
+
+  it('an update that only changes the owner leaves the status alone', () => {
+    const records = parse([
+      userLine('Ship it'),
+      assistantLine([
+        {
+          type: 'tool_use',
+          id: 'c1',
+          name: 'TaskCreate',
+          input: { subject: 'backfill', description: 'batched' },
+        },
+      ]),
+      userLine([
+        {
+          type: 'tool_result',
+          tool_use_id: 'c1',
+          content: 'Task #1 created successfully: backfill',
+        },
+      ]),
+      assistantLine([
+        {
+          type: 'tool_use',
+          id: 'u1',
+          name: 'TaskUpdate',
+          input: { taskId: '1', status: 'completed' },
+        },
+      ]),
+      userLine([{ type: 'tool_result', tool_use_id: 'u1', content: 'Updated task #1 status' }]),
+      assistantLine([
+        {
+          type: 'tool_use',
+          id: 'u2',
+          name: 'TaskUpdate',
+          input: { taskId: '1', owner: 'someone' },
+        },
+      ]),
+      userLine([{ type: 'tool_result', tool_use_id: 'u2', content: 'Updated task #1' }]),
+      assistantLine([text('Backfilled. All 42 tests pass.')]),
+    ])
+    expect(classifyIdleTranscript(records, 'default')).toEqual({ kind: 'done' })
+  })
+
+  it('"Task #9 created successfully" in some other tool output counts for nothing', () => {
+    const records = parse([
+      userLine('Ship it'),
+      assistantLine([{ type: 'tool_use', id: 'b1', name: 'Bash', input: { command: 'cat log' } }]),
+      userLine([
+        {
+          type: 'tool_result',
+          tool_use_id: 'b1',
+          content: 'Task #9 created successfully: not a real task',
+        },
+      ]),
+      assistantLine([text('Read the log. All 42 tests pass.')]),
+    ])
+    expect(classifyIdleTranscript(records, 'default')).toEqual({ kind: 'done' })
+  })
+
+  it('an ask the human must act on beats a leftover todo (POD-415)', () => {
+    // The open-todos branch sits ABOVE the required-action branch, so once the
+    // count started firing this ordering had to be guarded — a turn that asks
+    // for a decision must stay attention, not go quiet.
+    const records = parse([
+      userLine('Ship it'),
+      assistantLine([
+        {
+          type: 'tool_use',
+          id: 'c1',
+          name: 'TaskCreate',
+          input: { subject: 'backfill', description: 'batched' },
+        },
+      ]),
+      userLine([
+        {
+          type: 'tool_result',
+          tool_use_id: 'c1',
+          content: 'Task #1 created successfully: backfill',
+        },
+      ]),
+      assistantLine([text('I need you to run the migration on staging before I continue.')]),
+    ])
+    expect(classifyIdleTranscript(records, 'default')?.kind).toBe('question')
+  })
+
   it('every todo completed → plain done, no open_todos verdict', () => {
     const records = parse([
       userLine('Ship the migration'),
