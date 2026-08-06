@@ -68,6 +68,20 @@ export function grokSessionPaths(opts: {
 interface GrokTranslationOptions {
   classifyIdleVerdict?: boolean
   onVerdictRead?: () => void
+  planState?: GrokPlanState
+}
+
+type GrokIdleVerdict = NonNullable<Extract<AgentStateEvent, { kind: 'turn_completed' }>['verdict']>
+
+interface GrokPlanState {
+  /** Undefined means no trustworthy full snapshot is available. */
+  openTodoCount?: number
+  /** Undefined is Grok's ordinary/default mode; null means a malformed mode update. */
+  currentMode?: string | null
+  /** A structured question/permission always outranks the quiet todo verdict. */
+  requiredUserAction: boolean
+  /** Used only when reconstructing a resumed session's last idle boundary. */
+  cleanEndTurn: boolean
 }
 
 export async function translateGrokUpdatePayload(
@@ -99,7 +113,8 @@ export async function translateGrokUpdatePayload(
     case 'tool_result_update':
       return withEventTime([{ kind: 'activity' }], at)
     case 'turn_completed': {
-      if (normalizeName(stringField(update, 'stop_reason')) === 'error') {
+      const stopReason = normalizeName(stringField(update, 'stop_reason'))
+      if (stopReason === 'error') {
         return withEventTime([grokTurnFailedEvent(update)], at)
       }
       // Grok's authoritative end-of-turn signal (stop_reason: end_turn). It lands
@@ -108,10 +123,11 @@ export async function translateGrokUpdatePayload(
       // 'working') leaves the session stuck 'working' once the turn ends. This is
       // the provider owning its run-state verdict; the reducer only transports it.
       // [spec:SP-8b0e]
-      const verdict =
+      const classified =
         options.classifyIdleVerdict === false
           ? undefined
           : await classifyStopPayload(payload, options.onVerdictRead)
+      const verdict = withGrokOpenTodos(classified, options.planState, stopReason === 'end_turn')
       return withEventTime([{ kind: 'turn_completed', ...(verdict ? { verdict } : {}) }], at)
     }
     case 'retry_state': {
@@ -157,6 +173,118 @@ export function classifyGrokIdleTranscript(
     return { kind: 'done' }
   }
   return undefined
+}
+
+function withGrokOpenTodos(
+  classified: GrokIdleVerdict | undefined,
+  state: GrokPlanState | undefined,
+  eligibleBoundary: boolean,
+): GrokIdleVerdict | undefined {
+  if (
+    !eligibleBoundary ||
+    !state ||
+    state.openTodoCount === undefined ||
+    state.openTodoCount < 1 ||
+    state.currentMode === null ||
+    isGrokPlanMode(state.currentMode) ||
+    state.requiredUserAction ||
+    (classified !== undefined && classified.kind !== 'done')
+  ) {
+    return classified
+  }
+  return { kind: 'open_todos' }
+}
+
+function isGrokPlanMode(mode: string | undefined): boolean {
+  const normalized = normalizeName(mode)
+  return normalized === 'plan' || normalized === 'plan_mode'
+}
+
+function emptyGrokPlanState(): GrokPlanState {
+  return { requiredUserAction: false, cleanEndTurn: false }
+}
+
+function resetGrokPlanState(state: GrokPlanState): void {
+  delete state.openTodoCount
+  delete state.currentMode
+  state.requiredUserAction = false
+  state.cleanEndTurn = false
+}
+
+/** Fold only explicit provider state. `plan.entries` is a full snapshot; partial
+ * todo_write tool inputs are deliberately ignored. Unknown shapes fail quiet. */
+function foldGrokPlanState(payload: unknown, state: GrokPlanState): void {
+  const update = grokUpdateRecord(payload)
+  if (!update) return
+  const sessionUpdate = normalizeName(stringField(update, 'sessionUpdate'))
+  switch (sessionUpdate) {
+    case 'plan': {
+      const entries = update.entries
+      if (!Array.isArray(entries)) {
+        delete state.openTodoCount
+        return
+      }
+      let openTodoCount = 0
+      for (const entry of entries) {
+        const status = normalizeGrokPlanStatus(stringField(entry, 'status'))
+        if (status === 'pending' || status === 'in_progress') {
+          openTodoCount += 1
+          continue
+        }
+        if (status === 'completed' || status === 'cancelled') continue
+        delete state.openTodoCount
+        return
+      }
+      state.openTodoCount = openTodoCount
+      return
+    }
+    case 'current_mode_update': {
+      const mode =
+        stringField(update, 'currentModeId') ??
+        stringField(update, 'current_mode_id') ??
+        stringField(update, 'modeId') ??
+        stringField(update, 'mode_id') ??
+        stringField(update, 'mode')
+      state.currentMode = mode ?? null
+      return
+    }
+    case 'user_message_chunk':
+      state.requiredUserAction = false
+      state.cleanEndTurn = false
+      return
+    case 'pending_interaction':
+      state.requiredUserAction = true
+      return
+    case 'interaction_resolved':
+      state.requiredUserAction = false
+      return
+    case 'turn_completed':
+      state.cleanEndTurn = normalizeName(stringField(update, 'stop_reason')) === 'end_turn'
+      return
+    case 'hook_execution': {
+      const event = normalizeName(
+        stringField(update, 'event_name') ?? stringField(update, 'hook_event_name'),
+      )
+      if (event === 'user_prompt_submit') {
+        state.requiredUserAction = false
+        state.cleanEndTurn = false
+      } else if (event === 'permission_denied') {
+        state.requiredUserAction = true
+      } else if (event === 'pre_tool_use') {
+        const tool = stringField(update, 'toolName') ?? stringField(update, 'tool_name')
+        if (tool && ['ask_user', 'ask_user_question'].includes(normalizeName(tool) ?? '')) {
+          state.requiredUserAction = true
+        }
+      }
+      return
+    }
+    default:
+      return
+  }
+}
+
+function normalizeGrokPlanStatus(value: string | undefined): string | undefined {
+  return value ? normalizeName(value.replace(/\s+/g, '_')) : undefined
 }
 
 /** Grok writes both ISO strings and Unix epochs. Retain the provider's instant;
@@ -316,21 +444,47 @@ async function grokBootEvents(opts: {
       sessionId: opts.resumeValue,
       ...(opts.homeDir ? { homeDir: opts.homeDir } : {}),
     })
+    let planState: GrokPlanState | undefined
     try {
-      const verdict = classifyGrokIdleTranscript(
-        await readGrokChatHistoryTail(paths.chatHistoryPath),
-      )
-      if (verdict) {
-        // Stamp the chat-history mtime so re-seeding this idle session on reattach
-        // restores its real last-active time, not the reattach moment.
-        const at = await fileMtimeIso(paths.chatHistoryPath)
-        return [{ kind: 'turn_completed', verdict, ...(at ? { at } : {}) }]
-      }
+      planState = await readGrokPlanState(paths.updatesPath)
     } catch {
-      // Missing/unreadable chat history falls back to a bare boot event.
+      // Missing/unreadable updates retain the existing transcript-only behavior.
+    }
+    let classified: GrokIdleVerdict | undefined
+    try {
+      classified = classifyGrokIdleTranscript(await readGrokChatHistoryTail(paths.chatHistoryPath))
+    } catch {
+      // A clean terminal plus an explicit open plan remains sufficient by itself.
+    }
+    const verdict = withGrokOpenTodos(classified, planState, planState?.cleanEndTurn === true)
+    if (verdict) {
+      try {
+        // Stamp the chat-history mtime so re-seeding this idle session on reattach
+        // restores its real last-active time, not the reattach moment. Structured
+        // todo evidence is timestamped from the updates stream that owns it.
+        const at = await fileMtimeIso(
+          verdict.kind === 'open_todos' ? paths.updatesPath : paths.chatHistoryPath,
+        )
+        return [{ kind: 'turn_completed', verdict, ...(at ? { at } : {}) }]
+      } catch {
+        return [{ kind: 'turn_completed', verdict }]
+      }
     }
   }
   return [{ kind: 'session_started' }]
+}
+
+async function readGrokPlanState(path: string): Promise<GrokPlanState> {
+  const handle = await open(path, 'r')
+  try {
+    const { size } = await handle.stat()
+    const boundary = await lastCompleteGrokRecordOffset(handle, size)
+    const state = emptyGrokPlanState()
+    await foldGrokPlanStateRange(handle, boundary, state)
+    return state
+  } finally {
+    await handle.close()
+  }
 }
 
 async function grokHookEvents(
@@ -435,6 +589,7 @@ function tailGrokUpdates(
   let stopped = false
   let reading = false
   let observedWork = false
+  const planState = emptyGrokPlanState()
   const decoder = new BoundedLineDecoder()
   let integrityHash = createHash('sha256')
   let integrityHashedThrough = 0
@@ -484,12 +639,18 @@ function tailGrokUpdates(
         const payload = isRecord(record)
           ? { ...record, chat_history_path: paths.chatHistoryPath }
           : record
+        foldGrokPlanState(payload, planState)
         const next = await translateGrokUpdatePayload(payload, {
           classifyIdleVerdict: emit,
           onVerdictRead: opts.onVerdictRead,
+          planState,
         })
         if (isAvailableCommandsUpdate(payload) && (causal || observedWork)) {
-          next.push({ kind: 'turn_completed' })
+          const classified = emit
+            ? await classifyStopPayload(payload, opts.onVerdictRead)
+            : undefined
+          const verdict = withGrokOpenTodos(classified, planState, true)
+          next.push({ kind: 'turn_completed', ...(verdict ? { verdict } : {}) })
         }
         const at = isRecord(record) ? normalizeGrokProviderTimestamp(record.timestamp) : undefined
         const normalized = withEventTime(next, at)
@@ -622,6 +783,8 @@ function tailGrokUpdates(
     }
     const start =
       causal?.beginSegment(segmentIdentity, boundary, forceSuccessor || integrityMismatch) ?? 0
+    resetGrokPlanState(planState)
+    if (start > 0) await foldGrokPlanStateRange(handle, start, planState)
     decoder.reset()
     observedWork = false
     await readRange(handle, start, boundary, false)
@@ -852,6 +1015,38 @@ class BoundedLineDecoder {
   }
 }
 
+async function foldGrokPlanStateRange(
+  handle: Awaited<ReturnType<typeof open>>,
+  through: number,
+  state: GrokPlanState,
+): Promise<void> {
+  const decoder = new BoundedLineDecoder()
+  const foldLines = (lines: DecodedGrokLine[]): void => {
+    for (const line of lines) {
+      const text = line.text.trim()
+      if (!text) continue
+      try {
+        foldGrokPlanState(JSON.parse(text) as unknown, state)
+      } catch {
+        // Complete malformed records are inert, matching the live tailer.
+      }
+    }
+  }
+  let offset = 0
+  while (offset < through) {
+    const length = Math.min(GROK_READ_BYTES, through - offset)
+    const chunk = Buffer.alloc(length)
+    const { bytesRead } = await handle.read(chunk, 0, length, offset)
+    if (bytesRead === 0) break
+    foldLines(decoder.push(chunk.subarray(0, bytesRead), offset))
+    offset += bytesRead
+  }
+  if (offset === through) {
+    const finalRecord = decoder.takeValidFinalRecord(through)
+    if (finalRecord) foldLines([finalRecord])
+  }
+}
+
 async function lastCompleteGrokRecordOffset(
   handle: Awaited<ReturnType<typeof open>>,
   size: number,
@@ -899,11 +1094,16 @@ function grokSourceEventKind(record: Record<string, unknown>): string {
   return `update:${normalizeName(stringField(update, 'sessionUpdate')) ?? 'unknown'}`
 }
 
-function isAvailableCommandsUpdate(payload: unknown): boolean {
-  if (!isRecord(payload)) return false
-  const params = recordField(payload, 'params')
-  const update = recordField(params, 'update')
+function isAvailableCommandsUpdate(payload: unknown): payload is Record<string, unknown> {
+  const update = grokUpdateRecord(payload)
   return normalizeName(stringField(update, 'sessionUpdate')) === 'available_commands_update'
+}
+
+function grokUpdateRecord(payload: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(payload)) return undefined
+  const method = stringField(payload, 'method')
+  if (method !== 'session/update' && method !== '_x.ai/session/update') return undefined
+  return recordField(recordField(payload, 'params'), 'update')
 }
 
 function updateObservedWork(current: boolean, event: AgentStateEvent): boolean {

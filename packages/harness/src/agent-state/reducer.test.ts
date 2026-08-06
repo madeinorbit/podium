@@ -109,7 +109,7 @@ describe('reduceAgentState', () => {
     expect(s).toMatchObject({ phase: 'working', nativeSubagentCount: 0 })
   })
 
-  it('turn_completed with count 0 passes question/approval/interrupted verdicts through', () => {
+  it('turn_completed with count 0 passes classified verdicts through', () => {
     const s = reduceAgentState(initialAgentState(T0), { kind: 'prompt_submitted' }, T0)
     const question = reduceAgentState(
       s,
@@ -129,6 +129,12 @@ describe('reduceAgentState', () => {
       phase: 'idle',
       idle: { kind: 'approval', summary: 'run rm?' },
     })
+    const openTodos = reduceAgentState(
+      s,
+      { kind: 'turn_completed', verdict: { kind: 'open_todos' } },
+      T1,
+    )
+    expect(openTodos).toMatchObject({ phase: 'idle', idle: { kind: 'open_todos' } })
   })
 
   it('turn_completed with live subagents stays working even for question/interrupted', () => {

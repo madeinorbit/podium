@@ -1,7 +1,7 @@
-import { asSessionId, type SessionId } from '@podium/model'
 import { appendFile, mkdir, mkdtemp, rename, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { asSessionId, type SessionId } from '@podium/model'
 import type {
   AgentObservation,
   AgentObservationAckMessage,
@@ -215,6 +215,48 @@ Request URL: https://cli-chat-proxy.grok.com/v1/responses`
       },
     ])
   })
+
+  it('bootEvents restores an explicit open plan only at a clean idle boundary', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-grok-plan-boot-'))
+    const cwd = '/repo/grok'
+    const paths = grokSessionPaths({ homeDir: home, cwd, sessionId: 'g-plan-boot' })
+    await mkdir(paths.sessionDir, { recursive: true })
+    await writeFile(paths.chatHistoryPath, JSON.stringify({ type: 'assistant', content: 'Done.' }))
+    await writeFile(
+      paths.updatesPath,
+      `${[
+        {
+          method: 'session/update',
+          params: {
+            update: {
+              sessionUpdate: 'plan',
+              entries: [
+                { content: 'finished', status: 'completed' },
+                { content: 'remaining', status: 'in_progress' },
+              ],
+            },
+          },
+        },
+        {
+          method: 'session/update',
+          params: { update: { sessionUpdate: 'turn_completed', stop_reason: 'end_turn' } },
+        },
+      ]
+        .map((record) => JSON.stringify(record))
+        .join('\n')}\n`,
+    )
+
+    await expect(
+      grokStateProvider.bootEvents?.({ cwd, resumeValue: 'g-plan-boot', homeDir: home }),
+    ).resolves.toMatchObject([
+      {
+        kind: 'turn_completed',
+        source: 'poll',
+        confidence: 0.7,
+        verdict: { kind: 'open_todos' },
+      },
+    ])
+  })
 })
 
 describe('grok turn completion ([spec:SP-8b0e])', () => {
@@ -237,6 +279,19 @@ describe('grok turn completion ([spec:SP-8b0e])', () => {
   it('treats the turn_completed sessionUpdate as a turn boundary', async () => {
     await expect(
       translateGrokUpdatePayload(update('turn_completed', { stop_reason: 'end_turn' })),
+    ).resolves.toEqual([{ kind: 'turn_completed' }])
+  })
+
+  it('never lets a quiet open-plan verdict swallow a structured user action', async () => {
+    await expect(
+      translateGrokUpdatePayload(update('turn_completed', { stop_reason: 'end_turn' }), {
+        classifyIdleVerdict: false,
+        planState: {
+          openTodoCount: 1,
+          requiredUserAction: true,
+          cleanEndTurn: false,
+        },
+      }),
     ).resolves.toEqual([{ kind: 'turn_completed' }])
   })
 
@@ -284,6 +339,108 @@ describe('grok turn completion ([spec:SP-8b0e])', () => {
 })
 
 describe('observeGrokState', () => {
+  it('reports open todos only from a valid snapshot at an eligible idle boundary', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-grok-plan-live-'))
+    const cwd = '/repo/grok'
+    const paths = grokSessionPaths({ homeDir: home, cwd, sessionId: 'g-plan-live' })
+    await mkdir(paths.sessionDir, { recursive: true })
+    await writeFile(paths.summaryPath, JSON.stringify({ info: { id: 'g-plan-live', cwd } }))
+    await writeFile(paths.updatesPath, '')
+    await writeFile(paths.chatHistoryPath, JSON.stringify({ type: 'assistant', content: 'Done.' }))
+    const events: AgentStateEvent[] = []
+    let bootstrapped = false
+    const observer = observeGrokState({
+      homeDir: home,
+      cwd,
+      resumeValue: 'g-plan-live',
+      pollMs: 10,
+      onBootstrap: () => {
+        bootstrapped = true
+      },
+      onEvents: (next) => events.push(...next),
+    })
+    const updateLine = (sessionUpdate: string, extra: Record<string, unknown> = {}) =>
+      `${JSON.stringify({
+        method: 'session/update',
+        params: { update: { sessionUpdate, ...extra } },
+      })}\n`
+    const runTurn = async (
+      records: string[],
+      assistantText = 'Done.',
+    ): Promise<Extract<AgentStateEvent, { kind: 'turn_completed' }>> => {
+      const priorTerminals = events.filter((event) => event.kind === 'turn_completed').length
+      await writeFile(
+        paths.chatHistoryPath,
+        JSON.stringify({ type: 'assistant', content: assistantText }),
+      )
+      await appendFile(paths.updatesPath, updateLine('user_message_chunk') + records.join(''))
+      await waitFor(
+        () =>
+          events.filter((event) => event.kind === 'turn_completed').length === priorTerminals + 1,
+      )
+      const terminal = events.filter((event) => event.kind === 'turn_completed').at(-1)
+      if (!terminal || terminal.kind !== 'turn_completed') throw new Error('missing terminal')
+      return terminal
+    }
+
+    try {
+      await waitFor(() => bootstrapped)
+      await expect(
+        runTurn([
+          updateLine('plan', {
+            entries: [
+              { content: 'done', status: 'completed' },
+              { content: 'left', status: 'pending' },
+            ],
+          }),
+          updateLine('turn_completed', { stop_reason: 'end_turn' }),
+        ]),
+      ).resolves.toMatchObject({ verdict: { kind: 'open_todos' } })
+
+      await expect(
+        runTurn([
+          updateLine('plan', { entries: [] }),
+          updateLine('turn_completed', { stop_reason: 'end_turn' }),
+        ]),
+      ).resolves.toMatchObject({ verdict: { kind: 'done' } })
+
+      await expect(
+        runTurn([
+          updateLine('current_mode_update', { currentModeId: 'plan' }),
+          updateLine('plan', { entries: [{ content: 'approval plan', status: 'in_progress' }] }),
+          updateLine('turn_completed', { stop_reason: 'end_turn' }),
+        ]),
+      ).resolves.toMatchObject({ verdict: { kind: 'done' } })
+
+      await expect(
+        runTurn(
+          [
+            updateLine('current_mode_update', { currentModeId: 'default' }),
+            updateLine('plan', { entries: [{ content: 'later', status: 'pending' }] }),
+            updateLine('turn_completed', { stop_reason: 'end_turn' }),
+          ],
+          'Should I continue?',
+        ),
+      ).resolves.toMatchObject({ verdict: { kind: 'question' } })
+
+      await expect(
+        runTurn([
+          updateLine('plan', { entries: [{ content: 'drifted', status: 'blocked' }] }),
+          updateLine('turn_completed', { stop_reason: 'end_turn' }),
+        ]),
+      ).resolves.toMatchObject({ verdict: { kind: 'done' } })
+
+      await expect(
+        runTurn([
+          updateLine('plan', { entries: [{ content: 'left', status: 'pending' }] }),
+          updateLine('turn_completed', { stop_reason: 'cancelled' }),
+        ]),
+      ).resolves.toMatchObject({ verdict: { kind: 'done' } })
+    } finally {
+      observer.stop()
+    }
+  })
+
   it('frozen history and observer restart emit zero live edges', async () => {
     const home = await mkdtemp(join(tmpdir(), 'podium-grok-frozen-'))
     const cwd = '/repo/grok'
@@ -697,6 +854,145 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
       await waitFor(() => verdictReads === 1)
     } finally {
       observer.stop()
+    }
+  })
+
+  it('restores a plan snapshot before the accepted cursor for a later terminal edge', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-grok-plan-cursor-'))
+    const cwd = '/repo/grok-plan-cursor'
+    const sessionId = 'g-plan-cursor'
+    const paths = grokSessionPaths({ homeDir: home, cwd, sessionId })
+    await mkdir(paths.sessionDir, { recursive: true })
+    await writeFile(paths.summaryPath, JSON.stringify({ info: { id: sessionId, cwd } }))
+    await writeFile(paths.updatesPath, '')
+    await writeFile(paths.chatHistoryPath, JSON.stringify({ type: 'assistant', content: 'Done.' }))
+
+    let checkpoint: SessionObservationCheckpointV1 | null = null
+    const observations: AgentObservation[] = []
+    const first = observeGrokState({
+      homeDir: home,
+      cwd,
+      resumeValue: sessionId,
+      pollMs: 10,
+      causal: {
+        podiumSessionId: asSessionId('podium-plan-cursor'),
+        providerSessionId: sessionId,
+        bindingVersion: 1,
+        observerGeneration: 1,
+        acceptedCheckpoint: null,
+        onObservation: (observation) => observations.push(observation),
+      },
+    })
+    const accept = (observation: AgentObservation): void => {
+      const result = acceptAgentObservation(
+        checkpoint,
+        {
+          provider: 'grok',
+          providerSessionId: sessionId,
+          bindingVersion: 1,
+          observationGeneration: 1,
+        },
+        observation,
+        '2026-07-19T10:00:00.000Z',
+      )
+      if (result.kind === 'rejected') throw new Error(result.rejectionReason)
+      checkpoint = result.checkpoint
+      first.onObservationAck?.({
+        type: 'agentObservationAck',
+        sessionId: asSessionId('podium-plan-cursor'),
+        observerGeneration: 1,
+        bindingVersion: 1,
+        transitionId: observation.transitionId,
+        result: result.kind,
+        acceptedCursor: result.checkpoint.providerCursor,
+        checkpoint: result.checkpoint,
+      })
+    }
+    const updateLine = (sessionUpdate: string, extra: Record<string, unknown> = {}) =>
+      `${JSON.stringify({
+        method: 'session/update',
+        params: { update: { sessionUpdate, ...extra } },
+      })}\n`
+
+    try {
+      await waitFor(() => observations.length === 1)
+      const bootstrapObservation = observations[0]
+      if (!bootstrapObservation) throw new Error('missing bootstrap observation')
+      accept(bootstrapObservation)
+      await appendFile(
+        paths.updatesPath,
+        updateLine('user_message_chunk', { prompt_id: 'plan-prompt' }) +
+          updateLine('plan', {
+            entries: [{ content: 'still open', status: 'in_progress' }],
+          }) +
+          updateLine('hook_execution', { event_name: 'pre_compact' }) +
+          updateLine('hook_execution', { event_name: 'post_compact' }),
+      )
+      for (let expected = 2; expected <= 4; expected += 1) {
+        await waitFor(() => observations.length === expected)
+        const observation = observations[expected - 1]
+        if (!observation) throw new Error('missing live observation')
+        accept(observation)
+      }
+    } finally {
+      first.stop()
+    }
+
+    const acceptedCheckpoint = checkpoint as SessionObservationCheckpointV1 | null
+    if (!acceptedCheckpoint) throw new Error('missing accepted checkpoint')
+    const restartedObservations: AgentObservation[] = []
+    let bootstrapped = false
+    const restarted = observeGrokState({
+      homeDir: home,
+      cwd,
+      resumeValue: sessionId,
+      pollMs: 10,
+      onBootstrap: () => {
+        bootstrapped = true
+      },
+      causal: {
+        podiumSessionId: asSessionId('podium-plan-cursor'),
+        providerSessionId: sessionId,
+        bindingVersion: 1,
+        observerGeneration: 2,
+        acceptedCheckpoint,
+        onObservation: (observation) => restartedObservations.push(observation),
+      },
+    })
+    try {
+      await waitFor(() => bootstrapped)
+      await waitFor(() => restartedObservations.length === 1)
+      const bootstrapObservation = restartedObservations[0]
+      if (!bootstrapObservation) throw new Error('missing restart snapshot')
+      expect(bootstrapObservation).toMatchObject({
+        provenance: 'bootstrap',
+        transitionKind: 'snapshot',
+        nextPhase: 'working',
+      })
+      restarted.onObservationAck?.({
+        type: 'agentObservationAck',
+        sessionId: asSessionId('podium-plan-cursor'),
+        observerGeneration: 2,
+        bindingVersion: 1,
+        transitionId: bootstrapObservation.transitionId,
+        result: 'rejected',
+        rejectionReason: 'cursor_not_after_checkpoint',
+        acceptedCursor: acceptedCheckpoint.providerCursor,
+        checkpoint: acceptedCheckpoint,
+      })
+      await appendFile(
+        paths.updatesPath,
+        updateLine('turn_completed', { stop_reason: 'end_turn', turn_id: 'plan-turn' }),
+      )
+      await waitFor(() => restartedObservations.length === 2)
+      expect(restartedObservations[1]).toMatchObject({
+        provenance: 'live',
+        transitionKind: 'turn_terminal',
+        nextPhase: 'idle',
+        state: { idle: { kind: 'open_todos' } },
+      })
+    } finally {
+      restarted.stop()
     }
   })
 
