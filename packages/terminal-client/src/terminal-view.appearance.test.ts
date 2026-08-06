@@ -51,6 +51,7 @@ describe('TerminalView appearance', () => {
   it('defaults to the pinned font size / line height / theme', () => {
     const view = new TerminalView()
     const o = xtermOptions(view)
+    expect(DEFAULT_FONT_SIZE).toBe(15)
     expect(o.fontSize).toBe(DEFAULT_FONT_SIZE)
     expect(o.lineHeight).toBe(DEFAULT_LINE_HEIGHT)
     expect((o.theme as { background?: string }).background).toBe(DEFAULT_THEME.background)

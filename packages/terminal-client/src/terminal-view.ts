@@ -32,7 +32,7 @@ export interface TerminalViewOptions extends TerminalAppearance {
   diagnostics?: (event: string, data?: TerminalDiagnosticData) => void
 }
 
-export const DEFAULT_FONT_SIZE = 13
+export const DEFAULT_FONT_SIZE = 15
 export const DEFAULT_LINE_HEIGHT = 1.15
 
 /**
