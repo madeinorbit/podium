@@ -99,7 +99,7 @@ function asciiFrame(t: number | null): string {
   return out
 }
 
-function AsciiWordmark({ color }: { color: string }): ReactNode {
+export function AsciiWordmark({ color }: { color: string }): ReactNode {
   const preRef = useRef<HTMLPreElement>(null)
 
   useEffect(() => {

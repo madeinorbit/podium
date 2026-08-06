@@ -88,7 +88,22 @@ describe('SetupGate', () => {
     render(<SetupGate>{child}</SetupGate>)
     // Drive all bounded-backoff retries to exhaustion.
     for (let i = 0; i < 8; i++) await vi.advanceTimersByTimeAsync(4000)
-    expect(screen.getByText(/can.t reach the podium backend/i)).toBeTruthy()
+    expect(screen.getByRole('heading', { name: /the backend went quiet/i })).toBeTruthy()
+    expect(screen.getByText('podium status')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /retry connection/i })).toBeTruthy()
     expect(screen.queryByText('APP-READY')).toBeNull()
+  })
+
+  it('restarts the setup probe when the recovery console retries', async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'))
+    vi.stubGlobal('fetch', fetchMock)
+    render(<SetupGate>{child}</SetupGate>)
+    for (let i = 0; i < 8; i++) await vi.advanceTimersByTimeAsync(4000)
+
+    screen.getByRole('button', { name: /retry connection/i }).click()
+    await vi.advanceTimersByTimeAsync(1)
+
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(7)
   })
 })

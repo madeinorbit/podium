@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useState } from 'react'
-import { AppErrorPage } from '@/app/AppErrorPage'
 import { serverConfig } from '@/app/trpc'
+import { SetupUnreachable } from './SetupUnreachable'
 import { SetupView } from './SetupView'
 import { checkServerVersion } from './version-guard'
 
@@ -48,16 +48,6 @@ async function probeSetup(httpOrigin: string): Promise<'setup' | 'ready'> {
 
 /** Shown after retries are exhausted: the backend never answered, so we cannot tell whether
  *  setup is needed. Better to say so than to silently render the app in an unknown state. */
-function SetupUnreachable({ onRetry }: { onRetry: () => void }): ReactNode {
-  return (
-    <AppErrorPage
-      title="Can’t reach the Podium backend"
-      message="The app couldn’t load its setup status. Check that the server is running, then retry."
-      onRetry={onRetry}
-    />
-  )
-}
-
 /** Gates the app on setup: shows SetupView until a deployment mode is configured. */
 export function SetupGate({ children }: { children: ReactNode }): ReactNode {
   const [phase, setPhase] = useState<Phase>('loading')
@@ -115,7 +105,9 @@ export function SetupGate({ children }: { children: ReactNode }): ReactNode {
   }, [httpOrigin, attempt])
 
   if (phase === 'loading') return null
-  if (phase === 'unreachable') return <SetupUnreachable onRetry={() => setAttempt((n) => n + 1)} />
+  if (phase === 'unreachable') {
+    return <SetupUnreachable httpOrigin={httpOrigin} onRetry={() => setAttempt((n) => n + 1)} />
+  }
   if (phase === 'setup') return <SetupView httpOrigin={httpOrigin} onSaved={onSetupSaved} />
   return <>{children}</>
 }
