@@ -43,6 +43,7 @@ export function MobileTerminalKeyboard({
   const voice = useVoiceInput((text) => mountedRef.current?.connection.sendInput(`${text} `))
   const keyboardOpen = useSoftKeyboardOpen()
   const inactive = !ready || hidden
+  const toolbarOverflow = useToolbarOverflow(toolbarRef, inactive)
   const sendKey = (key: SpecialKey) => {
     mountedRef.current?.connection.sendInput(keySequence(key))
   }
@@ -130,9 +131,55 @@ export function MobileTerminalKeyboard({
           </button>
         ) : null}
       </div>
-      <div ref={toolbarRef} className={inactive ? 'toolbar kb-hidden' : 'toolbar'} />
+      <div
+        className={`toolbar-frame${toolbarOverflow.left ? ' can-scroll-left' : ''}${toolbarOverflow.right ? ' can-scroll-right' : ''}`}
+      >
+        <div ref={toolbarRef} className={inactive ? 'toolbar kb-hidden' : 'toolbar'} />
+      </div>
     </div>
   )
+}
+
+function useToolbarOverflow(
+  toolbarRef: RefObject<HTMLDivElement | null>,
+  inactive: boolean,
+): { left: boolean; right: boolean } {
+  const [overflow, setOverflow] = useState({ left: false, right: false })
+
+  useEffect(() => {
+    const toolbar = toolbarRef.current
+    if (!toolbar || inactive) {
+      setOverflow({ left: false, right: false })
+      return
+    }
+
+    const update = () => {
+      const maxScrollLeft = toolbar.scrollWidth - toolbar.clientWidth
+      const next = {
+        left: toolbar.scrollLeft > 1,
+        right: maxScrollLeft - toolbar.scrollLeft > 1,
+      }
+      setOverflow((current) =>
+        current.left === next.left && current.right === next.right ? current : next,
+      )
+    }
+
+    update()
+    toolbar.addEventListener('scroll', update, { passive: true })
+    const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update)
+    resizeObserver?.observe(toolbar)
+    const mutationObserver =
+      typeof MutationObserver === 'undefined' ? null : new MutationObserver(update)
+    mutationObserver?.observe(toolbar, { childList: true })
+
+    return () => {
+      toolbar.removeEventListener('scroll', update)
+      resizeObserver?.disconnect()
+      mutationObserver?.disconnect()
+    }
+  }, [inactive, toolbarRef])
+
+  return overflow
 }
 
 function useSoftKeyboardOpen(): boolean {
@@ -154,6 +201,24 @@ function useSoftKeyboardOpen(): boolean {
 
 const MOBILE_TERMINAL_KEYBOARD_CSS = `
 .mobile-terminal-keyboard { flex: 0 0 auto; min-width: 0; }
+.mobile-terminal-keyboard .toolbar-frame { position: relative; min-width: 0; }
+.mobile-terminal-keyboard .toolbar-frame::before,
+.mobile-terminal-keyboard .toolbar-frame::after {
+  position: absolute; z-index: 1; top: 1px; width: 30px; height: 38px;
+  display: flex; align-items: center; color: var(--mtk-muted, var(--muted-foreground));
+  font: 18px / 1 var(--mtk-font, var(--font-mono, ui-monospace, monospace));
+  pointer-events: none; opacity: 0; transition: opacity 0.12s ease;
+}
+.mobile-terminal-keyboard .toolbar-frame::before {
+  content: '‹'; left: 0; justify-content: flex-start; padding-left: 4px;
+  background: linear-gradient(90deg, var(--mtk-bar, var(--bar)) 35%, transparent);
+}
+.mobile-terminal-keyboard .toolbar-frame::after {
+  content: '›'; right: 0; justify-content: flex-end; padding-right: 4px;
+  background: linear-gradient(90deg, transparent, var(--mtk-bar, var(--bar)) 65%);
+}
+.mobile-terminal-keyboard .toolbar-frame.can-scroll-left::before,
+.mobile-terminal-keyboard .toolbar-frame.can-scroll-right::after { opacity: 1; }
 .mobile-terminal-keyboard .toolbar {
   display: flex; flex-shrink: 0; align-items: center; gap: 5px;
   padding: 4px 8px calc(8px + (1 - var(--kb-open, 0)) * env(safe-area-inset-bottom, 0px));
@@ -192,7 +257,8 @@ const MOBILE_TERMINAL_KEYBOARD_CSS = `
   flex: 1 1 0; min-width: 0; height: 30px; display: inline-flex;
   align-items: center; justify-content: center; background: var(--mtk-card, var(--card));
   border: 1px solid var(--mtk-hairline-bar, var(--hairline-bar)); border-radius: 6px;
-  color: var(--mtk-muted, var(--muted-foreground)); font: inherit; font-size: 12px;
+  color: var(--mtk-muted, var(--muted-foreground));
+  font: 12px / 1 var(--mtk-font, var(--font-mono, ui-monospace, monospace));
   cursor: pointer; user-select: none; -webkit-user-select: none;
   -webkit-tap-highlight-color: transparent; touch-action: manipulation;
 }
