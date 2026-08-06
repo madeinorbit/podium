@@ -1,5 +1,6 @@
 import type { IssueId, SessionId } from '@podium/model'
-import type { LockRow, LocksRepository, LockSessionKey, LockWaiterRow } from '../../store/locks'
+import type { LockAcquireResultWire, LockHolderWire, LockWire } from '@podium/protocol'
+import type { LockRow, LockSessionKey, LocksRepository, LockWaiterRow } from '../../store/locks'
 import { OPERATOR_LOCK_SESSION } from '../../store/locks'
 import type { WriteFunnel } from '../funnel'
 
@@ -42,31 +43,7 @@ export interface LockCallerIdentity {
  */
 export type LockHolderId = LockSessionKey
 
-export interface LockHolderWire {
-  sessionId: LockHolderId | null
-  issueId: IssueId | null
-  label: string
-}
-
-export interface LockQueueEntryWire extends LockHolderWire {
-  position: number
-  enqueuedAt: string
-}
-
-export interface LockWire {
-  repoId: string
-  name: string
-  holder: LockHolderWire
-  note: string | null
-  acquiredAt: string
-  expiresAt: string
-  secondsLeft: number
-  queue: LockQueueEntryWire[]
-}
-
-export type LockAcquireResult =
-  | { granted: true; alreadyHeld: boolean; lock: LockWire }
-  | { granted: false; position: number; lock: LockWire }
+export type LockAcquireResult = LockAcquireResultWire
 
 export interface LockServiceDeps {
   locks: LocksRepository

@@ -131,6 +131,12 @@ describe('FEATURES registry', () => {
           visibility: 'edge',
         },
         {
+          id: 'merge-queue',
+          name: 'Merge queue',
+          description: 'Show the merge queue tool in the right sidebar.',
+          visibility: 'edge',
+        },
+        {
           id: 'tab-splitting',
           name: 'Tab splitting',
           description: 'Show two workspace tabs side by side.',

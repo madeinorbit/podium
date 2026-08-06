@@ -38,7 +38,6 @@ import { MainViewOutlet } from './routes'
 import { StatusStrip } from './StatusStrip'
 import {
   isOverlayView,
-  MERGE_QUEUE_FEATURE_ID,
   nextBaseView,
   OPEN_RIGHT_PANEL_EVENT,
   RIGHT_PANEL_KEY,
@@ -241,7 +240,7 @@ function AppBody(): JSX.Element {
   const commandPaletteEnabled = useFeature('command-palette')
   const gitPanelEnabled = useFeature('git-panel')
   const messagesPanelEnabled = useFeature('messages-panel')
-  const mergeQueueEnabled = useFeature(MERGE_QUEUE_FEATURE_ID)
+  const mergeQueueEnabled = useFeature('merge-queue')
   const panelAllowed = (panel: RightPanelTab | null): boolean =>
     rightPanelAllowed(panel, {
       git: gitPanelEnabled,

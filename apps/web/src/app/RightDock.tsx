@@ -1,5 +1,10 @@
 import { shallowEqual } from '@podium/client-core/store'
-import { issueForCwd, resolveActiveWorktree } from '@podium/client-core/viewmodels'
+import {
+  cwdInWorktree,
+  issueForCwd,
+  reposToViews,
+  resolveActiveWorktree,
+} from '@podium/client-core/viewmodels'
 import {
   CircleDot,
   FolderTree,
@@ -16,6 +21,7 @@ import { Button } from '@/components/ui/button'
 import { WorktreeFileTree } from '@/features/files/WorktreeFileTree'
 import { GitPanelView } from '@/features/git/GitPanelView'
 import { IssuePanelView } from '@/features/issues/IssuePanelView'
+import { MergeQueuePanel } from '@/features/merge-queue/MergeQueuePanel'
 import { MessageLedgerView } from '@/features/messages/MessageLedgerView'
 import { DockShellPanel } from '@/features/terminal/DockShellPanel'
 import type { RightPanelTab } from './shell-state'
@@ -46,15 +52,18 @@ export function RightDock({
   tab: RightPanelTab
   onClose: () => void
 }): JSX.Element {
-  const { paneA, fileTabs, sessions, selectedIssueId } = useStoreSelector(
-    (s) => ({
-      paneA: s.paneA,
-      fileTabs: s.fileTabs,
-      sessions: s.sessions,
-      selectedIssueId: s.selectedIssueId,
-    }),
-    shallowEqual,
-  )
+  const { paneA, fileTabs, sessions, repos, selectedIssueId, setSelectedIssueId } =
+    useStoreSelector(
+      (s) => ({
+        paneA: s.paneA,
+        fileTabs: s.fileTabs,
+        sessions: s.sessions,
+        repos: s.repos,
+        selectedIssueId: s.selectedIssueId,
+        setSelectedIssueId: s.setSelectedIssueId,
+      }),
+      shallowEqual,
+    )
   const issues = useReplicaIssues()
   const active = useMemo(
     () => resolveActiveWorktree({ paneA, fileTabs, sessions }),
@@ -71,6 +80,38 @@ export function RightDock({
   const selectedIssue = selectedIssueId
     ? issues.find((issue) => issue.id === selectedIssueId && !issue.archived && !issue.deletedAt)
     : undefined
+  const mergeQueueScope = useMemo(() => {
+    if (!active) return null
+
+    for (const repo of reposToViews(repos)) {
+      const worktree = repo.worktrees
+        .filter(
+          (candidate) =>
+            (!active.machineId ||
+              !candidate.machineId ||
+              candidate.machineId === active.machineId) &&
+            cwdInWorktree(active.cwd, candidate.path),
+        )
+        .sort((a, b) => b.path.length - a.path.length)[0]
+      if (worktree) {
+        return {
+          repoId: repo.repoId ?? worktree.repoId ?? null,
+          repoPath: worktree.repoPath,
+        }
+      }
+    }
+
+    // Repository discovery may lag behind the issue replica during startup.
+    // An explicitly attached issue still carries the canonical repository root.
+    const activeIssueId =
+      active.issueId ?? sessions.find((session) => session.sessionId === active.sessionId)?.issueId
+    const activeIssue = activeIssueId
+      ? issues.find((issue) => issue.id === activeIssueId)
+      : issueForCwd(issues, active.cwd)
+    return activeIssue
+      ? { repoId: activeIssue.repoId ?? null, repoPath: activeIssue.repoPath }
+      : null
+  }, [active, issues, repos, sessions])
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-right-dock-panel={tab}>
@@ -150,6 +191,13 @@ export function RightDock({
         ) : (
           <div className="p-3 text-xs text-muted-foreground/70">No active worktree.</div>
         ))}
+      {tab === 'merge-queue' && (
+        <MergeQueuePanel
+          issues={issues}
+          scope={mergeQueueScope}
+          onSelectIssue={(issue) => setSelectedIssueId(issue.id)}
+        />
+      )}
     </div>
   )
 }

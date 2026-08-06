@@ -16,18 +16,18 @@
  * store reads them; inputs match exactly what it sends.
  */
 
-import type { SuperThreadView } from './viewmodels/slices/superagent'
 import type {
   AgentKind,
-  ReadPositionSnapshot,
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
   LayoutSnapshot,
+  ReadPositionSnapshot,
   SessionId,
   WorkState,
 } from '@podium/model'
-import type { SyncChangesSinceResult } from '@podium/protocol'
+import type { LockWire, SyncChangesSinceResult } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
+import type { SuperThreadView } from './viewmodels/slices/superagent'
 import type { PinKind, PinState } from './viewmodels/types'
 
 export interface ApiQuery<I, O> {
@@ -69,6 +69,13 @@ type WithMutationId<T> = T & { mutationId?: string }
 export interface PodiumClientApi {
   sync: {
     changesSince: ApiQuery<{ cursor: number | null }, SyncChangesSinceResult>
+  }
+  /**
+   * Advisory named locks are deliberately queried rather than replicated: the
+   * read performs the authority's lazy-expiry sweep and returns FIFO order.
+   */
+  lock: {
+    status: ApiQuery<{ repoPath: string; name?: string }, LockWire[]>
   }
   discovery: {
     refreshRepos: ApiMutation<

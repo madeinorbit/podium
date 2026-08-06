@@ -5,7 +5,7 @@ import { IdSquare, type IdSquareBadge, idSquareLabel } from '@/components/IdSqua
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { RIGHT_PANELS } from './RightDock'
-import { MERGE_QUEUE_FEATURE_ID, type RightPanelTab, rightPanelAllowed } from './shell-state'
+import { type RightPanelTab, rightPanelAllowed } from './shell-state'
 import type { IssueViewModel } from './store'
 import { useStoreSelector } from './store'
 
@@ -40,7 +40,7 @@ export function RightRail({
   const sessions = useStoreSelector((store) => store.sessions)
   const gitPanelEnabled = useFeature('git-panel')
   const messagesPanelEnabled = useFeature('messages-panel')
-  const mergeQueueEnabled = useFeature(MERGE_QUEUE_FEATURE_ID)
+  const mergeQueueEnabled = useFeature('merge-queue')
   const panelAllowed = (panel: RightPanelTab): boolean =>
     rightPanelAllowed(panel, {
       git: gitPanelEnabled,

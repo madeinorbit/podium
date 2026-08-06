@@ -1,3 +1,4 @@
+import { type MergeLockState, useMergeLockState } from '@podium/client-core/react'
 import { GitMerge, RefreshCw, Timer } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useState } from 'react'
@@ -18,6 +19,62 @@ interface MergeQueuePanelViewProps {
   scope: MergeQueueRepoScope
   onRefresh: () => void
   onSelectIssue: (issue: IssueViewModel) => void
+}
+
+interface MergeQueuePanelProps {
+  issues: readonly IssueViewModel[]
+  scope: MergeQueueRepoScope | null
+  onSelectIssue: (issue: IssueViewModel) => void
+}
+
+/** Project the authoritative lock query into the panel's display-state seam. */
+export function mergeQueuePanelState(state: MergeLockState): MergeQueuePanelState {
+  if (state.loading) return { status: 'loading' }
+  if (state.error && state.refreshedAt === null) {
+    return { status: 'error', message: state.error }
+  }
+
+  return {
+    status: 'ready',
+    lock: state.lock
+      ? {
+          holder: {
+            ...state.lock.holder,
+            acquiredAt: state.lock.acquiredAt,
+            expiresAt: state.lock.expiresAt,
+            secondsLeft: state.lock.secondsLeft,
+            note: state.lock.note,
+          },
+          // The authority has already assigned FIFO order and positions.
+          queue: state.lock.queue,
+        }
+      : null,
+    refreshing: state.refreshing,
+    ...(state.error ? { warning: state.error } : {}),
+  }
+}
+
+/** Live adapter mounted only by the feature-gated merge-queue dock path. */
+export function MergeQueuePanel({
+  issues,
+  scope,
+  onSelectIssue,
+}: MergeQueuePanelProps): JSX.Element {
+  const state = useMergeLockState(scope?.repoPath ?? null)
+
+  if (!scope) {
+    return <div className="p-3 text-xs text-muted-foreground/70">No active repository.</div>
+  }
+
+  return (
+    <MergeQueuePanelView
+      state={mergeQueuePanelState(state)}
+      issues={issues}
+      scope={scope}
+      onRefresh={state.refresh}
+      onSelectIssue={onSelectIssue}
+    />
+  )
 }
 
 function Section({
@@ -317,4 +374,4 @@ export function MergeQueuePanelView({
   )
 }
 
-export type { MergeQueuePanelViewProps }
+export type { MergeQueuePanelProps, MergeQueuePanelViewProps }

@@ -1,3 +1,9 @@
+import type {
+  LockAcquireResultWire,
+  LockHolderWire,
+  LockQueueEntryWire,
+  LockWire,
+} from '@podium/protocol'
 import { z } from 'zod'
 import type { IssueCommand, IssueCommandResult } from './commands.js'
 
@@ -25,33 +31,11 @@ export function parseTtl(raw: string): number {
   return seconds
 }
 
-// ---- wire shapes (mirror apps/server/src/modules/lock/service.ts outputs) ----
+// ---- wire shapes (owned by @podium/protocol; aliases retain the CLI's API) ----
 
-interface HolderWire {
-  sessionId: string | null
-  issueId: string | null
-  label: string
-}
-
-interface QueueEntryWire extends HolderWire {
-  position: number
-  enqueuedAt: string
-}
-
-interface LockWire {
-  repoId: string
-  name: string
-  holder: HolderWire
-  note: string | null
-  acquiredAt: string
-  expiresAt: string
-  secondsLeft: number
-  queue: QueueEntryWire[]
-}
-
-type AcquireWire =
-  | { granted: true; alreadyHeld: boolean; lock: LockWire }
-  | { granted: false; position: number; lock: LockWire }
+type HolderWire = LockHolderWire
+type QueueEntryWire = LockQueueEntryWire
+type AcquireWire = LockAcquireResultWire
 
 const fmtSeconds = (s: number): string => (s >= 60 ? `${Math.floor(s / 60)}m${s % 60}s` : `${s}s`)
 

@@ -55,7 +55,11 @@ describe('LockService', () => {
     expect(r.granted).toBe(true)
     if (!r.granted) throw new Error('unreachable')
     expect(r.alreadyHeld).toBe(false)
-    expect(r.lock.holder).toEqual({ sessionId: asSessionId('sess_1'), issueId: 'iss_1', label: 'issue:#1' })
+    expect(r.lock.holder).toEqual({
+      sessionId: asSessionId('sess_1'),
+      issueId: 'iss_1',
+      label: 'issue:#1',
+    })
     expect(r.lock.secondsLeft).toBe(DEFAULT_LOCK_TTL_SECONDS)
     expect(r.lock.queue).toEqual([])
   })
@@ -74,10 +78,11 @@ describe('LockService', () => {
   })
 
   it('enqueues FIFO with 1-based positions; re-acquire while queued is idempotent', () => {
-    const { svc } = harness()
+    const { svc, advance } = harness()
     svc.acquire(agent(1), { repoPath: REPO, name: 'l' })
     const q2 = svc.acquire(agent(2), { repoPath: REPO, name: 'l' })
     expect(q2).toMatchObject({ granted: false, position: 1 })
+    advance(1_000)
     const q3 = svc.acquire(agent(3), { repoPath: REPO, name: 'l' })
     expect(q3).toMatchObject({ granted: false, position: 2 })
     // waiter dedup: same session again → same position, no duplicate row
@@ -86,6 +91,22 @@ describe('LockService', () => {
     if (q2again.granted) throw new Error('unreachable')
     expect(q2again.lock.queue).toHaveLength(2)
     expect(q2again.lock.holder.label).toBe('issue:#1')
+    expect(q2again.lock.queue).toEqual([
+      {
+        position: 1,
+        sessionId: asSessionId('sess_2'),
+        issueId: asIssueId('iss_2'),
+        label: 'issue:#2',
+        enqueuedAt: '2026-07-13T12:00:00.000Z',
+      },
+      {
+        position: 2,
+        sessionId: asSessionId('sess_3'),
+        issueId: asIssueId('iss_3'),
+        label: 'issue:#3',
+        enqueuedAt: '2026-07-13T12:00:01.000Z',
+      },
+    ])
   })
 
   it('release advances the queue FIFO and mails the new holder; non-holder release errors', () => {
