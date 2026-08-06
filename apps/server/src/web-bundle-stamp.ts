@@ -43,7 +43,7 @@ export type BundleGrade =
   | 'absent'
   /** Stamped, and the digest matches this server. */
   | 'ok'
-  /** Stamped, and the digest does NOT match: one of the two is older. */
+  /** Stamped, and the digest does NOT match: one of the two processes is stale. */
   | 'stale'
   /** No stamp to compare. Cannot be certified; treated as suspect. */
   | 'unstamped'
@@ -60,19 +60,21 @@ export interface BundleStatus {
 /**
  * One sentence a person can act on, or null when there is nothing to say.
  *
- * The action named is REBUILD, not "reload": a reload re-fetches the same stale
- * files. The whole reason this issue existed is that the root build script did
- * not build the web app, so the instruction has to be the specific command that
- * does.
+ * The action names BOTH halves of the pairing, not "reload": a reload re-fetches
+ * the same files and cannot replace a server's already-loaded module graph. A
+ * mismatched digest proves only that the builds differ; it cannot prove which
+ * side is older. The original incident was a stale web dist, but a freshly built
+ * dist beside a long-running source server is the opposite and needs a restart.
  */
 export function describeBundle(status: BundleStatus): string | null {
   if (status.grade === 'ok' || status.grade === 'absent') return null
   const built = status.builtAt ? ` (built ${status.builtAt})` : ''
   return status.grade === 'stale'
-    ? `The web app being served${built} was built from a different protocol schema than this ` +
-        `server (bundle ${status.bundleDigest}, server ${status.serverDigest}). It may drop ` +
-        'messages it cannot read and show incomplete or empty views. Rebuild it: ' +
-        '`bun run build` (or `bun run --filter @podium/web build`).'
+    ? `The web app being served${built} and this server are using different protocol schemas ` +
+        `(bundle ${status.bundleDigest}, server ${status.serverDigest}). The older side may drop ` +
+        'messages it cannot read and show incomplete or empty views. Rebuild the web app with ' +
+        '`bun run build` (or `bun run --filter @podium/web build`), then restart Podium so the ' +
+        'server loads the same source.'
     : 'The web app being served carries no build stamp, so it cannot be checked against this ' +
         'server. It predates the check or was not produced by the build. Rebuild it: ' +
         '`bun run build`.'
@@ -153,10 +155,11 @@ function escapeHtml(text: string): string {
 export function injectBundleWarning(html: string, status: BundleStatus): string {
   const message = describeBundle(status)
   if (!message) return html
+  const title = status.grade === 'stale' ? 'Podium: build mismatch. ' : 'Podium: stale web build. '
   const banner =
     '<div role="alert" style="position:fixed;inset:0 0 auto 0;z-index:2147483647;' +
     'background:#f5c518;color:#1a1a1a;padding:10px 16px;font:600 13px/1.5 ui-sans-serif,system-ui,sans-serif;' +
-    'box-shadow:0 2px 8px rgba(0,0,0,.35)">Podium: stale web build. ' +
+    `box-shadow:0 2px 8px rgba(0,0,0,.35)">${title}` +
     `${escapeHtml(message)}</div>`
   return html.includes('</body>') ? html.replace('</body>', `${banner}</body>`) : html + banner
 }

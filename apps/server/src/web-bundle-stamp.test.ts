@@ -39,7 +39,7 @@ describe('grading a served dist', () => {
     )
   })
 
-  it('calls a dist built from another schema STALE, and names the remedy', () => {
+  it('calls a mismatched pair STALE, and names both halves of the remedy', () => {
     buildDist()
     stamp({ wireSchemaDigest: 'deadbeefdeadbeef', builtAt: '2026-07-31T23:17:00Z' })
     const status = gradeWebBundle(dir)
@@ -51,6 +51,7 @@ describe('grading a served dist', () => {
     // believe it — the incident's dist was three days old and nothing said so.
     expect(message).toContain('2026-07-31T23:17:00Z')
     expect(message).toContain('bun run build')
+    expect(message).toContain('restart Podium')
   })
 
   it('refuses to certify a dist with NO stamp — the pre-fix artefact', () => {
@@ -99,7 +100,7 @@ describe('the warning reaches a bundle that cannot warn about itself', () => {
   it('injects visible markup before </body>', () => {
     const html = injectBundleWarning('<html><body><div id="root"></div></body></html>', stale)
     expect(html).toContain('role="alert"')
-    expect(html).toContain('stale web build')
+    expect(html).toContain('build mismatch')
     expect(html.indexOf('role="alert"')).toBeLessThan(html.indexOf('</body>'))
   })
 
