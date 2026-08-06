@@ -9,10 +9,10 @@ import {
 } from '@podium/client-core/viewmodels'
 import type { TranscriptItem, WorkState } from '@podium/model'
 import { asSessionId, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/model'
-import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
-import { MoreVertical } from 'lucide-react-native'
+import { useLocalSearchParams, useRouter } from 'expo-router'
+import { MoreVertical, SquareTerminal } from 'lucide-react-native'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { KeyboardAvoidingView, Platform, StyleSheet, Text, View } from 'react-native'
+import { KeyboardAvoidingView, Platform, StyleSheet, View } from 'react-native'
 import {
   readTranscriptPage,
   useHub,
@@ -33,9 +33,8 @@ import { type PendingTurn, TranscriptList } from '../components/TranscriptList'
 import { TrayCard, type TrayCardActions } from '../components/TrayCard'
 import { EmptyState } from '../components/ui'
 import { hasSessionBackTarget, sessionBackTarget, sessionHref } from '../lib/session-route'
-import { TerminalPane } from '../terminal/TerminalPane'
 import { FLOW_SLATE, issueColorHex } from '../theme/issueColors'
-import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
+import { color, space } from '../theme/theme'
 import { sessionAbsence } from './session-absence'
 
 const WORK_STATES: (WorkState | null)[] = [
@@ -73,18 +72,6 @@ export function SessionScreen() {
   const [pendingTurns, setPendingTurns] = useState<PendingTurn[]>([])
   const [menuOpen, setMenuOpen] = useState(false)
   const [workMenuOpen, setWorkMenuOpen] = useState(false)
-  // Chat is the default view; 'native' flips to the real PTY in place [POD-131].
-  const [view, setView] = useState<'chat' | 'native'>('chat')
-  // Expo Router keeps covered screens mounted. Feed that visibility into the
-  // same active/inactive contract as the desktop panel deck so a covered PTY
-  // cannot resize the session and returning to it runs reveal recovery.
-  const [screenFocused, setScreenFocused] = useState(true)
-  useFocusEffect(
-    useCallback(() => {
-      setScreenFocused(true)
-      return () => setScreenFocused(false)
-    }, []),
-  )
   const goBack = useCallback(() => {
     if (hasBackTarget) {
       router.dismissTo(backTarget)
@@ -187,7 +174,6 @@ export function SessionScreen() {
 
   const title = session ? sessionTitle(session) : 'Session'
   const issue = useIssue(session?.issueId)
-  const terminalActive = screenFocused && view === 'native'
   // The issue colour flows through the chrome; slate when the issue is uncoloured.
   const accent = issue ? (issueColorHex(issue.color) ?? FLOW_SLATE) : undefined
 
@@ -263,11 +249,12 @@ export function SessionScreen() {
       store.replica.exitKind?.('session', id),
     )
     return (
-      <Screen title="Session" onBack={goBack}>
+      <Screen title="Session" onBack={goBack} safeBottom>
         <EmptyState title={absence.title} body={absence.body} />
       </Screen>
     )
   }
+  const activity = chatActivity(session, false)
 
   return (
     <Screen
@@ -280,6 +267,7 @@ export function SessionScreen() {
       onBack={goBack}
       backLabel="Back"
       accent={accent}
+      safeBottom
       leading={
         issue ? (
           <PressableScale
@@ -292,63 +280,27 @@ export function SessionScreen() {
           </PressableScale>
         ) : undefined
       }
-      // One trailing control [POD-366]. This bar used to carry six — back, ID
-      // square, a two-line title, "Next", the Chat/terminal switch and this
-      // kebab — inside 44px, which left every target undersized and put a
-      // second yellow next to the one that means "needs you". "Next" moved
-      // into the menu; the view switch moved to its own row below.
       right={
-        <HeaderButton label="Session actions" onPress={() => setMenuOpen(true)}>
-          <Icon as={MoreVertical} size={17} color={color.textDim} />
-        </HeaderButton>
+        <>
+          <HeaderButton
+            label="Open terminal"
+            onPress={() => router.push(`/session/${encodeURIComponent(sessionId)}/terminal`)}
+          >
+            <Icon as={SquareTerminal} size={17} color={color.textDim} />
+          </HeaderButton>
+          <HeaderButton label="Session actions" onPress={() => setMenuOpen(true)}>
+            <Icon as={MoreVertical} size={17} color={color.textDim} />
+          </HeaderButton>
+        </>
       }
     >
-      {Platform.OS === 'web' ? (
-        <View style={styles.segmentRow}>
-          <View style={styles.segment}>
-            <PressableScale
-              accessibilityRole="button"
-              accessibilityLabel="Chat view"
-              accessibilityState={view === 'chat' ? { selected: true } : {}}
-              onPress={() => setView('chat')}
-              style={[styles.segmentCell, view === 'chat' && styles.segmentCellActive]}
-            >
-              <Text style={[styles.segmentText, view === 'chat' && styles.segmentTextActive]}>
-                Chat
-              </Text>
-            </PressableScale>
-            <PressableScale
-              accessibilityRole="button"
-              accessibilityLabel="Native agent view"
-              accessibilityState={view === 'native' ? { selected: true } : {}}
-              onPress={() => setView('native')}
-              style={[styles.segmentCell, view === 'native' && styles.segmentCellActive]}
-            >
-              <Text
-                style={[
-                  styles.segmentText,
-                  styles.segmentTextTerminal,
-                  view === 'native' && styles.segmentTextNative,
-                ]}
-              >
-                {'>_'}
-              </Text>
-            </PressableScale>
-          </View>
-        </View>
-      ) : null}
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        {Platform.OS === 'web' ? (
-          <View style={[styles.terminalWrap, view !== 'native' && styles.hidden]}>
-            <TerminalPane sessionId={sessionId} active={terminalActive} />
-          </View>
-        ) : null}
-        {view === 'chat' && loaded && items.length === 0 && pendingTurns.length === 0 ? (
+        {loaded && items.length === 0 && pendingTurns.length === 0 ? (
           <EmptyState fill title="No transcript yet" body="Send a message to get things moving." />
-        ) : view === 'chat' ? (
+        ) : (
           <TranscriptList
             items={items}
             live={session?.status === 'live'}
@@ -368,19 +320,8 @@ export function SessionScreen() {
               if (target) setPeekIssue(target)
             }}
           />
-        ) : null}
-        {(() => {
-          const activity = chatActivity(session, false)
-          if (!activity) return null
-          return (
-            <Text
-              style={[styles.activity, activity.tone === 'attention' && styles.activityAttention]}
-            >
-              {activity.label}
-            </Text>
-          )
-        })()}
-        {view === 'chat' && session.offer && issue ? (
+        )}
+        {session.offer && issue ? (
           <View style={styles.offerWrap}>
             <TrayCard
               item={{
@@ -398,7 +339,12 @@ export function SessionScreen() {
             />
           </View>
         ) : null}
-        {view === 'chat' ? <Composer placeholder="Message the agent…" onSend={send} /> : null}
+        <Composer
+          placeholder="Message the agent…"
+          onSend={send}
+          caption={activity?.label}
+          captionTone={activity?.tone === 'attention' ? 'attention' : 'working'}
+        />
       </KeyboardAvoidingView>
       <TaskPeekSheet
         issue={peekIssue}
@@ -428,82 +374,6 @@ export function SessionScreen() {
 const styles = StyleSheet.create({
   flex: {
     flex: 1,
-  },
-  // Belongs to the composer, not the transcript [POD-366]. With only bottom
-  // padding it butted against the last line of agent prose and read as text
-  // overlapping text; the seam and the breathing room make it a status strip.
-  activity: {
-    ...monoLabel(),
-    color: color.working,
-    paddingHorizontal: space.lg,
-    paddingTop: space.sm,
-    paddingBottom: space.xs + 2,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: color.hairline,
-  },
-  activityAttention: {
-    color: color.needsYou,
-  },
-  // The view switch sits on its own row under the header instead of competing
-  // for the 44px bar [POD-366].
-  segmentRow: {
-    alignItems: 'center',
-    paddingTop: space.sm,
-    paddingHorizontal: space.md,
-  },
-  segment: {
-    flexDirection: 'row',
-    borderWidth: 1,
-    borderColor: color.borderStrong,
-    borderRadius: radius.md,
-    overflow: 'hidden',
-    height: 32,
-  },
-  segmentCell: {
-    paddingHorizontal: 9,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  segmentCellActive: {
-    backgroundColor: color.elevated,
-  },
-  segmentText: {
-    ...sans(600),
-    color: color.textDim,
-    fontSize: font.tiny,
-  },
-  segmentTextActive: {
-    color: color.text,
-  },
-  /**
-   * The `>_` terminal mark (POD-355). Two things kept it from lining up with
-   * the "Chat" label beside it:
-   *  - it asked for `mono(600)` FIRST in the style array, so `segmentText`'s
-   *    `sans(600)` silently won (later styles override earlier ones) and the
-   *    terminal mark rendered in the proportional face;
-   *  - the cell centres each label's LINE BOX, but `>_` has no ascender and its
-   *    underscore sits below the baseline, so its ink lands ~1.5px lower than a
-   *    cap-height word in the same box. Lift it back onto Chat's optical centre
-   *    with a transform, which nudges the glyph without reflowing the 28px strip.
-   */
-  segmentTextTerminal: {
-    ...mono(600),
-    transform: [{ translateY: -1.5 }],
-  },
-  segmentTextNative: {
-    color: color.accent,
-  },
-  terminalWrap: {
-    flex: 1,
-    // minHeight 0 is what keeps the native pane INSIDE the viewport: without it
-    // the terminal's flex child can only grow, and a tall agent frame pushes the
-    // pane past the bottom of the screen (POD-338).
-    minHeight: 0,
-    overflow: 'hidden',
-    backgroundColor: color.bgSunken,
-  },
-  hidden: {
-    display: 'none',
   },
   offerWrap: {
     paddingHorizontal: space.sm + 2,

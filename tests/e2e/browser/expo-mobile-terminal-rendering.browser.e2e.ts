@@ -19,27 +19,10 @@ test('Expo native agent view keeps rapid TUI redraws legible', async ({ page }) 
   await launcher.getByRole('button', { name: 'podium', exact: true }).click()
   await expect(page).toHaveURL(/\/mobile\/session\//, { timeout: 30_000 })
 
-  // Expo Router does not retain the root query on a pushed route. Reload the
-  // session route with the test flag so the terminal exposes its test API at
-  // the initial hidden mount, before the first native reveal.
-  const sessionUrl = new URL(page.url())
-  sessionUrl.searchParams.set('e2e', '1')
-  await page.goto(sessionUrl.href)
-
-  await page.waitForFunction(
-    () =>
-      (
-        window as unknown as {
-          __podium?: { diagnostics(): Array<{ event: string }> }
-        }
-      ).__podium
-        ?.diagnostics()
-        .some((entry) => entry.event === 'mount') === true,
-  )
-  await expect(page.locator('.xterm')).toHaveCount(1)
-  await expect(page.locator('.xterm')).toBeHidden()
-
-  await page.getByRole('button', { name: 'Native agent view' }).click()
+  await page.getByRole('button', { name: 'Open terminal' }).click()
+  const terminalUrl = new URL(page.url())
+  terminalUrl.searchParams.set('e2e', '1')
+  await page.goto(terminalUrl.href)
   await page.waitForFunction(
     () =>
       /keyecho/.test(
@@ -61,19 +44,7 @@ test('Expo native agent view keeps rapid TUI redraws legible', async ({ page }) 
   expect((terminalBox?.y ?? 0) + (terminalBox?.height ?? 0)).toBeLessThanOrEqual(
     page.viewportSize()?.height ?? 0,
   )
-
-  // Desktop keeps AgentPanel's terminal mounted under chat and flips `active`.
-  // Expo must exercise the identical setActive -> reveal -> fit -> WebGL atlas
-  // recovery path, without a second terminal mount.
-  await page.getByRole('button', { name: 'Chat view' }).click()
-  await expect(page.locator('.xterm')).toBeHidden()
-  await expect.poll(() => terminalEventCount(page, 'panel:active-change', false)).toBeGreaterThan(0)
-
-  await page.getByRole('button', { name: 'Native agent view' }).click()
   await expect(page.locator('.xterm')).toBeVisible()
-  await expect.poll(() => terminalEventCount(page, 'panel:active-change', true)).toBeGreaterThan(1)
-  await expect.poll(() => terminalEventCount(page, 'reveal:start')).toBeGreaterThan(1)
-  await expect.poll(() => terminalEventCount(page, 'renderer:recovered')).toBeGreaterThan(0)
   expect(await terminalEventCount(page, 'mount')).toBe(1)
 
   const terminal = page.locator('.xterm')

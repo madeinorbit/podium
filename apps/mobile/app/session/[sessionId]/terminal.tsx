@@ -17,7 +17,7 @@ export default function TerminalRoute() {
     }, []),
   )
   return (
-    <Screen title="Session" onBack={() => router.back()} backLabel="Chat">
+    <Screen title="Session" onBack={() => router.back()} backLabel="Chat" safeBottom>
       <View style={styles.pane}>
         <TerminalPane sessionId={id} active={active} />
       </View>

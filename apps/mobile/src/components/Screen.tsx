@@ -30,6 +30,7 @@ export function Screen({
   children,
   large,
   noHeader,
+  safeBottom,
   accent,
 }: {
   title?: string
@@ -48,6 +49,8 @@ export function Screen({
   children: ReactNode
   large?: boolean
   noHeader?: boolean
+  /** Pay the bottom safe area when no tab bar or sheet owns that inset. */
+  safeBottom?: boolean
   accent?: string
 }) {
   const insets = useSafeAreaInsets()
@@ -59,7 +62,13 @@ export function Screen({
     : null
   return (
     <View style={[styles.root, tint ? tint.body : null]}>
-      <View style={[styles.inner, noHeader ? { paddingTop: insets.top } : null]}>
+      <View
+        style={[
+          styles.inner,
+          noHeader ? { paddingTop: insets.top } : null,
+          safeBottom ? { paddingBottom: insets.bottom } : null,
+        ]}
+      >
         {noHeader ? null : large ? (
           <View style={[styles.largeHeader, { paddingTop: insets.top + space.md }]}>
             <View style={styles.largeTitles}>

@@ -46,14 +46,12 @@ test('the Expo pane says a silent PTY has printed nothing, and stops when it doe
   await page.getByRole('button', { name: 'podium', exact: true }).click()
   await expect(page).toHaveURL(/\/mobile\/session\//, { timeout: 30_000 })
 
-  // Expo Router drops the root query on a pushed route; reloading the session
-  // route with the test flag exposes the terminal's test API — and re-runs the
-  // attach, which is what makes the line below a statement about the SERVER's
-  // record rather than about frames this tab happened to witness.
-  const sessionUrl = new URL(page.url())
-  sessionUrl.searchParams.set('e2e', '1')
-  await page.goto(sessionUrl.href)
-  await page.getByRole('button', { name: 'Native agent view' }).click()
+  await page.getByRole('button', { name: 'Open terminal' }).click()
+  // Expo Router drops the root query on a pushed route; reload the terminal
+  // route with the test flag so its test API records the server-backed attach.
+  const terminalUrl = new URL(page.url())
+  terminalUrl.searchParams.set('e2e', '1')
+  await page.goto(terminalUrl.href)
 
   const silent = page.getByText(/no output yet/)
   await expect(silent).toBeVisible({ timeout: 30_000 })

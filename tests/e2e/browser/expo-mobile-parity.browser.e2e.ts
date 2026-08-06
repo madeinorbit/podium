@@ -116,7 +116,10 @@ test('Expo New Work, task agent creation, and full terminal keyboard work end to
     url.searchParams.set('e2e', '1')
     window.history.replaceState(window.history.state, '', url)
   })
-  await page.getByRole('button', { name: 'Native agent view' }).click()
+  await page.getByRole('button', { name: 'Open terminal' }).click()
+  const terminalUrl = new URL(page.url())
+  terminalUrl.searchParams.set('e2e', '1')
+  await page.goto(terminalUrl.href)
   await page.waitForFunction(
     () => {
       const api = (window as unknown as { __podium?: { screenText(): string } }).__podium
