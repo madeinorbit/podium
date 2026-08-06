@@ -1,5 +1,7 @@
 import { shallowEqual } from '@podium/client-core/store'
+import { issueReferenceModel } from '@podium/client-core/viewmodels'
 import type { JSX } from 'react'
+import { IssueReference } from '@/components/IssueReference'
 import { ConnectionIndicator, useStableConnection } from '@/features/machines/ConnectionIndicator'
 import { useFeature } from '@/lib/use-feature'
 import { useReplicaIssues, useStoreSelector } from './store'
@@ -69,8 +71,12 @@ export function StatusStrip(): JSX.Element {
         <>
           <span className="status-strip-seam" aria-hidden="true" />
           <span className="status-strip-issue" title={issue.title}>
-            <span className="status-strip-ref">{issue.displayRef}</span>
-            <span className="status-strip-issue-title">{issue.title}</span>
+            <IssueReference
+              model={issueReferenceModel(issue)}
+              size={11}
+              refClassName="status-strip-ref"
+              titleClassName="status-strip-issue-title"
+            />
           </span>
         </>
       )}
