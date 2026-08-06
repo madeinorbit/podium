@@ -106,7 +106,7 @@ function MessageEnvelopeRow({
             handleChatMdClick(e, sessionId, cwd, openFile)
           }}
         >
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[9px] tracking-[0.11em] text-muted-foreground/70 uppercase">
+          <div className="shell-type-micro flex flex-wrap items-center gap-x-2 gap-y-1 font-mono tracking-[0.11em] text-muted-foreground/70 uppercase">
             <span className="inline-flex items-center gap-1.5 font-semibold text-info">
               <MailIcon size={11} aria-hidden="true" />
               Internal
@@ -118,12 +118,12 @@ function MessageEnvelopeRow({
               <PrincipalLabel label={envelope.to} />
             </span>
             {envelope.question && (
-              <span className="rounded-sm bg-amber-500/10 px-1.5 py-0.5 font-semibold text-[8px] tracking-wide text-amber-600 dark:text-amber-400">
+              <span className="shell-type-micro rounded-sm bg-amber-500/10 px-1.5 py-0.5 font-semibold tracking-wide text-amber-600 dark:text-amber-400">
                 question
               </span>
             )}
             {envelope.expectsReply && (
-              <span className="rounded-sm bg-info/10 px-1.5 py-0.5 font-semibold text-[8px] tracking-wide text-info">
+              <span className="shell-type-micro rounded-sm bg-info/10 px-1.5 py-0.5 font-semibold tracking-wide text-info">
                 reply requested
               </span>
             )}
@@ -132,12 +132,12 @@ function MessageEnvelopeRow({
             </span>
           </div>
           <div
-            className="chat-md mt-2 border-border/50 border-t pt-2 text-[13px] text-foreground/85"
+            className="chat-md mt-2 border-border/50 border-t pt-2 text-foreground/85"
             // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized by DOMPurify in renderMarkdown
             dangerouslySetInnerHTML={{ __html: html }}
           />
           {envelope.machineNote && (
-            <div className="mt-2 border-border/50 border-t pt-1.5 font-mono text-[9px] text-muted-foreground/55">
+            <div className="shell-type-micro mt-2 border-border/50 border-t pt-1.5 font-mono text-muted-foreground/70">
               {envelope.machineNote}
             </div>
           )}

@@ -53,10 +53,10 @@ export function SectionBar({
       <span className="flex-none text-[11px] leading-none text-attention" aria-hidden="true">
         {glyph}
       </span>
-      <span className="flex-none text-[12px] font-semibold text-text-strong">{title}</span>
+      <span className="shell-type-primary flex-none font-semibold text-text-strong">{title}</span>
       {badge}
       {scope && (
-        <span className="truncate font-mono text-[8px] tracking-[.12em] text-text-faint">
+        <span className="shell-type-micro truncate font-mono tracking-[.12em] text-text-faint">
           {scope}
         </span>
       )}
@@ -97,7 +97,7 @@ export function CountPill({ count }: { count: number }): JSX.Element | null {
   return (
     <span
       data-testid="tray-count-pill"
-      className="flex h-[13px] min-w-[13px] flex-none items-center justify-center rounded-full bg-attention px-[3px] font-mono text-[7.5px] font-bold text-attention-foreground"
+      className="shell-type-micro flex h-[16px] min-w-[16px] flex-none items-center justify-center rounded-full bg-attention px-[4px] font-mono font-bold text-attention-foreground"
     >
       {count}
     </span>

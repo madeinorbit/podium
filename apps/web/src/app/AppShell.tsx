@@ -376,9 +376,9 @@ function AppBody(): JSX.Element {
               storageKey="podium:superagent:width"
               min={320}
               max={860}
-              defaultWidth={460}
+              defaultWidth={400}
               handleLabel="Resize tray and superagent"
-              className="max-w-[55vw]"
+              className="max-w-[45vw]"
             >
               <aside className="engraved-column" data-superagent-mode="open">
                 <SuperagentView onClose={() => setSuperMode('folded')} />

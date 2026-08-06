@@ -70,7 +70,7 @@ export function UnifiedWorktreeRow({
         trailingMeta={
           orphan ? (
             <span
-              className="flex-none font-mono text-[8.5px] text-text-faint"
+              className="shell-type-micro flex-none font-mono text-text-faint"
               data-testid="orphan-provenance"
               title={orphan.hint}
             >

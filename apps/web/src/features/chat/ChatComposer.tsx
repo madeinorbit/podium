@@ -191,17 +191,14 @@ export function ChatComposer({
         />
         <BlockCaret taRef={taRef} value={draft} />
         <div className="flex items-start gap-2">
-          <span
-            className="flex-none pt-[5px] text-[13px] leading-[1.45] text-text-dim"
-            aria-hidden="true"
-          >
+          <span className="shell-type-primary flex-none pt-[5px] text-text-dim" aria-hidden="true">
             &gt;
           </span>
           <Textarea
             ref={taRef}
             rows={1}
             placeholder={placeholder}
-            className="block max-h-44 min-h-0 w-full resize-none overflow-y-auto rounded-none border-0 bg-transparent p-0.5 text-[13px] leading-[1.45] text-foreground caret-transparent outline-none transition-[height] duration-300 ease-[cubic-bezier(0.25,1,0.35,1)] [field-sizing:fixed] placeholder:text-text-faint focus-visible:border-0 focus-visible:ring-0 disabled:bg-transparent disabled:text-muted-foreground disabled:opacity-100 dark:bg-transparent dark:disabled:bg-transparent"
+            className="shell-type-primary block max-h-44 min-h-0 w-full resize-none overflow-y-auto rounded-none border-0 bg-transparent p-0.5 text-foreground caret-transparent outline-none transition-[height] duration-300 ease-[cubic-bezier(0.25,1,0.35,1)] [field-sizing:fixed] placeholder:text-text-faint focus-visible:border-0 focus-visible:ring-0 disabled:bg-transparent disabled:text-muted-foreground disabled:opacity-100 dark:bg-transparent dark:disabled:bg-transparent"
             value={draft}
             disabled={!enabled}
             onChange={(e) => onDraftChange(e.target.value)}

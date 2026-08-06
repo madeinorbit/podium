@@ -189,7 +189,10 @@ export function IdSquare({
     width: size,
     height: size,
     borderRadius: Math.round((size / 26) * 7),
-    fontSize: Math.round((size / 26) * 7 * 10) / 10,
+    // A 30px desktop row square carries useful identity, not decorative type.
+    // Keep smaller rail/mobile variants proportional, but never shrink the
+    // ordinary desktop label below the shell's 10.5px micro role.
+    fontSize: size >= 30 ? 10.5 : Math.round((size / 26) * 7 * 10) / 10,
     borderWidth: 1,
     borderStyle: !hex && resting ? 'dashed' : 'solid',
     borderColor: hex ? 'transparent' : selected ? 'var(--foreground)' : 'var(--border-strong)',

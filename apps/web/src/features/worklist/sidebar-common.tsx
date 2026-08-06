@@ -42,7 +42,7 @@ export const SIDEBAR_ASIDE_CLASS =
 export const SIDEBAR_WIDTH_KEY = 'podium:sidebar:width'
 export const SIDEBAR_WIDTH_MIN = 200
 export const SIDEBAR_WIDTH_MAX = 520
-export const SIDEBAR_WIDTH_DEFAULT = 262
+export const SIDEBAR_WIDTH_DEFAULT = 292
 
 /**
  * A fixed-width column with a drag-to-resize edge (`handleSide`, default right —
@@ -244,7 +244,7 @@ export function StaleSection({
         data-pressable
         type="button"
         className={cn(
-          'flex w-full items-center gap-1 py-[3px] pr-3 text-left text-[10px] font-semibold tracking-[0.08em] uppercase text-muted-foreground/60 hover:text-muted-foreground',
+          'shell-type-micro flex w-full items-center gap-1 py-[3px] pr-3 text-left font-semibold tracking-[0.08em] uppercase text-muted-foreground/70 hover:text-muted-foreground',
           dense ? 'pl-1.5' : 'pl-7',
         )}
         onClick={() => setOpen((v) => !v)}
@@ -283,7 +283,8 @@ function NativeSubagentIndicator({
       data-testid="native-subagent-indicator"
       className={cn(
         'py-[3px] pr-2 font-mono text-muted-foreground/75',
-        dense ? 'min-h-5 pl-1.5 text-[9.5px]' : 'min-h-6 pl-[30px] text-[10px]',
+        dense ? 'min-h-6 pl-1.5' : 'min-h-7 pl-[30px]',
+        'shell-type-micro',
       )}
       title={`${label} running inside this session (native Task tool)`}
       aria-label={line}
@@ -363,7 +364,7 @@ function ConsumedChildren({
       <button
         data-pressable
         type="button"
-        className="flex w-full items-center gap-1 py-[3px] pr-3 pl-2 text-left text-[10px] font-semibold tracking-[0.08em] uppercase text-muted-foreground/60 hover:text-muted-foreground"
+        className="shell-type-micro flex w-full items-center gap-1 py-[3px] pr-3 pl-2 text-left font-semibold tracking-[0.08em] uppercase text-muted-foreground/70 hover:text-muted-foreground"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
@@ -423,7 +424,7 @@ export function AgentRosterBand({
     </>
   )
   const labelClass =
-    'flex w-full items-center gap-1.5 px-0.5 pt-[3px] pb-[2px] text-left font-mono text-[7.5px] font-medium uppercase tracking-[0.11em] text-label'
+    'shell-type-micro flex w-full items-center gap-1.5 px-0.5 pt-[3px] pb-[2px] text-left font-mono font-medium uppercase tracking-[0.11em] text-label'
   const header = onLabelClick ? (
     <button
       data-pressable
@@ -672,7 +673,7 @@ export function PanelRow({
           {/* M6 coordinator/driver badge — who is driving this issue. */}
           {coordinator && (
             <span
-              className="flex-none rounded border border-sky-500/50 bg-sky-500/10 px-1 text-[9px] font-semibold uppercase tracking-wide text-sky-600 dark:text-sky-400"
+              className="shell-type-micro flex-none rounded border border-sky-500/50 bg-sky-500/10 px-1 font-semibold uppercase tracking-wide text-sky-600 dark:text-sky-400"
               data-testid="coordinator-badge"
               title="Coordinator session — drives this issue"
             >
@@ -683,7 +684,7 @@ export function PanelRow({
               (sub-issue) when SessionMeta carries displayRef or issueId. */}
           {issueLinkage && (
             <span
-              className="flex-none font-mono text-[10px] text-text-dim tabular-nums"
+              className="shell-type-micro flex-none font-mono text-text-dim tabular-nums"
               data-testid="session-issue-linkage"
               title={
                 issueDisplayRef?.trim()
@@ -717,14 +718,14 @@ export function PanelRow({
             // Shrinkable, never flex-none: an agent actor's id is a full uuid,
             // and a rigid pair pushed its on-behalf-of half clean off the row.
             // Capped at half the row so the session's NAME still wins the space.
-            className="min-w-0 max-w-[50%] shrink font-mono text-[9.5px] text-text-dim"
+            className="shell-type-micro min-w-0 max-w-[50%] shrink font-mono text-text-dim"
           />
           {/* Unsent composer draft → DRAFT tag (shown wherever a session is listed,
               not just NEEDS YOUR ATTENTION). The session is also lifted by its
               draft-edit time via compareRecency. */}
           {session.draftUpdatedAt && (
             <span
-              className="flex-none rounded border border-input px-1 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground"
+              className="shell-type-micro flex-none rounded border border-input px-1 font-semibold uppercase tracking-wide text-muted-foreground"
               title="Unsent draft"
             >
               Draft
@@ -732,7 +733,7 @@ export function PanelRow({
           )}
           {backFromSnooze && (
             <span
-              className="flex-none rounded border border-amber-500/40 px-1 text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400"
+              className="shell-type-micro flex-none rounded border border-amber-500/40 px-1 font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400"
               title="Snooze ended — back in your queue"
             >
               Unsnoozed
@@ -741,7 +742,7 @@ export function PanelRow({
           {unreadNews && (
             <span
               className={cn(
-                'flex-none rounded border px-1 text-[9px] font-semibold uppercase tracking-wide',
+                'shell-type-micro flex-none rounded border px-1 font-semibold uppercase tracking-wide',
                 unreadNews === 'done'
                   ? 'border-emerald-500/40 text-emerald-600 dark:text-emerald-400'
                   : 'border-sky-500/40 text-sky-600 dark:text-sky-400',
@@ -755,7 +756,7 @@ export function PanelRow({
           {meta && (
             <span
               className={cn(
-                'rowmeta flex-none text-[10px] opacity-80 transition-opacity group-hover:opacity-100',
+                'shell-type-micro rowmeta flex-none opacity-80 transition-opacity group-hover:opacity-100',
                 // Amber is the "needs you" signal alone (POD-293): only an
                 // attention badge earns it. A parked "paused" or any other
                 // state reads dim; a hard error reads red.
@@ -771,7 +772,7 @@ export function PanelRow({
           )}
           {terminalOutcome && (
             <span
-              className="flex-none rounded border border-emerald-500/35 px-1 text-[8.5px] uppercase tracking-wide text-emerald-600 dark:text-emerald-400"
+              className="shell-type-micro flex-none rounded border border-emerald-500/35 px-1 uppercase tracking-wide text-emerald-600 dark:text-emerald-400"
               data-testid="session-outcome-chip"
             >
               {terminalOutcome}
@@ -796,7 +797,7 @@ export function PanelRow({
         <Button
           variant="destructive"
           size="sm"
-          className="mr-1 h-auto flex-none border border-destructive/50 bg-transparent px-1.5 py-px text-[10px] font-normal hover:bg-destructive/10"
+          className="shell-type-micro mr-1 h-auto flex-none border border-destructive/50 bg-transparent px-1.5 py-px font-normal hover:bg-destructive/10"
           title="Send 'continue' to the errored agent"
           onClick={() => void continueSession(session.sessionId)}
         >

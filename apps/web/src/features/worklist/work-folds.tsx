@@ -50,7 +50,7 @@ export function ProjectGroupLabel({
     <div
       data-testid="project-group-label"
       className={cn(
-        'flex items-center gap-1.5 px-1 pb-0.5 font-mono text-[8.5px] leading-[normal] tracking-[.12em] uppercase text-label',
+        'shell-type-micro flex items-center gap-1.5 px-1 pb-0.5 font-mono tracking-[.12em] uppercase text-label',
         first ? 'pt-1' : 'pt-2',
       )}
     >
@@ -66,7 +66,7 @@ export function PinnedSectionLabel(): JSX.Element {
   return (
     <div
       data-testid="pinned-section-label"
-      className="flex items-center gap-1.5 px-1 pt-1 pb-0.5 font-mono text-[8.5px] leading-[normal] tracking-[.12em] uppercase text-label"
+      className="shell-type-micro flex items-center gap-1.5 px-1 pt-1 pb-0.5 font-mono tracking-[.12em] uppercase text-label"
     >
       <Pin size={9} className="flex-none text-attention" aria-hidden="true" />
       <span>Pinned</span>
@@ -174,13 +174,13 @@ export function FoldedWorkRow({
         active ? 'bg-accent' : 'hover:bg-muted',
       )}
     >
-      <span className="flex-none font-mono text-[9px] font-semibold tracking-[.02em] tabular-nums text-text-faint">
+      <span className="shell-type-micro flex-none font-mono font-semibold tracking-[.02em] tabular-nums text-text-faint">
         {issueDisplayRef(issue)}
       </span>
       <span className="min-w-0 flex-1 truncate text-[12px] text-muted-foreground">
         {issue.title}
       </span>
-      <span className="flex flex-none items-center gap-1.5 font-mono text-[8.5px]">
+      <span className="shell-type-micro flex flex-none items-center gap-1.5 font-mono">
         <span className={cn(marker === 'merged' ? 'text-info/70' : 'text-text-faint')}>
           {marker}
         </span>

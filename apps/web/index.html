@@ -21,6 +21,8 @@
           var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
           var isDark = mode === 'system' ? prefersDark : mode === 'dark'
           var el = document.documentElement
+          var density = localStorage.getItem('podium.shell.density') === 'compact' ? 'compact' : 'balanced'
+          el.dataset.density = density
           var desktop = window.__PODIUM_DESKTOP__
           if (desktop && /^(macos|windows|linux)$/.test(desktop.platform)) {
             el.dataset.podiumDesktop = 'true'

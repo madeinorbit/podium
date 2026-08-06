@@ -567,9 +567,11 @@
   --hairline-bar: #283a66;
   --border-strong: #364a78;
   --text-strong: #f3f3f8;
-  --text-dim: #6c7690;
-  --text-faint: #525c78;
-  --label: #7a84a0;
+  /* Shell-secondary text must remain readable on the #0a0f1c ground. The old
+     faint token was 2.88:1 and made ordinary metadata look disabled. */
+  --text-dim: #818ba5;
+  --text-faint: #737e9a;
+  --label: #8b94ac;
   --attention: #f5c518;
   --attention-foreground: #161006;
   --claude: #d97757;

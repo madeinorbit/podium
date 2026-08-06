@@ -214,18 +214,18 @@ export function TrayCard({
         </span>
         <span
           data-testid="tray-title"
-          className="min-w-0 truncate text-[12px] leading-5 text-muted-foreground"
+          className="shell-type-primary min-w-0 truncate text-muted-foreground"
         >
           {issue.title}
         </span>
         {agentSession?.name && (
-          <span className="max-w-[32%] flex-none truncate whitespace-nowrap text-[10.5px] leading-5 text-text-dim">
+          <span className="shell-type-secondary max-w-[32%] flex-none truncate whitespace-nowrap text-text-dim">
             · <span className="text-claude">◆</span> {agentSession.name}
           </span>
         )}
         <span
           className={cn(
-            'ml-auto flex-none font-mono text-[10px] leading-5 tabular-nums text-attention',
+            'shell-type-micro ml-auto flex-none font-mono tabular-nums text-attention',
             arrived && 'morph-flip-ago',
           )}
         >
@@ -288,7 +288,7 @@ export function TrayCard({
               >
                 Cancel
               </button>
-              <span className="ml-auto min-w-0 truncate font-mono text-[9px] tracking-[.04em] text-text-faint">
+              <span className="shell-type-micro ml-auto min-w-0 truncate font-mono tracking-[.04em] text-text-faint">
                 appended to “{item.offer.actions[pending].prompt.slice(0, 32)}…”
               </span>
             </div>

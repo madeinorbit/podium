@@ -1,0 +1,36 @@
+{
+  "density": "balanced",
+  "tokens": {
+    "reading": "14.5px",
+    "primary": "13px",
+    "secondary": "12px",
+    "micro": "10.5px"
+  },
+  "geometry": {
+    "sidebar": {
+      "width": 292,
+      "height": 932
+    },
+    "topbar": {
+      "width": 1440,
+      "height": 44
+    },
+    "row": {
+      "width": 275,
+      "height": 52
+    },
+    "auxiliary": {
+      "width": 400,
+      "height": 932
+    }
+  },
+  "rowType": {
+    "title": "13px",
+    "status": "12px"
+  },
+  "colors": {
+    "faint": "#737e9a",
+    "dim": "#818ba5",
+    "label": "#8b94ac"
+  }
+}

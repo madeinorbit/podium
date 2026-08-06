@@ -141,17 +141,17 @@ export function WorkRowShell({
   const tints = rowTints(hex, phase, active)
   const rowStyle: CSSProperties = active
     ? {
-        background: `color-mix(in srgb, ${accent} ${hex ? 28 : 20}%, var(--sidebar))`,
+        background: `color-mix(in srgb, ${accent} ${hex ? 16 : 14}%, var(--sidebar))`,
         // Inset ring, not a border: selection must not change the row's height
         // (POD-81) — the box stays identical to a plain row's.
-        boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${accent} ${hex ? 80 : 70}%, transparent)`,
+        boxShadow: `inset 2px 0 0 color-mix(in srgb, ${accent} ${hex ? 82 : 70}%, transparent), inset 0 0 0 1px color-mix(in srgb, ${accent} ${hex ? 42 : 34}%, transparent)`,
       }
     : hex
       ? // Var-driven so the hover class can override it — an inline `background`
         // would always beat `hover:` (POD-166: tint-aware hover, +5% mix).
         ({
-          '--row-bg': `color-mix(in srgb, ${hex} 12%, var(--sidebar))`,
-          '--row-hover-bg': `color-mix(in srgb, ${hex} 17%, var(--sidebar))`,
+          '--row-bg': `color-mix(in srgb, ${hex} 6%, var(--sidebar))`,
+          '--row-hover-bg': `color-mix(in srgb, ${hex} 10%, var(--sidebar))`,
         } as CSSProperties)
       : {}
   // A coloured issue's expanded block reads as ONE carved card (POD-293): the row
@@ -178,7 +178,7 @@ export function WorkRowShell({
     >
       <div
         className={cn(
-          'phase-surface group/row relative flex min-w-0 items-center gap-2 rounded-[7px] py-[6.5px] pr-2 pl-3.5',
+          'shell-work-row phase-surface group/row relative flex min-w-0 items-center gap-2 rounded-[7px] pr-2 pl-3.5',
           carded && 'rounded-b-none',
           !active && !hex && 'hover:bg-muted',
           !active && hex && 'bg-[var(--row-bg)] hover:bg-[var(--row-hover-bg)]',
@@ -200,7 +200,7 @@ export function WorkRowShell({
           // Manual-sort grip (POD-168, §4): 10px zone on the row's left edge,
           // visible only on hover — order is the user's, nothing else moves it.
           <span
-            className="absolute inset-y-0 left-0.5 z-[1] flex w-2.5 cursor-grab select-none items-center justify-center text-[9px] leading-none text-transparent transition-colors duration-150 group-hover/row:text-muted-foreground/70"
+            className="shell-type-micro absolute inset-y-0 left-0.5 z-[1] flex w-2.5 cursor-grab select-none items-center justify-center text-transparent transition-colors duration-150 group-hover/row:text-muted-foreground/70"
             style={{ touchAction: 'none' }}
             data-testid="row-grip"
             aria-hidden="true"
@@ -247,7 +247,7 @@ export function WorkRowShell({
             <span className="flex min-w-0 items-center gap-1.5">
               <span
                 className={cn(
-                  'min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[12.5px]',
+                  'shell-type-primary min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap',
                   // Selection lifts to semibold per the handoff; UNREAD keeps its
                   // email-style medium independent of selection (#126).
                   active ? 'font-semibold' : unread && 'font-medium',
@@ -273,7 +273,7 @@ export function WorkRowShell({
                 <span
                   key={`pill:${waitingCount}`}
                   className={cn(
-                    'flex-none rounded-full bg-attention px-[5px] text-[9px] font-bold text-attention-foreground',
+                    'shell-type-micro flex-none rounded-full bg-attention px-[5px] font-bold text-attention-foreground',
                     morph !== null && 'morph-pop',
                   )}
                   role="img"
@@ -289,7 +289,7 @@ export function WorkRowShell({
                 spin-off tick) sit level with the status word, not lifted toward
                 the agent tiles on the line above. */}
             <span
-              className="flex min-w-0 items-baseline gap-1.5 font-mono text-[9.5px]"
+              className="shell-type-secondary flex min-w-0 items-baseline gap-1.5 font-mono"
               style={{ color: tints.status }}
             >
               {/* One lifecycle lockup is the row's first-glance answer. Agent
@@ -347,7 +347,7 @@ export function WorkRowShell({
             // Full content-height (POD-293): the control stretches to align with
             // the top of the square and the bottom of the status line, reading as
             // one clean right-edge action rather than a small floating chip.
-            className="group/tuck flex flex-none items-center gap-1.5 self-stretch rounded-md border border-border bg-chip px-2 font-mono text-[9px] tracking-[0.02em] text-label transition-colors hover:border-border-strong hover:bg-accent hover:text-text-strong"
+            className="shell-type-micro group/tuck flex flex-none items-center gap-1.5 self-stretch rounded-md border border-border bg-chip px-2 font-mono tracking-[0.02em] text-label transition-colors hover:border-border-strong hover:bg-accent hover:text-text-strong"
             title="Tuck this finished task down into Closed — it stays reachable there (click to reopen, or start an agent to pick it back up). Nothing is killed or closed."
             aria-label={`Tuck ${label} into Closed`}
             onClick={(event) => {

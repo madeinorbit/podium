@@ -114,7 +114,7 @@ function IssueFleetSummary({
       })}
       {overflow > 0 && (
         <span
-          className="-ml-1 flex h-[19px] min-w-[19px] items-center justify-center rounded-[6px] border border-border-strong bg-chip px-0.5 font-mono text-[8px] text-muted-foreground"
+          className="shell-type-micro -ml-1 flex h-[21px] min-w-[21px] items-center justify-center rounded-[6px] border border-border-strong bg-chip px-0.5 font-mono text-muted-foreground"
           style={{ zIndex: shown.length + 1 }}
         >
           +{overflow}
@@ -122,7 +122,7 @@ function IssueFleetSummary({
       )}
       {nativeCount > 0 && (
         <span
-          className="-mt-2 -ml-1 rounded-[4px] border border-claude/35 bg-claude/12 px-[2px] font-mono text-[7px] leading-[11px] text-claude"
+          className="shell-type-micro -mt-2 -ml-1 rounded-[4px] border border-claude/35 bg-claude/12 px-[3px] font-mono text-claude"
           style={{ zIndex: shown.length + 2 }}
           data-testid="issue-fleet-subagent-count"
         >
@@ -339,7 +339,7 @@ export function UnifiedIssueRow({
             sinceMs={timing.sinceMs}
             baseMs={timing.baseMs ?? 0}
             totalMs={timing.totalMs}
-            size={9}
+            size={11}
             showSpinner={false}
             plainLanguage
             leadingSeparator
@@ -385,7 +385,7 @@ export function UnifiedIssueRow({
         statusExtra={
           origin && (
             <span
-              className="flex-none font-mono text-[9px] leading-[13px] tabular-nums"
+              className="shell-type-micro flex-none font-mono tabular-nums"
               data-testid="spinoff-origin-tick"
               title={`Spun off from ${issueDisplayRef(origin)} · ${origin.title}`}
             >
@@ -404,7 +404,7 @@ export function UnifiedIssueRow({
                 Hover still surfaces the full ref via titleHint. */}
             {issue.audience === 'agent' && (
               <span
-                className="flex-none rounded border border-slate-500/40 px-1 text-[8.5px] uppercase tracking-wide text-slate-500"
+                className="shell-type-micro flex-none rounded border border-slate-500/40 px-1 uppercase tracking-wide text-slate-500"
                 data-testid="internal-issue-badge"
               >
                 internal
@@ -425,7 +425,7 @@ export function UnifiedIssueRow({
             )}
             {issueReturnedFromDefer(issue, now) && (
               <span
-                className="flex-none rounded border border-amber-500/40 px-1 text-[8.5px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400"
+                className="shell-type-micro flex-none rounded border border-amber-500/40 px-1 font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400"
                 title="Snooze ended — back in your queue"
               >
                 Unsnoozed
@@ -442,14 +442,14 @@ export function UnifiedIssueRow({
             data-pressable
             type="button"
             data-testid="subtree-rollup"
-            className="group/rollup mb-0.5 ml-6 flex w-[calc(100%-2rem)] cursor-pointer items-center gap-1.5 rounded-[5px] px-1.5 py-0.5 text-left font-mono text-[9.5px] leading-[normal] text-muted-foreground/50 hover:bg-white/[.04] hover:text-muted-foreground"
+            className="shell-type-micro group/rollup mb-0.5 ml-6 flex w-[calc(100%-2rem)] cursor-pointer items-center gap-1.5 rounded-[5px] px-1.5 py-0.5 text-left font-mono text-muted-foreground/70 hover:bg-white/[.04] hover:text-muted-foreground"
             title={`Open ${issueIdTitle(issue)} subtask tree`}
             onClick={() => onOpenIssue(issue.id)}
           >
             └ {rollup.total} deeper · {rollup.done}/{rollup.total} done
             <span
               data-hover-reveal
-              className="ml-auto flex-none text-[8.5px] opacity-0 transition-opacity duration-150 group-hover/rollup:opacity-100"
+              className="shell-type-micro ml-auto flex-none opacity-0 transition-opacity duration-150 group-hover/rollup:opacity-100"
               aria-hidden="true"
             >
               open tree ↗

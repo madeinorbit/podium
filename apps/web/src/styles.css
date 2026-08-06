@@ -15,6 +15,50 @@
   /* The single horizontal datum every column header aligns to. Three columns
      used to sit at 88 / 74 / 78px, so no line ran across the window. */
   --section-bar-h: 36px;
+  /* The persistent shell has four semantic type roles. Components choose a
+     role by meaning instead of inventing a local size; terminal output and
+     document content intentionally keep their own scales. */
+  --shell-type-reading: 14.5px;
+  --shell-leading-reading: 23px;
+  --shell-type-primary: 13px;
+  --shell-leading-primary: 18px;
+  --shell-type-secondary: 12px;
+  --shell-leading-secondary: 16px;
+  --shell-type-micro: 10.5px;
+  --shell-leading-micro: 14px;
+}
+html[data-density="compact"] {
+  --shell-type-reading: 14px;
+  --shell-leading-reading: 22px;
+  --shell-type-primary: 12.5px;
+  --shell-leading-primary: 17px;
+  --shell-type-secondary: 11px;
+  --shell-leading-secondary: 15px;
+  /* 10.5px is the ordinary-information floor in both modes. */
+  --shell-type-micro: 10.5px;
+  --shell-leading-micro: 14px;
+}
+.shell-type-reading {
+  font-size: var(--shell-type-reading);
+  line-height: var(--shell-leading-reading);
+}
+.shell-type-primary {
+  font-size: var(--shell-type-primary);
+  line-height: var(--shell-leading-primary);
+}
+.shell-type-secondary {
+  font-size: var(--shell-type-secondary);
+  line-height: var(--shell-leading-secondary);
+}
+.shell-type-micro {
+  font-size: var(--shell-type-micro);
+  line-height: var(--shell-leading-micro);
+}
+.shell-work-row {
+  padding-block: 8px;
+}
+html[data-density="compact"] .shell-work-row {
+  padding-block: 6.5px;
 }
 html,
 body,
@@ -169,7 +213,7 @@ body {
   border-radius: 6px;
   background: transparent;
   color: var(--text-dim);
-  font-size: 11.5px;
+  font-size: var(--shell-type-secondary);
   font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
@@ -200,7 +244,7 @@ body {
 .topbar-mode-badge {
   color: var(--attention);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--shell-type-micro);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   line-height: 1;
@@ -446,7 +490,7 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
   overflow: hidden;
   color: var(--muted-foreground);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--shell-type-micro);
   text-overflow: ellipsis;
   transition: color 150ms ease;
 }
@@ -473,7 +517,8 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
 .header-mark {
   color: var(--text-dim);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--shell-type-micro);
+  line-height: var(--shell-leading-micro);
   font-weight: 600;
   letter-spacing: 0.06em;
   transition: color 150ms ease;
@@ -483,7 +528,7 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
 .header-quota-label {
   color: var(--label);
   font-family: var(--font-mono);
-  font-size: 8.5px;
+  font-size: var(--shell-type-micro);
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -496,11 +541,30 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
   min-width: 3.6ch;
   color: var(--text-dim);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--shell-type-micro);
   font-weight: 500;
   font-variant-numeric: tabular-nums;
   text-align: right;
   transition: color 150ms ease;
+}
+/* Balanced is a glanceable status control: health, machine identity and meter
+   shape remain, while engineering labels and exact percentages move into the
+   existing hover/click detail. Compact preserves the denser instrument readout
+   for operators who explicitly choose it. */
+html[data-density="balanced"] .header-host-indicators :is(.header-mark, .header-value) {
+  display: none;
+}
+html[data-density="balanced"] .header-quota-label {
+  font-size: 0;
+  letter-spacing: 0;
+}
+html[data-density="balanced"] .header-quota-label::before {
+  content: "quota";
+  font-size: var(--shell-type-micro);
+  letter-spacing: 0.08em;
+}
+html[data-density="balanced"] .header-quota-pools {
+  gap: 6px;
 }
 .header-value[data-tone="warn"] {
   color: var(--warning);
@@ -1169,7 +1233,8 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
   align-items: center;
   color: var(--text-faint);
   font-family: var(--font-mono);
-  font-size: 8px;
+  font-size: var(--shell-type-micro);
+  line-height: var(--shell-leading-micro);
   letter-spacing: 0.18em;
   writing-mode: vertical-rl;
 }
@@ -1351,13 +1416,15 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
 .transcript-you .chat-md {
   color: var(--foreground);
   font-weight: 500;
-  font-size: 13.5px;
+  font-size: var(--shell-type-reading);
+  line-height: var(--shell-leading-reading);
 }
 .transcript-you-label {
   display: flex;
   align-items: baseline;
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 8.5px;
+  font-size: var(--shell-type-micro);
+  line-height: var(--shell-leading-micro);
   font-weight: 500;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -1446,7 +1513,8 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
 }
 .transcript-answer-label {
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 8.5px;
+  font-size: var(--shell-type-micro);
+  line-height: var(--shell-leading-micro);
   font-weight: 500;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -1692,7 +1760,8 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
   margin-bottom: 3px;
 }
 .transcript-role {
-  font-size: 10px;
+  font-size: var(--shell-type-micro);
+  line-height: var(--shell-leading-micro);
   font-weight: 600;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -1707,7 +1776,8 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
   opacity: 0.85;
 }
 .transcript-meta {
-  font-size: 10px;
+  font-size: var(--shell-type-micro);
+  line-height: var(--shell-leading-micro);
   color: var(--muted-foreground);
   opacity: 0.6;
   text-transform: none;
@@ -1778,8 +1848,8 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
 /* ── Chat markdown body ──────────────────────────────────────────────────── */
 
 .chat-md {
-  font-size: 14px;
-  line-height: 1.6;
+  font-size: var(--shell-type-reading);
+  line-height: var(--shell-leading-reading);
   color: var(--foreground);
   overflow-wrap: anywhere;
 }
@@ -2728,7 +2798,7 @@ a.ref-link--session::before {
    seven slots with no reading in them yet. The slot claims no height, so it
    states nothing about the days; it just stops the plot from looking broken. */
 .usage-day::before {
-  content: '';
+  content: "";
   position: absolute;
   right: 0;
   bottom: 0;
@@ -2794,7 +2864,7 @@ a.ref-link--session::before {
   background: var(--hairline-soft);
 }
 .usage-refreshing::after {
-  content: '';
+  content: "";
   position: absolute;
   inset: 0 auto 0 0;
   width: 26%;
@@ -3063,15 +3133,15 @@ a.ref-link--session::before {
   padding-bottom: 8px;
 }
 .chat-compact .chat-md {
-  font-size: 13px;
-  line-height: 1.62;
+  font-size: var(--shell-type-reading);
+  line-height: var(--shell-leading-reading);
 }
 .chat-compact .transcript-you {
   padding: 10px 13px;
 }
 .chat-compact .transcript-you .chat-md {
-  font-size: 13px;
-  line-height: 1.58;
+  font-size: var(--shell-type-reading);
+  line-height: var(--shell-leading-reading);
   font-weight: 500;
 }
 .chat-compact .transcript-answer {
@@ -3084,7 +3154,8 @@ a.ref-link--session::before {
   gap: 6px;
   margin-bottom: 4px;
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 9.5px;
+  font-size: var(--shell-type-micro);
+  line-height: var(--shell-leading-micro);
   font-weight: 500;
   letter-spacing: 0.1em;
   text-transform: uppercase;

@@ -108,7 +108,7 @@ export function Tray({
           Nothing waiting on you — anywhere
         </span>
         {working > 0 && (
-          <span className="flex items-center gap-1.5 font-mono text-[10px] leading-5 text-live">
+          <span className="shell-type-micro flex items-center gap-1.5 font-mono text-live">
             <BrailleSpinner size={9} className="min-w-2" />
             {working} agent{working === 1 ? '' : 's'} working
           </span>

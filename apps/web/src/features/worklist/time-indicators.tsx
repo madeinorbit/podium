@@ -42,7 +42,7 @@ export function workingSinceMs(sessions: SessionMeta[]): number | null {
   return earliest
 }
 
-const STAMP_CLASS = 'flex-none text-[10px] tabular-nums text-text-dim'
+const STAMP_CLASS = 'shell-type-micro flex-none tabular-nums text-text-dim'
 
 /** Live elapsed timer for a WORKING row. Ticks every second while the display
  *  shows seconds (<1h), then drops to a once-a-minute tick — each timer owns
