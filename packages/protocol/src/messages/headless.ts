@@ -25,6 +25,10 @@ export const HeadlessTurnEvent = z.discriminatedUnion('kind', [
     status: z.enum(['starting', 'running', 'tool']),
     /** Human label (e.g. the tool name) for status 'tool'. */
     label: z.string().optional(),
+    /** A stream-captured native session id. First-turn Codex/OpenCode drivers
+     *  publish this as soon as the harness reports it so the daemon can bind
+     *  the canonical transcript tail before the turn completes. */
+    harnessSessionId: z.string().optional(),
   }),
 ])
 export type HeadlessTurnEvent = z.infer<typeof HeadlessTurnEvent>

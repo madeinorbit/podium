@@ -54,6 +54,24 @@ function runHeadlessTurnRequest(
     return
   }
   let handle: HeadlessTurnHandle
+  let firstTurnBound = false
+  const bindFirstTurn = (harnessSessionId: string): void => {
+    if (msg.resumeValue || firstTurnBound) return
+    firstTurnBound = true
+    recordHeadlessAllocation(ctx, {
+      sessionId: msg.sessionId,
+      transitionId: `headless:${msg.turnId}:${harnessSessionId}`,
+      attemptId: msg.turnId,
+      nativeKind: msg.agent,
+      value: harnessSessionId,
+    })
+    try {
+      ctx.observers.bindHeadlessSession(msg.sessionId, msg.agent, msg.cwd, harnessSessionId)
+    } catch {
+      // The terminal result retries the binding after completion.
+      firstTurnBound = false
+    }
+  }
   try {
     const spec: HeadlessTurnSpec = {
       agent: msg.agent,
@@ -82,13 +100,17 @@ function runHeadlessTurnRequest(
       },
       durableLabel: ctx.durableLabelFor(msg.sessionId),
     }
-    const emit = (event: HeadlessTurnEvent) =>
+    const emit = (event: HeadlessTurnEvent) => {
+      if (event.kind === 'status' && event.harnessSessionId) {
+        bindFirstTurn(event.harnessSessionId)
+      }
       ctx.send({
         type: 'headlessTurnEvent',
         requestId: msg.requestId,
         sessionId: msg.sessionId,
         event,
       })
+    }
     handle =
       ctx.backend === 'abduco'
         ? runDurableHeadlessTurn(msg.turnId, msg.sessionId, spec, emit, {
@@ -111,32 +133,22 @@ function runHeadlessTurnRequest(
   handle.turnId = msg.turnId
   ctx.runningHeadlessTurns.set(msg.sessionId, handle)
   if (!msg.resumeValue && msg.sessionUuid) {
-    try {
-      recordHeadlessAllocation(ctx, {
-        sessionId: msg.sessionId,
-        transitionId: `headless:${msg.turnId}:${msg.sessionUuid}`,
-        attemptId: msg.turnId,
-        nativeKind: msg.agent,
-        value: msg.sessionUuid,
-      })
-      ctx.observers.bindHeadlessSession(msg.sessionId, msg.agent, msg.cwd, msg.sessionUuid)
-    } catch {
-      // The durable turn still owns the native transcript; completion retries.
-    }
+    bindFirstTurn(msg.sessionUuid)
   }
-  wireTurnResult(ctx, msg, handle)
+  wireTurnResult(ctx, msg, handle, () => firstTurnBound)
 }
 
 function wireTurnResult(
   ctx: DaemonContext,
   msg: Extract<ControlMessage, { type: 'headlessTurnRequest' }>,
   handle: HeadlessTurnHandle,
+  isFirstTurnBound: () => boolean = () => false,
 ): void {
   void handle.done
     .then(({ harnessSessionId, output }) => {
       // First turn: start the transcript tail immediately so streaming-to-chat
       // works from turn 1 without waiting for a bind round-trip.
-      if (!msg.resumeValue) {
+      if (!msg.resumeValue && !isFirstTurnBound()) {
         recordHeadlessAllocation(ctx, {
           sessionId: msg.sessionId,
           transitionId: `headless:${msg.turnId}:${harnessSessionId}`,
@@ -164,7 +176,7 @@ function wireTurnResult(
       // and bind the tail anyway, or the thread is orphaned and the next turn
       // silently starts over in a new conversation.
       const harnessSessionId = err instanceof HeadlessTurnError ? err.harnessSessionId : undefined
-      if (!msg.resumeValue && harnessSessionId) {
+      if (!msg.resumeValue && harnessSessionId && !isFirstTurnBound()) {
         recordHeadlessAllocation(ctx, {
           sessionId: msg.sessionId,
           transitionId: `headless:${msg.turnId}:${harnessSessionId}`,

@@ -1,13 +1,14 @@
-import { asSessionId } from '@podium/model'
 import { randomUUID } from 'node:crypto'
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { asSessionId } from '@podium/model'
 import { abducoHasSession, isAbducoAvailable, killAbducoSession } from '@podium/pty'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   acknowledgeDurableHeadlessTurn,
   buildClaudeDurableExec,
+  createDurableProgressParser,
   runDurableHeadlessTurn,
 } from './durable-headless.js'
 
@@ -17,6 +18,63 @@ afterEach(() => {
 })
 
 describe('durable headless invocation', () => {
+  it('publishes Codex session, tool, and assistant events as stdout lines arrive', () => {
+    const events: Parameters<Parameters<typeof createDurableProgressParser>[1]>[0][] = []
+    const parser = createDurableProgressParser('codex', (event) => events.push(event))
+
+    parser.push('{"type":"thread.started","thread_id":"thread-live"}\n')
+    expect(events).toEqual([{ kind: 'status', status: 'running', harnessSessionId: 'thread-live' }])
+
+    // A partial line must stay buffered; the event appears only when the JSONL
+    // record is complete, still well before any exit/result marker exists.
+    parser.push(
+      '{"type":"item.started","item":{"id":"tool-1","type":"mcp_tool_call","name":"sessions.status"}}',
+    )
+    expect(events).toHaveLength(1)
+    parser.push('\n')
+    expect(events.at(-1)).toEqual({
+      kind: 'status',
+      status: 'tool',
+      label: 'sessions.status',
+    })
+
+    parser.push(
+      '{"type":"item.completed","item":{"id":"msg-1","type":"agent_message","text":"First live update"}}\n',
+    )
+    expect(events.at(-1)).toEqual({
+      kind: 'partial-text',
+      text: 'First live update',
+      itemHint: 'msg-1',
+    })
+  })
+
+  it('publishes cumulative Claude partial text and tool activity from the journal', () => {
+    const events: Parameters<Parameters<typeof createDurableProgressParser>[1]>[0][] = []
+    const parser = createDurableProgressParser('claude-code', (event) => events.push(event))
+
+    parser.push(
+      `${[
+        '{"type":"system","subtype":"init","session_id":"claude-live"}',
+        '{"type":"stream_event","uuid":"msg-1","event":{"type":"message_start"}}',
+        '{"type":"stream_event","uuid":"msg-1","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"Working"}}}',
+        '{"type":"stream_event","uuid":"msg-1","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":" live"}}}',
+        '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read"}]}}',
+      ].join('\n')}\n`,
+    )
+
+    expect(events).toContainEqual({
+      kind: 'status',
+      status: 'running',
+      harnessSessionId: 'claude-live',
+    })
+    expect(events).toContainEqual({
+      kind: 'partial-text',
+      text: 'Working live',
+      itemHint: 'msg-1',
+    })
+    expect(events.at(-1)).toEqual({ kind: 'status', status: 'tool', label: 'Read' })
+  })
+
   it('uses Claude native auto mode and keeps machine context out of stdin', () => {
     const exec = buildClaudeDurableExec(
       {

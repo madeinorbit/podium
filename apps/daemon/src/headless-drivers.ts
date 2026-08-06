@@ -364,7 +364,7 @@ function runCodexTurn(spec: HeadlessTurnSpec, emit: HeadlessEmit): HeadlessTurnH
         }
         if (ev.type === 'thread.started' && ev.thread_id) {
           threadId = ev.thread_id
-          emit({ kind: 'status', status: 'running' })
+          emit({ kind: 'status', status: 'running', harnessSessionId: threadId })
         } else if (
           ev.type === 'item.started' &&
           ev.item?.type &&
@@ -452,7 +452,7 @@ function runResumeExecTurn(
         }
         if (ev.sessionID && !sessionId) {
           sessionId = ev.sessionID
-          emit({ kind: 'status', status: 'running' })
+          emit({ kind: 'status', status: 'running', harnessSessionId: sessionId })
         }
         if (ev.type === 'text' && ev.part?.type === 'text') output += ev.part.text ?? ''
       })

@@ -2,14 +2,19 @@ import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import {
   chmodSync,
+  closeSync,
   existsSync,
   mkdirSync,
+  openSync,
   readFileSync,
+  readSync,
   renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs'
 import { join } from 'node:path'
+import { StringDecoder } from 'node:string_decoder'
 import { declaredValue, type HarnessHeadless, harnessAdapterFor } from '@podium/harness'
 import type { HarnessAgent, SessionId } from '@podium/model'
 import {
@@ -232,7 +237,6 @@ function outcomeFromOutput(
   spec: HeadlessTurnSpec,
   paths: DurablePaths,
   knownSessionId: string | undefined,
-  emit: HeadlessEmit,
 ): HeadlessTurnOutcome {
   const stdout = existsSync(paths.stdout) ? readFileSync(paths.stdout, 'utf8') : ''
   const stderr = existsSync(paths.stderr) ? readFileSync(paths.stderr, 'utf8').trim() : ''
@@ -298,7 +302,6 @@ function outcomeFromOutput(
     output = stdout.trim()
   }
 
-  if (output) emit({ kind: 'partial-text', text: output })
   if (exitCode !== 0) {
     throw new HeadlessTurnError(
       `harness exited ${Number.isNaN(exitCode) ? 'unknown' : exitCode}${stderr ? `: ${stderr.slice(-2000)}` : ''}`,
@@ -309,6 +312,141 @@ function outcomeFromOutput(
     throw new Error(`${spec.agent} turn ended without reporting a session id`)
   }
   return { harnessSessionId, output }
+}
+
+interface DurableProgressParser {
+  push(chunk: string, flush?: boolean): void
+}
+
+/**
+ * Incrementally translate a durable runner's stdout JSONL into the same live
+ * events as the non-durable drivers. The durable process writes stdout to a
+ * journal (not the attached PTY), so this parser is the bridge that keeps a
+ * running turn visible before its exit marker exists.
+ */
+export function createDurableProgressParser(
+  agent: HarnessAgent,
+  emit: HeadlessEmit,
+): DurableProgressParser {
+  const outputFormat = headlessFor(agent).outputFormat
+  let remainder = ''
+  let partialText = ''
+  let partialItem = ''
+  let opencodeText = ''
+
+  const emitPartial = (text: string, itemHint?: string): void => {
+    if (!text || (text === partialText && itemHint === partialItem)) return
+    partialText = text
+    partialItem = itemHint ?? ''
+    emit({
+      kind: 'partial-text',
+      text,
+      ...(itemHint ? { itemHint } : {}),
+    })
+  }
+
+  const parseLine = (line: string): void => {
+    if (!line.trim()) return
+    let event: Record<string, unknown>
+    try {
+      event = JSON.parse(line) as Record<string, unknown>
+    } catch {
+      return
+    }
+
+    if (outputFormat === 'claude-stream-json') {
+      const sessionId = typeof event.session_id === 'string' ? event.session_id : undefined
+      if (event.type === 'system' && event.subtype === 'init') {
+        emit({
+          kind: 'status',
+          status: 'running',
+          ...(sessionId ? { harnessSessionId: sessionId } : {}),
+        })
+        return
+      }
+      if (event.type === 'stream_event') {
+        const stream = event.event as
+          | { type?: string; delta?: { type?: string; text?: string } }
+          | undefined
+        if (stream?.type === 'message_start') {
+          partialText = ''
+          partialItem = ''
+        } else if (stream?.type === 'content_block_delta' && stream.delta?.type === 'text_delta') {
+          emitPartial(
+            partialText + (stream.delta.text ?? ''),
+            typeof event.uuid === 'string' ? event.uuid : undefined,
+          )
+        }
+        return
+      }
+      if (event.type === 'assistant') {
+        const message = event.message as
+          | { content?: Array<{ type?: string; text?: string; name?: string }> }
+          | undefined
+        const content = message?.content ?? []
+        for (const block of content) {
+          if (block.type === 'tool_use') {
+            emit({ kind: 'status', status: 'tool', label: block.name ?? 'tool' })
+          }
+        }
+        const text = content
+          .filter((block) => block.type === 'text')
+          .map((block) => block.text ?? '')
+          .join('')
+        emitPartial(text, typeof event.uuid === 'string' ? event.uuid : undefined)
+      }
+      return
+    }
+
+    if (outputFormat === 'codex-jsonl') {
+      if (event.type === 'thread.started' && typeof event.thread_id === 'string') {
+        emit({
+          kind: 'status',
+          status: 'running',
+          harnessSessionId: event.thread_id,
+        })
+        return
+      }
+      const item = event.item as
+        | { id?: string; type?: string; text?: string; name?: string }
+        | undefined
+      if (event.type === 'item.started' && item?.type && item.type !== 'agent_message') {
+        emit({
+          kind: 'status',
+          status: 'tool',
+          label: item.name ?? item.type,
+        })
+      } else if (event.type === 'item.completed' && item?.type === 'agent_message') {
+        emitPartial(item.text ?? '', item.id)
+      }
+      return
+    }
+
+    if (outputFormat === 'opencode-jsonl') {
+      const sessionId = typeof event.sessionID === 'string' ? event.sessionID : undefined
+      if (sessionId) {
+        emit({ kind: 'status', status: 'running', harnessSessionId: sessionId })
+      }
+      const part = event.part as { type?: string; text?: string } | undefined
+      if (event.type === 'text' && part?.type === 'text') {
+        opencodeText += part.text ?? ''
+        emitPartial(opencodeText)
+      }
+    }
+  }
+
+  return {
+    push(chunk, flush = false): void {
+      remainder += chunk
+      const lines = remainder.split('\n')
+      remainder = lines.pop() ?? ''
+      for (const line of lines) parseLine(line)
+      if (flush && remainder) {
+        parseLine(remainder)
+        remainder = ''
+      }
+    },
+  }
 }
 
 function settledHandle(result: DurableResult, turnId: string): HeadlessTurnHandle {
@@ -348,6 +486,9 @@ export function runDurableHeadlessTurn(
   let timeout: ReturnType<typeof setTimeout> | undefined
   let resolveDone!: (value: HeadlessTurnOutcome) => void
   let rejectDone!: (reason: unknown) => void
+  let stdoutOffset = 0
+  const progress = createDurableProgressParser(spec.agent, emit)
+  const stdoutDecoder = new StringDecoder('utf8')
   const done = new Promise<HeadlessTurnOutcome>((resolve, reject) => {
     resolveDone = resolve
     rejectDone = reject
@@ -372,10 +513,37 @@ export function runDurableHeadlessTurn(
     }
   }
 
+  const readProgress = (flush = false): void => {
+    if (disposed || !existsSync(paths.stdout)) return
+    const size = statSync(paths.stdout).size
+    if (size < stdoutOffset) stdoutOffset = 0
+    if (size > stdoutOffset) {
+      const length = size - stdoutOffset
+      const bytes = Buffer.allocUnsafe(length)
+      const fd = openSync(paths.stdout, 'r')
+      try {
+        const read = readSync(fd, bytes, 0, length, stdoutOffset)
+        stdoutOffset += read
+        const chunk = bytes.subarray(0, read)
+        progress.push(flush ? stdoutDecoder.end(chunk) : stdoutDecoder.write(chunk), flush)
+      } finally {
+        closeSync(fd)
+      }
+    } else if (flush) {
+      progress.push(stdoutDecoder.end(), true)
+    }
+  }
+
   const collect = (): void => {
-    if (disposed || !existsSync(paths.exit)) return
+    if (disposed) return
+    readProgress()
+    if (!existsSync(paths.exit)) return
+    readProgress(true)
     try {
-      const outcome = outcomeFromOutput(spec, paths, knownSessionId, emit)
+      const outcome = outcomeFromOutput(spec, paths, knownSessionId)
+      if (headlessFor(spec.agent).outputFormat === 'text' && outcome.output) {
+        emit({ kind: 'partial-text', text: outcome.output })
+      }
       finish({ ok: true, ...outcome })
     } catch (error) {
       finish({

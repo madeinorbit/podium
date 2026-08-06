@@ -33,12 +33,13 @@
       "wire": {
         "kind": "status",
         "status": "running",
-        "label": "label"
+        "label": "label",
+        "harnessSessionId": "harnessSessionId"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"kind\":\"status\",\"status\":\"running\",\"label\":\"label\"}"
+      "encoded": "{\"kind\":\"status\",\"status\":\"running\",\"label\":\"label\",\"harnessSessionId\":\"harnessSessionId\"}"
     },
     {
       "schema": "HeadlessActivityEvent",
@@ -105,13 +106,14 @@
         "event": {
           "kind": "status",
           "status": "running",
-          "label": "event.label"
+          "label": "event.label",
+          "harnessSessionId": "event.harnessSessionId"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"headlessActivity\",\"sessionId\":\"sessionId\",\"event\":{\"kind\":\"status\",\"status\":\"running\",\"label\":\"event.label\"}}"
+      "encoded": "{\"type\":\"headlessActivity\",\"sessionId\":\"sessionId\",\"event\":{\"kind\":\"status\",\"status\":\"running\",\"label\":\"event.label\",\"harnessSessionId\":\"event.harnessSessionId\"}}"
     },
     {
       "schema": "HeadlessActivityMessage",
@@ -286,12 +288,13 @@
       "wire": {
         "kind": "status",
         "status": "running",
-        "label": "label"
+        "label": "label",
+        "harnessSessionId": "harnessSessionId"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"kind\":\"status\",\"status\":\"running\",\"label\":\"label\"}"
+      "encoded": "{\"kind\":\"status\",\"status\":\"running\",\"label\":\"label\",\"harnessSessionId\":\"harnessSessionId\"}"
     },
     {
       "schema": "HeadlessTurnEventMessage",
@@ -338,13 +341,14 @@
         "event": {
           "kind": "status",
           "status": "running",
-          "label": "event.label"
+          "label": "event.label",
+          "harnessSessionId": "event.harnessSessionId"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"headlessTurnEvent\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"event\":{\"kind\":\"status\",\"status\":\"running\",\"label\":\"event.label\"}}"
+      "encoded": "{\"type\":\"headlessTurnEvent\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"event\":{\"kind\":\"status\",\"status\":\"running\",\"label\":\"event.label\",\"harnessSessionId\":\"event.harnessSessionId\"}}"
     },
     {
       "schema": "HeadlessTurnRequestMessage",

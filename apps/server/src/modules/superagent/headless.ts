@@ -139,6 +139,31 @@ export class HeadlessService {
   /** Fan a headless turn-activity event out to every connected client
    *  (turn-start/turn-end markers + the daemon's mid-turn progress events). */
   broadcastHeadlessActivity(sessionId: SessionId, event: HeadlessActivityEvent): void {
+    const session = this.deps.getSession(sessionId)
+    if (session?.headless) {
+      const nextPhase = event.kind === 'turn-end' ? 'idle' : 'working'
+      const prior = session.agentState
+      if (prior?.phase !== nextPhase) {
+        const now = new Date()
+        const priorTotal = prior?.workingMsTotal ?? 0
+        const completedStretch =
+          prior?.phase === 'working' ? Math.max(0, now.getTime() - Date.parse(prior.since)) : 0
+        session.setAgentState({
+          phase: nextPhase,
+          since: now.toISOString(),
+          workingMsTotal: priorTotal + completedStretch,
+          nativeSubagentCount: prior?.nativeSubagentCount ?? 0,
+          ...(nextPhase === 'idle'
+            ? { idle: { kind: event.kind === 'turn-end' && event.error ? 'interrupted' : 'done' } }
+            : {}),
+          stateSource: 'poll',
+          stateConfidence: 1,
+          stateObservedAt: now.toISOString(),
+        })
+        this.deps.persist(session)
+        this.deps.broadcastSessions()
+      }
+    }
     const msg: LiveServerMessage = { type: 'headlessActivity', sessionId, event }
     for (const c of this.deps.clients()) c.send(msg)
   }

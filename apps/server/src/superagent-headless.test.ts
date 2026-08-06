@@ -355,11 +355,21 @@ describe('sendTurn (headless harness turns)', () => {
     expect(
       h.sa.listThreads(FIRST_ADMIN_USER_ID).find((thread) => thread.id === 'global')?.turnRunning,
     ).toBe(true)
+    await expect(
+      h.registry.modules.readToolkit.status(ack.podiumSessionId, 'operator'),
+    ).resolves.toMatchObject({
+      phase: 'working',
+    })
     h.resolveTurn(req, { harnessSessionId: 'h1' })
     await h.settle()
     expect(
       h.sa.listThreads(FIRST_ADMIN_USER_ID).find((thread) => thread.id === 'global')?.turnRunning,
     ).toBe(false)
+    await expect(
+      h.registry.modules.readToolkit.status(ack.podiumSessionId, 'operator'),
+    ).resolves.toMatchObject({
+      phase: 'idle',
+    })
   })
 
   it('forwards turn events + boundary markers as headlessActivity broadcasts', async () => {
