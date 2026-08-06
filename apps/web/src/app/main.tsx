@@ -6,7 +6,6 @@ import { MotionDemo } from '@/lib/motion/MotionDemo'
 import { AppShell } from './AppShell'
 import '@/index.css'
 import '@/styles.css'
-import { DensityProvider } from './density'
 import { redirectPhoneToMobileApp } from './mobile-entry-redirect'
 import { ThemeProvider } from './theme'
 import { WireSkewBanner } from './WireSkewBanner'
@@ -22,22 +21,20 @@ if (!redirectPhoneToMobileApp()) {
   createRoot(root).render(
     <StrictMode>
       <ThemeProvider>
-        <DensityProvider>
-          {/* OUTSIDE every gate (POD-1610). The boot check raises its notice before
-              login or setup resolve, and a build that cannot read the server is
-              worth saying on any screen — a banner mounted deeper renders only on
-              the screens the skew has not already broken. */}
-          <WireSkewBanner />
-          {showMotionDemo ? (
-            <MotionDemo />
-          ) : (
-            <LoginGate>
-              <SetupGate>
-                <AppShell />
-              </SetupGate>
-            </LoginGate>
-          )}
-        </DensityProvider>
+        {/* OUTSIDE every gate (POD-1610). The boot check raises its notice before
+            login or setup resolve, and a build that cannot read the server is
+            worth saying on any screen — a banner mounted deeper renders only on
+            the screens the skew has not already broken. */}
+        <WireSkewBanner />
+        {showMotionDemo ? (
+          <MotionDemo />
+        ) : (
+          <LoginGate>
+            <SetupGate>
+              <AppShell />
+            </SetupGate>
+          </LoginGate>
+        )}
       </ThemeProvider>
     </StrictMode>,
   )

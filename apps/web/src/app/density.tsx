@@ -1,18 +1,13 @@
+import {
+  readStoredDensity,
+  SHELL_DENSITY_KEY,
+  type ShellDensity,
+  type UiState,
+} from '@podium/client-core/ui-state'
 import type { JSX, ReactNode } from 'react'
 import { createContext, useContext, useLayoutEffect, useState } from 'react'
 
-export type ShellDensity = 'balanced' | 'compact'
-
-/** Device-local because density follows the screen and the person using it. */
-export const SHELL_DENSITY_KEY = 'podium.shell.density'
-
-export function readStoredDensity(): ShellDensity {
-  try {
-    return localStorage.getItem(SHELL_DENSITY_KEY) === 'compact' ? 'compact' : 'balanced'
-  } catch {
-    return 'balanced'
-  }
-}
+export { readStoredDensity, SHELL_DENSITY_KEY, type ShellDensity }
 
 export function applyDensity(density: ShellDensity, root: HTMLElement): void {
   root.dataset.density = density
@@ -25,18 +20,19 @@ interface DensityContextValue {
 
 const DensityContext = createContext<DensityContextValue | null>(null)
 
-export function DensityProvider({ children }: { children: ReactNode }): JSX.Element {
-  const [density, setDensityState] = useState<ShellDensity>(readStoredDensity)
+export function DensityProvider({
+  children,
+  uiState,
+}: {
+  children: ReactNode
+  uiState: Pick<UiState, 'get' | 'set'>
+}): JSX.Element {
+  const [density, setDensityState] = useState<ShellDensity>(() => readStoredDensity(uiState))
 
   useLayoutEffect(() => {
     applyDensity(density, document.documentElement)
-    try {
-      localStorage.setItem(SHELL_DENSITY_KEY, density)
-    } catch {
-      // Storage can be unavailable in hardened/private webviews. The live
-      // preference still applies for this app session.
-    }
-  }, [density])
+    uiState.set(SHELL_DENSITY_KEY, density)
+  }, [density, uiState])
 
   return (
     <DensityContext.Provider value={{ density, setDensity: setDensityState }}>

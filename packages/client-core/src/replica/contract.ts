@@ -306,6 +306,7 @@ export const LEGACY_UI_KEYS = [
   PANEL_MODE_DEFAULT_LEGACY,
   'podium.echoHud',
   'podium.switchTrace',
+  'podium.shell.density',
 ] as const
 
 /** Legacy key PREFIXES (dynamic suffixes: collapsed sections, sidebar width,

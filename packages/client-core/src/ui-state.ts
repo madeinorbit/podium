@@ -182,6 +182,8 @@ export const CLIENT_DEVICE_LOCAL_UI_KEYS = [
   'podium.sounds.enabled',
   'podium.sounds.ownerWindow',
   'podium.terminal.appearance',
+  /** Desktop shell spacing — a preference for this screen/device. */
+  'podium.shell.density',
   'podium:tray:open',
   'podium:superagent:chat',
   'podium:tray:height',
@@ -198,8 +200,16 @@ export const CHAT_VERBOSITY_KEY = 'podium.chat.verbosity'
 export const SOUNDS_ENABLED_KEY = 'podium.sounds.enabled'
 export const SOUND_OWNER_KEY = 'podium.sounds.ownerWindow'
 export const TERMINAL_APPEARANCE_KEY = 'podium.terminal.appearance'
+export const SHELL_DENSITY_KEY = 'podium.shell.density'
 export const ECHO_HUD_KEY = 'podium.echoHud'
 export const SWITCH_TRACE_KEY = 'podium.switchTrace'
+
+export type ShellDensity = 'balanced' | 'compact'
+
+/** Parse the device-local shell density, defaulting absent/corrupt values to balanced. */
+export function readStoredDensity(ui: Pick<UiState, 'get'>): ShellDensity {
+  return ui.get(SHELL_DENSITY_KEY) === 'compact' ? 'compact' : 'balanced'
+}
 /** Superagent column mode (open | folded) — replicated via layout-state. */
 export const SUPERAGENT_MODE_KEY = 'podium:superagent:mode'
 export const SIDEBAR_COLLAPSED_KEY = 'podium:sidebar:collapsed'

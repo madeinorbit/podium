@@ -5,8 +5,10 @@ import {
   createMemoryRouterWindow,
   createRoutedUiState,
   createRouterUiState,
-  requireReplicatedLayoutKey,
   type ReplicatedUiStatePort,
+  readStoredDensity,
+  requireReplicatedLayoutKey,
+  SHELL_DENSITY_KEY,
   UI_STATE_KEYS,
   UI_STATE_ROUTES,
   uiStateRoute,
@@ -104,6 +106,19 @@ describe('workspace ui-state routing', () => {
     expect(replicated.get(UI_STATE_KEYS.split)).toBeUndefined()
     expect(replicated.get('panelMode')).toBe('{"s1":"chat"}')
     expect(local.get(UI_STATE_KEYS.panelMode)).toBeNull()
+  })
+
+  it('routes shell density through the device-local replica adapter', () => {
+    const local = memoryUi()
+    const replicated = replicatedUi()
+    const ui = createRoutedUiState({ local, replicated })
+
+    expect(readStoredDensity(ui)).toBe('balanced')
+    ui.set(SHELL_DENSITY_KEY, 'compact')
+
+    expect(readStoredDensity(ui)).toBe('compact')
+    expect(local.get(SHELL_DENSITY_KEY)).toBe('compact')
+    expect(replicated.get(SHELL_DENSITY_KEY)).toBeUndefined()
   })
 
   it('moves legacy replicated values once, then removes the principal-local copy', () => {

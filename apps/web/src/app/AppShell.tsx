@@ -2,7 +2,7 @@ import { shallowEqual } from '@podium/client-core/store'
 import { trayCount } from '@podium/client-core/viewmodels'
 import type { IssueColorSlot } from '@podium/model'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
-import type { CSSProperties, JSX } from 'react'
+import type { CSSProperties, JSX, ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { IssuePeekOverlay } from '@/components/IssuePeekOverlay'
@@ -29,6 +29,7 @@ import { AsciiLoader } from './AsciiLoader'
 import { AutoContinueDialog } from './AutoContinueDialog'
 import { BrowserOpenOverlay } from './BrowserOpenOverlay'
 import { CommandPalette } from './CommandPalette'
+import { DensityProvider } from './density'
 import { ErrorBoundary } from './ErrorBoundary'
 import { FoldedSuperagentBar } from './FoldedSuperagentBar'
 import { RightDock } from './RightDock'
@@ -157,15 +158,17 @@ export function AppShell(): JSX.Element {
                 authorityScoped={kernel.authorityScoped}
               />
             ) : null}
-            <ThemeUiStateMirror />
-            <BrowserOpenOverlay />
-            <ConfirmProvider>
-              {/* Above both TopBar and the view outlet: the command bar's centre
-                  is a portal target the active mode fills (POD-365). */}
-              <ToolbarSlotProvider>
-                <AppBody />
-              </ToolbarSlotProvider>
-            </ConfirmProvider>
+            <RoutedDensityProvider>
+              <ThemeUiStateMirror />
+              <BrowserOpenOverlay />
+              <ConfirmProvider>
+                {/* Above both TopBar and the view outlet: the command bar's centre
+                    is a portal target the active mode fills (POD-365). */}
+                <ToolbarSlotProvider>
+                  <AppBody />
+                </ToolbarSlotProvider>
+              </ConfirmProvider>
+            </RoutedDensityProvider>
           </StoreProvider>
         </ErrorBoundary>
       )}
@@ -176,6 +179,11 @@ export function AppShell(): JSX.Element {
       />
     </TooltipProvider>
   )
+}
+
+function RoutedDensityProvider({ children }: { children: ReactNode }): JSX.Element {
+  const uiState = useStoreSelector((s) => s.uiState)
+  return <DensityProvider uiState={uiState}>{children}</DensityProvider>
 }
 
 function AppBody(): JSX.Element {

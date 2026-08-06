@@ -1,18 +1,20 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { applyDensity, readStoredDensity, SHELL_DENSITY_KEY } from './density'
 
-afterEach(() => localStorage.clear())
+function uiState(value: string | null) {
+  return { get: vi.fn(() => value) }
+}
 
 describe('shell density', () => {
   it('defaults to balanced and reads compact explicitly', () => {
-    expect(readStoredDensity()).toBe('balanced')
-    localStorage.setItem(SHELL_DENSITY_KEY, 'compact')
-    expect(readStoredDensity()).toBe('compact')
+    expect(readStoredDensity(uiState(null))).toBe('balanced')
+    const compact = uiState('compact')
+    expect(readStoredDensity(compact)).toBe('compact')
+    expect(compact.get).toHaveBeenCalledWith(SHELL_DENSITY_KEY)
   })
 
   it('treats unknown values as balanced', () => {
-    localStorage.setItem(SHELL_DENSITY_KEY, 'tiny')
-    expect(readStoredDensity()).toBe('balanced')
+    expect(readStoredDensity(uiState('tiny'))).toBe('balanced')
   })
 
   it('applies the density as root document state', () => {
