@@ -27,6 +27,7 @@ import { ArrowDownToLine, ChevronDown, ChevronRight, Pin } from 'lucide-react-na
 import { useCallback, useMemo, useState } from 'react'
 import { SectionList, StyleSheet, Text, View } from 'react-native'
 import { useBooting, useMobileStore, useSessions } from '../client/hooks'
+import { useMobileShell } from '../client/shell'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { Icon } from '../components/Icon'
 import { IdSquare, type IdSquareState } from '../components/IdSquare'
@@ -120,6 +121,7 @@ export function WorkScreen() {
   const store = useMobileStore()
   const sessionsAll = useSessions()
   const booting = useBooting()
+  const { notice } = useMobileShell()
   const { listRef, refreshControl, refreshAccessibilityProps, refreshing, onRefresh, connected } =
     useRefreshableTab('work')
   const tabBarInset = useTabBarInset()
@@ -235,6 +237,9 @@ export function WorkScreen() {
       subtitle={`${issueCount} task${issueCount === 1 ? '' : 's'} · ${agentCount} agent${agentCount === 1 ? '' : 's'}`}
       right={<NewWorkButton />}
     >
+      {/* Never silent (ADR 6 D4.4): storage degradation is owed to the user, not
+          a log line. Outside the crossfade so the skeleton cannot hide it. */}
+      {notice ? <Text style={styles.notice}>{notice}</Text> : null}
       {/* Crossfade OUTSIDE the refresh boundary: while the replica is still
           resolving there is nothing to pull-to-refresh, so the skeleton should
           cover the refresh affordance too rather than invite a gesture that
@@ -608,6 +613,12 @@ const styles = StyleSheet.create({
   listContent: {
     flexGrow: 1,
     paddingHorizontal: space.sm + 2,
+  },
+  notice: {
+    color: color.textDim,
+    fontSize: font.small,
+    paddingHorizontal: space.xl,
+    paddingBottom: space.sm,
   },
   groupLabel: {
     flexDirection: 'row',
