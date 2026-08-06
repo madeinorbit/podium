@@ -1,13 +1,14 @@
-import type { SessionMeta, WorkState } from '@podium/model'
+import { idleVerdictNeedsHuman, type SessionMeta, type WorkState } from '@podium/model'
 
 /**
  * The home board's attention triage. The whole point of the product: the user
  * should know where they're needed without reading terminals.
  *
  *   needsYou — the agent is blocked on the human (question, permission, plan
- *              approval, retryable error, open todos it stopped on).
+ *              approval, retryable error, a turn the human interrupted).
  *   idle     — finished or quiet; ordered by recency so "parked just now" beats
- *              "parked last week".
+ *              "parked last week". A turn that ended with open todos lands here:
+ *              it finished, and an unfinished list is not a request (POD-415).
  *   working  — running fine without us; lowest priority for the eyes.
  *
  * Archived sessions never appear here (callers filter), exited shells aren't
@@ -28,8 +29,11 @@ export function attentionGroup(s: SessionMeta): AttentionGroup {
   const phase = s.agentState?.phase
   if (phase === 'needs_user' || phase === 'errored') return 'needsYou'
   if (phase === 'idle') {
-    const kind = s.agentState?.idle?.kind
-    return kind && kind !== 'done' ? 'needsYou' : 'idle'
+    // Which verdicts are a REQUEST is the model's answer, not a `!== 'done'`
+    // test here: 'open_todos' ends the turn like 'done' and is merely reported
+    // (idleVerdictNeedsHuman), so a fleet of agents with leftover list items
+    // does not fill this group. [POD-415]
+    return idleVerdictNeedsHuman(s.agentState?.idle?.kind) ? 'needsYou' : 'idle'
   }
   if (phase === 'working' || phase === 'compacting') {
     // A gone or parked process cannot be working, however stale its last phase
@@ -53,8 +57,10 @@ export function attentionGroup(s: SessionMeta): AttentionGroup {
 }
 
 /**
- * The one line shown under a needs-you card: the agent's *actual* question when
- * the instrumentation captured one — far higher signal than a generic badge.
+ * The one line under a session card: the agent's *actual* question when the
+ * instrumentation captured one — far higher signal than a generic badge. A
+ * needs-you card quotes it; a quiet card (an idle session that stopped with open
+ * todos) prints it dim, which is the whole of what that verdict earns (POD-415).
  */
 export function attentionSummary(s: SessionMeta): string | null {
   const state = s.agentState

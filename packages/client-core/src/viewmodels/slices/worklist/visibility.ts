@@ -6,7 +6,7 @@
  * these read like shared worklist/issues state, but every consumer is a
  * worklist row-placement decision, so they stay in worklist.
  */
-import type { IssueWire, SessionMeta } from '@podium/model'
+import { idleVerdictFinishedTurn, type IssueWire, type SessionMeta } from '@podium/model'
 import {
   isClosedTopLevelIssue,
   issueAwaitingMerge,
@@ -43,7 +43,9 @@ export function sessionVisibleInSidebar(s: SessionMeta, now: number, issue?: Iss
   const issueFinished =
     issue !== undefined && (issue.stage === 'done' || issue.closedReason != null)
   const agentState = s.agentState
-  const idleDone = agentState?.phase === 'idle' && agentState.idle?.kind === 'done'
+  // A turn that ended with open todos ended: it decays with the finished issue
+  // like any other completed run, rather than pinning the row forever (POD-415).
+  const idleDone = agentState?.phase === 'idle' && idleVerdictFinishedTurn(agentState.idle?.kind)
   const finishedAt =
     s.stoppedAt ??
     (agentState?.phase === 'ended'

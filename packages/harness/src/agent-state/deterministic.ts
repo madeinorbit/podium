@@ -129,7 +129,15 @@ export function deterministicStateToEvents(state: DeterministicAgentState): Agen
         },
       ]
     case 'idle.needs_input.open_todo_list':
-      return [{ kind: 'turn_completed' }]
+      // The label says the agent's own task list still had items — report it as
+      // the verdict rather than dropping to the reducer's bare 'done' default
+      // (POD-415). A provider only reaches this case having OBSERVED the list.
+      return [
+        {
+          kind: 'turn_completed',
+          verdict: { kind: 'open_todos', summary: state.summary ?? 'open todo list' },
+        },
+      ]
     case 'idle.needs_input.text_question':
       return [
         {

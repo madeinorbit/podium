@@ -96,12 +96,18 @@ describe('attentionGroup', () => {
     expect(attentionGroup(base({ agentState: state('needs_user') }))).toBe('needsYou')
     expect(attentionGroup(base({ agentState: state('errored') }))).toBe('needsYou')
   })
-  it('idle splits on the verdict: done is calm, question/approval/todos want you', () => {
+  it('idle splits on the verdict: done and open todos are calm, question/approval want you', () => {
     expect(attentionGroup(base({ agentState: state('idle', { idle: { kind: 'done' } }) }))).toBe(
       'idle',
     )
     expect(attentionGroup(base({ agentState: state('idle') }))).toBe('idle')
-    for (const kind of ['question', 'approval', 'open_todos'] as const) {
+    // POD-415: an agent that stopped with items left on its own todo list has
+    // finished its turn. It is reported, never escalated — otherwise every
+    // session in a running fleet would queue up here.
+    expect(
+      attentionGroup(base({ agentState: state('idle', { idle: { kind: 'open_todos' } }) })),
+    ).toBe('idle')
+    for (const kind of ['question', 'approval'] as const) {
       expect(attentionGroup(base({ agentState: state('idle', { idle: { kind } }) }))).toBe(
         'needsYou',
       )

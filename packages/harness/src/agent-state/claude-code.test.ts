@@ -852,6 +852,55 @@ describe('classifyIdleTranscript', () => {
     expect(classifyIdleTranscript(records, 'default')).toEqual({ kind: 'done' })
   })
 
+  it('stopping with items left on the todo list → open_todos (POD-415)', () => {
+    // The classifier has produced this label since June; the adapter used to
+    // flatten it to a bare 'done', which is why the kind the wire and four UI
+    // surfaces already understood was never reported by anyone.
+    const records = parse([
+      userLine('Ship the migration'),
+      assistantLine([
+        {
+          type: 'tool_use',
+          id: 'todo1',
+          name: 'TodoWrite',
+          input: {
+            todos: [
+              { content: 'write the migration', status: 'completed' },
+              { content: 'backfill the column', status: 'pending' },
+            ],
+          },
+        },
+      ]),
+      userLine([{ type: 'tool_result', tool_use_id: 'todo1', content: 'Todos updated' }]),
+      assistantLine([text('Migration written.')]),
+    ])
+    expect(classifyClaudeTranscriptState(records, 'default')).toMatchObject({
+      status: 'resolved',
+      label: 'idle.needs_input.open_todo_list',
+    })
+    expect(classifyIdleTranscript(records, 'default')).toEqual({
+      kind: 'open_todos',
+      summary: 'open todo list',
+    })
+  })
+
+  it('every todo completed → plain done, no open_todos verdict', () => {
+    const records = parse([
+      userLine('Ship the migration'),
+      assistantLine([
+        {
+          type: 'tool_use',
+          id: 'todo1',
+          name: 'TodoWrite',
+          input: { todos: [{ content: 'write the migration', status: 'completed' }] },
+        },
+      ]),
+      userLine([{ type: 'tool_result', tool_use_id: 'todo1', content: 'Todos updated' }]),
+      assistantLine([text('Migration written. All 42 tests pass.')]),
+    ])
+    expect(classifyIdleTranscript(records, 'default')).toEqual({ kind: 'done' })
+  })
+
   it('unresolved trailing tool-use-only assistant records are working internally', () => {
     const records = parse([
       assistantLine([text('Should I delete the legacy table?')]),

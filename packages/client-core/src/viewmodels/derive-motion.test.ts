@@ -38,12 +38,21 @@ describe('motionPhase — the four phases of the motion grammar', () => {
     expect(motionPhase(sess({ agentState: agentState({ phase: 'errored' }) }))).toBe('waiting')
   })
 
-  it('idle with a pending verdict (question/approval/open_todos) is waiting', () => {
-    for (const kind of ['question', 'approval', 'open_todos'] as const) {
+  it('idle with a pending verdict (question/approval) is waiting', () => {
+    for (const kind of ['question', 'approval'] as const) {
       expect(motionPhase(sess({ agentState: agentState({ phase: 'idle', idle: { kind } }) }))).toBe(
         'waiting',
       )
     }
+  })
+
+  it('a turn that ended with open todos is done, not waiting (POD-415)', () => {
+    // The verdict reports an unfinished LIST, not an unfinished turn: the row
+    // keeps the finished ✓ and says "todos open" quietly, instead of joining the
+    // amber needs-you stillness a whole fleet would otherwise land in.
+    expect(
+      motionPhase(sess({ agentState: agentState({ phase: 'idle', idle: { kind: 'open_todos' } }) })),
+    ).toBe('done')
   })
 
   it('a pending offer overrides the completed turn verdict', () => {

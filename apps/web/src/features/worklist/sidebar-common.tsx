@@ -15,7 +15,7 @@ import {
   sessionIssueLinkage,
 } from '@podium/client-core/viewmodels'
 import type { SessionMeta } from '@podium/model'
-import { isSnoozed, returnedFromSnooze } from '@podium/model'
+import { idleVerdictFinishedTurn, isSnoozed, returnedFromSnooze } from '@podium/model'
 import { ChevronDown, ChevronRight, X } from 'lucide-react'
 import type {
   JSX,
@@ -542,17 +542,24 @@ export function PanelRow({
   // A timed snooze that has lapsed but isn't cleared yet → the session just came
   // back into the queue; mark it (compareRecency already lifts it by its deadline).
   const backFromSnooze = returnedFromSnooze(session, now)
-  const idleDone = session.agentState?.phase === 'idle' && session.agentState.idle?.kind === 'done'
+  const idleDone =
+    session.agentState?.phase === 'idle' && idleVerdictFinishedTurn(session.agentState.idle?.kind)
   // A service restart can park a delegate after its harness has authoritatively
   // reported completion. "Paused" implies unfinished work, so keep the terminal
   // verdict as the user-facing truth while the row follows completion decay.
   const hibernated = session.status === 'hibernated' && !idleDone
+  // "todos open" is the one QUIET verdict that still has something to say: the
+  // turn ended with items left on the agent's list. It is not attention (no
+  // amber, no sound, not needs-you — POD-415), so it would have fallen out of
+  // this row entirely on tone alone; it earns the meta slot and reads dim below.
+  const quietVerdict =
+    session.agentState?.phase === 'idle' && session.agentState.idle?.kind === 'open_todos'
   // Status word right of the name (mock's "needs review"/"paused" meta):
   // attention and error states show their badge label; a parked session reads
   // "paused". Non-retryable errors have no Continue button, so this label is
   // their only explicit status text. [spec:SP-dae6]
   const meta =
-    hibernated || badge?.tone === 'attention' || badge?.tone === 'error'
+    hibernated || quietVerdict || badge?.tone === 'attention' || badge?.tone === 'error'
       ? hibernated
         ? 'paused'
         : badge?.label
@@ -581,8 +588,9 @@ export function PanelRow({
     session.unread && !active && !suppressUnread && !isSessionWorking(session) && !snoozed
   // The weight bump alone was invisible when scanning after a notification
   // sound (POD-81) — name the news in a chip. A finished turn is the case with
-  // no other signal at all (attention/error rows already carry their amber
-  // meta, stopped sessions their outcome chip), so it gets an explicit DONE;
+  // no other signal at all (attention/error rows carry their amber meta, a
+  // "todos open" row its dim one, stopped sessions their outcome chip), so it
+  // gets an explicit DONE;
   // anything else unread reads NEW. Cleared by opening the session.
   const unreadNews =
     unreadEmphasis && !meta && !terminalOutcome

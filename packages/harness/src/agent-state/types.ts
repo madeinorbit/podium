@@ -21,12 +21,16 @@ export type AgentStateEvent = (
   /** Liveness heartbeat (tool use etc.) — anything that proves the agent is computing. */
   | { kind: 'activity' }
   | { kind: 'needs_user'; need: 'question' | 'permission'; summary?: string }
-  /** Turn ended cleanly. Verdict (when the provider can classify) excludes
-   *  'open_todos' — that kind exists on the wire for other signals; the reducer
-   *  does not invent it (nativeSubagentCount is live subagents, not todos). */
+  /** Turn ended cleanly. The verdict is the PROVIDER's — only an adapter that
+   *  actually observed the agent's task list may report 'open_todos' (Claude
+   *  Code's classifier does, off TodoWrite; POD-415). The reducer never invents
+   *  it: nativeSubagentCount is live subagents, not todos. */
   | {
       kind: 'turn_completed'
-      verdict?: { kind: 'done' | 'question' | 'approval' | 'interrupted'; summary?: string }
+      verdict?: {
+        kind: 'done' | 'question' | 'approval' | 'interrupted' | 'open_todos'
+        summary?: string
+      }
     }
   | { kind: 'turn_failed'; errorClass: string; retryable: boolean }
   | { kind: 'compaction'; phase: 'start' | 'end' }

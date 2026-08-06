@@ -18,6 +18,7 @@
  */
 import {
   type AgentKind,
+  idleVerdictFinishedTurn,
   type IssueWire,
   type SessionMeta,
 } from '@podium/model'
@@ -114,8 +115,11 @@ export function agentBadge(meta: SessionMeta, issue?: IssueWire): AgentBadge | n
           return { label: 'needs answer', tone: 'attention', showContinue: false }
         case 'approval':
           return { label: 'plan ready', tone: 'attention', showContinue: false }
+        // Quiet but visible, like 'interrupted' below: the turn ended, the list
+        // did not. With a fleet running that is ordinary, so it names itself on
+        // the row and stops there — no amber, no sound, no needs-you (POD-415).
         case 'open_todos':
-          return { label: 'todos open', tone: 'attention', showContinue: false }
+          return { label: 'todos open', tone: 'idle', showContinue: false }
         case 'interrupted':
           return { label: 'interrupted', tone: 'idle', showContinue: false }
         default:
@@ -245,11 +249,13 @@ export type MotionPhase = 'queued' | 'working' | 'waiting' | 'done'
 /**
  * Collapse harness phase + shell busyness + liveness into the motion phase.
  * Kept in lock-step with the existing grammar: `waiting` is exactly
- * `attentionGroup === 'needsYou'` (offer/question/permission/error/open todos —
- * hibernated sessions keep their last phase, so a parked "needs input" still
- * reads amber), and `working` is exactly `isSessionWorking` (the green-dot
- * predicate). A finished run (`idle.kind === 'done'` or `ended`) is `done`;
- * starting/exited/uninstrumented-quiet sessions fall through to `queued`.
+ * `attentionGroup === 'needsYou'` (offer/question/permission/error — hibernated
+ * sessions keep their last phase, so a parked "needs input" still reads amber),
+ * and `working` is exactly `isSessionWorking` (the green-dot predicate). A
+ * finished run (`idleVerdictFinishedTurn` or `ended`) is `done` — including a
+ * turn that ended with open todos, which finished and merely says so on the row
+ * (POD-415); starting/exited/uninstrumented-quiet sessions fall through to
+ * `queued`.
  */
 export function motionPhase(s: SessionMeta, issue?: IssueWire): MotionPhase {
   const state = s.agentState
@@ -262,7 +268,10 @@ export function motionPhase(s: SessionMeta, issue?: IssueWire): MotionPhase {
     const finished = issue !== undefined && (issue.stage === 'done' || issue.closedReason != null)
     if (!(finished && s.offer && !hasNonOfferNeedsYou(s))) return 'waiting'
   }
-  if (state?.phase === 'ended' || (state?.phase === 'idle' && state.idle?.kind === 'done')) {
+  if (
+    state?.phase === 'ended' ||
+    (state?.phase === 'idle' && idleVerdictFinishedTurn(state.idle?.kind))
+  ) {
     return 'done'
   }
   if (isSessionWorking(s)) return 'working'

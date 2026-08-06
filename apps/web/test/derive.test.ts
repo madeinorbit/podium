@@ -379,9 +379,13 @@ describe('agentBadge', () => {
     expect(
       agentBadge(sessionWithState(stateAt('idle', { idle: { kind: 'approval' } })))?.label,
     ).toBe('plan ready')
-    expect(
-      agentBadge(sessionWithState(stateAt('idle', { idle: { kind: 'open_todos' } })))?.label,
-    ).toBe('todos open')
+    // POD-415: visible on the row, and quiet — the same tone as 'interrupted',
+    // so the dot stays blue and the session never reads as needing you.
+    expect(agentBadge(sessionWithState(stateAt('idle', { idle: { kind: 'open_todos' } })))).toEqual({
+      label: 'todos open',
+      tone: 'idle',
+      showContinue: false,
+    })
   })
 
   it('needs_user is attention with the need spelled out', () => {

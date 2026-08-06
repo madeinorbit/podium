@@ -66,10 +66,10 @@ export function audibleCondition(s: SessionMeta): NotificationCue | null {
         return 'question'
       case 'approval':
         return 'approval'
-      case 'open_todos':
-        return 'question'
       default:
-        // 'interrupted' (the human did it) and bare idle stay silent.
+        // 'interrupted' (the human did it), 'open_todos' (the turn ended, the
+        // list didn't — ordinary, and nothing to page a human over: POD-415)
+        // and bare idle all stay silent.
         return null
     }
   }

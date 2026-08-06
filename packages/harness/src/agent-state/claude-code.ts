@@ -635,7 +635,7 @@ const MAX_PENDING_INPUT_ORIGINS = 64
 const MAX_SEEN_HOOK_RECORDS = 256
 
 type IdleClassification = {
-  kind: 'done' | 'question' | 'approval' | 'interrupted'
+  kind: 'done' | 'question' | 'approval' | 'interrupted' | 'open_todos'
   summary?: string
 }
 
@@ -1079,7 +1079,12 @@ function idleClassificationFromState(
     case 'idle.needs_input.text_question':
       return { kind: 'question', ...(state.summary ? { summary: state.summary } : {}) }
     case 'idle.needs_input.open_todo_list':
-      return { kind: 'done', summary: state.summary ?? 'open todo list' }
+      // The turn DID end — this verdict only adds that the agent's own task list
+      // still had items on it, which the row says quietly and nothing else acts
+      // on (idleVerdictFinishedTurn). Reported since POD-415; before that the
+      // label arrived and was flattened to a bare 'done', so the kind the wire
+      // and four UI surfaces already understood was never produced by anyone.
+      return { kind: 'open_todos', summary: state.summary ?? 'open todo list' }
     default:
       return undefined
   }

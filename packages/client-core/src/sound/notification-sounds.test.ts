@@ -116,6 +116,25 @@ describe('audibleCondition', () => {
     expect(audibleCondition(meta({ sessionId: asSessionId('s') }))).toBeNull()
   })
 
+  it('stays silent when a turn ends with open todos (POD-415)', () => {
+    // The verdict says the agent's own list is unfinished — ordinary with a fleet
+    // running, and not worth a cue in a room full of them. It sits with
+    // 'interrupted' and bare idle, NOT with the question/approval sounds.
+    expect(
+      audibleCondition(
+        meta({
+          sessionId: asSessionId('s'),
+          agentState: {
+            phase: 'idle',
+            since: SINCE,
+            nativeSubagentCount: 0,
+            idle: { kind: 'open_todos', summary: 'open todo list' },
+          },
+        }),
+      ),
+    ).toBeNull()
+  })
+
   it('stays silent for shells, headless sessions, archived rows, and interruptions', () => {
     expect(
       audibleCondition(meta({ sessionId: asSessionId('s'), agentKind: 'shell', agentState: idleDone() })),

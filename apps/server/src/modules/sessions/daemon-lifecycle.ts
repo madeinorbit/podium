@@ -1,5 +1,5 @@
 import { acceptAgentObservation } from '@podium/harness/metadata'
-import type { AgentRuntimeState, SessionId } from '@podium/model'
+import { type AgentRuntimeState, idleVerdictNeedsHuman, type SessionId } from '@podium/model'
 import type {
   ControlMessage,
   LiveServerMessage,
@@ -51,7 +51,10 @@ export interface SessionDaemonLifecyclePorts {
 function isAttentionPhase(state: AgentRuntimeState | undefined): boolean {
   const phase = state?.phase
   if (phase === 'needs_user' || phase === 'errored') return true
-  if (phase === 'idle') return !!state?.idle && state.idle.kind !== 'done'
+  // The model owns which verdicts are a REQUEST: entering attention clears the
+  // session's snoozes and ends an "until next message" defer on its issue, so an
+  // ordinary turn that merely ended with open todos must NOT count (POD-415).
+  if (phase === 'idle') return idleVerdictNeedsHuman(state?.idle?.kind)
   return false
 }
 
