@@ -1,9 +1,9 @@
 import { relativeTime } from '@podium/client-core'
-import { offerKey, type TrayItem } from '@podium/client-core/viewmodels'
+import { issueReferenceModel, offerKey, type TrayItem } from '@podium/client-core/viewmodels'
 import type { IssueGitState, SessionMeta } from '@podium/model'
-import { issueDisplayRef } from '@podium/protocol'
 import { type CSSProperties, type JSX, useState } from 'react'
 import type { IssueViewModel } from '@/app/store'
+import { IssueReference } from '@/components/IssueReference'
 import { OfferArtifactStrip } from '@/features/chat/OfferArtifactStrip'
 import { composeOfferPrompt } from '@/features/chat/OfferBar'
 import { effectiveIssueColorHex } from '@/lib/issueColors'
@@ -199,25 +199,15 @@ export function TrayCard({
       // buttons stop propagation so acting never also navigates.
       onClick={() => actions.onOpenSession(item)}
     >
-      {/* Header row (§2.3-v3): square · mono ref · title · ◆ agent · frozen ago */}
+      {/* Header row: live workflow glyph · mono ref · title · ◆ agent · frozen ago. */}
       <div className="flex min-w-0 items-center gap-2">
-        <span
-          className="size-2 flex-none rounded-[3px]"
-          style={{ background: 'var(--issue)' }}
-          aria-hidden="true"
+        <IssueReference
+          model={issueReferenceModel(issue)}
+          className="min-w-0"
+          refClassName="text-[10.5px] leading-5"
+          titleClassName="shell-type-primary text-muted-foreground"
+          titleTestId="tray-title"
         />
-        <span
-          className="flex-none font-mono text-[10.5px] leading-5"
-          style={{ color: 'color-mix(in srgb, var(--issue) 65%, var(--text-strong))' }}
-        >
-          {issueDisplayRef(issue)}
-        </span>
-        <span
-          data-testid="tray-title"
-          className="shell-type-primary min-w-0 truncate text-muted-foreground"
-        >
-          {issue.title}
-        </span>
         {agentSession?.name && (
           <span className="shell-type-secondary max-w-[32%] flex-none truncate whitespace-nowrap text-text-dim">
             · <span className="text-claude">◆</span> {agentSession.name}

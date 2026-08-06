@@ -1,6 +1,7 @@
 import type { SpawnTarget } from '@podium/client-core'
 import { shallowEqual } from '@podium/client-core/store'
 import {
+  issueReferenceModel,
   lastUsedMaps,
   panelLabel,
   type RepoNavView,
@@ -14,6 +15,7 @@ import { isSnoozed, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/model'
 import { resolveRole } from '@podium/runtime'
 import type { JSX } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { IssueReference } from '@/components/IssueReference'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { STAGE_LABELS } from '@/features/issues/issue-card'
@@ -283,12 +285,12 @@ function PaletteDialog({
     }
     // ── Navigate: issues (store's live list + server search hits, deduped) ──
     const localIds = new Set<string>()
-    const issueCmd = (i: Pick<IssueWire, 'id' | 'title' | 'stage'>): PaletteCommand => ({
+    const issueCmd = (i: IssueWire): PaletteCommand => ({
       id: `nav-issue:${i.id}`,
       group: 'navigate',
       label: i.title,
-      keywords: ['issue'],
-      hint: STAGE_LABELS[i.stage],
+      keywords: ['issue', i.displayRef ?? `#${i.seq}`, STAGE_LABELS[i.stage]],
+      issueReference: issueReferenceModel(i),
       run: () => {
         setOpenIssueId(i.id)
         setView('issues')
@@ -562,9 +564,17 @@ function PaletteDialog({
                     onMouseMove={() => setHighlight(idx)}
                     onClick={() => runRow(idx)}
                   >
-                    <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
-                      {cmd.label}
-                    </span>
+                    {cmd.issueReference ? (
+                      <IssueReference
+                        model={cmd.issueReference}
+                        className="min-w-0 flex-1"
+                        titleClassName="text-foreground"
+                      />
+                    ) : (
+                      <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
+                        {cmd.label}
+                      </span>
+                    )}
                     {cmd.hint && (
                       <span className="ml-auto flex-none text-[11px] text-muted-foreground/70">
                         {cmd.hint}

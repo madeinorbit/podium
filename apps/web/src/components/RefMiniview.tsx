@@ -1,5 +1,6 @@
 import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
+import { type IssueReferenceModel, issueReferenceModel } from '@podium/client-core/viewmodels'
 import type { IssueId } from '@podium/model'
 import { formatLong, truncateTitle } from '@podium/protocol'
 import { Copy, ExternalLink, GripVertical, PanelRight, Play, User, X } from 'lucide-react'
@@ -14,7 +15,6 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import { useReplicaIssues, useStoreSelector } from '@/app/store'
-import { StageChip } from '@/features/issues/IssuePanelView'
 import { isIssueStartable } from '@/features/issues/issue-startable'
 import { copyToClipboard } from '@/lib/clipboard'
 import { setKnownRefPrefixes } from '@/lib/markdown'
@@ -35,6 +35,7 @@ import {
   sessionWorkingIssueRef,
 } from '@/lib/ref-miniview'
 import { cn } from '@/lib/utils'
+import { IssueReference } from './IssueReference'
 
 /**
  * Root-mounted host for the single floating ref miniview (#474, area 7). Owns:
@@ -180,6 +181,28 @@ export function RefCard({
       : target?.kind === 'session'
         ? target.session.name || target.session.title || ''
         : ''
+  const issueRefModel: IssueReferenceModel | null =
+    target?.kind === 'issue'
+      ? target.issue.stage
+        ? issueReferenceModel({
+            id: target.issue.id,
+            seq: target.issue.seq,
+            title: target.issue.title,
+            stage: target.issue.stage,
+            ...(target.issue.prefix ? { prefix: target.issue.prefix } : {}),
+            ...(target.issue.displayRef ? { displayRef: target.issue.displayRef } : {}),
+            ...(target.issue.archived !== undefined ? { archived: target.issue.archived } : {}),
+            ...(target.issue.deletedAt ? { deletedAt: target.issue.deletedAt } : {}),
+          })
+        : {
+            ref: refToken,
+            issueId: target.issue.id,
+            title: target.issue.title,
+            stage: null,
+            availability: 'unavailable',
+            accessibleLabel: `Task ${refToken} has no available status`,
+          }
+      : null
 
   // Escape closes — but never at the expense of surfaces with their own Escape
   // semantics: keys headed into a terminal or another open dialog pass through
@@ -272,16 +295,13 @@ export function RefCard({
               <button
                 data-pressable
                 type="button"
-                className="cursor-pointer font-mono text-[11px] font-semibold tracking-[0.04em] text-muted-foreground hover:text-foreground"
+                className="min-w-0 cursor-pointer text-[11px] font-semibold tracking-[0.04em] text-muted-foreground hover:text-foreground"
                 title={`Copy "${refToken}"`}
                 onClick={() => copyToClipboard(refToken, `Copied ${refToken}`)}
               >
-                {refToken}
+                {issueRefModel && <IssueReference model={issueRefModel} showTitle={false} />}
               </button>
-              <span className="flex flex-none items-center gap-1.5">
-                {target.issue.stage && <StageChip stage={target.issue.stage} />}
-                {closeButton}
-              </span>
+              <span className="flex flex-none items-center gap-1.5">{closeButton}</span>
             </div>
             <IssueSummary issue={target.issue} issues={issues} onStart={onStart} />
             {target.issue.description?.trim() && (

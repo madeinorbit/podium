@@ -146,7 +146,7 @@ test('terminal ref click opens the redesigned peek card; preview escalates throu
 
   // ---- The redesigned hierarchy (POD-155) ----
   await expect(card).toContainText(title)
-  await expect(card).toContainText('Planning') // stage chip owns the status position
+  await expect(card.getByRole('img', { name: `Planning task ${ref}: ${title}` })).toBeVisible() // the canonical leading glyph owns workflow status
   await expect(card).toContainText('Latest update')
   await expect(card).toContainText(note)
   // Normal availability is silent: no "ready" chip, no blocker copy.

@@ -4,6 +4,8 @@
  * separate from CommandPalette.tsx so ranking/grouping is unit-testable.
  */
 
+import type { IssueReferenceModel } from '@podium/client-core/viewmodels'
+
 export type PaletteGroupId = 'navigate' | 'global' | 'session'
 
 export interface PaletteCommand {
@@ -14,6 +16,8 @@ export interface PaletteCommand {
   keywords?: string[]
   /** Right-aligned annotation (e.g. stage, worktree). Display-only, never matched. */
   hint?: string
+  /** Rich identity for issue navigation rows; filtering still uses label/keywords. */
+  issueReference?: IssueReferenceModel
   run: () => void | Promise<void>
 }
 

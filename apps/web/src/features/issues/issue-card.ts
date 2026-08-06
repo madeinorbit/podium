@@ -1,15 +1,9 @@
+import { ISSUE_STAGE_LABELS } from '@podium/client-core/viewmodels'
 import type { IssueStage } from '@podium/model'
 import { formatLong, issueDisplayRef } from '@podium/protocol'
 import type { IssueViewModel } from '@/app/store'
 
-export const STAGE_LABELS: Record<IssueStage, string> = {
-  proposed: 'Proposed',
-  backlog: 'Backlog',
-  planning: 'Planning',
-  in_progress: 'In Progress',
-  review: 'Review',
-  done: 'Done',
-}
+export const STAGE_LABELS: Record<IssueStage, string> = { ...ISSUE_STAGE_LABELS }
 
 /** The short human-facing ref for an issue row/label (#474): `POD-13` (falls
  *  back to `#13` for legacy payloads). The single accessor every render site uses. */
