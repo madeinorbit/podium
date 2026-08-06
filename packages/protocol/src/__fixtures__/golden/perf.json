@@ -35,7 +35,10 @@
         "marks": [
           {
             "name": "marks[0].name",
-            "atMs": 1
+            "atMs": 1,
+            "meta": {
+              "marks[0].meta.key": 1
+            }
           }
         ],
         "meta": {
@@ -45,7 +48,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"switchId\":\"switchId\",\"startedAt\":1,\"sessionId\":\"sessionId\",\"issueId\":\"issueId\",\"mode\":\"chat\",\"cold\":true,\"totalMs\":1,\"timedOut\":true,\"marks\":[{\"name\":\"marks[0].name\",\"atMs\":1}],\"meta\":{\"meta.key\":1}}"
+      "encoded": "{\"switchId\":\"switchId\",\"startedAt\":1,\"sessionId\":\"sessionId\",\"issueId\":\"issueId\",\"mode\":\"chat\",\"cold\":true,\"totalMs\":1,\"timedOut\":true,\"marks\":[{\"name\":\"marks[0].name\",\"atMs\":1,\"meta\":{\"marks[0].meta.key\":1}}],\"meta\":{\"meta.key\":1}}"
     },
     {
       "schema": "clientSwitchTraceSchema",
@@ -62,7 +65,10 @@
         "marks": [
           {
             "name": "marks[0].name",
-            "atMs": 2
+            "atMs": 2,
+            "meta": {
+              "marks[0].meta.key": "marks[0].meta.marks[0].meta.key"
+            }
           }
         ],
         "meta": {
@@ -72,7 +78,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"switchId\":\"switchId\",\"startedAt\":2,\"sessionId\":\"sessionId\",\"issueId\":\"issueId\",\"mode\":\"native\",\"cold\":false,\"totalMs\":2,\"timedOut\":false,\"marks\":[{\"name\":\"marks[0].name\",\"atMs\":2}],\"meta\":{\"meta.key\":\"meta.meta.key\"}}"
+      "encoded": "{\"switchId\":\"switchId\",\"startedAt\":2,\"sessionId\":\"sessionId\",\"issueId\":\"issueId\",\"mode\":\"native\",\"cold\":false,\"totalMs\":2,\"timedOut\":false,\"marks\":[{\"name\":\"marks[0].name\",\"atMs\":2,\"meta\":{\"marks[0].meta.key\":\"marks[0].meta.marks[0].meta.key\"}}],\"meta\":{\"meta.key\":\"meta.meta.key\"}}"
     },
     {
       "schema": "clientSwitchTraceSchema",
@@ -89,7 +95,10 @@
         "marks": [
           {
             "name": "marks[0].name",
-            "atMs": 3
+            "atMs": 3,
+            "meta": {
+              "marks[0].meta.key": true
+            }
           }
         ],
         "meta": {
@@ -99,7 +108,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"switchId\":\"switchId\",\"startedAt\":3,\"sessionId\":\"sessionId\",\"issueId\":\"issueId\",\"mode\":\"unknown\",\"cold\":true,\"totalMs\":3,\"timedOut\":true,\"marks\":[{\"name\":\"marks[0].name\",\"atMs\":3}],\"meta\":{\"meta.key\":true}}"
+      "encoded": "{\"switchId\":\"switchId\",\"startedAt\":3,\"sessionId\":\"sessionId\",\"issueId\":\"issueId\",\"mode\":\"unknown\",\"cold\":true,\"totalMs\":3,\"timedOut\":true,\"marks\":[{\"name\":\"marks[0].name\",\"atMs\":3,\"meta\":{\"marks[0].meta.key\":true}}],\"meta\":{\"meta.key\":true}}"
     },
     {
       "schema": "switchMarkSchema",
@@ -115,15 +124,48 @@
     },
     {
       "schema": "switchMarkSchema",
-      "variant": "full",
+      "variant": "full/arm0",
       "wire": {
         "name": "name",
-        "atMs": 1
+        "atMs": 1,
+        "meta": {
+          "meta.key": 1
+        }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"name\":\"name\",\"atMs\":1}"
+      "encoded": "{\"name\":\"name\",\"atMs\":1,\"meta\":{\"meta.key\":1}}"
+    },
+    {
+      "schema": "switchMarkSchema",
+      "variant": "full/arm1",
+      "wire": {
+        "name": "name",
+        "atMs": 2,
+        "meta": {
+          "meta.key": "meta.meta.key"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"name\":\"name\",\"atMs\":2,\"meta\":{\"meta.key\":\"meta.meta.key\"}}"
+    },
+    {
+      "schema": "switchMarkSchema",
+      "variant": "full/arm2",
+      "wire": {
+        "name": "name",
+        "atMs": 3,
+        "meta": {
+          "meta.key": true
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"name\":\"name\",\"atMs\":3,\"meta\":{\"meta.key\":true}}"
     }
   ]
 }

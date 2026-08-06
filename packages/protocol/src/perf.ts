@@ -58,10 +58,23 @@ export const SWITCH_TRACE_MARKS = {
 
 export type SwitchTraceSentinel = (typeof SWITCH_TRACE_MARKS)[keyof typeof SWITCH_TRACE_MARKS]
 
+/**
+ * Per-mark diagnostic metadata is deliberately small: marks are emitted from
+ * the browser hot path and a trace already permits 200 of them. Keeping the
+ * key/value limits on the wire prevents one bad diagnostic caller from turning
+ * a bounded trace into an unbounded payload.
+ */
+const switchMarkMetaSchema = z
+  .record(z.string().max(64), z.union([z.number(), z.string().max(256), z.boolean()]))
+  .refine((meta) => Object.keys(meta).length <= 16, {
+    message: 'switch mark meta must contain at most 16 entries',
+  })
+
 /** One named point in a client switch trace, offset from gesture t0. */
 export const switchMarkSchema = z.object({
   name: z.string().max(64),
   atMs: z.number(),
+  meta: switchMarkMetaSchema.optional(),
 })
 export type SwitchMark = z.infer<typeof switchMarkSchema>
 
