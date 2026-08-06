@@ -109,15 +109,32 @@ function withFakeTimedRaf(): void {
 /** Hub stub that records resize/redraw/requestControl and lets a test drive onState. */
 function fakeHub() {
   let cbs: SessionCallbacks = {}
-  const calls = { resize: [] as Array<[number, number]>, redraw: 0, requestControl: 0 }
+  let current = {
+    role: 'controller' as 'controller' | 'spectator',
+    cols: 80,
+    rows: 24,
+    epoch: 0,
+    connected: true,
+  }
+  const calls = {
+    resize: [] as Array<[number, number]>,
+    input: [] as string[],
+    redraw: 0,
+    requestControl: 0,
+  }
   const connection = {
-    sendResize: (c: number, r: number) => calls.resize.push([c, r]),
-    sendInput: () => {},
+    sendResize: (c: number, r: number) => {
+      calls.resize.push([c, r])
+    },
+    reportViewport: (c: number, r: number) => {
+      calls.resize.push([c, r])
+    },
+    sendInput: (data: string) => calls.input.push(data),
     requestControl: () => {
       calls.requestControl += 1
     },
     redraw: () => {},
-    state: () => ({ role: 'controller', cols: 80, rows: 24, epoch: 0, connected: true }),
+    state: () => current,
   }
   const hub = {
     attach: (_id: string, cb: SessionCallbacks = {}) => {
@@ -129,8 +146,13 @@ function fakeHub() {
   return {
     hub,
     calls,
-    state: (cols: number, rows: number) =>
-      cbs.onState?.({ role: 'controller', cols, rows, epoch: 0, connected: true } as never),
+    state: (cols: number, rows: number, role: 'controller' | 'spectator' = 'controller') => {
+      current = { ...current, cols, rows, role }
+      cbs.onState?.(current as never)
+    },
+    role: (role: 'controller' | 'spectator') => {
+      current = { ...current, role }
+    },
     attached: () => cbs.onAttached?.(),
   }
 }
@@ -175,6 +197,74 @@ describe('mountSession eligibility-gated sizing', () => {
     expect(calls.requestControl).toBe(1)
     expect(calls.resize.length).toBeGreaterThanOrEqual(1)
     expect(calls.resize.at(-1)?.[0]).toBeGreaterThan(2) // a real fitted width, not the 80 default-only path
+    mounted.dispose()
+  })
+
+  it('keeps a server-grid spectator on the authoritative grid and only reports its viewport', () => {
+    withResizeObserver()
+    withFittableAddon() // phone container proposes 150×50
+    const { hub, calls, role, state } = fakeHub()
+    role('spectator')
+    const mounted = mountSession(fittableHost(), {
+      hub,
+      sessionId: asSessionId('s1'),
+      active: true,
+      gridMode: 'server-grid',
+    })
+
+    state(183, 55, 'spectator') // desktop-owned PTY geometry
+
+    expect(calls.requestControl, 'looking from a phone must not preempt the desktop').toBe(0)
+    expect(calls.resize.at(-1), 'server still records the phone takeover viewport').toEqual([
+      150, 50,
+    ])
+    expect(
+      { cols: mounted.view.cols(), rows: mounted.view.rows() },
+      'xterm itself stays at the server grid instead of reflowing to the phone grid',
+    ).toEqual({ cols: 183, rows: 55 })
+    mounted.dispose()
+  })
+
+  it('takes control before the first byte from a server-grid spectator', () => {
+    withResizeObserver()
+    withFittableAddon()
+    const { hub, calls, role, state } = fakeHub()
+    role('spectator')
+    const mounted = mountSession(fittableHost(), {
+      hub,
+      sessionId: asSessionId('s1'),
+      active: true,
+      gridMode: 'server-grid',
+    })
+    state(183, 55, 'spectator')
+
+    mounted.sendInput('x')
+
+    expect(calls.requestControl).toBe(1)
+    expect(calls.input).toEqual(['x'])
+    mounted.dispose()
+  })
+
+  it('fits a server-grid client that the server made controller', () => {
+    withResizeObserver()
+    withFittableAddon()
+    const { hub, calls, role, state } = fakeHub()
+    role('spectator')
+    const mounted = mountSession(fittableHost(), {
+      hub,
+      sessionId: asSessionId('s1'),
+      active: true,
+      gridMode: 'server-grid',
+    })
+
+    state(80, 24, 'controller') // first/only attached client receives control
+
+    expect(calls.requestControl, 'already-controller phone needs no takeover').toBe(0)
+    expect(calls.resize.at(-1)).toEqual([150, 50])
+    expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
+      cols: 150,
+      rows: 50,
+    })
     mounted.dispose()
   })
 

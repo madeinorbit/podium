@@ -54,19 +54,25 @@ export function TerminalPane({ sessionId, active }: { sessionId: SessionId; acti
   // Flipping this false→true remounts, so the attach that runs is the one with
   // a live PTY behind it. Same gate the desktop spends as `spawnConfirmed`.
   const spawnPending = useSpawnPending(sessionId)
-  const { containerRef, toolbarRef, mountedRef, ready, outputSeen } = useTerminalSession({
-    hub,
-    sessionId,
-    enabled: connected && !spawnPending,
-    // Match the desktop AgentPanel lifecycle exactly: stay mounted while hidden,
-    // flip eligibility on the live session, and focus only after reveal/attach.
-    // This is what drives the shared reveal -> fit -> WebGL recovery sequence.
-    active,
-    focusOnMount: false,
-    focusWhenReady: true,
-    appearance: MOBILE_APPEARANCE,
-    test: new URLSearchParams(window.location.search).get('e2e') === '1',
-  })
+  const { viewportRef, containerRef, toolbarRef, mountedRef, ready, outputSeen } =
+    useTerminalSession({
+      hub,
+      sessionId,
+      enabled: connected && !spawnPending,
+      // Match the desktop AgentPanel lifecycle exactly: stay mounted while hidden,
+      // flip eligibility on the live session, and focus only after reveal/attach.
+      // This is what drives the shared reveal -> fit -> WebGL recovery sequence.
+      active,
+      focusOnMount: false,
+      focusWhenReady: true,
+      appearance: MOBILE_APPEARANCE,
+      // A phone that is merely looking must not resize a desktop-driven PTY.
+      // Keep xterm on the server's one authoritative grid and expose the rest by
+      // panning; the first actual keypress still takes control and applies the
+      // phone viewport that the terminal client records in the background.
+      gridMode: 'server-grid',
+      test: new URLSearchParams(window.location.search).get('e2e') === '1',
+    })
 
   return (
     <View style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
@@ -95,12 +101,26 @@ export function TerminalPane({ sessionId, active }: { sessionId: SessionId; acti
       {/* `minHeight: 0` (the desktop AgentPanel's `min-h-0`) lets this flex child
           SHRINK to the viewport. The old `minHeight: 260` floor meant a short
           phone screen could not contain the pane and the agent frame ran off the
-          bottom of the screen (POD-338). `overflow: hidden` keeps a mid-resize
-          xterm frame from spilling either. */}
+          bottom of the screen (POD-338). A spectator intentionally keeps the
+          SERVER grid, so overflow is scrollable instead of clipping or reflowing
+          that wider canvas into shredded line fragments. */}
       <div
-        ref={containerRef}
-        style={{ flex: 1, minHeight: 0, width: '100%', overflow: 'hidden' }}
-      />
+        ref={viewportRef}
+        data-terminal-crop-viewport
+        style={{
+          flex: 1,
+          minHeight: 0,
+          width: '100%',
+          overflow: 'auto',
+          overscrollBehavior: 'contain',
+          WebkitOverflowScrolling: 'touch',
+        }}
+      >
+        <div
+          ref={containerRef}
+          style={{ display: 'inline-block', minWidth: '100%', minHeight: '100%' }}
+        />
+      </div>
       <MobileTerminalKeyboard
         mountedRef={mountedRef}
         toolbarRef={toolbarRef}

@@ -19,6 +19,18 @@ beforeAll(() => {
 })
 
 describe('TerminalView.isFittable()', () => {
+  it('keeps the DOM renderer when explicitly selected for a crop viewport', () => {
+    const events: Array<{ event: string; reason?: unknown }> = []
+    const view = new TerminalView({
+      renderer: 'dom',
+      diagnostics: (event, data) => events.push({ event, reason: data?.reason }),
+    })
+    view.mount(document.createElement('div'))
+
+    expect(events).toContainEqual({ event: 'renderer:dom', reason: 'renderer-selected' })
+    view.dispose()
+  })
+
   it('returns false before mount', () => {
     const view = new TerminalView()
     expect(view.isFittable()).toBe(false)
@@ -46,6 +58,39 @@ describe('TerminalView.isFittable()', () => {
 })
 
 describe('TerminalView.fit() readiness guard', () => {
+  it('proposes a fitted grid without resizing the terminal', () => {
+    const el = document.createElement('div')
+    const view = new TerminalView()
+    view.mount(el)
+    const fa = (view as unknown as { fitAddon: { proposeDimensions(): unknown; fit(): void } })
+      .fitAddon
+    fa.proposeDimensions = () => ({ cols: 52, rows: 28 })
+    let fitCalls = 0
+    fa.fit = () => {
+      fitCalls += 1
+    }
+
+    expect(view.proposeFit()).toEqual({ cols: 52, rows: 28 })
+    expect(fitCalls).toBe(0)
+    expect({ cols: view.cols(), rows: view.rows() }).toEqual({ cols: 80, rows: 24 })
+    view.dispose()
+  })
+
+  it('proposes a grid for an outer crop viewport independently of the terminal host', () => {
+    const host = document.createElement('div')
+    const viewport = document.createElement('div')
+    const view = new TerminalView()
+    view.mount(host)
+    const screen = host.querySelector<HTMLElement>('.xterm-screen')
+    if (!screen) throw new Error('xterm screen is unavailable')
+    screen.getBoundingClientRect = () => ({ width: 800, height: 480 }) as DOMRect
+    viewport.getBoundingClientRect = () => ({ width: 400, height: 240 }) as DOMRect
+
+    expect(view.proposeFitIn(viewport)).toEqual({ cols: 40, rows: 12 })
+    expect({ cols: view.cols(), rows: view.rows() }).toEqual({ cols: 80, rows: 24 })
+    view.dispose()
+  })
+
   it('returns undefined when the container has zero dimensions', () => {
     const el = document.createElement('div')
     // zero clientWidth/clientHeight → FitAddon.proposeDimensions() returns undefined

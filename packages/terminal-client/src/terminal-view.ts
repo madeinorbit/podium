@@ -7,6 +7,7 @@ import { RefUnderlineOverlay, type ViewportBufferLike } from './ref-underline-ov
 import type { TerminalDiagnosticData } from './terminal-diagnostics'
 import { wireTouchScroll } from './touch-scroll'
 import { makeUrlLinkProvider } from './url-link-provider'
+import { computeGrid } from './viewport'
 // xterm renders its rows, cursor, selection overlay and the hidden char-measure /
 // helper-textarea elements relative to styles in this sheet. Without it the measure
 // element renders visibly (a stray row of `$`/`-`), the selection overlay detaches
@@ -28,6 +29,9 @@ export interface TerminalAppearance {
 export interface TerminalViewOptions extends TerminalAppearance {
   cols?: number
   rows?: number
+  /** Renderer selection. Crop-and-pan hosts require DOM because xterm's WebGL
+   * canvas does not paint cells revealed by an independent overflow viewport. */
+  renderer?: 'auto' | 'dom'
   /** Lifecycle/layout facts only; never terminal content or input. */
   diagnostics?: (event: string, data?: TerminalDiagnosticData) => void
 }
@@ -140,6 +144,7 @@ export class TerminalView {
   // after a context loss dropped us to the DOM renderer). Kept so repaintRecover() can
   // recover a discarded canvas in place.
   private readonly diagnostics: TerminalViewOptions['diagnostics']
+  private readonly renderer: NonNullable<TerminalViewOptions['renderer']>
   private webgl: WebglAddon | undefined
   // True while the running application has DEC private mode 2031 enabled —
   // it asked to be notified of colour-scheme changes (Claude Code enables it
@@ -157,6 +162,7 @@ export class TerminalView {
 
   constructor(opts: TerminalViewOptions = {}) {
     this.diagnostics = opts.diagnostics
+    this.renderer = opts.renderer ?? 'auto'
     this.term = new Terminal({
       cols: opts.cols ?? 80,
       rows: opts.rows ?? 24,
@@ -366,6 +372,10 @@ export class TerminalView {
   }
 
   private tryLoadWebgl(): void {
+    if (this.renderer === 'dom') {
+      this.emitDiagnostic('renderer:dom', { reason: 'renderer-selected' })
+      return
+    }
     // GPU rendering is on by default, but some GPUs/drivers paint xterm's WebGL glyph
     // atlas without color — output renders monochrome even though the data and theme
     // carry color. The DOM renderer always colors correctly, so offer an escape hatch:
@@ -461,12 +471,12 @@ export class TerminalView {
   }
 
   /**
-   * Attempt to fit the terminal to the container. Returns the new grid on
-   * success, or `undefined` when the container isn't measurable yet (hidden,
-   * zero-size, or the FitAddon cell measure failed). The caller should retry
-   * across rAFs rather than silently keeping a stale grid.
+   * Measure the grid that would fit the container without changing xterm's
+   * current grid. Spectator/crop views use this to report the viewport they
+   * would take over with while continuing to render the server's authoritative
+   * grid byte-for-byte.
    */
-  fit(): { cols: number; rows: number } | undefined {
+  proposeFit(): { cols: number; rows: number } | undefined {
     // proposeDimensions() returns undefined when the container clientWidth/Height
     // are zero or the cell-size helper element hasn't been measured yet.
     let dims: { cols: number; rows: number } | undefined
@@ -481,6 +491,39 @@ export class TerminalView {
       this.emitDiagnostic('fit:unavailable', { reason: 'invalid-dimensions', dims })
       return undefined
     }
+    return dims
+  }
+
+  /**
+   * Measure how many cells fit in a viewport that is distinct from xterm's host.
+   * Crop-and-pan uses a phone-sized outer viewport around a server-grid-sized
+   * terminal host, so FitAddon (which measures the host) cannot answer this.
+   */
+  proposeFitIn(viewport: HTMLElement): { cols: number; rows: number } | undefined {
+    if (!this.host) return undefined
+    const screen = this.host.querySelector<HTMLElement>('.xterm-screen')
+    if (!screen || this.term.cols < 1 || this.term.rows < 1) return undefined
+    const screenRect = screen.getBoundingClientRect()
+    const cell = {
+      width: screenRect.width / this.term.cols,
+      height: screenRect.height / this.term.rows,
+    }
+    if (!Number.isFinite(cell.width) || !Number.isFinite(cell.height)) return undefined
+    if (cell.width <= 0 || cell.height <= 0) return undefined
+    const viewportRect = viewport.getBoundingClientRect()
+    const grid = computeGrid({ width: viewportRect.width, height: viewportRect.height }, cell)
+    return grid.cols >= 2 && grid.rows >= 2 ? grid : undefined
+  }
+
+  /**
+   * Attempt to fit the terminal to the container. Returns the new grid on
+   * success, or `undefined` when the container isn't measurable yet (hidden,
+   * zero-size, or the FitAddon cell measure failed). The caller should retry
+   * across rAFs rather than silently keeping a stale grid.
+   */
+  fit(): { cols: number; rows: number } | undefined {
+    const dims = this.proposeFit()
+    if (!dims) return undefined
     try {
       this.fitAddon.fit()
     } catch (error) {

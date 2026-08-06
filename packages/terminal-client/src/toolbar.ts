@@ -1,4 +1,3 @@
-import type { SessionConnection } from '@podium/client-core/socket-transport'
 import { ctrlByte, ctrlSequence, keySequence, type SpecialKey } from './keys'
 
 /** One key on the mobile accessory bar: its visible label and the bytes it sends. */
@@ -106,7 +105,7 @@ export interface KeyToolbarOptions {
 
 export function mountKeyToolbar(
   el: HTMLElement,
-  conn: SessionConnection,
+  input: { sendInput(data: string): void },
   opts: KeyToolbarOptions = {},
 ): MountedToolbar {
   const doc = el.ownerDocument
@@ -176,7 +175,7 @@ export function mountKeyToolbar(
     b.title = key.title
     b.setAttribute('aria-label', key.title)
     b.dataset.key = key.label
-    b.addEventListener('click', () => conn.sendInput(modifiers.apply(key.send)))
+    b.addEventListener('click', () => input.sendInput(modifiers.apply(key.send)))
     el.appendChild(b)
     nodes.push(b)
   }

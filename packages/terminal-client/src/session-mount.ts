@@ -1,4 +1,8 @@
-import type { ConnectionState, SessionConnection, SocketHub } from '@podium/client-core/socket-transport'
+import type {
+  ConnectionState,
+  SessionConnection,
+  SocketHub,
+} from '@podium/client-core/socket-transport'
 import { extractCodexPromptDraft } from '@podium/composer'
 import type { SessionId } from '@podium/model'
 import { DomViewportSource } from './dom-viewport'
@@ -66,11 +70,25 @@ export interface MountSessionOptions {
   /** Initial rendering appearance (font, line height, theme). Change at runtime
    *  via {@link MountedSession.setAppearance} — never a remount. */
   appearance?: TerminalAppearance
+  /** Optional crop viewport around the xterm host. Defaults to the host itself. */
+  viewportEl?: HTMLElement
+  /**
+   * How this client reconciles its container with the PTY's one authoritative
+   * grid. `control` (default) keeps the existing latest-active-client policy:
+   * revealing the pane takes control and fits the PTY to this container.
+   * `server-grid` keeps a spectator at the server grid and lets its container
+   * crop/pan; it reports its fitted viewport for a later explicit takeover but
+   * does not preempt another device merely because the pane became visible.
+   */
+  gridMode?: 'control' | 'server-grid'
 }
 
 export interface MountedSession {
   connection: SessionConnection
   view: TerminalView
+  /** Send user input, taking control first when a server-grid spectator starts
+   *  interacting. The two ordered frames make the first byte land as controller. */
+  sendInput(data: string): void
   setActive(active: boolean): void
   /** Apply a new appearance to the live terminal and re-fit: a font-metric
    *  change alters the cell size, so the grid (and the PTY, via resize) must
@@ -99,9 +117,16 @@ export function codexInputReady(
 
 export function mountSession(el: HTMLElement, opts: MountSessionOptions): MountedSession {
   const { hub, sessionId } = opts
+  const gridMode = opts.gridMode ?? 'control'
+  const viewportEl = opts.viewportEl ?? el
   const diagnostics = createTerminalDiagnosticRecorder(sessionId)
   const view = new TerminalView({
     ...(opts.appearance ?? {}),
+    // xterm's WebGL canvas does not repaint sections revealed by scrolling an
+    // independent overflow ancestor. Server-grid mode deliberately uses that
+    // crop layout, so keep its rendering phone-local and deterministic with the
+    // built-in DOM renderer; ordinary fitted terminals retain WebGL.
+    renderer: gridMode === 'server-grid' ? 'dom' : 'auto',
     diagnostics: (event, data) => diagnostics.record(event, data),
   })
   view.mount(el)
@@ -122,6 +147,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       pageVisible: pageVisible(),
       eligible: eligible(),
       serverGrid: { ...serverGrid },
+      gridMode,
       ...data,
       view: view.diagnosticSnapshot(),
     })
@@ -144,6 +170,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   let fitAttempt = 0
   let fitRaf: number | undefined
   let fitTimer: ReturnType<typeof setTimeout> | undefined
+  let measureFit = (): Grid | undefined => view.fit()
   let onFitMeasured: ((grid: Grid) => void) | null = null
   function cancelScheduledFit(): void {
     if (fitRaf !== undefined) cancelAnimationFrame(fitRaf)
@@ -162,7 +189,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       trace('fit:cancelled', { attempt: fitAttempt, reason: 'ineligible' })
       return
     }
-    const grid = view.fit()
+    const grid = measureFit()
     if (grid) {
       const cb = onFitMeasured
       onFitMeasured = null
@@ -186,13 +213,35 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       trace('anomaly:fit-retries-exhausted', { attempts: fitAttempt })
     }
   }
-  function fitWithRetry(onMeasured: (grid: Grid) => void): void {
+  function fitWithRetry(
+    onMeasured: (grid: Grid) => void,
+    measure: () => Grid | undefined = () => view.fit(),
+  ): void {
     if (onFitMeasured) trace('fit:superseded', { attempt: fitAttempt })
     cancelScheduledFit()
     fitAttempt = 0
+    measureFit = measure
     onFitMeasured = onMeasured
     trace('fit:retry-start')
     tryScheduledFit()
+  }
+
+  let reportedViewport: Grid | null = null
+  const proposeViewport = (): Grid | undefined =>
+    viewportEl === el ? view.proposeFit() : view.proposeFitIn(viewportEl)
+  function reportViewport(): void {
+    if (!eligible()) {
+      trace('viewport-report:skipped', { reason: 'ineligible' })
+      return
+    }
+    fitWithRetry((grid) => {
+      if (reportedViewport?.cols === grid.cols && reportedViewport.rows === grid.rows) return
+      reportedViewport = grid
+      trace('viewport-report:send', { grid })
+      // The server records every client's resize even when it is not controller.
+      // It does not apply this grid until an explicit takeover.
+      connection.reportViewport(grid.cols, grid.rows)
+    }, proposeViewport)
   }
 
   function applyFit(forceRedrawIfSame: boolean): void {
@@ -200,15 +249,19 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       trace('fit:skipped', { reason: 'ineligible', forceRedrawIfSame })
       return
     }
-    fitWithRetry((grid) => {
-      const action = decideResizeAction(grid, serverGrid, { forceRedrawIfSame })
-      trace('fit:action', { grid, action, forceRedrawIfSame })
-      if (action.kind === 'resize') {
-        connection.sendResize(action.cols, action.rows)
-      } else if (action.kind === 'redraw') {
-        connection.redraw()
-      }
-    })
+    fitWithRetry(
+      (grid) => {
+        if (gridMode === 'server-grid') view.resize(grid.cols, grid.rows)
+        const action = decideResizeAction(grid, serverGrid, { forceRedrawIfSame })
+        trace('fit:action', { grid, action, forceRedrawIfSame })
+        if (action.kind === 'resize') {
+          connection.sendResize(action.cols, action.rows)
+        } else if (action.kind === 'redraw') {
+          connection.redraw()
+        }
+      },
+      gridMode === 'server-grid' ? proposeViewport : undefined,
+    )
   }
 
   function becomeEligible(): void {
@@ -217,7 +270,17 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       return
     }
     trace('eligible:became')
-    connection.requestControl() // last-foregrounded-wins
+    if (gridMode === 'server-grid' && connection.state().role === 'spectator') {
+      reportViewport()
+      view.forceRepaint()
+      return
+    }
+    if (gridMode === 'server-grid') {
+      applyFit(true)
+      view.repaintRecover()
+      return
+    }
+    if (gridMode === 'control') connection.requestControl() // last-foregrounded-wins
     applyFit(true) // force a repaint on reveal even when the size is unchanged
     view.forceRepaint()
   }
@@ -270,7 +333,17 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       return
     }
     trace('reveal:start')
-    connection.requestControl() // last-foregrounded-wins
+    if (gridMode === 'server-grid' && connection.state().role === 'spectator') {
+      reportViewport()
+      view.repaintRecover()
+      return
+    }
+    if (gridMode === 'server-grid') {
+      applyFit(true)
+      view.repaintRecover()
+      return
+    }
+    if (gridMode === 'control') connection.requestControl() // last-foregrounded-wins
     whenMeasurable((grid, gridChanged) => {
       if (!eligible()) {
         trace('reveal:cancelled', { phase: 'measured-callback' })
@@ -294,6 +367,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   // re-assert the size — see the onAttached handler).
   let everAttached = false
   let lastTracedState = ''
+  let lastRole: ConnectionState['role'] = 'spectator'
 
   // Ready = "usable, drop the Starting… overlay". Fires on the FIRST of: the server
   // confirming the attach (onAttached), the first real frame, or the timeout backstop
@@ -364,6 +438,13 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
         view.forceRepaint()
       }
       serverGrid = { cols: state.cols, rows: state.rows }
+      if (gridMode === 'server-grid' && state.role !== lastRole && eligible()) {
+        // The first attached client is made controller by the server. It should
+        // still fit a phone-only session; only a spectator follows/crops.
+        if (state.role === 'controller') applyFit(false)
+        else reportViewport()
+      }
+      lastRole = state.role
       // Clear only on an in-session epoch bump — a controller takeover repaints the
       // grid for the new owner. The (re)attach clear is owned by onReset above, so a
       // plain reconnect that resumes from our cursor leaves the screen intact.
@@ -388,13 +469,28 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
 
   // Paste + arrows now live in the panel's React action row / D-pad above the key
   // bar, so the bar itself no longer renders a Paste key.
-  const toolbar = opts.toolbarEl ? mountKeyToolbar(opts.toolbarEl, connection) : null
+  const sendInput = (data: string): void => {
+    if (gridMode === 'server-grid' && connection.state().role === 'spectator') {
+      // The resize observer is debounced. Sample once synchronously so an input
+      // that immediately follows a rotation/keyboard change cannot take control
+      // with the spectator's previous recorded viewport.
+      const grid = proposeViewport()
+      if (grid && (reportedViewport?.cols !== grid.cols || reportedViewport.rows !== grid.rows)) {
+        reportedViewport = grid
+        connection.reportViewport(grid.cols, grid.rows)
+      }
+      // requestControl and input share one ordered WebSocket. The server applies
+      // the viewport reported above, transfers control, then accepts this byte.
+      connection.requestControl()
+    }
+    connection.sendInput(data)
+  }
+
+  const toolbar = opts.toolbarEl ? mountKeyToolbar(opts.toolbarEl, { sendInput }) : null
 
   // Route keyboard input through the toolbar so an armed modifier (e.g. Ctrl)
   // transforms the next character the soft keyboard sends.
-  const offInput = view.onData((data) =>
-    connection.sendInput(toolbar ? toolbar.applyModifiers(data) : data),
-  )
+  const offInput = view.onData((data) => sendInput(toolbar ? toolbar.applyModifiers(data) : data))
 
   // Container-size changes (ResizeObserver + visualViewport) re-fit the grid. This
   // is the backstop that catches EVERY layout path — pane drags, dock toggles, and
@@ -403,13 +499,14 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   // sizes, and fitting each one would sendResize → SIGWINCH-flash the TUI per step.
   const VIEWPORT_FIT_DEBOUNCE_MS = 60
   let viewportFitTimer: ReturnType<typeof setTimeout> | undefined
-  const viewport = new DomViewportSource(el)
+  const viewport = new DomViewportSource(viewportEl)
   const offViewport = viewport.onChange((size) => {
     trace('viewport:changed', { viewport: size })
     if (viewportFitTimer !== undefined) clearTimeout(viewportFitTimer)
     viewportFitTimer = setTimeout(() => {
       viewportFitTimer = undefined
-      applyFit(false)
+      if (gridMode === 'server-grid' && connection.state().role === 'spectator') reportViewport()
+      else applyFit(false)
     }, VIEWPORT_FIT_DEBOUNCE_MS)
   })
 
@@ -439,7 +536,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       screenHash: (screenOpts?: { dropDim?: boolean }) => view.screenHash(screenOpts),
       screenText: () => view.screenText(),
       codexInputReady: () => codexInputReady(view),
-      sendInput: (s: string) => connection.sendInput(s),
+      sendInput,
       takeControl: () => connection.requestControl(),
       sessions: () => hub.sessions(),
       attach: (id: SessionId) => hub.attach(id),
@@ -453,19 +550,20 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
         // We ensure the inset is at least 50% of the container so that row reduction
         // is reliable across different viewport sizes (e.g. fullscreen vs 70vh).
         if (inset > 0) {
-          const currentH = el.getBoundingClientRect().height
+          const currentH = viewportEl.getBoundingClientRect().height
           const effectiveInset = Math.max(inset, Math.ceil(currentH * 0.5))
           const newH = `${Math.max(1, currentH - effectiveInset)}px`
-          el.style.flex = 'none'
-          el.style.height = newH
+          viewportEl.style.flex = 'none'
+          viewportEl.style.height = newH
           // Force a synchronous reflow so FitAddon reads the updated height
-          void el.offsetHeight
+          void viewportEl.offsetHeight
         } else {
-          el.style.flex = ''
-          el.style.height = ''
-          void el.offsetHeight
+          viewportEl.style.flex = ''
+          viewportEl.style.height = ''
+          void viewportEl.offsetHeight
         }
-        const grid = view.fit()
+        const grid = gridMode === 'server-grid' ? proposeViewport() : view.fit()
+        if (grid && gridMode === 'server-grid') view.resize(grid.cols, grid.rows)
         if (grid) connection.sendResize(grid.cols, grid.rows)
       },
     }
@@ -476,6 +574,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   return {
     connection,
     view,
+    sendInput,
     setActive(next: boolean): void {
       if (next === active) return
       active = next
@@ -511,7 +610,8 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       // container and inform the server (eligibility-gated inside applyFit, so
       // a hidden panel never drives the shared PTY). A theme-only change leaves
       // the grid identical and applyFit decides 'same' → nothing further.
-      applyFit(false)
+      if (gridMode === 'server-grid' && connection.state().role === 'spectator') reportViewport()
+      else applyFit(false)
     },
     dispose() {
       trace('dispose')

@@ -1626,6 +1626,16 @@ export class SessionConnection {
     this.hub._send({ type: 'resize', sessionId: this.sessionId, cols, rows })
   }
 
+  /**
+   * Report this client's fitted viewport without optimistically replacing the
+   * authoritative geometry in {@link state}. The server already records resize
+   * frames from spectators; a crop view uses that record if its first input
+   * later requests control, while continuing to render the current server grid.
+   */
+  reportViewport(cols: number, rows: number): void {
+    this.hub._send({ type: 'resize', sessionId: this.sessionId, cols, rows })
+  }
+
   requestControl(): void {
     this.hub._send({ type: 'requestControl', sessionId: this.sessionId })
   }

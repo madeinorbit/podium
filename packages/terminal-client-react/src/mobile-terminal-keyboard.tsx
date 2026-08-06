@@ -40,12 +40,12 @@ export function MobileTerminalKeyboard({
   voiceIcon,
   theme,
 }: MobileTerminalKeyboardProps) {
-  const voice = useVoiceInput((text) => mountedRef.current?.connection.sendInput(`${text} `))
+  const voice = useVoiceInput((text) => mountedRef.current?.sendInput(`${text} `))
   const keyboardOpen = useSoftKeyboardOpen()
   const inactive = !ready || hidden
   const toolbarOverflow = useToolbarOverflow(toolbarRef, inactive)
   const sendKey = (key: SpecialKey) => {
-    mountedRef.current?.connection.sendInput(keySequence(key))
+    mountedRef.current?.sendInput(keySequence(key))
   }
   const vars = theme
     ? ({
@@ -77,7 +77,7 @@ export function MobileTerminalKeyboard({
           className="key-act key-submit"
           title="Submit — send the prompt (Enter)"
           aria-label="Submit — send the prompt (Enter)"
-          onClick={() => mountedRef.current?.connection.sendInput('\r')}
+          onClick={() => mountedRef.current?.sendInput('\r')}
         >
           ⏎ Submit
         </button>
@@ -87,7 +87,7 @@ export function MobileTerminalKeyboard({
           className="key-act"
           title="Newline — insert a line break without submitting (Option+Enter)"
           aria-label="Newline — insert a line break without submitting (Option+Enter)"
-          onClick={() => mountedRef.current?.connection.sendInput('\x1b\r')}
+          onClick={() => mountedRef.current?.sendInput('\x1b\r')}
         >
           Newline
         </button>

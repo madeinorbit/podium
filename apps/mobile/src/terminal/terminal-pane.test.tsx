@@ -51,6 +51,7 @@ import type { MobileTrpc } from '../client/trpc'
 type MountCallbacks = {
   onReady?: () => void
   onState?: (state: { outputSeen: boolean }) => void
+  gridMode?: string
 }
 let lastMountOpts: MountCallbacks | null = null
 
@@ -183,6 +184,7 @@ describe('TerminalPane on the create path (POD-1613)', () => {
       sessions: [confirmedRow(sessionId)],
     })
     expect(mountSessionMock).toHaveBeenCalledTimes(1)
+    expect(lastMountOpts?.gridMode).toBe('server-grid')
   })
 })
 

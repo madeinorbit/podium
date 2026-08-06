@@ -40,6 +40,8 @@ export interface UseTerminalSessionOptions {
    * — never a remount, so memoize it in the caller. Omit for the defaults.
    */
   appearance?: TerminalAppearance
+  /** Terminal grid reconciliation policy; see MountSessionOptions.gridMode. */
+  gridMode?: 'control' | 'server-grid'
   readyTimeoutMs?: number
   /** Per-frame callback (mountSession's onFrame) — e.g. sampling the rendered
    *  prompt. Latest identity is used; changing it never remounts. */
@@ -57,6 +59,8 @@ export interface UseTerminalSessionOptions {
 }
 
 export interface UseTerminalSessionResult {
+  /** Optional outer crop viewport; render around containerRef when gridMode uses it. */
+  viewportRef: RefObject<HTMLDivElement | null>
   /** Attach to the terminal's container element. */
   containerRef: RefObject<HTMLDivElement | null>
   /** Attach to the optional mobile key-toolbar element. Render it in the same
@@ -96,6 +100,7 @@ export function useTerminalSession(opts: UseTerminalSessionOptions): UseTerminal
     focusWhenReady = false,
   } = opts
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const viewportRef = useRef<HTMLDivElement | null>(null)
   const toolbarRef = useRef<HTMLDivElement | null>(null)
   const mountedRef = useRef<MountedSession | null>(null)
   const [ready, setReady] = useState(false)
@@ -126,6 +131,8 @@ export function useTerminalSession(opts: UseTerminalSessionOptions): UseTerminal
   // effect below on the live instance (a font change must not remount the PTY).
   const appearanceRef = useRef(opts.appearance)
   appearanceRef.current = opts.appearance
+  const gridModeRef = useRef(opts.gridMode)
+  gridModeRef.current = opts.gridMode
 
   useEffect(() => {
     if (!hub || !enabled) return
@@ -141,6 +148,8 @@ export function useTerminalSession(opts: UseTerminalSessionOptions): UseTerminal
       sessionId,
       active: activeRef.current,
       ...(appearanceRef.current ? { appearance: appearanceRef.current } : {}),
+      ...(gridModeRef.current ? { gridMode: gridModeRef.current } : {}),
+      ...(viewportRef.current ? { viewportEl: viewportRef.current } : {}),
       ...(toolbarRef.current ? { toolbarEl: toolbarRef.current } : {}),
       ...(testRef.current ? { test: true } : {}),
       ...(focusOnMountRef.current !== undefined ? { focusOnMount: focusOnMountRef.current } : {}),
@@ -184,5 +193,5 @@ export function useTerminalSession(opts: UseTerminalSessionOptions): UseTerminal
     if (focusWhenReady && active && enabled && ready) mountedRef.current?.view.focus()
   }, [focusWhenReady, active, enabled, ready])
 
-  return { containerRef, toolbarRef, mountedRef, ready, outputSeen, atBottom }
+  return { viewportRef, containerRef, toolbarRef, mountedRef, ready, outputSeen, atBottom }
 }
