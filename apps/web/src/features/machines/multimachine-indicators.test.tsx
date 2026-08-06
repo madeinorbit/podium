@@ -170,6 +170,13 @@ describe('quota overlay groups by account', () => {
     })
     expect(within(chip).getByText('CC')).toBeTruthy()
     expect(within(chip).getByText('CX')).toBeTruthy()
+    const harnessIcons = chip.querySelectorAll<SVGElement>('.header-harness-icon')
+    expect(harnessIcons).toHaveLength(2)
+    expect(harnessIcons[0]?.closest('[data-harness]')?.getAttribute('data-harness')).toBe(
+      'claude-code',
+    )
+    expect(harnessIcons[1]?.closest('[data-harness]')?.getAttribute('data-harness')).toBe('codex')
+    expect([...harnessIcons].every((icon) => icon.getAttribute('aria-hidden') === 'true')).toBe(true)
     const meters = chip.querySelectorAll<HTMLElement>('.header-quota-meter > span')
     expect(meters).toHaveLength(2)
     expect(meters[0]?.style.width).toBe('98%')

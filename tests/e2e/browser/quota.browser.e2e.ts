@@ -23,13 +23,16 @@ test('agent quota: scoped header meters preview and pin the breakdown', async ({
   const pools = chip.locator('.header-quota-pool')
   await expect(pools.first()).toBeVisible()
   await expect(pools).toHaveCount(2)
-  await expect(chip.locator('.header-quota-pool-label')).toHaveText(['CC', 'CX'])
+  await expect(chip.locator('.header-mark')).toHaveText(['CC', 'CX'])
+  await expect(chip.locator('.header-harness-icon')).toHaveCount(2)
+  await expect(pools.nth(0)).toHaveAttribute('data-harness', 'claude-code')
+  await expect(pools.nth(1)).toHaveAttribute('data-harness', 'codex')
 
   await chip.hover()
   const panel = page.locator('.health-popover')
   await expect(panel).toBeVisible()
   await expect(panel).toContainText('Agent quota')
-  await expect(panel).toContainText('1 constrained · 1 healthy')
+  await expect(panel).toContainText('2 healthy')
   await expect(panel).not.toHaveClass(/health-popover-pinned/)
 
   // A real click pins and expands the same anchored surface; it does not open a

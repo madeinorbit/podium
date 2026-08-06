@@ -5,6 +5,13 @@ import { useEffect, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import {
+  ClaudeCodeIcon,
+  CursorIcon,
+  GrokIcon,
+  OpenAIcon,
+  OpenCodeIcon,
+} from '@/lib/icons/AgentIcons'
 import { cn } from '@/lib/utils'
 import { HealthPopover } from './HealthPopover'
 import { QuotaPanel } from './QuotaPanel'
@@ -41,6 +48,30 @@ const PACE: Record<QuotaPace, string> = {
   comfortable: 'text-success',
   'on-pace': 'text-muted-foreground',
   hot: 'text-destructive',
+}
+
+/** A provider silhouette for the dense header pool; color stays on quota state. */
+function QuotaHarnessIcon({ agent }: { agent: AccountQuotaGroup['agent'] }): JSX.Element | null {
+  const props = {
+    size: 12,
+    variant: 'mono' as const,
+    className: 'header-harness-icon',
+    'aria-hidden': true as const,
+  }
+  switch (agent) {
+    case 'claude-code':
+      return <ClaudeCodeIcon {...props} />
+    case 'codex':
+      return <OpenAIcon {...props} />
+    case 'grok':
+      return <GrokIcon {...props} />
+    case 'opencode':
+      return <OpenCodeIcon {...props} />
+    case 'cursor':
+      return <CursorIcon {...props} />
+    case 'shell':
+      return null
+  }
 }
 
 /**
@@ -182,7 +213,12 @@ export function QuotaIndicator({
                   </span>
                 )
                 return (
-                  <span key={group.key} className="header-quota-pool">
+                  <span
+                    key={group.key}
+                    className="header-quota-pool"
+                    data-harness={group.agent}
+                  >
+                    <QuotaHarnessIcon agent={group.agent} />
                     <span className="header-mark">{agentShortLabel(group.agent)}</span>
                     {/* The fallback rail exists only for a pool that reports
                         model-scoped buckets — a single-quota harness renders

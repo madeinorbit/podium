@@ -513,6 +513,24 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
 .header-quota-pools {
   gap: 13px;
 }
+/* Harness silhouettes make adjacent quota pools identifiable before the mono
+   abbreviations resolve. They deliberately inherit the neutral label ramp:
+   quota state still belongs only to the meter and percentage. */
+.header-harness-icon {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  color: var(--muted-foreground);
+  opacity: 0.82;
+  transition:
+    color 150ms ease,
+    opacity 150ms ease;
+}
+.header-quota-chip:hover .header-harness-icon,
+.header-quota-chip[data-popup-open] .header-harness-icon {
+  color: var(--text-strong);
+  opacity: 1;
+}
 /* The series mark (MEM, CC, CX, GR) names the meter that follows it. */
 .header-mark {
   color: var(--text-dim);
@@ -665,6 +683,7 @@ html[data-density="balanced"] .header-quota-pools {
   .header-machine-chip,
   .header-quota-chip,
   .header-machine-name,
+  .header-harness-icon,
   .header-mark,
   .header-quota-label,
   .header-value,
