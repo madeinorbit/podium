@@ -5,6 +5,7 @@ import {
   superagentSlice,
 } from '@podium/client-core/viewmodels'
 import type { SessionId, TranscriptItem } from '@podium/model'
+import * as Haptics from 'expo-haptics'
 import { Eraser } from 'lucide-react-native'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { KeyboardAvoidingView, Platform, StyleSheet, Text, View } from 'react-native'
@@ -153,6 +154,7 @@ export function SuperagentScreen() {
           // ever. The writer lock is released at turn-end and the server refuses
           // a second concurrent turn, so anything still pending is this turn's.
           setPendingTurns((prev) => markTurnsFailed(prev, reason) as PendingTurn[])
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {})
         }
       } else if (event.kind === 'status') {
         setStatusLabel(event.status === 'tool' ? (event.label ?? 'tool') : event.status)
@@ -212,6 +214,7 @@ export function SuperagentScreen() {
           setPendingTurns((prev) =>
             prev.map((turn) => (turn.id === id ? { ...turn, failed: message } : turn)),
           )
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {})
         })
     },
     [trpc],

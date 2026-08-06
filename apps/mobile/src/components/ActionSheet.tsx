@@ -1,7 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Animated, Modal, PanResponder, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { color, elevation, font, leading, monoLabel, radius, sans, space } from '../theme/theme'
+import {
+  color,
+  elevation,
+  font,
+  leading,
+  monoLabel,
+  radius,
+  sans,
+  space,
+  spring,
+} from '../theme/theme'
 import { PressableScale } from './PressableScale'
 
 /** How far the sheet travels when opening — and the drag distance that dismisses it. */
@@ -45,17 +55,16 @@ export function ActionSheet({
         // JS driver on purpose: the drag below feeds the same transform via
         // PanResponder.setValue, which a native-driven node rejects.
         useNativeDriver: false,
-        speed: 18,
-        bounciness: 4,
+        ...spring.smooth,
       })
       opening.start()
       return () => opening.stop()
     }
 
-    const closing = Animated.timing(slide, {
+    const closing = Animated.spring(slide, {
       toValue: 0,
-      duration: 160,
       useNativeDriver: false,
+      ...spring.snappy,
     })
     closing.start(({ finished }) => {
       if (finished) setMounted(false)
@@ -83,8 +92,7 @@ export function ActionSheet({
           Animated.spring(drag, {
             toValue: 0,
             useNativeDriver: false,
-            speed: 20,
-            bounciness: 6,
+            ...spring.snappy,
           }).start()
         },
         onPanResponderTerminate: () => {

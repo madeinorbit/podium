@@ -2,15 +2,7 @@ import { relativeTime } from '@podium/client-core/focus'
 import type { IssueWire } from '@podium/model'
 import * as Haptics from 'expo-haptics'
 import { useRef } from 'react'
-import {
-  Animated,
-  PanResponder,
-  Platform,
-  StyleSheet,
-  Text,
-  useWindowDimensions,
-  View,
-} from 'react-native'
+import { Animated, PanResponder, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import { FLOW_SLATE, flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
 import {
@@ -23,6 +15,7 @@ import {
   radius,
   sans,
   space,
+  spring,
 } from '../theme/theme'
 import { IdSquare } from './IdSquare'
 import { PressableScale } from './PressableScale'
@@ -66,13 +59,11 @@ export function ScreeningCard({
   const fling = (gesture: ScreeningGesture) => {
     if (decided.current) return
     decided.current = true
-    if (Platform.OS !== 'web') {
-      void Haptics.impactAsync(
-        gesture === 'skipped'
-          ? Haptics.ImpactFeedbackStyle.Light
-          : Haptics.ImpactFeedbackStyle.Medium,
-      ).catch(() => {})
-    }
+    void Haptics.impactAsync(
+      gesture === 'skipped'
+        ? Haptics.ImpactFeedbackStyle.Light
+        : Haptics.ImpactFeedbackStyle.Medium,
+    ).catch(() => {})
     const to =
       gesture === 'accepted'
         ? { x: width * 1.3, y: 40 }
@@ -101,12 +92,15 @@ export function ScreeningCard({
           Animated.spring(pan, {
             toValue: { x: 0, y: 0 },
             useNativeDriver: false,
-            speed: 22,
-            bounciness: 6,
+            ...spring.snappy,
           }).start()
       },
       onPanResponderTerminate: () => {
-        Animated.spring(pan, { toValue: { x: 0, y: 0 }, useNativeDriver: false, speed: 22 }).start()
+        Animated.spring(pan, {
+          toValue: { x: 0, y: 0 },
+          useNativeDriver: false,
+          ...spring.snappy,
+        }).start()
       },
     }),
   ).current

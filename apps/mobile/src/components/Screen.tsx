@@ -4,7 +4,7 @@ import { StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { flow } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
-import { color, font, radius, sans, space } from '../theme/theme'
+import { color, font, radius, sans, space, tracking } from '../theme/theme'
 import { Icon } from './Icon'
 import { PressableScale } from './PressableScale'
 
@@ -178,7 +178,7 @@ const styles = StyleSheet.create({
     ...sans(600),
     color: color.text,
     fontSize: font.largeTitle,
-    letterSpacing: -0.3,
+    letterSpacing: tracking[font.largeTitle],
   },
   largeSubtitle: {
     ...sans(400),
@@ -218,7 +218,7 @@ const styles = StyleSheet.create({
     ...sans(600),
     color: color.text,
     fontSize: font.body,
-    letterSpacing: -0.1,
+    letterSpacing: tracking[font.body],
   },
   subtitle: {
     ...sans(400),

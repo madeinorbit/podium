@@ -141,12 +141,57 @@ export const font = {
   micro: 11,
 } as const
 
+const IOS_LEADING = {
+  34: 41,
+  28: 34,
+  22: 28,
+  20: 25,
+  17: 22,
+  16: 21,
+  15: 20,
+  13: 18,
+  12: 16,
+  11: 13,
+} as const
+
 /**
- * Line height for a scale step. Body copy gets room (1.45); dense chrome and
- * micro labels sit tighter (1.3) so rows don't grow taller than their content.
+ * iOS Dynamic Type leading at the default Large size. Prose deliberately
+ * deviates from the platform table: 1.45 (17 -> 25) reads better for multiline
+ * agent output at this narrow measure than the system Body leading of 22.
  */
-export const leading = (size: number, density: 'prose' | 'ui' = 'ui') =>
-  Math.round(size * (density === 'prose' ? 1.45 : 1.3))
+export const leading = (size: keyof typeof IOS_LEADING, density: 'prose' | 'ui' = 'ui') =>
+  density === 'prose' ? Math.round(size * 1.45) : IOS_LEADING[size]
+
+/**
+ * SF's tracking curve, used as a starting point for Geist: tight at text sizes,
+ * neutral around captions, and loose again above 24pt.
+ */
+export const tracking = {
+  34: 0.4,
+  28: 0.38,
+  22: -0.26,
+  20: -0.45,
+  17: -0.43,
+  16: -0.31,
+  15: -0.23,
+  13: -0.08,
+  12: 0,
+  11: 0.06,
+} as const
+
+/** React Native spring constants converted from SwiftUI's published presets. */
+export const spring = {
+  /** iOS system default — anything with no better answer. (response .55, zeta 1) */
+  default: { stiffness: 130, damping: 23, mass: 1 },
+  /** SwiftUI .smooth — no overshoot. Sheet/accessory settle. */
+  smooth: { stiffness: 158, damping: 25, mass: 1 },
+  /** SwiftUI .snappy — the detent snap. */
+  snappy: { stiffness: 158, damping: 21.4, mass: 1 },
+  /** SwiftUI .bouncy — reserve for intentionally playful motion. */
+  bouncy: { stiffness: 158, damping: 17.6, mass: 1 },
+  /** Press feedback — faster than an Apple preset and critically damped. */
+  press: { stiffness: 322, damping: 36, mass: 1 },
+} as const
 
 /**
  * Geist / Geist Mono, with regular and semibold static faces loaded in

@@ -4,7 +4,7 @@ import type { SessionMeta } from '@podium/model'
 import * as Haptics from 'expo-haptics'
 import { usePathname, useRouter } from 'expo-router'
 import { useEffect } from 'react'
-import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { sessionHref } from '../lib/session-route'
 import { FLOW_SLATE, flow, issueColorHex } from '../theme/issueColors'
@@ -37,7 +37,7 @@ export function TaskPeekSheet({
   const insets = useSafeAreaInsets()
 
   useEffect(() => {
-    if (issue && Platform.OS !== 'web') {
+    if (issue) {
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
     }
   }, [issue])

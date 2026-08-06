@@ -1,6 +1,7 @@
 import { relativeTime } from '@podium/client-core/focus'
 import type { TrayItem } from '@podium/client-core/viewmodels'
 import type { IssuePanelArtifact, IssueWire, SessionMeta, SessionOffer } from '@podium/model'
+import * as Haptics from 'expo-haptics'
 import { useState } from 'react'
 import { Image, Modal, StyleSheet, Text, TextInput, View } from 'react-native'
 import { offerArtifactTarget } from '../lib/offer-artifact-target'
@@ -20,7 +21,7 @@ const MAX_THUMBS = 3
 export interface TrayCardActions {
   /** Send an offer action's prompt to its session as a user turn (the server
    *  then clears the offer — one item, one fate). */
-  onOfferAction: (session: SessionMeta, prompt: string) => void
+  onOfferAction: (session: SessionMeta, prompt: string) => Promise<void>
   onOpenSession: (session: SessionMeta) => void
   onOpenIssue: (issue: IssueWire) => void
   /** Answer chip on an issue question (issues.answerHumanQuestion path is the
@@ -72,6 +73,16 @@ export function TrayCard({
           )
   const ago = relativeTime(item.since, now)
   const squareHex = issueColorHex(issue.color)
+  const commitOfferAction = (target: SessionMeta, prompt: string) => {
+    void actions.onOfferAction(target, prompt).then(
+      () => {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {})
+      },
+      () => {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {})
+      },
+    )
+  }
 
   const header = (
     <View style={styles.top}>
@@ -187,7 +198,7 @@ export function TrayCard({
                 disabled={!feedback.trim()}
                 style={[styles.btn, styles.btnPrimary, !feedback.trim() && styles.btnDisabled]}
                 onPress={() => {
-                  actions.onOfferAction(
+                  commitOfferAction(
                     item.session,
                     composeOfferPrompt(pendingAction.prompt, feedback),
                   )
@@ -220,7 +231,7 @@ export function TrayCard({
                 style={[styles.btn, ai === 0 ? styles.btnPrimary : styles.btnSecondary]}
                 onPress={() => {
                   if (action.input === true) setPending(ai)
-                  else actions.onOfferAction(item.session, action.prompt)
+                  else commitOfferAction(item.session, action.prompt)
                 }}
               >
                 <Text style={ai === 0 ? styles.btnPrimaryText : styles.btnSecondaryText}>

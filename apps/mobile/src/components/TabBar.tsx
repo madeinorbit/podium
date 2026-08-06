@@ -3,15 +3,7 @@ import * as Haptics from 'expo-haptics'
 import { BottomTabBarHeightCallbackContext } from 'expo-router/build/react-navigation/bottom-tabs'
 import { Inbox, KanbanSquare, MessagesSquare, Rows3 } from 'lucide-react-native'
 import { useContext, useEffect, useRef, useState } from 'react'
-import {
-  Animated,
-  type LayoutChangeEvent,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native'
+import { Animated, type LayoutChangeEvent, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useReduceMotion } from '../hooks/useReduceMotion'
 import {
@@ -154,9 +146,7 @@ export function TabBar({ state, descriptors, navigation }: TabBarProps) {
               onPress={() => {
                 // Selection feedback, not impact: switching tabs is a picker, and
                 // iOS reserves the softer tick for exactly this [POD-366].
-                if (Platform.OS !== 'web') {
-                  Haptics.selectionAsync().catch(() => {})
-                }
+                Haptics.selectionAsync().catch(() => {})
                 const event = navigation.emit({
                   type: 'tabPress',
                   target: route.key,

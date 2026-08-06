@@ -9,6 +9,7 @@ import {
 } from '@podium/client-core/viewmodels'
 import type { TranscriptItem, WorkState } from '@podium/model'
 import { asSessionId, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/model'
+import * as Haptics from 'expo-haptics'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { MoreVertical, SquareTerminal } from 'lucide-react-native'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -70,6 +71,7 @@ export function SessionScreen() {
   // transcript (POD-338). A parked session queues the message and answers
   // minutes later — without this the composer reads as if it never sent.
   const [pendingTurns, setPendingTurns] = useState<PendingTurn[]>([])
+  const turnSeq = useRef(0)
   const [menuOpen, setMenuOpen] = useState(false)
   const [workMenuOpen, setWorkMenuOpen] = useState(false)
   const goBack = useCallback(() => {
@@ -130,15 +132,41 @@ export function SessionScreen() {
     })
   }, [items, pendingTurns.length])
 
-  const send = useCallback(
-    (text: string) => {
+  const dispatch = useCallback(
+    (id: string, text: string) => {
       if (!sessionId) return
-      const trimmed = text.trim()
-      if (!trimmed) return
-      setPendingTurns((prev) => [...prev, { id: `${Date.now()}:${prev.length}`, text: trimmed }])
-      void store.resumeAndSend(sessionId, trimmed)
+      void store.resumeAndSend(sessionId, text).catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error)
+        setPendingTurns((prev) =>
+          prev.map((turn) => (turn.id === id ? { ...turn, failed: message } : turn)),
+        )
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {})
+      })
     },
     [store.resumeAndSend, sessionId],
+  )
+
+  const send = useCallback(
+    (text: string) => {
+      const trimmed = text.trim()
+      if (!trimmed) return
+      const id = `${Date.now()}:${turnSeq.current++}`
+      setPendingTurns((prev) => [...prev, { id, text: trimmed }])
+      dispatch(id, trimmed)
+    },
+    [dispatch],
+  )
+
+  const retry = useCallback(
+    (turn: PendingTurn) => {
+      setPendingTurns((prev) =>
+        prev.map((candidate) =>
+          candidate.id === turn.id ? { id: candidate.id, text: candidate.text } : candidate,
+        ),
+      )
+      dispatch(turn.id, turn.text)
+    },
+    [dispatch],
   )
 
   const loadOlder = useCallback(() => {
@@ -230,7 +258,7 @@ export function SessionScreen() {
   }, [nextSession, store, session])
 
   const offerActions: TrayCardActions = {
-    onOfferAction: (target, prompt) => void store.resumeAndSend(target.sessionId, prompt),
+    onOfferAction: (target, prompt) => store.resumeAndSend(target.sessionId, prompt),
     onOpenSession: () => {},
     onOpenIssue: (target) => router.push(`/issue/${encodeURIComponent(target.id)}`),
     onResolve: (target) => void store.trpc.issues.clearNeedsHuman.mutate({ id: target.id }),
@@ -310,6 +338,7 @@ export function SessionScreen() {
               cwd: session.cwd,
             }}
             pendingTurns={pendingTurns}
+            onRetryPending={retry}
             onAnswer={async (choices) => {
               await trpc.sessions.answerAskUserQuestion.mutate({ sessionId, choices })
             }}

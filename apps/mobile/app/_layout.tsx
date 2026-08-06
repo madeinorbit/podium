@@ -9,6 +9,7 @@ import { StyleSheet } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { AuthGate } from '../src/client/AuthGate'
 import { MobileClientProvider } from '../src/client/MobileClientProvider'
+import { AgentOutcomeHaptics } from '../src/components/AgentOutcomeHaptics'
 import { BootSplash } from '../src/components/BootSplash'
 import { VisualViewportRoot } from '../src/components/VisualViewportRoot'
 import { useReduceMotion } from '../src/hooks/useReduceMotion'
@@ -38,6 +39,7 @@ export default function RootLayout() {
       <GestureHandlerRootView style={styles.fill}>
         <AuthGate>
           <MobileClientProvider>
+            <AgentOutcomeHaptics />
             {/*
               The JS stack, not the default native one [POD-402].
 

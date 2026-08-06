@@ -15,9 +15,9 @@ import { PressableScale } from '../components/PressableScale'
 import { HeaderButton, Screen } from '../components/Screen'
 import { BrailleSpinner, CountPill } from '../components/StatusGlyphs'
 import { TrayCard, type TrayCardActions } from '../components/TrayCard'
+import { useMinimizeTabBarOnScroll } from '../hooks/useMinimizeTabBarOnScroll'
 import { usePendingQuestion } from '../hooks/usePendingQuestion'
 import { useRefreshableTab } from '../hooks/useRefreshableTab'
-import { useMinimizeTabBarOnScroll } from '../hooks/useMinimizeTabBarOnScroll'
 import { useTabBarInset } from '../hooks/useTabBarInset'
 import { sessionHref } from '../lib/session-route'
 import { effectiveIssueColorHex, FLOW_SLATE, flow } from '../theme/issueColors'
@@ -136,7 +136,7 @@ export function TrayScreen() {
     session.issueId ? issues.find((issue) => issue.id === session.issueId) : undefined
 
   const cardActions: TrayCardActions = {
-    onOfferAction: (session, prompt) => void store.resumeAndSend(session.sessionId, prompt),
+    onOfferAction: (session, prompt) => store.resumeAndSend(session.sessionId, prompt),
     onOpenSession: (session) => router.push(sessionHref(session.sessionId, '/')),
     onOpenIssue: (issue) => router.push(`/issue/${encodeURIComponent(issue.id)}`),
     onResolve: (issue) => void store.trpc.issues.clearNeedsHuman.mutate({ id: issue.id }),
