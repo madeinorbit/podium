@@ -28,11 +28,13 @@ import { Composer } from '../components/Composer'
 import { Icon } from '../components/Icon'
 import { IdSquare } from '../components/IdSquare'
 import { PressableScale } from '../components/PressableScale'
+import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
 import { HeaderButton, Screen } from '../components/Screen'
 import { TaskPeekSheet } from '../components/TaskPeekSheet'
 import { type PendingTurn, TranscriptList } from '../components/TranscriptList'
 import { TrayCard, type TrayCardActions } from '../components/TrayCard'
 import { EmptyState } from '../components/ui'
+import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { hasSessionBackTarget, sessionBackTarget, sessionHref } from '../lib/session-route'
 import { FLOW_SLATE, issueColorHex } from '../theme/issueColors'
 import { color, space } from '../theme/theme'
@@ -64,6 +66,8 @@ export function SessionScreen() {
   const allSessions = useSessions()
   const issues = useIssues()
   const session = useSession(sessionId)
+  const { connected, onRefresh, refreshing, refreshControl, refreshAccessibilityProps } =
+    useRefreshableList()
 
   const [items, setItems] = useState<TranscriptItem[]>([])
   const [loaded, setLoaded] = useState(false)
@@ -326,9 +330,7 @@ export function SessionScreen() {
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        {loaded && items.length === 0 && pendingTurns.length === 0 ? (
-          <EmptyState fill title="No transcript yet" body="Send a message to get things moving." />
-        ) : (
+        <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
           <TranscriptList
             items={items}
             live={session?.status === 'live'}
@@ -339,6 +341,17 @@ export function SessionScreen() {
             }}
             pendingTurns={pendingTurns}
             onRetryPending={retry}
+            refreshControl={refreshControl}
+            refreshAccessibilityProps={refreshAccessibilityProps}
+            emptyComponent={
+              loaded && items.length === 0 && pendingTurns.length === 0 ? (
+                <EmptyState
+                  fill
+                  title="No transcript yet"
+                  body="Send a message to get things moving."
+                />
+              ) : undefined
+            }
             onAnswer={async (choices) => {
               await trpc.sessions.answerAskUserQuestion.mutate({ sessionId, choices })
             }}
@@ -349,7 +362,7 @@ export function SessionScreen() {
               if (target) setPeekIssue(target)
             }}
           />
-        )}
+        </PullToRefreshBoundary>
         {session.offer && issue ? (
           <View style={styles.offerWrap}>
             <TrayCard

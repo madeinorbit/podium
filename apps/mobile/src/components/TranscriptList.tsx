@@ -16,16 +16,18 @@ import {
   toolVerdict,
 } from '@podium/client-core/viewmodels'
 import type { TranscriptItem } from '@podium/model'
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { type ReactElement, useCallback, useMemo, useRef, useState } from 'react'
 import {
   FlatList,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
+  type RefreshControlProps,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native'
+import type { RefreshAccessibilityProps } from '../hooks/useRefreshableTab'
 import type { TranscriptAssetContext } from '../lib/transcript-assets'
 import { color, font, leading, mono, monoLabel, radius, sans, space } from '../theme/theme'
 import { AskQuestionCard } from './AskQuestionCard'
@@ -355,6 +357,9 @@ export function TranscriptList({
   collapseContext = false,
   pendingTurns,
   onRetryPending,
+  refreshControl,
+  refreshAccessibilityProps,
+  emptyComponent,
 }: {
   items: TranscriptItem[]
   live: boolean
@@ -371,6 +376,10 @@ export function TranscriptList({
   pendingTurns?: readonly PendingTurn[]
   /** Send a rejected turn again (only failed rows expose the affordance). */
   onRetryPending?: (turn: PendingTurn) => void
+  /** Native pull control; web uses the pointer boundary around this list. */
+  refreshControl?: ReactElement<RefreshControlProps>
+  refreshAccessibilityProps?: RefreshAccessibilityProps
+  emptyComponent?: ReactElement
 }) {
   const rows = useMemo(() => {
     const built = buildRows(items, collapseContext)
@@ -406,6 +415,9 @@ export function TranscriptList({
       data={rows}
       keyExtractor={(row) => row.key}
       contentContainerStyle={styles.content}
+      refreshControl={refreshControl}
+      {...refreshAccessibilityProps}
+      ListEmptyComponent={emptyComponent}
       // Keeps the viewport steady when older pages prepend above.
       maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
       onScroll={onScroll}

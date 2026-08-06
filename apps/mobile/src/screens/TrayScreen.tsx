@@ -12,6 +12,7 @@ import { Icon } from '../components/Icon'
 import { IdSquare } from '../components/IdSquare'
 import { NewWorkButton } from '../components/NewWorkButton'
 import { PressableScale } from '../components/PressableScale'
+import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
 import { HeaderButton, Screen } from '../components/Screen'
 import { BrailleSpinner, CountPill } from '../components/StatusGlyphs'
 import { TrayCard, type TrayCardActions } from '../components/TrayCard'
@@ -94,7 +95,8 @@ export function TrayScreen() {
   const allSessions = useSessions()
   const issues = useIssues()
   const connected = useConnected()
-  const { listRef, refreshControl } = useRefreshableTab('index')
+  const { listRef, refreshControl, refreshAccessibilityProps, refreshing, onRefresh } =
+    useRefreshableTab('index')
   const tabBarInset = useTabBarInset()
   const minimizeOnScroll = useMinimizeTabBarOnScroll()
   const { error } = useMobileShell()
@@ -178,85 +180,88 @@ export function TrayScreen() {
     >
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <View style={styles.queue}>
-        <ScrollView
-          ref={listRef as never}
-          refreshControl={refreshControl}
-          contentContainerStyle={[styles.queueContent, { paddingBottom: tabBarInset + 10 }]}
-          {...minimizeOnScroll}
-        >
-          {askSessions.map((session) => (
-            <AskCard
-              key={session.sessionId}
-              session={session}
-              issue={issueFor(session)}
-              issues={issues}
-              now={now}
-              onAnswer={async (choices) => {
-                await store.trpc.sessions.answerAskUserQuestion.mutate({
-                  sessionId: session.sessionId,
-                  choices,
-                })
-              }}
-              onOpenSession={() => router.push(sessionHref(session.sessionId, '/'))}
-            />
-          ))}
-          {erroredSessions.map((session) => (
-            <View key={session.sessionId} style={styles.errorCard}>
-              <Text style={styles.errorTitle} numberOfLines={1}>
-                {session.name ?? session.title}
-              </Text>
-              <Text style={styles.errorBody} numberOfLines={2}>
-                {session.agentState?.phase === 'errored' && session.agentState.error
-                  ? `Agent error (${session.agentState.error.class}) — safe to continue.`
-                  : 'Agent hit an error.'}
-              </Text>
-              <View style={styles.errorActions}>
-                <PressableScale
-                  accessibilityRole="button"
-                  accessibilityLabel="Continue after error"
-                  style={styles.continueBtn}
-                  onPress={() => void store.continueSession(session.sessionId)}
-                >
-                  <Text style={styles.continueText}>Continue</Text>
-                </PressableScale>
-                <PressableScale
-                  accessibilityRole="button"
-                  accessibilityLabel="Open session"
-                  onPress={() => router.push(sessionHref(session.sessionId, '/'))}
-                  hitSlop={8}
-                >
-                  <Text style={styles.sessionLinkText}>session →</Text>
-                </PressableScale>
-              </View>
-            </View>
-          ))}
-          {decisions.map((item) => (
-            <TrayCard
-              key={`${item.kind}:${item.issue.id}:${item.since}`}
-              item={item}
-              issues={issues}
-              sessions={sessions}
-              httpOrigin={store.httpOrigin}
-              actions={cardActions}
-              now={now}
-            />
-          ))}
-          {empty ? (
-            <View style={styles.empty}>
-              <Text style={styles.emptyTitle}>✓ Nothing waiting on you — anywhere</Text>
-              {workingCount > 0 ? (
-                <View style={styles.workingChip}>
-                  <BrailleSpinner size={11} />
-                  <Text style={styles.workingText}>
-                    {workingCount} agent{workingCount > 1 ? 's' : ''} working
-                  </Text>
+        <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
+          <ScrollView
+            ref={listRef as never}
+            refreshControl={refreshControl}
+            contentContainerStyle={[styles.queueContent, { paddingBottom: tabBarInset + 10 }]}
+            {...refreshAccessibilityProps}
+            {...minimizeOnScroll}
+          >
+            {askSessions.map((session) => (
+              <AskCard
+                key={session.sessionId}
+                session={session}
+                issue={issueFor(session)}
+                issues={issues}
+                now={now}
+                onAnswer={async (choices) => {
+                  await store.trpc.sessions.answerAskUserQuestion.mutate({
+                    sessionId: session.sessionId,
+                    choices,
+                  })
+                }}
+                onOpenSession={() => router.push(sessionHref(session.sessionId, '/'))}
+              />
+            ))}
+            {erroredSessions.map((session) => (
+              <View key={session.sessionId} style={styles.errorCard}>
+                <Text style={styles.errorTitle} numberOfLines={1}>
+                  {session.name ?? session.title}
+                </Text>
+                <Text style={styles.errorBody} numberOfLines={2}>
+                  {session.agentState?.phase === 'errored' && session.agentState.error
+                    ? `Agent error (${session.agentState.error.class}) — safe to continue.`
+                    : 'Agent hit an error.'}
+                </Text>
+                <View style={styles.errorActions}>
+                  <PressableScale
+                    accessibilityRole="button"
+                    accessibilityLabel="Continue after error"
+                    style={styles.continueBtn}
+                    onPress={() => void store.continueSession(session.sessionId)}
+                  >
+                    <Text style={styles.continueText}>Continue</Text>
+                  </PressableScale>
+                  <PressableScale
+                    accessibilityRole="button"
+                    accessibilityLabel="Open session"
+                    onPress={() => router.push(sessionHref(session.sessionId, '/'))}
+                    hitSlop={8}
+                  >
+                    <Text style={styles.sessionLinkText}>session →</Text>
+                  </PressableScale>
                 </View>
-              ) : (
-                <Text style={styles.emptyBody}>Fire off a task or open Super Agent.</Text>
-              )}
-            </View>
-          ) : null}
-        </ScrollView>
+              </View>
+            ))}
+            {decisions.map((item) => (
+              <TrayCard
+                key={`${item.kind}:${item.issue.id}:${item.since}`}
+                item={item}
+                issues={issues}
+                sessions={sessions}
+                httpOrigin={store.httpOrigin}
+                actions={cardActions}
+                now={now}
+              />
+            ))}
+            {empty ? (
+              <View style={styles.empty}>
+                <Text style={styles.emptyTitle}>✓ Nothing waiting on you — anywhere</Text>
+                {workingCount > 0 ? (
+                  <View style={styles.workingChip}>
+                    <BrailleSpinner size={11} />
+                    <Text style={styles.workingText}>
+                      {workingCount} agent{workingCount > 1 ? 's' : ''} working
+                    </Text>
+                  </View>
+                ) : (
+                  <Text style={styles.emptyBody}>Fire off a task or open Super Agent.</Text>
+                )}
+              </View>
+            ) : null}
+          </ScrollView>
+        </PullToRefreshBoundary>
       </View>
       <Modal
         transparent

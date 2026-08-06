@@ -14,10 +14,12 @@ import { readTranscriptPage, useHub, useMobileStore } from '../client/hooks'
 import { Composer } from '../components/Composer'
 import { Icon } from '../components/Icon'
 import { PressableScale } from '../components/PressableScale'
+import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
 import { Screen } from '../components/Screen'
 import { BrailleSpinner } from '../components/StatusGlyphs'
 import { type PendingTurn, TranscriptList } from '../components/TranscriptList'
 import { EmptyState } from '../components/ui'
+import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { useTabBarInset } from '../hooks/useTabBarInset'
 import { dropEchoedTurns, markTurnsFailed, renderedTranscript } from '../lib/superagent-transcript'
 import { color, font, mono, monoLabel, sans, space } from '../theme/theme'
@@ -60,6 +62,8 @@ export function SuperagentScreen() {
   const superagent = useSlice(superagentSlice)
   const insets = useSafeAreaInsets()
   const tabBarInset = useTabBarInset()
+  const { connected, onRefresh, refreshing, refreshControl, refreshAccessibilityProps } =
+    useRefreshableList()
   const [items, setItems] = useState<TranscriptItem[]>([])
   const [liveText, setLiveText] = useState('')
   const [statusLabel, setStatusLabel] = useState<string | null>(null)
@@ -317,13 +321,11 @@ export function SuperagentScreen() {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
           {error ? <Text style={styles.error}>{error}</Text> : null}
-          {empty ? (
-            <EmptyState
-              fill
-              title="Hand off some work"
-              body="The superagent can read your repos, file tasks, spawn worker sessions and steer them — describe what you want done."
-            />
-          ) : (
+          <PullToRefreshBoundary
+            connected={connected}
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+          >
             <TranscriptList
               items={rendered}
               live={running}
@@ -340,6 +342,17 @@ export function SuperagentScreen() {
               pendingTurns={pendingTurns}
               onRetryPending={retry}
               onLoadOlder={loadOlder}
+              refreshControl={refreshControl}
+              refreshAccessibilityProps={refreshAccessibilityProps}
+              emptyComponent={
+                empty ? (
+                  <EmptyState
+                    fill
+                    title="Hand off some work"
+                    body="The superagent can read your repos, file tasks, spawn worker sessions and steer them — describe what you want done."
+                  />
+                ) : undefined
+              }
               onAnswer={async (choices) => {
                 if (podiumSid)
                   await trpc.sessions.answerAskUserQuestion.mutate({
@@ -348,7 +361,7 @@ export function SuperagentScreen() {
                   })
               }}
             />
-          )}
+          </PullToRefreshBoundary>
           {running && !liveText.trim() ? (
             <View style={styles.statusRow}>
               <BrailleSpinner size={11} />

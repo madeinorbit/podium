@@ -5,17 +5,19 @@ import { useRouter } from 'expo-router'
 import { Inbox as InboxIcon, Settings } from 'lucide-react-native'
 import { useMemo } from 'react'
 import { SectionList, StyleSheet, Text, View } from 'react-native'
-import { useConnected, useIssues, useMobileStore, useSessions, useTrpc } from '../client/hooks'
+import { useIssues, useMobileStore, useSessions, useTrpc } from '../client/hooks'
 import { useMobileShell } from '../client/shell'
 import { AskQuestionCard } from '../components/AskQuestionCard'
 import { Icon } from '../components/Icon'
 import { NewWorkButton } from '../components/NewWorkButton'
 import { PressableScale } from '../components/PressableScale'
+import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
 import { HeaderButton, Screen } from '../components/Screen'
 import { SessionCard } from '../components/SessionCard'
 import { CountPill } from '../components/StatusGlyphs'
 import { EmptyState } from '../components/ui'
 import { usePendingQuestion } from '../hooks/usePendingQuestion'
+import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { sessionHref } from '../lib/session-route'
 import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
 
@@ -88,7 +90,8 @@ export function InboxScreen() {
   const router = useRouter()
   const sessions = useSessions()
   const issues = useIssues()
-  const connected = useConnected()
+  const { connected, onRefresh, refreshing, refreshControl, refreshAccessibilityProps } =
+    useRefreshableList()
   const outboxSize = useMobileStore().outboxSize
   const { error, notice } = useMobileShell()
   const now = Date.now()
@@ -130,44 +133,50 @@ export function InboxScreen() {
           attribute to this account, and storage degradation, are both things the
           user is owed rather than log lines. */}
       {notice ? <Text style={styles.notice}>{notice}</Text> : null}
-      <SectionList
-        sections={sections}
-        keyExtractor={(session) => session.sessionId}
-        stickySectionHeadersEnabled={false}
-        renderSectionHeader={({ section }) => (
-          <View style={styles.sectionHeader}>
-            <Text style={[styles.sectionLabel, section.key === 'needsYou' && styles.needsYouLabel]}>
-              {section.title.toUpperCase()}
-            </Text>
-            {section.key === 'needsYou' ? (
-              <CountPill count={section.data.length} />
+      <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
+        <SectionList
+          sections={sections}
+          keyExtractor={(session) => session.sessionId}
+          stickySectionHeadersEnabled={false}
+          refreshControl={refreshControl}
+          {...refreshAccessibilityProps}
+          renderSectionHeader={({ section }) => (
+            <View style={styles.sectionHeader}>
+              <Text
+                style={[styles.sectionLabel, section.key === 'needsYou' && styles.needsYouLabel]}
+              >
+                {section.title.toUpperCase()}
+              </Text>
+              {section.key === 'needsYou' ? (
+                <CountPill count={section.data.length} />
+              ) : (
+                <Text style={styles.sectionCountText}>{section.data.length}</Text>
+              )}
+              <View style={styles.sectionRule} />
+            </View>
+          )}
+          renderItem={({ item: session, section }) =>
+            section.key === 'needsYou' ? (
+              <NeedsYouCard session={session} issue={issueFor(session)} now={now} />
             ) : (
-              <Text style={styles.sectionCountText}>{section.data.length}</Text>
-            )}
-            <View style={styles.sectionRule} />
-          </View>
-        )}
-        renderItem={({ item: session, section }) =>
-          section.key === 'needsYou' ? (
-            <NeedsYouCard session={session} issue={issueFor(session)} now={now} />
-          ) : (
-            <SessionCard
-              model={sessionCardModel(session, issueFor(session), now)}
-              issue={issueFor(session)}
-              agentColor={session.agentColor}
-              onPress={() => router.push(sessionHref(session.sessionId, '/'))}
+              <SessionCard
+                model={sessionCardModel(session, issueFor(session), now)}
+                issue={issueFor(session)}
+                agentColor={session.agentColor}
+                onPress={() => router.push(sessionHref(session.sessionId, '/'))}
+              />
+            )
+          }
+          ListEmptyComponent={
+            <EmptyState
+              icon={<Icon as={InboxIcon} size={26} color={color.textFaint} />}
+              title="Inbox zero"
+              body="No agents are waiting on you. Start a session or hand something to the superagent."
             />
-          )
-        }
-        ListEmptyComponent={
-          <EmptyState
-            icon={<Icon as={InboxIcon} size={26} color={color.textFaint} />}
-            title="Inbox zero"
-            body="No agents are waiting on you. Start a session or hand something to the superagent."
-          />
-        }
-        contentContainerStyle={styles.listContent}
-      />
+          }
+          contentContainerStyle={styles.listContent}
+        />
+      </PullToRefreshBoundary>
     </Screen>
   )
 }

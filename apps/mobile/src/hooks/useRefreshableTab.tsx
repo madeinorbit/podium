@@ -1,5 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { RefreshControl } from 'react-native'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  type AccessibilityActionEvent,
+  Platform,
+  RefreshControl,
+  type ScrollViewProps,
+} from 'react-native'
 import { useConnected, useHub } from '../client/hooks'
 import { onTabReselect } from '../lib/tab-reselect'
 import { color } from '../theme/theme'
@@ -17,7 +22,79 @@ interface Scrollable {
 }
 
 /** Shortest animation that still reads as a deliberate response to the pull. */
-const MIN_SPINNER_MS = 450
+export const MIN_REFRESH_CONFIRMATION_MS = 650
+
+export type RefreshAccessibilityProps = Pick<
+  ScrollViewProps,
+  'accessibilityActions' | 'onAccessibilityAction'
+>
+
+/**
+ * Shared refresh semantics for root lists and transcript lists. The socket is
+ * the data source: a disconnected pull cancels backoff and connects now; an
+ * already-connected pull confirms that the live replica is current.
+ */
+export function useRefreshableList() {
+  const hub = useHub()
+  const connected = useConnected()
+  const refreshingRef = useRef(false)
+  const confirmationTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
+
+  useEffect(
+    () => () => {
+      if (confirmationTimer.current) clearTimeout(confirmationTimer.current)
+    },
+    [],
+  )
+
+  const onRefresh = useCallback(() => {
+    if (refreshingRef.current) return
+    refreshingRef.current = true
+    setRefreshing(true)
+    if (!connected) hub.connect()
+    confirmationTimer.current = setTimeout(() => {
+      refreshingRef.current = false
+      setRefreshing(false)
+    }, MIN_REFRESH_CONFIRMATION_MS)
+  }, [connected, hub])
+
+  const onAccessibilityAction = useCallback(
+    (event: AccessibilityActionEvent) => {
+      if (event.nativeEvent.actionName === 'refresh') onRefresh()
+    },
+    [onRefresh],
+  )
+  const refreshAccessibilityProps = useMemo<RefreshAccessibilityProps>(
+    () => ({
+      accessibilityActions: [{ name: 'refresh', label: 'Refresh list' }],
+      onAccessibilityAction,
+    }),
+    [onAccessibilityAction],
+  )
+
+  // RN Web 0.21 renders this as an inert View and drops the two meaningful
+  // props. Do not mount that placeholder: PullToRefreshBoundary owns web.
+  const refreshControl =
+    Platform.OS === 'web' ? undefined : (
+      <RefreshControl
+        refreshing={refreshing}
+        onRefresh={onRefresh}
+        tintColor={color.textDim}
+        colors={[color.accent]}
+        progressBackgroundColor={color.surface}
+        accessibilityLabel="Refresh list"
+      />
+    )
+
+  return {
+    connected,
+    onRefresh,
+    refreshing,
+    refreshControl,
+    refreshAccessibilityProps,
+  }
+}
 
 /**
  * Wires a tab root's list to the two gestures a phone list is expected to
@@ -32,10 +109,8 @@ const MIN_SPINNER_MS = 450
  * data is current by construction, and the control simply confirms that.
  */
 export function useRefreshableTab(routeName: string) {
-  const hub = useHub()
-  const connected = useConnected()
+  const refresh = useRefreshableList()
   const listRef = useRef<Scrollable | null>(null)
-  const [refreshing, setRefreshing] = useState(false)
 
   useEffect(
     () =>
@@ -51,22 +126,5 @@ export function useRefreshableTab(routeName: string) {
     [routeName],
   )
 
-  const onRefresh = useCallback(() => {
-    setRefreshing(true)
-    if (!connected) hub.connect()
-    const done = setTimeout(() => setRefreshing(false), MIN_SPINNER_MS)
-    return () => clearTimeout(done)
-  }, [connected, hub])
-
-  const refreshControl = (
-    <RefreshControl
-      refreshing={refreshing}
-      onRefresh={onRefresh}
-      tintColor={color.textDim}
-      colors={[color.accent]}
-      progressBackgroundColor={color.surface}
-    />
-  )
-
-  return { listRef, refreshControl }
+  return { listRef, ...refresh }
 }
