@@ -10,7 +10,10 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
-import { MinRequired, type MinRequired as MinRequiredShape } from '@podium/protocol'
+// Imported from source, not the `@podium/protocol` entry point: that entry resolves to
+// `dist/`, which the release workflow never builds (`bun install --ignore-scripts`), so a
+// bare specifier fails at runtime in CI. Same convention as the other scripts/ imports.
+import { MinRequired, type MinRequired as MinRequiredShape } from '../packages/protocol/src/update/target'
 import { extractRelease } from './changelog'
 import { buildManifest } from './release-manifest'
 
