@@ -170,7 +170,7 @@ describe('MergeQueuePanelView', () => {
       />,
     )
 
-    expect(screen.getByText('No unblocked candidates in this project.')).toBeTruthy()
+    expect(screen.getByText('No branches ready to merge.')).toBeTruthy()
     expect(screen.getByText('No active merge lease.')).toBeTruthy()
     expect(screen.getByText('No sessions waiting.')).toBeTruthy()
     expect(screen.queryByText(/loading/i)).toBeNull()

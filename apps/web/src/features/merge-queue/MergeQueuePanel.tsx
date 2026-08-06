@@ -215,7 +215,7 @@ export function MergeQueuePanelView({
 
       <Section id="merge-queue-ready" label="READY" count={candidates.length}>
         {candidates.length === 0 ? (
-          <EmptyLine>No unblocked candidates in this project.</EmptyLine>
+          <EmptyLine>No branches ready to merge.</EmptyLine>
         ) : (
           <div className="flex flex-col gap-0.5">
             {candidates.map((issue) => (
