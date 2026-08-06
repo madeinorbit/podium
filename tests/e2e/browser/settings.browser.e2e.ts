@@ -61,7 +61,7 @@ function newSessionsSection(page: Page) {
 
 function accountsSection(page: Page) {
   return page
-    .getByRole('region', { name: 'Settings' })
+    .getByRole('dialog', { name: 'Settings' })
     .locator('section')
     .filter({ has: page.getByRole('heading', { name: 'Accounts & Keys' }) })
     .first()
@@ -86,7 +86,7 @@ test('native account profile labels render when available', async ({ page }) => 
     .getByRole('banner')
     .getByRole('button', { name: 'Settings', exact: true })
     .click({ timeout: 15_000 })
-  const settings = page.getByRole('region', { name: 'Settings' })
+  const settings = page.getByRole('dialog', { name: 'Settings' })
   await settings.getByRole('button', { name: 'Accounts', exact: true }).click()
 
   const section = accountsSection(page)

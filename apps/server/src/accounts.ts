@@ -7,8 +7,8 @@
 
 import { harnessDetectLogin } from '@podium/harness/metadata'
 import type { HarnessAgent } from '@podium/model'
-import type { AccountsRepository } from './store/accounts'
 import { buildLoginCatalog, catalogEntriesForHarness, type LoginCatalog } from './login-catalog'
+import type { AccountsRepository } from './store/accounts'
 import type { MachineRecord } from './store/types'
 
 /** A row in the Accounts hub. Native rows are observed from the machine catalog;
@@ -28,7 +28,7 @@ export interface AccountView {
   machines?: string[]
   /** Non-secret identity fingerprint used to distinguish multiple native logins. */
   identityFingerprint?: string
-  status: 'connected' | 'not-configured'
+  status: 'connected' | 'not-configured' | 'unknown'
   /** Managed only: where the credential actually lives. */
   credentialSource?: 'stored' | 'legacy'
 }
@@ -70,17 +70,45 @@ const NATIVE_HARNESSES: readonly [HarnessAgent, string][] = [
   ['grok', 'xai'],
 ]
 
-function nativeFromCatalog(catalog: LoginCatalog): AccountView[] {
+function nativeFromCatalog(
+  catalog: LoginCatalog,
+  machines: readonly MachineRecord[],
+): AccountView[] {
   return NATIVE_HARNESSES.flatMap(([harness, provider]): AccountView[] => {
     const entries = catalogEntriesForHarness(catalog, harness)
     if (entries.length === 0) {
+      const reports = machines.flatMap((machine) =>
+        (machine.inventory?.agents ?? [])
+          .filter((agent) => agent.kind === harness)
+          .map((agent) => ({ machine, login: agent.login })),
+      )
+      const loggedIn = reports.filter(({ login }) => login.state === 'in')
+      if (loggedIn.length > 0) {
+        const labels = [...new Set(loggedIn.map(({ login }) => login.account).filter(Boolean))]
+        return [
+          {
+            id: `native:${harness}`,
+            provider,
+            source: 'native' as const,
+            harness,
+            ...(labels.length === 1 ? { identity: labels[0] } : {}),
+            machines: [...new Set(loggedIn.map(({ machine }) => machine.name))],
+            status: 'connected' as const,
+          },
+        ]
+      }
       return [
         {
           id: `native:${harness}`,
           provider,
           source: 'native' as const,
           harness,
-          status: 'not-configured' as const,
+          // No report is not evidence of a logout. Only an explicit detector
+          // result may claim the native login is not configured.
+          status:
+            reports.length > 0 && reports.every(({ login }) => login.state === 'out')
+              ? ('not-configured' as const)
+              : ('unknown' as const),
         },
       ]
     }
@@ -125,7 +153,7 @@ export function accountViews(
           detectNative(machinesOrHome, 'codex', 'openai'),
           detectNative(machinesOrHome, 'grok', 'xai'),
         ]
-      : nativeFromCatalog(buildLoginCatalog(machinesOrHome))
+      : nativeFromCatalog(buildLoginCatalog(machinesOrHome), machinesOrHome)
 
   const stored = new Map(accounts.list().map((a) => [a.id, a]))
   const managed: AccountView[] = MANAGED_KEY_PROVIDERS.map((provider) => {

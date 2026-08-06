@@ -55,6 +55,14 @@ afterEach(() => {
 })
 
 describe('AccountsSection', () => {
+  it('renders an unavailable native probe as unknown instead of claiming a logout', async () => {
+    serveList([{ ...NATIVE, status: 'unknown' }])
+    render(<AccountsSection />)
+
+    expect(await screen.findByText('Status unavailable')).toBeTruthy()
+    expect(screen.queryByText('Not connected')).toBeNull()
+  })
+
   it('connects a managed API key, masks the input, and refetches so the row flips', async () => {
     const connected: AccountView = { ...API_KEY_ROW, identity: 'sk-a…f9x2', status: 'connected' }
     serveList([NATIVE, API_KEY_ROW], [NATIVE, connected])

@@ -97,7 +97,7 @@ export interface AccountView {
   identity?: string
   machines?: string[]
   identityFingerprint?: string
-  status: 'connected' | 'not-configured'
+  status: 'connected' | 'not-configured' | 'unknown'
   /** Managed only: 'stored' = the accounts table (Podium injects it, and can drop
    *  it again); 'legacy' = a pre-hub Settings → API keys value the server has no
    *  row for, so it cannot be disconnected from here. */

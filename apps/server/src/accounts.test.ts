@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { accountViews } from './accounts'
 import { applyBaselineSchema } from './migrations'
 import { AccountsRepository } from './store/accounts'
+import type { MachineRecord } from './store/types'
 
 let home: string
 let codexHome: string
@@ -53,11 +54,76 @@ const settings = (
   return (provider) => table[provider] || undefined
 }
 
+function machineWithLogin(
+  state: 'in' | 'out' | 'unknown',
+  account?: string,
+  id = 'machine-no-fingerprint',
+): MachineRecord {
+  return {
+    id: asMachineId(id),
+    name: id,
+    hostname: id,
+    createdAt: '2026-08-06T00:00:00.000Z',
+    lastSeenAt: '2026-08-06T00:00:00.000Z',
+    podiumManaged: true,
+    ownerUserId: null,
+    appVersion: null,
+    wireSchemaDigest: null,
+    installKind: null,
+    deliveryCaps: [],
+    buildReportedAt: null,
+    inventory: Inventory.parse({
+      os: 'linux',
+      arch: 'x64',
+      agents: [
+        {
+          kind: 'claude-code',
+          installed: true,
+          login: { state, ...(account ? { account } : {}) },
+        },
+      ],
+    }),
+  }
+}
+
 function jwt(payload: Record<string, unknown>): string {
   return `header.${Buffer.from(JSON.stringify(payload)).toString('base64url')}.signature`
 }
 
 describe('accountViews', () => {
+  it('trusts an explicit logged-in report even when an older daemon omits identity metadata', () => {
+    const claude = accountViews(settings(), accounts, [
+      machineWithLogin('in', 'mike@example.com'),
+    ]).find((view) => view.id === 'native:claude-code')!
+
+    expect(claude).toMatchObject({
+      status: 'connected',
+      identity: 'mike@example.com',
+      machines: ['machine-no-fingerprint'],
+    })
+  })
+
+  it('distinguishes an unavailable native status from an explicit logout', () => {
+    const unknown = accountViews(settings(), accounts, [machineWithLogin('unknown')]).find(
+      (view) => view.id === 'native:claude-code',
+    )!
+    const loggedOut = accountViews(settings(), accounts, [machineWithLogin('out')]).find(
+      (view) => view.id === 'native:claude-code',
+    )!
+
+    expect(unknown.status).toBe('unknown')
+    expect(loggedOut.status).toBe('not-configured')
+  })
+
+  it('does not claim a fleet logout while another machine has an unknown status', () => {
+    const claude = accountViews(settings(), accounts, [
+      machineWithLogin('out', undefined, 'logged-out'),
+      machineWithLogin('unknown', undefined, 'unreported'),
+    ]).find((view) => view.id === 'native:claude-code')!
+
+    expect(claude.status).toBe('unknown')
+  })
+
   it('reports native logins as not-configured when nothing is present', () => {
     const views = accountViews(settings(), accounts, home)
     const claude = views.find((v) => v.id === 'native:claude-code')!

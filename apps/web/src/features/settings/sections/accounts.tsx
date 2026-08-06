@@ -45,6 +45,22 @@ function StatusDisconnected(): JSX.Element {
   )
 }
 
+function StatusUnknown(): JSX.Element {
+  return (
+    <span className="inline-flex flex-none items-center gap-1.5 settings-prose text-muted-foreground">
+      <span aria-hidden="true" className="size-1.5 flex-none rounded-full bg-muted-foreground/50" />
+      Status unavailable
+    </span>
+  )
+}
+
+function AccountStatus({ account }: { account: AccountView }): JSX.Element {
+  if (account.status === 'connected') {
+    return <StatusConnected identity={account.identity ?? 'connected'} />
+  }
+  return account.status === 'unknown' ? <StatusUnknown /> : <StatusDisconnected />
+}
+
 /** A carved panel grouping one class of accounts: a machine-voice mono label over
  *  a bordered Panel-Navy surface whose rows self-divide by hairline seams. Groups
  *  the two account classes far more strongly than the old loose text lines, while
@@ -272,11 +288,7 @@ export function AccountsSection(): JSX.Element {
               label={harnessAgentLabel((a.harness ?? a.provider) as HarnessAgent)}
               description={a.machines?.length ? 'on ' + a.machines.join(', ') : undefined}
             >
-              {a.status === 'connected' ? (
-                <StatusConnected identity={a.identity ?? 'connected'} />
-              ) : (
-                <StatusDisconnected />
-              )}
+              <AccountStatus account={a} />
             </Row>
           ))}
         </AccountGroup>
