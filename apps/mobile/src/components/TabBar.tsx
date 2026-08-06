@@ -1,7 +1,7 @@
 import { BlurView } from 'expo-blur'
 import * as Haptics from 'expo-haptics'
 import { BottomTabBarHeightCallbackContext } from 'expo-router/build/react-navigation/bottom-tabs'
-import { Inbox, KanbanSquare, MessagesSquare, Rows3 } from 'lucide-react-native'
+import { KanbanSquare, MessagesSquare, Rows3 } from 'lucide-react-native'
 import { useContext, useEffect, useRef, useState } from 'react'
 import { Animated, type LayoutChangeEvent, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -12,11 +12,10 @@ import {
   subscribeTabBarMinimized,
 } from '../lib/tab-bar-minimize'
 import { emitTabReselect } from '../lib/tab-reselect'
-import { color, font, mono, radius, sans } from '../theme/theme'
+import { color, font, sans } from '../theme/theme'
 import { Icon } from './Icon'
 
-const ICONS: Record<string, typeof Inbox> = {
-  index: Inbox,
+const ICONS: Record<string, typeof Rows3> = {
   work: Rows3,
   issues: KanbanSquare,
   superagent: MessagesSquare,
@@ -45,7 +44,6 @@ interface TabBarProps {
     {
       options: {
         title?: string
-        tabBarBadge?: string | number
         tabBarAccessibilityLabel?: string
       }
     }
@@ -87,8 +85,8 @@ interface TabBarProps {
  * which is opt-in there rather than the default. Screens drive it through
  * ../lib/tab-bar-minimize; see ../hooks/useMinimizeTabBarOnScroll.
  *
- * The active tab is a Superade Yellow chip; the Tray badge is the needs-you
- * count pill.
+ * The active tab is a Superade Yellow chip. Attention stays on the Work rows
+ * that own it instead of being duplicated onto navigation chrome.
  */
 export function TabBar({ state, descriptors, navigation }: TabBarProps) {
   const insets = useSafeAreaInsets()
@@ -102,7 +100,9 @@ export function TabBar({ state, descriptors, navigation }: TabBarProps) {
   // a list you have not scrolled, and the labels are the thing naming where you
   // just landed.
   const focusedRoute = state.routes[state.index]?.name
-  useEffect(() => setTabBarMinimized(false), [focusedRoute])
+  useEffect(() => {
+    if (focusedRoute) setTabBarMinimized(false)
+  }, [focusedRoute])
 
   const fold = useRef(new Animated.Value(0)).current
   useEffect(() => {
@@ -135,8 +135,7 @@ export function TabBar({ state, descriptors, navigation }: TabBarProps) {
           const { options } = descriptors[route.key]
           const label = typeof options.title === 'string' ? options.title : route.name
           const focused = state.index === index
-          const IconCmp = ICONS[route.name] ?? Inbox
-          const badge = options.tabBarBadge
+          const IconCmp = ICONS[route.name] ?? Rows3
           return (
             <Pressable
               key={route.key}
@@ -161,14 +160,7 @@ export function TabBar({ state, descriptors, navigation }: TabBarProps) {
               style={styles.tab}
             >
               <View style={[styles.chip, focused && styles.chipActive]}>
-                <View>
-                  <Icon as={IconCmp} size={20} color={focused ? color.accent : color.textDim} />
-                  {badge != null && badge !== 0 ? (
-                    <View style={styles.badge}>
-                      <Text style={styles.badgeText}>{String(badge)}</Text>
-                    </View>
-                  ) : null}
-                </View>
+                <Icon as={IconCmp} size={20} color={focused ? color.accent : color.textDim} />
                 <Animated.View
                   style={[
                     styles.labelRow,
@@ -261,22 +253,5 @@ const styles = StyleSheet.create({
   },
   labelActive: {
     color: color.accent,
-  },
-  badge: {
-    position: 'absolute',
-    top: -5,
-    right: -11,
-    minWidth: 15,
-    height: 15,
-    borderRadius: radius.full,
-    backgroundColor: color.needsYou,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 4,
-  },
-  badgeText: {
-    ...mono(700),
-    color: color.onAccent,
-    fontSize: font.micro,
   },
 })

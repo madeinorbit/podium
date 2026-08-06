@@ -5,6 +5,7 @@ import {
   mergeTranscriptItems,
   panelLabel,
   prependTranscriptItems,
+  sessionDotTone,
   sessionTitle,
 } from '@podium/client-core/viewmodels'
 import type { TranscriptItem, WorkState } from '@podium/model'
@@ -13,7 +14,7 @@ import * as Haptics from 'expo-haptics'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { MoreVertical, SquareTerminal } from 'lucide-react-native'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { KeyboardAvoidingView, Platform, StyleSheet, View } from 'react-native'
+import { KeyboardAvoidingView, Platform, StyleSheet } from 'react-native'
 import {
   readTranscriptPage,
   useHub,
@@ -30,14 +31,15 @@ import { IdSquare } from '../components/IdSquare'
 import { PressableScale } from '../components/PressableScale'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
 import { HeaderButton, Screen } from '../components/Screen'
+import { SessionActionCard } from '../components/SessionActionCard'
 import { TaskPeekSheet } from '../components/TaskPeekSheet'
 import { type PendingTurn, TranscriptList } from '../components/TranscriptList'
-import { TrayCard, type TrayCardActions } from '../components/TrayCard'
 import { EmptyState } from '../components/ui'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
+import { resolveOfferArtifacts } from '../lib/offer-artifacts'
 import { hasSessionBackTarget, sessionBackTarget, sessionHref } from '../lib/session-route'
 import { FLOW_SLATE, issueColorHex } from '../theme/issueColors'
-import { color, space } from '../theme/theme'
+import { color } from '../theme/theme'
 import { sessionAbsence } from './session-absence'
 
 const WORK_STATES: (WorkState | null)[] = [
@@ -213,6 +215,17 @@ export function SessionScreen() {
   const livePeekIssue = peekIssue
     ? (issues.find((candidate) => candidate.id === peekIssue.id) ?? peekIssue)
     : null
+  const offerArtifacts = useMemo(
+    () =>
+      session?.offer
+        ? resolveOfferArtifacts({
+            offer: session.offer,
+            issue,
+            ...(session.lastInputAt ? { lastInputAt: session.lastInputAt } : {}),
+          })
+        : [],
+    [issue, session],
+  )
   // The issue colour flows through the chrome; slate when the issue is uncoloured.
   const accent = issue ? (issueColorHex(issue.color) ?? FLOW_SLATE) : undefined
 
@@ -268,14 +281,6 @@ export function SessionScreen() {
     return actions
   }, [nextSession, store, session])
 
-  const offerActions: TrayCardActions = {
-    onOfferAction: (target, prompt) => store.resumeAndSend(target.sessionId, prompt),
-    onOpenSession: () => {},
-    onOpenIssue: (target) => router.push(`/issue/${encodeURIComponent(target.id)}`),
-    onResolve: (target) => void store.trpc.issues.clearNeedsHuman.mutate({ id: target.id }),
-    onOpenArtifact: (target) => router.push(`/issue/${encodeURIComponent(target.id)}`),
-  }
-
   if (!sessionId || !session) {
     // A SESSION THAT IS NOT HERE IS THREE DIFFERENT FACTS (doc §3.1 ¶2).
     // Deleted, evicted from THIS principal's view (a share revoked, or never
@@ -319,7 +324,13 @@ export function SessionScreen() {
             onPress={() => issue && setPeekIssue(issue)}
             hitSlop={8}
           >
-            <IdSquare issue={issue} state="working" size={18} />
+            <IdSquare
+              issue={issue}
+              state={
+                issue.needsHuman || sessionDotTone(session) === 'attention' ? 'waiting' : 'working'
+              }
+              size={18}
+            />
           </PressableScale>
         ) : undefined
       }
@@ -370,7 +381,9 @@ export function SessionScreen() {
             refreshControl={refreshControl}
             refreshAccessibilityProps={refreshAccessibilityProps}
             emptyComponent={
-              loaded && items.length === 0 && pendingTurns.length === 0 ? (
+              // An offer is itself the thing to act on — do not tell the
+              // operator the session is empty underneath a pending decision.
+              loaded && items.length === 0 && pendingTurns.length === 0 && !session.offer ? (
                 <EmptyState
                   fill
                   title="No transcript yet"
@@ -387,31 +400,21 @@ export function SessionScreen() {
               const target = issues.find((i) => i.seq === seq)
               if (target) setPeekIssue(target)
             }}
+            footer={
+              session.offer ? (
+                <SessionActionCard
+                  offer={session.offer}
+                  evidenceCount={offerArtifacts.length}
+                  onAction={(prompt) => store.resumeAndSend(session.sessionId, prompt)}
+                  onOpenEvidence={
+                    issue ? () => router.push(`/issue/${encodeURIComponent(issue.id)}`) : undefined
+                  }
+                />
+              ) : undefined
+            }
           />
         </PullToRefreshBoundary>
-        {session.offer && issue ? (
-          <View style={styles.offerWrap}>
-            <TrayCard
-              item={{
-                kind: 'offer',
-                issue,
-                session,
-                offer: session.offer,
-                since: session.offer.createdAt,
-              }}
-              issues={issues}
-              sessions={allSessions}
-              httpOrigin={store.httpOrigin}
-              actions={offerActions}
-              now={Date.now()}
-            />
-          </View>
-        ) : null}
-        <Composer
-          placeholder="Message the agent…"
-          onSend={send}
-          draftInsertion={draftInsertion}
-        />
+        <Composer placeholder="Message the agent…" onSend={send} draftInsertion={draftInsertion} />
       </KeyboardAvoidingView>
       <TaskPeekSheet
         issue={livePeekIssue}
@@ -449,9 +452,5 @@ export function SessionScreen() {
 const styles = StyleSheet.create({
   flex: {
     flex: 1,
-  },
-  offerWrap: {
-    paddingHorizontal: space.sm + 2,
-    paddingBottom: space.xs,
   },
 })

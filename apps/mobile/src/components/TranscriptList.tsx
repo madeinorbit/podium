@@ -15,7 +15,16 @@ import type { TranscriptItem } from '@podium/model'
 import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
 import { ChevronDown, ChevronUp, ListChecks, Search, X } from 'lucide-react-native'
-import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import {
+  type ReactElement,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react'
 import {
   Animated,
   FlatList,
@@ -464,6 +473,7 @@ export function TranscriptList({
   refreshControl,
   refreshAccessibilityProps,
   emptyComponent,
+  footer,
 }: {
   items: TranscriptItem[]
   live: boolean
@@ -494,6 +504,9 @@ export function TranscriptList({
   refreshControl?: ReactElement<RefreshControlProps>
   refreshAccessibilityProps?: RefreshAccessibilityProps
   emptyComponent?: ReactElement
+  /** Session-owned actions rendered after the tail, inside the scroller rather
+   *  than as a persistent bottom accessory. */
+  footer?: ReactNode
 }) {
   const reduceMotion = useReduceMotion()
   const uiState = useUiState()
@@ -803,12 +816,15 @@ export function TranscriptList({
           if (pinned.current) listRef.current?.scrollToEnd({ animated: false })
         }}
         ListFooterComponent={
-          <TranscriptTail
-            state={tail}
-            todos={todos}
-            showOpenTodos={showOpenTodos}
-            onOpenTodos={onOpenTodos}
-          />
+          <>
+            <TranscriptTail
+              state={tail}
+              todos={todos}
+              showOpenTodos={showOpenTodos}
+              onOpenTodos={onOpenTodos}
+            />
+            {footer ? <View style={styles.footer}>{footer}</View> : null}
+          </>
         }
         renderItem={({ item: row, index }) => (
           <FeedRowFrame
@@ -947,6 +963,10 @@ const styles = StyleSheet.create({
   listFrame: {
     flex: 1,
     minHeight: 0,
+  },
+  footer: {
+    marginTop: space.xs,
+    marginBottom: space.sm,
   },
   content: {
     paddingHorizontal: space.lg,

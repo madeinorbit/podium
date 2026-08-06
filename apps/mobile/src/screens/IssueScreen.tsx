@@ -10,6 +10,7 @@ import { useIssue, useMobileStore, useSessions } from '../client/hooks'
 import { ActionSheet } from '../components/ActionSheet'
 import { Composer } from '../components/Composer'
 import { Icon } from '../components/Icon'
+import { IssueQuestionCard } from '../components/IssueQuestionCard'
 import { PressableScale } from '../components/PressableScale'
 import { HeaderButton, Screen } from '../components/Screen'
 import { SessionCard } from '../components/SessionCard'
@@ -23,7 +24,8 @@ export function IssueScreen() {
     Array.isArray(params.issueId) ? params.issueId[0] : (params.issueId ?? ''),
   )
   const router = useRouter()
-  const trpc = useMobileStore().trpc
+  const store = useMobileStore()
+  const trpc = store.trpc
   const allSessions = useSessions()
   const issue = useIssue(issueId)
   const now = Date.now()
@@ -99,6 +101,9 @@ export function IssueScreen() {
     )
   }
 
+  const askingSession =
+    sessions.find((session) => session.sessionId === issue.humanQuestionAskedBy) ?? sessions[0]
+
   return (
     <Screen
       title={`${issueDisplayRef(issue)} ${issue.title}`}
@@ -127,6 +132,30 @@ export function IssueScreen() {
           {issue.assignee ? <Pill label={issue.assignee} /> : null}
         </View>
         {error ? <Text style={styles.error}>{error}</Text> : null}
+        {issue.needsHuman ? (
+          <IssueQuestionCard
+            issue={issue}
+            onAnswer={
+              askingSession
+                ? (answer) => store.resumeAndSend(askingSession.sessionId, answer)
+                : undefined
+            }
+            onOpenSession={
+              askingSession
+                ? () =>
+                    router.push(
+                      sessionHref(
+                        askingSession.sessionId,
+                        `/issue/${encodeURIComponent(issue.id)}`,
+                      ),
+                    )
+                : undefined
+            }
+            onResolve={async () => {
+              await trpc.issues.clearNeedsHuman.mutate({ id: issue.id })
+            }}
+          />
+        ) : null}
         {issue.description.trim() ? (
           <Text style={styles.description} selectable>
             {issue.description.trim()}
@@ -169,7 +198,8 @@ export function IssueScreen() {
           sessions.map((session) => (
             <SessionCard
               key={session.sessionId}
-              model={sessionCardModel(session, undefined, now)}
+              model={sessionCardModel(session, issue, now)}
+              issue={issue}
               onPress={() =>
                 router.push(
                   sessionHref(session.sessionId, `/issue/${encodeURIComponent(issue.id)}`),

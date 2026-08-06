@@ -17,7 +17,7 @@ export const color = {
   bg: '#0a0f1c',
   bgGradientTop: '#0a0f1c',
   bgSunken: '#070b16',
-  /** Engraved column surface (the Tray queue). */
+  /** Sunken conversation field. */
   engraved: '#070b16',
   /** Compact section bars, key-bar strip — the darkest tier. */
   bar: '#050912',

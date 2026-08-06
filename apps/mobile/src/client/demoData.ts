@@ -178,11 +178,11 @@ export const DEMO_ISSUES: IssueWire[] = [
     seq: 298,
     type: 'feature',
     color: 'lime',
-    title: 'Quota strip on the phone tray',
+    title: 'Quota strip on mobile Work',
     description:
       'The desktop shows per-harness quota; the phone has no way to see how much budget is left before starting more work.',
     brief:
-      'Reuse the web quota viewmodel in packages/client-core/src/viewmodels; render as a two-row strip under the Tray header. Mono micro type, no new colours.',
+      'Reuse the web quota viewmodel in packages/client-core/src/viewmodels; render as a two-row strip under the Work header. Mono micro type, no new colours.',
     createdAt: min(210),
     updatedAt: min(210),
   }),
@@ -194,8 +194,7 @@ export const DEMO_ISSUES: IssueWire[] = [
     title: 'Retire the legacy focus helpers',
     description:
       'Two focus-ranking helpers survive from before the shared store landed and now disagree with it in edge cases.',
-    brief:
-      'Delete groupSessionsLegacy and its tests once the mobile Tray reads the store ordering.',
+    brief: 'Delete groupSessionsLegacy and its tests once mobile Work reads the store ordering.',
     blockedByNotes: ['demo-issue-header'],
     dependencyNote: 'waits on the session header work',
     createdAt: min(1400),

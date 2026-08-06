@@ -49,7 +49,7 @@ function NeedsYouCard({
       model={model}
       issue={issue}
       agentColor={session.agentColor}
-      onPress={() => router.push(sessionHref(session.sessionId, '/'))}
+      onPress={() => router.push(sessionHref(session.sessionId, '/work'))}
     >
       {pending ? (
         <View style={styles.inlineQuestion}>
@@ -163,7 +163,7 @@ export function InboxScreen() {
                 model={sessionCardModel(session, issueFor(session), now)}
                 issue={issueFor(session)}
                 agentColor={session.agentColor}
-                onPress={() => router.push(sessionHref(session.sessionId, '/'))}
+                onPress={() => router.push(sessionHref(session.sessionId, '/work'))}
               />
             )
           }

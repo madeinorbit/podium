@@ -16,15 +16,15 @@ The same solo operator as `apps/web` — a developer running multiple coding age
 
 ## Product Purpose
 
-The phone is where parallel agent work keeps moving while the operator is away from the desktop. The app's job, in priority order: (1) decide & unblock — answer agent questions, judge offers (merge, send back), see what's blocked; (2) fire off work — start a task or session, speak or type a short prompt; (3) review evidence — artifacts, session activity, the task board. Success: nothing sits waiting on the operator just because they left the desk.
+The phone is where parallel agent work keeps moving while the operator is away from the desktop. It opens on Work: the same issue-first operating picture as the desktop sidebar, with needs-human state visible on task and session rows. Decisions stay attached to their source — task questions on the task, transcript questions and offers in the session — while the app still makes it fast to start work and review evidence. Success: nothing sits waiting on the operator just because they left the desk, and navigation never becomes a second inbox to reconcile.
 
 ## Positioning
 
-The same board, pocket-sized: every decision an agent is waiting on, answerable in under a minute from anywhere — with the full power to start the next piece of work.
+The same board, pocket-sized: see the work, follow its attention signal to the source, and answer there in under a minute from anywhere.
 
 ## Brand Personality
 
-Identical to the desktop: fast, calm, precise, technical — a quiet cockpit. On the phone it leans even harder into glanceability: the answer to "does anything need me?" must be readable from the lock-screen moment the app opens.
+Identical to the desktop: fast, calm, precise, technical — a quiet cockpit. On the phone it leans even harder into glanceability: the answer to "does anything need me?" must be readable from the Work rows the moment the app opens.
 
 ## Anti-references
 
@@ -35,8 +35,8 @@ Identical to the desktop: fast, calm, precise, technical — a quiet cockpit. On
 
 ## Design Principles
 
-1. **Attention first, at phone scale.** The first screen is the triage stack: what needs you, ranked. Everything else is one tap deeper.
-2. **Every card is decidable.** A question, offer, or review card carries enough evidence (headline, one-line stance, artifact thumbnail) to act on cold, in five seconds — actions inline, never buried in a detail screen.
+1. **Work first, at phone scale.** The app opens on the issue-first Work list. Amber task and session signals answer "what needs me?" without inventing a separate mobile destination or count to reconcile.
+2. **Decisions live at their source.** A task-level question is answerable on the task; an agent question or offer is answerable in its session transcript. Compact actions carry enough headline and evidence context to act on cold without turning navigation into a queue.
 3. **Same state, same language.** Stages, issue colors, ID squares, agent-state grammar, and vocabulary mirror the desktop exactly; the phone is a different viewport, never a different product.
 4. **Thumb and voice.** Primary actions live in thumb reach; composing a prompt favors dictation — big target, forgiving input, short required text.
 5. **Calm speed.** Instant paint from the local replica, offline-safe writes, motion only as state.
