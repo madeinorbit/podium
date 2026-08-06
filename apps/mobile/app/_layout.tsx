@@ -64,7 +64,7 @@ export default function RootLayout() {
                 // screen under your thumb is direct manipulation, not decor.
                 animation: reduceMotion ? 'fade' : 'slide_from_right',
                 gestureEnabled: true,
-                cardStyle: { backgroundColor: color.bg },
+                cardStyle: { flex: 1, minHeight: 0, backgroundColor: color.bg },
                 // Wider than iOS's own 50px edge. A phone-web app competes with
                 // Safari's back gesture and with horizontal scrollers, so the
                 // grab has to be findable; the stack still only claims the

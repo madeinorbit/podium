@@ -7,6 +7,7 @@ test.skip(({ isMobile }) => !isMobile, 'mobile browser proof')
 test.setTimeout(180_000)
 
 const ARTIFACTS = resolve(import.meta.dirname, '../../../.artifacts/POD-1149')
+const VIEWPORT_ARTIFACTS = resolve(import.meta.dirname, '../../../.artifacts/POD-425')
 
 test('Expo native agent view keeps rapid TUI redraws legible', async ({ page }) => {
   mkdirSync(ARTIFACTS, { recursive: true })
@@ -54,6 +55,12 @@ test('Expo native agent view keeps rapid TUI redraws legible', async ({ page }) 
 
   await expect.poll(() => terminalRenderer(page)).toBe('webgl')
   expect(await terminalFontFamily(page)).toContain('GeistMono_400Regular')
+  const terminalBox = await page.locator('.xterm').boundingBox()
+  expect(terminalBox).not.toBeNull()
+  expect(terminalBox?.y ?? 0).toBeGreaterThanOrEqual(0)
+  expect((terminalBox?.y ?? 0) + (terminalBox?.height ?? 0)).toBeLessThanOrEqual(
+    page.viewportSize()?.height ?? 0,
+  )
 
   // Desktop keeps AgentPanel's terminal mounted under chat and flips `active`.
   // Expo must exercise the identical setActive -> reveal -> fit -> WebGL atlas
@@ -85,6 +92,11 @@ test('Expo native agent view keeps rapid TUI redraws legible', async ({ page }) 
 
   await page.screenshot({
     path: resolve(ARTIFACTS, 'expo-terminal-redraw.png'),
+    fullPage: true,
+  })
+  mkdirSync(VIEWPORT_ARTIFACTS, { recursive: true })
+  await page.screenshot({
+    path: resolve(VIEWPORT_ARTIFACTS, 'mobile-terminal-viewport.png'),
     fullPage: true,
   })
 })
