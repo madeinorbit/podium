@@ -25,8 +25,8 @@ interface PodiumTestApi {
 }
 type TestWindow = Window & { __podium?: PodiumTestApi }
 
-/** Open the Live UI pointed at the harness relay, with the e2e test API enabled. */
-export async function openApp(page: Page): Promise<void> {
+/** Open the Live UI home pointed at the harness relay, with the e2e test API enabled. */
+export async function openHome(page: Page): Promise<void> {
   // Force the native terminal view: these specs drive the real PTY substrate
   // (the test API lives on the mounted xterm session), so pin the panel mode
   // through the same persistence channel a user would, rather than a production
@@ -63,7 +63,11 @@ export async function openApp(page: Page): Promise<void> {
   if (await repoDialog.isVisible().catch(() => false)) {
     await repoDialog.getByRole('button', { name: 'Close' }).click()
   }
+}
 
+/** Open the Live UI and enter a workspace. */
+export async function openApp(page: Page): Promise<void> {
+  await openHome(page)
   await gotoWorkspace(page)
 }
 
@@ -121,7 +125,10 @@ export async function gotoWorkspace(page: Page): Promise<void> {
 }
 
 /** Create a session of the given kind and wait for its test API to attach. */
-export async function newSession(page: Page, kind: 'Claude' | 'Codex' | 'Shell'): Promise<void> {
+export async function newSession(
+  page: Page,
+  kind: 'Claude' | 'Codex' | 'Grok' | 'Shell',
+): Promise<void> {
   // Clear any existing __podium from a prior active session so we can distinguish
   // when the NEW session's AgentPanel sets it (avoids resolving immediately on a
   // stale reference when tests share the same relay/sessions).
@@ -145,7 +152,9 @@ export async function newSession(page: Page, kind: 'Claude' | 'Codex' | 'Shell')
   if (kind !== 'Shell' || (await item.isVisible().catch(() => false))) {
     // Selecting an agent persists the default and immediately re-renders the sidebar.
     // Dispatch before Playwright's stability wait observes the detached menu item.
-    await item.dispatchEvent('click')
+    // Grok's linkage regression requires the same real click a user performs.
+    if (kind === 'Grok') await item.click()
+    else await item.dispatchEvent('click')
   }
   await page.waitForFunction(() => !!(window as unknown as TestWindow).__podium, undefined, {
     timeout: 20_000,
