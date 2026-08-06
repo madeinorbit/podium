@@ -41,6 +41,7 @@ export default defineConfig({
       // baseURL (:8799) and pass `?server=ws://localhost:8799`; @podium/source runs TS source.
       command:
         'bun run --filter @podium/model build && bun run --filter @podium/protocol build && bun run --filter @podium/web build && bun run --filter @podium/mobile build:web && bun --conditions=@podium/source serve-harness.ts',
+      env: { ...process.env, PODIUM_UPDATE_CHANNEL: 'edge' },
       url: `${ORIGIN}/health`,
       reuseExistingServer: false,
       timeout: 180_000,

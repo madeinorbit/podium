@@ -1,5 +1,5 @@
 import { expect, type Locator, type Page, test } from '@playwright/test'
-import { RELAY } from './_harness'
+import { gotoWorkspace, RELAY } from './_harness'
 
 /**
  * Runtime verification of Settings → Experimental [spec:SP-f4b9] against the
@@ -37,6 +37,41 @@ function flagRow(page: Page, name: string): Locator {
   return page.locator('.settings-row').filter({ hasText: name })
 }
 
+async function saveSettings(page: Page): Promise<void> {
+  const updateDialog = page.getByRole('dialog', { name: 'Podium update' })
+  if (await updateDialog.isVisible().catch(() => false)) {
+    await updateDialog.getByRole('button', { name: 'Later' }).click()
+  }
+  const save = page.getByRole('button', { name: /^Save changes$/ })
+  await save.click()
+  await expect(page.getByText('Saved ✓')).toBeVisible({ timeout: 15_000 })
+  await expect(save).toBeHidden({ timeout: 15_000 })
+}
+
+async function setMergeQueueEnabled(page: Page, enabled: boolean): Promise<void> {
+  const flagSwitch = flagRow(page, 'Merge queue').getByRole('switch').first()
+  if ((await flagSwitch.getAttribute('aria-checked')) !== String(enabled)) {
+    await flagSwitch.click()
+    await saveSettings(page)
+  }
+}
+
+async function openWorkspace(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    history.pushState(null, '', `/${location.search}`)
+    dispatchEvent(new PopStateEvent('popstate'))
+  })
+  await gotoWorkspace(page)
+  const emptyPanel = page.getByText('No panel — use + to start one.')
+  if (await emptyPanel.isVisible().catch(() => false)) {
+    await page
+      .getByRole('button', { name: /^New .+ in .+/ })
+      .first()
+      .click({ timeout: 15_000 })
+    await expect(emptyPanel).toBeHidden({ timeout: 20_000 })
+  }
+}
+
 test('experimental page lists and persists the merge queue toggle', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await openExperimental(page)
@@ -56,14 +91,39 @@ test('experimental page lists and persists the merge queue toggle', async ({ pag
   const expected = before === 'true' ? 'false' : 'true'
   await flagSwitch.click()
   await expect(flagSwitch).toHaveAttribute('aria-checked', expected)
-  const save = page.getByRole('button', { name: /^Save changes$/ })
-  await save.click()
-  await expect(page.getByText('Saved ✓')).toBeVisible({ timeout: 15_000 })
-  await expect(save).toBeHidden({ timeout: 15_000 })
+  await saveSettings(page)
 
   await openExperimental(page)
   await expect(flagRow(page, 'Merge queue').getByRole('switch').first()).toHaveAttribute(
     'aria-checked',
     expected,
   )
+
+  // Exercise the real feature boundary and right-rail interaction, then leave
+  // the persisted setting exactly as the harness found it.
+  await setMergeQueueEnabled(page, true)
+  await openWorkspace(page)
+
+  const railButton = page.getByRole('button', { name: 'Merge queue' })
+  await expect(railButton).toBeVisible({ timeout: 30_000 })
+  await railButton.click()
+
+  const queue = page.locator('[data-right-dock-panel="merge-queue"]')
+  await expect(queue).toBeVisible()
+  await expect(queue.getByRole('heading', { name: 'READY' })).toBeVisible()
+  await expect(queue.getByRole('heading', { name: 'MERGING NOW' })).toBeVisible()
+  await expect(queue.getByRole('heading', { name: 'NEXT' })).toBeVisible()
+  await queue.getByRole('button', { name: 'Refresh merge queue' }).click()
+  await expect(queue.getByRole('region', { name: 'Main branch merge queue' })).toBeVisible()
+
+  const screenshotPath = process.env.PODIUM_MERGE_QUEUE_SCREENSHOT
+  if (screenshotPath) await queue.screenshot({ path: screenshotPath })
+
+  await openExperimental(page)
+  await setMergeQueueEnabled(page, before === 'true')
+  if (before !== 'true') {
+    await openWorkspace(page)
+    await expect(page.getByRole('button', { name: 'Merge queue' })).toHaveCount(0)
+    await expect(page.locator('[data-right-dock-panel="merge-queue"]')).toHaveCount(0)
+  }
 })
