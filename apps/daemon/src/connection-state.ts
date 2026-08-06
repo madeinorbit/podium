@@ -207,7 +207,12 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     if (issuedToken) {
       persistPairing(issuedToken, updatePubkey)
     } else if (updatePubkey !== undefined) {
-      if (identity.updatePubkey === undefined && options.bootstrapToken) {
+      // No pin at all — learn it. This is the bootstrap handshake's first contact,
+      // and equally a daemon that paired before the pin existed: an ABSENT pin
+      // cannot be a CHANGED key, and blocking one bricks every daemon enrolled
+      // before this guard shipped. The connection is already authenticated to the
+      // configured server, so pinning here is no weaker than pinning at pairing.
+      if (identity.updatePubkey === undefined) {
         persistBootstrapPin(updatePubkey)
       } else if (updatePubkey !== identity.updatePubkey) {
         terminal(

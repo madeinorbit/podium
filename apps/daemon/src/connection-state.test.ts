@@ -169,6 +169,30 @@ describe('daemon connection credential state machine', () => {
     await second.close()
   })
 
+  it('learns the key for a daemon paired before the pin existed', async () => {
+    // Upgrade path: the identity file carries a token but no updatePubkey, because
+    // it was written before the pin shipped. An absent pin is not a changed key —
+    // blocking here would brick every daemon enrolled before the guard.
+    const options = localOptions(() => {}, { identityDir: temp() })
+    const identityDir = options.identityDir as string
+    options.localLink = {
+      attach: () => ({
+        established: true,
+        reply: { ...ok, updatePubkey: 'server-key-1' },
+        machineId: MACHINE_ID,
+        deliver: vi.fn(),
+        close: vi.fn(),
+      }),
+    }
+
+    const state = connection(options, { token: 'token-from-before-the-guard' })
+    await state.start()
+
+    expect(state.state).toBe('connected')
+    expect(loadIdentity({ dir: identityDir }).updatePubkey).toBe('server-key-1')
+    await state.close()
+  })
+
   it('refuses a changed server key on ordinary reconnect', async () => {
     const firstOptions = localOptions(() => {}, { pairCode: 'PAIR-1' })
     const identityDir = firstOptions.identityDir as string
