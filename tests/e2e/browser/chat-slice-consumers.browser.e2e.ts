@@ -33,7 +33,7 @@ import { newSession, openApp } from './_harness'
  * organic transcript to search or map.
  */
 
-test.skip(({ isMobile }) => isMobile, 'desktop chat surface (minimap + search header)')
+test.skip(({ isMobile }) => isMobile, 'desktop chat surface (reading rail + find overlay)')
 
 // One case drives five interaction flows against a freshly spawned session —
 // several seconds more than the lane's 30s default allows, and a timeout there
@@ -154,7 +154,12 @@ test('send, search, minimap, voice and image-paste on the ported chat surface', 
   await expect(msg('SLICE_ANSWER_THREE done')).toBeVisible()
 
   // ---- 1. TRANSCRIPT SEARCH ------------------------------------------------
-  const search = page.locator('input[placeholder="Search transcript…"]').locator('visible=true')
+  // Search is intentionally absent at rest: POD-376 reclaimed the permanent
+  // header row and moved the unchanged search model behind the platform find
+  // shortcut. Drive that real keyboard boundary before addressing the field.
+  await expect(page.locator('input[placeholder="Find in transcript…"]:visible')).toHaveCount(0)
+  await page.keyboard.press('Control+f')
+  const search = page.getByRole('textbox', { name: 'Find in transcript' }).locator('visible=true')
   await expect(search).toBeVisible()
   await search.fill('the needle')
   // The counter is the slice's search state: 1-based position over the total.
@@ -175,29 +180,31 @@ test('send, search, minimap, voice and image-paste on the ported chat surface', 
   await expect(rowFor('SLICE_PROMPT_TWO')).toHaveClass(/opacity-35/)
 
   // Stepping the cursor moves the highlight to the OTHER match.
-  await page.locator('button[title="Next match"]').locator('visible=true').click()
+  await page.getByRole('button', { name: 'Next match (Enter)' }).locator('visible=true').click()
   await expect(counter).toHaveText('2/2')
   await expect(rowFor('SLICE_PROMPT_THREE')).toHaveClass(/outline/)
   await expect(rowFor('SLICE_PROMPT_ONE')).not.toHaveClass(/outline/)
 
   // Wrapping backwards returns to the first — the cursor is modular against the
   // same count the label prints.
-  await page.locator('button[title="Previous match"]').locator('visible=true').click()
+  await page
+    .getByRole('button', { name: 'Previous match (Shift+Enter)' })
+    .locator('visible=true')
+    .click()
   await expect(counter).toHaveText('1/2')
   await expect(rowFor('SLICE_PROMPT_ONE')).toHaveClass(/outline/)
 
   await search.fill('')
   await expect(page.locator('.transcript-row.opacity-35')).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await expect(page.locator('input[placeholder="Find in transcript…"]:visible')).toHaveCount(0)
 
   // ---- 2. MINIMAP ----------------------------------------------------------
   // Ticks are pointer-events-none colour guides; the TRACK is the scrub surface.
-  const minimap = page
-    .locator('[role="presentation"].cursor-pointer')
-    .locator('visible=true')
-    .first()
+  const minimap = page.locator('.minimap-track').locator('visible=true').first()
   await expect(minimap).toBeVisible({ timeout: 15_000 })
   await expect
-    .poll(async () => minimap.locator('div.absolute').count(), { timeout: 15_000 })
+    .poll(async () => minimap.locator('.minimap-tick').count(), { timeout: 15_000 })
     .toBeGreaterThan(2)
 
   const scroller = page
@@ -224,6 +231,25 @@ test('send, search, minimap, voice and image-paste on the ported chat surface', 
     .locator('textarea[placeholder="Message the agent…"]')
     .locator('visible=true')
   await expect(composer).toBeVisible()
+
+  // A real hover + click proves the message action crosses the feed/composer
+  // boundary without shifting the row or replacing an existing draft.
+  const answerRow = rowFor('SLICE_ANSWER_THREE done')
+  await answerRow.hover()
+  await answerRow.getByRole('button', { name: 'Quote in composer' }).click()
+  await expect(composer).toHaveValue('> SLICE_ANSWER_THREE done\n\n')
+  await composer.fill('')
+
+  // The same composer mounts the shared @ picker. Exercise the server-ranked
+  // file source with a real pointer choice and verify it inserts the transcript's
+  // existing backticked-path vocabulary.
+  await composer.fill('@ChatView')
+  const fileOption = page.getByRole('option', { name: /ChatView\.tsx/ }).first()
+  await expect(fileOption).toBeVisible({ timeout: 15_000 })
+  await fileOption.click()
+  await expect(composer).toHaveValue(/`apps\/web\/src\/features\/chat\/ChatView\.tsx`/)
+  await composer.fill('')
+
   // The draft is store state written through the actions seam, so wait for the
   // round-trip to land before submitting — pressing Enter against a value the
   // store has not seen yet would submit an empty draft.
