@@ -42,7 +42,25 @@ export const ACCOUNT_QUERIES = {
       (provider) => state.settings.apiKeyFor(provider),
       state.accounts,
       state.machines.listMachines(),
-    ),
+    ).map((account) => {
+      if (account.source !== 'native' || !account.harness) return account
+      const harness = account.harness as import('@podium/model').HarnessAgent
+      const attempt = state.nativeLogin.attempt(harness)
+      const loginMachines = state.machineService
+        .listMachines()
+        .filter(
+          (machine) =>
+            machine.online &&
+            machine.inventory?.agents.some((agent) => agent.kind === harness && agent.installed),
+        )
+        .map((machine) => ({ id: machine.id, name: machine.name }))
+      return {
+        ...account,
+        loginRequired: account.status === 'not-configured' || state.nativeLogin.isRequired(harness),
+        loginMachines,
+        ...(attempt ? { loginAttempt: attempt } : {}),
+      }
+    }),
   ),
 } as const
 

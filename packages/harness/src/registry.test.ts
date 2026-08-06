@@ -353,6 +353,7 @@ describe('open HarnessId vs closed BuiltinHarnessKind (POD-303)', () => {
       inventory: {
         binCandidates: () => ['fictional'],
         detectLogin: () => ({ state: 'unknown' }),
+        loginCommand: unsupported('fictional harness'),
         loginIdentity: unsupported('fictional harness'),
         portableCredential: unsupported('fictional harness'),
       },

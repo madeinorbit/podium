@@ -12,7 +12,7 @@
  * this automatically; the specs connect via `?server=ws://localhost:8799`.
  */
 import { execFileSync } from 'node:child_process'
-import { appendFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -169,6 +169,18 @@ writeFileSync(
 // uses your account/quota) for specs that need genuine agent behaviour (hooks,
 // transcripts, paste handling). Default stays deterministic.
 const REAL_AGENTS = process.env.PODIUM_E2E_REAL_AGENTS === '1'
+const NATIVE_LOGIN_FIXTURE = process.env.PODIUM_E2E_NATIVE_LOGIN === '1'
+const nativeLoginHome = NATIVE_LOGIN_FIXTURE ? join(stateDir, 'native-login-home') : undefined
+if (nativeLoginHome) {
+  const binDir = join(nativeLoginHome, '.local', 'bin')
+  mkdirSync(binDir, { recursive: true })
+  const codex = join(binDir, 'codex')
+  writeFileSync(
+    codex,
+    `#!/bin/sh\n[ "$1" = "login" ] || exit 2\nwhile true; do echo "Native Codex login ready"; sleep 1; done\n`,
+  )
+  chmodSync(codex, 0o755)
+}
 // Real Codex must never see the developer's rollout history: otherwise the
 // connect-time discovery snapshot publishes thousands of unrelated threads and
 // repeatedly stalls this in-process harness. The private home copies only auth.
@@ -371,7 +383,11 @@ const daemonOptions: Parameters<typeof startDaemon>[0] = {
   hooks: { port: 0, settingsDir: join(stateDir, 'hooks') },
   agentRelay: { port: 0 },
   launch,
-  ...(realAgentCodexEnv ? { discovery: { homeDir: realAgentCodexEnv.discoveryHomeDir } } : {}),
+  ...(realAgentCodexEnv
+    ? { discovery: { homeDir: realAgentCodexEnv.discoveryHomeDir } }
+    : nativeLoginHome
+      ? { discovery: { homeDir: nativeLoginHome } }
+      : {}),
   workerClient: inlineWorkerClient(),
 }
 let daemon = await startDaemon(daemonOptions)

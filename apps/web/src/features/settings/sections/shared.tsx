@@ -4,7 +4,7 @@
  * single reusable RoleBackendEditor (SP-6454 B3) used by the sessions,
  * superagent, and background-LLM tabs. Extracted verbatim from SettingsView.tsx.
  */
-import { type AccountId, asAccountId } from '@podium/model'
+import { type AccountId, asAccountId, type MachineId, type SessionId } from '@podium/model'
 import type { ApiProvider, HarnessAgent, RoleBackend } from '@podium/runtime'
 import type { JSX } from 'react'
 import { Input } from '@/components/ui/input'
@@ -93,7 +93,7 @@ export interface AccountView {
   provider: string
   source: 'native' | 'managed'
   kind?: 'api-key' | 'oauth'
-  harness?: string
+  harness?: HarnessAgent
   identity?: string
   machines?: string[]
   identityFingerprint?: string
@@ -102,6 +102,15 @@ export interface AccountView {
    *  it again); 'legacy' = a pre-hub Settings → API keys value the server has no
    *  row for, so it cannot be disconnected from here. */
   credentialSource?: 'stored' | 'legacy'
+  loginRequired?: boolean
+  loginMachines?: { id: MachineId; name: string }[]
+  loginAttempt?: {
+    sessionId: SessionId
+    machineId: MachineId
+    machineName: string
+    status: 'running' | 'refreshing' | 'succeeded' | 'failed'
+    error?: string
+  }
 }
 
 export function providerLabel(p: ApiProvider): string {

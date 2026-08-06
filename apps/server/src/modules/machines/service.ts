@@ -625,7 +625,7 @@ export class MachinesService {
   recordInventory(machineId: string, inventory: Inventory): void {
     this.deps.store.machines.setMachineInventory(machineId, JSON.stringify(inventory))
     this.invalidateMachineCache()
-    if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId })
+    if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId, inventory: true })
     else this.deps.sessionsChangedForMachine?.(machineId)
     this.broadcastMachines()
   }

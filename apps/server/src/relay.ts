@@ -35,6 +35,7 @@ import { FeedServing } from './gateway/feed-serving'
 import { PresenceRouting } from './gateway/presence-routing'
 import { checkMachineUse, ownershipFromMachines } from './machine-access'
 import type { ModelProbe } from './model-catalog'
+import { NativeLoginService } from './modules/accounts/native-login'
 import { ApprovalService } from './modules/approvals/service'
 import { AutomationScheduler } from './modules/automations/scheduler'
 import { AutomationsService } from './modules/automations/service'
@@ -157,6 +158,7 @@ export interface RegistryModules {
   rpc: DaemonRpcService
   serverTransfer: ServerTransferService
   loginPropagation: LoginPropagationService
+  nativeLogin: NativeLoginService
   memory: MemoryService
   hosts: HostsService
   settings: SettingsService
@@ -705,10 +707,28 @@ export class SessionRegistry {
       sessionRoomLeave: (client, sessionId) =>
         presence.ensureLeft(client, { kind: 'session', id: sessionId }),
     })
+    const nativeLogin = new NativeLoginService({
+      machines,
+      sessions: sessionsSvc,
+      bus: this.bus,
+      authorize: (ownerUserId, machineId) => {
+        const user = this.store.users.get(ownerUserId)
+        if (user?.role !== 'admin') return 'native provider login requires an admin account'
+        const principal = userCommandPrincipal(ownerUserId, user.role)
+        const access = checkMachineUse(principal, machineId, ownershipFromMachines(machines))
+        return access === 'absent'
+          ? `unknown machine '${machineId}'`
+          : access === 'unauthorized'
+            ? 'you do not have access to start login on this machine'
+            : undefined
+      },
+      cwdForMachine: (machineId) => this.store.repos.listRepoPaths(machineId)[0] ?? '/',
+    })
     this.bus.on('superagent.turnEnded', (event) => {
       if (event.ok || event.harnessErrorKind !== 'provider-auth' || !event.harness) return
       const session = sessionsSvc.sessionById(asSessionId(event.podiumSessionId))
       if (!session?.machineId) return
+      nativeLogin.markRequired(session.machineId, event.harness)
       loginPropagation.trigger({
         targetMachineId: session.machineId,
         agentKind: event.harness,
@@ -1471,6 +1491,7 @@ export class SessionRegistry {
       rpc,
       serverTransfer,
       loginPropagation,
+      nativeLogin,
       memory,
       hosts,
       settings,

@@ -6,7 +6,7 @@
 // server-only accounts table and only their masked identities are projected.
 
 import { harnessDetectLogin } from '@podium/harness/metadata'
-import type { HarnessAgent } from '@podium/model'
+import type { HarnessAgent, MachineId } from '@podium/model'
 import { buildLoginCatalog, catalogEntriesForHarness, type LoginCatalog } from './login-catalog'
 import type { AccountsRepository } from './store/accounts'
 import type { MachineRecord } from './store/types'
@@ -21,7 +21,7 @@ export interface AccountView {
   /** Managed only: how the credential would be injected. */
   kind?: 'api-key' | 'oauth'
   /** Native only: which harness login this is. */
-  harness?: string
+  harness?: HarnessAgent
   /** Observed, human-facing: an email/plan, a masked key, or a hint. */
   identity?: string
   /** Native identities may be present on several machines. */
@@ -31,6 +31,9 @@ export interface AccountView {
   status: 'connected' | 'not-configured' | 'unknown'
   /** Managed only: where the credential actually lives. */
   credentialSource?: 'stored' | 'legacy'
+  loginRequired?: boolean
+  loginAttempt?: import('./modules/accounts/native-login').NativeLoginAttempt
+  loginMachines?: { id: MachineId; name: string }[]
 }
 
 /** Display-only preview of a secret. The full value never leaves the server. */

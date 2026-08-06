@@ -61,6 +61,109 @@ function AccountStatus({ account }: { account: AccountView }): JSX.Element {
   return account.status === 'unknown' ? <StatusUnknown /> : <StatusDisconnected />
 }
 
+function NativeAccountRow({
+  account,
+  onChanged,
+}: {
+  account: AccountView
+  onChanged: () => void
+}): JSX.Element {
+  const { trpc, navigateToSession, sessions } = useStoreSelector((s) => ({
+    trpc: s.trpc,
+    navigateToSession: s.navigateToSession,
+    sessions: s.sessions,
+  }))
+  const [machineId, setMachineId] = useState(account.loginMachines?.[0]?.id ?? '')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [pendingSessionId, setPendingSessionId] = useState<string | null>(null)
+  const attempt = account.loginAttempt
+
+  useEffect(() => {
+    if (!attempt || (attempt.status !== 'running' && attempt.status !== 'refreshing')) return
+    const timer = window.setInterval(onChanged, 1_000)
+    return () => window.clearInterval(timer)
+  }, [attempt, onChanged])
+
+  useEffect(() => {
+    if (!pendingSessionId || !sessions.some((session) => session.sessionId === pendingSessionId))
+      return
+    navigateToSession(pendingSessionId)
+  }, [navigateToSession, pendingSessionId, sessions])
+
+  const login = async (): Promise<void> => {
+    if (!account.harness || busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      const result = await trpc.accounts.login.mutate({
+        harness: account.harness as HarnessAgent,
+        ...(machineId ? { machineId } : {}),
+      })
+      onChanged()
+      setPendingSessionId(result.sessionId)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const status =
+    attempt?.status === 'running'
+      ? `Login open on ${attempt.machineName}`
+      : attempt?.status === 'refreshing'
+        ? 'Checking refreshed account status…'
+        : attempt?.status === 'succeeded'
+          ? 'Login succeeded'
+          : attempt?.status === 'failed'
+            ? (attempt.error ?? 'Login failed')
+            : error
+
+  return (
+    <div>
+      <Row
+        label={harnessAgentLabel((account.harness ?? account.provider) as HarnessAgent)}
+        description={
+          account.machines?.length ? `on ${account.machines.join(', ')}` : (status ?? undefined)
+        }
+      >
+        <div className="flex items-center gap-2.5">
+          <AccountStatus account={account} />
+          {account.loginRequired && (
+            <>
+              {(account.loginMachines?.length ?? 0) > 1 && (
+                <select
+                  aria-label={`${account.harness} login machine`}
+                  className="h-8 rounded-md border border-border bg-background px-2 text-xs"
+                  value={machineId}
+                  onChange={(event) => setMachineId(event.target.value)}
+                >
+                  {account.loginMachines?.map((machine) => (
+                    <option key={machine.id} value={machine.id}>
+                      {machine.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={busy || !account.loginMachines?.length}
+                onClick={() => void login()}
+              >
+                {attempt?.status === 'running' ? 'Open login' : busy ? 'Starting…' : 'Log in'}
+              </Button>
+            </>
+          )}
+        </div>
+      </Row>
+      {status && <p className="max-w-[62ch] pb-2.5 settings-prose">{status}</p>}
+    </div>
+  )
+}
+
 /** A carved panel grouping one class of accounts: a machine-voice mono label over
  *  a bordered Panel-Navy surface whose rows self-divide by hairline seams. Groups
  *  the two account classes far more strongly than the old loose text lines, while
@@ -283,13 +386,7 @@ export function AccountsSection(): JSX.Element {
       <div className="mt-3 space-y-5">
         <AccountGroup label="Native logins" qualifier="all connected machines">
           {native.map((a) => (
-            <Row
-              key={a.id}
-              label={harnessAgentLabel((a.harness ?? a.provider) as HarnessAgent)}
-              description={a.machines?.length ? 'on ' + a.machines.join(', ') : undefined}
-            >
-              <AccountStatus account={a} />
-            </Row>
+            <NativeAccountRow key={a.id} account={a} onChanged={refresh} />
           ))}
         </AccountGroup>
         <AccountGroup label="Managed accounts" qualifier="Podium-held">

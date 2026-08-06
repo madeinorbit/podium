@@ -74,8 +74,9 @@ export interface EventMap {
   'machine.connected': { machineId: string }
   /** A machine's daemon socket detached. */
   'machine.disconnected': { machineId: string }
-  /** Durable machine metadata changed; session machine-name projections recapture. */
-  'machine.metadataChanged': { machineId: string }
+  /** Durable machine metadata changed; session machine-name projections recapture.
+   * `inventory` distinguishes a fresh daemon report from rename/grant changes. */
+  'machine.metadataChanged': { machineId: string; inventory?: true }
   /** Host integration degradation, scoped from the authenticated daemon principal. */
   'machine.diagnostic': {
     machineId: string

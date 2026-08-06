@@ -8,14 +8,14 @@ import {
   resolvePinnedCodexRollout,
 } from '../agent-state/codex.js'
 import { withStateChannel } from '../agent-state/types.js'
-import { CodexCredentialAbsenceGrace } from '../codex-credential-absence-grace.js'
-import { createCodexConversationProvider } from '../discovery/providers/codex.js'
-import { composeAgentInstructions } from '../instructions.js'
 import {
   compareCodexAuthFreshness,
   readFreshnessFromAuthContents,
   readIdentityFromAuthContents,
 } from '../codex-auth-identity.js'
+import { CodexCredentialAbsenceGrace } from '../codex-credential-absence-grace.js'
+import { createCodexConversationProvider } from '../discovery/providers/codex.js'
+import { composeAgentInstructions } from '../instructions.js'
 import {
   type AgentManifest,
   accountIdentity,
@@ -179,6 +179,7 @@ export const codexManifest: AgentManifest = {
 
   inventory: {
     binCandidates: (homeDir) => [join(homeDir, '.local', 'bin', 'codex'), 'codex'],
+    loginCommand: supported({ cmd: 'codex', args: ['login'] }),
     loginIdentity: supported((homeDir) => {
       try {
         return readIdentityFromAuthContents(readFileSync(codexAuthPath(homeDir), 'utf8'))

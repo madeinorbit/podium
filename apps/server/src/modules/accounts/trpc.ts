@@ -19,7 +19,10 @@ export const accountFamilyProcedures = (): AccountProcedures =>
     service: (state) => ({
       accounts: state.store.accounts,
       machines: state.store.machines,
+      machineService: state.modules.machines,
       settings: state.modules.settings,
+      nativeLogin: state.modules.nativeLogin,
+      callerUserId: state.caller.userId,
     }),
     commands: ACCOUNT_COMMANDS_TRPC,
     queries: ACCOUNT_QUERIES,

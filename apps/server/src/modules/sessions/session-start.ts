@@ -69,8 +69,8 @@ import { harnessSupportsInitialPrompt } from '../../harness-manifest'
 import { assertModelSelectionValid } from '../../model-validation'
 import type { SessionStore } from '../../store'
 import type { MachineUseResolver } from '../machines/service'
-import type { SessionLaunchConfig } from './launch-config'
 import { createdByForBinding } from './command-plane'
+import type { SessionLaunchConfig } from './launch-config'
 import { normalizeAgentName } from './naming'
 import type { SessionRepository } from './repository'
 import { Session } from './session'
@@ -132,11 +132,7 @@ export interface SessionStartPorts {
     agentKind: AgentKind,
     use?: MachineUseResolver,
   ): MachineId
-  onSpawnTargetLogin?(input: {
-    machineId: string
-    agentKind: AgentKind
-    ownerUserId: UserId
-  }): void
+  onSpawnTargetLogin?(input: { machineId: string; agentKind: AgentKind; ownerUserId: UserId }): void
   toMachine(machineId: string, message: ControlMessage): void
   broadcastSessions(): void
   /** The issue that owns this cwd's worktree, if exactly one does. */
@@ -178,6 +174,7 @@ export class SessionStart {
     workflowRevisionId?: string
     use?: MachineUseResolver
     binding?: Omit<SessionBindingSpawnInstruction, 'transitionId' | 'machineAccess' | 'issueId'>
+    loginHarness?: Exclude<AgentKind, 'shell'>
   }): SessionSpawnResult {
     // Resolve the agent down to a concrete AgentKind. `agentKind` may be absent,
     // or carry a non-AgentKind sentinel like 'auto'. 'auto' is NOT a valid
@@ -271,6 +268,7 @@ export class SessionStart {
       ...(input.model !== undefined ? { model: input.model } : {}),
       ...(input.effort !== undefined ? { effort: input.effort } : {}),
       ...(input.accountId !== undefined ? { accountId: input.accountId } : {}),
+      ...(input.loginHarness ? { loginHarness: input.loginHarness } : {}),
       ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),
       ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
       ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),
@@ -332,6 +330,7 @@ export class SessionStart {
     sessionId?: SessionId
     binding?: Omit<SessionBindingSpawnInstruction, 'transitionId' | 'machineAccess' | 'issueId'>
     bindingMachineAccess?: SessionBindingSpawnInstruction['machineAccess']
+    loginHarness?: Exclude<AgentKind, 'shell'>
     /** The attribution pair, already derived from the binding principal by the
      *  caller. Optional only for the in-process spawn paths that predate it. */
     createdBy?: Attribution
@@ -418,6 +417,7 @@ export class SessionStart {
       sessionId,
       durableLabel: session.durableLabel,
       agentKind: input.agentKind,
+      ...(input.loginHarness ? { loginHarness: input.loginHarness } : {}),
       cwd: input.cwd,
       ...(input.binding
         ? {

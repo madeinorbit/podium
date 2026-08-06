@@ -20,6 +20,7 @@ import {
   registryClassificationErrors,
   type TransportTag,
 } from '@podium/commands'
+import { asUserId } from '@podium/model'
 import type { z } from 'zod'
 import { maskCredential } from '../../accounts'
 import type { RegistryModules, SessionRegistry } from '../../relay'
@@ -28,7 +29,10 @@ import type { RegistryModules, SessionRegistry } from '../../relay'
 export interface AccountState {
   readonly accounts: SessionRegistry['sessionStore']['accounts']
   readonly machines: SessionRegistry['sessionStore']['machines']
+  readonly machineService: RegistryModules['machines']
   readonly settings: RegistryModules['settings']
+  readonly nativeLogin: RegistryModules['nativeLogin']
+  readonly callerUserId: string
 }
 
 export type AccountHandler<In, Out> = (state: AccountState, input: In) => Out
@@ -41,6 +45,15 @@ export interface AccountCommand {
 }
 
 export const ACCOUNT_COMMANDS_TRPC = {
+  login: {
+    contract: ACCOUNT_CONTRACTS.login,
+    handler: ((state, input) =>
+      state.nativeLogin.start({
+        harness: input.harness,
+        ...(input.machineId ? { machineId: input.machineId } : {}),
+        ownerUserId: asUserId(state.callerUserId),
+      })) satisfies AccountHandler<z.infer<(typeof ACCOUNT_CONTRACTS)['login']['input']>, unknown>,
+  },
   connect: {
     contract: ACCOUNT_CONTRACTS.connect,
     handler: ((state, input) => {

@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { asMachineId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AccountView } from './shared'
 
@@ -7,11 +8,13 @@ const trpc = {
     list: { query: vi.fn() },
     connect: { mutate: vi.fn() },
     disconnect: { mutate: vi.fn() },
+    login: { mutate: vi.fn() },
   },
 }
+const navigateToSession = vi.fn()
 
 vi.mock('@/app/store', () => {
-  const useStore = () => ({ trpc })
+  const useStore = () => ({ trpc, navigateToSession, sessions: [{ sessionId: 'login-session' }] })
   return {
     useStore,
     useReplicaIssues: () => (useStore() as unknown as { issues?: unknown[] }).issues ?? [],
@@ -63,6 +66,34 @@ describe('AccountsSection', () => {
     const value = await screen.findByText(identity)
     expect(value.className).toContain('break-all')
     expect(value.className).not.toContain('truncate')
+  })
+
+  it('starts a native login on the selected machine and opens its PTY', async () => {
+    serveList([
+      {
+        ...NATIVE,
+        loginRequired: true,
+        loginMachines: [
+          { id: asMachineId('machine-a'), name: 'Alpha' },
+          { id: asMachineId('machine-b'), name: 'Beta' },
+        ],
+      },
+    ])
+    trpc.accounts.login.mutate.mockResolvedValue({ sessionId: 'login-session' })
+    render(<AccountsSection />)
+
+    fireEvent.change(await screen.findByLabelText('claude-code login machine'), {
+      target: { value: 'machine-b' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Log in' }))
+
+    await waitFor(() =>
+      expect(trpc.accounts.login.mutate).toHaveBeenCalledWith({
+        harness: 'claude-code',
+        machineId: 'machine-b',
+      }),
+    )
+    await waitFor(() => expect(navigateToSession).toHaveBeenCalledWith('login-session'))
   })
 
   it('renders an unavailable native probe as unknown instead of claiming a logout', async () => {

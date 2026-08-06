@@ -197,6 +197,9 @@ export interface HarnessInventory {
   }
   /** Read-only local credential/profile detection. Uneven support is explicit. */
   detectLogin(homeDir: string): HarnessLogin
+  /** Native interactive authentication entry point. The daemon launches this in
+   * a PTY; the server and browser never encode provider OAuth behavior. */
+  loginCommand: Declared<{ cmd: string; args: readonly string[] }>
   loginIdentity: Declared<(homeDir: string) => LoginIdentity | undefined>
   portableCredential: Declared<PortableCredential>
 }

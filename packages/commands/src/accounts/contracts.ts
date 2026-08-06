@@ -32,7 +32,7 @@
  * by the type rather than promised in a comment.
  */
 
-import { AccountIdField } from '@podium/model'
+import { AccountIdField, HarnessAgent, MachineIdField } from '@podium/model'
 import { z } from 'zod'
 import type {
   AttributionPolicy,
@@ -109,6 +109,11 @@ export const AccountConnectInput = z
   })
 
 export const accountsConnectInput = AccountConnectInput
+
+export const accountsLoginInput = z.object({
+  harness: HarnessAgent,
+  machineId: MachineIdField.optional(),
+})
 
 export const accountsConnectContract = {
   name: 'accounts.connect',
@@ -216,9 +221,49 @@ export const accountsDisconnectContract = {
   conflictRule: 'Idempotent revocation; disconnecting an already-disconnected account is a no-op',
 } as const satisfies CommandContract<typeof accountsDisconnectInput>
 
+export const accountsLoginContract = {
+  name: 'accounts.login',
+  version: 1,
+  visibility: 'owned-compute',
+  input: accountsLoginInput,
+  policy: {
+    action: 'manage',
+    roleFloor: 'admin',
+    resource: 'machine',
+    confirmation: 'none',
+    machineVerb: 'use',
+    rationale:
+      'Starts an interactive provider CLI on owned compute. It is admin-only and machine-use gated because it changes the native account available to every agent on that host.',
+  },
+  exposure: SERVED_ON,
+  delivery: {
+    class: 'online-only',
+    outboxReconciliation:
+      'Never queued: an operator must be present for the interactive login PTY.',
+    applyTimeReauthorization: 'Machine use and admin authority are checked live at apply time.',
+  },
+  redaction: {
+    reviewed: true,
+    inputPaths: [],
+    outputPaths: [],
+    note: 'Only harness, machine and session identifiers cross this boundary; provider tokens stay inside the native CLI.',
+  },
+  ownership: { creates: [], note: 'Creates an ephemeral operator PTY, not a new owned entity.' },
+  attribution: ACCOUNT_ATTRIBUTION,
+  errorConsistency: {
+    callerSuppliedTargetId: true,
+    invisibleFailsAs: 'nonexistent',
+    distinguishesUnauthorizedFromUnreachable: true,
+    note: 'A selected machine is caller supplied; machine-use errors distinguish access from reachability.',
+  },
+  conflict: 'cmd',
+  conflictRule: 'One active login attempt per harness is reused until it settles.',
+} as const satisfies CommandContract<typeof accountsLoginInput>
+
 export const ACCOUNT_CONTRACTS = {
   connect: accountsConnectContract,
   disconnect: accountsDisconnectContract,
+  login: accountsLoginContract,
 } as const
 
 export type AccountContractName = keyof typeof ACCOUNT_CONTRACTS

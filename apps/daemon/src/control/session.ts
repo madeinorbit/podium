@@ -1,13 +1,18 @@
 import { randomUUID } from 'node:crypto'
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { delimiter, dirname, join } from 'node:path'
-import { agentStateProviderFor, harnessCapabilitiesFor, type LaunchFile } from '@podium/harness'
+import {
+  agentStateProviderFor,
+  declaredValue,
+  harnessCapabilitiesFor,
+  type LaunchFile,
+  manifestFor,
+} from '@podium/harness'
 import { type AgentKind, asMachineId, type SessionId } from '@podium/model'
 import {
   type AgentSession,
   abducoHasSession,
   abducoSocketPath,
-  waitForAbducoSocket,
   attachAbducoAgent,
   attachTmuxAgent,
   killAbducoSession,
@@ -16,6 +21,7 @@ import {
   spawnAgent,
   spawnTmuxAgent,
   tmuxHasSession,
+  waitForAbducoSocket,
 } from '@podium/pty'
 import type { SessionBindingTransitionOutcome } from '../binding-store'
 import { countFrame } from '../loop-attribution'
@@ -199,18 +205,31 @@ async function launchSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
       !msg.resume && harnessCapabilitiesFor(msg.agentKind)?.newSessionIdFlag
         ? randomUUID()
         : undefined
-    const cmd = ctx.launch(msg.agentKind, {
-      cwd: msg.cwd,
-      podiumSessionId: msg.sessionId,
-      ...(msg.resume ? { resume: msg.resume } : {}),
-      ...(newSessionId ? { newSessionId } : {}),
-      ...(msg.model ? { model: msg.model } : {}),
-      ...(msg.effort ? { effort: msg.effort } : {}),
-      ...(msg.initialPrompt ? { initialPrompt: msg.initialPrompt } : {}),
-      ...(msg.instructions ? { instructions: msg.instructions } : {}),
-      runtimeDir,
-      ...(msg.env ? { env: msg.env } : {}),
-    })
+    const loginCommand = msg.loginHarness
+      ? declaredValue(
+          manifestFor(msg.loginHarness)?.inventory.loginCommand ?? {
+            supported: false,
+            reason: 'unknown harness',
+          },
+        )
+      : undefined
+    if (msg.loginHarness && !loginCommand) {
+      throw new Error(`${msg.loginHarness} does not declare a native login command`)
+    }
+    const cmd = loginCommand
+      ? { cmd: loginCommand.cmd, args: [...loginCommand.args], cwd: msg.cwd }
+      : ctx.launch(msg.agentKind, {
+          cwd: msg.cwd,
+          podiumSessionId: msg.sessionId,
+          ...(msg.resume ? { resume: msg.resume } : {}),
+          ...(newSessionId ? { newSessionId } : {}),
+          ...(msg.model ? { model: msg.model } : {}),
+          ...(msg.effort ? { effort: msg.effort } : {}),
+          ...(msg.initialPrompt ? { initialPrompt: msg.initialPrompt } : {}),
+          ...(msg.instructions ? { instructions: msg.instructions } : {}),
+          runtimeDir,
+          ...(msg.env ? { env: msg.env } : {}),
+        })
     materializeLaunchFiles(cmd.files)
     const label = msg.durableLabel ?? ctx.durableLabelFor(msg.sessionId)
     const provider = agentStateProviderFor(msg.agentKind)

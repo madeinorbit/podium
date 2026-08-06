@@ -3,9 +3,9 @@ import { join } from 'node:path'
 import { grokRecordToItems, grokRuntime } from '@podium/transcript'
 import { grokSessionPaths, grokStateProvider, observeGrokState } from '../agent-state/grok.js'
 import { withStateChannel } from '../agent-state/types.js'
+import { fingerprintForLoginIdentity } from '../codex-auth-identity.js'
 import { createGrokConversationProvider } from '../discovery/providers/grok.js'
 import { composeAgentInstructions } from '../instructions.js'
-import { fingerprintForLoginIdentity } from '../codex-auth-identity.js'
 import {
   type AgentManifest,
   accountIdentity,
@@ -121,6 +121,7 @@ export const grokManifest: AgentManifest = {
 
   inventory: {
     binCandidates: (homeDir) => [join(homeDir, '.local', 'bin', 'grok'), 'grok'],
+    loginCommand: supported({ cmd: 'grok', args: ['login'] }),
     loginIdentity: supported((homeDir) => grokIdentity(grokHome(homeDir))),
     portableCredential: supported({ files: ['.grok/auth.json'], compareFreshness: () => null }),
     detectLogin(homeDir) {

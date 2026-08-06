@@ -30,6 +30,8 @@ export {
   accountsConnectInput,
   accountsDisconnectContract,
   accountsDisconnectInput,
+  accountsLoginContract,
+  accountsLoginInput,
 } from './accounts/contracts'
 export {
   APPROVAL_CONTRACT_NAMES,

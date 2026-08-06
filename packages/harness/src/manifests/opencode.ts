@@ -72,6 +72,7 @@ export const opencodeManifest: AgentManifest = {
 
   inventory: {
     binCandidates: opencodeBinCandidates,
+    loginCommand: supported({ cmd: 'opencode', args: ['auth', 'login'] }),
     loginIdentity: unsupported('OpenCode does not expose a stable local account identity yet'),
     portableCredential: unsupported('OpenCode credential portability is not supported yet'),
     detectLogin: detectOpencodeLogin,

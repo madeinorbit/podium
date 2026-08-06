@@ -8,10 +8,10 @@ import {
 } from '../agent-state/claude-code.js'
 import { claudeProjectSlug, locateClaudeSessionFile } from '../agent-state/claude-locate.js'
 import { createTranscriptClassifier } from '../agent-state/transcript-classifier.js'
+import { fingerprintForLoginIdentity } from '../codex-auth-identity.js'
 import { compareClaudeCredentialFreshness } from '../credential-freshness.js'
 import { createClaudeCodeConversationProvider } from '../discovery/providers/claude-code.js'
 import { composeAgentInstructions } from '../instructions.js'
-import { fingerprintForLoginIdentity } from '../codex-auth-identity.js'
 import {
   type AgentManifest,
   fileTranscript,
@@ -67,6 +67,7 @@ export const claudeCodeManifest: AgentManifest = {
 
   inventory: {
     binCandidates: (homeDir) => [join(homeDir, '.local', 'bin', 'claude'), 'claude'],
+    loginCommand: supported({ cmd: 'claude', args: ['login'] }),
     loginIdentity: supported((homeDir) => {
       try {
         const raw = JSON.parse(readFileSync(join(homeDir, '.claude.json'), 'utf8')) as {

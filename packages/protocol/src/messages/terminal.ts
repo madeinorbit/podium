@@ -3,6 +3,7 @@ import {
   Attribution,
   DelegationScope,
   Geometry,
+  HarnessAgent,
   IssueIdField,
   MachineIdField,
   ResumeRef,
@@ -356,6 +357,9 @@ export const SpawnMessage = z.object({
   sessionId: SessionIdField,
   durableLabel: z.string().optional(),
   agentKind: AgentKind,
+  /** Server-authorized native-login purpose. The daemon resolves the command
+   * from this harness's manifest instead of accepting arbitrary argv. */
+  loginHarness: HarnessAgent.optional(),
   cwd: z.string(),
   resume: ResumeRef.optional(),
   geometry: Geometry,
