@@ -23,8 +23,9 @@ export type AgentStateEvent = (
   | { kind: 'needs_user'; need: 'question' | 'permission'; summary?: string }
   /** Turn ended cleanly. The verdict is the PROVIDER's — only an adapter that
    *  actually observed the agent's task list may report 'open_todos' (Claude
-   *  Code's classifier does, off TodoWrite; POD-415). The reducer never invents
-   *  it: nativeSubagentCount is live subagents, not todos. */
+   *  Code's classifier does, off TaskCreate/TaskUpdate and legacy TodoWrite;
+   *  POD-415). The reducer never invents it: nativeSubagentCount is live
+   *  subagents, not todos. */
   | {
       kind: 'turn_completed'
       verdict?: {
