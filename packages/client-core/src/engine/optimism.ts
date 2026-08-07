@@ -100,6 +100,14 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
    *  dispose(): a replaced runtime's late timer must not roll back overlays or
    *  toast after its successor took over the same storage/session state. */
   private readonly spawnConfirmTimers = new Set<ReturnType<typeof setTimeout>>()
+  /**
+   * Waiters for {@link waitForSpawnConfirmed}. A first chat send during the
+   * optimistic-spawn window used to hit the server before `sessions.create`
+   * landed; the authority dead-lettered the unknown id and the outbox treated
+   * HTTP 200 as applied — the prompt vanished while the agent sat idle
+   * (POD-546, same class as the POD-1613 terminal-attach race).
+   */
+  private readonly spawnConfirmWaiters = new Map<string, Set<() => void>>()
 
   constructor(ports: OptimismPorts<TApi>) {
     this.ports = ports
@@ -138,6 +146,44 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     }
     for (const t of this.spawnConfirmTimers) clearTimeout(t)
     this.spawnConfirmTimers.clear()
+    // Resolve waiters so a held resumeAndSend does not hang forever after the
+    // runtime is replaced; the successor owns the next send.
+    for (const waiters of this.spawnConfirmWaiters.values()) {
+      for (const resolve of waiters) resolve()
+    }
+    this.spawnConfirmWaiters.clear()
+  }
+
+  /**
+   * Resolves once this session id is no longer a spawn-insert placeholder —
+   * either the server row arrived (create succeeded) or the optimistic pair
+   * was rolled back (create failed). Immediate when the id was never pending.
+   *
+   * Used by `resumeAndSend` so a mobile/web composer send during "Starting…"
+   * does not dead-letter against an id the authority has not heard of yet.
+   */
+  waitForSpawnConfirmed(sessionId: SessionId): Promise<void> {
+    const pending = this.spawnOverlays.some(
+      (overlay) => overlay.entity === 'sessions' && overlay.id === sessionId,
+    )
+    if (!pending) return Promise.resolve()
+    return new Promise((resolve) => {
+      let waiters = this.spawnConfirmWaiters.get(sessionId)
+      if (!waiters) {
+        waiters = new Set()
+        this.spawnConfirmWaiters.set(sessionId, waiters)
+      }
+      waiters.add(resolve)
+    })
+  }
+
+  private notifySpawnConfirmWaiters(pendingInsertIds: ReadonlySet<string>): void {
+    if (this.spawnConfirmWaiters.size === 0) return
+    for (const [sessionId, waiters] of [...this.spawnConfirmWaiters]) {
+      if (pendingInsertIds.has(sessionId)) continue
+      this.spawnConfirmWaiters.delete(sessionId)
+      for (const resolve of waiters) resolve()
+    }
   }
 
   /** The pending overlays for one entity, in application order: resolved
@@ -236,6 +282,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     this.retireCovered('sessions', base, keyOf)
     const { rows, pendingInsertIds } = foldOverlays(base, this.overlaysFor('sessions'), keyOf)
     this.ports.publish({ sessions: rows, pendingSpawnIds: pendingInsertIds })
+    this.notifySpawnConfirmWaiters(pendingInsertIds)
   }
 
   recomputeIssues(): void {

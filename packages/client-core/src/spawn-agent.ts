@@ -66,8 +66,27 @@ export async function createDraftAgent(args: {
   if (text) {
     // Best-effort: the session exists either way; a failed first-prompt delivery
     // must not fail the spawn (the user lands in the session and can retype).
-    await args.trpc.sessions.resumeAndSend
-      .mutate({ sessionId: args.sessionId, text })
-      .catch(() => {})
+    // Still honour ok:false — a swallowed dead-letter looks like a delivered
+    // first turn while the agent stays idle (POD-546).
+    try {
+      const result = await args.trpc.sessions.resumeAndSend.mutate({
+        sessionId: args.sessionId,
+        text,
+      })
+      if (
+        result !== null &&
+        typeof result === 'object' &&
+        'ok' in result &&
+        (result as { ok: unknown }).ok === false
+      ) {
+        console.debug(
+          '[podium] first prompt refused after spawn',
+          args.sessionId,
+          (result as { reason?: string }).reason,
+        )
+      }
+    } catch {
+      // transport blip — session is up; retype from the composer
+    }
   }
 }

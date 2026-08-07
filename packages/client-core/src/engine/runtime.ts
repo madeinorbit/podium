@@ -910,6 +910,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         agentKind: Parameters<OptimismLedger<TApi>['spawnDraftAgent']>[0]['agentKind']
         firstPrompt?: string
       }) => this.optimism.spawnDraftAgent(args),
+      waitForSpawnConfirmed: (sessionId) => this.optimism.waitForSpawnConfirmed(sessionId),
       setSessionDraft: (sessionId, text) => {
         this.adoptSessionDraft(sessionId, text)
         this.hub.sendSessionDraft(sessionId, text)

@@ -26,6 +26,7 @@ import {
   platformOnlineEvents,
 } from '../outbox'
 import { reasonSummary } from '../outbox-recovery-copy'
+import { assertSendAccepted } from './send-outcome'
 import {
   type CreateEngineOutbox,
   type EngineOutbox,
@@ -69,7 +70,11 @@ function submit(api: PodiumClientApi, envelope: OutboxEnvelope): Promise<unknown
     case 'settings.updatePersonal':
       return api.settings.updatePersonal.mutate(input as never)
     case 'sessions.resumeAndSend':
-      return api.sessions.resumeAndSend.mutate(input as never)
+      return api.sessions.resumeAndSend.mutate(input as never).then((result) => {
+        // dead_letter / refused is HTTP 200 with ok:false — must not be applied
+        assertSendAccepted(result)
+        return result
+      })
     case 'sessions.rename':
       return api.sessions.rename.mutate(input as never)
     case 'sessions.setArchived':
