@@ -3,8 +3,8 @@ import {
   isOverlayView,
   nextBaseView,
   readBooleanState,
+  readFlightDeckCollapsed,
   readRightPanel,
-  readSuperagentMode,
   rightPanelAllowed,
 } from './shell-state'
 
@@ -15,20 +15,22 @@ describe('desktop shell persistence readers', () => {
     expect(readBooleanState('wat', false)).toBe(false)
   })
 
-  it('restores open/folded and normalizes every legacy closed shape to folded (#65)', () => {
-    expect(readSuperagentMode('open', false)).toBe('open')
-    expect(readSuperagentMode('folded', false)).toBe('folded')
-    // Pre-#65 persisted 'closed' folds — the column never disappears.
-    expect(readSuperagentMode('closed', true)).toBe('folded')
-    expect(readSuperagentMode(null, true)).toBe('open')
-    expect(readSuperagentMode(null, false)).toBe('folded')
-    expect(readSuperagentMode('invalid', false)).toBe('folded')
-  })
-
   it('accepts only a known right-dock panel', () => {
+    expect(readRightPanel('superagent')).toBe('superagent')
     expect(readRightPanel('git')).toBe('git')
     expect(readRightPanel('merge-queue')).toBe('merge-queue')
     expect(readRightPanel('unknown')).toBeNull()
+  })
+
+  // The Flight Deck inherited the Superagent column's slot AND its persisted
+  // mode key, so a user's saved 'folded' still folds and the pre-#65 'closed'
+  // spelling still resolves to folded rather than removing the column.
+  it('folds the Flight Deck on folded/closed and opens on anything else', () => {
+    expect(readFlightDeckCollapsed('folded')).toBe(true)
+    expect(readFlightDeckCollapsed('closed')).toBe(true)
+    expect(readFlightDeckCollapsed('open')).toBe(false)
+    expect(readFlightDeckCollapsed(null)).toBe(false)
+    expect(readFlightDeckCollapsed('invalid')).toBe(false)
   })
 
   it('gates experimental dock panels independently', () => {

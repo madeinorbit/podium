@@ -1,13 +1,20 @@
-import { aggregateMotionPhase, type MotionPhase, motionPhase } from '@podium/client-core/viewmodels'
+import {
+  aggregateMotionPhase,
+  type MotionPhase,
+  motionPhase,
+  trayCount,
+} from '@podium/client-core/viewmodels'
 import type { IssueColorSlot } from '@podium/model'
 import type { JSX } from 'react'
+import { useMemo } from 'react'
 import { IdSquare, type IdSquareBadge, idSquareLabel } from '@/components/IdSquare'
+import { StatusBadge } from '@/lib/motion'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { RIGHT_PANELS } from './RightDock'
 import { type RightPanelTab, rightPanelAllowed } from './shell-state'
 import type { IssueViewModel } from './store'
-import { useStoreSelector } from './store'
+import { useReplicaIssues, useStoreSelector } from './store'
 
 /** The rail sits on the tinted --card gradient — corner badges punch out of it. */
 const RAIL_SURFACE = 'var(--card)'
@@ -22,9 +29,13 @@ function railBadge(phase: MotionPhase, waitingCount: number): IdSquareBadge | nu
 /**
  * The 44px right rail (handoff §2.5): the selected issue's ID square — the
  * designed bordered/filled square language, carrying the waiting/working
- * corner badge — toggling the Issue dock panel, then the Git/Files/Shell
- * panel cells. The Superagent column is NOT reachable from here (#65): it
- * folds in place and never fully closes.
+ * corner badge — toggling the Issue dock panel, then the Superagent/Git/Files/
+ * Shell panel cells.
+ *
+ * The Superagent is a rail cell now that the Flight Deck owns the center
+ * column it used to live in. Its cell carries the tray count so the number of
+ * things asking for the human stays visible in the chrome without the panel
+ * open — the folded column used to be where that number lived.
  */
 export function RightRail({
   issue,
@@ -38,6 +49,10 @@ export function RightRail({
   onColorChange?: (color: IssueColorSlot | null) => unknown
 }): JSX.Element {
   const sessions = useStoreSelector((store) => store.sessions)
+  const allIssues = useReplicaIssues()
+  // Derives the whole tray, so it is memoized: this rail re-renders on every
+  // issue mutation.
+  const pending = useMemo(() => trayCount(allIssues, sessions), [allIssues, sessions])
   const gitPanelEnabled = useFeature('git-panel')
   const messagesPanelEnabled = useFeature('messages-panel')
   const mergeQueueEnabled = useFeature('merge-queue')
@@ -101,11 +116,19 @@ export function RightRail({
             title={panel.label}
             onClick={() => onPanelChange(rightPanel === panel.id ? null : panel.id)}
             className={cn(
-              'right-rail-cell',
+              // `.right-rail-cell` is unlayered and sets no `position`, so the
+              // utility `relative` is safe here (unlike a border — see above).
+              'right-rail-cell relative',
               rightPanel === panel.id && 'bg-secondary text-primary',
             )}
           >
             <panel.icon size={15} strokeWidth={1.8} aria-hidden="true" />
+            {/* The same corner badge the ID square above renders, from the same
+                component — one geometry, one colour, one morph, one phrasing
+                for "N waiting on you" across the whole rail. */}
+            {panel.id === 'superagent' && (
+              <StatusBadge kind="count" count={pending} ringColor={RAIL_SURFACE} />
+            )}
           </button>
         ),
       )}

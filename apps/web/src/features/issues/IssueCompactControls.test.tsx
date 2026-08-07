@@ -48,16 +48,13 @@ afterEach(() => {
 
 describe('IssueCompactControls', () => {
   it('uses full-page language only for the real full issue destination', () => {
-    render(
-      <IssueCompactControls
-        issue={makeIssue({ id: 'i', description: 'A concise human-facing summary.' })}
-      />,
-    )
+    // The description is the inspector header's line now, not this control
+    // strip's — see IssuePanelView's SummaryHeader.
+    render(<IssueCompactControls issue={makeIssue({ id: 'i' })} />)
 
     fireEvent.click(screen.getByTestId('compact-open-full'))
     expect(setOpenIssueId).toHaveBeenCalledWith('i')
     expect(setView).toHaveBeenCalledWith('issues')
-    expect(screen.getByText('A concise human-facing summary.')).toBeTruthy()
   })
 
   it('omits unrelated shared checkout dirt', () => {

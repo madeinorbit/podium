@@ -2,8 +2,9 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 
+const trayIssues = vi.hoisted(() => ({ value: [] as unknown[] }))
 vi.mock('./store', () => ({
-  useReplicaIssues: () => [],
+  useReplicaIssues: () => trayIssues.value,
   useStoreSelector: (selector: (store: { sessions: never[] }) => unknown) =>
     selector({ sessions: [] }),
 }))
@@ -18,10 +19,11 @@ vi.mock('@/lib/use-feature', () => ({
 afterEach(() => {
   cleanup()
   featureEnabled.value = true
+  trayIssues.value = []
 })
 
 describe('RightRail', () => {
-  it('switches one panel at a time — with no superagent control (#65)', () => {
+  it('switches one panel at a time and exposes Superagent in the rail', () => {
     const onPanelChange = vi.fn()
     render(<RightRail rightPanel={null} onPanelChange={onPanelChange} />)
 
@@ -29,7 +31,27 @@ describe('RightRail', () => {
 
     expect(onPanelChange).toHaveBeenLastCalledWith('files')
 
-    expect(screen.queryByRole('button', { name: /superagent/i })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Superagent' }))
+    expect(onPanelChange).toHaveBeenLastCalledWith('superagent')
+  })
+
+  // Moving the Superagent out of its own column removed the one place the
+  // shell always showed how much was waiting on the human. The rail cell
+  // carries that count instead — and it must be the app's own corner badge, so
+  // it matches the ID square's badge 50px above it rather than inventing a
+  // second numbered-badge language on the same 44px rail.
+  it('carries the tray count on the Superagent cell', () => {
+    trayIssues.value = [
+      makeIssue({ id: 'a', needsHuman: true }),
+      makeIssue({ id: 'b', needsHuman: true }),
+    ]
+    render(<RightRail rightPanel={null} onPanelChange={vi.fn()} />)
+    expect(screen.getByRole('img', { name: '2 waiting on you' })).toBeTruthy()
+  })
+
+  it('shows no tray badge when nothing is waiting', () => {
+    render(<RightRail rightPanel={null} onPanelChange={vi.fn()} />)
+    expect(screen.queryByRole('img', { name: /waiting on you/ })).toBeNull()
   })
 
   it('hides experimental panels behind their feature flags', () => {

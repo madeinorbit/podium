@@ -30,6 +30,8 @@ import {
 } from '@podium/model'
 import { useEffect, useRef } from 'react'
 import { useReplicaIssues, useSlice, useStoreSelector } from '@/app/store'
+import { useOperatorFocus } from '@/app/operator-focus'
+import { missionIssueIds, missionRootFor } from '@/lib/mission'
 import type { SidebarDerivation } from './derivation'
 
 /**
@@ -101,6 +103,7 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
     shallowEqual,
   )
   const issues = useReplicaIssues()
+  const { setFocusedIssueId } = useOperatorFocus()
   // Same as useDefaultSpawn: the fallback READS the published slice (POD-331)
   // instead of re-deriving the whole worklist on a private clock. The rail is
   // the consumer this mattered for — it renders without the sidebar's prop, so
@@ -170,7 +173,9 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
     }
   }
   const selectIssue = (issue: IssueNavigationModel, paneSession?: SessionId) => {
-    setSelectedIssueId(issue.id)
+    const root = missionRootFor(issues, issue.id)
+    setSelectedIssueId(root?.id ?? issue.id)
+    setFocusedIssueId(issue.id)
     // Opening an issue marks IT read (email-style, #126): clear the row's unread
     // emphasis optimistically. Its member sessions keep their own unread until
     // each is opened. No-op when already read.
@@ -187,9 +192,20 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
     if (issue.worktreePath) setSelectedWorktree(issue.worktreePath)
     // Open a pane too (#108): keep the current one if it already belongs to this
     // issue (session or file tab), else the issue's most recently active session.
-    const members = sessionsForIssueNav(issue, sessions, allWorktreePaths, {
-      includeShells: true,
-    })
+    // The pane candidates span the whole MISSION, not just the clicked task, so
+    // selecting a sessionless child still lands you on the mission's live agent
+    // instead of nothing. Same projection the Flight Deck and the tab strip use.
+    const missionIds = missionIssueIds(issues, root?.id ?? issue.id, sessions)
+    const members = [
+      ...new Map(
+        issues
+          .filter((candidate) => missionIds.has(candidate.id))
+          .flatMap((candidate) =>
+            sessionsForIssueNav(candidate, sessions, allWorktreePaths, { includeShells: true }),
+          )
+          .map((session) => [session.sessionId, session] as const),
+      ).values(),
+    ]
     const rowFileIds = issue.worktreePath
       ? fileTabs.filter((f) => f.worktreePath === issue.worktreePath).map((f) => f.id)
       : []
@@ -198,7 +214,9 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
     // opens and the pane is only set once.
     const target = paneSession ?? pickPaneSession(members, paneA, rowFileIds)
     traceSwitchTo(target, issue.id)
-    setPane('A', target)
+    // Sessionless task focus follows the inspector while the current chat stays
+    // put. Selecting work must never manufacture or require a session.
+    if (target) setPane('A', target)
     setView('workspace')
   }
   const selectPanelForIssue = (issue: IssueNavigationModel, sessionId: SessionId) => {

@@ -670,6 +670,9 @@
 @utility issue-base-rail {
   --issue-base: var(--rail);
 }
+@utility issue-base-engraved {
+  --issue-base: var(--engraved);
+}
 /* Issue-tinted hairline: border-color at N% opacity of the issue colour. */
 @utility issue-hairline-* {
   border-color: color-mix(

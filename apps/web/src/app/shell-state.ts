@@ -6,10 +6,14 @@ export {
   SUPERAGENT_MODE_KEY,
 } from '@podium/client-core/ui-state'
 
-/** The engraved column's two states (#65): human preview feedback removed the
- *  fully-closed state — every collapse resolves to the in-place folded bar. */
-export type SuperagentMode = 'open' | 'folded'
-export type RightPanelTab = 'issue' | 'git' | 'files' | 'shell' | 'mail' | 'merge-queue'
+export type RightPanelTab =
+  | 'issue'
+  | 'superagent'
+  | 'git'
+  | 'files'
+  | 'shell'
+  | 'mail'
+  | 'merge-queue'
 
 export interface RightPanelFeatures {
   git: boolean
@@ -38,16 +42,22 @@ export function readBooleanState(value: string | null, fallback = false): boolea
   return fallback
 }
 
-export function readSuperagentMode(value: string | null, legacyOpen: boolean): SuperagentMode {
-  if (value === 'open' || value === 'folded') return value
-  // Pre-#65 'closed' persistence (and the legacy open=false boolean) lands on
-  // the folded bar so the column never disappears.
-  if (value === 'closed') return 'folded'
-  return legacyOpen ? 'open' : 'folded'
+/**
+ * The Flight Deck occupies the column the Superagent used to own, so it keeps
+ * that column's persisted mode key and its two-state semantics (#65): a
+ * collapse folds the column in place, it never fully disappears. Reusing the
+ * key also carries a user's existing open/folded preference across the move
+ * instead of resetting it — and the key is already classified as replicated
+ * layout, which a new spelling would not be (`uiStateRoute` is default-closed).
+ */
+export function readFlightDeckCollapsed(value: string | null): boolean {
+  // Pre-#65 'closed' persistence folds; absent/corrupt opens.
+  return value === 'folded' || value === 'closed'
 }
 
 export function readRightPanel(value: string | null): RightPanelTab | null {
   return value === 'issue' ||
+    value === 'superagent' ||
     value === 'git' ||
     value === 'files' ||
     value === 'shell' ||

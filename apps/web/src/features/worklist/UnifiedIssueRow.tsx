@@ -21,9 +21,10 @@ import { isIssueDeferred, issueReturnedFromDefer } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { AlarmClock, Pin } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { GitStamp } from '@/components/GitStamp'
 import { IdSquare } from '@/components/IdSquare'
+import { missionIssueIds } from '@/lib/mission'
 import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { issueIdTitle } from '@/features/issues/issue-card'
 import { agentFleetTileTint } from '@/lib/agent-tone'
@@ -49,23 +50,29 @@ import { WorkRowShell } from './WorkRowShell'
  * making the operator keep every fleet expanded. */
 function IssueFleetSummary({
   sessions,
+  leadCount = 0,
   unread = false,
 }: {
   sessions: SessionMeta[]
+  leadCount?: number
   /** An unopened update since last read (POD-293): a single info dot on the
    *  agent identity, not a shouted banner. Bound to the fleet glyph so it reads
    *  as "this agent has something new", never a free-floating third dot. */
   unread?: boolean
 }): JSX.Element | null {
-  if (sessions.length === 0) return null
-  const shown = sessions.slice(0, 2)
-  const overflow = Math.max(0, sessions.length - shown.length)
-  const nativeCount = sessions.reduce(
+  const live = sessions.filter(
+    (session) => !session.archived && session.status !== 'exited' && session.status !== 'hibernated',
+  )
+  if (live.length === 0) return null
+  const shown = live.slice(0, 3)
+  const overflow = Math.max(0, live.length - shown.length)
+  const nativeCount = live.reduce(
     (sum, session) => sum + (session.agentState?.nativeSubagentCount ?? 0),
     0,
   )
   const label = [
-    `${sessions.length} agent${sessions.length === 1 ? '' : 's'}`,
+    `${live.length} live agent${live.length === 1 ? '' : 's'}`,
+    leadCount > 0 ? `${leadCount} lead${leadCount === 1 ? '' : 's'}` : null,
     nativeCount > 0 ? `${nativeCount} native subagent${nativeCount === 1 ? '' : 's'}` : null,
     unread ? 'new update' : null,
   ]
@@ -221,6 +228,23 @@ export function UnifiedIssueRow({
   const capped = startedByDepth >= 1
   const rollup = capped ? branchRollup(issues, issue.id) : null
   const showRollup = rollup !== null && rollup.total > 0
+  const fleetSessions = row.aggregateSessions ?? mine
+  // How many of this row's agents are leads/coordinators — counted over the
+  // whole mission subtree, since a lead usually sits on a child task. The
+  // subtree projection is the Flight Deck's, so the sidebar and the deck can
+  // never disagree about what belongs to a mission. Memoized: this is the
+  // sidebar's hot render path and the walk is over every issue.
+  const leadCount = useMemo(() => {
+    const missionIds = missionIssueIds(issues, issue.id)
+    const leadIds = new Set(
+      issues
+        .filter((candidate) => missionIds.has(candidate.id))
+        .map((candidate) => candidate.coordinatorSessionId)
+        .filter((id): id is SessionId => Boolean(id)),
+    )
+    return fleetSessions.filter((session) => leadIds.has(session.sessionId)).length
+  }, [issues, issue.id, fleetSessions])
+  const missionProgress = !issue.parentId ? branchRollup(issues, issue.id) : null
   const { visible, stale } = partitionStaleSessions(mine, now)
   const phase = rowMotionPhase(row)
   // What this row is asking of the human, if anything (POD-279).
@@ -410,7 +434,13 @@ export function UnifiedIssueRow({
                 internal
               </span>
             )}
-            {!draftAgentOnly && <IssueFleetSummary sessions={mine} unread={unread} />}
+            {!draftAgentOnly && (
+              <IssueFleetSummary
+                sessions={fleetSessions}
+                leadCount={leadCount}
+                unread={unread}
+              />
+            )}
             {/* No started-by/epic jargon chips (POD-85): the dashed provenance
                 nest and the expand chevron already say it visually. */}
             {issue.pinned && (
@@ -434,6 +464,32 @@ export function UnifiedIssueRow({
           </>
         }
       >
+        {missionProgress && missionProgress.total > 0 && (
+          <div
+            className="mb-1 ml-10 flex items-center gap-2 pr-3"
+            data-testid="mission-subtree-progress"
+            aria-label={`${missionProgress.done} of ${missionProgress.total} subtree tasks done`}
+          >
+            {/* Same datum, same treatment as the Flight Deck's mission meter
+                (FlightDeck's ProgressBar): Accent Blue data on the secondary
+                surface. Two colours for one number one column apart would read
+                as two different facts. */}
+            <div className="h-[3.5px] flex-1 overflow-hidden rounded-full bg-secondary">
+              <div
+                className="h-full rounded-full bg-info"
+                style={{ width: `${(missionProgress.done / missionProgress.total) * 100}%` }}
+              />
+            </div>
+            <span className="shell-type-micro font-mono tabular-nums text-text-faint">
+              {missionProgress.done}/{missionProgress.total}
+            </span>
+            {waitingCount > 0 && (
+              <span className="shell-type-micro font-mono font-semibold text-attention">
+                {waitingCount} need you
+              </span>
+            )}
+          </div>
+        )}
         {showRollup && rollup && (
           // Roll-up line (L4): depth beyond two levels becomes numbers. Mono,
           // faint, still; hover surfaces the affordance; click deep-links to

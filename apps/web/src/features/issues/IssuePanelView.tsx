@@ -9,17 +9,16 @@ import {
   subIssuesOf,
 } from '@podium/client-core/viewmodels'
 import {
-  asIssueId,
   type IssueComment,
-  type IssueId,
   type IssueStage,
   type IssueWire,
 } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
-import { CircleAlert, FileText, Play, User } from 'lucide-react'
+import { CircleAlert, FileText, History, MessageSquare, Play, User } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import { type IssueViewModel, useReplicaIssues, useStoreSelector } from '@/app/store'
+import { useOperatorFocus } from '@/app/operator-focus'
 import { MediaLightbox } from '@/components/MediaLightbox'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -29,6 +28,7 @@ import { DockSection } from './DockSection'
 import { IssueCompactControls } from './IssueCompactControls'
 import { issueIdTitle, STAGE_LABELS } from './issue-card'
 import { StageGlyph } from './issue-glyphs'
+import { buildActivityFeed, type IssueEvent } from './issue-events'
 import { groupRelations } from './issue-relations'
 
 /** Stage → dot + tinted chip classes (token-tinted, works across the 4 themes). */
@@ -60,16 +60,19 @@ function Hint({ children }: { children: string }): JSX.Element {
   return <div className="py-0.5 text-xs text-muted-foreground/60 italic">{children}</div>
 }
 
-/** Latest checkpoint comment, expandable to the full history. Comment bodies no
- *  longer ride IssueWire (#175): the thread is fetched lazily via the
- *  issues.comments proc, re-fetched whenever the issue's updatedAt moves.
- *  Legacy fallback: a pre-#175 payload may still embed `comments` (and a viaHub
- *  issue's thread lives on the hub, where the proc returns []) — use the
+/** The five most recent things that happened to this task — comments and
+ *  lifecycle events interleaved chronologically, newest first, using the same
+ *  `buildActivityFeed` the full issue page's timeline is built from.
+ *
+ *  Comment bodies no longer ride IssueWire (#175): the thread is fetched lazily
+ *  via the issues.comments proc, re-fetched whenever the issue's updatedAt
+ *  moves. Legacy fallback: a pre-#175 payload may still embed `comments` (and a
+ *  viaHub issue's thread lives on the hub, where the proc returns []) — use the
  *  embedded thread when the fetch comes back empty. */
-function CommentsBlock({ issue }: { issue: IssueViewModel }): JSX.Element | null {
+function RecentActivity({ issue }: { issue: IssueViewModel }): JSX.Element | null {
   const trpc = useStoreSelector((s) => s.trpc)
-  const [showAll, setShowAll] = useState(false)
   const [comments, setComments] = useState<IssueComment[]>(issue.comments ?? [])
+  const [events, setEvents] = useState<IssueEvent[]>([])
   // biome-ignore lint/correctness/useExhaustiveDependencies: refetch on issue switch / count change only; trpc is a stable store singleton
   useEffect(() => {
     let cancelled = false
@@ -85,37 +88,56 @@ function CommentsBlock({ issue }: { issue: IssueViewModel }): JSX.Element | null
       cancelled = true
     }
   }, [issue.id, issue.updatedAt])
-  if (comments.length === 0) return null
-  const shown = showAll ? [...comments].reverse() : comments.slice(-1)
+  // `issues.events` has no per-subject filter, so this is the whole repo's log
+  // filtered down to one issue — the same shape the issue page uses. It is
+  // deliberately NOT keyed on `issue.updatedAt`: a supervised issue mutates
+  // constantly, and refetching the entire log on every agent state write would
+  // make the dock the most expensive surface in the app. A filter on the
+  // procedure is the real fix; see the issue filed against it.
+  useEffect(() => {
+    let cancelled = false
+    Promise.resolve()
+      .then(() => trpc.issues.events.query({ since: 0, repoPath: issue.repoPath, limit: 1000 }))
+      .then((rows) => {
+        if (!cancelled)
+          setEvents(
+            rows
+              .filter((row) => row.subject === issue.id)
+              .map((row) => ({ ...row, payload: row.payload ?? null })),
+          )
+      })
+      .catch(() => {
+        if (!cancelled) setEvents([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [issue.id, issue.repoPath, trpc])
+  const shown = buildActivityFeed(comments, events).slice(-5).reverse()
+  if (shown.length === 0) return null
   return (
-    <div className="mt-2">
-      <div className="flex flex-col gap-1.5">
-        {shown.map((c) => (
+    <DockSection storageKey="activity" title="Recent activity" count={shown.length}>
+      <div className="flex flex-col gap-1" data-testid="dock-recent-activity">
+        {shown.map((item) => (
           <div
-            key={c.id}
-            className="rounded-md border border-border/50 bg-background/40 px-2.5 py-1.5"
+            key={item.id}
+            className="shell-type-secondary flex items-start gap-2 px-1 py-1 text-foreground/80"
           >
-            <div className="flex items-baseline gap-2 text-[10px] text-muted-foreground/70">
-              <span className="font-mono">{c.author}</span>
-              <span>{relativeTime(c.createdAt, Date.now())}</span>
-            </div>
-            <div className="mt-0.5 text-[12px] leading-relaxed whitespace-pre-wrap text-foreground/80">
-              {c.body}
-            </div>
+            {item.kind === 'comment' ? (
+              <MessageSquare size={11} className="mt-0.5 flex-none text-muted-foreground" />
+            ) : (
+              <History size={11} className="mt-0.5 flex-none text-muted-foreground" />
+            )}
+            <span className="min-w-0 flex-1 whitespace-pre-wrap">
+              {item.kind === 'comment' ? item.body : item.line.text}
+            </span>
+            <span className="shell-type-micro flex-none text-muted-foreground/65">
+              {relativeTime(item.ts, Date.now())}
+            </span>
           </div>
         ))}
       </div>
-      {comments.length > 1 && (
-        <button
-          data-pressable
-          type="button"
-          onClick={() => setShowAll((v) => !v)}
-          className="mt-1 text-[11px] text-muted-foreground hover:text-foreground"
-        >
-          {showAll ? 'Show latest only' : `Show all ${comments.length} comments`}
-        </button>
-      )}
-    </div>
+    </DockSection>
   )
 }
 
@@ -165,6 +187,11 @@ function SummaryHeader({ issue }: { issue: IssueViewModel }): JSX.Element {
           </span>
         )}
       </div>
+      {issue.description.trim() && (
+        <p className="shell-type-secondary mt-2.5 whitespace-pre-wrap leading-relaxed text-foreground/85">
+          {issue.description}
+        </p>
+      )}
       {/* Current state — the paragraph agents keep updated for the human. */}
       <div
         className={cn(
@@ -184,14 +211,21 @@ function SummaryHeader({ issue }: { issue: IssueViewModel }): JSX.Element {
         )}
       </div>
       <IssueCompactControls issue={issue} />
-      <CommentsBlock issue={issue} />
     </header>
   )
 }
 
 /** A child of the docked issue. Clicking it opens that subissue's page — same
  *  destination as the issue page's own sub-issue list and the sidebar's "Open". */
-function SubissueRow({ sub, onOpen }: { sub: IssueViewModel; onOpen: () => void }): JSX.Element {
+function SubissueRow({
+  sub,
+  depth = 0,
+  onOpen,
+}: {
+  sub: IssueViewModel
+  depth?: number
+  onOpen: () => void
+}): JSX.Element {
   const a = STAGE_ACCENT[sub.stage]
   const closed = sub.stage === 'done' || Boolean(sub.closedReason)
   return (
@@ -204,6 +238,7 @@ function SubissueRow({ sub, onOpen }: { sub: IssueViewModel; onOpen: () => void 
         'flex w-full items-center gap-2 rounded-md px-1 py-1 text-left text-[13px] hover:bg-accent/40',
         sub.archived && 'opacity-60',
       )}
+      style={{ paddingLeft: `${4 + depth * 16}px` }}
     >
       <span className={cn('size-2 flex-none rounded-full', a.dot)} aria-hidden="true" />
       <span className="font-mono text-[11px] text-muted-foreground/70" title={issueIdTitle(sub)}>
@@ -474,19 +509,24 @@ export function IssuePanelView({
    *  session attachment and cwd containment. */
   issueId?: string
 }): JSX.Element {
-  const { sessions, setOpenIssueId, setView } = useStoreSelector(
+  const {
+    sessions,
+    setPane,
+    setView,
+    markIssueRead,
+    markSessionRead,
+  } = useStoreSelector(
     (s) => ({
       sessions: s.sessions,
-      setOpenIssueId: s.setOpenIssueId,
+      setPane: s.setPane,
       setView: s.setView,
+      markIssueRead: s.markIssueRead,
+      markSessionRead: s.markSessionRead,
     }),
     shallowEqual,
   )
   const issues = useReplicaIssues()
-  const openIssuePage = (id: IssueId) => {
-    setOpenIssueId(id)
-    setView('issues')
-  }
+  const { setFocusedIssueId } = useOperatorFocus()
   const issue = useMemo(
     () => issueForPanel({ issues, sessions, cwd, sessionId, issueId }),
     [issues, sessions, cwd, sessionId, issueId],
@@ -495,8 +535,25 @@ export function IssuePanelView({
   // sections below deliberately skip archived children so they don't clutter the
   // parent view (issue #133).
   const children = useMemo(() => (issue ? subIssuesOf(issues, issue.id) : []), [issues, issue])
-  const doneChildren = children.filter((child) => child.stage === 'done' || child.closedReason)
-  const openChildren = children.filter((child) => !doneChildren.includes(child))
+  const subtree = useMemo(() => {
+    if (!issue) return []
+    const out: Array<{ issue: IssueViewModel; depth: number }> = []
+    const seen = new Set<string>([issue.id])
+    const walk = (parentId: string, depth: number): void => {
+      for (const child of subIssuesOf(issues, parentId)) {
+        if (seen.has(child.id)) continue
+        seen.add(child.id)
+        out.push({ issue: child, depth })
+        walk(child.id, depth + 1)
+      }
+    }
+    walk(issue.id, 0)
+    return out
+  }, [issues, issue])
+  const doneChildren = subtree.filter(
+    ({ issue: child }) => child.stage === 'done' || child.closedReason,
+  )
+  const openChildren = subtree.filter(({ issue: child }) => !child.closedReason && child.stage !== 'done')
   const subPanels = useMemo(
     () => children.filter((c) => !c.archived).filter(panelNonEmpty),
     [children],
@@ -506,10 +563,32 @@ export function IssuePanelView({
   const relations = useMemo(() => (issue ? groupRelations(issue) : []), [issue])
   const issueById = useMemo(() => new Map(issues.map((i) => [i.id, i])), [issues])
 
+  const focusIssue = (target: IssueViewModel): void => {
+    setFocusedIssueId(target.id)
+    void markIssueRead(target.id)
+    const memberIds = new Set(target.memberSessionIds ?? [])
+    const targetSessions = sessions
+      .filter(
+        (session) =>
+          !session.archived &&
+          session.status !== 'exited' &&
+          (session.issueId === target.id || memberIds.has(session.sessionId)),
+      )
+      .sort((a, b) => b.lastActiveAt.localeCompare(a.lastActiveAt))
+    const targetSession =
+      targetSessions.find((session) => session.sessionId === target.coordinatorSessionId) ??
+      targetSessions[0]
+    if (targetSession) {
+      setPane('A', targetSession.sessionId)
+      void markSessionRead(targetSession.sessionId)
+    }
+    setView('workspace')
+  }
+
   if (!issue) {
     return (
       <div className="p-3 text-xs text-muted-foreground/70">
-        No issue is attached to this session or worktree.
+        This chat has no task yet. Keep talking — its mission will fill in as the agent learns what you need.
       </div>
     )
   }
@@ -517,11 +596,16 @@ export function IssuePanelView({
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <SummaryHeader issue={issue} />
-      {children.length > 0 && (
-        <DockSection storageKey="subissues" title="Subtasks" count={children.length}>
+      {subtree.length > 0 && (
+        <DockSection storageKey="subissues" title="Subtree work" count={subtree.length}>
           <div className="flex flex-col gap-0.5" data-testid="dock-subissues">
-            {openChildren.map((sub) => (
-              <SubissueRow key={sub.id} sub={sub} onOpen={() => openIssuePage(sub.id)} />
+            {openChildren.map(({ issue: sub, depth }) => (
+              <SubissueRow
+                key={sub.id}
+                sub={sub}
+                depth={depth}
+                onOpen={() => focusIssue(sub)}
+              />
             ))}
             {doneChildren.length > 0 && issue.stage !== 'done' && !issue.closedReason && (
               <details className="rounded border border-border/50 px-1.5 py-1">
@@ -529,8 +613,13 @@ export function IssuePanelView({
                   ✓ {doneChildren.length} done
                 </summary>
                 <div className="mt-1 flex flex-col gap-0.5">
-                  {doneChildren.map((sub) => (
-                    <SubissueRow key={sub.id} sub={sub} onOpen={() => openIssuePage(sub.id)} />
+                  {doneChildren.map(({ issue: sub, depth }) => (
+                    <SubissueRow
+                      key={sub.id}
+                      sub={sub}
+                      depth={depth}
+                      onOpen={() => focusIssue(sub)}
+                    />
                   ))}
                 </div>
               </details>
@@ -559,7 +648,7 @@ export function IssuePanelView({
                         key={`${group.section}-${entry.direction}-${entry.id}`}
                         type="button"
                         className="flex min-w-0 items-center gap-1.5 truncate text-left text-[11.5px] hover:text-primary hover:underline"
-                        onClick={() => target && openIssuePage(target.id)}
+                        onClick={() => target && focusIssue(target)}
                         title={target ? `${issueDisplayRef(target)} ${target.title}` : entry.id}
                       >
                         {target && <StageGlyph stage={target.stage} size={12} />}
@@ -590,6 +679,10 @@ export function IssuePanelView({
           <PanelSections issue={sub} machineId={machineId} slug={`sub.${sub.seq}`} />
         </DockSection>
       ))}
+      {/* Activity sits LAST, as it does on the issue page and in the approved
+          reference: it is history. Above the fold belongs to the live work —
+          subtree, sessions, relations, evidence. */}
+      <RecentActivity issue={issue} />
     </div>
   )
 }

@@ -1,10 +1,11 @@
 import { randomUUID } from '@podium/client-core/id'
 import { shallowEqual } from '@podium/client-core/store'
 import { isSessionWorking, motionPhase } from '@podium/client-core/viewmodels'
-import type { IssueId, SessionMeta } from '@podium/model'
+import type { IssueId, IssueStage, SessionMeta } from '@podium/model'
 import {
   Archive,
   ArchiveRestore,
+  ChevronDown,
   ExternalLink,
   GitBranch,
   GitCommit,
@@ -18,11 +19,23 @@ import { toast } from 'sonner'
 import type { IssueViewModel } from '@/app/store'
 import { useReplicaIssues, useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { OfferBar } from '@/features/chat/OfferBar'
 import { sessionDotClass } from '@/lib/derive'
 import { IssueContextMenu } from './IssueContextMenu'
 import { IssueCloseDialog, type IssueCloseReason } from './issue-lifecycle'
 import { isIssueStartable } from './issue-startable'
+import { STAGE_LABELS } from './issue-card'
+import { StageGlyph } from './issue-glyphs'
+
+/** Every stage a live issue can be moved between. `done` is not one of them —
+ *  see the close dialog. */
+const OPEN_STAGES = (Object.keys(STAGE_LABELS) as IssueStage[]).filter((stage) => stage !== 'done')
 
 function sessionState(session: SessionMeta): string {
   if (session.archived) return 'Retired'
@@ -186,13 +199,45 @@ export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.
 
   return (
     <div className="mt-2.5 flex flex-col gap-2.5">
-      {issue.description.trim() && (
-        <p className="line-clamp-3 text-[12px] leading-relaxed text-muted-foreground">
-          {issue.description}
-        </p>
-      )}
-
       <div className="flex flex-wrap items-center gap-1.5">
+        {/* Stage, exposed as a first-class dock action. Built from the shell's
+            own dropdown rather than a native <select>, which exists nowhere in
+            this chrome. `done` is deliberately absent: closing an issue goes
+            through the close dialog below so a reason is always recorded. */}
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                aria-label="Stage"
+                className="h-7 gap-1.5 px-2 text-[11.5px]"
+              >
+                <StageGlyph stage={issue.stage} size={12} />
+                {STAGE_LABELS[issue.stage]}
+                <ChevronDown size={11} aria-hidden="true" />
+              </Button>
+            }
+          />
+          <DropdownMenuContent align="start">
+            {OPEN_STAGES.map((stage) => (
+              <DropdownMenuItem
+                key={stage}
+                onClick={() =>
+                  trpc.issues.update
+                    .mutate({ id: issue.id, patch: { stage } })
+                    .catch((error: unknown) =>
+                      toast.error(error instanceof Error ? error.message : String(error)),
+                    )
+                }
+              >
+                <StageGlyph stage={stage} size={12} />
+                {STAGE_LABELS[stage]}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
         {isIssueStartable(issue) && (
           <Button
             type="button"

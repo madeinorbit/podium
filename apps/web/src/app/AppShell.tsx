@@ -1,5 +1,4 @@
 import { shallowEqual } from '@podium/client-core/store'
-import { trayCount } from '@podium/client-core/viewmodels'
 import type { IssueColorSlot } from '@podium/model'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import type { CSSProperties, JSX, ReactNode } from 'react'
@@ -11,8 +10,7 @@ import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { SettingsView } from '@/features/settings/SettingsView'
 import { OnboardingWizard } from '@/features/setup/OnboardingWizard'
-import { SUPER_CHAT_OPEN_KEY, TRAY_OPEN_KEY } from '@/features/superagent/column-state'
-import { SuperagentView } from '@/features/superagent/SuperagentView'
+import { FlightDeck } from './FlightDeck'
 import { UsageView } from '@/features/usage/UsageView'
 import { SidebarRail } from '@/features/worklist/SidebarRail'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
@@ -31,7 +29,7 @@ import { BrowserOpenOverlay } from './BrowserOpenOverlay'
 import { CommandPalette } from './CommandPalette'
 import { DensityProvider } from './density'
 import { ErrorBoundary } from './ErrorBoundary'
-import { FoldedSuperagentBar } from './FoldedSuperagentBar'
+import { FoldedFlightDeckBar } from './FoldedFlightDeckBar'
 import { RightDock } from './RightDock'
 import { RightRail } from './RightRail'
 import { MainViewOutlet } from './routes'
@@ -43,12 +41,11 @@ import {
   RIGHT_PANEL_KEY,
   type RightPanelTab,
   readBooleanState,
+  readFlightDeckCollapsed,
   readRightPanel,
-  readSuperagentMode,
   rightPanelAllowed,
   SIDEBAR_COLLAPSED_KEY,
   SUPERAGENT_MODE_KEY,
-  type SuperagentMode,
 } from './shell-state'
 import { describeWireSkew, reportSkew } from './skew-notice'
 import { type MainView, StoreProvider, useReplicaIssues, useStoreSelector } from './store'
@@ -58,6 +55,7 @@ import { ThemeUiStateMirror } from './theme'
 import { makeTrpc, serverConfig } from './trpc'
 import { UpdatePrompt } from './UpdatePrompt'
 import { Workspace } from './Workspace'
+import { OperatorFocusProvider } from './operator-focus'
 
 function LoadingScreen(): JSX.Element {
   return (
@@ -231,8 +229,8 @@ function AppBody(): JSX.Element {
   const [sidebarCollapsed, setSidebarCollapsedState] = useState(() =>
     readBooleanState(uiState.get(SIDEBAR_COLLAPSED_KEY)),
   )
-  const [superMode, setSuperModeState] = useState<SuperagentMode>(() =>
-    readSuperagentMode(uiState.get(SUPERAGENT_MODE_KEY), superOpen),
+  const [flightDeckCollapsed, setFlightDeckCollapsedState] = useState(() =>
+    readFlightDeckCollapsed(uiState.get(SUPERAGENT_MODE_KEY)),
   )
   const [rightPanel, setRightPanelState] = useState<RightPanelTab | null>(() =>
     readRightPanel(uiState.get(RIGHT_PANEL_KEY)),
@@ -253,33 +251,43 @@ function AppBody(): JSX.Element {
     setSidebarCollapsedState(collapsed)
     uiState.set(SIDEBAR_COLLAPSED_KEY, String(collapsed))
   }
-  const setSuperMode = (mode: SuperagentMode): void => {
-    setSuperModeState(mode)
-    uiState.set(SUPERAGENT_MODE_KEY, mode)
-    setSuperOpen(mode === 'open')
+  const setFlightDeckCollapsed = (collapsed: boolean): void => {
+    setFlightDeckCollapsedState(collapsed)
+    uiState.set(SUPERAGENT_MODE_KEY, collapsed ? 'folded' : 'open')
   }
   const setRightPanel = (panel: RightPanelTab | null): void => {
     if (!panelAllowed(panel)) return
     setRightPanelState(panel)
     uiState.set(RIGHT_PANEL_KEY, panel ?? '')
+    setSuperOpen(panel === 'superagent')
   }
 
-  // superOpen (store) is how surfaces outside the shell drive the column
-  // (palette toggle, concierge/btw opens). The shell mirrors persisted mode
-  // back into the store once, then follows superOpen CHANGES only — and
-  // resolves close to 'folded': the column never fully disappears (#65).
+  // Existing concierge/palette surfaces still drive `superOpen`. Its visual
+  // destination is now the right dock instead of a separate center column, so
+  // the shell mirrors the store into the dock panel — but only on CHANGES.
+  // Reacting to the initial value would slam a persisted `superagent` panel
+  // shut on every load, because the store boots with superOpen=false.
   const lastSuperOpen = useRef(superOpen)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only — seed the store from the persisted panel.
+  useEffect(() => {
+    if (rightPanel === 'superagent') setSuperOpen(true)
+  }, [])
   useEffect(() => {
     if (superOpen === lastSuperOpen.current) return
     lastSuperOpen.current = superOpen
-    const mode = superOpen ? 'open' : 'folded'
-    setSuperModeState(mode)
-    uiState.set(SUPERAGENT_MODE_KEY, mode)
-  }, [superOpen, uiState])
-  // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only — seed the store from the persisted desktop mode.
-  useEffect(() => {
-    setSuperOpen(superMode === 'open')
-  }, [])
+    if (superOpen) {
+      setRightPanelState('superagent')
+      uiState.set(RIGHT_PANEL_KEY, 'superagent')
+      return
+    }
+    // superOpen going false only CLOSES the Superagent. Clearing the panel
+    // unconditionally would fight `setRightPanel`, which drives superOpen false
+    // whenever you pick a different panel: the click that opened Task would set
+    // superOpen false, and this effect would then close Task right back again.
+    if (rightPanel !== 'superagent') return
+    setRightPanelState(null)
+    uiState.set(RIGHT_PANEL_KEY, '')
+  }, [superOpen, rightPanel, uiState])
 
   // Deep surfaces (the pane header's git stamp [POD-98]) ask for a dock panel
   // via a window event — the panel state is AppShell-local. A request for a
@@ -338,7 +346,8 @@ function AppBody(): JSX.Element {
     : undefined
 
   return (
-    <>
+    <OperatorFocusProvider missionId={selectedIssueId}>
+      <>
       <div
         className="desktop-shell issue-scope"
         data-issue-colored={effectiveHex ? 'true' : 'false'}
@@ -381,31 +390,20 @@ function AppBody(): JSX.Element {
               </button>
             </div>
           )}
-          {workspaceActive && superMode === 'open' && (
+          {workspaceActive && !flightDeckCollapsed && (
             <ResizableColumn
               storageKey="podium:superagent:width"
-              min={320}
-              max={860}
-              defaultWidth={400}
-              handleLabel="Resize tray and superagent"
+              min={300}
+              max={620}
+              defaultWidth={360}
+              handleLabel="Resize Flight Deck"
               className="max-w-[45vw]"
             >
-              <aside className="engraved-column" data-superagent-mode="open">
-                <SuperagentView onClose={() => setSuperMode('folded')} />
-              </aside>
+              <FlightDeck onCollapse={() => setFlightDeckCollapsed(true)} />
             </ResizableColumn>
           )}
-          {workspaceActive && superMode === 'folded' && (
-            <FoldedSuperagentBar
-              trayCount={trayCount(issues, sessions)}
-              onExpand={(target) => {
-                // Land on the clicked half (3b/3d): pre-open that section so
-                // the expanding column mounts with it visible.
-                if (target === 'tray') uiState.set(TRAY_OPEN_KEY, 'true')
-                if (target === 'superagent') uiState.set(SUPER_CHAT_OPEN_KEY, 'true')
-                setSuperMode('open')
-              }}
-            />
+          {workspaceActive && flightDeckCollapsed && (
+            <FoldedFlightDeckBar onExpand={() => setFlightDeckCollapsed(false)} />
           )}
           <MainViewOutlet workspace={<Workspace />} view={baseView} />
           {workspaceActive && visibleRightPanel && (
@@ -449,6 +447,7 @@ function AppBody(): JSX.Element {
       {/* The issue peek drawer (POD-95): a chat ref's "open" — slides in OVER
           the right edge (dock + rail included), above the normal UI. */}
       <IssuePeekOverlay />
-    </>
+      </>
+    </OperatorFocusProvider>
   )
 }

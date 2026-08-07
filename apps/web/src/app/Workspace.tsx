@@ -31,6 +31,7 @@ import { asSessionId, type SessionId } from '@podium/model'
 import { Archive, Columns2, FileText, Lock, Plus, X } from 'lucide-react'
 import { type JSX, useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { missionIssueIds, missionRootFor } from '@/lib/mission'
 import { AgentPanel } from '@/features/terminal/AgentPanel'
 import { useWarmSet } from '@/features/terminal/use-warm-set'
 import { AgentStatusGlyph } from '@/lib/motion'
@@ -44,6 +45,7 @@ import { composeDeck, type DeckTab } from './panel-deck'
 import { useReplicaIssues, useStoreSelector } from './store'
 import { closeWorkspaceTab } from './workspace-close'
 import { fileTabsForWorkspace } from './workspace-tabs'
+import { useOperatorFocus } from './operator-focus'
 
 // A tab in the strip is either an agent/shell session or an open file editor. Both are
 // first-class: same strip, same drag/select/close behaviour. paneA/paneB hold a tab id
@@ -92,6 +94,7 @@ export function Workspace(): JSX.Element {
     shallowEqual,
   )
   const issues = useReplicaIssues()
+  const { focusedIssueId, setFocusedIssueId } = useOperatorFocus()
   const tabSplittingEnabled = useFeature('tab-splitting')
   const visibleSplit = tabSplittingEnabled && split
   // A session created via the "+" menu (or restored from localStorage on reload)
@@ -116,9 +119,24 @@ export function Workspace(): JSX.Element {
   // Issue-keyed workspace (issue-as-workspace, unified layout only): when an
   // issue row is selected, the tab strip shows the issue's sessions (explicit
   // issueId first-class + cwd-contained legacy) instead of a worktree's.
-  const issue = selectedIssueId
+  const missionIssue = selectedIssueId
     ? issues.find((i) => i.id === selectedIssueId && !i.archived && !i.deletedAt)
     : undefined
+  const missionRoot = missionIssue ? missionRootFor(issues, missionIssue.id) : undefined
+  // `sessions` is required, not optional: it is what pulls agent-started
+  // children into the mission. Omitting it would give the tab strip a smaller
+  // mission than the Flight Deck shows, so a task visible in the deck would
+  // have no tab.
+  const missionIds = missionRoot
+    ? missionIssueIds(issues, missionRoot.id, sessions)
+    : new Set<string>()
+  const missionIssues = missionRoot
+    ? issues.filter((candidate) => missionIds.has(candidate.id))
+    : []
+  const issue =
+    (focusedIssueId && missionIds.has(focusedIssueId)
+      ? issues.find((candidate) => candidate.id === focusedIssueId)
+      : undefined) ?? missionRoot
   const issueWorktree = issue?.worktreePath
     ? allWorktrees.find((w) => w.path === issue.worktreePath)
     : undefined
@@ -139,25 +157,32 @@ export function Workspace(): JSX.Element {
   // File ids that no longer exist (after reload) are dropped.
   // Dock-owned shells (#23) live in the right dock's Shell panel, never as tabs.
   const dockShellIds = new Set(Object.values(dockShells))
-  const liveSessionList = (
+  const uniqueSessions = (list: typeof sessions): typeof sessions => [
+    ...new Map(list.map((session) => [session.sessionId, session])).values(),
+  ]
+  const liveSessionList = uniqueSessions(
     issue
-      ? sessionsForIssueNav(issue, sessions, allWorktreePaths, { includeShells: true })
+      ? missionIssues.flatMap((missionIssue) =>
+          sessionsForIssueNav(missionIssue, sessions, allWorktreePaths, { includeShells: true }),
+        )
       : worktree
         ? sessionsForWorktree(sessions, worktree.path, allWorktreePaths)
-        : []
+        : [],
   ).filter((s) => !dockShellIds.has(s.sessionId))
   // Archived members of the viewed issue/worktree — kept out of the strip until
   // revealed, then appended so they reopen as (readable) tabs.
-  const archivedMembers = (
+  const archivedMembers = uniqueSessions(
     issue
-      ? archivedSessionsForIssue(issue, sessions, allWorktreePaths)
+      ? missionIssues.flatMap((missionIssue) =>
+          archivedSessionsForIssue(missionIssue, sessions, allWorktreePaths),
+        )
       : worktree
         ? archivedSessionsForWorktreePath(sessions, worktree.path, allWorktreePaths)
-        : []
+        : [],
   ).filter((s) => !dockShellIds.has(s.sessionId))
   const sessionList = showArchived ? [...liveSessionList, ...archivedMembers] : liveSessionList
   const fileList = fileTabsForWorkspace(fileTabs, { issue, worktreePath: panelTarget?.path })
-  const orderKey = issue ? `issue:${issue.id}` : worktree?.path
+  const orderKey = missionRoot ? `mission:${missionRoot.id}` : issue ? `issue:${issue.id}` : worktree?.path
   const byId = new Map<string, WTab>()
   for (const s of sessionList)
     byId.set(s.sessionId, { id: s.sessionId, kind: 'session', session: s })
@@ -173,7 +198,7 @@ export function Workspace(): JSX.Element {
       : baseIds
   // M6: keep the designated coordinator first even under a saved drag order so
   // "who is driving" stays unambiguous in the strip.
-  const coordId = issue?.coordinatorSessionId
+  const coordId = missionRoot?.coordinatorSessionId ?? issue?.coordinatorSessionId
   if (coordId && orderedIds.includes(coordId)) {
     orderedIds = [coordId, ...orderedIds.filter((id) => id !== coordId)]
   }
@@ -324,19 +349,28 @@ export function Workspace(): JSX.Element {
                   active={t.id === paneA}
                   coordinator={
                     t.kind === 'session' &&
-                    !!issue &&
-                    isCoordinatorSession(issue, t.session.sessionId)
+                    missionIssues.some((missionIssue) =>
+                      isCoordinatorSession(missionIssue, t.session.sessionId),
+                    )
                   }
                   onSelect={() => {
                     // Switch-latency trace [POD-701]: a tab click that changes the
                     // focused session starts a trace at the gesture (no-op switches
                     // — clicking the already-active tab — are skipped).
                     if (t.kind === 'session' && t.id !== paneA) {
-                      beginSwitch({ sessionId: asSessionId(t.id), issueId: issue?.id ?? null })
+                      beginSwitch({
+                        sessionId: asSessionId(t.id),
+                        issueId: t.session.issueId ?? issue?.id ?? null,
+                      })
                     }
                     // Opening a session tab marks it read (#126) so the sidebar
                     // row's unread emphasis clears in step with what's on screen.
                     if (t.kind === 'session') void markSessionRead(asSessionId(t.id))
+                    if (t.kind === 'session' && t.session.issueId) {
+                      setFocusedIssueId(t.session.issueId ?? missionRoot?.id ?? null)
+                    } else if (t.kind === 'file' && t.file.issueId) {
+                      setFocusedIssueId(t.file.issueId ?? missionRoot?.id ?? null)
+                    }
                     setPane('A', asSessionId(t.id))
                   }}
                   onClose={() => {

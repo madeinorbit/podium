@@ -12,6 +12,7 @@ import {
   ListOrdered,
   type LucideIcon,
   Mail,
+  Sparkles,
   SquareTerminal,
   X,
 } from 'lucide-react'
@@ -23,15 +24,19 @@ import { GitPanelView } from '@/features/git/GitPanelView'
 import { IssuePanelView } from '@/features/issues/IssuePanelView'
 import { MergeQueuePanel } from '@/features/merge-queue/MergeQueuePanel'
 import { MessageLedgerView } from '@/features/messages/MessageLedgerView'
+import { missionIssueIds } from '@/lib/mission'
+import { SuperagentView } from '@/features/superagent/SuperagentView'
 import { DockShellPanel } from '@/features/terminal/DockShellPanel'
 import type { RightPanelTab } from './shell-state'
 import { useReplicaIssues, useStoreSelector } from './store'
+import { resolveFocus, useOperatorFocus } from './operator-focus'
 
-/** The right-panel surfaces (the superagent lives in its own center column). */
+/** The right-panel surfaces, including the docked Superagent chat home. */
 export type { RightPanelTab } from './shell-state'
 
 export const RIGHT_PANELS: { id: RightPanelTab; label: string; icon: LucideIcon }[] = [
   { id: 'issue', label: 'Task', icon: CircleDot },
+  { id: 'superagent', label: 'Superagent', icon: Sparkles },
   { id: 'git', label: 'Git', icon: GitBranch },
   { id: 'files', label: 'Files', icon: FolderTree },
   // The dock hosts one persistent shell per worktree (#23) [spec:SP-75b1];
@@ -43,7 +48,7 @@ export const RIGHT_PANELS: { id: RightPanelTab; label: string; icon: LucideIcon 
   { id: 'merge-queue', label: 'Merge queue', icon: ListOrdered },
 ]
 
-/** The right dock panel: Files / Git / Issue for the active worktree. Opened
+/** The right dock panel: Files / Git / Issue / Superagent for the active worktree. Opened
  *  from the thin icon rail on the shell's right edge; one panel at a time. */
 export function RightDock({
   tab,
@@ -65,6 +70,7 @@ export function RightDock({
       shallowEqual,
     )
   const issues = useReplicaIssues()
+  const { focusedIssueId, setFocusedIssueId } = useOperatorFocus()
   const active = useMemo(
     () => resolveActiveWorktree({ paneA, fileTabs, sessions }),
     [paneA, fileTabs, sessions],
@@ -77,8 +83,17 @@ export function RightDock({
   // Task navigation is issue-first: selecting a sidebar row must update this
   // dock even when the issue has no live session to become the active pane.
   // The other dock tabs remain pane/worktree-driven.
-  const selectedIssue = selectedIssueId
-    ? issues.find((issue) => issue.id === selectedIssueId && !issue.archived && !issue.deletedAt)
+  //
+  // The inspected task is the operator's FOCUS inside the selected mission —
+  // resolved against that mission so a pointer left over from the mission you
+  // navigated away from falls back to the new root instead of inspecting a task
+  // that is no longer on screen.
+  const inspectedId = useMemo(
+    () => resolveFocus(focusedIssueId, missionIssueIds(issues, selectedIssueId ?? '', sessions), selectedIssueId),
+    [focusedIssueId, issues, selectedIssueId, sessions],
+  )
+  const selectedIssue = inspectedId
+    ? issues.find((issue) => issue.id === inspectedId && !issue.archived && !issue.deletedAt)
     : undefined
   const mergeQueueScope = useMemo(() => {
     if (!active) return null
@@ -184,6 +199,7 @@ export function RightDock({
         ) : (
           <div className="p-3 text-xs text-muted-foreground/70">No active session.</div>
         ))}
+      {tab === 'superagent' && <SuperagentView />}
       {tab === 'shell' &&
         (active ? (
           // Keyed by cwd: switching worktrees swaps to THAT worktree's shell.
@@ -195,7 +211,14 @@ export function RightDock({
         <MergeQueuePanel
           issues={issues}
           scope={mergeQueueScope}
-          onSelectIssue={(issue) => setSelectedIssueId(issue.id)}
+          // A queue entry can be any issue in the repo, including one outside
+          // the mission on screen — so this moves the MISSION, not just the
+          // focus inside it. Focusing alone would be discarded by
+          // `resolveFocus` as not-in-mission and silently snap back.
+          onSelectIssue={(issue) => {
+            setSelectedIssueId(issue.id)
+            setFocusedIssueId(issue.id)
+          }}
         />
       )}
     </div>
