@@ -520,3 +520,41 @@ This is a third instance of the pattern in the two method notes above, in the op
 There, two figures shared a cause and looked additive. Here, one figure was invariant across the
 distinction that mattered. Both are the same underlying mistake — treating a number as though it
 carried the structure it was summarising.
+
+---
+
+## Closing note, 2026-08-07: which of these recommendations has been tested
+
+Five of this review's recommendations have now passed through an implementer. Three came back
+changed, and the changes are in the corrections above. The rest have been read and agreed with,
+which is not the same thing. A reader deciding what to act on next should know which is which,
+because the two recommendations that turned out wrong were indistinguishable in tone from the ones
+that held.
+
+**Instantiated by an implementer's find:**
+
+| Recommendation | Outcome |
+| --- | --- |
+| Pre-migrated store fixture (item 1) | Held. 2,341 → 12 chain applications, suite CPU 1.78×. |
+| Server cache shards (item 2) | Held, with membership derived from the real import graph rather than the directory split this review proposed. Replay 100% → 64%. |
+| Curated reusable-runner shard (item 3) | **Corrected.** Reaches ~4% of the lane; import/collect is 66.4%, not the 53.5% reported here. |
+| Retire the workflow characterization suite (item 4) | **Withdrawn.** 5.10 s, not 57.9 s, and 77 of 95 cases are sole coverage. |
+| Prefer set equality to opaque counts | Held, and strengthened — it found a contract split the count could not express. |
+
+**Argument only, untested by anyone:**
+
+- The move-to-integration list (`server.role`, `issue-client`, the two `wsServer` files, the
+  `files/queries.search` git split). Note that this review would also have moved two suites that
+  POD-521 kept under the sync guardrail, so this list has a known false-positive rate above zero.
+- Lane ownership and the tautology cleanup (POD-522), beyond the two census pins.
+- Log-noise reduction (item 6, POD-528). Its premise — 6 MB of cold log — was already largely
+  consumed by the pre-migrated fixture, which cut the captured log to 168 KB. Re-measure before
+  starting.
+- Every runtime figure in the original profile. All were measured pre-POD-523 and the store-backed
+  ones are now wrong by roughly an order of magnitude.
+
+The pattern in the corrections is that the recommendations which survived contact were the ones
+about *mechanism* — what the lane spends its time on, what a cache key covers, what an assertion
+can express. The ones that failed were about *specific files*, where this review substituted a
+label for a measurement. Weight the untested list accordingly: the mechanism claims in it are
+likelier to hold than the file-level ones.
