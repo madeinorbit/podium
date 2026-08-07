@@ -17,6 +17,26 @@ performance:
 
 Reuse without 2 and 3 is the trade POD-515 refused: wall time for flakiness.
 
+> ## If you are here to repeat this, read this box first
+>
+> **`--sequence.shuffle.files` is the wrong instrument for stressing runner reuse, and it is
+> the first thing you will reach for.**
+>
+> Vitest's `BaseSequencer` sorts by project name before anything else — "Projects run
+> sequential" in its own source. That is what keeps a reused project's files contiguous, and
+> the pool only hands a finished runner on when `queue[0]` is another non-isolated file of the
+> same project. `--sequence.shuffle.files` swaps in `RandomSequencer`, which replaces that sort
+> **entirely** with a shuffle across *all* files. The reused and isolated projects interleave,
+> and the chain breaks every time an isolated file lands next.
+>
+> So a whole-shard shuffled run exercises reuse **less** hard than the default run does. It
+> looks like the stronger test and is the weaker one. Five such runs were queued here before
+> the sequencer was read; they would have been published as contamination evidence they had
+> not actually gathered.
+>
+> Shuffle the **reused project alone** (`--project <shard>:reused --sequence.shuffle.files`).
+> One project means order is randomized with the chain intact.
+
 ## The mechanism, and why it is not a config option
 
 The installed Vitest (5.0.0-beta.6) reuses a completed runner in exactly one place —
@@ -390,6 +410,18 @@ one project means order is randomized while the chain stays unbroken.
 
 Six runs, six orders, **one distinct failure across all of them** — `daemon-mux`, the
 pre-existing one, in every run. No leak guard fired in any of them.
+
+Two tooling notes, both of which cost time here and neither of which is inferable:
+
+- **`bun run test` takes the heavy lease itself** (`scripts/test.ts` wraps itself in
+  `runWithHeavyTestLease`), and an acquire by an identity that already holds it *renews*
+  rather than erroring — so the inner release closes an outer hold, silently. If you take the
+  lease and then run `bun run test`, you are not holding what you think afterwards. Filed as
+  POD-561.
+- **A `pgrep -f` guard matches its own command line.** Chaining a second script with
+  `while pgrep -f 'scripts/measure.sh'; do sleep 5; done` never terminates, because the
+  wrapper's own `bash -c` string contains that pattern. It waited 50 minutes on itself here,
+  and the shared test lease got blamed twice before the real cause was found.
 
 ### The @podium/scripts lane
 
