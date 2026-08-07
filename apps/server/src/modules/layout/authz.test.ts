@@ -6,13 +6,11 @@
  */
 
 import { asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
-import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
-import { userCommandPrincipal, type CommandPrincipal } from '../../command-principal'
-import { runDrizzleMigrations } from '../../migrations'
-import { DRIZZLE_MIGRATIONS } from '../../migrations/drizzle-manifest.generated'
+import { type CommandPrincipal, userCommandPrincipal } from '../../command-principal'
 import { UserLayoutRepository } from '../../store/user-layout'
-import { layoutAuthzFailure, type LayoutAuthzDeps } from './authz'
+import { openMigratedTestDatabase } from '../../test-support/migrated-database'
+import { type LayoutAuthzDeps, layoutAuthzFailure } from './authz'
 import { LayoutService } from './service'
 
 function deps(role: LayoutAuthzDeps['role'], principal?: CommandPrincipal): LayoutAuthzDeps {
@@ -41,8 +39,7 @@ describe('layoutAuthzFailure reads the contract floor LIVE', () => {
 
 describe('a refused principal does not write', () => {
   it('gate refusal means the repository is never called', () => {
-    const db = openDatabase(':memory:')
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    const db = openMigratedTestDatabase()
     const repo = new UserLayoutRepository(db)
     const service = new LayoutService({ layout: repo })
 

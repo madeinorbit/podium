@@ -163,7 +163,20 @@ export const sharedVitestConfig = {
     // Strip the ambient Podium agent-session env before every test file so a suite
     // launched from inside a live session can't touch/be hijacked by the live instance
     // (POD-555 [spec:SP-b85a]). `bun test` gets the same via bunfig.toml [test].preload.
-    setupFiles: ['./test-hermetic-env.ts', './test-hermetic-vitest-hooks.ts'],
+    // The third one is POD-523's pre-migrated store fixture: ordinary apps/server
+    // test files clone a current-schema database instead of replaying all 54
+    // migrations. It is a setupFile because the decision is per test FILE and has to
+    // be made before the file is imported. No-op for every other package.
+    setupFiles: [
+      './test-hermetic-env.ts',
+      './test-hermetic-vitest-hooks.ts',
+      './test-pre-migrated-store.ts',
+    ],
+    // The other half of that fixture: build the schema image once per lane, in the
+    // main process, so no fork ever loads the migration chain's module graph. An
+    // ABSOLUTE path — package lanes and apps/web/apps/mobile resolve this config's
+    // options from their own roots, and a relative entry would miss.
+    globalSetup: [fileURLToPath(new URL('./test-pre-migrated-schema.ts', import.meta.url))],
     // The suite runs under the Bun runtime (`bun --bun vitest`) so tests exercise
     // the same bun:sqlite driver the shipped binary does (POD-552 / SP-3f93). Bun's
     // worker_threads support is incomplete for vitest's `threads` pool, so pin

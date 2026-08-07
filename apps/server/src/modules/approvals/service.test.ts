@@ -1,14 +1,12 @@
 import { asIssueId, asSessionId, type SessionId } from '@podium/model'
 import type { ApprovalOp, ControlMessage, LiveServerMessage } from '@podium/protocol'
-import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
-import { applyBaselineSchema } from '../../migrations'
 import { ApprovalsRepository } from '../../store/approvals'
+import { openMigratedTestDatabase } from '../../test-support/migrated-database'
 import { ApprovalService } from './service'
 
 function harness(executeServerOp?: (op: ApprovalOp, sessionId: SessionId) => string | null) {
-  const db = openDatabase(':memory:')
-  applyBaselineSchema(db)
+  const db = openMigratedTestDatabase()
   const sent: Array<{ machineId: string; msg: ControlMessage }> = []
   const broadcasts: LiveServerMessage[] = []
   const events: Array<{ kind: string; issueId: string | null }> = []

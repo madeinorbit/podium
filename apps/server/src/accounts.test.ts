@@ -4,12 +4,11 @@ import { join } from 'node:path'
 import { AccountConnectInput } from '@podium/commands'
 import { asMachineId, Inventory } from '@podium/model'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
-import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { accountViews } from './accounts'
-import { applyBaselineSchema } from './migrations'
 import { AccountsRepository } from './store/accounts'
 import type { MachineRecord } from './store/types'
+import { openMigratedTestDatabase } from './test-support/migrated-database'
 
 let home: string
 let codexHome: string
@@ -20,8 +19,7 @@ const prevClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR
 
 /** A fresh, empty managed-accounts store — the "no stored credential" baseline. */
 function emptyAccounts(): AccountsRepository {
-  const db = openDatabase(':memory:')
-  applyBaselineSchema(db)
+  const db = openMigratedTestDatabase()
   return new AccountsRepository(db)
 }
 

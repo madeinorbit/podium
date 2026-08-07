@@ -1,13 +1,11 @@
-import { openDatabase } from '@podium/runtime/sqlite'
 import { beforeEach, expect, it } from 'vitest'
-import { applyBaselineSchema } from '../migrations'
+import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { AccountsRepository } from './accounts'
 
 let repo: AccountsRepository
 
 beforeEach(() => {
-  const db = openDatabase(':memory:')
-  applyBaselineSchema(db)
+  const db = openMigratedTestDatabase()
   repo = new AccountsRepository(db)
 })
 

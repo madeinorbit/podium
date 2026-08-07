@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import desktopConfig from '../apps/desktop/vitest.config'
 import mobileConfig from '../apps/mobile/vitest.config'
+import serverPackageConfig from '../apps/server/vitest.config'
 import normalizedWirePackageConfig from '../apps/server/vitest.normalized-wire.config'
 import webConfig from '../apps/web/vitest.config'
 import frontendPerfConfig from '../apps/web/vitest.frontend-perf.config'
@@ -32,6 +33,7 @@ type Project =
         fileParallelism?: boolean
         sequence?: { groupOrder?: number }
         setupFiles?: string[]
+        globalSetup?: string[]
       }
     }
 type Config = {
@@ -46,6 +48,7 @@ type Config = {
     maxWorkers?: number
     fileParallelism?: boolean
     setupFiles?: string[]
+    globalSetup?: string[]
     testTimeout?: number
   }
 }
@@ -94,6 +97,10 @@ describe('test lane configuration', () => {
     expect(nodeProject(rootConfig).test?.setupFiles).toEqual([
       './test-hermetic-env.ts',
       './test-hermetic-vitest-hooks.ts',
+      // POD-523: pre-migrated store fixture. Listed here (rather than only in the
+      // server package) because every lane that collects apps/server must make the
+      // same real-chain-vs-clone decision per file.
+      './test-pre-migrated-store.ts',
     ])
     const bunfig = readFileSync(new URL('../bunfig.toml', import.meta.url), 'utf8')
     expect(bunfig).toContain('preload = ["./test-hermetic-env.ts", "./test-hermetic-bun-hooks.ts"]')
@@ -115,6 +122,27 @@ describe('test lane configuration', () => {
     ] as const) {
       expect(config(appConfig).test?.testTimeout, `${name} lost the shared timeout`).toBe(
         sharedVitestConfig.test.testTimeout,
+      )
+    }
+  })
+
+  it('builds the pre-migrated schema image in every lane that collects apps/server', () => {
+    // POD-523. The setupFile decides per test FILE whether to clone or migrate; this
+    // globalSetup is what gives it something to clone. A lane that lost it does not
+    // fail — every store quietly goes back to replaying 54 migrations — so the
+    // config is asserted here and the runtime effect in
+    // apps/server/src/pre-migrated-store-wiring.test.ts.
+    const globalSetup = [fileURLToPath(new URL('test-pre-migrated-schema.ts', repoRoot))]
+    expect(sharedVitestConfig.test.globalSetup).toEqual(globalSetup)
+    for (const [name, lane] of [
+      ['root node', nodeProject(rootConfig)],
+      ['unit node', nodeProject(unitConfig)],
+      ['integration', config(integrationConfig)],
+      ['server package', config(serverPackageConfig)],
+      ['server normalized-wire', config(normalizedWirePackageConfig)],
+    ] as const) {
+      expect(lane.test?.globalSetup, `${name} lost the schema image globalSetup`).toEqual(
+        globalSetup,
       )
     }
   })

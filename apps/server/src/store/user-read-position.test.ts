@@ -8,10 +8,8 @@
  */
 
 import { asUserId, FIRST_ADMIN_USER_ID, type UserId } from '@podium/model'
-import { openDatabase } from '@podium/runtime/sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { runDrizzleMigrations } from '../migrations'
-import { DRIZZLE_MIGRATIONS } from '../migrations/drizzle-manifest.generated'
+import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { UserReadPositionRepository } from './user-read-position'
 
 const ALICE: UserId = FIRST_ADMIN_USER_ID
@@ -21,8 +19,7 @@ const AT = '2026-08-02T09:00:00.000Z'
 let cursors: UserReadPositionRepository
 
 beforeEach(() => {
-  const db = openDatabase(':memory:')
-  runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+  const db = openMigratedTestDatabase()
   cursors = new UserReadPositionRepository(db)
 })
 
@@ -58,14 +55,16 @@ describe('UserReadPositionRepository', () => {
       seenAt: AT,
     })
     // A second device that wrote before its hydration landed.
-    expect(cursors.advance(ALICE, 'issueEvents', { lastEventId: 20, seenAt: 'later' }, AT)).toBeNull()
+    expect(
+      cursors.advance(ALICE, 'issueEvents', { lastEventId: 20, seenAt: 'later' }, AT),
+    ).toBeNull()
     expect(cursors.get(ALICE, 'issueEvents')).toEqual({ lastEventId: 50, seenAt: AT })
     // Equal is also a no-op: re-proposing the same position is not a change.
     expect(cursors.advance(ALICE, 'issueEvents', { lastEventId: 50, seenAt: 'x' }, AT)).toBeNull()
     expect(cursors.get(ALICE, 'issueEvents')?.seenAt).toBe(AT)
   })
 
-  it("a stale proposal from one person cannot rewind — and cannot touch the other", () => {
+  it('a stale proposal from one person cannot rewind — and cannot touch the other', () => {
     cursors.advance(ALICE, 'issueEvents', { lastEventId: 50, seenAt: null }, AT)
     cursors.advance(BOB, 'issueEvents', { lastEventId: 60, seenAt: null }, AT)
     expect(cursors.advance(ALICE, 'issueEvents', { lastEventId: 10, seenAt: null }, AT)).toBeNull()

@@ -11,12 +11,11 @@
  * can be satisfied by a repository that returns nothing.
  */
 
-import { asUserId, resolveTelegramPrincipal } from '@podium/model'
 import type { TelegramChatBinding } from '@podium/model'
-import { openDatabase } from '@podium/runtime/sqlite'
+import { asUserId, resolveTelegramPrincipal } from '@podium/model'
+import type { openDatabase } from '@podium/runtime/sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { DRIZZLE_MIGRATIONS } from '../migrations/drizzle-manifest.generated'
-import { runDrizzleMigrations } from '../migrations'
+import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { TelegramBindingsRepository } from './telegram-bindings'
 
 const ALICE = asUserId('user:alice')
@@ -30,12 +29,15 @@ beforeEach(() => {
   // what the shipped migration created, so a fake would prove nothing. Opened
   // directly rather than through `SessionStore` because these tests must plant
   // rows the repository would never write.
-  db = openDatabase(':memory:')
-  runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+  db = openMigratedTestDatabase()
   bindings = new TelegramBindingsRepository(db)
 })
 
-const binding = (userId: typeof ALICE, chatId: string, boundAt = '2026-07-31T00:00:00.000Z'): TelegramChatBinding => ({
+const binding = (
+  userId: typeof ALICE,
+  chatId: string,
+  boundAt = '2026-07-31T00:00:00.000Z',
+): TelegramChatBinding => ({
   userId,
   chatId,
   boundAt,
@@ -45,11 +47,9 @@ const binding = (userId: typeof ALICE, chatId: string, boundAt = '2026-07-31T00:
 /** Write a row the repository would never write, to exercise the reader. */
 const rawInsert = (cols: Record<string, string | null>): void => {
   const keys = Object.keys(cols)
-  db
-    .prepare(
-      `INSERT OR REPLACE INTO telegram_chat_bindings (${keys.join(', ')}) VALUES (${keys.map(() => '?').join(', ')})`,
-    )
-    .run(...keys.map((k) => cols[k] ?? null))
+  db.prepare(
+    `INSERT OR REPLACE INTO telegram_chat_bindings (${keys.join(', ')}) VALUES (${keys.map(() => '?').join(', ')})`,
+  ).run(...keys.map((k) => cols[k] ?? null))
 }
 
 describe('the table round-trips a binding', () => {
@@ -63,10 +63,12 @@ describe('the table round-trips a binding', () => {
     bindings.upsert(binding(ALICE, '-1001'))
     bindings.upsert(binding(ALICE, '-2002', '2026-07-31T00:01:00.000Z'))
     bindings.upsert(binding(BOB, '-3003', '2026-07-31T00:02:00.000Z'))
-    expect(bindings.listForUser(ALICE).map((b) => b.chatId).sort()).toEqual([
-      '-1001',
-      '-2002',
-    ])
+    expect(
+      bindings
+        .listForUser(ALICE)
+        .map((b) => b.chatId)
+        .sort(),
+    ).toEqual(['-1001', '-2002'])
     expect(bindings.listForUser(BOB).map((b) => b.chatId)).toEqual(['-3003'])
   })
 
