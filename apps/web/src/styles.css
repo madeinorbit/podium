@@ -542,7 +542,7 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
   transition: color 150ms ease;
 }
 /* The group label names the three pool marks to its right, so it sits a tier
-   above them — the same mono micro-label the shell uses for WORK / TRAY. */
+   above them — the same mono micro-label the shell uses for WORK / FILES. */
 .header-quota-label {
   color: var(--label);
   font-family: var(--font-mono);

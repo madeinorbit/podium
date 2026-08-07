@@ -1,13 +1,9 @@
-import {
-  aggregateMotionPhase,
-  type MotionPhase,
-  motionPhase,
-  trayCount,
-} from '@podium/client-core/viewmodels'
-import type { IssueColorSlot } from '@podium/model'
+import { aggregateMotionPhase, type MotionPhase, motionPhase } from '@podium/client-core/viewmodels'
+import type { IssueColorSlot, SessionMeta } from '@podium/model'
 import type { JSX } from 'react'
 import { useMemo } from 'react'
 import { IdSquare, type IdSquareBadge, idSquareLabel } from '@/components/IdSquare'
+import { issueNeedsHuman } from '@/lib/mission'
 import { StatusBadge } from '@/lib/motion'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
@@ -33,9 +29,15 @@ function railBadge(phase: MotionPhase, waitingCount: number): IdSquareBadge | nu
  * Shell panel cells.
  *
  * The Superagent is a rail cell now that the Flight Deck owns the center
- * column it used to live in. Its cell carries the tray count so the number of
- * things asking for the human stays visible in the chrome without the panel
- * open — the folded column used to be where that number lived.
+ * column it used to live in. Its cell carries the PORTFOLIO attention count —
+ * how many tasks anywhere need a decision — so that number stays visible in
+ * the chrome without the panel open, and matches what the copilot says when
+ * you do open it ("N tasks across your portfolio need a decision").
+ *
+ * It used to come from `trayCount`; POD-516 removed the web Tray, so it is
+ * derived here from the same `issueNeedsHuman` predicate the Flight Deck's
+ * "Needs you" filter uses. A dedicated portfolio selector on `lib/mission.ts`
+ * would be the better home — handed off to POD-516's Flight Deck owner.
  */
 export function RightRail({
   issue,
@@ -50,9 +52,20 @@ export function RightRail({
 }): JSX.Element {
   const sessions = useStoreSelector((store) => store.sessions)
   const allIssues = useReplicaIssues()
-  // Derives the whole tray, so it is memoized: this rail re-renders on every
-  // issue mutation.
-  const pending = useMemo(() => trayCount(allIssues, sessions), [allIssues, sessions])
+  // Walks every issue, so it is memoized: this rail re-renders on every issue
+  // mutation. Finished work is not attention (POD-198) — a closed task keeps
+  // no claim on the human even if its last agent state said otherwise.
+  const pending = useMemo(() => {
+    const byId = new Map<string, SessionMeta>(sessions.map((s) => [s.sessionId, s]))
+    return allIssues.filter((issue) => {
+      if (issue.archived || issue.deletedAt) return false
+      if (issue.stage === 'done' || issue.closedReason != null) return false
+      const own = (issue.memberSessionIds ?? [])
+        .map((id) => byId.get(id))
+        .filter((s): s is SessionMeta => s !== undefined)
+      return issueNeedsHuman(issue, own)
+    }).length
+  }, [allIssues, sessions])
   const gitPanelEnabled = useFeature('git-panel')
   const messagesPanelEnabled = useFeature('messages-panel')
   const mergeQueueEnabled = useFeature('merge-queue')

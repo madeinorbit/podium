@@ -1,16 +1,16 @@
-import { asSessionId } from '@podium/model'
 import type { SessionId } from '@podium/model'
+import { asSessionId } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 
 // ---------------------------------------------------------------------------
-// The engraved column's content contract (issue #42): Tray (ONLY items needing
-// a human) above the single overarching Super agent chat, each section
-// collapsing to its bar with persisted state. Preview correction #66: the
-// legacy transcript chrome (Search transcript / Earlier conversation) and the
-// CTX badge above the composer must never render.
+// The Superagent dock pane's contract (POD-516 §1.2, from the approved POD-491
+// artifact): head + "Current focus" + the ONE global conversation. Nothing
+// else — no Tray, no second collapsible section bar, no drag separator.
+// Preview correction #66: the legacy transcript chrome (Search transcript /
+// Earlier conversation) and the CTX badge above the composer must never render.
 //
 // markdown/voice touch browser APIs that are flaky under happy-dom, and store
 // has module-load deps — stub them the same way ChatView.test.tsx does so the
@@ -161,385 +161,71 @@ async function flush(): Promise<void> {
   })
 }
 
-async function mount(mobile = false): Promise<void> {
+async function mount(): Promise<void> {
   act(() => {
-    root.render(<SuperagentView mobile={mobile} onClose={vi.fn()} />)
+    root.render(<SuperagentView />)
   })
   await flush()
 }
 
-describe('engraved column structure', () => {
-  it('renders one tray-free conversation surface on mobile', async () => {
-    await mount(true)
+describe('Superagent pane structure (POD-516 §1.2)', () => {
+  it('is the head, the focus line and the conversation — nothing else', async () => {
+    await mount()
+    expect(container.querySelector('[data-testid="super-head"]')?.textContent).toContain(
+      'Portfolio copilot',
+    )
+    expect(container.querySelector('[data-testid="super-head"]')?.textContent).toContain(
+      'One thread across every task and session.',
+    )
+    expect(container.querySelector('[data-superagent-composer]')).not.toBeNull()
+    // The dock-top is the pane's only chrome: no second collapsible bar.
+    expect(container.querySelector('[data-testid="super-bar"]')).toBeNull()
+  })
+
+  // "remove the tray functionality completely. code, ui, all incl. traces."
+  // The tray bar, its card stack, its count pill and the drag separator that
+  // split it from the chat are all gone — including for an issue that would
+  // have produced a card.
+  it('renders NO tray surface even when issues are asking for a human', async () => {
+    storeIssues = [
+      makeIssue({ id: 'q', seq: 2, needsHuman: true, humanQuestion: 'Ship behind a flag?' }),
+      makeIssue({ id: 'r', seq: 3, stage: 'review', title: 'Refresh-timer fix' }),
+    ]
+    await mount()
     expect(container.querySelector('[data-testid="tray-bar"]')).toBeNull()
     expect(container.querySelector('[data-testid="tray-cards"]')).toBeNull()
-    expect(container.querySelector('[data-testid="super-bar"]')).not.toBeNull()
-    expect(container.querySelector('[data-superagent-composer]')).not.toBeNull()
+    expect(container.querySelector('[data-testid^="tray-card-"]')).toBeNull()
+    expect(container.querySelector('[data-testid="tray-count-pill"]')).toBeNull()
+    expect(container.querySelector('[data-testid="tray-empty"]')).toBeNull()
+    expect(container.querySelector('[role="separator"]')).toBeNull()
+    expect(container.textContent).not.toContain('Ship behind a flag?')
+    expect(container.textContent).not.toContain('ALL TASKS · NEWEST FIRST')
   })
 
-  it('renders the Tray bar above the Super agent bar with the quiet empty line', async () => {
-    await mount()
-    const bars = container.querySelectorAll('[data-testid="tray-bar"], [data-testid="super-bar"]')
-    expect([...bars].map((b) => b.getAttribute('data-testid'))).toEqual(['tray-bar', 'super-bar'])
-    expect(container.querySelector('[data-testid="tray-empty"]')?.textContent).toContain(
-      'Nothing waiting on you',
-    )
-    expect(container.querySelector('[data-testid="tray-bar"]')?.textContent).toContain(
-      'ALL TASKS · NEWEST FIRST',
-    )
-  })
-
-  it('the scope label is STATIC (§5): a selection never rescopes the tray', async () => {
-    storeIssues = [makeIssue({ id: 'p', seq: 7 })]
+  it('names the selected mission as the current focus (artifact #super-focus)', async () => {
+    storeIssues = [makeIssue({ id: 'p', seq: 7, title: 'Multi-agent operator workspace' })]
     storeSelectedIssueId = 'p'
     await mount()
-    const label = container.querySelector('[data-testid="tray-bar"]')?.textContent
-    expect(label).toContain('ALL TASKS · NEWEST FIRST')
-    expect(label).not.toContain('TASK SCOPE')
+    const focus = container.querySelector('[data-testid="super-focus"]')
+    expect(focus?.textContent).toContain('Current focus')
+    expect(focus?.textContent).toContain('Multi-agent operator workspace')
   })
-})
 
-describe('tray filtering (human-actionable only)', () => {
-  it('uses a muted neutral only for uncolored cards while preserving selected issue colors', async () => {
-    storeIssues = [
-      makeIssue({
-        id: 'quiet',
-        seq: 21,
-        title: 'No color selected',
-        needsHuman: true,
-        humanQuestion: 'Quiet fallback?',
-      }),
-      makeIssue({
-        id: 'violet',
-        seq: 22,
-        title: 'Violet selected',
-        color: 'violet',
-        needsHuman: true,
-        humanQuestion: 'Keep my color?',
-      }),
-    ]
+  it('says so plainly when nothing is selected — the thread is still global', async () => {
     await mount()
-    const quiet = container.querySelector(
-      '[data-testid="tray-card-question"][data-issue-seq="21"]',
-    ) as HTMLElement
-    const violet = container.querySelector(
-      '[data-testid="tray-card-question"][data-issue-seq="22"]',
-    ) as HTMLElement
-    expect(quiet.dataset.issueColored).toBe('false')
-    expect(quiet.style.getPropertyValue('--issue')).toBe('#565965')
-    expect(quiet.style.getPropertyValue('--issue-action-fg')).toBe('var(--text-strong)')
-    expect(violet.dataset.issueColored).toBe('true')
-    expect(violet.style.getPropertyValue('--issue')).toBe('#8b5cf6')
-    expect(violet.style.getPropertyValue('--issue-action-fg')).toBe('')
-    expect(quiet.className).toContain('gap-2.5')
-    expect(quiet.className).toContain('px-3.5')
+    const focus = container.querySelector('[data-testid="super-focus"]')
+    expect(focus?.textContent).toContain('ask across every task')
   })
 
-  it('renders cards GLOBALLY and NEVER working rows; selection only adds the ring', async () => {
-    storeIssues = [
-      makeIssue({ id: 'p', seq: 1, title: 'Parent epic' }),
-      makeIssue({
-        id: 'q',
-        seq: 2,
-        parentId: 'p',
-        needsHuman: true,
-        humanQuestion: 'Ship behind a flag?',
-      }),
-      // A review-stage issue with no live offer gets the deterministic
-      // backstop card [POD-118] — review visibility must not depend on an
-      // offer surviving a hook-forced agent turn.
-      makeIssue({ id: 'r', seq: 3, parentId: 'p', stage: 'review', title: 'Refresh-timer fix' }),
-      makeIssue({ id: 'w', seq: 4, parentId: 'p', stage: 'in_progress', title: 'Worker issue' }),
-      makeIssue({ id: 'x', seq: 9, needsHuman: true, humanQuestion: 'Outside the subtree?' }),
-    ]
-    storeSelectedIssueId = 'q'
-    await mount()
-    const cards = [...container.querySelectorAll('[data-testid^="tray-card-"]')]
-    // The tray is global (§5): the unrelated seq-9 question renders too.
-    expect(cards.map((c) => c.getAttribute('data-issue-seq'))).toEqual(['2', '3', '9'])
-    // Only the selected issue's card carries the ring marker.
-    expect(cards.map((c) => c.getAttribute('data-selected'))).toEqual(['true', null, null])
-    expect(container.querySelector('[data-testid="tray-card-review"]')?.textContent).toContain(
-      'Ready for review',
-    )
-    expect(container.textContent).toContain('Ship behind a flag?')
-    expect(container.textContent).toContain('Outside the subtree?')
-    expect(container.textContent).toContain('Refresh-timer fix')
-    expect(container.textContent).not.toContain('Worker issue')
-    expect(container.querySelector('[data-testid="tray-empty"]')).toBeNull()
-  })
-
-  it('offer cards [spec:SP-c7f1]: dynamic buttons send the prompt to the offer session and hide the card', async () => {
-    storeIssues = [
-      makeIssue({
-        id: 'o',
-        seq: 6,
-        title: 'Offer host',
-        sessions: [
-          {
-            sessionId: asSessionId('agent-1'),
-            agentKind: 'claude-code',
-            status: 'live',
-            cwd: '/r/wt',
-            createdAt: 't',
-            lastActiveAt: 't',
-            offer: {
-              message: 'PR is up — pick a next step.',
-              actions: [{ label: 'Merge it', prompt: 'Merge the PR and close out.' }],
-              createdAt: '2026-07-14T12:00:00Z',
-            },
-          },
-        ] as never,
-      }),
-    ]
-    await mount()
-    const card = container.querySelector('[data-testid="tray-card-offer"]')
-    expect(card?.textContent).toContain('PR is up — pick a next step.')
-    const button = [...container.querySelectorAll('button')].find(
-      (b) => b.textContent === 'Merge it',
-    )
-    expect(button).not.toBeNull()
-    await act(async () => {
-      button?.click()
-      await Promise.resolve()
-    })
-    expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledWith(
-      expect.objectContaining({ sessionId: asSessionId('agent-1'), text: 'Merge the PR and close out.' }),
-    )
-    // An action click never ALSO navigates (stopPropagation on the buttons).
-    expect(setPane).not.toHaveBeenCalled()
-    // Optimistically consumed — the card is gone before the server clears it.
-    expect(container.querySelector('[data-testid="tray-card-offer"]')).toBeNull()
-  })
-
-  it('opens the offer session from the card without rendering a redundant session link', async () => {
-    storeIssues = [
-      makeIssue({
-        id: 'o',
-        seq: 6,
-        sessions: [
-          {
-            sessionId: asSessionId('agent-1'),
-            agentKind: 'claude-code',
-            status: 'live',
-            cwd: '/r/wt',
-            createdAt: 't',
-            lastActiveAt: 't',
-            offer: {
-              message: 'Pick one.',
-              actions: [{ label: 'Merge it', prompt: 'merge' }],
-              createdAt: '2026-07-14T12:00:00Z',
-            },
-          },
-        ] as never,
-      }),
-    ]
-    await mount()
-    const card = container.querySelector<HTMLElement>('[data-testid="tray-card-offer"]')
-    expect(card).not.toBeNull()
-    expect(container.querySelector('[data-testid="tray-session-link"]')).toBeNull()
-    expect(card?.textContent).not.toContain('session →')
-    await act(async () => {
-      card?.click()
-    })
-    expect(fakeTrpc.sessions.sendText.mutate).not.toHaveBeenCalled()
-    expect(setPane).toHaveBeenCalledWith('A', 'agent-1')
-    expect(setView).toHaveBeenCalledWith('workspace')
-  })
-
-  it('offer input actions collect feedback in the card, then send prompt + feedback', async () => {
-    storeIssues = [
-      makeIssue({
-        id: 'o',
-        seq: 6,
-        title: 'Offer host',
-        sessions: [
-          {
-            sessionId: asSessionId('agent-1'),
-            agentKind: 'claude-code',
-            status: 'live',
-            cwd: '/r/wt',
-            createdAt: 't',
-            lastActiveAt: 't',
-            offer: {
-              message: 'POD-93 is ready.',
-              actions: [{ label: 'Send back', prompt: 'Revise per this feedback:', input: true }],
-              createdAt: '2026-07-14T12:00:00Z',
-            },
-          },
-        ] as never,
-      }),
-    ]
-    await mount()
-    const button = [...container.querySelectorAll('button')].find(
-      (b) => b.textContent === 'Send back…',
-    )
-    await act(async () => {
-      button?.click()
-    })
-    // No send yet, no navigation — the card swapped into feedback mode.
-    expect(fakeTrpc.sessions.sendText.mutate).not.toHaveBeenCalled()
-    expect(setPane).not.toHaveBeenCalled()
-    const field = container.querySelector<HTMLTextAreaElement>(
-      '[data-testid="tray-offer-feedback"] textarea',
-    )
-    expect(field).not.toBeNull()
-    await act(async () => {
-      if (!field) return
-      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set
-      setter?.call(field, 'Dock icon still dead.')
-      field.dispatchEvent(new Event('input', { bubbles: true }))
-    })
-    const confirm = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Send')
-    await act(async () => {
-      confirm?.click()
-      await Promise.resolve()
-    })
-    expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        sessionId: asSessionId('agent-1'),
-        text: 'Revise per this feedback:\n\nDock icon still dead.',
-      }),
-    )
-    expect(setPane).not.toHaveBeenCalled()
-  })
-
-  it('finished issues get NO tray card — the tray is attention-only [POD-198]', async () => {
-    storeIssues = [
-      makeIssue({
-        id: 'f',
-        seq: 8,
-        title: 'Notification sounds',
-        stage: 'done',
-        closedAt: new Date(Date.now() - 60_000).toISOString(),
-        closedReason: 'merged to main',
-        unread: true,
-      }),
-    ]
-    await mount()
-    // Archive cleanup lives on the board/sidebar, never in the tray.
-    expect(container.querySelector('[data-testid^="tray-card-"]')).toBeNull()
-    expect(container.querySelector('[data-testid="tray-empty"]')).not.toBeNull()
-  })
-
-  it('the tray body gets a default height cap when no split height is set [POD-198]', async () => {
-    storeIssues = [makeIssue({ id: 'q', seq: 2, needsHuman: true, humanQuestion: 'Choose?' })]
-    await mount()
-    const cards = container.querySelector<HTMLElement>('[data-testid="tray-cards"]')
-    expect(cards?.className).toContain('max-h-[42vh]')
-    expect(cards?.style.maxHeight).toBe('')
-  })
-
-  it('a persisted split height replaces the default cap', async () => {
-    uiStateMap.set('podium:tray:height', '200')
-    storeIssues = [makeIssue({ id: 'q', seq: 2, needsHuman: true, humanQuestion: 'Choose?' })]
-    await mount()
-    const cards = container.querySelector<HTMLElement>('[data-testid="tray-cards"]')
-    expect(cards?.style.maxHeight).toBe('200px')
-    expect(cards?.className).not.toContain('max-h-[42vh]')
-  })
-
-  it('folding the chat gives the tray the column and ONE scroller (POD-288)', async () => {
+  it('keeps the composer mounted — there is no section to collapse it into', async () => {
+    // The chat used to fold behind its own section bar, persisted under
+    // podium:superagent:chat. Collapsing the only content of a dock panel is
+    // just closing the panel, which the dock-top already does.
     uiStateMap.set('podium:superagent:chat', 'false')
-    // A persisted split height belongs to the tray/chat split — it must not
-    // cap the tray once there is no chat below it.
-    uiStateMap.set('podium:tray:height', '200')
-    storeIssues = [makeIssue({ id: 'q', seq: 2, needsHuman: true, humanQuestion: 'Choose?' })]
-    await mount()
-    const cards = container.querySelector<HTMLElement>('[data-testid="tray-cards"]')
-    expect(cards?.className).toContain('flex-1')
-    expect(cards?.className).toContain('overflow-y-auto')
-    expect(cards?.className).not.toContain('max-h-[42vh]')
-    expect(cards?.style.maxHeight).toBe('')
-    // The wrapper grows but never scrolls — nesting a second scroll container
-    // around the card stack is what broke the wheel.
-    const body = cards?.parentElement
-    expect(body?.className).toContain('flex-1')
-    expect(body?.className).not.toContain('overflow-y-auto')
-  })
-
-  it('clicking a tray card focuses its native agent tab', async () => {
-    storeIssues = [
-      makeIssue({
-        id: 'o',
-        seq: 6,
-        sessions: [
-          {
-            sessionId: asSessionId('agent-1'),
-            agentKind: 'claude-code',
-            status: 'live',
-            cwd: '/r/wt',
-            createdAt: 't',
-            lastActiveAt: 't',
-            offer: { message: 'Pick one.', actions: [], createdAt: '2026-07-14T12:00:00Z' },
-          },
-        ] as never,
-      }),
-    ]
-    await mount()
-    const card = container.querySelector<HTMLElement>('[data-testid="tray-card-offer"]')
-    await act(async () => {
-      card?.click()
-    })
-    expect(setSelectedIssueId).toHaveBeenCalledWith('o')
-    expect(setPane).toHaveBeenCalledWith('A', 'agent-1')
-    expect(setView).toHaveBeenCalledWith('workspace')
-  })
-
-  it('question resolve routes through issues.clearNeedsHuman', async () => {
-    storeIssues = [makeIssue({ id: 'q', seq: 2, needsHuman: true, humanQuestion: 'Choose?' })]
-    await mount()
-    const resolve = [...container.querySelectorAll('button')].find((b) =>
-      b.textContent?.includes('resolve'),
-    )
-    await act(async () => {
-      resolve?.click()
-      await Promise.resolve()
-    })
-    expect(fakeTrpc.issues.clearNeedsHuman.mutate).toHaveBeenCalledWith({ id: 'q' })
-  })
-})
-
-describe('section collapse states', () => {
-  it('collapsing the tray keeps the bar, shows the amber count pill, and persists', async () => {
-    storeIssues = [makeIssue({ id: 'q', seq: 2, needsHuman: true, humanQuestion: 'Choose?' })]
-    await mount()
-    expect(container.querySelector('[data-testid="tray-cards"]')).not.toBeNull()
-    const chevron = container.querySelector<HTMLButtonElement>(
-      '[data-testid="tray-bar"] button[aria-expanded="true"]',
-    )
-    await act(async () => {
-      chevron?.click()
-    })
-    expect(container.querySelector('[data-testid="tray-cards"]')).toBeNull()
-    expect(container.querySelector('[data-testid="tray-bar"]')).not.toBeNull()
-    expect(container.querySelector('[data-testid="tray-count-pill"]')?.textContent).toBe('1')
-    expect(uiState.set).toHaveBeenCalledWith('podium:tray:open', 'false')
-  })
-
-  it('collapsing the super agent hides the composer with the section (3b: no input)', async () => {
+    uiStateMap.set('podium:tray:open', 'false')
     await mount()
     expect(container.querySelector('textarea')).not.toBeNull()
-    const chevron = container.querySelector<HTMLButtonElement>(
-      '[data-testid="super-bar"] button[aria-expanded="true"]',
-    )
-    await act(async () => {
-      chevron?.click()
-    })
-    expect(container.querySelector('textarea')).toBeNull()
-    expect(container.querySelector('[data-testid="super-bar"]')).not.toBeNull()
-    expect(uiState.set).toHaveBeenCalledWith('podium:superagent:chat', 'false')
-  })
-
-  it('restores persisted section state on mount', async () => {
-    uiStateMap.set('podium:tray:open', 'false')
-    uiStateMap.set('podium:superagent:chat', 'false')
-    await mount()
-    expect(container.querySelector('[data-testid="tray-empty"]')).toBeNull()
-    expect(container.querySelector('textarea')).toBeNull()
-    // Both bars stay — sections collapse to their bars, never further.
-    expect(container.querySelector('[data-testid="tray-bar"]')).not.toBeNull()
-    expect(container.querySelector('[data-testid="super-bar"]')).not.toBeNull()
+    expect(container.querySelector('[data-superagent-composer]')).not.toBeNull()
   })
 })
 

@@ -1,12 +1,40 @@
-import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
 import {
-  deriveTrayItems as deriveTrayItemsCore,
-  offerKey,
-  workingSessionCount,
-} from '@podium/client-core/viewmodels'
-import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
+  asSessionId,
+  type SessionMeta,
+  type SessionMetaInput,
+  type UnbrandIds,
+} from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { makeIssue } from '@/lib/test-issue'
+import type { IssueNavigationModel } from './slices/issues'
+import { deriveTrayItems as deriveTrayItemsCore, offerKey, workingSessionCount } from './tray'
+
+/**
+ * This suite used to live in `apps/web/src/features/superagent/derive-tray.test.ts`,
+ * next to the web Tray UI. POD-516 removed that UI; the derivation it covers
+ * did not move — it is still the source of apps/mobile's Tray screen — so the
+ * test came here instead of dying with the component (conformance spec §7).
+ *
+ * The web `makeIssue` fixture stayed behind with the web app, so the shape is
+ * built locally: only the fields this derivation actually reads are real.
+ */
+const makeIssue = (
+  over: Partial<UnbrandIds<IssueNavigationModel>> & { sessions?: SessionMeta[] } = {},
+): IssueNavigationModel & { sessions?: SessionMeta[] } =>
+  ({
+    id: 'i',
+    repoPath: '/r',
+    seq: 4,
+    title: 'Fix login',
+    description: '',
+    stage: 'in_progress',
+    worktreePath: '/r/wt',
+    createdAt: 't',
+    updatedAt: 't',
+    archived: false,
+    needsHuman: false,
+    memberSessionIds: [],
+    ...over,
+  }) as IssueNavigationModel & { sessions?: SessionMeta[] }
 
 const session = (over: Partial<SessionMetaInput>): SessionMeta =>
   ({

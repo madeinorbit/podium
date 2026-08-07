@@ -80,7 +80,7 @@ describe('superade token blocks', () => {
 
   it('never assigns Superade Yellow to a text token in light', () => {
     // --attention is a `color:` in six places (styles.css .chat-next,
-    // text-attention in SectionBar/TrayCard/UnifiedIssueRow/sidebar-common).
+    // text-attention in UnifiedIssueRow/sidebar-common/the Flight Deck).
     // #f5c518 as text is 1.6:1 on paper. Yellow fills; ochre writes.
     const attention = /--attention:\s*(#[0-9a-f]{6})/i.exec(light)?.[1]
     expect(attention?.toLowerCase()).not.toBe('#f5c518')

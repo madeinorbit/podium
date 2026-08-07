@@ -43,7 +43,7 @@ export const ISSUE_SYSTEM_POINTER =
   'When you finish a turn and there are natural next actions the user might pick, offer them: ' +
   '`podium offer --message "…" --action "Label::prompt to send when clicked"` (repeat --action — prefer 2–3, ' +
   'up to 6 only when the decision genuinely branches that wide; `podium offer clear` to remove). ' +
-  'Write the offer to be judged in five seconds, cold, from a tray of many: the FIRST LINE of --message becomes ' +
+  'Write the offer to be judged in five seconds, cold, alongside many others: the FIRST LINE of --message becomes ' +
   'the card headline — state the outcome as done ("Login screen ready to merge"), never the activity ' +
   '("I\'ve been working on…"); at most two more lines add where things stand and the one thing to judge. ' +
   'One decision per offer — a second topic is a discovered issue or the next turn\'s offer, never a "by the way". ' +
@@ -56,10 +56,10 @@ export const ISSUE_SYSTEM_POINTER =
   'target first (including an interactive HTML concept when it carries the interaction), then supporting screenshots. ' +
   'Offer cards render at most three artifact items, so choose the three most useful rather than every frame. ' +
   'Failures are offers too — cause, fix, decision, matter-of-fact; no apologies. ' +
-  'The buttons show under the chat and as a card in the Tray; ' +
+  'The buttons show under the chat (and, on mobile, as a card in the Tray); ' +
   'a user turn clears the offer, and so does your own next turn (a stale offer self-clears once the conversation moves on). ' +
   'When you move your issue to `review`, ALWAYS post an offer naming the next steps (merge via --action, send back via --action-input, …) — ' +
-  'the Tray surfaces review-ready work ONLY through your offer, the stage alone renders nothing. ' +
+  'review-ready work surfaces ONLY through your offer, the stage alone renders nothing. ' +
   'Before posting, test it: reading only the first line and the buttons, does the user know (a) what happened and (b) what to decide? ' +
   TITLE_RULE_TERSE
 

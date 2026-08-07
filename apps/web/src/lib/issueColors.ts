@@ -83,9 +83,9 @@ export interface ColorCarrier {
 
 /**
  * The colour an issue FLOWS downstream: its own palette colour, else the
- * nearest coloured ancestor's (handoff 1a — POD-129/130 tray cards flow
+ * nearest coloured ancestor's (handoff 1a — POD-129/130 child rows flow
  * POD-128's violet), else undefined = the neutral slate flow. Inheritance is
- * for the flow surfaces only (shell scope, tray cards, terminal tint);
+ * for the flow surfaces only (shell scope, attention rows, terminal tint);
  * identity surfaces — the ID square, the issue's own sidebar row — keep
  * {@link issueColorHex} so an uncoloured child still reads as uncoloured.
  */

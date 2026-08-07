@@ -1,11 +1,8 @@
-import { randomUUID } from '@podium/client-core/id'
 import { shallowEqual } from '@podium/client-core/store'
-import type { TrayItem } from '@podium/client-core/viewmodels'
-import { offerKey, reposToViews, superagentSlice, trayCount } from '@podium/client-core/viewmodels'
-import type { SessionId } from '@podium/model'
+import { reposToViews, superagentSlice } from '@podium/client-core/viewmodels'
 import { useVoiceInput } from '@podium/terminal-client-react'
-import { ChevronDown, Eraser, Mic, PanelRightClose, Send, SquareTerminal } from 'lucide-react'
-import type { JSX, PointerEvent as ReactPointerEvent } from 'react'
+import { Eraser, Mic, Send, Sparkles, SquareTerminal } from 'lucide-react'
+import type { JSX } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useReplicaIssues, useSlice, useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
@@ -18,18 +15,6 @@ import { useAtMenu, useAtTrigger } from '@/lib/at-mention/useAtMention'
 import { BlockCaret } from '@/lib/BlockCaret'
 import { useConversationSearch } from '@/lib/useConversationSearch'
 import { cn } from '@/lib/utils'
-import {
-  readSectionOpen,
-  readTrayHeight,
-  SUPER_CHAT_OPEN_KEY,
-  TRAY_HEIGHT_KEY,
-  TRAY_MAX_HEIGHT_RATIO,
-  TRAY_MIN_HEIGHT,
-  TRAY_OPEN_KEY,
-} from './column-state'
-import { CountPill, SectionBar, UnreadDot } from './SectionBar'
-import { Tray } from './Tray'
-import type { TrayActions } from './TrayCard'
 import { useIssueEvents } from './useIssueEvents'
 
 /** ONE chat across all issues (engraved-column.md §2.5): the column always
@@ -44,111 +29,73 @@ const clock = (ts: string): string => {
     : `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
-/** §2.2 super agent bar icon actions: 20×20, --text-dim at rest,
- *  hover --text-strong on the raised --chip tier, 5px radius. */
+/** The head's quiet icon actions: 20×20, --text-dim at rest, hover
+ *  --text-strong on the raised --chip tier, 5px radius. */
 const BAR_ACTION_CLS =
   'size-5 flex-none rounded-[5px] text-text-dim hover:bg-chip hover:text-text-strong'
 
 /**
- * The engraved column's CONTENT (issue #42): the Tray — ONLY items needing a
- * human, scoped to the selected issue — above the overarching Super agent
- * chat. Each section collapses to its compact header bar (never further) with
- * its own persisted state; the tray/chat split is drag-resizable. The #40
- * shell owns the column's width and open|folded|closed mode around this.
+ * The Superagent dock pane — the portfolio copilot, and NOTHING else.
+ *
+ * It is four things (POD-516 §1.2, from the approved POD-491 artifact): the
+ * dock-top (owned by `RightDock`, the pane's only chrome), a head naming what
+ * this thread is, a "Current focus" line saying which mission it is looking
+ * at, and the one global conversation with its composer.
+ *
+ * The Tray used to sit above the chat here, with a second collapsible section
+ * bar and a drag separator between them. It is gone: web attention now reads
+ * off the Flight Deck and the rail badge. `deriveTrayItems` survives in
+ * client-core because apps/mobile still has a Tray screen.
  */
-export function SuperagentView({
-  onClose,
-  mobile = false,
-}: {
-  onClose?: () => void
-  mobile?: boolean
-} = {}): JSX.Element {
+export function SuperagentView(): JSX.Element {
   const {
     hub,
     trpc,
     sessions,
     selectedIssueId,
-    superThreads,
     refreshSuperThreads,
     setPane,
     setSelectedWorktree,
     setSelectedIssueId,
     setView,
-    uiState,
     readPosition,
-    setSessionDraft,
   } = useStoreSelector(
     (s) => ({
       hub: s.hub,
       trpc: s.trpc,
       sessions: s.sessions,
       selectedIssueId: s.selectedIssueId,
-      superThreads: s.superThreads,
       refreshSuperThreads: s.refreshSuperThreads,
       setPane: s.setPane,
       setSelectedWorktree: s.setSelectedWorktree,
       setSelectedIssueId: s.setSelectedIssueId,
       setView: s.setView,
-      uiState: s.uiState,
       readPosition: s.readPosition,
-      setSessionDraft: s.setSessionDraft,
     }),
     shallowEqual,
   )
   const issues = useReplicaIssues()
   const [error, setError] = useState<string | null>(null)
-  const [pendingDraft, setPendingDraft] = useState('')
   const [pendingFirstTurn, setPendingFirstTurn] = useState<string | null>(null)
   // POD-330 (audit item zero): the thread list is STORE state. The view used to
   // declare its own SuperThread type, hold the list in useState, fetch it from
   // tRPC itself and be poked to refetch by a `superRefreshKey` counter that
   // actions bumped from across the app. One published slice replaces all four.
-  const { threads, active: thread } = useSlice(superagentSlice)
+  const { active: thread } = useSlice(superagentSlice)
   const podiumSessionId = thread?.podiumSessionId
 
-  // ---- per-section collapse + tray/chat split (engraved-column.md §2.7) ----
-  const [trayOpen, setTrayOpenState] = useState(() => readSectionOpen(uiState.get(TRAY_OPEN_KEY)))
-  const [chatOpen, setChatOpenState] = useState(() =>
-    readSectionOpen(uiState.get(SUPER_CHAT_OPEN_KEY)),
-  )
-  const [trayHeight, setTrayHeightState] = useState<number | null>(() =>
-    readTrayHeight(uiState.get(TRAY_HEIGHT_KEY)),
-  )
-  const setTrayOpen = (open: boolean): void => {
-    setTrayOpenState(open)
-    uiState.set(TRAY_OPEN_KEY, String(open))
-  }
-  const setChatOpen = (open: boolean): void => {
-    setChatOpenState(open)
-    uiState.set(SUPER_CHAT_OPEN_KEY, String(open))
-  }
+  // The pane is one surface now — no sections, so no per-section collapse and
+  // no split handle. The dock-top's close chevron is the only fold left, and
+  // the shell owns it.
+  const feed = useIssueEvents(trpc, readPosition, true, true)
 
-  const sectionRef = useRef<HTMLElement | null>(null)
-  const trayBodyRef = useRef<HTMLDivElement | null>(null)
-  const onSplitPointerDown = (down: ReactPointerEvent<HTMLDivElement>): void => {
-    down.preventDefault()
-    const startY = down.clientY
-    const startHeight = trayBodyRef.current?.getBoundingClientRect().height ?? 0
-    const columnHeight = sectionRef.current?.getBoundingClientRect().height ?? 0
-    const max = Math.max(TRAY_MIN_HEIGHT, Math.round(columnHeight * TRAY_MAX_HEIGHT_RATIO))
-    let latest = startHeight
-    const move = (e: PointerEvent): void => {
-      latest = Math.min(
-        max,
-        Math.max(TRAY_MIN_HEIGHT, Math.round(startHeight + e.clientY - startY)),
-      )
-      setTrayHeightState(latest)
-    }
-    const up = (): void => {
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', up)
-      uiState.set(TRAY_HEIGHT_KEY, String(latest))
-    }
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', up)
-  }
-
-  const feed = useIssueEvents(trpc, readPosition, mobile || chatOpen, true)
+  // The "Current focus" line (artifact `#super-focus`): the mission the
+  // operator has selected, named so the copilot's scope is never a guess.
+  // Client-derived from the selection — the thread itself stays global.
+  const focusTitle = useMemo(
+    () => issues.find((issue) => issue.id === selectedIssueId)?.title ?? null,
+    [issues, selectedIssueId],
+  )
 
   const refreshThreads = () => refreshSuperThreads().catch(() => {})
 
@@ -204,259 +151,97 @@ export function SuperagentView({
     void refreshThreads()
   }
 
-  // Agent action offers [spec:SP-c7f1]: a clicked offer hides optimistically
-  // until the server clears it off the session meta (mirrors ChatView's
-  // dismissedOfferAt). Keyed by offerKey so a NEW offer re-shows.
-  const [dismissedOffers, setDismissedOffers] = useState<ReadonlySet<string>>(new Set())
-  const itemCount = trayCount(issues, sessions, dismissedOffers)
-  // The amber count pill pops exactly when the count INCREASES (motion.md
-  // §2.2) — decreases and steady renders stay still.
-  const prevCountRef = useRef(itemCount)
-  const pillPop = itemCount > prevCountRef.current
-  useEffect(() => {
-    prevCountRef.current = itemCount
-  })
-
-  // ---- tray actions (v1 wiring — real backend verbs are #53/#54) ----
-  const focusComposer = (): void => {
-    requestAnimationFrame(() => {
-      sectionRef.current
-        ?.querySelector<HTMLTextAreaElement>('[data-superagent-composer] textarea')
-        ?.focus()
-    })
-  }
-  const prefillComposer = (text: string): void => {
-    setChatOpen(true)
-    if (podiumSessionId) setSessionDraft(podiumSessionId, text)
-    else setPendingDraft(text)
-    focusComposer()
-  }
-  const trayActions: TrayActions = {
-    onDiscuss: (item: TrayItem) =>
-      prefillComposer(
-        item.kind === 'question'
-          ? `Re #${item.issue.seq} — the agent asked: "${item.text}". Answer: `
-          : `Re #${item.issue.seq} ("${item.issue.title}"): `,
-      ),
-    onOpenSession: (item: TrayItem) => {
-      // An offer card names its exact session; question cards fall back to the
-      // issue's first live agent session.
-      const memberIds = new Set(item.issue.memberSessionIds ?? [])
-      const agentSession =
-        item.kind === 'offer'
-          ? item.session
-          : sessions.find(
-              (s) =>
-                memberIds.has(s.sessionId) &&
-                !s.archived &&
-                s.agentKind !== 'shell' &&
-                s.headless !== true,
-            )
-      setSelectedIssueId(item.issue.id)
-      if (agentSession) setPane('A', agentSession.sessionId)
-      setView('workspace')
-    },
-    onResolve: (item: TrayItem) => {
-      setError(null)
-      trpc.issues.clearNeedsHuman
-        .mutate({ id: item.issue.id })
-        .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
-    },
-    // Offer button [spec:SP-c7f1]: send the agent-authored prompt to the
-    // offer's OWN session as a normal user turn — the same sendText path the
-    // chat/native offer bars use, so the server auto-clears the offer. Hide
-    // the card optimistically; un-hide on failure so it can be retried.
-    onOfferAction: (item, prompt) => {
-      const key = offerKey(item.session.sessionId, item.offer.createdAt)
-      setError(null)
-      setDismissedOffers((d) => new Set(d).add(key))
-      trpc.sessions.sendText
-        .mutate({ sessionId: item.session.sessionId, text: prompt, mutationId: randomUUID() })
-        .catch((e: unknown) => {
-          setDismissedOffers((d) => {
-            const next = new Set(d)
-            next.delete(key)
-            return next
-          })
-          setError(e instanceof Error ? e.message : String(e))
-        })
-    },
-  }
-
   return (
-    <section ref={sectionRef} className="flex min-h-0 min-w-0 flex-1 flex-col">
-      {!mobile && (
-        <>
-          <SectionBar
-            testId="tray-bar"
-            glyph="▤"
-            title="Tray"
-            scope="ALL TASKS · NEWEST FIRST"
-            open={trayOpen}
-            onToggle={() => setTrayOpen(!trayOpen)}
-            badge={
-              // The pill rides the bar open OR collapsed (mock v3) — the
-              // "needs you" count never disappears with the section.
-              itemCount > 0 ? (
-                <span key={itemCount} className={cn('flex', pillPop && 'morph-pop')}>
-                  <CountPill count={itemCount} />
-                </span>
-              ) : undefined
-            }
-            className="border-b"
-            actions={
-              onClose ? (
-                // Desktop folds the column; the mobile full-screen overlay minimizes
-                // via the ⌄ in this bar instead (mobile.md §2.4).
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="size-5 flex-none text-muted-foreground"
-                  title={mobile ? 'Minimize' : 'Fold the tray and superagent column'}
-                  onClick={onClose}
-                >
-                  {mobile ? (
-                    <ChevronDown size={14} aria-hidden="true" />
-                  ) : (
-                    <PanelRightClose size={13} aria-hidden="true" />
-                  )}
-                </Button>
-              ) : undefined
-            }
-          />
-          {trayOpen && (
-            <div
-              ref={trayBodyRef}
-              // Chat folded: the tray owns the rest of the column and is the
-              // only scroller in it. This wrapper must NOT scroll too — a
-              // second scroll container here swallowed the wheel and left the
-              // card stack capped at its split height (POD-288).
-              className={cn('min-h-0', chatOpen ? 'flex-none' : 'flex flex-1 flex-col')}
-            >
-              <Tray
-                issues={issues}
-                sessions={sessions}
-                selectedIssueId={selectedIssueId ?? null}
-                actions={trayActions}
-                maxHeight={chatOpen ? trayHeight : null}
-                fill={!chatOpen}
-                dismissedOffers={dismissedOffers}
-              />
-            </div>
-          )}
-          {trayOpen && chatOpen && (
-            // biome-ignore lint/a11y/useSemanticElements: the drag handle is an interactive separator, not a thematic break
-            <div
-              role="separator"
-              tabIndex={0}
-              aria-orientation="horizontal"
-              aria-label="Resize tray"
-              aria-valuemin={TRAY_MIN_HEIGHT}
-              aria-valuenow={trayHeight ?? TRAY_MIN_HEIGHT}
-              className="h-[5px] flex-none cursor-row-resize hover:bg-attention/15"
-              onPointerDown={onSplitPointerDown}
-            />
-          )}
-          {!trayOpen && !chatOpen && <div className="flex-1" aria-hidden="true" />}
-        </>
-      )}
-      <SectionBar
-        testId="super-bar"
-        glyph="✦"
-        title="Super agent"
-        scope="OVERARCHING · KNOWS THIS ISSUE"
-        open={mobile || chatOpen}
-        onToggle={() => {
-          if (!mobile) setChatOpen(!chatOpen)
-        }}
-        badge={!chatOpen ? <UnreadDot show={feed.unread} /> : undefined}
-        shadow={chatOpen}
-        className={chatOpen ? 'border-y' : 'border-t'}
-        actions={
-          <>
-            {mobile && onClose && (
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className="size-5 flex-none text-muted-foreground"
-                title="Minimize"
-                onClick={onClose}
-              >
-                <ChevronDown size={14} aria-hidden="true" />
-              </Button>
-            )}
-            {thread?.harnessSessionId && (
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className={BAR_ACTION_CLS}
-                title="Open this conversation in a terminal session"
-                onClick={() => void openInTerminal()}
-              >
-                <SquareTerminal size={12} aria-hidden="true" />
-              </Button>
-            )}
+    <section data-testid="superagent-pane" className="flex min-h-0 min-w-0 flex-1 flex-col">
+      {/* super-head: what this thread IS. One star, one name, one sentence —
+          the pane's identity, not a second collapsible bar. */}
+      <div
+        data-testid="super-head"
+        className="flex flex-none items-start gap-2.5 border-b border-hairline-soft px-[18px] py-3.5"
+      >
+        <Sparkles size={17} className="mt-px flex-none text-attention" aria-hidden="true" />
+        <div className="min-w-0 flex-1">
+          <h2 className="text-[13px] font-semibold leading-tight text-text-strong">
+            Portfolio copilot
+          </h2>
+          <p className="mt-1 text-[11px] leading-[1.45] text-text-dim">
+            One thread across every task and session.
+          </p>
+        </div>
+        <span className="flex flex-none items-center gap-1">
+          {thread?.harnessSessionId && (
             <Button
               variant="ghost"
               size="icon-sm"
               className={BAR_ACTION_CLS}
-              title="Clear context — start the global chat fresh"
-              onClick={() => void clear()}
+              title="Open this conversation in a terminal session"
+              onClick={() => void openInTerminal()}
             >
-              <Eraser size={12} aria-hidden="true" />
+              <SquareTerminal size={12} aria-hidden="true" />
             </Button>
-          </>
-        }
-      />
-      {(mobile || chatOpen) && (
-        <>
-          {error && (
-            <div
-              role="alert"
-              className="flex-none border-b border-hairline-soft px-[18px] py-2 text-[12px] leading-5 text-destructive"
-            >
-              {error}
-            </div>
           )}
-          {/* POD-113: the standing event feed is gone — the chat owns the space
-              and "what happened" is a super-agent question. Only the frozen
-              YOU-WERE-HERE return marker survives, pinned atop the chat. */}
-          {feed.dividerId > 0 && feed.events.some((e) => e.id > feed.dividerId) && (
-            <div
-              data-testid="you-were-here"
-              className="flex flex-none items-center gap-2 px-3.5 pt-2 pb-0.5 font-mono text-[9px] tracking-[.08em] text-attention"
-            >
-              <span className="h-px flex-1 bg-attention/40" />
-              YOU WERE HERE{feed.dividerTs ? ` · ${clock(feed.dividerTs)}` : ''}
-              <span className="h-px flex-1 bg-attention/40" />
-            </div>
-          )}
-          {podiumSessionId ? (
-            <div data-superagent-composer className="flex min-h-0 flex-1 flex-col">
-              <ChatView
-                sessionId={podiumSessionId}
-                active
-                superThread={{ threadId: THREAD_ID, kind: 'global' }}
-                compact
-                initialTurnRunning={thread?.turnRunning === true}
-                initialPendingText={pendingFirstTurn ?? undefined}
-              />
-            </div>
-          ) : (
-            <div data-superagent-composer className="flex min-h-0 flex-1 flex-col">
-              <FreshThreadComposer
-                key={pendingDraft || THREAD_ID}
-                threadId={THREAD_ID}
-                initialDraft={pendingDraft}
-                onError={setError}
-                onSent={(text) => {
-                  setPendingFirstTurn(text)
-                  void refreshThreads()
-                }}
-              />
-            </div>
-          )}
-        </>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className={BAR_ACTION_CLS}
+            title="Clear context — start the global chat fresh"
+            onClick={() => void clear()}
+          >
+            <Eraser size={12} aria-hidden="true" />
+          </Button>
+        </span>
+      </div>
+      <div data-testid="super-focus" className="flex-none px-[18px] pt-3">
+        <div className="border-l-2 border-hairline-soft py-0.5 pl-2.5">
+          <div className="label-mono-micro">Current focus</div>
+          <div className="mt-0.5 truncate text-[12px] leading-[1.45] text-text-dim">
+            {focusTitle ?? 'Nothing selected — ask across every task.'}
+          </div>
+        </div>
+      </div>
+      {error && (
+        <div
+          role="alert"
+          className="flex-none border-b border-hairline-soft px-[18px] py-2 text-[12px] leading-5 text-destructive"
+        >
+          {error}
+        </div>
+      )}
+      {/* POD-113: the standing event feed is gone — the chat owns the space
+          and "what happened" is a super-agent question. Only the frozen
+          YOU-WERE-HERE return marker survives, pinned atop the chat. */}
+      {feed.dividerId > 0 && feed.events.some((e) => e.id > feed.dividerId) && (
+        <div
+          data-testid="you-were-here"
+          className="flex flex-none items-center gap-2 px-3.5 pt-2 pb-0.5 font-mono text-[9px] tracking-[.08em] text-attention"
+        >
+          <span className="h-px flex-1 bg-attention/40" />
+          YOU WERE HERE{feed.dividerTs ? ` · ${clock(feed.dividerTs)}` : ''}
+          <span className="h-px flex-1 bg-attention/40" />
+        </div>
+      )}
+      {podiumSessionId ? (
+        <div data-superagent-composer className="flex min-h-0 flex-1 flex-col">
+          <ChatView
+            sessionId={podiumSessionId}
+            active
+            superThread={{ threadId: THREAD_ID, kind: 'global' }}
+            compact
+            initialTurnRunning={thread?.turnRunning === true}
+            initialPendingText={pendingFirstTurn ?? undefined}
+          />
+        </div>
+      ) : (
+        <div data-superagent-composer className="flex min-h-0 flex-1 flex-col">
+          <FreshThreadComposer
+            threadId={THREAD_ID}
+            onError={setError}
+            onSent={(text) => {
+              setPendingFirstTurn(text)
+              void refreshThreads()
+            }}
+          />
+        </div>
       )}
     </section>
   )
@@ -478,12 +263,10 @@ export function SuperagentView({
  */
 function FreshThreadComposer({
   threadId,
-  initialDraft = '',
   onError,
   onSent,
 }: {
   threadId: string
-  initialDraft?: string
   onError: (message: string | null) => void
   onSent: (text: string) => void
 }): JSX.Element {
@@ -492,7 +275,7 @@ function FreshThreadComposer({
     shallowEqual,
   )
   const issues = useReplicaIssues()
-  const [draft, setDraft] = useState(initialDraft)
+  const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [sentText, setSentText] = useState<string | null>(null)
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
@@ -658,7 +441,7 @@ function FreshThreadComposer({
             ref={inputRef}
             className="min-h-0 flex-1 resize-none overflow-y-auto rounded-none border-0 bg-transparent p-0 text-[13px] leading-[1.45] text-foreground caret-transparent shadow-none field-sizing-fixed transition-[height] duration-300 ease-[cubic-bezier(0.25,1,0.35,1)] placeholder:text-text-faint focus-visible:border-0 focus-visible:ring-0 dark:bg-transparent"
             rows={1}
-            placeholder="Ask anything — @ to add context"
+            placeholder="Ask across all tasks…"
             value={draft}
             onChange={(e) => {
               setDraft(e.target.value)

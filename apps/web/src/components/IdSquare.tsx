@@ -69,7 +69,7 @@ export function IdSquare({
   state: IdSquareState
   selected?: boolean
   /** Square edge in px. Desktop rows run 30 for a readable prefix/number
-   *  (POD-293); the rail, tray and mobile header pass their own smaller size. */
+   *  (POD-293); the rail and mobile header pass their own smaller size. */
   size?: number
   /** Corner status badge (waiting dot/count, working spinner, done check). */
   badge?: IdSquareBadge | null

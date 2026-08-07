@@ -2,9 +2,9 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 
-const trayIssues = vi.hoisted(() => ({ value: [] as unknown[] }))
+const portfolioIssues = vi.hoisted(() => ({ value: [] as unknown[] }))
 vi.mock('./store', () => ({
-  useReplicaIssues: () => trayIssues.value,
+  useReplicaIssues: () => portfolioIssues.value,
   useStoreSelector: (selector: (store: { sessions: never[] }) => unknown) =>
     selector({ sessions: [] }),
 }))
@@ -19,7 +19,7 @@ vi.mock('@/lib/use-feature', () => ({
 afterEach(() => {
   cleanup()
   featureEnabled.value = true
-  trayIssues.value = []
+  portfolioIssues.value = []
 })
 
 describe('RightRail', () => {
@@ -40,16 +40,34 @@ describe('RightRail', () => {
   // carries that count instead — and it must be the app's own corner badge, so
   // it matches the ID square's badge 50px above it rather than inventing a
   // second numbered-badge language on the same 44px rail.
-  it('carries the tray count on the Superagent cell', () => {
-    trayIssues.value = [
+  //
+  // POD-516 removed the web Tray, which used to be where the number came from.
+  // The count is the PORTFOLIO attention count now — every task anywhere that
+  // needs a decision — which is what the copilot's own copy claims it is.
+  it('carries the portfolio attention count on the Superagent cell', () => {
+    portfolioIssues.value = [
       makeIssue({ id: 'a', needsHuman: true }),
-      makeIssue({ id: 'b', needsHuman: true }),
+      // Review-ready work needs a decision too — the same predicate the Flight
+      // Deck's "Needs you" filter uses.
+      makeIssue({ id: 'b', stage: 'review' }),
+      makeIssue({ id: 'quiet' }),
     ]
     render(<RightRail rightPanel={null} onPanelChange={vi.fn()} />)
     expect(screen.getByRole('img', { name: '2 waiting on you' })).toBeTruthy()
   })
 
-  it('shows no tray badge when nothing is waiting', () => {
+  it('never counts finished or dead work — a closed task keeps no claim on you', () => {
+    portfolioIssues.value = [
+      makeIssue({ id: 'done', stage: 'done', needsHuman: true }),
+      makeIssue({ id: 'closed', closedReason: 'superseded', needsHuman: true }),
+      makeIssue({ id: 'archived', archived: true, needsHuman: true }),
+      makeIssue({ id: 'gone', deletedAt: 't', needsHuman: true }),
+    ]
+    render(<RightRail rightPanel={null} onPanelChange={vi.fn()} />)
+    expect(screen.queryByRole('img', { name: /waiting on you/ })).toBeNull()
+  })
+
+  it('shows no badge when nothing is waiting', () => {
     render(<RightRail rightPanel={null} onPanelChange={vi.fn()} />)
     expect(screen.queryByRole('img', { name: /waiting on you/ })).toBeNull()
   })

@@ -58,8 +58,9 @@ async function fetchSince(
  *
  * The divider position freezes where the cursor stood when the feed last
  * became visible; the cursor itself advances whenever the feed is on screen, so
- * the collapsed-✦ unread dot (`unread`) and the next session's divider both mean
- * "newer than the last time you had the chat open".
+ * the divider means "newer than the last time you had the pane open". (`unread`
+ * fed a dot on the Super-agent section bar until POD-516 removed that bar; the
+ * flag stays because it is the same read arithmetic the divider needs.)
  *
  * THE CURSOR IS PER-USER, NOT PER-DEVICE (POD-1380). It arrives from
  * `store.readPosition` — a replicated row keyed by the authenticated principal —
