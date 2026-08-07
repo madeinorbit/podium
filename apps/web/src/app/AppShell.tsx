@@ -231,8 +231,16 @@ function AppBody(): JSX.Element {
   const workspaceActive = baseView === 'workspace'
   const sessions = useStoreSelector((s) => s.sessions)
   const [dismissed, setDismissed] = useState(false)
-  const [sidebarCollapsed, setSidebarCollapsedState] = useState(() =>
-    readBooleanState(uiState.get(SIDEBAR_COLLAPSED_KEY)),
+  // SUBSCRIBED, not seeded — the same bug as the two below, on the worklist
+  // column (POD-540 handoff patch 1c). `sidebar.collapsed` is per-user
+  // REPLICATED, so a `useState` initializer read it before the replica had the
+  // row and never ran again: a collapsed sidebar came back expanded on every
+  // reload. Its WIDTH survived, which is what made the asymmetry legible —
+  // that key is device-local and already in the cache at mount.
+  const [sidebarCollapsed, setSidebarCollapsed] = usePersistedUiState(
+    SIDEBAR_COLLAPSED_KEY,
+    readBooleanState,
+    String,
   )
   // SUBSCRIBED, not seeded into local state. This key is per-user REPLICATED
   // layout, and a `useState` initializer reads it on the first render — before
@@ -269,10 +277,6 @@ function AppBody(): JSX.Element {
     })
   const visibleRightPanel = panelAllowed(rightPanel) ? rightPanel : null
 
-  const setSidebarCollapsed = (collapsed: boolean): void => {
-    setSidebarCollapsedState(collapsed)
-    uiState.set(SIDEBAR_COLLAPSED_KEY, String(collapsed))
-  }
   const setFlightDeckCollapsed = (collapsed: boolean): void => {
     uiState.set(SUPERAGENT_MODE_KEY, collapsed ? 'folded' : 'open')
   }
