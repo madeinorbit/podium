@@ -184,9 +184,11 @@ export const CLIENT_DEVICE_LOCAL_UI_KEYS = [
   'podium.terminal.appearance',
   /** Desktop shell spacing — a preference for this screen/device. */
   'podium.shell.density',
-  'podium:tray:open',
-  'podium:superagent:chat',
-  'podium:tray:height',
+  /* `podium:tray:open`, `podium:tray:height` and `podium:superagent:chat` lived
+     here until POD-516. They were the web Tray's section state and the
+     tray/chat split; the Superagent pane is one surface now, with no sections
+     to collapse and no split to remember. Stale rows on old devices are inert —
+     nothing reads these keys. */
   'podium:superagent:width',
   'podium:rightdock:width',
   /** Flight Deck view (`full` | `active` | `needs-you`) and the set of folded
