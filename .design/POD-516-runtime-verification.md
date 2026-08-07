@@ -50,11 +50,20 @@ horizontal overflow.
 panel that had just opened. Now that effect only closes the dock when the Superagent
 is what is open.
 
-## Not verified in this environment
+**Flight Deck collapse surviving a page reload** — PASS, after a second fix.
 
-**Flight Deck collapse surviving a page reload.** It does not survive here — but neither
-does the pre-existing **sidebar** collapse, which uses the identical persistence pattern
-and an untouched key. Both are per-user *replicated* state, and the preview's double hop
-(vite preview → live backend) does not round-trip it; column *width*, which is
-device-local, persists fine. Control experiment run explicitly, so this is an artifact of
-the preview rig rather than a regression. Worth re-checking on a normally served build.
+My first read of this was wrong. I saw that the pre-existing *sidebar* collapse failed the
+same way and concluded it was an artifact of the preview rig. It was not: reading
+`user_layout` directly showed the write path working correctly (`superagent.mode` moved on
+every toggle) while the app still booted open. The read was the problem — `AppBody` seeded
+the state with a `useState` initializer, which runs on the first render, before the replica
+has the row, and never runs again. Column *width* survived only because it is a
+device-local key and therefore in the local cache at mount.
+
+Fixed by subscribing instead of seeding (`useSyncExternalStore`, the same idiom as
+`use-terminal-appearance`). Verified against the real backend: with `superagent.mode`
+stored as folded, the app now boots **folded** and stays folded across a reload, and
+expanding still responds immediately.
+
+The same shape affects `sidebar.collapsed` and every dock section. Filed as POD-540 rather
+than changed here.
