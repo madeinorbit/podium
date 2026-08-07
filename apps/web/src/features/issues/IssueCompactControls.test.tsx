@@ -125,7 +125,8 @@ describe('IssueCompactControls', () => {
     const action = screen.getByTestId('task-primary-action')
     expect(action.dataset.action).toBe('answer')
     expect(action.textContent).toBe('Answer')
-    expect(action.className).toContain('amber')
+    // The shell's own obligation channel, not a raw palette amber.
+    expect(action.className).toContain('bg-attention/15')
   })
 
   it('sends the primary action to the coordinator session', () => {

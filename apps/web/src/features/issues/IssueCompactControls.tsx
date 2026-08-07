@@ -14,7 +14,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { OfferBar } from '@/features/chat/OfferBar'
 import { issueNeedsHuman, sessionNeedsHuman } from '@/lib/mission'
 import { type ContextMenuAnchor, SessionContextMenu } from '@/lib/SessionContextMenu'
 import { cn } from '@/lib/utils'
@@ -148,10 +147,96 @@ export function IssueGitScope({ issue }: { issue: IssueViewModel }): JSX.Element
           {delivery} commit{delivery === 1 ? '' : 's'} awaiting delivery
         </span>
       )}
+      {/* Warning, not attention: dirt is a caution about this issue's checkout,
+          not something asking the operator a question. Amber is needs-you. */}
       {attributedDirty > 0 && (
-        <span className="text-amber-500">
+        <span className="text-warning">
           {attributedDirty} dirty file{attributedDirty === 1 ? '' : 's'} · this issue
         </span>
+      )}
+    </div>
+  )
+}
+
+/**
+ * The answer affordance, folded into the session that asked (POD-516 r2 #7).
+ *
+ * It used to be a stack of `OfferBar` cards wedged between the fixed head and
+ * the single scroll — which is what made the dock unscrollable, because that
+ * region grew one full card per offer and the scroll only ever gets what is
+ * left. It also put the question on the TASK, when what stopped is a SESSION.
+ *
+ * So the offer's headline and its one-click answers hang off the session row
+ * itself. Anything that needs a paragraph typed hands off to the conversation
+ * (the composer is where prose belongs) rather than growing a textarea inside a
+ * dock section.
+ */
+function SessionAnswer({ session }: { session: SessionMeta }): JSX.Element | null {
+  const { trpc, navigateToSession } = useStoreSelector(
+    (s) => ({ trpc: s.trpc, navigateToSession: s.navigateToSession }),
+    shallowEqual,
+  )
+  const [sending, setSending] = useState<number | null>(null)
+  const offer = session.offer
+  if (!offer) return null
+  const headline = offer.message.split('\n', 1)[0]?.trim()
+
+  const send = (index: number, prompt: string): void => {
+    if (sending !== null) return
+    setSending(index)
+    trpc.sessions.sendText
+      .mutate({ sessionId: session.sessionId, text: prompt, mutationId: randomUUID() })
+      .catch((error: unknown) =>
+        toast.error(error instanceof Error ? error.message : String(error)),
+      )
+      .finally(() => setSending(null))
+  }
+
+  return (
+    // Indented to the session's NAME (4px row pad + 20px harness chip + 8px
+    // gap), so the question reads as that agent speaking, not as a new section.
+    <div className="pt-0.5 pb-2 pl-8" data-testid="dock-session-answer">
+      {headline && (
+        <p className="shell-type-secondary line-clamp-2 text-foreground/85">{headline}</p>
+      )}
+      {offer.actions.length > 0 && (
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          {offer.actions.map((action, index) => (
+            <button
+              data-pressable
+              key={`${action.label}:${action.prompt}`}
+              type="button"
+              data-answer-action={action.input === true ? 'compose' : 'send'}
+              disabled={sending !== null}
+              title={
+                action.input === true
+                  ? `${action.prompt} — opens the conversation so you can add your reply`
+                  : action.prompt
+              }
+              onClick={() =>
+                action.input === true
+                  ? navigateToSession(session.sessionId)
+                  : send(index, action.prompt)
+              }
+              className={cn(
+                'inline-flex h-[22px] items-center gap-1 rounded-md px-2 text-[11px] font-medium disabled:opacity-50',
+                // ONE fill in the obligation channel, and it is the control
+                // that actually discharges the obligation — the head's Answer
+                // and the decision band both stay tinted outlines above it.
+                index === 0
+                  ? 'bg-attention text-attention-foreground hover:opacity-85'
+                  : 'border border-border-strong bg-chip text-foreground hover:bg-muted',
+              )}
+            >
+              {sending === index ? 'Sending…' : action.label}
+              {action.input === true && (
+                <span aria-hidden="true" className="text-[9px] opacity-70">
+                  ✎
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
       )}
     </div>
   )
@@ -162,6 +247,11 @@ export function IssueGitScope({ issue }: { issue: IssueViewModel }): JSX.Element
  * the shell uses, its agent-state word, and every lifecycle action behind the
  * shared session context menu (right-click or •••) rather than a bespoke button
  * pair.
+ *
+ * A session that stopped and asked wears the obligation: a 2px attention rule
+ * down its left edge and its state word in attention ink, with the question and
+ * its answers folded in underneath. Colour for obligation — the rule appears
+ * nowhere else on this surface.
  */
 export function IssueSessionRow({
   session,
@@ -174,55 +264,66 @@ export function IssueSessionRow({
   const [menu, setMenu] = useState<ContextMenuAnchor | null>(null)
   const [editing, setEditing] = useState(false)
   const retired = session.archived || session.status === 'exited'
+  const needs = !retired && sessionNeedsHuman(session)
   return (
     <div
       className={cn(
-        'group/session flex min-h-[31px] items-center gap-2 border-b border-border/40 px-1',
+        'group/session border-b border-hairline-soft',
         retired && 'opacity-60',
+        needs && 'border-l-2 border-l-attention bg-attention/[0.05] pl-1.5',
       )}
       data-testid="dock-session-row"
+      data-needs-you={needs || undefined}
     >
-      {editing ? (
-        <SessionNameEditor
-          value={sessionDisplayName(session)}
-          onCommit={(name) => {
-            void renameSession(session.sessionId, name)
-            setEditing(false)
-          }}
-          onCancel={() => setEditing(false)}
-        />
-      ) : (
+      <div className="flex min-h-[31px] items-center gap-2 px-1">
+        {editing ? (
+          <SessionNameEditor
+            value={sessionDisplayName(session)}
+            onCommit={(name) => {
+              void renameSession(session.sessionId, name)
+              setEditing(false)
+            }}
+            onCancel={() => setEditing(false)}
+          />
+        ) : (
+          <button
+            data-pressable
+            type="button"
+            className="shell-type-secondary flex min-w-0 flex-1 items-center gap-2 py-1 text-left text-foreground/90"
+            onClick={onOpen}
+            // Right-click for the full action menu — same gesture, same menu, as
+            // the sidebar's session rows and the tab strip.
+            onContextMenu={(event) => {
+              event.preventDefault()
+              setMenu({ x: event.clientX, y: event.clientY })
+            }}
+          >
+            <WorkerLabel session={session} chip />
+          </button>
+        )}
+        <span
+          className={cn(
+            'shell-type-micro flex-none font-mono',
+            needs ? 'font-semibold text-attention' : 'text-text-dim',
+          )}
+        >
+          {sessionStateLabel(session)}
+        </span>
         <button
           data-pressable
           type="button"
-          className="shell-type-secondary flex min-w-0 flex-1 items-center gap-2 py-1 text-left text-foreground/90"
-          onClick={onOpen}
-          // Right-click for the full action menu — same gesture, same menu, as
-          // the sidebar's session rows and the tab strip.
-          onContextMenu={(event) => {
-            event.preventDefault()
-            setMenu({ x: event.clientX, y: event.clientY })
+          title="Session actions"
+          aria-label={`Actions for ${sessionDisplayName(session)}`}
+          className="flex-none rounded px-1 text-muted-foreground opacity-0 hover:text-foreground focus-visible:opacity-100 group-hover/session:opacity-100"
+          onClick={(event) => {
+            const rect = event.currentTarget.getBoundingClientRect()
+            setMenu({ x: rect.right - 4, y: rect.bottom + 4 })
           }}
         >
-          <WorkerLabel session={session} chip />
+          <MoreHorizontal size={13} aria-hidden="true" />
         </button>
-      )}
-      <span className="shell-type-micro flex-none font-mono text-muted-foreground">
-        {sessionStateLabel(session)}
-      </span>
-      <button
-        data-pressable
-        type="button"
-        title="Session actions"
-        aria-label={`Actions for ${sessionDisplayName(session)}`}
-        className="flex-none rounded px-1 text-muted-foreground opacity-0 hover:text-foreground focus-visible:opacity-100 group-hover/session:opacity-100"
-        onClick={(event) => {
-          const rect = event.currentTarget.getBoundingClientRect()
-          setMenu({ x: rect.right - 4, y: rect.bottom + 4 })
-        }}
-      >
-        <MoreHorizontal size={13} aria-hidden="true" />
-      </button>
+      </div>
+      {needs && <SessionAnswer session={session} />}
       {menu && (
         <SessionContextMenu
           session={session}
@@ -239,49 +340,39 @@ export function IssueSessionRow({
 }
 
 /**
- * The "Needs you" band and whatever the operator has to act on — the agent's
- * offer chips, and the resolve control for a raised flag. It sits between the
- * fixed head and the scroll, exactly where the artifact puts the decision.
+ * The `decision-band`: bold "Needs you" and ONE line saying what the decision
+ * is, between the fixed head and the scroll — exactly where the artifact puts
+ * it, and exactly as big.
+ *
+ * Nothing here may grow with the data. It used to carry one `OfferBar` per
+ * session with a live offer; because this region is laid out before the single
+ * scroll and never shrinks, a stack of three offers took 1126px of a 1088px
+ * dock and left the scroll 0px of content height. The answers now hang off the
+ * session that asked (see {@link IssueSessionRow}), inside the scroll.
  */
 export function IssueDecisionBand({ issue }: { issue: IssueViewModel }): JSX.Element | null {
   const { trpc, sessions } = useStoreSelector(
     (s) => ({ trpc: s.trpc, sessions: s.sessions }),
     shallowEqual,
   )
-  const [sending, setSending] = useState<ReadonlySet<string>>(new Set())
   const active = issueSessions(issue, sessions).filter(isOpenSession)
   if (!issueNeedsHuman(issue, active)) return null
-  const offers = active.flatMap((session) =>
-    session.offer ? [{ session, offer: session.offer }] : [],
-  )
-
-  const sendOffer = (session: SessionMeta, prompt: string): void => {
-    setSending((current) => new Set(current).add(session.sessionId))
-    trpc.sessions.sendText
-      .mutate({ sessionId: session.sessionId, text: prompt, mutationId: randomUUID() })
-      .catch((error: unknown) =>
-        toast.error(error instanceof Error ? error.message : String(error)),
-      )
-      .finally(() =>
-        setSending((current) => {
-          const next = new Set(current)
-          next.delete(session.sessionId)
-          return next
-        }),
-      )
-  }
 
   return (
-    <div className="flex flex-col gap-2 px-3 pt-2.5" data-testid="dock-decision-band">
-      <div className="shell-type-secondary rounded-md border border-amber-500/40 bg-amber-500/[0.07] px-2.5 py-2">
-        <span className="font-semibold text-amber-600 dark:text-amber-300">Needs you</span>{' '}
-        <span className="text-foreground/85">{decisionLine(issue, active)}</span>
+    <div className="flex-none px-3 pb-3" data-testid="dock-decision-band">
+      <div className="shell-type-secondary flex items-baseline gap-1.5 rounded-md border border-attention/40 bg-attention/[0.07] px-2.5 py-2">
+        <span className="flex-none font-semibold text-attention">Needs you</span>
+        <span className="line-clamp-2 min-w-0 flex-1 text-foreground/85">
+          {decisionLine(issue, active)}
+        </span>
+        {/* A flag raised on the ISSUE is the only thing this band can clear; an
+            agent's question is cleared by answering it, on its own row. Inline
+            text, not a stacked button — the band is one line by contract. */}
         {issue.needsHuman && (
-          <Button
+          <button
+            data-pressable
             type="button"
-            variant="outline"
-            size="sm"
-            className="mt-2 flex h-6 text-[11px]"
+            className="shell-type-micro flex-none text-attention/80 underline-offset-2 hover:underline"
             onClick={() =>
               trpc.issues.clearNeedsHuman
                 .mutate({ id: issue.id })
@@ -291,18 +382,9 @@ export function IssueDecisionBand({ issue }: { issue: IssueViewModel }): JSX.Ele
             }
           >
             Mark resolved
-          </Button>
+          </button>
         )}
       </div>
-      {offers.map(({ session, offer }) => (
-        <OfferBar
-          key={`${session.sessionId}:${offer.createdAt}`}
-          offer={offer}
-          session={session}
-          disabled={sending.has(session.sessionId)}
-          onAction={(prompt) => sendOffer(session, prompt)}
-        />
-      ))}
     </div>
   )
 }
@@ -446,7 +528,7 @@ export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.
           className={cn(
             'h-7 px-2.5 text-[11.5px] font-semibold',
             action.warn &&
-              'border-amber-500/50 bg-amber-500/15 text-amber-700 hover:bg-amber-500/25 dark:text-amber-200',
+              'border-attention/50 bg-attention/15 text-attention hover:bg-attention/25',
           )}
           onClick={runAction}
         >

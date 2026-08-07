@@ -30,7 +30,13 @@ import { MediaLightbox } from '@/components/MediaLightbox'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { copyToClipboard } from '@/lib/clipboard'
-import { operationalState, type PresenceKind, type PresenceNote, presenceNote } from '@/lib/mission'
+import {
+  operationalState,
+  type PresenceKind,
+  type PresenceNote,
+  presenceNote,
+  sessionNeedsHuman,
+} from '@/lib/mission'
 import { cn } from '@/lib/utils'
 import { KindIcon, sessionDisplayName } from '@/lib/WorkerLabel'
 import {
@@ -52,9 +58,7 @@ import { groupRelations } from './issue-relations'
 // label, and a third copy of the same fact was the first thing the artifact cut.
 
 function Hint({ children }: { children: string }): JSX.Element {
-  return (
-    <div className="shell-type-secondary py-0.5 text-muted-foreground/60 italic">{children}</div>
-  )
+  return <div className="shell-type-secondary py-0.5 text-text-faint italic">{children}</div>
 }
 
 /** Presence-note kind → its mark. The words come from `mission.ts` so the deck
@@ -79,7 +83,9 @@ function PresenceLine({ note }: { note: PresenceNote }): JSX.Element {
     <div
       className={cn(
         'shell-type-secondary flex items-center gap-2 px-1 py-1.5',
-        note.attention ? 'text-attention-foreground' : 'text-muted-foreground',
+        // `text-attention` is the ink; `-foreground` is what sits ON the amber
+        // fill and is near-black, i.e. invisible on this panel.
+        note.attention ? 'text-attention' : 'text-muted-foreground',
       )}
       data-testid="dock-presence-note"
       data-presence={note.kind}
@@ -105,15 +111,13 @@ function DockPart({
   children: ReactNode
 }): JSX.Element {
   return (
-    <section className="mb-4" data-testid={testId} data-part={title}>
+    <section className="mb-[18px]" data-testid={testId} data-part={title}>
       <div className="mb-1.5 flex items-center gap-2">
         <span className="shell-type-micro font-semibold text-muted-foreground">{title}</span>
         {count !== undefined && count > 0 && (
-          <span className="shell-type-micro font-mono tabular-nums text-muted-foreground/60">
-            {count}
-          </span>
+          <span className="shell-type-micro font-mono tabular-nums text-text-dim">{count}</span>
         )}
-        <span className="h-px flex-1 bg-border/60" aria-hidden="true" />
+        <span className="h-px flex-1 bg-hairline-soft" aria-hidden="true" />
       </div>
       {children}
     </section>
@@ -164,7 +168,7 @@ function UnifiedRow({
       onClick={onOpen}
       title={`${issueDisplayRef(sub)} ${sub.title}`}
       className={cn(
-        'grid min-h-[30px] w-full grid-cols-[14px_minmax(0,1fr)_auto] items-center gap-2 border-b border-border/40 px-1 py-1 text-left shell-type-secondary hover:bg-accent/40',
+        'grid min-h-[30px] w-full grid-cols-[14px_minmax(0,1fr)_auto] items-center gap-2 border-b border-hairline-soft px-1 py-1 text-left shell-type-secondary hover:bg-accent/40',
         sub.archived && 'opacity-60',
       )}
     >
@@ -184,13 +188,17 @@ function UnifiedRow({
           {sub.title}
         </span>
       </span>
-      <span className="shell-type-micro flex-none font-mono text-muted-foreground/70">{meta}</span>
+      <span className="shell-type-micro flex-none font-mono text-text-dim">{meta}</span>
     </button>
   )
 }
 
 /** The subtree's done/running split as one segmented bar plus "N of M done" —
- *  the only progress surface in the inspector. */
+ *  the only progress surface in the inspector.
+ *
+ *  Same segment vocabulary as the Flight Deck's mission bar: done in success,
+ *  running in the calm info blue. A live count is never amber — amber on this
+ *  branch means "this is asking something of you" and nothing else. */
 function SubtreeMeter({
   done,
   run,
@@ -203,11 +211,17 @@ function SubtreeMeter({
   const pct = (n: number): string => `${total === 0 ? 0 : (n / total) * 100}%`
   return (
     <div className="mt-2.5 flex items-center gap-2" data-testid="dock-subtree-meter">
-      <span className="flex h-1 flex-1 overflow-hidden rounded-full bg-muted">
-        <span className="h-full bg-success/80" style={{ width: pct(done) }} />
-        <span className="h-full bg-amber-400/70" style={{ width: pct(run) }} />
+      <span className="flex h-1 flex-1 overflow-hidden rounded-full bg-secondary">
+        <span
+          className="h-full bg-success transition-[width] duration-300"
+          style={{ width: pct(done) }}
+        />
+        <span
+          className="h-full bg-info transition-[width] duration-300"
+          style={{ width: pct(run) }}
+        />
       </span>
-      <span className="shell-type-micro flex-none font-mono tabular-nums text-muted-foreground">
+      <span className="shell-type-micro flex-none font-mono tabular-nums text-text-dim">
         {done} of {total} done
       </span>
     </div>
@@ -295,7 +309,7 @@ function RecentActivity({
               <span className="min-w-0 flex-1 whitespace-pre-wrap">
                 {item.kind === 'comment' ? item.body : item.line.text}
               </span>
-              <span className="shell-type-micro flex-none font-mono text-muted-foreground/65">
+              <span className="shell-type-micro flex-none font-mono text-text-faint">
                 {relativeTime(item.ts, Date.now())}
               </span>
             </div>
@@ -315,12 +329,21 @@ function RecentActivity({
   )
 }
 
-/** The task head: identity, title, description and the one control strip. Fixed
- *  above the scroll — the artifact's `inspect-head`. */
+/**
+ * The task head: identity, title, description and the one control strip. Fixed
+ * above the scroll — the artifact's `inspect-head`.
+ *
+ * **Every string in here is clamped on purpose.** This box is laid out before
+ * the single scroll and never shrinks, so its height is the scroll's budget: a
+ * two-line title, a three-line description and one 28px control row put its
+ * ceiling around 200px whatever the issue says. Nothing that varies with the
+ * number of sessions, offers or children may be added to it — that is the bug
+ * this shape exists to prevent.
+ */
 function InspectHead({ issue }: { issue: IssueViewModel }): JSX.Element {
   return (
-    <header className="flex-none border-b border-border/60 px-3 pt-3 pb-3">
-      <div className="shell-type-micro flex items-center gap-2 font-mono text-muted-foreground/70">
+    <header className="flex-none px-3 pt-3 pb-3" data-testid="dock-inspect-head">
+      <div className="shell-type-micro flex items-center gap-2 font-mono text-text-dim">
         <StageGlyph stage={issue.stage} size={12} />
         <button
           data-pressable
@@ -335,7 +358,9 @@ function InspectHead({ issue }: { issue: IssueViewModel }): JSX.Element {
         </button>
         <span className="label-mono ml-auto">Task</span>
       </div>
-      <h2 className="shell-type-reading mt-1.5 font-semibold text-foreground">{issue.title}</h2>
+      <h2 className="shell-type-reading mt-1.5 line-clamp-2 font-semibold tracking-[-0.01em] text-text-strong">
+        {issue.title}
+      </h2>
       {issue.description.trim() && (
         <p className="shell-type-secondary mt-1.5 line-clamp-3 text-muted-foreground">
           {issue.description}
@@ -396,13 +421,13 @@ function EvidenceAndChecks({
       {todos.length > 0 && (
         <>
           <div className="mb-1.5 flex items-center gap-2">
-            <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
+            <div className="h-1 flex-1 overflow-hidden rounded-full bg-secondary">
               <div
-                className="h-full rounded-full bg-success/80 transition-[width] duration-300"
+                className="h-full rounded-full bg-success transition-[width] duration-300"
                 style={{ width: `${(doneCount / todos.length) * 100}%` }}
               />
             </div>
-            <span className="shell-type-micro font-mono tabular-nums text-muted-foreground">
+            <span className="shell-type-micro font-mono tabular-nums text-text-dim">
               {doneCount}/{todos.length}
             </span>
           </div>
@@ -537,7 +562,7 @@ function EvidenceAndChecks({
                 <span className="shell-type-secondary min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
                   {label}
                 </span>
-                <span className="shell-type-micro flex-none font-mono text-muted-foreground/60">
+                <span className="shell-type-micro flex-none font-mono text-text-faint">
                   {basename(a.path)}
                 </span>
               </Button>
@@ -553,9 +578,11 @@ function EvidenceAndChecks({
               key={`${d.addedAt}:${d.text}`}
               className="shell-type-secondary flex items-baseline gap-2 px-1 py-0.5 text-foreground/80"
             >
-              <span className="size-1 flex-none translate-y-[-2px] rounded-full bg-amber-400/70" />
+              {/* A deferred note is a parked idea, not an obligation — amber
+                  would claim it needs the operator now. */}
+              <span className="size-1 flex-none translate-y-[-2px] rounded-full bg-text-faint" />
               <span className="min-w-0 flex-1">{d.text}</span>
-              <span className="shell-type-micro flex-none font-mono text-muted-foreground/60">
+              <span className="shell-type-micro flex-none font-mono text-text-faint">
                 {new Date(d.addedAt).toLocaleDateString()}
               </span>
             </div>
@@ -595,8 +622,11 @@ function IntakeField({
 function IntakeDock({ session }: { session?: SessionMeta }): JSX.Element {
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="dock-intake">
-      <header className="flex-none border-b border-border/60 px-3 pt-3 pb-3">
-        <div className="shell-type-micro flex items-center gap-2 font-mono text-muted-foreground/70">
+      <header
+        className="flex-none border-b border-border/60 px-3 pt-3 pb-3"
+        data-testid="dock-fixed"
+      >
+        <div className="shell-type-micro flex items-center gap-2 font-mono text-text-dim">
           {session ? (
             <KindIcon kind={session.agentKind} chip />
           ) : (
@@ -613,7 +643,11 @@ function IntakeDock({ session }: { session?: SessionMeta }): JSX.Element {
           work.
         </p>
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-3 pb-6">
+      <div
+        className="min-h-0 flex-1 overflow-y-auto px-3 pt-3 pb-6"
+        data-testid="dock-scroll"
+        data-dock-scroll=""
+      >
         <DockPart title="Taking shape">
           <IntakeField label="Task" value="Waiting for your first message" loading />
           <IntakeField label="Plan" value="The agent will outline the work" />
@@ -624,7 +658,7 @@ function IntakeDock({ session }: { session?: SessionMeta }): JSX.Element {
             }
           />
         </DockPart>
-        <p className="shell-type-micro text-muted-foreground/60">
+        <p className="shell-type-micro text-text-faint">
           If the conversation stays exploratory, this view stays light. Podium does not force a
           task.
         </p>
@@ -732,7 +766,13 @@ export function IssuePanelView({
   const doneChildren = children.filter((c) => c.stage === 'done' || Boolean(c.closedReason))
 
   const all = issueSessions(issue, sessions)
+  // Needs-you first — the answer affordance now lives on the session row, and
+  // the roster folds at five, so a waiting agent must never be the one behind
+  // the fold. Then the coordinator, then most-recently-active.
   const activeSessions = all.filter(isOpenSession).sort((a, b) => {
+    const aNeeds = sessionNeedsHuman(a)
+    const bNeeds = sessionNeedsHuman(b)
+    if (aNeeds !== bNeeds) return aNeeds ? -1 : 1
     if (a.sessionId === issue.coordinatorSessionId) return -1
     if (b.sessionId === issue.coordinatorSessionId) return 1
     return b.lastActiveAt.localeCompare(a.lastActiveAt)
@@ -754,11 +794,25 @@ export function IssuePanelView({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <InspectHead issue={issue} />
-      <IssueDecisionBand issue={issue} />
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-3 pb-6">
+      {/* TWO BOXES, and only two. Everything above the scroll lives in this
+          `flex-none` region and is bounded by construction (clamped title,
+          clamped description, one control row, a one-line decision band); the
+          scroll below it is `flex-1 min-h-0` and gets all the rest. The dock
+          became unscrollable the moment something data-sized (a stack of offer
+          cards) was allowed into the fixed region — see the scroll test. */}
+      <div className="flex-none border-b border-border/60" data-testid="dock-fixed">
+        <InspectHead issue={issue} />
+        <IssueDecisionBand issue={issue} />
+      </div>
+      <div
+        className="min-h-0 flex-1 overflow-y-auto px-3 pt-3 pb-6"
+        data-testid="dock-scroll"
+        data-dock-scroll=""
+      >
         <DockPart title="Current update" testId="dock-current-update">
-          <div className="border-l-[3px] border-primary/60 pl-2.5">
+          {/* Calm blue: the update is information, not an ask. The yellow on
+              this surface belongs to the primary action and to needs-you. */}
+          <div className="border-l-[3px] border-info/70 pl-2.5">
             <div className="shell-type-micro flex items-center gap-2 font-mono text-muted-foreground">
               {author && <KindIcon kind={author.agentKind} chip />}
               <span className="min-w-0 truncate">
@@ -769,7 +823,7 @@ export function IssuePanelView({
             <p
               className={cn(
                 'shell-type-secondary mt-1.5 whitespace-pre-wrap',
-                issue.activityNotes ? 'text-foreground/85' : 'text-muted-foreground/60 italic',
+                issue.activityNotes ? 'text-foreground/85' : 'text-text-faint italic',
               )}
             >
               {issue.activityNotes || 'No status posted yet.'}
@@ -873,7 +927,7 @@ export function IssuePanelView({
                   ) : (
                     <div
                       key={`${group.section}-${entry.direction}-${entry.id}`}
-                      className="shell-type-micro px-1 py-1 font-mono text-muted-foreground/60"
+                      className="shell-type-micro px-1 py-1 font-mono text-text-faint"
                     >
                       {entry.id}
                     </div>
@@ -891,7 +945,7 @@ export function IssuePanelView({
             update, work, sessions, relations, evidence. */}
         <RecentActivity issue={issue} onOpenFull={openFullIssue} />
 
-        <p className="shell-type-micro text-muted-foreground/60">
+        <p className="shell-type-micro text-text-faint">
           The current update is this task's live state, kept by the agent working it; comments and
           lifecycle events form the activity feed.
         </p>
