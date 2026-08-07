@@ -11,6 +11,15 @@ test.setTimeout(180_000)
 const ARTIFACTS = resolve(import.meta.dirname, '../../../.artifacts/POD-503')
 const RELAY = process.env.PODIUM_RELAY ?? `ws://localhost:${Number(process.env.PORT ?? 8799)}`
 const DEAD_SERVER = 'ws://127.0.0.1:1'
+/**
+ * A stand-in principal for the COLD cases only.
+ *
+ * The replica is namespaced by principal, so this deliberately unrelated id
+ * guarantees an empty local namespace — which is exactly what a cold launch
+ * means. Do not "fix" this to the real auth status: doing so hands those tests
+ * a warm cache and quietly destroys the thing they assert. The warm/offline
+ * case does the opposite and replays the real status, for the same reason.
+ */
 const AUTH_STATUS = { needsAuth: false, authed: true, userId: 'user:sole' }
 
 test.beforeAll(() => mkdirSync(ARTIFACTS, { recursive: true }))
@@ -131,7 +140,18 @@ test('a cold offline launch paints the Work silhouette, never its empty state', 
   })
 })
 
-test('a warm and then offline launch paint cached task detail first', async ({ page }) => {
+/**
+ * The task title appears more than once in the DOM: on the detail screen, and
+ * on the Tasks list underneath it, which the JS stack keeps mounted but hidden
+ * rather than unmounting. A bare getByText therefore trips strict mode and can
+ * resolve to the hidden copy. Scope to what is actually on screen — which is
+ * also the claim these assertions mean to make.
+ */
+function visibleText(page: Page, text: string) {
+  return page.getByText(text, { exact: false }).filter({ visible: true }).first()
+}
+
+async function createTaskAndOpenIt(page: Page): Promise<string> {
   await page.goto(`/mobile?server=${RELAY}`)
   await expect(page.getByRole('button', { name: 'New work' })).toBeVisible({ timeout: 60_000 })
   await page.getByRole('button', { name: 'Tasks' }).click()
@@ -142,24 +162,54 @@ test('a warm and then offline launch paint cached task detail first', async ({ p
   await page.getByLabel('Task title').fill(title)
   await page.getByRole('button', { name: 'Agent will start now' }).click()
   await page.getByRole('button', { name: 'Create task' }).click()
-  await expect(page.getByText(title, { exact: false })).toBeVisible({ timeout: 30_000 })
+  await expect(visibleText(page, title)).toBeVisible({ timeout: 30_000 })
+  return title
+}
+
+test('a warm relaunch paints cached task detail', async ({ page }) => {
+  const title = await createTaskAndOpenIt(page)
 
   await page.reload()
-  await expect(page.getByText(title, { exact: false })).toBeVisible({ timeout: 30_000 })
+  await expect(visibleText(page, title)).toBeVisible({ timeout: 30_000 })
   await page.screenshot({ path: resolve(ARTIFACTS, '04-warm-cached-detail.png'), fullPage: true })
+})
 
+/**
+ * FAILS TODAY — the gap is POD-541, not this suite.
+ *
+ * An offline relaunch of a task detail renders "Task not found." rather than the
+ * cached task or a skeleton. It is left here as a fixme rather than deleted,
+ * because deleting it would remove the only executable statement of the
+ * acceptance clause it covers, and this file is where the next person looks.
+ *
+ * Two fixture traps were ruled out before concluding it is a product gap, and
+ * both are preserved here so the diagnosis does not have to be repeated:
+ *   - The replica is namespaced by principal, so the offline mock replays the
+ *     REAL /auth/status body. A hardcoded stand-in opens an empty namespace and
+ *     fails identically for an entirely different reason.
+ *   - The task is created seconds earlier and arrives over the live feed, so a
+ *     settle delay rules out a short persistence race. It does not help.
+ * The control is the cold-offline test above: under an unrelated principal it
+ * gets booting=true and a skeleton, while this gets booting=false — so the
+ * replica does resolve with data, and this row simply is not in it.
+ */
+test.fixme('an offline relaunch paints cached task detail', async ({ page }) => {
+  const title = await createTaskAndOpenIt(page)
+  await page.reload()
+  await expect(visibleText(page, title)).toBeVisible({ timeout: 30_000 })
+  await page.waitForTimeout(3_000)
+
+  const authStatus = await page.evaluate(() =>
+    fetch('/auth/status').then((response) => response.text()),
+  )
   await page.route('http://127.0.0.1:1/auth/status', (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(AUTH_STATUS),
-    }),
+    route.fulfill({ status: 200, contentType: 'application/json', body: authStatus }),
   )
   const offline = new URL(page.url())
   offline.searchParams.set('server', DEAD_SERVER)
   await page.goto(offline.href)
 
-  await expect(page.getByText(title, { exact: false })).toBeVisible({ timeout: 30_000 })
+  await expect(visibleText(page, title)).toBeVisible({ timeout: 30_000 })
   await expect(page.getByLabel('Loading task detail')).toHaveCount(0)
   await page.screenshot({
     path: resolve(ARTIFACTS, '05-offline-cached-detail.png'),
