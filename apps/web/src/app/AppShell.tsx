@@ -20,6 +20,7 @@ import { effectiveIssueColorHex, FLOW_SLATE } from '@/lib/issueColors'
 import type { KernelAssembly } from '@/lib/kernelReplica'
 import { ShadowComparisonRunner } from '@/lib/shadow/ShadowComparisonRunner'
 import { useFeature } from '@/lib/use-feature'
+import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 import { useKernelReplica } from '@/lib/use-kernel-replica'
 import { AppErrorPage } from './AppErrorPage'
 import { ApprovalDialog } from './ApprovalDialog'
@@ -185,6 +186,10 @@ function RoutedDensityProvider({ children }: { children: ReactNode }): JSX.Eleme
   return <DensityProvider uiState={uiState}>{children}</DensityProvider>
 }
 
+/** Module-scope so the setter keeps a stable identity across renders — an inline
+ *  arrow would hand `RightRail` a new callback every render (POD-540). */
+const writeRightPanel = (panel: RightPanelTab | null): string => panel ?? ''
+
 function AppBody(): JSX.Element {
   const {
     repos,
@@ -242,8 +247,15 @@ function AppBody(): JSX.Element {
       () => uiState.get(SUPERAGENT_MODE_KEY),
     ),
   )
-  const [rightPanel, setRightPanelState] = useState<RightPanelTab | null>(() =>
-    readRightPanel(uiState.get(RIGHT_PANEL_KEY)),
+  // SUBSCRIBED, not seeded — same reason as `flightDeckCollapsed` above: this
+  // key is per-user REPLICATED, so a `useState` initializer reads it before the
+  // replica has the row and never runs again. That is why opening the
+  // Superagent, reloading, and finding the dock closed was reproducible
+  // (POD-540 handoff patch 1e).
+  const [rightPanel, setRightPanelStored] = usePersistedUiState<RightPanelTab | null>(
+    RIGHT_PANEL_KEY,
+    readRightPanel,
+    writeRightPanel,
   )
   const commandPaletteEnabled = useFeature('command-palette')
   const gitPanelEnabled = useFeature('git-panel')
@@ -266,8 +278,7 @@ function AppBody(): JSX.Element {
   }
   const setRightPanel = (panel: RightPanelTab | null): void => {
     if (!panelAllowed(panel)) return
-    setRightPanelState(panel)
-    uiState.set(RIGHT_PANEL_KEY, panel ?? '')
+    setRightPanelStored(panel)
     setSuperOpen(panel === 'superagent')
   }
 
@@ -285,8 +296,7 @@ function AppBody(): JSX.Element {
     if (superOpen === lastSuperOpen.current) return
     lastSuperOpen.current = superOpen
     if (superOpen) {
-      setRightPanelState('superagent')
-      uiState.set(RIGHT_PANEL_KEY, 'superagent')
+      setRightPanelStored('superagent')
       return
     }
     // superOpen going false only CLOSES the Superagent. Clearing the panel
@@ -294,9 +304,8 @@ function AppBody(): JSX.Element {
     // whenever you pick a different panel: the click that opened Task would set
     // superOpen false, and this effect would then close Task right back again.
     if (rightPanel !== 'superagent') return
-    setRightPanelState(null)
-    uiState.set(RIGHT_PANEL_KEY, '')
-  }, [superOpen, rightPanel, uiState])
+    setRightPanelStored(null)
+  }, [superOpen, rightPanel, setRightPanelStored])
 
   // Deep surfaces (the pane header's git stamp [POD-98]) ask for a dock panel
   // via a window event — the panel state is AppShell-local. A request for a
