@@ -189,6 +189,19 @@ also what proves `--continue` is doing its job — before it, the first one hid 
 `--continue=dependencies-successful` skipped the aggregate rather than letting the roster check
 report on a lane that did not finish. That is the intended behaviour, observed.
 
+### The @podium/scripts lane
+
+The guards live in `@podium/scripts`, so that lane was run whole:
+**48 files, 798 tests, 7 failures across 6 files.**
+
+All six files are named in POD-531 (*Bug: guardrail audits fail on main*), which documents 11
+failures across 7 files on a clean main checkout from registry/ledger drift —
+`rearch-audit`, `representation-audit`, `entity-id-audit`, `audit-god-objects`,
+`audit-durable-classes`, and `test-configuration`'s mobile `setupFiles` assertion. This run is a
+strict subset of that set: fewer failures, no new file. `scripts/server-test-shards.test.ts`
+passes, and the only failing case in `test-configuration.test.ts` is the pre-existing mobile
+one — both cases this change adds there pass.
+
 ### What the split costs
 
 Sharding turns two Vitest invocations into five. It does **not** duplicate per-file work: the
