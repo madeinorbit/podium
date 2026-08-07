@@ -362,9 +362,22 @@ export class SessionInbox {
     setTimeout(tick, READY_POLL_MS).unref?.()
   }
 
+  /**
+   * Type into a live AskUserQuestion menu.
+   *
+   * - Listed options: bare digit(s) (multi-select joins with commas + CR).
+   * - Free text: the native menu always has an Other entry after the agent
+   *   options. Digit `otherIndex` focuses its free-text field; after a short
+   *   settle we type the text and submit with CR. Free text must never land as
+   *   a raw chat send on top of an open menu.
+   * - Skip: Esc cancels the whole dialog ("User declined to answer questions").
+   */
   answerAskUserQuestion(input: {
     sessionId: SessionId
-    choices: { optionIndices: number[] }[]
+    choices?: Array<
+      { optionIndices: number[] } | { freeText: string; otherIndex: number }
+    >
+    skip?: boolean
     principal: InboxPrincipalReference
   }): { ok: boolean } {
     const session = this.deps.getSession(input.sessionId)
@@ -374,24 +387,66 @@ export class SessionInbox {
     if (!session || !ownerUserId || (session.status !== 'live' && session.status !== 'starting')) {
       return { ok: false }
     }
-    for (const choice of input.choices) {
-      const digits = choice.optionIndices.filter((n) => Number.isInteger(n) && n >= 1 && n <= 9)
-      if (digits.length === 0) continue
-      this.sendInput(
-        session,
-        digits.length === 1 ? String(digits[0]) : `${digits.join(',')}\r`,
-        'human',
-        input.principal.attribution,
-      )
+    const attribution = input.principal.attribution
+    if (input.skip) {
+      this.sendInput(session, '\x1b', 'human', attribution)
+    } else {
+      const choices = input.choices ?? []
+      // Option-only multi-question stays back-to-back (oracle-pinned). Free-text
+      // steps need a settle between digit → text → CR, and pace every step once
+      // any free-text is present so a later Other digit cannot race an earlier
+      // option digit into the same write window.
+      const paced = choices.some((c) => 'freeText' in c)
+      let delayMs = 0
+      for (const choice of choices) {
+        if ('freeText' in choice) {
+          const otherIndex = choice.otherIndex
+          if (!Number.isInteger(otherIndex) || otherIndex < 1 || otherIndex > 9) continue
+          // Digit focuses Other; text then CR submit. Delays match the
+          // interruptText / paste-then-CR settle the rest of the inbox uses —
+          // Ink needs a frame to move focus into the free-text field before
+          // characters land as the custom answer rather than menu digits.
+          this.scheduleInput(session, String(otherIndex), 'human', attribution, delayMs)
+          delayMs += SUBMIT_CR_DELAY_MS
+          this.scheduleInput(session, choice.freeText, 'human', attribution, delayMs)
+          delayMs += SUBMIT_CR_DELAY_MS
+          this.scheduleInput(session, '\r', 'human', attribution, delayMs)
+          delayMs += SUBMIT_CR_DELAY_MS
+          continue
+        }
+        const digits = choice.optionIndices.filter((n) => Number.isInteger(n) && n >= 1 && n <= 9)
+        if (digits.length === 0) continue
+        const payload = digits.length === 1 ? String(digits[0]) : `${digits.join(',')}\r`
+        this.scheduleInput(session, payload, 'human', attribution, delayMs)
+        if (paced) delayMs += SUBMIT_CR_DELAY_MS
+      }
     }
     // Answering the agent's question is always a person acting.
-    this.deps.prepareSend(input.sessionId, input.principal.attribution, 'answer', 'human')
+    this.deps.prepareSend(input.sessionId, attribution, 'answer', 'human')
     this.deps.attention.answered({
       ownerUserId,
       sessionId: input.sessionId,
-      attribution: input.principal.attribution,
+      attribution,
     })
     return { ok: true }
+  }
+
+  /** Send now, or after `delayMs` (unref'd so a pending free-text CR cannot keep the process up). */
+  private scheduleInput(
+    session: Session,
+    data: string,
+    inputOrigin: ObservationInputOrigin,
+    attribution: Attribution,
+    delayMs: number,
+  ): void {
+    if (delayMs <= 0) {
+      this.sendInput(session, data, inputOrigin, attribution)
+      return
+    }
+    setTimeout(
+      () => this.sendInput(session, data, inputOrigin, attribution),
+      delayMs,
+    ).unref?.()
   }
 
   stateChanged(input: {

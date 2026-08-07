@@ -49,6 +49,19 @@ function splitRecommendation(label: string): { text: string; recommended: boolea
 /** The rail's tab name: the tool's short `header`, else a positional fallback. */
 const tabName = (q: AskQuestion, qi: number): string => q.header?.trim() || `Q${qi + 1}`
 
+/**
+ * What the card submits. Matches `sessions.answerAskUserQuestion`:
+ * option digits, free text via the native Other entry, or skip (Esc).
+ * Who answered is never on the payload — the authority stamps it.
+ */
+export type AskUserQuestionAnswer =
+  | { skip: true }
+  | {
+      choices: Array<
+        { optionIndices: number[] } | { freeText: string; otherIndex: number }
+      >
+    }
+
 export function AskUserQuestionCard({
   block,
   cls,
@@ -60,7 +73,7 @@ export function AskUserQuestionCard({
   cls: string
   index: number
   livePending: boolean
-  onAnswer: (choices: { optionIndices: number[] }[]) => Promise<void>
+  onAnswer: (answer: AskUserQuestionAnswer) => Promise<void>
 }): JSX.Element {
   const { item } = block
   const questions: AskQuestion[] = parseAskQuestions(item.toolInputJson)
@@ -70,9 +83,11 @@ export function AskUserQuestionCard({
 
   // Local answer state for a live question. `picks[qi]` is the set of selected
   // 0-based option indices for question qi. Multi-select toggles; single-select
-  // replaces. Once submitted we lock the card and wait for the transcript to
-  // reconcile (which turns it back into a read-only highlight).
+  // replaces. `custom[qi]` is free text for that question (native Other path) —
+  // mutually exclusive with picks for the same question. Once submitted we lock
+  // the card and wait for the transcript to reconcile.
   const [picks, setPicks] = useState<Record<number, Set<number>>>({})
+  const [custom, setCustom] = useState<Record<number, string>>({})
   const [submitState, setSubmitState] = useState<'idle' | 'sending' | 'failed'>('idle')
   const [step, setStep] = useState(0)
   const optionsRef = useRef<HTMLDivElement | null>(null)
@@ -95,24 +110,55 @@ export function AskUserQuestionCard({
     setStep(qi)
   }
 
-  const answered = (qi: number) => (picks[qi]?.size ?? 0) > 0
+  const answered = (qi: number) =>
+    (picks[qi]?.size ?? 0) > 0 || (custom[qi]?.trim() ?? '') !== ''
   const allAnswered = questions.length > 0 && questions.every((_, qi) => answered(qi))
   const remaining = questions.filter((_, qi) => !answered(qi)).length
-  // A lone single-select commits on click like the native menu; every larger
-  // shape waits for an explicit press.
+  // A lone single-select commits on option click like the native menu; free text
+  // and every larger shape wait for an explicit press (or Enter in the box).
   const commitsOnClick = questions.length === 1 && !questions[0]?.multiSelect
   const current = questions[Math.min(step, Math.max(questions.length - 1, 0))]
   const currentIndex = Math.min(step, Math.max(questions.length - 1, 0))
 
-  const submit = async (next: Record<number, Set<number>>) => {
-    // One choice entry per question, in order, with 1-based option indices.
-    const choices = questions.map((_, qi) => ({
-      optionIndices: [...(next[qi] ?? new Set<number>())].sort((a, b) => a - b).map((oi) => oi + 1),
-    }))
-    if (choices.some((c) => c.optionIndices.length === 0)) return // not every question answered yet
+  const buildChoices = (
+    nextPicks: Record<number, Set<number>>,
+    nextCustom: Record<number, string>,
+  ): Extract<AskUserQuestionAnswer, { choices: unknown }>['choices'] | null => {
+    const choices: Extract<AskUserQuestionAnswer, { choices: unknown }>['choices'] = []
+    for (let qi = 0; qi < questions.length; qi++) {
+      const text = nextCustom[qi]?.trim() ?? ''
+      if (text !== '') {
+        choices.push({ freeText: text, otherIndex: (questions[qi]?.options.length ?? 0) + 1 })
+        continue
+      }
+      const indices = [...(nextPicks[qi] ?? new Set<number>())]
+        .sort((a, b) => a - b)
+        .map((oi) => oi + 1)
+      if (indices.length === 0) return null
+      choices.push({ optionIndices: indices })
+    }
+    return choices
+  }
+
+  const submit = async (
+    nextPicks: Record<number, Set<number>>,
+    nextCustom: Record<number, string> = custom,
+  ) => {
+    const choices = buildChoices(nextPicks, nextCustom)
+    if (!choices) return
     setSubmitState('sending')
     try {
-      await onAnswer(choices)
+      await onAnswer({ choices })
+    } catch {
+      setSubmitState('failed')
+    }
+  }
+
+  const skip = async () => {
+    if (locked) return
+    setSubmitState('sending')
+    try {
+      await onAnswer({ skip: true })
     } catch {
       setSubmitState('failed')
     }
@@ -130,16 +176,65 @@ export function AskUserQuestionCard({
       cur.add(oi)
     }
     const next = { ...picks, [qi]: cur }
+    // Picking a listed option clears free text for this question.
+    const nextCustom = { ...custom, [qi]: '' }
     setPicks(next)
+    setCustom(nextCustom)
     if (commitsOnClick) {
-      void submit(next)
+      void submit(next, nextCustom)
       return
     }
     // Several questions: step to the next one still waiting on an answer, and
     // stay put once they are all answered so the send press stays deliberate.
     if (!q.multiSelect && questions.length > 1) {
-      const nextOpen = questions.findIndex((_, i) => (next[i]?.size ?? 0) === 0)
+      const nextOpen = questions.findIndex(
+        (_, i) => (next[i]?.size ?? 0) === 0 && (nextCustom[i]?.trim() ?? '') === '',
+      )
       if (nextOpen !== -1 && nextOpen !== qi) goToStep(nextOpen)
+    }
+  }
+
+  const onCustomChange = (qi: number, value: string) => {
+    if (locked) return
+    setCustom({ ...custom, [qi]: value })
+    // Free text and listed picks are mutually exclusive per question.
+    if (value.trim() !== '' && (picks[qi]?.size ?? 0) > 0) {
+      setPicks({ ...picks, [qi]: new Set() })
+    }
+  }
+
+  const onCustomKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>, qi: number) => {
+    if (locked) return
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      // Read from the input, not closed-over state — change + Enter in one tick
+      // would otherwise see a stale empty string.
+      const text = e.currentTarget.value.trim()
+      if (text === '') return
+      const nextCustom = { ...custom, [qi]: text }
+      // Lone single-select: free text submits immediately on Enter.
+      if (commitsOnClick) {
+        void submit({ ...picks, [qi]: new Set() }, nextCustom)
+        return
+      }
+      // Multi-question: mark this one done and step forward, or send if last.
+      if (questions.length > 1) {
+        const nextOpen = questions.findIndex(
+          (_, i) => i !== qi && (picks[i]?.size ?? 0) === 0 && (nextCustom[i]?.trim() ?? '') === '',
+        )
+        if (nextOpen !== -1) {
+          setCustom(nextCustom)
+          goToStep(nextOpen)
+          return
+        }
+        if (questions.every((_, i) => (picks[i]?.size ?? 0) > 0 || (nextCustom[i]?.trim() ?? '') !== '')) {
+          void submit(picks, nextCustom)
+        }
+        return
+      }
+      // Multi-select lone question: Enter in the box does not send the set —
+      // the Send button is the commit (same as option toggles).
+      setCustom(nextCustom)
     }
   }
 
@@ -147,6 +242,8 @@ export function AskUserQuestionCard({
    *  is literally digits typed into a menu, so the keys are the honest route. */
   const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
     if (locked || !current) return
+    // Don't steal keys while the free-text box is focused.
+    if ((e.target as HTMLElement | null)?.tagName === 'INPUT') return
     const buttons = () => [...(optionsRef.current?.querySelectorAll('button[role]') ?? [])]
     if (/^[1-9]$/.test(e.key)) {
       const oi = Number(e.key) - 1
@@ -168,7 +265,11 @@ export function AskUserQuestionCard({
     }
     if (e.key === 'Enter' && !commitsOnClick && allAnswered) {
       e.preventDefault()
-      void submit(picks)
+      void submit(picks, custom)
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      void skip()
     }
   }
 
@@ -404,6 +505,33 @@ export function AskUserQuestionCard({
                   )
                 })}
               </div>
+
+              {/* Free-text escape (native Other). Only on the open live question —
+                  Claude's own AskUserQuestion always offers this; do not add it
+                  to the option list. */}
+              {livePending && !readOnly && (
+                <div className="mt-1.5">
+                  <label className="sr-only" htmlFor={`ask-free-${index}-${qi}`}>
+                    Or type your own answer
+                  </label>
+                  <input
+                    id={`ask-free-${index}-${qi}`}
+                    data-testid="ask-free-text"
+                    type="text"
+                    disabled={locked}
+                    value={custom[qi] ?? ''}
+                    placeholder="Or type your own answer…"
+                    onChange={(e) => onCustomChange(qi, e.target.value)}
+                    onKeyDown={(e) => onCustomKeyDown(e, qi)}
+                    className={cn(
+                      'h-[28px] w-full rounded-[7px] border border-border bg-transparent px-2.5',
+                      'text-[12.5px] text-foreground placeholder:text-muted-foreground/60',
+                      'outline-none transition-colors focus:border-primary/50',
+                      locked && 'cursor-default opacity-40',
+                    )}
+                  />
+                </div>
+              )}
             </div>
           )
         })}
@@ -416,20 +544,42 @@ export function AskUserQuestionCard({
               type="button"
               disabled={locked || !allAnswered}
               aria-busy={submitState === 'sending' || undefined}
-              onClick={() => void submit(picks)}
+              onClick={() => void submit(picks, custom)}
               className="h-[26px] rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-85 disabled:cursor-default disabled:opacity-40"
             >
               {questions.length > 1 ? 'Send answers' : 'Send answer'}
             </button>
+            <button
+              data-pressable
+              type="button"
+              data-testid="ask-skip"
+              disabled={locked}
+              onClick={() => void skip()}
+              className="h-[26px] rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground disabled:cursor-default disabled:opacity-40"
+            >
+              Skip
+            </button>
             <span className="font-mono text-[9px] tracking-[0.05em] text-muted-foreground/70">
               {questions.length > 1 && remaining > 0 ? `${remaining} left · ` : ''}
-              {current?.multiSelect ? 'digits toggle' : 'digits choose'} · ↵ send
+              {current?.multiSelect ? 'digits toggle' : 'digits choose'} · ↵ send · esc skip
             </span>
           </div>
         )}
         {livePending && commitsOnClick && (
-          <div className="mt-2 font-mono text-[9px] tracking-[0.05em] text-muted-foreground/70">
-            digits choose · ↑↓ move
+          <div className="mt-2 flex items-center gap-2.5">
+            <button
+              data-pressable
+              type="button"
+              data-testid="ask-skip"
+              disabled={locked}
+              onClick={() => void skip()}
+              className="h-[26px] rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground disabled:cursor-default disabled:opacity-40"
+            >
+              Skip
+            </button>
+            <span className="font-mono text-[9px] tracking-[0.05em] text-muted-foreground/70">
+              digits choose · ↑↓ move · ↵ free text · esc skip
+            </span>
           </div>
         )}
       </div>

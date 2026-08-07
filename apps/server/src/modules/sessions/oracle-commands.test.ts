@@ -15,7 +15,7 @@ import { attachTestClient } from '../../test-support/client-transport'
 import type { SessionId } from '@podium/model'
 import { asSessionId, SOLE_USER_ID } from '@podium/model'
 import { type ControlMessage, type ServerMessage, WIRE_VERSION } from '@podium/protocol'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   disposeOracles,
   MUST_NOT_CHANGE,
@@ -438,6 +438,55 @@ describe('oracle: answerAskUserQuestion', () => {
       await o.call.sessions.answerAskUserQuestion({ sessionId, choices: [{ optionIndices: [1] }] }),
     ).toEqual({ ok: false })
     expect(inputs(o.daemon)).toEqual([])
+  })
+
+  it('free-text via Other types otherIndex, then text, then CR (after settle)', async () => {
+    vi.useFakeTimers()
+    try {
+      const o = makeOracle()
+      const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+      goLive(o, sessionId)
+      o.daemon.length = 0
+
+      expect(
+        await o.call.sessions.answerAskUserQuestion({
+          sessionId,
+          choices: [{ freeText: 'ship the long path', otherIndex: 3 }],
+        }),
+      ).toEqual({ ok: true })
+
+      // Digit lands immediately so Other focuses before any free-text bytes.
+      expect(inputs(o.daemon).map((m) => Buffer.from(m.data, 'base64').toString())).toEqual(['3'])
+      expect(inputs(o.daemon).map((m) => m.inputOrigin)).toEqual(['human'])
+
+      await vi.advanceTimersByTimeAsync(90)
+      expect(inputs(o.daemon).map((m) => Buffer.from(m.data, 'base64').toString())).toEqual([
+        '3',
+        'ship the long path',
+      ])
+
+      await vi.advanceTimersByTimeAsync(90)
+      expect(inputs(o.daemon).map((m) => Buffer.from(m.data, 'base64').toString())).toEqual([
+        '3',
+        'ship the long path',
+        '\r',
+      ])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('skip types a bare Esc and nothing else', async () => {
+    const o = makeOracle()
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+    goLive(o, sessionId)
+    o.daemon.length = 0
+
+    expect(await o.call.sessions.answerAskUserQuestion({ sessionId, skip: true })).toEqual({
+      ok: true,
+    })
+    expect(inputs(o.daemon).map((m) => Buffer.from(m.data, 'base64').toString())).toEqual(['\x1b'])
+    expect(inputs(o.daemon).map((m) => m.inputOrigin)).toEqual(['human'])
   })
 })
 

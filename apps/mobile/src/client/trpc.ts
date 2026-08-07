@@ -40,7 +40,10 @@ interface MobileTrpcExtras {
     sendText: MutationProcedure<{ sessionId: SessionId; text: string; mutationId?: string }>
     answerAskUserQuestion: MutationProcedure<{
       sessionId: SessionId
-      choices: { optionIndices: number[] }[]
+      skip?: true
+      choices?: Array<
+        { optionIndices: number[] } | { freeText: string; otherIndex: number }
+      >
     }>
   }
   superagent: {

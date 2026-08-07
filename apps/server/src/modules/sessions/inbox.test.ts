@@ -207,4 +207,62 @@ describe('SessionInbox authorization and identity', () => {
       },
     ])
   })
+
+  it('skip sends Esc and still records which human answered', () => {
+    const h = harness()
+    const principal = agentPrincipal()
+
+    expect(
+      h.inbox.answerAskUserQuestion({
+        sessionId: SID,
+        skip: true,
+        principal,
+      }),
+    ).toEqual({ ok: true })
+
+    expect(h.sent).toEqual([
+      expect.objectContaining({
+        type: 'input',
+        data: Buffer.from('\x1b').toString('base64'),
+        attribution: principal.attribution,
+      }),
+    ])
+    expect(h.answered).toEqual([
+      {
+        ownerUserId: ALICE,
+        sessionId: SID,
+        attribution: principal.attribution,
+      },
+    ])
+  })
+
+  it('free-text via Other schedules digit, then text, then CR', async () => {
+    vi.useFakeTimers()
+    try {
+      const h = harness()
+      const principal = agentPrincipal()
+
+      expect(
+        h.inbox.answerAskUserQuestion({
+          sessionId: SID,
+          choices: [{ freeText: 'custom', otherIndex: 3 }],
+          principal,
+        }),
+      ).toEqual({ ok: true })
+
+      const decoded = () =>
+        h.sent.map((m) =>
+          Buffer.from((m as { data: string }).data, 'base64').toString(),
+        )
+
+      expect(decoded()).toEqual(['3'])
+      await vi.advanceTimersByTimeAsync(90)
+      expect(decoded()).toEqual(['3', 'custom'])
+      await vi.advanceTimersByTimeAsync(90)
+      expect(decoded()).toEqual(['3', 'custom', '\r'])
+      expect(h.answered).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

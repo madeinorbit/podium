@@ -28,7 +28,10 @@ export interface AnswerDeliveryDeps {
   sessions: {
     answerAskUserQuestion(input: {
       sessionId: SessionId
-      choices: { optionIndices: number[] }[]
+      choices?: Array<
+        { optionIndices: number[] } | { freeText: string; otherIndex: number }
+      >
+      skip?: boolean
       principal: InboxPrincipalReference
     }): {
       ok: boolean

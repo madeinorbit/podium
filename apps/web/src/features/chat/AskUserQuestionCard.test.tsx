@@ -1,4 +1,5 @@
 import type { TranscriptItem } from '@podium/model'
+import { fireEvent } from '@testing-library/react'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -73,7 +74,7 @@ describe('AskUserQuestionCard', () => {
     )
     expect(sendButton()).toBeUndefined()
     await act(async () => options()[1]?.click())
-    expect(onAnswer).toHaveBeenCalledWith([{ optionIndices: [2] }])
+    expect(onAnswer).toHaveBeenCalledWith({ choices: [{ optionIndices: [2] }] })
   })
 
   it('opens one question at a time and steps to the next unanswered one', async () => {
@@ -109,11 +110,9 @@ describe('AskUserQuestionCard', () => {
     const send = sendButton()
     expect(send?.disabled).toBe(false)
     await act(async () => send?.click())
-    expect(onAnswer).toHaveBeenCalledWith([
-      { optionIndices: [1] },
-      { optionIndices: [2] },
-      { optionIndices: [1] },
-    ])
+    expect(onAnswer).toHaveBeenCalledWith({
+      choices: [{ optionIndices: [1] }, { optionIndices: [2] }, { optionIndices: [1] }],
+    })
   })
 
   it('keeps the send button disabled while a question is unanswered', async () => {
@@ -154,7 +153,51 @@ describe('AskUserQuestionCard', () => {
     await act(async () => options()[2]?.click())
     expect(onAnswer).not.toHaveBeenCalled()
     await act(async () => sendButton()?.click())
-    expect(onAnswer).toHaveBeenCalledWith([{ optionIndices: [1, 3] }])
+    expect(onAnswer).toHaveBeenCalledWith({ choices: [{ optionIndices: [1, 3] }] })
+  })
+
+  it('submits free text via Other with otherIndex = optionCount + 1', async () => {
+    const onAnswer = vi.fn(async () => {})
+    act(() =>
+      root.render(
+        <AskUserQuestionCard
+          block={ask([{ question: 'Ship?', options: [{ label: 'Yes' }, { label: 'No' }] }])}
+          cls=""
+          index={0}
+          livePending
+          onAnswer={onAnswer}
+        />,
+      ),
+    )
+    const input = container.querySelector<HTMLInputElement>('[data-testid="ask-free-text"]')
+    expect(input).toBeTruthy()
+    await act(async () => {
+      if (!input) return
+      fireEvent.change(input, { target: { value: 'ship the long path' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+    })
+    expect(onAnswer).toHaveBeenCalledWith({
+      choices: [{ freeText: 'ship the long path', otherIndex: 3 }],
+    })
+  })
+
+  it('Skip submits { skip: true }', async () => {
+    const onAnswer = vi.fn(async () => {})
+    act(() =>
+      root.render(
+        <AskUserQuestionCard
+          block={ask([{ question: 'Ship?', options: [{ label: 'Yes' }, { label: 'No' }] }])}
+          cls=""
+          index={0}
+          livePending
+          onAnswer={onAnswer}
+        />,
+      ),
+    )
+    const skip = container.querySelector<HTMLButtonElement>('[data-testid="ask-skip"]')
+    expect(skip).toBeTruthy()
+    await act(async () => skip?.click())
+    expect(onAnswer).toHaveBeenCalledWith({ skip: true })
   })
 
   it('lifts "(Recommended)" out of the label into its own chip', () => {
