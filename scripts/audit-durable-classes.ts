@@ -416,7 +416,16 @@ export const DURABLE_STORES: readonly DurableStore[] = [
     row: null,
     notEntityState:
       'The database FILE itself, which is the container for the drizzle tables above rather than a class of its own. Classifying the container as well as its contents would give two answers to every question about one row; the contents are what this inventory enumerates.',
-    writeSites: ['apps/server/src/store.ts', 'apps/server/src/migrations/index.ts'],
+    // `store-database.ts` is the SessionStore open seam extracted at POD-523 so
+    // tests can hand back a pre-migrated image: production path is still
+    // `openDatabase`, so the open itself is a write of this container. `store.ts`
+    // still creates the parent directory and owns the SessionStore; the seam
+    // only decides which opener runs.
+    writeSites: [
+      'apps/server/src/store.ts',
+      'apps/server/src/store-database.ts',
+      'apps/server/src/migrations/index.ts',
+    ],
   },
 ]
 

@@ -575,10 +575,16 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
   {
     file: 'apps/server/src/store/issues.ts',
     kind: 'operation-surface',
-    budget: 1000,
-    review: 'POD-1385',
+    // Raised from 1000 at POD-585 after POD-1653's cwd projection and POD-568's
+    // finished-work projection each added one narrow SELECT the hot paths used
+    // to answer with full-row mapping. Growth is more of the same independent
+    // queries over the issues aggregate, still zero owned state; budget is ~100
+    // lines of headroom above the measured 1002 so a neighbouring projection
+    // does not force an immediate re-review.
+    budget: 1100,
+    review: 'POD-1385 / POD-585 (re-review after POD-1653 + POD-568 projections)',
     argument:
-      'The issues aggregate: the `issues` table and its child tables (`issue_labels`, `issue_deps`, `issue_comments`, `issue_messages`) behind 39 query methods and zero fields. A repository with no state cannot be a god of anything — its length is the number of queries the aggregate answers. Splitting by child table would put a single aggregate transaction across several objects, which is the one thing an aggregate boundary exists to prevent.',
+      'The issues aggregate: the `issues` table and its child tables (`issue_labels`, `issue_deps`, `issue_comments`, `issue_messages`) behind ~39 public query methods and zero fields. A repository with no state cannot be a god of anything — its length is the number of queries the aggregate answers. The two methods that crossed the prior budget (listIssueCwdRows, closedIssueIds) are deliberately narrow projections of the same table, not a second job: each exists so a hot path can avoid SELECT * plus mapIssueRow, and each would be wrong if owned elsewhere because the column set and the closedness predicate are issue-aggregate facts. Splitting by child table would put a single aggregate transaction across several objects, which is the one thing an aggregate boundary exists to prevent.',
   },
   {
     file: 'apps/server/src/store/messages.ts',
@@ -639,10 +645,15 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
   {
     file: 'apps/server/src/server.ts',
     kind: 'operation-surface',
-    budget: 800,
-    review: 'POD-1385',
+    // Raised from 800 at POD-585 after POD-1670's artifact/version/update route
+    // surface and POD-541's crossOriginIsolated mobile static options grew the
+    // file two lines past the prior pin. Growth is more independent route
+    // registration inside the same startup, still zero owned state; budget is
+    // ~100 lines of headroom above the measured 802.
+    budget: 900,
+    review: 'POD-1385 / POD-585 (re-review after POD-1670 routes + POD-541 mobile COOP)',
     argument:
-      'HTTP server startup: bind-host resolution, port-in-use classification, route registration and the returned handle. 21 short functions, no owned state, longest 77 lines. Its length comes from the number of routes the server registers, and each registration is independently readable. Splitting route registration from lifecycle would separate `startServer` from the routes whose failures it must classify and report through `PortInUseError`.',
+      'HTTP server startup: bind-host resolution, port-in-use classification, route registration and the returned handle. A handful of short helpers plus one `startServer` that wires every surface the process exposes, no owned state. Its length comes from the number of routes the server registers (auth, setup, files, artifacts, MCP, tRPC, maintenance, version, mobile/web static, the local-daemon link), and each registration is independently readable. Splitting route registration from lifecycle would separate `startServer` from the routes whose failures it must classify and report through `PortInUseError`.',
   },
   {
     file: 'apps/server/src/modules/settings/service.ts',
