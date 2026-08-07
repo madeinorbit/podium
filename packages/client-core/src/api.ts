@@ -93,6 +93,8 @@ export interface PodiumClientApi {
         issueId?: string
         draftIssue?: { repoPath: string; issueId?: string }
         machineId?: string
+        /** First prompt; argv harnesses get it on launch (POD-549). */
+        initialPrompt?: string
         mutationId?: string
       },
       { sessionId: SessionId }
