@@ -8,7 +8,7 @@
  */
 
 import type { TransportTag } from '@podium/commands'
-import { ArtifactIdField, IssueIdField, SessionIdField } from '@podium/model'
+import { ArtifactIdField, IssueIdField, MachineIdField, SessionIdField } from '@podium/model'
 import type { FileReadResultMessage } from '@podium/protocol'
 import { z } from 'zod'
 import { PathIndex, rankPaths } from './path-search'
@@ -36,7 +36,7 @@ export const FILE_QUERIES = {
     z.union([
       z.object({ sessionId: SessionIdField, path: z.string() }),
       z.object({ issueId: IssueIdField, artifactId: ArtifactIdField, path: z.string() }),
-      z.object({ machineId: z.string().optional(), root: z.string(), path: z.string() }),
+      z.object({ machineId: MachineIdField.optional(), root: z.string(), path: z.string() }),
     ]),
     async (state, input): Promise<Omit<FileReadResultMessage, 'type' | 'requestId'>> => {
       // Artifact snapshots ([spec:SP-0fc9] #441) serve from the server-local
@@ -55,7 +55,7 @@ export const FILE_QUERIES = {
   ),
   list: query(
     z.object({
-      machineId: z.string().optional(),
+      machineId: MachineIdField.optional(),
       root: z.string(),
       path: z.string().optional(),
     }),
@@ -80,7 +80,7 @@ export const FILE_QUERIES = {
    */
   search: query(
     z.object({
-      machineId: z.string().optional(),
+      machineId: MachineIdField.optional(),
       root: z.string(),
       query: z.string().max(256).default(''),
       limit: z.number().int().positive().max(50).default(10),

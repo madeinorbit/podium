@@ -562,10 +562,15 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
   {
     file: 'apps/server/src/modules/machines/rpc.ts',
     kind: 'operation-surface',
-    budget: 1000,
-    review: 'POD-1385',
+    // Raised from 1000 at POD-531 after 7c59af7dd added the five server-transfer
+    // round-trips (prepare/chunk/validate/promote/abort). Growth is more of the
+    // same independent calls, still zero owned state; budget is ~80 lines of
+    // headroom above the measured 1120 so a neighbouring additive RPC does not
+    // force an immediate re-review.
+    budget: 1200,
+    review: 'POD-1385 / POD-531',
     argument:
-      'Every server-to-daemon round-trip as an ordinary awaited method, and nothing else: it owns NO correlation state at all — the twenty-three pending maps it used to hold are one shared registry in `modules/daemon-request.ts` since that decomposition already happened. What is left is 38 independent calls, each naming which control message it builds, which machine it targets and what a timeout means for that caller. There is no shared state for any subset of them to entangle through, so no subset can be lifted out and mean anything on its own.',
+      'Every server-to-daemon round-trip as an ordinary awaited method, and nothing else: it owns NO correlation state at all — the twenty-three pending maps it used to hold are one shared registry in `modules/daemon-request.ts` since that decomposition already happened. What is left is independent calls (including the five server-transfer ops landed in 7c59af7dd), each naming which control message it builds, which machine it targets and what a timeout means for that caller. There is no shared state for any subset of them to entangle through, so no subset can be lifted out and mean anything on its own.',
   },
   {
     file: 'apps/server/src/store/issues.ts',

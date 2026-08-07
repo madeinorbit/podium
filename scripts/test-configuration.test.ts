@@ -100,13 +100,19 @@ describe('test lane configuration', () => {
   })
 
   it('keeps web and mobile on the shared Vitest hardening', () => {
+    expect(config(webConfig).test?.setupFiles, 'web lost hermetic setup files').toEqual(
+      sharedSetupFiles,
+    )
+    // Mobile keeps the shared hermetic pair and adds `one-react.ts` last so a
+    // dual-React checkout fails with a message that names the fix (3c11c8f43).
+    expect(config(mobileConfig).test?.setupFiles, 'mobile lost hermetic setup files').toEqual([
+      ...sharedSetupFiles,
+      fileURLToPath(new URL('../apps/mobile/test/one-react.ts', import.meta.url)),
+    ])
     for (const [name, appConfig] of [
       ['web', webConfig],
       ['mobile', mobileConfig],
     ] as const) {
-      expect(config(appConfig).test?.setupFiles, `${name} lost hermetic setup files`).toEqual(
-        sharedSetupFiles,
-      )
       expect(config(appConfig).test?.testTimeout, `${name} lost the shared timeout`).toBe(
         sharedVitestConfig.test.testTimeout,
       )
