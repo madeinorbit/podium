@@ -31,7 +31,7 @@
   },
   "dependencies": {
     "@podium/model": "workspace:*",
-    "zod": "^3.24.0"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "tsup": "^8.5.1",
