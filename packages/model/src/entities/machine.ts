@@ -48,7 +48,7 @@
  *
  * | Slice | Marker | Schemas |
  * |---|---|---|
- * | existence / health / attribution | `SEE` | {@link MachineWire} minus `inventory`, {@link HostMetricsWire}, {@link HostMemoryWire} |
+ * | existence / health / attribution | `SEE` | {@link MachineWire} minus `inventory`, {@link HostMetricsWire}, {@link HostMemoryWire}, {@link HostLoadWire} |
  * | use-gated detail | `USE` | {@link Inventory} (+ {@link AgentInventory}, {@link ToolInventory}), {@link AgentMemoryWire}, {@link ProjectMemoryWire}, {@link UsageBucketWire}, {@link QuotaWindowWire}, {@link AgentQuotaWire}, {@link MachineQuotaWire}, {@link GitRepositoryWire}, {@link GitWorktreeWire}, {@link GitDiscoveryDiagnosticWire}, {@link DirectoryEntryWire}, {@link DirectoryListingWire} |
  *
  * **This is a partition, NOT a policy.** §3.1.2 deliberately leaves open which
@@ -182,6 +182,21 @@ export const HostMemoryWire = z.object({
 })
 export type HostMemoryWire = z.infer<typeof HostMemoryWire>
 
+/**
+ * `SEE` — pure health/liveness. Kernel load averages plus logical core count so
+ * clients and the server can form load-per-core without a second sample.
+ * Optional on the metrics frame: a daemon predating the field must keep parsing.
+ * macOS loadavg has different semantics (runnable + uninterruptible wait) but is
+ * still directionally right for pressure.
+ */
+export const HostLoadWire = z.object({
+  one: z.number().nonnegative(),
+  five: z.number().nonnegative(),
+  fifteen: z.number().nonnegative(),
+  cpuCount: z.number().int().positive(),
+})
+export type HostLoadWire = z.infer<typeof HostLoadWire>
+
 /** `SEE` — health/liveness sample, plus the machine identity it is about. */
 export const HostMetricsWire = z.object({
   hostname: z.string(),
@@ -189,6 +204,8 @@ export const HostMetricsWire = z.object({
   name: z.string().optional(), // server-filled before broadcast
   sampledAt: z.string(), // ISO 8601
   memory: HostMemoryWire,
+  /** Kernel load averages + core count. Optional for mixed-version fleets. */
+  load: HostLoadWire.optional(),
   /** Protected/ineligible idle-live sessions above the convergence target.
    *  ON THE §3.1.2 OPEN BOUNDARY: this is a session COUNT, and whether counts
    *  are an existence leak is deliberately undecided. Marked `SEE` because it is

@@ -36,7 +36,7 @@ import { ensurePodiumGrokHooks } from './grok-hooks'
 import { sweepHandoffStage } from './handoff-package'
 import type { HeadlessTurnHandle } from './headless-drivers.js'
 import { startHookIngest } from './hook-ingest'
-import { sampleHostMemory } from './host-metrics'
+import { sampleHostLoad, sampleHostMemory } from './host-metrics'
 import { loadIdentity } from './identity'
 import type { DaemonInstanceBootstrap } from './instance-bootstrap'
 import { reportLongTick, startLoopAttribution } from './loop-attribution'
@@ -375,6 +375,7 @@ export async function createDaemonHostRuntime(args: {
       hostname: hostname(),
       sampledAt: new Date().toISOString(),
       memory: sampleHostMemory(),
+      load: sampleHostLoad(),
     })
   }
 

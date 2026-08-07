@@ -81,7 +81,7 @@ export interface HostsDeps {
 
 /**
  * Host health: the latest per-machine metrics sample, its client fan-out, the
- * memory-pressure auto-hibernate sweep, and the memory-breakdown daemon RPC
+ * memory/load/count auto-hibernate sweep, and the memory-breakdown daemon RPC
  * (issue #13 Phase 2 — peeled off SessionRegistry).
  */
 export class HostsService {
@@ -136,7 +136,12 @@ export class HostsService {
     for (const c of this.deps.clients()) c.send(msg)
   }
 
-  /** Apply memory and idle-count pressure independently [spec:SP-c29e].
+  /** Apply memory, load, and idle-count pressure independently [spec:SP-c29e].
+   *
+   *  Memory and load share one per-machine cooldown map (one resource park per
+   *  cooldown window); count pressure keeps its own token bucket. Each branch
+   *  parks at most one session per sample over the same candidate pool and
+   *  safety gates — N independent pressure sources, not a redesign.
    *
    *  `machineId` is a PARAMETER, not `sample.machineId`: the reporting machine is a
    *  fact of the authenticated frame this sample arrived on, and the wire field is
@@ -178,6 +183,38 @@ export class HostsService {
         this.lastAutoHibernateMsByMachine.set(machineId, now)
         console.info(
           `[podium] memory ${usedPct.toFixed(0)}% on ${sample.hostname} ≥ ${cfg.memoryPct}% — hibernating idle session ${target.sessionId}`,
+        )
+        break
+      }
+    }
+
+    // Load uses load1 (not load5): a day-long pin leaves load5 high long after
+    // the fleet drains and would over-park during recovery. loadPerCore null = off.
+    // Re-read the shared cooldown after the memory branch so dual pressure parks once.
+    const load = sample.load
+    const loadPerCore =
+      load && load.cpuCount > 0 ? load.one / load.cpuCount : undefined
+    const loadReady =
+      cfg.loadPerCore !== null &&
+      loadPerCore !== undefined &&
+      loadPerCore >= cfg.loadPerCore &&
+      now - (this.lastAutoHibernateMsByMachine.get(machineId) ?? 0) >= MEMORY_HIBERNATE_COOLDOWN_MS
+
+    if (loadReady) {
+      while (true) {
+        const target = this.eligibleCandidates(machineId, cfg.idleMinutes, now, failed)[0]
+        if (!target) break
+        const result = this.deps.hibernateSession({
+          sessionId: target.sessionId,
+          requireTerminalProof: true,
+        })
+        if (!result.ok) {
+          failed.add(target.sessionId)
+          continue
+        }
+        this.lastAutoHibernateMsByMachine.set(machineId, now)
+        console.info(
+          `[podium] load ${loadPerCore.toFixed(2)}×/core on ${sample.hostname} ≥ ${cfg.loadPerCore}× — hibernating idle session ${target.sessionId}`,
         )
         break
       }

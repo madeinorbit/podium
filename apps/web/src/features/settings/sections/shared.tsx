@@ -142,6 +142,12 @@ export function clampInt(raw: string, min: number, max: number, fallback: number
   return Math.min(max, Math.max(min, n))
 }
 
+export function clampNumber(raw: string, min: number, max: number, fallback: number): number {
+  const n = Number.parseFloat(raw)
+  if (Number.isNaN(n)) return fallback
+  return Math.min(max, Math.max(min, n))
+}
+
 const NATIVE_HARNESSES: { harness: HarnessAgent; label: string }[] = [
   { harness: 'claude-code', label: 'Claude Code' },
   { harness: 'codex', label: 'Codex (ChatGPT)' },

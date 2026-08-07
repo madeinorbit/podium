@@ -119,6 +119,13 @@ describe('normalizeSettings — idle-session target', () => {
       normalizeSettings({ hibernation: { maxIdleSessions: null } }).hibernation.maxIdleSessions,
     ).toBeNull()
   })
+
+  it('defaults loadPerCore to 1.5 and preserves explicit off', () => {
+    expect(normalizeSettings({}).hibernation.loadPerCore).toBe(1.5)
+    expect(
+      normalizeSettings({ hibernation: { loadPerCore: null } }).hibernation.loadPerCore,
+    ).toBeNull()
+  })
 })
 
 describe('normalizeSettings — legacy → roles migration', () => {

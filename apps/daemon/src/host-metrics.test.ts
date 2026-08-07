@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseMeminfo, sampleHostMemory } from './host-metrics'
+import { parseMeminfo, sampleHostLoad, sampleHostMemory } from './host-metrics'
 
 const MEMINFO = `MemTotal:       24608580 kB
 MemFree:         1360324 kB
@@ -49,5 +49,15 @@ describe('sampleHostMemory', () => {
     const m = sampleHostMemory('/nonexistent/meminfo')
     expect(m.totalBytes).toBeGreaterThan(0)
     expect(m.swapTotalBytes).toBe(0)
+  })
+})
+
+describe('sampleHostLoad', () => {
+  it('produces non-negative averages and at least one core', () => {
+    const load = sampleHostLoad()
+    expect(load.one).toBeGreaterThanOrEqual(0)
+    expect(load.five).toBeGreaterThanOrEqual(0)
+    expect(load.fifteen).toBeGreaterThanOrEqual(0)
+    expect(load.cpuCount).toBeGreaterThanOrEqual(1)
   })
 })

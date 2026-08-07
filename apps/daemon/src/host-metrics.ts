@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
-import { freemem, totalmem } from 'node:os'
-import type { HostMemoryWire } from '@podium/model'
+import { cpus, freemem, loadavg, totalmem } from 'node:os'
+import type { HostLoadWire, HostMemoryWire } from '@podium/model'
 
 const MEMINFO_PATH = '/proc/meminfo'
 
@@ -40,4 +40,22 @@ export function sampleHostMemory(meminfoPath: string = MEMINFO_PATH): HostMemory
     // fall through to the os fallback
   }
   return { totalBytes: totalmem(), availableBytes: freemem(), swapTotalBytes: 0, swapFreeBytes: 0 }
+}
+
+/**
+ * Kernel load averages + logical core count for the host-metrics heartbeat.
+ * Policy and UI form load-per-core from load1 / cpuCount (never load5 — a
+ * day-long pin leaves load5 high long after the fleet drains). On Windows
+ * loadavg is [0,0,0]; still schema-valid and directionally inert.
+ */
+export function sampleHostLoad(): HostLoadWire {
+  const [one = 0, five = 0, fifteen = 0] = loadavg()
+  // At least one core so load-per-core never divides by zero on a pathological
+  // report; real hosts always have ≥1.
+  return {
+    one,
+    five,
+    fifteen,
+    cpuCount: Math.max(1, cpus().length),
+  }
 }

@@ -28,7 +28,10 @@ function session(sessionId: SessionId, overrides: Partial<HostSessionView> = {})
   }
 }
 
-function sample(usedPct: number): Omit<HostMetricsWire, 'machineId' | 'name'> {
+function sample(
+  usedPct: number,
+  load?: { one: number; cpuCount: number },
+): Omit<HostMetricsWire, 'machineId' | 'name'> {
   return {
     hostname: 'box',
     sampledAt: new Date(Date.now()).toISOString(),
@@ -38,6 +41,16 @@ function sample(usedPct: number): Omit<HostMetricsWire, 'machineId' | 'name'> {
       swapTotalBytes: 0,
       swapFreeBytes: 0,
     },
+    ...(load
+      ? {
+          load: {
+            one: load.one,
+            five: load.one,
+            fifteen: load.one,
+            cpuCount: load.cpuCount,
+          },
+        }
+      : {}),
   }
 }
 
@@ -45,6 +58,7 @@ function harness(input: {
   sessions: HostSessionView[]
   maxIdleSessions: number | null
   enabled?: boolean
+  loadPerCore?: number | null
   fail?: Set<string>
   proven?: Set<string>
 }) {
@@ -54,6 +68,7 @@ function harness(input: {
       memoryPct: 80,
       idleMinutes: 30,
       maxIdleSessions: input.maxIdleSessions,
+      ...(input.loadPerCore !== undefined ? { loadPerCore: input.loadPerCore } : {}),
     },
   })
   const parked: string[] = []
@@ -162,6 +177,67 @@ describe('idle-session cap', () => {
     service.onHostMetrics(asMachineId('local'), sample(90))
 
     expect(parked).toEqual(['one'])
+  })
+
+  it('hibernates for load pressure using load1/cores (not load5) at the default threshold', () => {
+    // POD-526-shaped host: load1 14 on 8 cores = 1.75× ≥ default 1.5×.
+    const sessions = [session(asSessionId('one')), session(asSessionId('two'))]
+    const { service, parked } = harness({ sessions, maxIdleSessions: 10 })
+
+    service.onHostMetrics(asMachineId('local'), sample(10, { one: 14, cpuCount: 8 }))
+
+    expect(parked).toEqual(['one'])
+  })
+
+  it('ignores load pressure when loadPerCore is null (off)', () => {
+    const sessions = [session(asSessionId('one'))]
+    const { service, parked } = harness({
+      sessions,
+      maxIdleSessions: null,
+      loadPerCore: null,
+    })
+
+    service.onHostMetrics(asMachineId('local'), sample(10, { one: 100, cpuCount: 1 }))
+
+    expect(parked).toEqual([])
+  })
+
+  it('ignores a sample with no load field (pre-field daemon)', () => {
+    const sessions = [session(asSessionId('one'))]
+    const { service, parked } = harness({ sessions, maxIdleSessions: null })
+
+    service.onHostMetrics(asMachineId('local'), sample(10))
+
+    expect(parked).toEqual([])
+  })
+
+  it('keeps load pressure independent of the count target and its limiter', () => {
+    const sessions = Array.from({ length: 6 }, (_, index) => session(asSessionId(`s${index}`)))
+    const { service, parked } = harness({ sessions, maxIdleSessions: 0 })
+
+    service.onHostMetrics(asMachineId('local'), sample(10))
+    expect(parked).toHaveLength(4)
+
+    // Count pressure has exhausted its burst, but load has its own budget
+    // (shared with memory via the per-machine cooldown map).
+    service.onHostMetrics(asMachineId('local'), sample(10, { one: 20, cpuCount: 8 }))
+    expect(parked).toHaveLength(5)
+  })
+
+  it('shares the memory cooldown map so dual pressure parks once per window', () => {
+    const sessions = [
+      session(asSessionId('first')),
+      session(asSessionId('second')),
+      session(asSessionId('third')),
+    ]
+    const { service, parked } = harness({ sessions, maxIdleSessions: null })
+
+    // Memory parks first and spends the shared cooldown; load must not double-park.
+    service.onHostMetrics(asMachineId('local'), sample(90, { one: 20, cpuCount: 8 }))
+    expect(parked).toEqual(['first'])
+
+    service.onHostMetrics(asMachineId('local'), sample(90, { one: 20, cpuCount: 8 }))
+    expect(parked).toEqual(['first'])
   })
 
   it('refuses legacy or unfenced sessions without a terminal proof', () => {

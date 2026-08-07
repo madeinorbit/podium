@@ -206,16 +206,24 @@ export type PersonalPreferences = z.infer<typeof PersonalPreferences>
  * Idle-session hibernation policy.
  *
  * INSTANCE, NOT PERSONAL, and this is the case the brief asks to be named rather
- * than defaulted. Every member is a MACHINE resource decision — a host memory
- * ceiling and a per-machine idle-live convergence target — and ADR 9 D3 rule 3
- * puts facts about a machine under the machine's scoping, which is not the
- * reader's. A per-user memory ceiling is not a preference that can be honoured:
- * the host has one amount of memory.
+ * than defaulted. Every member is a MACHINE resource decision — host memory and
+ * load ceilings plus a per-machine idle-live convergence target — and ADR 9 D3
+ * rule 3 puts facts about a machine under the machine's scoping, which is not
+ * the reader's. A per-user memory or load ceiling is not a preference that can
+ * be honoured: the host has one amount of memory and one run queue.
  */
 export const HibernationPolicy = z.object({
   enabled: z.boolean().default(true),
   /** Hibernate idle sessions once host memory use crosses this percentage. */
   memoryPct: z.number().int().min(50).max(95).default(80),
+  /**
+   * Hibernate idle sessions once load1 / cpuCount crosses this ratio.
+   * Null turns load pressure off. Default 1.5: the run queue is half again
+   * the core count, so every request is already waiting (POD-566 / POD-526).
+   * Policy uses load1, not load5 — a day-long pin leaves load5 high long after
+   * the fleet drains and would over-park during recovery.
+   */
+  loadPerCore: z.number().min(0.5).max(8).nullable().default(1.5),
   /** Per-machine idle-live convergence target [spec:SP-c29e]. Null is
    * unlimited; zero is valid and parks every session that passes the safety
    * gates.
