@@ -68,12 +68,49 @@ describe('POD-424 gate: the messages router is DERIVED, not hand-written', () =>
     }))
   }
 
+  /**
+   * Mail commands mounted on a DIFFERENT family's router, and why.
+   *
+   * `ask` is served as `sessions.ask` (router.ts) — POD-382 had given it a
+   * command-plane contract, POD-729 landed first with it cut over to the mail
+   * table, and the merge left the contract in `mail` while the procedure stayed
+   * on the session family. It is still built by `mailMutation('ask')`, so it is
+   * derived; it is simply derived somewhere else.
+   *
+   * Named rather than subtracted silently: a SECOND mail command going missing
+   * from this router must fail here, and it would not if the check were written
+   * as "the messages router serves some subset of the table".
+   */
+  const MOUNTED_ON_ANOTHER_ROUTER = ['ask']
+
+  /** Every mail command the contract table exposes on tRPC — the set the router
+   *  must serve, derived rather than remembered. */
+  function exposedOnTrpc(): string[] {
+    return Object.keys(MAIL_COMMANDS)
+      .filter(
+        (name) =>
+          MAIL_COMMANDS[name as keyof typeof MAIL_COMMANDS].contract.exposure.includes('trpc') &&
+          !MOUNTED_ON_ANOTHER_ROUTER.includes(name),
+      )
+      .sort()
+  }
+
   it('declares every procedure through the derivation helpers and none by hand', () => {
-    // The instrument says YES first: if this extraction were wrong (an empty
-    // slice, a block that stopped at the first nested brace) the assertions
-    // below would pass vacuously. Nine procedures is what the surface has.
+    // NON-VACUITY WITHOUT A CENSUS (POD-521). This used to read
+    // `expect(derived).toHaveLength(9)`, whose stated job was to prove the regex
+    // extraction had not silently matched nothing. Set equality against the
+    // contract table does that job AND a job the count could not: it closes the
+    // direction nothing asserted — a command exposed on tRPC in the table and
+    // served by NO router at all. A remembered `9` passes that case happily,
+    // and charges an edit to every legitimate command addition besides.
+    //
+    // Writing it this way is what surfaced `ask`: the count had never compared
+    // the two sets, so nothing recorded that one mail command is mounted on the
+    // session family's router. That is now stated above instead of invisible.
     const derived = derivedProcs()
-    expect(derived).toHaveLength(9)
+    expect(derived.map((d) => d.proc).sort()).toEqual(exposedOnTrpc())
+    // …and the set is really populated, so the equality is not two empties.
+    expect(derived.length).toBeGreaterThan(0)
     // Each key is served by the contract of the same name — a `show:
     // mailQuery('ledger')` would type-check and serve the wrong command.
     for (const d of derived) expect(d.proc).toBe(d.key)
@@ -89,7 +126,7 @@ describe('POD-424 gate: the messages router is DERIVED, not hand-written', () =>
 
   it('serves nothing the contract table does not expose on trpc', () => {
     const derived = derivedProcs()
-    expect(derived).toHaveLength(9)
+    expect(derived.length).toBeGreaterThan(0)
     for (const d of derived) {
       const contract = MAIL_COMMANDS[d.proc as keyof typeof MAIL_COMMANDS].contract
       expect(contract.exposure).toContain('trpc')
