@@ -638,3 +638,26 @@ census pins in the original profile, four more in one lane run nobody was auditi
 the `mail.ask`/`sessions.ask` contract split that set equality found on its first use. That is not
 a cleanup. It is the most reliably reproduced finding in this review, and the only one that keeps
 appearing without anyone looking for it.
+
+Two things about *where* that specimen lives finish the argument.
+
+It is inside POD-523's own clone-equals-chain fixture — written this week, by an agent in this
+chain, under review, by someone who had read this document. Every other instance in the list can
+be read as legacy: migration-era residue, census pins from cutovers that completed, debt to sweep
+once. That reading is wrong. The pattern reproduced in new work by a careful author with the
+argument against it in front of them, which makes it an active habit rather than a backlog. **The
+remedy is a guard, not a sweep** — an assertion that a literal total is never written beside an
+exact set check would have refused all seven, including the four nobody was looking for.
+
+And this review had the evidence on day one and misread it. Two of the three failures in the
+original profile were census pins going red *because someone had shipped correctly* — that is the
+failure mode, stated in the first measurement, in this document, under the heading "The three
+failures from this profile". What was missing was not data but weight: the pattern was filed by
+its runtime (near zero, therefore minor) when its significance was in its failure mode. Profiling
+for seconds is what found it, and profiling for seconds is why it was ranked last.
+
+That is the review's own mechanism-versus-file prior confirming itself from the inside. The two
+recommendations that failed were file claims; the one that keeps proving itself is a claim about
+what an assertion can express. A reader should take the prior as load-bearing rather than as a
+tidy sort applied after the fact — it was derived from three corrections and it correctly predicts
+which of the remaining recommendations to trust.
