@@ -162,7 +162,12 @@ export function SetupUnreachable({
               <RotateCw size={12} aria-hidden="true" />
               automatic retries exhausted
             </div>
-            <button className="podium-unreachable-button" type="button" onClick={onRetry}>
+            <button
+              data-pressable
+              className="podium-unreachable-button"
+              type="button"
+              onClick={onRetry}
+            >
               <span>Retry connection</span>
               <ArrowRight size={16} strokeWidth={2} aria-hidden="true" />
             </button>
