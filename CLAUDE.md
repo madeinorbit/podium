@@ -17,10 +17,16 @@ invalidate the cache automatically. If you have a concrete reason to distrust th
 cache, run `bun run typecheck -- --uncached-because="<reason>"`; bare `--force` is
 refused.
 
-`bun run test:web`, `test:mobile` and `test:cached` are cached the same way and follow
-the same no-forcing rule; every other `bun run test*` lane always executes for real.
-`Cached: N cached` / `>>> FULL TURBO` in turbo's summary is how you tell a hit from a
-miss. Details: AGENTS.md "Cached checks".
+The default test lane is cached the same way and follows the same no-forcing rule:
+`bun run test` (and `test:unit`, `test:web`, `test:mobile`, `test:cached`,
+`test:affected`) runs package-owned Turbo tasks. Every other `bun run test*` lane —
+integration, acceptance, e2e, browser, multi-instance, agent-smoke, bun — always executes
+for real. `Cached: N cached` / `>>> FULL TURBO` in turbo's summary is how you tell a hit
+from a miss. Details: AGENTS.md "Cached checks".
+
+Adding, moving, or deleting an `apps/server` test file means re-running
+`bun scripts/server-test-shards.ts --write` — that package's Turbo inputs are generated,
+and a stale manifest fails the default lane. See docs/agents/testing.md.
 
 ## Testing policy
 

@@ -44,7 +44,8 @@ export const LOCK_RULE =
   'Locks are not just for merging: `podium lock acquire <name> [--ttl 10m] [--wait]` takes an advisory lease on ANY name ' +
   '(`release`/`renew`/`cancel`/`status`/`steal`; `podium merge-lock` is only sugar for the lock named `merge:<branch>`). ' +
   'Use one whenever two sessions could touch the same thing — shared files, a migration number, a dev server, a deploy. ' +
-  'Leases are ADVISORY: nothing enforces them, they expire (default 2m — pass `--ttl` or `renew`), and they only work if BOTH sides agree to take them.'
+  'Leases are ADVISORY: nothing enforces them, they expire (default 2m — pass `--ttl` or `renew`), and they only work if BOTH sides agree to take them. ' +
+  '`acquire` REFUSES when a sibling — another session on your issue, or any session sharing your worktree — already holds or is queued for that lock: coordinate with the session it names, or pass `--allow-sibling` when serialised multi-session access is what you actually want. Re-acquiring a lock you already hold renews it.'
 
 /** How an agent must delegate. Compact by design: this rides the prime, which is
  *  injected into every session, and most sessions never delegate — so this states

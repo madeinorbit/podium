@@ -8,7 +8,7 @@ real processes, browsers, PTYs, or agent CLIs that cannot be safely hidden in a 
 
 | Lane | Command | What's in it | Cost / guard |
 | --- | --- | --- | --- |
-| **Default package tests** | `bun run test` (`test:unit` is a compatibility alias) | 23 Turbo tasks covering all 998 default files: package Vitest suites, scripts, desktop, web/mobile, server normalized-wire, and the runtime Bun unit | Cached; tasks serial, Vitest capped at 2 workers |
+| **Default package tests** | `bun run test` (`test:unit` is a compatibility alias) | 28 Turbo tasks covering every default file: one task per package with tests (scripts, desktop, web/mobile, the runtime Bun unit) plus `@podium/server`'s aggregate and its five cache shards | Cached; tasks serial, Vitest capped at 2 workers |
 | **Focused package probes** | `bun run test:web`, `bun run test:mobile`, `bun run test:cached` | One or both app package tasks | Cached; same install fingerprint |
 | **Affected package tests** | `bun run test:affected` | Package tasks for changed packages and dependents | Refuses files no package task can cover |
 | **Inner loop** | `bun run test:changed`, `test:related`, `test:watch` | Root `node` and `normalized-wire` projects selected by Vitest | Fast approximation; not a commit gate |
@@ -39,6 +39,43 @@ is stochastic instruction compliance, not evidence that the CLI transport works.
 The lexical response-contract behavior remains protected by deterministic tests.
 
 
+## The `@podium/server` lane is generated — regenerate it when you add a test
+
+`@podium/server`'s `test` task is an aggregate over five independently cached shards
+(`contracts`, `store`, `services`, `boundary`, `normalized-wire`) [POD-520]. Shard
+membership AND the per-file Turbo input globs are **derived from the real import
+closure**, so `apps/server/test-shards.json` and `apps/server/turbo.json` are generated
+files: never hand-edit them, and never coarsen the globs to directories (that costs most
+of the cache benefit). After adding, moving, or deleting any `apps/server` test file:
+
+    bun scripts/server-test-shards.ts --write
+
+`scripts/server-test-shards.test.ts` recomputes both files on every default run and fails
+on any difference — including the inverse check that no `apps/server` file can change
+without some shard's key noticing. It fails as a plain array diff, so a red naming server
+test paths means the `--write` above, not a broken test.
+
+Iterating on one shard: `bun run --cwd apps/server test:contracts` (likewise `test:store`,
+`test:services`, `test:boundary`, `test:normalized-wire`; `test:unsharded` runs the old
+whole-package shape).
+
+Two mechanisms underneath that lane change how a server test behaves:
+
+- **Store tests clone a pre-migrated database** [POD-523]. A globalSetup builds one schema
+  image keyed by the migration manifest and every store test clones it, so a changed
+  migration is a lane-level input that invalidates all five shards, not just `store`.
+- **The `contracts` shard reuses one Vitest runner** [POD-527]: `isolate: false` for the
+  files a static scan clears, the rest still forked, and an after-file leak guard that
+  fails the offending file by name with the global/env key that moved. A contracts failure
+  naming a moved key is that guard, not a flake. Do **not** stress reuse with a whole-shard
+  `--sequence.shuffle.files`: it replaces Vitest's project-first sequencer, breaks the reuse
+  chain, and exercises reuse *less* than the default order. Shuffle the reused project alone
+  (`--project server:contracts:reused --sequence.shuffle.files`).
+
+Measurements and rationale: [POD-520 cache shards](pod-520-server-test-cache-shards.md),
+[POD-523 pre-migrated store fixture](pod-523-pre-migrated-store-fixture.md),
+[POD-527 runner reuse](pod-527-runner-reuse.md).
+
 ## Shared-host resource guard
 
 The shared forked Vitest configuration defaults to at most two workers and keeps one worker available as the floor. This is the safe setting for the six-core, 11 GB development host so a test run leaves headroom for the live Podium instance and other agent sessions. Set `PODIUM_TEST_WORKERS=<positive integer>` to choose another ceiling, or `PODIUM_TEST_WORKERS=auto` to restore Vitest's CPU-count default on a dedicated CI/test host. `fileParallelism` remains enabled.
@@ -53,6 +90,12 @@ Direct package and multi-instance commands do not; when an agent runs those by h
     podium lock acquire test:heavy --ttl 30m --wait
     bun run test:multi-instance
     podium lock release test:heavy
+
+`acquire` refuses when a **sibling** — another session on your issue, or any session sharing
+your worktree — already holds or is queued for that lock [POD-556]. That is the shared-root
+checkout's normal case, and the refusal names the session so you can coordinate; pass
+`--allow-sibling` only when serialized multi-session access is genuinely what you want.
+Re-acquiring your own held lock renews it rather than queueing.
 
 A hand-rolled Playwright invocation that bypasses the lane still skips the lease and
 will race other heavy work — and it shares the fixed default port 8799 with any other

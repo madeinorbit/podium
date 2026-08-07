@@ -158,6 +158,9 @@ preference. The prime injects the same text as `MERGE_LANDING_RULE` in `@podium/
 ### Always
 
 1. `podium merge-lock acquire --wait` — while you hold it, only you may move main.
+   It refuses if a sibling (another session on your issue, or one sharing your worktree)
+   already holds or is queued for it; coordinate with the session it names rather than
+   reaching for `--allow-sibling`, which is for deliberate serialised multi-session access.
 2. **Refresh local `main`** from origin on the main checkout:
    `git -C <main-checkout> fetch origin` then
    `git -C <main-checkout> merge --ff-only origin/main`.
