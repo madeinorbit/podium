@@ -285,18 +285,38 @@ accountable user; `replyTarget` falling back to the operator box for superagent,
 operator and system senders; and three of the four POD-463 legacy raw-ref
 resolution arms.
 
-### The recommendation
+### The recommendation, and the review's withdrawal of its own
 
 Neither file should be deleted. Both should be **stripped rather than retired**:
 remove the tests their current owners already hold, delete the migration-era
 framing (the "ORACLE FOR A MIGRATION, NOT A SPECIFICATION OF THE TARGET" header
-and the per-test `PIN` / `ARTEFACT` / `BUG` vocabulary), and rename to what they
+and the per-test `PIN` / `ARTEFACT` / `BUG` vocabulary), and say plainly what they
 protect. That removes the maintenance surface the issue is actually aimed at —
 the thing that makes a reader treat a live suite as a historical artefact — while
 keeping every assertion that still refuses something.
 
-Held for the human's decision rather than taken unilaterally, because the brief
-says "retire" and the measurements say the reason for retiring has expired.
+**The review has since withdrawn its own recommendation on this file**, on these
+measurements, and diagnosed why it was wrong in two independent ways:
+
+> The runtime half was *consumed, not mistaken*. 57.9 s was true when measured;
+> 5.10 s is true now, and the difference is POD-523 doing what the ordered plan
+> ranked it first to do. The plan ranked the fixture above the retirement and then
+> failed to say that executing in that order would invalidate the retirement's
+> justification. That is a defect in the plan, not in either measurement.
+>
+> The duplication half was simply asserted. The review said the owner suites should
+> receive "any unique behavior", and the word *any* carried an assumption never
+> checked. And the arithmetic was available without running anything: **3,942 lines
+> against 1,328 in both named owners combined.** A file cannot have been absorbed by
+> suites a third its size.
+
+The last point is the transferable one. The check that would have caught this cost
+nothing: *compare the size of the thing you are deleting with the size of the
+things you claim already cover it.* Where that ratio is implausible, the
+duplication claim is a hypothesis, not a finding.
+
+The framing strip is what this issue carries out. Deleting either file would need
+positive evidence rather than the review's word, and there is none.
 
 ---
 
