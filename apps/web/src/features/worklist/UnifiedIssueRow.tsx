@@ -17,18 +17,20 @@ import { isIssueDeferred, issueReturnedFromDefer } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { AlarmClock, Pin } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { GitStamp } from '@/components/GitStamp'
 import { IdSquare } from '@/components/IdSquare'
 import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { issueIdTitle } from '@/features/issues/issue-card'
 import { agentFleetTileTint } from '@/lib/agent-tone'
 import { issueColorHex } from '@/lib/issueColors'
+import { missionProgress } from '@/lib/mission'
 import { PhaseTimer } from '@/lib/motion'
 import type { ContextMenuAnchor } from '@/lib/SessionContextMenu'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor } from '@/lib/WorkerLabel'
 import { agentIconFor } from './agent-icon'
+import { RowProgressMeter } from './row-progress'
 import { inlineRenameEditor, useInlineRename } from './use-inline-rename'
 import { WorkRowShell } from './WorkRowShell'
 
@@ -176,7 +178,7 @@ function flashLineage(issueId: string): void {
  */
 export function UnifiedIssueRow({
   row,
-  sessions: _all,
+  sessions: allSessions,
   issues,
   allWorktreePaths,
   selectedIssueId,
@@ -228,6 +230,16 @@ export function UnifiedIssueRow({
   const decision = rowPendingDecision(row)
   const waitingCount = rowWaitingCount(row)
   const timing = rowMotionTiming(row)
+  // The row's own progress, at the scope the row speaks for: its whole mission.
+  // `missionProgress` is the Flight Deck's derivation, imported rather than
+  // restated — the two columns must never disagree about how far a mission is,
+  // and it already handles both formal parentId children and agent-started
+  // provenance. Memoised on the store's own array identities, so a `now` tick
+  // re-renders the row without re-walking the issue graph.
+  const progress = useMemo(
+    () => missionProgress(issues, allSessions, issue.id),
+    [issues, allSessions, issue.id],
+  )
   const hex = issueColorHex(issue.color)
   const square = (
     <IdSquare
@@ -250,7 +262,7 @@ export function UnifiedIssueRow({
   // Shared with the nesting rule so structure and rendering agree (POD-282).
   const draftAgentOnly = isDraftAgentVessel(issue, mine)
   const first = mine[0]
-  const label = issue.draft ? draftIssueLabel(issue, _all, allWorktreePaths) : issue.title
+  const label = issue.draft ? draftIssueLabel(issue, allSessions, allWorktreePaths) : issue.title
   const onContextMenu = (e: ReactMouseEvent) => {
     e.preventDefault()
     setMenuAnchor({ x: e.clientX, y: e.clientY })
@@ -326,6 +338,11 @@ export function UnifiedIssueRow({
             className="flex-none"
           />
         }
+        // The row's baseline progress rule (POD-516 round 3). Renders only where
+        // there is a real done/total — a mission of two tasks or more — and the
+        // running segment sweeps only while `phase` says an agent on this row is
+        // genuinely computing, which is the same gate as the square's spinner.
+        meter={<RowProgressMeter progress={progress} working={phase === 'working'} />}
         active={draftAgentOnly ? active && paneA === first?.sessionId : active}
         gitStamp={
           issue.gitState && (

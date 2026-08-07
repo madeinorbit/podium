@@ -28,7 +28,6 @@ import {
   type TransitionWorkRow,
   type WorkPlacement,
 } from './work-folds'
-import { WorklistStatusBar } from './WorklistStatusBar'
 
 /**
  * The redesigned work sidebar (#41, .design/specs/sidebar.md): the
@@ -52,12 +51,15 @@ export function SidebarUnified(): JSX.Element {
           POD-388's theming of this divider goes with the divider; the border
           that replaced it takes `hairline-soft` from the same ramp.
 
-          The status line is the column's SECOND row below that datum (DESIGN.md
-          §5: a column needing more room takes one, never a taller first row).
-          It replaces the 9px spacer that used to sit here and keeps its own
-          breathing room, so when there is nothing to summarise and it renders
-          nothing, the list simply starts where it always did. */}
-      <WorklistStatusBar derivation={derivation} />
+          NO COLUMN-WIDE STATUS INSTRUMENT (POD-516 round 3). Round 2 put a
+          "12/40 done · 5 running" meter here, summarising every mission in the
+          column. The operator cut it: "there's now a overall progress section in
+          the header of the sidebar. This was uncalled for." Progress moved to
+          the rows themselves (`RowProgressMeter`), where it is a fact about one
+          thing the operator can click rather than an aggregate over a scope
+          nobody asked about. What is left is the 9px spacer that was always
+          here, so the list starts where it always did. */}
+      <div className="h-[9px] flex-none" aria-hidden="true" />
       {/* The scroll container leaves 5px of horizontal head-room past the aside
           edge (negative margin + matching padding) so the selected row's bridge
           notch can paint OVER the aside border into the engraved column —

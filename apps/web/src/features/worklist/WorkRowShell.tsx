@@ -57,6 +57,7 @@ export function WorkRowShell({
   waitingCount,
   showWaitingPill = true,
   timeMeta,
+  meter,
   active,
   unread = false,
   onSelect,
@@ -88,6 +89,12 @@ export function WorkRowShell({
   showWaitingPill?: boolean
   /** Line 2's lifecycle meta (the PhaseTimer). */
   timeMeta?: ReactNode
+  /** The row's baseline progress rule (POD-516 round 3, `RowProgressMeter`).
+   *  Drawn INSIDE the row's bottom padding and absolutely positioned, so a row
+   *  that carries one is exactly as tall as a row that does not — see
+   *  row-progress.tsx for why the meter is a rule under the text column rather
+   *  than a chip on either line. Absent on rows with no real subtree. */
+  meter?: ReactNode
   active: boolean
   /** Email-style unread emphasis (#126): the label reads bold until opened. */
   unread?: boolean
@@ -186,7 +193,10 @@ export function WorkRowShell({
             // leading-[normal]: the handoff rows run the font's natural line
             // height — the preflight 1.5 would grow the two-line block past
             // the 26px square and inflate every row (#64).
-            className="flex min-w-0 flex-1 cursor-pointer flex-col gap-px text-left leading-[normal]"
+            // `relative`: the progress rule hangs off this column's own box, so
+            // it starts under the title (never at the row's edge, where it
+            // would read as a divider) and ends where the text column ends.
+            className="relative flex min-w-0 flex-1 cursor-pointer flex-col gap-px text-left leading-[normal]"
             title={titleHint}
             onClick={onSelect}
             onDoubleClick={onDoubleClick}
@@ -270,6 +280,7 @@ export function WorkRowShell({
               {gitStamp}
               {statusExtra}
             </span>
+            {meter}
           </button>
         )}
         {/* Tuck-away (POD-293): a finished task no longer vanishes into Closed on

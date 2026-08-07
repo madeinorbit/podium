@@ -1,27 +1,26 @@
 // @vitest-environment happy-dom
 /**
- * THE COLUMN'S STATUS LINE (POD-516 round 2, left sidebar items 1 and 2).
+ * PER-ENTRY PROGRESS IN THE WORKLIST (POD-516 round 3, left sidebar).
  *
- * "can we bring the dynamic status bar from the artifact? where we show how many
- * issues are done, waiting, progressing (with animation)".
+ * "left sidebar: i don't know what happened but there's now a overall progress
+ *  section in the header of the sidebar. This was uncalled for. what i want is
+ *  a progress bar or another graphically smart progress indicator PER sidebar
+ *  entry (if it makes sense e.g. multiple issues or progress known). the
+ *  working part of the bar can be animated"
  *
- * The three things that can go wrong here are the three things round 1 shipped
- * wrong, so they are what this file asserts:
+ * Four things can go wrong here, and they are what this file asserts:
  *
- *   1. THE NUMBERS AGREE WITH THE COLUMN. The bar is derived from the rendered
- *      rows' missions, so it counts subtasks that have no row of their own and
- *      does NOT count the closed work folded away below it. A summary that
- *      disagrees with the list it sits on top of is worse than no summary.
- *   2. THE SEGMENTS ADD UP. Four buckets over one bar; if a task could land in
- *      two of them the meter would run past 100%.
- *   3. THE SPINNER IS GATED ON REAL COMPUTATION. It is the only perpetual
- *      motion in the product (DESIGN.md §5) and it may not turn over a fleet
- *      that has stopped — a task can sit in `in_progress` all night with
- *      nothing running.
- *
- * And one rule from the branch: MOTION FOR ACTIVITY, COLOUR FOR OBLIGATION.
- * Amber means an agent is asking you something. A progress meter asks nothing,
- * so nothing in this row may be amber.
+ *   1. THE COLUMN-WIDE INSTRUMENT IS GONE. Round 2's "N/M done · K running"
+ *      meter above the first row was cut by name.
+ *   2. THE METER EARNS ITS PLACE. A row speaking for a real subtree gets one; a
+ *      row that is one issue does not, because a bar that can only read 0% or
+ *      100% is noise on a list of thirty rows. ("if it makes sense.")
+ *   3. THE SEGMENTS ADD UP. Four exclusive buckets over one bar, so it can
+ *      never run past 100%.
+ *   4. MOTION MEANS AN AGENT IS COMPUTING. The running segment sweeps under the
+ *      same gate as the braille spinner — never merely because a task is parked
+ *      in `in_progress` — and nothing in the meter is amber, because a progress
+ *      meter asks nothing of the operator (DESIGN.md §2).
  */
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -155,9 +154,8 @@ afterEach(cleanup)
 
 /**
  * One mission of five tasks — root in progress, two children done, one blocked,
- * one still in backlog — plus a standalone task, plus a closure the operator
- * has already tucked away. Six live tasks in the column's scope; the tucked one
- * must not join them.
+ * one still in backlog — beside a standalone task with no subtree at all, and a
+ * closure the operator has already tucked away.
  */
 const MISSION = [
   issue('root', 'Operator workspace', { childCount: 3 }),
@@ -180,78 +178,79 @@ const setUp = (sessions: Record<string, unknown>[], issues = MISSION): void => {
   state.issues = issues
 }
 
-const meterWidths = (): string[] =>
-  [...(screen.getByTestId('worklist-status-meter').children as unknown as HTMLElement[])].map(
-    (segment) => segment.style.width,
+const meterOf = (container: HTMLElement, issueId: string): HTMLElement | null =>
+  container.querySelector(`[data-issue-row="${issueId}"] [data-testid="row-progress"]`)
+
+const widthsOf = (meter: HTMLElement): number[] =>
+  [...(meter.children as unknown as HTMLElement[])].map((segment) =>
+    Number.parseFloat(segment.style.width),
   )
 
-describe('the worklist status line (POD-516 round 2)', () => {
-  it('counts every task in the column, including ones with no row of their own', () => {
+describe('per-entry progress in the worklist (POD-516 round 3)', () => {
+  it('no longer summarises the whole column above the first row', () => {
     setUp([sess('lead', 'root')])
-    render(<SidebarUnified />)
-    // Two rows on screen; six live tasks behind them. The mission's four
-    // subtasks are real work even though the flat column gives them no row.
-    expect(screen.getAllByTestId('unified-issue-row')).toHaveLength(2)
-    expect(screen.getByTestId('worklist-status-done').textContent).toBe('2/6 done')
-    // `in_progress` root + `in_progress` solo. `backlog` waits, blocked is its
-    // own bucket, and the tucked closure is not in the column at all.
-    expect(screen.getByTestId('worklist-status-run').textContent).toContain('2 running')
-    expect(screen.getByTestId('worklist-status')?.getAttribute('title')).toBe(
-      '6 tasks · 2 done · 2 running · 1 blocked · 1 waiting',
+    const view = render(<SidebarUnified />)
+    expect(screen.queryByTestId('worklist-status')).toBeNull()
+    expect(view.container.querySelector('[data-testid="worklist-status-meter"]')).toBeNull()
+  })
+
+  it.each([
+    // The row speaks for its whole mission, so a subtree with no rows of its
+    // own is still what the meter measures.
+    { id: 'root', why: 'a five-task mission', meter: true },
+    // One issue, one agent: 0% until it is 100%, which the status word already
+    // says in a word. "if it makes sense" — this does not.
+    { id: 'solo', why: 'one issue with no subtree', meter: false },
+  ])('$why → meter: $meter', ({ id, meter }) => {
+    setUp([sess('lead', 'root')])
+    const view = render(<SidebarUnified />)
+    expect(view.container.querySelector(`[data-issue-row="${id}"]`)).toBeTruthy()
+    expect(meterOf(view.container, id) !== null).toBe(meter)
+  })
+
+  it('draws exclusive buckets that cannot exceed the bar', () => {
+    setUp([sess('lead', 'root')])
+    const view = render(<SidebarUnified />)
+    const meter = meterOf(view.container, 'root') as HTMLElement
+    expect(meter.getAttribute('data-total')).toBe('5')
+    // Two lit segments — done, then running — over the trough: two children
+    // done and the in-progress root running. The blocked child and the backlog
+    // child are both NOT MOVING and stay in the trough, where the tooltip still
+    // accounts for them.
+    expect(widthsOf(meter)).toEqual([(2 / 5) * 100, (1 / 5) * 100])
+    expect(widthsOf(meter).reduce((sum, width) => sum + width, 0)).toBeLessThanOrEqual(100)
+    expect(meter.getAttribute('aria-label')).toBe(
+      '5 tasks · 2 done · 1 running · 1 blocked · 1 waiting',
     )
   })
 
-  it('draws four exclusive buckets that cannot exceed the bar', () => {
-    setUp([sess('lead', 'root')])
-    render(<SidebarUnified />)
-    const widths = meterWidths().map((width) => Number.parseFloat(width))
-    // done · run · block, with waiting left as the bare trough.
-    expect(widths).toEqual([(2 / 6) * 100, (2 / 6) * 100, (1 / 6) * 100])
-    expect(widths.reduce((sum, width) => sum + width, 0)).toBeLessThanOrEqual(100)
-  })
-
-  it('turns the spinner only while an agent is actually computing', () => {
-    // A task in `in_progress` whose agent has stopped: the count still reads
-    // "running" (the task is), but nothing moves — stillness is the signal.
-    setUp([sess('lead', 'root', { agentState: { phase: 'idle', since: '2026-07-06T12:00:00.000Z' } })])
+  it('sweeps the running segment only while an agent is actually computing', () => {
+    // The task is `in_progress` and its agent has stopped: the run segment keeps
+    // its colour (the task IS running) but nothing moves — stillness is signal.
+    setUp([
+      sess('lead', 'root', { agentState: { phase: 'idle', since: '2026-07-06T12:00:00.000Z' } }),
+    ])
     const idle = render(<SidebarUnified />)
-    expect(screen.getByTestId('worklist-status-run').getAttribute('data-working')).toBe('false')
-    expect(idle.container.querySelector('.spb')).toBeNull()
+    const parked = meterOf(idle.container, 'root') as HTMLElement
+    expect(parked.getAttribute('data-working')).toBe('false')
+    expect(parked.querySelector('.row-progress-sweep')).toBeNull()
+    expect(widthsOf(parked)[1]).toBe((1 / 5) * 100)
     cleanup()
 
     setUp([sess('lead', 'root')])
     const live = render(<SidebarUnified />)
-    expect(screen.getByTestId('worklist-status-run').getAttribute('data-working')).toBe('true')
-    expect(live.container.querySelector('[data-testid="worklist-status"] .spb')).toBeTruthy()
-  })
-
-  it('does not turn the spinner for an agent outside the column', () => {
-    // An exited session is gone, and a session on the tucked closure is not in
-    // this column's scope. Neither may drive the column's one animation.
-    setUp([
-      sess('gone', 'root', { status: 'exited' }),
-      sess('tucked', 'shut'),
-    ])
-    render(<SidebarUnified />)
-    expect(screen.getByTestId('worklist-status-run').getAttribute('data-working')).toBe('false')
+    const moving = meterOf(live.container, 'root') as HTMLElement
+    expect(moving.getAttribute('data-working')).toBe('true')
+    expect(moving.querySelector('.row-progress-sweep')).toBeTruthy()
   })
 
   it('spends no amber on the meter — colour is reserved for what needs you', () => {
     setUp([sess('lead', 'root')])
     const view = render(<SidebarUnified />)
-    const status = screen.getByTestId('worklist-status')
-    const classes = [...status.querySelectorAll('*')].flatMap((node) => [...node.classList])
+    const meter = meterOf(view.container, 'root') as HTMLElement
+    const classes = [meter, ...meter.querySelectorAll('*')].flatMap((node) => [...node.classList])
     for (const banned of ['bg-attention', 'text-attention', 'bg-warning', 'text-warning']) {
       expect(classes).not.toContain(banned)
     }
-    // And no per-row meter came back with it: subtree progress belongs to the
-    // Flight Deck's mission head, one column right (round 1, F11).
-    expect(view.container.querySelectorAll('[data-testid="worklist-status-meter"]')).toHaveLength(1)
-  })
-
-  it('falls back to the plain spacer when the column has no tasks to summarise', () => {
-    setUp([], [])
-    render(<SidebarUnified />)
-    expect(screen.queryByTestId('worklist-status')).toBeNull()
   })
 })

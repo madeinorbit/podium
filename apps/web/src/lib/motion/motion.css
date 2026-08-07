@@ -264,6 +264,29 @@
   animation: podium-arrive-wash 1.45s 0.12s cubic-bezier(0.4, 0, 0.2, 1) backwards;
 }
 
+/* Worklist row progress sweep (POD-516 round 3). The RUNNING segment of a
+   sidebar row's progress rule carries a slow sheen travelling along it — the
+   part the operator asked to move ("the working part of the bar can be
+   animated"). Gated by its caller on the SAME predicate as the spinner: an
+   agent on that row actually computing. It is not a second "an agent is
+   computing" signal beside the spinner; it is that fact rendered as the texture
+   of the one segment the fact is about, on a row already wearing the spinner.
+   Transform-only, so it composites and thirty of them cost nothing. */
+@keyframes podium-run-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+.row-progress-sweep {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, var(--motion-working-bright) 50%, transparent);
+  animation: podium-run-sweep 1.6s ease-in-out infinite;
+}
+
 /* Base transition every phase-coloured surface (row, ID square, rail icon)
    carries, so background/border/opacity glide 0.4s on any phase change. */
 .phase-surface {
@@ -286,6 +309,12 @@
   }
   .handover-veil {
     transition: none;
+  }
+  /* The run segment stops sweeping; its reserved working blue still says which
+     part of the mission is moving. */
+  .row-progress-sweep {
+    animation: none;
+    opacity: 0;
   }
   /* One-shot morphs are dropped entirely; the end state is the resting style,
      so nothing is lost but the flourish. */
