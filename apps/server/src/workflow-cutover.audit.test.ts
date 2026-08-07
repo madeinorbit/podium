@@ -14,28 +14,24 @@
  *    derived surface actually EXISTS with the right verbs — a script that saw an
  *    empty router literal would report a serene zero hand-written mutations.
  *
- * The script is RUN as a subprocess here, not imported. POD-382's
- * `session-cutover.audit.test.ts` keeps the two halves entirely separate and
- * leaves its script to `bun run audit:sessions`; importing it instead would make
- * `apps/server` (L4) import UP into `scripts` (L5), which `check-boundaries`
- * refuses — correctly, and it caught exactly that here. Spawning keeps the layer
- * order intact AND puts the gate in `bun run test` rather than in a command
- * someone has to remember, which is the one thing the sessions split gives up.
+ * THE SCRIPT HALF MOVED TO `scripts` (POD-521). It used to run from here as a
+ * `spawnSync` of the real binary, twice per run. That was the right call when the
+ * alternative was `apps/server` (L4) importing UP into `scripts` (L5), which
+ * `check-boundaries` refuses — but it put a scanner whose source and whose
+ * repository-wide inputs both belong to `scripts` inside the SERVER's cache key,
+ * so every server edit replayed it and paid two Bun process starts for it. It now
+ * lives at `scripts/audit-workflow-commands.test.ts`, in the package that owns it,
+ * with no layer inversion and no subprocess. Nothing about the gate weakened: the
+ * scanner still runs in `bun run test`, and its own `probe()` — every check
+ * against a planted fixture — is asserted there as a whole rather than through an
+ * exit code.
  */
 
-import { spawnSync } from 'node:child_process'
-import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { WORKFLOW_CONTRACTS } from '@podium/commands'
 import { describe, expect, it } from 'vitest'
 import { WORKFLOW_QUERIES } from './modules/workflows/queries'
 import { WORKFLOW_COMMANDS } from './modules/workflows/registry'
 import { appRouter } from './router'
-
-/** The repo root, from this file's location — `process.cwd()` is the vitest
- *  invocation directory and is not the same thing when a lane is run from a
- *  package. */
-const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
 
 /** The tRPC internals the router exposes for introspection. */
 function procedures(): Record<string, { _def: { type: string; inputs: unknown[] } }> {
@@ -53,25 +49,6 @@ function procedures(): Record<string, { _def: { type: string; inputs: unknown[] 
 }
 
 describe('POD-732 workflow cutover gate', () => {
-  it('the source audit is clean — no hand-written mutation, no resurrected table, one ledger door', () => {
-    // `--probe` first, inside the script: it fails with exit 2 when a check
-    // cannot find its planted fixture, so a green run here cannot mean "the scan
-    // broke". The JSON arm is parsed rather than the exit code alone, so a
-    // failure names the finding instead of just the status.
-    // `node:child_process`, not `Bun.spawnSync`: `Bun` is not in this package's
-    // ambient types, so the Bun global typechecks RED while the vitest lane
-    // stays green — the exact type-level/test-lane split this run has paid for
-    // before. Both typechecks are the instrument, not one of them.
-    const audit = (...args: string[]) =>
-      spawnSync('bun', ['scripts/audit-workflow-commands.ts', ...args], {
-        cwd: REPO_ROOT,
-        encoding: 'utf8',
-      })
-    const probe = audit('--probe')
-    expect(probe.status, probe.stderr).toBe(0)
-    expect(JSON.parse(audit('--json').stdout)).toEqual({ ok: true, findings: [] })
-  })
-
   /**
    * MECHANISM PRESENCE IS NOT COVERAGE. The audit above is an ABSENCE claim, and
    * an empty router satisfies it perfectly. This asserts the surface is TOTAL:
@@ -90,7 +67,7 @@ describe('POD-732 workflow cutover gate', () => {
    * by being served as a query — which is the one way a derived surface can pass
    * a `.mutation(` audit while still having a hand-shaped hole in it.
    */
-  it('the wire verb matches the declaration: eleven mutations, seven queries', () => {
+  it('the wire verb matches the declaration on every declared name', () => {
     const served = procedures()
     const verbs = Object.fromEntries(
       Object.entries(served).map(([name, proc]) => [name, proc._def.type]),
@@ -101,8 +78,14 @@ describe('POD-732 workflow cutover gate', () => {
     for (const name of Object.keys(WORKFLOW_QUERIES)) {
       expect(verbs[name], `workflows.${name} is a declared query`).toBe('query')
     }
-    expect(Object.values(verbs).filter((v) => v === 'mutation')).toHaveLength(11)
-    expect(Object.values(verbs).filter((v) => v === 'query')).toHaveLength(7)
+    // NON-VACUITY, not a census (POD-521). The two loops above are satisfied by an
+    // empty declaration table, so both arms are asserted populated — but the old
+    // `toHaveLength(11)` / `toHaveLength(7)` literals are gone. The test above
+    // already pins the served set to the declared set in BOTH directions, so a
+    // remembered total added no refusing condition and charged an edit to every
+    // legitimate command addition.
+    expect(Object.keys(WORKFLOW_COMMANDS).length).toBeGreaterThan(0)
+    expect(Object.keys(WORKFLOW_QUERIES).length).toBeGreaterThan(0)
   })
 
   /**

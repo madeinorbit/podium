@@ -245,7 +245,18 @@ export function auditWorkflowCommands(): Finding[] {
 }
 
 /** Each check, run against a fixture containing exactly what it hunts. */
-function probe(): Finding[] {
+/**
+ * Each check, run against a fixture containing exactly what it hunts (and, where
+ * the check has one, a clean fixture it must stay silent on).
+ *
+ * EXPORTED (POD-521) so the unit lane can assert it directly. It was previously
+ * reachable only by spawning this file with `--probe` from an `apps/server` test;
+ * the lane check now lives at `scripts/audit-workflow-commands.test.ts` and calls
+ * this. Exporting rather than restating the fixtures in the test is deliberate: a
+ * check added below is then covered by the lane automatically, instead of only
+ * when someone remembers to copy a new fixture across.
+ */
+export function probe(): Finding[] {
   const failures: Finding[] = []
   const expect = (name: string, found: Finding[]): void => {
     if (found.length === 0) {

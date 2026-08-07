@@ -15,15 +15,20 @@
  *    the derived surface EXISTS with the right verbs, and the only thing that can
  *    prove a gate actually REFUSES.
  *
- * The script is RUN as a subprocess, not imported: importing it would make
- * `apps/server` (L4) import UP into `scripts` (L5), which `check-boundaries`
- * refuses. Spawning keeps the layer order AND puts the gate in `bun run test`
- * rather than in a command someone has to remember.
+ * THE SCRIPT HALF MOVED TO `scripts` (POD-521). It used to run from here as a
+ * `spawnSync` of the real binary, twice per run — once for `--probe`, once for
+ * `--json`. Spawning was the right call when the alternative was `apps/server`
+ * (L4) importing UP into `scripts` (L5), which `check-boundaries` refuses. But it
+ * put a scanner whose source and whose repository-wide inputs both belong to
+ * `scripts` inside the SERVER's cache key, so every server edit replayed it and
+ * paid two Bun process starts for it. It now lives at
+ * `scripts/audit-automation-commands.test.ts`, in the package that owns it, with
+ * no layer inversion and no subprocess. The gate did not weaken: the scanner still
+ * runs in `bun run test`, and its own `probe()` — every check against a planted
+ * fixture, in both directions — is asserted there directly rather than through an
+ * exit code.
  */
 
-import { spawnSync } from 'node:child_process'
-import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { AUTOMATION_CONTRACTS, AUTOMATION_QUERY_NAMES } from '@podium/commands'
 import type { SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol'
@@ -32,10 +37,6 @@ import type { Capability } from './issue-authz'
 import { AUTOMATION_COMMANDS } from './modules/automations/registry'
 import { AgentRelayGate } from './modules/issues/relay-gate'
 import { appRouter } from './router'
-
-/** The repo root, from this file's location — `process.cwd()` is the vitest
- *  invocation directory and is not the same thing when a lane runs from a package. */
-const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
 
 /** The tRPC internals the router exposes for introspection. */
 function procedures(): Record<string, { _def: { type: string; inputs: unknown[] } }> {
@@ -51,23 +52,6 @@ function procedures(): Record<string, { _def: { type: string; inputs: unknown[] 
 }
 
 describe('POD-735 automation cutover gate', () => {
-  it('the source audit is clean — no hand-written mutation, no resurrected schema, one cron parser', () => {
-    // `--probe` first, inside the script: it exits 2 when a check cannot find its
-    // planted fixture, so a green run here cannot mean "the scan broke". The JSON
-    // arm is parsed rather than the exit code alone, so a failure NAMES the finding.
-    // `node:child_process` and not `Bun.spawnSync`: the Bun global is not in this
-    // package's ambient types, so it would typecheck RED while the vitest lane
-    // stayed green.
-    const audit = (...args: string[]) =>
-      spawnSync('bun', ['scripts/audit-automation-commands.ts', ...args], {
-        cwd: REPO_ROOT,
-        encoding: 'utf8',
-      })
-    const probe = audit('--probe')
-    expect(probe.status, probe.stderr).toBe(0)
-    expect(JSON.parse(audit('--json').stdout)).toEqual({ ok: true, findings: [] })
-  })
-
   /**
    * MECHANISM PRESENCE IS NOT COVERAGE. The audit above is an ABSENCE claim and an
    * empty router satisfies it perfectly. This asserts the surface is TOTAL: every
@@ -84,7 +68,7 @@ describe('POD-735 automation cutover gate', () => {
    * being served as a query — the one way a derived surface can pass a `.mutation(`
    * audit while still having a hand-shaped hole in it.
    */
-  it('the wire verb matches the declaration: four mutations, two queries', () => {
+  it('the wire verb matches the declaration on every declared name', () => {
     const verbs = Object.fromEntries(
       Object.entries(procedures()).map(([name, proc]) => [name, proc._def.type]),
     )
@@ -94,8 +78,13 @@ describe('POD-735 automation cutover gate', () => {
     for (const name of AUTOMATION_QUERY_NAMES) {
       expect(verbs[name], `automations.${name} is a declared query`).toBe('query')
     }
-    expect(Object.values(verbs).filter((v) => v === 'mutation')).toHaveLength(4)
-    expect(Object.values(verbs).filter((v) => v === 'query')).toHaveLength(2)
+    // NON-VACUITY, not a census (POD-521). Both loops are satisfied by an empty
+    // declaration table, so both arms are asserted populated — but the remembered
+    // `4` and `2` are gone. The test above already pins the served set to the
+    // declared set in BOTH directions, so the totals added no refusing condition
+    // and charged an edit to every legitimate command addition.
+    expect(Object.keys(AUTOMATION_COMMANDS).length).toBeGreaterThan(0)
+    expect(AUTOMATION_QUERY_NAMES.length).toBeGreaterThan(0)
   })
 
   /**
