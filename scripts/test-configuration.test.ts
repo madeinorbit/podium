@@ -438,7 +438,15 @@ describe('test lane configuration', () => {
       const command = webServerCommand(playwright)
       expect(command, 'webServer must not re-run package builds').not.toMatch(/--filter/)
       expect(command, 'webServer must boot the harness only').toContain('serve-harness.ts')
+      expect(command, 'webServer must fail-fast when dist is missing').toContain(
+        'browser-dist-preflight.ts',
+      )
     }
+
+    // Hand-run path until POD-536: --build-only must exist and must not take the
+    // lease (callers often already hold test:heavy for the playwright half).
+    expect(lane, 'lane must expose --build-only for hand-runs').toContain('--build-only')
+    expect(lane).toMatch(/buildOnly|BUILD_ONLY/)
   })
 
   it('keeps webServer budget for harness boot only [POD-535]', () => {

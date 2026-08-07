@@ -9,9 +9,13 @@
  * authority (POD-756 counted them and did not run them). This file is the lane.
  *
  * Invoke via `bun run test:browser` or this file directly. From a live session
- * the lane itself takes the shared `test:heavy` lease (POD-535) — wrapping only
- * package.json left bare `bun scripts/browser-lane.ts` unprotected, and a held
- * lease still lost to another agent's harness on the fixed port.
+ * the full lane takes the shared `test:heavy` lease (POD-535).
+ *
+ * Hand-run one suite (until POD-536 can select for you):
+ *   bun scripts/browser-lane.ts --build-only
+ *   bunx playwright test --config tests/e2e/playwright.config.ts --project=chromium-pixel <suite>
+ * `--build-only` does not take the lease (callers often already hold it for the
+ * playwright half; nested acquire would deadlock).
  *
  * Three things live here that the Playwright config does not:
  *
@@ -49,6 +53,7 @@ const BROWSER_DIR = fileURLToPath(new URL('../tests/e2e/browser/', import.meta.u
 const CONFIG = 'tests/e2e/playwright.config.ts'
 /** Set on the re-entered child so we do not try to acquire the lease twice. */
 const LEASE_HELD_ENV = 'PODIUM_BROWSER_LANE_HEAVY_HELD'
+const BUILD_ONLY_FLAG = '--build-only'
 
 const run = (cmd: string, args: string[], capture = false) =>
   spawnSync(cmd, args, { cwd: ROOT, stdio: capture ? 'pipe' : 'inherit', encoding: 'utf8' })
@@ -59,7 +64,34 @@ const filterFor = (suite: string) => `browser/${suite.replaceAll('.', '\\.')}$`
 const playwright = (args: string[], capture = false) =>
   run('bunx', ['playwright', 'test', '--config', CONFIG, ...args], capture)
 
-function runLane(): number {
+/**
+ * Workspace packages + web for the test process and harness UI; mobile web
+ * export for phone projects. Shared by the full lane and `--build-only` so
+ * hand-runs and the lane cannot drift (POD-535).
+ */
+function buildBrowserDeps(): number {
+  // Order: root `bun run build` is packages/* then @podium/web (POD-1389).
+  // Mobile is not in the root build — export it separately.
+  console.log('\nbuilding workspace packages + web (test process + harness UI)…')
+  const built = run('bun', ['run', 'build'], true)
+  if (built.status !== 0) {
+    console.error(built.stdout ?? '')
+    console.error(built.stderr ?? '')
+    console.error('browser lane: package build failed — no suite can load. Stopping.')
+    return 1
+  }
+  console.log('building @podium/mobile web export (served at /mobile)…')
+  const mobile = run('bun', ['run', '--filter', '@podium/mobile', 'build:web'], true)
+  if (mobile.status !== 0) {
+    console.error(mobile.stdout ?? '')
+    console.error(mobile.stderr ?? '')
+    console.error('browser lane: mobile web export failed — phone projects cannot load. Stopping.')
+    return 1
+  }
+  return 0
+}
+
+function runLane(playwrightArgs: string[]): number {
   const suites = readdirSync(BROWSER_DIR)
     .filter((f) => f.endsWith('.browser.e2e.ts'))
     .sort()
@@ -86,26 +118,8 @@ function runLane(): number {
     console.log('QUARANTINED: none — every suite runs.')
   }
 
-  // Workspace packages + web for the test process and the harness-served UI;
-  // mobile web export for phone-sized projects. Order matters for cold checkouts:
-  // protocol's dist imports model's dist (POD-1389). `bun run build` already does
-  // packages/* then @podium/web; mobile is separate (not in the root build).
-  console.log('\nbuilding workspace packages + web (test process + harness UI)…')
-  const built = run('bun', ['run', 'build'], true)
-  if (built.status !== 0) {
-    console.error(built.stdout ?? '')
-    console.error(built.stderr ?? '')
-    console.error('browser lane: package build failed — no suite can load. Stopping.')
-    return 1
-  }
-  console.log('building @podium/mobile web export (served at /mobile)…')
-  const mobile = run('bun', ['run', '--filter', '@podium/mobile', 'build:web'], true)
-  if (mobile.status !== 0) {
-    console.error(mobile.stdout ?? '')
-    console.error(mobile.stderr ?? '')
-    console.error('browser lane: mobile web export failed — phone projects cannot load. Stopping.')
-    return 1
-  }
+  const built = buildBrowserDeps()
+  if (built !== 0) return built
 
   // One whole-set probe first (fast, no webServer); only bisect per file if it trips.
   console.log('probing that every suite imports…')
@@ -129,7 +143,7 @@ function runLane(): number {
       `${QUARANTINE.length} quarantined)\n`,
   )
 
-  const result = playwright([...process.argv.slice(2), ...running.map(filterFor)])
+  const result = playwright([...playwrightArgs, ...running.map(filterFor)])
 
   console.log(`\n━━━ browser lane census ━━━`)
   console.log(`  suites found:        ${suites.length}`)
@@ -146,17 +160,40 @@ function runLane(): number {
 }
 
 async function main(): Promise<number> {
+  const argv = process.argv.slice(2)
+  const buildOnly = argv.includes(BUILD_ONLY_FLAG)
+  const playwrightArgs = argv.filter((a) => a !== BUILD_ONLY_FLAG)
+
+  // Hand-run path (POD-503): build once, then bunx playwright with a suite filter.
+  // Do NOT take the lease here — callers often already hold test:heavy for the
+  // playwright half; nested acquire deadlocks on the same lock.
+  if (buildOnly) {
+    console.log('━━━ browser lane — build-only (hand-run prep) ━━━')
+    const code = buildBrowserDeps()
+    if (code === 0) {
+      console.log(
+        [
+          '',
+          'browser lane: build-only done. Hand-run playwright next, e.g.:',
+          '  bunx playwright test --config tests/e2e/playwright.config.ts --project=chromium-pixel <suite-regex>',
+          'Use --project=equals form (space form swallows the next arg as a project name).',
+        ].join('\n'),
+      )
+    }
+    return code
+  }
+
   // Live sessions re-enter under test:heavy so bare `bun scripts/browser-lane.ts`
   // and `bun run test:browser` both serialize. Nested acquire would deadlock if
   // we already hold the lease via the re-entry env flag.
   if (shouldAcquireHeavyTestLease(process.env) && process.env[LEASE_HELD_ENV] !== '1') {
     console.log('browser lane: acquiring test:heavy lease for this session…')
-    return runWithHeavyTestLease([process.execPath, import.meta.path, ...process.argv.slice(2)], {
+    return runWithHeavyTestLease([process.execPath, import.meta.path, ...argv], {
       cwd: ROOT,
       env: { ...process.env, [LEASE_HELD_ENV]: '1' },
     })
   }
-  return runLane()
+  return runLane(playwrightArgs)
 }
 
 process.exit(await main())

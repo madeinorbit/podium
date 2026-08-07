@@ -56,10 +56,16 @@ Direct package and multi-instance commands do not; when an agent runs those by h
 
 A hand-rolled Playwright invocation that bypasses the lane still skips the lease and
 will race other heavy work — and it shares the fixed default port 8799 with any other
-Playwright run on the host (lease does not cover that). Prefer the package script.
-Hand-rolled Playwright also needs a prior `bun run build` and
-`bun run --filter @podium/mobile build:web`: the config's `webServer` only boots the
-harness (POD-535); it no longer rebuilds packages.
+Playwright run on the host (lease does not cover that). Prefer the package script when
+you can. Until single-suite selection lands (POD-536), one-suite verification is
+hand-run only; build first so webServer does not start against empty dist (POD-535):
+
+    bun scripts/browser-lane.ts --build-only
+    bunx playwright test --config tests/e2e/playwright.config.ts --project=chromium-pixel <suite>
+
+Use the equals form of `--project` (space form swallows the next arg). If dist is
+missing, webServer fails fast with that build-only command rather than a deep
+module-not-found.
 
 The wrapper renews the 30-minute lease every 10 minutes while the child runs. If renewal fails, it terminates the child rather than allowing an unleased test to continue; an interrupted process still has the 30-minute TTL as the recovery path.
 

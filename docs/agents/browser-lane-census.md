@@ -39,14 +39,16 @@ The config (`tests/e2e/playwright.config.ts`) is used **almost unchanged** — i
    so it resolves to `dist`. The harness also serves `apps/web/dist` and the Expo
    mobile export. Those used to rebuild inside Playwright's `webServer` command
    and spent minutes under its wall clock; the lane builds them once, then the
-   harness starts in ~5s. On a fresh checkout every suite dies without this step
+   harness starts in ~5s. Hand-runs use `bun scripts/browser-lane.ts --build-only`
+   then playwright; webServer fails fast via `browser-dist-preflight.ts` if dist
+   is missing. On a fresh checkout every suite dies without this step
    (`Cannot find module …/packages/model/dist/index.js`).
 2. **Probing imports per suite.** Playwright aborts the entire run when a single
    file fails to import — `Total: 0 tests in 0 files`, and no census at all. The
    runner probes first (fast, no browser), names the unloadable suites as ERRORED,
    and runs the rest, so one rotten import cannot hide the state of the other 69.
-3. **The `test:heavy` lease** (inside `browser-lane.ts` for both the package
-   script and a bare `bun scripts/browser-lane.ts` invocation).
+3. **The `test:heavy` lease** (inside `browser-lane.ts` for the full run only;
+   `--build-only` does not take it so it cannot deadlock a held hand-run lease).
 
 <!-- CENSUS RESULTS -->
 
