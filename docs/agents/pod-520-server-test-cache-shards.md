@@ -304,6 +304,31 @@ refusal: it runs on every `bun run test` and exits non-zero if the roster does n
 checkout. `apps/server/vitest.config.ts` is retained unsharded as `test:unsharded`, for A/B
 runs and ad-hoc use.
 
+## For the runner-reuse work (POD-527)
+
+That issue's brief asks for runner reuse on "a curated pure shard". That shard already exists
+and is `contracts` — it was derived, not curated by hand, which changes how to use it:
+
+- **It is the pure set by measurement.** Its 70 members are exactly the apps/server unit files
+  whose import closure reaches neither `src/store` nor `src/composition`/`src/application`. It
+  is also the only shard that does not pull `packages/telemetry`. That is the population the
+  review had in mind, already separated and already running as its own process.
+- **Do not hard-code its file list.** Membership moves when imports move — add one store import
+  to a contracts file and the generator relocates it to `store` on the next `--write`. Read
+  `apps/server/test-shards.json`, or better, call `computePlan()`. Anything that pins the 70
+  paths will drift silently and then be wrong in the direction that matters.
+- **"Pure closure" is not the same as "safe to reuse a runner for."** This split measured what
+  a file *imports*, nothing else. It says nothing about whether a file mutates `process.env`,
+  fakes timers, touches a module registry, or installs a global mock — which is what reuse
+  actually turns into cross-file contamination. POD-515 called this out: the hermetic setup
+  assumes process-exit cleanup and has to be adapted before reuse. Treat `contracts` as a
+  candidate population to start from, not as a proof of safety.
+- **The per-shard Vitest config is one factory**, `apps/server/vitest.shard.ts`, and
+  `scripts/test-configuration.test.ts` asserts every shard keeps the hermetic setupFiles,
+  POD-523's schema-image globalSetup, `retry: 0`, `passWithNoTests: false`, and the worker cap.
+  A shard that opts into reuse will need those assertions widened deliberately rather than
+  loosened — they are the reason a shard cannot quietly become a different lane.
+
 ## Maintenance
 
 Adding an apps/server test file makes the guard fail until the manifest is regenerated. That is
