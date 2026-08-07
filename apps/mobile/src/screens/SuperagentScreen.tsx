@@ -10,9 +10,10 @@ import { Eraser } from 'lucide-react-native'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { KeyboardAvoidingView, Platform, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { readTranscriptPage, useHub, useMobileStore } from '../client/hooks'
+import { readTranscriptPage, useBooting, useHub, useMobileStore } from '../client/hooks'
 import { Composer } from '../components/Composer'
 import { Icon } from '../components/Icon'
+import { BootstrapCrossfade, TranscriptSkeleton } from '../components/LaunchPlaceholders'
 import { PressableScale } from '../components/PressableScale'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
 import { BrailleSpinner } from '../components/StatusGlyphs'
@@ -48,6 +49,7 @@ export function SuperagentScreen() {
   const store = useMobileStore()
   const trpc = store.trpc
   const hub = useHub()
+  const booting = useBooting()
   // The signed-in user's threads, from the store's published slice — the same
   // one the desktop superagent column reads. The screen used to fetch the list
   // itself on mount AND poll it on a 5s interval, which is a second copy of
@@ -65,6 +67,8 @@ export function SuperagentScreen() {
   const { connected, onRefresh, refreshing, refreshControl, refreshAccessibilityProps } =
     useRefreshableList()
   const [items, setItems] = useState<TranscriptItem[]>([])
+  const [transcriptLoaded, setTranscriptLoaded] = useState(false)
+  const [threadsLoaded, setThreadsLoaded] = useState(false)
   const [liveText, setLiveText] = useState('')
   const [statusLabel, setStatusLabel] = useState<string | null>(null)
   const [running, setRunning] = useState(false)
@@ -86,6 +90,22 @@ export function SuperagentScreen() {
     loading: false,
   })
 
+  // The store owns the thread list; this completion bit only distinguishes an
+  // unresolved first read from a genuinely empty global thread. The engine's
+  // boot refresh may already have won, in which case this is a cheap refresh.
+  useEffect(() => {
+    let alive = true
+    void store
+      .refreshSuperThreads()
+      .catch(() => {})
+      .finally(() => {
+        if (alive) setThreadsLoaded(true)
+      })
+    return () => {
+      alive = false
+    }
+  }, [store.refreshSuperThreads])
+
   // Opening the tab mid-turn shows the spinner: the thread carries a
   // query-backed running flag for exactly this late-join case, because
   // headlessActivity frames are ephemeral.
@@ -96,10 +116,16 @@ export function SuperagentScreen() {
   // The conversation itself, read and streamed from the thread's headless
   // session exactly as SessionScreen does for a normal chat.
   useEffect(() => {
-    if (!podiumSid) return
+    if (!podiumSid) {
+      setTranscriptLoaded(false)
+      setItems([])
+      return
+    }
     let alive = true
     let unsubscribe: (() => void) | null = null
-    setItems([])
+    const cached = store.replica.transcriptWindow(podiumSid)
+    setItems(cached?.items ?? [])
+    setTranscriptLoaded(false)
     paging.current = { hasMore: false, loading: false }
     const attach = (since: string | undefined) => {
       if (!alive) return
@@ -111,15 +137,26 @@ export function SuperagentScreen() {
       .then((page) => {
         if (!alive) return
         setItems(page.items)
+        setTranscriptLoaded(true)
+        if (page.items.length > 0) store.replica.putTranscriptWindow(podiumSid, page.items)
         paging.current = { head: page.head, hasMore: page.hasMore, loading: false }
         attach(page.tail)
       })
-      .catch(() => attach(undefined))
+      .catch(() => {
+        if (!alive) return
+        setTranscriptLoaded(true)
+        attach(undefined)
+      })
     return () => {
       alive = false
       unsubscribe?.()
     }
-  }, [trpc, hub, podiumSid])
+  }, [trpc, hub, podiumSid, store.replica])
+
+  useEffect(() => {
+    if (!podiumSid || items.length === 0) return
+    store.replica.putTranscriptWindow(podiumSid, items)
+  }, [items, podiumSid, store.replica])
 
   const loadOlder = useCallback(() => {
     const p = paging.current
@@ -287,7 +324,9 @@ export function SuperagentScreen() {
     ? store.sessions.find((s) => s.sessionId === podiumSid)
     : undefined
 
-  const empty = rendered.length === 0 && pendingTurns.length === 0 && !running
+  const transcriptResolved = podiumSid ? transcriptLoaded || rendered.length > 0 : threadsLoaded
+  const resolved = !booting && transcriptResolved
+  const empty = resolved && rendered.length === 0 && pendingTurns.length === 0 && !running
 
   return (
     <Screen noHeader>
@@ -323,53 +362,55 @@ export function SuperagentScreen() {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
           {error ? <Text style={styles.error}>{error}</Text> : null}
-          <PullToRefreshBoundary
-            connected={connected}
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-          >
-            <TranscriptList
-              items={rendered}
-              live={running}
-              collapseContext
-              assetContext={
-                podiumSid && transcriptSession
-                  ? {
-                      httpOrigin: store.httpOrigin,
+          <BootstrapCrossfade resolved={resolved} placeholder={<TranscriptSkeleton />}>
+            <PullToRefreshBoundary
+              connected={connected}
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+            >
+              <TranscriptList
+                items={rendered}
+                live={running}
+                collapseContext
+                assetContext={
+                  podiumSid && transcriptSession
+                    ? {
+                        httpOrigin: store.httpOrigin,
+                        sessionId: podiumSid,
+                        cwd: transcriptSession.cwd,
+                      }
+                    : undefined
+                }
+                pendingTurns={pendingTurns}
+                onRetryPending={retry}
+                onQuote={(text) => setDraftInsertion({ id: insertionSeq.current++, text })}
+                streaming={running && liveText.trim().length > 0}
+                tail={{
+                  label: running ? (statusLabel ?? 'Thinking') : 'Idle',
+                  tone: running ? 'working' : 'idle',
+                }}
+                onLoadOlder={loadOlder}
+                refreshControl={refreshControl}
+                refreshAccessibilityProps={refreshAccessibilityProps}
+                emptyComponent={
+                  empty ? (
+                    <EmptyState
+                      fill
+                      title="Hand off some work"
+                      body="The superagent can read your repos, file tasks, spawn worker sessions and steer them — describe what you want done."
+                    />
+                  ) : undefined
+                }
+                onAnswer={async (choices) => {
+                  if (podiumSid)
+                    await trpc.sessions.answerAskUserQuestion.mutate({
                       sessionId: podiumSid,
-                      cwd: transcriptSession.cwd,
-                    }
-                  : undefined
-              }
-              pendingTurns={pendingTurns}
-              onRetryPending={retry}
-              onQuote={(text) => setDraftInsertion({ id: insertionSeq.current++, text })}
-              streaming={running && liveText.trim().length > 0}
-              tail={{
-                label: running ? (statusLabel ?? 'Thinking') : 'Idle',
-                tone: running ? 'working' : 'idle',
-              }}
-              onLoadOlder={loadOlder}
-              refreshControl={refreshControl}
-              refreshAccessibilityProps={refreshAccessibilityProps}
-              emptyComponent={
-                empty ? (
-                  <EmptyState
-                    fill
-                    title="Hand off some work"
-                    body="The superagent can read your repos, file tasks, spawn worker sessions and steer them — describe what you want done."
-                  />
-                ) : undefined
-              }
-              onAnswer={async (choices) => {
-                if (podiumSid)
-                  await trpc.sessions.answerAskUserQuestion.mutate({
-                    sessionId: podiumSid,
-                    choices,
-                  })
-              }}
-            />
-          </PullToRefreshBoundary>
+                      choices,
+                    })
+                }}
+              />
+            </PullToRefreshBoundary>
+          </BootstrapCrossfade>
           {running && !liveText.trim() ? (
             <View style={styles.statusRow}>
               <BrailleSpinner size={11} />

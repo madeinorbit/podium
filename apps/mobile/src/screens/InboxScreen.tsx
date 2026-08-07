@@ -5,10 +5,17 @@ import { useRouter } from 'expo-router'
 import { Inbox as InboxIcon, Settings } from 'lucide-react-native'
 import { useMemo } from 'react'
 import { SectionList, StyleSheet, Text, View } from 'react-native'
-import { useIssues, useMobileStore, useSessions, useTrpc } from '../client/hooks'
+import {
+  useBooting,
+  useIssues,
+  useMobileStore,
+  useSessions,
+  useTrpc,
+} from '../client/hooks'
 import { useMobileShell } from '../client/shell'
 import { AskQuestionCard } from '../components/AskQuestionCard'
 import { Icon } from '../components/Icon'
+import { BootstrapCrossfade, WorkSkeleton } from '../components/LaunchPlaceholders'
 import { NewWorkButton } from '../components/NewWorkButton'
 import { PressableScale } from '../components/PressableScale'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
@@ -92,6 +99,7 @@ export function InboxScreen() {
   const issues = useIssues()
   const { connected, onRefresh, refreshing, refreshControl, refreshAccessibilityProps } =
     useRefreshableList()
+  const booting = useBooting()
   const outboxSize = useMobileStore().outboxSize
   const { error, notice } = useMobileShell()
   const now = Date.now()
@@ -133,7 +141,8 @@ export function InboxScreen() {
           attribute to this account, and storage degradation, are both things the
           user is owed rather than log lines. */}
       {notice ? <Text style={styles.notice}>{notice}</Text> : null}
-      <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
+      <BootstrapCrossfade resolved={!booting} placeholder={<WorkSkeleton />}>
+  <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
         <SectionList
           sections={sections}
           keyExtractor={(session) => session.sessionId}
@@ -176,7 +185,8 @@ export function InboxScreen() {
           }
           contentContainerStyle={styles.listContent}
         />
-      </PullToRefreshBoundary>
+        </PullToRefreshBoundary>
+      </BootstrapCrossfade>
     </Screen>
   )
 }

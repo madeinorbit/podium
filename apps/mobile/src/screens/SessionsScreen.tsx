@@ -4,7 +4,8 @@ import type { IssueWire, SessionMeta } from '@podium/model'
 import { useRouter } from 'expo-router'
 import { useMemo, useState } from 'react'
 import { SectionList, StyleSheet, Text, View } from 'react-native'
-import { useIssues, useSessions } from '../client/hooks'
+import { useBooting, useIssues, useSessions } from '../client/hooks'
+import { BootstrapCrossfade, WorkSkeleton } from '../components/LaunchPlaceholders'
 import { NewWorkButton } from '../components/NewWorkButton'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
 import { Screen } from '../components/Screen'
@@ -27,6 +28,7 @@ export function SessionsScreen() {
   const issues = useIssues()
   const { connected, onRefresh, refreshing, refreshControl, refreshAccessibilityProps } =
     useRefreshableList()
+  const booting = useBooting()
   const now = Date.now()
   const [peek, setPeek] = useState<{ issue: IssueWire; session: SessionMeta } | null>(null)
 
@@ -55,7 +57,8 @@ export function SessionsScreen() {
       }
       right={<NewWorkButton />}
     >
-      <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
+      <BootstrapCrossfade resolved={!booting} placeholder={<WorkSkeleton />}>
+  <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
         <SectionList
           sections={sections}
           keyExtractor={(session) => session.sessionId}
@@ -101,7 +104,8 @@ export function SessionsScreen() {
             />
           }
         />
-      </PullToRefreshBoundary>
+        </PullToRefreshBoundary>
+      </BootstrapCrossfade>
       <TaskPeekSheet
         issue={peek?.issue ?? null}
         session={peek?.session}

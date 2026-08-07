@@ -7,10 +7,11 @@ import { SectionList, StyleSheet, Text, View } from 'react-native'
 import { useBooting, useIssues } from '../client/hooks'
 import { Icon } from '../components/Icon'
 import { IdSquare } from '../components/IdSquare'
+import { BootstrapCrossfade, TasksSkeleton } from '../components/LaunchPlaceholders'
 import { PressableScale } from '../components/PressableScale'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
 import { HeaderButton, Screen } from '../components/Screen'
-import { EmptyState, ListSkeleton, Pill } from '../components/ui'
+import { EmptyState, Pill } from '../components/ui'
 import { useMinimizeTabBarOnScroll } from '../hooks/useMinimizeTabBarOnScroll'
 import { useRefreshableTab } from '../hooks/useRefreshableTab'
 import { useTabBarInset } from '../hooks/useTabBarInset'
@@ -95,7 +96,8 @@ export function IssuesScreen() {
         </>
       }
     >
-      <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
+      <BootstrapCrossfade resolved={!booting} placeholder={<TasksSkeleton />}>
+  <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
         <SectionList
           ref={listRef as never}
           sections={sections}
@@ -184,14 +186,11 @@ export function IssuesScreen() {
             )
           }}
           ListEmptyComponent={
-            booting ? (
-              <ListSkeleton />
-            ) : (
-              <EmptyState title="No tasks" body="Tasks filed in your repos show up here." />
-            )
+            <EmptyState title="No tasks" body="Tasks filed in your repos show up here." />
           }
         />
-      </PullToRefreshBoundary>
+        </PullToRefreshBoundary>
+      </BootstrapCrossfade>
     </Screen>
   )
 }

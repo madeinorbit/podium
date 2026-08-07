@@ -67,7 +67,6 @@ import { type Cursor, Replica as KernelReplica, type ReplicaEvent } from '@podiu
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as SQLite from 'expo-sqlite'
 import { type ReactNode, useEffect, useMemo, useState } from 'react'
-import { BootSplash } from '../components/BootSplash'
 import { fetchAuthStatus } from './auth'
 import { useAuthStatus } from './auth-context'
 import {
@@ -533,7 +532,9 @@ function LiveProvider({ children }: { children: ReactNode }) {
     () => ({ error, notice, eraseLocalData: erase ?? (async () => {}) }),
     [error, notice, erase],
   )
-  if (!openedReplica) return <BootSplash />
+  // LaunchBoundary stays mounted above auth + replica assembly. A null subtree
+  // here leaves that one branded transition in place instead of remounting it.
+  if (!openedReplica) return null
   return (
     <StoreProvider
       config={config}

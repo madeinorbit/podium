@@ -30,13 +30,14 @@ import { useBooting, useMobileStore, useSessions } from '../client/hooks'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { Icon } from '../components/Icon'
 import { IdSquare, type IdSquareState } from '../components/IdSquare'
+import { BootstrapCrossfade, WorkSkeleton } from '../components/LaunchPlaceholders'
 import { NewWorkButton } from '../components/NewWorkButton'
 import { PressableScale } from '../components/PressableScale'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
 import { Screen } from '../components/Screen'
 import { BrailleSpinner } from '../components/StatusGlyphs'
 import { TaskPeekSheet } from '../components/TaskPeekSheet'
-import { EmptyState, ListSkeleton, StatusDot } from '../components/ui'
+import { EmptyState, StatusDot } from '../components/ui'
 import { useCollapsed } from '../hooks/useCollapsed'
 import { useMinimizeTabBarOnScroll } from '../hooks/useMinimizeTabBarOnScroll'
 import { useRefreshableTab } from '../hooks/useRefreshableTab'
@@ -229,7 +230,12 @@ export function WorkScreen() {
       subtitle={`${issueCount} task${issueCount === 1 ? '' : 's'} · ${agentCount} agent${agentCount === 1 ? '' : 's'}`}
       right={<NewWorkButton />}
     >
-      <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
+      {/* Crossfade OUTSIDE the refresh boundary: while the replica is still
+          resolving there is nothing to pull-to-refresh, so the skeleton should
+          cover the refresh affordance too rather than invite a gesture that
+          would race the bootstrap. */}
+      <BootstrapCrossfade resolved={!booting} placeholder={<WorkSkeleton />}>
+        <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
         <SectionList
           ref={listRef as never}
           sections={sections}
@@ -276,17 +282,17 @@ export function WorkScreen() {
             </View>
           )}
           ListEmptyComponent={
-            booting ? (
-              <ListSkeleton />
-            ) : (
-              <EmptyState
-                title="No work yet"
-                body="Tasks and their agents appear here — the same list, in the same order, as the desktop sidebar."
-              />
-            )
+            // No booting branch here any more: the crossfade above owns the
+            // unresolved case, so by the time this renders the list is
+            // genuinely empty rather than merely unloaded.
+            <EmptyState
+              title="No work yet"
+              body="Tasks and their agents appear here — the same list, in the same order, as the desktop sidebar."
+            />
           }
         />
-      </PullToRefreshBoundary>
+        </PullToRefreshBoundary>
+      </BootstrapCrossfade>
       <TaskPeekSheet issue={peek} sessions={sessionsAll} onClose={() => setPeek(null)} />
       <ActionSheet
         visible={menuIssue !== null}

@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { KeyboardAvoidingView, Platform, StyleSheet } from 'react-native'
 import {
   readTranscriptPage,
+  useBooting,
   useHub,
   useIssue,
   useIssues,
@@ -28,6 +29,11 @@ import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { Composer } from '../components/Composer'
 import { Icon } from '../components/Icon'
 import { IdSquare } from '../components/IdSquare'
+import {
+  BootstrapCrossfade,
+  DetailSkeleton,
+  TranscriptSkeleton,
+} from '../components/LaunchPlaceholders'
 import { PressableScale } from '../components/PressableScale'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
 import { HeaderButton, Screen } from '../components/Screen'
@@ -70,8 +76,11 @@ export function SessionScreen() {
   const session = useSession(sessionId)
   const { connected, onRefresh, refreshing, refreshControl, refreshAccessibilityProps } =
     useRefreshableList()
+  const booting = useBooting()
 
-  const [items, setItems] = useState<TranscriptItem[]>([])
+  const [items, setItems] = useState<TranscriptItem[]>(() =>
+    sessionId ? (store.replica.transcriptWindow(sessionId)?.items ?? []) : [],
+  )
   const [loaded, setLoaded] = useState(false)
   // Turns sent from this screen, painted until the server echoes them into the
   // transcript (POD-338). A parked session queues the message and answers
@@ -102,7 +111,8 @@ export function SessionScreen() {
     if (!sessionId) return
     let alive = true
     let unsubscribe: (() => void) | null = null
-    setItems([])
+    const cached = store.replica.transcriptWindow(sessionId)
+    setItems(cached?.items ?? [])
     setLoaded(false)
     setPendingTurns([])
     paging.current = { hasMore: false, loading: false }
@@ -116,6 +126,7 @@ export function SessionScreen() {
       .then((page) => {
         if (!alive) return
         setItems(page.items)
+        if (page.items.length > 0) store.replica.putTranscriptWindow(sessionId, page.items)
         setLoaded(true)
         paging.current = { head: page.head, hasMore: page.hasMore, loading: false }
         attach(page.tail)
@@ -129,7 +140,14 @@ export function SessionScreen() {
       alive = false
       unsubscribe?.()
     }
-  }, [trpc, hub, sessionId])
+  }, [trpc, hub, sessionId, store.replica])
+
+  // Live deltas extend the same bounded replica window, so a later warm or
+  // offline open paints the conversation instead of an empty transcript.
+  useEffect(() => {
+    if (!sessionId || items.length === 0) return
+    store.replica.putTranscriptWindow(sessionId, items)
+  }, [items, sessionId, store.replica])
 
   useEffect(() => {
     if (pendingTurns.length === 0) return
@@ -294,7 +312,9 @@ export function SessionScreen() {
     )
     return (
       <Screen title="Session" onBack={goBack} safeBottom>
-        <EmptyState title={absence.title} body={absence.body} />
+        <BootstrapCrossfade resolved={!booting} placeholder={<DetailSkeleton />}>
+          <EmptyState title={absence.title} body={absence.body} />
+        </BootstrapCrossfade>
       </Screen>
     )
   }
@@ -352,68 +372,73 @@ export function SessionScreen() {
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
-          <TranscriptList
-            items={items}
-            live={session?.status === 'live'}
-            assetContext={{
-              httpOrigin: store.httpOrigin,
-              sessionId,
-              cwd: session.cwd,
-            }}
-            pendingTurns={pendingTurns}
-            onRetryPending={retry}
-            onQuote={(text) => setDraftInsertion({ id: insertionSeq.current++, text })}
-            todos={todoProgress}
-            onOpenTodos={issue ? () => setPeekIssue(issue) : undefined}
-            showOpenTodos={session.agentState?.phase === 'idle'}
-            streaming={
-              activity?.tone === 'working' &&
-              items.at(-1)?.role === 'assistant' &&
-              items.at(-1)?.answer !== true
-            }
-            tail={{
-              label:
-                activity?.label ?? (session.agentState?.phase === 'idle' ? 'Idle' : session.status),
-              tone: activity?.tone === 'attention' ? 'attention' : activity ? 'working' : 'idle',
-              since: session.agentState?.since,
-            }}
-            refreshControl={refreshControl}
-            refreshAccessibilityProps={refreshAccessibilityProps}
-            emptyComponent={
-              // An offer is itself the thing to act on — do not tell the
-              // operator the session is empty underneath a pending decision.
-              loaded && items.length === 0 && pendingTurns.length === 0 && !session.offer ? (
-                <EmptyState
-                  fill
-                  title="No transcript yet"
-                  body="Send a message to get things moving."
-                />
-              ) : undefined
-            }
-            onAnswer={async (choices) => {
-              await trpc.sessions.answerAskUserQuestion.mutate({ sessionId, choices })
-            }}
-            onLoadOlder={loadOlder}
-            onRefPress={(ref) => {
-              const seq = Number(ref.slice(4))
-              const target = issues.find((i) => i.seq === seq)
-              if (target) setPeekIssue(target)
-            }}
-            footer={
-              session.offer ? (
-                <SessionActionCard
-                  offer={session.offer}
-                  evidenceCount={offerArtifacts.length}
-                  onAction={(prompt) => store.resumeAndSend(session.sessionId, prompt)}
-                  onOpenEvidence={
-                    issue ? () => router.push(`/issue/${encodeURIComponent(issue.id)}`) : undefined
-                  }
-                />
-              ) : undefined
-            }
-          />
-        </PullToRefreshBoundary>
+        <BootstrapCrossfade
+          resolved={loaded || items.length > 0}
+          placeholder={<TranscriptSkeleton />}
+        >
+          <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
+            <TranscriptList
+              items={items}
+              live={session?.status === 'live'}
+              assetContext={{
+                httpOrigin: store.httpOrigin,
+                sessionId,
+                cwd: session.cwd,
+              }}
+              pendingTurns={pendingTurns}
+              onRetryPending={retry}
+              onQuote={(text) => setDraftInsertion({ id: insertionSeq.current++, text })}
+              todos={todoProgress}
+              onOpenTodos={issue ? () => setPeekIssue(issue) : undefined}
+              showOpenTodos={session.agentState?.phase === 'idle'}
+              streaming={
+                activity?.tone === 'working' &&
+                items.at(-1)?.role === 'assistant' &&
+                items.at(-1)?.answer !== true
+              }
+              tail={{
+                label:
+                  activity?.label ?? (session.agentState?.phase === 'idle' ? 'Idle' : session.status),
+                tone: activity?.tone === 'attention' ? 'attention' : activity ? 'working' : 'idle',
+                since: session.agentState?.since,
+              }}
+              refreshControl={refreshControl}
+              refreshAccessibilityProps={refreshAccessibilityProps}
+              emptyComponent={
+                // An offer is itself the thing to act on — do not tell the
+                // operator the session is empty underneath a pending decision.
+                loaded && items.length === 0 && pendingTurns.length === 0 && !session.offer ? (
+                  <EmptyState
+                    fill
+                    title="No transcript yet"
+                    body="Send a message to get things moving."
+                  />
+                ) : undefined
+              }
+              onAnswer={async (choices) => {
+                await trpc.sessions.answerAskUserQuestion.mutate({ sessionId, choices })
+              }}
+              onLoadOlder={loadOlder}
+              onRefPress={(ref) => {
+                const seq = Number(ref.slice(4))
+                const target = issues.find((i) => i.seq === seq)
+                if (target) setPeekIssue(target)
+              }}
+              footer={
+                session.offer ? (
+                  <SessionActionCard
+                    offer={session.offer}
+                    evidenceCount={offerArtifacts.length}
+                    onAction={(prompt) => store.resumeAndSend(session.sessionId, prompt)}
+                    onOpenEvidence={
+                      issue ? () => router.push(`/issue/${encodeURIComponent(issue.id)}`) : undefined
+                    }
+                  />
+                ) : undefined
+              }
+            />
+          </PullToRefreshBoundary>
+        </BootstrapCrossfade>
         <Composer placeholder="Message the agent…" onSend={send} draftInsertion={draftInsertion} />
       </KeyboardAvoidingView>
       <TaskPeekSheet

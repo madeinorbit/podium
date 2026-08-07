@@ -1,9 +1,9 @@
 import { type ReactNode, useEffect, useMemo, useState } from 'react'
-import { BootSplash } from '../components/BootSplash'
 import { LoginScreen } from '../screens/LoginScreen'
 import { type AuthStatus, fetchAuthStatus } from './auth'
 import { AuthStatusContext } from './auth-context'
 import { demoEnabled } from './demoData'
+import { LaunchReadyView } from './launch'
 import { readServerConfig } from './trpc'
 
 type GateState = 'checking' | 'open' | 'login' | 'unreachable'
@@ -39,18 +39,22 @@ export function AuthGate({ children }: { children: ReactNode }) {
     }
   }, [config.httpOrigin, demo])
 
-  if (state === 'checking') return <BootSplash />
+  // The persistent LaunchBoundary above this gate owns the visible splash.
+  // Returning null keeps it mounted instead of starting the reveal over here.
+  if (state === 'checking') return null
   if (state === 'login') {
     return (
-      <LoginScreen
-        httpOrigin={config.httpOrigin}
-        onAuthed={() => {
-          // The login response does not carry the user id. Let the provider
-          // perform one fresh status read for the newly authenticated account.
-          setAuthStatus(null)
-          setState('open')
-        }}
-      />
+      <LaunchReadyView>
+        <LoginScreen
+          httpOrigin={config.httpOrigin}
+          onAuthed={() => {
+            // The login response does not carry the user id. Let the provider
+            // perform one fresh status read for the newly authenticated account.
+            setAuthStatus(null)
+            setState('open')
+          }}
+        />
+      </LaunchReadyView>
     )
   }
   return <AuthStatusContext.Provider value={authStatus}>{children}</AuthStatusContext.Provider>
