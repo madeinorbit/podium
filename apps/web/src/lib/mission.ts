@@ -31,7 +31,19 @@ export interface FlightDeckRow {
   sessions: SessionMeta[]
   descendantIds: string[]
   actionableCount: number
+  /** Sessions PRESENT in the subtree: open, not archived, not exited. */
   liveAgentCount: number
+  /**
+   * Sessions in the subtree actually COMPUTING right now.
+   *
+   * Deliberately narrower than {@link liveAgentCount}: an idle or waiting
+   * session is present but is not working, and the braille spinner may only
+   * render while an agent computes (DESIGN.md §5 — gating is the caller's job).
+   * Driving the spinner off the live count would leave it turning over a mission
+   * where nothing is happening, which is the one thing the only perpetual
+   * motion in the app must never do.
+   */
+  workingAgentCount: number
   collapsedSummary: CollapsedSummary
 }
 
@@ -333,6 +345,9 @@ export function buildFlightDeckRows(
       descendantIds,
       actionableCount,
       liveAgentCount: subtreeSessions.filter(openSession).length,
+      workingAgentCount: subtreeSessions.filter(
+        (session) => openSession(session) && motionPhase(session) === 'working',
+      ).length,
       collapsedSummary: {
         tasks: hidden.length,
         done: hidden.filter((child) => child.stage === 'done' || child.closedReason).length,

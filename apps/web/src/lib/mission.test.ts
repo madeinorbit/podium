@@ -647,6 +647,56 @@ describe('missionProgress', () => {
 })
 
 // ---------------------------------------------------------------------------
+// workingAgentCount — what may drive the spinner
+// ---------------------------------------------------------------------------
+
+describe('workingAgentCount', () => {
+  // The braille spinner is the app's only perpetual motion and may render ONLY
+  // while an agent computes. Driving it off liveAgentCount would leave it
+  // turning over a mission where every agent is idle or waiting on the human.
+  it('counts only sessions actually computing, not every session present', () => {
+    const issues = [issue('root'), issue('a', { parentId: 'root' })]
+    const sessions = [
+      sess('s-working', { issueId: 'a', agentState: workingState }),
+      sess('s-idle', { issueId: 'a', agentState: finishedState }),
+      sess('s-asking', { issueId: 'a', agentState: needsUserState }),
+    ]
+    const root = rowFor(buildFlightDeckRows(issues, sessions, 'root'), 'root')
+    expect(root.liveAgentCount).toBe(3)
+    expect(root.workingAgentCount).toBe(1)
+  })
+
+  it('never counts a retired session, however its last state read', () => {
+    const issues = [issue('root')]
+    const sessions = [
+      sess('s-gone', { issueId: 'root', status: 'exited', agentState: workingState }),
+      sess('s-away', { issueId: 'root', archived: true, agentState: workingState }),
+    ]
+    const root = rowFor(buildFlightDeckRows(issues, sessions, 'root'), 'root')
+    expect(root.liveAgentCount).toBe(0)
+    expect(root.workingAgentCount).toBe(0)
+  })
+
+  it('is zero, not absent, on a mission with no agents at all', () => {
+    const root = rowFor(buildFlightDeckRows([issue('root')], [], 'root'), 'root')
+    expect(root.workingAgentCount).toBe(0)
+  })
+
+  it('rolls the whole subtree up to the root row', () => {
+    const issues = [
+      issue('root'),
+      issue('c1', { parentId: 'root', seq: 1 }),
+      issue('g1', { parentId: 'c1', seq: 1 }),
+    ]
+    const sessions = [
+      sess('s1', { issueId: 'c1', agentState: workingState }),
+      sess('s2', { issueId: 'g1', agentState: workingState }),
+    ]
+    expect(rowFor(buildFlightDeckRows(issues, sessions, 'root'), 'root').workingAgentCount).toBe(2)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // collapsedSummary — what a fold says it is hiding
 // ---------------------------------------------------------------------------
 
