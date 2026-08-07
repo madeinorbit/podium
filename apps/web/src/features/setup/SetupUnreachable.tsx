@@ -50,7 +50,7 @@ export function SetupUnreachable({
         .podium-signal{position:relative;display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:12px;margin:30px 0 28px;font:600 9px/1 ${MONO};letter-spacing:.12em;color:${C.faint}}
         .podium-signal-line{position:relative;height:1px;overflow:hidden;background:${C.border}}.podium-signal-line:after{content:'';position:absolute;inset:-1px auto -1px 0;width:24%;background:linear-gradient(90deg,transparent,${C.accent},transparent);animation:podium-signal-scan 2.6s ease-in-out infinite}
         .podium-signal-node{width:8px;height:8px;border-radius:50%;background:${C.ok};box-shadow:0 0 12px rgba(16,185,129,.45)}.podium-signal-node.fault{background:${C.danger};box-shadow:none;animation:podium-fault-pulse 1.8s ease-in-out infinite}
-        .podium-unreachable-button{display:flex;width:100%;height:48px;align-items:center;justify-content:space-between;border:0;border-radius:10px;padding:0 15px;background:${C.accent};color:${C.accentInk};font:650 12px/1 ${MONO};cursor:pointer;transition:filter .18s,transform .18s}.podium-unreachable-button:hover{filter:brightness(1.09)}.podium-unreachable-button:active{transform:translateY(1px)}.podium-unreachable-button:focus-visible{outline:2px solid ${C.text};outline-offset:3px}
+        .podium-unreachable-button{display:flex;width:100%;height:48px;align-items:center;justify-content:space-between;border:0;border-radius:10px;padding:0 15px;background:${C.accent};color:${C.accentInk};font:650 12px/1 ${MONO};cursor:pointer}.podium-unreachable-button:focus-visible{outline:2px solid ${C.text};outline-offset:3px}
         @media(max-width:760px){.podium-unreachable{padding:24px}.podium-unreachable-inner{grid-template-columns:1fr;gap:28px}.podium-unreachable-brand pre{font-size:min(1vw,5.4px)!important;min-height:112px!important}.podium-unreachable-panel{border-radius:13px}}
         @media(max-width:480px){.podium-unreachable{padding:16px}.podium-unreachable-brand pre{font-size:3.35px!important;min-height:76px!important}.podium-unreachable-panel-body{padding:24px!important}}
         @media(prefers-reduced-motion:reduce){.podium-unreachable *{animation:none!important;transition:none!important}}
@@ -162,7 +162,12 @@ export function SetupUnreachable({
               <RotateCw size={12} aria-hidden="true" />
               automatic retries exhausted
             </div>
-            <button className="podium-unreachable-button" type="button" onClick={onRetry}>
+            <button
+              className="podium-unreachable-button"
+              type="button"
+              data-pressable
+              onClick={onRetry}
+            >
               <span>Retry connection</span>
               <ArrowRight size={16} strokeWidth={2} aria-hidden="true" />
             </button>
