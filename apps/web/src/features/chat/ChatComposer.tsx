@@ -392,7 +392,10 @@ export function ChatComposer({
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="size-6 rounded-md text-destructive hover:bg-transparent hover:text-destructive [&_svg:not([class*='size-'])]:size-3.5"
+                  // Destructive ink stays — stopping a turn is the one act in
+                  // this cluster that throws work away. Only the hover ground is
+                  // brought onto the cluster's shared idiom.
+                  className="size-6 rounded-md text-destructive hover:bg-chip hover:text-destructive [&_svg:not([class*='size-'])]:size-3.5"
                   title="Stop this turn"
                   onClick={onInterrupt}
                 >
@@ -404,7 +407,11 @@ export function ChatComposer({
                 variant="ghost"
                 size="icon"
                 className={cn(
-                  'size-6 rounded-md text-muted-foreground hover:bg-transparent hover:text-foreground',
+                  // One idiom across the cluster: the mic and the stop square
+                  // sit either side of this one, and three hover treatments in
+                  // a 72px row is what made the box read as assembled rather
+                  // than designed.
+                  'size-6 rounded-md text-text-dim hover:bg-chip hover:text-text-strong',
                   "[&_svg:not([class*='size-'])]:size-3.5",
                 )}
                 title="Attach image"

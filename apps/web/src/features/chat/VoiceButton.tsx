@@ -24,9 +24,15 @@ export function VoiceButton({
       variant="ghost"
       size="icon"
       className={cn(
-        'size-6 rounded-md text-muted-foreground hover:bg-transparent hover:text-foreground',
+        // The action cluster's own idiom, shared with the composer's other two
+        // squares so one box does not wear three hover treatments.
+        'size-6 rounded-md text-text-dim hover:bg-chip hover:text-text-strong',
         "[&_svg:not([class*='size-'])]:size-3.5",
-        voice.listening && 'animate-pulse text-destructive hover:text-destructive',
+        // Listening HOLDS STILL. The pulse was perpetual motion that depicts no
+        // agent computing (DESIGN.md §5), and destructive red is reserved for
+        // alerts — a mic that is merely on is neither. Live blue on the chip
+        // ground says "on" without asking for anything.
+        voice.listening && 'bg-chip text-live hover:text-live',
       )}
       title={voice.listening ? 'Stop voice input' : 'Voice input'}
       onClick={voice.toggle}

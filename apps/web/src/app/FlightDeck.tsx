@@ -647,13 +647,21 @@ function SessionRow({
           {/* WorkerLabel already says "Handing over → <target>" mid-move, in the
               same words the sidebar and the pane header use, so the row never
               invents a second vocabulary for the same event. */}
-          <span className="flex min-w-0 flex-1 items-center gap-1.5">
+          {/* `overflow-hidden` is the hard stop, and the shrink weights are the
+              policy: WHO this is outranks WHAT it is here as. The role used to
+              be `flex-none`, which cannot shrink — so on a long parent name it
+              took the width it wanted, squeezed the session's own name down to
+              "S." or "T…", and then ran straight under the Needs-you badge on
+              the right. The name now shrinks last (weight 1) and the role first
+              (weight 8), and both truncate instead of overlapping. */}
+          <span className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
             <WorkerLabel session={session} chip />
             {role?.kind === 'coordinator' && <CoordinatorBadge />}
             {label && (
               <span
-                className="shell-type-micro flex-none truncate font-mono font-normal text-text-faint"
+                className="shell-type-micro min-w-0 shrink-[8] truncate font-mono font-normal text-text-faint"
                 data-session-role={role?.kind}
+                title={label}
               >
                 {label}
               </span>
@@ -725,6 +733,17 @@ interface HungContext {
   /** Keep the last row's rail running to the block's bottom edge, because the
    *  tree carries on below it. The root block sets this; a strip never does. */
   tail: boolean
+  /**
+   * The roster's own disclosure, for a block big enough to bury the tree.
+   *
+   * The mission header is the root of the spine now, so EVERY session ever
+   * attached to the mission hangs directly off it — sixteen of them on this
+   * issue, which pushed the first actual task a screen and a half down. The
+   * root strip used to be foldable and is gone, so this is where that control
+   * has to live. `sessions` arrives already trimmed; this only draws the line
+   * that says what was trimmed and takes the click.
+   */
+  fold?: { hidden: number; open: boolean; onToggle: () => void }
   onSelectSession: (session: SessionMeta) => void
   onSelectNative: (session: SessionMeta) => void
 }
@@ -737,9 +756,10 @@ function HungRows(ctx: HungContext): JSX.Element | null {
   const lastPresence = useRef<PresenceNote | null>(null)
   if (ctx.presence) lastPresence.current = ctx.presence
   const shown = ctx.presence ?? lastPresence.current
-  const { sessions, presence } = ctx
-  if (sessions.length === 0 && shown === null) return null
-  const count = sessions.length + (presence ? 1 : 0)
+  const { sessions, presence, fold } = ctx
+  const disclosure = fold && fold.hidden > 0 ? fold : null
+  if (sessions.length === 0 && shown === null && !disclosure) return null
+  const count = sessions.length + (presence ? 1 : 0) + (disclosure ? 1 : 0)
   let placed = 0
   const isLast = (): boolean => {
     placed += 1
@@ -785,6 +805,40 @@ function HungRows(ctx: HungContext): JSX.Element | null {
           <div key={session.sessionId}>{row}</div>
         )
       })}
+      {/* The roster's own line, hung on the same rail as the agents it stands
+          for so it reads as part of the block rather than as a control bolted
+          under it. Quieter than a session and it carries no state mark: it is
+          not an agent, it is the count of the ones being held back. */}
+      {disclosure && (
+        <Hung
+          railX={AGENT_RAIL}
+          indent={AGENT_INDENT}
+          mid={HUNG_MID}
+          last={isLast()}
+          tone="bg-hairline-soft"
+        >
+          <button
+            data-pressable
+            type="button"
+            data-testid="flight-roster-fold"
+            aria-expanded={disclosure.open}
+            className="shell-type-micro flex min-h-6 w-full items-center gap-1.5 rounded-r-md py-1 text-left font-mono text-text-faint hover:text-text-dim"
+            style={{ paddingLeft: AGENT_INDENT + 2 }}
+            onClick={disclosure.onToggle}
+          >
+            {disclosure.open ? (
+              <ChevronDown size={10} aria-hidden className="flex-none" />
+            ) : (
+              <ChevronRight size={10} aria-hidden className="flex-none" />
+            )}
+            <span className="truncate">
+              {disclosure.open
+                ? `Hide ${disclosure.hidden} finished`
+                : `${disclosure.hidden} finished agent${disclosure.hidden === 1 ? '' : 's'}`}
+            </span>
+          </button>
+        </Hung>
+      )}
       {/* THE SEAT MAKES AND GIVES BACK ITS OWN SPACE (round 3 §7c). Always
           mounted, so a plain grid-rows transition carries both directions and
           nothing animates on first paint — a transition only fires on a change. */}
@@ -1138,9 +1192,34 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
    * mission, and with no strip to unfold from there would be no way back. The
    * "fold every branch" control below excludes it for the same reason, and the
    * root's sessions consequently always show — which is what §4 asks for.
+   *
+   * But "always show" cannot mean "always show ALL". Every session the mission
+   * has ever had hangs off this header, and on a long-running mission that is
+   * sixteen rows — most of them finished — between the operator and the first
+   * actual task. So the FINISHED ones fold away behind their own count, and
+   * what is left standing is what is still happening. The live roster is never
+   * hidden, whatever its size; only the settled part is.
    */
   const rootRow = rows[0]
   const rootNote = root ? issueNote(root, byId) : null
+  const rootSessions = useMemo(
+    () => (rootRow ? deckSessions(rootRow, mode) : []),
+    [rootRow, mode],
+  )
+  const [rosterOpen, setRosterOpen] = useState(false)
+  const rootLive = useMemo(
+    () =>
+      rootSessions.filter((session) => {
+        const retired = session.archived || session.status === 'exited'
+        return !retired && motionPhase(session) !== 'done'
+      }),
+    [rootSessions],
+  )
+  const rootFinished = rootSessions.length - rootLive.length
+  // Below this the fold costs a row to save fewer, which is the fold that hides
+  // nothing — the same rule the collapsed payload follows.
+  const rosterFoldable = rootFinished > 2
+  const rootShown = !rosterFoldable || rosterOpen ? rootSessions : rootLive
   // Search keeps a match's ANCESTORS as context, the same rule the mode filters
   // follow — an exception that loses its path is an exception you cannot place.
   const visibleRows = useMemo(() => {
@@ -1438,7 +1517,16 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
             {rootRow && (
               <HungRows
                 issue={rootRow.issue}
-                sessions={deckSessions(rootRow, mode)}
+                sessions={rootShown}
+                fold={
+                  rosterFoldable
+                    ? {
+                        hidden: rootFinished,
+                        open: rosterOpen,
+                        onToggle: () => setRosterOpen((open) => !open),
+                      }
+                    : undefined
+                }
                 presence={presenceNote(rootRow.issue, rootRow.sessions, byId)}
                 rootId={root.id}
                 inMission={missionSessionIds}

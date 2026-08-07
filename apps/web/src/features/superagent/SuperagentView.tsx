@@ -210,7 +210,11 @@ export function SuperagentView(): JSX.Element {
         </div>
       )}
       {podiumSessionId ? (
-        <div data-superagent-composer className="flex min-h-0 flex-1 flex-col">
+        // Same `data-prompt-bounds` as the fresh-thread branch below: once the
+        // thread starts, the in-thread composer is the same box and caps against
+        // the same pane. Without it the cap falls back to the line count alone
+        // and a short dock can end up mostly composer.
+        <div data-superagent-composer data-prompt-bounds className="flex min-h-0 flex-1 flex-col">
           <ChatView
             sessionId={podiumSessionId}
             active

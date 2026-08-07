@@ -504,7 +504,10 @@ export function composerState(input: {
     ? turnRunning
       ? 'Working — stop to interject…'
       : compact
-        ? 'Ask Superagent to plan, delegate, or review — @ for context'
+        ? // The fresh-thread box says this too. It is ONE box either side of the
+          // first turn, so its statement of scope must not change under the
+          // operator at the moment they start using it (POD-516 R3).
+          'Ask across all tasks…'
         : 'Message the agent…'
     : sendable
       ? 'Message the agent…'
