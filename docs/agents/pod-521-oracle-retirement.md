@@ -318,6 +318,38 @@ duplication claim is a hypothesis, not a finding.
 The framing strip is what this issue carries out. Deleting either file would need
 positive evidence rather than the review's word, and there is none.
 
+### …and then the ~18 duplicates turned out not to be duplicates either
+
+The plan was to strip the framing AND remove the eighteen cases the owner suites
+already hold. Reading them side by side before deleting — the same standard
+applied everywhere else here — the overlap is **partial, not containment**. Two
+representative pairs:
+
+| | `engine.test.ts` | `service.test.ts` |
+| --- | --- | --- |
+| duplicate step ids | asserts the message **with the offending id** (`duplicate workflow step id: same`), and that `revise`'s schema defaults `instructions` to `''` | asserts `duplicate workflow step id` only |
+| adopt validation | two exact thrown strings including `code=`, one of them against a **cross-scope** revision | two `toThrow(...)` substrings, same-scope only |
+| `prepareStart` pinning | exact refusal string including `code=`; revision authored by the operator | substring match; revision authored by an agent |
+
+The shape is consistent across all of them. The engine suite's cases are
+**focused** — one behaviour per test, exact message — because that is what a
+migration oracle is for. The owner suites bundle several behaviours into large
+tests because that is what an ordinary service suite does. `service.test.ts`'s
+`checkpoints linear steps, records observations, and tells the coordinator what
+is next` is one `it` covering profile snapshots, observation warnings, prime
+rendering, step assignment, notices and run listing.
+
+So deleting the focused ones would trade exact-message assertions and precise
+failure attribution for a green diff. **Nothing was removed.**
+
+The cleanup that would actually pay here is the reverse — thinning the bundled
+mega-tests in `service.test.ts` against the focused cases that already exist —
+and that is a different issue with a different risk profile. Noted, not attempted.
+
+**Net for this file: 95 tests before, 95 after.** The maintenance surface removed
+was the file's account of itself, which was the part that was actually costing
+anything.
+
 ---
 
 ## Guardrail compliance
