@@ -6,7 +6,7 @@
 // provenance, but never a `discovered-from` spin-off), ancestor-preserving mode
 // filters, and the per-row operational state that drives the status column.
 import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
-import type { SessionMeta, SessionMetaInput, UnbrandIds } from '@podium/model'
+import { ISSUE_STAGES, type SessionMeta, type SessionMetaInput, type UnbrandIds } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   buildFlightDeckRows,
@@ -1008,6 +1008,21 @@ describe('presenceNote', () => {
     const blocker = issue('dep', { seq: 42 })
     const subject = issue('a', { blocked: true, deps: [{ id: 'dep', type: 'blocks' }] })
     expect(presenceNote(subject, [], index([blocker, subject]))?.text).toMatch(/^Blocked by /)
+  })
+
+  // Total over the stage vocabulary: an unhandled stage used to fall through to
+  // null, which pushed the fallback line into every caller and let two columns
+  // describe one task differently.
+  it('has words for every stage in the model', () => {
+    for (const stage of ISSUE_STAGES) {
+      const note = presenceNote(issue('a', { stage }), [])
+      expect(note, `no presence note for stage ${stage}`).not.toBeNull()
+      expect(note?.text.length).toBeGreaterThan(0)
+    }
+  })
+
+  it('does not call a proposed task ready — nobody has accepted it yet', () => {
+    expect(presenceNote(issue('a', { stage: 'proposed' }), [])?.text).toBe('Proposed · not started')
   })
 
   it('says nothing at all while a live agent is on the task', () => {

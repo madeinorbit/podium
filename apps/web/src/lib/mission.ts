@@ -463,8 +463,14 @@ export interface PresenceNote {
  *
  * A blank where an agent row would be is the one thing the deck must never do:
  * "no session" is four different situations and only one of them is a problem.
- * Returns null when the issue HAS live sessions (the agent rows speak for it)
- * or when there is genuinely nothing to say.
+ *
+ * TOTAL over the stage vocabulary, deliberately: the ONLY null is "this issue
+ * has live sessions, and its agent rows speak for it". An unhandled stage used
+ * to fall through to null as well, which made every caller invent its own
+ * fallback line — which is the drift this shared vocabulary exists to prevent
+ * (the Task dock hit exactly that on `proposed`). Adding a stage to the model
+ * without a note here is now a visible gap in one place, not a silent blank in
+ * every column.
  *
  * Only vacated in-progress work becomes attention. Done, review, ready and
  * blocked are all states the operator can read and leave alone.
@@ -496,7 +502,9 @@ export function presenceNote(
   if (issue.stage === 'in_progress') {
     return { kind: 'attention', text: 'Agent left · choose a handoff', attention: true }
   }
-  return null
+  // `proposed` is the remaining stage. It is not "ready" — nobody has accepted
+  // it yet — so it gets its own words rather than borrowing the ready line.
+  return { kind: 'ready', text: 'Proposed · not started', attention: false }
 }
 
 const RELATION_VERB: Record<string, string> = {
