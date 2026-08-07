@@ -458,3 +458,34 @@ does not survive is deleting it, or relocating 3,000 lines into two small suites
 brief literally. POD-521 has put the fork to the human and recommends stripping the framing and
 the 18 duplicates while keeping the file and its coverage. That is the right call and this review
 withdraws its own recommendation in favour of it.
+
+### The second method note: an ordered plan can invalidate its own later items
+
+The ordered plan at the end of this review ranked six changes by expected benefit against a
+baseline measured once, before any of them ran. Item 1 changed that baseline. Item 4's case was
+still expressed in the old one, and nothing in the plan said to recompute it. Anyone working the
+list in order would have arrived at item 4 holding a justification that item 1 had already spent.
+
+The general caution — **re-derive the case for every later item after each earlier one lands** —
+is worth stating, but there is a sharper test available, because this was not bad luck about
+ordering. The two items shared a cause. `characterization.test.ts` was expensive *because* it was
+store-backed; POD-523 targeted store-backed cost. The deletion candidate and the fixture fix were
+competing for the same seconds, so a plan that counted both was counting one saving twice.
+
+So the test is not "re-measure everything each round" but:
+
+> **An item whose cost has the same cause as an earlier item's fix is not additive with it.**
+> Its case has to be recomputed *before* it is acted on — and the two should never have been
+> presented as independent wins in the first place.
+
+This review contains two instances of that shape. The other is in the POD-527 correction above:
+runner reuse turned out to be safe precisely where import cost was smallest, because the property
+that makes a file cheap to import (its closure reaches neither `store` nor `composition`) is the
+same property that makes it safe to share a process. Cheapness and safety had a common cause, so
+the shard where reuse was permitted was the shard where it bought least.
+
+Both times, two figures looked additive and were the same figure seen from two directions. A
+review that produces a ranked plan should therefore state, for each item, *what would have to
+remain true for this to still be worth doing* — and name any earlier item that could make it
+false. That is a sentence per item, written while the causes are still in view, and it is cheaper
+than the two corrections above.
