@@ -20,6 +20,12 @@ export interface LockHolderWire {
   sessionId: LockSessionIdWire | null
   issueId: IssueId | null
   label: string
+  /**
+   * Whether the holder's session is still live. Operator (null session) is
+   * always true; unknown-relay is always false. Waiters that would be pruned
+   * on the next queue advance report false here so status is not misleading.
+   */
+  alive: boolean
 }
 
 export interface LockQueueEntryWire extends Omit<LockHolderWire, 'sessionId'> {

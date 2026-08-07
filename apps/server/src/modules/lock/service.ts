@@ -79,6 +79,14 @@ export class LockService {
     return Math.max(0, Math.ceil((Date.parse(expiresAt) - this.deps.now()) / 1000))
   }
 
+  /** Liveness for a holder/waiter key: operator is always live; unknown-relay
+   *  and missing sessions are dead (same rule advanceQueue uses for pruning). */
+  private isAlive(sessionId: LockHolderId | null): boolean {
+    if (sessionId == null || sessionId === OPERATOR_LOCK_SESSION) return true
+    if (sessionId === 'unknown-session') return false
+    return this.deps.sessionAlive(sessionId)
+  }
+
   private toWire(lock: LockRow): LockWire {
     const queue = this.deps.locks.listWaiters(lock.repoId, lock.name).map((w, i) => ({
       position: i + 1,
@@ -86,6 +94,7 @@ export class LockService {
       issueId: w.issueId,
       label: w.label,
       enqueuedAt: w.enqueuedAt,
+      alive: this.isAlive(w.sessionId),
     }))
     return {
       repoId: lock.repoId,
@@ -94,6 +103,7 @@ export class LockService {
         sessionId: lock.holderSessionId,
         issueId: lock.holderIssueId,
         label: lock.holderLabel,
+        alive: this.isAlive(lock.holderSessionId),
       },
       note: lock.note,
       acquiredAt: lock.acquiredAt,
@@ -101,6 +111,43 @@ export class LockService {
       secondsLeft: this.secondsLeft(lock.expiresAt),
       queue,
     }
+  }
+
+  /**
+   * A sibling is another session bound to the same issue. Concurrent siblings
+   * on one lock is almost always accidental contention (four implementors
+   * re-queueing the same suite), so acquire refuses by default and names the
+   * sibling so the caller can yield or re-coordinate. `--allow-sibling` opts
+   * into genuine serialised multi-session work on one issue.
+   */
+  private findSibling(
+    lock: LockRow,
+    caller: LockCallerIdentity,
+  ): { kind: 'holder' | 'waiter'; sessionId: LockHolderId | null; label: string; position?: number } | null {
+    if (caller.issueId == null) return null
+    if (
+      lock.holderIssueId === caller.issueId &&
+      lock.holderSessionId !== caller.sessionId
+    ) {
+      return {
+        kind: 'holder',
+        sessionId: lock.holderSessionId,
+        label: lock.holderLabel,
+      }
+    }
+    const waiters = this.deps.locks.listWaiters(lock.repoId, lock.name)
+    for (let i = 0; i < waiters.length; i++) {
+      const w = waiters[i]!
+      if (w.issueId === caller.issueId && w.sessionId !== this.sessionKey(caller)) {
+        return {
+          kind: 'waiter',
+          sessionId: w.sessionId === OPERATOR_LOCK_SESSION ? null : w.sessionId,
+          label: w.label,
+          position: i + 1,
+        }
+      }
+    }
+    return null
   }
 
   /** The waiter-queue session key: real session id, or the operator sentinel. */
@@ -192,7 +239,14 @@ export class LockService {
 
   acquire(
     caller: LockCallerIdentity,
-    input: { repoPath: string; name: string; ttlSeconds?: number; note?: string },
+    input: {
+      repoPath: string
+      name: string
+      ttlSeconds?: number
+      note?: string
+      /** Opt into queueing/holding alongside another session on the same issue. */
+      allowSibling?: boolean
+    },
   ): LockAcquireResult {
     const ttl = input.ttlSeconds ?? DEFAULT_LOCK_TTL_SECONDS
     const repoId = this.repoIdFor(input.repoPath)
@@ -216,17 +270,39 @@ export class LockService {
             this.deps.locks.upsertLock(row)
             return { granted: true as const, alreadyHeld: true, lock: this.toWire(row) }
           }
+          // Idempotent re-acquire while already queued: report position, no
+          // sibling check (the caller's own entry is the match, not a sibling).
+          const key = this.sessionKey(caller)
+          const alreadyQueued = this.deps.locks
+            .listWaiters(repoId, input.name)
+            .some((w) => w.sessionId === key)
+          if (!alreadyQueued && !input.allowSibling) {
+            const sibling = this.findSibling(existing, caller)
+            if (sibling) {
+              const who =
+                sibling.sessionId != null
+                  ? `${sibling.sessionId} (${sibling.label})`
+                  : sibling.label
+              if (sibling.kind === 'holder') {
+                throw new Error(
+                  `sibling ${who} already holds lock '${input.name}' — coordinate with them, or pass --allow-sibling for serialised multi-session access on this issue`,
+                )
+              }
+              throw new Error(
+                `sibling ${who} is already queued for lock '${input.name}' at position ${sibling.position} — coordinate with them, or pass --allow-sibling for serialised multi-session access on this issue`,
+              )
+            }
+          }
           // Held by someone else → FIFO enqueue (idempotent per session).
           this.deps.locks.enqueueWaiter({
             repoId,
             name: input.name,
-            sessionId: this.sessionKey(caller),
+            sessionId: key,
             issueId: caller.issueId,
             label: caller.label,
             enqueuedAt: this.nowIso(),
           })
           const wire = this.toWire(existing)
-          const key = this.sessionKey(caller)
           const position = wire.queue.find(
             (w) => (w.sessionId ?? OPERATOR_LOCK_SESSION) === key,
           )?.position
@@ -259,6 +335,7 @@ export class LockService {
                   sessionId: next.holderSessionId,
                   issueId: next.holderIssueId,
                   label: next.holderLabel,
+                  alive: this.isAlive(next.holderSessionId),
                 }
               : null,
           }
@@ -354,6 +431,7 @@ export class LockService {
                   sessionId: existing.holderSessionId,
                   issueId: existing.holderIssueId,
                   label: existing.holderLabel,
+                  alive: this.isAlive(existing.holderSessionId),
                 }
               : null
           this.deps.locks.removeWaiterBySession(repoId, input.name, this.sessionKey(caller))

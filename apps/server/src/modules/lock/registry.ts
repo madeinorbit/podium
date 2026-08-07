@@ -122,7 +122,12 @@ const ttlField = { ttlSeconds: z.number().int().positive().max(86_400).optional(
 const defs = {
   acquire: def({
     kind: 'mutation',
-    input: lockRef.extend({ ...ttlField, note: z.string().max(500).optional() }),
+    input: lockRef.extend({
+      ...ttlField,
+      note: z.string().max(500).optional(),
+      /** Opt into holding/queueing beside another session on the same issue. */
+      allowSibling: z.boolean().optional(),
+    }),
     action: 'write',
     cli: { positional: ['name'], summary: 'Acquire (or renew) a named lease lock.' },
     handler: (ctx, input) => ctx.locks.acquire(ctx.callerIdentity(), input),

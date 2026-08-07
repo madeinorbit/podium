@@ -59,6 +59,7 @@ describe('LockService', () => {
       sessionId: asSessionId('sess_1'),
       issueId: 'iss_1',
       label: 'issue:#1',
+      alive: false, // harness sessionAlive defaults to empty set
     })
     expect(r.lock.secondsLeft).toBe(DEFAULT_LOCK_TTL_SECONDS)
     expect(r.lock.queue).toEqual([])
@@ -98,6 +99,7 @@ describe('LockService', () => {
         issueId: asIssueId('iss_2'),
         label: 'issue:#2',
         enqueuedAt: '2026-07-13T12:00:00.000Z',
+        alive: false,
       },
       {
         position: 2,
@@ -105,8 +107,86 @@ describe('LockService', () => {
         issueId: asIssueId('iss_3'),
         label: 'issue:#3',
         enqueuedAt: '2026-07-13T12:00:01.000Z',
+        alive: false,
       },
     ])
+  })
+
+  it('status reports per-row liveness from sessionAlive (dead waiters stay visible until advance)', () => {
+    const { svc, alive } = harness()
+    alive.add('sess_1').add('sess_2') // sess_3 dead
+    svc.acquire(agent(1), { repoPath: REPO, name: 'l' })
+    svc.acquire(agent(2), { repoPath: REPO, name: 'l' })
+    svc.acquire(agent(3), { repoPath: REPO, name: 'l' })
+    const status = svc.status({ repoPath: REPO, name: 'l' })[0]!
+    expect(status.holder).toMatchObject({ sessionId: 'sess_1', alive: true })
+    expect(status.queue).toEqual([
+      expect.objectContaining({ sessionId: 'sess_2', alive: true }),
+      expect.objectContaining({ sessionId: 'sess_3', alive: false }),
+    ])
+  })
+
+  it('refuses a sibling on the same issue that already holds or is queued; --allow-sibling opts in', () => {
+    const { svc, alive } = harness()
+    alive.add('sess_1').add('sess_1b').add('sess_2')
+    const a = agent(1)
+    const sibling = {
+      sessionId: asSessionId('sess_1b'),
+      issueId: asIssueId('iss_1'),
+      label: 'issue:#1',
+    }
+    const otherIssue = agent(2)
+    svc.acquire(a, { repoPath: REPO, name: 'l' })
+    // Same issue, different session, holder is sibling → refuse
+    expect(() => svc.acquire(sibling, { repoPath: REPO, name: 'l' })).toThrow(
+      /sibling sess_1 \(issue:#1\) already holds/,
+    )
+    // Other issue may still queue
+    expect(svc.acquire(otherIssue, { repoPath: REPO, name: 'l' })).toMatchObject({
+      granted: false,
+      position: 1,
+    })
+    // Sibling still refuses while another issue is queued
+    expect(() => svc.acquire(sibling, { repoPath: REPO, name: 'l' })).toThrow(/already holds/)
+    // allowSibling queues behind
+    const allowed = svc.acquire(sibling, { repoPath: REPO, name: 'l', allowSibling: true })
+    expect(allowed).toMatchObject({ granted: false, position: 2 })
+
+    // After holder releases, sibling holds; a third sibling on same issue still
+    // refuses when a same-issue waiter exists.
+    alive.add('sess_1c')
+    svc.release(a, { repoPath: REPO, name: 'l' }) // advances to otherIssue
+    // queue was otherIssue then sibling; advance grants otherIssue, sibling remains
+    const mid = svc.status({ repoPath: REPO, name: 'l' })[0]!
+    expect(mid.holder.sessionId).toBe('sess_2')
+    expect(mid.queue.map((w) => w.sessionId)).toEqual([asSessionId('sess_1b')])
+    const third = {
+      sessionId: asSessionId('sess_1c'),
+      issueId: asIssueId('iss_1'),
+      label: 'issue:#1',
+    }
+    expect(() => svc.acquire(third, { repoPath: REPO, name: 'l' })).toThrow(
+      /sibling sess_1b \(issue:#1\) is already queued/,
+    )
+    expect(
+      svc.acquire(third, { repoPath: REPO, name: 'l', allowSibling: true }),
+    ).toMatchObject({ granted: false, position: 2 })
+  })
+
+  it('re-acquire while already queued is still idempotent and skips the sibling refuse', () => {
+    const { svc, alive } = harness()
+    alive.add('sess_1').add('sess_1b')
+    svc.acquire(agent(1), { repoPath: REPO, name: 'l' })
+    const sibling = {
+      sessionId: asSessionId('sess_1b'),
+      issueId: asIssueId('iss_1'),
+      label: 'issue:#1',
+    }
+    const first = svc.acquire(sibling, { repoPath: REPO, name: 'l', allowSibling: true })
+    expect(first).toMatchObject({ granted: false, position: 1 })
+    // Same session again — position unchanged, no error
+    const again = svc.acquire(sibling, { repoPath: REPO, name: 'l' })
+    expect(again).toMatchObject({ granted: false, position: 1 })
   })
 
   it('release advances the queue FIFO and mails the new holder; non-holder release errors', () => {

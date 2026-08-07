@@ -29,7 +29,7 @@ export class LockCliError extends Error {}
 const camelFlag = (s: string): string => s.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase())
 
 /** Flags that never take a value. */
-const BOOL_FLAGS = new Set(['json', 'wait', 'outsideScope'])
+const BOOL_FLAGS = new Set(['json', 'wait', 'outsideScope', 'allowSibling'])
 
 /** Pure argv → { command, args, positionals } (issue-cli parser, lock bool set). */
 export function parseLockArgs(argv: string[]): {
