@@ -452,6 +452,14 @@ had that arithmetic available and did not do it, which is the same failure it wa
 elsewhere — reading a label (`characterization`, migration-era framing, artifact titles) instead
 of the thing.
 
+POD-521 found a second instance of the same failure while working the list. This review would
+have stripped the pre-cutover absence pin in `session-cutover.audit.test.ts` AC8 as temporary
+migration residue. Its two assertions read `REPLICA_TRANSITIONS` from `@podium/sync` and guard a
+replication seam that is moving under the sync rewrite, so it was kept. The property that made it
+*look* retirable — the shape of a pre-cutover pin — was not the property that mattered, which is
+what it guards. Both instances say the same thing about how this review classified tests: it
+sorted them by what they were written for, and value is decided by what they still hold.
+
 **What survives.** The maintenance argument is untouched: the file still carries migration-era
 artifact and pin language describing a cutover that completed, and that framing should go. What
 does not survive is deleting it, or relocating 3,000 lines into two small suites to satisfy the
