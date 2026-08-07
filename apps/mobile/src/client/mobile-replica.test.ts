@@ -651,6 +651,60 @@ describe('feed delivery through the assembled sink (POD-1241)', () => {
     expect(opened.replica.rows('issues').map((r) => r.id)).toEqual(['i-delta'])
     expect(opened.replica.getCursor()).toBe(2)
   })
+
+  /**
+   * POD-541 — the offline task-detail gap.
+   *
+   * Painting after a delta is not enough: a reload (or a notification link
+   * opened while the server is unreachable) must still see that row. The cold-
+   * start case above seeds through `applyAtomic` directly; this one arrives
+   * ONLY over the feed, which is the path create-task takes in production.
+   * Without this, "feed paints" and "disk has the row" can diverge and the
+   * offline detail screen reports "Task not found" for a task that existed.
+   */
+  it('a feed delta is durable across process reopen (POD-541)', async () => {
+    const file = freshDatabaseFile()
+    const first = await open({ file, storage: legacyDevice({}) })
+
+    onlineWithBootstrap(first, bootstrapFrame({ seq: 1, changes: [] }))
+    await waitUntil('cursor after empty bootstrap', () => first.replica.getCursor() === 1)
+
+    first.feed.frame({
+      type: 'feedDelta',
+      feedId: 'feed',
+      epoch: 'e1',
+      fromSeq: 1,
+      seq: 2,
+      minAvailableSeq: 0,
+      changes: [
+        {
+          seq: 2,
+          entity: 'issue',
+          entityId: 'i-offline',
+          op: 'upsert',
+          value: { id: 'i-offline', title: 'must survive reload', status: 'open' },
+        },
+      ],
+    } as never)
+    await waitUntil(
+      'delta paint before close',
+      () => first.replica.rows('issues').some((r) => r.id === 'i-offline'),
+    )
+    // No await of a flush API: SQLite commits inside applyAtomic, so the file
+    // must already hold the row before we tear the process down.
+    await first.store.settled()
+    first.store.close()
+
+    const cold = await open({
+      file,
+      storage: legacyDevice({}),
+      fetchChangesSince: SILENT_AUTHORITY,
+    })
+    const hydrated = await cold.replica.hydrate()
+    expect(hydrated.issues).toMatchObject([{ id: 'i-offline', title: 'must survive reload' }])
+    expect(cold.replica.rows('issues').map((r) => r.id)).toEqual(['i-offline'])
+    expect(hydrated.cursor).toBe(2)
+  })
 })
 
 // ---------------------------------------------------------------------------
