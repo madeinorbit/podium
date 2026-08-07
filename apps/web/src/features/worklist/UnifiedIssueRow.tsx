@@ -1,10 +1,7 @@
 import {
-  branchRollup,
   draftIssueLabel,
   type IssueNavigationModel,
-  isCoordinatorSession,
   isDraftAgentVessel,
-  partitionStaleSessions,
   pendingDecisionLabel,
   pendingDecisionTitle,
   rowMotionPhase,
@@ -13,18 +10,16 @@ import {
   rowStatusLine,
   rowUnreadEmphasized,
   rowWaitingCount,
-  sessionsNeedChildRows,
   type UnifiedIssueRow as UnifiedIssueRowView,
 } from '@podium/client-core/viewmodels'
-import type { IssueColorSlot, IssueId, SessionId, SessionMeta } from '@podium/model'
+import type { AgentKind, IssueColorSlot, IssueId, SessionId, SessionMeta } from '@podium/model'
 import { isIssueDeferred, issueReturnedFromDefer } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { AlarmClock, Pin } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { GitStamp } from '@/components/GitStamp'
 import { IdSquare } from '@/components/IdSquare'
-import { missionIssueIds } from '@/lib/mission'
 import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { issueIdTitle } from '@/features/issues/issue-card'
 import { agentFleetTileTint } from '@/lib/agent-tone'
@@ -34,103 +29,108 @@ import type { ContextMenuAnchor } from '@/lib/SessionContextMenu'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor } from '@/lib/WorkerLabel'
 import { agentIconFor } from './agent-icon'
-import { issueRowFoldKey } from './fold-keys'
-import {
-  AgentRosterBand,
-  GroupedSessionRows,
-  PanelRow,
-  StaleSection,
-  useCollapsed,
-} from './sidebar-common'
 import { inlineRenameEditor, useInlineRename } from './use-inline-rename'
 import { WorkRowShell } from './WorkRowShell'
 
-/** Compact execution presence that survives a collapsed issue row. The full
- * roster remains below the row; this summary answers "who is here?" without
- * making the operator keep every fleet expanded. */
-function IssueFleetSummary({
+/** How many distinct harness tiles a fleet stack shows before the total alone
+ *  carries the rest. The approved artifact stacks kinds, not agents — three is
+ *  what its widest mission renders. */
+const FLEET_KIND_LIMIT = 3
+
+/**
+ * The mission's execution presence, in the approved artifact's `fleet-summary`
+ * anatomy: a stack of REAL harness-kind tiles, the live agent total once there
+ * is more than one, and `×N` for native (in-process Task) children.
+ *
+ * Kinds, not sessions. A nine-agent mission running three harnesses shows three
+ * tiles and a `9`, not nine tiles — the question the stack answers is "who is
+ * here", and the number answers "how many". Everything is client-derived from
+ * the row's bubbled session set; nothing is stored on the issue.
+ */
+function FleetSummary({
   sessions,
-  leadCount = 0,
   unread = false,
 }: {
   sessions: SessionMeta[]
-  leadCount?: number
   /** An unopened update since last read (POD-293): a single info dot on the
    *  agent identity, not a shouted banner. Bound to the fleet glyph so it reads
    *  as "this agent has something new", never a free-floating third dot. */
   unread?: boolean
 }): JSX.Element | null {
   const live = sessions.filter(
-    (session) => !session.archived && session.status !== 'exited' && session.status !== 'hibernated',
+    (session) =>
+      !session.archived && session.status !== 'exited' && session.status !== 'hibernated',
   )
   if (live.length === 0) return null
-  const shown = live.slice(0, 3)
-  const overflow = Math.max(0, live.length - shown.length)
+  const kinds: AgentKind[] = []
+  for (const session of live) {
+    if (!kinds.includes(session.agentKind)) kinds.push(session.agentKind)
+  }
+  const shown = kinds.slice(0, FLEET_KIND_LIMIT)
   const nativeCount = live.reduce(
     (sum, session) => sum + (session.agentState?.nativeSubagentCount ?? 0),
     0,
   )
-  const label = [
-    `${live.length} live agent${live.length === 1 ? '' : 's'}`,
-    leadCount > 0 ? `${leadCount} lead${leadCount === 1 ? '' : 's'}` : null,
-    nativeCount > 0 ? `${nativeCount} native subagent${nativeCount === 1 ? '' : 's'}` : null,
-    unread ? 'new update' : null,
-  ]
-    .filter(Boolean)
-    .join(' · ')
+  // The artifact's tooltip, verbatim in structure: the two facts the stack
+  // itself compresses. Leads are not in it — a coordinator is the Flight Deck's
+  // fact, and repeating it here spent a third clause on a glyph cluster.
+  const label = `${live.length} live agent${live.length === 1 ? '' : 's'}${
+    nativeCount > 0 ? ` · ${nativeCount} native children` : ''
+  }`
   return (
     <span
-      className="ml-0.5 flex flex-none items-center"
+      className="ml-0.5 flex flex-none items-center gap-[5px]"
       role="img"
       aria-label={label}
       title={label}
       data-testid="issue-fleet-summary"
     >
-      {shown.map((session, index) => {
-        const AgentIcon = agentIconFor(session.agentKind)
-        // Per-kind tint (POD-293): Claude wears its clay, other harnesses a quiet
-        // navy — solid fills so stacked tiles don't ghost through each other. A
-        // table keyed by kind, not a comparison (see @/lib/agent-tone).
-        const tileTint = agentFleetTileTint(session.agentKind)
-        // The row's unopened-update dot rides the corner of the LAST tile (the
-        // concept's `.av .unreaddot`): tight to the glyph at -3px, ringed in the
-        // row background — reads as "this fleet has something new", not a third
-        // free-floating mark.
-        const showDot = unread && index === shown.length - 1
-        return (
-          <span
-            key={session.sessionId}
-            data-agent-kind={session.agentKind}
-            className={cn(
-              'relative flex size-[19px] items-center justify-center rounded-[6px] border',
-              tileTint,
-              index > 0 && '-ml-1',
-            )}
-            style={{ zIndex: index + 1 }}
-          >
-            {AgentIcon ? <AgentIcon size={12} strokeWidth={1.8} aria-hidden="true" /> : '✳'}
-            {showDot && (
-              <span
-                className="absolute -top-[3px] -right-[3px] z-[1] size-[7px] rounded-full border-[1.5px] border-[var(--row-bg,var(--sidebar))] bg-info"
-                data-testid="row-unread-dot"
-                aria-hidden="true"
-              />
-            )}
-          </span>
-        )
-      })}
-      {overflow > 0 && (
+      <span className="flex items-center pl-1">
+        {shown.map((kind, index) => {
+          const AgentIcon = agentIconFor(kind)
+          // Per-kind tint (POD-293): Claude wears its clay, other harnesses a
+          // quiet navy — solid fills so stacked tiles don't ghost through each
+          // other. A table keyed by kind, not a comparison (see @/lib/agent-tone).
+          const tileTint = agentFleetTileTint(kind)
+          // The row's unopened-update dot rides the corner of the LAST tile (the
+          // artifact's `.fleet-tile .dot`): tight to the glyph at -3px, ringed in
+          // the row background — "this fleet has something new", not a third
+          // free-floating mark.
+          const showDot = unread && index === shown.length - 1
+          return (
+            <span
+              key={kind}
+              data-agent-kind={kind}
+              className={cn(
+                'relative flex size-[19px] items-center justify-center rounded-[6px] border',
+                tileTint,
+                index > 0 && '-ml-[5px]',
+              )}
+              style={{ zIndex: index + 1 }}
+            >
+              {AgentIcon ? <AgentIcon size={12} strokeWidth={1.8} aria-hidden="true" /> : '✳'}
+              {showDot && (
+                <span
+                  className="absolute -top-[3px] -right-[3px] z-[1] size-[7px] rounded-full border-[1.5px] border-[var(--row-bg,var(--sidebar))] bg-info"
+                  data-testid="row-unread-dot"
+                  aria-hidden="true"
+                />
+              )}
+            </span>
+          )
+        })}
+      </span>
+      {live.length > 1 && (
         <span
-          className="shell-type-micro -ml-1 flex h-[21px] min-w-[21px] items-center justify-center rounded-[6px] border border-border-strong bg-chip px-0.5 font-mono text-muted-foreground"
-          style={{ zIndex: shown.length + 1 }}
+          className="shell-type-micro font-mono tabular-nums text-muted-foreground"
+          data-testid="issue-fleet-total"
         >
-          +{overflow}
+          {live.length}
         </span>
       )}
       {nativeCount > 0 && (
         <span
-          className="shell-type-micro -mt-2 -ml-1 rounded-[4px] border border-claude/35 bg-claude/12 px-[3px] font-mono text-claude"
-          style={{ zIndex: shown.length + 2 }}
+          className="shell-type-micro rounded-[5px] border border-claude/35 bg-claude/12 px-[3px] font-mono text-claude"
           data-testid="issue-fleet-subagent-count"
         >
           ×{nativeCount}
@@ -154,10 +154,25 @@ function flashLineage(issueId: string): void {
 }
 
 /**
- * One issue row in the work list. Agent drafts (draft issue whose only content
- * is agents, no worktree) click straight into their session. Real issues show
- * the ID square and expand (default expanded) to their member sessions from 2
- * agents up.
+ * ONE FLAT ROW PER MISSION (POD-516 §1.1, from the approved artifact's
+ * `workRow`).
+ *
+ * The worklist is the human's list of missions, and that is all it is. There is
+ * no disclosure twist, no agent roster band, no session rows, no native-subagent
+ * rows and no recursion into child issues — the artifact's `renderWork` emits a
+ * flat list of mission roots and two group folds, and nothing else. The doctrine
+ * behind it: "a session is shown directly beneath the issue it belongs to; its
+ * spawn parent and native workers are secondary details, not a competing
+ * navigation tree". The tree lives one column right, in the Flight Deck.
+ *
+ * What a subtree still owes this row is its SUMMARY: attention bubbles up
+ * (`rowWaitingCount` counts the whole branch), the status line names the deepest
+ * source when the ask is hidden below, and the fleet stack speaks for every
+ * descendant session. All of it is derived here from the row's bubbled session
+ * set — no stored aggregates.
+ *
+ * Agent drafts (a draft issue whose only content is agents, no worktree) click
+ * straight into their session; real issues select the mission.
  */
 export function UnifiedIssueRow({
   row,
@@ -174,8 +189,6 @@ export function UnifiedIssueRow({
   onColorChangeIssue,
   onGripDown,
   onTuck,
-  /** Visual nesting depth for started-by children (0 = top-level). */
-  startedByDepth = 0,
 }: {
   row: UnifiedIssueRowView
   sessions: SessionMeta[]
@@ -196,16 +209,10 @@ export function UnifiedIssueRow({
   /** Dismiss a finished row into the Closed fold (POD-293); absent = not a
    *  tuckable done row, so the control is hidden. */
   onTuck?: () => void
-  startedByDepth?: number
 }): JSX.Element {
-  const { issue, sessions: mine, startedByChildren = [] } = row
+  const { issue, sessions: mine } = row
   const active = selectedIssueId === issue.id
   const unread = rowUnreadEmphasized(row)
-  // Agents are a count, not always-on rows (POD-293): a non-pinned issue folds
-  // its roster/subtask detail by default, so the list reads as one calm line per
-  // task with the fleet glyph carrying "N agents". Pinned issues — the ones you
-  // chose to watch — stay expanded. Per-issue toggles still persist and win.
-  const [collapsed, toggle] = useCollapsed(issueRowFoldKey(issue.id), !issue.pinned)
   const [menuAnchor, setMenuAnchor] = useState<ContextMenuAnchor | null>(null)
   // The rename lifecycle and its commit policy live in `use-inline-rename.ts`;
   // the row keeps only the slot it renders into.
@@ -213,39 +220,9 @@ export function UnifiedIssueRow({
   const renameEditor = inlineRenameEditor(rename, ({ onCommit, onCancel }) => (
     <SessionNameEditor value={issue.title} onCommit={onCommit} onCancel={onCancel} />
   ))
-  // Sessions earning visibility (multi-agent / remote spawn / native subagents)
-  // render in the ADJACENT roster band (L2), never inside the issue tree. The
-  // issue disclosure folds all detail while the compact fleet summary remains.
-  // A LONE driver never earns a band (POD-267) — it fuses into the row as the
-  // fleet-summary glyph, nested subtasks or not; boxing one agent alongside plan
-  // structure spent a whole tone tier on a single icon.
-  const showSessions = sessionsNeedChildRows(mine)
-  const hasStartedBy = startedByChildren.length > 0
-  // Depth cap (L4): the sidebar renders parent + children, then numbers. A
-  // depth-1 row never recurses — its whole subtree compresses into the quiet
-  // roll-up line, counted over ALL descendants (parentId edges) so done
-  // children that already decayed out of rows still show up in the k/m (L5).
-  const capped = startedByDepth >= 1
-  const rollup = capped ? branchRollup(issues, issue.id) : null
-  const showRollup = rollup !== null && rollup.total > 0
+  // The row speaks for its whole branch: descendants have no row of their own
+  // here, so the fleet stack reads the bubbled aggregate.
   const fleetSessions = row.aggregateSessions ?? mine
-  // How many of this row's agents are leads/coordinators — counted over the
-  // whole mission subtree, since a lead usually sits on a child task. The
-  // subtree projection is the Flight Deck's, so the sidebar and the deck can
-  // never disagree about what belongs to a mission. Memoized: this is the
-  // sidebar's hot render path and the walk is over every issue.
-  const leadCount = useMemo(() => {
-    const missionIds = missionIssueIds(issues, issue.id)
-    const leadIds = new Set(
-      issues
-        .filter((candidate) => missionIds.has(candidate.id))
-        .map((candidate) => candidate.coordinatorSessionId)
-        .filter((id): id is SessionId => Boolean(id)),
-    )
-    return fleetSessions.filter((session) => leadIds.has(session.sessionId)).length
-  }, [issues, issue.id, fleetSessions])
-  const missionProgress = !issue.parentId ? branchRollup(issues, issue.id) : null
-  const { visible, stale } = partitionStaleSessions(mine, now)
   const phase = rowMotionPhase(row)
   // What this row is asking of the human, if anything (POD-279).
   const decision = rowPendingDecision(row)
@@ -297,36 +274,10 @@ export function UnifiedIssueRow({
       }}
     />
   ) : null
-  const renderRow = (session: SessionMeta) => (
-    <PanelRow
-      key={session.sessionId}
-      session={session}
-      active={active && paneA === session.sessionId}
-      onSelect={() => onSelectPanelForIssue(issue, session.sessionId)}
-      dotRight
-      roster
-      stub
-      coordinator={isCoordinatorSession(issue, session.sessionId)}
-      issueDisplayRef={issue.displayRef}
-    />
-  )
-  // The rail-navy roster band (L2): AGENTS · N, adjacent to the row.
-  const band =
-    !draftAgentOnly && showSessions ? (
-      <AgentRosterBand
-        label="Agents"
-        count={mine.length}
-        variant="rail"
-        className="mt-0.5 mb-[3px] ml-8"
-      >
-        <GroupedSessionRows sessions={visible} render={renderRow} dense />
-        <StaleSection sessions={stale} render={renderRow} dense />
-      </AgentRosterBand>
-    ) : undefined
   return (
     <>
       <WorkRowShell
-        testId={startedByDepth > 0 ? 'unified-issue-row-started-by' : 'unified-issue-row'}
+        testId="unified-issue-row"
         deemphasized={issue.audience === 'agent'}
         square={square}
         label={label}
@@ -348,7 +299,11 @@ export function UnifiedIssueRow({
               {pendingDecisionLabel(issue, decision)}
             </span>
           ) : (
-            rowStatusLine(row, now, capped ? 0 : 1)
+            // Nothing below this row renders (the mission's tree is the Flight
+            // Deck's), so the status line reports at visible depth 0: an ask
+            // buried three levels down names its source instead of a bare
+            // "needs you" with no visible row to explain it.
+            rowStatusLine(row, now, 0)
           )
         }
         hex={hex}
@@ -372,8 +327,6 @@ export function UnifiedIssueRow({
           />
         }
         active={draftAgentOnly ? active && paneA === first?.sessionId : active}
-        // The chevron folds the agent ROSTER only (POD-293) — subtasks are
-        // always-visible rows, so a subtask-only issue needs no toggle.
         gitStamp={
           issue.gitState && (
             <GitStamp
@@ -386,11 +339,6 @@ export function UnifiedIssueRow({
           )
         }
         unread={unread}
-        expandable={!draftAgentOnly && showSessions}
-        collapsed={draftAgentOnly ? true : collapsed}
-        onToggle={toggle}
-        band={band}
-        hasTreeChildren={showRollup || (!capped && hasStartedBy)}
         // A draft is just its agent — clicking the row opens the session itself.
         onSelect={
           draftAgentOnly && first
@@ -404,8 +352,6 @@ export function UnifiedIssueRow({
         onGripDown={
           onGripDown && !isIssueDeferred(issue, now) ? (e) => onGripDown(e, issue.id) : undefined
         }
-        childDragScope={!capped && hasStartedBy ? `children:${issue.id}` : undefined}
-        childrenTestId={!capped && hasStartedBy ? 'started-by-children' : undefined}
         statusExtra={
           origin && (
             <span
@@ -434,15 +380,7 @@ export function UnifiedIssueRow({
                 internal
               </span>
             )}
-            {!draftAgentOnly && (
-              <IssueFleetSummary
-                sessions={fleetSessions}
-                leadCount={leadCount}
-                unread={unread}
-              />
-            )}
-            {/* No started-by/epic jargon chips (POD-85): the dashed provenance
-                nest and the expand chevron already say it visually. */}
+            {!draftAgentOnly && <FleetSummary sessions={fleetSessions} unread={unread} />}
             {issue.pinned && (
               <Pin size={10} className="flex-none text-muted-foreground" aria-hidden="true" />
             )}
@@ -463,89 +401,8 @@ export function UnifiedIssueRow({
             )}
           </>
         }
-      >
-        {missionProgress && missionProgress.total > 0 && (
-          <div
-            className="mb-1 ml-10 flex items-center gap-2 pr-3"
-            data-testid="mission-subtree-progress"
-            aria-label={`${missionProgress.done} of ${missionProgress.total} subtree tasks done`}
-          >
-            {/* Same datum, same treatment as the Flight Deck's mission meter
-                (FlightDeck's ProgressBar): Accent Blue data on the secondary
-                surface. Two colours for one number one column apart would read
-                as two different facts. */}
-            <div className="h-[3.5px] flex-1 overflow-hidden rounded-full bg-secondary">
-              <div
-                className="h-full rounded-full bg-info"
-                style={{ width: `${(missionProgress.done / missionProgress.total) * 100}%` }}
-              />
-            </div>
-            <span className="shell-type-micro font-mono tabular-nums text-text-faint">
-              {missionProgress.done}/{missionProgress.total}
-            </span>
-            {waitingCount > 0 && (
-              <span className="shell-type-micro font-mono font-semibold text-attention">
-                {waitingCount} need you
-              </span>
-            )}
-          </div>
-        )}
-        {showRollup && rollup && (
-          // Roll-up line (L4): depth beyond two levels becomes numbers. Mono,
-          // faint, still; hover surfaces the affordance; click deep-links to
-          // the issue page's subtask tree — no third indent, no camera modes.
-          <button
-            data-pressable
-            type="button"
-            data-testid="subtree-rollup"
-            className="shell-type-micro group/rollup mb-0.5 ml-6 flex w-[calc(100%-2rem)] cursor-pointer items-center gap-1.5 rounded-[5px] px-1.5 py-0.5 text-left font-mono text-muted-foreground/70 hover:bg-white/[.04] hover:text-muted-foreground"
-            title={`Open ${issueIdTitle(issue)} subtask tree`}
-            onClick={() => onOpenIssue(issue.id)}
-          >
-            └ {rollup.total} deeper · {rollup.done}/{rollup.total} done
-            <span
-              data-hover-reveal
-              className="shell-type-micro ml-auto flex-none opacity-0 transition-opacity duration-150 group-hover/rollup:opacity-100"
-              aria-hidden="true"
-            >
-              open tree ↗
-            </span>
-          </button>
-        )}
-        {!draftAgentOnly &&
-          !capped &&
-          hasStartedBy &&
-          startedByChildren.map((child) => (
-            <div
-              key={`issue:${child.issue.id}`}
-              className="ml-5 min-w-0"
-              {...(!isIssueDeferred(child.issue, now) ? { 'data-drag-key': child.issue.id } : {})}
-            >
-              <UnifiedIssueRow
-                row={child}
-                allWorktreePaths={allWorktreePaths}
-                sessions={_all}
-                issues={issues}
-                selectedIssueId={selectedIssueId}
-                paneA={paneA}
-                now={now}
-                onSelectIssue={onSelectIssue}
-                onSelectPanelForIssue={onSelectPanelForIssue}
-                onOpenIssue={onOpenIssue}
-                onRenameIssue={onRenameIssue}
-                onColorChangeIssue={onColorChangeIssue}
-                onGripDown={onGripDown}
-                startedByDepth={startedByDepth + 1}
-              />
-            </div>
-          ))}
-      </WorkRowShell>
+      />
       {menu}
     </>
   )
 }
-
-/** Provenance whisper for an orphaned session (L6): a session whose issue was
- *  deleted or archived names its origin — `from POD-32 · deleted` — instead of
- *  silently pooling into an anonymous branch row. Presentation only; the
- *  data-layer orphan fix is POD-135. */

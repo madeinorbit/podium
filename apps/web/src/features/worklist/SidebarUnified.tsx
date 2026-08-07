@@ -1,5 +1,6 @@
 import {
   groupUnifiedWorkRows,
+  type IssueNavigationModel,
   rowAwaitsTuck,
   splitPinnedWork,
   type UnifiedIssueRow as UnifiedIssueRowView,
@@ -23,6 +24,7 @@ import {
   FoldedWorkRow,
   PinnedSectionLabel,
   ProjectGroupLabel,
+  ProposedIssueFold,
   ROW_LAYOUT_TRANSITION,
   SnoozedIssueFold,
   type TransitionWorkRow,
@@ -161,6 +163,29 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
         : publishedGroups,
     [publishedGroups, selectedWasFolded, work, selectedIssueId, now],
   )
+  // PROPOSED WORK (POD-516 §1.1, item 5), keyed the same way the worklist groups
+  // are so a repo's intake queue lands under its own project label.
+  //
+  // It is derived HERE rather than in the worklist slice on purpose: a proposed
+  // issue has no session, no lifecycle and no row in the live list — the slice
+  // deliberately drops it (`rows.ts`, "the unified list is live work, not a
+  // tree"), and putting it back would leak untriaged work into every other
+  // consumer of `work` (the command palette, mobile, the rail). The column that
+  // wants it is this one.
+  const proposedByGroup = useMemo(() => {
+    const byGroup = new Map<string, IssueNavigationModel[]>()
+    for (const issue of issues) {
+      if (issue.stage !== 'proposed') continue
+      if (issue.archived || issue.deletedAt || issue.audience === 'agent') continue
+      const key = issue.repoId ?? issue.repoPath
+      const list = byGroup.get(key) ?? []
+      list.push(issue)
+      byGroup.set(key, list)
+    }
+    // Newest proposal first: an intake queue is read from the top.
+    for (const list of byGroup.values()) list.sort((a, b) => b.seq - a.seq)
+    return byGroup
+  }, [issues])
   useEffect(() => {
     const closedIds = new Set<string>(
       targetGroups.flatMap((group) => group.closedRows.map((row) => row.issue.id)),
@@ -401,25 +426,37 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
     if (item.value.lane !== 'pinned' && !renderedGroupKeys.includes(item.value.groupKey))
       renderedGroupKeys.push(item.value.groupKey)
   }
+  // A repo whose only work is still proposed still earns its project group —
+  // otherwise the intake queue would be unreachable exactly when it is all the
+  // operator has.
+  for (const groupKey of proposedByGroup.keys()) {
+    if (!renderedGroupKeys.includes(groupKey)) renderedGroupKeys.push(groupKey)
+  }
   const renderedGroups = renderedGroupKeys.map((groupKey) => {
     const target = targetGroups.find((group) => group.key === groupKey)
     const fallback = transitionRows.find((item) => item.value.groupKey === groupKey)
+    const proposedRows = proposedByGroup.get(groupKey) ?? []
     return {
       key: groupKey,
-      label: target?.label ?? fallback?.value.groupLabel ?? groupKey,
+      label:
+        target?.label ??
+        fallback?.value.groupLabel ??
+        proposedRows[0]?.repoPath.split('/').pop() ??
+        groupKey,
       rows: transitionRows.filter(
         (item) => item.value.groupKey === groupKey && item.value.lane === 'open',
       ),
       snoozedRows: transitionRows.filter(
         (item) => item.value.groupKey === groupKey && item.value.lane === 'snoozed',
       ),
+      proposedRows,
       closedRows: transitionRows.filter(
         (item) => item.value.groupKey === groupKey && item.value.lane === 'closed',
       ),
     }
   })
 
-  if (transitionRows.length === 0) {
+  if (transitionRows.length === 0 && proposedByGroup.size === 0) {
     return (
       <div className="p-3 text-xs text-muted-foreground/70">
         Nothing yet — start an agent or create an issue above.
@@ -469,6 +506,28 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
                   rows={group.snoozedRows}
                   renderRow={renderWorkRow}
                   settleTransition={settle}
+                />
+              </motion.div>
+            )}
+            {/* The artifact's two tail folds, in its order: Proposed, then
+                Closed. Both are group headers — the only foldable things in
+                this column now that the rows are flat. */}
+            {group.proposedRows.length > 0 && (
+              <motion.div
+                layout="position"
+                transition={
+                  shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }
+                }
+              >
+                <ProposedIssueFold
+                  groupKey={group.key}
+                  issues={group.proposedRows}
+                  now={now}
+                  selectedIssueId={selectedIssueId}
+                  onSelect={(issue) => {
+                    setSelectedClosedPlacement(null)
+                    selectIssue(issue)
+                  }}
                 />
               </motion.div>
             )}

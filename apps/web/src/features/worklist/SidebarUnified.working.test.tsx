@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SidebarUnified } from './SidebarUnified'
 
@@ -214,28 +214,19 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
     expect(waitingRow.querySelector('[aria-label="1 waiting on you"]')).toBeTruthy()
   })
 
-  it('shows agents as a count by default, folding the roster behind the chevron (POD-293)', () => {
+  // POD-516 §1.1: agents are a fleet stack and nothing else in this column.
+  // There is no roster band and no disclosure to reveal one — the operator saw
+  // the old chevron as the sidebar growing a second navigation tree.
+  it('shows agents as a fleet stack with no roster band and no disclosure', () => {
     render(<SidebarUnified />)
     const waitingRow = screen
       .getByText('Partly working issue')
       .closest('[data-testid="unified-issue-row"]') as HTMLElement
-    // A non-pinned issue folds its roster by default: the fleet glyph carries
-    // the count, and the AGENTS box is not spent until you ask for it.
     const fleet = waitingRow.querySelector('[data-testid="issue-fleet-summary"]') as HTMLElement
     expect(fleet).toBeTruthy()
-    expect(fleet.querySelector('.rounded-full')).toBeNull()
     expect(waitingRow.querySelector('[data-testid="agent-roster-band"]')).toBeNull()
-    expect(
-      screen
-        .getByRole('button', { name: 'Expand Partly working issue' })
-        .getAttribute('aria-expanded'),
-    ).toBe('false')
-
-    const expand = screen.getByRole('button', { name: 'Expand Partly working issue' })
-    fireEvent.click(expand)
-
-    expect(waitingRow.querySelector('[data-testid="agent-roster-band"]')).toBeTruthy()
-    expect(waitingRow.querySelector('[data-testid="issue-fleet-summary"]')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Expand Partly working issue' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Collapse Partly working issue' })).toBeNull()
   })
 
   it('makes completion explicit and keeps clean git silent', () => {
@@ -253,27 +244,23 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
     expect(doneRow.querySelector('[data-testid="git-stamp"]')).toBeNull()
   })
 
-  it('makes nested issues direct children of one tinted connector rail', () => {
+  // POD-516 §1.1: a child issue has no row here at all. Its work reaches the
+  // operator through the mission row's summary — the fleet stack counts its
+  // sessions — and the tree itself lives in the Flight Deck.
+  it('renders a parent as one flat row, with no child rows and no tree well', () => {
     render(<SidebarUnified />)
-    const tree = screen.getByTestId('started-by-children')
-    const child = tree.querySelector(':scope > [data-drag-key="child"]')
-
-    expect(tree.getAttribute('data-drag-scope')).toBe('children:parent')
-    expect(tree.style.getPropertyValue('--tree-guide')).toContain('#ec4899')
-    expect(child).toBeTruthy()
-    expect(child?.querySelector('[data-testid="unified-issue-row-started-by"]')).toBeTruthy()
-  })
-
-  it('fuses a lone driver into the row of a parent with subtasks (POD-267)', () => {
-    render(<SidebarUnified />)
+    expect(screen.queryByTestId('started-by-children')).toBeNull()
+    expect(screen.queryByText('Nested child')).toBeNull()
     const parentRow = screen
       .getByText('Nested parent')
       .closest('[data-testid="unified-issue-row"]') as HTMLElement
-    // Expanded (default): the subtask tree is open, and the single driving agent
-    // is present as the row's fleet glyph — no AGENTS box of its own.
-    expect(parentRow.querySelector('[data-testid="started-by-children"]')).toBeTruthy()
     expect(parentRow.querySelector('[data-testid="agent-roster-band"]')).toBeNull()
-    expect(parentRow.querySelector('[data-testid="issue-fleet-summary"]')).toBeTruthy()
+    // The child's session is still counted: two agents, one harness kind.
+    const fleet = parentRow.querySelector('[data-testid="issue-fleet-summary"]') as HTMLElement
+    expect(fleet).toBeTruthy()
+    expect(fleet.getAttribute('aria-label')).toBe('2 live agents')
+    expect(fleet.querySelectorAll('[data-agent-kind]')).toHaveLength(1)
+    expect(fleet.querySelector('[data-testid="issue-fleet-total"]')?.textContent).toBe('2')
   })
 
   it('shows unmerged done work as a tint-only branch attention chip', () => {

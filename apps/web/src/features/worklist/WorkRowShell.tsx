@@ -1,5 +1,5 @@
 import type { MotionPhase } from '@podium/client-core/viewmodels'
-import { ArrowDownToLine, ChevronDown, ChevronRight } from 'lucide-react'
+import { ArrowDownToLine } from 'lucide-react'
 import { motion, useReducedMotion } from 'motion/react'
 import type {
   CSSProperties,
@@ -35,12 +35,18 @@ function rowTints(hex: string | undefined, phase: MotionPhase, active: boolean) 
 }
 
 /**
- * The shared two-line WORK-row skeleton (§2.4/§2.5):
- * [ID square][title + amber pill / status line + motion meta][bridge notch].
- * Issue and worktree rows both render through it — they differ only in the
- * leading square and their extras. Queued rows dim whole (.65); the selected
- * row wears the colour-mixed background, border and the notch that crosses the
- * aside border toward the engraved column.
+ * The WORK-row skeleton (§2.4/§2.5, and the approved artifact's `work-row`):
+ * [ID square][title + need pill / status line + motion meta][fleet][bridge notch].
+ *
+ * ONE ROW, NO DETAIL BLOCK (POD-516 §1.1). The shell used to own a disclosure
+ * chevron, an agent roster band and a `.tree-children` well that recursed into
+ * child issues — the competing navigation tree the design doctrine forbids in
+ * this column. It is a leaf now: everything a mission's subtree has to say is
+ * summarised on the single line, and the tree itself lives in the Flight Deck.
+ *
+ * Queued rows dim whole (.65); the selected row wears the colour-mixed
+ * background, border and the notch that crosses the aside border toward the
+ * engraved column.
  */
 export function WorkRowShell({
   square,
@@ -53,16 +59,12 @@ export function WorkRowShell({
   timeMeta,
   active,
   unread = false,
-  expandable,
-  collapsed,
-  onToggle,
   onSelect,
   onContextMenu,
   onDoubleClick,
   editor,
   extras,
   titleHint,
-  children,
   testId,
   deemphasized = false,
   domMark,
@@ -70,10 +72,6 @@ export function WorkRowShell({
   gitStamp,
   onGripDown,
   onTuck,
-  band,
-  hasTreeChildren,
-  childDragScope,
-  childrenTestId,
 }: {
   /** The leading 26px identity square (owns its own click). */
   square: ReactNode
@@ -83,19 +81,16 @@ export function WorkRowShell({
   /** The issue colour hex, undefined for the neutral/slate flow. */
   hex: string | undefined
   phase: MotionPhase
-  /** Amber line-1 pill count (0 = no pill). */
+  /** Line-1 need-pill count (0 = no pill). */
   waitingCount: number
-  /** Render the amber count pill (POD-293). False on rows that already carry an
-   *  amber decision word, so "needs you" isn't said twice in the same region. */
+  /** Render the need pill (POD-293). False on rows that already carry an amber
+   *  decision word, so "needs you" isn't said twice in the same region. */
   showWaitingPill?: boolean
   /** Line 2's lifecycle meta (the PhaseTimer). */
   timeMeta?: ReactNode
   active: boolean
   /** Email-style unread emphasis (#126): the label reads bold until opened. */
   unread?: boolean
-  expandable: boolean
-  collapsed: boolean
-  onToggle: () => void
   onSelect: () => void
   /** Right-click the row's select button (opens the issue context menu). */
   onContextMenu?: (e: ReactMouseEvent) => void
@@ -103,11 +98,10 @@ export function WorkRowShell({
   onDoubleClick?: () => void
   /** When present, replaces the two-line block with an inline-rename input. */
   editor?: ReactNode
-  /** Line-1 chips after the title (pin / snooze / epic). */
+  /** Line-1 chips after the title (fleet stack / pin / snooze). */
   extras?: ReactNode
   /** Native hover tooltip on the row (issue ids, #21). */
   titleHint?: string
-  children?: ReactNode
   testId: string
   /** Internal decomposition stays visible but subordinate to tracked work. */
   deemphasized?: boolean
@@ -123,15 +117,6 @@ export function WorkRowShell({
   /** Dismiss a finished row into the Closed fold (POD-293): when set, a quiet
    *  "tuck away" control rides the row's right edge. Absent on live rows. */
   onTuck?: () => void
-  /** Agent roster band (POD-170, L2): rendered adjacent to the row, outside
-   * the subtask tree, and folded with the row's other secondary detail. */
-  band?: ReactNode
-  /** True when the detail block contains issue-tree/roll-up content. */
-  hasTreeChildren: boolean
-  /** Drag scope and test marker belong on the actual tree container so each
-   * child can be a direct descendant and receive a correctly aligned stub. */
-  childDragScope?: string
-  childrenTestId?: string
 }): JSX.Element {
   // One-shot transition morphs (§2.6): fire only on a REAL phase change under a
   // mounted row — queued→working ignites the square, →waiting flashes the row.
@@ -154,32 +139,11 @@ export function WorkRowShell({
           '--row-hover-bg': `color-mix(in srgb, ${hex} 10%, var(--sidebar))`,
         } as CSSProperties)
       : {}
-  // A coloured issue's expanded block reads as ONE carved card (POD-293): the row
-  // and its agent/subtask detail share a continuous tint inside a single
-  // issue-toned hairline (The Tint, Never Fill Rule), instead of the tint
-  // stopping at the row edge and the agents sitting bare on the chassis.
-  const hasDetail = hasTreeChildren || (!collapsed && Boolean(band))
-  const carded = Boolean(hex) && hasDetail
   return (
-    <div
-      className={cn('min-w-0', carded && 'rounded-[8px] border')}
-      style={
-        carded
-          ? {
-              // Subtle by design (POD-293): the issue-toned hairline is what
-              // unifies the card; the fill is only a whisper so the row stays the
-              // one strongly-coloured surface and the detail reads recessed.
-              borderColor: `color-mix(in srgb, ${hex} 34%, transparent)`,
-              background: `color-mix(in srgb, ${hex} 5%, var(--background))`,
-            }
-          : undefined
-      }
-      data-testid={testId}
-    >
+    <div className="min-w-0" data-testid={testId}>
       <div
         className={cn(
           'shell-work-row phase-surface group/row relative flex min-w-0 items-center gap-2 rounded-[7px] pr-2 pl-3.5',
-          carded && 'rounded-b-none',
           !active && !hex && 'hover:bg-muted',
           !active && hex && 'bg-[var(--row-bg)] hover:bg-[var(--row-hover-bg)]',
           phase === 'queued' && !active && 'opacity-65',
@@ -212,22 +176,6 @@ export function WorkRowShell({
         <span className={cn('flex flex-none', morph === 'working' && 'morph-ignite')}>
           {square}
         </span>
-        {expandable && (
-          <button
-            data-pressable
-            type="button"
-            className="-ml-1.5 flex w-3.5 flex-none cursor-pointer items-center justify-center self-stretch text-muted-foreground/60 hover:text-foreground"
-            onClick={onToggle}
-            aria-expanded={!collapsed}
-            aria-label={collapsed ? `Expand ${label}` : `Collapse ${label}`}
-          >
-            {collapsed ? (
-              <ChevronRight size={11} aria-hidden="true" />
-            ) : (
-              <ChevronDown size={11} aria-hidden="true" />
-            )}
-          </button>
-        )}
         {editor ? (
           // Inline rename (#170): the input replaces the two-line block in place.
           <div className="flex min-w-0 flex-1 items-center">{editor}</div>
@@ -262,24 +210,25 @@ export function WorkRowShell({
                   free-floating blue dot was rejected: POD-236 — this dot is
                   bound to the agent identity, not a third positional meaning. */}
               {extras}
-              {/* The amber count earns its pill only on a row that ISN'T already
-                  saying "needs you" in words (POD-293): a review / merge decision
-                  carries the amber voice itself and the fleet tiles already show
-                  how many agents are here, so a second amber number beside them
-                  was the same signal three times. On a wordless waiting row (an
-                  agent's question) the pill stays — there it IS the needs-you
-                  signal, and its count survives the row being collapsed. */}
+              {/* THE NEED PILL (the artifact's `need-pill`). It reads in words —
+                  "Needs you" for one, "N need you" for a branch — because a bare
+                  amber digit beside a stack of agent tiles was read as another
+                  head-count. Words cannot be. It earns its place only on a row
+                  that ISN'T already saying "needs you" in a decision word
+                  (POD-293), and its count is the whole subtree's, so the ask
+                  survives having no rows below it here. */}
               {showWaitingPill && waitingCount > 0 && (
                 <span
                   key={`pill:${waitingCount}`}
                   className={cn(
-                    'shell-type-micro flex-none rounded-full bg-attention px-[5px] font-bold text-attention-foreground',
+                    'shell-type-micro flex-none rounded-[8px] border border-attention/35 bg-attention/10 px-[5px] font-mono font-semibold whitespace-nowrap text-attention',
                     morph !== null && 'morph-pop',
                   )}
+                  data-testid="need-pill"
                   role="img"
                   aria-label={`${waitingCount} waiting on you`}
                 >
-                  {waitingCount}
+                  {waitingCount === 1 ? 'Needs you' : `${waitingCount} need you`}
                 </span>
               )}
             </span>
@@ -300,7 +249,7 @@ export function WorkRowShell({
                 data-phase={phase}
                 style={
                   // Yellow is the one signal (POD-293): a waiting row is NOT
-                  // tinted amber wholesale — the ask (decision word / count pill /
+                  // tinted amber wholesale — the ask (decision word / need pill /
                   // square dot) carries it, and the status/time read dim. Only
                   // working (blue) and done (grey) tint their lockup.
                   phase === 'working'
@@ -382,60 +331,6 @@ export function WorkRowShell({
           />
         )}
       </div>
-      {/* Agent roster band (L2): adjacent to the row, one tone tier below the
-          panel, NEVER inside the subtask tree or behind the chevron. */}
-      {/* Subtask rows (L1 — the chevron's one promise): a tree guide (vertical
-          line + per-row stubs, via .tree-children CSS) ties the child ISSUES to
-          their parent; sessions render in the band above. A coloured issue
-          flows its tint into the unfolded block: a quiet wash behind the
-          children, a tinted guide, and colour-mixed active/hover on the child
-          rows — all via vars with neutral fallbacks so uncoloured rows (and
-          every other PanelRow context) are untouched. */}
-      {/* Subtasks are rows, agents are a count (POD-293): the child ISSUE tree
-          stays visible — it's real tracked work you can select — while only the
-          agent ROSTER band folds behind the chevron. So `collapsed` gates the
-          band alone; `hasTreeChildren` renders regardless. */}
-      {hasDetail && (
-        <div
-          className={cn(
-            'tree-children relative pt-0.5 pb-1',
-            carded ? 'rounded-b-[8px]' : 'rounded-b-[7px]',
-          )}
-          data-drag-scope={hasTreeChildren ? childDragScope : undefined}
-          data-testid={hasTreeChildren ? childrenTestId : undefined}
-          style={
-            hex
-              ? ({
-                  '--tree-guide': `color-mix(in srgb, ${hex} 55%, var(--border))`,
-                  '--child-active-bg': `color-mix(in srgb, ${hex} 26%, var(--sidebar))`,
-                  '--child-hover-bg': `color-mix(in srgb, ${hex} 18%, var(--sidebar))`,
-                  // Recessed and subtle (POD-293): the detail sits on the page
-                  // ground rather than the row's surface, with only a whisper of
-                  // the issue hue, so the
-                  // card reads carved-in — the coloured row above, a quiet well
-                  // below — rather than one uniform slab of tint.
-                  background: `color-mix(in srgb, ${hex} 6%, var(--background))`,
-                } as CSSProperties)
-              : undefined
-          }
-        >
-          {hasTreeChildren && (
-            <span
-              className="tree-guide absolute top-0 bottom-3 left-4 w-px bg-[var(--tree-guide,var(--border))]"
-              aria-hidden="true"
-            />
-          )}
-          {!collapsed && band && <div data-tree-band>{band}</div>}
-          {children}
-        </div>
-      )}
     </div>
   )
 }
-
-/**
- * One issue row in the work list. Agent drafts (draft issue whose only content
- * is agents, no worktree) click straight into their session. Real issues show
- * the ID square and expand (default expanded) to their member sessions from 2
- * agents up.
- */

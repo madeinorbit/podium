@@ -171,14 +171,13 @@ export function SidebarRail(): JSX.Element {
               className="h-px w-[26px] flex-none bg-hairline-soft"
               title={group.label}
             />
-            {group.rows.flatMap((row) => {
-              // Rail is flat: parent issue square then its started-by children
-              // so provenance-nested work stays reachable without the wide tree.
-              if (row.kind !== 'issue' || !row.startedByChildren?.length) {
-                return [renderRow(row)]
-              }
-              return [renderRow(row), ...row.startedByChildren.map((c) => renderRow(c))]
-            })}
+            {/* One square per MISSION, matching the wide column exactly
+                (POD-516 §1.1). The rail used to append a square per
+                provenance-nested child, which was the collapsed spelling of the
+                same second hierarchy the wide list has now dropped: a mission's
+                children belong to the Flight Deck, and its square already
+                carries their attention through the row's bubbled counts. */}
+            {group.rows.map((row) => renderRow(row))}
           </Fragment>
         ))}
       </div>

@@ -8,10 +8,7 @@
 import {
   agentBadge,
   agentColorHex,
-  groupSessionsByParent,
   isSessionWorking,
-  nativeSubagentCountOf,
-  nativeSubagentLabel,
   sessionIssueLinkage,
 } from '@podium/client-core/viewmodels'
 import type { SessionMeta } from '@podium/model'
@@ -265,123 +262,22 @@ export function StaleSection({
   )
 }
 
-/** Nested indicator for live native (in-process Task) subagents under a
- *  parent session. Count-only — named per-subagent identity is deferred.
- *  Machine-voice mono, no chevron: these are not foldable rows. */
-function NativeSubagentIndicator({
-  count,
-  dense = false,
-}: {
-  count: number
-  dense?: boolean
-}): JSX.Element | null {
-  if (count <= 0) return null
-  const label = nativeSubagentLabel(count)
-  const line = `with ${label}`
-  return (
-    <div
-      data-testid="native-subagent-indicator"
-      className={cn(
-        'py-[3px] pr-2 font-mono text-muted-foreground/75',
-        dense ? 'min-h-6 pl-1.5' : 'min-h-7 pl-[30px]',
-        'shell-type-micro',
-      )}
-      title={`${label} running inside this session (native Task tool)`}
-      aria-label={line}
-    >
-      {line}
-    </div>
-  )
-}
-
-/** Session rows grouped by spawn parentage (#237) [spec:SP-34d7 web]:
- *  cross-harness children (`spawnedBy: 'session:<parent>'`) nest indented
- *  under their spawner instead of flattening the list; consumed (exited)
- *  children auto-tuck behind a quiet "finished" disclosure. Native
- *  subagents (no separate SessionMeta) render as a count indicator under
- *  the parent when `nativeSubagentCount > 0`. */
-export function GroupedSessionRows({
-  sessions,
-  render,
-  dense = false,
-}: {
-  sessions: SessionMeta[]
-  render: (session: SessionMeta) => JSX.Element
-  /** Roster-band styling (POD-170): tighter spawn-nesting indents. */
-  dense?: boolean
-}): JSX.Element {
-  const groups = groupSessionsByParent(sessions)
-  const nest = dense
-    ? 'ml-3 border-l border-border/50 pl-0.5'
-    : 'ml-5 border-l border-border/50 pl-0.5'
-  return (
-    <>
-      {groups.map((g) => {
-        const nativeCount = nativeSubagentCountOf(g.session)
-        const hasRemote = g.children.length > 0 || g.consumed.length > 0
-        return (
-          <div key={g.session.sessionId} data-testid="session-group">
-            {render(g.session)}
-            {(hasRemote || nativeCount > 0) && (
-              <div className={nest} data-testid="session-group-children">
-                <NativeSubagentIndicator count={nativeCount} dense={dense} />
-                {g.children.map((child) => {
-                  const childNative = nativeSubagentCountOf(child)
-                  return (
-                    <div key={child.sessionId}>
-                      {render(child)}
-                      {childNative > 0 && (
-                        <div className={nest} data-testid="session-group-children">
-                          <NativeSubagentIndicator count={childNative} dense={dense} />
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-                <ConsumedChildren sessions={g.consumed} render={render} />
-              </div>
-            )}
-          </div>
-        )
-      })}
-    </>
-  )
-}
-
-/** Collapsed "finished" tail of a spawn group — consumed children stay
- *  reachable without cluttering the live fan-out. */
-function ConsumedChildren({
-  sessions,
-  render,
-}: {
-  sessions: SessionMeta[]
-  render: (session: SessionMeta) => JSX.Element
-}): JSX.Element | null {
-  const [open, setOpen] = useState(false)
-  if (sessions.length === 0) return null
-  return (
-    <div>
-      <button
-        data-pressable
-        type="button"
-        className="shell-type-micro flex w-full items-center gap-1 py-[3px] pr-3 pl-2 text-left font-semibold tracking-[0.08em] uppercase text-muted-foreground/70 hover:text-muted-foreground"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-      >
-        {open ? (
-          <ChevronDown size={11} aria-hidden="true" className="flex-none" />
-        ) : (
-          <ChevronRight size={11} aria-hidden="true" className="flex-none" />
-        )}
-        <span>
-          Finished
-          {!open && <span className="ml-1 font-normal lowercase">· {sessions.length}</span>}
-        </span>
-      </button>
-      {open && sessions.map(render)}
-    </div>
-  )
-}
+/*
+ * THE SPAWN-PARENT TREE IS GONE (POD-516 §1.1 / §1.4).
+ *
+ * `GroupedSessionRows`, `ConsumedChildren` and `NativeSubagentIndicator` used to
+ * live here: session rows nested under whichever other session spawned them,
+ * with a "finished" disclosure for consumed children and a "with N subagents"
+ * line under each parent. The approved design forbids exactly that shape in this
+ * column — "a session is shown directly beneath the issue it belongs to; its
+ * spawn parent and native workers are secondary details, NOT a competing
+ * navigation tree" — and the operator read it as the sidebar growing a second
+ * hierarchy beside the Flight Deck's.
+ *
+ * Nothing is lost. Native subagents are counted on the row's fleet stack
+ * (`×N`, from the same `nativeSubagentCount`), and spawn parentage is a fact of
+ * the Flight Deck's native list, hung off the parent SESSION where it belongs.
+ */
 
 /**
  * Agent roster band (POD-170, POD-100 laws L2/L6): sessions are execution and

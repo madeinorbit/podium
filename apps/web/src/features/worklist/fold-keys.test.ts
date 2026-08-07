@@ -20,13 +20,15 @@
  */
 import { isLayoutKey, layoutKeyFromLegacy } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { closedFoldKey, issueRowFoldKey, snoozedFoldKey } from './fold-keys'
+import { closedFoldKey, proposedFoldKey, snoozedFoldKey } from './fold-keys'
 
-/** Every fold key the worklist writes, under a representative id. */
+/** Every fold key the worklist writes, under a representative id. The per-issue
+ *  row disclosure is NOT among them any more: POD-516 made the worklist flat, so
+ *  the group folds are the only foldable things in the column. */
 const FOLD_KEYS = [
   ['snoozed fold', snoozedFoldKey('proj-podium')],
+  ['proposed fold', proposedFoldKey('proj-podium')],
   ['closed fold', closedFoldKey('proj-podium')],
-  ['issue row disclosure', issueRowFoldKey('iss_1234')],
 ] as const
 
 describe('sidebar fold state is per-user replicated layout', () => {

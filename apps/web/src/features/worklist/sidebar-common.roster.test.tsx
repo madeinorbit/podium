@@ -4,7 +4,7 @@
 import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { AgentRosterBand, GroupedSessionRows, PanelRow } from './sidebar-common'
+import { AgentRosterBand, PanelRow } from './sidebar-common'
 
 vi.mock('@/app/store', () => ({
   useStoreSelector: (select: (store: unknown) => unknown) =>
@@ -134,27 +134,8 @@ describe('PanelRow roster variant', () => {
   })
 })
 
-describe('native subagent indicator', () => {
-  it('renders a monotype "with N subagents" line with no fold chevron', () => {
-    render(
-      <GroupedSessionRows
-        sessions={[
-          session({
-            agentState: {
-              phase: 'working',
-              since: '2026-07-18T10:01:00.000Z',
-              nativeSubagentCount: 4,
-            },
-          }),
-        ]}
-        render={(s) => <div key={s.sessionId}>{s.title}</div>}
-        dense
-      />,
-    )
-    const indicator = screen.getByTestId('native-subagent-indicator')
-    expect(indicator.textContent).toBe('with 4 subagents')
-    expect(indicator.className).toContain('font-mono')
-    // Not a disclosure — no chevron affordance that looks expandable.
-    expect(indicator.querySelector('svg')).toBeNull()
-  })
-})
+// The native-subagent indicator and the spawn-parent grouping it hung off were
+// removed with the flat worklist (POD-516 §1.1): a native subagent is counted on
+// the mission row's fleet stack (`×N`) and detailed in the Flight Deck under its
+// parent SESSION, never as a nested row in this column. The worklist's assertion
+// that nothing nests here now lives in `SidebarUnified.flat-rows.test.tsx`.

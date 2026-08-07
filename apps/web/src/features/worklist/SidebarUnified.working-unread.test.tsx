@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SidebarUnified } from './SidebarUnified'
 
@@ -163,16 +163,22 @@ describe('SidebarUnified WORKING rows suppress unread emphasis (#138 FIX B)', ()
     expect(screen.getByText('Work issue').className).toContain('font-medium')
   })
 
-  it('a working session lifted into WORKING is not emphasized', () => {
+  // The lifted working session used to render as its own PanelRow inside the
+  // parent's roster band, and this asserted that IT was not emphasized. POD-516
+  // §1.1 removed the band: no session has a row in this column any more, so the
+  // suppression is now carried entirely by the issue row (asserted above) and
+  // the session's own weight is a Flight Deck / dock question. What is asserted
+  // here instead is that the column really has stopped rendering sessions.
+  it('renders no session rows of its own — the fleet stack speaks for them', () => {
     render(<SidebarUnified />)
-    // Non-pinned rosters fold by default now (POD-293) — open it to inspect the
-    // lifted working session's weight.
-    fireEvent.click(screen.getByRole('button', { name: 'Expand Partially working' }))
-    const lifted = screen.getByText('working-child').closest('button')
-    // A non-active unread PanelRow normally gets `font-medium text-foreground`;
-    // under WORKING that emphasis is suppressed. `font-medium` is the tell (the
-    // base row already carries `hover:text-foreground`, so text-foreground alone
-    // isn't distinguishing).
-    expect(lifted?.className).not.toContain('font-medium')
+    expect(screen.queryByText('working-child')).toBeNull()
+    expect(screen.queryByText('idle-child')).toBeNull()
+    expect(screen.queryByTestId('agent-roster-band')).toBeNull()
+    const partial = screen
+      .getByText('Partially working')
+      .closest('[data-testid="unified-issue-row"]') as HTMLElement
+    expect(
+      partial.querySelector('[data-testid="issue-fleet-summary"]')?.getAttribute('aria-label'),
+    ).toBe('2 live agents')
   })
 })

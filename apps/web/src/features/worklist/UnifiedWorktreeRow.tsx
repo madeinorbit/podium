@@ -6,7 +6,7 @@ import {
 import type { SessionId, SessionMeta } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import type { JSX } from 'react'
-import { AgentRosterBand, GroupedSessionRows, PanelRow, StaleSection } from './sidebar-common'
+import { AgentRosterBand, PanelRow, StaleSection } from './sidebar-common'
 
 /** Provenance whisper for an orphaned session (L6): a session whose issue was
  *  deleted or archived names its origin — `from POD-32 · deleted` — instead of
@@ -90,7 +90,13 @@ export function UnifiedWorktreeRow({
       onLabelClick={onSelect}
       labelHint={worktree.path}
     >
-      <GroupedSessionRows sessions={visible} render={renderRow} dense />
+      {/* FLAT (POD-516 §1.1). These sessions used to render through a
+          spawn-parent tree — a session nested under whichever other session
+          happened to have spawned it. The doctrine is explicit that spawn
+          parentage is not the tree ("its spawn parent and native workers are
+          secondary details, not a competing navigation tree"), so the guests
+          list is one line per session, in the order the derivation put them. */}
+      {visible.map(renderRow)}
       <StaleSection sessions={stale} render={renderRow} dense />
     </AgentRosterBand>
   )
