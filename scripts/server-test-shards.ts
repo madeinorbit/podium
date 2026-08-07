@@ -90,6 +90,13 @@ export { normalizedWireTests }
  * database every shard's stores open. Dropping it would be the single easiest false green
  * to introduce here.
  *
+ * Note also that `$TURBO_ROOT$/packages/sync/src/**` ends up in every shard, from the
+ * closure rather than from this list. That is load-bearing: a sync-system rewrite relies on
+ * a sync-source edit replaying the server suite. The constraint is recorded in the POD-515
+ * test-gate review — which is where it was written down, not who owns the rewrite. Narrowing
+ * it is a conversation to have with whoever owns that rewrite, and
+ * `scripts/server-test-shards.test.ts` refuses until then.
+ *
  * The rest is the package's own config surface plus the shared hermetic setup. The root
  * `vitest.config.ts`, `vitest.unit.config.ts`, `test-hermetic-*.ts`,
  * `test-pre-migrated-*.ts` and `scripts/package-vitest-config.ts` are already in

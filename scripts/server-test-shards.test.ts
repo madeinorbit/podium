@@ -150,8 +150,10 @@ describe('server test cache shards', () => {
       blind.map((shard) => shard.id),
       `a change to packages/sync would no longer replay the whole @podium/server suite: ` +
         `${covered}/${total} test files would run, and ${blind.map((s) => s.id).join(', ')} ` +
-        'would be served from cache. A sync-system rewrite depends on that feedback loop — ' +
-        "if you meant to narrow it, agree it with that rewrite's owner first (POD-515).",
+        'would be served from cache. A sync-system rewrite depends on that feedback loop. ' +
+        'This constraint comes from the POD-515 test-gate review, which is where it was ' +
+        'written down — NOT who owns the rewrite. Before narrowing it, find whoever owns ' +
+        'the sync-system rewrite and agree it with them.',
     ).toEqual([])
     expect(covered).toBe(total)
   })

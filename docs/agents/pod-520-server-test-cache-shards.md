@@ -11,6 +11,13 @@ independently cached shards behind one aggregate task.
 served past from cache — a false green that predates every issue in this chain. Deriving the
 inputs instead of maintaining them by hand is what surfaced it, and the new keys declare both.
 
+**1b. The check whose absence looks like success.** Same category as the hole above, and the
+reason it is stated up here rather than buried in the guard list: every other assertion in this
+change asks *"does every test file still run?"*. One asks the inverse — **can any of the 672
+files under apps/server change without a single shard's cache key noticing?** That failure does
+not look like a failure. It looks like a fast green. Currently zero files are unmatched, and the
+guard fails if that ever stops being true.
+
 **2. One shard of 70 files now goes quiet on three edits out of four.** The `contracts` shard —
 the pure policy/contract/types-runtime matrices — replays on only 25% of `apps/server/src`
 edits. That is the win. The lane-wide number is 295 → a mean 189 files replayed (100% → 64%),
@@ -189,6 +196,19 @@ also what proves `--continue` is doing its job — before it, the first one hid 
 `--continue=dependencies-successful` skipped the aggregate rather than letting the roster check
 report on a lane that did not finish. That is the intended behaviour, observed.
 
+**And skipped still fails.** That is worth stating separately, because it is the one property
+no other guard here could see: they all reason about the task graph, and an exit code is not in
+the task graph. If Turbo exited 0 on the grounds that the task it was *asked* to run never
+failed — it was never run — then `bun run test` would report success on a lane with three red
+shards and CI would stop failing. It does not: both cold runs exited **1**. The chain is now
+pinned at both links in `scripts/test-configuration.test.ts`:
+
+- a throwaway two-task Turbo fixture (a dependency that fails, a dependent that must not run)
+  asserts the dependent is skipped **and** the exit code is non-zero — 263 ms, no repo state;
+- `runWithHeavyTestLease(['bash','-c','exit 3'])` returns `3`, and `scripts/test.ts`'s
+  `process.exit(await runWithHeavyTestLease(...))` is asserted, so a later refactor of the
+  wrapper cannot silently swallow the code.
+
 ### Re-verified after the rebase onto main
 
 This work was built on POD-523's branch before that branch was rebased and merged. After
@@ -267,12 +287,13 @@ It fails when:
   sees it red will be mid-narrowing and needs to be told what they are about to break;
 - the normalized-wire shard stops holding exactly the two wire files.
 
-On `--continue`: nothing can report a green on top of a failure. `dependencies-successful`
-(never `always`) means a task whose dependency failed is skipped, so a dead shard skips the
-aggregate's roster check rather than letting it report on a lane that did not finish. And no
-package's `test` task depends on another package's — the only dependency edges among test tasks
-are `@podium/server#test` → its own five shards. `scripts/test-configuration.test.ts` asserts
-both halves.
+On `--continue`: nothing can report a green on top of a failure, and nothing can report a green
+*instead of* one. `dependencies-successful` (never `always`) means a task whose dependency
+failed is skipped, so a dead shard skips the aggregate's roster check rather than letting it
+report on a lane that did not finish; no package's `test` task depends on another package's, so
+the flag cannot let one package's green stand over another's red; and a skipped aggregate still
+exits non-zero, proven on a fixture rather than remembered. `scripts/test-configuration.test.ts`
+asserts all three.
 
 `scripts/test-configuration.test.ts` separately asserts each shard keeps the hermetic env
 scrubber, POD-523's store fixture and schema image, `retry: 0`, `passWithNoTests: false`, and

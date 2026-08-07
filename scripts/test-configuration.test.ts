@@ -1,4 +1,7 @@
-import { readdirSync, readFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import desktopConfig from '../apps/desktop/vitest.config'
@@ -22,6 +25,7 @@ import unitConfig, { normalizedWireTests } from '../vitest.unit.config'
 import { REAL_AGENT_CLIS } from './agent-smoke-reporter'
 import { QUARANTINE } from './browser-quarantine'
 import { HEAVY_LANES, ORACLE_LANES } from './oracle'
+import { runWithHeavyTestLease } from './test-heavy'
 import scriptsConfig from './vitest.config'
 
 type Project =
@@ -306,6 +310,78 @@ describe('test lane configuration', () => {
     expect(pkg.scripts['test:perf:frontend']).toBe('bun run --cwd apps/web test:perf:large-state')
     expect(pkg.scripts['test:e2e']).toContain('NODE_OPTIONS=--conditions=@podium/source')
     expect(pkg.scripts['test:smoke:agents']).toContain('PODIUM_REAL_CLI=1')
+  })
+
+  it('fails the whole command when a shard fails, even though the aggregate is skipped [POD-520]', () => {
+    // The inverse of the trap above, and the one that would be invisible to every other
+    // guard here because they all reason about the task GRAPH rather than the process.
+    //
+    // With `--continue`, three red shards leave `@podium/server#test` skipped — the task
+    // Turbo was actually asked to run never executes, so it never fails. If Turbo then
+    // exited 0 on the grounds that the requested task did not fail, `bun run test` would
+    // report success on a lane with three failing shards and CI would stop failing.
+    // Observed twice on real cold runs (exit=1), and pinned here on a fixture so it stays
+    // an assertion rather than a memory: a dependency task fails, the dependent is not
+    // run, and the exit code is still non-zero.
+    const fixture = mkdtempSync(join(tmpdir(), 'podium-turbo-exit-'))
+    try {
+      mkdirSync(join(fixture, 'packages/a'), { recursive: true })
+      writeFileSync(
+        join(fixture, 'package.json'),
+        JSON.stringify({
+          name: 'fixture-root',
+          private: true,
+          packageManager: 'bun@1.2.0',
+          workspaces: ['packages/*'],
+        }),
+      )
+      writeFileSync(
+        join(fixture, 'turbo.json'),
+        JSON.stringify({
+          tasks: {
+            shard: { dependsOn: [], inputs: ['$TURBO_DEFAULT$'], outputs: [] },
+            check: { dependsOn: ['shard'], inputs: ['$TURBO_DEFAULT$'], outputs: [] },
+          },
+        }),
+      )
+      writeFileSync(
+        join(fixture, 'packages/a/package.json'),
+        JSON.stringify({
+          name: 'pkg-a',
+          version: '0.0.0',
+          scripts: { shard: 'exit 1', check: 'echo AGGREGATE_RAN' },
+        }),
+      )
+      writeFileSync(join(fixture, 'bun.lock'), '')
+
+      const turbo = fileURLToPath(new URL('../node_modules/.bin/turbo', import.meta.url))
+      const run = spawnSync(turbo, ['run', 'check', '--continue=dependencies-successful'], {
+        cwd: fixture,
+        encoding: 'utf8',
+      })
+      const output = `${run.stdout ?? ''}${run.stderr ?? ''}`
+      // Skipped, not run — nothing reports on top of the failure.
+      expect(output, 'the aggregate ran despite its dependency failing').not.toContain(
+        'AGGREGATE_RAN',
+      )
+      // …and skipped still means the command fails.
+      expect(run.status, `turbo exited ${run.status} with a failed dependency task`).not.toBe(0)
+    } finally {
+      rmSync(fixture, { recursive: true, force: true })
+    }
+  })
+
+  it('propagates the runner exit code instead of exiting 0 [POD-520]', async () => {
+    // The other link in that chain. Turbo going red is worthless if the wrapper swallows
+    // it, and `bun run test`'s exit status rests on one expression at the end of main():
+    // `process.exit(await runWithHeavyTestLease([...]))`. Both halves are asserted so a
+    // later refactor of the wrapper cannot quietly make the pipeline green.
+    expect(await runWithHeavyTestLease(['bash', '-c', 'exit 3'], { cwd: fileURLToPath(repoRoot) })).toBe(3)
+    expect(await runWithHeavyTestLease(['bash', '-c', 'exit 0'], { cwd: fileURLToPath(repoRoot) })).toBe(0)
+
+    // …and that the value is what main() exits with, rather than being computed and dropped.
+    const source = readFileSync(new URL('./test.ts', import.meta.url), 'utf8')
+    expect(source).toMatch(/process\.exit\(\s*await runWithHeavyTestLease\(/)
   })
 
   it('reports every lane without running anything on a failed dependency [POD-520]', () => {
