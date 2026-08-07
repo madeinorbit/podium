@@ -7,6 +7,7 @@ import { ToolbarSlot } from '@/app/ToolbarSlot'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
+import { usePersistedUiStateFrom } from '@/lib/hooks/use-persisted-ui-state'
 import { cn } from '@/lib/utils'
 import { IssueContextMenu } from './IssueContextMenu'
 import { IssueListView } from './IssueListView'
@@ -43,9 +44,8 @@ export function IssuesView(): JSX.Element {
   const trpc = useStoreSelector((store) => store.trpc)
   const ui = useStoreSelector((store) => store.uiState)
   const isMobile = useIsMobile()
-  const [display, setDisplay] = useState<IssuesDisplay>(() =>
-    readIssuesDisplay(ui.get(DISPLAY_KEY)),
-  )
+  // issues.display is per-user REPLICATED layout — subscribe, don't seed (POD-540).
+  const display = usePersistedUiStateFrom(ui, DISPLAY_KEY, readIssuesDisplay)
   const [creating, setCreating] = useState<null | { stage?: IssueStage }>(null)
   const [filter, setFilter] = useState<BoardFilter>({})
   const [error, setError] = useState('')
@@ -59,7 +59,6 @@ export function IssuesView(): JSX.Element {
 
   const updateDisplay = (patch: IssuesDisplayPatch): void => {
     const next = { ...display, ...patch, badges: { ...display.badges, ...(patch.badges ?? {}) } }
-    setDisplay(next)
     ui.set(DISPLAY_KEY, writeIssuesDisplay(next))
   }
   const toggleExpand = (id: string): void =>

@@ -18,6 +18,7 @@ import { SidebarRail } from '@/features/worklist/SidebarRail'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import { ResizableAside, ResizableColumn } from '@/features/worklist/sidebar-common'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
+import { usePersistedUiStateFrom } from '@/lib/hooks/use-persisted-ui-state'
 import { effectiveIssueColorHex, FLOW_SLATE } from '@/lib/issueColors'
 import type { KernelAssembly } from '@/lib/kernelReplica'
 import { ShadowComparisonRunner } from '@/lib/shadow/ShadowComparisonRunner'
@@ -228,15 +229,21 @@ function AppBody(): JSX.Element {
   const workspaceActive = baseView === 'workspace'
   const sessions = useStoreSelector((s) => s.sessions)
   const [dismissed, setDismissed] = useState(false)
-  const [sidebarCollapsed, setSidebarCollapsedState] = useState(() =>
-    readBooleanState(uiState.get(SIDEBAR_COLLAPSED_KEY)),
+  // SUBSCRIBED, not seeded into local state. These keys are per-user REPLICATED
+  // layout (`user_layout`), and a `useState` initializer reads them on the first
+  // render — before the replica has the row — then never runs again, so a stored
+  // collapse/fold is read as null and the surface boots expanded forever after.
+  // Device-local keys do not have this problem (they are in the local cache at
+  // mount), which is why a resized column kept its width while a collapsed one
+  // did not keep its collapse. Same idiom as use-terminal-appearance / POD-516.
+  const sidebarCollapsed = usePersistedUiStateFrom(uiState, SIDEBAR_COLLAPSED_KEY, (raw) =>
+    readBooleanState(raw),
   )
-  const [superMode, setSuperModeState] = useState<SuperagentMode>(() =>
-    readSuperagentMode(uiState.get(SUPERAGENT_MODE_KEY), superOpen),
-  )
-  const [rightPanel, setRightPanelState] = useState<RightPanelTab | null>(() =>
-    readRightPanel(uiState.get(RIGHT_PANEL_KEY)),
-  )
+  // Subscribe to the raw key so a late replica row re-renders us; then apply the
+  // legacy superOpen fallback only while the key is still absent.
+  const superModeRaw = usePersistedUiStateFrom(uiState, SUPERAGENT_MODE_KEY, (raw) => raw)
+  const superMode = readSuperagentMode(superModeRaw, superOpen)
+  const rightPanel = usePersistedUiStateFrom(uiState, RIGHT_PANEL_KEY, readRightPanel)
   const commandPaletteEnabled = useFeature('command-palette')
   const gitPanelEnabled = useFeature('git-panel')
   const messagesPanelEnabled = useFeature('messages-panel')
@@ -250,36 +257,43 @@ function AppBody(): JSX.Element {
   const visibleRightPanel = panelAllowed(rightPanel) ? rightPanel : null
 
   const setSidebarCollapsed = (collapsed: boolean): void => {
-    setSidebarCollapsedState(collapsed)
     uiState.set(SIDEBAR_COLLAPSED_KEY, String(collapsed))
   }
+  // Tracks the last mode WE wrote so the mode→superOpen mirror does not fight
+  // the superOpen→mode mirror (palette/concierge drives superOpen; the shell
+  // and the replica drive the key).
+  const lastWrittenSuperMode = useRef<SuperagentMode | null>(null)
+  const lastSuperOpen = useRef(superOpen)
   const setSuperMode = (mode: SuperagentMode): void => {
-    setSuperModeState(mode)
+    lastWrittenSuperMode.current = mode
+    lastSuperOpen.current = mode === 'open'
     uiState.set(SUPERAGENT_MODE_KEY, mode)
     setSuperOpen(mode === 'open')
   }
   const setRightPanel = (panel: RightPanelTab | null): void => {
     if (!panelAllowed(panel)) return
-    setRightPanelState(panel)
     uiState.set(RIGHT_PANEL_KEY, panel ?? '')
   }
 
   // superOpen (store) is how surfaces outside the shell drive the column
-  // (palette toggle, concierge/btw opens). The shell mirrors persisted mode
-  // back into the store once, then follows superOpen CHANGES only — and
-  // resolves close to 'folded': the column never fully disappears (#65).
-  const lastSuperOpen = useRef(superOpen)
+  // (palette toggle, concierge/btw opens). The shell follows superOpen CHANGES
+  // only — and resolves close to 'folded': the column never fully disappears
+  // (#65). The persisted value IS the mode now, so writes go straight to ui-state.
   useEffect(() => {
     if (superOpen === lastSuperOpen.current) return
     lastSuperOpen.current = superOpen
-    const mode = superOpen ? 'open' : 'folded'
-    setSuperModeState(mode)
+    const mode: SuperagentMode = superOpen ? 'open' : 'folded'
+    lastWrittenSuperMode.current = mode
     uiState.set(SUPERAGENT_MODE_KEY, mode)
   }, [superOpen, uiState])
-  // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only — seed the store from the persisted desktop mode.
+  // When the replica row arrives after first paint (or another device writes
+  // the key), adopt it into the store — but skip echoes of our own writes.
   useEffect(() => {
+    if (lastWrittenSuperMode.current === superMode) return
+    lastWrittenSuperMode.current = superMode
+    lastSuperOpen.current = superMode === 'open'
     setSuperOpen(superMode === 'open')
-  }, [])
+  }, [superMode, setSuperOpen])
 
   // Deep surfaces (the pane header's git stamp [POD-98]) ask for a dock panel
   // via a window event — the panel state is AppShell-local. A request for a

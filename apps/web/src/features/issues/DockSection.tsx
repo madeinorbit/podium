@@ -1,18 +1,14 @@
-import type { UiState } from '@podium/client-core/replica'
 import { DOCK_SECTION_KEY_PREFIX } from '@podium/client-core/ui-state'
 import { ChevronRight } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
-import { useCallback, useState } from 'react'
+import { useCallback } from 'react'
 import { useStoreSelector } from '@/app/store'
+import { usePersistedUiStateFrom } from '@/lib/hooks/use-persisted-ui-state'
 import { cn } from '@/lib/utils'
 
 // ui-state key family for per-section open state; the legacy localStorage keys
-// of the same names migrate in once (replica LEGACY_UI_PREFIXES).
-
-function readOpen(ui: UiState, key: string, fallback: boolean): boolean {
-  const raw = ui.get(DOCK_SECTION_KEY_PREFIX + key)
-  return raw === null ? fallback : raw === '1'
-}
+// of the same names migrate in once (replica LEGACY_UI_PREFIXES). REPLICATED
+// under dock.section.* — subscribe rather than seed (POD-540).
 
 /** Collapsible dock section: micro-label header with a count chip and a
  *  rotating chevron; the body collapses via a grid-rows transition (height
@@ -34,13 +30,11 @@ export function DockSection({
   children: ReactNode
 }): JSX.Element {
   const ui = useStoreSelector((s) => s.uiState)
-  const [open, setOpen] = useState(() => readOpen(ui, storageKey, defaultOpen))
+  const key = DOCK_SECTION_KEY_PREFIX + storageKey
+  const open = usePersistedUiStateFrom(ui, key, (raw) => (raw === null ? defaultOpen : raw === '1'))
   const toggle = useCallback(() => {
-    setOpen((o) => {
-      ui.set(DOCK_SECTION_KEY_PREFIX + storageKey, o ? '0' : '1')
-      return !o
-    })
-  }, [ui, storageKey])
+    ui.set(key, open ? '0' : '1')
+  }, [ui, key, open])
 
   return (
     <section className="border-b border-border/60">

@@ -28,6 +28,7 @@ import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { AttributionPair } from '@/features/issues/issue-page/AttributionPair'
 import { sessionDotClass } from '@/lib/derive'
+import { usePersistedUiStateFrom } from '@/lib/hooks/use-persisted-ui-state'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { type ContextMenuAnchor, SessionContextMenu } from '@/lib/SessionContextMenu'
 import { SnoozeControl } from '@/lib/SnoozeControl'
@@ -158,19 +159,15 @@ export function ResizableAside({ children }: { children: ReactNode }): JSX.Eleme
 }
 
 /** Per-section collapse state, persisted via the ui-state collection. Absent
- *  key = the section's own default (attention/pinned open, working closed). */
+ *  key = the section's own default (attention/pinned open, working closed).
+ *  Subscribed — sidebar.section.* is per-user REPLICATED layout (POD-540). */
 export function useCollapsed(key: string, defaultCollapsed: boolean): [boolean, () => void] {
   const ui = useStoreSelector((s) => s.uiState)
-  const [collapsed, setCollapsed] = useState<boolean>(() => {
-    const v = ui.get(key)
-    return v === null ? defaultCollapsed : v === 'true'
-  })
-  const toggle = () => {
-    setCollapsed((c) => {
-      const next = !c
-      ui.set(key, next ? 'true' : 'false')
-      return next
-    })
+  const collapsed = usePersistedUiStateFrom(ui, key, (v) =>
+    v === null ? defaultCollapsed : v === 'true',
+  )
+  const toggle = (): void => {
+    ui.set(key, collapsed ? 'false' : 'true')
   }
   return [collapsed, toggle]
 }
