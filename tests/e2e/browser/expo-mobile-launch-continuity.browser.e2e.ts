@@ -189,19 +189,16 @@ test('a warm relaunch paints cached task detail', async ({ page }) => {
 })
 
 /**
- * Offline deep-link paint (POD-541).
- *
- * Two fixture traps were ruled out before the product gap was fixed, and both
- * are preserved here so the diagnosis does not have to be repeated:
+ * Two fixture traps were ruled out before concluding it is a product gap, and
+ * both are preserved here so the diagnosis does not have to be repeated:
  *   - The replica is namespaced by principal, so the offline mock replays the
  *     REAL /auth/status body. A hardcoded stand-in opens an empty namespace and
  *     fails identically for an entirely different reason.
- *   - The task is created on the live feed before the offline relaunch; the
- *     gap was durable storage, not a short write race.
- *
- * The product gap (POD-541): mobile web used expo-sqlite, whose OPFS worker
- * timed out in Chromium, so the store was memory-only. Web now uses IndexedDB
- * (ADR 6 D1). /mobile also serves COOP/COEP + application/wasm for SAB paths.
+ *   - The task is created seconds earlier and arrives over the live feed, so a
+ *     short persistence race is not the explanation.
+ * The control is the cold-offline test above: under an unrelated principal it
+ * gets booting=true and a skeleton, while this gets booting=false — so the
+ * replica does resolve with data, and this row simply is not in it.
  */
 test('an offline relaunch paints cached task detail', async ({ page }) => {
   const title = await createTaskAndOpenIt(page)
