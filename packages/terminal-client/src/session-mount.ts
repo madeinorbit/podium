@@ -251,11 +251,22 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     }
     fitWithRetry(
       (grid) => {
-        if (gridMode === 'server-grid') view.resize(grid.cols, grid.rows)
+        // server-grid: do NOT optimistically resize the local xterm to the phone
+        // viewport. Attach replay and live frames still encode the server's
+        // authoritative geometry until the resize is applied and the TUI
+        // repaints; shrinking first reflows that stream into shredded fragments
+        // (Grok/Claude multi-pane TUIs on mobile). Keep the local grid on
+        // serverGrid (crop-and-pan) and only sendResize — onState applies the
+        // new geometry when the server broadcasts it.
         const action = decideResizeAction(grid, serverGrid, { forceRedrawIfSame })
         trace('fit:action', { grid, action, forceRedrawIfSame })
         if (action.kind === 'resize') {
           connection.sendResize(action.cols, action.rows)
+          // Phone server-grid fits change winsize without the requestControl
+          // redraw path. Soft-nudge the PTY so alt-screen TUIs that under-paint
+          // on a single SIGWINCH (observed with Grok) fully repaint into the
+          // cleared local buffer once geometry acks.
+          if (gridMode === 'server-grid') connection.redraw()
         } else if (action.kind === 'redraw') {
           connection.redraw()
         }
@@ -432,6 +443,14 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       if (view.cols() !== state.cols || view.rows() !== state.rows) {
         trace('connection:apply-server-grid', { state })
         view.resize(state.cols, state.rows)
+        // xterm reflows the existing buffer into the new grid. For alt-screen
+        // agent TUIs that content was painted at the previous winsize and is
+        // garbage at the new size until the app's SIGWINCH repaint arrives —
+        // wipe so the operator sees blank→clean rather than shredded mid-width
+        // fragments. Control-mode fits already match local size before geometry
+        // acks, so this branch is mostly the server-grid phone path (and genuine
+        // controller takeovers that change winsize).
+        view.clear()
         // A resize/reflow can leave the GPU canvas showing only the cells that moved or
         // changed (the "caret at top, my text at bottom, rest black" symptom). Force a
         // full repaint so the whole grid redraws at the new geometry.
@@ -563,7 +582,8 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
           void viewportEl.offsetHeight
         }
         const grid = gridMode === 'server-grid' ? proposeViewport() : view.fit()
-        if (grid && gridMode === 'server-grid') view.resize(grid.cols, grid.rows)
+        // Mirror applyFit: server-grid keeps the local grid on the server until
+        // geometry acks; only the PTY is asked to move.
         if (grid) connection.sendResize(grid.cols, grid.rows)
       },
     }
