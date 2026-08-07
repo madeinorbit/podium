@@ -70,11 +70,9 @@ describe('replica ui-state collection', () => {
     expect(data.has(`${prefix}.uistate.v1`)).toBe(true)
   })
 
-  it('migrates the remaining ad-hoc families: panel-mode default, dock sections, per-file maps', () => {
+  it('migrates the remaining ad-hoc families: panel-mode default and per-file maps', () => {
     const { storage, data } = makeStorage({
       'podium.panelModeDefault': 'chat',
-      'podium.dock.section.git': '0',
-      'podium.dock.section.files': '1',
       'podium.htmlmode:file:a:/x.html': 'split',
       'podium.htmlmode:file:b:/y.html': 'source',
       'podium.mdmode:file:a:/notes.md': 'source',
@@ -85,10 +83,8 @@ describe('replica ui-state collection', () => {
       enumerateKeys: () => [...data.keys()],
     }).uiState()
 
-    // Exact + prefix keys migrate under their own names…
+    // Exact keys migrate under their own names…
     expect(ui.get('podium.panelModeDefault')).toBe('chat')
-    expect(ui.get('podium.dock.section.git')).toBe('0')
-    expect(ui.get('podium.dock.section.files')).toBe('1')
     // …the per-file families fold into ONE JSON-map row each…
     expect(JSON.parse(ui.get('podium.htmlmode') ?? '{}')).toEqual({
       'file:a:/x.html': 'split',
@@ -100,8 +96,6 @@ describe('replica ui-state collection', () => {
     // …and every old key is removed.
     for (const k of [
       'podium.panelModeDefault',
-      'podium.dock.section.git',
-      'podium.dock.section.files',
       'podium.htmlmode:file:a:/x.html',
       'podium.htmlmode:file:b:/y.html',
       'podium.mdmode:file:a:/notes.md',

@@ -13,7 +13,6 @@ import { describe, expect, it } from 'vitest'
 import {
   CLIENT_DEVICE_LOCAL_UI_KEYS,
   createRoutedUiState,
-  DOCK_SECTION_KEY_PREFIX,
   KNOWN_NON_UI_ROUTES,
   SIDEBAR_COLLAPSED_KEY,
   SUPERAGENT_MODE_KEY,
@@ -148,7 +147,7 @@ describe('UI persistence ownership lint', () => {
     expect(uiStateRoute('podium.sounds.ownerWindow').home).toBe('device-local')
     expect(uiStateRoute('podium.htmlmode').home).toBe('per-user-replicated')
     expect(uiStateRoute('podium.mdmode').home).toBe('per-user-replicated')
-    expect(uiStateRoute('podium.dock.section.git').home).toBe('per-user-replicated')
+    expect(uiStateRoute('podium:sidebar:projects').home).toBe('per-user-replicated')
   })
 
   it('ui-state has exactly one unnamespaced READER, and it is the theme', () => {
@@ -236,7 +235,7 @@ const LEGACY_UI_STATE_VOCABULARY: readonly string[] = [
 ]
 
 /** The legacy PREFIXES under which dynamic section keys are spelled on disk. */
-const LEGACY_SECTION_PREFIXES: readonly string[] = ['podium:sidebar:', DOCK_SECTION_KEY_PREFIX]
+const LEGACY_SECTION_PREFIXES: readonly string[] = ['podium:sidebar:']
 
 /**
  * The canonical layout keys that are actually REACHABLE: a legacy spelling the

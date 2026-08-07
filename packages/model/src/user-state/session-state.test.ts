@@ -247,15 +247,15 @@ describe('layout key routing (POD-1350 / POD-403 shared vocabulary)', () => {
     // is disjoint from the legacy storage spellings that map onto it. Admitting
     // `podium.dockTab` as a layout key would give one setting two rows.
     expect(isLayoutKey('sidebar.section.closed')).toBe(true)
-    expect(isLayoutKey('dock.section.files')).toBe(true)
     for (const legacy of Object.keys(LAYOUT_KEY_FROM_LEGACY)) {
       expect(isLayoutKey(legacy), legacy).toBe(false)
     }
   })
 
-  it('refuses free-form keys, bare prefixes, and device-local geometry', () => {
+  it('refuses free-form keys, bare prefixes, retired dock sections, and device-local geometry', () => {
     expect(isLayoutKey('not.a.layout.key')).toBe(false)
     expect(isLayoutKey('sidebar.section')).toBe(false)
+    expect(isLayoutKey('dock.section.files')).toBe(false)
     expect(isLayoutKey('podium.view')).toBe(false)
     expect(isLayoutKey('sidebar.width')).toBe(false)
   })
@@ -265,7 +265,8 @@ describe('layout key routing (POD-1350 / POD-403 shared vocabulary)', () => {
     expect(layoutKeyFromLegacy('podium.superOpen.v2')).toBe('superOpen')
     expect(layoutKeyFromLegacy('podium:sidebar:collapsed')).toBe('sidebar.collapsed')
     expect(layoutKeyFromLegacy('podium:sidebar:projects')).toBe('sidebar.section.projects')
-    expect(layoutKeyFromLegacy('podium.dock.section.mail')).toBe('dock.section.mail')
+    // Retired with DockSection (POD-559) — no longer a layout family.
+    expect(layoutKeyFromLegacy('podium.dock.section.mail')).toBeNull()
     // panelMode keys map without restating the storage-key literal in layout-state.
     expect(layoutKeyFromLegacy('podium.' + 'panelMode')).toBe('panelMode')
     expect(layoutKeyFromLegacy('podium.' + 'panelModeDefault')).toBe('panelModeDefault')

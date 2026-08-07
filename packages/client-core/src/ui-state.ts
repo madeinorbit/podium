@@ -82,9 +82,6 @@ export const HTML_MODE_MAP_KEY = UI_STATE_KEYS.htmlmode
 export const MD_MODE_MAP_KEY = UI_STATE_KEYS.mdmode
 export const ISSUES_DISPLAY_KEY = UI_STATE_KEYS.issuesDisplay
 
-/** Prefix for per-dock-section open state (`podium.dock.section.<name>`). */
-export const DOCK_SECTION_KEY_PREFIX = 'podium.dock.section.'
-
 export type WorkspaceUiStateKey = (typeof UI_STATE_KEYS)[keyof typeof UI_STATE_KEYS]
 
 export interface UiStateRoute {
@@ -303,13 +300,6 @@ export function uiStateRoute(key: string): UiStateRoute {
   }
   const knownNonUi = KNOWN_NON_UI_ROUTES[key as keyof typeof KNOWN_NON_UI_ROUTES]
   if (knownNonUi) return knownNonUi
-  // Dynamic dock-section keys (podium.dock.section.<name>).
-  if (key.startsWith(DOCK_SECTION_KEY_PREFIX) && key.length > DOCK_SECTION_KEY_PREFIX.length) {
-    return {
-      home: 'per-user-replicated',
-      reason: 'Dock section open state is personal layout under the shared prefix vocabulary.',
-    }
-  }
   const layoutKey = layoutKeyFromLegacy(key)
   if (layoutKey !== null && isLayoutKey(layoutKey)) {
     return {

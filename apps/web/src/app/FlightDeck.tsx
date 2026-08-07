@@ -973,10 +973,9 @@ function TaskRow({
           )}
         </button>
       </div>
-      {/* THE FOLD GROWS AND SHRINKS (round 3 §7c) — a grid-rows collapse, the
-          app's existing height idiom (DockSection). It needs no measurement and
-          no mount, so nothing choreographs on first paint: a transition only
-          runs when a value actually changes. */}
+      {/* THE FOLD GROWS AND SHRINKS (round 3 §7c) — a grid-rows collapse that
+          needs no measurement and no mount, so nothing choreographs on first
+          paint: a transition only runs when a value actually changes. */}
       <div
         className="grid transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none"
         style={{ gridTemplateRows: collapsed ? '0fr' : '1fr' }}

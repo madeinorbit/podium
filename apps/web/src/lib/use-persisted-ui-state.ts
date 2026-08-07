@@ -8,7 +8,7 @@ import { useStoreSelector } from '@/app/store'
  * A `useState(() => ui.get(key))` initializer runs once, on the first render,
  * and never again. That is correct only for DEVICE-LOCAL keys, which the replica
  * has already loaded from synchronous storage by the time anything mounts. Every
- * PER-USER REPLICATED key (`sidebar.collapsed`, `dock.section.*`, `rightPanel`,
+ * PER-USER REPLICATED key (`sidebar.collapsed`, `rightPanel`,
  * `superagent.mode`, the file-mode maps…) arrives later, over the wire: the
  * initializer reads `null`, falls back to the default, and the surface is stuck
  * on that default forever after even though the stored row is right there.

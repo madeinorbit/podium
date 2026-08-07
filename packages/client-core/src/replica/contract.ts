@@ -309,9 +309,10 @@ export const LEGACY_UI_KEYS = [
   'podium.shell.density',
 ] as const
 
-/** Legacy key PREFIXES (dynamic suffixes: collapsed sections, sidebar width,
- *  dock-section open state). Each matched key migrates under its own name. */
-export const LEGACY_UI_PREFIXES = ['podium:sidebar:', 'podium.dock.section.'] as const
+/** Legacy key PREFIXES (dynamic suffixes: collapsed sidebar sections and
+ *  sidebar width). Each matched key migrates under its own name.
+ *  `podium.dock.section.*` was removed with DockSection (POD-559). */
+export const LEGACY_UI_PREFIXES = ['podium:sidebar:'] as const
 
 /** Legacy PER-FILE key families (`podium.htmlmode:<tabId>` etc.) folded into ONE
  *  ui-state row per family: a JSON map { [tabId]: value }. */

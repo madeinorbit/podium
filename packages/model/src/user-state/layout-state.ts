@@ -93,8 +93,6 @@ export type LayoutExactKey = (typeof LAYOUT_EXACT_KEYS)[number]
 export const LAYOUT_KEY_PREFIXES = [
   /** Collapsed / open state of named sidebar sections. */
   'sidebar.section',
-  /** Open state of named dock sections. */
-  'dock.section',
 ] as const
 export type LayoutKeyPrefix = (typeof LAYOUT_KEY_PREFIXES)[number]
 
@@ -114,8 +112,8 @@ export function isLayoutKey(key: string): boolean {
 
 /**
  * Legacy ui-state / localStorage keys that map onto a layout exact key. Dynamic
- * prefixes (`podium:sidebar:` section collapses, `podium.dock.section.`) are
- * handled by {@link layoutKeyFromLegacy} rather than this table.
+ * prefixes (`podium:sidebar:` section collapses) are handled by
+ * {@link layoutKeyFromLegacy} rather than this table.
  *
  * Theme keys are intentionally ABSENT: they are the documented pre-auth
  * exception (POD-403) and stay mirrored raw.
@@ -164,11 +162,6 @@ export function layoutKeyFromLegacy(legacyKey: string): string | null {
     if (!rest || rest === 'width' || rest === 'collapsed')
       return rest === 'collapsed' ? 'sidebar.collapsed' : null
     return `sidebar.section.${rest}`
-  }
-  if (legacyKey.startsWith('podium.dock.section.')) {
-    const rest = legacyKey.slice('podium.dock.section.'.length)
-    if (!rest) return null
-    return `dock.section.${rest}`
   }
   return null
 }

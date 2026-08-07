@@ -96,9 +96,9 @@ function PresenceLine({ note }: { note: PresenceNote }): JSX.Element {
   )
 }
 
-/** A section of the single scroll. Deliberately NOT a DockSection: the approved
- *  inspector is one continuous read, so a section is a heading and a hairline —
- *  no chevron, no per-section collapse, no nested tier. */
+/** A section of the single scroll. The approved inspector is one continuous
+ *  read, so a section is a heading and a hairline — no chevron, no per-section
+ *  collapse, no nested tier. */
 function DockPart({
   title,
   count,
