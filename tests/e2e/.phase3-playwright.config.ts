@@ -22,12 +22,14 @@ export default defineConfig({
   ],
   webServer: [
     {
+      // Same budget as playwright.config.ts: sequential model → protocol → web builds
+      // plus serve-harness exceed 180s under load even with warm caches (POD-535).
       command:
         'bun run --filter @podium/model build && bun run --filter @podium/protocol build && bun run --filter @podium/web build && bun --conditions=@podium/source serve-harness.ts',
       url: `${ORIGIN}/health`,
       reuseExistingServer: false,
       env: { PODIUM_PASSWORD: process.env.PODIUM_PASSWORD ?? '' },
-      timeout: 180_000,
+      timeout: 600_000,
     },
   ],
 })

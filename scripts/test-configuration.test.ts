@@ -94,16 +94,21 @@ const namedProject = (value: unknown, name: string) => {
   return project
 }
 const nodeProject = (value: unknown) => namedProject(value, 'node')
-const webServerCommand = (value: unknown): string => {
+const webServerEntry = (value: unknown): { command: string; timeout?: number } => {
   const webServer = (value as { webServer?: unknown }).webServer
   const server = Array.isArray(webServer) ? webServer[0] : webServer
   if (!server || typeof server !== 'object' || !('command' in server)) {
     throw new Error('Playwright webServer command is missing')
   }
-  const command = server.command
+  const command = (server as { command: unknown }).command
   if (typeof command !== 'string') throw new Error('Playwright webServer command is not a string')
-  return command
+  const timeout = (server as { timeout?: unknown }).timeout
+  if (timeout !== undefined && typeof timeout !== 'number') {
+    throw new Error('Playwright webServer timeout is not a number')
+  }
+  return { command, timeout: timeout as number | undefined }
 }
+const webServerCommand = (value: unknown): string => webServerEntry(value).command
 
 describe('test lane configuration', () => {
   it('never collects ignored nested worktrees', () => {
@@ -419,6 +424,18 @@ describe('test lane configuration', () => {
       expect(command).toContain(modelBuild)
       expect(command).toContain(protocolBuild)
       expect(command.indexOf(modelBuild)).toBeLessThan(command.indexOf(protocolBuild))
+    }
+  })
+
+  it('gives webServer enough time for the sequential build chain [POD-535]', () => {
+    // The command is four builds (three in phase3) plus serve-harness. Measured
+    // wall times under host load exceed the old 180s budget even with warm turbo
+    // and Metro caches; zero tests run when Playwright aborts the wait.
+    for (const playwright of [browserConfig, phase3BrowserConfig]) {
+      const { timeout } = webServerEntry(playwright)
+      expect(timeout, 'webServer timeout missing or too short for the build chain').toBeGreaterThanOrEqual(
+        600_000,
+      )
     }
   })
 

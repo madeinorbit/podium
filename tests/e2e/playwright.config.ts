@@ -39,12 +39,18 @@ export default defineConfig({
       // same-origin. (A separate cross-origin preview server has its client WS upgrade
       // refused, so the old two-server split no longer connects.) The specs load from the
       // baseURL (:8799) and pass `?server=ws://localhost:8799`; @podium/source runs TS source.
+      //
+      // Timeout is the full sequential chain (model → protocol → web → mobile export →
+      // serve-harness), not harness boot alone. serve-harness answers /health in ~5s;
+      // the four builds routinely exceed the old 180s budget even on turbo/Metro cache
+      // hits under host load (POD-535). 10 minutes leaves headroom without changing the
+      // cold-checkout self-containment of this command (POD-1389).
       command:
         'bun run --filter @podium/model build && bun run --filter @podium/protocol build && bun run --filter @podium/web build && bun run --filter @podium/mobile build:web && bun --conditions=@podium/source serve-harness.ts',
       env: { ...process.env, PODIUM_UPDATE_CHANNEL: 'edge' },
       url: `${ORIGIN}/health`,
       reuseExistingServer: false,
-      timeout: 180_000,
+      timeout: 600_000,
     },
   ],
 })
