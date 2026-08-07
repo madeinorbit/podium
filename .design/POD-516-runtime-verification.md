@@ -32,7 +32,7 @@ horizontal overflow.
 | check | result |
 |---|---|
 | Flight Deck populates from the sidebar mission | PASS — eyebrow `POD-516 in progress`, title, description, meter `0/1`, `6 live 0 coords`, mode chips, 2 task strips, 6 inset session rows |
-| Display modes filter | PASS — Full 2 rows, Active 2 rows, Needs you 1 row |
+| Display modes filter | PASS — Full 3 rows, Active 3 rows, Needs you 1 row (see the note below on Active) |
 | Collapse payload | PASS — collapsing the root hides the child and all 6 session rows and shows `1 task hidden · 6 live` |
 | Task dock opens from the rail | PASS — one click (this needed a fix; see below) |
 | Superagent opens from the rail | PASS — `data-right-dock-panel="superagent"` with content |
@@ -42,6 +42,15 @@ horizontal overflow.
 | Fresh chat with no task | PASS — deck shows "Start with a chat", Task panel shows "This chat has no task yet." — no error copy, no forced task creation |
 | Column resize persists | PASS — dragged 360 → 489, survives reload (device-local key) |
 | Console | Clean — no errors, no React warnings. Only Chromium WebGL perf notices from xterm's renderer. |
+
+### A note on Active mode, so the claim is not overstated
+
+Active-mode filtering is proven by unit test in `src/lib/mission.test.ts` — done+sessionless
+dropped, done+live kept. The live replica contains no done work, so the runtime pass could
+only confirm Active does not OVER-filter (3 rows, same as Full, which is correct for that
+data). The unit fixture is `root → c1 → {g1 review+working, g2 done+sessionless}, c2
+done+sessionless, c3 done+live`: Active yields `[root, c1, g1, c3]`, so `g2` and `c2` render
+in Full and vanish in Active — it differs from Full on the same subtree.
 
 ## Found and fixed during verification
 
