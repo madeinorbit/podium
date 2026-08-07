@@ -13,9 +13,11 @@ describe('MERGE_LANDING_RULE', () => {
     expect(MERGE_LANDING_RULE).toMatch(/NEVER cherry-pick/i)
     expect(MERGE_LANDING_RULE).toMatch(/NEVER push a temp branch tip/i)
 
-    // Why ancestry matters: closed + ahead keeps "ready to merge" forever.
-    expect(MERGE_LANDING_RULE).toContain('gitState.ahead')
-    expect(MERGE_LANDING_RULE).toMatch(/ready to merge/i)
+    // Why ancestry matters: the done criterion is the git fact, not the ahead proxy.
+    expect(MERGE_LANDING_RULE).toContain('merge-base --is-ancestor')
+    expect(MERGE_LANDING_RULE).toContain('gitState.merged')
+    expect(MERGE_LANDING_RULE).toContain('parentBranch')
+    expect(MERGE_LANDING_RULE).toMatch(/ready to merge|sidebar/i)
 
     // Diverged history is stop-and-ask, not invent-a-route.
     expect(MERGE_LANDING_RULE).toMatch(/STOP and ask/i)

@@ -42,22 +42,28 @@ function watchesParentBranch(row: IssueRow): boolean {
 }
 
 /** Group key for {@link IssueGitWorkflowModule.sweepParentBranchMovement}: every
- *  issue sharing one machine's copy of one repo's parent branch is answered by a
- *  single `rev-parse`. JSON so no separator can collide with a path. */
-function parentBranchKey(row: IssueRow): string {
-  return JSON.stringify([row.machineId ?? '', row.repoPath, row.parentBranch])
+ *  issue sharing one machine's copy of one repo's watched ref is answered by a
+ *  single `rev-parse`. JSON so no separator can collide with a path. The third
+ *  slot is the watched ref (cut parent and/or landing base — see the sweep). */
+function parentBranchKey(machineId: string | null | undefined, repoPath: string, ref: string): string {
+  return JSON.stringify([machineId ?? '', repoPath, ref])
 }
 
-/** What one {@link parentBranchKey} group carries into the sweep: the three row
- *  fields the `rev-parse` needs, plus the issues answered by it.
- *
- *  PICKED from {@link IssueRow} rather than restated. The three are read straight
- *  off the row and are never re-derived here, so a second spelling of their types
- *  would be a copy of the issue vocabulary that could drift from it silently —
- *  the thing `scripts/representation-audit.ts` counts. `ids` is this sweep's own
- *  accumulator and belongs to no entity, which is why it is written out. */
-type ParentBranchGroup = Pick<IssueRow, 'repoPath' | 'parentBranch' | 'machineId'> & {
+/** What one {@link parentBranchKey} group carries into the sweep: the machine/
+ *  repo/ref the `rev-parse` needs, plus the issues answered by it. */
+type ParentBranchGroup = {
+  repoPath: string
+  /** The ref under watch — either an issue's parentBranch or the landing base. */
+  watchedRef: string
+  machineId: string | null
   ids: string[]
+}
+
+/** Default branch work lands on when an issue's cut parent is not itself the
+ *  shared integration branch. Mirrors create-time fallback in crud.ts. */
+function landingBaseFromSettings(defaultParentBranch: string | undefined): string {
+  const trimmed = defaultParentBranch?.trim() ?? ''
+  return trimmed !== '' ? trimmed : 'main'
 }
 
 /**
@@ -1109,7 +1115,7 @@ export class IssueGitWorkflowModule {
   }
 
   /**
-   * Parent-branch movement watch [POD-384].
+   * Parent-branch / landing-base movement watch [POD-384, POD-576].
    *
    * A merge is the one git event that SETTLES an issue's merge axis, and it
    * almost never happens anywhere the three session-scoped triggers above can
@@ -1120,30 +1126,48 @@ export class IssueGitWorkflowModule {
    * out of the sidebar's closed fold indefinitely — it renders as a delivery
    * that never landed, hours after it landed.
    *
-   * So watch the one ref a merge MUST move: the parent branch. One `rev-parse`
-   * per (machine, repo, parentBranch) group answers "did anything land?" for
-   * every issue in that group, and only a MOVED tip costs a probe — the steady
-   * state is one cheap git call per repo per tick.
+   * So watch every ref a merge might move. That is the issue's cut
+   * {@link IssueRow.parentBranch} (in-app merge into the parent) AND, when the
+   * issue is stacked on something other than the landing base, the landing base
+   * itself (the hard-land-on-main path). A landed sibling cut-parent is the one
+   * category of parent that never moves again; watching only it is structurally
+   * blind to the land that actually settles the axis [POD-576].
+   *
+   * One `rev-parse` per (machine, repo, ref) group answers "did anything land?"
+   * for every issue in that group, and only a MOVED tip costs a probe — the
+   * steady state is one cheap git call per watched ref per tick.
    *
    * A tip seen for the first time is recorded, not acted on. `gitStates` is
    * ephemeral, so a fresh process holds no stale snapshot to correct, and
    * fanning out across every issue at boot would be pure cost.
    */
   async sweepParentBranchMovement(): Promise<void> {
+    const landingBase = landingBaseFromSettings(
+      this.store.d.getSettings().gitWorkflow.defaultParentBranch,
+    )
     const groups = new Map<string, ParentBranchGroup>()
-    for (const row of this.store.rows.values()) {
-      if (!watchesParentBranch(row)) continue
-      const key = parentBranchKey(row)
+    const addToGroup = (row: IssueRow, ref: string) => {
+      if (ref === '') return
+      const key = parentBranchKey(row.machineId, row.repoPath, ref)
       const group = groups.get(key)
-      if (group) group.ids.push(row.id)
-      else {
+      if (group) {
+        if (!group.ids.includes(row.id)) group.ids.push(row.id)
+      } else {
         groups.set(key, {
           repoPath: row.repoPath,
-          parentBranch: row.parentBranch,
-          machineId: row.machineId,
+          watchedRef: ref,
+          machineId: row.machineId ?? null,
           ids: [row.id],
         })
       }
+    }
+    for (const row of this.store.rows.values()) {
+      if (!watchesParentBranch(row)) continue
+      addToGroup(row, row.parentBranch)
+      // Stacked issue: also watch the landing base, because that is the ref the
+      // hard land procedure moves. Without this, a dead sibling parent freezes
+      // the watch forever (POD-576).
+      if (row.parentBranch !== landingBase) addToGroup(row, landingBase)
     }
     // Forget tips no live issue watches any more (closed out, worktree freed) so
     // the map stays bounded by current work rather than by history.
@@ -1155,14 +1179,14 @@ export class IssueGitWorkflowModule {
           .repoOp(
             'revParseVerify',
             group.repoPath,
-            { ref: group.parentBranch },
+            { ref: group.watchedRef },
             // The row carries "no machine" as null; the rpc reads it as undefined
             // (= pick by repo affinity). Narrowed here, at the one call, rather
             // than by giving the group its own spelling of the field.
             group.machineId ?? undefined,
           )
           .catch(() => ({ ok: false, output: '' }))
-        // An unreadable parent branch (offline machine, ref not there yet) leaves
+        // An unreadable watched ref (offline machine, ref not there yet) leaves
         // the last known tip intact: the next readable sweep compares against a
         // real observation instead of treating recovery as movement.
         if (!res.ok) return
@@ -1186,6 +1210,9 @@ export class IssueGitWorkflowModule {
     try {
       const members = this.store.sessionsFor(row)
       const attribution = this.gitAttributionFor(members)
+      const landingBranch = landingBaseFromSettings(
+        this.store.d.getSettings().gitWorkflow.defaultParentBranch,
+      )
       const state = await probeGitState(
         {
           repoOp: (op, opCwd, args, machineId) =>
@@ -1195,6 +1222,9 @@ export class IssueGitWorkflowModule {
           cwd,
           shared,
           parentBranch: row.parentBranch,
+          // Authoritative merge-axis ancestry target [POD-576]: where work lands,
+          // not only where the branch was cut from.
+          landingBranch,
           branch: row.branch,
           machineId: row.machineId ?? undefined,
           ...attribution,

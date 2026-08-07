@@ -183,15 +183,30 @@ the start and publish to at the end — it is not a shortcut around local main.
 
 ### Why ancestry matters
 
-A closed issue with a private branch and `gitState.ahead > 0` (and `merged !== true`) stays
-**“ready to merge”** in the sidebar forever (`issueAwaitingMerge` in client-core). Shipping
-the blobs onto main by cherry-pick does **not** clear that: the issue branch tip must join
-main’s history (or git must report `merged: true`).
+A closed issue with a private branch that is **not** an ancestor of the landing base (and
+`gitState.merged !== true`) stays **“ready to merge”** in the sidebar forever
+(`issueAwaitingMerge` in client-core). Shipping the blobs onto main by cherry-pick does
+**not** clear that: the issue branch tip must join main’s history (or git must report
+`merged: true`).
+
+`gitState.ahead` is only a proxy, measured against `parentBranch` (where the branch was
+cut from). For a stacked issue whose cut parent has itself landed, that ref freezes and
+`ahead` can stay `> 0` forever even when the tip is already on main [POD-576]. Trust the
+ancestry check, not the ahead counter alone.
 
 ### Done only when
 
-The issue’s `gitState.ahead` is `0` (or `merged` is true). Content-on-main without that is
-**not** a finished land.
+The issue tip is an ancestor of the landing base:
+
+```bash
+git -C <main-checkout> merge-base --is-ancestor <issue-tip> origin/main
+```
+
+Or, equivalently, `gitState.merged` is true. Content-on-main without that is **not** a
+finished land.
+
+Caveat: `merge-base` reads the **local** `origin/main` ref — authoritative right after
+your own push (the push moved it), stale for anyone checking later until they fetch.
 
 ## Rules
 

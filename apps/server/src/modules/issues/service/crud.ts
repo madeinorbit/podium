@@ -73,11 +73,17 @@ interface IssueCrudAttentionPort {
   retireIssueOffers(row: IssueRow): void
 }
 
+/** Narrow git-workflow face for inputs that invalidate derived gitState [POD-576]. */
+interface IssueCrudGitWorkflowPort {
+  refreshGitState(id: string, fallbackCwd?: string): Promise<void>
+}
+
 export class IssueCrudModule {
   constructor(
     readonly store: IssueStore,
     private readonly hierarchy: () => IssueCrudHierarchyPort,
     private readonly attention: () => IssueCrudAttentionPort,
+    private readonly gitWorkflow: () => IssueCrudGitWorkflowPort,
   ) {}
 
   /** Agent-posted "where things stand" — writes activityNotes directly (the same
@@ -420,6 +426,7 @@ export class IssueCrudModule {
     const prevPinned = this.store.issueOverlay(row.id).pinned
     const prevArchived = row.archived
     const prevDeferUntil = row.deferUntil
+    const prevParentBranch = row.parentBranch
     // Naming a draft promotes it to a real issue (issue-as-workspace).
     if (row.draft && typeof patch.title === 'string' && patch.title.trim()) row.draft = false
     // `pinned` is PER-USER (POD-1076) and must never reach `Object.assign` — that
@@ -442,6 +449,18 @@ export class IssueCrudModule {
       Object.assign(row, rest)
     } else {
       Object.assign(row, rowPatch)
+    }
+    // parentBranch is an INPUT to derived gitState. Mutating it without
+    // re-probing leaves the old snapshot (computed against the old base)
+    // describing a base that no longer applies — and the parent-branch sweep
+    // cannot cover for it: retargeting changes the sweep's group key, so the
+    // new group is first-seen and recorded without acting [POD-576].
+    if (
+      'parentBranch' in patch &&
+      patch.parentBranch !== undefined &&
+      row.parentBranch !== prevParentBranch
+    ) {
+      void this.gitWorkflow().refreshGitState(row.id).catch(() => {})
     }
     // Closed-flip anchor [spec:SP-6144]: closedAt moves ONLY on actual predicate
     // flips, so post-close touches (notes, deps, steward writes) never restart

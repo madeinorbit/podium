@@ -125,6 +125,74 @@ describe('probeGitState', () => {
     expect(state.merged).toBe(true)
   })
 
+  // POD-576: a stacked issue whose cut parent has landed stays "ahead" of that
+  // frozen sibling ref, but its tip is an ancestor of main. The merged verdict
+  // must not be gated on ahead === 0, and must also check the landing base.
+  test('POD-576: ungated ancestry against landing base reports merged despite ahead > 0', async () => {
+    const calls: Array<{ op: string; args?: Record<string, string> }> = []
+    let isMergedCalls = 0
+    const customIo = {
+      repoOp: async (op: string, _cwd: string, args?: Record<string, string>) => {
+        calls.push({ op, args })
+        if (op === 'statusProbe') return { ok: true, output: '## issue/527-landed' }
+        if (op === 'logHead') return { ok: true, output: 'tip527\t2026-08-07T12:00:00Z' }
+        if (op === 'revListCount') {
+          if (args?.from === 'issue/520-parent' && args?.to === 'HEAD')
+            return { ok: true, output: '9' }
+          return { ok: false, output: '' }
+        }
+        if (op === 'isMergedInto') {
+          isMergedCalls += 1
+          // Dead parent: tip is NOT an ancestor of the frozen sibling.
+          if (args?.parentBranch === 'issue/520-parent') return { ok: false, output: '' }
+          // Landing base: tip IS an ancestor of main.
+          if (args?.parentBranch === 'main') return { ok: true, output: '' }
+          return { ok: false, output: '' }
+        }
+        if (op === 'branchReflog') return { ok: true, output: 'tip527\nmid\nbase00' }
+        return { ok: false, output: '' }
+      },
+    }
+    const state = await probeGitState(
+      customIo,
+      {
+        cwd: '/wt',
+        shared: false,
+        parentBranch: 'issue/520-parent',
+        landingBranch: 'main',
+        branch: 'issue/527-landed',
+      },
+      now,
+    )
+    expect(state.ahead).toBe(9)
+    expect(state.merged).toBe(true)
+    expect(isMergedCalls).toBeGreaterThanOrEqual(1)
+    expect(calls.some((c) => c.op === 'isMergedInto' && c.args?.parentBranch === 'main')).toBe(
+      true,
+    )
+  })
+
+  test('POD-576: ancestry runs even when ahead > 0 against the same parent', async () => {
+    const calls: Array<{ op: string }> = []
+    const state = await probeGitState(
+      io(
+        {
+          statusProbe: { ok: true, output: '## issue/98-viz' },
+          logHead: { ok: true, output: 'tip999\t2026-07-20T11:00:00Z' },
+          'revListCount:main..HEAD': { ok: true, output: '3' },
+          // isMergedInto false → not merged; the point is that we still called it.
+          isMergedInto: { ok: false, output: '' },
+        },
+        calls,
+      ),
+      { cwd: '/wt', shared: false, parentBranch: 'main', branch: 'issue/98-viz' },
+      now,
+    )
+    expect(state.ahead).toBe(3)
+    expect(state.merged).toBeUndefined()
+    expect(calls.some((c) => c.op === 'isMergedInto')).toBe(true)
+  })
+
   test('shared checkout: merge axis suppressed, attribution carried', async () => {
     const calls: Array<{ op: string; args?: Record<string, string> }> = []
     const state = await probeGitState(

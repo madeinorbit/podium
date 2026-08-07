@@ -173,7 +173,10 @@ export const IssueGitState = z.object({
   lastCommitAt: z.string().optional(),
   /** Commits not yet on the upstream (@{u}..HEAD). Absent = no upstream. */
   unpushed: z.number().int().optional(),
-  /** Branch fully contained in parentBranch (merge axis only). */
+  /** Branch fully contained in the merge axis (parentBranch and/or the landing
+   *  base). Authoritative "landed" verdict [POD-576]; not gated on `ahead === 0`,
+   *  because a stacked tip can be an ancestor of main while still counting as
+   *  ahead of a frozen cut-parent. Absent when false / unprobed. */
   merged: z.boolean().optional(),
   /** True when counters come from checkout-level fallback (no harness
    *  attribution available) — the UI discloses this in the hover. */

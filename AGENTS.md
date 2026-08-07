@@ -31,7 +31,10 @@ work as issues, not markdown TODO lists. Full guide: **[docs/agents/podium-issue
 Hard procedure — not a preference. Under the merge lock, refresh **local `main`**, rebase the
 **issue branch** onto it, `git merge --ff-only` the issue tip into local main, push, release.
 **Never** cherry-pick onto main or push a temp tip: that leaves a closed issue “ready to merge”
-in the sidebar forever (`ahead > 0`). Done only when `gitState.ahead` is 0. Full write-up:
+in the sidebar forever. Done when the issue tip is an ancestor of `origin/main`
+(`git merge-base --is-ancestor <issue-tip> origin/main`, or `gitState.merged`) — not merely
+when `gitState.ahead` is 0 (ahead is measured against `parentBranch`, which can be a dead
+sibling for stacked issues). Full write-up:
 **[docs/agents/podium-issues.md § Landing on main](docs/agents/podium-issues.md#landing-on-main)**
 (prime text: `MERGE_LANDING_RULE` in `@podium/protocol`).
 
