@@ -14,7 +14,7 @@ import * as Haptics from 'expo-haptics'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { MoreVertical, SquareTerminal } from 'lucide-react-native'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { KeyboardAvoidingView, Platform, StyleSheet } from 'react-native'
+import { KeyboardAvoidingView, Platform, StyleSheet, View } from 'react-native'
 import {
   readTranscriptPage,
   useBooting,
@@ -44,7 +44,7 @@ import { EmptyState } from '../components/ui'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { resolveOfferArtifacts } from '../lib/offer-artifacts'
 import { hasSessionBackTarget, sessionBackTarget, sessionHref } from '../lib/session-route'
-import { FLOW_SLATE, issueColorHex } from '../theme/issueColors'
+import { FLOW_SLATE, flow, issueColorHex } from '../theme/issueColors'
 import { color } from '../theme/theme'
 import { sessionAbsence } from './session-absence'
 
@@ -90,6 +90,9 @@ export function SessionScreen() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [workMenuOpen, setWorkMenuOpen] = useState(false)
   const [draftInsertion, setDraftInsertion] = useState<{ id: number; text: string } | null>(null)
+  // What the feed owes the floating composer. Only ever the RESTING height, so
+  // growing the field does not relayout the transcript under the operator.
+  const [composerHeight, setComposerHeight] = useState(0)
   const insertionSeq = useRef(0)
   const goBack = useCallback(() => {
     if (hasBackTarget) {
@@ -394,6 +397,7 @@ export function SessionScreen() {
               pendingTurns={pendingTurns}
               onRetryPending={retry}
               onQuote={(text) => setDraftInsertion({ id: insertionSeq.current++, text })}
+              bottomInset={composerHeight}
               todos={todoProgress}
               onOpenTodos={issue ? () => setPeekIssue(issue) : undefined}
               showOpenTodos={session.agentState?.phase === 'idle'}
@@ -448,7 +452,20 @@ export function SessionScreen() {
             />
           </PullToRefreshBoundary>
         </BootstrapCrossfade>
-        <Composer placeholder="Message the agent…" onSend={send} draftInsertion={draftInsertion} />
+        {/* The composer floats OVER the feed rather than ending it [POD-502]:
+            messages run under the capsule and dissolve into the scrim above
+            it, which is what makes it read as lifted off the page rather than
+            welded to the bottom edge. The feed pays for it with the composer's
+            own resting height. */}
+        <View style={styles.composerLayer} pointerEvents="box-none">
+          <Composer
+            placeholder="Message the agent…"
+            onSend={send}
+            draftInsertion={draftInsertion}
+            scrimColor={accent ? flow.paneBg(accent) : color.bg}
+            onRestingHeight={setComposerHeight}
+          />
+        </View>
       </KeyboardAvoidingView>
       <TaskPeekSheet
         issue={livePeekIssue}
@@ -486,5 +503,13 @@ export function SessionScreen() {
 const styles = StyleSheet.create({
   flex: {
     flex: 1,
+  },
+  /** Anchored to the KeyboardAvoidingView's padding edge, so it rides the
+   *  keyboard without the feed underneath it having to move. */
+  composerLayer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
 })

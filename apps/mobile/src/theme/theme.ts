@@ -114,11 +114,12 @@ export const radius = {
   lg: 10,
   xl: 14,
   /**
-   * Floating bottom-edge surfaces (the composer). Deliberately fixed rather
-   * than `full`: a pill radius reads right on a one-line composer and turns a
-   * six-line one into a stadium, because the clamp follows the height.
+   * Floating bottom-edge surfaces (the composer capsule; the tab bar's own is
+   * 28 for its taller capsule). Deliberately fixed rather than `full`: a pill
+   * radius reads right on a one-line composer and turns a six-line one into a
+   * stadium, because the clamp follows the height.
    */
-  xxl: 22,
+  xxl: 24,
   full: 999,
 } as const
 

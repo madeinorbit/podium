@@ -474,6 +474,7 @@ export function TranscriptList({
   refreshAccessibilityProps,
   emptyComponent,
   footer,
+  bottomInset = 0,
 }: {
   items: TranscriptItem[]
   live: boolean
@@ -507,6 +508,11 @@ export function TranscriptList({
   /** Session-owned actions rendered after the tail, inside the scroller rather
    *  than as a persistent bottom accessory. */
   footer?: ReactNode
+  /**
+   * Room to leave at the end of the feed for chrome that floats OVER it — the
+   * composer. Without it the last row rests under the capsule forever.
+   */
+  bottomInset?: number
 }) {
   const reduceMotion = useReduceMotion()
   const uiState = useUiState()
@@ -799,7 +805,7 @@ export function TranscriptList({
         ref={listRef}
         data={rows}
         keyExtractor={(row) => row.key}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, { paddingBottom: space.md + bottomInset }]}
         refreshControl={refreshControl}
         {...refreshAccessibilityProps}
         ListEmptyComponent={emptyComponent}

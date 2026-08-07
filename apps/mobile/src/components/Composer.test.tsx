@@ -1,11 +1,17 @@
 import { fireEvent, render, screen } from '@testing-library/react'
-import type { ReactNode } from 'react'
+import type { ComponentProps, ReactNode } from 'react'
+import type { View } from 'react-native'
 import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 20, right: 0, bottom: 34, left: 0 }),
 }))
-vi.mock('expo-blur', () => ({ BlurView: () => null }))
+// The composer's surface IS the BlurView, the way the tab bar's capsule is —
+// a null stub would erase the component under test rather than its blur.
+vi.mock('expo-blur', async () => {
+  const { View } = await import('react-native')
+  return { BlurView: (props: ComponentProps<typeof View>) => <View {...props} /> }
+})
 vi.mock('expo-linear-gradient', () => ({
   LinearGradient: ({ children }: { children: ReactNode }) => <>{children}</>,
 }))
