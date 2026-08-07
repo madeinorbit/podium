@@ -29,6 +29,18 @@ import { appliedDrizzleNames, runDrizzleMigrations } from './index'
 /** The A/B arm that disables the fixture has no image to compare against. */
 const disabled = process.env[FIXTURE_DISABLED_ENV] !== undefined
 
+/**
+ * What a reader of a red board needs to know before they reach for a re-run. This is
+ * the one assertion standing between a wrong image and a green gate, so its failure
+ * has to name the conclusion rather than show two object dumps.
+ */
+const DISAGREEMENT =
+  'THE CLONE AND THE MIGRATION CHAIN DISAGREE. Every ordinary apps/server test is ' +
+  'running against a database that is not what the migrations build, so any suite ' +
+  'that is green may be green against the wrong schema. This is not flaky and a ' +
+  're-run will not clear it. Either a migration does something the page image does ' +
+  'not carry, or the fixture is serving a stale image (POD-523).'
+
 afterEach(() => useRealMigrationChain())
 
 function raw(store: SessionStore): SqlDatabase {
@@ -48,6 +60,23 @@ function schemaObjects(db: SqlDatabase): { type: string; name: string; sql: stri
 
 /** ISO-8601 instants written by the per-boot heals — two boots are two clocks. */
 const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/
+
+/**
+ * Every way vitest lets a case stop running without being deleted.
+ *
+ * Anchored patterns, not substrings: they must match a real call site at the start of
+ * a line, so this list does not trip over its own text in the file it audits. Note
+ * `.skipIf(` is deliberately NOT matched — that is the legitimate A/B arm, where
+ * there is no fixture to compare against.
+ *
+ * Deliberately duplicated in the file this one audits rather than shared: a common
+ * constant would be one edit that disarms both halves, which is the thing the mutual
+ * audit exists to prevent.
+ */
+const DISABLERS = [
+  /^\s*(?:it|test|describe)\.(?:skip|only|todo|fails)\s*\(/m,
+  /^\s*x(?:it|describe)\s*\(/m,
+]
 
 /** Every row of every table, so migration DML is compared and not just DDL. */
 function allRows(db: SqlDatabase): Record<string, unknown[]> {
@@ -103,7 +132,7 @@ describe('migration suites keep the full 54-step path [POD-523]', () => {
 })
 
 describe.skipIf(disabled)('the clone is the chain [POD-523]', () => {
-  it('reaches byte-identical schema objects and rows', () => {
+  it('reaches identical schema objects and rows', () => {
     const chain = new SessionStore(':memory:', 'machine-under-test')
     const fromChain = { schema: schemaObjects(raw(chain)), rows: allRows(raw(chain)) }
     chain.close()
@@ -113,11 +142,11 @@ describe.skipIf(disabled)('the clone is the chain [POD-523]', () => {
     const fromClone = { schema: schemaObjects(raw(cloned)), rows: allRows(raw(cloned)) }
     cloned.close()
 
-    expect(fromClone.schema).toEqual(fromChain.schema)
+    expect(fromClone.schema, DISAGREEMENT).toEqual(fromChain.schema)
     // Not just counts: the ten migrations carrying DML seed rows, and the per-boot
     // heals write more. Equality here is what makes "the clone is the chain" a
     // claim about the database rather than about its table list.
-    expect(fromClone.rows).toEqual(fromChain.rows)
+    expect(fromClone.rows, DISAGREEMENT).toEqual(fromChain.rows)
   })
 
   it('carries the whole migration ledger, so nothing is left pending', () => {
@@ -250,5 +279,28 @@ describe('the seam cannot reach production [POD-523]', () => {
     const store = new SessionStore(join(dir, 'db', 'podium.db'))
     store.close()
     expect(readFileSync(decoy, 'utf8')).toBe('untouched')
+  })
+})
+
+describe("the fixture's own guards stay armed [POD-523]", () => {
+  /**
+   * The other half of a MUTUAL audit: this file checks the wiring test, and the
+   * wiring test checks this one. Neither can be quarantined without editing the
+   * other, and they share neither a directory nor a name — so a sweep that retires
+   * one by name-match leaves the other shouting.
+   *
+   * This exists because the clone-equals-chain proof above is load-bearing in a way
+   * an ordinary test is not: skipped, nothing else notices that the whole default
+   * gate is running against an unverified schema.
+   */
+  it('keeps the wiring guard active and unskipped', () => {
+    const source = readFileSync(
+      new URL('../pre-migrated-store-wiring.test.ts', import.meta.url),
+      'utf8',
+    )
+    expect(source).toContain("it('is installed for an ordinary apps/server test file'")
+    for (const disabler of DISABLERS) {
+      expect(disabler.test(source), `the wiring guard has been disabled: ${disabler}`).toBe(false)
+    }
   })
 })
