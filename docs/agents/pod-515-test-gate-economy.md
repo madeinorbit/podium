@@ -440,11 +440,33 @@ ranked above it**, and this review shipped its ordering without saying so.
 multi-user, CLI and runtime surface suites "should receive any unique behavior" — the word *any*
 carrying an unexamined assumption that little was unique. POD-521 mapped all 95 cases against the
 named owners (`service.test.ts`, 9 tests, 539 lines; `multi-user.test.ts`, 11 tests, 789 lines).
-About **18 are genuinely duplicated; about 77 are the only coverage that exists** — duplicate
+About **18 were reported duplicated and about 77 the only coverage that exists** — duplicate
 delivery and mutation-id replay, out-of-order step attempts, adopt validation, three-way
 error-shape leakage, relay exposure defaulting closed per declaration, and run durability across a
 store close and reopen. Retiring the file as written would have traded 77 behavioural assertions
 for about five seconds.
+
+**The 18 did not survive either, and this is the third instance of the same move.** Before
+deleting them POD-521 read each against its owner, and the overlap is *partial rather than
+containment*: the focused case asserts an exact refusal message including its code and covers one
+behaviour, while the owner's version matches a substring inside a large test doing five other
+things — `service.test.ts`'s "checkpoints linear steps, records observations, and tells the
+coordinator what is next" is a single `it` spanning profile snapshots, observation warnings, prime
+rendering, step assignment, notices and run listing. Deleting the focused cases would have traded
+exact-message assertions and precise failure attribution for a smaller diff, and on this surface
+the exact message *is* the product: an agent reads a workflow refusal and acts on it. Nothing was
+removed. 95 tests before, 95 after.
+
+So the 18 was too generous by the same mechanism that made 95 wrong — reading titles and inferring
+containment — and it was reported by the agent who had just caught this review doing exactly that.
+Two observations follow, and the second is the useful one. The error is not a lapse; it is what
+reading a test list *is*, at any level, unless someone opens the files. And the correction came
+from applying the same standard downward rather than from being warned: POD-521 read its own 18
+because it had just finished proving that 95 could not be trusted unread.
+
+The cleanup that would actually pay here is the reverse of the one this review proposed: thinning
+the `service.test.ts` mega-tests against the focused cases that already exist. That is a different
+change with a different risk profile and it has been filed rather than started.
 
 The line-count asymmetry was visible without running anything: 3,942 lines against 1,328 in both
 named owners combined. A file cannot have been absorbed by suites a third its size. This review
@@ -577,3 +599,42 @@ files, and the fourth has had no contact with anyone who has.
 So the right reading is not "some of this is untested". It is that the tested recommendations came
 back changed at a rate which should inform how the rest are read, and the largest untested item is
 the one most similar to the ones that failed.
+
+---
+
+## Final addendum, 2026-08-07: the census defect has seven instances, and the three failures are six
+
+POD-521's lane run across all five shards plus scripts supersedes the three-failure figure in the
+profile above. Six failures now, all reproducing on a clean detached worktree at `origin/main`:
+
+| Failure | Status |
+| --- | --- |
+| `gateway/daemon-mux` RPC-frame census 24 → 25 | confirmed, still open |
+| `server.role` hub-off coverage | confirmed, still open — genuinely missing coverage, not a census |
+| `modules/derived-family.runtime` census 23 → 24 | **gone.** Fixed on main; the file pins 24 and main serves 24 |
+| `migrations/pre-migrated-fixture` census 54 → 55 | new — POD-586 |
+| `lock/session-exit` ×2 | new — POD-587, linked to POD-556 |
+| `modules/sessions/oracle-attribution` | new — POD-573, done on its branch, unlanded |
+| the two `scripts` audits | new — POD-585 |
+
+**Four of these are one defect**, and it is the one this review named as a minor cleanup: a
+remembered total sitting beside a check that already does the work. The migration case is the
+cleanest specimen available —
+
+```ts
+expect(applied).toEqual(DRIZZLE_MIGRATIONS.map((m) => m.name))  // exact, ordered, bidirectional
+expect(applied.length).toBe(54)                                  // cannot refuse anything the line above permits
+```
+
+The literal is not a weaker check than the line above it. It is not a check at all: every state it
+rejects is already rejected one line earlier, and the only thing it can do is fail when the
+manifest legitimately grows. `main` has 55 migrations. The fix is to delete the line, not to write
+55, and POD-586 says so in those words.
+
+This review filed that pattern under "remove protection that is tautological or fake" and called
+it *mostly a maintenance win rather than a runtime win* — correct about the runtime and wrong
+about the significance. Seven independent instances have now surfaced across this chain: the two
+census pins in the original profile, four more in one lane run nobody was auditing for them, and
+the `mail.ask`/`sessions.ask` contract split that set equality found on its first use. That is not
+a cleanup. It is the most reliably reproduced finding in this review, and the only one that keeps
+appearing without anyone looking for it.
