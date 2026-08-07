@@ -75,6 +75,14 @@ async function main() {
         'run',
         'test',
         '--concurrency=1',
+        // Report every lane's failures, not just the first one's. This became load-bearing
+        // when POD-520 split @podium/server into five shard tasks: without it Turbo stops
+        // at the first failing shard, so a red in `contracts` hides whatever `store`,
+        // `services` and `boundary` would have said — a full run used to show all of them
+        // at once because the server was a single task. `dependencies-successful` (not
+        // `always`) so a task whose dependency failed is still skipped; the run is red
+        // either way, this only decides how much of the picture you get for the CPU spent.
+        '--continue=dependencies-successful',
         ...decision.forwardArgs,
       ],
       {

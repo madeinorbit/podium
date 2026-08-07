@@ -3,8 +3,12 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import desktopConfig from '../apps/desktop/vitest.config'
 import mobileConfig from '../apps/mobile/vitest.config'
+import serverBoundaryConfig from '../apps/server/vitest.boundary.config'
 import serverPackageConfig from '../apps/server/vitest.config'
+import serverContractsConfig from '../apps/server/vitest.contracts.config'
 import normalizedWirePackageConfig from '../apps/server/vitest.normalized-wire.config'
+import serverServicesConfig from '../apps/server/vitest.services.config'
+import serverStoreConfig from '../apps/server/vitest.store.config'
 import webConfig from '../apps/web/vitest.config'
 import frontendPerfConfig from '../apps/web/vitest.frontend-perf.config'
 import phase3BrowserConfig from '../tests/e2e/.phase3-playwright.config'
@@ -44,6 +48,7 @@ type Config = {
     include?: string[]
     projects?: Project[]
     retry?: number
+    passWithNoTests?: boolean
     minWorkers?: number
     maxWorkers?: number
     fileParallelism?: boolean
@@ -55,6 +60,14 @@ type Config = {
 
 const config = (value: unknown): Config => value as Config
 const repoRoot = new URL('../', import.meta.url)
+/** The five POD-520 cache shards, which together are the @podium/server test lane. */
+const serverShardConfigs = [
+  ['contracts', serverContractsConfig],
+  ['store', serverStoreConfig],
+  ['services', serverServicesConfig],
+  ['boundary', serverBoundaryConfig],
+  ['normalized-wire', normalizedWirePackageConfig],
+] as const
 const sharedSetupFiles = sharedVitestConfig.test.setupFiles.map((file) =>
   fileURLToPath(new URL(file, repoRoot)),
 )
@@ -152,9 +165,36 @@ describe('test lane configuration', () => {
       expect(config(packageConfig).test?.setupFiles).toEqual(sharedVitestConfig.test.setupFiles)
       expect(config(packageConfig).test?.maxWorkers).toBe(sharedVitestConfig.test.maxWorkers)
     }
-    expect(config(normalizedWirePackageConfig).test?.include).toEqual(normalizedWireTests)
+    // Sorted: the shard's include comes from the generated manifest, which is sorted,
+    // while normalizedWireTests is written in run order. Same two files either way.
+    expect([...(config(normalizedWirePackageConfig).test?.include ?? [])].sort()).toEqual(
+      [...normalizedWireTests].sort(),
+    )
     expect(config(normalizedWirePackageConfig).test?.fileParallelism).toBe(false)
     expect(config(normalizedWirePackageConfig).test?.maxWorkers).toBe(1)
+  })
+
+  it('keeps every server shard on the shared hermetic setup and worker cap [POD-520]', () => {
+    // The split turned one server lane into five. Each is a separate Vitest invocation, so
+    // each can lose the hardening on its own: the env scrubber that keeps a suite off the
+    // live instance, POD-523's store fixture, and the two-worker cap that keeps the shared
+    // six-core host survivable when Turbo runs the shards back to back.
+    for (const [name, shardConfig] of serverShardConfigs) {
+      expect(config(shardConfig).test?.setupFiles, `${name} lost hermetic setup`).toEqual(
+        sharedVitestConfig.test.setupFiles,
+      )
+      expect(config(shardConfig).test?.globalSetup, `${name} lost the schema image`).toEqual([
+        fileURLToPath(new URL('test-pre-migrated-schema.ts', repoRoot)),
+      ])
+      expect(config(shardConfig).test?.testTimeout).toBe(sharedVitestConfig.test.testTimeout)
+      expect(config(shardConfig).test?.retry, `${name} gained a retry`).toBe(0)
+      // An explicit file list that collects nothing means the manifest and the filesystem
+      // disagree. That has to be a failure, or a mis-generated shard passes as a green.
+      expect(config(shardConfig).test?.passWithNoTests, `${name} would pass empty`).toBe(false)
+      // normalized-wire is the deliberately serialized one; the rest keep the shared cap.
+      const serialized = name === 'normalized-wire'
+      expect(config(shardConfig).test?.maxWorkers).toBe(serialized ? 1 : 2)
+    }
   })
 
   it('keeps retries out of the default project and scopes them to integration', () => {
@@ -266,6 +306,31 @@ describe('test lane configuration', () => {
     expect(pkg.scripts['test:perf:frontend']).toBe('bun run --cwd apps/web test:perf:large-state')
     expect(pkg.scripts['test:e2e']).toContain('NODE_OPTIONS=--conditions=@podium/source')
     expect(pkg.scripts['test:smoke:agents']).toContain('PODIUM_REAL_CLI=1')
+  })
+
+  it('reports every lane without running anything on a failed dependency [POD-520]', () => {
+    // Sharding @podium/server made `--continue` necessary: without it Turbo stops at the
+    // first failing shard and a red in `contracts` hides what `store`, `services` and
+    // `boundary` would have said. The VALUE matters more than the flag. `always` would run
+    // a task whose dependency failed — for the server that is the exhaustiveness refusal
+    // running after a shard died, i.e. a roster check reporting on a lane that did not
+    // finish. `dependencies-successful` skips it instead, so nothing ever reports on top
+    // of a failure.
+    const source = readFileSync(new URL('./test.ts', import.meta.url), 'utf8')
+    expect(source).toContain("'--continue=dependencies-successful'")
+    expect(source).not.toContain("'--continue=always'")
+
+    // The other half of "nothing runs on a failed dependency": no package's test task may
+    // depend on another package's test task, so `--continue` cannot let one package's
+    // green be reported while its upstream is red. The only dependency edges among test
+    // tasks are @podium/server#test -> its own shards, declared in apps/server/turbo.json.
+    const turbo = JSON.parse(readFileSync(new URL('../turbo.json', import.meta.url), 'utf8')) as {
+      tasks: Record<string, { dependsOn?: string[] }>
+    }
+    for (const [name, task] of Object.entries(turbo.tasks)) {
+      if (!name.endsWith('#test') && name !== 'test') continue
+      expect(task.dependsOn ?? [], `${name} gained a cross-package test dependency`).toEqual([])
+    }
   })
 
   it('builds browser workspace dependencies in cold-checkout order [POD-1389]', () => {

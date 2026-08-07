@@ -11,16 +11,24 @@
     "test-hermetic-*.ts",
     "scripts/package-vitest-config.ts"
   ],
-  "globalEnv": ["PODIUM_CHECK_ENV_HASH"],
+  "globalEnv": [
+    "PODIUM_CHECK_ENV_HASH"
+  ],
   "tasks": {
     "typecheck": {
-      "dependsOn": ["^typecheck"],
-      "inputs": ["$TURBO_DEFAULT$"],
+      "dependsOn": [
+        "^typecheck"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$"
+      ],
       "outputs": []
     },
     "@podium/model#typecheck": {
       "dependsOn": [],
-      "inputs": ["$TURBO_DEFAULT$"],
+      "inputs": [
+        "$TURBO_DEFAULT$"
+      ],
       "outputs": []
     },
     "@podium/web#test": {
@@ -267,32 +275,6 @@
         "$TURBO_ROOT$/test-hermetic-state-guard.ts",
         "$TURBO_ROOT$/packages/model/src/**",
         "$TURBO_ROOT$/packages/protocol/src/**"
-      ],
-      "outputs": []
-    },
-    "@podium/server#test": {
-      "dependsOn": [],
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/vitest.config.ts",
-        "$TURBO_ROOT$/vitest.unit.config.ts",
-        "$TURBO_ROOT$/vitest.smoke-requirements.ts",
-        "$TURBO_ROOT$/scripts/package-vitest-config.ts",
-        "$TURBO_ROOT$/test-hermetic-env.ts",
-        "$TURBO_ROOT$/test-hermetic-vitest-hooks.ts",
-        "$TURBO_ROOT$/test-hermetic-state-guard.ts",
-        "$TURBO_ROOT$/packages/commands/src/**",
-        "$TURBO_ROOT$/packages/harness/src/**",
-        "$TURBO_ROOT$/packages/issue-client/src/**",
-        "$TURBO_ROOT$/packages/model/src/**",
-        "$TURBO_ROOT$/packages/protocol/src/**",
-        "$TURBO_ROOT$/packages/runtime/src/**",
-        "$TURBO_ROOT$/packages/sync/src/**",
-        "$TURBO_ROOT$/packages/telemetry/src/**",
-        "$TURBO_ROOT$/packages/transcript/src/**",
-        "$TURBO_ROOT$/packages/client-core/src/engine/outbox-coverage.oracle.test.ts",
-        "$TURBO_ROOT$/scripts/audit-automation-commands.ts",
-        "$TURBO_ROOT$/scripts/audit-workflow-commands.ts"
       ],
       "outputs": []
     },
