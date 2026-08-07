@@ -964,11 +964,25 @@ describe('archive frees the worktree, keeping the branch (POD-567)', () => {
     return w.id
   }
 
-  const opsOf = (h: ReturnType<typeof harness>) =>
-    h.deps.repoOp.mock.calls as [string, string, Record<string, string> | undefined, ...unknown[]][]
+  /** Record the git ops the free makes, and script the `status` the tree reports.
+   *  Assigns `deps.repoOp` as the PORT it is declared as (same shape as
+   *  `scriptOps` further down): the harness builds it with `vi.fn()`, but the
+   *  assignment is typed by `IssueDeps`, so no mock API is visible on it. */
+  const recordOps = (
+    h: ReturnType<typeof harness>,
+    status = '## issue/x\n',
+  ): { op: string; cwd: string; args?: Record<string, string> }[] => {
+    const ops: { op: string; cwd: string; args?: Record<string, string> }[] = []
+    h.deps.repoOp = async (op, cwd, args) => {
+      ops.push({ op, cwd, ...(args ? { args } : {}) })
+      return { ok: true, output: op === 'status' ? status : '' }
+    }
+    return ops
+  }
 
   it('frees the checkout on a manual archive, keeps the branch, and never forces', async () => {
     const h = harness()
+    const ops = recordOps(h)
     const id = startedIssue(h)
 
     h.svc.archive(id)
@@ -976,9 +990,9 @@ describe('archive frees the worktree, keeping the branch (POD-567)', () => {
 
     expect(h.svc.get(id)!.worktreePath).toBeNull()
     expect(h.svc.get(id)!.branch).toBe('issue/x')
-    const remove = opsOf(h).find(([op]) => op === 'worktreeRemove')
-    expect(remove?.[1]).toBe('/r') // the repo, with the worktree path as an arg
-    expect(remove?.[2]).toEqual({ path: '/r/.worktrees/issue-x' }) // NO force, ever
+    const remove = ops.find((o) => o.op === 'worktreeRemove')
+    expect(remove?.cwd).toBe('/r') // the repo, with the worktree path as an arg
+    expect(remove?.args).toEqual({ path: '/r/.worktrees/issue-x' }) // NO force, ever
     expect(h.store.events.listEventsSince(0, { kinds: ['issue.worktree_freed'] }).length).toBe(1)
   })
 
@@ -1000,10 +1014,7 @@ describe('archive frees the worktree, keeping the branch (POD-567)', () => {
     // The worktree is clean but the branch has never landed. Freeing is exactly
     // right here: the commits live on the branch, and resume rebuilds the checkout.
     const h = harness()
-    h.deps.repoOp.mockImplementation(async (op: string) => {
-      if (op === 'status') return { ok: true, output: '## issue/x...origin/main [ahead 3]' }
-      return { ok: true, output: '' }
-    })
+    recordOps(h, '## issue/x...origin/main [ahead 3]')
     const id = startedIssue(h, 'Waiting on merge')
 
     h.svc.archive(id)
@@ -1015,17 +1026,14 @@ describe('archive frees the worktree, keeping the branch (POD-567)', () => {
 
   it('refuses on a dirty tree: the checkout stays, and the refusal is recorded', async () => {
     const h = harness()
-    h.deps.repoOp.mockImplementation(async (op: string) => {
-      if (op === 'status') return { ok: true, output: '## issue/x\n M src/unsaved.ts' }
-      return { ok: true, output: '' }
-    })
+    const ops = recordOps(h, '## issue/x\n M src/unsaved.ts')
     const id = startedIssue(h, 'Half-finished')
 
     h.svc.archive(id)
     await settle()
 
     expect(h.svc.get(id)!.worktreePath).toBe('/r/.worktrees/issue-x')
-    expect(opsOf(h).some(([op]) => op === 'worktreeRemove')).toBe(false)
+    expect(ops.some((o) => o.op === 'worktreeRemove')).toBe(false)
     const refused = h.store.events.listEventsSince(0, { kinds: ['issue.worktree_free_refused'] })
     expect(refused.length).toBe(1)
     // The reason travels with it — "why is this directory still here" is answerable.
@@ -1037,6 +1045,7 @@ describe('archive frees the worktree, keeping the branch (POD-567)', () => {
     // squatter: removing the worktree under it is the same data loss as a dirty tree.
     const sessions: SessionMeta[] = []
     const h = harness(sessions)
+    const ops = recordOps(h)
     const id = startedIssue(h, 'Shared checkout')
     const other = h.svc.create({ repoPath: '/r', title: 'Neighbour', startNow: false })
     sessions.push({
@@ -1048,7 +1057,7 @@ describe('archive frees the worktree, keeping the branch (POD-567)', () => {
     await settle()
 
     // Not even inspected: the guard runs before any git op on the path.
-    expect(opsOf(h).some(([op]) => op === 'worktreeRemove')).toBe(false)
+    expect(ops.some((o) => o.op === 'worktreeRemove')).toBe(false)
     expect(h.svc.get(id)!.worktreePath).toBe('/r/.worktrees/issue-x')
     expect(h.setSessionArchived).not.toHaveBeenCalledWith('/r/.worktrees/issue-x', true)
     expect(
@@ -1058,28 +1067,30 @@ describe('archive frees the worktree, keeping the branch (POD-567)', () => {
 
   it('does not free on close — only archive, because `done` is an agent-writable claim', async () => {
     const h = harness()
+    const ops = recordOps(h)
     const id = startedIssue(h, 'Done, awaiting review')
 
     h.svc.close(id)
     await settle()
 
     expect(h.svc.get(id)!.worktreePath).toBe('/r/.worktrees/issue-x')
-    expect(opsOf(h).some(([op]) => op === 'worktreeRemove')).toBe(false)
+    expect(ops.some((o) => o.op === 'worktreeRemove')).toBe(false)
   })
 
   it('un-archiving does not free anything (and re-archiving a freed issue is a no-op)', async () => {
     const h = harness()
+    recordOps(h)
     const id = startedIssue(h)
     h.svc.archive(id)
     await settle()
     h.svc.update(id, { archived: false })
-    h.deps.repoOp.mockClear()
+    const afterUnarchive = recordOps(h) // a fresh recorder — starts empty
 
     h.svc.update(id, { archived: true })
     await settle()
 
     // Nothing left to free: no git op, no refusal event.
-    expect(opsOf(h).length).toBe(0)
+    expect(afterUnarchive.length).toBe(0)
     expect(
       h.store.events.listEventsSince(0, { kinds: ['issue.worktree_free_refused'] }).length,
     ).toBe(0)
