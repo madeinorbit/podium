@@ -32,6 +32,13 @@ const bucket = (over: Partial<UsageBucketWire> = {}): UsageBucketWire => ({
   ...over,
 })
 
+const ZERO_TOKENS = {
+  inputTokens: 0,
+  outputTokens: 0,
+  cacheReadTokens: 0,
+  cacheCreationTokens: 0,
+} as const
+
 /** Never resolves — holds the sheet in whichever state it opened in. */
 const pending = (): Promise<never> => new Promise<never>(() => {})
 
@@ -54,10 +61,16 @@ describe('UsageView loading', () => {
     // Everything knowable before the fetch is REAL — this is what keeps the
     // fit-height sheet from snapping to a new size when the answer lands.
     expect(screen.getByText('Last 5 hours')).toBeTruthy()
-    expect(screen.getByText('Tokens per day')).toBeTruthy()
+    expect(screen.getByText('Tokens per hour')).toBeTruthy()
     expect(screen.getByText('API-equivalent')).toBeTruthy()
-    expect(body().querySelectorAll('.usage-bar')).toHaveLength(7)
+    // Seven days of 24 hour slots — the trace's geometry is known before any
+    // reading is, which is the whole reason the sheet does not resize on arrival.
+    expect(body().querySelectorAll('.usage-trace-day')).toHaveLength(7)
+    expect(body().querySelectorAll('.usage-hour')).toHaveLength(7 * 24)
     expect(body().querySelectorAll('.usage-gridline')).toHaveLength(3)
+    // No hour claims a reading yet: `data-on` is what marks a measured hour, and
+    // a cold trace must not draw a single bar.
+    expect(body().querySelectorAll('.usage-hour[data-on]')).toHaveLength(0)
 
     // ...and every figure is an unfilled slot, not a zero. A `0` here would be a
     // claim about a number nobody has read yet.
@@ -74,11 +87,42 @@ describe('UsageView loading', () => {
 
     expect(body().dataset.cold).toBeUndefined()
     expect(body().querySelectorAll('.usage-unfilled')).toHaveLength(0)
-    expect(body().querySelectorAll('.usage-bar')).toHaveLength(7)
+    expect(body().querySelectorAll('.usage-hour')).toHaveLength(7 * 24)
+    // The single bucket is one measured hour; the other 167 slots stay empty,
+    // because a gap in the trace is a reading and not a missing value.
+    expect(body().querySelectorAll('.usage-hour[data-on]')).toHaveLength(1)
     // The arrival animation is licensed exactly once, for the pass that filled
     // a cold sheet.
     expect(body().dataset.arrive).toBe('true')
     expect(screen.getByText('claude-opus-5')).toBeTruthy()
+  })
+
+  it('gives every measured hour a readout, since 168 columns cannot be labelled', async () => {
+    // The trace's precise values live on hover — the only place they can, at one
+    // column per hour. An unlabelled 4px mark with no readout would be a shape
+    // and not a chart.
+    summary.mockResolvedValue({ buckets: [bucket()] })
+    render(<UsageView onClose={() => {}} />)
+    await act(async () => {})
+
+    const measured = body().querySelector('.usage-hour[data-on]')!
+    expect(measured.getAttribute('title')).toMatch(/\d\d:00 · .* tokens · \$/)
+  })
+
+  it('drops the harness placeholder rather than ranking it as a model', async () => {
+    // Claude Code stamps its session-limit and API-error placeholders
+    // `<synthetic>` with an all-zero usage block. Counted, they put a permanent
+    // 0-token row in the table and add to every reply count.
+    summary.mockResolvedValue({
+      buckets: [bucket(), bucket({ model: '<synthetic>', ...ZERO_TOKENS, messages: 9 })],
+    })
+    render(<UsageView onClose={() => {}} />)
+    await act(async () => {})
+
+    expect(screen.queryByText('<synthetic>')).toBeNull()
+    expect(body().querySelectorAll('.usage-table tbody tr')).toHaveLength(1)
+    // ...and its replies are gone from the window readout too: 5, not 14.
+    expect(screen.getAllByText(/5 replies/).length).toBeGreaterThan(0)
   })
 
   it('reopens straight into the last readings, with no cold pass and no entrance', async () => {

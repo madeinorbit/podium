@@ -55,6 +55,22 @@ describe('usageFromRecord', () => {
     expect(usageFromRecord({ type: 'user', message: {} })).toBeNull()
     expect(usageFromRecord({ type: 'assistant', message: {} })).toBeNull()
   })
+
+  it('skips the `<synthetic>` placeholder — no model ran and nothing was billed', () => {
+    // Claude Code writes its session-limit and API-error notices as assistant
+    // turns with an all-zero usage block. Harvested, they became a permanent
+    // 0-token `<synthetic>` row in the usage sheet's model table and inflated
+    // every reply count by however many times an agent hit a limit.
+    const record = {
+      type: 'assistant',
+      timestamp: '2026-06-12T10:01:00.000Z',
+      message: {
+        model: '<synthetic>',
+        usage: { input_tokens: 0, output_tokens: 0 },
+      },
+    }
+    expect(usageFromRecord(record)).toBeNull()
+  })
 })
 
 describe('bucketize', () => {

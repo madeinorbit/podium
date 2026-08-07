@@ -24,7 +24,17 @@ export interface UsageRecord {
   cacheCreationTokens: number
 }
 
-/** Parse one JSONL record; null when it carries no usage. */
+/**
+ * Parse one JSONL record; null when it carries no usage.
+ *
+ * A record whose model is a `<…>` sentinel is NOT usage. Claude Code writes its
+ * API-error and session-limit placeholders as assistant turns stamped
+ * `"model": "<synthetic>"` with an all-zero usage block — no model ran, and no
+ * tokens were billed. Counted, they added a permanent 0-token `<synthetic>` row
+ * to the usage sheet's model table and inflated every reply count by however
+ * many times an agent hit a limit. `claudeRecordModel` already filters the same
+ * sentinel for the transcript reader; this is the usage path's copy of that rule.
+ */
 export function usageFromRecord(record: unknown): UsageRecord | null {
   if (typeof record !== 'object' || record === null) return null
   const r = record as Record<string, unknown>
@@ -32,6 +42,7 @@ export function usageFromRecord(record: unknown): UsageRecord | null {
   const message = r.message as Record<string, unknown> | undefined
   const usage = message?.usage as Record<string, unknown> | undefined
   if (!usage) return null
+  if (typeof message?.model === 'string' && message.model.startsWith('<')) return null
   const tsMs = typeof r.timestamp === 'string' ? Date.parse(r.timestamp) : Number.NaN
   if (Number.isNaN(tsMs)) return null
   const n = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
