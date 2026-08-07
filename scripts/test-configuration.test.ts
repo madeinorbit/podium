@@ -455,17 +455,20 @@ describe('test lane configuration', () => {
     }
   })
 
-  it('serializes the browser lane under the shared heavy-test lease [POD-535]', () => {
+  it('takes the heavy-test lease inside the browser lane body [POD-535]', () => {
+    // Lease must live in browser-lane.ts itself: wrapping only package.json left
+    // bare `bun scripts/browser-lane.ts` unprotected, and a held lease still
+    // lost to another agent's harness on the fixed port (POD-503 evidence).
+    const lane = readFileSync(new URL('./browser-lane.ts', import.meta.url), 'utf8')
+    expect(lane, 'lane must import the shared lease helper').toMatch(/runWithHeavyTestLease/)
+    expect(lane, 'lane must gate on session identity like other heavy scripts').toMatch(
+      /shouldAcquireHeavyTestLease/,
+    )
     const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
       scripts: Record<string, string>
     }
-    const script = pkg.scripts['test:browser']
-    expect(script, 'test:browser must go through test-heavy').toMatch(
-      /scripts\/test-heavy\.ts\b/,
-    )
-    expect(script, 'test:browser must still run the browser-lane body').toMatch(
-      /scripts\/browser-lane\.ts\b/,
-    )
+    // package.json is the thin entry; do not double-wrap (nested acquire deadlocks).
+    expect(pkg.scripts['test:browser']).toBe('bun scripts/browser-lane.ts')
   })
 
   it('keeps every browser suite reachable from a script and a CI job [POD-1227]', () => {
@@ -476,10 +479,8 @@ describe('test lane configuration', () => {
     const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
       scripts: Record<string, string>
     }
-    // Through test-heavy so a live session serializes against integration/e2e/
-    // acceptance rather than racing them on the shared host (POD-535).
     expect(pkg.scripts['test:browser'], 'the browser lane script is gone').toBe(
-      'bun scripts/test-heavy.ts -- bun scripts/browser-lane.ts',
+      'bun scripts/browser-lane.ts',
     )
 
     const ci = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')

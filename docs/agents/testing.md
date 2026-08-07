@@ -45,19 +45,21 @@ The shared forked Vitest configuration defaults to at most two workers and keeps
 
 The package default (`bun run test`) and `bun run test:affected` automatically acquire the
 `test:heavy` advisory lease from a live Podium session. Root process lanes that call
-`scripts/test-heavy.ts` do the same — including `test:browser`, `test:integration`,
-`test:acceptance`, `test:e2e`, and `test:smoke:agents`. Direct package and multi-instance
-commands do not; when an agent runs those by hand on the shared host:
+`scripts/test-heavy.ts` do the same (`test:integration`, `test:acceptance`, `test:e2e`,
+`test:smoke:agents`). `test:browser` / `scripts/browser-lane.ts` take the lease inside
+the lane body so both the package script and a bare script invocation serialize.
+Direct package and multi-instance commands do not; when an agent runs those by hand:
 
     podium lock acquire test:heavy --ttl 30m --wait
     bun run test:multi-instance
     podium lock release test:heavy
 
-The same applies to a bare `bun scripts/browser-lane.ts` or a hand-rolled Playwright
-invocation that bypasses `bun run test:browser` — those skip the wrapper and will race
-other heavy work. Prefer the package script. Hand-rolled Playwright also needs a prior
-`bun run build` and `bun run --filter @podium/mobile build:web`: the config's
-`webServer` only boots the harness (POD-535); it no longer rebuilds packages.
+A hand-rolled Playwright invocation that bypasses the lane still skips the lease and
+will race other heavy work — and it shares the fixed default port 8799 with any other
+Playwright run on the host (lease does not cover that). Prefer the package script.
+Hand-rolled Playwright also needs a prior `bun run build` and
+`bun run --filter @podium/mobile build:web`: the config's `webServer` only boots the
+harness (POD-535); it no longer rebuilds packages.
 
 The wrapper renews the 30-minute lease every 10 minutes while the child runs. If renewal fails, it terminates the child rather than allowing an unleased test to continue; an interrupted process still has the 30-minute TTL as the recovery path.
 

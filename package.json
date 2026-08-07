@@ -60,7 +60,7 @@
     "test:smoke:agents": "PODIUM_REAL_CLI=1 bun scripts/test-heavy.ts -- bun --bun node_modules/vitest/vitest.mjs run --passWithNoTests --config vitest.agent-smoke.config.ts",
     "test:e2e": "NODE_OPTIONS=--conditions=@podium/source bun scripts/test-heavy.ts -- bun --bun node_modules/vitest/vitest.mjs run --config vitest.integration.config.ts tests/e2e",
     "test:multi-instance": "bun test --conditions=@podium/source ./scripts/multi-instance-runtime.integration.bun.test.ts && bun --bun node_modules/vitest/vitest.mjs run scripts/managed-account-spawn.integration.test.ts && bash scripts/install-sh.test.sh",
-    "test:browser": "bun scripts/test-heavy.ts -- bun scripts/browser-lane.ts",
+    "test:browser": "bun scripts/browser-lane.ts",
     "oracle": "bun scripts/oracle.ts",
     "test:bun": "bun test --conditions=@podium/source apps/daemon/test packages/runtime/test/sqlite.bun.test.ts scripts/lifecycle.integration.bun.test.ts --test-name-pattern ''",
     "test:bun:unit": "bun test --conditions=@podium/source packages/runtime/test/sqlite.bun.test.ts --test-name-pattern ''",

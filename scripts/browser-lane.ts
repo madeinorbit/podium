@@ -8,9 +8,10 @@
  * "runtime verified" in handoffs and merge commits kept borrowing their
  * authority (POD-756 counted them and did not run them). This file is the lane.
  *
- * Invoke via `bun run test:browser` (not this file bare). The package script
- * wraps this process in `scripts/test-heavy.ts` so a live session takes the
- * shared `test:heavy` lease for the whole build + webServer + run.
+ * Invoke via `bun run test:browser` or this file directly. From a live session
+ * the lane itself takes the shared `test:heavy` lease (POD-535) — wrapping only
+ * package.json left bare `bun scripts/browser-lane.ts` unprotected, and a held
+ * lease still lost to another agent's harness on the fixed port.
  *
  * Three things live here that the Playwright config does not:
  *
@@ -29,10 +30,10 @@
  *    ERRORED (they are broken, and named as broken), and runs the rest, so one
  *    rotten import cannot hide the state of the other 69.
  *
- * 3. THE LEASE (via package.json → test-heavy). Serializes against other heavy
- *    agent lanes. Does not guarantee a quiet host — other processes still run
- *    outside the lease — but it is the shared-host contract the other heavy
- *    scripts already use.
+ * 3. THE LEASE. Serializes against other heavy agent lanes that take
+ *    `test:heavy`. Does not guarantee a quiet host — other processes still run
+ *    outside the lease — and does not cover the fixed Playwright port (8799);
+ *    that collision is a separate shared resource.
  *
  * Quarantine lives in ./browser-quarantine.ts — a list, printed every run, not a
  * `testIgnore` glob nobody can see.
@@ -41,10 +42,13 @@ import { spawnSync } from 'node:child_process'
 import { readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { QUARANTINE } from './browser-quarantine'
+import { runWithHeavyTestLease, shouldAcquireHeavyTestLease } from './test-heavy'
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url))
 const BROWSER_DIR = fileURLToPath(new URL('../tests/e2e/browser/', import.meta.url))
 const CONFIG = 'tests/e2e/playwright.config.ts'
+/** Set on the re-entered child so we do not try to acquire the lease twice. */
+const LEASE_HELD_ENV = 'PODIUM_BROWSER_LANE_HEAVY_HELD'
 
 const run = (cmd: string, args: string[], capture = false) =>
   spawnSync(cmd, args, { cwd: ROOT, stdio: capture ? 'pipe' : 'inherit', encoding: 'utf8' })
@@ -55,86 +59,104 @@ const filterFor = (suite: string) => `browser/${suite.replaceAll('.', '\\.')}$`
 const playwright = (args: string[], capture = false) =>
   run('bunx', ['playwright', 'test', '--config', CONFIG, ...args], capture)
 
-const suites = readdirSync(BROWSER_DIR)
-  .filter((f) => f.endsWith('.browser.e2e.ts'))
-  .sort()
+function runLane(): number {
+  const suites = readdirSync(BROWSER_DIR)
+    .filter((f) => f.endsWith('.browser.e2e.ts'))
+    .sort()
 
-/** A stale entry (renamed or deleted suite) silently quarantines nothing, so it fails loudly. */
-const stale = QUARANTINE.filter((q) => !suites.includes(q.suite))
-if (stale.length > 0) {
-  console.error(
-    `browser lane: quarantine names ${stale.length} suite(s) that do not exist:\n` +
-      stale.map((q) => `  - ${q.suite}`).join('\n') +
-      '\nRemove the entry or fix the filename.',
-  )
-  process.exit(2)
-}
+  /** A stale entry (renamed or deleted suite) silently quarantines nothing, so it fails loudly. */
+  const stale = QUARANTINE.filter((q) => !suites.includes(q.suite))
+  if (stale.length > 0) {
+    console.error(
+      `browser lane: quarantine names ${stale.length} suite(s) that do not exist:\n` +
+        stale.map((q) => `  - ${q.suite}`).join('\n') +
+        '\nRemove the entry or fix the filename.',
+    )
+    return 2
+  }
 
-const excluded = new Set(QUARANTINE.map((q) => q.suite))
-const candidates = suites.filter((s) => !excluded.has(s))
+  const excluded = new Set(QUARANTINE.map((q) => q.suite))
+  const candidates = suites.filter((s) => !excluded.has(s))
 
-console.log(`\n━━━ browser lane — ${suites.length} suites found ━━━`)
-if (QUARANTINE.length > 0) {
-  console.log(`QUARANTINED (${QUARANTINE.length}, not run):`)
-  for (const q of QUARANTINE) console.log(`  - ${q.suite}\n      ${q.reason}`)
-} else {
-  console.log('QUARANTINED: none — every suite runs.')
-}
+  console.log(`\n━━━ browser lane — ${suites.length} suites found ━━━`)
+  if (QUARANTINE.length > 0) {
+    console.log(`QUARANTINED (${QUARANTINE.length}, not run):`)
+    for (const q of QUARANTINE) console.log(`  - ${q.suite}\n      ${q.reason}`)
+  } else {
+    console.log('QUARANTINED: none — every suite runs.')
+  }
 
-// Workspace packages + web for the test process and the harness-served UI;
-// mobile web export for phone-sized projects. Order matters for cold checkouts:
-// protocol's dist imports model's dist (POD-1389). `bun run build` already does
-// packages/* then @podium/web; mobile is separate (not in the root build).
-console.log('\nbuilding workspace packages + web (test process + harness UI)…')
-const built = run('bun', ['run', 'build'], true)
-if (built.status !== 0) {
-  console.error(built.stdout ?? '')
-  console.error(built.stderr ?? '')
-  console.error('browser lane: package build failed — no suite can load. Stopping.')
-  process.exit(1)
-}
-console.log('building @podium/mobile web export (served at /mobile)…')
-const mobile = run('bun', ['run', '--filter', '@podium/mobile', 'build:web'], true)
-if (mobile.status !== 0) {
-  console.error(mobile.stdout ?? '')
-  console.error(mobile.stderr ?? '')
-  console.error('browser lane: mobile web export failed — phone projects cannot load. Stopping.')
-  process.exit(1)
-}
+  // Workspace packages + web for the test process and the harness-served UI;
+  // mobile web export for phone-sized projects. Order matters for cold checkouts:
+  // protocol's dist imports model's dist (POD-1389). `bun run build` already does
+  // packages/* then @podium/web; mobile is separate (not in the root build).
+  console.log('\nbuilding workspace packages + web (test process + harness UI)…')
+  const built = run('bun', ['run', 'build'], true)
+  if (built.status !== 0) {
+    console.error(built.stdout ?? '')
+    console.error(built.stderr ?? '')
+    console.error('browser lane: package build failed — no suite can load. Stopping.')
+    return 1
+  }
+  console.log('building @podium/mobile web export (served at /mobile)…')
+  const mobile = run('bun', ['run', '--filter', '@podium/mobile', 'build:web'], true)
+  if (mobile.status !== 0) {
+    console.error(mobile.stdout ?? '')
+    console.error(mobile.stderr ?? '')
+    console.error('browser lane: mobile web export failed — phone projects cannot load. Stopping.')
+    return 1
+  }
 
-// One whole-set probe first (fast, no webServer); only bisect per file if it trips.
-console.log('probing that every suite imports…')
-const unloadable: string[] = []
-if (playwright(['--list', ...candidates.map(filterFor)], true).status !== 0) {
-  for (const suite of candidates) {
-    const probe = playwright(['--list', filterFor(suite)], true)
-    if (probe.status !== 0) {
-      const why = `${probe.stdout ?? ''}${probe.stderr ?? ''}`
-        .split('\n')
-        .find((l) => l.startsWith('Error:'))
-      unloadable.push(suite)
-      console.log(`  ERRORED (does not import): ${suite}\n      ${why ?? 'unknown import error'}`)
+  // One whole-set probe first (fast, no webServer); only bisect per file if it trips.
+  console.log('probing that every suite imports…')
+  const unloadable: string[] = []
+  if (playwright(['--list', ...candidates.map(filterFor)], true).status !== 0) {
+    for (const suite of candidates) {
+      const probe = playwright(['--list', filterFor(suite)], true)
+      if (probe.status !== 0) {
+        const why = `${probe.stdout ?? ''}${probe.stderr ?? ''}`
+          .split('\n')
+          .find((l) => l.startsWith('Error:'))
+        unloadable.push(suite)
+        console.log(`  ERRORED (does not import): ${suite}\n      ${why ?? 'unknown import error'}`)
+      }
     }
   }
+
+  const running = candidates.filter((s) => !unloadable.includes(s))
+  console.log(
+    `\nrunning ${running.length} suites (${unloadable.length} errored on import, ` +
+      `${QUARANTINE.length} quarantined)\n`,
+  )
+
+  const result = playwright([...process.argv.slice(2), ...running.map(filterFor)])
+
+  console.log(`\n━━━ browser lane census ━━━`)
+  console.log(`  suites found:        ${suites.length}`)
+  console.log(`  quarantined:         ${QUARANTINE.length}`)
+  console.log(
+    `  errored on import:   ${unloadable.length}${unloadable.length ? ` (${unloadable.join(', ')})` : ''}`,
+  )
+  console.log(`  handed to playwright:${running.length}  → see the run summary above for pass/fail`)
+
+  // An import error is a red lane even when Playwright's own run was clean: those
+  // suites did not run, and a lane that reports 0 failures for a suite it never
+  // loaded is the exact instrument this issue exists to remove.
+  return result.status === 0 && unloadable.length === 0 ? 0 : 1
 }
 
-const running = candidates.filter((s) => !unloadable.includes(s))
-console.log(
-  `\nrunning ${running.length} suites (${unloadable.length} errored on import, ` +
-    `${QUARANTINE.length} quarantined)\n`,
-)
+async function main(): Promise<number> {
+  // Live sessions re-enter under test:heavy so bare `bun scripts/browser-lane.ts`
+  // and `bun run test:browser` both serialize. Nested acquire would deadlock if
+  // we already hold the lease via the re-entry env flag.
+  if (shouldAcquireHeavyTestLease(process.env) && process.env[LEASE_HELD_ENV] !== '1') {
+    console.log('browser lane: acquiring test:heavy lease for this session…')
+    return runWithHeavyTestLease([process.execPath, import.meta.path, ...process.argv.slice(2)], {
+      cwd: ROOT,
+      env: { ...process.env, [LEASE_HELD_ENV]: '1' },
+    })
+  }
+  return runLane()
+}
 
-const result = playwright([...process.argv.slice(2), ...running.map(filterFor)])
-
-console.log(`\n━━━ browser lane census ━━━`)
-console.log(`  suites found:        ${suites.length}`)
-console.log(`  quarantined:         ${QUARANTINE.length}`)
-console.log(
-  `  errored on import:   ${unloadable.length}${unloadable.length ? ` (${unloadable.join(', ')})` : ''}`,
-)
-console.log(`  handed to playwright:${running.length}  → see the run summary above for pass/fail`)
-
-// An import error is a red lane even when Playwright's own run was clean: those
-// suites did not run, and a lane that reports 0 failures for a suite it never
-// loaded is the exact instrument this issue exists to remove.
-process.exit(result.status === 0 && unloadable.length === 0 ? 0 : 1)
+process.exit(await main())

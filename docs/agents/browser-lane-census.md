@@ -12,7 +12,7 @@ built, so the count went stale (54 → 70) and the baseline was never re-measure
 **Read this document before citing any browser suite as evidence.** A suite listed
 below as failing does not verify anything today.
 
-- Lane: `bun run test:browser` → `scripts/test-heavy.ts` (shared-host lease) → `scripts/browser-lane.ts`
+- Lane: `bun run test:browser` → `scripts/browser-lane.ts` (takes `test:heavy` from a live session)
 - Quarantine: `scripts/browser-quarantine.ts` (printed on every run)
 - CI: the `browser` job in `.github/workflows/ci.yml`, **non-blocking**, one leg
   per Playwright project
@@ -45,7 +45,8 @@ The config (`tests/e2e/playwright.config.ts`) is used **almost unchanged** — i
    file fails to import — `Total: 0 tests in 0 files`, and no census at all. The
    runner probes first (fast, no browser), names the unloadable suites as ERRORED,
    and runs the rest, so one rotten import cannot hide the state of the other 69.
-3. **The `test:heavy` lease** (via `bun run test:browser` → `test-heavy.ts`).
+3. **The `test:heavy` lease** (inside `browser-lane.ts` for both the package
+   script and a bare `bun scripts/browser-lane.ts` invocation).
 
 <!-- CENSUS RESULTS -->
 
