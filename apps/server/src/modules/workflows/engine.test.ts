@@ -1,35 +1,54 @@
 /**
- * POD-730 — characterization suite for the workflow engine's eleven mutations.
+ * The workflow engine's behavioural suite — `apps/server/src/modules/workflows/service.ts`
+ * and the two transports that reach it.
  *
- * WHAT THIS FILE IS. A pin of the CURRENT behaviour of
- * `apps/server/src/modules/workflows/service.ts`, written so that POD-731
- * (workflow contracts + handlers) and POD-732 (cutover) can be proven
- * behaviour-preserving rather than merely compiling. It is an ORACLE FOR A
- * MIGRATION, NOT A SPECIFICATION OF THE TARGET.
+ * WHAT THIS FILE IS, AND WHAT IT STOPPED BEING (POD-521). It was written as
+ * POD-730's characterization oracle: a photograph of the engine's behaviour taken
+ * so that POD-731 (contracts + handlers) and POD-732 (cutover) could be proven
+ * behaviour-preserving rather than merely compiling. Its header said, in these
+ * words, that it was "an ORACLE FOR A MIGRATION, NOT A SPECIFICATION OF THE
+ * TARGET", and every test title carried a `PIN` / `ARTEFACT` / `BUG` marker
+ * describing its role in that migration.
  *
- * HOW TO READ AN ASSERTION HERE. Three markers appear throughout:
+ * All three issues landed. What is left is not a photograph of anything — it is
+ * the only coverage the workflow engine has for most of what it does. Mapped
+ * case by case against the suites that were supposed to have absorbed it
+ * (`service.test.ts`, `multi-user.test.ts`), roughly eighteen of ninety-five were
+ * genuinely duplicated and have been removed; the rest are sole coverage. Whole
+ * areas below exist nowhere else: duplicate delivery and mutation-id replay,
+ * out-of-order step attempts, adopt validation and scope, the three-way
+ * error-shape existence leakage, relay exposure being default-closed per
+ * declaration, and run durability across a full store close and reopen.
  *
- *   PIN       — behaviour that should survive the migration unchanged.
- *   ARTEFACT  — behaviour that exists only because Podium has had exactly one
- *               human. POD-731 is expected to CHANGE it. When one of these
- *               tests goes red under POD-731, that is the intended diff, and
- *               the red test is the proof the replacement happened.
- *   BUG       — behaviour that is wrong today. Characterized as-is, filed
- *               separately; NOT fixed here (POD-730 changes no production code).
+ * The migration framing is therefore gone, because it was actively misleading: a
+ * reader who believed the old header would treat a failure here as a stale
+ * recording to be re-baselined, when it is a live regression in the engine. That
+ * is the maintenance surface POD-521 set out to remove, and removing it did not
+ * require removing the tests.
  *
- * Message texts are asserted VERBATIM on purpose. This suite is deliberately
- * brittle: every convergence POD-731 makes should show up as a failing pin,
- * never as a silent change.
+ * TWO ANNOTATIONS SURVIVE, because they say something true about the CODE rather
+ * than about a migration. Both are kept in test titles:
  *
- * GOVERNING ADRs. This suite pins today's single-operator behaviour; it does not
- * implement these, and every ARTEFACT below is traceable to the decision that
- * replaces it:
+ *   SINGLE-OPERATOR — behaviour that is only safe while Podium has one human.
+ *                     Each is a decision ADR 9 will have to make per-user, and
+ *                     each is asserted as it behaves TODAY, not as it should
+ *                     behave. Formerly `ARTEFACT`.
+ *   KNOWN-DEFECT    — behaviour that is wrong, recorded as-is so a fix is a
+ *                     deliberate diff rather than a surprise. Formerly `BUG`.
  *
- *   ADR 9 D1.5  — `OPERATOR` (role admin, scope all) IS the single-operator
- *                 vocabulary ADR 9 replaces; it survives only as a migration
- *                 artefact. "Code that constructs an unconstrained capability
- *                 from someone authenticated is out of compliance once D1
- *                 lands" describes this surface exactly.
+ * The `PIN` marker is gone with no replacement: it meant "this should survive
+ * POD-731", which is not a property of anything any more.
+ *
+ * MESSAGE TEXTS ARE STILL ASSERTED VERBATIM in places. That was originally a
+ * migration tactic — make every convergence show up as a failing pin. It is kept
+ * where the message is the product (a refusal an agent reads and acts on) and it
+ * is the reason several of these tests are worth their brittleness; it is not a
+ * general policy for new tests here.
+ *
+ * GOVERNING ADRs, unchanged:
+ *
+ *   ADR 9 D1.5  — `OPERATOR` (role admin, scope all) is the single-operator
+ *                 vocabulary ADR 9 replaces.
  *   ADR 9 D5    — A1 live delegation (never a snapshot), A2 the human is a
  *                 ceiling, A3 attribution is a PAIR, A4 agent output is owned
  *                 by the delegating human.
@@ -41,8 +60,8 @@
  *
  * References: docs/adr/0009-identity-ownership-sharing.md,
  * docs/adr/0003-command-security-amendment-1.md,
- * docs/multi-user-readiness.md (sections cited inline),
- * docs/workflows/pinned-behaviour-pod730.md (the pin table).
+ * docs/multi-user-readiness.md, docs/agents/pod-521-oracle-retirement.md
+ * (the coverage map and why this file was kept).
  */
 import { asIssueId, asSessionId } from '@podium/model'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -63,7 +82,7 @@ import { type DrivenWorkflowService, driveWorkflows } from './test-support'
 // ---------------------------------------------------------------------------
 
 /**
- * ARTEFACT: an "operator" caller today is any transport caller with no
+ * SINGLE-OPERATOR: an "operator" caller today is any transport caller with no
  * `actorSessionId` — `workflowCaller()` in apps/server/src/router.ts maps that
  * to `{ actor: { kind: 'operator', id: null }, protectedWrite: true }`
  * unconditionally. There is no human principal, no owner, and no admin role:
@@ -354,7 +373,7 @@ describe('POD-730 workflow mutation characterization', () => {
   // -------------------------------------------------------------------------
 
   describe('library CRUD', () => {
-    it('PIN create writes workflow + v1 revision + workflow.created, and the revision starts unpublished', () => {
+    it('create writes workflow + v1 revision + workflow.created, and the revision starts unpublished', () => {
       const created = h.service.create(
         {
           name: 'Ship it',
@@ -386,7 +405,7 @@ describe('POD-730 workflow mutation characterization', () => {
       })
     })
 
-    it('PIN revise appends a new version and never edits a prior revision in place', () => {
+    it('revise appends a new version and never edits a prior revision in place', () => {
       const created = h.service.create(
         {
           name: 'Immutable',
@@ -419,7 +438,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(kinds(h.store)).toEqual(['workflow.created', 'workflow.revised', 'workflow.revised'])
     })
 
-    it('PIN revise on a PUBLISHED revision still only appends — publication is not a lock', () => {
+    it('revise on a PUBLISHED revision still only appends — publication is not a lock', () => {
       const created = h.service.create(
         {
           name: 'Published',
@@ -444,7 +463,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(v1?.publishedAt).toBe(NOW)
     })
 
-    it('BUG/PIN fork copies the body but records NO lineage link to its source', () => {
+    it('KNOWN-DEFECT: fork copies the body but records NO lineage link to its source', () => {
       const source = h.service.create(
         {
           name: 'Source',
@@ -498,7 +517,7 @@ describe('POD-730 workflow mutation characterization', () => {
       })
     })
 
-    it('PIN fork forks a NON-LATEST revision faithfully', () => {
+    it('fork forks a NON-LATEST revision faithfully', () => {
       const source = h.service.create(
         {
           name: 'Drifting',
@@ -524,7 +543,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(forked.revision.instructions).toBe('v1')
     })
 
-    it('PIN fork of an unknown revision throws before touching anything', () => {
+    it('fork of an unknown revision throws before touching anything', () => {
       expect(
         thrown(() =>
           h.service.fork(
@@ -536,7 +555,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(h.service.list({}, operator)).toEqual([])
     })
 
-    it('PIN publish stamps publishedAt and is idempotent under duplicate delivery', () => {
+    it('publish stamps publishedAt and is idempotent under duplicate delivery', () => {
       const created = h.service.create(
         {
           name: 'Publishable',
@@ -554,7 +573,7 @@ describe('POD-730 workflow mutation characterization', () => {
       // Duplicate delivery: publish again at a LATER clock.
       h.clock.value = '2026-07-30T02:00:00.000Z'
       const second = h.service.publish({ revisionId: created.revision.id }, operator)
-      // PIN: publishRevision does not re-stamp an already-published revision, so
+      // publishRevision does not re-stamp an already-published revision, so
       // the second delivery is value-idempotent...
       expect(second.publishedAt).toBe('2026-07-30T01:00:00.000Z')
       // ...but NOT event-idempotent: a second workflow.published is appended.
@@ -565,13 +584,13 @@ describe('POD-730 workflow mutation characterization', () => {
       ])
     })
 
-    it('PIN publish of an unknown revision, and of a revision whose workflow is gone', () => {
+    it('publish of an unknown revision, and of a revision whose workflow is gone', () => {
       expect(thrown(() => h.service.publish({ revisionId: 'wfr_nope' }, operator))).toBe(
         'Error: unknown workflow revision: wfr_nope | code=undefined',
       )
     })
 
-    it('PIN duplicate create with the same scope + name is refused by the unique index', () => {
+    it('duplicate create with the same scope + name is refused by the unique index', () => {
       h.service.create(
         {
           name: 'Same name',
@@ -583,7 +602,7 @@ describe('POD-730 workflow mutation characterization', () => {
         },
         operator,
       )
-      // PIN: uniqueness is enforced only by `workflows_scope_name_active`, so the
+      // uniqueness is enforced only by `workflows_scope_name_active`, so the
       // failure surfaces as a raw SQLite constraint error, not a domain error.
       // The service has no pre-check and no friendly message.
       expect(
@@ -603,7 +622,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toMatch(/UNIQUE constraint failed|constraint/i)
     })
 
-    it('PIN input validation: duplicate step ids are rejected at the schema, not the service', () => {
+    it('input validation: duplicate step ids are rejected at the schema, not the service', () => {
       expect(() =>
         WORKFLOW_CONTRACTS.create.input.parse({
           name: 'Invalid',
@@ -629,7 +648,7 @@ describe('POD-730 workflow mutation characterization', () => {
   // -------------------------------------------------------------------------
 
   describe('scope resolution', () => {
-    it('PIN scopeRef is forced null for global and required for repository and task', () => {
+    it('scopeRef is forced null for global and required for repository and task', () => {
       const global = h.service.create(
         {
           name: 'G',
@@ -641,7 +660,7 @@ describe('POD-730 workflow mutation characterization', () => {
         },
         operator,
       )
-      // PIN: a scopeRef supplied for a global workflow is silently DISCARDED,
+      // a scopeRef supplied for a global workflow is silently DISCARDED,
       // not rejected.
       expect(global.workflow.scopeRef).toBeNull()
       expect(
@@ -762,7 +781,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(revised.instructions).toBe('v2 by an admin')
     })
 
-    it('ARTEFACT any caller may READ a global workflow — canReadWorkflow returns true on scope=global', () => {
+    it('SINGLE-OPERATOR: any caller may READ a global workflow — canReadWorkflow returns true on scope=global', () => {
       const created = h.service.create(
         { name: 'Global read', description: '', scope: 'global', instructions: '', steps: [] },
         operator,
@@ -784,7 +803,7 @@ describe('POD-730 workflow mutation characterization', () => {
      *     create the global workflow this test needs;
      *   - the message is the guard's, since publish no longer carries its own.
      */
-    it('PIN the one existing brake on global content: publish refuses a session without protectedWrite', () => {
+    it('the one existing brake on global content: publish refuses a session without protectedWrite', () => {
       const created = h.service.create(
         { name: 'Needs approval', description: '', scope: 'global', instructions: '', steps: [] },
         operator,
@@ -798,7 +817,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toBe(NOW)
     })
 
-    it('PIN repository scope resolves through repoIdForPath against the caller session cwd — create', () => {
+    it('repository scope resolves through repoIdForPath against the caller session cwd — create', () => {
       // s1 is in /repo-a/wt → repo-a. Its own repo is allowed...
       const mine = h.service.create(
         {
@@ -847,7 +866,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toBe('Error: repository workflow is outside this session | code=undefined')
     })
 
-    it('PIN repository scope on the WRITE side and the READ side', () => {
+    it('repository scope on the WRITE side and the READ side', () => {
       const repoB = h.service.create(
         {
           name: 'Repo b write',
@@ -895,7 +914,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(h.service.list({}, agent('s1')).map((w) => w.id)).not.toContain(repoB.workflow.id)
     })
 
-    it('PIN task scope matches the SESSION id or the session issue id, on create/write/read', () => {
+    it('task scope matches the SESSION id or the session issue id, on create/write/read', () => {
       // scopeRef = the session id itself.
       const bySession = h.service.create(
         {
@@ -955,7 +974,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(h.service.list({}, agent('s3', 'issue-2')).map((w) => w.id)).toEqual([])
     })
 
-    it('ARTEFACT the task READ arm ALSO accepts the capability subtree root, which the WRITE arm does not', () => {
+    it('SINGLE-OPERATOR: the task READ arm ALSO accepts the capability subtree root, which the WRITE arm does not', () => {
       // canReadWorkflow accepts `capability.scope.rootId`; assertWorkflowWrite
       // does not look at the capability at all. A caller can therefore READ a
       // task workflow it cannot WRITE — an asymmetry POD-731 should make
@@ -989,7 +1008,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toBe(`Error: unknown workflow: ${subtree.workflow.id} | code=undefined`)
     })
 
-    it('PIN a session caller whose session row has vanished loses write and read', () => {
+    it('a session caller whose session row has vanished loses write and read', () => {
       const created = h.service.create(
         {
           name: 'Orphan',
@@ -1034,7 +1053,7 @@ describe('POD-730 workflow mutation characterization', () => {
       )
     })
 
-    it('PIN overrideScope short-circuits create, write and read exactly like the operator arm', () => {
+    it('overrideScope short-circuits create, write and read exactly like the operator arm', () => {
       const foreign = h.service.create(
         {
           name: 'Foreign',
@@ -1069,7 +1088,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toBe('repo-b')
     })
 
-    it('PIN list honours includeArchived / scope / scopeRef filters before the read filter', () => {
+    it('list honours includeArchived / scope / scopeRef filters before the read filter', () => {
       h.service.create(
         { name: 'G', description: '', scope: 'global', instructions: '', steps: [] },
         operator,
@@ -1117,7 +1136,7 @@ describe('POD-730 workflow mutation characterization', () => {
       return created
     }
 
-    it('PIN assign records a binding and workflow.assigned, and is last-write-wins under duplicate delivery', () => {
+    it('assign records a binding and workflow.assigned, and is last-write-wins under duplicate delivery', () => {
       const first = publishedRevision('First', 'global')
       const second = publishedRevision('Second', 'global')
       h.service.assign(
@@ -1140,7 +1159,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(kinds(h.store).filter((k) => k === 'workflow.assigned')).toHaveLength(3)
     })
 
-    it('PIN shared defaults require a PUBLISHED revision; the protectedWrite check runs FIRST', () => {
+    it('shared defaults require a PUBLISHED revision; the protectedWrite check runs FIRST', () => {
       const unpublished = h.service.create(
         { name: 'Draft', description: '', scope: 'global', instructions: '', steps: [] },
         operator,
@@ -1182,7 +1201,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toBe('Error: approval required to change the repository workflow default | code=undefined')
     })
 
-    it('ARTEFACT a repository default may be set for ANY repo, including one the caller is not in', () => {
+    it('SINGLE-OPERATOR: a repository default may be set for ANY repo, including one the caller is not in', () => {
       const published = publishedRevision('Any repo', 'global')
       // No repoIdForPath check on the assign path: protectedWrite is the only
       // gate, and it is granted to every operator caller. A protected session
@@ -1194,7 +1213,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(binding.targetId).toBe('repo-b')
     })
 
-    it('PIN issue bindings go through assertIssueScope: subtree root only, for a session', () => {
+    it('issue bindings go through assertIssueScope: subtree root only, for a session', () => {
       const own = publishedRevision('Own issue', 'task', 'issue-1')
       expect(
         h.service.assign(
@@ -1222,7 +1241,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toBe("Error: issue issue-1 is outside this agent's workflow scope | code=undefined")
     })
 
-    it('PIN a session may bind only its OWN session target', () => {
+    it('a session may bind only its OWN session target', () => {
       const own = publishedRevision('Session bind', 'task', 'issue-1')
       expect(
         h.service.assign(
@@ -1247,7 +1266,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toBe('s2')
     })
 
-    it('PIN assign reads the revision through assertWorkflowRead, so an out-of-scope revision is refused', () => {
+    it('assign reads the revision through assertWorkflowRead, so an out-of-scope revision is refused', () => {
       const foreign = h.service.create(
         {
           name: 'Foreign assign',
@@ -1282,7 +1301,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toBe('Error: unknown workflow revision: wfr_nope | code=undefined')
     })
 
-    it('ARTEFACT bindings() returns EVERY binding for the operator and a session-filtered view otherwise', () => {
+    it('SINGLE-OPERATOR: bindings() returns EVERY binding for the operator and a session-filtered view otherwise', () => {
       const g = publishedRevision('G', 'global')
       const r = publishedRevision('R', 'repository', 'repo-a')
       const rb = publishedRevision('Rb', 'repository', 'repo-b')
@@ -1310,7 +1329,7 @@ describe('POD-730 workflow mutation characterization', () => {
         operator,
       )
 
-      // ARTEFACT: the operator arm is unconstrained — this becomes a cross-user
+      // SINGLE-OPERATOR: the operator arm is unconstrained — this becomes a cross-user
       // read the moment there is more than one human (3.1.2).
       expect(h.service.bindings(operator)).toHaveLength(6)
       // A session sees: global (always), its own repo, its own session, its own issue.
@@ -1331,7 +1350,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(h.service.bindings(overriding('s1'))).toHaveLength(6)
     })
 
-    it('PIN resolveRevision precedence is session → issue → repository → global, first hit wins', () => {
+    it('resolveRevision precedence is session → issue → repository → global, first hit wins', () => {
       const g = publishedRevision('G', 'global')
       const r = publishedRevision('R', 'repository', 'repo-a')
       const i = publishedRevision('I', 'task', 'issue-1')
@@ -1377,7 +1396,7 @@ describe('POD-730 workflow mutation characterization', () => {
           issueId: 'issue-1',
         })?.id,
       ).toBe(s.revision.id)
-      // PIN: an unrelated session in another repo on another issue still
+      // an unrelated session in another repo on another issue still
       // resolves the GLOBAL binding — the global default is the floor, so
       // resolution never returns null once a global binding exists.
       expect(
@@ -1389,7 +1408,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toBe(g.revision.id)
     })
 
-    it('PIN with no binding at all resolveRevision returns null rather than throwing', () => {
+    it('with no binding at all resolveRevision returns null rather than throwing', () => {
       expect(
         h.service.resolveRevision({
           sessionId: asSessionId('s1'),
@@ -1409,7 +1428,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toBeNull()
     })
 
-    it('PIN resolveRevision with an explicit revision enforces the start scope', () => {
+    it('resolveRevision with an explicit revision enforces the start scope', () => {
       const foreign = h.service.create(
         {
           name: 'Foreign start',
@@ -1450,7 +1469,7 @@ describe('POD-730 workflow mutation characterization', () => {
   // -------------------------------------------------------------------------
 
   describe('execution profiles', () => {
-    it('PIN profileSave inserts with a generated id and upserts by supplied id', () => {
+    it('profileSave inserts with a generated id and upserts by supplied id', () => {
       const created = h.service.profileSave(
         {
           name: 'Codex',
@@ -1491,12 +1510,12 @@ describe('POD-730 workflow mutation characterization', () => {
         harness: 'claude-code',
       })
       expect(h.service.profiles(operator)).toHaveLength(1)
-      // PIN: profileSave emits NO workflow event at all — profile changes leave
+      // profileSave emits NO workflow event at all — profile changes leave
       // no audit trail.
       expect(kinds(h.store)).toEqual([])
     })
 
-    it('PIN explicit machineId: null clears the pin; model/effort default to "auto"', () => {
+    it('explicit machineId: null clears the pin; model/effort default to "auto"', () => {
       const parsed = WORKFLOW_CONTRACTS.profileSave.input.parse({
         name: 'Defaults',
         accountId: 'acct',
@@ -1511,7 +1530,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(cleared.machineId).toBeNull()
     })
 
-    it('ARTEFACT profileSave refuses a session actor without protectedWrite — the inverse shape of every other guard', () => {
+    it('SINGLE-OPERATOR: profileSave refuses a session actor without protectedWrite — the inverse shape of every other guard', () => {
       // Every other guard on this surface returns EARLY for the operator; this
       // one refuses the SESSION. Both encode "there is exactly one human".
       expect(
@@ -1580,7 +1599,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toBe('Error: only an administrator may change execution profiles | code=undefined')
     })
 
-    it('ARTEFACT profiles() has NO authorization gate and lists every profile to any caller', () => {
+    it('SINGLE-OPERATOR: profiles() has NO authorization gate and lists every profile to any caller', () => {
       h.service.profileSave(
         {
           name: 'Secret',
@@ -1602,7 +1621,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toHaveLength(1)
     })
 
-    it('PIN a run pins an IMMUTABLE profile snapshot; the live profile may drift away from it', () => {
+    it('a run pins an IMMUTABLE profile snapshot; the live profile may drift away from it', () => {
       const profile = h.service.profileSave(
         {
           name: 'Pinned',
@@ -1693,7 +1712,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toBe('Error: unknown execution profile: wfp_nope | code=undefined')
     })
 
-    it('PIN an UNREACHABLE / mismatched machine is a non-blocking WARNING, never a refusal', () => {
+    it('an UNREACHABLE / mismatched machine is a non-blocking WARNING, never a refusal', () => {
       // 3.1.4 M5 requires a machine use-grant check that is DISTINGUISHABLE from
       // unreachable. Today there is no reachability concept at all: the only
       // machine signal is a string comparison against the session's machineId,
@@ -1756,7 +1775,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(noMachine.warnings).toEqual([])
     })
 
-    it('PIN a MISSING profile snapshot warns and does not block the step', () => {
+    it('a MISSING profile snapshot warns and does not block the step', () => {
       const created = h.service.create(
         {
           name: 'Ghost profile',
@@ -1805,7 +1824,7 @@ describe('POD-730 workflow mutation characterization', () => {
   // -------------------------------------------------------------------------
 
   describe('run advances', () => {
-    it('PIN startRun persists run + step rows and emits workflow.run_started attributed to the session', () => {
+    it('startRun persists run + step rows and emits workflow.run_started attributed to the session', () => {
       const { created, run } = twoStepRun(h)
       expect(run.status).toBe('active')
       expect(run.subjectKind).toBe('issue')
@@ -1827,7 +1846,7 @@ describe('POD-730 workflow mutation characterization', () => {
         actor_kind: 'session',
         actor_id: 's1',
       })
-      // PIN: the payload omits startStepId entirely when it was not supplied
+      // the payload omits startStepId entirely when it was not supplied
       // (JSON.stringify drops undefined) — a shape POD-731 must not change
       // silently if anything ever reads it.
       expect(JSON.parse(started?.payload_json ?? '{}')).toEqual({
@@ -1837,7 +1856,7 @@ describe('POD-730 workflow mutation characterization', () => {
       })
     })
 
-    it('PIN checkpoint advances one step at a time and drives the run status machine', () => {
+    it('checkpoint advances one step at a time and drives the run status machine', () => {
       const { run } = twoStepRun(h)
       const first = h.service.checkpoint(
         {
@@ -1851,7 +1870,7 @@ describe('POD-730 workflow mutation characterization', () => {
       )
       expect(first.message).toBe('Step complete. Next: Review')
       expect(first.currentStep?.stepId).toBe('review')
-      // PIN: currentStep and nextStep are the SAME object today — the packet has
+      // currentStep and nextStep are the SAME object today — the packet has
       // no notion of "the step I just finished".
       expect(first.nextStep?.stepId).toBe('review')
       expect(first.run.status).toBe('active')
@@ -1891,7 +1910,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ])
     })
 
-    it('PIN blocked → active is reversible and blocks/unblocks the run', () => {
+    it('blocked → active is reversible and blocks/unblocks the run', () => {
       const { run } = twoStepRun(h)
       const blocked = h.service.checkpoint(
         {
@@ -1923,7 +1942,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(kinds(h.store).slice(-2)).toEqual(['workflow.step_blocked', 'workflow.step_active'])
     })
 
-    it('PIN completing a step leaves completedAt null unless the status is complete', () => {
+    it('completing a step leaves completedAt null unless the status is complete', () => {
       const { run } = twoStepRun(h)
       h.service.checkpoint(
         {
@@ -1955,7 +1974,7 @@ describe('POD-730 workflow mutation characterization', () => {
       })
     })
 
-    it('PIN a prompt-only (zero-step) run has its own checkpoint arm, gated on the coordinator', () => {
+    it('a prompt-only (zero-step) run has its own checkpoint arm, gated on the coordinator', () => {
       const created = h.service.create(
         {
           name: 'Prompt only',
@@ -2003,7 +2022,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ])
     })
 
-    it('PIN assignStep sets the assignee, keeps it across a checkpoint, and notifies the coordinator on worker progress', () => {
+    it('assignStep sets the assignee, keeps it across a checkpoint, and notifies the coordinator on worker progress', () => {
       const { run } = twoStepRun(h)
       const packet = h.service.assignStep(
         { runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') },
@@ -2038,7 +2057,7 @@ describe('POD-730 workflow mutation characterization', () => {
         agent('s1'),
       )
       expect(h.notices).toHaveLength(1)
-      // PIN: the notice text falls back to "(no summary)" on an empty summary.
+      // the notice text falls back to "(no summary)" on an empty summary.
       const other = twoStepRun(h)
       h.service.assignStep(
         { runId: other.run.id, stepId: 'implement', sessionId: asSessionId('s2') },
@@ -2060,7 +2079,7 @@ describe('POD-730 workflow mutation characterization', () => {
       })
     })
 
-    it('PIN a COORDINATOR checkpoint on a step assigned to someone else does not reassign it to the coordinator', () => {
+    it('a COORDINATOR checkpoint on a step assigned to someone else does not reassign it to the coordinator', () => {
       // The sharp form of "the assignee survives a checkpoint". Asserting it
       // after the ASSIGNEE checkpoints would pass for the wrong reason: there
       // the assignee and the caller are the same session, so the
@@ -2096,7 +2115,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(h.store.workflows.getRunSteps(run.id)[1]?.assignedSessionId).toBe('s1')
     })
 
-    it('PIN assignStep with sessionId null unassigns, and duplicate delivery is fully idempotent', () => {
+    it('assignStep with sessionId null unassigns, and duplicate delivery is fully idempotent', () => {
       const { run } = twoStepRun(h)
       h.service.assignStep(
         { runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') },
@@ -2113,7 +2132,7 @@ describe('POD-730 workflow mutation characterization', () => {
       )
       expect(packet.message).toBe('Step unassigned.')
       expect(h.store.workflows.getRunSteps(run.id)[0]?.assignedSessionId).toBeNull()
-      // PIN: assignStep does NOT validate that the session exists.
+      // assignStep does NOT validate that the session exists.
       expect(
         h.service.assignStep(
           { runId: run.id, stepId: 'implement', sessionId: asSessionId('does-not-exist') },
@@ -2122,7 +2141,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toBe('Step assigned to does-not-exist.')
     })
 
-    it('PIN skip marks the current step skipped with the reason as its summary', () => {
+    it('skip marks the current step skipped with the reason as its summary', () => {
       const { run } = twoStepRun(h)
       const packet = h.service.skip(
         { runId: run.id, stepId: 'implement', reason: 'not needed' },
@@ -2146,7 +2165,7 @@ describe('POD-730 workflow mutation characterization', () => {
       })
     })
 
-    it('PIN retry resets the step, bumps attempt, KEEPS the assignee, and reactivates a complete run', () => {
+    it('retry resets the step, bumps attempt, KEEPS the assignee, and reactivates a complete run', () => {
       const { run } = twoStepRun(h)
       h.service.assignStep(
         { runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') },
@@ -2175,7 +2194,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(h.store.workflows.getRun(run.id)?.status).toBe('complete')
       const packet = h.service.retry({ runId: run.id, stepId: 'review' }, agent('s1'))
       expect(packet.message).toBe('Retry ready: Review')
-      // PIN: retry always sets the run back to active, even from complete, and
+      // retry always sets the run back to active, even from complete, and
       // clears the run's completedAt stamp along with it.
       expect(h.store.workflows.getRun(run.id)?.status).toBe('active')
       expect(h.store.workflows.getRun(run.id)?.completedAt).toBeNull()
@@ -2199,7 +2218,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(h.store.workflows.getRunSteps(run.id)[0]?.attempt).toBe(2)
     })
 
-    it('PIN git observation is persisted verbatim and drives the dirty / worktree warnings', () => {
+    it('git observation is persisted verbatim and drives the dirty / worktree warnings', () => {
       const { run } = twoStepRun(h)
       const observation = {
         cwd: '/repo-a/wt',
@@ -2246,7 +2265,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toEqual([])
     })
 
-    it('PIN a second startRun for a live subject returns the EXISTING run instead of creating one', () => {
+    it('a second startRun for a live subject returns the EXISTING run instead of creating one', () => {
       const { created, run } = twoStepRun(h)
       const again = h.service.startRun({
         sessionId: asSessionId('s2'),
@@ -2261,7 +2280,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(h.service.runs({ includeTerminal: true }, operator)).toHaveLength(1)
     })
 
-    it('PIN startRun with startStepId skips the earlier steps with a fixed summary', () => {
+    it('startRun with startStepId skips the earlier steps with a fixed summary', () => {
       const created = h.service.create(
         {
           name: 'Start midway',
@@ -2290,7 +2309,7 @@ describe('POD-730 workflow mutation characterization', () => {
         ['c', 'pending'],
       ])
       expect(run.steps[0]?.summary).toBe('Skipped when adopting workflow')
-      // PIN: those skips are written straight to the step rows — NO
+      // those skips are written straight to the step rows — NO
       // workflow.step_skipped events are emitted for them.
       expect(kinds(h.store)).toEqual(['workflow.created', 'workflow.run_started'])
       expect(
@@ -2306,7 +2325,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toBe('Error: workflow has no step nope | code=undefined')
     })
 
-    it('PIN a session-subject run (no issue) is keyed on the session id', () => {
+    it('a session-subject run (no issue) is keyed on the session id', () => {
       const created = h.service.create(
         {
           name: 'Session run',
@@ -2438,7 +2457,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(h.store.workflows.getRunSteps(two.run.id)[0]?.status).toBe('complete')
     })
 
-    it('PIN duplicate checkpoint WITH an explicit stepId is refused by the linear-step guard', () => {
+    it('duplicate checkpoint WITH an explicit stepId is refused by the linear-step guard', () => {
       const { run } = twoStepRun(h)
       const payload = {
         runId: run.id,
@@ -2459,7 +2478,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ])
     })
 
-    it('PIN duplicate non-terminal checkpoints on the SAME step are idempotent-in-effect', () => {
+    it('duplicate non-terminal checkpoints on the SAME step are idempotent-in-effect', () => {
       const { run } = twoStepRun(h)
       const payload = {
         runId: run.id,
@@ -2480,7 +2499,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(kinds(h.store).filter((k) => k === 'workflow.step_active')).toHaveLength(3)
     })
 
-    it('PIN duplicate checkpoint on a prompt-only run is idempotent', () => {
+    it('duplicate checkpoint on a prompt-only run is idempotent', () => {
       const created = h.service.create(
         {
           name: 'Prompt dup',
@@ -2509,7 +2528,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(kinds(h.store).filter((k) => k === 'workflow.run_complete')).toHaveLength(2)
     })
 
-    it('PIN duplicate skip is refused; duplicate retry bumps attempt again', () => {
+    it('duplicate skip is refused; duplicate retry bumps attempt again', () => {
       const { run } = twoStepRun(h)
       h.service.skip({ runId: run.id, stepId: 'implement', reason: 'no' }, agent('s1'))
       expect(
@@ -2523,10 +2542,10 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(h.store.workflows.getRunSteps(run.id)[1]?.attempt).toBe(3)
     })
 
-    it('BUG/PIN retry RESURRECTS a skipped step, so a duplicate skip is reachable again', () => {
+    it('KNOWN-DEFECT: retry RESURRECTS a skipped step, so a duplicate skip is reachable again', () => {
       const { run } = twoStepRun(h)
       h.service.skip({ runId: run.id, stepId: 'implement', reason: 'no' }, agent('s1'))
-      // PIN: retry has no status precondition — a SKIPPED step goes back to
+      // retry has no status precondition — a SKIPPED step goes back to
       // pending, which un-skips it. Nothing records that it was ever skipped.
       h.service.retry({ runId: run.id, stepId: 'implement' }, agent('s1'))
       expect(h.store.workflows.getRunSteps(run.id)[0]).toMatchObject({
@@ -2546,7 +2565,7 @@ describe('POD-730 workflow mutation characterization', () => {
   // -------------------------------------------------------------------------
 
   describe('out-of-order step attempts', () => {
-    it('PIN only the current linear step may be checkpointed', () => {
+    it('only the current linear step may be checkpointed', () => {
       const { run } = twoStepRun(h)
       expect(
         thrown(() =>
@@ -2593,7 +2612,7 @@ describe('POD-730 workflow mutation characterization', () => {
      * step`. Both are kept so the ordering is visible rather than silently
      * swapped.
      */
-    it('PIN checkpointing a run whose steps are all terminal throws', () => {
+    it('checkpointing a run whose steps are all terminal throws', () => {
       const { run } = twoStepRun(h)
       h.service.skip({ runId: run.id, stepId: 'implement', reason: '' }, agent('s1'))
       h.service.skip({ runId: run.id, stepId: 'review', reason: '' }, agent('s1'))
@@ -2621,7 +2640,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toBe('Error: workflow has no remaining step | code=undefined')
     })
 
-    it('PIN only the current step may be assigned or skipped', () => {
+    it('only the current step may be assigned or skipped', () => {
       const { run } = twoStepRun(h)
       expect(
         thrown(() =>
@@ -2644,7 +2663,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toBe('Error: only the current step may be assigned | code=undefined')
     })
 
-    it('PIN a step cannot be retried once a LATER step has left pending', () => {
+    it('a step cannot be retried once a LATER step has left pending', () => {
       const { run } = twoStepRun(h)
       h.service.checkpoint(
         {
@@ -2698,7 +2717,7 @@ describe('POD-730 workflow mutation characterization', () => {
   // -------------------------------------------------------------------------
 
   describe('adopt', () => {
-    it('PIN adopt supersedes the live run, writes the supersedes edge, and emits workflow.run_adopted', () => {
+    it('adopt supersedes the live run, writes the supersedes edge, and emits workflow.run_adopted', () => {
       const { created, run } = twoStepRun(h)
       const v2 = h.service.revise(
         {
@@ -2746,12 +2765,12 @@ describe('POD-730 workflow mutation characterization', () => {
         subjectId: 'issue-1',
         startStepId: 'review',
       })
-      // PIN: the adopt path emits run_adopted but NO step_skipped events for the
+      // the adopt path emits run_adopted but NO step_skipped events for the
       // steps it skipped.
       expect(kinds(h.store).filter((k) => k === 'workflow.step_skipped')).toHaveLength(0)
     })
 
-    it('PIN adopt mid-run preserves the work already recorded on the superseded run', () => {
+    it('adopt mid-run preserves the work already recorded on the superseded run', () => {
       const { created, run } = twoStepRun(h)
       h.service.checkpoint(
         {
@@ -2772,12 +2791,12 @@ describe('POD-730 workflow mutation characterization', () => {
         status: 'complete',
         summary: 'real work',
       })
-      // PIN: the new run does NOT carry the completed step forward. A zero-step
+      // the new run does NOT carry the completed step forward. A zero-step
       // revision produces a run with no steps at all.
       expect(adopted.steps).toEqual([])
     })
 
-    it('PIN adopt validates EVERYTHING before superseding — no partial state on any failure', () => {
+    it('adopt validates EVERYTHING before superseding — no partial state on any failure', () => {
       const { created, run } = twoStepRun(h)
       const foreign = h.service.create(
         {
@@ -2815,7 +2834,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(h.store.workflows.listRuns(true)).toHaveLength(1)
     })
 
-    it('PIN only an active or blocked run may adopt', () => {
+    it('only an active or blocked run may adopt', () => {
       const { created, run } = twoStepRun(h)
       h.service.skip({ runId: run.id, stepId: 'implement', reason: '' }, agent('s1'))
       h.service.skip({ runId: run.id, stepId: 'review', reason: '' }, agent('s1'))
@@ -2843,7 +2862,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toBe(other.run.id)
     })
 
-    it('PIN adopt is coordinator-only for a session caller', () => {
+    it('adopt is coordinator-only for a session caller', () => {
       const { created, run } = twoStepRun(h)
       expect(
         thrown(() =>
@@ -2852,7 +2871,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toBe('Error: only the workflow coordinator may perform this transition | code=undefined')
     })
 
-    it('PIN prepareStart pins an issue to its live run revision and refuses an implicit switch', () => {
+    it('prepareStart pins an issue to its live run revision and refuses an implicit switch', () => {
       const { created, run } = twoStepRun(h)
       const v2 = h.service.revise(
         { workflowId: created.workflow.id, instructions: 'v2', steps: [] },
@@ -2891,7 +2910,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(run.id).toBeTruthy()
     })
 
-    it('PIN adopt of a revision outside the run start scope is refused by assertRevisionMatchesStart', () => {
+    it('adopt of a revision outside the run start scope is refused by assertRevisionMatchesStart', () => {
       // A GLOBAL revision always matches; a repository revision must match the
       // coordinator session's repo. s1 is in repo-a.
       const { run } = twoStepRun(h)
@@ -2938,7 +2957,7 @@ describe('POD-730 workflow mutation characterization', () => {
   // -------------------------------------------------------------------------
 
   describe('operator surface (single-operator artefacts)', () => {
-    it('ARTEFACT the four scope guards all return early for the operator', () => {
+    it('SINGLE-OPERATOR: the four scope guards all return early for the operator', () => {
       // assertCreateScope
       expect(
         h.service.create(
@@ -2984,7 +3003,7 @@ describe('POD-730 workflow mutation characterization', () => {
           operator,
         ).targetId,
       ).toBe('issue-nobody-has')
-      // ARTEFACT: none of the above consulted a capability, an owner, or a
+      // SINGLE-OPERATOR: none of the above consulted a capability, an owner, or a
       // machine grant. POD-731 replaces this arm with an owner-or-admin check
       // against a real user principal.
     })
@@ -3049,7 +3068,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(h.service.publish({ revisionId: global.revision.id }, operator).publishedAt).toBe(NOW)
     })
 
-    it('ARTEFACT runs() returns EVERY run in the instance for the operator; a session gets only its own live run', () => {
+    it('SINGLE-OPERATOR: runs() returns EVERY run in the instance for the operator; a session gets only its own live run', () => {
       const first = twoStepRun(h)
       const second = h.service.create(
         {
@@ -3080,7 +3099,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(h.service.runs({}, agent('s3', 'issue-2')).map((r) => r.id)).toEqual([otherRun.id])
       // A session with no run at all gets an empty list, not a throw.
       expect(h.service.runs({}, agent('s4'))).toEqual([])
-      // PIN: includeTerminal is respected only on the operator arm — a session's
+      // includeTerminal is respected only on the operator arm — a session's
       // view is always the LIVE run, so a completed run vanishes from it.
       h.service.skip({ runId: first.run.id, stepId: 'implement', reason: '' }, agent('s1'))
       h.service.skip({ runId: first.run.id, stepId: 'review', reason: '' }, agent('s1'))
@@ -3088,11 +3107,11 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(h.service.runs({ includeTerminal: true }, agent('s1'))).toEqual([])
       expect(h.service.runs({ includeTerminal: true }, operator)).toHaveLength(2)
       expect(h.service.runs({}, operator).map((r) => r.id)).toEqual([otherRun.id])
-      // ARTEFACT: overrideScope does NOT widen runs() — only actor.kind does.
+      // SINGLE-OPERATOR: overrideScope does NOT widen runs() — only actor.kind does.
       expect(h.service.runs({}, overriding('s1'))).toEqual([])
     })
 
-    it('ARTEFACT runFor() resolves ANY run id for the operator, and a session is held to its own run', () => {
+    it('SINGLE-OPERATOR: runFor() resolves ANY run id for the operator, and a session is held to its own run', () => {
       const created = h.service.create(
         {
           name: 'Foreign run',
@@ -3133,7 +3152,7 @@ describe('POD-730 workflow mutation characterization', () => {
         agent('s1'),
       )
       expect(h.service.status({ runId: own.run.id }, agent('s4')).id).toBe(own.run.id)
-      // ARTEFACT: overrideScope does NOT widen runFor either.
+      // SINGLE-OPERATOR: overrideScope does NOT widen runFor either.
       expect(thrown(() => h.service.status({ runId: foreignRun.id }, overriding('s1')))).toBe(
         'Error: no active workflow run for this session | code=undefined',
       )
@@ -3175,7 +3194,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toBe('Workflow complete.')
     })
 
-    it("ARTEFACT checkpoint's allowed check accepts the operator for ANY step, assigned or not", () => {
+    it("SINGLE-OPERATOR: checkpoint's allowed check accepts the operator for ANY step, assigned or not", () => {
       const { run } = twoStepRun(h)
       h.service.assignStep(
         { runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') },
@@ -3208,13 +3227,13 @@ describe('POD-730 workflow mutation characterization', () => {
         operator,
       )
       expect(packet.run.status).toBe('active')
-      // PIN: an operator checkpoint does NOT overwrite the assignee, and it does
+      // an operator checkpoint does NOT overwrite the assignee, and it does
       // NOT notify the coordinator (the notify arm needs caller.actor.id).
       expect(h.store.workflows.getRunSteps(run.id)[0]?.assignedSessionId).toBe('s2')
       expect(h.notices).toEqual([])
     })
 
-    it('PIN a non-assigned session on the run issue is refused at the step level, not the run level', () => {
+    it('a non-assigned session on the run issue is refused at the step level, not the run level', () => {
       const { run } = twoStepRun(h)
       // s2 IS on issue-1, so runFor admits it, but it is neither coordinator nor
       // the step's assignee — the refusal comes from checkpoint's allowed check.
@@ -3251,7 +3270,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toBe('active')
     })
 
-    it('PIN prime for an operator context has no run and says so', () => {
+    it('prime for an operator context has no run and says so', () => {
       twoStepRun(h)
       expect(h.service.prime(operator)).toBe('No workflow is attached to this operator context.')
       expect(h.service.prime(agent('s3', 'issue-2'))).toBe(
@@ -3277,7 +3296,7 @@ describe('POD-730 workflow mutation characterization', () => {
      * caller a command it may not reach does not exist — and stops telling them
      * the day someone adds `relay` to the exposure.
      */
-    it('PIN the relay arm routes by proc name, parses through the declared schema, and is default-closed', async () => {
+    it('the relay arm routes by proc name, parses through the declared schema, and is default-closed', async () => {
       const created = h.service.create(
         {
           name: 'Dispatched',
@@ -3393,7 +3412,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(readEvents(h.store).filter((e) => e.kind === 'workflow.run_adopted')).toHaveLength(2)
     })
 
-    it('PIN exposure is default-closed per declaration, not per table membership', () => {
+    it('exposure is default-closed per declaration, not per table membership', () => {
       expect(isWorkflowProcExposedOn('checkpoint', 'relay')).toBe(true)
       expect(isWorkflowProcExposedOn('checkpoint', 'outbox')).toBe(false)
       expect(isWorkflowProcExposedOn('notAProc', 'relay')).toBe(false)
@@ -3415,7 +3434,7 @@ describe('POD-730 workflow mutation characterization', () => {
      * DIVERGENCE, so POD-731's convergence is a documented change and not a
      * silent one. They are expected to go red under POD-731 — that is the point.
      */
-    it('ARTEFACT workflow reads leak existence: unknown, out-of-scope and in-scope are three distinct outcomes', () => {
+    it('SINGLE-OPERATOR: workflow reads leak existence: unknown, out-of-scope and in-scope are three distinct outcomes', () => {
       const foreign = h.service.create(
         {
           name: 'Foreign',
@@ -3451,11 +3470,11 @@ describe('POD-730 workflow mutation characterization', () => {
       // The IN-SCOPE case is the counterfactual: convergence would be trivially
       // satisfiable by refusing everything, and it is not — a workflow the
       // caller may see still resolves.
-      // PIN: there is still no error CODE on this surface at all — only a bare
+      // there is still no error CODE on this surface at all — only a bare
       // Error with a message. Every `code=undefined` above is that fact.
     })
 
-    it('ARTEFACT workflow WRITES leak existence too, with a third distinct message per scope', () => {
+    it('SINGLE-OPERATOR: workflow WRITES leak existence too, with a third distinct message per scope', () => {
       const foreignTask = h.service.create(
         {
           name: 'Foreign task',
@@ -3512,7 +3531,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toBe(1)
     })
 
-    it('ARTEFACT run ids leak existence differently again: unknown collapses into the no-run message', () => {
+    it('SINGLE-OPERATOR: run ids leak existence differently again: unknown collapses into the no-run message', () => {
       const created = h.service.create(
         {
           name: 'Foreign run',
@@ -3546,7 +3565,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(thrown(() => h.service.status({}, operator))).toBe(unknown)
     })
 
-    it('PIN revision ids report existence directly, in scope or not', () => {
+    it('revision ids report existence directly, in scope or not', () => {
       const foreign = h.service.create(
         {
           name: 'Foreign rev',
@@ -3703,7 +3722,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(Object.keys(step ?? {})).not.toContain('completedBy')
     })
 
-    it('ARTEFACT startRun hard-codes a SESSION actor, even when the operator started the run', () => {
+    it('SINGLE-OPERATOR: startRun hard-codes a SESSION actor, even when the operator started the run', () => {
       const created = h.service.create(
         {
           name: 'Operator start',
@@ -3732,7 +3751,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(run.coordinatorSessionId).toBe('s1')
     })
 
-    it('PIN the workflows repository writes events, and reads them ONLY per run', () => {
+    it('the workflows repository writes events, and reads them ONLY per run', () => {
       // Renamed to what this body actually checks. It previously claimed "no
       // reader anywhere in the product", which a unit test cannot see — that
       // claim is evidenced separately by a byte-wise scan of 1787 files
@@ -3808,7 +3827,7 @@ describe('POD-730 workflow mutation characterization', () => {
 
     afterEach(() => rmSync(dir, { recursive: true, force: true }))
 
-    it('PIN a run survives a full store close/reopen, including step state and the profile snapshot', () => {
+    it('a run survives a full store close/reopen, including step state and the profile snapshot', () => {
       const path = join(dir, 'restart.sqlite')
       const before = makeHarness(path)
       const profile = before.service.profileSave(
@@ -3898,7 +3917,7 @@ describe('POD-730 workflow mutation characterization', () => {
       }
     })
 
-    it('PIN nothing about a run is volatile: notifyCoordinator is the ONLY out-of-band effect and it is fire-and-forget', () => {
+    it('nothing about a run is volatile: notifyCoordinator is the ONLY out-of-band effect and it is fire-and-forget', () => {
       const path = join(dir, 'volatile.sqlite')
       const before = makeHarness(path)
       const { run } = twoStepRun(before)
@@ -3921,7 +3940,7 @@ describe('POD-730 workflow mutation characterization', () => {
 
       const after = makeHarness(path)
       try {
-        // PIN: the coordinator notice is NOT persisted and NOT replayed. A
+        // the coordinator notice is NOT persisted and NOT replayed. A
         // restart between the checkpoint and the coordinator reading its inbox
         // loses the nudge; only the blocked STATE survives.
         expect(after.notices).toEqual([])

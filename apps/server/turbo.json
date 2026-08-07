@@ -418,7 +418,7 @@
         "src/modules/superagent/btw.ts",
         "src/modules/superagent/concierge.ts",
         "src/modules/superagent/harness-error.ts",
-        "src/modules/workflows/characterization.test.ts",
+        "src/modules/workflows/engine.test.ts",
         "src/modules/workflows/handlers/advances.ts",
         "src/modules/workflows/handlers/context.ts",
         "src/modules/workflows/handlers/library.ts",
