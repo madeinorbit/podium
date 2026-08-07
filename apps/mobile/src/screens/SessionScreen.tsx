@@ -335,7 +335,9 @@ export function SessionScreen() {
       onBack={goBack}
       backLabel="Back"
       accent={accent}
-      safeBottom
+      // No `safeBottom`: the floating composer is the bottom-most thing on this
+      // screen and pays that inset itself, so it can drop it when the keyboard
+      // takes the bottom edge [POD-502].
       leading={
         issue ? (
           <PressableScale

@@ -2,6 +2,9 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
+vi.mock('react-native-safe-area-context', () => ({
+  useSafeAreaInsets: () => ({ top: 20, right: 0, bottom: 34, left: 0 }),
+}))
 vi.mock('expo-blur', () => ({ BlurView: () => null }))
 vi.mock('expo-linear-gradient', () => ({
   LinearGradient: ({ children }: { children: ReactNode }) => <>{children}</>,
@@ -46,5 +49,31 @@ describe('Composer activity caption', () => {
     )
 
     expect(input.value).toBe('My note\n> quoted\n\n')
+  })
+})
+
+describe('Composer floating dock', () => {
+  const dockOf = (container: HTMLElement) =>
+    (container.querySelector('[data-testid="composer-bar"]')?.parentElement ??
+      null) as HTMLElement | null
+
+  it('pays the bottom safe area when nothing else is below it', () => {
+    const { container } = render(<Composer placeholder="Message the agent…" onSend={vi.fn()} />)
+    // 34 of home indicator plus the 8 the surface floats above it.
+    expect(dockOf(container)?.style.paddingBottom).toBe('42px')
+  })
+
+  it('lets chrome below it replace that inset rather than stacking on it', () => {
+    // The tab bar's measured inset already contains the safe area [POD-420];
+    // adding the composer's own would float it a home-indicator too high.
+    const { container } = render(
+      <Composer placeholder="Message the agent…" onSend={vi.fn()} bottomInset={72} />,
+    )
+    expect(dockOf(container)?.style.paddingBottom).toBe('80px')
+  })
+
+  it('drops no glyph in front of the text field', () => {
+    const { container } = render(<Composer placeholder="Message the agent…" onSend={vi.fn()} />)
+    expect(container.textContent).not.toContain('>')
   })
 })

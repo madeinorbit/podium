@@ -419,14 +419,15 @@ export function SuperagentScreen() {
           ) : null}
           {/* The tab bar floats over the content now, so the composer has to
               hold itself above it — it is the one thing on this screen that
-              must never be scrolled under [POD-420]. */}
-          <View style={{ paddingBottom: tabBarInset + space.sm }}>
-            <Composer
-              placeholder="Delegate a task…"
-              onSend={send}
-              draftInsertion={draftInsertion}
-            />
-          </View>
+              must never be scrolled under [POD-420]. The bar's measured inset
+              already includes the bottom safe area, so it replaces rather than
+              stacks with the composer's own [POD-502]. */}
+          <Composer
+            placeholder="Delegate a task…"
+            onSend={send}
+            draftInsertion={draftInsertion}
+            bottomInset={tabBarInset}
+          />
         </KeyboardAvoidingView>
       </View>
     </Screen>
