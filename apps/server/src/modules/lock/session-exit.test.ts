@@ -11,12 +11,15 @@ import { SessionRegistry } from '../../relay'
  */
 
 const G = { cols: 80, rows: 24 }
-const bind = (sessionId: SessionId) =>
+/** Lock repo scope — independent of each session's workspace root. */
+const REPO = '/repo'
+
+const bind = (sessionId: SessionId, cwd: string) =>
   ({
     type: 'bind',
     sessionId,
     cmd: 'claude',
-    cwd: '/repo',
+    cwd,
     agentKind: 'claude-code',
     geometry: G,
   }) as const
@@ -27,12 +30,18 @@ function regWithDaemon() {
   return reg
 }
 
-function liveSession(reg: SessionRegistry): string {
+/**
+ * Live session at `cwd`. Multi-session queue tests MUST use distinct cwds:
+ * POD-556 refuses co-located (shared-worktree) acquire/queue unless
+ * `--allow-sibling`, and these cases pin death → release → advance — not the
+ * sibling refuse path.
+ */
+function liveSession(reg: SessionRegistry, cwd = `${REPO}/.worktrees/solo`): string {
   const { sessionId } = reg.modules.sessions.createSession({
     agentKind: 'claude-code',
-    cwd: '/repo',
+    cwd,
   })
-  reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+  reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId, cwd))
   return sessionId
 }
 
@@ -41,28 +50,29 @@ async function acquireAs(reg: SessionRegistry, sessionId: string, name: string):
   const r = (await reg.modules.lockCommands.dispatch(
     { capability: { role: 'worker', scope: { kind: 'none' }, actorSessionId: asSessionId(sessionId) } },
     'acquire',
-    { repoPath: '/repo', name },
+    { repoPath: REPO, name },
   )) as { granted: boolean; lock: { holder: { sessionId: string | null } } }
   expect(r.granted).toBe(true)
   expect(r.lock.holder.sessionId).toBe(sessionId)
 }
 
 function lockNames(reg: SessionRegistry): string[] {
-  return reg.modules.locks.status({ repoPath: '/repo' }).map((l) => l.name)
+  return reg.modules.locks.status({ repoPath: REPO }).map((l) => l.name)
 }
 
 describe('session.exited → lock auto-release wiring', () => {
   it('daemon agentExit releases the dead session locks and prunes its queue entries', async () => {
     const reg = regWithDaemon()
-    const dying = liveSession(reg)
-    const survivor = liveSession(reg)
+    // Distinct workspaces: not co-located siblings (POD-556).
+    const dying = liveSession(reg, `${REPO}/.worktrees/dying`)
+    const survivor = liveSession(reg, `${REPO}/.worktrees/survivor`)
     await acquireAs(reg, dying, 'held-by-dying')
     await acquireAs(reg, survivor, 'held-by-survivor')
     // dying also queues behind the survivor's lock
     const q = (await reg.modules.lockCommands.dispatch(
       { capability: { role: 'worker', scope: { kind: 'none' }, actorSessionId: asSessionId(dying) } },
       'acquire',
-      { repoPath: '/repo', name: 'held-by-survivor' },
+      { repoPath: REPO, name: 'held-by-survivor' },
     )) as { granted: boolean }
     expect(q.granted).toBe(false)
 
@@ -73,7 +83,7 @@ describe('session.exited → lock auto-release wiring', () => {
     })
     expect(lockNames(reg)).toEqual(['held-by-survivor'])
     expect(
-      reg.modules.locks.status({ repoPath: '/repo', name: 'held-by-survivor' })[0]?.queue,
+      reg.modules.locks.status({ repoPath: REPO, name: 'held-by-survivor' })[0]?.queue,
     ).toEqual([])
     reg.dispose()
   })
@@ -89,16 +99,17 @@ describe('session.exited → lock auto-release wiring', () => {
 
   it('kill advances the queue to a live waiter (grant survives the kill)', async () => {
     const reg = regWithDaemon()
-    const victim = liveSession(reg)
-    const waiter = liveSession(reg)
+    // Distinct workspaces so the waiter can enqueue without --allow-sibling.
+    const victim = liveSession(reg, `${REPO}/.worktrees/victim`)
+    const waiter = liveSession(reg, `${REPO}/.worktrees/waiter`)
     await acquireAs(reg, victim, 'merge:main')
     await reg.modules.lockCommands.dispatch(
       { capability: { role: 'worker', scope: { kind: 'none' }, actorSessionId: asSessionId(waiter) } },
       'acquire',
-      { repoPath: '/repo', name: 'merge:main' },
+      { repoPath: REPO, name: 'merge:main' },
     )
     reg.modules.sessions.killSession({ sessionId: asSessionId(victim) })
-    const after = reg.modules.locks.status({ repoPath: '/repo', name: 'merge:main' })
+    const after = reg.modules.locks.status({ repoPath: REPO, name: 'merge:main' })
     expect(after[0]?.holder.sessionId).toBe(waiter)
     reg.dispose()
   })
