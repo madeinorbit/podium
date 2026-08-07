@@ -6,9 +6,9 @@
   "type": "module",
   "dependencies": {
     "@base-ui/react": "^1.5.0",
-    "@blocknote/core": "^0.51.4",
-    "@blocknote/mantine": "^0.51.4",
-    "@blocknote/react": "^0.51.4",
+    "@blocknote/core": "^0.52.1",
+    "@blocknote/mantine": "^0.52.1",
+    "@blocknote/react": "^0.52.1",
     "@codemirror/lang-css": "^6.3.1",
     "@codemirror/lang-html": "^6.4.11",
     "@codemirror/lang-javascript": "^6.2.5",
@@ -46,8 +46,8 @@
     "lucide-react": "^1.18.0",
     "marked": "^18.0.5",
     "motion": "^12.42.2",
-    "react": "19.2.7",
-    "react-dom": "19.2.7",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
     "shadcn": "^4.11.0",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.6.0"
