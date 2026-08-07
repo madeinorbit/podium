@@ -795,6 +795,7 @@ export const podiumEvents = sqliteTable(
   (table) => [
     index('idx_podium_events_repo').on(table.repoPath),
     index('idx_podium_events_kind').on(table.kind),
+    index('idx_podium_events_subject').on(table.subject),
   ],
 )
 

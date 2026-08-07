@@ -189,6 +189,11 @@ export const eventsInput = z.object({
   since: z.number().int().min(0).default(0),
   kinds: z.array(z.string()).optional(),
   repoPath: z.string().optional(),
+  /** Narrow to one event subject (an issue id, a session id, …). Optional so the
+   *  repo-wide cursor read stays the default; with it, a surface that wants one
+   *  issue's activity asks for that issue instead of paging the whole log and
+   *  filtering client-side (POD-532). */
+  subject: z.string().min(1).optional(),
   limit: z.number().int().min(1).max(1000).optional(),
 })
 

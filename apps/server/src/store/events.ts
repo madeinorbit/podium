@@ -74,9 +74,19 @@ export class EventsRepository {
     return Number(r.lastInsertRowid)
   }
 
+  /**
+   * Cursor read over the event log, ascending from `sinceId`.
+   *
+   * `subject` narrows to one subject's events IN SQL (POD-532). It exists so a
+   * per-issue activity feed can ask for that issue instead of draining the
+   * repo-wide log and filtering in the browser — the old shape both shipped
+   * thousands of irrelevant rows over the wire and lost any issue whose events
+   * fell outside the newest page. `idx_podium_events_subject` makes the narrowed
+   * read a search rather than a table walk.
+   */
   listEventsSince(
     sinceId: number,
-    opts?: { kinds?: string[]; repoPath?: string; limit?: number },
+    opts?: { kinds?: string[]; repoPath?: string; subject?: string; limit?: number },
   ): PodiumEventRecord[] {
     const where = ['id > ?']
     const params: unknown[] = [sinceId]
@@ -87,6 +97,10 @@ export class EventsRepository {
     if (opts?.repoPath) {
       where.push('repo_path = ?')
       params.push(opts.repoPath)
+    }
+    if (opts?.subject) {
+      where.push('subject = ?')
+      params.push(opts.subject)
     }
     params.push(opts?.limit ?? ISSUE_EVENTS_DEFAULT_LIMIT)
     const rows = this.db

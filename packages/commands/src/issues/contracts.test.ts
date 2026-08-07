@@ -12,7 +12,12 @@ import type { AnyCommandContract, ContractConflictClass } from '../contract'
 import { classificationErrors, registryClassificationErrors } from '../contract'
 import { PER_USER_VISIBILITY, SERVED_EVERYWHERE, SERVED_ON_WIRE } from './cells'
 import type { IssueContractName } from './contracts'
-import { ISSUE_COMMAND_NAMES, ISSUE_CONTRACT_LIST, ISSUE_CONTRACTS } from './contracts'
+import {
+  eventsInput,
+  ISSUE_COMMAND_NAMES,
+  ISSUE_CONTRACT_LIST,
+  ISSUE_CONTRACTS,
+} from './contracts'
 
 /** The ADR 1 rows an issue command can write. Named literals, so a row that is
  *  renamed or removed from the matrix fails the guard below rather than silently
@@ -247,5 +252,27 @@ describe('redaction', () => {
     expect(nonMutating.length).toBe(25)
     // The named case, kept from the original: write-grade authority, no row.
     expect(classOf('linearSearch')).toBe('n/a')
+  })
+})
+
+/**
+ * POD-532: the per-issue activity feed used to page the whole repo's event log
+ * and filter on `subject` in the browser. The narrowing moved into the input, so
+ * the input is where it has to hold — including the half that is easy to break
+ * silently, that OMITTING it still parses to the repo-wide read every existing
+ * caller sends.
+ */
+describe('the events input', () => {
+  it('accepts a subject, still parses without one, and refuses an empty one', () => {
+    const narrowed = eventsInput.parse({ since: 0, repoPath: '/r', subject: 'iss_a', limit: 200 })
+    expect(narrowed.subject).toBe('iss_a')
+
+    const repoWide = eventsInput.parse({ repoPath: '/r', limit: 200 })
+    expect(repoWide.subject).toBeUndefined()
+    expect(repoWide).toMatchObject({ since: 0, repoPath: '/r', limit: 200 })
+
+    // The paired denial: an empty subject would narrow to nothing while reading
+    // like "no filter", so the schema rejects it rather than serving an empty feed.
+    expect(eventsInput.safeParse({ since: 0, subject: '' }).success).toBe(false)
   })
 })
