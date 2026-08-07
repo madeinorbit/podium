@@ -4,7 +4,7 @@ import {
   type IssueNavigationModel,
   sessionsForIssueNav,
 } from '@podium/client-core/viewmodels'
-import type { AgentKind, SessionMeta } from '@podium/model'
+import { type AgentKind, type SessionMeta, spawnedByParentSessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 
 export type FlightDeckMode = 'full' | 'active' | 'needs-you'
@@ -44,6 +44,20 @@ export interface FlightDeckRow {
    * motion in the app must never do.
    */
   workingAgentCount: number
+  /**
+   * How many things in this subtree stopped and asked the operator something.
+   *
+   * Counted per SESSION, not per task (POD-516 round 2 §5): a task does not need
+   * you — a session did. A task that is itself the exception (review, or an
+   * explicit `needsHuman`) with no session asking still counts once, because the
+   * operator has to answer it and nothing else would say so. Sessions are
+   * de-duplicated across the subtree: one agent that is a member of two issues
+   * asked once.
+   *
+   * Deliberately alongside {@link actionableCount} rather than replacing it —
+   * that one counts TASKS and is what column 1 and the portfolio badge promise.
+   */
+  attentionCount: number
   collapsedSummary: CollapsedSummary
 }
 
@@ -338,6 +352,18 @@ export function buildFlightDeckRows(
     const hidden = descendantIds
       .map((issueId) => byId.get(issueId))
       .filter((candidate): candidate is IssueNavigationModel => Boolean(candidate))
+    // Sessions asking, de-duplicated; plus the tasks that are the exception
+    // themselves. See FlightDeckRow.attentionCount.
+    const askingSessionIds = new Set<string>()
+    let askingTasks = 0
+    for (const issueId of [id, ...descendantIds]) {
+      const candidate = byId.get(issueId)
+      if (!candidate) continue
+      const own = sessionsByIssue.get(issueId) ?? []
+      const asking = own.filter((session) => !session.archived && sessionNeedsHuman(session))
+      for (const session of asking) askingSessionIds.add(session.sessionId)
+      if (asking.length === 0 && issueNeedsHuman(candidate, own)) askingTasks += 1
+    }
     rows.push({
       issue,
       depth,
@@ -348,6 +374,7 @@ export function buildFlightDeckRows(
       workingAgentCount: subtreeSessions.filter(
         (session) => openSession(session) && motionPhase(session) === 'working',
       ).length,
+      attentionCount: askingSessionIds.size + askingTasks,
       collapsedSummary: {
         tasks: hidden.length,
         done: hidden.filter((child) => child.stage === 'done' || child.closedReason).length,
@@ -385,15 +412,31 @@ function blockedByLabel(
   issue: IssueNavigationModel,
   byId?: ReadonlyMap<string, IssueNavigationModel>,
 ): string {
-  if (!byId) return 'Waiting on dependency'
-  const refs = (issue.deps ?? [])
-    .filter((dep) => dep.type === 'blocks')
-    .map((dep) => byId.get(dep.id))
-    .filter((target): target is IssueNavigationModel => Boolean(target))
-    .filter((target) => target.stage !== 'done' && !target.closedReason)
-    .map((target) => issueDisplayRef(target))
-  if (refs.length === 0) return 'Waiting on dependency'
-  return refs.length === 1 ? `Blocked by ${refs[0]}` : `Blocked by ${refs.length} tasks`
+  const refs = byId ? waitingRefs(issue, byId) : []
+  if (refs.length === 1) return `Blocked by ${refs[0]}`
+  if (refs.length > 1) return `Blocked by ${refs.length} tasks`
+  // No resolvable edge. `blockedByNotes` is the model's LLM-authored prose about
+  // what is blocking (fields/issue.ts D-2), and it is the last thing here that
+  // NAMES anything — an operator cannot act on "Waiting on dependency", so the
+  // sentence someone actually wrote beats the placeholder whenever it exists.
+  const note = (issue.blockedByNotes ?? []).map((line) => line.trim()).find(Boolean)
+  return note ?? 'Waiting on dependency'
+}
+
+/**
+ * The named reason a task is blocked, or null when it is not.
+ *
+ * Split out from {@link presenceNote} because a blocked task can have live
+ * agents on it: `presenceNote` goes quiet the moment a session is present, but
+ * "Blocked by POD-507" is exactly what the operator needs while an agent is
+ * still sitting there. The right-hand slot says the one word `Blocked`; this is
+ * the line underneath that says by what.
+ */
+export function blockedNote(
+  issue: IssueNavigationModel,
+  byId?: ReadonlyMap<string, IssueNavigationModel>,
+): string | null {
+  return issue.blocked ? blockedByLabel(issue, byId) : null
 }
 
 export function operationalState(
@@ -416,6 +459,215 @@ export function operationalState(
   if (active.some((session) => motionPhase(session) === 'waiting'))
     return { state: 'needs-you', label: 'Waiting on you' }
   return active.length > 0 ? { state: 'idle', label: 'Standing by' } : { state: 'ready', label: 'Ready' }
+}
+
+// ---------------------------------------------------------------------------
+// The Flight Deck's own row vocabulary.
+//
+// Deliberately a SECOND function beside `operationalState` rather than a change
+// to it: the Task inspector and the compact issue controls read that one, and
+// they still want "Needs you" as a state. The deck does not — see DeckIssueState.
+// ---------------------------------------------------------------------------
+
+/** One word per state, and the same word every time it appears in the spine. */
+export type DeckState =
+  | 'working'
+  | 'moved'
+  | 'done'
+  | 'blocked'
+  | 'waiting'
+  | 'retired'
+  | 'next'
+  | 'idle'
+
+export interface DeckIssueState {
+  state: DeckState
+  /** The right-aligned word beside the mark. */
+  label: string
+  /**
+   * Something inside this task stopped and asked — rendered as a COLOUR
+   * INDICATOR, never as words (POD-516 round 2 §5).
+   *
+   * A task does not need you. A session did, and the session row is where the
+   * operator can answer it, so that is where the marker and the words live. The
+   * task strip only has to be findable from a distance.
+   */
+  attention: boolean
+}
+
+const DECK_LABEL: Record<DeckState, string> = {
+  working: 'Running',
+  moved: 'Moving',
+  done: 'Done',
+  blocked: 'Blocked',
+  waiting: 'Waiting',
+  retired: 'Retired',
+  next: 'Next',
+  idle: 'Standing by',
+}
+
+/**
+ * What a task strip says on its right-hand side, and whether it carries the
+ * attention colour.
+ *
+ * The state channel answers "what is this task doing" and is orthogonal to the
+ * attention channel — which is the whole point of the round-2 change. An issue
+ * whose only session is waiting on the operator therefore reads `Standing by`
+ * with the indicator lit, not `Needs you`: the task genuinely is standing by,
+ * and the row below it says who is asking.
+ */
+export function deckIssueState(
+  issue: IssueNavigationModel,
+  sessions: readonly SessionMeta[],
+  byId?: ReadonlyMap<string, IssueNavigationModel>,
+): DeckIssueState {
+  const active = sessions.filter(openSession)
+  const attention = issueNeedsHuman(issue, active)
+  const at = (state: DeckState): DeckIssueState => ({ state, label: DECK_LABEL[state], attention })
+  if (active.some((session) => session.handoffTarget)) return at('moved')
+  if (active.some((session) => motionPhase(session) === 'working')) return at('working')
+  if (issue.stage === 'done' || issue.closedReason) return at('done')
+  if (issue.blocked) return at('blocked')
+  if (waitingRefs(issue, byId).length > 0) return at('waiting')
+  if (active.length === 0 && sessions.length > 0) return at('retired')
+  if (active.length === 0) return at('next')
+  return at('idle')
+}
+
+/**
+ * Which sessions a row shows in the given view.
+ *
+ * `Needs you` is a filter over SESSIONS shown with their task path, so a matched
+ * task lists only the agents that actually stopped. When nothing on the row is
+ * asking — the row is pure path, or the TASK is the exception (review, an
+ * explicit `needsHuman`) — every session stays, because hiding them would leave
+ * the row claiming to be unattended when it is not.
+ */
+export function deckSessions(
+  row: Pick<FlightDeckRow, 'sessions'>,
+  mode: FlightDeckMode,
+): SessionMeta[] {
+  if (mode !== 'needs-you') return row.sessions
+  const asking = row.sessions.filter(
+    (session) => !session.archived && sessionNeedsHuman(session),
+  )
+  return asking.length > 0 ? asking : row.sessions
+}
+
+/**
+ * What a session IS on this task — the dim mono word after its name.
+ *
+ * A nine-agent mission where only the coordinator is named reads as eight
+ * anonymous rows. Every arm here is derived from a fact the model already holds:
+ * the issue's designated coordinator, the spawn edge, or the absence of both.
+ */
+export type SessionRole =
+  | { kind: 'coordinator' }
+  | { kind: 'phase-lead' }
+  | { kind: 'peer' }
+  | { kind: 'spawned'; parentSessionId: string }
+
+export function sessionRole(
+  issue: IssueNavigationModel,
+  session: SessionMeta,
+  ctx: {
+    /** The mission root, so its coordinator reads `coordinator` and a child's
+     *  reads `phase lead` — the same fact at two altitudes. */
+    rootId: string | null | undefined
+    /** Every session rendered on this task, including this one. */
+    siblings: readonly SessionMeta[]
+    /** Session ids present anywhere in the mission: a spawn parent outside it
+     *  cannot be named, so the row must not claim it. */
+    inMission: ReadonlySet<string>
+  },
+): SessionRole | null {
+  if (isCoordinatorSession(issue, session.sessionId)) {
+    return issue.id === ctx.rootId ? { kind: 'coordinator' } : { kind: 'phase-lead' }
+  }
+  const parentSessionId = spawnedByParentSessionId(session.spawnedBy)
+  if (
+    parentSessionId &&
+    parentSessionId !== session.sessionId &&
+    ctx.inMission.has(parentSessionId)
+  ) {
+    return { kind: 'spawned', parentSessionId }
+  }
+  // No agent put it here and it does not lead the task, so the operator did.
+  // A LONE session gets no label: "operator-added peer" on the only agent on a
+  // task is a word that distinguishes it from nothing.
+  return ctx.siblings.length > 1 ? { kind: 'peer' } : null
+}
+
+/**
+ * A session's native subagents as rows.
+ *
+ * The wire carries an id and an optional type per worker, plus a count that may
+ * exceed the identified list — a harness can report "three running" before it
+ * reports which three. The unnamed remainder still gets a row, because the
+ * operator's question is "how much is fanned out under this agent".
+ */
+export interface NativeSubagentRow {
+  id: string
+  type: string
+  /**
+   * Native workers carry no phase of their own, so a row follows the SESSION
+   * that owns it: while that session computes — or is holding a finished turn
+   * open *for* them (`awaitingSubagents`) — they are working. Anything else and
+   * the fan-out is parked with its parent.
+   */
+  working: boolean
+  /** Counted by the harness but not yet identified; the row has no real id. */
+  anonymous: boolean
+}
+
+export function nativeSubagentRows(session: SessionMeta): NativeSubagentRow[] {
+  const state = session.agentState
+  const named = state?.nativeSubagents ?? []
+  const missing = Math.max(0, (state?.nativeSubagentCount ?? 0) - named.length)
+  const working =
+    openSession(session) && (motionPhase(session) === 'working' || state?.awaitingSubagents === true)
+  return [
+    ...named.map((agent) => ({
+      id: agent.id,
+      type: agent.type?.trim() || 'subagent',
+      working,
+      anonymous: false,
+    })),
+    ...Array.from({ length: missing }, (_, index) => ({
+      id: `native-${index + 1}`,
+      type: 'subagent',
+      working,
+      anonymous: true,
+    })),
+  ]
+}
+
+/**
+ * Which tree guide lines pass DOWN the left of each row of a rendered spine.
+ *
+ * The spine renders flat (one row per issue, indented) so it can be filtered,
+ * searched and eventually virtualized without re-parenting anything. The tree
+ * still has to be visible, so each row draws the rail segments that cross it:
+ * `guides[i][level - 1]` is true when the line at that nesting level continues
+ * below row `i`, i.e. the ancestor sitting on it still has a sibling to come.
+ * A rail that does not continue stops at the row's own elbow, which is what
+ * makes the last child of a branch read as the last child.
+ */
+export function treeGuides(rows: readonly { depth: number }[]): boolean[][] {
+  const out: boolean[][] = new Array(rows.length)
+  // `moreAtDepth[d]` — walking backwards, is there a further row at depth d
+  // before the branch containing it closes?
+  const moreAtDepth: boolean[] = []
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const depth = rows[index]?.depth ?? 0
+    const carries: boolean[] = []
+    for (let level = 1; level <= depth; level += 1) carries.push(moreAtDepth[level] === true)
+    out[index] = carries
+    // Everything deeper than this row belongs to a subtree that ends here.
+    moreAtDepth.length = depth + 1
+    moreAtDepth[depth] = true
+  }
+  return out
 }
 
 // ---------------------------------------------------------------------------

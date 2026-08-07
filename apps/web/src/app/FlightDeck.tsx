@@ -1,10 +1,10 @@
+import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
 import {
   FLIGHT_DECK_FOLDS_KEY,
   FLIGHT_DECK_MODE_KEY,
 } from '@podium/client-core/ui-state'
 import {
-  isCoordinatorSession,
   type IssueNavigationModel,
   motionPhase,
   reposToViews,
@@ -12,6 +12,7 @@ import {
 import type { AgentKind, SessionMeta } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import {
+  ArrowDown,
   ArrowRight,
   Ban,
   Check,
@@ -25,7 +26,7 @@ import {
   Search,
   X,
 } from 'lucide-react'
-import type { JSX } from 'react'
+import type { CSSProperties, JSX, ReactNode } from 'react'
 import { useCallback, useMemo, useState } from 'react'
 import { resolveFocus, useOperatorFocus } from './operator-focus'
 import { useReplicaIssues, useStoreSelector } from './store'
@@ -37,19 +38,27 @@ import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 import { cn } from '@/lib/utils'
 import { KindIcon, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
 import {
+  blockedNote,
   buildFlightDeckRows,
   type CollapsedSummary,
   coordinatorCount,
+  type DeckIssueState,
+  type DeckState,
+  deckIssueState,
+  deckSessions,
   type FlightDeckMode,
   type FlightDeckRow,
   missionIssueIds,
   missionProgress,
   missionRootFor,
-  type OperationalState,
-  operationalState,
+  nativeSubagentRows,
   presenceNote,
   type PresenceNote,
   relationNote,
+  type SessionRole,
+  sessionNeedsHuman,
+  sessionRole,
+  treeGuides,
   waitingNote,
 } from '@/lib/mission'
 
@@ -59,11 +68,35 @@ const MODES: Array<{ id: FlightDeckMode; label: string }> = [
   { id: 'needs-you', label: 'Needs you' },
 ]
 
-/** One issue-depth step. Agent rows hang 32px in, so a child task strip lands
- *  LEFT of its parent's agent rows — issue depth reads as issue depth, and a
- *  session never looks like it is parenting the task below it. */
+/**
+ * The spine's geometry, in one place because the tree guides are drawn from it.
+ *
+ * The rows render FLAT — one strip per issue, indented — so a filter, a search
+ * or (later) a window can drop any of them without re-parenting anything. What
+ * makes it read as a tree is that every row draws the rail segments crossing it
+ * and the elbow into its own strip, so adjacent rows compose one continuous
+ * line. `treeGuides` in mission.ts decides which rails carry on past a row.
+ *
+ * A session hangs further in than one issue step, so a CHILD task always lands
+ * left of its parent's agents: issue depth reads as issue depth and a session
+ * never looks like it is parenting the task below it.
+ */
+const SPINE_PAD = 8
 const DEPTH_STEP = 14
-const AGENT_INDENT = 32
+/** Where a nesting level's rail sits inside its own step. */
+const RAIL_INSET = 6
+/** Vertical centre of a task strip (min-height 30px) — where its elbow lands. */
+const BAND_MID = 15
+/** A session band's inset inside its task strip, and its own rail. */
+const AGENT_INDENT = 22
+const AGENT_RAIL = 8
+/** Vertical centre of every row hung under a task strip (min-height 24px). */
+const HUNG_MID = 12
+/** A native worker's inset inside its session band, and its own rail. */
+const NATIVE_INDENT = 20
+const NATIVE_RAIL = 7
+/** Vertical centre of a native row (height 20px). */
+const NATIVE_MID = 10
 
 const readMode = (raw: string | null): FlightDeckMode =>
   raw === 'active' || raw === 'needs-you' ? raw : 'full'
@@ -113,67 +146,131 @@ function ProgressBar({
 }
 
 /**
- * The row's operational state as a MARK plus a word.
+ * The task strip's operational state as a MARK plus one word.
  *
  * An earlier pass shipped the word alone, on the argument that every icon that
  * would fit here already means something else. The approved artifact disagrees
  * and it wins: on a spine of thirty strips the word is unreadable at a glance,
  * and a working row has no other motion of its own once its agent rows are
- * folded away. So the marks are drawn from what already carries meaning here —
- * the canonical braille spinner of the motion grammar for working, the amber
- * dot the whole app uses for "asking something of you" — rather than invented.
+ * folded away. The marks are drawn from what already carries meaning here — the
+ * canonical braille spinner of the motion grammar — rather than invented.
+ *
+ * NOTHING HERE IS AMBER. Under the round-2 model attention belongs to the
+ * session that asked, so amber on a task strip is the one colour this slot may
+ * not spend. `Blocked` therefore takes no hue either: in the Superade theme
+ * `--warning` IS `--attention` (#f5c518), so a warning-toned "Blocked" would
+ * read as "answer me" on the very surface built to tell those apart. Blocked is
+ * a stopped state, not an obligation — the ⊘ mark and the named reason
+ * underneath carry it, and the dot beside them is the only amber on the strip.
  */
-function StateMark({ state }: { state: OperationalState }): JSX.Element {
+function StateMark({ state }: { state: DeckState }): JSX.Element {
   // The spinner carries its own reserved working blue (`--motion-working`);
   // nothing here retints it.
   if (state === 'working') return <BrailleSpinner size={9} className="flex-none" />
-
-  if (state === 'needs-you') {
-    return (
-      <span
-        aria-hidden
-        className="flex size-3 flex-none items-center justify-center rounded-full bg-attention text-[8px] font-bold leading-none text-attention-foreground"
-      >
-        !
-      </span>
-    )
-  }
-  if (state === 'waiting') return <Ban size={11} aria-hidden className="flex-none text-warning" />
   if (state === 'done') return <Check size={11} aria-hidden className="flex-none text-success" />
+  if (state === 'blocked') return <Ban size={11} aria-hidden className="flex-none text-text-dim" />
   if (state === 'moved') {
     return <ArrowRight size={11} aria-hidden className="flex-none text-text-dim" />
   }
   return <Hourglass size={10} aria-hidden className="flex-none text-text-faint" />
 }
 
-function StateLabel({
-  row,
-  byId,
-}: {
-  row: FlightDeckRow
-  byId: ReadonlyMap<string, IssueNavigationModel>
-}): JSX.Element {
-  const value = operationalState(row.issue, row.sessions, byId)
+/**
+ * The strip's right-hand slot: the attention indicator, the mark, the word.
+ *
+ * The indicator is a COLOUR and nothing else (POD-516 round 2 §5). A task does
+ * not need you; a session inside it stopped and asked, and that session's row is
+ * where the words, the marker and the answer live. All this strip owes the
+ * operator is "there is something in here" from across the column.
+ */
+function StateLabel({ value }: { value: DeckIssueState }): JSX.Element {
   return (
     <span
       className="flex flex-none items-center gap-1.5"
       data-operational-state={value.state}
-      title={value.label}
+      data-attention={value.attention ? 'true' : undefined}
+      title={value.attention ? `${value.label} · a session in here needs you` : value.label}
     >
+      {value.attention && (
+        <span aria-hidden className="size-[5px] flex-none rounded-full bg-attention" />
+      )}
       <StateMark state={value.state} />
-      <span
-        className={cn(
-          'shell-type-micro truncate',
-          value.state === 'needs-you'
-            ? 'font-semibold text-attention'
-            : value.state === 'waiting'
-              ? 'font-mono text-warning'
-              : 'text-text-dim',
-        )}
-      >
-        {value.label}
-      </span>
+      <span className="shell-type-micro truncate font-mono text-text-dim">{value.label}</span>
     </span>
+  )
+}
+
+/**
+ * One rail segment plus the elbow into the row hanging on it.
+ *
+ * `last` stops the rail at the elbow, which is what makes the final child of a
+ * branch read as final rather than as a line running off into the next block.
+ * `tone` is a background class: a lit rail is how a focused or asking row says
+ * so without a coloured 2px border, which is the callout-card tell this system
+ * refuses.
+ */
+function Hung({
+  railX,
+  indent,
+  mid,
+  last,
+  tone,
+  children,
+}: {
+  railX: number
+  indent: number
+  mid: number
+  last: boolean
+  tone: string
+  children: ReactNode
+}): JSX.Element {
+  return (
+    <div className="relative">
+      <span
+        aria-hidden
+        className={cn('pointer-events-none absolute w-px', tone)}
+        style={{ left: railX, top: 0, height: last ? mid : '100%' }}
+      />
+      <span
+        aria-hidden
+        className={cn('pointer-events-none absolute h-px', tone)}
+        style={{ left: railX, top: mid, width: indent - railX }}
+      />
+      {children}
+    </div>
+  )
+}
+
+/** The ancestor rails crossing one task strip's whole block, plus its own elbow.
+ *  `carries[level]` comes from `treeGuides` — see the geometry note above. */
+function BranchGuides({ carries }: { carries: readonly boolean[] }): JSX.Element | null {
+  const depth = carries.length
+  if (depth === 0) return null
+  const ownX = SPINE_PAD + (depth - 1) * DEPTH_STEP + RAIL_INSET
+  return (
+    <>
+      {carries.slice(0, -1).map((carry, level) => {
+        const left = SPINE_PAD + level * DEPTH_STEP + RAIL_INSET
+        return carry ? (
+          <span
+            key={left}
+            aria-hidden
+            className="pointer-events-none absolute top-0 bottom-0 w-px bg-hairline-soft"
+            style={{ left }}
+          />
+        ) : null
+      })}
+      <span
+        aria-hidden
+        className="pointer-events-none absolute w-px bg-hairline-soft"
+        style={{ left: ownX, top: 0, height: carries[depth - 1] ? '100%' : BAND_MID }}
+      />
+      <span
+        aria-hidden
+        className="pointer-events-none absolute h-px bg-hairline-soft"
+        style={{ left: ownX, top: BAND_MID, width: DEPTH_STEP - RAIL_INSET }}
+      />
+    </>
   )
 }
 
@@ -212,157 +309,235 @@ function CollapsedPayload({ summary }: { summary: CollapsedSummary }): JSX.Eleme
 /** The inset band that says why a task has nobody on it — or, alongside live
  *  agents, what it is still waiting for. A blank here is the one thing the deck
  *  must never render: "no session" is four situations and only one is a problem. */
-function PresenceBand({
-  note,
-  indent,
-}: {
-  note: PresenceNote
-  indent: number
-}): JSX.Element {
+function PresenceBand({ note, last }: { note: PresenceNote; last: boolean }): JSX.Element {
   return (
-    <div
-      className={cn(
-        'shell-type-micro flex min-h-[22px] items-center gap-2 rounded-r border-l-2 py-1 pr-2 pl-2 font-mono',
-        note.attention
-          ? 'border-attention/70 font-semibold text-attention'
-          : note.kind === 'blocked'
-            ? 'border-warning/50 text-warning'
-            : 'border-border/60 text-text-dim',
-      )}
-      style={{ marginLeft: `${indent}px` }}
-      data-presence={note.kind}
+    <Hung
+      railX={AGENT_RAIL}
+      indent={AGENT_INDENT}
+      mid={HUNG_MID}
+      last={last}
+      tone={note.attention ? 'bg-attention/70' : 'bg-hairline-bar'}
     >
-      {note.kind === 'moved' && <ArrowRight size={11} aria-hidden className="flex-none" />}
-      {note.kind === 'blocked' && <Ban size={11} aria-hidden className="flex-none" />}
-      {note.kind === 'waiting' && <Hourglass size={10} aria-hidden className="flex-none" />}
-      <span className="truncate">{note.text}</span>
-    </div>
+      <div
+        className={cn(
+          'shell-type-micro flex min-h-6 items-center gap-1.5 rounded-r-md bg-bar px-2 py-1 font-mono',
+          note.attention ? 'font-semibold text-attention' : 'text-text-dim',
+        )}
+        style={{ marginLeft: AGENT_INDENT }}
+        data-presence={note.kind}
+      >
+        {note.kind === 'moved' && <ArrowRight size={11} aria-hidden className="flex-none" />}
+        {note.kind === 'blocked' && <Ban size={11} aria-hidden className="flex-none" />}
+        {note.kind === 'waiting' && <ArrowDown size={11} aria-hidden className="flex-none" />}
+        <span className="truncate">{note.text}</span>
+      </div>
+    </Hung>
   )
 }
 
+/**
+ * A session's native subagents, hung off it on their own guide.
+ *
+ * They are the harness's own workers, not Podium sessions — the quietest tier in
+ * the spine, mono throughout, and they open the PARENT in its Native view
+ * because there is no child transcript to route to.
+ */
 function NativeRows({
   session,
-  indent,
   onOpen,
 }: {
   session: SessionMeta
-  indent: number
   onOpen: () => void
 }): JSX.Element | null {
-  const native = session.agentState?.nativeSubagents ?? []
-  const missing = Math.max(0, (session.agentState?.nativeSubagentCount ?? 0) - native.length)
-  const rows = [
-    ...native.map((agent) => ({ id: agent.id, type: agent.type ?? 'native agent' })),
-    ...Array.from({ length: missing }, (_, index) => ({
-      id: `native-${index + 1}`,
-      type: 'native agent',
-    })),
-  ]
+  const rows = nativeSubagentRows(session)
   if (rows.length === 0) return null
   return (
-    <div
-      className="border-l border-border/50 pl-0.5"
-      style={{ marginLeft: `${indent}px` }}
-      data-testid="flight-native-agents"
-    >
-      {rows.map((agent) => (
-        <button
-          data-pressable
-          type="button"
+    <div className="relative pb-0.5" data-testid="flight-native-agents">
+      {rows.map((agent, index) => (
+        <Hung
           key={`${session.sessionId}:${agent.id}`}
-          className="shell-type-micro flex w-full items-center gap-2 px-1.5 py-1 text-left text-text-dim hover:bg-muted hover:text-text-strong"
-          onClick={onOpen}
-          title={`Focus parent in Native · ${agent.id}`}
+          railX={NATIVE_RAIL}
+          indent={NATIVE_INDENT}
+          mid={NATIVE_MID}
+          last={index === rows.length - 1}
+          tone="bg-border/70"
         >
-          <CornerDownRight size={10} aria-hidden="true" />
-          <span className="min-w-0 flex-1 truncate">{agent.type}</span>
-          <span className="max-w-20 truncate font-mono opacity-70">{agent.id}</span>
-        </button>
+          <button
+            data-pressable
+            type="button"
+            className="shell-type-micro flex h-5 w-full items-center gap-1.5 rounded-r-md pr-2 text-left font-mono text-text-faint hover:bg-muted hover:text-text-dim"
+            style={{ paddingLeft: NATIVE_INDENT + 4 }}
+            onClick={onOpen}
+            title={`Focus ${sessionDisplayName(session)} in Native · ${agent.anonymous ? 'unnamed worker' : agent.id}`}
+          >
+            <KindIcon kind={session.agentKind} dimmed />
+            <span className="min-w-0 flex-1 truncate">
+              {agent.type}
+              {!agent.anonymous && <span className="text-text-faint/70"> · {agent.id}</span>}
+            </span>
+            <span className="flex-none">{agent.working ? 'working' : 'waiting'}</span>
+          </button>
+        </Hung>
       ))}
     </div>
   )
 }
 
+const ROLE_LABEL: Record<Exclude<SessionRole, { kind: 'spawned' }>['kind'], string> = {
+  coordinator: 'coordinator',
+  'phase-lead': 'phase lead',
+  peer: 'operator-added peer',
+}
+
+/** The role as the dim mono word after the name. A spawn edge is named by its
+ *  PARENT — "by Spine designer" is the fact the operator can act on; the parent
+ *  session id is not. An unresolvable parent gets no word rather than an id. */
+function roleLabel(
+  role: SessionRole | null,
+  nameOf: (sessionId: string) => string | undefined,
+): string | null {
+  if (role === null) return null
+  if (role.kind !== 'spawned') return ROLE_LABEL[role.kind]
+  const parent = nameOf(role.parentSessionId)
+  return parent ? `by ${parent}` : null
+}
+
+/**
+ * One session on a task: who it is, what it is here as, and how long it has been
+ * at it.
+ *
+ * THIS is where "needs you" lives (POD-516 round 2 §5). A task cannot ask an
+ * operator anything; an agent stopped mid-turn and did. So the marker, the word
+ * and the click that answers it are all on this row, and the strip above only
+ * carries a dot so the row can be found with the branch folded.
+ *
+ * The right-hand slot is mark + elapsed, per DESIGN.md §5 — the spinner never
+ * turns without its counting timer beside it. Every stopped phase still shows
+ * how long it has been stopped, because "how stale is this" is the question the
+ * operator is actually asking when nothing is moving.
+ */
 function SessionRow({
   session,
-  coordinator,
+  role,
+  label,
   active,
-  indent,
+  last,
+  now,
   onOpen,
   onOpenNative,
 }: {
   session: SessionMeta
-  coordinator: boolean
+  role: SessionRole | null
+  /** The role as a word, already resolved (a spawn parent needs a name). */
+  label: string | null
   active: boolean
-  indent: number
+  last: boolean
+  now: number
   onOpen: () => void
   onOpenNative: () => void
 }): JSX.Element {
   const retired = session.archived || session.status === 'exited'
+  const starting = session.status === 'starting' || session.status === 'reconnecting'
+  const needs = !retired && sessionNeedsHuman(session)
   const phase = motionPhase(session)
-  // WorkerLabel already says "Handing over → <target>" mid-move, in the same
-  // words the sidebar and the pane header use, so the row never invents a
-  // second vocabulary for the same event.
-  const state = retired
-    ? 'Retired'
-    : session.status === 'starting' || session.status === 'reconnecting'
-      ? 'Starting'
-      : undefined
   const since = Date.parse(session.agentState?.since ?? session.lastActiveAt)
+  const stamp = relativeTime(session.lastActiveAt, now)
+  const total = session.agentState?.workingMsTotal
   return (
-    <div
-      className={cn('rounded-r border-l-2', active ? 'border-info/70 bg-muted' : 'border-border/60')}
-      style={{ marginLeft: `${indent}px` }}
-      data-flight-session={session.sessionId}
+    <Hung
+      railX={AGENT_RAIL}
+      indent={AGENT_INDENT}
+      mid={HUNG_MID}
+      last={last}
+      tone={needs ? 'bg-attention/80' : active ? 'bg-info/80' : 'bg-hairline-bar'}
     >
-      <button
-        data-pressable
-        type="button"
-        className={cn(
-          // One tier quieter than a task strip: the strips are the spine, the
-          // agents working them are the roster (sidebar-common's row idiom).
-          'group/session shell-type-secondary flex min-h-6 w-full items-center gap-2 rounded-r px-2 py-1 text-left text-text-dim hover:bg-muted hover:text-foreground',
-          active && 'text-foreground',
-          retired && 'opacity-60',
-        )}
-        onClick={onOpen}
+      <div
+        className={cn('rounded-r-md', needs || active ? 'bg-muted' : 'bg-bar')}
+        style={{ marginLeft: AGENT_INDENT }}
+        data-flight-session={session.sessionId}
+        data-needs-you={needs ? 'true' : undefined}
       >
-        <span className="flex min-w-0 flex-1">
-          <WorkerLabel session={session} chip />
-        </span>
-        {coordinator && (
-          <span
-            className="shell-type-micro flex-none rounded border border-sky-500/50 bg-sky-500/10 px-1 font-semibold tracking-wide text-sky-600 uppercase dark:text-sky-400"
-            data-testid="coordinator-badge"
-            title="Coordinator session — drives this issue"
-          >
-            coord
+        <button
+          data-pressable
+          type="button"
+          className={cn(
+            // One tier quieter than a task strip, and recessed rather than
+            // raised: the strips are the spine, the agents working them are the
+            // roster (sidebar-common's row idiom).
+            'group/session shell-type-secondary flex min-h-6 w-full items-center gap-2 rounded-r-md px-2 py-1 text-left text-text-dim hover:text-foreground',
+            active && 'text-foreground',
+            retired && 'opacity-60',
+          )}
+          onClick={onOpen}
+        >
+          {/* WorkerLabel already says "Handing over → <target>" mid-move, in the
+              same words the sidebar and the pane header use, so the row never
+              invents a second vocabulary for the same event. */}
+          <span className="flex min-w-0 flex-1 items-center gap-1.5">
+            <WorkerLabel session={session} chip />
+            {label && (
+              <span
+                className="shell-type-micro flex-none truncate font-mono font-normal text-text-faint"
+                data-session-role={role?.kind}
+              >
+                {label}
+              </span>
+            )}
           </span>
-        )}
-        {state ? (
-          <span className="shell-type-micro flex-none text-text-dim">{state}</span>
-        ) : (
-          Number.isFinite(since) && (
-            <PhaseTimer
-              phase={phase}
-              sinceMs={since}
-              baseMs={session.agentState?.workingMsTotal ?? 0}
-              mutedWaiting
-            />
-          )
-        )}
-      </button>
-      <NativeRows session={session} indent={15} onOpen={onOpenNative} />
-    </div>
+          <span className="flex flex-none items-center gap-1.5">
+            {needs ? (
+              <>
+                <span
+                  aria-hidden
+                  className="flex size-3 flex-none items-center justify-center rounded-full bg-attention text-[8px] leading-none font-bold text-attention-foreground"
+                >
+                  !
+                </span>
+                <span className="shell-type-micro font-semibold text-attention">Needs you</span>
+                {Number.isFinite(since) && (
+                  <PhaseTimer phase="waiting" sinceMs={since} leadingSeparator />
+                )}
+              </>
+            ) : retired ? (
+              <span className="shell-type-micro font-mono text-text-faint">Retired · {stamp}</span>
+            ) : starting ? (
+              <span className="shell-type-micro font-mono text-text-dim">Starting</span>
+            ) : phase === 'working' && Number.isFinite(since) ? (
+              <PhaseTimer phase="working" sinceMs={since} baseMs={total ?? 0} />
+            ) : (
+              <>
+                {phase === 'done' ? (
+                  <Check size={11} aria-hidden className="flex-none text-success" />
+                ) : (
+                  <Hourglass size={10} aria-hidden className="flex-none text-text-faint" />
+                )}
+                {phase === 'done' && total !== undefined && Number.isFinite(since) ? (
+                  <PhaseTimer phase="done" sinceMs={since} totalMs={total} />
+                ) : (
+                  <span className="shell-type-micro font-mono text-text-dim">{stamp}</span>
+                )}
+              </>
+            )}
+          </span>
+        </button>
+        <NativeRows session={session} onOpen={onOpenNative} />
+      </div>
+    </Hung>
   )
 }
 
 function TaskRow({
   row,
   byId,
+  carries,
+  mode,
+  rootId,
+  inMission,
+  nameOf,
   selected,
   activeSessionId,
   collapsed,
+  now,
   onToggle,
   onSelectIssue,
   onSelectSession,
@@ -370,34 +545,60 @@ function TaskRow({
 }: {
   row: FlightDeckRow
   byId: ReadonlyMap<string, IssueNavigationModel>
+  /** Which ancestor guide rails cross this row — see `treeGuides`. */
+  carries: readonly boolean[]
+  mode: FlightDeckMode
+  rootId: string | undefined
+  inMission: ReadonlySet<string>
+  nameOf: (sessionId: string) => string | undefined
   selected: boolean
   activeSessionId: string | null
   collapsed: boolean
+  now: number
   onToggle: () => void
   onSelectIssue: () => void
   onSelectSession: (session: SessionMeta) => void
   onSelectNative: (session: SessionMeta) => void
 }): JSX.Element {
   const hasPayload = row.descendantIds.length > 0 || row.sessions.length > 0
-  const indent = row.depth * DEPTH_STEP
-  const bandIndent = AGENT_INDENT + indent
+  const bandLeft = SPINE_PAD + row.depth * DEPTH_STEP
+  const state = deckIssueState(row.issue, row.sessions, byId)
+  const sessions = deckSessions(row, mode)
+  // Three lines can hang under a strip, and their order is the order the
+  // operator needs them: who is on it, then what is holding it, then where it
+  // came from. A blocked task says so even while an agent is still on it — the
+  // right-hand slot has room for the word `Blocked` and nothing else, so this
+  // is the only place the blocker can be named.
+  const blocked = blockedNote(row.issue, byId)
   // A dependency the operator can act on outlives the agent working the task:
   // an issue with live sessions AND an unfinished blocker says both.
-  const waiting = row.sessions.length > 0 ? waitingNote(row.issue, byId) : null
-  const presence = presenceNote(row.issue, row.sessions, byId)
-  const relation = presence?.kind === 'moved' || waiting ? null : relationNote(row.issue, byId)
+  const waiting = !blocked && sessions.length > 0 ? waitingNote(row.issue, byId) : null
+  const presence = blocked ? null : presenceNote(row.issue, row.sessions, byId)
+  const relation =
+    presence?.kind === 'moved' || waiting || blocked ? null : relationNote(row.issue, byId)
+  const hung = sessions.length + (blocked ? 1 : 0) + (waiting ? 1 : 0) + (presence ? 1 : 0) + (relation ? 1 : 0)
+  let placed = 0
+  const isLast = (): boolean => {
+    placed += 1
+    return placed === hung
+  }
   return (
-    <div data-flight-issue={row.issue.id}>
+    <div className="relative" data-flight-issue={row.issue.id} data-depth={row.depth}>
+      <BranchGuides carries={carries} />
+      {/* The strip is a BAND: a tonal step up from the engraved column plus a
+          hairline, never a lift — DESIGN.md's carved rule. Selection is the
+          issue tint over that same engraved base (with its slate pair, so an
+          uncoloured mission still reads) and a 2px inset edge in the issue's own
+          colour, which is this app's focus language rather than the artifact's
+          borrowed blue. */}
       <div
         className={cn(
-          'group/task flex min-h-9 items-center gap-1 border-b border-hairline-soft pr-2',
-          // The tint is carved INTO the engraved column, so it needs that base
-          // — and its slate pair, so the mission still reads uncolored.
+          'group/task relative flex min-h-[30px] items-center gap-1 rounded-md border pr-1.5 transition-colors',
           selected
-            ? 'issue-mix-28 issue-mix-slate-22 issue-base-engraved'
-            : 'hover:bg-muted',
+            ? 'issue-mix-28 issue-mix-slate-22 issue-base-engraved issue-hairline-50 issue-hairline-slate-40 shadow-[inset_2px_0_0_var(--issue)]'
+            : 'border-hairline-soft bg-rail hover:border-hairline-bar hover:bg-chip',
         )}
-        style={{ paddingLeft: `${8 + indent}px` }}
+        style={{ marginLeft: bandLeft }}
       >
         {hasPayload ? (
           <button
@@ -405,6 +606,7 @@ function TaskRow({
             type="button"
             className="flex size-5 flex-none items-center justify-center text-text-dim hover:text-text-strong"
             aria-label={collapsed ? `Expand ${row.issue.title}` : `Collapse ${row.issue.title}`}
+            aria-expanded={!collapsed}
             onClick={onToggle}
           >
             {collapsed ? <ChevronRight size={11} /> : <ChevronDown size={11} />}
@@ -415,14 +617,14 @@ function TaskRow({
         <button
           data-pressable
           type="button"
-          className="flex min-w-0 flex-1 items-center gap-2 py-2 text-left"
+          className="flex min-w-0 flex-1 items-center gap-2 py-1 text-left"
           onClick={onSelectIssue}
         >
           <StageGlyph stage={row.issue.stage} size={13} />
           {/* Ref THEN title, in one truncating label: the ref is how the
               operator addresses the task everywhere else in Podium, and a
               right-aligned ref made the column read right-to-left. */}
-          <span className="shell-type-primary min-w-0 flex-1 truncate font-medium">
+          <span className="shell-type-secondary min-w-0 flex-1 truncate font-medium">
             <span className="shell-type-micro mr-1.5 font-mono font-normal text-text-faint">
               {issueDisplayRef(row.issue)}
             </span>
@@ -431,41 +633,60 @@ function TaskRow({
           {collapsed && hasPayload ? (
             <CollapsedPayload summary={row.collapsedSummary} />
           ) : (
-            <StateLabel row={row} byId={byId} />
+            <StateLabel value={state} />
           )}
         </button>
       </div>
-      {!collapsed && (
-        <>
-          {row.sessions.map((session) => (
-            <SessionRow
-              key={session.sessionId}
-              session={session}
-              coordinator={isCoordinatorSession(row.issue, session.sessionId)}
-              active={activeSessionId === session.sessionId}
-              indent={bandIndent}
-              onOpen={() => onSelectSession(session)}
-              onOpenNative={() => onSelectNative(session)}
+      {!collapsed && hung > 0 && (
+        <div className="relative" style={{ marginLeft: bandLeft }}>
+          {sessions.map((session) => {
+            const role = sessionRole(row.issue, session, { rootId, siblings: sessions, inMission })
+            return (
+              <SessionRow
+                key={session.sessionId}
+                session={session}
+                role={role}
+                label={roleLabel(role, nameOf)}
+                active={activeSessionId === session.sessionId}
+                last={isLast()}
+                now={now}
+                onOpen={() => onSelectSession(session)}
+                onOpenNative={() => onSelectNative(session)}
+              />
+            )
+          })}
+          {blocked && (
+            <PresenceBand
+              note={{ kind: 'blocked', text: blocked, attention: false }}
+              last={isLast()}
             />
-          ))}
+          )}
           {waiting && (
             <PresenceBand
               note={{ kind: 'waiting', text: waiting, attention: false }}
-              indent={bandIndent}
+              last={isLast()}
             />
           )}
-          {presence && <PresenceBand note={presence} indent={bandIndent} />}
+          {presence && <PresenceBand note={presence} last={isLast()} />}
           {relation && (
-            <div
-              className="shell-type-micro flex items-center gap-1.5 py-0.5 pl-2 font-mono text-text-faint"
-              style={{ marginLeft: `${bandIndent}px` }}
-              data-testid="flight-relation-note"
+            <Hung
+              railX={AGENT_RAIL}
+              indent={AGENT_INDENT}
+              mid={HUNG_MID}
+              last={isLast()}
+              tone="bg-hairline-bar"
             >
-              <CornerDownRight size={10} aria-hidden />
-              <span className="truncate">{relation}</span>
-            </div>
+              <div
+                className="shell-type-micro flex min-h-6 items-center gap-1.5 py-1 font-mono text-text-faint"
+                style={{ paddingLeft: AGENT_INDENT + 2 }}
+                data-testid="flight-relation-note"
+              >
+                <CornerDownRight size={10} aria-hidden className="flex-none" />
+                <span className="truncate">{relation}</span>
+              </div>
+            </Hung>
           )}
-        </>
+        </div>
       )}
     </div>
   )
@@ -553,6 +774,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
     markIssueRead,
     markSessionRead,
     drafts,
+    coarseNow,
   } = useStoreSelector(
     (store) => ({
       sessions: store.sessions,
@@ -568,6 +790,10 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
       markIssueRead: store.markIssueRead,
       markSessionRead: store.markSessionRead,
       drafts: store.drafts,
+      // The shared coarse clock, not one interval per row: the "N ago" stamp on
+      // a stopped session must not disagree with the ordering derived from the
+      // same clock elsewhere in the shell (sidebar-common, POD-407).
+      coarseNow: store.coarseNow,
     }),
     shallowEqual,
   )
@@ -620,7 +846,24 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
   const progress = missionProgress(issues, sessions, root?.id)
   const leadCount = coordinatorCount(rows, sessions)
   const liveCount = rows[0]?.liveAgentCount ?? 0
-  const needsCount = rows[0]?.actionableCount ?? 0
+  // The Needs-you badge counts what the filter SHOWS — sessions that stopped and
+  // asked, plus the tasks that are the exception themselves. Counting tasks here
+  // and listing sessions there is how a badge comes to disagree with its column.
+  const needsCount = rows[0]?.attentionCount ?? 0
+  // Every session anywhere in the mission, so a spawn edge can be named ("by
+  // Spine designer") and one pointing outside the mission is left unnamed rather
+  // than rendered as a raw id.
+  const missionSessionNames = useMemo(() => {
+    const names = new Map<string, string>()
+    for (const row of rows) {
+      for (const session of row.sessions) names.set(session.sessionId, sessionDisplayName(session))
+    }
+    return names
+  }, [rows])
+  const nameOf = useCallback(
+    (sessionId: string): string | undefined => missionSessionNames.get(sessionId),
+    [missionSessionNames],
+  )
   // Search keeps a match's ANCESTORS as context, the same rule the mode filters
   // follow — an exception that loses its path is an exception you cannot place.
   const visibleRows = useMemo(() => {
@@ -645,6 +888,15 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
     }
     return unfolded.filter((row) => keep.has(row.issue.id))
   }, [rows, collapsed, query])
+  // Computed over the rows that ACTUALLY render: a fold or a filter changes which
+  // strip is the last child of its branch, and a rail that outlives its last
+  // child is the tell that the tree was drawn from data rather than from layout.
+  const guides = useMemo(() => treeGuides(visibleRows), [visibleRows])
+  const missionSessionIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const row of rows) for (const session of row.sessions) ids.add(session.sessionId)
+    return ids
+  }, [rows])
   const rootSession = root ? rows[0]?.sessions[0] : focusedSession
   const draftFilling = Boolean(root?.draft && rootSession)
   const repoName = useMemo(() => reposToViews(repos)[0]?.name ?? null, [repos])
@@ -831,15 +1083,25 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
               )}
             </div>
           )}
-          <div className="min-h-0 flex-1 overflow-y-auto" data-testid="flight-deck-rows">
-            {visibleRows.map((row) => (
+          {/* No gap between row blocks: each block draws the guide rails crossing
+              it from its own top to its own bottom, so blocks have to touch or
+              the tree lines break. The breathing room lives INSIDE the block
+              (`pt-0.5` above each strip), which the rails run through. */}
+          <div className="min-h-0 flex-1 overflow-y-auto py-1.5 pr-2" data-testid="flight-deck-rows">
+            {visibleRows.map((row, index) => (
               <TaskRow
                 key={row.issue.id}
                 row={row}
                 byId={byId}
+                carries={guides[index] ?? []}
+                mode={mode}
+                rootId={root.id}
+                inMission={missionSessionIds}
+                nameOf={nameOf}
                 selected={focused === row.issue.id}
                 activeSessionId={activeSessionId}
                 collapsed={collapsed.has(row.issue.id)}
+                now={coarseNow}
                 onToggle={() => toggleFold(row.issue.id)}
                 onSelectIssue={() => selectIssue(row)}
                 onSelectSession={(session) => selectSession(row, session)}
