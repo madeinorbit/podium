@@ -189,6 +189,19 @@ also what proves `--continue` is doing its job — before it, the first one hid 
 `--continue=dependencies-successful` skipped the aggregate rather than letting the roster check
 report on a lane that did not finish. That is the intended behaviour, observed.
 
+### Re-verified after the rebase onto main
+
+This work was built on POD-523's branch before that branch was rebased and merged. After
+rebasing onto main (`c41a979fc`), all three POD-523-derived commits dropped out as
+**patch-identical** — verified with `git patch-id --stable` on each pair before rebasing, and
+git then skipped all three as previously applied with no conflicts. `main..HEAD` is the two
+commits here.
+
+The whole lane was re-run against the new main and is **identical in every figure**: the same
+295 files, 4,166 tests, and three failures, with the same three test names in the same three
+shards. The shard manifest regenerates byte-for-byte unchanged against main, and every replay
+percentage in this document re-measured the same.
+
 ### The @podium/scripts lane
 
 The guards live in `@podium/scripts`, so that lane was run whole:
