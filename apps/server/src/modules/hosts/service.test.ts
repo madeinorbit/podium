@@ -299,4 +299,109 @@ describe('idle-session cap', () => {
 
     expect(parked).toEqual([])
   })
+
+  // POD-568. Finished work is reaped first, and that is ALL the lifecycle tier
+  // does — every case below keeps the safety gates deciding who may be parked.
+  describe('lifecycle ordering', () => {
+    it('reaps closed work first, then unbound sessions, then open work', () => {
+      // Idle age is deliberately INVERTED against the tiers: the open-issue
+      // session is the oldest, so age alone would park it first.
+      const sessions = [
+        session(asSessionId('open'), {
+          issueClosed: false,
+          lastActiveAt: new Date(NOW - 5 * HOUR).toISOString(),
+        }),
+        session(asSessionId('unbound'), {
+          lastActiveAt: new Date(NOW - 3 * HOUR).toISOString(),
+        }),
+        session(asSessionId('closed'), {
+          issueClosed: true,
+          lastActiveAt: new Date(NOW - HOUR).toISOString(),
+        }),
+      ]
+      const { service, parked } = harness({ sessions, maxIdleSessions: 0 })
+
+      service.onHostMetrics(asMachineId('local'), sample(10))
+
+      expect(parked).toEqual(['closed', 'unbound', 'open'])
+    })
+
+    it('still breaks ties inside a tier by effective idle age', () => {
+      const sessions = [
+        session(asSessionId('closed-newer'), {
+          issueClosed: true,
+          lastActiveAt: new Date(NOW - HOUR).toISOString(),
+        }),
+        session(asSessionId('closed-older'), {
+          issueClosed: true,
+          lastActiveAt: new Date(NOW - 4 * HOUR).toISOString(),
+        }),
+      ]
+      const { service, parked } = harness({ sessions, maxIdleSessions: 1 })
+
+      service.onHostMetrics(asMachineId('local'), sample(10))
+
+      expect(parked).toEqual(['closed-older'])
+    })
+
+    // THE CASE THE OPERATOR RULED ON. An agent that marked its issue done and
+    // kept writing must not be parked ahead of live work — being first in the
+    // queue is not permission to skip the gates.
+    it('refuses a closed-issue session that is still producing output', () => {
+      const sessions = [
+        session(asSessionId('closed-but-writing'), {
+          issueClosed: true,
+          lastOutputAtMs: NOW - 10_000,
+        }),
+        session(asSessionId('open-and-quiet'), { issueClosed: false }),
+      ]
+      const { service, parked } = harness({ sessions, maxIdleSessions: 1 })
+
+      service.onHostMetrics(asMachineId('local'), sample(10))
+
+      expect(parked).toEqual(['open-and-quiet'])
+    })
+
+    it('refuses a closed-issue session that has not been idle long enough', () => {
+      const sessions = [
+        session(asSessionId('closed-but-active'), {
+          issueClosed: true,
+          lastActiveAt: new Date(NOW - 5 * 60_000).toISOString(),
+        }),
+        session(asSessionId('open-and-idle'), { issueClosed: false }),
+      ]
+      const { service, parked } = harness({ sessions, maxIdleSessions: 1 })
+
+      service.onHostMetrics(asMachineId('local'), sample(10))
+
+      expect(parked).toEqual(['open-and-idle'])
+    })
+
+    it('refuses a closed-issue session with no resume ref rather than killing it', () => {
+      const sessions = [
+        session(asSessionId('closed-no-resume'), { issueClosed: true, resume: undefined }),
+        session(asSessionId('open-resumable'), { issueClosed: false }),
+      ]
+      const { service, parked } = harness({ sessions, maxIdleSessions: 1 })
+
+      service.onHostMetrics(asMachineId('local'), sample(10))
+
+      expect(parked).toEqual(['open-resumable'])
+    })
+
+    it('orders memory-pressure candidates the same way', () => {
+      const sessions = [
+        session(asSessionId('open'), {
+          issueClosed: false,
+          lastActiveAt: new Date(NOW - 5 * HOUR).toISOString(),
+        }),
+        session(asSessionId('closed'), { issueClosed: true }),
+      ]
+      const { service, parked } = harness({ sessions, maxIdleSessions: null })
+
+      service.onHostMetrics(asMachineId('local'), sample(90))
+
+      expect(parked).toEqual(['closed'])
+    })
+  })
 })

@@ -113,8 +113,8 @@ describe('normalizeSettings — coding.seedCliTheme [spec:SP-a04d]', () => {
 })
 
 describe('normalizeSettings — idle-session target', () => {
-  it('defaults an absent target to 30 but preserves explicit unlimited', () => {
-    expect(normalizeSettings({}).hibernation.maxIdleSessions).toBe(30)
+  it('defaults an absent target to 8 but preserves explicit unlimited', () => {
+    expect(normalizeSettings({}).hibernation.maxIdleSessions).toBe(8)
     expect(
       normalizeSettings({ hibernation: { maxIdleSessions: null } }).hibernation.maxIdleSessions,
     ).toBeNull()

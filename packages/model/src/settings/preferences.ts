@@ -218,8 +218,15 @@ export const HibernationPolicy = z.object({
   memoryPct: z.number().int().min(50).max(95).default(80),
   /** Per-machine idle-live convergence target [spec:SP-c29e]. Null is
    * unlimited; zero is valid and parks every session that passes the safety
-   * gates. */
-  maxIdleSessions: z.number().int().min(0).nullable().default(30),
+   * gates.
+   *
+   * The default was 30 (POD-568). That is not a ceiling anyone would choose
+   * deliberately — it is roughly the fleet size that made an 8-core host
+   * unusable in POD-526, and because count pressure runs INDEPENDENTLY of
+   * memory, the policy was converging correctly toward a target nobody wanted.
+   * Eight is the number a person would pick for one machine; raise it here, not
+   * by leaving the ceiling high enough never to bind. */
+  maxIdleSessions: z.number().int().min(0).nullable().default(8),
   /** A session counts as idle after this many minutes without activity. */
   idleMinutes: z
     .number()

@@ -150,6 +150,26 @@ describe('store issues', () => {
     rawDb(s).prepare('UPDATE issues SET blocked_by = ? WHERE id = ?').run('{"a":1}', 'iss_1')
     expect(s.issues.getIssue('iss_1')?.blockedBy).toEqual([])
   })
+
+  // POD-568 — the finished-work projection the auto-hibernate sweep orders by.
+  it('names closed issues by stage, close reason and tombstone', () => {
+    const s = new SessionStore(':memory:')
+    s.issues.upsertIssue({ ...base(), id: asIssueId('open'), seq: 1, stage: 'in_progress' })
+    s.issues.upsertIssue({ ...base(), id: asIssueId('review'), seq: 2, stage: 'review' })
+    s.issues.upsertIssue({ ...base(), id: asIssueId('done'), seq: 3, stage: 'done' })
+    // Closed for a reason WITHOUT reaching done — the half isIssueClosed exists for.
+    s.issues.upsertIssue({
+      ...base(),
+      id: asIssueId('duped'),
+      seq: 4,
+      stage: 'backlog',
+      closedReason: 'duplicate',
+    })
+    s.issues.upsertIssue({ ...base(), id: asIssueId('gone'), seq: 5, stage: 'planning' })
+    rawDb(s).prepare('UPDATE issues SET deleted_at = ? WHERE id = ?').run('t1', 'gone')
+
+    expect([...s.issues.closedIssueIds()].sort()).toEqual(['done', 'duped', 'gone'])
+  })
 })
 
 /** White-box seam: reach the store's own SQLite connection to inject corrupt rows. */

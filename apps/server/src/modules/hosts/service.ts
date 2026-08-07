@@ -39,6 +39,14 @@ export interface HostSessionView {
   lastResumedAtMs: number
   lastInputAtMs: number
   lastOutputAtMs: number
+  /**
+   * Whether this session's issue is finished — done stage, an explicit close
+   * reason, or deleted. Absent when the session has no issue at all.
+   *
+   * ORDERING ONLY. See {@link HostsService.lifecycleTier} for why it can never
+   * become a gate.
+   */
+  issueClosed?: boolean | undefined
 }
 
 export interface HostsDeps {
@@ -282,7 +290,37 @@ export class HostsService {
         }
         return false
       })
-      .sort((a, b) => this.effectiveIdleSinceMs(a) - this.effectiveIdleSinceMs(b))
+      .sort(
+        (a, b) =>
+          this.lifecycleTier(a) - this.lifecycleTier(b) ||
+          this.effectiveIdleSinceMs(a) - this.effectiveIdleSinceMs(b),
+      )
+  }
+
+  /**
+   * Reap finished work first (POD-568). Lower tier parks sooner:
+   *
+   *   0  the session's issue is closed
+   *   1  the session has no issue
+   *   2  the session's issue is open
+   *
+   * STAGE ORDERS, IT NEVER AUTHORIZES. This runs on the output of the filter
+   * above, so a session reaches the sort only after passing every safety gate
+   * independently — resume ref present, phase idle/ended, idle past
+   * `idleMinutes`, a full minute of output quiet, and a revalidated terminal
+   * proof. A closed issue therefore buys a session no less protection than an
+   * open one; it only loses its place in a queue it already qualified for.
+   *
+   * That distinction is the whole reason this is a comparator and not a
+   * predicate. `done` is an agent-writable claim, agents mark it while still
+   * writing, and it also means "waiting for merge" — so it cannot be trusted to
+   * decide anything. It can be trusted to break a tie, because the tie is
+   * between two sessions both already judged safe to park.
+   */
+  private lifecycleTier(session: HostSessionView): number {
+    if (session.issueClosed === true) return 0
+    if (session.issueClosed === undefined) return 1
+    return 2
   }
 
   private effectiveIdleSinceMs(session: HostSessionView): number {

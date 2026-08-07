@@ -93,7 +93,7 @@ export function HibernationSection({
               hibernation: {
                 ...settings.hibernation,
                 maxIdleSessions:
-                  e.target.value === '' ? null : clampInt(e.target.value, 0, 10000, 30),
+                  e.target.value === '' ? null : clampInt(e.target.value, 0, 10000, 8),
               },
             })
           }

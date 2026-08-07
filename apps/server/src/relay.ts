@@ -741,8 +741,12 @@ export class SessionRegistry {
         getSettings: () => this.store.settings.getSettings(),
         clients: () => clientRegistry.values(),
         machineName: (id) => machines.machineName(id),
-        sessions: () =>
-          [...liveSessions.values()].map((session) => ({
+        sessions: () => {
+          // ONE statement per projection, not one per session (POD-568): the
+          // sweep asks for this on every host sample, and the whole point of the
+          // narrow query is that a five-second path never materializes issue rows.
+          const closed = this.store.issues.closedIssueIds()
+          return [...liveSessions.values()].map((session) => ({
             sessionId: session.sessionId,
             machineId: session.machineId,
             status: session.status,
@@ -752,7 +756,13 @@ export class SessionRegistry {
             lastResumedAtMs: session.terminal.lastResumedAtMs,
             lastInputAtMs: session.terminal.lastInputAtMs,
             lastOutputAtMs: session.terminal.lastOutputAtMs,
-          })),
+            // Bound issue only. A session whose cwd merely sits INSIDE some
+            // issue's worktree resolves through `issueForCwd`, which is a
+            // per-session durable read; it would land in the no-issue tier,
+            // which is already above open work and below closed work.
+            ...(session.issueId != null ? { issueClosed: closed.has(session.issueId) } : {}),
+          }))
+        },
         hibernateSession: (input) => sessionsSvc.hibernateSession(input),
         hasValidTerminalProof: (sessionId) => sessionsSvc.hasValidTerminalProof(sessionId),
         terminalProofMissing: (sessionId) => sessionsSvc.terminalProofMissing(sessionId),

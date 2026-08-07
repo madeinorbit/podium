@@ -162,7 +162,7 @@ describe('the composed blob still parses exactly as before', () => {
       },
       apiKeys: { openrouter: '', anthropic: '', openai: '' },
       integrations: { linearApiKey: '' },
-      hibernation: { enabled: true, memoryPct: 80, maxIdleSessions: 30, idleMinutes: 30 },
+      hibernation: { enabled: true, memoryPct: 80, maxIdleSessions: 8, idleMinutes: 30 },
       notifications: { web: true, ntfyTopic: '', telegramBotToken: '', telegramChatId: '' },
       sidebar: { repoSort: 'lastUsed', repoOrder: [], groupByRepo: false },
       gitWorkflow: { defaultParentBranch: '', mergeStyle: 'ff-only', autoRebaseBeforeMerge: true },
