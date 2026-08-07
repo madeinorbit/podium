@@ -357,7 +357,10 @@ function IssueColumn({
     >
       <div
         className={cn(
-          'flex h-(--section-bar-h) flex-none items-center gap-2 border-hairline-bar border-b bg-bar px-3 transition-colors duration-150',
+          // `select-none`: the header is chrome, and chrome does not select —
+          // a double-click near a column title must not leave "In Progress"
+          // highlighted in a native window.
+          'flex h-(--section-bar-h) flex-none select-none items-center gap-2 border-hairline-bar border-b bg-bar px-3 transition-colors duration-150',
           over && 'issue-mix-9',
         )}
       >

@@ -228,7 +228,9 @@ export function IssueCard({
         type="button"
         data-issue-id={issue.id}
         className={cn(
-          'flex w-full flex-col gap-1 rounded-[7px] px-2.5 py-[7px] text-left',
+          // A card is dragged, not read: `select-none` stops a drag that starts
+          // on the title from painting a text selection across the column.
+          'flex w-full select-none flex-col gap-1 rounded-[7px] px-2.5 py-[7px] text-left',
           'issue-mix-6 issue-base-card issue-hairline-22 border',
           'transition-[background-color,border-color] duration-150 ease-out',
           'hover:issue-mix-11 hover:issue-hairline-38',
