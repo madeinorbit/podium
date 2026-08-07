@@ -2,7 +2,7 @@ import { shallowEqual } from '@podium/client-core/store'
 import type { IssueColorSlot } from '@podium/model'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import type { CSSProperties, JSX, ReactNode } from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { toast } from 'sonner'
 import { IssuePeekOverlay } from '@/components/IssuePeekOverlay'
 import { RefMiniviewHost, RefPrefixSync } from '@/components/RefMiniview'
@@ -229,8 +229,18 @@ function AppBody(): JSX.Element {
   const [sidebarCollapsed, setSidebarCollapsedState] = useState(() =>
     readBooleanState(uiState.get(SIDEBAR_COLLAPSED_KEY)),
   )
-  const [flightDeckCollapsed, setFlightDeckCollapsedState] = useState(() =>
-    readFlightDeckCollapsed(uiState.get(SUPERAGENT_MODE_KEY)),
+  // SUBSCRIBED, not seeded into local state. This key is per-user REPLICATED
+  // layout, and a `useState` initializer reads it on the first render — before
+  // the replica has the row — then never runs again, so a stored "folded" is
+  // read as null and the column boots open forever after. Device-local keys do
+  // not have this problem (they are in the local cache at mount), which is why
+  // the column's WIDTH persisted while its mode did not. Same idiom as
+  // use-terminal-appearance.
+  const flightDeckCollapsed = readFlightDeckCollapsed(
+    useSyncExternalStore(
+      (onChange) => uiState.subscribe(onChange),
+      () => uiState.get(SUPERAGENT_MODE_KEY),
+    ),
   )
   const [rightPanel, setRightPanelState] = useState<RightPanelTab | null>(() =>
     readRightPanel(uiState.get(RIGHT_PANEL_KEY)),
@@ -252,7 +262,6 @@ function AppBody(): JSX.Element {
     uiState.set(SIDEBAR_COLLAPSED_KEY, String(collapsed))
   }
   const setFlightDeckCollapsed = (collapsed: boolean): void => {
-    setFlightDeckCollapsedState(collapsed)
     uiState.set(SUPERAGENT_MODE_KEY, collapsed ? 'folded' : 'open')
   }
   const setRightPanel = (panel: RightPanelTab | null): void => {
