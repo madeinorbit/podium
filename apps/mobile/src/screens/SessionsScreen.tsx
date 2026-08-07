@@ -58,52 +58,61 @@ export function SessionsScreen() {
       right={<NewWorkButton />}
     >
       <BootstrapCrossfade resolved={!booting} placeholder={<WorkSkeleton />}>
-  <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
-        <SectionList
-          sections={sections}
-          keyExtractor={(session) => session.sessionId}
-          stickySectionHeadersEnabled={false}
-          contentContainerStyle={styles.listContent}
-          refreshControl={refreshControl}
-          {...refreshAccessibilityProps}
-          renderSectionHeader={({ section }) => (
-            <View style={styles.sectionHeader}>
-              <Text
-                style={[
-                  styles.sectionLabel,
-                  section.key === 'needsYou' && styles.needsYouLabel,
-                  section.key === 'working' && styles.workingLabel,
-                ]}
-              >
-                {section.title.toUpperCase()}
-              </Text>
-              {section.key === 'needsYou' ? (
-                <CountPill count={section.data.length} />
-              ) : (
-                <Text style={styles.sectionCount}>{section.data.length}</Text>
-              )}
-              <View style={styles.sectionRule} />
-            </View>
-          )}
-          renderItem={({ item: session }) => {
-            const issue = issueFor(session)
-            return (
-              <SessionCard
-                model={sessionCardModel(session, issue, now)}
-                issue={issue}
-                agentColor={session.agentColor}
-                onPress={() => router.push(sessionHref(session.sessionId, '/work'))}
-                onLongPress={issue ? () => setPeek({ issue, session }) : undefined}
-              />
-            )
-          }}
-          ListEmptyComponent={
-            <EmptyState
-              title="No agents running"
-              body="Start a session with the + button, or fire off a task from the board."
-            />
-          }
-        />
+        <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
+          <SectionList
+            sections={sections}
+            keyExtractor={(session) => session.sessionId}
+            stickySectionHeadersEnabled={false}
+            contentContainerStyle={styles.listContent}
+            refreshControl={refreshControl}
+            {...refreshAccessibilityProps}
+            renderSectionHeader={({ section }) => (
+              <View style={styles.sectionHeader}>
+                <Text
+                  style={[
+                    styles.sectionLabel,
+                    section.key === 'needsYou' && styles.needsYouLabel,
+                    section.key === 'working' && styles.workingLabel,
+                  ]}
+                >
+                  {section.title.toUpperCase()}
+                </Text>
+                {section.key === 'needsYou' ? (
+                  <CountPill count={section.data.length} />
+                ) : (
+                  <Text style={styles.sectionCount}>{section.data.length}</Text>
+                )}
+                <View style={styles.sectionRule} />
+              </View>
+            )}
+            renderItem={({ item: session }) => {
+              const issue = issueFor(session)
+              return (
+                <SessionCard
+                  model={sessionCardModel(session, issue, now)}
+                  issue={issue}
+                  agentColor={session.agentColor}
+                  onPress={() => router.push(sessionHref(session.sessionId, '/work'))}
+                  onLongPress={issue ? () => setPeek({ issue, session }) : undefined}
+                />
+              )
+            }}
+            ListEmptyComponent={
+              // Guarded on `booting` even though the crossfade covers this
+              // screen: ListEmptyComponent is rendered by the list whenever its
+              // data is empty, with no notion of whether loading has finished, so
+              // without this the empty state is CONSTRUCTED during bootstrap and
+              // sits in the tree — and in the accessibility tree — underneath an
+              // opaque placeholder. The crossfade stops it being SEEN; this stops
+              // it being built. Related conditions, not the same one.
+              booting ? null : (
+                <EmptyState
+                  title="No agents running"
+                  body="Start a session with the + button, or fire off a task from the board."
+                />
+              )
+            }
+          />
         </PullToRefreshBoundary>
       </BootstrapCrossfade>
       <TaskPeekSheet

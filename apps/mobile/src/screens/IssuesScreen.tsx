@@ -97,98 +97,107 @@ export function IssuesScreen() {
       }
     >
       <BootstrapCrossfade resolved={!booting} placeholder={<TasksSkeleton />}>
-  <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
-        <SectionList
-          ref={listRef as never}
-          sections={sections}
-          keyExtractor={(issue) => issue.id}
-          stickySectionHeadersEnabled
-          refreshControl={refreshControl}
-          contentContainerStyle={[styles.listContent, { paddingBottom: tabBarInset + space.lg }]}
-          {...refreshAccessibilityProps}
-          {...minimizeOnScroll}
-          ListHeaderComponent={
-            proposals.length === 0 ? null : (
-              <PressableScale
-                accessibilityRole="button"
-                accessibilityLabel="Screen proposed"
-                accessibilityHint={`Decide on ${proposals.length} proposal${proposals.length === 1 ? '' : 's'} one at a time`}
-                onPress={() => router.push('/screen-proposed')}
-                style={({ pressed }) => [styles.screenRow, pressed && styles.screenRowPressed]}
-              >
-                <View style={styles.screenIcon}>
-                  <Icon as={Layers} size={16} color={color.accent} />
-                </View>
-                <View style={styles.screenText}>
-                  <Text style={styles.screenTitle}>Screen proposed</Text>
-                  <Text style={styles.screenSub}>
-                    {`${proposals.length} proposal${proposals.length === 1 ? '' : 's'} waiting on your call`}
-                  </Text>
-                </View>
-                <Icon as={ChevronRight} size={16} color={color.textFaint} />
-              </PressableScale>
-            )
-          }
-          renderSectionHeader={({ section }) => (
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionLabel}>{section.title.toUpperCase()}</Text>
-              <Text style={styles.sectionCount}>{section.data.length}</Text>
-              <View style={styles.sectionRule} />
-            </View>
-          )}
-          renderItem={({ item: issue }) => {
-            const hex = issueColorHex(issue.color)
-            const resting = issue.stage === 'backlog' || issue.stage === 'proposed'
-            return (
-              <PressableScale
-                accessibilityRole="button"
-                accessibilityLabel={`Issue ${issue.seq}: ${issue.title}`}
-                onPress={() => router.push(`/issue/${encodeURIComponent(issue.id)}`)}
-                style={({ pressed }) => [
-                  styles.card,
-                  hex ? { backgroundColor: flow.rowBg(hex) } : null,
-                  pressed && styles.cardPressed,
-                ]}
-              >
-                <View style={styles.topRow}>
-                  <IdSquare
-                    issue={issue}
-                    state={
-                      issue.stage === 'done'
-                        ? 'done'
-                        : issue.needsHuman
-                          ? 'waiting'
-                          : resting
-                            ? 'queued'
-                            : 'working'
-                    }
-                    ringColor={hex ? flow.rowBg(hex) : color.surface}
-                  />
-                  <Text
-                    style={[styles.title, hex ? { color: flow.text(hex) } : null]}
-                    numberOfLines={2}
-                  >
-                    {issue.title}
-                  </Text>
-                </View>
-                <View style={styles.metaRow}>
-                  <Pill label={issue.type} />
-                  <Pill label={`P${issue.priority}`} />
-                  {issue.needsHuman ? <Pill label="needs human" toneKey="needsYou" /> : null}
-                  {issue.blockedByNotes.length > 0 ? (
-                    <Pill label={`blocked by ${issue.blockedByNotes.length}`} toneKey="danger" />
-                  ) : null}
-                  <Text style={styles.repo} numberOfLines={1}>
-                    {repoName(issue)}
-                  </Text>
-                </View>
-              </PressableScale>
-            )
-          }}
-          ListEmptyComponent={
-            <EmptyState title="No tasks" body="Tasks filed in your repos show up here." />
-          }
-        />
+        <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
+          <SectionList
+            ref={listRef as never}
+            sections={sections}
+            keyExtractor={(issue) => issue.id}
+            stickySectionHeadersEnabled
+            refreshControl={refreshControl}
+            contentContainerStyle={[styles.listContent, { paddingBottom: tabBarInset + space.lg }]}
+            {...refreshAccessibilityProps}
+            {...minimizeOnScroll}
+            ListHeaderComponent={
+              proposals.length === 0 ? null : (
+                <PressableScale
+                  accessibilityRole="button"
+                  accessibilityLabel="Screen proposed"
+                  accessibilityHint={`Decide on ${proposals.length} proposal${proposals.length === 1 ? '' : 's'} one at a time`}
+                  onPress={() => router.push('/screen-proposed')}
+                  style={({ pressed }) => [styles.screenRow, pressed && styles.screenRowPressed]}
+                >
+                  <View style={styles.screenIcon}>
+                    <Icon as={Layers} size={16} color={color.accent} />
+                  </View>
+                  <View style={styles.screenText}>
+                    <Text style={styles.screenTitle}>Screen proposed</Text>
+                    <Text style={styles.screenSub}>
+                      {`${proposals.length} proposal${proposals.length === 1 ? '' : 's'} waiting on your call`}
+                    </Text>
+                  </View>
+                  <Icon as={ChevronRight} size={16} color={color.textFaint} />
+                </PressableScale>
+              )
+            }
+            renderSectionHeader={({ section }) => (
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionLabel}>{section.title.toUpperCase()}</Text>
+                <Text style={styles.sectionCount}>{section.data.length}</Text>
+                <View style={styles.sectionRule} />
+              </View>
+            )}
+            renderItem={({ item: issue }) => {
+              const hex = issueColorHex(issue.color)
+              const resting = issue.stage === 'backlog' || issue.stage === 'proposed'
+              return (
+                <PressableScale
+                  accessibilityRole="button"
+                  accessibilityLabel={`Issue ${issue.seq}: ${issue.title}`}
+                  onPress={() => router.push(`/issue/${encodeURIComponent(issue.id)}`)}
+                  style={({ pressed }) => [
+                    styles.card,
+                    hex ? { backgroundColor: flow.rowBg(hex) } : null,
+                    pressed && styles.cardPressed,
+                  ]}
+                >
+                  <View style={styles.topRow}>
+                    <IdSquare
+                      issue={issue}
+                      state={
+                        issue.stage === 'done'
+                          ? 'done'
+                          : issue.needsHuman
+                            ? 'waiting'
+                            : resting
+                              ? 'queued'
+                              : 'working'
+                      }
+                      ringColor={hex ? flow.rowBg(hex) : color.surface}
+                    />
+                    <Text
+                      style={[styles.title, hex ? { color: flow.text(hex) } : null]}
+                      numberOfLines={2}
+                    >
+                      {issue.title}
+                    </Text>
+                  </View>
+                  <View style={styles.metaRow}>
+                    <Pill label={issue.type} />
+                    <Pill label={`P${issue.priority}`} />
+                    {issue.needsHuman ? <Pill label="needs human" toneKey="needsYou" /> : null}
+                    {issue.blockedByNotes.length > 0 ? (
+                      <Pill label={`blocked by ${issue.blockedByNotes.length}`} toneKey="danger" />
+                    ) : null}
+                    <Text style={styles.repo} numberOfLines={1}>
+                      {repoName(issue)}
+                    </Text>
+                  </View>
+                </PressableScale>
+              )
+            }}
+            ListEmptyComponent={
+              // Guarded on `booting` even though the crossfade covers this
+              // screen: ListEmptyComponent is rendered by the list whenever its
+              // data is empty, with no notion of whether loading has finished, so
+              // without this the empty state is CONSTRUCTED during bootstrap and
+              // sits in the tree — and in the accessibility tree — underneath an
+              // opaque placeholder. The crossfade stops it being SEEN; this stops
+              // it being built. Related conditions, not the same one.
+              booting ? null : (
+                <EmptyState title="No tasks" body="Tasks filed in your repos show up here." />
+              )
+            }
+          />
         </PullToRefreshBoundary>
       </BootstrapCrossfade>
     </Screen>

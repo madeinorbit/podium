@@ -236,61 +236,67 @@ export function WorkScreen() {
           would race the bootstrap. */}
       <BootstrapCrossfade resolved={!booting} placeholder={<WorkSkeleton />}>
         <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
-        <SectionList
-          ref={listRef as never}
-          sections={sections}
-          keyExtractor={(row) => (row.kind === 'issue' ? row.issue.id : row.worktree.path)}
-          refreshControl={refreshControl}
-          contentContainerStyle={[styles.listContent, { paddingBottom: tabBarInset + space.lg }]}
-          {...refreshAccessibilityProps}
-          {...minimizeOnScroll}
-          stickySectionHeadersEnabled={false}
-          renderSectionHeader={({ section }) => (
-            <View style={styles.groupLabel}>
-              {section.pinned ? <Icon as={Pin} size={9} color={color.accent} /> : null}
-              <Text style={styles.groupLabelText} numberOfLines={1}>
-                {section.label}
-              </Text>
-              <View style={styles.rule} />
-            </View>
-          )}
-          renderItem={({ item }) => renderRow(item)}
-          renderSectionFooter={({ section }) => (
-            <View style={styles.folds}>
-              {section.snoozedRows.length > 0 ? (
-                <Fold
-                  storageKey={`podium:sidebar:snoozed-fold:${section.key}`}
-                  label="Snoozed"
-                  rows={section.snoozedRows}
-                  lane="snoozed"
-                  now={now}
-                  onOpen={openIssue}
-                  onLongPress={setMenuIssue}
+          <SectionList
+            ref={listRef as never}
+            sections={sections}
+            keyExtractor={(row) => (row.kind === 'issue' ? row.issue.id : row.worktree.path)}
+            refreshControl={refreshControl}
+            contentContainerStyle={[styles.listContent, { paddingBottom: tabBarInset + space.lg }]}
+            {...refreshAccessibilityProps}
+            {...minimizeOnScroll}
+            stickySectionHeadersEnabled={false}
+            renderSectionHeader={({ section }) => (
+              <View style={styles.groupLabel}>
+                {section.pinned ? <Icon as={Pin} size={9} color={color.accent} /> : null}
+                <Text style={styles.groupLabelText} numberOfLines={1}>
+                  {section.label}
+                </Text>
+                <View style={styles.rule} />
+              </View>
+            )}
+            renderItem={({ item }) => renderRow(item)}
+            renderSectionFooter={({ section }) => (
+              <View style={styles.folds}>
+                {section.snoozedRows.length > 0 ? (
+                  <Fold
+                    storageKey={`podium:sidebar:snoozed-fold:${section.key}`}
+                    label="Snoozed"
+                    rows={section.snoozedRows}
+                    lane="snoozed"
+                    now={now}
+                    onOpen={openIssue}
+                    onLongPress={setMenuIssue}
+                  />
+                ) : null}
+                {section.closedRows.length > 0 ? (
+                  <Fold
+                    storageKey={`podium:sidebar:closed-fold:${section.key}`}
+                    label="Closed"
+                    rows={section.closedRows}
+                    lane="closed"
+                    now={now}
+                    onOpen={openIssue}
+                    onLongPress={setMenuIssue}
+                  />
+                ) : null}
+              </View>
+            )}
+            ListEmptyComponent={
+              // Guarded on `booting` even though the crossfade covers this
+              // screen: ListEmptyComponent is rendered by the list whenever its
+              // data is empty, with no notion of whether loading has finished, so
+              // without this the empty state is CONSTRUCTED during bootstrap and
+              // sits in the tree — and in the accessibility tree — underneath an
+              // opaque placeholder. The crossfade stops it being SEEN; this stops
+              // it being built. Related conditions, not the same one.
+              booting ? null : (
+                <EmptyState
+                  title="No work yet"
+                  body="Tasks and their agents appear here — the same list, in the same order, as the desktop sidebar."
                 />
-              ) : null}
-              {section.closedRows.length > 0 ? (
-                <Fold
-                  storageKey={`podium:sidebar:closed-fold:${section.key}`}
-                  label="Closed"
-                  rows={section.closedRows}
-                  lane="closed"
-                  now={now}
-                  onOpen={openIssue}
-                  onLongPress={setMenuIssue}
-                />
-              ) : null}
-            </View>
-          )}
-          ListEmptyComponent={
-            // No booting branch here any more: the crossfade above owns the
-            // unresolved case, so by the time this renders the list is
-            // genuinely empty rather than merely unloaded.
-            <EmptyState
-              title="No work yet"
-              body="Tasks and their agents appear here — the same list, in the same order, as the desktop sidebar."
-            />
-          }
-        />
+              )
+            }
+          />
         </PullToRefreshBoundary>
       </BootstrapCrossfade>
       <TaskPeekSheet issue={peek} sessions={sessionsAll} onClose={() => setPeek(null)} />

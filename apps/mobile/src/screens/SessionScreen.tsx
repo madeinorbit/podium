@@ -376,7 +376,11 @@ export function SessionScreen() {
           resolved={loaded || items.length > 0}
           placeholder={<TranscriptSkeleton />}
         >
-          <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
+          <PullToRefreshBoundary
+            connected={connected}
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+          >
             <TranscriptList
               items={items}
               live={session?.status === 'live'}
@@ -398,7 +402,8 @@ export function SessionScreen() {
               }
               tail={{
                 label:
-                  activity?.label ?? (session.agentState?.phase === 'idle' ? 'Idle' : session.status),
+                  activity?.label ??
+                  (session.agentState?.phase === 'idle' ? 'Idle' : session.status),
                 tone: activity?.tone === 'attention' ? 'attention' : activity ? 'working' : 'idle',
                 since: session.agentState?.since,
               }}
@@ -431,7 +436,9 @@ export function SessionScreen() {
                     evidenceCount={offerArtifacts.length}
                     onAction={(prompt) => store.resumeAndSend(session.sessionId, prompt)}
                     onOpenEvidence={
-                      issue ? () => router.push(`/issue/${encodeURIComponent(issue.id)}`) : undefined
+                      issue
+                        ? () => router.push(`/issue/${encodeURIComponent(issue.id)}`)
+                        : undefined
                     }
                   />
                 ) : undefined
