@@ -943,6 +943,149 @@ describe('IssueService archive cascade to sessions (#133)', () => {
   })
 })
 
+/**
+ * Archive gives the DISK back too (POD-567) — the second half of the same
+ * teardown the cascade above starts. Archive already stopped the processes; the
+ * checkout it left behind was ~82 of the ~100 stale worktrees on the origin host.
+ *
+ * The invariant under every case here: the branch survives. Freeing is reversible
+ * (`ensureWorktree` rebuilds from the branch on resume), refusing is safe — so
+ * the only unacceptable outcome, discarding uncommitted work, is the one no
+ * automatic path can produce.
+ */
+describe('archive frees the worktree, keeping the branch (POD-567)', () => {
+  /** The free is fire-and-forget off a synchronous archive (see `onIssueArchived`)
+   *  — a macrotask lets its repoOp round trips settle before asserting. */
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+  const startedIssue = (h: ReturnType<typeof harness>, title = 'Shipped') => {
+    const w = h.svc.create({ repoPath: '/r', title, startNow: false })
+    h.svc.update(w.id, { worktreePath: '/r/.worktrees/issue-x', branch: 'issue/x' })
+    return w.id
+  }
+
+  const opsOf = (h: ReturnType<typeof harness>) =>
+    h.deps.repoOp.mock.calls as [string, string, Record<string, string> | undefined, ...unknown[]][]
+
+  it('frees the checkout on a manual archive, keeps the branch, and never forces', async () => {
+    const h = harness()
+    const id = startedIssue(h)
+
+    h.svc.archive(id)
+    await settle()
+
+    expect(h.svc.get(id)!.worktreePath).toBeNull()
+    expect(h.svc.get(id)!.branch).toBe('issue/x')
+    const remove = opsOf(h).find(([op]) => op === 'worktreeRemove')
+    expect(remove?.[1]).toBe('/r') // the repo, with the worktree path as an arg
+    expect(remove?.[2]).toEqual({ path: '/r/.worktrees/issue-x' }) // NO force, ever
+    expect(h.store.events.listEventsSince(0, { kinds: ['issue.worktree_freed'] }).length).toBe(1)
+  })
+
+  it('frees on the read-gated 7-day sweep too, not only on the operator’s own archive', async () => {
+    const h = harness()
+    const id = startedIssue(h, 'Aged out')
+    h.svc.close(id)
+    h.svc.markIssueRead(id)
+
+    const readAtMs = Date.parse('2026-06-30T00:00:00.000Z')
+    expect(h.svc.sweepAutoArchive(readAtMs + 8 * 24 * 3600_000).map((w) => w.id)).toEqual([id])
+    await settle()
+
+    expect(h.svc.get(id)!.worktreePath).toBeNull()
+    expect(h.svc.get(id)!.branch).toBe('issue/x')
+  })
+
+  it('an unmerged branch is NOT a refusal — that is the merge-pending case', async () => {
+    // The worktree is clean but the branch has never landed. Freeing is exactly
+    // right here: the commits live on the branch, and resume rebuilds the checkout.
+    const h = harness()
+    h.deps.repoOp.mockImplementation(async (op: string) => {
+      if (op === 'status') return { ok: true, output: '## issue/x...origin/main [ahead 3]' }
+      return { ok: true, output: '' }
+    })
+    const id = startedIssue(h, 'Waiting on merge')
+
+    h.svc.archive(id)
+    await settle()
+
+    expect(h.svc.get(id)!.worktreePath).toBeNull()
+    expect(h.svc.get(id)!.branch).toBe('issue/x')
+  })
+
+  it('refuses on a dirty tree: the checkout stays, and the refusal is recorded', async () => {
+    const h = harness()
+    h.deps.repoOp.mockImplementation(async (op: string) => {
+      if (op === 'status') return { ok: true, output: '## issue/x\n M src/unsaved.ts' }
+      return { ok: true, output: '' }
+    })
+    const id = startedIssue(h, 'Half-finished')
+
+    h.svc.archive(id)
+    await settle()
+
+    expect(h.svc.get(id)!.worktreePath).toBe('/r/.worktrees/issue-x')
+    expect(opsOf(h).some(([op]) => op === 'worktreeRemove')).toBe(false)
+    const refused = h.store.events.listEventsSince(0, { kinds: ['issue.worktree_free_refused'] })
+    expect(refused.length).toBe(1)
+    // The reason travels with it — "why is this directory still here" is answerable.
+    expect(JSON.stringify(refused[0]!.payload)).toContain('unsaved.ts')
+  })
+
+  it('refuses while a live session from ANOTHER issue is sitting in the path', async () => {
+    // The cascade parks THIS issue's sessions, so the gate is really about the
+    // squatter: removing the worktree under it is the same data loss as a dirty tree.
+    const sessions: SessionMeta[] = []
+    const h = harness(sessions)
+    const id = startedIssue(h, 'Shared checkout')
+    const other = h.svc.create({ repoPath: '/r', title: 'Neighbour', startNow: false })
+    sessions.push({
+      ...sess('/r/.worktrees/issue-x'),
+      issueId: other.id,
+    } as unknown as SessionMeta)
+
+    h.svc.archive(id)
+    await settle()
+
+    // Not even inspected: the guard runs before any git op on the path.
+    expect(opsOf(h).some(([op]) => op === 'worktreeRemove')).toBe(false)
+    expect(h.svc.get(id)!.worktreePath).toBe('/r/.worktrees/issue-x')
+    expect(h.setSessionArchived).not.toHaveBeenCalledWith('/r/.worktrees/issue-x', true)
+    expect(
+      h.store.events.listEventsSince(0, { kinds: ['issue.worktree_free_refused'] }).length,
+    ).toBe(1)
+  })
+
+  it('does not free on close — only archive, because `done` is an agent-writable claim', async () => {
+    const h = harness()
+    const id = startedIssue(h, 'Done, awaiting review')
+
+    h.svc.close(id)
+    await settle()
+
+    expect(h.svc.get(id)!.worktreePath).toBe('/r/.worktrees/issue-x')
+    expect(opsOf(h).some(([op]) => op === 'worktreeRemove')).toBe(false)
+  })
+
+  it('un-archiving does not free anything (and re-archiving a freed issue is a no-op)', async () => {
+    const h = harness()
+    const id = startedIssue(h)
+    h.svc.archive(id)
+    await settle()
+    h.svc.update(id, { archived: false })
+    h.deps.repoOp.mockClear()
+
+    h.svc.update(id, { archived: true })
+    await settle()
+
+    // Nothing left to free: no git op, no refusal event.
+    expect(opsOf(h).length).toBe(0)
+    expect(
+      h.store.events.listEventsSince(0, { kinds: ['issue.worktree_free_refused'] }).length,
+    ).toBe(0)
+  })
+})
+
 describe('IssueService next-message defer (#430)', () => {
   it('defers until next message and clears when a member session enters attention', () => {
     const sessions: SessionMeta[] = []

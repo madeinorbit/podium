@@ -3,6 +3,7 @@ import type { IssueId, IssueWire, SessionId, SessionMeta, UserId } from '@podium
 import {
   attributionOf,
   onBehalfOfUser,
+  systemPrincipal,
   type CommandPrincipal,
   type SystemCommandPrincipal,
 } from '../../../command-principal'
@@ -31,6 +32,16 @@ import { AUTO_ARCHIVE_READ_WINDOW_MS } from './types'
 interface ReapPass {
   sessions: SessionMeta[]
   childCountByParent: Map<string, number>
+}
+
+/** The one git-workflow call the archive seam makes (POD-567). Declared here, and
+ *  narrow, so attention depends on a guarantee — "free it only if it is safe" —
+ *  rather than on the worktree module. */
+interface IssueAttentionWorktreePort {
+  releaseWorktreeIfIdle(
+    id: string,
+    principal: CommandPrincipal,
+  ): Promise<{ freed: boolean; reason?: string }>
 }
 
 function countChildren(rows: IssueRow[]): Map<string, number> {
@@ -66,6 +77,7 @@ export class IssueAttentionModule {
       addDep(fromRef: string, toRef: string, type?: string): IssueWire
     },
     private readonly reports: () => Pick<IssueReportsModule, 'niceRef'>,
+    private readonly gitWorkflow: () => IssueAttentionWorktreePort,
   ) {}
 
   defer(...args: Parameters<IssueCrudModule['defer']>): ReturnType<IssueCrudModule['defer']> {
@@ -478,13 +490,43 @@ export class IssueAttentionModule {
       readAt: this.store.issueOverlay(row.id).readAt,
       ...(principal ? { attribution: attributionOf(principal) } : {}),
     })
-    // Cascade onto member sessions (issue #133): the sweep must not leave a
-    // session-less worktree row behind, same as the manual archive path.
-    this.cascadeArchiveSessions(row)
-    // TODO(#127 seam): worktree cleanup hooks here. Auto-archive is where future
-    // worktree/branch teardown for a finished issue will attach (see epic #101).
-    // Deliberately NOT implemented now — archiving is purely a UI-declutter today.
+    // Same teardown as the manual archive path — the sweep must not leave a
+    // session-less worktree row (issue #133) or a checkout (POD-567) behind.
+    this.onIssueArchived(row)
     return wire
+  }
+
+  /**
+   * EVERYTHING archiving an issue releases (POD-567). Both triggers funnel here —
+   * the manual/cascade flip that `update()` detects, and the read-gated sweep
+   * above (plus its fenced janitor twin) — so the two can never drift into
+   * archiving the same issue by different amounts.
+   *
+   * Processes first, then disk: `cascadeArchiveSessions` parks each member
+   * session synchronously, which is what makes the worktree free's live-session
+   * gate pass a moment later rather than refuse against agents this very call is
+   * about to stop.
+   *
+   * WHY ARCHIVE IS THE TRIGGER AND `done` IS NOT. `done` is agent-writable and
+   * overloaded — "finished" and "waiting for merge" wear the same stage — so
+   * hanging disk teardown on it would take the checkout out from under work that
+   * is merely waiting on a human. Archive is either an explicit operator act or
+   * the sweep's *closed + the operator has read it + seven days quiet + nothing
+   * since*, which is the strongest "a person has seen this and moved on" signal
+   * the system has. Do not add a `done` trigger.
+   *
+   * Fire-and-forget: the free is a round trip to the issue's machine, and every
+   * archive caller here is synchronous and returns the wire. It is safe to lose —
+   * the worktree simply stays, exactly as it did before this existed, and the GC
+   * sweep (POD-564) will offer it again.
+   */
+  public onIssueArchived(row: IssueRow): void {
+    this.cascadeArchiveSessions(row)
+    void this.gitWorkflow()
+      .releaseWorktreeIfIdle(row.id, systemPrincipal('archive'))
+      .catch((err: unknown) => {
+        console.warn(`[podium:issues] archive could not free worktree for ${row.id}:`, err)
+      })
   }
 
   /** Cascade an issue archive onto its member sessions (issue #133). Archiving an

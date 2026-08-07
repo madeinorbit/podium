@@ -10,7 +10,7 @@ import {
 import { formatIssueRef } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
 import type { CommandPrincipal } from '../../../command-principal'
-import { sessionsForIssue } from '../../../issue-util'
+import { liveSessionsUsingWorktree, sessionsForIssue } from '../../../issue-util'
 import { type LinearIssue, searchIssues } from '../../../linear'
 import { assertModelSelectionValid } from '../../../model-validation'
 import type { IssueRow } from '../../../store'
@@ -104,6 +104,7 @@ export class IssueGitWorkflowModule {
     this.createAndMaybeStart = this.createAndMaybeStart.bind(this)
     this.action = this.action.bind(this)
     this.freeWorktreeKeepBranch = this.freeWorktreeKeepBranch.bind(this)
+    this.releaseWorktreeIfIdle = this.releaseWorktreeIfIdle.bind(this)
     this.ensureWorktree = this.ensureWorktree.bind(this)
     this.cleanup = this.cleanup.bind(this)
     this.integrate = this.integrate.bind(this)
@@ -583,6 +584,65 @@ export class IssueGitWorkflowModule {
       issue,
       worktreeFreed: true,
     }
+  }
+
+  /**
+   * Give a finished issue's disk back, keeping everything reversible (POD-567).
+   *
+   * The GUARDED wrapper around {@link freeWorktreeKeepBranch}: it is the whole
+   * automatic path, so it is where "automatic never destroys work" is enforced
+   * rather than at each caller. Three rules, and they are the reason this is one
+   * function instead of a copied block:
+   *
+   * - **Never `force`.** A dirty tree refuses and stays on disk. Uncommitted work
+   *   is the one thing with no second copy, so an unattended job must leave it
+   *   exactly where its author left it and say so.
+   * - **No live session may be standing in the path** — checked by *path*, not by
+   *   issue, because a session attached to a DIFFERENT issue can be sitting in
+   *   this worktree and removing it underneath one is the same data loss.
+   * - **The branch is kept unconditionally, unmerged included.** That is not a
+   *   refusal case, it is the merge-pending case: the branch holds the work and
+   *   `ensureWorktree` rebuilds the checkout on resume.
+   *
+   * A refusal is REPORTED, never swallowed: it returns its reason and emits
+   * `issue.worktree_free_refused` so "held by uncommitted changes" is a fact in
+   * the log rather than a directory nobody can explain later.
+   *
+   * Callers: the archive seam (`IssueAttentionModule.onIssueArchived`), and the
+   * closed-worktree GC sweep (POD-564) which wants exactly these gates.
+   */
+  async releaseWorktreeIfIdle(
+    id: string,
+    principal: CommandPrincipal,
+  ): Promise<{ freed: boolean; reason?: string }> {
+    const row = this.store.rowOrThrow(id)
+    const worktreePath = row.worktreePath
+    if (!worktreePath) return { freed: false }
+    const stillUsing = liveSessionsUsingWorktree(worktreePath, this.store.d.listSessions())
+    if (stillUsing.length > 0) {
+      return this.refuseRelease(
+        row,
+        worktreePath,
+        `${stillUsing.length} live session(s) still in ${worktreePath}`,
+      )
+    }
+    // NO force — deliberately not plumbed as an option. See the rules above.
+    const freed = await this.freeWorktreeKeepBranch(id, principal)
+    if (!freed.ok) return this.refuseRelease(row, worktreePath, freed.output)
+    return { freed: freed.worktreeFreed }
+  }
+
+  private refuseRelease(
+    row: IssueRow,
+    worktreePath: string,
+    reason: string,
+  ): { freed: false; reason: string } {
+    this.store.emitEvent('issue.worktree_free_refused', row.id, {
+      seq: row.seq,
+      worktreePath,
+      reason,
+    })
+    return { freed: false, reason }
   }
 
   /**

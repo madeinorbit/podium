@@ -69,7 +69,7 @@ interface IssueCrudHierarchyPort {
 }
 
 interface IssueCrudAttentionPort {
-  cascadeArchiveSessions(row: IssueRow): void
+  onIssueArchived(row: IssueRow): void
   retireIssueOffers(row: IssueRow): void
 }
 
@@ -515,7 +515,9 @@ export class IssueCrudModule {
     }
     if (row.archived !== prevArchived && row.archived) {
       this.store.emitEvent('issue.archived', row.id, { seq: row.seq })
-      this.attention().cascadeArchiveSessions(row)
+      // Stops the member sessions AND gives the checkout back (POD-567); the
+      // sweep's own archive path calls the same seam.
+      this.attention().onIssueArchived(row)
     }
     if (row.deferUntil !== prevDeferUntil) {
       if (row.deferUntil != null) {
