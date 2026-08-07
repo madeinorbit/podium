@@ -13,6 +13,11 @@ built, so the count went stale (54 → 70) and the baseline was never re-measure
 below as failing does not verify anything today.
 
 - Lane: `bun run test:browser` → `scripts/browser-lane.ts` (takes `test:heavy` from a live session)
+- Single-suite: `bun run test:browser -- --suite <stem>` (e.g. `--suite clipboard`);
+  unknown names error out. Pass Playwright flags after that
+  (`--project=chromium-pixel`, `--grep …`). Prefer this over hand-rolling playwright.
+- Hand-run prep only: `bun scripts/browser-lane.ts --build-only` then playwright
+  (bridge when you must bypass the lane; webServer fails fast if dist is missing).
 - Quarantine: `scripts/browser-quarantine.ts` (printed on every run)
 - CI: the `browser` job in `.github/workflows/ci.yml`, **non-blocking**, one leg
   per Playwright project
@@ -32,22 +37,28 @@ nothing blocking may ever be folded in beside a swallowed red.
 ## What the lane does that the Playwright config does not
 
 The config (`tests/e2e/playwright.config.ts`) is used **almost unchanged** — its
-`webServer` only boots `serve-harness.ts`. Three things live in the runner instead:
+`webServer` only boots `serve-harness.ts`. Four things live in the runner instead:
 
 1. **Building workspace packages, web, and the mobile web export (POD-535).** The
    test process imports `@podium/protocol` without the `@podium/source` condition,
    so it resolves to `dist`. The harness also serves `apps/web/dist` and the Expo
    mobile export. Those used to rebuild inside Playwright's `webServer` command
    and spent minutes under its wall clock; the lane builds them once, then the
-   harness starts in ~5s. Hand-runs use `bun scripts/browser-lane.ts --build-only`
-   then playwright; webServer fails fast via `browser-dist-preflight.ts` if dist
-   is missing. On a fresh checkout every suite dies without this step
-   (`Cannot find module …/packages/model/dist/index.js`).
+   harness starts in ~5s. Prefer `bun run test:browser -- --suite <stem>` so the
+   lane owns the build. Hand-runs that must bypass the lane use
+   `bun scripts/browser-lane.ts --build-only` first; webServer fails fast via
+   `browser-dist-preflight.ts` if dist is missing. On a fresh checkout every suite
+   dies without this step (`Cannot find module …/packages/model/dist/index.js`).
 2. **Probing imports per suite.** Playwright aborts the entire run when a single
    file fails to import — `Total: 0 tests in 0 files`, and no census at all. The
    runner probes first (fast, no browser), names the unloadable suites as ERRORED,
    and runs the rest, so one rotten import cannot hide the state of the other 69.
-3. **The `test:heavy` lease** (inside `browser-lane.ts` for the full run only;
+3. **Suite selection and zero-test refusal [POD-536].** `--suite` picks from the
+   discovered list (no match → exit 2, never the full lane). The lane also refuses
+   success when the list probe reports zero tests, so a masked or empty run cannot
+   read as green. Use `--project=name` (equals form); the space form is variadic
+   and will swallow a following token as another project name.
+4. **The `test:heavy` lease** (inside `browser-lane.ts` for the full run only;
    `--build-only` does not take it so it cannot deadlock a held hand-run lease).
 
 <!-- CENSUS RESULTS -->

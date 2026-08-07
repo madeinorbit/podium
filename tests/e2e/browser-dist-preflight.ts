@@ -1,10 +1,11 @@
 /**
- * Fail-fast gate for hand-run Playwright (POD-535).
+ * Fail-fast gate when Playwright starts without a prior lane build (POD-535).
  *
  * webServer no longer builds packages — that lives in scripts/browser-lane.ts.
- * Until single-suite selection lands (POD-536), agents hand-run playwright and
- * must build first. Without this check the test process dies on
- * `Cannot find module …/packages/model/dist/index.js` with no pointer to the fix.
+ * Prefer `bun run test:browser -- --suite <stem>` (POD-536). Hand-runs that
+ * bypass the lane must call `--build-only` first. Without this check the test
+ * process dies on `Cannot find module …/packages/model/dist/index.js` with no
+ * pointer to the fix.
  *
  * Used as the first half of playwright.config webServer.command.
  */
@@ -30,7 +31,10 @@ if (missing.length > 0) {
       'Missing:',
       ...missing.map((m) => `  - ${m}`),
       '',
-      'Hand-run (one suite) until POD-536:',
+      'Preferred (builds + selects inside the lane):',
+      '  bun run test:browser -- --suite <stem> --project=chromium-pixel',
+      '',
+      'Hand-run bypass (build then playwright):',
       '  bun scripts/browser-lane.ts --build-only',
       '  bunx playwright test --config tests/e2e/playwright.config.ts --project=chromium-pixel <suite>',
       '',

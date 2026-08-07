@@ -443,11 +443,15 @@ describe('test lane configuration', () => {
       )
     }
 
-    // Hand-run path until POD-536: --build-only must exist and must not take the
+    // Hand-run bridge (POD-535): --build-only must exist and must not take the
     // lease (callers often already hold test:heavy for the playwright half).
+    // Preferred one-suite path is --suite (POD-536); both must stay on the lane.
     expect(lane, 'lane must expose --build-only for hand-runs').toContain('--build-only')
     expect(lane).toMatch(/buildOnly|BUILD_ONLY/)
+    expect(lane, 'lane must expose --suite selection').toContain('--suite')
+    expect(lane).toMatch(/resolveSelectedSuites|suiteSelectors/)
   })
+
 
   it('keeps webServer budget for harness boot only [POD-535]', () => {
     // Builds left this command; serve-harness answers /health in ~5s. A multi-

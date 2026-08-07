@@ -14,7 +14,7 @@ real processes, browsers, PTYs, or agent CLIs that cannot be safely hidden in a 
 | **Inner loop** | `bun run test:changed`, `test:related`, `test:watch` | Root `node` and `normalized-wire` projects selected by Vitest | Fast approximation; not a commit gate |
 | **Integration** | `bun run test:integration` | `vitest.integration.config.ts` plus acceptance: process/PTY/abduco/daemon suites, real-port boots, and loop-split load | Minutes; shared test lease |
 | **E2E** | `bun run test:e2e` | Full-stack server + daemon Vitest files under `tests/e2e/**` with `@podium/source` | Minutes; heavy; no browser |
-| **Browser** | `bun run test:browser` | Playwright browser suites under `tests/e2e/browser/**.browser.e2e.ts` | Tens of minutes; heavy; see browser census |
+| **Browser** | `bun run test:browser` | Playwright browser suites under `tests/e2e/browser/**.browser.e2e.ts` | Tens of minutes; heavy; see browser census. Scope one suite with `-- --suite <name>` (do not hand-roll `playwright test`) |
 | **Agent smoke** | `bun run test:smoke:agents` | Five real agent CLIs, gated by `PODIUM_REAL_CLI=1` | Real money; explicit human request only |
 | **Multi-instance** | `bun run test:multi-instance` | Separate concurrent runtimes plus installer coverage | Minutes; heavy; see [multi-instance.md](../multi-instance.md) |
 | **Full Bun lane** | `bun run test:bun` | All `*.bun.test.ts` suites, including compiled-daemon/lifecycle integration | Heavy; `bun test`, never Vitest |
@@ -57,8 +57,13 @@ Direct package and multi-instance commands do not; when an agent runs those by h
 A hand-rolled Playwright invocation that bypasses the lane still skips the lease and
 will race other heavy work — and it shares the fixed default port 8799 with any other
 Playwright run on the host (lease does not cover that). Prefer the package script when
-you can. Until single-suite selection lands (POD-536), one-suite verification is
-hand-run only; build first so webServer does not start against empty dist (POD-535):
+you can. One-suite verification belongs on the lane (POD-536) so build, selection,
+and exit status stay correct:
+
+    bun run test:browser -- --suite <stem> --project=chromium-pixel
+
+If you must bypass the lane, build first so webServer does not start against empty
+dist (POD-535):
 
     bun scripts/browser-lane.ts --build-only
     bunx playwright test --config tests/e2e/playwright.config.ts --project=chromium-pixel <suite>
@@ -84,7 +89,7 @@ A human running `bun run test` in a terminal without `PODIUM_SESSION_ID` takes n
 | Touched agent-bridge / daemon / server process, PTY, or abduco code | Also `bun run test:integration` |
 | Full-stack flows, before landing UI/server interaction work | `bun run test:e2e` |
 | Touched instance identity, state roots, port derivation, CLI routing, agent ownership, or lifecycle | Also `bun run test:multi-instance` |
-| Changed a web UI surface a `*.browser.e2e.ts` suite covers | Also `bun run test:browser` (scope it: `bun run test:browser -- --grep …`) — and do not cite a suite as runtime verification without re-running it |
+| Changed a web UI surface a `*.browser.e2e.ts` suite covers | Also `bun run test:browser` (scope it: `bun run test:browser -- --suite <stem>` or `-- --suite <stem> --project=chromium-pixel`) — and do not cite a suite as runtime verification without re-running it. Prefer the lane over a hand-rolled `playwright test` invocation: positional filters cannot narrow the full-lane argv, `--project` is variadic (use the `=` form), and piping through `tail`/`grep` masks Playwright's exit status |
 | Real agent CLI behavior | `bun run test:smoke:agents` — ONLY on explicit human request |
 
 Always invoke Vitest through the repo's direct Bun entry point (`bun --bun node_modules/vitest/vitest.mjs run ...`), never plain `vitest` and

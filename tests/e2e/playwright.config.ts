@@ -41,11 +41,11 @@ export default defineConfig({
       // Builds are NOT here. model → protocol → web → mobile export used to sit in
       // this command and routinely spent 100–190s before serve-harness started,
       // which under shared-host load blew the old 180s budget with zero tests run
-      // (POD-535). scripts/browser-lane.ts builds them for the full lane; hand-runs
-      // (forced until POD-536 can select one suite) must call
-      // `bun scripts/browser-lane.ts --build-only` first. browser-dist-preflight.ts
-      // fails fast with that command when dist is missing, instead of a cryptic
-      // module-not-found deep in the test process.
+      // (POD-535). scripts/browser-lane.ts builds them for the full lane and for
+      // `bun run test:browser -- --suite <stem>` (POD-536). Hand-runs that bypass
+      // the lane must call `bun scripts/browser-lane.ts --build-only` first.
+      // browser-dist-preflight.ts fails fast with that command when dist is
+      // missing, instead of a cryptic module-not-found deep in the test process.
       //
       // Timeout is harness boot only (~5s to /health). 180s is generous headroom,
       // not a multi-minute build budget.
