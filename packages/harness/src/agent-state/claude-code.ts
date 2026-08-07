@@ -248,9 +248,40 @@ export interface ClaudePromptHookIdentity {
 }
 
 /**
+ * Hooks a turn already in flight is the only thing that can produce. Receiving one
+ * while no epoch is open proves the observer missed that turn's UserPromptSubmit —
+ * a daemon restart mid-turn, a dropped hook, or a bootstrap whose transcript-tail
+ * classification guessed idle. Without a way back in, the epoch gate below
+ * discards every hook for the rest of the session's life and the session reports
+ * the bootstrap's guess forever: working agents read idle, and questions never
+ * surface because needs_user travels this same path. [POD-593]
+ *
+ * Terminal hooks are deliberately excluded. `epochOpen` is false immediately after
+ * a legitimate Stop, so admitting one here would let a replayed or duplicated
+ * terminal hook manufacture a turn that never existed and restamp the idle
+ * timestamp. SubagentStop is excluded for the same reason (the `closing` path owns
+ * it), and SubagentStart because its task_delta carries no phase — the PreToolUse
+ * that necessarily precedes it is the honest opener.
+ *
+ * Membership here is necessary but not sufficient: the caller additionally
+ * requires prompt-id proof that the hook belongs to some turn other than the one
+ * terminal already closed, so this never weakens the absorbing terminal.
+ */
+const EPOCH_REVIVING_HOOKS = new Set([
+  'PreToolUse',
+  'PostToolUse',
+  'PermissionRequest',
+  'Notification',
+  'PreCompact',
+  'PostCompact',
+])
+
+/**
  * Claude's provider-owned causal barrier. Hook receipt is not itself a turn:
  * only an exact-binding UserPromptSubmit opens an epoch, and Stop/StopFailure
- * closes it absorbingly except for matching child-stop bookkeeping.
+ * closes it absorbingly except for matching child-stop bookkeeping. An epoch the
+ * observer never saw open is recovered from in-flight evidence — see
+ * {@link EPOCH_REVIVING_HOOKS}.
  * [spec:SP-cdb2]
  */
 export class ClaudeCausalObserver {
@@ -450,8 +481,14 @@ export class ClaudeCausalObserver {
     if (transcriptOffset < this.lastOffset) return null
 
     const hookPromptId = str(p.prompt_id) ?? null
+    // A foreign prompt id only disproves a hook while THIS observer still holds a
+    // live epoch. With no epoch open the remembered id belongs to a turn that is
+    // already over, so a differing one is evidence of the turn we missed rather
+    // than of a hook that belongs elsewhere — let it reach the revival below
+    // instead of rejecting it against a stale fence. [POD-593]
     if (
       hook !== 'UserPromptSubmit' &&
+      (this.epochOpen || this.closing) &&
       this.providerPromptId !== null &&
       hookPromptId &&
       hookPromptId !== this.providerPromptId
@@ -517,7 +554,23 @@ export class ClaudeCausalObserver {
       })
     }
 
-    if (!this.epochOpen && !this.closing) return null
+    // No open epoch: either this hook proves a turn we never saw the start of, or
+    // it is a straggler from one that already closed. Terminal must stay absorbing
+    // for the turn it ended, so revival needs positive proof of a DIFFERENT turn —
+    // the hook has to name a prompt id, and one that is not the closed turn's. An
+    // unlabelled hook cannot clear that bar and is still discarded, which is what
+    // keeps an unattributable stray from manufacturing a turn.
+    // Deciding here only SELECTS the revival — the observer's epoch state is not
+    // touched until the transition is known to be emittable (below), so a hook that
+    // reduces to nothing can never burn an epoch number the server would then
+    // reject as non-causal.
+    const reviving =
+      !this.epochOpen &&
+      !this.closing &&
+      EPOCH_REVIVING_HOOKS.has(hook) &&
+      hookPromptId !== null &&
+      hookPromptId !== this.providerPromptId
+    if (!this.epochOpen && !this.closing && !reviving) return null
     if (this.closing) {
       if (hook !== 'SubagentStop') return null
       const agentId = str(p.agent_id)
@@ -546,10 +599,25 @@ export class ClaudeCausalObserver {
     const next = reduceAgentState(prior, withStateChannelEvent(event, 'hook'), this.now())
     if (next === prior) return null
     this.state = next
+    if (reviving) {
+      // Commit the implicit turn. The server fences a new epoch on exactly
+      // +1 AND transitionKind 'turn_opened', so this must mirror the
+      // UserPromptSubmit path rather than emit a bare activity edge.
+      this.turnEpoch += 1
+      this.providerPromptId = hookPromptId
+      this.epochOpen = true
+      this.activeChildren.clear()
+      // No prompt record backs this turn, so the origin is genuinely unknown —
+      // inheriting the previous turn's would misattribute it.
+      this.currentOrigin = inputOrigin ?? 'unknown'
+    }
 
     const terminal = hook === 'Stop' || hook === 'StopFailure' || hook === 'SessionEnd'
-    let transitionKind: AgentObservation['transitionKind'] =
-      hook === 'SubagentStop' ? 'subagent_bookkeeping' : 'activity'
+    let transitionKind: AgentObservation['transitionKind'] = reviving
+      ? 'turn_opened'
+      : hook === 'SubagentStop'
+        ? 'subagent_bookkeeping'
+        : 'activity'
     if (terminal) {
       transitionKind = 'turn_terminal'
       this.epochOpen = false
