@@ -625,7 +625,9 @@ describe('mail e2e: send -> delivery -> reply, through the derived surfaces', ()
     // Exactly one frame — a second would mean a duplicate delivery, which the
     // joined-blob form of this assertion could not see.
     expect(frames).toHaveLength(1)
-    expect(frames[0]?.inputOrigin).toBe('mail')
+    // Operator bodies ride the mail substrate after POD-729 but stamp as
+    // controller so a standing offer clears and the turn is user-origin (POD-552).
+    expect(frames[0]?.inputOrigin).toBe('controller')
     // The body is byte-faithful. No envelope assertion here: an OPERATOR send
     // lands unwrapped by design ([spec:SP-34d7] deliversUnwrapped), so the id
     // is not in the frame — the reply below uses the id the SENDER was handed,

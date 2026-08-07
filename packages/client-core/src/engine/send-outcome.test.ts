@@ -4,8 +4,11 @@ import { assertSendAccepted } from './send-outcome'
 describe('assertSendAccepted', () => {
   it('passes through undefined / bare success / ok:true', () => {
     expect(() => assertSendAccepted(undefined)).not.toThrow()
+    expect(() => assertSendAccepted(null)).not.toThrow()
     expect(() => assertSendAccepted({})).not.toThrow()
+    expect(() => assertSendAccepted({ disposition: 'queued' })).not.toThrow()
     expect(() => assertSendAccepted({ ok: true, disposition: 'accepted' })).not.toThrow()
+    expect(() => assertSendAccepted({ ok: true, disposition: 'delivered' })).not.toThrow()
   })
 
   it('throws BAD_REQUEST for ok:false so the outbox dead-letters instead of applying', () => {
@@ -21,5 +24,9 @@ describe('assertSendAccepted', () => {
     } catch (error) {
       expect((error as { data?: { code?: string } }).data?.code).toBe('BAD_REQUEST')
     }
+  })
+
+  it('throws a generic refusal when reason is missing', () => {
+    expect(() => assertSendAccepted({ ok: false })).toThrow(/send refused/)
   })
 })

@@ -52,6 +52,7 @@ import { OfferBar } from '@/features/chat/OfferBar'
 import { agentBrandDot } from '@/lib/agent-tone'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { effectiveIssueColorHex } from '@/lib/issueColors'
+import { assertSendAccepted } from '@/lib/assert-send-accepted'
 import { isKnownRefPrefix } from '@/lib/markdown'
 import { activateRef } from '@/lib/ref-activation'
 import { SnoozeControl } from '@/lib/SnoozeControl'
@@ -290,7 +291,14 @@ export function AgentPanel({
   const sendOfferPrompt = async (prompt: string, offerAt: string) => {
     setDismissedOfferAt(offerAt)
     try {
-      await trpc.sessions.sendText.mutate({ sessionId, text: prompt, mutationId: randomUUID() })
+      const result = await trpc.sessions.sendText.mutate({
+        sessionId,
+        text: prompt,
+        mutationId: randomUUID(),
+      })
+      // Substrate refuses with HTTP 200 + ok:false — must not dismiss the offer
+      // as if the prompt reached the agent (POD-552).
+      assertSendAccepted(result)
     } catch (cause) {
       setDismissedOfferAt(null) // send failed — let the offer reappear
       toast.error('Could not send the suggested action')

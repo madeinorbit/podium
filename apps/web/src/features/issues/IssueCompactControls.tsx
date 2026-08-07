@@ -19,6 +19,7 @@ import type { IssueViewModel } from '@/app/store'
 import { useReplicaIssues, useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { OfferBar } from '@/features/chat/OfferBar'
+import { assertSendAccepted } from '@/lib/assert-send-accepted'
 import { sessionDotClass } from '@/lib/derive'
 import { IssueContextMenu } from './IssueContextMenu'
 import { IssueCloseDialog, type IssueCloseReason } from './issue-lifecycle'
@@ -161,6 +162,10 @@ export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.
     setSending((current) => new Set(current).add(session.sessionId))
     trpc.sessions.sendText
       .mutate({ sessionId: session.sessionId, text: prompt, mutationId: randomUUID() })
+      .then((result) => {
+        // Substrate refuses with HTTP 200 + ok:false — surface it (POD-552).
+        assertSendAccepted(result)
+      })
       .catch((error: unknown) =>
         toast.error(error instanceof Error ? error.message : String(error)),
       )

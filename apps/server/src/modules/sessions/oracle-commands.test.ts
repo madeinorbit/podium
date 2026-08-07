@@ -318,7 +318,7 @@ describe('oracle: kill', () => {
 })
 
 describe('oracle: sendText / resumeAndSend', () => {
-  it(`${MUST_NOT_CHANGE}: sendText to a live session reports a disposition and reaches the PTY stamped 'mail' (the unified substrate), not 'human'`, async () => {
+  it(`${MUST_NOT_CHANGE}: sendText to a live session reports a disposition and reaches the PTY stamped 'controller' (operator via substrate), not 'human'`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     goLive(o, sessionId)
@@ -329,15 +329,15 @@ describe('oracle: sendText / resumeAndSend', () => {
     expect(result.ok).toBe(true)
     expect(typeof result.disposition).toBe('string')
     await waitFor(() => inputs(o.daemon).length > 0, 'the text to reach the PTY')
-    // Operator chat sends ride the messaging substrate (#237), so the PTY frame
-    // carries inputOrigin 'mail' — NOT 'human'. Only the direct keystroke paths
-    // (answerAskUserQuestion below) stamp 'human'. The distinction is what the
-    // actor / on-behalf-of split in POD-312 has to preserve or replace.
+    // Operator chat rides the messaging substrate (#237 / POD-729) but stamps
+    // inputOrigin 'controller' — person-origin, so standing offers clear and
+    // causal turns attribute as user input (POD-552). Agent mail stays 'mail'
+    // (POD-118). Direct keystroke paths (answerAskUserQuestion) stamp 'human'.
     // EXACT frame sequence, not a substring: one bracketed-paste frame carrying
     // the text and nothing else. A wrapper change (an added CR, a split write, a
     // second frame) is a behaviour change the migration must not make silently.
     expect(ptyFrames(o.daemon)).toEqual([
-      { inputOrigin: 'mail', data: `${PASTE_START}hello there${PASTE_END}` },
+      { inputOrigin: 'controller', data: `${PASTE_START}hello there${PASTE_END}` },
     ])
   })
 
@@ -362,7 +362,7 @@ describe('oracle: sendText / resumeAndSend', () => {
     expect((await o.call.sessions.sendText({ sessionId, text: 'still lands' })).ok).toBe(true)
     await waitFor(() => inputs(o.daemon).length > 0, 'the gated-around send to reach the PTY')
     expect(ptyFrames(o.daemon)).toEqual([
-      { inputOrigin: 'mail', data: `${PASTE_START}still lands${PASTE_END}` },
+      { inputOrigin: 'controller', data: `${PASTE_START}still lands${PASTE_END}` },
     ])
   })
 

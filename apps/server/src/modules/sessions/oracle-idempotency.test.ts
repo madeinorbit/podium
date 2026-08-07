@@ -289,7 +289,7 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
     // EXACT frame sequence: one frame, once. Counting substring occurrences in a
     // joined blob would miss a re-wrapped or re-split second delivery.
     expect(ptyFrames(o.daemon)).toEqual([
-      { inputOrigin: 'mail', data: `${PASTE_START}only once${PASTE_END}` },
+      { inputOrigin: 'controller', data: `${PASTE_START}only once${PASTE_END}` },
     ])
   })
 

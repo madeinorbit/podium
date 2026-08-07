@@ -30,6 +30,7 @@ import {
 import { CountPill, SectionBar, UnreadDot } from './SectionBar'
 import { Tray } from './Tray'
 import type { TrayActions } from './TrayCard'
+import { assertSendAccepted } from '@/lib/assert-send-accepted'
 import { useIssueEvents } from './useIssueEvents'
 
 /** ONE chat across all issues (engraved-column.md §2.5): the column always
@@ -272,6 +273,10 @@ export function SuperagentView({
       setDismissedOffers((d) => new Set(d).add(key))
       trpc.sessions.sendText
         .mutate({ sessionId: item.session.sessionId, text: prompt, mutationId: randomUUID() })
+        .then((result) => {
+          // HTTP 200 + ok:false is a refused send, not delivery (POD-552).
+          assertSendAccepted(result)
+        })
         .catch((e: unknown) => {
           setDismissedOffers((d) => {
             const next = new Set(d)

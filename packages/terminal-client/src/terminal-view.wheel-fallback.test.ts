@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 //
-// Integration: TerminalView wires the POD-530 wheel fallback so a Grok-like
+// Integration: TerminalView wires the POD-530/POD-552 wheel fallback so a Grok-like
 // terminal (no mouse tracking, no local scrollback overflow) still emits
-// PageUp/cursor keys on wheel.
+// PageUp/PageDown on wheel (never arrows — those are prompt history).
 import { beforeAll, describe, expect, it } from 'vitest'
 import { TerminalView } from './terminal-view'
 

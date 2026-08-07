@@ -1085,10 +1085,16 @@ export class MessageDeliveryService {
     const sessions = this.deps.sessions
     const principal = this.inboxPrincipal(message)
     const text = this.render.renderFor(message, sessionId)
+    // Operator chat / offer buttons ride this substrate after POD-729, but they
+    // are still a person typing into the session — not agent mail. Stamp
+    // `controller` so prepareInboxSend clears a standing offer [spec:SP-c7f1]
+    // and causal turn attribution treats the send as user input (POD-552).
+    // Agent/system/superagent deliveries stay `mail` so they never consume an
+    // offer the human has not acted on [POD-118].
     const input = {
       sessionId,
       text,
-      inputOrigin: 'mail' as const,
+      inputOrigin: message.fromKind === 'operator' ? ('controller' as const) : ('mail' as const),
       principal,
       sourceMessageId: message.id,
     }
@@ -1316,11 +1322,15 @@ export class MessageDeliveryService {
     if (rows.length === 0) return
     const pointerRows = rows.filter((m) => this.render.isPointer(m))
     const inlineRows = rows.filter((m) => !pointerRows.includes(m))
+    // Same origin rule as injectAndMark: operator bodies are person-origin
+    // (controller); everything else is mail (POD-552 / POD-118).
+    const originOf = (m: MessageRow) =>
+      m.fromKind === 'operator' ? ('controller' as const) : ('mail' as const)
     for (const m of inlineRows) {
       const r = sessions.sendText({
         sessionId: session.sessionId,
         text: this.render.renderFor(m, session.sessionId),
-        inputOrigin: 'mail',
+        inputOrigin: originOf(m),
         principal: this.inboxPrincipal(m),
         sourceMessageId: m.id,
       })
@@ -1333,7 +1343,7 @@ export class MessageDeliveryService {
       const r = sessions.sendText({
         sessionId: session.sessionId,
         text: this.render.renderFor(m, session.sessionId),
-        inputOrigin: 'mail',
+        inputOrigin: originOf(m),
         principal: this.inboxPrincipal(m),
         sourceMessageId: m.id,
       })

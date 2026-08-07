@@ -1,6 +1,6 @@
 /**
  * Wheel fallback for TUIs that neither enable mouse tracking nor leave local
- * scrollback (Grok's fullscreen native view, POD-530).
+ * scrollback (Grok's fullscreen native view, POD-530 / POD-552).
  *
  * xterm.js wheel handling, in order:
  *   1. application owns the mouse → SGR/X10 wheel report (Claude Code works);
@@ -13,15 +13,15 @@
  * produces zero PTY input and the transcript never moves.
  *
  * When the app does not own the mouse AND the local viewport cannot absorb the
- * wheel, we inject PageUp/PageDown (big deltas) or cursor-up/down (small ones)
- * through xterm's data path so the TUI can scroll itself.
+ * wheel, we inject PageUp/PageDown through xterm's data path so the TUI can
+ * scroll its conversation.
+ *
+ * NEVER emit cursor up/down here. In agent TUIs with a focused prompt (Grok,
+ * and similar), Up/Down browse **prompt history**, not chat content. Grok's
+ * own changelog pins PageUp/PageDown as conversation scroll while the prompt
+ * is focused, and Up-on-empty as history — so arrows would "scroll" the wrong
+ * thing (POD-552).
  */
-
-/** Pixel delta at or above this becomes a PageUp/PageDown rather than N arrows. */
-const PAGE_DELTA_PX = 80
-
-/** Cap arrows per event so a trackpad fling can't flood the PTY. */
-const MAX_ARROWS_PER_EVENT = 6
 
 export interface WheelFallbackTerminal {
   /** True while the application has mouse tracking on — xterm already reports
@@ -33,9 +33,7 @@ export interface WheelFallbackTerminal {
    * event to xterm.
    */
   canLocalScroll(deltaY: number): boolean
-  /** Height of one text row in CSS pixels, or 0 when unmeasurable. */
-  rowHeight(): number
-  /** Write bytes to the PTY (cursor keys / PageUp / PageDown). */
+  /** Write bytes to the PTY (PageUp / PageDown). */
   sendKeys(data: string): void
 }
 
@@ -51,20 +49,9 @@ export function wheelFallbackKeys(
   if (term.appOwnsMouse()) return null
   if (term.canLocalScroll(deltaY)) return null
 
-  // Big notch → one page; small → one arrow per row of travel.
-  if (Math.abs(deltaY) >= PAGE_DELTA_PX) {
-    // CSI 5~ = PageUp, CSI 6~ = PageDown. Finger/wheel UP (deltaY < 0) shows
-    // older content → PageUp.
-    return deltaY < 0 ? '\x1b[5~' : '\x1b[6~'
-  }
-
-  const row = term.rowHeight()
-  const lines =
-    row > 0
-      ? Math.min(MAX_ARROWS_PER_EVENT, Math.max(1, Math.round(Math.abs(deltaY) / row)))
-      : 1
-  const key = deltaY < 0 ? '\x1b[A' : '\x1b[B'
-  return key.repeat(lines)
+  // CSI 5~ = PageUp, CSI 6~ = PageDown. Finger/wheel UP (deltaY < 0) shows
+  // older content → PageUp. Always page keys (never arrows) — see file header.
+  return deltaY < 0 ? '\x1b[5~' : '\x1b[6~'
 }
 
 /**
@@ -84,8 +71,6 @@ export function wireWheelFallback(
   },
   sendKeys: (data: string) => void,
 ): () => void {
-  const screen = (): HTMLElement | null =>
-    (term.element?.querySelector('.xterm-screen') as HTMLElement | null) ?? null
   const viewport = (): HTMLElement | null =>
     (term.element?.querySelector('.xterm-viewport') as HTMLElement | null) ?? null
 
@@ -104,10 +89,6 @@ export function wireWheelFallback(
       // Room in the scroll direction?
       if (deltaY < 0) return vp.scrollTop > 0
       return vp.scrollTop + vp.clientHeight < vp.scrollHeight - 1
-    },
-    rowHeight: () => {
-      const h = screen()?.clientHeight ?? term.element?.clientHeight ?? 0
-      return term.rows > 0 && h > 0 ? h / term.rows : 0
     },
     sendKeys,
   }

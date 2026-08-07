@@ -9,6 +9,7 @@ import { chatSendRoute } from '@podium/client-core/viewmodels'
 import type { SessionId, TranscriptItem } from '@podium/model'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Store } from '@/app/store'
+import { assertSendAccepted } from '@/lib/assert-send-accepted'
 import type { PendingItem, QueuedChatMessage } from './chat'
 import { queuedOperatorMessages, reconcilePending } from './chat'
 import type { UseHeadlessTurnResult } from './use-headless-turn'
@@ -238,11 +239,14 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
         case 'session': {
           // Live → send straight through (NOT outboxed: live chat must fail fast
           // when offline). The mutationId only makes an ambiguous retry replay-safe.
+          // HTTP 200 with ok:false is a refused send (dead_letter / unreachable),
+          // not success — surface it so offer bars can un-hide (POD-552).
           const result = await trpc.sessions.sendText.mutate({
             sessionId,
             text,
             mutationId: randomUUID(),
           })
+          assertSendAccepted(result)
           if (result.disposition === 'queued' || result.disposition === 'accepted') onQueued()
           refreshQueuedMessages()
           return

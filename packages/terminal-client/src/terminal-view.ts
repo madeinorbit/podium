@@ -347,7 +347,8 @@ export class TerminalView {
     // Wheel fallback (POD-530). Grok's fullscreen TUI (and similar agents) often
     // leave mouse tracking off and give the local viewport nothing to scroll, so
     // a wheel produces zero PTY input. When xterm cannot handle the wheel, inject
-    // PageUp/PageDown or cursor keys through the same onData path keystrokes use.
+    // PageUp/PageDown through the same onData path keystrokes use (never arrows —
+    // those browse prompt history in agent TUIs like Grok; POD-552).
     this.cleanup.push(
       wireWheelFallback(this.term, (data) => {
         // Prefer the live onData sink (controller-gated by session-mount). Fall

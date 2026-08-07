@@ -6,7 +6,6 @@ function stub(
   opts: {
     mouse?: boolean
     canLocal?: boolean | ((deltaY: number) => boolean)
-    row?: number
   } = {},
 ): { term: WheelFallbackTerminal; keys: string[] } {
   const keys: string[] = []
@@ -18,7 +17,6 @@ function stub(
         typeof opts.canLocal === 'function'
           ? opts.canLocal(deltaY)
           : (opts.canLocal ?? false),
-      rowHeight: () => opts.row ?? 20,
       sendKeys: (data) => keys.push(data),
     },
   }
@@ -36,38 +34,28 @@ describe('wheelFallbackKeys', () => {
     expect(wheelFallbackKeys(term, -240)).toBeNull()
   })
 
-  it('emits PageUp for a large upward wheel when nothing else can scroll (Grok)', () => {
+  it('emits PageUp for an upward wheel when nothing else can scroll (Grok)', () => {
     const { term } = stub()
     expect(wheelFallbackKeys(term, -240)).toBe('\x1b[5~')
   })
 
-  it('emits PageDown for a large downward wheel', () => {
+  it('emits PageDown for a downward wheel', () => {
     const { term } = stub()
     expect(wheelFallbackKeys(term, 200)).toBe('\x1b[6~')
   })
 
-  it('emits one arrow per row of travel for small deltas', () => {
-    const { term } = stub({ row: 20 })
-    // 40px up → two cursor-up keys
-    expect(wheelFallbackKeys(term, -40)).toBe('\x1b[A\x1b[A')
-    expect(wheelFallbackKeys(term, 20)).toBe('\x1b[B')
-  })
-
-  it('caps arrows so a trackpad fling cannot flood the PTY', () => {
-    const { term } = stub({ row: 10 })
-    // 200px would be 20 arrows but PAGE_DELTA_PX (80) routes this to PageUp
-    expect(wheelFallbackKeys(term, -200)).toBe('\x1b[5~')
-    // just under the page threshold, row=10 → 7 lines → capped at 6
-    expect(wheelFallbackKeys(term, -70)).toBe('\x1b[A'.repeat(6))
+  it('uses PageUp/PageDown for small trackpad deltas too — never arrows (POD-552)', () => {
+    // Arrows would browse Grok prompt history while the prompt is focused.
+    // PageUp/PageDown scroll conversation content (Grok Build ≥0.2.99).
+    const { term } = stub()
+    expect(wheelFallbackKeys(term, -40)).toBe('\x1b[5~')
+    expect(wheelFallbackKeys(term, 20)).toBe('\x1b[6~')
+    expect(wheelFallbackKeys(term, -10)).toBe('\x1b[5~')
+    expect(wheelFallbackKeys(term, 1)).toBe('\x1b[6~')
   })
 
   it('ignores a zero delta', () => {
     const { term } = stub()
     expect(wheelFallbackKeys(term, 0)).toBeNull()
-  })
-
-  it('still emits a single arrow when row height is unmeasurable', () => {
-    const { term } = stub({ row: 0 })
-    expect(wheelFallbackKeys(term, -10)).toBe('\x1b[A')
   })
 })
