@@ -6,33 +6,43 @@
 // provenance, but never a `discovered-from` spin-off), ancestor-preserving mode
 // filters, and the per-row operational state that drives the status column.
 import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
-import { ISSUE_STAGES, type SessionMeta, type SessionMetaInput, type UnbrandIds } from '@podium/model'
+import {
+  ISSUE_STAGES,
+  type SessionMeta,
+  type SessionMetaInput,
+  type UnbrandIds,
+} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   buildFlightDeckRows,
   coordinatorCount,
+  deckIssueState,
+  type FlightDeckRow,
   issueNeedsHuman,
+  issueNote,
+  type MissionProgress,
   missionIssueIds,
   missionProgress,
   missionRootFor,
   missionSessions,
+  type OperationalState,
   operationalState,
+  type PresenceKind,
   portfolioActionableCount,
   presenceNote,
   relationNote,
   sessionNeedsHuman,
   waitingNote,
-  type FlightDeckRow,
-  type MissionProgress,
-  type OperationalState,
-  type PresenceKind,
 } from './mission'
 
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
 
-function issue(id: string, over: Partial<UnbrandIds<IssueNavigationModel>> = {}): IssueNavigationModel {
+function issue(
+  id: string,
+  over: Partial<UnbrandIds<IssueNavigationModel>> = {},
+): IssueNavigationModel {
   return {
     id,
     repoPath: '/r/acme',
@@ -271,11 +281,11 @@ describe('missionSessions', () => {
   ]
 
   it('takes attached and member sessions across the subtree, skipping archived', () => {
-    expect(missionSessions(issues, sessions, 'root').map((s) => s.sessionId).sort()).toEqual([
-      's-c1',
-      's-member',
-      's-root',
-    ])
+    expect(
+      missionSessions(issues, sessions, 'root')
+        .map((s) => s.sessionId)
+        .sort(),
+    ).toEqual(['s-c1', 's-member', 's-root'])
   })
 
   it('opts archived members back in on request', () => {
@@ -321,7 +331,10 @@ describe('buildFlightDeckRows', () => {
     ['archived', 'dead'],
     ['deleted', 'gone'],
   ])('returns no rows for a(n) %s root', (_name, rootId) => {
-    const issues = [issue('dead', { archived: true }), issue('gone', { deletedAt: '2026-07-01T00:00:00.000Z' })]
+    const issues = [
+      issue('dead', { archived: true }),
+      issue('gone', { deletedAt: '2026-07-01T00:00:00.000Z' }),
+    ]
     expect(buildFlightDeckRows(issues, [], rootId)).toEqual([])
   })
 
@@ -446,11 +459,7 @@ describe('buildFlightDeckRows', () => {
       issue('b', { startedBySession: 's-a' }),
     ]
     const sessions = [sess('s-root', { issueId: 'root' }), sess('s-a', { issueId: 'a' })]
-    expect(shape(buildFlightDeckRows(issues, sessions, 'root'))).toEqual([
-      'root@0',
-      'a@1',
-      'b@2',
-    ])
+    expect(shape(buildFlightDeckRows(issues, sessions, 'root'))).toEqual(['root@0', 'a@1', 'b@2'])
   })
 
   it('keeps the grafted ancestor path when a filter matches only the deep spawn', () => {
@@ -472,7 +481,10 @@ describe('buildFlightDeckRows', () => {
   it('grafts a mission issue whose formal parent is outside the mission', () => {
     // `a` nests under a parent this replica cannot see, so the parentId edge is a
     // dead end — provenance is the only thing left to hang it on.
-    const issues = [issue('root'), issue('a', { parentId: 'invisible', startedBySession: 's-root' })]
+    const issues = [
+      issue('root'),
+      issue('a', { parentId: 'invisible', startedBySession: 's-root' }),
+    ]
     const sessions = [sess('s-root', { issueId: 'root' })]
     expect(shape(buildFlightDeckRows(issues, sessions, 'root'))).toEqual(['root@0', 'a@1'])
   })
@@ -566,7 +578,10 @@ describe('missionProgress', () => {
     ],
     [
       'a child closed for another reason than stage=done',
-      [issue('root', { stage: 'backlog' }), issue('a', { parentId: 'root', closedReason: 'duplicate' })],
+      [
+        issue('root', { stage: 'backlog' }),
+        issue('a', { parentId: 'root', closedReason: 'duplicate' }),
+      ],
       { total: 2, done: 1, run: 0, block: 0, wait: 1 },
     ],
     [
@@ -576,7 +591,10 @@ describe('missionProgress', () => {
     ],
     [
       'done work that is also flagged blocked, counted once as done',
-      [issue('root', { stage: 'backlog' }), issue('a', { parentId: 'root', stage: 'done', blocked: true })],
+      [
+        issue('root', { stage: 'backlog' }),
+        issue('a', { parentId: 'root', stage: 'done', blocked: true }),
+      ],
       { total: 2, done: 1, run: 0, block: 0, wait: 1 },
     ],
   ]
@@ -723,7 +741,11 @@ describe('collapsedSummary', () => {
   })
 
   it('carries up to two distinct harness kinds from the live sessions it hides', () => {
-    const issues = [issue('root'), issue('a', { parentId: 'root' }), issue('b', { parentId: 'root' })]
+    const issues = [
+      issue('root'),
+      issue('a', { parentId: 'root' }),
+      issue('b', { parentId: 'root' }),
+    ]
     const sessions = [
       sess('s1', { issueId: 'a', agentKind: 'claude-code' }),
       sess('s2', { issueId: 'a', agentKind: 'codex' }),
@@ -731,7 +753,8 @@ describe('collapsedSummary', () => {
       // Retired agents are not part of what is running behind the fold.
       sess('s4', { issueId: 'b', agentKind: 'grok', status: 'exited' }),
     ]
-    const kinds = rowFor(buildFlightDeckRows(issues, sessions, 'root'), 'root').collapsedSummary.kinds
+    const kinds = rowFor(buildFlightDeckRows(issues, sessions, 'root'), 'root').collapsedSummary
+      .kinds
     expect(kinds).toHaveLength(2)
     expect(kinds).not.toContain('grok')
   })
@@ -741,7 +764,9 @@ describe('collapsedSummary', () => {
   // the moment you fold it.
   it('flags attention on the row itself, not only on what it hides', () => {
     const issues = [issue('root', { needsHuman: true }), issue('a', { parentId: 'root' })]
-    expect(rowFor(buildFlightDeckRows(issues, [], 'root'), 'root').collapsedSummary.needsYou).toBe(true)
+    expect(rowFor(buildFlightDeckRows(issues, [], 'root'), 'root').collapsedSummary.needsYou).toBe(
+      true,
+    )
   })
 })
 
@@ -768,7 +793,12 @@ describe('issueNeedsHuman', () => {
   const cases: Array<[string, IssueNavigationModel, SessionMeta[], boolean]> = [
     ['the flag is set', issue('i', { needsHuman: true }), [], true],
     ['it is in review', issue('i', { stage: 'review' }), [], true],
-    ['a live session is blocked on us', issue('i'), [sess('a', { agentState: needsUserState })], true],
+    [
+      'a live session is blocked on us',
+      issue('i'),
+      [sess('a', { agentState: needsUserState })],
+      true,
+    ],
     [
       'only an ARCHIVED session is blocked on us',
       issue('i'),
@@ -791,14 +821,24 @@ describe('operationalState', () => {
   type Case = [string, IssueNavigationModel, SessionMeta[], OperationalState]
 
   const states: Case[] = [
-    ['needs-you from a blocked agent', issue('i'), [sess('a', { agentState: needsUserState })], 'needs-you'],
+    [
+      'needs-you from a blocked agent',
+      issue('i'),
+      [sess('a', { agentState: needsUserState })],
+      'needs-you',
+    ],
     ['needs-you from a standing offer', issue('i'), [sess('a', { offer })], 'needs-you'],
     ['moved while handing off', issue('i'), [sess('a', { handoffTarget: 'mac-mini' })], 'moved'],
     ['working mid-turn', issue('i'), [sess('a', { agentState: workingState })], 'working'],
     ['done when the stage says so', issue('i', { stage: 'done' }), [], 'done'],
     ['done when closed for another reason', issue('i', { closedReason: 'duplicate' }), [], 'done'],
     ['waiting on a dependency', issue('i', { blocked: true }), [], 'waiting'],
-    ['retired once every session is archived', issue('i'), [sess('a', { archived: true })], 'retired'],
+    [
+      'retired once every session is archived',
+      issue('i'),
+      [sess('a', { archived: true })],
+      'retired',
+    ],
     [
       'retired once every session is archived, exited or not',
       issue('i'),
@@ -807,7 +847,12 @@ describe('operationalState', () => {
     ],
     ['ready with no sessions and a green light', issue('i', { ready: true }), [], 'ready'],
     ['ready with no sessions at all', issue('i'), [], 'ready'],
-    ['idle when an agent is attached but quiet', issue('i'), [sess('a', { agentState: finishedState })], 'idle'],
+    [
+      'idle when an agent is attached but quiet',
+      issue('i'),
+      [sess('a', { agentState: finishedState })],
+      'idle',
+    ],
     [
       'needs-you when a fatal error leaves the agent parked on us',
       issue('i'),
@@ -836,10 +881,25 @@ describe('operationalState', () => {
       [sess('a', { handoffTarget: 'mac-mini', agentState: workingState })],
       'moved',
     ],
-    ['working beats a done stage', issue('i', { stage: 'done' }), [sess('a', { agentState: workingState })], 'working'],
+    [
+      'working beats a done stage',
+      issue('i', { stage: 'done' }),
+      [sess('a', { agentState: workingState })],
+      'working',
+    ],
     ['done beats blocked', issue('i', { stage: 'done', blocked: true }), [], 'done'],
-    ['blocked beats retired', issue('i', { blocked: true }), [sess('a', { archived: true })], 'waiting'],
-    ['retired beats ready', issue('i', { ready: true }), [sess('a', { archived: true })], 'retired'],
+    [
+      'blocked beats retired',
+      issue('i', { blocked: true }),
+      [sess('a', { archived: true })],
+      'waiting',
+    ],
+    [
+      'retired beats ready',
+      issue('i', { ready: true }),
+      [sess('a', { archived: true })],
+      'retired',
+    ],
   ]
 
   it.each(precedence)('%s', (_name, target, sessions, expected) => {
@@ -850,14 +910,19 @@ describe('operationalState', () => {
     // An OUTGOING `blocks` dep means "this issue is blocked BY the target".
     // `issueDisplayRef` reads `displayRef` and falls back to `#seq` — `prefix`
     // is not what it consults, so the ref has to be spelled out here.
-    const blocker = (id: string, seq: number, over: Partial<UnbrandIds<IssueNavigationModel>> = {}) =>
-      issue(id, { seq, displayRef: `POD-${seq}`, ...over })
+    const blocker = (
+      id: string,
+      seq: number,
+      over: Partial<UnbrandIds<IssueNavigationModel>> = {},
+    ) => issue(id, { seq, displayRef: `POD-${seq}`, ...over })
     const blockedBy = (...targets: string[]) =>
       issue('i', { blocked: true, deps: targets.map((id) => ({ id, type: 'blocks' })) })
     const index = (...issues: IssueNavigationModel[]) =>
       new Map(issues.map((entry) => [entry.id, entry]))
 
-    const cases: Array<[string, IssueNavigationModel, ReadonlyMap<string, IssueNavigationModel> | undefined, string]> = [
+    const cases: Array<
+      [string, IssueNavigationModel, ReadonlyMap<string, IssueNavigationModel> | undefined, string]
+    > = [
       [
         'names a single open blocker',
         blockedBy('dep'),
@@ -917,7 +982,13 @@ describe('operationalState', () => {
     it('still yields to the states that outrank waiting', () => {
       const byId = index(blocker('dep', 42))
       // A named blocker must not resurrect a finished issue or preempt a live agent.
-      expect(operationalState(issue('i', { blocked: true, stage: 'done', deps: [{ id: 'dep', type: 'blocks' }] }), [], byId).state).toBe('done')
+      expect(
+        operationalState(
+          issue('i', { blocked: true, stage: 'done', deps: [{ id: 'dep', type: 'blocks' }] }),
+          [],
+          byId,
+        ).state,
+      ).toBe('done')
       expect(
         operationalState(
           issue('i', { blocked: true, deps: [{ id: 'dep', type: 'blocks' }] }),
@@ -932,19 +1003,26 @@ describe('operationalState', () => {
     // "Active" is liveness, not tidiness: an exited process nobody archived yet
     // must not read as an agent standing by on the task.
     expect(operationalState(issue('i'), [sess('a', { status: 'exited' })]).state).toBe('retired')
-    expect(operationalState(issue('i'), [sess('a', { status: 'exited' })]).label).toBe('Agent retired')
+    expect(operationalState(issue('i'), [sess('a', { status: 'exited' })]).label).toBe(
+      'Agent retired',
+    )
   })
 
   it('is not retired while one session outlives the exited ones', () => {
-    const sessions = [sess('dead', { status: 'exited' }), sess('live', { agentState: workingState })]
+    const sessions = [
+      sess('dead', { status: 'exited' }),
+      sess('live', { agentState: workingState }),
+    ]
     expect(operationalState(issue('i'), sessions).state).toBe('working')
   })
 
   it('labels the two needs-you causes differently', () => {
-    expect(operationalState(issue('i'), [sess('a', { agentState: needsUserState })]).label).toBe('Needs you')
-    expect(operationalState(issue('i'), [sess('a', { agentState: erroredState(false) })]).label).toBe(
-      'Waiting on you',
+    expect(operationalState(issue('i'), [sess('a', { agentState: needsUserState })]).label).toBe(
+      'Needs you',
     )
+    expect(
+      operationalState(issue('i'), [sess('a', { agentState: erroredState(false) })]).label,
+    ).toBe('Waiting on you')
   })
 })
 
@@ -990,7 +1068,10 @@ describe('coordinatorCount', () => {
 
   it('ignores coordinators of issues outside the mission', () => {
     const issues = [issue('root'), issue('outside', { coordinatorSessionId: 's-other-lead' })]
-    const sessions = [sess('s-root', { issueId: 'root' }), sess('s-other-lead', { issueId: 'outside' })]
+    const sessions = [
+      sess('s-root', { issueId: 'root' }),
+      sess('s-other-lead', { issueId: 'outside' }),
+    ]
     expect(coordinatorCount(rowsFor(issues, sessions), sessions)).toBe(0)
   })
 
@@ -1032,7 +1113,13 @@ describe('presenceNote', () => {
       'done',
       'Completed · session retired',
     ],
-    ['work in review', issue('a', { stage: 'review' }), [], 'review', 'Review ready · session ended'],
+    [
+      'work in review',
+      issue('a', { stage: 'review' }),
+      [],
+      'review',
+      'Review ready · session ended',
+    ],
     ['planned work', issue('a', { stage: 'planning' }), [], 'ready', 'Ready to start'],
     ['backlogged work', issue('a', { stage: 'backlog' }), [], 'ready', 'Ready to start'],
     [
@@ -1151,6 +1238,126 @@ describe('relationNote', () => {
 })
 
 // ---------------------------------------------------------------------------
+// issueNote — the ONE fact about the issue that rides on its own strip
+// (POD-516 round 3 §5). Presence deliberately stays out of it.
+// ---------------------------------------------------------------------------
+
+describe('issueNote', () => {
+  const index = (issues: IssueNavigationModel[]): Map<string, IssueNavigationModel> =>
+    new Map(issues.map((i) => [i.id, i]))
+  // Distinct seqs so each ref prints differently — the strip's whole point is
+  // that the operator can read WHICH task is holding this one.
+  const dep = issue('dep', { seq: 7 })
+  const other = issue('other', { seq: 8 })
+  const origin = issue('origin', { seq: 9 })
+
+  // Only one of these can be the reason a task is not moving, so the strip
+  // prints the strongest and the rest stay in the inspector.
+  const cases: Array<{
+    name: string
+    subject: IssueNavigationModel
+    kind: string
+    short: string
+    full: RegExp
+  }> = [
+    {
+      name: 'a server-declared block names its blocker',
+      subject: issue('a', { blocked: true, deps: [{ id: 'dep', type: 'blocks' }] }),
+      kind: 'blocked',
+      short: '#7',
+      full: /^Blocked by #7$/,
+    },
+    {
+      name: 'several blockers collapse to a count',
+      subject: issue('a', {
+        blocked: true,
+        deps: [
+          { id: 'dep', type: 'blocks' },
+          { id: 'other', type: 'blocks' },
+        ],
+      }),
+      kind: 'blocked',
+      short: '2 tasks',
+      full: /^Blocked by 2 tasks$/,
+    },
+    {
+      name: 'a blocked issue with no resolvable edge falls back to its prose',
+      subject: issue('a', { blocked: true, blockedByNotes: ['Awaiting an API key'] }),
+      kind: 'blocked',
+      short: 'Awaiting an API key',
+      full: /^Awaiting an API key$/,
+    },
+    {
+      name: 'an unfinished dependency without a block is a wait',
+      subject: issue('a', { deps: [{ id: 'dep', type: 'blocks' }] }),
+      kind: 'waiting',
+      short: '#7',
+      full: /^Waiting for #7 to complete$/,
+    },
+    {
+      name: 'provenance is the weakest note and still names its origin',
+      subject: issue('a', { deps: [{ id: 'origin', type: 'discovered-from' }] }),
+      kind: 'relation',
+      short: '#9',
+      full: /^Discovered from #9$/,
+    },
+  ]
+
+  for (const { name, subject, kind, short, full } of cases) {
+    it(name, () => {
+      const note = issueNote(subject, index([dep, other, origin, subject]))
+      expect(note?.kind).toBe(kind)
+      expect(note?.short).toBe(short)
+      expect(note?.full).toMatch(full)
+    })
+  }
+
+  it('outranks provenance with the dependency the operator can act on', () => {
+    const subject = issue('a', {
+      blocked: true,
+      deps: [
+        { id: 'dep', type: 'blocks' },
+        { id: 'origin', type: 'discovered-from' },
+      ],
+    })
+    expect(issueNote(subject, index([dep, origin, subject]))?.kind).toBe('blocked')
+  })
+
+  it('goes quiet once the dependency lands', () => {
+    const done = issue('dep', { stage: 'done' })
+    const subject = issue('a', { deps: [{ id: 'dep', type: 'blocks' }] })
+    expect(issueNote(subject, index([done, subject]))).toBeNull()
+  })
+
+  it('is null on a plain task, so the strip stays one line', () => {
+    expect(issueNote(issue('a'), index([issue('a')]))).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// deckIssueState — the word on the right of a strip
+// ---------------------------------------------------------------------------
+
+describe('deckIssueState', () => {
+  // `Next` promised an order the deck could not keep (round 3 §7a): a proposal
+  // is not scheduled, and neither is anything else with nobody on it.
+  it('calls a proposal a proposal, not the next thing', () => {
+    const state = deckIssueState(issue('a', { stage: 'proposed' }), [])
+    expect(state.state).toBe('proposed')
+    expect(state.label).toBe('Proposed')
+  })
+
+  it('claims no order for other unstaffed work', () => {
+    expect(deckIssueState(issue('a', { stage: 'backlog' }), []).label).toBe('Not started')
+  })
+
+  it('still reads as running when an agent picks a proposal up', () => {
+    const live = sess('s', { issueId: 'a', agentState: workingState })
+    expect(deckIssueState(issue('a', { stage: 'proposed' }), [live]).state).toBe('working')
+  })
+})
+
+// ---------------------------------------------------------------------------
 // portfolioActionableCount — the Superagent rail badge
 // ---------------------------------------------------------------------------
 
@@ -1167,7 +1374,9 @@ describe('portfolioActionableCount', () => {
 
   it('counts a task whose SESSION is the one asking', () => {
     const issues = [issue('a')]
-    expect(portfolioActionableCount(issues, [sess('s', { issueId: 'a', agentState: needsUserState })])).toBe(1)
+    expect(
+      portfolioActionableCount(issues, [sess('s', { issueId: 'a', agentState: needsUserState })]),
+    ).toBe(1)
   })
 
   it('reaches a session attached as a member rather than by issueId', () => {

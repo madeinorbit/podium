@@ -1,7 +1,7 @@
 import {
+  type IssueNavigationModel,
   isCoordinatorSession,
   motionPhase,
-  type IssueNavigationModel,
   sessionsForIssueNav,
 } from '@podium/client-core/viewmodels'
 import { type AgentKind, type SessionMeta, spawnedByParentSessionId } from '@podium/model'
@@ -140,7 +140,11 @@ export function missionIssueIds(
         .map((session) => session.sessionId),
     )
     for (const issue of issues) {
-      if (!ids.has(issue.id) && issue.startedBySession && missionSessions.has(issue.startedBySession)) {
+      if (
+        !ids.has(issue.id) &&
+        issue.startedBySession &&
+        missionSessions.has(issue.startedBySession)
+      ) {
         ids.add(issue.id)
         changed = true
       }
@@ -203,9 +207,7 @@ export function missionProgress(
   const empty = { total: 0, done: 0, run: 0, block: 0, wait: 0 }
   if (!rootId) return empty
   const ids = missionIssueIds(issues, rootId, sessions)
-  const scope = issues.filter(
-    (issue) => ids.has(issue.id) && !issue.archived && !issue.deletedAt,
-  )
+  const scope = issues.filter((issue) => ids.has(issue.id) && !issue.archived && !issue.deletedAt)
   let done = 0
   let run = 0
   let block = 0
@@ -231,7 +233,9 @@ export function buildFlightDeckRows(
   allWorktreePaths: readonly string[] = [],
 ): FlightDeckRow[] {
   const visibleIssues = issues.filter((issue) => !issue.archived && !issue.deletedAt)
-  const byId = new Map<string, IssueNavigationModel>(visibleIssues.map((issue) => [issue.id, issue]))
+  const byId = new Map<string, IssueNavigationModel>(
+    visibleIssues.map((issue) => [issue.id, issue]),
+  )
   if (!byId.has(rootId)) return []
   const children = new Map<string, IssueNavigationModel[]>()
   for (const issue of visibleIssues) {
@@ -304,9 +308,7 @@ export function buildFlightDeckRows(
     const ownSessions = sessionsByIssue.get(issue.id) ?? []
     if (mode === 'needs-you') return issueNeedsHuman(issue, ownSessions)
     if (mode === 'active') {
-      return (
-        (issue.stage !== 'done' && !issue.closedReason) || ownSessions.some(openSession)
-      )
+      return (issue.stage !== 'done' && !issue.closedReason) || ownSessions.some(openSession)
     }
     return true
   }
@@ -345,9 +347,7 @@ export function buildFlightDeckRows(
     )
     const actionableCount = [id, ...descendantIds].filter((issueId) => {
       const candidate = byId.get(issueId)
-      return candidate
-        ? issueNeedsHuman(candidate, sessionsByIssue.get(issueId) ?? [])
-        : false
+      return candidate ? issueNeedsHuman(candidate, sessionsByIssue.get(issueId) ?? []) : false
     }).length
     const hidden = descendantIds
       .map((issueId) => byId.get(issueId))
@@ -382,7 +382,10 @@ export function buildFlightDeckRows(
           (child) =>
             !child.closedReason && (child.stage === 'in_progress' || child.stage === 'review'),
         ).length,
-        kinds: [...new Set(subtreeSessions.filter(openSession).map((s) => s.agentKind))].slice(0, 2),
+        kinds: [...new Set(subtreeSessions.filter(openSession).map((s) => s.agentKind))].slice(
+          0,
+          2,
+        ),
         needsYou: actionableCount > 0,
       },
     })
@@ -454,11 +457,14 @@ export function operationalState(
     return { state: 'working', label: 'Running' }
   if (issue.stage === 'done' || issue.closedReason) return { state: 'done', label: 'Done' }
   if (issue.blocked) return { state: 'waiting', label: blockedByLabel(issue, byId) }
-  if (active.length === 0 && sessions.length > 0) return { state: 'retired', label: 'Agent retired' }
+  if (active.length === 0 && sessions.length > 0)
+    return { state: 'retired', label: 'Agent retired' }
   if (active.length === 0 && issue.ready) return { state: 'ready', label: 'Ready to run' }
   if (active.some((session) => motionPhase(session) === 'waiting'))
     return { state: 'needs-you', label: 'Waiting on you' }
-  return active.length > 0 ? { state: 'idle', label: 'Standing by' } : { state: 'ready', label: 'Ready' }
+  return active.length > 0
+    ? { state: 'idle', label: 'Standing by' }
+    : { state: 'ready', label: 'Ready' }
 }
 
 // ---------------------------------------------------------------------------
@@ -477,6 +483,7 @@ export type DeckState =
   | 'blocked'
   | 'waiting'
   | 'retired'
+  | 'proposed'
   | 'next'
   | 'idle'
 
@@ -495,6 +502,14 @@ export interface DeckIssueState {
   attention: boolean
 }
 
+/**
+ * `Next` was a promise the spine could not keep (POD-516 round 3 §7a).
+ *
+ * It said "scheduled after this" about work nobody has accepted yet, on the one
+ * surface an operator uses to decide what to run. Podium's own word for a
+ * proposal is the stage's — `Proposed` (ISSUE_STAGE_LABELS) — and everything
+ * else that simply has nobody on it is `Not started`, which claims no order.
+ */
 const DECK_LABEL: Record<DeckState, string> = {
   working: 'Running',
   moved: 'Moving',
@@ -502,7 +517,8 @@ const DECK_LABEL: Record<DeckState, string> = {
   blocked: 'Blocked',
   waiting: 'Waiting',
   retired: 'Retired',
-  next: 'Next',
+  proposed: 'Proposed',
+  next: 'Not started',
   idle: 'Standing by',
 }
 
@@ -530,7 +546,10 @@ export function deckIssueState(
   if (issue.blocked) return at('blocked')
   if (waitingRefs(issue, byId).length > 0) return at('waiting')
   if (active.length === 0 && sessions.length > 0) return at('retired')
-  if (active.length === 0) return at('next')
+  // A proposal says so in its own word. It is the one stage the deck treats as a
+  // different KIND of row (no reserved session slot, a narrower strip), so the
+  // state channel has to name it rather than lumping it in with backlog work.
+  if (active.length === 0) return at(issue.stage === 'proposed' ? 'proposed' : 'next')
   return at('idle')
 }
 
@@ -548,9 +567,7 @@ export function deckSessions(
   mode: FlightDeckMode,
 ): SessionMeta[] {
   if (mode !== 'needs-you') return row.sessions
-  const asking = row.sessions.filter(
-    (session) => !session.archived && sessionNeedsHuman(session),
-  )
+  const asking = row.sessions.filter((session) => !session.archived && sessionNeedsHuman(session))
   return asking.length > 0 ? asking : row.sessions
 }
 
@@ -625,7 +642,8 @@ export function nativeSubagentRows(session: SessionMeta): NativeSubagentRow[] {
   const named = state?.nativeSubagents ?? []
   const missing = Math.max(0, (state?.nativeSubagentCount ?? 0) - named.length)
   const working =
-    openSession(session) && (motionPhase(session) === 'working' || state?.awaitingSubagents === true)
+    openSession(session) &&
+    (motionPhase(session) === 'working' || state?.awaitingSubagents === true)
   return [
     ...named.map((agent) => ({
       id: agent.id,
@@ -783,23 +801,87 @@ const RELATION_VERB: Record<string, string> = {
   validates: 'Validates',
 }
 
-/**
- * The `↳ …` line: where this issue came from, when that is not already being
- * said by a waiting or moved note. `blocks` is excluded — that edge is the
- * blocked/waiting note's job, and saying it twice reads as two dependencies.
- */
-export function relationNote(
+/** The first non-hierarchy, non-blocking edge this issue carries, split into the
+ *  verb and the target ref so a caller can render either the sentence or just
+ *  the ref. `blocks` is excluded — that edge is the blocked/waiting note's job,
+ *  and saying it twice reads as two dependencies. */
+function relationEdge(
   issue: IssueNavigationModel,
   byId?: ReadonlyMap<string, IssueNavigationModel>,
-): string | null {
+): { verb: string; ref: string } | null {
   if (!byId) return null
   for (const dep of issue.deps ?? []) {
     if (dep.type === 'blocks' || dep.type === 'parent-child') continue
     const target = byId.get(dep.id)
     if (!target) continue
-    return `${RELATION_VERB[dep.type] ?? dep.type} ${issueDisplayRef(target)}`
+    return { verb: RELATION_VERB[dep.type] ?? dep.type, ref: issueDisplayRef(target) }
   }
   return null
+}
+
+/**
+ * The `↳ …` line: where this issue came from, when that is not already being
+ * said by a waiting or moved note.
+ */
+export function relationNote(
+  issue: IssueNavigationModel,
+  byId?: ReadonlyMap<string, IssueNavigationModel>,
+): string | null {
+  const edge = relationEdge(issue, byId)
+  return edge ? `${edge.verb} ${edge.ref}` : null
+}
+
+/**
+ * ONE fact about the ISSUE, for the issue's own visual area (POD-516 round 3 §5).
+ *
+ * "Discovered from POD-516", "Blocked by POD-507" and "Waiting for POD-507" are
+ * facts about the TASK. They used to hang below the task's session rows, in the
+ * slot the spine reserves for agents, where the operator read them as one more
+ * agent. They belong on the strip.
+ *
+ * Two forms, because the strip has room for a ref and a tooltip has room for a
+ * sentence: `short` is what the strip prints (a display ref wherever one exists,
+ * so the operator can go and act on it), `full` is the sentence that names the
+ * relationship. Precedence matches the notes it replaces — a server-declared
+ * block outranks an unfinished dependency, which outranks provenance — because
+ * only one of them can be the reason this task is not moving.
+ *
+ * Presence stays OUT of this: "session moved to POD-612" and "no session yet"
+ * are facts about the agent SLOT, and the slot is where they belong.
+ */
+export interface IssueNote {
+  kind: 'blocked' | 'waiting' | 'relation'
+  /** What the strip prints: a display ref, a count, or the authored prose. */
+  short: string
+  /** The sentence, for the hover title and the accessible name. */
+  full: string
+}
+
+export function issueNote(
+  issue: IssueNavigationModel,
+  byId?: ReadonlyMap<string, IssueNavigationModel>,
+): IssueNote | null {
+  const refs = waitingRefs(issue, byId)
+  const many = (): string => `${refs.length} tasks`
+  if (issue.blocked) {
+    const full = blockedByLabel(issue, byId)
+    // No resolvable edge leaves only the authored prose, which IS the short form
+    // — a chip reading "Blocked by" with nothing after it names nothing.
+    return {
+      kind: 'blocked',
+      short: refs.length === 1 ? (refs[0] as string) : refs.length > 1 ? many() : full,
+      full,
+    }
+  }
+  if (refs.length > 0) {
+    return {
+      kind: 'waiting',
+      short: refs.length === 1 ? (refs[0] as string) : many(),
+      full: waitingNote(issue, byId) as string,
+    }
+  }
+  const edge = relationEdge(issue, byId)
+  return edge ? { kind: 'relation', short: edge.ref, full: `${edge.verb} ${edge.ref}` } : null
 }
 
 /**
