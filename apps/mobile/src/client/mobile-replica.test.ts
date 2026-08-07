@@ -227,8 +227,17 @@ async function open(args: {
 }) {
   const degradations: string[] = []
   const opened = await openMobileReplica({
-    openDatabase: () => openSqlite(args.file),
-    deleteDatabase: () => rmSync(args.file, { force: true }),
+    openStore: async () => {
+      const { SqliteSyncStore } = await import('@podium/sync/adapters/mobile-sqlite')
+      return SqliteSyncStore.open({
+        openDatabase: () => openSqlite(args.file),
+        deleteDatabase: () => rmSync(args.file, { force: true }),
+        onDegraded: (degradation) =>
+          degradations.push(
+            `Offline changes may not survive a restart on this device (${degradation.cause}).`,
+          ),
+      })
+    },
     storage: args.storage,
     ...(args.principal !== undefined ? { principal: args.principal } : {}),
     ...(args.storage.keys !== undefined ? { enumerateKeys: args.storage.keys } : {}),

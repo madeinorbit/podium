@@ -568,7 +568,16 @@ export async function startServer(
     expoMobilePresent: () => mobileIndex !== '' && existsSync(mobileIndex),
     redirectPhoneRoot: opts.redirectPhoneRootToMobile ?? true,
   })
-  if (mobileWebDir) registerWebStatic(app, mobileWebDir, { basePath: '/mobile', lazy: true })
+  // crossOriginIsolated: expo-sqlite web needs SharedArrayBuffer for durable
+  // OPFS persistence (POD-541). Without these headers the replica degrades to
+  // in-memory and offline deep links paint "Task not found."
+  if (mobileWebDir) {
+    registerWebStatic(app, mobileWebDir, {
+      basePath: '/mobile',
+      lazy: true,
+      crossOriginIsolated: true,
+    })
+  }
 
   let webDir = process.env.PODIUM_WEB_DIR
   if (!webDir) {

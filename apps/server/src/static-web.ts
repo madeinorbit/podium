@@ -44,6 +44,10 @@ const CONTENT_TYPES: Record<string, string> = {
   '.woff2': 'font/woff2',
   '.woff': 'font/woff',
   '.map': 'application/json; charset=utf-8',
+  // POD-541: expo-sqlite's web worker streams this as WebAssembly.compileStreaming.
+  // Wrong MIME → compile fails, the worker never answers, openDatabaseSync hits
+  // "Sync operation timeout", and the replica degrades to memory-only.
+  '.wasm': 'application/wasm',
 }
 
 /**
@@ -218,10 +222,12 @@ async function serveFile(
   filePath: string,
   accepted: Encoding[],
   inMemory?: Buffer,
+  extraHeaders?: Record<string, string>,
 ): Promise<Response> {
   const headers: Record<string, string> = {
     'Content-Type': contentType(filePath),
     'Cache-Control': cacheControl(filePath),
+    ...extraHeaders,
   }
   if (!COMPRESSIBLE_EXTENSIONS.has(extname(filePath).toLowerCase())) {
     return new Response(body(inMemory ?? readFileSync(filePath)), { status: 200, headers })
@@ -270,6 +276,27 @@ async function serveFile(
   })
 }
 
+/**
+ * Headers that make `window.crossOriginIsolated === true` so the page may use
+ * SharedArrayBuffer.
+ *
+ * POD-541: expo-sqlite's web backend drives its worker through
+ * SharedArrayBuffer + Atomics (the "sync" API). Without isolation the SAB
+ * constructor is unavailable, openDatabaseSync falls into the degraded
+ * in-memory path, and an offline relaunch finds no durable issue rows — which
+ * is why deep-linked task detail painted "Task not found." after a live
+ * session had just shown the task. COEP is `credentialless` rather than
+ * `require-corp` so a same-origin SPA that later loads a no-CORS third-party
+ * asset is not permanently bricked; SAB still unlocks under either value.
+ */
+export const CROSS_ORIGIN_ISOLATION_HEADERS: Readonly<Record<string, string>> = {
+  'Cross-Origin-Opener-Policy': 'same-origin',
+  'Cross-Origin-Embedder-Policy': 'credentialless',
+  // Same-origin is the default for CORP, but state it so a future proxy that
+  // strips defaults cannot re-open the SAB gate while leaving COEP on.
+  'Cross-Origin-Resource-Policy': 'same-origin',
+}
+
 export interface StaticWebOptions {
   basePath?: string
   /** Register routes even when the build is currently absent; each request
@@ -283,6 +310,12 @@ export interface StaticWebOptions {
    *  "unstamped" banner on the Expo mobile shell, which is a different artefact
    *  built by a different toolchain. */
   stampCheck?: boolean
+  /**
+   * Opt-in isolation headers for SharedArrayBuffer (POD-541). The Expo mobile
+   * shell needs them for durable expo-sqlite; the desktop web shell does not
+   * and must not inherit them — COOP would break its multi-window flows.
+   */
+  crossOriginIsolated?: boolean
 }
 
 function contentType(p: string): string {
@@ -457,6 +490,7 @@ export function registerWebStatic(
   if (!opts.lazy && !existsSync(indexPath)) return false
 
   const basePath = normalizedBasePath(opts.basePath)
+  const isolationHeaders = opts.crossOriginIsolated ? CROSS_ORIGIN_ISOLATION_HEADERS : undefined
   const handler = async (c: Context) => {
     if (opts.lazy && !existsSync(indexPath)) return c.notFound()
     const pathname = new URL(c.req.url).pathname
@@ -473,10 +507,10 @@ export function registerWebStatic(
       statSync(filePath).isFile() &&
       filePath !== indexPath
     ) {
-      return await serveFile(filePath, accepted)
+      return await serveFile(filePath, accepted, undefined, isolationHeaders)
     }
     const icon = appleTouchIcon(webDir, inside)
-    if (icon) return await serveFile(icon, accepted)
+    if (icon) return await serveFile(icon, accepted, undefined, isolationHeaders)
     // Workbox precaches `/index.html` with a normal same-origin fetch, not a
     // navigation request. Keep the shell on the single annotated path below,
     // but admit that exact existing file regardless of Sec-Fetch-Mode; otherwise
@@ -486,6 +520,7 @@ export function registerWebStatic(
         indexPath,
         accepted,
         Buffer.from(serveIndex(webDir, indexPath, opts.stampCheck === true), 'utf8'),
+        isolationHeaders,
       )
     }
     // A missing FILE is a 404, not the web page. Only navigations fall through
@@ -500,6 +535,7 @@ export function registerWebStatic(
       indexPath,
       accepted,
       Buffer.from(serveIndex(webDir, indexPath, opts.stampCheck === true), 'utf8'),
+      isolationHeaders,
     )
   }
 

@@ -6,7 +6,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router'
 import { Plus } from 'lucide-react-native'
 import { useCallback, useMemo, useState } from 'react'
 import { ScrollView, StyleSheet, Text, View } from 'react-native'
-import { useBooting, useIssue, useMobileStore, useSessions } from '../client/hooks'
+import { useBooting, useConnected, useIssue, useMobileStore, useSessions } from '../client/hooks'
 import { ActionSheet } from '../components/ActionSheet'
 import { Composer } from '../components/Composer'
 import { Icon } from '../components/Icon'
@@ -27,6 +27,7 @@ export function IssueScreen() {
   const router = useRouter()
   const issue = useIssue(issueId)
   const booting = useBooting()
+  const connected = useConnected()
 
   /**
    * Back, with somewhere to go [POD-402, the trap in POD-358].
@@ -51,6 +52,13 @@ export function IssueScreen() {
     )
   }, [issue, router])
 
+  // POD-541: "Task not found" is a claim about existence. Offline, a missing
+  // row more often means "the cache does not have it" than "it does not exist"
+  // — keep the page-shaped skeleton rather than a false deletion. Only claim
+  // absence once we are connected and no longer booting.
+  const certainAbsence = issue === undefined && !booting && connected
+  const resolved = issue !== undefined || certainAbsence
+
   return (
     <Screen
       title={issue ? `${issueDisplayRef(issue)} ${issue.title}` : 'Task'}
@@ -63,11 +71,14 @@ export function IssueScreen() {
         ) : undefined
       }
     >
-      <BootstrapCrossfade
-        resolved={issue !== undefined || !booting}
-        placeholder={<DetailSkeleton />}
-      >
-        {issue ? <IssueContent issue={issue} /> : <EmptyState title="Task not found." />}
+      <BootstrapCrossfade resolved={resolved} placeholder={<DetailSkeleton />}>
+        {issue ? (
+          <IssueContent issue={issue} />
+        ) : certainAbsence ? (
+          <EmptyState title="Task not found." />
+        ) : (
+          <DetailSkeleton />
+        )}
       </BootstrapCrossfade>
     </Screen>
   )

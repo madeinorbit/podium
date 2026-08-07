@@ -189,25 +189,24 @@ test('a warm relaunch paints cached task detail', async ({ page }) => {
 })
 
 /**
- * FAILS TODAY — the gap is POD-541, not this suite.
+ * Offline deep-link paint (POD-541).
  *
- * An offline relaunch of a task detail renders "Task not found." rather than the
- * cached task or a skeleton. It is left here as a fixme rather than deleted,
- * because deleting it would remove the only executable statement of the
- * acceptance clause it covers, and this file is where the next person looks.
- *
- * Two fixture traps were ruled out before concluding it is a product gap, and
- * both are preserved here so the diagnosis does not have to be repeated:
+ * Two fixture traps were ruled out before the product gap was fixed, and both
+ * are preserved here so the diagnosis does not have to be repeated:
  *   - The replica is namespaced by principal, so the offline mock replays the
  *     REAL /auth/status body. A hardcoded stand-in opens an empty namespace and
  *     fails identically for an entirely different reason.
  *   - The task is created seconds earlier and arrives over the live feed, so a
- *     settle delay rules out a short persistence race. It does not help.
- * The control is the cold-offline test above: under an unrelated principal it
- * gets booting=true and a skeleton, while this gets booting=false — so the
- * replica does resolve with data, and this row simply is not in it.
+ *     settle delay rules out a short write race.
+ *
+ * The product gap had two layers (both fixed):
+ *   1. Mobile web used expo-sqlite, whose OPFS worker timed out in Chromium, so
+ *      the store was memory-only. Web now uses IndexedDB (ADR 6 D1).
+ *   2. /mobile static lacked COOP/COEP and `.wasm` MIME, which would still have
+ *      blocked any SAB-dependent path. Isolation headers remain for native-web
+ *      parity and the wasm MIME is required for streaming compile.
  */
-test.fixme('an offline relaunch paints cached task detail', async ({ page }) => {
+test('an offline relaunch paints cached task detail', async ({ page }) => {
   const title = await createTaskAndOpenIt(page)
   await page.reload()
   await expect(visibleText(page, title)).toBeVisible({ timeout: 30_000 })

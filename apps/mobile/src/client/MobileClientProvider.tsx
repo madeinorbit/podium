@@ -58,15 +58,26 @@ import {
   migrateLegacyReplica,
 } from '@podium/sync/adapters/legacy-replica'
 import {
+  type IdbFactoryLike,
+  IndexedDbSyncStore,
+} from '@podium/sync/adapters/indexeddb'
+import {
   fromExpoSqlite,
   type SqlDatabaseLike,
   SqliteSyncStore,
 } from '@podium/sync/adapters/mobile-sqlite'
-import type { OutboxAttribution, OutboxCommand } from '@podium/sync/outbox'
-import { type Cursor, Replica as KernelReplica, type ReplicaEvent } from '@podium/sync/replica'
+import type { OutboxAttribution, OutboxCommand, OutboxStorePort } from '@podium/sync/outbox'
+import {
+  type Cursor,
+  type ReplicaCacheStore,
+  Replica as KernelReplica,
+  type ReplicaEvent,
+  type SyncUnitOfWork,
+} from '@podium/sync/replica'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as SQLite from 'expo-sqlite'
 import { type ReactNode, useEffect, useMemo, useState } from 'react'
+import { Platform } from 'react-native'
 import { fetchAuthStatus } from './auth'
 import { useAuthStatus } from './auth-context'
 import {
@@ -85,6 +96,7 @@ import { type MobileTrpc, makeMobileTrpc, readServerConfig } from './trpc'
 
 /** The SQLite file the durable outbox and entity cache live in. */
 export const MOBILE_REPLICA_DB = 'podium-replica.db'
+
 
 /** Test-only/legacy fallback. Production passes AuthStatus.userId explicitly; an
  * unattributed pre-identity store is accepted only through the injected gate. */
@@ -122,12 +134,32 @@ const EMPTY_ADOPTION_PLAN = {
   cursorDiscarded: false,
 }
 
+/**
+ * The durable entity/outbox/cursor store, as openMobileReplica needs it.
+ *
+ * Both adapters (SQLite native, IndexedDB web) satisfy this. POD-541 switched
+ * the web path off expo-sqlite because its OPFS worker times out under the
+ * Playwright Chromium the e2e drives — IndexedDB is the durable engine ADR 6
+ * already names for web.
+ */
+export interface MobileEntityStore {
+  viewFor(principal: string): {
+    cache: ReplicaCacheStore
+    outbox: OutboxStorePort
+  }
+  erasePrincipal(principal: string): Promise<void>
+  readonly unitOfWork: SyncUnitOfWork
+  durability(): 'durable' | 'degraded-memory' | 'unavailable'
+  settled(): Promise<void>
+  close(): void
+}
+
 export interface MobileReplicaDeps {
-  /** The SQLite engine. Injected so a test drives a real file-backed database. */
-  readonly openDatabase: () => SqlDatabaseLike
-  /** Remove the file, so a poisoned or newer-version store cold-starts instead of
-   *  wedging boot (ADR 6 D4.5). The adapter makes this REQUIRED for that reason. */
-  readonly deleteDatabase: () => void
+  /**
+   * Open the durable store. Native injects SQLite; web injects IndexedDB
+   * (POD-541). Tests inject a file-backed SQLite the same way as before.
+   */
+  readonly openStore: () => Promise<MobileEntityStore>
   /** The hydrated AsyncStorage bridge: the legacy migration's source AND the
    *  side-cache home for ui-state / transcript windows. */
   readonly storage: StorageApi
@@ -159,7 +191,7 @@ export interface MobileReplica {
   readonly feed: FeedSinkPort
   /** What the migration did — the caller tells the user (D4.4). */
   readonly outcome: LegacyMigrationOutcome
-  readonly store: SqliteSyncStore
+  readonly store: MobileEntityStore
   readonly principal: string
   /**
    * Call once the engine's hub exists. A re-bootstrap is a reconnect, so
@@ -189,17 +221,7 @@ export interface MobileReplica {
 export async function openMobileReplica(deps: MobileReplicaDeps): Promise<MobileReplica> {
   const principal = deps.principal ?? MOBILE_REPLICA_PRINCIPAL
   const now = deps.now ?? Date.now
-  const store = await SqliteSyncStore.open({
-    openDatabase: deps.openDatabase,
-    deleteDatabase: deps.deleteDatabase,
-    // A degraded store still WORKS — the queue runs in memory and forgets on
-    // reload — so this is a notice, not a fatal error. Silence is the one option
-    // ADR 6 D4.4 rules out.
-    onDegraded: (degradation) =>
-      deps.onDegraded(
-        `Offline changes may not survive a restart on this device (${degradation.cause}).`,
-      ),
-  })
+  const store = await deps.openStore()
   const namespace = preparePrincipalNamespace({
     storage: deps.storage,
     enumerateKeys: deps.enumerateKeys ?? (() => []),
@@ -481,8 +503,30 @@ function LiveProvider({ children }: { children: ReactNode }) {
         }
       }
       const opened = await openMobileReplica({
-        openDatabase: () => fromExpoSqlite(SQLite.openDatabaseSync(MOBILE_REPLICA_DB)),
-        deleteDatabase: () => SQLite.deleteDatabaseSync(MOBILE_REPLICA_DB),
+        // POD-541: web uses IndexedDB (ADR 6 D1). expo-sqlite's OPFS worker
+        // times out under Chromium even with COOP/COEP + correct wasm MIME, so
+        // the replica degraded to memory-only and offline deep links lost the
+        // task. Native keeps SQLite.
+        openStore: async () => {
+          if (Platform.OS === 'web') {
+            return IndexedDbSyncStore.open({
+              factory: globalThis.indexedDB as unknown as IdbFactoryLike,
+              databaseName: MOBILE_REPLICA_DB,
+              onDegraded: (degradation) =>
+                setNotice(
+                  `Offline changes may not survive a restart on this device (${degradation.cause}).`,
+                ),
+            })
+          }
+          return SqliteSyncStore.open({
+            openDatabase: () => fromExpoSqlite(SQLite.openDatabaseSync(MOBILE_REPLICA_DB)),
+            deleteDatabase: () => SQLite.deleteDatabaseSync(MOBILE_REPLICA_DB),
+            onDegraded: (degradation) =>
+              setNotice(
+                `Offline changes may not survive a restart on this device (${degradation.cause}).`,
+              ),
+          })
+        },
         storage: bridge.storage,
         enumerateKeys: bridge.keys,
         flushStorage: bridge.flush,
