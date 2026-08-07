@@ -136,12 +136,49 @@ function UsageBody({
       <UsageTrace summary={s} cold={cold} arrived={arrived} />
       <UsageComposition summary={s} cold={cold} />
       <UsageModels summary={s} cold={cold} />
-      <p className="usage-note">
-        Harvested from harness transcripts on the dev machine (Claude Code and Codex). Cost is the
-        public API list-price equivalent of the same tokens — what this work would have cost
-        off-subscription, not what you were billed. Windows are rolling.
-      </p>
+      <UsageProvenance />
     </div>
+  )
+}
+
+/**
+ * Where these numbers come from — the sheet's footer bar.
+ *
+ * It was a paragraph capped at a 72ch measure under a full-width rule, which
+ * left the bottom third of the sheet as one block of text pushed against the
+ * left edge and a hand's breadth of nothing beside it. A window does not end
+ * that way: it CLOSES (DESIGN.md, The Status Strip). So the fine print became
+ * the frame's bottom edge — full-bleed, `--bar` toned and hairline-topped, the
+ * mirror of the sheet's own 36px header — carrying the three facts as labelled
+ * cells divided the way the two window readouts at the top of the sheet are.
+ * The surface opens and closes on the same grammar.
+ *
+ * Its type does NOT join the Reading Tier the sheet's content uses: chrome never
+ * does (POD-407), and a frame whose text grew with its contents stops reading as
+ * the frame.
+ */
+function UsageProvenance(): JSX.Element {
+  const facts = [
+    { label: 'Source', value: 'Claude Code and Codex transcripts on this machine', wide: false },
+    {
+      label: 'Cost basis',
+      // The caveat the sheet cannot do without, now that it leads with a dollar
+      // figure: an API-equivalent is not an invoice.
+      value:
+        'Public API list price for the same tokens — what this work would have cost off-subscription, not what you were billed',
+      wide: true,
+    },
+    { label: 'Windows', value: 'Rolling, counted back from now', wide: false },
+  ]
+  return (
+    <footer className="usage-provenance">
+      {facts.map((f) => (
+        <div key={f.label} className="usage-prov" data-wide={f.wide || undefined}>
+          <span className="usage-prov-label">{f.label}</span>
+          <span className="usage-prov-value">{f.value}</span>
+        </div>
+      ))}
+    </footer>
   )
 }
 

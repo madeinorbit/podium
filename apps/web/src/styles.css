@@ -4154,15 +4154,69 @@ a.ref-link--session::before {
   display: block;
 }
 
-.usage-note {
+/* ── The footer bar ──────────────────────────────────────────────────────────
+   THE SHEET CLOSES, it does not trail off. As a 72ch paragraph under a
+   full-width rule this was one block of text against the left edge with a
+   hand's breadth of nothing beside it — the "content stopped halfway" tell, at
+   the bottom of the surface instead of the side. It is now the frame's bottom
+   edge: full-bleed out of the body's padding, `--bar` toned and hairline-topped,
+   the mirror of the sheet's own header, with the three facts in labelled cells
+   divided exactly the way the two window readouts at the top are.
+
+   Its type stays at the shell's scale rather than the Reading Tier the content
+   above uses: chrome never joins that tier (POD-407) — a frame whose text grew
+   with its contents stops reading as the frame. */
+.usage-provenance {
+  display: flex;
   flex: none;
-  margin: 0;
-  padding-top: 14px;
-  border-top: 1px solid var(--hairline-soft);
-  max-width: 72ch;
-  color: var(--muted-foreground);
-  font-size: 11.5px;
-  line-height: 1.6;
+  /* Stretch, not flex-start: the cells divide by a border, and a border whose
+     height is its own cell's content makes three rules of three different
+     lengths out of what is meant to be one row of dividers. */
+  align-items: stretch;
+  /* Out of the body's 18px/20px padding, so the bar meets the sheet's own
+     edges. The gap above it is the body's; the bar owns the space below. */
+  margin: 0 -20px -18px;
+  padding: 11px 20px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--bar);
+}
+.usage-prov {
+  flex: 1;
+  min-width: 0;
+  padding: 0 18px;
+  border-left: 1px solid var(--hairline-soft);
+}
+/* The cost caveat is the long one and the one that must not wrap to four lines;
+   it takes the room the two short facts do not need. */
+.usage-prov[data-wide] {
+  flex: 1.75;
+}
+.usage-prov:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+.usage-prov:last-child {
+  padding-right: 0;
+}
+.usage-prov-label {
+  display: block;
+  color: var(--label);
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.usage-prov-value {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.5;
+  /* Balanced, not ragged: the cost caveat runs to two lines in its cell, and
+     the default break left a full line against three orphaned words. Two even
+     lines is what makes a footer cell read as a block rather than a spill. */
+  text-wrap: balance;
 }
 .usage-empty {
   display: grid;
