@@ -38,3 +38,53 @@ describe('resolveFocus', () => {
     }
   })
 })
+
+/**
+ * The Flight Deck and the Task dock must resolve focus against the SAME set, or
+ * the two columns disagree about what is being inspected.
+ *
+ * Two ways they used to diverge, both fixed by resolving against the mission
+ * ROOT's unfiltered membership:
+ *
+ *  - the deck resolved against its MODE-FILTERED rows, so switching to
+ *    "Needs you" moved the highlight — and the dock with it — to the root;
+ *  - the dock resolved against `selectedIssueId`'s subtree rather than the
+ *    mission's, so with a child selected its set was strictly smaller than the
+ *    deck's and a focus on a sibling fell back here alone.
+ *
+ * These cases assert the shared rule directly. The membership itself is
+ * `missionIssueIds`, covered in mission.test.ts.
+ */
+describe('deck / dock focus agreement', () => {
+  // root ── c1 ── g1   (only g1 needs you, so "Needs you" renders root+c1+g1)
+  //      └─ c2
+  const missionMembers = new Set(['root', 'c1', 'c2', 'g1'])
+  const needsYouRows = new Set(['root', 'c1', 'g1'])
+
+  it('keeps a focus that a filter has scrolled out of view', () => {
+    // c2 is filtered out of the deck. It is still the inspected task.
+    expect(resolveFocus('c2', needsYouRows, 'root')).toBe('root')
+    expect(resolveFocus('c2', missionMembers, 'root')).toBe('c2')
+  })
+
+  it('agrees with itself for every member of the mission, in either column', () => {
+    for (const id of missionMembers) {
+      const deck = resolveFocus(id, missionMembers, 'root')
+      const dock = resolveFocus(id, missionMembers, 'root')
+      expect(deck).toBe(dock)
+      expect(deck).toBe(id)
+    }
+  })
+
+  it('agrees on the fallback when the focus belongs to no mission at all', () => {
+    expect(resolveFocus('other-mission', missionMembers, 'root')).toBe('root')
+  })
+
+  // The dock's own former bug: with a CHILD selected, resolving against that
+  // child's subtree loses every sibling the deck still shows.
+  it('does not shrink the set when the selection is a child rather than the root', () => {
+    const childSubtreeOnly = new Set(['c1', 'g1'])
+    expect(resolveFocus('c2', childSubtreeOnly, 'c1')).toBe('c1')
+    expect(resolveFocus('c2', missionMembers, 'root')).toBe('c2')
+  })
+})

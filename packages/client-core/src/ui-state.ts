@@ -189,12 +189,20 @@ export const CLIENT_DEVICE_LOCAL_UI_KEYS = [
   'podium:tray:height',
   'podium:superagent:width',
   'podium:rightdock:width',
+  /** Flight Deck view (`full` | `active` | `needs-you`) and the set of folded
+   *  branches. The artifact's ledger classes both as DISPLAY PREFERENCE for this
+   *  screen: they change what column 2 shows and never touch issue stage or
+   *  agent state, and a phone has no business inheriting a desktop's folds. */
+  'podium.flightDeck.mode',
+  'podium.flightDeck.folds',
   /** Dev diagnostics: remote-typing echo HUD. */
   'podium.echoHud',
   /** Dev diagnostics: switch-latency console trace. */
   'podium.switchTrace',
 ] as const
 
+export const FLIGHT_DECK_MODE_KEY = 'podium.flightDeck.mode'
+export const FLIGHT_DECK_FOLDS_KEY = 'podium.flightDeck.folds'
 export const STICKY_PROMPTS_KEY = 'podium.chat.stickyPrompts'
 export const CHAT_VERBOSITY_KEY = 'podium.chat.verbosity'
 export const SOUNDS_ENABLED_KEY = 'podium.sounds.enabled'

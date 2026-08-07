@@ -366,10 +366,17 @@ export function Workspace(): JSX.Element {
                     // Opening a session tab marks it read (#126) so the sidebar
                     // row's unread emphasis clears in step with what's on screen.
                     if (t.kind === 'session') void markSessionRead(asSessionId(t.id))
-                    if (t.kind === 'session' && t.session.issueId) {
+                    // Selection contract: a session tab click highlights its
+                    // OWNING issue. A session with no issue belongs to the
+                    // mission itself, so focus falls back to the root — the
+                    // fallbacks used to sit inside a guard that made them
+                    // unreachable, leaving the deck pointed at the task you
+                    // opened before this one. A file tab is not a session
+                    // identity and only moves focus when it names an issue.
+                    if (t.kind === 'session') {
                       setFocusedIssueId(t.session.issueId ?? missionRoot?.id ?? null)
                     } else if (t.kind === 'file' && t.file.issueId) {
-                      setFocusedIssueId(t.file.issueId ?? missionRoot?.id ?? null)
+                      setFocusedIssueId(t.file.issueId)
                     }
                     setPane('A', asSessionId(t.id))
                   }}

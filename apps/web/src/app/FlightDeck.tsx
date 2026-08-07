@@ -1,65 +1,151 @@
 import { shallowEqual } from '@podium/client-core/store'
 import {
+  FLIGHT_DECK_FOLDS_KEY,
+  FLIGHT_DECK_MODE_KEY,
+} from '@podium/client-core/ui-state'
+import {
   isCoordinatorSession,
   type IssueNavigationModel,
   motionPhase,
   reposToViews,
 } from '@podium/client-core/viewmodels'
-import type { SessionMeta } from '@podium/model'
+import type { AgentKind, SessionMeta } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
-import { ChevronDown, ChevronLeft, ChevronRight, CornerDownRight, Users } from 'lucide-react'
+import {
+  ArrowRight,
+  Ban,
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
+  CornerDownRight,
+  Hourglass,
+  Search,
+  X,
+} from 'lucide-react'
 import type { JSX } from 'react'
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { resolveFocus, useOperatorFocus } from './operator-focus'
 import { useReplicaIssues, useStoreSelector } from './store'
 import { Button } from '@/components/ui/button'
 import { STAGE_LABELS } from '@/features/issues/issue-card'
 import { StageGlyph } from '@/features/issues/issue-glyphs'
-import { PhaseTimer } from '@/lib/motion'
+import { BrailleSpinner, PhaseTimer } from '@/lib/motion'
+import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 import { cn } from '@/lib/utils'
-import { sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
+import { KindIcon, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
 import {
   buildFlightDeckRows,
+  type CollapsedSummary,
   coordinatorCount,
   type FlightDeckMode,
   type FlightDeckRow,
+  missionIssueIds,
   missionProgress,
   missionRootFor,
+  type OperationalState,
   operationalState,
+  presenceNote,
+  type PresenceNote,
+  relationNote,
+  waitingNote,
 } from '@/lib/mission'
 
 const MODES: Array<{ id: FlightDeckMode; label: string }> = [
-  { id: 'full', label: 'Full' },
+  { id: 'full', label: 'Full spine' },
   { id: 'active', label: 'Active' },
   { id: 'needs-you', label: 'Needs you' },
 ]
 
-/** Meters are Accent Blue data on the secondary surface (DESIGN.md §5) — the
- *  yellow is reserved for the thing asking something of you. */
-function ProgressBar({ done, total, percent }: ReturnType<typeof missionProgress>): JSX.Element {
+/** One issue-depth step. Agent rows hang 32px in, so a child task strip lands
+ *  LEFT of its parent's agent rows — issue depth reads as issue depth, and a
+ *  session never looks like it is parenting the task below it. */
+const DEPTH_STEP = 14
+const AGENT_INDENT = 32
+
+const readMode = (raw: string | null): FlightDeckMode =>
+  raw === 'active' || raw === 'needs-you' ? raw : 'full'
+const writeMode = (mode: FlightDeckMode): string | null => (mode === 'full' ? null : mode)
+
+const EMPTY_FOLDS: ReadonlySet<string> = new Set<string>()
+const readFolds = (raw: string | null): ReadonlySet<string> => {
+  if (!raw) return EMPTY_FOLDS
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    return Array.isArray(parsed)
+      ? new Set(parsed.filter((id): id is string => typeof id === 'string'))
+      : EMPTY_FOLDS
+  } catch {
+    return EMPTY_FOLDS
+  }
+}
+const writeFolds = (folds: ReadonlySet<string>): string | null =>
+  folds.size === 0 ? null : JSON.stringify([...folds])
+
+/**
+ * Mission progress, in four segments over the WHOLE mission.
+ *
+ * Meters are Accent Blue data on the secondary surface (DESIGN.md §5) — the
+ * yellow stays reserved for the thing asking something of you, so blocked work
+ * takes the warning tone and waiting work stays uncoloured.
+ */
+function ProgressBar({
+  progress,
+}: {
+  progress: ReturnType<typeof missionProgress>
+}): JSX.Element {
+  const { total, done, run, block } = progress
+  const pct = (n: number): string => `${total === 0 ? 0 : (n / total) * 100}%`
   return (
-    <div className="mt-3 flex items-center gap-2.5" aria-label={`${done} of ${total} tasks done`}>
-      <div className="h-[3.5px] flex-1 overflow-hidden rounded-full bg-secondary">
-        <div
-          className="h-full rounded-full bg-info transition-[width] duration-300"
-          style={{ width: `${percent}%` }}
-        />
+    <div className="mt-3 flex items-center gap-2.5">
+      <div className="flex h-[5px] flex-1 overflow-hidden rounded-full bg-secondary">
+        <span className="h-full bg-success transition-[width] duration-300" style={{ width: pct(done) }} />
+        <span className="h-full bg-info transition-[width] duration-300" style={{ width: pct(run) }} />
+        <span className="h-full bg-warning transition-[width] duration-300" style={{ width: pct(block) }} />
       </div>
-      <span className="shell-type-micro font-mono tabular-nums text-text-dim">
-        {done}/{total}
+      <span className="shell-type-micro flex-none font-mono tabular-nums text-text-dim">
+        {done} done · {run} active
       </span>
     </div>
   )
 }
 
 /**
- * The row's operational state as a WORD, not an invented glyph. Every icon that
- * would fit here already means something else in this app — CircleDot is the
- * Task panel, Play is "run now", Archive is the archive action — and the two
- * states that do have canonical motion already carry it elsewhere in the row:
- * working shows the braille spinner on its session rows, done shows the filled
- * StageGlyph. Stillness is the signal (DESIGN.md §5).
+ * The row's operational state as a MARK plus a word.
+ *
+ * An earlier pass shipped the word alone, on the argument that every icon that
+ * would fit here already means something else. The approved artifact disagrees
+ * and it wins: on a spine of thirty strips the word is unreadable at a glance,
+ * and a working row has no other motion of its own once its agent rows are
+ * folded away. So the marks are drawn from what already carries meaning here —
+ * the canonical braille spinner of the motion grammar for working, the amber
+ * dot the whole app uses for "asking something of you" — rather than invented.
  */
+function StateMark({ state }: { state: OperationalState }): JSX.Element {
+  // The spinner carries its own reserved working blue (`--motion-working`);
+  // nothing here retints it.
+  if (state === 'working') return <BrailleSpinner size={9} className="flex-none" />
+
+  if (state === 'needs-you') {
+    return (
+      <span
+        aria-hidden
+        className="flex size-3 flex-none items-center justify-center rounded-full bg-attention text-[8px] font-bold leading-none text-attention-foreground"
+      >
+        !
+      </span>
+    )
+  }
+  if (state === 'waiting') return <Ban size={11} aria-hidden className="flex-none text-warning" />
+  if (state === 'done') return <Check size={11} aria-hidden className="flex-none text-success" />
+  if (state === 'moved') {
+    return <ArrowRight size={11} aria-hidden className="flex-none text-text-dim" />
+  }
+  return <Hourglass size={10} aria-hidden className="flex-none text-text-faint" />
+}
+
 function StateLabel({
   row,
   byId,
@@ -70,23 +156,99 @@ function StateLabel({
   const value = operationalState(row.issue, row.sessions, byId)
   return (
     <span
-      className={cn(
-        'shell-type-micro flex-none truncate',
-        value.state === 'needs-you'
-          ? 'font-semibold text-attention'
-          : value.state === 'waiting'
-            ? 'font-mono text-text-dim'
-            : 'text-text-dim',
-      )}
+      className="flex flex-none items-center gap-1.5"
       data-operational-state={value.state}
       title={value.label}
     >
-      {value.label}
+      <StateMark state={value.state} />
+      <span
+        className={cn(
+          'shell-type-micro truncate',
+          value.state === 'needs-you'
+            ? 'font-semibold text-attention'
+            : value.state === 'waiting'
+              ? 'font-mono text-warning'
+              : 'text-text-dim',
+        )}
+      >
+        {value.label}
+      </span>
     </span>
   )
 }
 
-function NativeRows({ session, onOpen }: { session: SessionMeta; onOpen: () => void }): JSX.Element {
+/** What a fold is hiding, said in the row's own meta slot rather than in a
+ *  second row below it — a fold that costs a row hides nothing. */
+function CollapsedPayload({ summary }: { summary: CollapsedSummary }): JSX.Element {
+  const { tasks, done, run, kinds, needsYou } = summary
+  const pct = (n: number): string => `${tasks === 0 ? 0 : (n / tasks) * 100}%`
+  return (
+    <span
+      className="flex flex-none items-center gap-1.5"
+      data-testid="flight-collapse-payload"
+      title={`${tasks} task${tasks === 1 ? '' : 's'} · ${run} active${needsYou ? ' · needs you' : ''}`}
+    >
+      <span className="shell-type-micro rounded border border-hairline-bar px-1 font-mono text-text-dim">
+        {tasks} task{tasks === 1 ? '' : 's'}
+      </span>
+      <span className="flex h-1 w-7 flex-none overflow-hidden rounded-full bg-secondary">
+        <span className="h-full bg-success" style={{ width: pct(done) }} />
+        <span className="h-full bg-info" style={{ width: pct(run) }} />
+      </span>
+      {kinds.length > 0 && (
+        <span className="flex flex-none items-center pl-0.5">
+          {kinds.map((kind, index) => (
+            <span key={kind} className={index > 0 ? '-ml-1.5' : undefined}>
+              <KindIcon kind={kind} chip />
+            </span>
+          ))}
+        </span>
+      )}
+      {needsYou && <span aria-hidden className="size-1.5 flex-none rounded-full bg-attention" />}
+    </span>
+  )
+}
+
+/** The inset band that says why a task has nobody on it — or, alongside live
+ *  agents, what it is still waiting for. A blank here is the one thing the deck
+ *  must never render: "no session" is four situations and only one is a problem. */
+function PresenceBand({
+  note,
+  indent,
+}: {
+  note: PresenceNote
+  indent: number
+}): JSX.Element {
+  return (
+    <div
+      className={cn(
+        'shell-type-micro flex min-h-[22px] items-center gap-2 rounded-r border-l-2 py-1 pr-2 pl-2 font-mono',
+        note.attention
+          ? 'border-attention/70 font-semibold text-attention'
+          : note.kind === 'blocked'
+            ? 'border-warning/50 text-warning'
+            : 'border-border/60 text-text-dim',
+      )}
+      style={{ marginLeft: `${indent}px` }}
+      data-presence={note.kind}
+    >
+      {note.kind === 'moved' && <ArrowRight size={11} aria-hidden className="flex-none" />}
+      {note.kind === 'blocked' && <Ban size={11} aria-hidden className="flex-none" />}
+      {note.kind === 'waiting' && <Hourglass size={10} aria-hidden className="flex-none" />}
+      <span className="truncate">{note.text}</span>
+    </div>
+  )
+}
+
+function NativeRows({
+  session,
+  indent,
+  onOpen,
+}: {
+  session: SessionMeta
+  indent: number
+  onOpen: () => void
+}): JSX.Element | null {
   const native = session.agentState?.nativeSubagents ?? []
   const missing = Math.max(0, (session.agentState?.nativeSubagentCount ?? 0) - native.length)
   const rows = [
@@ -96,9 +258,13 @@ function NativeRows({ session, onOpen }: { session: SessionMeta; onOpen: () => v
       type: 'native agent',
     })),
   ]
-  if (rows.length === 0) return <></>
+  if (rows.length === 0) return null
   return (
-    <div className="ml-5 border-l border-border/50 pl-0.5" data-testid="flight-native-agents">
+    <div
+      className="border-l border-border/50 pl-0.5"
+      style={{ marginLeft: `${indent}px` }}
+      data-testid="flight-native-agents"
+    >
       {rows.map((agent) => (
         <button
           data-pressable
@@ -121,12 +287,14 @@ function SessionRow({
   session,
   coordinator,
   active,
+  indent,
   onOpen,
   onOpenNative,
 }: {
   session: SessionMeta
   coordinator: boolean
   active: boolean
+  indent: number
   onOpen: () => void
   onOpenNative: () => void
 }): JSX.Element {
@@ -142,15 +310,19 @@ function SessionRow({
       : undefined
   const since = Date.parse(session.agentState?.since ?? session.lastActiveAt)
   return (
-    <div className="ml-3 border-l border-border/50 pl-0.5" data-flight-session={session.sessionId}>
+    <div
+      className={cn('rounded-r border-l-2', active ? 'border-info/70 bg-muted' : 'border-border/60')}
+      style={{ marginLeft: `${indent}px` }}
+      data-flight-session={session.sessionId}
+    >
       <button
         data-pressable
         type="button"
         className={cn(
           // One tier quieter than a task strip: the strips are the spine, the
           // agents working them are the roster (sidebar-common's row idiom).
-          'group/session shell-type-secondary flex min-h-6 w-full items-center gap-2 rounded px-2 py-1 text-left text-text-dim hover:bg-muted hover:text-foreground',
-          active && 'bg-muted text-foreground',
+          'group/session shell-type-secondary flex min-h-6 w-full items-center gap-2 rounded-r px-2 py-1 text-left text-text-dim hover:bg-muted hover:text-foreground',
+          active && 'text-foreground',
           retired && 'opacity-60',
         )}
         onClick={onOpen}
@@ -180,7 +352,7 @@ function SessionRow({
           )
         )}
       </button>
-      <NativeRows session={session} onOpen={onOpenNative} />
+      <NativeRows session={session} indent={15} onOpen={onOpenNative} />
     </div>
   )
 }
@@ -207,7 +379,13 @@ function TaskRow({
   onSelectNative: (session: SessionMeta) => void
 }): JSX.Element {
   const hasPayload = row.descendantIds.length > 0 || row.sessions.length > 0
-  const hiddenCount = row.descendantIds.length
+  const indent = row.depth * DEPTH_STEP
+  const bandIndent = AGENT_INDENT + indent
+  // A dependency the operator can act on outlives the agent working the task:
+  // an issue with live sessions AND an unfinished blocker says both.
+  const waiting = row.sessions.length > 0 ? waitingNote(row.issue, byId) : null
+  const presence = presenceNote(row.issue, row.sessions, byId)
+  const relation = presence?.kind === 'moved' || waiting ? null : relationNote(row.issue, byId)
   return (
     <div data-flight-issue={row.issue.id}>
       <div
@@ -219,7 +397,7 @@ function TaskRow({
             ? 'issue-mix-28 issue-mix-slate-22 issue-base-engraved'
             : 'hover:bg-muted',
         )}
-        style={{ paddingLeft: `${8 + row.depth * 16}px` }}
+        style={{ paddingLeft: `${8 + indent}px` }}
       >
         {hasPayload ? (
           <button
@@ -241,46 +419,121 @@ function TaskRow({
           onClick={onSelectIssue}
         >
           <StageGlyph stage={row.issue.stage} size={13} />
+          {/* Ref THEN title, in one truncating label: the ref is how the
+              operator addresses the task everywhere else in Podium, and a
+              right-aligned ref made the column read right-to-left. */}
           <span className="shell-type-primary min-w-0 flex-1 truncate font-medium">
+            <span className="shell-type-micro mr-1.5 font-mono font-normal text-text-faint">
+              {issueDisplayRef(row.issue)}
+            </span>
             {row.issue.title}
           </span>
-          <span className="shell-type-micro font-mono text-text-faint">
-            {issueDisplayRef(row.issue)}
-          </span>
-          <StateLabel row={row} byId={byId} />
-        </button>
-      </div>
-      {collapsed && hasPayload ? (
-        <button
-          data-pressable
-          type="button"
-          className="shell-type-micro flex w-full items-center gap-2 border-b border-hairline-soft py-1.5 pr-3 text-left font-mono text-text-dim hover:bg-muted"
-          style={{ paddingLeft: `${36 + row.depth * 16}px` }}
-          onClick={onToggle}
-          data-testid="flight-collapse-payload"
-        >
-          <span>{hiddenCount} task{hiddenCount === 1 ? '' : 's'} hidden</span>
-          <span>·</span>
-          <span>{row.liveAgentCount} live</span>
-          {row.actionableCount > 0 && (
-            <>
-              <span>·</span>
-              <span className="font-semibold text-attention">{row.actionableCount} need you</span>
-            </>
+          {collapsed && hasPayload ? (
+            <CollapsedPayload summary={row.collapsedSummary} />
+          ) : (
+            <StateLabel row={row} byId={byId} />
           )}
         </button>
-      ) : (
-        row.sessions.map((session) => (
-          <SessionRow
-            key={session.sessionId}
-            session={session}
-            coordinator={isCoordinatorSession(row.issue, session.sessionId)}
-            active={activeSessionId === session.sessionId}
-            onOpen={() => onSelectSession(session)}
-            onOpenNative={() => onSelectNative(session)}
-          />
-        ))
+      </div>
+      {!collapsed && (
+        <>
+          {row.sessions.map((session) => (
+            <SessionRow
+              key={session.sessionId}
+              session={session}
+              coordinator={isCoordinatorSession(row.issue, session.sessionId)}
+              active={activeSessionId === session.sessionId}
+              indent={bandIndent}
+              onOpen={() => onSelectSession(session)}
+              onOpenNative={() => onSelectNative(session)}
+            />
+          ))}
+          {waiting && (
+            <PresenceBand
+              note={{ kind: 'waiting', text: waiting, attention: false }}
+              indent={bandIndent}
+            />
+          )}
+          {presence && <PresenceBand note={presence} indent={bandIndent} />}
+          {relation && (
+            <div
+              className="shell-type-micro flex items-center gap-1.5 py-0.5 pl-2 font-mono text-text-faint"
+              style={{ marginLeft: `${bandIndent}px` }}
+              data-testid="flight-relation-note"
+            >
+              <CornerDownRight size={10} aria-hidden />
+              <span className="truncate">{relation}</span>
+            </div>
+          )}
+        </>
       )}
+    </div>
+  )
+}
+
+/**
+ * The empty deck: a canvas that fills as the conversation does, never an error
+ * and never a demand for a task. A fresh Codex keeps its ordinary chat and
+ * composer; this column simply shows what it has learned so far.
+ */
+function IntakeCanvas({
+  session,
+  draft,
+  repoName,
+}: {
+  session: SessionMeta | undefined
+  draft: string | undefined
+  repoName: string | null
+}): JSX.Element {
+  const kind: AgentKind = session?.agentKind ?? 'codex'
+  const fields: Array<{ label: string; value: string; loading?: boolean }> = [
+    draft?.trim()
+      ? { label: 'Task', value: draft.trim() }
+      : { label: 'Task', value: 'Waiting for your first message', loading: true },
+    { label: 'Plan', value: 'The agent will outline the work' },
+    {
+      label: 'Team',
+      value: session ? `${sessionDisplayName(session)} · ready` : 'Agents will appear as they join',
+    },
+  ]
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-4 pb-6" data-testid="flight-intake">
+      <div className="shell-type-micro flex items-center gap-2 font-mono tracking-wide text-text-dim uppercase">
+        <KindIcon kind={kind} chip />
+        {session ? sessionDisplayName(session) : 'New session'}
+      </div>
+      <h2 className="shell-type-reading mt-2.5 font-semibold tracking-[-0.01em] text-text-strong">
+        Ready when you are
+      </h2>
+      <p className="shell-type-secondary mt-1.5 leading-[1.5] text-text-dim">
+        The agent will organize this workspace as you talk
+        {repoName ? ` in ${repoName}` : ''}.
+      </p>
+      <div className="mt-4">
+        {fields.map((field) => (
+          <div
+            key={field.label}
+            className="grid min-h-11 grid-cols-[46px_minmax(0,1fr)] items-center gap-2 border-t border-hairline-soft"
+          >
+            <span className="shell-type-micro font-mono text-text-dim">{field.label}</span>
+            {/* The artifact shimmers the pending field. Stillness is the signal
+                here (DESIGN.md §5) and the braille spinner means "an agent is
+                computing", which nothing is yet — so a pending field simply
+                reads fainter. */}
+            <span
+              className={cn(
+                'shell-type-secondary truncate',
+                field.loading ? 'text-text-faint' : 'text-text-dim',
+              )}
+            >
+              {field.value}
+            </span>
+          </div>
+        ))}
+      </div>
+      <p className="shell-type-micro mt-4 font-mono text-text-faint">
+        Names and rows crossfade into place; no task is invented.
+      </p>
     </div>
   )
 }
@@ -291,6 +544,8 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
     repos,
     selectedIssueId,
     paneA,
+    paneB,
+    split,
     setSelectedWorktree,
     setPane,
     setPanelMode,
@@ -304,6 +559,8 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
       repos: store.repos,
       selectedIssueId: store.selectedIssueId,
       paneA: store.paneA,
+      paneB: store.paneB,
+      split: store.split,
       setSelectedWorktree: store.setSelectedWorktree,
       setPane: store.setPane,
       setPanelMode: store.setPanelMode,
@@ -317,42 +574,104 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
   const issues = useReplicaIssues()
   const allWorktreePaths = useMemo(() => reposToViews(repos).flatMap((repo) => repo.worktrees.map((worktree) => worktree.path)), [repos])
   const { focusedIssueId, setFocusedIssueId } = useOperatorFocus()
-  const [mode, setMode] = useState<FlightDeckMode>('full')
-  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set())
+  // Device-local DISPLAY preference, subscribed rather than seeded (POD-540):
+  // which view you left the deck in and which branches you folded survive a
+  // remount. Neither ever touches issue stage or agent state.
+  const [mode, setMode] = usePersistedUiState<FlightDeckMode>(
+    FLIGHT_DECK_MODE_KEY,
+    readMode,
+    writeMode,
+  )
+  const [collapsed, setCollapsed] = usePersistedUiState<ReadonlySet<string>>(
+    FLIGHT_DECK_FOLDS_KEY,
+    readFolds,
+    writeFolds,
+  )
+  const [query, setQuery] = useState('')
+  const [searchOpen, setSearchOpen] = useState(false)
   const root = missionRootFor(issues, selectedIssueId)
   const rows = useMemo(
     () => (root ? buildFlightDeckRows(issues, sessions, root.id, mode, allWorktreePaths) : []),
     [issues, sessions, root, mode, allWorktreePaths],
   )
   const byId = useMemo(() => new Map(issues.map((issue) => [issue.id, issue])), [issues])
-  // A focus pointing outside this mission (left over from the one you just
-  // navigated away from) resolves to the root, so a row is always highlighted.
-  const focused = resolveFocus(
-    focusedIssueId,
-    new Set(rows.map((row) => row.issue.id)),
-    root?.id,
+  /**
+   * The session the operator is ACTUALLY in.
+   *
+   * Pane A holds a tab id, and a tab may be a file — its id is not a session
+   * identity, so reading `paneA` as one highlighted nothing (or, worse, the
+   * wrong thing) whenever a file was open. In split view the session being
+   * worked may be the one in pane B.
+   */
+  const focusedSession = useMemo(() => {
+    const find = (id: string | null): SessionMeta | undefined =>
+      id ? sessions.find((session) => session.sessionId === id) : undefined
+    return find(paneA) ?? (split ? find(paneB) : undefined)
+  }, [paneA, paneB, split, sessions])
+  const activeSessionId = focusedSession?.sessionId ?? null
+  // Resolved against the UNFILTERED mission membership, exactly as RightDock
+  // does: resolving against the mode-filtered rows let a switch to "Needs you"
+  // silently move the highlight — and the Task dock with it — to the root.
+  const missionMembers = useMemo(
+    () => (root ? missionIssueIds(issues, root.id, sessions) : new Set<string>()),
+    [issues, root, sessions],
   )
-  const progress = missionProgress(rows)
+  const focused = resolveFocus(focusedIssueId, missionMembers, root?.id)
+  const progress = missionProgress(issues, sessions, root?.id)
   const leadCount = coordinatorCount(rows, sessions)
   const liveCount = rows[0]?.liveAgentCount ?? 0
   const needsCount = rows[0]?.actionableCount ?? 0
-  const hiddenByAncestor = new Set<string>()
-  for (const row of rows) {
-    if (!collapsed.has(row.issue.id)) continue
-    for (const id of row.descendantIds) hiddenByAncestor.add(id)
-  }
-  const visibleRows = rows.filter((row) => !hiddenByAncestor.has(row.issue.id))
-  const rootSession = root ? rows[0]?.sessions[0] : sessions.find((session) => session.sessionId === paneA)
+  // Search keeps a match's ANCESTORS as context, the same rule the mode filters
+  // follow — an exception that loses its path is an exception you cannot place.
+  const visibleRows = useMemo(() => {
+    const hiddenByAncestor = new Set<string>()
+    for (const row of rows) {
+      if (!collapsed.has(row.issue.id)) continue
+      for (const id of row.descendantIds) hiddenByAncestor.add(id)
+    }
+    const unfolded = rows.filter((row) => !hiddenByAncestor.has(row.issue.id))
+    const needle = query.trim().toLowerCase()
+    if (!needle) return unfolded
+    const matches = (row: FlightDeckRow): boolean =>
+      row.issue.title.toLowerCase().includes(needle) ||
+      issueDisplayRef(row.issue).toLowerCase().includes(needle) ||
+      row.sessions.some((session) => sessionDisplayName(session).toLowerCase().includes(needle))
+    const keep = new Set<string>()
+    const trail: FlightDeckRow[] = []
+    for (const row of unfolded) {
+      trail.length = row.depth
+      trail[row.depth] = row
+      if (matches(row)) for (const ancestor of trail) if (ancestor) keep.add(ancestor.issue.id)
+    }
+    return unfolded.filter((row) => keep.has(row.issue.id))
+  }, [rows, collapsed, query])
+  const rootSession = root ? rows[0]?.sessions[0] : focusedSession
   const draftFilling = Boolean(root?.draft && rootSession)
+  const repoName = useMemo(() => reposToViews(repos)[0]?.name ?? null, [repos])
+  const anyFoldable = rows.some((row) => row.descendantIds.length > 0 || row.sessions.length > 0)
+  const allFolded = anyFoldable && rows.every((row) => (row.descendantIds.length === 0 && row.sessions.length === 0) || collapsed.has(row.issue.id))
+
+  const toggleFold = useCallback(
+    (id: string): void => {
+      const next = new Set(collapsed)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      setCollapsed(next)
+    },
+    [collapsed, setCollapsed],
+  )
 
   const selectIssue = (row: FlightDeckRow): void => {
     setFocusedIssueId(row.issue.id)
     void markIssueRead(row.issue.id)
     if (row.issue.worktreePath) setSelectedWorktree(row.issue.worktreePath)
     const active = row.sessions.filter((session) => !session.archived && session.status !== 'exited')
+    // Contract order: coordinator → lone member → most recently active member →
+    // no-session state. The pane you happen to be looking at is NOT a
+    // preference — it made clicking one task open a different task's session.
     const target =
       active.find((session) => session.sessionId === row.issue.coordinatorSessionId) ??
-      active.find((session) => session.sessionId === paneA) ??
+      (active.length === 1 ? active[0] : undefined) ??
       [...active].sort((a, b) => b.lastActiveAt.localeCompare(a.lastActiveAt))[0]
     // A sessionless task updates the inspector but leaves the current chat
     // intact. Task creation is never a navigation side effect.
@@ -391,13 +710,22 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
 
       {root ? (
         <>
-          <div className="flex-none border-b border-hairline-bar px-4 pt-4 pb-3.5">
-            <div className="shell-type-micro font-mono text-text-faint">
-              {issueDisplayRef(root)} {STAGE_LABELS[root.stage].toLowerCase()}
+          {/* The mission intro is the one roomy thing in this column: it is read
+              once, the strips below it are scanned. */}
+          <div className="flex-none border-b border-hairline-bar px-4 pt-4 pb-4">
+            <div className="shell-type-micro flex items-center gap-1.5 font-mono text-text-faint">
+              <StageGlyph stage={root.stage} size={12} />
+              <span>{issueDisplayRef(root)}</span>
+              <span className="text-text-dim">{STAGE_LABELS[root.stage].toLowerCase()}</span>
             </div>
-            <h2 className="shell-type-reading mt-1 font-semibold tracking-[-0.01em] text-text-strong">
-              {draftFilling ? sessionDisplayName(rootSession as SessionMeta) : root.title}
-            </h2>
+            <div className="mt-1.5 flex items-start gap-2.5">
+              <h2 className="shell-type-reading min-w-0 flex-1 font-semibold tracking-[-0.01em] text-text-strong">
+                {draftFilling ? sessionDisplayName(rootSession as SessionMeta) : root.title}
+              </h2>
+              <span className="shell-type-micro mt-1 flex-none font-mono tabular-nums text-text-faint">
+                {progress.done} / {progress.total}
+              </span>
+            </div>
             <p className="shell-type-secondary mt-2 line-clamp-4 leading-[1.5] text-text-dim">
               {draftFilling
                 ? drafts[rootSession?.sessionId ?? '']
@@ -407,15 +735,12 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                   root.activityNotes?.trim() ||
                   'Mission work, agents, and dependencies in one live execution view.'}
             </p>
-            <ProgressBar {...progress} />
+            <ProgressBar progress={progress} />
             <div className="shell-type-micro mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-text-dim">
               <span>{liveCount} live</span>
               <span>
                 {leadCount} coord{leadCount === 1 ? '' : 's'}
               </span>
-              {needsCount > 0 && (
-                <span className="font-semibold text-attention">{needsCount} need you</span>
-              )}
             </div>
           </div>
           <div className="flex h-10 flex-none items-center gap-1 border-b border-hairline-bar px-3">
@@ -426,19 +751,86 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                 key={option.id}
                 aria-pressed={mode === option.id}
                 className={cn(
-                  'shell-type-micro h-6 rounded-md px-2 text-text-dim hover:bg-muted hover:text-text-strong',
+                  'shell-type-micro inline-flex h-6 items-center gap-1 rounded-md px-2 text-text-dim hover:bg-muted hover:text-text-strong',
                   mode === option.id && 'bg-muted font-semibold text-text-strong',
-                  option.id === 'needs-you' && needsCount > 0 && 'text-attention',
                 )}
                 onClick={() => setMode(option.id)}
               >
                 {option.label}
+                {option.id === 'needs-you' && needsCount > 0 && (
+                  <span className="font-mono font-semibold text-attention">{needsCount}</span>
+                )}
               </button>
             ))}
-            <span className="shell-type-micro ml-auto inline-flex items-center gap-1 font-mono text-text-faint">
-              <Users size={10} aria-hidden="true" /> {liveCount}
-            </span>
+            <div className="ml-auto flex flex-none items-center gap-0.5">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="size-6 text-text-dim"
+                aria-pressed={searchOpen}
+                title="Search this mission"
+                onClick={() => {
+                  setSearchOpen((open) => !open)
+                  if (searchOpen) setQuery('')
+                }}
+              >
+                <Search size={11} aria-hidden="true" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="size-6 text-text-dim"
+                title={allFolded ? 'Expand every branch' : 'Fold every branch'}
+                disabled={!anyFoldable}
+                onClick={() =>
+                  setCollapsed(
+                    allFolded
+                      ? new Set<string>()
+                      : new Set(
+                          rows
+                            .filter(
+                              (row) => row.descendantIds.length > 0 || row.sessions.length > 0,
+                            )
+                            .map((row) => row.issue.id),
+                        ),
+                  )
+                }
+              >
+                {allFolded ? <ChevronsUpDown size={11} /> : <ChevronsDownUp size={11} />}
+              </Button>
+            </div>
           </div>
+          {searchOpen && (
+            <div className="flex h-9 flex-none items-center gap-2 border-b border-hairline-bar px-3">
+              <Search size={11} aria-hidden="true" className="flex-none text-text-faint" />
+              <input
+                // biome-ignore lint/a11y/noAutofocus: the field exists only while searching
+                autoFocus
+                type="text"
+                value={query}
+                placeholder="Task, session, agent or ref"
+                aria-label="Search this mission"
+                className="shell-type-secondary min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-text-faint"
+                onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key !== 'Escape') return
+                  setQuery('')
+                  setSearchOpen(false)
+                }}
+              />
+              {query && (
+                <button
+                  data-pressable
+                  type="button"
+                  className="flex-none text-text-faint hover:text-text-strong"
+                  aria-label="Clear search"
+                  onClick={() => setQuery('')}
+                >
+                  <X size={11} />
+                </button>
+              )}
+            </div>
+          )}
           <div className="min-h-0 flex-1 overflow-y-auto" data-testid="flight-deck-rows">
             {visibleRows.map((row) => (
               <TaskRow
@@ -446,34 +838,27 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                 row={row}
                 byId={byId}
                 selected={focused === row.issue.id}
-                activeSessionId={paneA}
+                activeSessionId={activeSessionId}
                 collapsed={collapsed.has(row.issue.id)}
-                onToggle={() =>
-                  setCollapsed((current) => {
-                    const next = new Set(current)
-                    if (next.has(row.issue.id)) next.delete(row.issue.id)
-                    else next.add(row.issue.id)
-                    return next
-                  })
-                }
+                onToggle={() => toggleFold(row.issue.id)}
                 onSelectIssue={() => selectIssue(row)}
                 onSelectSession={(session) => selectSession(row, session)}
                 onSelectNative={(session) => selectSession(row, session, true)}
               />
             ))}
+            {visibleRows.length === 0 && (
+              <p className="shell-type-secondary px-4 py-6 text-text-dim">
+                {query ? 'Nothing in this mission matches that.' : 'Nothing here in this view.'}
+              </p>
+            )}
           </div>
         </>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-7 text-center">
-          <Users size={18} className="text-text-faint" aria-hidden="true" />
-          <h2 className="shell-type-reading mt-3 font-semibold text-text-strong">
-            Start with a chat
-          </h2>
-          <p className="shell-type-secondary mt-1.5 max-w-64 leading-relaxed text-text-dim">
-            Open a normal agent session and describe what you need. Its live mission canvas will
-            appear here without asking you to create a task first.
-          </p>
-        </div>
+        <IntakeCanvas
+          session={focusedSession}
+          draft={focusedSession ? drafts[focusedSession.sessionId] : undefined}
+          repoName={repoName}
+        />
       )}
     </aside>
   )

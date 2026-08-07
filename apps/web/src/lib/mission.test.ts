@@ -17,9 +17,15 @@ import {
   missionRootFor,
   missionSessions,
   operationalState,
+  portfolioActionableCount,
+  presenceNote,
+  relationNote,
   sessionNeedsHuman,
+  waitingNote,
   type FlightDeckRow,
+  type MissionProgress,
   type OperationalState,
+  type PresenceKind,
 } from './mission'
 
 // ---------------------------------------------------------------------------
@@ -479,8 +485,8 @@ describe('buildFlightDeckRows', () => {
     ]
     const rows = buildFlightDeckRows(issues, [sess('s-root', { issueId: 'root' })], 'root')
     expect(shape(rows)).toEqual(['root@0', 'c1@1'])
-    // …and therefore it cannot move the mission's progress either.
-    expect(missionProgress(rows).total).toBe(1)
+    // …and therefore it cannot move the mission's progress either. (root + c1)
+    expect(missionProgress(issues, [sess('s-root', { issueId: 'root' })], 'root').total).toBe(2)
   })
 
   describe('mode filters', () => {
@@ -540,43 +546,152 @@ describe('buildFlightDeckRows', () => {
 // ---------------------------------------------------------------------------
 
 describe('missionProgress', () => {
-  const row = (id: string, over: Partial<UnbrandIds<IssueNavigationModel>> = {}): FlightDeckRow => ({
-    issue: issue(id, over),
-    depth: 0,
-    sessions: [],
-    descendantIds: [],
-    actionableCount: 0,
-    liveAgentCount: 0,
-  })
-
-  const cases: Array<[string, FlightDeckRow[], { done: number; total: number; percent: number }]> = [
-    ['no rows at all', [], { done: 0, total: 0, percent: 0 }],
-    ['a lone root', [row('root')], { done: 0, total: 0, percent: 0 }],
+  const cases: Array<[string, IssueNavigationModel[], MissionProgress]> = [
+    ['no mission at all', [], { total: 0, done: 0, run: 0, block: 0, wait: 0 }],
     [
-      'a root that is itself done (root is never counted)',
-      [row('root', { stage: 'done' }), row('a'), row('b')],
-      { done: 0, total: 2, percent: 0 },
+      'a lone root, which counts as a task like any other',
+      [issue('root')],
+      { total: 1, done: 0, run: 1, block: 0, wait: 0 },
     ],
     [
-      'half the subtree done',
-      [row('root'), row('a', { stage: 'done' }), row('b')],
-      { done: 1, total: 2, percent: 50 },
+      'all four segments at once',
+      [
+        issue('root', { stage: 'planning' }),
+        issue('a', { parentId: 'root', stage: 'done' }),
+        issue('b', { parentId: 'root', stage: 'review' }),
+        issue('c', { parentId: 'root', blocked: true }),
+        issue('d', { parentId: 'root', stage: 'backlog' }),
+      ],
+      { total: 5, done: 1, run: 1, block: 1, wait: 2 },
     ],
     [
       'a child closed for another reason than stage=done',
-      [row('root'), row('a', { closedReason: 'duplicate' })],
-      { done: 1, total: 1, percent: 100 },
+      [issue('root', { stage: 'backlog' }), issue('a', { parentId: 'root', closedReason: 'duplicate' })],
+      { total: 2, done: 1, run: 0, block: 0, wait: 1 },
+    ],
+    [
+      'blocked in-progress work, counted once and as blocked',
+      [issue('root', { stage: 'backlog' }), issue('a', { parentId: 'root', blocked: true })],
+      { total: 2, done: 0, run: 0, block: 1, wait: 1 },
+    ],
+    [
+      'done work that is also flagged blocked, counted once as done',
+      [issue('root', { stage: 'backlog' }), issue('a', { parentId: 'root', stage: 'done', blocked: true })],
+      { total: 2, done: 1, run: 0, block: 0, wait: 1 },
     ],
   ]
 
-  it.each(cases)('reports %s', (_name, rows, expected) => {
-    expect(missionProgress(rows)).toEqual(expected)
+  it.each(cases)('reports %s', (_name, issues, expected) => {
+    expect(missionProgress(issues, [], issues[0]?.id ?? null)).toEqual(expected)
+  })
+
+  it('the segments always sum to the total, so the bar can never overflow', () => {
+    const issues = [
+      issue('root', { stage: 'review' }),
+      issue('a', { parentId: 'root', stage: 'done', blocked: true }),
+      issue('b', { parentId: 'root', stage: 'in_progress', blocked: true }),
+      issue('c', { parentId: 'root', stage: 'planning' }),
+    ]
+    const p = missionProgress(issues, [], 'root')
+    expect(p.done + p.run + p.block + p.wait).toBe(p.total)
+  })
+
+  // THE bug this signature exists to fix: the filter is a display preference,
+  // and the mission's shape is not. Computed from the rendered rows, `Active`
+  // (which hides finished work) reported 0 done for a half-finished mission.
+  it('is identical in every mode, because it never reads the filtered spine', () => {
+    const issues = [
+      issue('root'),
+      issue('a', { parentId: 'root', seq: 1, stage: 'done' }),
+      issue('b', { parentId: 'root', seq: 2, stage: 'done' }),
+      issue('c', { parentId: 'root', seq: 3 }),
+    ]
+    const expected = { total: 4, done: 2, run: 2, block: 0, wait: 0 }
+    for (const mode of ['full', 'active', 'needs-you'] as const) {
+      // The spine really does shrink in the filtered modes…
+      const rows = buildFlightDeckRows(issues, [], 'root', mode)
+      expect(rows.length).toBeLessThanOrEqual(4)
+      // …and the mission's progress really does not move with it.
+      expect(missionProgress(issues, [], 'root')).toEqual(expected)
+    }
+    expect(shape(buildFlightDeckRows(issues, [], 'root', 'active'))).toEqual(['root@0', 'c@1'])
   })
 
   it('never divides by zero when the mission is only its root', () => {
-    const rows = buildFlightDeckRows([issue('root', { stage: 'done' })], [], 'root')
-    expect(missionProgress(rows).percent).toBe(0)
-    expect(Number.isNaN(missionProgress(rows).percent)).toBe(false)
+    expect(missionProgress([issue('root', { stage: 'done' })], [], 'root')).toEqual({
+      total: 1,
+      done: 1,
+      run: 0,
+      block: 0,
+      wait: 0,
+    })
+  })
+
+  it('is empty rather than throwing when there is no mission root', () => {
+    expect(missionProgress([issue('root')], [], null)).toEqual({
+      total: 0,
+      done: 0,
+      run: 0,
+      block: 0,
+      wait: 0,
+    })
+  })
+
+  it('ignores archived and deleted work', () => {
+    const issues = [
+      issue('root', { stage: 'backlog' }),
+      issue('a', { parentId: 'root', archived: true }),
+    ]
+    expect(missionProgress(issues, [], 'root').total).toBe(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// collapsedSummary — what a fold says it is hiding
+// ---------------------------------------------------------------------------
+
+describe('collapsedSummary', () => {
+  it('counts the descendants a fold hides, not the row itself', () => {
+    const issues = [
+      issue('root'),
+      issue('a', { parentId: 'root', seq: 1, stage: 'done' }),
+      issue('b', { parentId: 'root', seq: 2, stage: 'in_progress' }),
+      issue('c', { parentId: 'root', seq: 3, stage: 'backlog' }),
+    ]
+    // `root` itself defaults to in_progress and needs nobody, so the attention
+    // flag below is genuinely reporting the subtree.
+    const rows = buildFlightDeckRows(issues, [], 'root')
+    expect(rowFor(rows, 'root').collapsedSummary).toEqual({
+      tasks: 3,
+      done: 1,
+      run: 1,
+      kinds: [],
+      needsYou: false,
+    })
+    // A leaf hides nothing.
+    expect(rowFor(rows, 'a').collapsedSummary.tasks).toBe(0)
+  })
+
+  it('carries up to two distinct harness kinds from the live sessions it hides', () => {
+    const issues = [issue('root'), issue('a', { parentId: 'root' }), issue('b', { parentId: 'root' })]
+    const sessions = [
+      sess('s1', { issueId: 'a', agentKind: 'claude-code' }),
+      sess('s2', { issueId: 'a', agentKind: 'codex' }),
+      sess('s3', { issueId: 'b', agentKind: 'cursor' }),
+      // Retired agents are not part of what is running behind the fold.
+      sess('s4', { issueId: 'b', agentKind: 'grok', status: 'exited' }),
+    ]
+    const kinds = rowFor(buildFlightDeckRows(issues, sessions, 'root'), 'root').collapsedSummary.kinds
+    expect(kinds).toHaveLength(2)
+    expect(kinds).not.toContain('grok')
+  })
+
+  // Folding replaces the row's own state mark with this payload, so the
+  // attention flag has to cover the row itself or a needs-you task disappears
+  // the moment you fold it.
+  it('flags attention on the row itself, not only on what it hides', () => {
+    const issues = [issue('root', { needsHuman: true }), issue('a', { parentId: 'root' })]
+    expect(rowFor(buildFlightDeckRows(issues, [], 'root'), 'root').collapsedSummary.needsYou).toBe(true)
   })
 })
 
@@ -836,5 +951,181 @@ describe('coordinatorCount', () => {
     ]
     const sessions = [sess('s-lead', { issueId: 'root' })]
     expect(coordinatorCount(rowsFor(issues, sessions), sessions)).toBe(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Presence — what a row says when there is no agent on it
+// ---------------------------------------------------------------------------
+
+describe('presenceNote', () => {
+  const index = (issues: IssueNavigationModel[]): Map<string, IssueNavigationModel> =>
+    new Map(issues.map((i) => [i.id, i]))
+
+  // The artifact's table, verbatim. A blank where an agent row would be is the
+  // one thing the deck must never render: "no session" is several situations
+  // and only one of them is a problem.
+  const table: Array<[string, IssueNavigationModel, SessionMeta[], PresenceKind, string]> = [
+    [
+      'a session that handed the work on',
+      issue('a', { stage: 'in_progress' }),
+      [sess('s', { issueId: 'a', status: 'exited', handoffTarget: 'POD-612' })],
+      'moved',
+      'Session moved to POD-612',
+    ],
+    ['blocked work', issue('a', { blocked: true }), [], 'blocked', 'Waiting on dependency'],
+    ['finished work', issue('a', { stage: 'done' }), [], 'done', 'Completed · session retired'],
+    [
+      'work closed for another reason',
+      issue('a', { closedReason: 'duplicate' }),
+      [],
+      'done',
+      'Completed · session retired',
+    ],
+    ['work in review', issue('a', { stage: 'review' }), [], 'review', 'Review ready · session ended'],
+    ['planned work', issue('a', { stage: 'planning' }), [], 'ready', 'Ready to start'],
+    ['backlogged work', issue('a', { stage: 'backlog' }), [], 'ready', 'Ready to start'],
+    [
+      'in-progress work whose agent left without a handoff',
+      issue('a', { stage: 'in_progress' }),
+      [],
+      'attention',
+      'Agent left · choose a handoff',
+    ],
+  ]
+
+  it.each(table)('on %s', (_name, subject, sessions, kind, text) => {
+    expect(presenceNote(subject, sessions)).toEqual({
+      kind,
+      text,
+      // ONLY vacated in-progress work is amber. Done, review, ready and blocked
+      // are all states the operator can read and then leave alone.
+      attention: kind === 'attention',
+    })
+  })
+
+  it('names the blocker when an issue index is available', () => {
+    const blocker = issue('dep', { seq: 42 })
+    const subject = issue('a', { blocked: true, deps: [{ id: 'dep', type: 'blocks' }] })
+    expect(presenceNote(subject, [], index([blocker, subject]))?.text).toMatch(/^Blocked by /)
+  })
+
+  it('says nothing at all while a live agent is on the task', () => {
+    const subject = issue('a', { stage: 'in_progress' })
+    expect(presenceNote(subject, [sess('s', { issueId: 'a' })])).toBeNull()
+  })
+
+  it('still explains a task whose only sessions are retired', () => {
+    const subject = issue('a', { stage: 'in_progress' })
+    expect(presenceNote(subject, [sess('s', { issueId: 'a', status: 'exited' })])?.kind).toBe(
+      'attention',
+    )
+  })
+})
+
+describe('waitingNote', () => {
+  const index = (issues: IssueNavigationModel[]): Map<string, IssueNavigationModel> =>
+    new Map(issues.map((i) => [i.id, i]))
+
+  it('names the unfinished task this one is waiting for', () => {
+    const dep = issue('dep')
+    const subject = issue('a', { deps: [{ id: 'dep', type: 'blocks' }] })
+    expect(waitingNote(subject, index([dep, subject]))).toMatch(/^Waiting for .+ to complete$/)
+  })
+
+  it('counts them once there is more than one', () => {
+    const deps = [issue('d1'), issue('d2')]
+    const subject = issue('a', {
+      deps: [
+        { id: 'd1', type: 'blocks' },
+        { id: 'd2', type: 'blocks' },
+      ],
+    })
+    expect(waitingNote(subject, index([...deps, subject]))).toBe('Waiting for 2 tasks to complete')
+  })
+
+  it('goes quiet once the dependency lands', () => {
+    const dep = issue('dep', { stage: 'done' })
+    const subject = issue('a', { deps: [{ id: 'dep', type: 'blocks' }] })
+    expect(waitingNote(subject, index([dep, subject]))).toBeNull()
+  })
+
+  // The band the artifact shows ALONGSIDE live agent rows: an agent can be
+  // working flat out on something that still cannot land.
+  it('is independent of whether anyone is working the task', () => {
+    const dep = issue('dep')
+    const subject = issue('a', { deps: [{ id: 'dep', type: 'blocks' }] })
+    const withIndex = index([dep, subject])
+    expect(waitingNote(subject, withIndex)).not.toBeNull()
+    expect(presenceNote(subject, [sess('s', { issueId: 'a' })], withIndex)).toBeNull()
+  })
+})
+
+describe('relationNote', () => {
+  const index = (issues: IssueNavigationModel[]): Map<string, IssueNavigationModel> =>
+    new Map(issues.map((i) => [i.id, i]))
+
+  it('says where a spun-off task came from', () => {
+    const origin = issue('origin')
+    const subject = issue('a', { deps: [{ id: 'origin', type: 'discovered-from' }] })
+    expect(relationNote(subject, index([origin, subject]))).toMatch(/^Discovered from /)
+  })
+
+  // `blocks` is the blocked/waiting band's job; saying it here too would read
+  // as two separate dependencies.
+  it('never repeats a blocking edge', () => {
+    const dep = issue('dep')
+    const subject = issue('a', { deps: [{ id: 'dep', type: 'blocks' }] })
+    expect(relationNote(subject, index([dep, subject]))).toBeNull()
+  })
+
+  it('says nothing about an edge whose target this replica cannot see', () => {
+    const subject = issue('a', { deps: [{ id: 'invisible', type: 'related' }] })
+    expect(relationNote(subject, index([subject]))).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// portfolioActionableCount — the Superagent rail badge
+// ---------------------------------------------------------------------------
+
+describe('portfolioActionableCount', () => {
+  it('counts across every mission, not one', () => {
+    const issues = [
+      issue('m1', { needsHuman: true }),
+      issue('m1-child', { parentId: 'm1' }),
+      issue('m2', { stage: 'review' }),
+      issue('m3'),
+    ]
+    expect(portfolioActionableCount(issues, [])).toBe(2)
+  })
+
+  it('counts a task whose SESSION is the one asking', () => {
+    const issues = [issue('a')]
+    expect(portfolioActionableCount(issues, [sess('s', { issueId: 'a', agentState: needsUserState })])).toBe(1)
+  })
+
+  it('reaches a session attached as a member rather than by issueId', () => {
+    const issues = [issue('a', { memberSessionIds: ['s'] })]
+    expect(portfolioActionableCount(issues, [sess('s', { agentState: needsUserState })])).toBe(1)
+  })
+
+  it('ignores finished, archived and deleted work', () => {
+    const issues = [
+      issue('done', { stage: 'done', needsHuman: true }),
+      issue('closed', { closedReason: 'duplicate', needsHuman: true }),
+      issue('archived', { archived: true, needsHuman: true }),
+      issue('deleted', { deletedAt: '2026-07-01T00:00:00.000Z', needsHuman: true }),
+    ]
+    expect(portfolioActionableCount(issues, [])).toBe(0)
+  })
+
+  it('ignores an archived session that was mid-question when it was put away', () => {
+    const issues = [issue('a')]
+    expect(
+      portfolioActionableCount(issues, [
+        sess('s', { issueId: 'a', archived: true, agentState: needsUserState }),
+      ]),
+    ).toBe(0)
   })
 })

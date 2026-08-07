@@ -24,7 +24,7 @@ import { GitPanelView } from '@/features/git/GitPanelView'
 import { IssuePanelView } from '@/features/issues/IssuePanelView'
 import { MergeQueuePanel } from '@/features/merge-queue/MergeQueuePanel'
 import { MessageLedgerView } from '@/features/messages/MessageLedgerView'
-import { missionIssueIds } from '@/lib/mission'
+import { missionIssueIds, missionRootFor } from '@/lib/mission'
 import { SuperagentView } from '@/features/superagent/SuperagentView'
 import { DockShellPanel } from '@/features/terminal/DockShellPanel'
 import type { RightPanelTab } from './shell-state'
@@ -88,10 +88,20 @@ export function RightDock({
   // resolved against that mission so a pointer left over from the mission you
   // navigated away from falls back to the new root instead of inspecting a task
   // that is no longer on screen.
-  const inspectedId = useMemo(
-    () => resolveFocus(focusedIssueId, missionIssueIds(issues, selectedIssueId ?? '', sessions), selectedIssueId),
-    [focusedIssueId, issues, selectedIssueId, sessions],
-  )
+  //
+  // Resolved against the mission ROOT's membership, which is the set the Flight
+  // Deck renders. Resolving against `selectedIssueId` alone made the two
+  // columns disagree whenever the selection was a child: the deck's set was the
+  // whole mission, this one only that child's subtree, so a focus on a sibling
+  // fell back here and inspected the wrong task.
+  const inspectedId = useMemo(() => {
+    const root = missionRootFor(issues, selectedIssueId)
+    return resolveFocus(
+      focusedIssueId,
+      root ? missionIssueIds(issues, root.id, sessions) : new Set<string>(),
+      root?.id ?? selectedIssueId,
+    )
+  }, [focusedIssueId, issues, selectedIssueId, sessions])
   const selectedIssue = inspectedId
     ? issues.find((issue) => issue.id === inspectedId && !issue.archived && !issue.deletedAt)
     : undefined

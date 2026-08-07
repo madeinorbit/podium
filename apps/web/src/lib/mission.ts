@@ -4,10 +4,26 @@ import {
   type IssueNavigationModel,
   sessionsForIssueNav,
 } from '@podium/client-core/viewmodels'
-import type { SessionMeta } from '@podium/model'
+import type { AgentKind, SessionMeta } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 
 export type FlightDeckMode = 'full' | 'active' | 'needs-you'
+
+/**
+ * What a folded branch is hiding, so the fold can still say it.
+ *
+ * Counts describe the DESCENDANTS (the tasks the fold removes from the spine);
+ * `kinds` and `needsYou` also cover the row's OWN sessions, because folding
+ * hides those too and the row's own state mark is replaced by this payload.
+ */
+export interface CollapsedSummary {
+  tasks: number
+  done: number
+  run: number
+  /** Up to two distinct harness kinds among the live sessions being hidden. */
+  kinds: AgentKind[]
+  needsYou: boolean
+}
 
 export interface FlightDeckRow {
   issue: IssueNavigationModel
@@ -16,12 +32,15 @@ export interface FlightDeckRow {
   descendantIds: string[]
   actionableCount: number
   liveAgentCount: number
+  collapsedSummary: CollapsedSummary
 }
 
 export interface MissionProgress {
-  done: number
   total: number
-  percent: number
+  done: number
+  run: number
+  block: number
+  wait: number
 }
 
 const openSession = (session: SessionMeta): boolean =>
@@ -133,12 +152,44 @@ function sessionsForIssue(
   return sessionsForIssueNav(issue, sessions, allWorktreePaths, { includeShells: true })
 }
 
-export function missionProgress(rows: readonly FlightDeckRow[]): MissionProgress {
-  const total = Math.max(0, rows.length - 1)
-  const done = rows
-    .slice(1)
-    .filter((row) => row.issue.stage === 'done' || Boolean(row.issue.closedReason)).length
-  return { done, total, percent: total === 0 ? 0 : Math.round((done / total) * 100) }
+/**
+ * Mission progress over the WHOLE mission, never the filtered spine.
+ *
+ * The filter is a display preference; the mission's shape is not. Computing this
+ * from the rendered rows made `Active` (which hides done work) report `0 / N`,
+ * which is the one number the operator is most likely to read as truth.
+ *
+ * Four segments, from the artifact's `progress()`: done / run / block / wait.
+ * The root counts as a task — it is one, with its own stage — matching the
+ * artifact, whose `issues` array includes it.
+ *
+ * The artifact's arithmetic (`done` by stage, `run` by stage, `block` by state,
+ * `wait` = the remainder) lets one issue land in two buckets, which would push
+ * the bar past 100%. Classification here is EXCLUSIVE in the order
+ * done → block → run → wait: blocked work is not running, and that is the
+ * segment the operator needs to see.
+ */
+export function missionProgress(
+  issues: readonly IssueNavigationModel[],
+  sessions: readonly SessionMeta[],
+  rootId: string | null | undefined,
+): MissionProgress {
+  const empty = { total: 0, done: 0, run: 0, block: 0, wait: 0 }
+  if (!rootId) return empty
+  const ids = missionIssueIds(issues, rootId, sessions)
+  const scope = issues.filter(
+    (issue) => ids.has(issue.id) && !issue.archived && !issue.deletedAt,
+  )
+  let done = 0
+  let run = 0
+  let block = 0
+  for (const issue of scope) {
+    if (issue.stage === 'done' || issue.closedReason) done += 1
+    else if (issue.blocked) block += 1
+    else if (issue.stage === 'in_progress' || issue.stage === 'review') run += 1
+  }
+  const total = scope.length
+  return { total, done, run, block, wait: Math.max(0, total - done - run - block) }
 }
 
 /**
@@ -272,6 +323,9 @@ export function buildFlightDeckRows(
         ? issueNeedsHuman(candidate, sessionsByIssue.get(issueId) ?? [])
         : false
     }).length
+    const hidden = descendantIds
+      .map((issueId) => byId.get(issueId))
+      .filter((candidate): candidate is IssueNavigationModel => Boolean(candidate))
     rows.push({
       issue,
       depth,
@@ -279,6 +333,16 @@ export function buildFlightDeckRows(
       descendantIds,
       actionableCount,
       liveAgentCount: subtreeSessions.filter(openSession).length,
+      collapsedSummary: {
+        tasks: hidden.length,
+        done: hidden.filter((child) => child.stage === 'done' || child.closedReason).length,
+        run: hidden.filter(
+          (child) =>
+            !child.closedReason && (child.stage === 'in_progress' || child.stage === 'review'),
+        ).length,
+        kinds: [...new Set(subtreeSessions.filter(openSession).map((s) => s.agentKind))].slice(0, 2),
+        needsYou: actionableCount > 0,
+      },
     })
     const nextPath = new Set(path).add(id)
     for (const child of children.get(id) ?? []) walk(child.id, depth + 1, nextPath)
@@ -337,6 +401,167 @@ export function operationalState(
   if (active.some((session) => motionPhase(session) === 'waiting'))
     return { state: 'needs-you', label: 'Waiting on you' }
   return active.length > 0 ? { state: 'idle', label: 'Standing by' } : { state: 'ready', label: 'Ready' }
+}
+
+// ---------------------------------------------------------------------------
+// Presence: what a row says when it has no agent on it, and what it says about
+// a dependency even when it does.
+// ---------------------------------------------------------------------------
+
+/** The unfinished issues this one is waiting on, as display refs. Outgoing
+ *  `blocks` deps mean "blocked BY the target" (issue-relations.ts). */
+function waitingRefs(
+  issue: IssueNavigationModel,
+  byId?: ReadonlyMap<string, IssueNavigationModel>,
+): string[] {
+  if (!byId) return []
+  return (issue.deps ?? [])
+    .filter((dep) => dep.type === 'blocks')
+    .map((dep) => byId.get(dep.id))
+    .filter((target): target is IssueNavigationModel => Boolean(target))
+    .filter((target) => target.stage !== 'done' && !target.closedReason)
+    .map((target) => issueDisplayRef(target))
+}
+
+/**
+ * "Waiting for X to complete" — the note that appears ALONGSIDE live sessions.
+ *
+ * An agent can be working flat out on something that still cannot land until a
+ * dependency clears; the artifact says so on the row rather than making the
+ * operator open the task to find out. Distinct from `blocked`, which is the
+ * server's verdict that nothing can proceed at all.
+ */
+export function waitingNote(
+  issue: IssueNavigationModel,
+  byId?: ReadonlyMap<string, IssueNavigationModel>,
+): string | null {
+  const refs = waitingRefs(issue, byId)
+  if (refs.length === 0) return null
+  return refs.length === 1
+    ? `Waiting for ${refs[0]} to complete`
+    : `Waiting for ${refs.length} tasks to complete`
+}
+
+export type PresenceKind =
+  | 'moved'
+  | 'blocked'
+  | 'waiting'
+  | 'done'
+  | 'review'
+  | 'ready'
+  | 'attention'
+
+export interface PresenceNote {
+  kind: PresenceKind
+  text: string
+  /** Amber: this row is asking something of the operator. */
+  attention: boolean
+}
+
+/**
+ * Why this issue has nobody on it — the artifact's `presenceNote`.
+ *
+ * A blank where an agent row would be is the one thing the deck must never do:
+ * "no session" is four different situations and only one of them is a problem.
+ * Returns null when the issue HAS live sessions (the agent rows speak for it)
+ * or when there is genuinely nothing to say.
+ *
+ * Only vacated in-progress work becomes attention. Done, review, ready and
+ * blocked are all states the operator can read and leave alone.
+ */
+export function presenceNote(
+  issue: IssueNavigationModel,
+  sessions: readonly SessionMeta[],
+  byId?: ReadonlyMap<string, IssueNavigationModel>,
+): PresenceNote | null {
+  if (sessions.some(openSession)) return null
+  const moved = sessions.find((session) => session.handoffTarget)
+  if (moved) {
+    return { kind: 'moved', text: `Session moved to ${moved.handoffTarget}`, attention: false }
+  }
+  if (issue.blocked) {
+    return { kind: 'blocked', text: blockedByLabel(issue, byId), attention: false }
+  }
+  const waiting = waitingNote(issue, byId)
+  if (waiting) return { kind: 'waiting', text: waiting, attention: false }
+  if (issue.stage === 'done' || issue.closedReason) {
+    return { kind: 'done', text: 'Completed · session retired', attention: false }
+  }
+  if (issue.stage === 'review') {
+    return { kind: 'review', text: 'Review ready · session ended', attention: false }
+  }
+  if (issue.stage === 'planning' || issue.stage === 'backlog') {
+    return { kind: 'ready', text: 'Ready to start', attention: false }
+  }
+  if (issue.stage === 'in_progress') {
+    return { kind: 'attention', text: 'Agent left · choose a handoff', attention: true }
+  }
+  return null
+}
+
+const RELATION_VERB: Record<string, string> = {
+  'discovered-from': 'Discovered from',
+  related: 'Related to',
+  tracks: 'Tracks',
+  supersedes: 'Supersedes',
+  'caused-by': 'Caused by',
+  validates: 'Validates',
+}
+
+/**
+ * The `↳ …` line: where this issue came from, when that is not already being
+ * said by a waiting or moved note. `blocks` is excluded — that edge is the
+ * blocked/waiting note's job, and saying it twice reads as two dependencies.
+ */
+export function relationNote(
+  issue: IssueNavigationModel,
+  byId?: ReadonlyMap<string, IssueNavigationModel>,
+): string | null {
+  if (!byId) return null
+  for (const dep of issue.deps ?? []) {
+    if (dep.type === 'blocks' || dep.type === 'parent-child') continue
+    const target = byId.get(dep.id)
+    if (!target) continue
+    return `${RELATION_VERB[dep.type] ?? dep.type} ${issueDisplayRef(target)}`
+  }
+  return null
+}
+
+/**
+ * How many tasks across the WHOLE portfolio are asking something of the
+ * operator — the number on the Superagent rail badge.
+ *
+ * Deliberately not mission-scoped: the badge's promise ("N tasks across your
+ * portfolio need a decision") is about the work you cannot see from here. Same
+ * predicate as every deck count, so the two can never disagree.
+ */
+export function portfolioActionableCount(
+  issues: readonly IssueNavigationModel[],
+  sessions: readonly SessionMeta[],
+): number {
+  const byIssue = new Map<string, SessionMeta[]>()
+  const add = (issueId: string, session: SessionMeta): void => {
+    const list = byIssue.get(issueId) ?? []
+    list.push(session)
+    byIssue.set(issueId, list)
+  }
+  const memberOf = new Map<string, string>()
+  for (const issue of issues) {
+    for (const sessionId of issue.memberSessionIds ?? []) memberOf.set(sessionId, issue.id)
+  }
+  for (const session of sessions) {
+    if (session.archived) continue
+    const owner = session.issueId ?? memberOf.get(session.sessionId)
+    if (owner) add(owner, session)
+  }
+  return issues.filter(
+    (issue) =>
+      !issue.archived &&
+      !issue.deletedAt &&
+      issue.stage !== 'done' &&
+      !issue.closedReason &&
+      issueNeedsHuman(issue, byIssue.get(issue.id) ?? []),
+  ).length
 }
 
 /** How many distinct sessions are leading something in this mission. One agent
