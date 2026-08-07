@@ -62,7 +62,33 @@ exactly what the second boot of a real install does.
 `PODIUM_TEST_NO_SCHEMA_FIXTURE=1` puts the whole suite back on the real chain. Full
 `@podium/server` regular project, both arms:
 
-<!-- AB-RESULTS -->
+| | Fixture off (the old path) | Fixture on |
+| --- | ---: | ---: |
+| Test files | 290 passed, 3 failed (293) | 290 passed, 3 failed (293) |
+| Failing tests | the same three | the same three |
+| Full 54-step chain applications | **2,337** | **12** |
+| Captured log | 5,276,349 B | 167,997 B |
+
+**Identical results.** The three failures are the same three in both arms, by name:
+`server.role.test.ts`'s hub-off contract coverage, and the two census pins that changed
+underneath them (`derived-family.runtime.test.ts` 23→24,
+`gateway/daemon-mux.test.ts` 24→25). They are the three the POD-515 review
+documented independently on main before this work started, they fail with the fixture
+switched off, and this change touches none of those files or their sources.
+
+The 2,337 is worth dwelling on: the POD-515 review measured **2,341** independently, on
+a different day and through turbo rather than vitest directly. Two measurements four
+apart is what makes the after-number mean something.
+
+**Where the remaining 12 come from.** All of them are `apps/server/src/migrations/**`,
+and that is measured rather than inferred: running that directory alone, with the same
+console capture, produces exactly 12. Nothing outside it runs the chain. (The first
+attribution attempt — "nearest preceding test-file marker in the log" — named four
+ordinary suites and was nonsense, because two parallel forks interleave stdout.)
+
+Note the log: 5.28 MB → 168 KB. That is POD-515's sixth ordered item ("quiet expected
+application logs in tests") arriving free, because the boot log those 2,337 applications
+were printing is most of what the cold log was.
 
 ### 2. The clone invalidates automatically
 
@@ -113,7 +139,21 @@ on the clone, where they double as canaries that the clone and the chain agree.
 
 ### 5. Cold server phase timing
 
-<!-- TIMING -->
+| | Fixture off | Fixture on | |
+| --- | ---: | ---: | ---: |
+| Wall clock | 23:11.48 | 10:51.37 | 2.13x |
+| User CPU | 1,817.90 s | 933.42 s | 1.95x |
+| System CPU | 566.65 s | 406.50 s | 1.39x |
+| **Total CPU** | **2,384.55 s** | **1,339.92 s** | **1.78x** |
+| Peak RSS | 743,000 KiB | 716,764 KiB | — |
+
+**Read the CPU figure, not the wall clock.** Both arms held the shared heavy-test lease,
+but this is an 8-core development host with other agents on it, and the two arms did not
+see identical conditions: arm-off started at load average 18.04, arm-on at 16.67, and the
+host quietened to about 12 during arm-on. Wall clock absorbs all of that. Total CPU is far
+less sensitive to it, and 1.78x is the number I would defend.
+
+The one figure that is neither load-dependent nor arguable is 2,337 → 12.
 
 ## Also converted
 
@@ -137,6 +177,27 @@ process, and even there it is behind the cache-miss branch.
 per-file container deleted when the fork exits [spec:SP-0be7], so a tmp cache would be
 rebuilt ~291 times per run. It lives in `node_modules/.cache/podium-test-schema/` — the
 conventional home for a derived artifact, already ignored, wiped by a clean install.
+
+## Reproducing this
+
+Both arms, from the repository root, each under the shared `test:heavy` lease:
+
+```sh
+# after (default)
+bun --bun node_modules/vitest/vitest.mjs run \
+  --config apps/server/vitest.config.ts --disableConsoleIntercept
+
+# before
+PODIUM_TEST_NO_SCHEMA_FIXTURE=1 bun --bun node_modules/vitest/vitest.mjs run \
+  --config apps/server/vitest.config.ts --disableConsoleIntercept
+
+# the count
+grep -c 'applied migrations: 20260715135845_baseline' <log>
+```
+
+`--disableConsoleIntercept` is not optional for the count. Without it vitest's default
+reporter swallows the boot log and the count reads 0 — which looks like a spectacular
+result and is an artifact. It was very nearly published as one.
 
 ## Deferred
 
