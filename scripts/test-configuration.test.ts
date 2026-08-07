@@ -11,6 +11,7 @@ import serverPackageConfig from '../apps/server/vitest.config'
 import serverContractsConfig from '../apps/server/vitest.contracts.config'
 import normalizedWirePackageConfig from '../apps/server/vitest.normalized-wire.config'
 import serverServicesConfig from '../apps/server/vitest.services.config'
+import { REUSE_GUARD_SETUP_FILE } from '../apps/server/vitest.shard'
 import serverStoreConfig from '../apps/server/vitest.store.config'
 import webConfig from '../apps/web/vitest.config'
 import frontendPerfConfig from '../apps/web/vitest.frontend-perf.config'
@@ -42,6 +43,9 @@ type Project =
         sequence?: { groupOrder?: number }
         setupFiles?: string[]
         globalSetup?: string[]
+        isolate?: boolean
+        passWithNoTests?: boolean
+        testTimeout?: number
       }
     }
 type Config = {
@@ -59,6 +63,7 @@ type Config = {
     setupFiles?: string[]
     globalSetup?: string[]
     testTimeout?: number
+    isolate?: boolean
   }
 }
 
@@ -94,6 +99,11 @@ const namedProject = (value: unknown, name: string) => {
   return project
 }
 const nodeProject = (value: unknown) => namedProject(value, 'node')
+/** A shard's inline projects, if it has any — POD-527 gives `contracts` two. */
+const shardProjects = (value: unknown): (Config['test'] | undefined)[] =>
+  (config(value).test?.projects ?? []).map((project) =>
+    typeof project === 'string' ? undefined : (project.test as Config['test']),
+  )
 const webServerEntry = (value: unknown): { command: string; timeout?: number } => {
   const webServer = (value as { webServer?: unknown }).webServer
   const server = Array.isArray(webServer) ? webServer[0] : webServer
@@ -188,22 +198,64 @@ describe('test lane configuration', () => {
     // each can lose the hardening on its own: the env scrubber that keeps a suite off the
     // live instance, POD-523's store fixture, and the two-worker cap that keeps the shared
     // six-core host survivable when Turbo runs the shards back to back.
+    //
+    // POD-527 gave one shard PROJECTS, so the same properties are now asserted twice: once
+    // on the shard config and once on each project inside it. A project is where a Vitest
+    // option actually takes effect, so a shard that kept the hardening at the top and lost
+    // it in a project would have passed the original loop while running unhardened.
     for (const [name, shardConfig] of serverShardConfigs) {
-      expect(config(shardConfig).test?.setupFiles, `${name} lost hermetic setup`).toEqual(
-        sharedVitestConfig.test.setupFiles,
-      )
-      expect(config(shardConfig).test?.globalSetup, `${name} lost the schema image`).toEqual([
-        fileURLToPath(new URL('test-pre-migrated-schema.ts', repoRoot)),
-      ])
-      expect(config(shardConfig).test?.testTimeout).toBe(sharedVitestConfig.test.testTimeout)
-      expect(config(shardConfig).test?.retry, `${name} gained a retry`).toBe(0)
-      // An explicit file list that collects nothing means the manifest and the filesystem
-      // disagree. That has to be a failure, or a mis-generated shard passes as a green.
-      expect(config(shardConfig).test?.passWithNoTests, `${name} would pass empty`).toBe(false)
-      // normalized-wire is the deliberately serialized one; the rest keep the shared cap.
-      const serialized = name === 'normalized-wire'
-      expect(config(shardConfig).test?.maxWorkers).toBe(serialized ? 1 : 2)
+      const lanes: [string, Config['test'] | undefined][] = [
+        [name, config(shardConfig).test],
+        ...shardProjects(shardConfig).map((test): [string, Config['test'] | undefined] => [
+          test?.name ?? `${name} project`,
+          test,
+        ]),
+      ]
+      for (const [lane, test] of lanes) {
+        // The reused project carries ONE extra setupFile and nothing else. It is the
+        // after-file leak guard, and it is additive on purpose: the reused runner keeps the
+        // env scrubber, the state-root assertion and POD-523's store fixture exactly as
+        // every other lane has them, and then adds the check that they were left as found.
+        expect(test?.setupFiles, `${lane} lost hermetic setup`).toEqual(
+          test?.isolate === false
+            ? [...sharedVitestConfig.test.setupFiles, REUSE_GUARD_SETUP_FILE]
+            : sharedVitestConfig.test.setupFiles,
+        )
+        expect(test?.globalSetup, `${lane} lost the schema image`).toEqual([
+          fileURLToPath(new URL('test-pre-migrated-schema.ts', repoRoot)),
+        ])
+        expect(test?.testTimeout, `${lane} lost the shared timeout`).toBe(
+          sharedVitestConfig.test.testTimeout,
+        )
+        expect(test?.retry, `${lane} gained a retry`).toBe(0)
+        // An explicit file list that collects nothing means the manifest and the filesystem
+        // disagree. That has to be a failure, or a mis-generated shard passes as a green.
+        // No project is exempt: a shard only grows a project when the scan put files in it.
+        expect(test?.passWithNoTests, `${lane} would pass empty`).toBe(false)
+        // normalized-wire is the deliberately serialized one; the rest keep the shared cap.
+        expect(test?.maxWorkers, `${lane} changed the worker cap`).toBe(
+          name === 'normalized-wire' ? 1 : 2,
+        )
+      }
     }
+  })
+
+  it('turns isolation off in exactly one project, and only additively [POD-527]', () => {
+    // POD-515 rejected `isolate: false` as a lane-wide setting: it trades wall time for
+    // flakiness. The reuse it asked for is therefore scoped to one project of one shard, and
+    // this is what stops that scope from spreading — a second project that dropped isolation
+    // would have to be added here, deliberately, rather than arriving with a config tidy-up.
+    const nonIsolated: string[] = []
+    for (const [name, shardConfig] of serverShardConfigs) {
+      expect(
+        config(shardConfig).test?.isolate,
+        `${name} dropped isolation at the shard level, which would take every project with it`,
+      ).toBeUndefined()
+      for (const test of shardProjects(shardConfig)) {
+        if (test?.isolate === false) nonIsolated.push(test.name ?? `${name} (unnamed project)`)
+      }
+    }
+    expect(nonIsolated).toEqual(['server:contracts:reused'])
   })
 
   it('keeps retries out of the default project and scopes them to integration', () => {
@@ -381,8 +433,12 @@ describe('test lane configuration', () => {
     // it, and `bun run test`'s exit status rests on one expression at the end of main():
     // `process.exit(await runWithHeavyTestLease([...]))`. Both halves are asserted so a
     // later refactor of the wrapper cannot quietly make the pipeline green.
-    expect(await runWithHeavyTestLease(['bash', '-c', 'exit 3'], { cwd: fileURLToPath(repoRoot) })).toBe(3)
-    expect(await runWithHeavyTestLease(['bash', '-c', 'exit 0'], { cwd: fileURLToPath(repoRoot) })).toBe(0)
+    expect(
+      await runWithHeavyTestLease(['bash', '-c', 'exit 3'], { cwd: fileURLToPath(repoRoot) }),
+    ).toBe(3)
+    expect(
+      await runWithHeavyTestLease(['bash', '-c', 'exit 0'], { cwd: fileURLToPath(repoRoot) }),
+    ).toBe(0)
 
     // …and that the value is what main() exits with, rather than being computed and dropped.
     const source = readFileSync(new URL('./test.ts', import.meta.url), 'utf8')
