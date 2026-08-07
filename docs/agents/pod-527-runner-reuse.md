@@ -363,6 +363,16 @@ point and here. Not this change.)
 shards. `derived-family.runtime.test.ts` did *not* start passing despite changing on main — the
 chain's identical-results anchor is intact. **No leak-guard failure anywhere in the lane.**
 
+### The @podium/scripts lane
+
+The guards live there, so it was run whole: **49 files, 809 tests, 6 failures across 4 files.**
+
+All four are in the set POD-531 (*Bug: guardrail audits fail on main*) documents on a clean main
+— `rearch-audit` (3 cases), `audit-god-objects`, `audit-durable-classes`, and
+`test-configuration`'s pre-existing mobile `setupFiles` case. A strict subset of the 7-across-6
+POD-520 recorded, with no new file. `server-test-reuse.test.ts` and `server-test-shards.test.ts`
+both pass, and every case this change adds to `test-configuration.test.ts` passes.
+
 ### The share of the cost this actually addresses
 
 POD-515's review measured import/collect at 53.5% of aggregate phase work and named it the

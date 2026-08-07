@@ -21,7 +21,7 @@
  * baseline rather than as drift.
  */
 import { afterAll, expect, vi } from 'vitest'
-import { hermeticTmpContainer, releaseHermeticTmpContainer } from './test-hermetic-env'
+import { releaseHermeticTmpContainer } from './test-hermetic-env'
 
 /**
  * Globals whose *identity* is compared, on top of the key-set comparison below.
@@ -174,5 +174,3 @@ afterAll(() => {
       `file to the isolated project automatically.`,
   )
 })
-
-export { hermeticTmpContainer }
