@@ -10,11 +10,15 @@ import {
 import type { IssueComment, SessionMeta } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import {
+  ArrowDown,
   ArrowRight,
+  Ban,
   Check,
+  CircleAlert,
   ExternalLink,
   FileText,
   History,
+  type LucideIcon,
   MessageSquare,
   Play,
 } from 'lucide-react'
@@ -26,7 +30,7 @@ import { MediaLightbox } from '@/components/MediaLightbox'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { copyToClipboard } from '@/lib/clipboard'
-import { operationalState } from '@/lib/mission'
+import { operationalState, type PresenceKind, presenceNote } from '@/lib/mission'
 import { cn } from '@/lib/utils'
 import { KindIcon, sessionDisplayName } from '@/lib/WorkerLabel'
 import {
@@ -48,7 +52,22 @@ import { groupRelations } from './issue-relations'
 // label, and a third copy of the same fact was the first thing the artifact cut.
 
 function Hint({ children }: { children: string }): JSX.Element {
-  return <div className="py-0.5 text-[11.5px] text-muted-foreground/60 italic">{children}</div>
+  return (
+    <div className="shell-type-secondary py-0.5 text-muted-foreground/60 italic">{children}</div>
+  )
+}
+
+/** Presence-note kind → its mark. The words come from `mission.ts` so the deck
+ *  and the dock say the same thing about the same task; only the glyph is local
+ *  to this surface. */
+const PRESENCE_ICON: Record<PresenceKind, LucideIcon> = {
+  moved: ArrowRight,
+  blocked: Ban,
+  waiting: ArrowDown,
+  done: Check,
+  review: Check,
+  ready: Play,
+  attention: CircleAlert,
 }
 
 /** A section of the single scroll. Deliberately NOT a DockSection: the approved
@@ -68,9 +87,9 @@ function DockPart({
   return (
     <section className="mb-4" data-testid={testId} data-part={title}>
       <div className="mb-1.5 flex items-center gap-2">
-        <span className="text-[11px] font-semibold text-muted-foreground">{title}</span>
+        <span className="shell-type-micro font-semibold text-muted-foreground">{title}</span>
         {count !== undefined && count > 0 && (
-          <span className="font-mono text-[10px] tabular-nums text-muted-foreground/60">
+          <span className="shell-type-micro font-mono tabular-nums text-muted-foreground/60">
             {count}
           </span>
         )}
@@ -98,7 +117,7 @@ function FoldRow({
       type="button"
       onClick={onToggle}
       aria-expanded={open}
-      className="w-full px-1 py-1.5 text-left text-[11px] text-muted-foreground hover:text-foreground"
+      className="shell-type-micro w-full px-1 py-1.5 text-left text-muted-foreground hover:text-foreground"
     >
       <span className="mr-1 font-mono">{open ? '⌄' : '›'}</span>
       {label}
@@ -125,14 +144,14 @@ function UnifiedRow({
       onClick={onOpen}
       title={`${issueDisplayRef(sub)} ${sub.title}`}
       className={cn(
-        'grid min-h-[30px] w-full grid-cols-[14px_minmax(0,1fr)_auto] items-center gap-2 border-b border-border/40 px-1 py-1 text-left text-[12.5px] hover:bg-accent/40',
+        'grid min-h-[30px] w-full grid-cols-[14px_minmax(0,1fr)_auto] items-center gap-2 border-b border-border/40 px-1 py-1 text-left shell-type-secondary hover:bg-accent/40',
         sub.archived && 'opacity-60',
       )}
     >
       <StageGlyph stage={sub.stage} size={13} />
       <span className="min-w-0 truncate">
         <span
-          className="mr-1.5 font-mono text-[10px] text-muted-foreground"
+          className="shell-type-micro mr-1.5 font-mono text-muted-foreground"
           title={issueIdTitle(sub)}
         >
           {issueDisplayRef(sub)}
@@ -145,7 +164,7 @@ function UnifiedRow({
           {sub.title}
         </span>
       </span>
-      <span className="flex-none font-mono text-[10px] text-muted-foreground/70">{meta}</span>
+      <span className="shell-type-micro flex-none font-mono text-muted-foreground/70">{meta}</span>
     </button>
   )
 }
@@ -168,7 +187,7 @@ function SubtreeMeter({
         <span className="h-full bg-success/80" style={{ width: pct(done) }} />
         <span className="h-full bg-amber-400/70" style={{ width: pct(run) }} />
       </span>
-      <span className="flex-none font-mono text-[10px] tabular-nums text-muted-foreground">
+      <span className="shell-type-micro flex-none font-mono tabular-nums text-muted-foreground">
         {done} of {total} done
       </span>
     </div>
@@ -214,6 +233,7 @@ function RecentActivity({
   // paging the repo-wide log and filtering here. That is what makes keying on
   // `issue.updatedAt` affordable — the feed now tracks a supervised issue live
   // instead of going stale until the panel is reopened.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `issue.updatedAt` is the refetch key, not a read — it is the whole point of POD-532
   useEffect(() => {
     let cancelled = false
     Promise.resolve()
@@ -245,7 +265,7 @@ function RecentActivity({
           shown.map((item) => (
             <div
               key={item.id}
-              className="flex items-start gap-2 px-1 py-1 text-[12px] leading-relaxed text-foreground/80"
+              className="shell-type-secondary flex items-start gap-2 px-1 py-1 text-foreground/80"
             >
               {item.kind === 'comment' ? (
                 <MessageSquare size={11} className="mt-1 flex-none text-muted-foreground" />
@@ -255,7 +275,7 @@ function RecentActivity({
               <span className="min-w-0 flex-1 whitespace-pre-wrap">
                 {item.kind === 'comment' ? item.body : item.line.text}
               </span>
-              <span className="flex-none font-mono text-[10px] text-muted-foreground/65">
+              <span className="shell-type-micro flex-none font-mono text-muted-foreground/65">
                 {relativeTime(item.ts, Date.now())}
               </span>
             </div>
@@ -267,7 +287,7 @@ function RecentActivity({
         type="button"
         onClick={onOpenFull}
         data-testid="dock-open-full-activity"
-        className="mt-1 w-full px-1 py-1.5 text-left text-[11px] text-muted-foreground hover:text-foreground"
+        className="shell-type-micro mt-1 w-full px-1 py-1.5 text-left text-muted-foreground hover:text-foreground"
       >
         Open full activity <ExternalLink size={10} className="inline align-[-1px]" />
       </button>
@@ -280,7 +300,7 @@ function RecentActivity({
 function InspectHead({ issue }: { issue: IssueViewModel }): JSX.Element {
   return (
     <header className="flex-none border-b border-border/60 px-3 pt-3 pb-3">
-      <div className="flex items-center gap-2 font-mono text-[11px] text-muted-foreground/70">
+      <div className="shell-type-micro flex items-center gap-2 font-mono text-muted-foreground/70">
         <StageGlyph stage={issue.stage} size={12} />
         <button
           data-pressable
@@ -293,15 +313,11 @@ function InspectHead({ issue }: { issue: IssueViewModel }): JSX.Element {
         >
           {issueDisplayRef(issue)}
         </button>
-        <span className="ml-auto text-[10px] tracking-[0.08em] text-muted-foreground/60 uppercase">
-          Task
-        </span>
+        <span className="label-mono ml-auto">Task</span>
       </div>
-      <h2 className="mt-1.5 text-[14px] leading-snug font-semibold text-foreground">
-        {issue.title}
-      </h2>
+      <h2 className="shell-type-reading mt-1.5 font-semibold text-foreground">{issue.title}</h2>
       {issue.description.trim() && (
-        <p className="mt-1.5 line-clamp-3 text-[12px] leading-relaxed text-muted-foreground">
+        <p className="shell-type-secondary mt-1.5 line-clamp-3 text-muted-foreground">
           {issue.description}
         </p>
       )}
@@ -366,7 +382,7 @@ function EvidenceAndChecks({
                 style={{ width: `${(doneCount / todos.length) * 100}%` }}
               />
             </div>
-            <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
+            <span className="shell-type-micro font-mono tabular-nums text-muted-foreground">
               {doneCount}/{todos.length}
             </span>
           </div>
@@ -375,7 +391,7 @@ function EvidenceAndChecks({
               <div
                 // biome-ignore lint/suspicious/noArrayIndexKey: todos are positional (1-based index API)
                 key={i}
-                className="flex cursor-pointer items-start gap-2 rounded-md px-1 py-1 text-[12.5px] hover:bg-accent/50"
+                className="shell-type-secondary flex cursor-pointer items-start gap-2 rounded-md px-1 py-1 hover:bg-accent/50"
               >
                 <Checkbox
                   checked={t.done}
@@ -429,7 +445,7 @@ function EvidenceAndChecks({
                       className="max-w-full rounded-md border border-border shadow-sm"
                     />
                   </button>
-                  <figcaption className="mt-1 text-[11px] text-muted-foreground">
+                  <figcaption className="shell-type-micro mt-1 text-muted-foreground">
                     {label}
                   </figcaption>
                 </figure>
@@ -459,7 +475,7 @@ function EvidenceAndChecks({
                       </span>
                     </span>
                   </button>
-                  <figcaption className="mt-1 text-[11px] text-muted-foreground">
+                  <figcaption className="shell-type-micro mt-1 text-muted-foreground">
                     {label}
                   </figcaption>
                 </figure>
@@ -498,10 +514,10 @@ function EvidenceAndChecks({
                 }}
               >
                 <FileText size={14} className="flex-none text-blue-300" />
-                <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[12.5px]">
+                <span className="shell-type-secondary min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
                   {label}
                 </span>
-                <span className="flex-none font-mono text-[10px] text-muted-foreground/60">
+                <span className="shell-type-micro flex-none font-mono text-muted-foreground/60">
                   {basename(a.path)}
                 </span>
               </Button>
@@ -515,11 +531,11 @@ function EvidenceAndChecks({
           {deferred.map((d) => (
             <div
               key={`${d.addedAt}:${d.text}`}
-              className="flex items-baseline gap-2 px-1 py-0.5 text-[12.5px] text-foreground/80"
+              className="shell-type-secondary flex items-baseline gap-2 px-1 py-0.5 text-foreground/80"
             >
               <span className="size-1 flex-none translate-y-[-2px] rounded-full bg-amber-400/70" />
               <span className="min-w-0 flex-1">{d.text}</span>
-              <span className="flex-none font-mono text-[10px] text-muted-foreground/60">
+              <span className="shell-type-micro flex-none font-mono text-muted-foreground/60">
                 {new Date(d.addedAt).toLocaleDateString()}
               </span>
             </div>
@@ -544,8 +560,8 @@ function IntakeField({
   loading?: boolean
 }): JSX.Element {
   return (
-    <div className="grid grid-cols-[52px_minmax(0,1fr)] items-center gap-2 border-t border-border/50 py-2.5 text-[12px]">
-      <span className="font-mono text-[10px] text-muted-foreground/80">{label}</span>
+    <div className="shell-type-secondary grid grid-cols-[52px_minmax(0,1fr)] items-center gap-2 border-t border-border/50 py-2.5">
+      <span className="shell-type-micro font-mono text-muted-foreground/80">{label}</span>
       <span className={cn('min-w-0 truncate text-muted-foreground', loading && 'animate-pulse')}>
         {value}
       </span>
@@ -560,21 +576,19 @@ function IntakeDock({ session }: { session?: SessionMeta }): JSX.Element {
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="dock-intake">
       <header className="flex-none border-b border-border/60 px-3 pt-3 pb-3">
-        <div className="flex items-center gap-2 font-mono text-[11px] text-muted-foreground/70">
+        <div className="shell-type-micro flex items-center gap-2 font-mono text-muted-foreground/70">
           {session ? (
             <KindIcon kind={session.agentKind} chip />
           ) : (
             <span className="size-1.5 rounded-full bg-muted-foreground/50" aria-hidden="true" />
           )}
-          <span className="tracking-[0.06em] uppercase">Live session</span>
-          <span className="ml-auto text-[10px] tracking-[0.08em] text-muted-foreground/60 uppercase">
-            Ready
-          </span>
+          <span className="label-mono">Live session</span>
+          <span className="label-mono ml-auto">Ready</span>
         </div>
-        <h2 className="mt-1.5 text-[14px] leading-snug font-semibold text-foreground">
+        <h2 className="shell-type-reading mt-1.5 font-semibold text-foreground">
           Conversation workspace
         </h2>
-        <p className="mt-1.5 text-[12px] leading-relaxed text-muted-foreground">
+        <p className="shell-type-secondary mt-1.5 text-muted-foreground">
           Start in chat. Task details, plan and team will appear here when the agent structures the
           work.
         </p>
@@ -590,7 +604,7 @@ function IntakeDock({ session }: { session?: SessionMeta }): JSX.Element {
             }
           />
         </DockPart>
-        <p className="text-[10.5px] leading-relaxed text-muted-foreground/60">
+        <p className="shell-type-micro text-muted-foreground/60">
           If the conversation stays exploratory, this view stays light. Podium does not force a
           task.
         </p>
@@ -705,7 +719,15 @@ export function IssuePanelView({
   })
   const retiredSessions = all.filter((s) => !isOpenSession(s))
   const shownSessions = showAllActive ? activeSessions : activeSessions.slice(0, 5)
-  const moved = all.find((s) => s.handoffTarget)
+  // `presenceNote` returns null while live sessions are on the task (the rows
+  // speak for it) and on the handful of stages it has nothing to add about; the
+  // section never renders a blank, so those fall back to the ready line.
+  const presence = presenceNote(issue, all, issueById) ?? {
+    kind: 'ready' as const,
+    text: 'Ready to start',
+    attention: false,
+  }
+  const PresenceIcon = PRESENCE_ICON[presence.kind]
 
   const author = coordinatorSession(issue, activeSessions)
   const notesAt = issue.notesUpdatedAt ?? issue.updatedAt
@@ -722,7 +744,7 @@ export function IssuePanelView({
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-3 pb-6">
         <DockPart title="Current update" testId="dock-current-update">
           <div className="border-l-[3px] border-primary/60 pl-2.5">
-            <div className="flex items-center gap-2 font-mono text-[10px] text-muted-foreground">
+            <div className="shell-type-micro flex items-center gap-2 font-mono text-muted-foreground">
               {author && <KindIcon kind={author.agentKind} chip />}
               <span className="min-w-0 truncate">
                 Current{author ? ` · ${sessionDisplayName(author)}` : ''}
@@ -731,7 +753,7 @@ export function IssuePanelView({
             </div>
             <p
               className={cn(
-                'mt-1.5 whitespace-pre-wrap text-[12.5px] leading-relaxed',
+                'shell-type-secondary mt-1.5 whitespace-pre-wrap',
                 issue.activityNotes ? 'text-foreground/85' : 'text-muted-foreground/60 italic',
               )}
             >
@@ -782,27 +804,18 @@ export function IssuePanelView({
             ))
           ) : (
             // A task with no agent is not an error — say why there is nobody on
-            // it, in the same words the flight deck uses.
+            // it, in the FLIGHT DECK'S OWN WORDS (mission.ts owns the vocabulary),
+            // so one task never reads two ways in two columns.
             <div
-              className="flex items-center gap-2 px-1 py-1.5 text-[11.5px] text-muted-foreground"
-              data-testid="dock-presence-note"
-            >
-              {moved ? (
-                <>
-                  <ArrowRight size={11} aria-hidden="true" />
-                  Session moved to {moved.handoffTarget}
-                </>
-              ) : issue.stage === 'done' || issue.closedReason ? (
-                <>
-                  <Check size={11} aria-hidden="true" />
-                  Completed · session retired
-                </>
-              ) : (
-                <>
-                  <Play size={11} aria-hidden="true" />
-                  Ready to start
-                </>
+              className={cn(
+                'shell-type-secondary flex items-center gap-2 px-1 py-1.5',
+                presence.attention ? 'text-attention-foreground' : 'text-muted-foreground',
               )}
+              data-testid="dock-presence-note"
+              data-presence={presence.kind}
+            >
+              <PresenceIcon size={11} aria-hidden="true" />
+              {presence.text}
             </div>
           )}
           {activeSessions.length > 5 && (
@@ -844,9 +857,7 @@ export function IssuePanelView({
           ) : (
             relations.map((group) => (
               <div key={group.section} className="mb-1.5">
-                <div className="mb-0.5 text-[9.5px] tracking-wide text-muted-foreground uppercase">
-                  {group.section}
-                </div>
+                <div className="label-mono mb-0.5">{group.section}</div>
                 {group.entries.map((entry) => {
                   const target = issueById.get(entry.id)
                   return target ? (
@@ -859,7 +870,7 @@ export function IssuePanelView({
                   ) : (
                     <div
                       key={`${group.section}-${entry.direction}-${entry.id}`}
-                      className="px-1 py-1 font-mono text-[11px] text-muted-foreground/60"
+                      className="shell-type-micro px-1 py-1 font-mono text-muted-foreground/60"
                     >
                       {entry.id}
                     </div>
@@ -877,7 +888,7 @@ export function IssuePanelView({
             update, work, sessions, relations, evidence. */}
         <RecentActivity issue={issue} onOpenFull={openFullIssue} />
 
-        <p className="text-[10.5px] leading-relaxed text-muted-foreground/60">
+        <p className="shell-type-micro text-muted-foreground/60">
           The current update is this task's live state, kept by the agent working it; comments and
           lifecycle events form the activity feed.
         </p>

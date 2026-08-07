@@ -137,7 +137,7 @@ export function IssueGitScope({ issue }: { issue: IssueViewModel }): JSX.Element
   const attributedDirty = git.dirtyOwn ?? (!git.shared && !git.fallback ? git.dirtyFiles : 0)
   const delivery = git.shared ? (git.commits?.length ?? 0) : (git.ahead ?? 0)
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 py-1 text-[11px] text-muted-foreground">
+    <div className="shell-type-micro flex flex-wrap items-center gap-x-3 gap-y-1 px-1 py-1 text-muted-foreground">
       <span className="inline-flex items-center gap-1.5">
         <GitBranch size={12} aria-hidden="true" />
         {git.branch ?? (git.shared ? 'Shared checkout' : (issue.branch ?? 'Checkout'))}
@@ -195,7 +195,7 @@ export function IssueSessionRow({
         <button
           data-pressable
           type="button"
-          className="flex min-w-0 flex-1 items-center gap-2 py-1 text-left text-[12.5px] text-foreground/90"
+          className="shell-type-secondary flex min-w-0 flex-1 items-center gap-2 py-1 text-left text-foreground/90"
           onClick={onOpen}
           // Right-click for the full action menu — same gesture, same menu, as
           // the sidebar's session rows and the tab strip.
@@ -207,7 +207,7 @@ export function IssueSessionRow({
           <WorkerLabel session={session} chip />
         </button>
       )}
-      <span className="flex-none font-mono text-[10px] text-muted-foreground">
+      <span className="shell-type-micro flex-none font-mono text-muted-foreground">
         {sessionStateLabel(session)}
       </span>
       <button
@@ -273,7 +273,7 @@ export function IssueDecisionBand({ issue }: { issue: IssueViewModel }): JSX.Ele
 
   return (
     <div className="flex flex-col gap-2 px-3 pt-2.5" data-testid="dock-decision-band">
-      <div className="rounded-md border border-amber-500/40 bg-amber-500/[0.07] px-2.5 py-2 text-[12px] leading-relaxed">
+      <div className="shell-type-secondary rounded-md border border-amber-500/40 bg-amber-500/[0.07] px-2.5 py-2">
         <span className="font-semibold text-amber-600 dark:text-amber-300">Needs you</span>{' '}
         <span className="text-foreground/85">{decisionLine(issue, active)}</span>
         {issue.needsHuman && (

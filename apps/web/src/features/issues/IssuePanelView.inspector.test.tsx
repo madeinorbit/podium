@@ -219,10 +219,23 @@ describe('IssuePanelView inspector', () => {
     expect(within(agents).getByText('Retired agent')).toBeTruthy()
   })
 
+  // The words come from mission.ts so the deck and the dock cannot drift; the
+  // only amber case is in-progress work its agent vacated.
   it('explains an empty roster instead of leaving a blank section', () => {
     render(<IssuePanelView cwd="/r" />)
 
-    expect(screen.getByTestId('dock-presence-note').textContent).toContain('Ready to start')
+    const note = screen.getByTestId('dock-presence-note')
+    expect(note.dataset.presence).toBe('attention')
+    expect(note.textContent).toContain('Agent left · choose a handoff')
+  })
+
+  it('reads work that has not started as ready, not as abandoned', () => {
+    mockIssues = [{ ...ROOT, stage: 'planning' }, OPEN_CHILD, DONE_CHILD, GRANDCHILD]
+    render(<IssuePanelView cwd="/r" />)
+
+    const note = screen.getByTestId('dock-presence-note')
+    expect(note.dataset.presence).toBe('ready')
+    expect(note.textContent).toContain('Ready to start')
   })
 
   it('says where the session went when it moved', () => {
