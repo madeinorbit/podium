@@ -417,3 +417,44 @@ wants to hear about. Unlike those two, it is already in POD-521's scope.
 
 POD-521 is treating it as evidence rather than repairing the allowance table. That is the right
 call: fixing it would erase the demonstration and buy back 0.086 s of runtime.
+
+---
+
+## Correction, 2026-08-07: the largest deletion candidate was wrong twice
+
+This review named `modules/workflows/characterization.test.ts` (3,942 lines, 95 tests, 57.9 s)
+"the largest concrete deletion candidate". Both halves of the case for it have since failed, for
+different reasons and with different lessons. Measured by POD-521 on the post-POD-523 lane.
+**Do not start POD-522 from the 57.9 s figure.**
+
+**The runtime half was consumed, not mistaken.** 57.9 s was correct when measured. On the
+post-POD-523 lane the same 95 tests spend **5.10 s** in their bodies — the pre-migrated clone took
+roughly 11× out of it, and what remains of the wall time is transform and import, which is not
+this file's to give up. The review's own ordered plan ranked the pre-migrated fixture first and
+oracle retirement fourth. Executing in that order destroyed the runtime case for the fourth item,
+which is what a correct ordering is supposed to do. The lesson is not that the number was wrong;
+it is that **a deletion justified by runtime must be re-measured after any fixture change that
+ranked above it**, and this review shipped its ordering without saying so.
+
+**The duplication half was asserted and never mapped.** The review said current workflow service,
+multi-user, CLI and runtime surface suites "should receive any unique behavior" — the word *any*
+carrying an unexamined assumption that little was unique. POD-521 mapped all 95 cases against the
+named owners (`service.test.ts`, 9 tests, 539 lines; `multi-user.test.ts`, 11 tests, 789 lines).
+About **18 are genuinely duplicated; about 77 are the only coverage that exists** — duplicate
+delivery and mutation-id replay, out-of-order step attempts, adopt validation, three-way
+error-shape leakage, relay exposure defaulting closed per declaration, and run durability across a
+store close and reopen. Retiring the file as written would have traded 77 behavioural assertions
+for about five seconds.
+
+The line-count asymmetry was visible without running anything: 3,942 lines against 1,328 in both
+named owners combined. A file cannot have been absorbed by suites a third its size. This review
+had that arithmetic available and did not do it, which is the same failure it warns about
+elsewhere — reading a label (`characterization`, migration-era framing, artifact titles) instead
+of the thing.
+
+**What survives.** The maintenance argument is untouched: the file still carries migration-era
+artifact and pin language describing a cutover that completed, and that framing should go. What
+does not survive is deleting it, or relocating 3,000 lines into two small suites to satisfy the
+brief literally. POD-521 has put the fork to the human and recommends stripping the framing and
+the 18 duplicates while keeping the file and its coverage. That is the right call and this review
+withdraws its own recommendation in favour of it.
