@@ -547,14 +547,33 @@ that held.
   `files/queries.search` git split). Note that this review would also have moved two suites that
   POD-521 kept under the sync guardrail, so this list has a known false-positive rate above zero.
 - Lane ownership and the tautology cleanup (POD-522), beyond the two census pins.
-- Log-noise reduction (item 6, POD-528). Its premise — 6 MB of cold log — was already largely
-  consumed by the pre-migrated fixture, which cut the captured log to 168 KB. Re-measure before
-  starting.
 - Every runtime figure in the original profile. All were measured pre-POD-523 and the store-backed
   ones are now wrong by roughly an order of magnitude.
+
+**Overtaken by an earlier item** — a third fate, distinct from both columns:
+
+- Log-noise reduction (item 6, POD-528). Its premise was 6 MB of cold log. POD-523 cut the
+  captured log to 168 KB as a side effect, because the boot output of 2,337 migration
+  applications *was* most of the cold log. This is the same shared-cause mechanism as the
+  characterization withdrawal — an earlier item spending a later item's justification — with a
+  happier ending, since here the problem is solved rather than the recommendation wrong.
+  Re-measure first and close it as obsolete rather than implementing something to justify the
+  issue.
 
 The pattern in the corrections is that the recommendations which survived contact were the ones
 about *mechanism* — what the lane spends its time on, what a cache key covers, what an assertion
 can express. The ones that failed were about *specific files*, where this review substituted a
-label for a measurement. Weight the untested list accordingly: the mechanism claims in it are
-likelier to hold than the file-level ones.
+label for a measurement.
+
+**And the untested column is not a random sample.** Observed from sequencing the chain rather
+than from this review, which could not have seen it: what remains untested is precisely what
+nobody has yet had a reason to open the files for. The move-to-integration list is the same move
+that produced all three failures — classify a group of tests by what they appear to do from the
+outside, then recommend by class. `characterization` was classified by its titles, runner reuse by
+import share, the shard split by directory shape, and the integration list by what each test looks
+like it touches. Four instances of one move; three have been corrected by someone who opened the
+files, and the fourth has had no contact with anyone who has.
+
+So the right reading is not "some of this is untested". It is that the tested recommendations came
+back changed at a rate which should inform how the rest are read, and the largest untested item is
+the one most similar to the ones that failed.
