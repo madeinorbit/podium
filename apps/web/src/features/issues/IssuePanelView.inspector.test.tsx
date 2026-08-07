@@ -238,6 +238,15 @@ describe('IssuePanelView inspector', () => {
     expect(note.textContent).toContain('Ready to start')
   })
 
+  // mission.ts is total over the stage vocabulary, so the dock keeps NO words of
+  // its own for the empty case — a local fallback is exactly what would drift.
+  it('takes even the unaccepted case from the shared vocabulary', () => {
+    mockIssues = [{ ...ROOT, stage: 'proposed' }, OPEN_CHILD, DONE_CHILD, GRANDCHILD]
+    render(<IssuePanelView cwd="/r" />)
+
+    expect(screen.getByTestId('dock-presence-note').textContent).toContain('Proposed · not started')
+  })
+
   it('says where the session went when it moved', () => {
     mockSessions = [session({ archived: true, handoffTarget: 'POD-612' })]
     render(<IssuePanelView cwd="/r" />)

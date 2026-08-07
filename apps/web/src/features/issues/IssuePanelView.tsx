@@ -30,7 +30,7 @@ import { MediaLightbox } from '@/components/MediaLightbox'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { copyToClipboard } from '@/lib/clipboard'
-import { operationalState, type PresenceKind, presenceNote } from '@/lib/mission'
+import { operationalState, type PresenceKind, type PresenceNote, presenceNote } from '@/lib/mission'
 import { cn } from '@/lib/utils'
 import { KindIcon, sessionDisplayName } from '@/lib/WorkerLabel'
 import {
@@ -68,6 +68,26 @@ const PRESENCE_ICON: Record<PresenceKind, LucideIcon> = {
   review: Check,
   ready: Play,
   attention: CircleAlert,
+}
+
+/** Why nobody is on this task. A blank where an agent row would be is the one
+ *  thing this section must never render — "no session" is several different
+ *  situations and only one of them is a problem. */
+function PresenceLine({ note }: { note: PresenceNote }): JSX.Element {
+  const Icon = PRESENCE_ICON[note.kind]
+  return (
+    <div
+      className={cn(
+        'shell-type-secondary flex items-center gap-2 px-1 py-1.5',
+        note.attention ? 'text-attention-foreground' : 'text-muted-foreground',
+      )}
+      data-testid="dock-presence-note"
+      data-presence={note.kind}
+    >
+      <Icon size={11} aria-hidden="true" />
+      {note.text}
+    </div>
+  )
 }
 
 /** A section of the single scroll. Deliberately NOT a DockSection: the approved
@@ -719,15 +739,10 @@ export function IssuePanelView({
   })
   const retiredSessions = all.filter((s) => !isOpenSession(s))
   const shownSessions = showAllActive ? activeSessions : activeSessions.slice(0, 5)
-  // `presenceNote` returns null while live sessions are on the task (the rows
-  // speak for it) and on the handful of stages it has nothing to add about; the
-  // section never renders a blank, so those fall back to the ready line.
-  const presence = presenceNote(issue, all, issueById) ?? {
-    kind: 'ready' as const,
-    text: 'Ready to start',
-    attention: false,
-  }
-  const PresenceIcon = PRESENCE_ICON[presence.kind]
+  // Total over the stage vocabulary since POD-516/9a05afd59: the only null is
+  // "this issue has live sessions", which is the branch that renders agent rows
+  // instead. No local fallback — a second set of words here is what drifts.
+  const presence = presenceNote(issue, all, issueById)
 
   const author = coordinatorSession(issue, activeSessions)
   const notesAt = issue.notesUpdatedAt ?? issue.updatedAt
@@ -790,34 +805,22 @@ export function IssuePanelView({
         )}
 
         <DockPart title="Agents & sessions" count={activeSessions.length} testId="dock-sessions">
-          {activeSessions.length > 0 ? (
-            shownSessions.map((session) => (
-              <IssueSessionRow
-                key={session.sessionId}
-                session={session}
-                onOpen={() => {
-                  setPane('A', session.sessionId)
-                  void markSessionRead(session.sessionId)
-                  setView('workspace')
-                }}
-              />
-            ))
-          ) : (
-            // A task with no agent is not an error — say why there is nobody on
-            // it, in the FLIGHT DECK'S OWN WORDS (mission.ts owns the vocabulary),
-            // so one task never reads two ways in two columns.
-            <div
-              className={cn(
-                'shell-type-secondary flex items-center gap-2 px-1 py-1.5',
-                presence.attention ? 'text-attention-foreground' : 'text-muted-foreground',
-              )}
-              data-testid="dock-presence-note"
-              data-presence={presence.kind}
-            >
-              <PresenceIcon size={11} aria-hidden="true" />
-              {presence.text}
-            </div>
-          )}
+          {activeSessions.length > 0
+            ? shownSessions.map((session) => (
+                <IssueSessionRow
+                  key={session.sessionId}
+                  session={session}
+                  onOpen={() => {
+                    setPane('A', session.sessionId)
+                    void markSessionRead(session.sessionId)
+                    setView('workspace')
+                  }}
+                />
+              ))
+            : // A task with no agent is not an error — say why there is nobody on
+              // it, in the FLIGHT DECK'S OWN WORDS (mission.ts owns the vocabulary),
+              // so one task never reads two ways in two columns.
+              presence && <PresenceLine note={presence} />}
           {activeSessions.length > 5 && (
             <FoldRow
               open={showAllActive}
