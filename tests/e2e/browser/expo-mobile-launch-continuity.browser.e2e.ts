@@ -196,21 +196,17 @@ test('a warm relaunch paints cached task detail', async ({ page }) => {
  *   - The replica is namespaced by principal, so the offline mock replays the
  *     REAL /auth/status body. A hardcoded stand-in opens an empty namespace and
  *     fails identically for an entirely different reason.
- *   - The task is created seconds earlier and arrives over the live feed, so a
- *     settle delay rules out a short write race.
+ *   - The task is created on the live feed before the offline relaunch; the
+ *     gap was durable storage, not a short write race.
  *
- * The product gap had two layers (both fixed):
- *   1. Mobile web used expo-sqlite, whose OPFS worker timed out in Chromium, so
- *      the store was memory-only. Web now uses IndexedDB (ADR 6 D1).
- *   2. /mobile static lacked COOP/COEP and `.wasm` MIME, which would still have
- *      blocked any SAB-dependent path. Isolation headers remain for native-web
- *      parity and the wasm MIME is required for streaming compile.
+ * The product gap (POD-541): mobile web used expo-sqlite, whose OPFS worker
+ * timed out in Chromium, so the store was memory-only. Web now uses IndexedDB
+ * (ADR 6 D1). /mobile also serves COOP/COEP + application/wasm for SAB paths.
  */
 test('an offline relaunch paints cached task detail', async ({ page }) => {
   const title = await createTaskAndOpenIt(page)
   await page.reload()
   await expect(visibleText(page, title)).toBeVisible({ timeout: 30_000 })
-  await page.waitForTimeout(3_000)
 
   const authStatus = await page.evaluate(() =>
     fetch('/auth/status').then((response) => response.text()),
