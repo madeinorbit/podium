@@ -25,18 +25,25 @@ describe('issueReferenceModel', () => {
     })
   })
 
-  it.each([
-    [{ archived: true }, 'archived', 'Archived task POD-17: Normalize task references'],
-    [
-      { deletedAt: '2026-08-06T10:00:00.000Z' },
-      'deleted',
-      'Deleted task POD-17: Normalize task references',
-    ],
-  ] as const)('does not expose stale workflow state for %s issues', (patch, availability, label) => {
-    const model = issueReferenceModel(issue(patch))
-    expect(model.availability).toBe(availability)
+  it('keeps workflow stage for archived issues so status chips still resolve', () => {
+    const model = issueReferenceModel(issue({ archived: true, stage: 'done' }))
+    expect(model).toEqual({
+      ref: 'POD-17',
+      issueId: 'iss_1',
+      title: 'Normalize task references',
+      stage: 'done',
+      availability: 'archived',
+      accessibleLabel: 'Archived Done task POD-17: Normalize task references',
+    })
+  })
+
+  it('does not expose workflow stage for deleted issues', () => {
+    const model = issueReferenceModel(
+      issue({ deletedAt: '2026-08-06T10:00:00.000Z', stage: 'review' }),
+    )
+    expect(model.availability).toBe('deleted')
     expect(model.stage).toBeNull()
-    expect(model.accessibleLabel).toBe(label)
+    expect(model.accessibleLabel).toBe('Deleted task POD-17: Normalize task references')
   })
 })
 

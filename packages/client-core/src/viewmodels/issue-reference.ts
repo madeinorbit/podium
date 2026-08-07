@@ -41,17 +41,19 @@ export function issueReferenceModel(issue: IssueReferenceSource): IssueReference
       accessibleLabel: `Deleted task ${ref}: ${issue.title}`,
     }
   }
+  const stageLabel = ISSUE_STAGE_LABELS[issue.stage]
+  // Archive is a soft hide: keep the live workflow stage so glyphs, chat chips,
+  // and terminal underlines still show correct status for POD-N mentions.
   if (issue.archived) {
     return {
       ref,
       issueId: issue.id,
       title: issue.title,
-      stage: null,
+      stage: issue.stage,
       availability: 'archived',
-      accessibleLabel: `Archived task ${ref}: ${issue.title}`,
+      accessibleLabel: `Archived ${stageLabel} task ${ref}: ${issue.title}`,
     }
   }
-  const stageLabel = ISSUE_STAGE_LABELS[issue.stage]
   return {
     ref,
     issueId: issue.id,
