@@ -342,7 +342,6 @@
         "src/modules/messages/characterization-support.ts",
         "src/modules/messages/characterization.authz.test.ts",
         "src/modules/messages/characterization.delivery.test.ts",
-        "src/modules/messages/characterization.spawn-await.test.ts",
         "src/modules/messages/gate-agent.test.ts",
         "src/modules/messages/gate.ts",
         "src/modules/messages/handlers/ask.ts",

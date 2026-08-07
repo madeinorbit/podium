@@ -432,6 +432,99 @@ describe('agent spawn (gate)', () => {
     ).rejects.toThrow(/spawn budget exhausted/)
   })
 
+  /**
+   * THE THREE BUDGET PROPERTIES INHERITED FROM `characterization.spawn-await.test.ts`
+   * (POD-521), which pinned brake 2 for the POD-728/729 cutover and is retired.
+   *
+   * `brake 2` above already owns the headline — the Nth spawn is refused, the
+   * refusal is ledgered, it survives a restart, and the operator is not budgeted.
+   * These three are the ones it did not assert, and each is a property somebody
+   * could change without any of the assertions above moving.
+   */
+  it('takes the budget BEFORE the spawn, so a failed spawn is still charged (in memory only)', async () => {
+    const { gate, svc, store } = harness({
+      spawnSession: () => {
+        throw new Error("machine 'Builder' is offline")
+      },
+    })
+    await expect(
+      gate.dispatch(PARENT, true, 'spawnAgent', { issue: ISSUE.id, prompt: 'x' }),
+    ).rejects.toThrow("machine 'Builder' is offline")
+    // Recorded as-is rather than judged: the unit is consumed before the seam
+    // runs and is NOT refunded when the seam throws, so the next call is the
+    // second of the day. A looping agent whose spawns all fail is still braked,
+    // which is the reason the ordering is this way round.
+    expect(svc.takeSpawnBudget(ISSUE.id).count).toBe(2)
+    // …but the charge is IN-MEMORY: no `agent.spawned` event was written, so a
+    // restart forgives it. That asymmetry is the thing to notice if this ever
+    // needs changing — the durable half and the live half disagree on purpose.
+    expect(store.events.listEventsSince(0, { kinds: ['agent.spawned'] })).toEqual([])
+  })
+
+  it('records NO budgetIssue on an operator spawn, and does not spend an agent’s budget', async () => {
+    const { gate, svc, store } = harness()
+    for (let i = 0; i < SPAWN_BUDGET_PER_DAY + 3; i++) {
+      await gate.dispatch(OPERATOR, undefined, 'spawnAgent', { issue: ISSUE.id, prompt: `p${i}` })
+    }
+    // The exemption is visible in the LEDGER, not just in the absence of a
+    // refusal: an operator spawn carries no `budgetIssue`, so the durable
+    // reconstruction after a restart does not count it either.
+    const spawned = store.events.listEventsSince(0, { kinds: ['agent.spawned'] })
+    expect(spawned).toHaveLength(SPAWN_BUDGET_PER_DAY + 3)
+    expect(spawned.some((e) => 'budgetIssue' in (e.payload as object))).toBe(false)
+    // And an agent's budget on the same issue is untouched — the operator's
+    // spawns did not spend it.
+    expect(svc.takeSpawnBudget(ISSUE.id)).toEqual({ ok: true, count: 1 })
+  })
+
+  it('--new needs --repo when the caller has NO issue scope to inherit one from', async () => {
+    // The complement of the `--new` case above, which inherits the parent's repo
+    // from a subtree scope. An operator has scope `all` and therefore no issue to
+    // inherit from, so the repo has to be named or the child has nowhere to live.
+    const { gate, created } = harness()
+    await expect(
+      gate.dispatch(OPERATOR, undefined, 'spawnAgent', { newTitle: 'orphan', prompt: 'p' }),
+    ).rejects.toThrow('--new needs --repo (no issue scope to inherit a repo from)')
+    expect(created).toEqual([])
+    await gate.dispatch(OPERATOR, undefined, 'spawnAgent', {
+      newTitle: 'orphan',
+      prompt: 'p',
+      repo: '/other-repo',
+    })
+    // Named explicitly, it is created — and it is a ROOT, because there was no
+    // caller scope to parent it under.
+    expect(created).toMatchObject([{ repoPath: '/other-repo' }])
+  })
+
+  it('reports agentId defaulting to the session id when the spawn seam names none', async () => {
+    // What the parent gets back is what it must pass to `awaitAgent`, so the
+    // default cannot be undefined or the round trip has no handle.
+    //
+    // The retired suite paired this with "and the child is LISTED so the parent
+    // can await it". That assertion is NOT carried over: it was true of
+    // `mailHarness`, whose fake `spawnSession` registers the session, and says
+    // nothing about the gate — the real registration is the session service's.
+    // Transferred by running it rather than by reading it, which is how the
+    // difference showed up.
+    const { gate } = harness()
+    const r = (await gate.dispatch(OPERATOR, undefined, 'spawnAgent', {
+      issue: ISSUE.id,
+      prompt: 'p',
+    })) as { sessionId: SessionId; agentId: string }
+    expect(r.agentId).toBe(r.sessionId)
+  })
+
+  it('rolls the budget over per UTC DAY, not per elapsed 24h', () => {
+    // Keyed on `now().slice(0, 10)`, so the reset is a calendar boundary. One
+    // minute either side of midnight UTC is the whole difference.
+    let clock = '2026-07-20T23:59:00.000Z'
+    const { svc } = harness({ now: () => clock })
+    for (let i = 0; i < SPAWN_BUDGET_PER_DAY; i++) svc.takeSpawnBudget(ISSUE.id)
+    expect(svc.takeSpawnBudget(ISSUE.id).ok).toBe(false)
+    clock = '2026-07-21T00:01:00.000Z'
+    expect(svc.takeSpawnBudget(ISSUE.id)).toEqual({ ok: true, count: 1 })
+  })
+
   it('--worktree on an unstarted issue refuses (issue start stays deliberate)', async () => {
     const { gate } = harness()
     await gate.dispatch(PARENT, undefined, 'spawnAgent', { newTitle: 'w', prompt: 'x' }) // iss_new: no worktree
@@ -961,6 +1054,36 @@ describe('session ask — the seance (#237 tier 4)', () => {
     // Bounded wait returned instead of hanging: no answer yet + snapshot.
     expect(r.answered).toBe(false)
     expect(r.snapshot).toMatchObject({ sessionId: asSessionId('child1'), status: 'hibernated' })
+  })
+
+  /**
+   * INHERITED FROM `characterization.spawn-await.test.ts` (POD-521). The rest of
+   * that suite's ask coverage is owned above and by `service.test.ts`; this is
+   * the arm none of them assert.
+   *
+   * `ask` is a wake carrying a question, so it rides the same containment brakes
+   * as any other send — a peer does not get an exemption for phrasing its wake as
+   * a question. Without this, "ask is a send plus a bounded wait" is a claim about
+   * the implementation rather than an observed property, and a future ask path
+   * that reached the transport directly would pass every other test here.
+   */
+  it('is clamped like any other send — a peer asking twice is NOT exempt from the wake cooldown', async () => {
+    const { gate, svc } = harness({ sessions: [child({ status: 'hibernated' })] })
+    // First ask from a peer: keeps `wake`, which is what resumes the session.
+    await gate.dispatch(PARENT, true, 'ask', {
+      sessionId: asSessionId('child1'),
+      question: 'q1',
+      timeoutSeconds: 0,
+    })
+    // Second inside the cooldown window: clamped down to `wait`, and the caller
+    // is TOLD rather than silently downgraded.
+    const second = (await gate.dispatch(PARENT, true, 'ask', {
+      sessionId: asSessionId('child1'),
+      question: 'q2',
+      timeoutSeconds: 0,
+    })) as { clamped?: boolean; questionId: string }
+    expect(second.clamped).toBe(true)
+    expect(svc.message(second.questionId)?.lifecycle).toBe('wait')
   })
 
   it('is subject to the session-target scope gate: denied outside the subtree without --outside-scope', async () => {
