@@ -392,7 +392,8 @@ export const setNeedsHumanInput = z.object({
   id: IssueIdField,
   question: z.string().optional(),
   // Structured question metadata (issue #53): suggested answers rendered as
-  // Tray chips + the asking session (defaults to the caller's own session).
+  // answer chips — the Task dock's decision band on web, the Tray on mobile —
+  // plus the asking session (defaults to the caller's own session).
   options: z.array(z.string().min(1)).max(20).optional(),
   askedBy: SessionIdField.optional(),
 })

@@ -277,7 +277,8 @@ export const NeedsHuman = z.object({
   asked: z
     .object({
       question: z.string(),
-      /** Structured suggested answers — the Tray's answer chips. Absent =
+      /** Structured suggested answers, rendered as answer chips — in the Task
+       *  dock's decision band on web, and in the Tray on mobile. Absent =
        *  free-form question. */
       options: z.array(z.string()).optional(),
       /** WHEN. Deliberately NOT `StampedAttribution` (POD-1156): that shape's

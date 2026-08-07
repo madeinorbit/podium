@@ -233,9 +233,10 @@ const IssueWireCore = z.object({
   estimateMin: IssueTriage.shape.estimateMin,
   needsHuman: NeedsHuman.shape.needsHuman,
   humanQuestion: z.string().optional(),
-  /** Structured suggested answers for `humanQuestion` (issue #53) — the Tray's
-   *  answer chips. Absent = free-form question. Tolerant so a malformed value
-   *  from a newer peer parses as unset rather than failing the whole issue. */
+  /** Structured suggested answers for `humanQuestion` (issue #53), rendered as
+   *  answer chips — in the Task dock's decision band on web, and in the Tray on
+   *  mobile. Absent = free-form question. Tolerant so a malformed value from a
+   *  newer peer parses as unset rather than failing the whole issue. */
   humanQuestionOptions: z.array(z.string()).optional().catch(undefined),
   /** sessionId of the agent session that asked (issue #53); absent = unattributed
    *  (legacy flag or a caller with no session identity).
