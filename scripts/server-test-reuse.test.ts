@@ -151,13 +151,26 @@ describe('reusable-runner shard [POD-527]', () => {
  */
 describe('runner reuse and its leak guard, observed [POD-527]', () => {
   let fixtureDir: string
-  const pidLog = () => join(fixtureDir, 'pids.txt')
+  const observationLog = () => join(fixtureDir, 'observations.jsonl')
 
+  /**
+   * Each probe records what the hermetic setup gave it. Four fields, and three of them exist
+   * because the setup had a live defect in exactly that place once a process outlived its
+   * file — see docs/agents/pod-527-runner-reuse.md. Asserting the fix through a passing
+   * reused shard would not survive a refactor of the setup: a shared state root does not
+   * throw, it just makes two files agree when they should not.
+   */
   const probeSource = (name: string) => `
 import { appendFileSync } from 'node:fs'
 import { it, expect } from 'vitest'
-it('${name} records the process it ran in', () => {
-  appendFileSync(${JSON.stringify('__PID_LOG__')}, \`${name} \${process.pid}\\n\`)
+it('${name} records what the hermetic setup gave it', () => {
+  appendFileSync(${JSON.stringify('__LOG__')}, JSON.stringify({
+    name: '${name}',
+    pid: process.pid,
+    stateDir: process.env.PODIUM_STATE_DIR,
+    tmpdir: process.env.TMPDIR,
+    exitListeners: process.listenerCount('exit'),
+  }) + '\\n')
   expect(true).toBe(true)
 })
 `
@@ -185,27 +198,51 @@ export default defineConfig({
 })
 `
 
-  const runVitest = (configFile: string, ...filters: string[]) =>
-    spawnSync(
+  interface Observation {
+    name: string
+    pid: number
+    stateDir?: string
+    tmpdir?: string
+    exitListeners: number
+  }
+  interface ProbeRun {
+    status: number | null
+    output: string
+    seen: Observation[]
+  }
+  const distinct = <T>(values: T[]) => new Set(values).size
+
+  /** One spawned Vitest run over the fixture, with a fresh observation log each time. */
+  const runVitest = (configFile: string, ...filters: string[]): ProbeRun => {
+    rmSync(observationLog(), { force: true })
+    const result = spawnSync(
       'bun',
       [
         '--bun',
         join(repoRoot, 'node_modules/vitest/vitest.mjs'),
         'run',
         '--config',
-        configFile,
+        join(fixtureDir, configFile),
         ...filters,
       ],
       { cwd: repoRoot, encoding: 'utf8', timeout: 180_000 },
     )
-
-  const pidsFor = (prefix: string) =>
-    new Set(
-      readFileSync(pidLog(), 'utf8')
+    let seen: Observation[] = []
+    try {
+      seen = readFileSync(observationLog(), 'utf8')
         .split('\n')
-        .filter((line) => line.startsWith(prefix))
-        .map((line) => line.split(' ')[1]),
-    )
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as Observation)
+    } catch {
+      // A run that never reached a probe leaves no log; the status assertions report it.
+    }
+    return { status: result.status, output: `${result.stdout}\n${result.stderr}`, seen }
+  }
+
+  // Each spawn costs a Vitest boot, so the two probe runs happen once here and the cases
+  // below assert against what they observed. Three spawns for the whole file.
+  let reusedRun: ProbeRun
+  let isolatedRun: ProbeRun
 
   beforeAll(() => {
     fixtureDir = mkdtempSync(join(process.env.PODIUM_TEST_HOST_TMPDIR ?? tmpdir(), 'pod527-'))
@@ -213,7 +250,7 @@ export default defineConfig({
     for (const name of ['probe-a', 'probe-b', 'probe-c']) {
       writeFileSync(
         join(fixtureDir, `${name}.test.ts`),
-        probeSource(name).replace(JSON.stringify('__PID_LOG__'), JSON.stringify(pidLog())),
+        probeSource(name).replace(JSON.stringify('__LOG__'), JSON.stringify(observationLog())),
       )
     }
     // The one that leaks. It is otherwise an ordinary passing test — the failure has to come
@@ -237,30 +274,68 @@ it('passes its own assertion but leaves an env var behind', () => {
         configSource(isolate).replace(JSON.stringify('__FIXTURE__'), JSON.stringify(fixtureDir)),
       )
     }
-  })
+    reusedRun = runVitest('vitest.reused.config.ts', 'probe-')
+    isolatedRun = runVitest('vitest.isolated.config.ts', 'probe-')
+    // Two Vitest boots; the default 10s hook timeout is for hooks that do not spawn one.
+  }, 180_000)
 
   afterAll(() => rmSync(fixtureDir, { recursive: true, force: true }))
 
   it('runs several files in ONE process when isolation is off, and one each when it is on', () => {
     // Without this assertion, a pool change that quietly restored isolation would leave the
     // whole lane green and merely slow. There is no other symptom.
-    const reused = runVitest(join(fixtureDir, 'vitest.reused.config.ts'), 'probe-')
-    expect(reused.status, `reused probe run failed:\n${reused.stdout}\n${reused.stderr}`).toBe(0)
-    expect(pidsFor('probe-').size, 'the pool stopped reusing a finished runner').toBe(1)
+    expect(reusedRun.status, `reused probe run failed:\n${reusedRun.output}`).toBe(0)
+    expect(isolatedRun.status, `isolated probe run failed:\n${isolatedRun.output}`).toBe(0)
+    expect(reusedRun.seen).toHaveLength(3)
+    expect(isolatedRun.seen).toHaveLength(3)
+    expect(
+      distinct(reusedRun.seen.map((o) => o.pid)),
+      'the pool stopped reusing a finished runner',
+    ).toBe(1)
+    expect(
+      distinct(isolatedRun.seen.map((o) => o.pid)),
+      'isolation stopped giving each file its own fork',
+    ).toBe(3)
+  })
 
-    rmSync(pidLog(), { force: true })
+  it('gives every file in a shared runner its OWN state root, tmp container and listeners', () => {
+    // The three defects the hermetic setup had once a process outlived its test file. Each is
+    // guarded by identity rather than by existence, because none of them fails loudly: a
+    // shared PODIUM_STATE_DIR does not throw, it just lets two files see each other's data.
+    // These assertions are meaningless outside one process, so start by pinning that.
+    const seen = reusedRun.seen
+    expect(seen).toHaveLength(3)
+    expect(distinct(seen.map((o) => o.pid)), 'this only proves anything in ONE process').toBe(1)
 
-    const isolated = runVitest(join(fixtureDir, 'vitest.isolated.config.ts'), 'probe-')
-    expect(isolated.status, `isolated probe run failed:\n${isolated.stdout}`).toBe(0)
-    expect(pidsFor('probe-').size, 'isolation stopped giving each file its own fork').toBe(3)
+    // 1. A state root PER FILE, not per runner. The original `if (!process.env.
+    //    PODIUM_STATE_DIR)` minted one for the first file and left every file after it
+    //    pointing at that same directory.
+    const stateDirs = seen.map((o) => o.stateDir)
+    expect(stateDirs.every(Boolean), 'a file ran with no hermetic state root').toBe(true)
+    expect(distinct(stateDirs), `files in one runner shared a state root: ${stateDirs}`).toBe(3)
+
+    // 2. Tmp containers that are SIBLINGS. Anchoring to tmpdir() read the TMPDIR the previous
+    //    file had installed, so containers nested and releasing one deleted the next.
+    const containers = seen.map((o) => o.tmpdir as string)
+    expect(distinct(containers), 'files in one runner shared a tmp container').toBe(3)
+    for (const outer of containers) {
+      for (const inner of containers) {
+        if (outer === inner) continue
+        expect(inner.startsWith(`${outer}/`), `${inner} is nested inside ${outer}`).toBe(false)
+      }
+    }
+
+    // 3. Exit handlers installed ONCE per process. Registering them per evaluation stacked a
+    //    set per file — MaxListenersExceededWarning, and the whole cleanup re-run per file.
+    const listeners = seen.map((o) => o.exitListeners)
+    expect(distinct(listeners), `exit listeners grew per file: ${listeners.join(' -> ')}`).toBe(1)
   })
 
   it('fails the file that leaked, by name, with the key it left behind', () => {
-    const run = runVitest(join(fixtureDir, 'vitest.reused.config.ts'), 'zz-leaky')
-    const output = `${run.stdout}\n${run.stderr}`
-    expect(run.status, `a leaking file passed:\n${output}`).not.toBe(0)
-    expect(output).toContain('[reuse leak]')
-    expect(output).toContain('zz-leaky.test.ts')
-    expect(output).toContain('process.env.POD527_LEAK_PROOF was added')
+    const run = runVitest('vitest.reused.config.ts', 'zz-leaky')
+    expect(run.status, `a leaking file passed:\n${run.output}`).not.toBe(0)
+    expect(run.output).toContain('[reuse leak]')
+    expect(run.output).toContain('zz-leaky.test.ts')
+    expect(run.output).toContain('process.env.POD527_LEAK_PROOF was added')
   })
 })

@@ -65,6 +65,21 @@ function activeResourceCounts(): Map<string, number> {
   return counts
 }
 
+// The snapshot is only a baseline if the hermetic setup has already minted THIS file's state
+// root and tmp container — otherwise the guard would read them as drift on every single file.
+// It is the last entry in `setupFiles` and vitest imports them in order (`sequence.setupFiles`
+// is not "parallel"), and the static import above forces `test-hermetic-env.ts` to evaluate
+// first regardless. Both of those are someone else's config to change, so assert the outcome
+// rather than trusting either: a reordering must fail loudly here, not quietly weaken the
+// baseline.
+if (!process.env.PODIUM_STATE_DIR || !process.env.TMPDIR) {
+  throw new Error(
+    '[reuse guard] snapshotted before test-hermetic-env.ts had run — the reuse guard must be ' +
+      'the LAST setupFile, or its baseline is the world before the hermetic setup rather than ' +
+      'after it.',
+  )
+}
+
 const before = {
   env: { ...process.env },
   cwd: process.cwd(),
