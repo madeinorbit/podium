@@ -3,10 +3,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 
 const portfolioIssues = vi.hoisted(() => ({ value: [] as unknown[] }))
+const portfolioSessions = vi.hoisted(() => ({ value: [] as unknown[] }))
 vi.mock('./store', () => ({
   useReplicaIssues: () => portfolioIssues.value,
-  useStoreSelector: (selector: (store: { sessions: never[] }) => unknown) =>
-    selector({ sessions: [] }),
+  useStoreSelector: (selector: (store: { sessions: unknown[] }) => unknown) =>
+    selector({ sessions: portfolioSessions.value }),
 }))
 
 import { RightRail } from './RightRail'
@@ -20,6 +21,7 @@ afterEach(() => {
   cleanup()
   featureEnabled.value = true
   portfolioIssues.value = []
+  portfolioSessions.value = []
 })
 
 describe('RightRail', () => {
@@ -65,6 +67,28 @@ describe('RightRail', () => {
     ]
     render(<RightRail rightPanel={null} onPanelChange={vi.fn()} />)
     expect(screen.queryByRole('img', { name: /waiting on you/ })).toBeNull()
+  })
+
+  // The first cut of this badge resolved an issue's sessions through
+  // `memberSessionIds` only. `session.issueId` is the common attachment, so an
+  // agent that stopped on a question was counted by the Flight Deck's "Needs
+  // you" filter and NOT by the badge that summarizes it. Same selector now.
+  it('counts an agent attached by session.issueId, not just by memberSessionIds', () => {
+    portfolioIssues.value = [makeIssue({ id: 'a', memberSessionIds: [] })]
+    portfolioSessions.value = [
+      {
+        sessionId: 's1',
+        issueId: 'a',
+        agentKind: 'claude-code',
+        status: 'live',
+        cwd: '/r/wt',
+        createdAt: 't',
+        lastActiveAt: 't',
+        agentState: { phase: 'needs_user', since: 't', nativeSubagentCount: 0 },
+      },
+    ]
+    render(<RightRail rightPanel={null} onPanelChange={vi.fn()} />)
+    expect(screen.getByRole('img', { name: '1 waiting on you' })).toBeTruthy()
   })
 
   it('shows no badge when nothing is waiting', () => {

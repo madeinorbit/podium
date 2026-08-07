@@ -1,9 +1,9 @@
 import { aggregateMotionPhase, type MotionPhase, motionPhase } from '@podium/client-core/viewmodels'
-import type { IssueColorSlot, SessionMeta } from '@podium/model'
+import type { IssueColorSlot } from '@podium/model'
 import type { JSX } from 'react'
 import { useMemo } from 'react'
 import { IdSquare, type IdSquareBadge, idSquareLabel } from '@/components/IdSquare'
-import { issueNeedsHuman } from '@/lib/mission'
+import { portfolioActionableCount } from '@/lib/mission'
 import { StatusBadge } from '@/lib/motion'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
@@ -34,10 +34,9 @@ function railBadge(phase: MotionPhase, waitingCount: number): IdSquareBadge | nu
  * the chrome without the panel open, and matches what the copilot says when
  * you do open it ("N tasks across your portfolio need a decision").
  *
- * It used to come from `trayCount`; POD-516 removed the web Tray, so it is
- * derived here from the same `issueNeedsHuman` predicate the Flight Deck's
- * "Needs you" filter uses. A dedicated portfolio selector on `lib/mission.ts`
- * would be the better home — handed off to POD-516's Flight Deck owner.
+ * It used to come from `trayCount`; POD-516 removed the web Tray, so it comes
+ * from `portfolioActionableCount` — the same module, and the same attention
+ * predicate, the Flight Deck's "Needs you" filter runs on.
  */
 export function RightRail({
   issue,
@@ -53,19 +52,14 @@ export function RightRail({
   const sessions = useStoreSelector((store) => store.sessions)
   const allIssues = useReplicaIssues()
   // Walks every issue, so it is memoized: this rail re-renders on every issue
-  // mutation. Finished work is not attention (POD-198) — a closed task keeps
-  // no claim on the human even if its last agent state said otherwise.
-  const pending = useMemo(() => {
-    const byId = new Map<string, SessionMeta>(sessions.map((s) => [s.sessionId, s]))
-    return allIssues.filter((issue) => {
-      if (issue.archived || issue.deletedAt) return false
-      if (issue.stage === 'done' || issue.closedReason != null) return false
-      const own = (issue.memberSessionIds ?? [])
-        .map((id) => byId.get(id))
-        .filter((s): s is SessionMeta => s !== undefined)
-      return issueNeedsHuman(issue, own)
-    }).length
-  }, [allIssues, sessions])
+  // mutation. The selector lives in mission.ts so this badge and the Flight
+  // Deck's "Needs you" filter can never disagree about what a decision is —
+  // an inline version here resolved sessions through memberSessionIds only and
+  // undercounted every agent attached by `session.issueId` alone.
+  const pending = useMemo(
+    () => portfolioActionableCount(allIssues, sessions),
+    [allIssues, sessions],
+  )
   const gitPanelEnabled = useFeature('git-panel')
   const messagesPanelEnabled = useFeature('messages-panel')
   const mergeQueueEnabled = useFeature('merge-queue')
