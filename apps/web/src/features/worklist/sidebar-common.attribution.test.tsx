@@ -131,9 +131,7 @@ describe('PanelRow renders the session attribution pair (POD-1526)', () => {
   })
 
   it('a system job names the JOB and carries no human (ADR 9 D8 S5)', () => {
-    renderRow(
-      sess({ createdBy: { actor: actorSystem('boot-reconcile'), onBehalfOf: null } }),
-    )
+    renderRow(sess({ createdBy: { actor: actorSystem('boot-reconcile'), onBehalfOf: null } }))
     expect(screen.getByTestId('attribution-actor').textContent).toBe('boot-reconcile')
     expect(screen.getByTestId('attribution-on-behalf-of').textContent).toBe('no human')
   })

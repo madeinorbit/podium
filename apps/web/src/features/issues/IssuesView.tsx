@@ -85,9 +85,10 @@ export function IssuesView(): JSX.Element {
   const moveIssue = (id: string, stage: IssueStage): void =>
     runMut(trpc.issues.update.mutate({ id, patch: { stage } }))
   const approveIssue = (id: string): void => runMut(trpc.issues.promote.mutate({ id }))
-  const approveAndStart = (id: string): void =>
-    runMut(trpc.issues.promote.mutate({ id }).then(() => trpc.issues.start.mutate({ id })))
-  const archiveIssue = (id: string): void => runMut(trpc.issues.archive.mutate({ id }))
+  // `approve & start` and `archive` left this file with the card's three-button
+  // bar (POD-591). They are not lost: both are on the right-click menu, which
+  // acts on a selection rather than on one card, and that is where a decision
+  // taken over 140 proposals belongs. The card keeps Approve alone.
   const setAssignee = (id: string, assignee: string): void =>
     runMut(trpc.issues.update.mutate({ id, patch: { assignee } }))
   const setPriority = (id: string, priority: number): void =>
@@ -318,16 +319,13 @@ export function IssuesView(): JSX.Element {
           columns={view.orderedByStage}
           allIssues={issues}
           badges={display.badges}
+          ordering={display.ordering}
           stageCounts={view.stageCounts}
           epicProgress={view.epicProgress}
           onOpen={setOpenIssueId}
           onMoveIssue={moveIssue}
           onApprove={approveIssue}
-          onApproveStart={approveAndStart}
-          onArchive={archiveIssue}
           onCreateIn={(stage) => setCreating({ stage })}
-          onSetAssignee={setAssignee}
-          assignees={view.assignees}
           focusId={focusId}
           selected={selectedIds}
           onToggleSelect={toggleSelectId}

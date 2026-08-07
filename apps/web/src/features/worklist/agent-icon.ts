@@ -1,14 +1,10 @@
 /**
- * Agent kind -> icon, shared by the worklist's fleet summary and the "+" menu's
- * agent list (POD-407).
+ * Agent kind -> icon.
  *
- * It has its own module for one reason: it is the single helper the extracted
- * `UnifiedIssueRow` and the spawn row BOTH need. Leaving it in either would have
- * made one row module import the other for an icon lookup.
+ * The table itself moved to `@/lib/agent-tone` (POD-591), which already owned
+ * kind→tint and kind→tone: the board card and the sidebar row now render their
+ * agent stack from one component under both features, and that component cannot
+ * import out of a feature folder. This module stays as the worklist's spelling
+ * of the same lookup so its two call sites keep reading locally.
  */
-import type { AgentKind } from '@podium/model'
-import { NEW_AGENTS } from '@/app/NewPanelMenu'
-
-export function agentIconFor(kind: AgentKind) {
-  return NEW_AGENTS.find((a) => a.kind === kind)?.Icon
-}
+export { type AgentIconComponent, agentIconFor } from '@/lib/agent-tone'

@@ -233,9 +233,21 @@ describe('childStageCounts', () => {
 
 describe('issuePageOrderIds', () => {
   it('uses the visible order when the open issue is visible', () => {
-    expect(issuePageOrderIds([asIssueId('p'), asIssueId('l')], [asIssueId('p'), asIssueId('c'), asIssueId('l')], asIssueId('p'))).toEqual(['p', 'l'])
+    expect(
+      issuePageOrderIds(
+        [asIssueId('p'), asIssueId('l')],
+        [asIssueId('p'), asIssueId('c'), asIssueId('l')],
+        asIssueId('p'),
+      ),
+    ).toEqual(['p', 'l'])
   })
   it('falls back to the full flat order for a hidden (collapsed) child', () => {
-    expect(issuePageOrderIds([asIssueId('p'), asIssueId('l')], [asIssueId('p'), asIssueId('c'), asIssueId('l')], asIssueId('c'))).toEqual(['p', 'c', 'l'])
+    expect(
+      issuePageOrderIds(
+        [asIssueId('p'), asIssueId('l')],
+        [asIssueId('p'), asIssueId('c'), asIssueId('l')],
+        asIssueId('c'),
+      ),
+    ).toEqual(['p', 'c', 'l'])
   })
 })

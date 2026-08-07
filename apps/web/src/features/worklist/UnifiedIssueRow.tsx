@@ -24,15 +24,14 @@ import type { JSX, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEv
 import { useState } from 'react'
 import { GitStamp } from '@/components/GitStamp'
 import { IdSquare } from '@/components/IdSquare'
+import { IssueFleetSummary } from '@/components/IssueFleetSummary'
 import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { issueIdTitle } from '@/lib/issue-labels'
-import { agentFleetTileTint } from '@/lib/agent-tone'
 import { issueColorHex } from '@/lib/issueColors'
 import { PhaseTimer } from '@/lib/motion'
 import type { ContextMenuAnchor } from '@/lib/SessionContextMenu'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor } from '@/lib/WorkerLabel'
-import { agentIconFor } from './agent-icon'
 import { issueRowFoldKey } from './fold-keys'
 import {
   AgentRosterBand,
@@ -43,95 +42,6 @@ import {
 } from './sidebar-common'
 import { inlineRenameEditor, useInlineRename } from './use-inline-rename'
 import { WorkRowShell } from './WorkRowShell'
-
-/** Compact execution presence that survives a collapsed issue row. The full
- * roster remains below the row; this summary answers "who is here?" without
- * making the operator keep every fleet expanded. */
-function IssueFleetSummary({
-  sessions,
-  unread = false,
-}: {
-  sessions: SessionMeta[]
-  /** An unopened update since last read (POD-293): a single info dot on the
-   *  agent identity, not a shouted banner. Bound to the fleet glyph so it reads
-   *  as "this agent has something new", never a free-floating third dot. */
-  unread?: boolean
-}): JSX.Element | null {
-  if (sessions.length === 0) return null
-  const shown = sessions.slice(0, 2)
-  const overflow = Math.max(0, sessions.length - shown.length)
-  const nativeCount = sessions.reduce(
-    (sum, session) => sum + (session.agentState?.nativeSubagentCount ?? 0),
-    0,
-  )
-  const label = [
-    `${sessions.length} agent${sessions.length === 1 ? '' : 's'}`,
-    nativeCount > 0 ? `${nativeCount} native subagent${nativeCount === 1 ? '' : 's'}` : null,
-    unread ? 'new update' : null,
-  ]
-    .filter(Boolean)
-    .join(' · ')
-  return (
-    <span
-      className="ml-0.5 flex flex-none items-center"
-      role="img"
-      aria-label={label}
-      title={label}
-      data-testid="issue-fleet-summary"
-    >
-      {shown.map((session, index) => {
-        const AgentIcon = agentIconFor(session.agentKind)
-        // Per-kind tint (POD-293): Claude wears its clay, other harnesses a quiet
-        // navy — solid fills so stacked tiles don't ghost through each other. A
-        // table keyed by kind, not a comparison (see @/lib/agent-tone).
-        const tileTint = agentFleetTileTint(session.agentKind)
-        // The row's unopened-update dot rides the corner of the LAST tile (the
-        // concept's `.av .unreaddot`): tight to the glyph at -3px, ringed in the
-        // row background — reads as "this fleet has something new", not a third
-        // free-floating mark.
-        const showDot = unread && index === shown.length - 1
-        return (
-          <span
-            key={session.sessionId}
-            data-agent-kind={session.agentKind}
-            className={cn(
-              'relative flex size-[19px] items-center justify-center rounded-[6px] border',
-              tileTint,
-              index > 0 && '-ml-1',
-            )}
-            style={{ zIndex: index + 1 }}
-          >
-            {AgentIcon ? <AgentIcon size={12} strokeWidth={1.8} aria-hidden="true" /> : '✳'}
-            {showDot && (
-              <span
-                className="absolute -top-[3px] -right-[3px] z-[1] size-[7px] rounded-full border-[1.5px] border-[var(--row-bg,var(--sidebar))] bg-info"
-                data-testid="row-unread-dot"
-                aria-hidden="true"
-              />
-            )}
-          </span>
-        )
-      })}
-      {overflow > 0 && (
-        <span
-          className="shell-type-micro -ml-1 flex h-[21px] min-w-[21px] items-center justify-center rounded-[6px] border border-border-strong bg-chip px-0.5 font-mono text-muted-foreground"
-          style={{ zIndex: shown.length + 1 }}
-        >
-          +{overflow}
-        </span>
-      )}
-      {nativeCount > 0 && (
-        <span
-          className="shell-type-micro -mt-2 -ml-1 rounded-[4px] border border-claude/35 bg-claude/12 px-[3px] font-mono text-claude"
-          style={{ zIndex: shown.length + 2 }}
-          data-testid="issue-fleet-subagent-count"
-        >
-          ×{nativeCount}
-        </span>
-      )}
-    </span>
-  )
-}
 
 /** Lineage flash (POD-85): briefly outline another issue's row — provenance as
  *  a gesture when a spin-off is selected, not persistent chrome. DOM-level on

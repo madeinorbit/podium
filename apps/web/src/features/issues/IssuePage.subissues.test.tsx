@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 import { cleanup, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { IssuePage } from './IssuePage'
 import { makeIssue } from '@/lib/test-issue'
+import { IssuePage } from './IssuePage'
 
 const PARENT = makeIssue({
   id: 'p',

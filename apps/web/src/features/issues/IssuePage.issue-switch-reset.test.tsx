@@ -151,16 +151,22 @@ describe('issue-page/IssueBody.tsx — the long-form editor reset', () => {
 })
 
 describe('issue-page/IssueProperties.tsx — the properties reset', () => {
-  it('clears a typed defer date on switch', async () => {
+  // POD-591 deleted the transient this test was written for. Defer used to be a
+  // bare `<input type="date">` bound to page-local `deferDate` state that only
+  // became an edit when a separate "Defer" button was pressed — so a typed but
+  // unsubmitted value could survive an issue switch, and the reset existed to
+  // stop it. The control is now a `DateProperty` menu that reads the ISSUE's own
+  // `deferUntil` and commits on pick: there is no half-entered value to carry
+  // across, because there is no local state to carry. The property that
+  // mattered is asserted directly instead.
+  it('shows the newly-opened issue’s own defer state, never the previous one’s', async () => {
     const { switchIssue } = open()
     // The aside and the mobile disclosure both mount the properties stack, so
     // the control is addressed positionally rather than by a unique query.
-    const defer = screen.getAllByLabelText('Defer until')[0] as HTMLInputElement
-    fireEvent.change(defer, { target: { value: '2026-09-01' } })
-    expect(defer.value).toBe('2026-09-01')
+    expect(screen.getAllByLabelText('Defer until')[0]?.textContent).toContain('Snooze until')
 
     switchIssue()
 
-    expect((screen.getAllByLabelText('Defer until')[0] as HTMLInputElement).value).toBe('')
+    expect(screen.getAllByLabelText('Defer until')[0]?.textContent).toContain('Snooze until')
   })
 })

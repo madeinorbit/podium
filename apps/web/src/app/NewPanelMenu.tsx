@@ -10,7 +10,7 @@ import {
   onlineMachinesForRepoOrClone,
   resolveTargetMachineForAgent,
 } from '@podium/model'
-import { Circle, FileText, SquarePlus, SquareTerminal } from 'lucide-react'
+import { Circle, FileText, SquarePlus } from 'lucide-react'
 import type React from 'react'
 import { type JSX, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -25,26 +25,31 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import {
-  ClaudeCodeIcon,
-  CursorIcon,
-  GrokIcon,
-  OpenAIcon,
-  OpenCodeIcon,
-} from '@/lib/icons/AgentIcons'
+import { AGENT_KIND_ICON } from '@/lib/agent-tone'
 import { type ConversationHit, useConversationSearch } from '@/lib/useConversationSearch'
 import { useStoreSelector } from './store'
 
 type IconComponent = React.ComponentType<Record<string, unknown>>
 
-export const NEW_AGENTS: { kind: AgentKind; label: string; Icon: IconComponent }[] = [
-  { kind: 'claude-code', label: 'New Claude', Icon: ClaudeCodeIcon },
-  { kind: 'codex', label: 'New Codex', Icon: OpenAIcon },
-  { kind: 'grok', label: 'New Grok', Icon: GrokIcon },
-  { kind: 'opencode', label: 'New OpenCode', Icon: OpenCodeIcon },
-  { kind: 'cursor', label: 'New Cursor', Icon: CursorIcon },
-  { kind: 'shell', label: 'New Shell', Icon: SquareTerminal },
+/** Menu copy per harness. The MARK for each one comes from `agent-tone`'s
+ *  kind→icon table (POD-591) rather than a second list here — this menu and the
+ *  fleet stacks on the board and in the sidebar all draw the same glyph, so
+ *  adding a harness is one row in one file. */
+const NEW_AGENT_LABELS: readonly (readonly [AgentKind, string])[] = [
+  ['claude-code', 'New Claude'],
+  ['codex', 'New Codex'],
+  ['grok', 'New Grok'],
+  ['opencode', 'New OpenCode'],
+  ['cursor', 'New Cursor'],
+  ['shell', 'New Shell'],
 ]
+
+export const NEW_AGENTS: { kind: AgentKind; label: string; Icon: IconComponent }[] =
+  NEW_AGENT_LABELS.map(([kind, label]) => ({
+    kind,
+    label,
+    Icon: AGENT_KIND_ICON[kind],
+  }))
 
 // The workspace "+" (new tab) menu lists every agent kind, including 'New Shell'.
 // (SP-75b1 had excluded shells from this menu; we deliberately keep them here.)

@@ -36,4 +36,5 @@ export const snoozedFoldKey = (groupKey: string): string =>
 export const closedFoldKey = (groupKey: string): string => `podium:sidebar:closed-fold:${groupKey}`
 
 /** One issue row's own disclosure. */
-export const issueRowFoldKey = (issueId: string): string => `podium:sidebar:unified-issue:${issueId}`
+export const issueRowFoldKey = (issueId: string): string =>
+  `podium:sidebar:unified-issue:${issueId}`

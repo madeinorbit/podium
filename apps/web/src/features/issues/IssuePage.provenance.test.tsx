@@ -73,9 +73,7 @@ describe('hub provenance chip', () => {
   it('shows `hub · stale` when the hub is unreachable', () => {
     show({ viaHub: true, upstreamStale: true })
     expect(screen.getByText('hub · stale')).toBeTruthy()
-    expect(
-      screen.getByTitle('Mirrored from an unreachable hub — last-known state'),
-    ).toBeTruthy()
+    expect(screen.getByTitle('Mirrored from an unreachable hub — last-known state')).toBeTruthy()
   })
 
   it('shows `hub · syncing` when a local edit is queued upstream', () => {

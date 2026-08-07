@@ -133,7 +133,10 @@ describe('selection vs expansion/flatten (the bulk-op visibility filter)', () =>
       kind: 'columns',
       columns: [[asIssueId('p')], [asIssueId('l')]], // backlog + planning lanes, roots only
     }
-    let s: IssuesKeyState = { focusId: asIssueId('c1'), selected: [asIssueId(asIssueId('c1')), asIssueId(asIssueId('p'))] }
+    let s: IssuesKeyState = {
+      focusId: asIssueId('c1'),
+      selected: [asIssueId(asIssueId('c1')), asIssueId(asIssueId('p'))],
+    }
     expect(visibleSelected(s.selected, columns)).toEqual(['p'])
     s = issuesKeyReduce(s, { kind: 'next' }, columns)
     expect(s.focusId).toBe('p') // hidden focus normalized → first visible

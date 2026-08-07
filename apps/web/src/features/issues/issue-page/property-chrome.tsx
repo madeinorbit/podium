@@ -18,8 +18,11 @@ export function PropertyRow({
   children: ReactNode
 }): JSX.Element {
   return (
-    <div className="flex items-start gap-2 py-1">
-      <span className="w-20 shrink-0 pt-1 text-[12px] text-muted-foreground">{label}</span>
+    // Label column narrowed to 66px and stepped down to 11px (POD-591): in a
+    // 272px rail the old 80px/12px label took a third of the row from the value
+    // it names, and the two read at the same weight.
+    <div className="flex min-h-[26px] items-center gap-2.5">
+      <span className="w-[66px] shrink-0 text-[11px] text-text-dim">{label}</span>
       <div className="min-w-0 flex-1">{children}</div>
     </div>
   )
@@ -38,7 +41,7 @@ export const TriggerButton = forwardRef<
     variant="ghost"
     size="sm"
     data-testid={testId}
-    className="h-7 w-full justify-start gap-1.5 px-2 font-normal text-[13px]"
+    className="-ml-2 h-[22px] w-full justify-start gap-1.5 px-2 font-normal text-[12px]"
     {...props}
   >
     {children}

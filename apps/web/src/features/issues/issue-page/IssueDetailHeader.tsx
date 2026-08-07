@@ -9,11 +9,13 @@
  * palette) offering the same set. See that module's header for the rights
  * predicate and its ownership note.
  */
-import type { IssueId } from '@podium/model'
+import { motionPhase } from '@podium/client-core/viewmodels'
+import type { IssueId, IssueWire, SessionMeta } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { ArrowLeft, ChevronDown, ChevronUp, MoreHorizontal } from 'lucide-react'
 import { Fragment, type JSX } from 'react'
-import type { IssueViewModel } from '@/app/store'
+import { type IssueViewModel, useReplicaIssues } from '@/app/store'
+import { GitStamp } from '@/components/GitStamp'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -26,6 +28,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { copyToClipboard } from '@/lib/clipboard'
+import { BrailleSpinner } from '@/lib/motion'
 import { issueRefLong } from '../issue-card'
 import type { IssuePageCommands } from '../issue-page-commands'
 import {
@@ -41,6 +44,7 @@ export function IssueDetailHeader({
   busy,
   commands,
   targets,
+  sessions,
   prev,
   next,
   onBack,
@@ -52,27 +56,73 @@ export function IssueDetailHeader({
   commands: IssuePageCommands
   /** Repo-mates — supersede/duplicate targets, from the page model. */
   targets: IssueViewModel[]
+  /** Member sessions — the header's live-state readout (POD-591). */
+  sessions: SessionMeta[]
   prev?: IssueId
   next?: IssueId
   onBack: () => void
   onNavigate: (id: IssueId) => void
 }): JSX.Element {
+  const issues = useReplicaIssues()
+  const parent = issue.parentId ? issues.find((i) => i.id === issue.parentId) : undefined
+  const phases = sessions.map((s) => motionPhase(s, issue as unknown as IssueWire))
+  const working = phases.filter((p) => p === 'working').length
+  // "Needs you" is the ISSUE's own flag or any session waiting on a human. Both
+  // mean the same thing to the operator, and the header is where they look
+  // before deciding whether this task is their next move.
+  const needsYou = issue.needsHuman || phases.includes('waiting')
   return (
-    <header className="flex items-center gap-2 border-border border-b px-4 py-2.5">
+    <header className="flex h-10 flex-none items-center gap-2 border-hairline-bar border-b bg-bar px-3">
       <Button type="button" variant="ghost" size="icon-sm" title="Back" onClick={onBack}>
         <ArrowLeft size={15} aria-hidden="true" />
       </Button>
-      <span className="text-[13px] text-muted-foreground">{repoName}</span>
-      <span className="text-[13px] text-muted-foreground">›</span>
+      <span className="text-[11.5px] text-text-dim">{repoName}</span>
+      <span className="text-[11.5px] text-text-faint">›</span>
+      {parent && (
+        <>
+          <button
+            data-pressable
+            type="button"
+            className="max-w-[160px] truncate font-mono text-[10.5px] text-text-dim tabular-nums hover:text-foreground"
+            title={`${issueDisplayRef(parent)} · ${parent.title}`}
+            onClick={() => onNavigate(parent.id)}
+          >
+            {issueDisplayRef(parent)}
+          </button>
+          <span className="text-[11.5px] text-text-faint">›</span>
+        </>
+      )}
       <button
         data-pressable
         type="button"
-        className="cursor-pointer rounded font-medium text-[13px] hover:text-primary"
+        className="cursor-pointer rounded font-mono text-[10.5px] text-foreground tabular-nums hover:text-primary"
         title={`${issueDisplayRef(issue)} · ${issue.title} — click to copy "${issueDisplayRef(issue)}"`}
         onClick={() => copyToClipboard(issueDisplayRef(issue), `Copied ${issueDisplayRef(issue)}`)}
       >
         {issueDisplayRef(issue)}
       </button>
+
+      {/* LIVE STATE, on the one band that is always on screen. Everything here
+          was previously only reachable by scrolling the aside — or, for the git
+          counters, not on this page at all. */}
+      {(needsYou || working > 0 || issue.gitState) && (
+        <div className="ml-1 flex min-w-0 items-center gap-2.5 border-hairline-bar border-l pl-2.5">
+          {needsYou && (
+            <span className="flex flex-none items-center gap-1.5 text-[10.5px] text-attention">
+              <span className="size-[5px] rounded-full bg-attention" aria-hidden="true" />
+              needs you
+            </span>
+          )}
+          {working > 0 && (
+            <span className="flex flex-none items-center gap-1.5 font-mono text-[9.5px] text-live tabular-nums">
+              <BrailleSpinner size={9} />
+              {working} working
+            </span>
+          )}
+          <GitStamp issueBranch={issue.branch} git={issue.gitState} density="chip" />
+        </div>
+      )}
+
       <div className="ml-auto flex items-center gap-1">
         <Button
           type="button"

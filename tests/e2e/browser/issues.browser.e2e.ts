@@ -81,14 +81,28 @@ test('proposed lane approves a card into Backlog through the real UI', async ({
   await openShell(page)
   await page.getByTestId('topbar-nav-issues').click()
   const board = page.getByRole('region', { name: 'Tasks' })
+  // Scoped by the column's own test id (POD-591) rather than by its width
+  // class: the board's column width is a design value that has already moved
+  // once, and a selector spelled as a Tailwind arbitrary value breaks silently
+  // when it does — the filter still matches an ancestor and "not in Backlog"
+  // stops being exact.
   const column = (name: string) =>
     board
-      .locator('div.w-\\[280px\\]')
+      .getByTestId('issue-column')
       .filter({ has: page.getByRole('heading', { name, exact: true }) })
       .first()
   const proposed = column('Proposed')
   const card = proposed.locator('[data-issue-id]').filter({ hasText: title })
-  await expect(card).toContainText('A concise human proposal summary.', { timeout: 15_000 })
+  await expect(card).toBeVisible({ timeout: 15_000 })
+  // POD-591 changed both of these deliberately, so the assertions follow rather
+  // than pin the old shape:
+  //  · the card no longer carries the description — it is three fixed slots
+  //    (ref row / title / state line) so a column scans at a constant rhythm,
+  //    and the description lives on the peek and the detail page;
+  //  · Approve is revealed on hover instead of sitting under all 140 proposals
+  //    as a permanent three-button bar.
+  await expect(card).toContainText(title)
+  await card.hover()
   await expect(card.getByTestId('proposal-actions')).toBeVisible()
   await card.getByRole('button', { name: 'Approve', exact: true }).click()
   await expect(card).toHaveCount(0, { timeout: 15_000 })
@@ -150,9 +164,14 @@ test('issues board: renders the stage columns, creates a Backlog issue, and move
   // ...and the new card appears under Backlog (live via the issuesChanged broadcast).
   // Scope to the actual column container (each is a fixed-width div.w-[280px]) rather
   // than any ancestor div with a matching heading, so "not in Backlog" is exact.
+  // Scoped by the column's own test id (POD-591) rather than by its width
+  // class: the board's column width is a design value that has already moved
+  // once, and a selector spelled as a Tailwind arbitrary value breaks silently
+  // when it does — the filter still matches an ancestor and "not in Backlog"
+  // stops being exact.
   const column = (name: string) =>
     board
-      .locator('div.w-\\[280px\\]')
+      .getByTestId('issue-column')
       .filter({ has: page.getByRole('heading', { name, exact: true }) })
       .first()
   const backlogColumn = column('Backlog')

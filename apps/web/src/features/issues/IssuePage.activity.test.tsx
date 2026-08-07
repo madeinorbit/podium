@@ -1,8 +1,8 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { makeIssue } from '@/lib/test-issue'
 import { IssuePage } from './IssuePage'
 import type { IssueEvent } from './issue-events'
-import { makeIssue } from '@/lib/test-issue'
 
 const ROWS: IssueEvent[] = [
   {

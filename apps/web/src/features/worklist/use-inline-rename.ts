@@ -61,10 +61,7 @@ export function useInlineRename(current: string, onRename: (next: string) => voi
  *  when closed, so a row can pass it straight through. */
 export function inlineRenameEditor(
   rename: InlineRename,
-  render: (props: {
-    onCommit: (next: string) => void
-    onCancel: () => void
-  }) => ReactNode,
+  render: (props: { onCommit: (next: string) => void; onCancel: () => void }) => ReactNode,
 ): ReactNode | undefined {
   return rename.editing ? render({ onCommit: rename.commit, onCancel: rename.cancel }) : undefined
 }

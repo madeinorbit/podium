@@ -177,8 +177,19 @@ export function IssueEdgeLink({
     )
   }
   if (!target) {
+    // STILL THE BARE ID (see the module note) — but it TRUNCATES now (POD-591).
+    // An `iss_…` id is 40 characters and this renders inside a 272px rail, so
+    // rendered whole it ran off the edge with no ellipsis: the row said nothing
+    // AND hid its own boundary. `min-w-0` + `truncate` keeps the leading
+    // segment, which is what an operator matches by eye, and `title` keeps the
+    // whole value for a copy. Single-user parity is unchanged — the id is still
+    // what is shown, still muted, still inert.
     return (
-      <span className="text-muted-foreground" data-testid="issue-edge-pending" title={fallbackId}>
+      <span
+        className="block min-w-0 truncate text-muted-foreground"
+        data-testid="issue-edge-pending"
+        title={fallbackId}
+      >
         {fallbackId ?? '—'}
       </span>
     )
@@ -187,7 +198,7 @@ export function IssueEdgeLink({
     <button
       data-pressable
       type="button"
-      className="font-medium text-primary hover:underline"
+      className="block min-w-0 truncate text-left font-medium text-primary hover:underline"
       onClick={() => onNavigate(target.id)}
       title={target.id}
     >

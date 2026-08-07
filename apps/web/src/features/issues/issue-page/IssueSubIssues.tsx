@@ -22,7 +22,7 @@ import type { IssueViewModel } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
-import { issueIdTitle } from '../issue-card'
+import { issueIdTitle, issueStateWord } from '../issue-card'
 import { AssigneeAvatar, StageGlyph } from '../issue-glyphs'
 import { SectionHeading } from './chrome'
 
@@ -30,6 +30,62 @@ import { SectionHeading } from './chrome'
  *  says so — `stage === 'done'` or a recorded close reason. */
 function isFinished(child: IssueViewModel): boolean {
   return child.stage === 'done' || child.closedReason != null
+}
+
+const STATE_TONE = {
+  attention: 'text-attention',
+  alert: 'text-destructive',
+  live: 'text-live',
+  quiet: 'text-text-dim',
+} as const
+
+/**
+ * One sub-task, in the BOARD CARD'S GRAMMAR (POD-591).
+ *
+ * A sub-task is a task, so it ends in the same word the card's state line starts
+ * with — `issueStateWord` reads the top of the same ranked list. Before this the
+ * row ended in an assignee avatar, which is the one thing about a sub-task that
+ * almost never changes, and said nothing about whether the child was blocked,
+ * working or waiting on the operator.
+ */
+function SubTaskRow({
+  child,
+  onNavigate,
+}: {
+  child: IssueViewModel
+  onNavigate: (id: IssueId) => void
+}): JSX.Element {
+  const state = issueStateWord(child)
+  return (
+    <button
+      data-pressable
+      type="button"
+      className={cn(
+        '-mx-2 flex min-h-[28px] items-center gap-2 rounded-[4.8px] px-2 text-left text-[12px] transition-colors hover:bg-accent',
+        child.archived && 'opacity-60',
+      )}
+      title={issueIdTitle(child)}
+      onClick={() => onNavigate(child.id)}
+    >
+      <StageGlyph stage={child.stage} size={12} />
+      <span className="w-[56px] flex-none font-mono text-[9.5px] text-text-faint tabular-nums">
+        {issueDisplayRef(child)}
+      </span>
+      <span className="min-w-0 flex-1 truncate">{child.title}</span>
+      {child.archived && (
+        <span className="flex-none font-mono text-[9px] text-text-faint uppercase tracking-[0.04em]">
+          archived
+        </span>
+      )}
+      {state ? (
+        <span className={cn('flex-none font-mono text-[9px] tabular-nums', STATE_TONE[state.tone])}>
+          {state.text}
+        </span>
+      ) : (
+        <AssigneeAvatar assignee={child.assignee || undefined} size={15} />
+      )}
+    </button>
+  )
 }
 
 export function IssueSubIssues({
@@ -66,27 +122,7 @@ export function IssueSubIssues({
         Sub-tasks
       </SectionHeading>
       {openChildren.map((c) => (
-        <button
-          data-pressable
-          key={c.id}
-          type="button"
-          className={cn(
-            'flex items-center gap-2 rounded px-1.5 py-1 text-left text-[13px] hover:bg-muted/50',
-            c.archived && 'opacity-60',
-          )}
-          title={issueIdTitle(c)}
-          onClick={() => onNavigate(c.id)}
-        >
-          <StageGlyph stage={c.stage} />
-          <span className="text-[11px] text-muted-foreground">{issueDisplayRef(c)}</span>
-          <span className="min-w-0 flex-1 truncate">{c.title}</span>
-          {c.archived && (
-            <span className="flex-none rounded border px-1 text-[9px] text-muted-foreground uppercase tracking-wide">
-              archived
-            </span>
-          )}
-          <AssigneeAvatar assignee={c.assignee || undefined} size={16} />
-        </button>
+        <SubTaskRow key={c.id} child={c} onNavigate={onNavigate} />
       ))}
       {doneChildren.length > 0 && issue.stage !== 'done' && !issue.closedReason && (
         <details className="mt-1 rounded border border-border/50 px-2 py-1">

@@ -1,0 +1,803 @@
+<title>Task workspace — redesign concept</title>
+<style>
+:root{
+  --navy:#0a0f1c; --panel:#121b30; --chip:#16223c; --engraved:#070b16; --bar:#050912;
+  --tabstrip:#0c1322; --rail:#0e1626;
+  --yellow:#f5c518; --red:#e5303f; --blue:#2f6bff; --live:#6f9dff; --terra:#d97757; --slate:#94a3b8;
+  --ink-strong:#f3f3f8; --ink:#d7d7e0; --ink-muted:#9a9aa8; --ink-dim:#6c7690; --ink-faint:#525c78; --label:#7a84a0;
+  --seam:#243356; --hair:#1e2a4c; --hair-bar:#283a66; --border-strong:#364a78;
+  --r-md:4.8px; --r-lg:6px; --r-row:7px; --r-comp:9px; --r-tray:10px;
+  --bar-h:44px; --section-h:36px; --strip-h:24px;
+  --sans:ui-sans-serif,-apple-system,"SF Pro Text","Segoe UI",Inter,sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,"Cascadia Mono",monospace;
+  --issue:var(--slate);
+}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--navy);color:var(--ink);font-family:var(--sans);font-size:12px;line-height:1.5;
+     -webkit-font-smoothing:antialiased;overflow-x:hidden}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:default}
+h1,h2,h3,h4{margin:0;font-weight:600}
+::selection{background:color-mix(in srgb,var(--yellow) 30%,transparent)}
+
+/* ---------- concept frame ---------- */
+.frame{max-width:1560px;margin:0 auto;padding:26px 20px 80px}
+.masthead{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px 16px;margin-bottom:6px}
+.masthead h1{font-size:17px;letter-spacing:-0.01em;color:var(--ink-strong)}
+.masthead .eyebrow{font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--label)}
+.lede{max-width:74ch;color:var(--ink-muted);font-size:12.5px;line-height:1.65;margin:8px 0 20px}
+.lede b{color:var(--ink);font-weight:500}
+
+.switcher{display:inline-flex;gap:2px;padding:2px;border-radius:8px;background:var(--bar);
+  box-shadow:inset 0 1px 0 rgb(0 0 0/.9), inset 0 -1px 0 color-mix(in srgb,var(--hair-bar) 70%,transparent);margin-bottom:16px}
+.switcher button{height:26px;padding:0 12px;border-radius:6px;color:var(--ink-dim);font-size:11.5px;transition:color .15s}
+.switcher button:hover{color:var(--ink)}
+.switcher button[aria-selected=true]{background:color-mix(in srgb,var(--chip) 85%,transparent);color:var(--ink-strong);
+  box-shadow:inset 0 1px 0 color-mix(in srgb,#fff 7%,transparent)}
+
+/* the app window replica */
+.win{border:1px solid var(--seam);border-radius:10px;overflow:hidden;background:var(--navy);
+  box-shadow:0 24px 60px rgb(0 0 0/.55), 0 2px 10px rgb(0 0 0/.4)}
+.cmdbar{height:var(--bar-h);display:flex;align-items:center;gap:10px;padding:0 10px;background:var(--bar);
+  border-bottom:1px solid var(--hair-bar);user-select:none}
+.mark{font-family:var(--mono);font-size:10px;letter-spacing:.18em;color:var(--ink-dim);padding-right:4px}
+.well{height:30px;display:flex;align-items:center;gap:2px;padding:0 3px;border-radius:8px;
+  background:color-mix(in srgb,var(--chip) 30%,transparent);
+  box-shadow:inset 0 1px 0 rgb(0 0 0/.85), inset 0 -1px 0 color-mix(in srgb,#8ea3d6 16%,transparent)}
+.well button{height:26px;padding:0 10px;border-radius:6px;color:var(--ink-dim);font-size:11.5px;display:flex;align-items:center;gap:6px;transition:color .15s}
+.well button[aria-selected=true]{background:color-mix(in srgb,var(--chip) 85%,transparent);color:var(--ink-strong);
+  box-shadow:inset 0 1px 0 color-mix(in srgb,#fff 8%,transparent)}
+.cmd-mid{display:flex;align-items:center;gap:8px;margin-left:6px}
+.seam-v{width:1px;height:18px;background:var(--hair-bar)}
+.searchbox{height:28px;width:230px;border-radius:var(--r-md);background:var(--navy);border:1px solid var(--seam);
+  display:flex;align-items:center;padding:0 9px;color:var(--ink-faint);font-size:11.5px;gap:7px}
+.tool{height:28px;padding:0 9px;border-radius:var(--r-lg);color:var(--ink-muted);font-size:11.5px;display:flex;align-items:center;gap:6px;transition:background .15s,color .15s}
+.tool:hover{background:color-mix(in srgb,#8ea3d6 8%,transparent);color:var(--ink-strong)}
+.tool.primary{background:var(--yellow);color:var(--navy);font-weight:500}
+.tool.primary:hover{background:color-mix(in srgb,var(--yellow) 80%,transparent)}
+.cmd-right{margin-left:auto;display:flex;align-items:center;gap:10px}
+.instr{height:30px;display:flex;align-items:center;border-radius:8px;background:color-mix(in srgb,var(--chip) 30%,transparent);
+  box-shadow:inset 0 1px 0 rgb(0 0 0/.85), inset 0 -1px 0 color-mix(in srgb,#8ea3d6 16%,transparent);font-family:var(--mono);font-size:10px;color:var(--ink-dim)}
+.instr>span{padding:0 10px;display:flex;align-items:center;gap:6px}
+.instr>span+span{border-left:1px solid var(--hair-bar)}
+.meter{width:34px;height:3.5px;border-radius:2px;background:color-mix(in srgb,#8ea3d6 18%,transparent);overflow:hidden}
+.meter i{display:block;height:100%;background:var(--blue)}
+.statusstrip{height:var(--strip-h);background:var(--bar);border-top:1px solid var(--hair-bar);display:flex;align-items:center;
+  gap:10px;padding:0 10px;font-family:var(--mono);font-size:9.5px;color:var(--ink-faint);user-select:none}
+
+.stage-area{height:760px;display:flex;background:var(--navy);position:relative;overflow:hidden}
+.stage-area[hidden]{display:none}
+
+/* ================= BOARD ================= */
+.board{flex:1;display:flex;min-width:0;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin}
+.col{width:298px;min-width:298px;display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--hair)}
+.col:last-child{border-right:0}
+.col-head{height:var(--section-h);flex:none;display:flex;align-items:center;gap:8px;padding:0 12px;
+  background:var(--bar);border-bottom:1px solid var(--hair-bar);position:relative;user-select:none}
+.col-head .glyph{width:11px;height:11px;border-radius:50%;border:1.5px solid var(--ink-dim);flex:none}
+.col-head .glyph.planning{border-color:var(--ink-muted);border-style:dashed}
+.col-head .glyph.progress{border-color:var(--yellow);background:
+  conic-gradient(var(--yellow) 0 55%, transparent 55%);}
+.col-head .glyph.review{border-color:var(--blue);background:radial-gradient(circle,var(--blue) 0 42%,transparent 42%)}
+.col-head h3{font-size:11.5px;font-weight:600;color:var(--ink-strong);letter-spacing:-0.005em}
+.col-head .count{font-family:var(--mono);font-size:9.5px;color:var(--ink-dim);font-variant-numeric:tabular-nums}
+.col-head .add{margin-left:auto;width:22px;height:22px;border-radius:5px;color:var(--ink-faint);display:grid;place-items:center;
+  opacity:0;transition:opacity .15s,background .15s,color .15s}
+.col:hover .add{opacity:1}
+.add:hover{background:color-mix(in srgb,#8ea3d6 10%,transparent);color:var(--ink-strong)}
+.col-pressure{position:absolute;left:0;right:0;bottom:-1px;height:1px;display:flex;gap:1px}
+.col-pressure i{height:100%}
+
+.col-body{flex:1;min-height:0;overflow-y:auto;padding:8px 10px 40px;display:flex;flex-direction:column;gap:5px;
+  scrollbar-width:thin;scrollbar-color:var(--seam) transparent}
+.col.dropping .col-body{background:color-mix(in srgb,var(--issue,#94a3b8) 5%,transparent)}
+.col.dropping .col-head{background:color-mix(in srgb,var(--issue,#94a3b8) 9%,var(--bar))}
+
+.card{--issue:var(--slate);position:relative;border-radius:var(--r-row);padding:7px 9px 6px;
+  background:color-mix(in srgb,var(--issue) 6%,var(--panel));
+  border:1px solid color-mix(in srgb,var(--issue) 22%,var(--seam));
+  display:flex;flex-direction:column;gap:4px;cursor:default;user-select:none;
+  transition:background .15s ease-out, border-color .15s ease-out, transform .18s cubic-bezier(.2,.8,.25,1);}
+.card:hover{background:color-mix(in srgb,var(--issue) 11%,var(--panel));border-color:color-mix(in srgb,var(--issue) 38%,var(--seam))}
+.card:hover .card-title{color:var(--ink-strong)}
+.card.sel{background:color-mix(in srgb,var(--issue) 20%,var(--panel));border-color:color-mix(in srgb,var(--issue) 55%,var(--seam))}
+.card.focus{outline:1px solid color-mix(in srgb,var(--issue) 70%,transparent);outline-offset:1px}
+.card.ghost{opacity:.28;filter:saturate(.4)}
+
+.card-top{display:flex;align-items:center;gap:6px;height:14px}
+.ref{font-family:var(--mono);font-size:9.5px;letter-spacing:.02em;color:color-mix(in srgb,var(--issue) 55%,var(--ink-dim));
+  font-variant-numeric:tabular-nums;transition:opacity .12s}
+.card:hover .ref{opacity:0}
+.checkbox{position:absolute;left:9px;top:7px;width:12px;height:12px;border-radius:3px;border:1px solid var(--border-strong);
+  opacity:0;transition:opacity .12s;background:var(--navy)}
+.card:hover .checkbox{opacity:1}
+.checkbox:hover{border-color:var(--ink-muted)}
+.card.sel .checkbox{opacity:1;background:var(--issue);border-color:var(--issue)}
+.card.sel .checkbox::after{content:"";position:absolute;inset:2px;border-left:1.5px solid var(--navy);border-bottom:1.5px solid var(--navy);
+  transform:rotate(-45deg) translate(1px,-1px);height:4px}
+.origin{font-family:var(--mono);font-size:9px;color:var(--ink-faint)}
+.card-top .right{margin-left:auto;display:flex;align-items:center;gap:3px}
+.av{width:15px;height:15px;border-radius:4px;display:grid;place-items:center;font-family:var(--mono);font-size:8px;font-weight:600;
+  background:var(--chip);color:var(--ink-muted);border:1px solid var(--seam)}
+.av.claude{background:color-mix(in srgb,var(--terra) 20%,var(--chip));color:var(--terra);border-color:color-mix(in srgb,var(--terra) 35%,transparent)}
+.av.codex{background:color-mix(in srgb,#9ca3af 16%,var(--chip));color:#c4cad4}
+.av.human{border-radius:50%;background:color-mix(in srgb,var(--blue) 22%,var(--chip));color:#a9c0ff}
+.av.more{background:transparent;border-style:dashed;color:var(--ink-faint)}
+
+.card-title{font-size:12.5px;font-weight:500;line-height:1.35;color:var(--ink);
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;transition:color .15s}
+.card-state{height:14px;display:flex;align-items:center;gap:7px;overflow:hidden;white-space:nowrap;margin-top:1px}
+.card-state:empty{display:none}
+.prio{display:flex;align-items:flex-end;gap:1px;height:9px}
+.prio i{width:2px;background:var(--ink-faint);border-radius:.5px}
+.prio i:nth-child(1){height:3px}.prio i:nth-child(2){height:6px}.prio i:nth-child(3){height:9px}
+.prio.p1 i{background:var(--ink-muted)} .prio.p0 i{background:var(--red)}
+.prio.p3 i:nth-child(2),.prio.p3 i:nth-child(3){background:color-mix(in srgb,var(--ink-faint) 40%,transparent)}
+.subtree{display:flex;align-items:center;gap:5px;font-family:var(--mono);font-size:9px;color:var(--ink-dim);font-variant-numeric:tabular-nums}
+.bar{width:26px;height:3px;border-radius:2px;background:color-mix(in srgb,#8ea3d6 16%,transparent);overflow:hidden}
+.bar i{display:block;height:100%;background:color-mix(in srgb,var(--issue) 75%,#fff 0%)}
+.livechip{display:flex;align-items:center;gap:4px;font-family:var(--mono);font-size:9px;color:var(--live);font-variant-numeric:tabular-nums}
+.spin{width:7px;text-align:center;display:inline-block;animation:braille 1s steps(10) infinite}
+@keyframes braille{0%{content:"⠋"}}
+.spin::before{content:"⠋";animation:brl .9s steps(1) infinite}
+@keyframes brl{0%{content:"⠋"}10%{content:"⠙"}20%{content:"⠹"}30%{content:"⠸"}40%{content:"⠼"}50%{content:"⠴"}60%{content:"⠦"}70%{content:"⠧"}80%{content:"⠇"}90%{content:"⠏"}}
+.needs{display:flex;align-items:center;gap:4px;font-size:10px;color:var(--yellow)}
+.needs .dot{width:5px;height:5px;border-radius:50%;background:var(--yellow)}
+.blocked{font-size:10px;color:var(--red);display:flex;align-items:center;gap:4px}
+.labeldots{display:flex;gap:3px}
+.labeldots i{width:5px;height:5px;border-radius:1.5px}
+.age{font-family:var(--mono);font-size:9px;color:var(--ink-faint);font-variant-numeric:tabular-nums;margin-left:3px}
+/* Actions overlay the card's bottom-right on hover — never reflow the column. */
+.card-actions{position:absolute;right:6px;bottom:5px;display:flex;gap:4px;opacity:0;transform:translateY(2px);
+  padding-left:26px;pointer-events:none;
+  background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--issue) 11%,var(--panel)) 26px);
+  transition:opacity .13s ease-out, transform .16s cubic-bezier(.2,.8,.25,1)}
+.card:hover .card-actions,.card.sel .card-actions{opacity:1;transform:none;pointer-events:auto}
+.mini{height:22px;padding:0 8px;border-radius:var(--r-md);font-size:10.5px;background:var(--chip);color:var(--ink);
+  border:1px solid var(--seam);transition:background .15s}
+.mini:hover{background:color-mix(in srgb,#8ea3d6 12%,var(--chip))}
+.mini.go{background:var(--yellow);color:var(--navy);border-color:transparent;font-weight:500}
+.mini.go:hover{background:color-mix(in srgb,var(--yellow) 82%,transparent)}
+.mini.quiet{background:transparent;border-color:transparent;color:var(--ink-faint)}
+.mini.quiet:hover{color:var(--ink);background:color-mix(in srgb,#8ea3d6 8%,transparent)}
+
+.dropline{height:2px;border-radius:1px;background:var(--issue,#94a3b8);margin:1px 0;flex:none;
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--issue,#94a3b8) 18%,transparent)}
+.drag-proxy{position:fixed;z-index:90;pointer-events:none;width:278px;
+  box-shadow:0 14px 34px rgb(0 0 0/.65), 0 2px 8px rgb(0 0 0/.5);transform:rotate(-1.2deg) scale(1.02);opacity:.97}
+.col-empty{padding:14px 4px;color:var(--ink-faint);font-size:11px;display:flex;flex-direction:column;gap:8px}
+.col-empty button{align-self:flex-start;color:var(--ink-dim);font-size:11px;padding:3px 7px;border-radius:var(--r-md);border:1px dashed var(--seam)}
+.col-empty button:hover{color:var(--ink);border-color:var(--border-strong)}
+
+.bulkbar{position:absolute;left:50%;bottom:16px;transform:translateX(-50%) translateY(0);z-index:40;
+  display:flex;align-items:center;gap:8px;height:34px;padding:0 6px 0 12px;border-radius:9px;background:var(--chip);
+  border:1px solid var(--border-strong);box-shadow:0 14px 34px rgb(0 0 0/.65),0 2px 8px rgb(0 0 0/.5);
+  font-size:11.5px;transition:opacity .16s,transform .2s cubic-bezier(.2,.8,.25,1)}
+.bulkbar[hidden]{display:flex;opacity:0;pointer-events:none;transform:translateX(-50%) translateY(8px)}
+.bulkbar .n{font-family:var(--mono);font-size:10px;color:var(--ink-muted)}
+
+/* ================= DETAIL ================= */
+.detail{flex:1;display:flex;min-width:0}
+.detail-main{flex:1;min-width:0;display:flex;flex-direction:column}
+.ctxbar{height:40px;flex:none;display:flex;align-items:center;gap:8px;padding:0 12px;background:var(--bar);
+  border-bottom:1px solid var(--hair-bar);user-select:none}
+.crumb{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--ink-dim)}
+.crumb a{color:var(--ink-dim);text-decoration:none}
+.crumb a:hover{color:var(--ink)}
+.crumb .sep{color:var(--ink-faint)}
+.crumb .cur{font-family:var(--mono);font-size:10.5px;color:var(--ink);font-variant-numeric:tabular-nums}
+.ctx-state{display:flex;align-items:center;gap:9px;margin-left:6px;padding-left:10px;border-left:1px solid var(--hair-bar)}
+.gitstamp{display:flex;align-items:center;gap:7px;height:22px;padding:0 8px;border-radius:5px;background:color-mix(in srgb,var(--chip) 55%,transparent);
+  font-family:var(--mono);font-size:9.5px;color:var(--ink-muted);font-variant-numeric:tabular-nums}
+.gitstamp b{font-weight:500;color:var(--ink)}
+.gitstamp .up{color:var(--blue)} .gitstamp .dirty{color:var(--yellow)}
+.ctx-right{margin-left:auto;display:flex;align-items:center;gap:2px}
+.icobtn{width:26px;height:26px;border-radius:var(--r-lg);color:var(--ink-faint);display:grid;place-items:center;transition:background .15s,color .15s}
+.icobtn:hover{background:color-mix(in srgb,#8ea3d6 9%,transparent);color:var(--ink-strong)}
+
+.doc{flex:1;min-height:0;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--seam) transparent}
+.doc-inner{max-width:720px;margin:0 auto;padding:26px 30px 30px}
+.page-title{font-size:18px;font-weight:600;line-height:1.3;letter-spacing:-0.012em;color:var(--ink-strong);margin-bottom:7px}
+.dossier{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-family:var(--mono);font-size:9.5px;color:var(--ink-dim);
+  font-variant-numeric:tabular-nums;margin-bottom:18px}
+.dossier .sep{color:var(--ink-faint)}
+.exc{display:inline-flex;align-items:center;gap:4px;height:16px;padding:0 6px;border-radius:4px;font-family:var(--mono);font-size:9px;
+  letter-spacing:.04em;text-transform:uppercase}
+.exc.agent{background:color-mix(in srgb,var(--slate) 14%,transparent);color:#b3c0d4}
+.exc.alert{background:color-mix(in srgb,var(--yellow) 15%,transparent);color:var(--yellow)}
+
+/* the Now block — the page's one carved instrument */
+.now{border-radius:var(--r-tray);background:var(--engraved);margin-bottom:24px;overflow:hidden;
+  box-shadow:inset 3px 0 6px -3px rgb(0 0 0/.85), inset -3px 0 6px -3px rgb(0 0 0/.85), inset 0 3px 6px -3px rgb(0 0 0/.85)}
+.now-head{height:26px;display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid var(--hair);
+  font-family:var(--mono);font-size:8.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--label)}
+.now-head .live-n{margin-left:auto;color:var(--live);letter-spacing:.02em;font-size:9px}
+.agentrow{display:flex;align-items:center;gap:9px;padding:6px 12px;border-bottom:1px solid var(--hair);transition:background .15s}
+.agentrow:last-child{border-bottom:0}
+.agentrow:hover{background:color-mix(in srgb,#8ea3d6 5%,transparent)}
+.agentrow .nm{font-size:11.5px;color:var(--ink);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.agentrow .ph{font-family:var(--mono);font-size:9.5px;color:var(--ink-dim);font-variant-numeric:tabular-nums}
+.agentrow.working .ph{color:var(--live)}
+.agentrow.attn{background:color-mix(in srgb,var(--yellow) 7%,transparent)}
+.agentrow.attn .ph{color:var(--yellow)}
+.now-foot{display:flex;align-items:center;gap:10px;padding:7px 12px;background:color-mix(in srgb,var(--panel) 55%,transparent);
+  border-top:1px solid var(--hair);font-family:var(--mono);font-size:9.5px;color:var(--ink-dim)}
+
+section.blk{margin-bottom:26px}
+.eyebrow{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:8.5px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--label);margin-bottom:9px}
+.eyebrow .c{color:var(--ink-faint);letter-spacing:.02em;font-size:9px}
+.eyebrow .act{margin-left:auto;letter-spacing:0;text-transform:none;font-family:var(--sans);font-size:10.5px;color:var(--ink-faint);opacity:0;transition:opacity .15s}
+section.blk:hover .eyebrow .act{opacity:1}
+.eyebrow .act:hover{color:var(--ink)}
+.prose{font-size:13px;line-height:1.65;color:color-mix(in srgb,var(--ink) 88%,transparent);max-width:64ch}
+.prose.dim{color:var(--ink-muted)}
+details.brief{border-top:1px solid var(--hair);border-bottom:1px solid var(--hair);padding:7px 0}
+details.brief summary{list-style:none;cursor:default;display:flex;align-items:center;gap:8px;
+  font-family:var(--mono);font-size:8.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--label)}
+details.brief summary::-webkit-details-marker{display:none}
+details.brief summary::after{content:"";margin-left:auto;width:5px;height:5px;border-right:1px solid var(--ink-faint);
+  border-bottom:1px solid var(--ink-faint);transform:rotate(45deg) translateY(-2px);transition:transform .18s}
+details.brief[open] summary::after{transform:rotate(225deg) translateY(-1px)}
+details.brief .prose{margin-top:10px;font-size:12px;color:var(--ink-muted)}
+
+.todo-meter{display:flex;align-items:center;gap:9px;margin-bottom:9px}
+.todo-meter .track{flex:1;height:3px;border-radius:2px;background:color-mix(in srgb,#8ea3d6 14%,transparent);overflow:hidden}
+.todo-meter .track i{display:block;height:100%;background:var(--issue);transition:width .4s cubic-bezier(.2,.8,.25,1)}
+.todo{display:flex;align-items:flex-start;gap:8px;padding:3.5px 0;font-size:12.5px;line-height:1.45;color:var(--ink)}
+.todo .box{width:12px;height:12px;border-radius:3px;border:1px solid var(--border-strong);flex:none;margin-top:2px;position:relative}
+.todo.done{color:var(--ink-faint)}
+.todo.done .box{background:color-mix(in srgb,var(--issue) 70%,transparent);border-color:transparent}
+.todo.done .box::after{content:"";position:absolute;left:3px;top:2px;width:4px;height:7px;border-right:1.5px solid var(--navy);border-bottom:1.5px solid var(--navy);transform:rotate(40deg)}
+.moretoggle{font-size:11px;color:var(--ink-dim);padding:5px 0}
+.moretoggle:hover{color:var(--ink)}
+
+.filmstrip{display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;scrollbar-width:thin;scrollbar-color:var(--seam) transparent}
+.art{width:168px;flex:none;border-radius:var(--r-lg);border:1px solid var(--seam);overflow:hidden;background:var(--panel);transition:border-color .15s}
+.art:hover{border-color:var(--border-strong)}
+.art .thumb{height:96px;background:linear-gradient(150deg,#0d1526,#182647 60%,#0b1striped);
+  background-image:repeating-linear-gradient(115deg,#101a30 0 7px,#0d1526 7px 14px);border-bottom:1px solid var(--hair);position:relative}
+.art .thumb.dc{background-image:none;background:var(--engraved);display:grid;place-items:center}
+.art .thumb.dc span{font-family:var(--mono);font-size:9px;color:var(--ink-faint)}
+.art .cap{padding:6px 8px;font-size:10.5px;color:var(--ink-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.art .cap b{display:block;color:var(--ink);font-weight:400;font-size:11px;margin-bottom:1px;overflow:hidden;text-overflow:ellipsis}
+
+.subrow{display:flex;align-items:center;gap:9px;height:28px;padding:0 8px;margin:0 -8px;border-radius:var(--r-md);transition:background .15s}
+.subrow:hover{background:color-mix(in srgb,#8ea3d6 6%,transparent)}
+.subrow .g{width:10px;height:10px;border-radius:50%;border:1.5px solid var(--ink-faint);flex:none}
+.subrow .g.done{background:var(--blue);border-color:var(--blue)}
+.subrow .g.prog{border-color:var(--yellow);background:conic-gradient(var(--yellow) 0 55%,transparent 55%)}
+.subrow .r{font-family:var(--mono);font-size:9.5px;color:var(--ink-faint);font-variant-numeric:tabular-nums;width:56px;flex:none}
+.subrow .t{flex:1;font-size:12px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.subrow .s{font-family:var(--mono);font-size:9px;color:var(--ink-dim)}
+
+.relgrid{display:flex;flex-wrap:wrap;gap:6px}
+.relchip{display:inline-flex;align-items:center;gap:7px;height:24px;padding:0 9px 0 7px;border-radius:var(--r-md);
+  background:var(--panel);border:1px solid var(--seam);font-size:11px;color:var(--ink-muted);transition:border-color .15s,color .15s;max-width:280px}
+.relchip:hover{border-color:var(--border-strong);color:var(--ink)}
+.relchip .k{font-family:var(--mono);font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-faint);flex:none;white-space:nowrap}
+.relchip .v{font-family:var(--mono);font-size:9.5px;color:color-mix(in srgb,var(--issue) 60%,var(--ink-dim));flex:none;white-space:nowrap}
+.relchip .n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+.day{display:flex;align-items:center;gap:10px;margin:16px 0 8px;font-family:var(--mono);font-size:8.5px;
+  letter-spacing:.12em;text-transform:uppercase;color:var(--ink-faint)}
+.day::after{content:"";flex:1;height:1px;background:var(--hair)}
+.evt{display:flex;align-items:center;gap:9px;padding:2.5px 0 2.5px 3px;font-size:11.5px;color:var(--ink-dim);
+  border-left:1px solid var(--hair);margin-left:5px;padding-left:14px;position:relative}
+.evt::before{content:"";position:absolute;left:-3px;top:9px;width:5px;height:5px;border-radius:50%;background:var(--seam)}
+.evt .t{flex:1}
+.evt .ts{font-family:var(--mono);font-size:9px;color:var(--ink-faint);font-variant-numeric:tabular-nums}
+.evt.rollup{color:var(--ink-faint)}
+.evt.rollup button{color:var(--ink-faint);text-decoration:underline;text-decoration-color:var(--seam);text-underline-offset:2px}
+.evt.rollup button:hover{color:var(--ink-muted)}
+.evt.sig{color:var(--ink)} .evt.sig::before{background:var(--issue)}
+.cmt{margin:10px 0 10px 5px;padding:9px 11px;border-radius:var(--r-lg);background:var(--panel);border:1px solid var(--seam)}
+.cmt .hd{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+.cmt .who{font-size:11.5px;font-weight:500;color:var(--ink-strong)}
+.cmt .for{font-family:var(--mono);font-size:9px;color:var(--ink-faint)}
+.cmt .ts{margin-left:auto;font-family:var(--mono);font-size:9px;color:var(--ink-faint)}
+.cmt .bd{font-size:12.5px;line-height:1.6;color:var(--ink-muted)}
+
+.composer{flex:none;border-top:1px solid var(--hair-bar);background:color-mix(in srgb,var(--panel) 60%,var(--navy));padding:10px 30px 12px}
+.composer-inner{max-width:720px;margin:0 auto;display:flex;align-items:flex-end;gap:8px}
+.composer .field{flex:1;min-height:32px;border-radius:var(--r-comp);background:var(--navy);border:1px solid var(--border-strong);
+  padding:7px 10px;color:var(--ink-faint);font-size:12.5px;transition:border-color .15s}
+.composer .field:hover{border-color:var(--ink-faint)}
+.composer .hint{font-family:var(--mono);font-size:9px;color:var(--ink-faint);padding-bottom:9px}
+
+/* rail */
+.rail{width:272px;flex:none;background:var(--rail);border-left:1px solid var(--hair-bar);overflow-y:auto;
+  scrollbar-width:thin;scrollbar-color:var(--seam) transparent}
+.rail-sec{padding:11px 14px;border-bottom:1px solid var(--hair)}
+.rail-sec:last-child{border-bottom:0}
+.prop{display:flex;align-items:center;gap:10px;min-height:26px}
+.prop .k{width:66px;flex:none;font-size:11px;color:var(--ink-dim)}
+.prop .v{flex:1;min-width:0}
+.propbtn{display:inline-flex;align-items:center;gap:6px;max-width:100%;height:22px;padding:0 7px;margin-left:-7px;border-radius:var(--r-md);
+  font-size:11.5px;color:var(--ink);transition:background .15s}
+.propbtn:hover{background:color-mix(in srgb,#8ea3d6 9%,transparent)}
+.propbtn .txt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.propbtn.empty{color:var(--ink-faint)}
+.tag{display:inline-flex;align-items:center;gap:5px;height:19px;padding:0 7px;border-radius:4px;font-size:10.5px;
+  background:color-mix(in srgb,var(--issue) 12%,transparent);color:color-mix(in srgb,var(--issue) 55%,var(--ink))}
+.tag i{width:5px;height:5px;border-radius:1.5px;background:var(--issue)}
+.srow{display:flex;align-items:center;gap:8px;height:26px;margin:0 -7px;padding:0 7px;border-radius:var(--r-md);transition:background .15s}
+.srow:hover{background:color-mix(in srgb,#8ea3d6 7%,transparent)}
+.srow .nm{flex:1;font-size:11.5px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.srow .st{font-family:var(--mono);font-size:9px;color:var(--ink-dim);font-variant-numeric:tabular-nums}
+.srow.live .st{color:var(--live)}
+.railbtns{display:flex;gap:5px;flex-wrap:wrap;margin-top:9px}
+.rb{height:24px;padding:0 9px;border-radius:var(--r-md);background:var(--chip);border:1px solid var(--seam);font-size:11px;color:var(--ink);transition:background .15s}
+.rb:hover{background:color-mix(in srgb,#8ea3d6 12%,var(--chip))}
+.rb.attn{border-color:color-mix(in srgb,var(--yellow) 45%,transparent);color:var(--yellow);background:color-mix(in srgb,var(--yellow) 9%,transparent)}
+.about{display:grid;grid-template-columns:66px 1fr;gap:3px 10px;font-size:11px}
+.about dt{color:var(--ink-dim)} .about dd{margin:0;color:var(--ink-muted);font-family:var(--mono);font-size:10px}
+details.more>summary{list-style:none;cursor:default;display:flex;align-items:center;gap:6px;font-size:11px;color:var(--ink-dim);height:22px}
+details.more>summary::-webkit-details-marker{display:none}
+details.more>summary::before{content:"";width:5px;height:5px;border-right:1px solid var(--ink-faint);border-bottom:1px solid var(--ink-faint);
+  transform:rotate(-45deg);transition:transform .18s}
+details.more[open]>summary::before{transform:rotate(45deg)}
+details.more>summary:hover{color:var(--ink)}
+details.more .body{margin-top:6px}
+
+/* notes panel */
+.notes{margin-top:26px;display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+.note{border:1px solid var(--seam);border-radius:var(--r-tray);padding:14px 16px;background:color-mix(in srgb,var(--panel) 60%,transparent)}
+.note h4{font-size:12.5px;color:var(--ink-strong);margin-bottom:8px;display:flex;align-items:center;gap:8px}
+.note h4 .tagno{font-family:var(--mono);font-size:9px;color:var(--navy);background:var(--yellow);border-radius:3px;padding:1px 5px}
+.note h4 .tagno.b{background:var(--blue);color:#fff}
+.note ul{margin:0;padding-left:16px;color:var(--ink-muted);font-size:12px;line-height:1.7}
+.note li b{color:var(--ink);font-weight:500}
+.foot{margin-top:22px;font-size:11px;color:var(--ink-faint);max-width:80ch;line-height:1.7}
+@media (max-width:900px){.rail{display:none}.stage-area{height:600px}}
+</style>
+
+<div class="frame">
+  <div class="masthead">
+    <span class="eyebrow">POD-591 · concept</span>
+    <h1>Task workspace — board &amp; detail</h1>
+  </div>
+  <p class="lede">Working prototype of the redesign, in the live Superade tokens. Two changes carry most of the weight: the board card gets a <b>fixed three-slot grammar</b> instead of a wrapping badge bag, and the detail page gets a <b>Now block</b> that finally shows on the page what the sidebar already knows — which agents are live, and where the branch stands. Drag a card. Hover everything. Fonts are system stand-ins for Geist.</p>
+
+  <div class="switcher" role="tablist">
+    <button role="tab" aria-selected="true" data-view="board">Board</button>
+    <button role="tab" aria-selected="false" data-view="detail">Task detail</button>
+  </div>
+
+  <div class="win">
+    <div class="cmdbar">
+      <span class="mark">PODIUM</span>
+      <div class="well">
+        <button>◫ Work</button>
+        <button aria-selected="true">▦ Tasks <span style="font-family:var(--mono);font-size:9.5px;color:var(--yellow)">12</span></button>
+      </div>
+      <div class="cmd-mid">
+        <div class="searchbox">⌕ <span>Search tasks or ID…</span></div>
+        <button class="tool">⇤ Flatten</button>
+        <button class="tool">⚟ Filter</button>
+        <button class="tool">☷ Display</button>
+        <button class="tool primary">＋ New Task</button>
+      </div>
+      <div class="cmd-right">
+        <div class="instr">
+          <span><i style="width:5px;height:5px;border-radius:50%;background:var(--blue);display:block"></i> vmi3431366</span>
+          <span>QUOTA <span class="meter"><i style="width:34%"></i></span></span>
+        </div>
+        <div class="seam-v"></div>
+        <button class="icobtn">◲</button><button class="icobtn">⚙</button>
+      </div>
+    </div>
+
+    <!-- ============ BOARD ============ -->
+    <div class="stage-area" data-pane="board">
+      <div class="board" id="board"></div>
+      <div class="bulkbar" id="bulkbar" hidden>
+        <span class="n"><b id="bulkn">0</b> selected</span>
+        <button class="mini">Stage…</button>
+        <button class="mini">Priority…</button>
+        <button class="mini go">Approve</button>
+        <button class="mini quiet" id="bulkclear">Clear</button>
+      </div>
+    </div>
+
+    <!-- ============ DETAIL ============ -->
+    <div class="stage-area" data-pane="detail" hidden style="--issue:#a3e635">
+      <div class="detail">
+        <div class="detail-main">
+          <div class="ctxbar">
+            <button class="icobtn">←</button>
+            <div class="crumb"><a href="#">podium</a><span class="sep">›</span><a href="#">POD-491</a><span class="sep">›</span><span class="cur">POD-516</span></div>
+            <div class="ctx-state">
+              <span class="needs" style="font-size:10.5px"><span class="dot"></span> needs you</span>
+              <span class="livechip" style="font-size:10px"><span class="spin"></span> 3 working · 54:16</span>
+              <span class="gitstamp"><b>issue/516-multi-agent…</b> <span class="up">↑41</span> <span class="dirty">+11</span></span>
+            </div>
+            <div class="ctx-right">
+              <button class="icobtn">⌃</button><button class="icobtn">⌄</button><span class="seam-v"></span><button class="icobtn">⋯</button>
+            </div>
+          </div>
+
+          <div class="doc">
+            <div class="doc-inner">
+              <h2 class="page-title">Multi-agent operator workspace UI</h2>
+              <div class="dossier">
+                <span>In&nbsp;Progress</span><span class="sep">·</span><span>task</span><span class="sep">·</span>
+                <span>P2</span><span class="sep">·</span><span>agent:codex</span><span class="sep">·</span>
+                <span>created 1d ago</span><span class="sep">·</span><span>updated 2m ago</span>
+                <span class="exc agent">agent-created</span>
+              </div>
+
+              <div class="now">
+                <div class="now-head">Now <span class="live-n"><span class="spin"></span> 3 of 15 sessions working</span></div>
+                <div class="agentrow attn">
+                  <span class="av claude">C</span>
+                  <span class="nm">Operator workspace polish</span>
+                  <span class="ph">waiting on you · 4m</span>
+                </div>
+                <div class="agentrow working">
+                  <span class="av claude">C</span>
+                  <span class="nm">Flat mission sidebar</span>
+                  <span class="ph"><span class="spin"></span> 12:04</span>
+                </div>
+                <div class="agentrow working">
+                  <span class="av codex">X</span>
+                  <span class="nm">Operator workspace coordination</span>
+                  <span class="ph"><span class="spin"></span> 03:31</span>
+                </div>
+                <div class="now-foot">
+                  <span>⌥ ~/podium/.worktrees/issue-516-multi-agent-operator-workspace-ui</span>
+                  <span style="margin-left:auto;color:var(--blue)">↑41 ahead</span>
+                  <span style="color:var(--yellow)">11 uncommitted</span>
+                </div>
+              </div>
+
+              <section class="blk">
+                <div class="eyebrow">Description <button class="act">Edit</button></div>
+                <p class="prose">Build the approved four-column operator workspace in Podium while preserving the product's current shell and recent visual language. Add mission fleet, progress, flight-deck, task-inspector, and chat-first intake behavior without redesigning unaffected surfaces.</p>
+              </section>
+
+              <section class="blk">
+                <details class="brief"><summary>Brief <span style="margin-left:6px;letter-spacing:0;text-transform:none;font-family:var(--sans);font-size:10.5px;color:var(--ink-faint)">written for the agent · 2.1k</span></summary>
+                  <p class="prose">FIRST ACTION: run <span style="font-family:var(--mono);font-size:11px">podium session title "Operator workspace build"</span>. You are the primary implementor on this issue, isolated in its own branch and worktree. The parent design issue is POD-491; its approved interactive reference is in that worktree's .design directory…</p>
+                </details>
+              </section>
+
+              <section class="blk">
+                <div class="eyebrow">Todos <span class="c">13 / 19</span></div>
+                <div class="todo-meter"><div class="track"><i style="width:68%"></i></div><span style="font-family:var(--mono);font-size:9px;color:var(--ink-dim)">68%</span></div>
+                <div class="todo"><span class="box"></span><span>Flight Deck: issue-coloured header, info-integrated progress bar, no duplicated root, tree descending out of the header</span></div>
+                <div class="todo"><span class="box"></span><span>Flight Deck: relation notes moved onto the issue, proposed tasks narrower with no reserved slot, blocked hatch, animated state changes</span></div>
+                <div class="todo"><span class="box"></span><span>Three bold variants for the spine lines, for you to pick from</span></div>
+                <div class="todo"><span class="box"></span><span>Orchestrator: full test lane plus one consolidated runtime pass over all four columns</span></div>
+                <button class="moretoggle" data-toggle="donetodos">▸ 13 done</button>
+                <div id="donetodos" hidden>
+                  <div class="todo done"><span class="box"></span><span>Fix the crashes and the broken type scale</span></div>
+                  <div class="todo done"><span class="box"></span><span>Apply the design audit to the new surfaces</span></div>
+                  <div class="todo done"><span class="box"></span><span>Cover the mission model with tests</span></div>
+                  <div class="todo done"><span class="box"></span><span>Verify the four columns in a real browser</span></div>
+                </div>
+              </section>
+
+              <section class="blk">
+                <div class="eyebrow">Artifacts <span class="c">26</span> <button class="act">Open all</button></div>
+                <div class="filmstrip">
+                  <div class="art"><div class="thumb"></div><div class="cap"><b>Four-column shell — fresh chat</b>21h ago</div></div>
+                  <div class="art"><div class="thumb"></div><div class="cap"><b>Flight Deck folded in place</b>21h ago</div></div>
+                  <div class="art"><div class="thumb dc"><span>MD</span></div><div class="cap"><b>Runtime verification</b>POD-516-runtime-verification.md</div></div>
+                  <div class="art"><div class="thumb"></div><div class="cap"><b>Task inspector, single scroll</b>20h ago</div></div>
+                  <div class="art"><div class="thumb dc"><span>MD</span></div><div class="cap"><b>Conformance spec</b>POD-516-conformance-spec.md</div></div>
+                </div>
+              </section>
+
+              <section class="blk">
+                <div class="eyebrow">Subtasks <span class="c">2 of 6 done</span> <button class="act">＋ Add</button></div>
+                <div class="subrow"><span class="g done"></span><span class="r">POD-540</span><span class="t">Bug: replicated UI layout defaults</span><span class="s">done</span></div>
+                <div class="subrow"><span class="g prog"></span><span class="r">POD-583</span><span class="t">Bug: in-progress stage never settles</span><span class="s livechip"><span class="spin"></span> 08:12</span></div>
+                <div class="subrow"><span class="g"></span><span class="r">POD-571</span><span class="t">Replicated layout defaults</span><span class="s">backlog</span></div>
+                <div class="subrow"><span class="g prog"></span><span class="r">POD-559</span><span class="t">Dead DockSection component</span><span class="s" style="color:var(--yellow)">ready to merge</span></div>
+              </section>
+
+              <section class="blk">
+                <div class="eyebrow">Relations</div>
+                <div class="relgrid">
+                  <button class="relchip"><span class="k">spun off from</span><span class="v">POD-491</span><span class="n">Multi-agent operator workspace</span></button>
+                  <button class="relchip"><span class="k">blocks</span><span class="v">POD-374</span><span class="n">Four-column shell</span></button>
+                  <button class="relchip"><span class="k">discovered</span><span class="v">POD-583</span><span class="n">in-progress stage never settles</span></button>
+                </div>
+              </section>
+
+              <section class="blk">
+                <div class="eyebrow">Activity</div>
+
+                <div class="day">Today</div>
+                <div class="cmt">
+                  <div class="hd"><span class="who">Operator workspace polish</span><span class="for">agent:claude · for user:sole</span><span class="ts">4m ago</span></div>
+                  <div class="bd">Three spine-line directions are ready to pick from. The study is interactive — toggle Daylight, drag the column to its narrowest, and press the join gesture. My pick is 02, The Milled Channel.</div>
+                </div>
+                <div class="evt sig"><span class="t">moved to In Progress</span><span class="ts">21:58</span></div>
+                <div class="evt rollup"><span class="t"><button data-toggle="rollup">28 file reads</button> between 20:21 and 21:34</span><span class="ts">21:34</span></div>
+                <div id="rollup" hidden>
+                  <div class="evt"><span class="t">read</span><span class="ts">21:34</span></div>
+                  <div class="evt"><span class="t">read</span><span class="ts">21:23</span></div>
+                  <div class="evt"><span class="t">read</span><span class="ts">21:15</span></div>
+                </div>
+                <div class="evt sig"><span class="t">agent attached · Flat mission sidebar</span><span class="ts">20:12</span></div>
+
+                <div class="day">Yesterday</div>
+                <div class="cmt">
+                  <div class="hd"><span class="who">sole</span><span class="ts">1d ago</span></div>
+                  <div class="bd">Keep the current sidebar. Only the second column changes.</div>
+                </div>
+                <div class="evt sig"><span class="t">created · spun off from POD-491</span><span class="ts">09:02</span></div>
+              </section>
+            </div>
+          </div>
+
+          <div class="composer">
+            <div class="composer-inner">
+              <div class="field">Comment, or ＠mention an agent on this task…</div>
+              <span class="hint">⌘↵</span>
+            </div>
+          </div>
+        </div>
+
+        <aside class="rail">
+          <div class="rail-sec">
+            <div class="prop"><span class="k">Status</span><span class="v"><button class="propbtn"><span class="g" style="width:10px;height:10px;border-radius:50%;border:1.5px solid var(--yellow);background:conic-gradient(var(--yellow) 0 55%,transparent 55%)"></span><span class="txt">In Progress</span></button></span></div>
+            <div class="prop"><span class="k">Priority</span><span class="v"><button class="propbtn"><span class="prio p1"><i></i><i></i><i></i></span><span class="txt">P2 · Medium</span></button></span></div>
+            <div class="prop"><span class="k">Assignee</span><span class="v"><button class="propbtn"><span class="av codex">X</span><span class="txt">agent:codex</span></button></span></div>
+            <div class="prop"><span class="k">Labels</span><span class="v"><span class="tag"><i></i>lifecycle</span> <button class="propbtn empty" style="margin-left:2px">＋</button></span></div>
+          </div>
+
+          <div class="rail-sec">
+            <div class="eyebrow">Sessions <span class="c">15 · 3 live</span></div>
+            <div class="srow live"><span class="av claude">C</span><span class="nm">Operator workspace polish</span><span class="st" style="color:var(--yellow)">4m</span></div>
+            <div class="srow live"><span class="av claude">C</span><span class="nm">Flat mission sidebar</span><span class="st"><span class="spin"></span>12:04</span></div>
+            <div class="srow live"><span class="av codex">X</span><span class="nm">Operator workspace coordination</span><span class="st"><span class="spin"></span>03:31</span></div>
+            <div class="srow"><span class="av codex">X</span><span class="nm">Task inspector single scroll</span><span class="st">done</span></div>
+            <div class="srow"><span class="av claude">C</span><span class="nm">Design conformance audit</span><span class="st">done</span></div>
+            <button class="moretoggle" data-toggle="moresessions">▸ 10 more</button>
+            <div id="moresessions" hidden>
+              <div class="srow"><span class="av claude">C</span><span class="nm">Red web test gates</span><span class="st">done</span></div>
+              <div class="srow"><span class="av claude">C</span><span class="nm">Persisted UI layout state</span><span class="st">done</span></div>
+            </div>
+            <div class="railbtns"><button class="rb">＋ Session</button><button class="rb">＋ Shell</button></div>
+          </div>
+
+          <div class="rail-sec">
+            <div class="eyebrow">Branch</div>
+            <div style="font-family:var(--mono);font-size:10px;color:var(--ink-muted);line-height:1.7">
+              <div style="color:var(--ink)">issue/516-multi-agent-operator-workspace-ui</div>
+              <div><span style="color:var(--blue)">↑41 ahead</span> · <span style="color:var(--yellow)">11 uncommitted</span> · 0 behind main</div>
+            </div>
+            <div class="railbtns"><button class="rb attn">FF-only merge</button><button class="rb">Rebase</button><button class="rb">PR</button></div>
+          </div>
+
+          <div class="rail-sec">
+            <details class="more"><summary>More fields</summary>
+              <div class="body">
+                <div class="prop"><span class="k">Type</span><span class="v"><button class="propbtn"><span class="txt">task</span></button></span></div>
+                <div class="prop"><span class="k">Parent</span><span class="v"><button class="propbtn"><span class="txt" style="font-family:var(--mono);font-size:10.5px">POD-491</span></button></span></div>
+                <div class="prop"><span class="k">Estimate</span><span class="v"><button class="propbtn empty"><span class="txt">Set…</span></button></span></div>
+                <div class="prop"><span class="k">Due</span><span class="v"><button class="propbtn empty"><span class="txt">Set…</span></button></span></div>
+                <div class="prop"><span class="k">Defer</span><span class="v"><button class="propbtn empty"><span class="txt">Snooze…</span></button></span></div>
+              </div>
+            </details>
+          </div>
+
+          <div class="rail-sec">
+            <dl class="about">
+              <dt>Owner</dt><dd>user:sole</dd>
+              <dt>Visibility</dt><dd>personal</dd>
+              <dt>Origin</dt><dd>agent</dd>
+              <dt>Created</dt><dd>1d ago</dd>
+            </dl>
+          </div>
+        </aside>
+      </div>
+    </div>
+
+    <div class="statusstrip">
+      <span>⌁ 8 agents working</span>
+      <span style="margin-left:auto">⌘K commands</span>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note">
+      <h4><span class="tagno">Board</span> What changed</h4>
+      <ul>
+        <li><b>Fixed card grammar.</b> Ref+avatars / title / one state line that never wraps. The old wrapping badge bag is gone; overflow collapses to <span style="font-family:var(--mono)">+N</span>.</li>
+        <li><b>No column boxes.</b> Columns are hairline-separated and carved into the chassis, headers on the 36px datum — not floating grey panels.</li>
+        <li><b>Issue colour on every card</b> via the tint channel, so the board finally uses Podium's signature.</li>
+        <li><b>Real drag.</b> Lifted proxy, insertion line, gap opens, 180ms settle. Drop target is a tint wash, not a yellow ring.</li>
+        <li><b>Yellow only where asked.</b> Card hover is a tonal wash; Approve is the one yellow thing in Proposed, and it only appears on hover or selection.</li>
+        <li><b>Selection is visible.</b> Hover reveals a checkbox where the ref was; the bulk bar rises from the bottom.</li>
+      </ul>
+    </div>
+    <div class="note">
+      <h4><span class="tagno b">Detail</span> What changed</h4>
+      <ul>
+        <li><b>The Now block.</b> Live agents, what each is doing, and the branch state — carved, at the top. The page currently shows less than the sidebar row for the same task.</li>
+        <li><b>Context bar carries live state</b>: needs-you, working count, GitStamp. Breadcrumb shows the real parent chain.</li>
+        <li><b>Dossier line replaces the chip salad.</b> Ordinary facts are text; only exceptions (agent-created, draft, hub·stale) earn a chip.</li>
+        <li><b>Activity is readable.</b> Day dividers, relative times, runs of low-value events rolled into one expandable line, comments visually dominant.</li>
+        <li><b>Composer is pinned</b>, not 6000px down the scroll.</li>
+        <li><b>Rail ranked and truncated.</b> Status/priority/assignee, then sessions, then branch; empty estimate/due/defer fold under "More fields". Native date inputs are gone.</li>
+      </ul>
+    </div>
+  </div>
+
+  <p class="foot">Not yet in this prototype: keyboard focus ring pass, Daylight variant, list/flat mode, and windowed rendering for the 140-card Proposed column (shown truncated here). Fonts are system stand-ins — the real surfaces use Geist and Geist Mono.</p>
+</div>
+
+<script>
+const COLS = [
+  {stage:'Proposed', glyph:'', n:140, cards:[
+    {ref:'POD-154', t:'Vitest Bun loader mismatch', c:'#f472b6', p:'p2', age:'16d', origin:'agent', propose:true},
+    {ref:'POD-287', t:'Tab close vs agent lifetime', c:'#94a3b8', p:'p2', age:'15d', propose:true},
+    {ref:'POD-347', t:'Mobile and web dist deploy gate', c:'#38bdf8', p:'p1', age:'12d', origin:'agent', propose:true},
+    {ref:'POD-348', t:'Mobile PWA shell', c:'#38bdf8', p:'p2', age:'12d', origin:'agent', propose:true},
+  ]},
+  {stage:'Backlog', glyph:'', n:9, cards:[
+    {ref:'POD-133', t:'Bug: queued badge during AskUserQuestion', c:'#fb923c', p:'p2', age:'8d', sub:[0,2]},
+    {ref:'POD-334', t:'Unsnooze restores prior position', c:'#94a3b8', p:'p3', age:'6d'},
+    {ref:'POD-356', t:'Upload support in mobile chat UIs', c:'#38bdf8', p:'p2', age:'5d', blocked:true},
+    {ref:'POD-357', t:'Issue-ref overlay and previews in chat', c:'#a78bfa', p:'p2', age:'5d', blocked:true},
+    {ref:'POD-448', t:'Codex plan stream observer', c:'#94a3b8', p:'p2', age:'3d'},
+  ]},
+  {stage:'Planning', glyph:'planning', n:3, cards:[
+    {ref:'POD-383', t:'Run now vs Assign agent', c:'#a78bfa', p:'p2', age:'4d', avs:['claude']},
+    {ref:'POD-542', t:'Bug: mobile Grok prompt input', c:'#fb923c', p:'p1', age:'2d', avs:['claude']},
+    {ref:'POD-591', t:'Task workspace visual redesign', c:'#f5c518', p:'p2', age:'2m', avs:['claude'], live:1},
+  ]},
+  {stage:'In Progress', glyph:'progress', n:2, cards:[
+    {ref:'POD-516', t:'Multi-agent operator workspace UI', c:'#a3e635', p:'p2', age:'12h', avs:['claude','claude','codex','more'], live:3, sub:[2,6], needs:true, labels:['#a3e635','#38bdf8']},
+    {ref:'POD-570', t:'Codex and Grok usage analytics', c:'#38bdf8', p:'p2', age:'54m', avs:['claude'], live:1},
+  ]},
+  {stage:'Review', glyph:'review', n:7, cards:[
+    {ref:'POD-554', t:'Host resource lifecycle policy', c:'#f472b6', p:'p0', age:'5h', avs:['claude','codex'], sub:[4,6], needs:true},
+    {ref:'POD-580', t:'Bug: freed worktree blocks a new agent', c:'#fb923c', p:'p1', age:'3m', avs:['claude'], merge:true},
+    {ref:'POD-559', t:'Dead DockSection component', c:'#94a3b8', p:'p3', age:'7h', avs:['codex'], merge:true},
+    {ref:'POD-502', t:'Floating Transcript Composer', c:'#a78bfa', p:'p2', age:'2h', avs:['claude','codex'], merge:true},
+  ]},
+]
+
+const AVT = {claude:['claude','C'], codex:['codex','X'], human:['human','S'], more:['more','+']}
+const el = (h) => { const d = document.createElement('div'); d.innerHTML = h.trim(); return d.firstElementChild }
+
+function cardHTML(c){
+  const avs = (c.avs||[]).map(k=>`<span class="av ${AVT[k][0]}">${AVT[k][1]}</span>`).join('')
+  // Slot 3 exists only when the task has state worth a line. Simple tasks stay short.
+  const state = [
+    c.needs ? `<span class="needs"><span class="dot"></span>needs you</span>` : '',
+    c.blocked ? `<span class="blocked">⚑ blocked</span>` : '',
+    c.live ? `<span class="livechip"><span class="spin"></span>${c.live} working</span>` : '',
+    c.merge ? `<span class="subtree" style="color:var(--yellow)">ready to merge</span>` : '',
+    c.sub ? `<span class="subtree"><span class="bar"><i style="width:${Math.round(c.sub[0]/c.sub[1]*100)}%"></i></span>${c.sub[0]}/${c.sub[1]}</span>` : '',
+    (c.labels||[]).length ? `<span class="labeldots">${c.labels.map(l=>`<i style="background:${l}"></i>`).join('')}</span>` : '',
+  ].join('')
+  const actions = c.propose
+    ? `<div class="card-actions"><button class="mini go">Approve</button><button class="mini quiet">⋯</button></div>`
+    : `<div class="card-actions"><button class="mini quiet">⋯</button></div>`
+  return `<article class="card" style="--issue:${c.c}" data-ref="${c.ref}" draggable="false">
+    <button class="checkbox" aria-label="Select ${c.ref}"></button>
+    <div class="card-top">
+      <span class="ref">${c.ref}</span>
+      <span class="prio ${c.p}" title="Priority"><i></i><i></i><i></i></span>
+      ${c.origin?'<span class="origin" title="Created by an agent">◇</span>':''}
+      <span class="right">${avs}<span class="age">${c.age}</span></span>
+    </div>
+    <h4 class="card-title">${c.t}</h4>
+    <div class="card-state">${state}</div>
+    ${actions}
+  </article>`
+}
+
+const board = document.getElementById('board')
+for (const col of COLS){
+  const pressure = col.cards.length
+  const c = el(`<div class="col" data-stage="${col.stage}">
+    <div class="col-head">
+      <span class="glyph ${col.glyph}"></span>
+      <h3>${col.stage}</h3><span class="count">${col.n}</span>
+      <button class="add" aria-label="New task in ${col.stage}">＋</button>
+      <div class="col-pressure"></div>
+    </div>
+    <div class="col-body"></div>
+  </div>`)
+  const body = c.querySelector('.col-body')
+  if (!col.cards.length) body.innerHTML = `<div class="col-empty">Nothing here yet.<button>＋ New task</button></div>`
+  for (const card of col.cards) body.appendChild(el(cardHTML(card)))
+  if (col.n > col.cards.length)
+    body.appendChild(el(`<div style="padding:8px 2px;font-family:var(--mono);font-size:9px;color:var(--ink-faint)">…${col.n-col.cards.length} more rendered on scroll</div>`))
+  const pr = c.querySelector('.col-pressure')
+  for (const card of col.cards) pr.appendChild(el(`<i style="flex:1;background:color-mix(in srgb,${card.c} ${card.live?70:30}%,transparent)"></i>`))
+  board.appendChild(c)
+}
+
+/* ---- selection + bulk bar ---- */
+const bulk = document.getElementById('bulkbar'), bulkn = document.getElementById('bulkn')
+function sync(){
+  const n = board.querySelectorAll('.card.sel').length
+  bulkn.textContent = n
+  bulk.hidden = n === 0
+}
+board.addEventListener('click', (e) => {
+  const box = e.target.closest('.checkbox')
+  if (box){ box.closest('.card').classList.toggle('sel'); sync(); return }
+  const mini = e.target.closest('.mini'); if (mini) return
+  const card = e.target.closest('.card')
+  if (card){
+    board.querySelectorAll('.card.focus').forEach(c=>c.classList.remove('focus'))
+    card.classList.add('focus')
+  }
+})
+document.getElementById('bulkclear').onclick = () => {
+  board.querySelectorAll('.card.sel').forEach(c=>c.classList.remove('sel')); sync()
+}
+
+/* ---- pointer drag with an insertion line ---- */
+let drag = null
+board.addEventListener('pointerdown', (e) => {
+  if (e.target.closest('.checkbox, .mini, .add')) return
+  const card = e.target.closest('.card'); if (!card) return
+  const start = {x:e.clientX, y:e.clientY}
+  let armed = false, proxy = null, line = null
+  const onMove = (ev) => {
+    if (!armed){
+      if (Math.hypot(ev.clientX-start.x, ev.clientY-start.y) < 5) return
+      armed = true
+      const r = card.getBoundingClientRect()
+      proxy = card.cloneNode(true)
+      proxy.classList.add('drag-proxy')
+      proxy.style.left = r.left+'px'; proxy.style.top = r.top+'px'
+      proxy.dataset.dx = (ev.clientX - r.left); proxy.dataset.dy = (ev.clientY - r.top)
+      document.body.appendChild(proxy)
+      card.classList.add('ghost')
+      line = el('<div class="dropline"></div>')
+      document.body.style.cursor = 'grabbing'
+    }
+    proxy.style.left = (ev.clientX - proxy.dataset.dx)+'px'
+    proxy.style.top  = (ev.clientY - proxy.dataset.dy)+'px'
+    const col = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.col')
+    board.querySelectorAll('.col.dropping').forEach(c=>c.classList.remove('dropping'))
+    if (!col){ line.remove(); return }
+    col.classList.add('dropping')
+    col.style.setProperty('--issue', card.style.getPropertyValue('--issue'))
+    const body = col.querySelector('.col-body')
+    const sibs = [...body.querySelectorAll('.card')].filter(c=>c!==card)
+    let before = null
+    for (const s of sibs){
+      const r = s.getBoundingClientRect()
+      if (ev.clientY < r.top + r.height/2){ before = s; break }
+    }
+    line.style.setProperty('--issue', card.style.getPropertyValue('--issue'))
+    body.insertBefore(line, before)
+  }
+  const onUp = () => {
+    window.removeEventListener('pointermove', onMove)
+    window.removeEventListener('pointerup', onUp)
+    document.body.style.cursor = ''
+    board.querySelectorAll('.col.dropping').forEach(c=>c.classList.remove('dropping'))
+    if (!armed) return
+    if (line && line.parentNode) line.parentNode.insertBefore(card, line)
+    line?.remove(); proxy?.remove()
+    card.classList.remove('ghost')
+    card.animate([{transform:'scale(1.035)'},{transform:'scale(1)'}],{duration:180,easing:'cubic-bezier(.2,.8,.25,1)'})
+  }
+  window.addEventListener('pointermove', onMove)
+  window.addEventListener('pointerup', onUp)
+})
+
+/* ---- view switch + disclosures ---- */
+document.querySelectorAll('.switcher button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.switcher button').forEach(x=>x.setAttribute('aria-selected', String(x===b)))
+  document.querySelectorAll('[data-pane]').forEach(p => p.hidden = p.dataset.pane !== b.dataset.view)
+})
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('[data-toggle]'); if (!t) return
+  const target = document.getElementById(t.dataset.toggle)
+  target.hidden = !target.hidden
+  t.textContent = t.textContent.replace(target.hidden ? '▾' : '▸', target.hidden ? '▸' : '▾')
+})
+</script>

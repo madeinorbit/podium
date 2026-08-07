@@ -10,6 +10,7 @@
  */
 
 import type { IssueWire } from '@podium/model'
+
 /**
  * Composed from `IssueWire` rather than restated (POD-367) — the field NAMES and
  * their base types have one home.
