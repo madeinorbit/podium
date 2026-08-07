@@ -41,12 +41,8 @@ export function FoldedFlightDeckBar({ onExpand }: { onExpand: () => void }): JSX
         onClick={onExpand}
       >
         <Users size={13} aria-hidden="true" />
-        {/* Live agents are DATA, so they wear the info blue. Amber is reserved
-            for the thing asking something of you (DESIGN.md §5) — that is the
-            needs-you cell below, and two amber badges would flatten the one
-            distinction the folded rail exists to make. */}
         {live > 0 && (
-          <span className="absolute -top-[5px] -right-[5px] flex h-[13px] min-w-[13px] items-center justify-center rounded-full border border-engraved bg-info px-[3px] font-mono text-[7.5px] font-bold text-white">
+          <span className="absolute -top-[5px] -right-[5px] flex h-[13px] min-w-[13px] items-center justify-center rounded-full border border-engraved bg-attention px-[3px] font-mono text-[7.5px] font-bold text-attention-foreground">
             {live}
           </span>
         )}
