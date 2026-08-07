@@ -497,3 +497,26 @@ review that produces a ranked plan should therefore state, for each item, *what 
 remain true for this to still be worth doing* — and name any earlier item that could make it
 false. That is a sentence per item, written while the causes are still in view, and it is cheaper
 than the two corrections above.
+
+---
+
+## Addendum, 2026-08-07: set equality found what the count could not
+
+The "Consolidate or delete" section recommends replacing opaque literal totals with bidirectional
+set equality against the derived source, on the argument that a census creates update work without
+adding a refusing condition. POD-521 performed exactly that substitution on the messages router,
+replacing `toHaveLength(9)` with set equality against the contract table, and it immediately
+surfaced something the count had been unable to see: `mail.ask` is exposed on tRPC as
+`sessions.ask` — the contract sitting in one family and the procedure in another after POD-729
+landed ahead of POD-382.
+
+Nothing is broken. The procedure is still derived and still served. But a count of nine stays nine
+whichever family serves the ninth, so the assertion nominally watching that surface could not have
+reported the split; only naming the members could. The recommendation was argued in this review
+from the cost side — censuses charge for legitimate change. The stronger case is the one the
+substitution produced on its first use: a set check answers a question the count cannot express.
+
+This is a third instance of the pattern in the two method notes above, in the opposite direction.
+There, two figures shared a cause and looked additive. Here, one figure was invariant across the
+distinction that mattered. Both are the same underlying mistake — treating a number as though it
+carried the structure it was summarising.
