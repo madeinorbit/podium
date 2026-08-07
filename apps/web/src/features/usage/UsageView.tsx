@@ -265,9 +265,9 @@ function UsageBody({
         </table>
       </div>
       <p className="usage-note">
-        Harvested from harness transcripts on the dev machine (Claude Code today; Codex when its
-        logs join). Cost is the public API list-price equivalent of the same tokens — what this work
-        would have cost off-subscription. Windows are rolling.
+        Harvested from harness transcripts on the dev machine (Claude Code and Codex). Cost is the
+        public API list-price equivalent of the same tokens — what this work would have cost
+        off-subscription. Windows are rolling.
       </p>
     </div>
   )
