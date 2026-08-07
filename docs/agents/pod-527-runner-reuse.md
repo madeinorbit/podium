@@ -363,6 +363,34 @@ point and here. Not this change.)
 shards. `derived-family.runtime.test.ts` did *not* start passing despite changing on main — the
 chain's identical-results anchor is intact. **No leak-guard failure anywhere in the lane.**
 
+### Order-randomized runs
+
+Contamination that depends on file order is the failure mode, so the order was randomized.
+**How** matters more than the count, and getting it wrong would have made the evidence weaker
+while looking stronger.
+
+Vitest's `BaseSequencer` sorts by project name first, so the default order keeps the reused
+project's 62 files contiguous and the reuse chain maximal. `--sequence.shuffle.files` swaps in
+`RandomSequencer`, which replaces that sort *entirely* with a shuffle over **all** files — so the
+reused and isolated projects interleave and the pool drops the chain every time an isolated file
+lands next in the queue. **A whole-shard shuffled run therefore exercises reuse *less* hard than
+the default**, which is the opposite of what this evidence is for.
+
+So the primary runs shuffle the **reused project alone** (`--project server:contracts:reused`):
+one project means order is randomized while the chain stays unbroken.
+
+| run | files | tests | failed | leak-guard failures |
+| --- | ---: | ---: | ---: | ---: |
+| reused-only, seed 1 | 62 | 650 | 1 | **0** |
+| reused-only, seed 20260807 | 62 | 650 | 1 | **0** |
+| reused-only, seed 424242 | 62 | 650 | 1 | **0** |
+| reused-only, seed 7 | 62 | 650 | 1 | **0** |
+| reused-only, seed 99991 | 62 | 650 | 1 | **0** |
+| whole shard, seed 31337 | 70 | 701 | 1 | **0** |
+
+Six runs, six orders, **one distinct failure across all of them** — `daemon-mux`, the
+pre-existing one, in every run. No leak guard fired in any of them.
+
 ### The @podium/scripts lane
 
 The guards live there, so it was run whole: **49 files, 809 tests, 6 failures across 4 files.**
