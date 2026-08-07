@@ -20,7 +20,7 @@ import type {
   ReactNode,
   PointerEvent as ReactPointerEvent,
 } from 'react'
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { AttributionPair } from '@/features/issues/issue-page/AttributionPair'
@@ -28,6 +28,7 @@ import { sessionDotClass } from '@/lib/derive'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { type ContextMenuAnchor, SessionContextMenu } from '@/lib/SessionContextMenu'
 import { SnoozeControl } from '@/lib/SnoozeControl'
+import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
 
@@ -154,21 +155,34 @@ export function ResizableAside({ children }: { children: ReactNode }): JSX.Eleme
   )
 }
 
-/** Per-section collapse state, persisted via the ui-state collection. Absent
- *  key = the section's own default (attention/pinned open, working closed). */
+const writeCollapsed = (collapsed: boolean): string => (collapsed ? 'true' : 'false')
+
+/**
+ * Per-group fold state, persisted via the ui-state collection. Absent key = the
+ * fold's own default (all three group folds start closed).
+ *
+ * SUBSCRIBED, NOT SEEDED (POD-540). These keys are per-user REPLICATED — that is
+ * the whole point of the `podium:sidebar:` spelling `fold-keys.ts` documents, and
+ * it means the row arrives over the wire AFTER first render. A `useState`
+ * initializer read `null`, fell back to the default, and never ran again, so
+ * every fold in this column came back closed on reload no matter what you left
+ * it as. Subscribing removes the race by construction: the persisted value IS
+ * the state, so a late replica simply re-renders.
+ */
 export function useCollapsed(key: string, defaultCollapsed: boolean): [boolean, () => void] {
-  const ui = useStoreSelector((s) => s.uiState)
-  const [collapsed, setCollapsed] = useState<boolean>(() => {
-    const v = ui.get(key)
-    return v === null ? defaultCollapsed : v === 'true'
-  })
-  const toggle = () => {
-    setCollapsed((c) => {
-      const next = !c
-      ui.set(key, next ? 'true' : 'false')
-      return next
-    })
-  }
+  const [collapsed, setCollapsed] = usePersistedUiState(
+    key,
+    useCallback(
+      (raw: string | null) => (raw === null ? defaultCollapsed : raw === 'true'),
+      [defaultCollapsed],
+    ),
+    writeCollapsed,
+  )
+  // `toggle`'s identity now moves with `collapsed`, which it did not before. No
+  // caller memoizes on it (work-folds' three folds are the only consumers since
+  // the worklist went flat), so this is inert — noted because it is the one
+  // thing to look at if a fold's render count ever matters.
+  const toggle = useCallback(() => setCollapsed(!collapsed), [setCollapsed, collapsed])
   return [collapsed, toggle]
 }
 

@@ -78,7 +78,7 @@ const SHARED = issue('iss_shared', 'Shared with me')
 
 vi.mock('@/app/store', () => {
   const useStore = () => ({
-    uiState: { get: () => null, set: vi.fn() },
+    uiState: { get: () => null, set: vi.fn(), subscribe: () => () => {} },
     repos: [{ path: '/repo', kind: 'repository', branch: 'main', worktrees: [] }],
     sessions: [],
     machines: [],

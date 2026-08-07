@@ -3,6 +3,30 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SidebarUnified } from './SidebarUnified'
 
+// A live ui-state collection (POD-540): the worklist's group folds SUBSCRIBE to
+// their per-user replicated row rather than seeding local state, so a `set` that
+// stores nothing means the fold never opens. Backed by a Map so a press writes
+// and the value comes back through the subscription, as in the real store.
+const ui = vi.hoisted(() => {
+  const rows = new Map<string, string>()
+  const listeners = new Set<() => void>()
+  return {
+    get: (key: string): string | null => rows.get(key) ?? null,
+    set: (key: string, value: string | null): void => {
+      if (value === null) rows.delete(key)
+      else rows.set(key, value)
+      for (const listener of listeners) listener()
+    },
+    subscribe: (callback: () => void): (() => void) => {
+      listeners.add(callback)
+      return () => {
+        listeners.delete(callback)
+      }
+    },
+    reset: (): void => rows.clear(),
+  }
+})
+
 // One idle session per issue so each renders as a plain WORK row.
 function idleSess(id: string, issueId: string) {
   return {
@@ -125,7 +149,7 @@ vi.mock('@/app/store', () => {
     setView: vi.fn(),
     sidebarSettings: { groupByRepo: false },
     setSidebarSettings: vi.fn(),
-    uiState: { get: () => null, set: () => {}, subscribe: () => () => {} },
+    uiState: ui,
     spawnDraftAgent: vi.fn(),
     markIssueRead: vi.fn(),
     markSessionRead: vi.fn(),
@@ -157,7 +181,10 @@ function rowButton(label: string): HTMLElement {
   return btn
 }
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  ui.reset()
+})
 
 describe('SidebarUnified PINNED section (POD-166, R3)', () => {
   it('pinned issues MOVE into one PINNED section above all project groups', () => {

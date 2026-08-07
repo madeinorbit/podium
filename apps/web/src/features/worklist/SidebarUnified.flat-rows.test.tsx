@@ -15,9 +15,44 @@
  *   3. the fleet stack carries real harness kinds, the live total and `×N`;
  *   4. the only foldable things left are the Proposed and Closed group headers.
  */
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { proposedFoldKey } from './fold-keys'
 import { SidebarUnified } from './SidebarUnified'
+
+/**
+ * A REAL ui-state collection, not a `get: () => null` stub — the fold tests below
+ * turn on the difference between reading the store once and subscribing to it.
+ * `hydrate` is the case that matters: a per-user replicated row arriving over the
+ * wire AFTER first render, which is what a reload actually looks like.
+ */
+const ui = vi.hoisted(() => {
+  const rows = new Map<string, string>()
+  const listeners = new Set<() => void>()
+  const notify = (): void => {
+    for (const listener of listeners) listener()
+  }
+  return {
+    get: (key: string): string | null => rows.get(key) ?? null,
+    set: (key: string, value: string | null): void => {
+      if (value === null) rows.delete(key)
+      else rows.set(key, value)
+      notify()
+    },
+    subscribe: (callback: () => void): (() => void) => {
+      listeners.add(callback)
+      return () => {
+        listeners.delete(callback)
+      }
+    },
+    /** The replica landing late. */
+    hydrate: (key: string, value: string): void => {
+      rows.set(key, value)
+      notify()
+    },
+    reset: (): void => rows.clear(),
+  }
+})
 
 function sess(
   id: string,
@@ -126,7 +161,7 @@ const ISSUES = [
 
 vi.mock('@/app/store', () => {
   const useStore = () => ({
-    uiState: { get: () => null, set: vi.fn() },
+    uiState: ui,
     repos: [{ path: '/repo', kind: 'repository', branch: 'main', worktrees: [] }],
     sessions: SESSIONS,
     machines: [],
@@ -169,7 +204,10 @@ vi.mock('@/lib/hooks/use-session-guard', () => ({
   useSessionGuard: () => ({ guardedKill: vi.fn(), guardedArchive: vi.fn() }),
 }))
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  ui.reset()
+})
 
 const missionRow = (): HTMLElement =>
   screen.getByText('Operator workspace').closest('[data-testid="unified-issue-row"]') as HTMLElement
@@ -278,5 +316,32 @@ describe('the worklist is one flat row per mission (POD-516 §1.1)', () => {
     expect(rows[0]?.textContent).toContain('proposed')
     // A proposal is not live work: it never gets a full row's chrome.
     expect(rows[0]?.querySelector('[data-testid="unified-issue-row"]')).toBeNull()
+  })
+
+  // POD-540. The fold keys are per-user REPLICATED (that is what the
+  // `podium:sidebar:` spelling buys, see fold-keys.ts), so the row arrives over
+  // the wire after first render. `useCollapsed` used to seed itself from a
+  // `useState` initializer, which read null, fell back to the default and never
+  // ran again — so every fold in this column came back closed on reload however
+  // you left it. Now that the group folds are the ONLY foldable things here,
+  // that bug is the whole of the column's memory.
+  it('restores a fold from replicated layout state that lands after mount', () => {
+    render(<SidebarUnified />)
+    const toggle = () => screen.getByTestId('proposed-fold-toggle')
+    expect(toggle().getAttribute('aria-expanded')).toBe('false')
+
+    act(() => ui.hydrate(proposedFoldKey('/repo'), 'false'))
+
+    expect(toggle().getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getAllByTestId('proposed-fold-row')).toHaveLength(1)
+  })
+
+  it('writes a fold through the store rather than holding it in local state', () => {
+    render(<SidebarUnified />)
+    fireEvent.click(screen.getByTestId('proposed-fold-toggle'))
+    // The press wrote; the value came back through the subscription. One source
+    // of truth, so the rendered fold and the stored row cannot diverge.
+    expect(ui.get(proposedFoldKey('/repo'))).toBe('false')
+    expect(screen.getByTestId('proposed-fold-toggle').getAttribute('aria-expanded')).toBe('true')
   })
 })

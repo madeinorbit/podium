@@ -18,7 +18,7 @@ const setView = vi.fn()
 vi.mock('@/app/store', () => {
   const useStore = () => ({
     // ui-state collection (persisted section collapse etc.) — absent key = default.
-    uiState: { get: () => null, set: vi.fn() },
+    uiState: { get: () => null, set: vi.fn(), subscribe: () => () => {} },
     repos: [
       {
         path: '/home/podium-host/podium',

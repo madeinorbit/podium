@@ -37,7 +37,7 @@ const settingsSet = vi.fn(async (settings: unknown) => settings)
 
 vi.mock('@/app/store', () => {
   const useStore = () => ({
-    uiState: { get: () => null, set: vi.fn() },
+    uiState: { get: () => null, set: vi.fn(), subscribe: () => () => {} },
     repos: [
       {
         path: '/home/mine/podium',
