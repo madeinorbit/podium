@@ -352,6 +352,58 @@ anything.
 
 ---
 
+## The lane, measured — and the failure set is not the one I was given
+
+Full `@podium/server` run, all five shards, under the `test:heavy` lease, plus the
+full `scripts` lane. **Every failure below reproduces on a clean detached worktree
+at `origin/main` with no local changes.** Nothing here was caused by this issue.
+
+| Shard | Result | Failure |
+| --- | --- | --- |
+| `contracts` | 701/702 | `gateway/daemon-mux.test.ts` — RPC frames pinned at 24, now 25 |
+| `store` | 1749/1750 | `migrations/pre-migrated-fixture.test.ts` — migrations pinned at 54, now 55 |
+| `services` | 568/571 | `lock/session-exit.test.ts` ×2; `sessions/oracle-attribution.test.ts` ×1 |
+| `boundary` | 1118/1120 | `server.role.test.ts` — hub-off fleet-contract coverage |
+| `normalized-wire` | 2 files pass | — |
+| `scripts` | 849/851 | `audit-god-objects` ×1 (two budgets); `audit-durable-classes` ×1 |
+
+**The set I was briefed on was three. It is six, and only two of the three are in
+it.**
+
+- **Confirmed:** `daemon-mux` census, `server.role` hub-off coverage.
+- **Gone:** `modules/derived-family.runtime` census. It passes now, in isolation
+  and in-shard. Fixed on main since the briefing.
+- **New, all pre-existing:** the migration census (POD-586), the two
+  `lock/session-exit` cases (POD-587), and `oracle-attribution`'s `inputOrigin`
+  case — which belongs to POD-573, already `done` on its own branch but not yet
+  landed on main.
+- **New, in scripts:** the two audits above (POD-585). The briefing said this lane
+  was clean; it was not, and the coordinator has since corrected the record —
+  one passing test had been generalised to a whole lane.
+
+### Four of the six are the same defect
+
+`daemon-mux` 24→25, migrations 54→55, and the two the review already named
+(`derived-family` 23→24, and its own count pins) are all **a remembered total
+sitting next to a check that already does the work**. The migration one is the
+clearest:
+
+```ts
+expect(applied).toEqual(DRIZZLE_MIGRATIONS.map((m) => m.name))  // exact, ordered, both ways
+expect(applied.length).toBe(54)                                 // ← the red
+```
+
+The line above is strictly stronger. The literal beneath it cannot refuse anything
+that line permits; it can only bill an edit to whoever adds a migration, which is
+exactly what happened. **The fix is to delete the line, not to write 55.**
+
+This issue removed four instances of the pattern and replaced one with set
+equality — and that substitution immediately found something a count could not
+express (§3). The pattern showing up four more times in one lane run, unprompted,
+is the strongest argument in this document for preferring set equality to counts.
+
+---
+
 ## Guardrail compliance
 
 `modules/messages/characterization.delivery.test.ts` is **untouched** — not
