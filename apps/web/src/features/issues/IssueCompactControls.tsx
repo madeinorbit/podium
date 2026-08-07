@@ -128,8 +128,11 @@ export function decisionLine(issue: IssueViewModel, active: readonly SessionMeta
   return 'This task is waiting for your input.'
 }
 
-/** Git evidence scoped to this issue — the branch it delivers on, what is
- *  waiting to land, and dirt this issue is answerable for. */
+/** Git scope for this issue — the branch it delivers on, what is waiting to
+ *  land, and dirt this issue is answerable for. It heads the dock's "Branch &
+ *  worktree" section rather than trailing "Evidence & checks", where a branch
+ *  name read as a verification result (POD-516 r3 #6). The branch itself is
+ *  machine voice, so it is set in mono. */
 export function IssueGitScope({ issue }: { issue: IssueViewModel }): JSX.Element | null {
   const git = issue.gitState
   if (!git) return null
@@ -137,9 +140,11 @@ export function IssueGitScope({ issue }: { issue: IssueViewModel }): JSX.Element
   const delivery = git.shared ? (git.commits?.length ?? 0) : (git.ahead ?? 0)
   return (
     <div className="shell-type-micro flex flex-wrap items-center gap-x-3 gap-y-1 px-1 py-1 text-muted-foreground">
-      <span className="inline-flex items-center gap-1.5">
-        <GitBranch size={12} aria-hidden="true" />
-        {git.branch ?? (git.shared ? 'Shared checkout' : (issue.branch ?? 'Checkout'))}
+      <span className="inline-flex min-w-0 items-center gap-1.5">
+        <GitBranch size={12} className="flex-none" aria-hidden="true" />
+        <span className="min-w-0 truncate font-mono">
+          {git.branch ?? (git.shared ? 'Shared checkout' : (issue.branch ?? 'Checkout'))}
+        </span>
       </span>
       {delivery > 0 && (
         <span className="inline-flex items-center gap-1.5 text-foreground/80">

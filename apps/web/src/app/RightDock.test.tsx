@@ -9,6 +9,7 @@ import { RightDock } from './RightDock'
 const selectedIssue = {
   id: 'selected',
   title: 'Selected closed issue',
+  stage: 'review',
   repoPath: '/repo',
   worktreePath: null,
   machineId: 'machine-selected',
@@ -120,6 +121,30 @@ describe('RightDock task selection', () => {
     expect(panel.getAttribute('data-issue-id')).toBe(selectedIssue.id)
     expect(panel.getAttribute('data-cwd')).toBe(selectedIssue.repoPath)
     expect(panel.getAttribute('data-machine-id')).toBe(selectedIssue.machineId)
+  })
+
+  // POD-516 r3 #7: the dock title bar is every panel's ONE header, so on the
+  // Task tab it names the task rather than repeating the generic word while the
+  // panel below spends a line of its fixed head on the same title.
+  it('names the inspected task in the title bar, with the full title one hover away', () => {
+    render(<RightDock tab="issue" onClose={vi.fn()} />)
+
+    const title = screen.getByText('Selected closed issue')
+    expect(title.dataset.dockTitle).toBe('issue')
+    expect(title.getAttribute('title')).toBe('Selected closed issue')
+    expect(title.className).toContain('truncate')
+    // The stage rides with it, in place of the panel's generic glyph.
+    expect(screen.getByRole('img', { name: 'Review' })).toBeTruthy()
+    expect(screen.queryByText('Task')).toBeNull()
+  })
+
+  it('leaves every other panel wearing its own label', () => {
+    render(<RightDock tab="git" onClose={vi.fn()} />)
+
+    const title = screen.getByText('Git')
+    expect(title.dataset.dockTitle).toBe('panel')
+    expect(title.getAttribute('title')).toBeNull()
+    expect(screen.queryByText('Selected closed issue')).toBeNull()
   })
 
   it('renders the active repository merge queue from the live lock projection', () => {

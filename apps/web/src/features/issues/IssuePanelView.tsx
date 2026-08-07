@@ -17,6 +17,7 @@ import {
   CircleAlert,
   ExternalLink,
   FileText,
+  Folder,
   History,
   type LucideIcon,
   MessageSquare,
@@ -40,7 +41,6 @@ import {
 import { cn } from '@/lib/utils'
 import { KindIcon, sessionDisplayName } from '@/lib/WorkerLabel'
 import {
-  coordinatorSession,
   IssueCompactControls,
   IssueDecisionBand,
   IssueGitScope,
@@ -53,9 +53,11 @@ import { buildActivityFeed, type IssueEvent } from './issue-events'
 import { StageGlyph } from './issue-glyphs'
 import { groupRelations } from './issue-relations'
 
-// The stage chip that used to lead this header is gone: the inspector head
-// carries the stage as a glyph beside the ref and as the stage dropdown's own
-// label, and a third copy of the same fact was the first thing the artifact cut.
+// Where the task's identity lives, since POD-516 r3: the DOCK TITLE BAR carries
+// the stage glyph and the title (RightDock.tsx), because the title bar is every
+// panel's one header. So the head below it keeps only what the bar cannot say —
+// the ref, and the one control strip — and the stage survives exactly twice, in
+// the bar and as the stage dropdown's own label.
 
 function Hint({ children }: { children: string }): JSX.Element {
   return <div className="shell-type-secondary py-0.5 text-text-faint italic">{children}</div>
@@ -102,11 +104,16 @@ function PresenceLine({ note }: { note: PresenceNote }): JSX.Element {
 function DockPart({
   title,
   count,
+  meta,
   testId,
   children,
 }: {
   title: string
   count?: number
+  /** One machine-voice fact ABOUT the section, parked past the hairline — an
+   *  age, a size. It goes here rather than inside the body so the body stays
+   *  the thing the section is actually for. */
+  meta?: string
   testId?: string
   children: ReactNode
 }): JSX.Element {
@@ -118,6 +125,11 @@ function DockPart({
           <span className="shell-type-micro font-mono tabular-nums text-text-dim">{count}</span>
         )}
         <span className="h-px flex-1 bg-hairline-soft" aria-hidden="true" />
+        {meta && (
+          <span className="shell-type-micro flex-none font-mono tabular-nums text-text-faint">
+            {meta}
+          </span>
+        )}
       </div>
       {children}
     </section>
@@ -154,10 +166,16 @@ function FoldRow({
 function UnifiedRow({
   sub,
   meta,
+  needs = false,
   onOpen,
 }: {
   sub: IssueViewModel
   meta: string
+  /** This row's work is stopped on the operator. The mark is the state word in
+   *  attention ink — the SAME mark the sidebar's row (UnifiedIssueRow) and the
+   *  Flight Deck's task line use, so one task never reads three ways in three
+   *  columns. No box, no rule, no icon: one amber voice per row. */
+  needs?: boolean
   onOpen: () => void
 }): JSX.Element {
   const closed = sub.stage === 'done' || Boolean(sub.closedReason)
@@ -166,6 +184,7 @@ function UnifiedRow({
       data-pressable
       type="button"
       onClick={onOpen}
+      data-needs-you={needs || undefined}
       title={`${issueDisplayRef(sub)} ${sub.title}`}
       className={cn(
         'grid min-h-[30px] w-full grid-cols-[14px_minmax(0,1fr)_auto] items-center gap-2 border-b border-hairline-soft px-1 py-1 text-left shell-type-secondary hover:bg-accent/40',
@@ -188,29 +207,44 @@ function UnifiedRow({
           {sub.title}
         </span>
       </span>
-      <span className="shell-type-micro flex-none font-mono text-text-dim">{meta}</span>
+      <span
+        className={cn(
+          'shell-type-micro flex-none font-mono',
+          needs ? 'font-semibold text-attention' : 'text-text-dim',
+        )}
+      >
+        {meta}
+      </span>
     </button>
   )
 }
 
-/** The subtree's done/running split as one segmented bar plus "N of M done" —
- *  the only progress surface in the inspector.
+/**
+ * ONE meter primitive, and it always sits with the list it counts (POD-516 r3
+ * #4). It used to float under the current update measuring a subtree nobody had
+ * on screen, which is how it came to say "0 of 1 done" about an issue with no
+ * children — a number describing nothing visible.
  *
- *  Same segment vocabulary as the Flight Deck's mission bar: done in success,
- *  running in the calm info blue. A live count is never amber — amber on this
- *  branch means "this is asking something of you" and nothing else. */
-function SubtreeMeter({
+ * Segment vocabulary is the Flight Deck's mission bar: done in success, running
+ * in the calm info blue. A live count is never amber — amber on this branch
+ * means "this is asking something of you" and nothing else. Renders nothing at
+ * all when there is nothing to count, so an empty list never grows a rule.
+ */
+function ProgressMeter({
   done,
-  run,
+  run = 0,
   total,
+  testId,
 }: {
   done: number
-  run: number
+  run?: number
   total: number
-}): JSX.Element {
-  const pct = (n: number): string => `${total === 0 ? 0 : (n / total) * 100}%`
+  testId: string
+}): JSX.Element | null {
+  if (total === 0) return null
+  const pct = (n: number): string => `${(n / total) * 100}%`
   return (
-    <div className="mt-2.5 flex items-center gap-2" data-testid="dock-subtree-meter">
+    <div className="mb-2 flex items-center gap-2" data-testid={testId}>
       <span className="flex h-1 flex-1 overflow-hidden rounded-full bg-secondary">
         <span
           className="h-full bg-success transition-[width] duration-300"
@@ -228,6 +262,33 @@ function SubtreeMeter({
   )
 }
 
+/**
+ * Where this task lives (POD-516 r3 #6). A branch and a worktree path are not
+ * evidence and not a check — they are the address of the work, and filing them
+ * under "Evidence & checks" is what made that section read as a junk drawer.
+ * Reference information: compact, mono, and late in the scroll.
+ */
+function CheckoutPart({ issue }: { issue: IssueViewModel }): JSX.Element | null {
+  // An issue with no dedicated worktree is worked in the repo's own checkout —
+  // that is still an address, and saying nothing there is what sent the
+  // operator hunting for the branch in the git panel.
+  const root = issue.worktreePath ?? issue.repoPath
+  if (!issue.gitState && !root) return null
+  return (
+    <DockPart title="Branch & worktree" testId="dock-checkout">
+      <IssueGitScope issue={issue} />
+      {root && (
+        <div className="shell-type-micro flex items-center gap-1.5 px-1 py-1 text-muted-foreground">
+          <Folder size={12} className="flex-none" aria-hidden="true" />
+          <span className="min-w-0 truncate font-mono" title={root}>
+            {root}
+          </span>
+        </div>
+      )}
+    </DockPart>
+  )
+}
+
 /** The five most recent things that happened to this task — comments and
  *  lifecycle events interleaved chronologically, newest first, using the same
  *  `buildActivityFeed` the full issue page's timeline is built from.
@@ -237,13 +298,7 @@ function SubtreeMeter({
  *  moves. Legacy fallback: a pre-#175 payload may still embed `comments` (and a
  *  viaHub issue's thread lives on the hub, where the proc returns []) — use the
  *  embedded thread when the fetch comes back empty. */
-function RecentActivity({
-  issue,
-  onOpenFull,
-}: {
-  issue: IssueViewModel
-  onOpenFull: () => void
-}): JSX.Element {
+function RecentActivity({ issue }: { issue: IssueViewModel }): JSX.Element {
   const trpc = useStoreSelector((s) => s.trpc)
   const [comments, setComments] = useState<IssueComment[]>(issue.comments ?? [])
   const [events, setEvents] = useState<IssueEvent[]>([])
@@ -316,35 +371,33 @@ function RecentActivity({
           ))
         )}
       </div>
-      <button
-        data-pressable
-        type="button"
-        onClick={onOpenFull}
-        data-testid="dock-open-full-activity"
-        className="shell-type-micro mt-1 w-full px-1 py-1.5 text-left text-muted-foreground hover:text-foreground"
-      >
-        Open full activity <ExternalLink size={10} className="inline align-[-1px]" />
-      </button>
+      {/* No "open full activity" button here any more: the one exit to the full
+          issue is the timeline link under the current update, where the operator
+          asked for it. Two links to the same destination in one scroll is the
+          same fact said twice. */}
     </DockPart>
   )
 }
 
 /**
- * The task head: identity, title, description and the one control strip. Fixed
- * above the scroll — the artifact's `inspect-head`.
+ * The task head: the ref and the one control strip. Fixed above the scroll —
+ * the artifact's `inspect-head`.
  *
- * **Every string in here is clamped on purpose.** This box is laid out before
- * the single scroll and never shrinks, so its height is the scroll's budget: a
- * two-line title, a three-line description and one 28px control row put its
- * ceiling around 200px whatever the issue says. Nothing that varies with the
- * number of sessions, offers or children may be added to it — that is the bug
- * this shape exists to prevent.
+ * **Nothing in here is text that varies in LENGTH any more** (POD-516 r3 #1/#2/
+ * #7). This box is laid out before the single scroll and never shrinks, so its
+ * height is the scroll's budget — and every clamp that used to defend that
+ * budget was itself a complaint: a two-line title cut, a three-line description
+ * cut. So the title moved up into the dock title bar (one header per panel) and
+ * the description moved DOWN into the scroll, where length is free. What is
+ * left is two fixed rows, ~62px, and it cannot grow at all.
+ *
+ * The word "Task" is gone from the ref line for the same reason: the title bar
+ * above already says which panel this is.
  */
 function InspectHead({ issue }: { issue: IssueViewModel }): JSX.Element {
   return (
-    <header className="flex-none px-3 pt-3 pb-3" data-testid="dock-inspect-head">
+    <header className="flex-none px-3 pt-2.5 pb-3" data-testid="dock-inspect-head">
       <div className="shell-type-micro flex items-center gap-2 font-mono text-text-dim">
-        <StageGlyph stage={issue.stage} size={12} />
         <button
           data-pressable
           type="button"
@@ -356,23 +409,17 @@ function InspectHead({ issue }: { issue: IssueViewModel }): JSX.Element {
         >
           {issueDisplayRef(issue)}
         </button>
-        <span className="label-mono ml-auto">Task</span>
       </div>
-      <h2 className="shell-type-reading mt-1.5 line-clamp-2 font-semibold tracking-[-0.01em] text-text-strong">
-        {issue.title}
-      </h2>
-      {issue.description.trim() && (
-        <p className="shell-type-secondary mt-1.5 line-clamp-3 text-muted-foreground">
-          {issue.description}
-        </p>
-      )}
       <IssueCompactControls issue={issue} />
     </header>
   )
 }
 
-/** Todo / Artifacts / Deferred / git — the issue's evidence, inline under one
- *  heading rather than three collapsibles. */
+/** Todos / Artifacts / Deferred — what the work actually produced and what it
+ *  still owes, inline under one heading rather than three collapsibles. The
+ *  branch and worktree used to ride along at the bottom of this section; they
+ *  are an address, not a verification result, and they now have their own
+ *  ({@link CheckoutPart}). */
 function EvidenceAndChecks({
   issue,
   machineId,
@@ -413,24 +460,16 @@ function EvidenceAndChecks({
 
   // "Only when the issue actually has them" — an empty evidence heading is
   // chrome, and the artifact does not render one.
-  if (todos.length === 0 && artifacts.length === 0 && deferred.length === 0 && !issue.gitState)
-    return null
+  if (todos.length === 0 && artifacts.length === 0 && deferred.length === 0) return null
 
   return (
     <DockPart title="Evidence & checks" testId="dock-evidence">
       {todos.length > 0 && (
         <>
-          <div className="mb-1.5 flex items-center gap-2">
-            <div className="h-1 flex-1 overflow-hidden rounded-full bg-secondary">
-              <div
-                className="h-full rounded-full bg-success transition-[width] duration-300"
-                style={{ width: `${(doneCount / todos.length) * 100}%` }}
-              />
-            </div>
-            <span className="shell-type-micro font-mono tabular-nums text-text-dim">
-              {doneCount}/{todos.length}
-            </span>
-          </div>
+          {/* The same meter as Subtasks, reading the same way, sitting with the
+              list it counts — two progress surfaces that disagreed about their
+              own grammar was half of why the other one read as random. */}
+          <ProgressMeter done={doneCount} total={todos.length} testId="dock-todos-meter" />
           <div className="mb-2 flex flex-col gap-0.5">
             {todos.map((t, i) => (
               <div
@@ -590,7 +629,6 @@ function EvidenceAndChecks({
         </div>
       )}
 
-      <IssueGitScope issue={issue} />
       {lightbox && <MediaLightbox {...lightbox} onClose={() => setLightbox(null)} />}
     </DockPart>
   )
@@ -668,11 +706,18 @@ function IntakeDock({ session }: { session?: SessionMeta }): JSX.Element {
 }
 
 /**
- * Issue tab of the right dock: the approved task inspector. A fixed head
- * (identity, title, description, controls), the decision band when the issue
- * needs you, and then ONE scroll — current update, work, agents & sessions,
- * relations, evidence, activity. No collapsible section chrome and no nested
- * per-subissue tier: the whole task reads top to bottom.
+ * Issue tab of the right dock: the approved task inspector. A two-row fixed
+ * head (ref, controls), the decision band when the issue needs you, and then
+ * ONE scroll — the description, then current update, subtasks, agents &
+ * sessions, relations, evidence, branch & worktree, activity. No collapsible
+ * section chrome and no nested per-subissue tier: the whole task reads top to
+ * bottom.
+ *
+ * The scroll is ordered by how fast the fact moves. What the task IS (its
+ * description) never changes; what it is DOING right now changes by the minute;
+ * where it lives changes once; what happened is already over. Reading down the
+ * panel is therefore reading forward in time, which is why the history sits
+ * last and the address sits just above it.
  */
 export function IssuePanelView({
   cwd,
@@ -709,26 +754,12 @@ export function IssuePanelView({
     [issues, sessions, cwd, sessionId, issueId],
   )
   const issueById = useMemo(() => new Map(issues.map((i) => [i.id, i])), [issues])
-  // DIRECT children only — the artifact's Work section is one tier deep with a
-  // completed fold, not a flattened recursive subtree.
+  // DIRECT children only — the artifact's Subtasks section is one tier deep
+  // with a completed fold, not a flattened recursive subtree. The meter counts
+  // exactly this list and nothing else (POD-516 r3 #4): it used to walk the
+  // whole subtree AND count the issue itself, which is how a childless task
+  // came to wear a progress bar reading "0 of 1 done".
   const children = useMemo(() => (issue ? subIssuesOf(issues, issue.id) : []), [issues, issue])
-  // The whole subtree, for the meter only: "N of M done" describes the work the
-  // task is answerable for, which is deeper than its direct children.
-  const subtree = useMemo(() => {
-    if (!issue) return []
-    const out: IssueViewModel[] = []
-    const seen = new Set<string>([issue.id])
-    const walk = (parentId: string): void => {
-      for (const child of subIssuesOf(issues, parentId)) {
-        if (seen.has(child.id)) continue
-        seen.add(child.id)
-        out.push(child)
-        walk(child.id)
-      }
-    }
-    walk(issue.id)
-    return out
-  }, [issues, issue])
   // Typed relations (POD-85): the compact disclosure surface — the sidebar
   // whispers (⤷ tick), this panel names every edge.
   const relations = useMemo(() => (issue ? groupRelations(issue) : []), [issue])
@@ -756,14 +787,11 @@ export function IssuePanelView({
     return <IntakeDock session={sessions.find((s) => s.sessionId === sessionId)} />
   }
 
-  const scope = [issue, ...subtree]
-  const done = scope.filter((i) => i.stage === 'done' || Boolean(i.closedReason)).length
-  const run = scope.filter(
-    (i) => !i.closedReason && (i.stage === 'in_progress' || i.stage === 'review'),
-  ).length
-
   const openChildren = children.filter((c) => c.stage !== 'done' && !c.closedReason)
   const doneChildren = children.filter((c) => c.stage === 'done' || Boolean(c.closedReason))
+  const runningChildren = openChildren.filter(
+    (c) => c.stage === 'in_progress' || c.stage === 'review',
+  ).length
 
   const all = issueSessions(issue, sessions)
   // Needs-you first — the answer affordance now lives on the session row, and
@@ -784,7 +812,6 @@ export function IssuePanelView({
   // instead. No local fallback — a second set of words here is what drifts.
   const presence = presenceNote(issue, all, issueById)
 
-  const author = coordinatorSession(issue, activeSessions)
   const notesAt = issue.notesUpdatedAt ?? issue.updatedAt
 
   const openFullIssue = (): void => {
@@ -795,8 +822,8 @@ export function IssuePanelView({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {/* TWO BOXES, and only two. Everything above the scroll lives in this
-          `flex-none` region and is bounded by construction (clamped title,
-          clamped description, one control row, a one-line decision band); the
+          `flex-none` region and is bounded by construction (a ref line, one
+          control row, a one-line decision band — no free text at all); the
           scroll below it is `flex-1 min-h-0` and gets all the rest. The dock
           became unscrollable the moment something data-sized (a stack of offer
           cards) was allowed into the fixed region — see the scroll test. */}
@@ -809,39 +836,67 @@ export function IssuePanelView({
         data-testid="dock-scroll"
         data-dock-scroll=""
       >
-        <DockPart title="Current update" testId="dock-current-update">
-          {/* Calm blue: the update is information, not an ask. The yellow on
-              this surface belongs to the primary action and to needs-you. */}
-          <div className="border-l-[3px] border-info/70 pl-2.5">
-            <div className="shell-type-micro flex items-center gap-2 font-mono text-muted-foreground">
-              {author && <KindIcon kind={author.agentKind} chip />}
-              <span className="min-w-0 truncate">
-                Current{author ? ` · ${sessionDisplayName(author)}` : ''}
-                {notesAt ? ` · ${relativeTime(notesAt, Date.now())}` : ''}
-              </span>
-            </div>
-            <p
-              className={cn(
-                'shell-type-secondary mt-1.5 whitespace-pre-wrap',
-                issue.activityNotes ? 'text-foreground/85' : 'text-text-faint italic',
-              )}
-            >
-              {issue.activityNotes || 'No status posted yet.'}
-            </p>
-          </div>
-          <SubtreeMeter done={done} run={run} total={scope.length} />
+        {/* The task in the author's own words, UNCAPPED (POD-516 r3 #2). It sits
+            in the scroll rather than the fixed head precisely so it can be: the
+            three-line clamp existed to protect the scroll's height budget, and
+            down here there is no budget to protect. One step up from the shell's
+            12px body — it is the one paragraph on this surface anybody reads. */}
+        {issue.description.trim() && (
+          <p
+            className="shell-type-primary mb-[18px] whitespace-pre-wrap text-muted-foreground"
+            data-testid="dock-description"
+          >
+            {issue.description}
+          </p>
+        )}
+
+        {/* The agent's name is NOT here (POD-516 r3 #3): the roster two sections
+            down is where agents are listed, and the update was repeating it. The
+            age moved onto the heading rule, so the body is only the words. */}
+        <DockPart
+          title="Current update"
+          testId="dock-current-update"
+          meta={notesAt ? relativeTime(notesAt, Date.now()) : undefined}
+        >
+          <p
+            className={cn(
+              'shell-type-secondary px-1 whitespace-pre-wrap',
+              issue.activityNotes ? 'text-foreground/85' : 'text-text-faint italic',
+            )}
+          >
+            {issue.activityNotes || 'No status posted yet.'}
+          </p>
+          <button
+            data-pressable
+            type="button"
+            onClick={openFullIssue}
+            data-testid="dock-open-full-activity"
+            className="shell-type-micro mt-1 w-full px-1 py-1.5 text-left text-muted-foreground hover:text-foreground"
+          >
+            Full update timeline <ExternalLink size={10} className="inline align-[-1px]" />
+          </button>
         </DockPart>
 
         {children.length > 0 && (
-          <DockPart title="Work" count={children.length} testId="dock-subissues">
-            {openChildren.map((sub) => (
-              <UnifiedRow
-                key={sub.id}
-                sub={sub}
-                meta={operationalState(sub, issueSessions(sub, sessions), issueById).label}
-                onOpen={() => focusIssue(sub)}
-              />
-            ))}
+          <DockPart title="Subtasks" count={children.length} testId="dock-subissues">
+            <ProgressMeter
+              done={doneChildren.length}
+              run={runningChildren}
+              total={children.length}
+              testId="dock-subtasks-meter"
+            />
+            {openChildren.map((sub) => {
+              const state = operationalState(sub, issueSessions(sub, sessions), issueById)
+              return (
+                <UnifiedRow
+                  key={sub.id}
+                  sub={sub}
+                  meta={state.label}
+                  needs={state.state === 'needs-you'}
+                  onOpen={() => focusIssue(sub)}
+                />
+              )
+            })}
             {doneChildren.length > 0 && (
               <>
                 <FoldRow
@@ -940,15 +995,16 @@ export function IssuePanelView({
 
         <EvidenceAndChecks issue={issue} machineId={machineId} />
 
-        {/* Activity sits LAST, as it does on the issue page and in the approved
-            reference: it is history. Above the fold belongs to the live work —
-            update, work, sessions, relations, evidence. */}
-        <RecentActivity issue={issue} onOpenFull={openFullIssue} />
+        {/* Where the work happens — an address, not a check. */}
+        <CheckoutPart issue={issue} />
 
-        <p className="shell-type-micro text-text-faint">
-          The current update is this task's live state, kept by the agent working it; comments and
-          lifecycle events form the activity feed.
-        </p>
+        {/* Activity sits LAST, as it does on the issue page and in the approved
+            reference: it is history. Above it belongs the live work — update,
+            subtasks, sessions, relations, evidence — and then the address.
+            The footnote that used to close this scroll ("the current update is
+            this task's live state…") is gone: it explained two section headings
+            to an operator who reads them every day. */}
+        <RecentActivity issue={issue} />
       </div>
     </div>
   )

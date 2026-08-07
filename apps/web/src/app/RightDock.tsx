@@ -2,6 +2,7 @@ import { shallowEqual } from '@podium/client-core/store'
 import {
   cwdInWorktree,
   issueForCwd,
+  issueForPanel,
   reposToViews,
   resolveActiveWorktree,
 } from '@podium/client-core/viewmodels'
@@ -22,6 +23,7 @@ import { Button } from '@/components/ui/button'
 import { WorktreeFileTree } from '@/features/files/WorktreeFileTree'
 import { GitPanelView } from '@/features/git/GitPanelView'
 import { IssuePanelView } from '@/features/issues/IssuePanelView'
+import { StageGlyph } from '@/features/issues/issue-glyphs'
 import { MergeQueuePanel } from '@/features/merge-queue/MergeQueuePanel'
 import { MessageLedgerView } from '@/features/messages/MessageLedgerView'
 import { SuperagentView } from '@/features/superagent/SuperagentView'
@@ -110,6 +112,28 @@ export function RightDock({
   const selectedIssue = inspectedId
     ? issues.find((issue) => issue.id === inspectedId && !issue.archived && !issue.deletedAt)
     : undefined
+  // What the title bar SAYS on the Task tab (POD-516 r3 #7). Every other panel
+  // is one thing and wears its own name; the Task panel is a different task
+  // every time you touch the sidebar, so "Task" was a label that never told the
+  // operator which one — while the panel below it spent a whole line of its
+  // fixed head repeating a title the header should have carried.
+  //
+  // Resolved with `issueForPanel`, the SAME pure function the panel resolves
+  // with and from the same inputs, so the bar and the body can never name two
+  // different tasks. When it comes back null the panel is showing its intake
+  // state and the bar falls back to the generic label.
+  const dockIssue = useMemo(() => {
+    if (tab !== 'issue') return null
+    if (selectedIssue) return selectedIssue
+    if (!active) return null
+    return issueForPanel({
+      issues,
+      sessions,
+      cwd: active.cwd,
+      sessionId: active.sessionId,
+      issueId: active.issueId,
+    })
+  }, [tab, selectedIssue, active, issues, sessions])
   const mergeQueueScope = useMemo(() => {
     if (!active) return null
 
@@ -147,13 +171,30 @@ export function RightDock({
     <DockHeaderSlotProvider value={headerActions}>
       <div className="flex min-h-0 flex-1 flex-col" data-right-dock-panel={tab}>
         <div className="flex h-11 flex-none items-center gap-2.5 border-b border-border px-3.5">
-          <span className="flex min-w-0 flex-1 items-center gap-[7px]">
-            {/* Chrome ink, not signal ink: this glyph is lit on every panel, and a
-              permanently-yellow mark where nothing is asked of the operator is
-              the exact spend The Signal Rule guards. */}
-            <panel.icon size={16} className="flex-none text-text-dim" aria-hidden="true" />
-            <span className="truncate text-[15px] font-semibold text-secondary-foreground">
-              {panel.label}
+          {/* Keyed on what is named, so switching the inspected task is a one-shot
+              200ms morph rather than a snap — the identity is the one thing in
+              this bar that changes while you watch it. No perpetual motion. */}
+          <span
+            key={dockIssue?.id ?? panel.id}
+            className="flex min-w-0 flex-1 animate-in items-center gap-[7px] fade-in slide-in-from-left-1 duration-200 motion-reduce:animate-none"
+          >
+            {dockIssue ? (
+              // The stage, once, where the panel used to draw it a second time.
+              <StageGlyph stage={dockIssue.stage} size={15} />
+            ) : (
+              /* Chrome ink, not signal ink: this glyph is lit on every panel, and a
+                permanently-yellow mark where nothing is asked of the operator is
+                the exact spend The Signal Rule guards. */
+              <panel.icon size={16} className="flex-none text-text-dim" aria-hidden="true" />
+            )}
+            <span
+              className="truncate text-[15px] font-semibold text-secondary-foreground"
+              // A dock this narrow truncates most real titles, so the full one
+              // has to be one hover away.
+              title={dockIssue?.title}
+              data-dock-title={dockIssue ? 'issue' : 'panel'}
+            >
+              {dockIssue ? dockIssue.title : panel.label}
             </span>
           </span>
           <span className="flex flex-none items-center gap-1">

@@ -34,8 +34,9 @@ const DONE_CHILD = makeIssue({
   parentId: 'root',
   stage: 'done',
 })
-// A grandchild: it belongs in the subtree meter but NOT in the Work list, which
-// is one tier deep in the approved inspector.
+// A grandchild: it belongs to its own parent's Subtasks list, and to NEITHER
+// this panel's list nor this panel's meter — the inspector is one tier deep and
+// the meter counts exactly the rows it sits above (POD-516 r3 #4).
 const GRANDCHILD = makeIssue({
   id: 'g1',
   repoPath: '/r',
@@ -153,9 +154,10 @@ describe('IssuePanelView inspector', () => {
 
     expect(parts()).toEqual([
       'Current update',
-      'Work',
+      'Subtasks',
       'Agents & sessions',
       'Relations',
+      'Branch & worktree',
       'Recent activity',
     ])
   })
@@ -168,28 +170,104 @@ describe('IssuePanelView inspector', () => {
     }
   })
 
-  it('leads with the identity, title and description — not stage, priority and assignee', () => {
+  // The TITLE is the dock title bar's job now (RightDock), so the panel leads
+  // with the ref and the description — and the description is uncapped, because
+  // it lives in the scroll instead of in the height-budgeted fixed head.
+  it('leads with the ref and an uncapped description, and repeats no title', () => {
     render(<IssuePanelView cwd="/r" />)
 
-    expect(screen.getByText('Operator workspace')).toBeTruthy()
-    expect(screen.getByText('Rework the dock into one scroll.')).toBeTruthy()
+    expect(within(screen.getByTestId('dock-inspect-head')).getByText('#1')).toBeTruthy()
+    const description = screen.getByTestId('dock-description')
+    expect(description.textContent).toBe('Rework the dock into one scroll.')
+    expect(description.className).not.toContain('line-clamp')
+    // The dock title bar says it once; the panel does not say it again.
+    expect(screen.queryByText('Operator workspace')).toBeNull()
+    // ...and the head no longer names the panel it is already inside.
+    expect(within(screen.getByTestId('dock-inspect-head')).queryByText('Task')).toBeNull()
     expect(screen.queryByText('P2')).toBeNull()
     expect(screen.queryByText(/subissues done/)).toBeNull()
   })
 
-  it('reads the subtree in the meter and the direct children in Work', () => {
+  it('puts the meter with the subtasks it counts, and counts only those', () => {
     render(<IssuePanelView cwd="/r" />)
 
-    // root + 2 children + 1 grandchild = 4 in scope, one of them done.
-    expect(screen.getByTestId('dock-subtree-meter').textContent).toContain('1 of 4 done')
     const work = screen.getByTestId('dock-subissues')
+    // 2 direct children, one done. Neither the issue itself nor the grandchild
+    // is in the count — the meter describes the rows underneath it.
+    expect(within(work).getByTestId('dock-subtasks-meter').textContent).toContain('1 of 2 done')
+    // ...and it is no longer floating under the current update.
+    expect(
+      within(screen.getByTestId('dock-current-update')).queryByTestId('dock-subtasks-meter'),
+    ).toBeNull()
     expect(within(work).getByText('Flat sidebar')).toBeTruthy()
-    // The grandchild belongs to its own parent's Work list, not this one.
+    // The grandchild belongs to its own parent's Subtasks list, not this one.
     expect(within(work).queryByText('Rail badge')).toBeNull()
     // Completed work folds away until asked for.
     expect(within(work).queryByText('Tray removal')).toBeNull()
     fireEvent.click(within(work).getByText(/Show 1 completed/))
     expect(within(work).getByText('Tray removal')).toBeTruthy()
+  })
+
+  // Amber, in the same place and the same weight the sidebar and the Flight
+  // Deck put it, so one task does not read three ways in three columns.
+  it('marks a subtask that needs the operator in attention ink', () => {
+    mockIssues = [ROOT, { ...OPEN_CHILD, needsHuman: true }, DONE_CHILD, GRANDCHILD]
+    render(<IssuePanelView cwd="/r" />)
+
+    const work = screen.getByTestId('dock-subissues')
+    const marked = [...work.querySelectorAll<HTMLElement>('[data-needs-you]')]
+    expect(marked).toHaveLength(1)
+    const row = marked[0] as HTMLElement
+    expect(row.textContent).toContain('Flat sidebar')
+    expect(within(row).getByText('Needs you').className).toContain('text-attention')
+  })
+
+  // The current update says WHAT happened and when; who said it is the roster's
+  // job, two sections down, and saying it twice is what the operator flagged.
+  it('keeps the update to its words and its age, with one link to the timeline', () => {
+    mockSessions = [session()]
+    render(<IssuePanelView cwd="/r" />)
+
+    const update = screen.getByTestId('dock-current-update')
+    expect(update.textContent).toContain('Spine direction is fixed')
+    expect(update.textContent).not.toContain('Workspace coordinator')
+    expect(within(update).getByTestId('dock-open-full-activity')).toBeTruthy()
+    // Only one exit to the full issue in the whole scroll.
+    expect(screen.getAllByTestId('dock-open-full-activity')).toHaveLength(1)
+  })
+
+  // A branch is an address, not a verification result.
+  it('gives the branch and worktree their own section instead of trailing evidence', () => {
+    mockIssues = [
+      {
+        ...ROOT,
+        branch: 'issue/554-host-resource-lifecycle-policy',
+        gitState: {
+          updatedAt: '2026-08-07T00:00:00.000Z',
+          branch: 'issue/554-host-resource-lifecycle-policy',
+          shared: false,
+          dirtyFiles: 0,
+        },
+        panel: {
+          todos: [{ text: 'Runtime verification', done: false }],
+          artifacts: [],
+          deferred: [],
+        },
+      },
+      OPEN_CHILD,
+      DONE_CHILD,
+      GRANDCHILD,
+    ]
+    render(<IssuePanelView cwd="/r" />)
+
+    const checkout = screen.getByTestId('dock-checkout')
+    expect(within(checkout).getByText('issue/554-host-resource-lifecycle-policy')).toBeTruthy()
+    expect(within(checkout).getByTitle('/r')).toBeTruthy()
+    expect(
+      within(screen.getByTestId('dock-evidence')).queryByText(
+        'issue/554-host-resource-lifecycle-policy',
+      ),
+    ).toBeNull()
   })
 
   it('lists the agents and sessions working the task', () => {
