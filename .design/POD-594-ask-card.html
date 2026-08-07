@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="en" data-theme="superade" class="dark">
+<head>
+<meta charset="utf-8" />
+<title>POD-594 — Ask-user question card</title>
+<style>
+:root{
+  --background:#0a0f1c; --foreground:#d7d7e0; --card:#121b30; --primary:#f5c518;
+  --primary-foreground:#0a0f1c; --muted:#17223c; --muted-foreground:#9a9aa8;
+  --accent:#1c2a4e; --destructive:#e5303f; --border:#243356; --input:#364a78;
+  --chip:#16223c; --hairline-soft:#1e2a4c; --border-strong:#364a78;
+  --text-strong:#f3f3f8; --text-dim:#818ba5; --text-faint:#737e9a; --label:#8b94ac;
+  --live:#6f9dff;
+  --font-sans:"Geist Variable",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  --font-mono:"Geist Mono Variable",ui-monospace,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--background);color:var(--foreground);font-family:var(--font-sans);
+  font-size:12px;-webkit-font-smoothing:antialiased;padding:26px 30px 60px}
+.sheet{max-width:1040px;margin:0 auto}
+h1{font-size:12px;font-weight:600;color:var(--text-strong);letter-spacing:.01em}
+.sub{margin-top:3px;color:var(--text-dim);font-size:11.5px;line-height:1.5;max-width:76ch}
+.plate{margin-top:26px}
+.plate-label{font-family:var(--font-mono);font-size:8.5px;font-weight:500;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--label);display:flex;align-items:center;gap:9px;margin-bottom:9px}
+.plate-label::after{content:"";flex:1;height:1px;background:var(--hairline-soft)}
+.feed{max-width:960px}
+
+/* ───────────── BEFORE (incumbent, for comparison) ───────────── */
+.old-frame{border:1px solid color-mix(in oklab,var(--primary) 45%,transparent);
+  background:color-mix(in oklab,var(--primary) 4%,transparent);border-radius:8px;padding:10px 14px}
+.old-role{font-size:10.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--primary);opacity:.85}
+.old-head{font-size:10px;text-transform:uppercase;letter-spacing:.06em;
+  color:color-mix(in oklab,var(--muted-foreground) 70%,transparent);margin:10px 0 2px}
+.old-q{font-size:14px;font-weight:500;color:var(--foreground)}
+.old-opt{border:1px solid var(--border);border-radius:6px;padding:6px 10px;margin-top:4px}
+.old-opt b{font-size:12px;font-weight:500;color:var(--foreground)}
+.old-opt span{display:block;margin-top:2px;font-size:11px;line-height:1.35;
+  color:color-mix(in oklab,var(--muted-foreground) 80%,transparent)}
+
+/* ───────────── AFTER: the ask card ───────────── */
+.ask{border:1px solid color-mix(in oklab,var(--primary) 40%,transparent);
+  background:color-mix(in oklab,var(--primary) 5%,transparent);
+  border-radius:10px;padding:9px 13px 11px}
+.ask--quiet{border-color:var(--border);background:transparent}
+
+.ask-bar{display:flex;align-items:center;gap:9px;min-height:15px}
+.ask-eyebrow{display:flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:8.5px;
+  font-weight:500;letter-spacing:.12em;text-transform:uppercase;color:var(--primary)}
+.ask--quiet .ask-eyebrow{color:var(--label)}
+.ask-eyebrow svg{width:11px;height:11px}
+.ask-count{margin-left:auto;font-family:var(--font-mono);font-size:9px;font-variant-numeric:tabular-nums;
+  letter-spacing:.06em;color:var(--text-faint)}
+.ask-sending{margin-left:auto;display:flex;align-items:center;gap:5px;font-family:var(--font-mono);
+  font-size:9px;letter-spacing:.06em;color:var(--text-dim)}
+.ask-error{margin-left:auto;font-family:var(--font-mono);font-size:9px;letter-spacing:.06em;color:var(--destructive)}
+
+/* Question rail — the tool's own `header` field finally earns its purpose. */
+.ask-rail{display:flex;flex-wrap:wrap;gap:3px;margin-top:7px}
+.ask-tab{display:inline-flex;align-items:center;gap:5px;height:20px;padding:0 7px;border-radius:5px;
+  border:1px solid transparent;background:transparent;cursor:pointer;
+  font-family:var(--font-mono);font-size:9px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--text-faint);transition:color 120ms ease,background-color 120ms ease}
+.ask-tab:hover{color:var(--foreground);background:rgb(255 255 255/.04)}
+.ask-tab[aria-selected="true"]{background:var(--chip);border-color:var(--border-strong);color:var(--text-strong)}
+.ask-tab .tick{color:var(--primary);font-size:9px;line-height:1}
+.ask-tab[data-done="true"]{color:var(--text-dim)}
+
+.ask-q{margin-top:9px;font-size:13px;font-weight:600;line-height:1.4;color:var(--foreground);max-width:84ch}
+
+.ask-opts{margin-top:7px;display:flex;flex-direction:column;gap:1px}
+.opt{display:grid;grid-template-columns:16px 1fr;gap:9px;width:100%;text-align:left;
+  padding:6px 8px 7px;border:1px solid transparent;border-radius:7px;background:transparent;
+  cursor:pointer;font:inherit;color:inherit;
+  transition:background-color 130ms ease,border-color 130ms ease}
+.opt:hover{background:rgb(255 255 255/.038)}
+.opt:hover .opt-label{color:var(--text-strong)}
+.opt:focus-visible{outline:2px solid color-mix(in oklab,var(--primary) 55%,transparent);outline-offset:1px}
+.opt[aria-checked="true"]{background:color-mix(in oklab,var(--primary) 8%,transparent);
+  border-color:color-mix(in oklab,var(--primary) 34%,transparent)}
+.opt[data-dim="true"]{opacity:.4}
+
+.key{grid-row:1/3;width:16px;height:16px;margin-top:1px;border-radius:4px;display:flex;align-items:center;
+  justify-content:center;font-family:var(--font-mono);font-size:9.5px;font-weight:500;
+  font-variant-numeric:tabular-nums;background:rgb(255 255 255/.06);color:var(--text-dim)}
+.opt[aria-checked="true"] .key{background:var(--primary);color:var(--primary-foreground)}
+.key--box{border-radius:3px}
+
+.opt-line{display:flex;align-items:baseline;gap:7px;flex-wrap:wrap;min-width:0}
+.opt-label{font-size:12.5px;font-weight:500;line-height:1.35;color:var(--foreground)}
+.opt[aria-checked="true"] .opt-label{color:var(--text-strong);font-weight:600}
+.rec{flex:none;height:14px;padding:0 5px;border:1px solid var(--border);border-radius:4px;
+  display:inline-flex;align-items:center;font-family:var(--font-mono);font-size:8px;font-weight:500;
+  letter-spacing:.1em;text-transform:uppercase;color:var(--text-dim)}
+.opt-desc{grid-column:2;margin-top:1px;font-size:11.5px;line-height:1.45;color:var(--muted-foreground);max-width:76ch}
+
+.ask-foot{display:flex;align-items:center;gap:10px;margin-top:9px}
+.ask-hint{font-family:var(--font-mono);font-size:9px;letter-spacing:.05em;color:var(--text-faint)}
+.ask-hint kbd{font-family:inherit;color:var(--text-dim)}
+.btn{height:26px;padding:0 10px;border-radius:6px;border:none;cursor:pointer;
+  font-family:var(--font-sans);font-size:12px;font-weight:500;
+  background:var(--primary);color:var(--primary-foreground);transition:opacity 150ms ease}
+.btn:hover{opacity:.85}
+.btn:disabled{opacity:.4;cursor:default}
+
+/* Read-only rows (parked / historical, nothing to do) */
+.ro{display:grid;grid-template-columns:16px 1fr;gap:9px;padding:5px 8px 6px;border-radius:7px}
+.ro[data-chosen="true"]{background:color-mix(in oklab,var(--primary) 8%,transparent)}
+.ro .key{background:transparent;color:var(--text-faint)}
+.ro[data-chosen="true"] .key{background:transparent;color:var(--primary)}
+
+/* Answered receipt */
+.receipt{display:flex;flex-direction:column;gap:2px;padding:2px 0}
+.receipt-row{display:flex;align-items:baseline;gap:8px;min-width:0;font-size:11.5px;color:var(--muted-foreground)}
+.receipt-row .g{flex:none;width:12px;text-align:center;font-size:10px;color:var(--text-faint)}
+.receipt-row .q{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.receipt-row .a{flex:none;height:16px;padding:0 6px;border:1px solid var(--border);border-radius:5px;
+  display:inline-flex;align-items:center;font-size:11px;font-weight:500;color:var(--foreground)}
+
+.note{margin-top:7px;font-size:11px;line-height:1.5;color:var(--text-dim);max-width:74ch}
+</style>
+</head>
+<body>
+<div class="sheet">
+  <h1>POD-594 — the agent asks you something</h1>
+  <p class="sub">One decision surface, sibling to the Offer bar. Real content: POD-592's live three-question ask.</p>
+
+  <!-- ══════════════ BEFORE ══════════════ -->
+  <div class="plate">
+    <div class="plate-label">Today · 3 questions, 9 options, ~1200px of card</div>
+    <div class="feed">
+      <div class="old-frame">
+        <div class="old-role">Question for you</div>
+        <div class="old-head">516 dep</div>
+        <div class="old-q">The Flight Deck's whole derivation is 937 lines of web-local code on POD-516's unlanded branch. How should mobile get it?</div>
+        <div class="old-opt"><b>1. Promote to client-core now (Recommended)</b><span>Mail POD-516 and move mission.ts into @podium/client-core/viewmodels as a published slice — same pattern that killed sidebar drift with worklistSlice. Web and phone then derive once.</span></div>
+        <div class="old-opt"><b>2. Wait for POD-516 to land on main</b><span>Design the mobile deck now, start implementing once 516 is on main. Zero interference, but nothing ships until they're done.</span></div>
+        <div class="old-opt"><b>3. Mobile-local derivation now</b><span>Write a phone-side mission derivation and ship independently. Fastest, but creates a second source of truth that will drift.</span></div>
+        <div class="old-head">Peek depth</div>
+        <div class="old-q">Inside the Flight Deck, tapping a task peeks the inspector in a bottom sheet. What happens to the full task screen?</div>
+        <div class="old-opt"><b>1. One sheet, two detents (Recommended)</b><span>Medium detent = the peek. Drag to full = the complete inspector. Nothing to navigate to; the old route redirects into the deck.</span></div>
+        <div class="old-opt"><b>2. Peek sheet + push to full screen</b><span>Sheet stays a light glance with an 'Open task' row. Simpler, but adds a navigation step and two surfaces showing the same task.</span></div>
+        <div class="old-opt"><b>3. Peek only, deck carries the rest</b><span>The sheet is purely a glance; the deck screen hosts the mission's description and composer.</span></div>
+        <div class="old-head">Runtime</div>
+        <div class="old-q">iOS 26 fidelity is much better on a native build. What do I target?</div>
+        <div class="old-opt"><b>1. Native-first, PWA fallback (Recommended)</b><span>Build the deck and sheet on native primitives with a deliberate degraded path for Safari/PWA.</span></div>
+        <div class="old-opt"><b>2. PWA only, best possible</b><span>Everything must work in react-native-web at /mobile — hand-built detents, JS springs, CSS backdrop-filter.</span></div>
+        <div class="old-opt"><b>3. Native build is coming — assume it</b><span>Treat iOS native as the primary target and don't hold anything back for web parity.</span></div>
+      </div>
+    </div>
+    <p class="note">Nine identically-weighted bordered boxes read as a form, not a decision. The yellow "needs you" frame is taller than the viewport, so its signal is never seen whole. Three questions have no boundary between them, no progress, and no keyboard route despite the underlying mechanism being number keys.</p>
+  </div>
+
+  <!-- ══════════════ AFTER — live, multi-question ══════════════ -->
+  <div class="plate">
+    <div class="plate-label">Redesign · live, question 1 of 3</div>
+    <div class="feed">
+      <div class="ask">
+        <div class="ask-bar">
+          <span class="ask-eyebrow">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+            Question · needs you
+          </span>
+          <span class="ask-count">1 / 3</span>
+        </div>
+        <div class="ask-rail" role="tablist">
+          <button class="ask-tab" role="tab" aria-selected="true">516 dep</button>
+          <button class="ask-tab" role="tab" aria-selected="false">Peek depth</button>
+          <button class="ask-tab" role="tab" aria-selected="false">Runtime</button>
+        </div>
+        <div class="ask-q">The Flight Deck's whole derivation (mission tree, spine rows, progress, presence, session roles) is 937 lines of web-local code on POD-516's unlanded branch, still being reworked. How should mobile get it?</div>
+        <div class="ask-opts" role="radiogroup">
+          <button class="opt" role="radio" aria-checked="false">
+            <span class="key">1</span>
+            <span class="opt-line"><span class="opt-label">Promote to client-core now</span><span class="rec">rec</span></span>
+            <span class="opt-desc">Mail POD-516 and move mission.ts into @podium/client-core/viewmodels as a published slice — same pattern that killed sidebar drift with worklistSlice. Web and phone then derive once. Costs coordination with 4 live implementors; I'd build mobile against the 516 branch and land after it.</span>
+          </button>
+          <button class="opt" role="radio" aria-checked="false">
+            <span class="key">2</span>
+            <span class="opt-line"><span class="opt-label">Wait for POD-516 to land on main</span></span>
+            <span class="opt-desc">Design the mobile deck now (spec + interactive concept for your review), start implementing once 516 is on main. Zero interference, but nothing ships until they're done — and round 3 is still landing surface by surface.</span>
+          </button>
+          <button class="opt" role="radio" aria-checked="false">
+            <span class="key">3</span>
+            <span class="opt-line"><span class="opt-label">Mobile-local derivation now</span></span>
+            <span class="opt-desc">Write a phone-side mission derivation and ship independently. Fastest, but creates a second source of truth that will drift from the desktop deck — exactly what worklistSlice was created to prevent.</span>
+          </button>
+        </div>
+        <div class="ask-foot">
+          <span class="ask-hint"><kbd>1</kbd>–<kbd>3</kbd> choose · <kbd>↑↓</kbd> move</span>
+        </div>
+      </div>
+    </div>
+    <p class="note">One question at a time. The tool's own <code>header</code> field — a ≤12-character chip by contract — becomes the rail, so all three questions stay visible and jumpable while only one is open. Answering advances; the last answer submits the whole set.</p>
+  </div>
+
+  <!-- ══════════════ AFTER — mid-flow, second question, one answered ══════════════ -->
+  <div class="plate">
+    <div class="plate-label">Redesign · question 2 of 3, first answered</div>
+    <div class="feed">
+      <div class="ask">
+        <div class="ask-bar">
+          <span class="ask-eyebrow">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+            Question · needs you
+          </span>
+          <span class="ask-count">2 / 3</span>
+        </div>
+        <div class="ask-rail" role="tablist">
+          <button class="ask-tab" role="tab" aria-selected="false" data-done="true"><span class="tick">✓</span>516 dep</button>
+          <button class="ask-tab" role="tab" aria-selected="true">Peek depth</button>
+          <button class="ask-tab" role="tab" aria-selected="false">Runtime</button>
+        </div>
+        <div class="ask-q">Inside the Flight Deck, tapping a task peeks the inspector in a bottom sheet. What happens to the full task screen (comments, composer, artifacts) that /issue/[id] shows today?</div>
+        <div class="ask-opts" role="radiogroup">
+          <button class="opt" role="radio" aria-checked="true">
+            <span class="key">✓</span>
+            <span class="opt-line"><span class="opt-label">One sheet, two detents</span><span class="rec">rec</span></span>
+            <span class="opt-desc">Medium detent = the peek (identity, needs-you, stage/answer actions, current update, progress). Drag to full = the complete inspector: subtasks, sessions, relations, artifacts, activity, comment composer. Nothing to navigate to; the old route redirects into the deck. Most iOS-native answer.</span>
+          </button>
+          <button class="opt" role="radio" aria-checked="false">
+            <span class="key">2</span>
+            <span class="opt-line"><span class="opt-label">Peek sheet + push to full screen</span></span>
+            <span class="opt-desc">Sheet stays a light glance with an 'Open task' row that pushes the existing full task screen. Simpler, keeps today's screen, but adds a navigation step and two surfaces showing the same task.</span>
+          </button>
+          <button class="opt" role="radio" aria-checked="false">
+            <span class="key">3</span>
+            <span class="opt-line"><span class="opt-label">Peek only, deck carries the rest</span></span>
+            <span class="opt-desc">The sheet is purely a glance; the deck screen itself hosts the mission's description, comments and composer for the root task. Fewer layers, but child tasks then have no place to be commented on.</span>
+          </button>
+        </div>
+        <div class="ask-foot">
+          <button class="btn" disabled>Send answers</button>
+          <span class="ask-hint">1 left · <kbd>1</kbd>–<kbd>3</kbd> choose · <kbd>↑↓</kbd> move</span>
+        </div>
+      </div>
+    </div>
+    <p class="note">A single single-select question still commits the instant you click it, exactly like the native menu behind it. Anything larger — several questions, or a multi-select — collects the whole set and sends it on one explicit press, so revising an earlier answer can't fire the send.</p>
+  </div>
+
+  <!-- ══════════════ AFTER — multi-select + sending ══════════════ -->
+  <div class="plate">
+    <div class="plate-label">Redesign · multi-select, and the sending state</div>
+    <div class="feed" style="display:grid;gap:14px">
+      <div class="ask">
+        <div class="ask-bar">
+          <span class="ask-eyebrow">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+            Question · needs you
+          </span>
+        </div>
+        <div class="ask-q">Which lanes should the verification run cover?</div>
+        <div class="ask-opts" role="group">
+          <button class="opt" role="checkbox" aria-checked="true">
+            <span class="key key--box">✓</span>
+            <span class="opt-line"><span class="opt-label">Unit + web</span></span>
+            <span class="opt-desc">The cached default lane. Fast, and it already covers the changed component.</span>
+          </button>
+          <button class="opt" role="checkbox" aria-checked="true">
+            <span class="key key--box">✓</span>
+            <span class="opt-line"><span class="opt-label">Browser (Playwright)</span></span>
+            <span class="opt-desc">Runs for real every time — about four minutes on this host.</span>
+          </button>
+          <button class="opt" role="checkbox" aria-checked="false">
+            <span class="key key--box">3</span>
+            <span class="opt-line"><span class="opt-label">Multi-instance</span></span>
+            <span class="opt-desc">Only worth it when the change touches relay or lock behaviour.</span>
+          </button>
+        </div>
+        <div class="ask-foot">
+          <button class="btn">Send answer</button>
+          <span class="ask-hint"><kbd>1</kbd>–<kbd>3</kbd> toggle · <kbd>↵</kbd> send</span>
+        </div>
+      </div>
+
+      <div class="ask" aria-busy="true">
+        <div class="ask-bar">
+          <span class="ask-eyebrow">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+            Question · needs you
+          </span>
+          <span class="ask-sending">⠧ sending</span>
+        </div>
+        <div class="ask-q">iOS 26 fidelity is much better on a native build. What do I target?</div>
+        <div class="ask-opts" role="radiogroup">
+          <button class="opt" role="radio" aria-checked="true">
+            <span class="key">✓</span>
+            <span class="opt-line"><span class="opt-label">Native-first, PWA fallback</span><span class="rec">rec</span></span>
+            <span class="opt-desc">Build the deck and sheet on native primitives with a deliberate degraded path for Safari/PWA.</span>
+          </button>
+          <button class="opt" role="radio" aria-checked="false" data-dim="true">
+            <span class="key">2</span>
+            <span class="opt-line"><span class="opt-label">PWA only, best possible</span></span>
+            <span class="opt-desc">Everything must work in react-native-web at /mobile — hand-built detents, JS springs, CSS backdrop-filter.</span>
+          </button>
+          <button class="opt" role="radio" aria-checked="false" data-dim="true">
+            <span class="key">3</span>
+            <span class="opt-line"><span class="opt-label">Native build is coming — assume it</span></span>
+            <span class="opt-desc">Treat iOS native as the primary target and don't hold anything back for web parity.</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════ AFTER — parked and answered ══════════════ -->
+  <div class="plate">
+    <div class="plate-label">Redesign · parked (nothing to do) and answered (receipt)</div>
+    <div class="feed" style="display:grid;gap:14px">
+      <div class="ask ask--quiet">
+        <div class="ask-bar">
+          <span class="ask-eyebrow">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+            Question · not answered
+          </span>
+        </div>
+        <div class="ask-q" style="font-weight:500;color:var(--muted-foreground)">Should the worktree be reused after the branch lands?</div>
+        <div class="ask-opts">
+          <div class="ro"><span class="key">1</span><span class="opt-line"><span class="opt-label" style="color:var(--muted-foreground)">Reuse it</span></span></div>
+          <div class="ro"><span class="key">2</span><span class="opt-line"><span class="opt-label" style="color:var(--muted-foreground)">Rebuild from scratch</span></span></div>
+        </div>
+      </div>
+
+      <div class="receipt">
+        <div class="receipt-row"><span class="g">✓</span><span class="q">The Flight Deck's whole derivation is 937 lines on POD-516's unlanded branch. How should mobile get it?</span><span class="a">Promote to client-core now</span></div>
+        <div class="receipt-row"><span class="g">✓</span><span class="q">Inside the Flight Deck, tapping a task peeks the inspector in a bottom sheet. What happens to the full task screen?</span><span class="a">One sheet, two detents</span></div>
+        <div class="receipt-row"><span class="g">✓</span><span class="q">iOS 26 fidelity is much better on a native build. What do I target?</span><span class="a">Native-first, PWA fallback</span></div>
+      </div>
+    </div>
+    <p class="note">An answered ask keeps today's one-line receipt (Flat Field, POD-159) — past decisions stay auditable without spending attention — but drops the yellow: nothing is asked of you any more, so nothing may carry the signal colour.</p>
+  </div>
+</div>
+</body>
+</html>
