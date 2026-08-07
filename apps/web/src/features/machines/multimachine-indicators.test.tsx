@@ -353,3 +353,20 @@ describe('header chips flag version skew', () => {
     expect(vmiChip.querySelector('[aria-label="Update available"]')).toBeTruthy()
   })
 })
+
+// POD-563: host pressure extends the machine chip (no strip) with LOAD + AGT.
+describe('header machine chip carries host-pressure readouts', () => {
+  it('renders MEM, LOAD, and AGT marks on each machine chip', async () => {
+    render(<HeaderHostIndicators />)
+    await waitFor(() => expect(settingsGet).toHaveBeenCalled())
+    const chips = screen.getAllByRole('button').filter((el) =>
+      el.classList.contains('header-machine-chip'),
+    )
+    expect(chips.length).toBeGreaterThanOrEqual(2)
+    for (const chip of chips) {
+      const marks = [...chip.querySelectorAll('.header-mark')].map((n) => n.textContent)
+      expect(marks).toEqual(expect.arrayContaining(['MEM', 'LOAD', 'AGT']))
+      expect(chip.querySelector('.header-agent-readout')).toBeTruthy()
+    }
+  })
+})
