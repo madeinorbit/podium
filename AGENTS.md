@@ -26,6 +26,15 @@ This project uses Podium's issue tracker for work management. If you are running
 session, use the `podium issue` CLI (start with `podium issue prime`). Track durable/discovered
 work as issues, not markdown TODO lists. Full guide: **[docs/agents/podium-issues.md](docs/agents/podium-issues.md)**.
 
+### Landing on main
+
+Hard procedure — not a preference. Under the merge lock, refresh **local `main`**, rebase the
+**issue branch** onto it, `git merge --ff-only` the issue tip into local main, push, release.
+**Never** cherry-pick onto main or push a temp tip: that leaves a closed issue “ready to merge”
+in the sidebar forever (`ahead > 0`). Done only when `gitState.ahead` is 0. Full write-up:
+**[docs/agents/podium-issues.md § Landing on main](docs/agents/podium-issues.md#landing-on-main)**
+(prime text: `MERGE_LANDING_RULE` in `@podium/protocol`).
+
 ## Delegating to other agents
 
 `podium agent spawn` puts another agent on an issue. Podium infers nothing about a delegate —

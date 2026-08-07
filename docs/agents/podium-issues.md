@@ -149,6 +149,47 @@ the issue.)
 moving an issue to `review` renders nothing by itself. When you set `--stage review`, always
 post an offer naming the decision you need (merge, send back, discuss).
 
+## Landing on main
+
+Landing an issue branch on a shared branch (usually `main`) is a **hard procedure**, not a
+preference. The prime injects the same text as `MERGE_LANDING_RULE` in `@podium/protocol`
+(`packages/protocol/src/delegation.ts`) so this guide and every new session cannot drift.
+
+### Always
+
+1. `podium merge-lock acquire --wait` — while you hold it, only you may move main.
+2. **Refresh local `main`** from origin on the main checkout:
+   `git -C <main-checkout> fetch origin` then
+   `git -C <main-checkout> merge --ff-only origin/main`.
+   Stay in your issue worktree; never `cd` into the main checkout (it re-homes the session).
+3. On the **issue branch**, `git rebase` onto that local `main`.
+4. On **local `main`**, `git merge --ff-only <issue-branch>` so the **issue tip** becomes an
+   ancestor of main.
+5. `git -C <main-checkout> push origin main`, then `podium merge-lock release` **immediately**.
+
+Integration target is **local `main` under the lock**. `origin/main` is what you sync from at
+the start and publish to at the end — it is not a shortcut around local main.
+
+### Never
+
+- Cherry-pick the issue commit onto main (or onto a temp branch you then push as main).
+- Push a temp branch tip to `origin/main`.
+- “Land the unique content under a new SHA” and leave the issue branch behind.
+- Treat diverged history as permission to invent an alternate land path. If rebase fails or
+  foreign commits appear on the issue branch, **stop and ask**.
+
+### Why ancestry matters
+
+A closed issue with a private branch and `gitState.ahead > 0` (and `merged !== true`) stays
+**“ready to merge”** in the sidebar forever (`issueAwaitingMerge` in client-core). Shipping
+the blobs onto main by cherry-pick does **not** clear that: the issue branch tip must join
+main’s history (or git must report `merged: true`).
+
+### Done only when
+
+The issue’s `gitState.ahead` is `0` (or `merged` is true). Content-on-main without that is
+**not** a finished land.
+
 ## Rules
 
 - Track durable, discovered, or cross-session work as issues — not markdown TODO files or a parallel list.

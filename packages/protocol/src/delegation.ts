@@ -9,6 +9,30 @@
  *  has is what it TELLS the delegate. Guidance is therefore the feature.
  */
 
+/**
+ * How an issue branch lands on a shared branch (usually `main`) [spec:SP-85d1].
+ *
+ * Injected into the prime rules verbatim. The failure this text exists to prevent
+ * is the one agents invent under load: cherry-pick the unique commit onto
+ * `origin/main` and push a temp tip. That ships the blobs but leaves the ISSUE
+ * BRANCH tip out of main's history, so `gitState.ahead` stays > 0 and a closed
+ * issue keeps the sidebar's "ready to merge" forever (`issueAwaitingMerge`).
+ * Content-on-main is not enough; ancestry of the issue branch is the contract.
+ *
+ * Integration target is LOCAL `main` under the merge lock (refresh it from
+ * origin first, merge into it, then push). `origin/main` alone is not a
+ * substitute for that path.
+ */
+export const MERGE_LANDING_RULE =
+  'Landing an issue on a shared branch (e.g. main) — HARD procedure, not a preference: ' +
+  '(1) `podium merge-lock acquire --wait` (you alone may move main while you hold it). ' +
+  '(2) Refresh LOCAL `main` from origin (`git fetch` then `git merge --ff-only origin/main` on the main checkout — use `git -C <main-checkout>` from an issue worktree; never `cd` into it). ' +
+  '(3) On the ISSUE branch, `git rebase` onto that local `main`. Diverged history is NOT an alternate land path — if rebase fails or foreign commits appear, STOP and ask; do not invent another route. ' +
+  '(4) On LOCAL `main`, `git merge --ff-only <issue-branch>` so the issue tip becomes an ancestor of main. ' +
+  '(5) `git push origin main`, then `podium merge-lock release` IMMEDIATELY. ' +
+  'NEVER cherry-pick the issue commit onto main. NEVER push a temp branch tip to main. NEVER "land the unique content under a new SHA" and leave the issue branch behind. ' +
+  'Done only when the issue\'s `gitState.ahead` is 0 (or `merged` is true) — closed + ahead > 0 keeps "ready to merge" in the sidebar forever. Full guide: docs/agents/podium-issues.md#landing-on-main.'
+
 /** Advisory named leases [spec:SP-85d1]. Injected into the prime rules verbatim,
  *  next to the merge-lock rule.
  *
