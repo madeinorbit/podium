@@ -5,59 +5,174 @@ import {
   artifactUrl,
   basename,
   issueForPanel,
-  panelNonEmpty,
   subIssuesOf,
 } from '@podium/client-core/viewmodels'
-import {
-  type IssueComment,
-  type IssueStage,
-  type IssueWire,
-} from '@podium/model'
+import type { IssueComment, SessionMeta } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
-import { CircleAlert, FileText, History, MessageSquare, Play, User } from 'lucide-react'
-import type { JSX } from 'react'
+import {
+  ArrowRight,
+  Check,
+  ExternalLink,
+  FileText,
+  History,
+  MessageSquare,
+  Play,
+} from 'lucide-react'
+import type { JSX, ReactNode } from 'react'
 import { useEffect, useMemo, useState } from 'react'
-import { type IssueViewModel, useReplicaIssues, useStoreSelector } from '@/app/store'
 import { useOperatorFocus } from '@/app/operator-focus'
+import { type IssueViewModel, useReplicaIssues, useStoreSelector } from '@/app/store'
 import { MediaLightbox } from '@/components/MediaLightbox'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { copyToClipboard } from '@/lib/clipboard'
+import { operationalState } from '@/lib/mission'
 import { cn } from '@/lib/utils'
-import { DockSection } from './DockSection'
-import { IssueCompactControls } from './IssueCompactControls'
-import { issueIdTitle, STAGE_LABELS } from './issue-card'
-import { StageGlyph } from './issue-glyphs'
+import { KindIcon, sessionDisplayName } from '@/lib/WorkerLabel'
+import {
+  coordinatorSession,
+  IssueCompactControls,
+  IssueDecisionBand,
+  IssueGitScope,
+  IssueSessionRow,
+  isOpenSession,
+  issueSessions,
+} from './IssueCompactControls'
+import { issueIdTitle } from './issue-card'
 import { buildActivityFeed, type IssueEvent } from './issue-events'
+import { StageGlyph } from './issue-glyphs'
 import { groupRelations } from './issue-relations'
 
-/** Stage → dot + tinted chip classes (token-tinted, works across the 4 themes). */
-const STAGE_ACCENT: Record<IssueStage, { dot: string; chip: string }> = {
-  proposed: { dot: 'bg-fuchsia-400', chip: 'bg-fuchsia-400/15 text-fuchsia-300' },
-  backlog: { dot: 'bg-muted-foreground/50', chip: 'bg-muted text-muted-foreground' },
-  planning: { dot: 'bg-sky-400', chip: 'bg-sky-400/15 text-sky-300' },
-  in_progress: { dot: 'bg-amber-400', chip: 'bg-amber-400/15 text-amber-300' },
-  review: { dot: 'bg-violet-400', chip: 'bg-violet-400/15 text-violet-300' },
-  done: { dot: 'bg-success', chip: 'bg-success/15 text-success' },
+// The stage chip that used to lead this header is gone: the inspector head
+// carries the stage as a glyph beside the ref and as the stage dropdown's own
+// label, and a third copy of the same fact was the first thing the artifact cut.
+
+function Hint({ children }: { children: string }): JSX.Element {
+  return <div className="py-0.5 text-[11.5px] text-muted-foreground/60 italic">{children}</div>
 }
 
-export function StageChip({ stage }: { stage: IssueStage }): JSX.Element {
-  const a = STAGE_ACCENT[stage]
+/** A section of the single scroll. Deliberately NOT a DockSection: the approved
+ *  inspector is one continuous read, so a section is a heading and a hairline —
+ *  no chevron, no per-section collapse, no nested tier. */
+function DockPart({
+  title,
+  count,
+  testId,
+  children,
+}: {
+  title: string
+  count?: number
+  testId?: string
+  children: ReactNode
+}): JSX.Element {
   return (
-    <span
-      className={cn(
-        'inline-flex flex-none items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium',
-        a.chip,
-      )}
-    >
-      <span className={cn('size-1.5 rounded-full', a.dot)} />
-      {STAGE_LABELS[stage]}
-    </span>
+    <section className="mb-4" data-testid={testId} data-part={title}>
+      <div className="mb-1.5 flex items-center gap-2">
+        <span className="text-[11px] font-semibold text-muted-foreground">{title}</span>
+        {count !== undefined && count > 0 && (
+          <span className="font-mono text-[10px] tabular-nums text-muted-foreground/60">
+            {count}
+          </span>
+        )}
+        <span className="h-px flex-1 bg-border/60" aria-hidden="true" />
+      </div>
+      {children}
+    </section>
   )
 }
 
-function Hint({ children }: { children: string }): JSX.Element {
-  return <div className="py-0.5 text-xs text-muted-foreground/60 italic">{children}</div>
+/** The fold rows the inspector uses instead of collapsible sections: a single
+ *  quiet line that says exactly what it is hiding. */
+function FoldRow({
+  open,
+  label,
+  onToggle,
+}: {
+  open: boolean
+  label: string
+  onToggle: () => void
+}): JSX.Element {
+  return (
+    <button
+      data-pressable
+      type="button"
+      onClick={onToggle}
+      aria-expanded={open}
+      className="w-full px-1 py-1.5 text-left text-[11px] text-muted-foreground hover:text-foreground"
+    >
+      <span className="mr-1 font-mono">{open ? '⌄' : '›'}</span>
+      {label}
+    </button>
+  )
+}
+
+/** One task row in Work / Relations — the unified row the rest of the shell uses:
+ *  stage glyph, ref, title, state word. */
+function UnifiedRow({
+  sub,
+  meta,
+  onOpen,
+}: {
+  sub: IssueViewModel
+  meta: string
+  onOpen: () => void
+}): JSX.Element {
+  const closed = sub.stage === 'done' || Boolean(sub.closedReason)
+  return (
+    <button
+      data-pressable
+      type="button"
+      onClick={onOpen}
+      title={`${issueDisplayRef(sub)} ${sub.title}`}
+      className={cn(
+        'grid min-h-[30px] w-full grid-cols-[14px_minmax(0,1fr)_auto] items-center gap-2 border-b border-border/40 px-1 py-1 text-left text-[12.5px] hover:bg-accent/40',
+        sub.archived && 'opacity-60',
+      )}
+    >
+      <StageGlyph stage={sub.stage} size={13} />
+      <span className="min-w-0 truncate">
+        <span
+          className="mr-1.5 font-mono text-[10px] text-muted-foreground"
+          title={issueIdTitle(sub)}
+        >
+          {issueDisplayRef(sub)}
+        </span>
+        <span
+          className={cn(
+            closed && 'text-muted-foreground line-through decoration-muted-foreground/40',
+          )}
+        >
+          {sub.title}
+        </span>
+      </span>
+      <span className="flex-none font-mono text-[10px] text-muted-foreground/70">{meta}</span>
+    </button>
+  )
+}
+
+/** The subtree's done/running split as one segmented bar plus "N of M done" —
+ *  the only progress surface in the inspector. */
+function SubtreeMeter({
+  done,
+  run,
+  total,
+}: {
+  done: number
+  run: number
+  total: number
+}): JSX.Element {
+  const pct = (n: number): string => `${total === 0 ? 0 : (n / total) * 100}%`
+  return (
+    <div className="mt-2.5 flex items-center gap-2" data-testid="dock-subtree-meter">
+      <span className="flex h-1 flex-1 overflow-hidden rounded-full bg-muted">
+        <span className="h-full bg-success/80" style={{ width: pct(done) }} />
+        <span className="h-full bg-amber-400/70" style={{ width: pct(run) }} />
+      </span>
+      <span className="flex-none font-mono text-[10px] tabular-nums text-muted-foreground">
+        {done} of {total} done
+      </span>
+    </div>
+  )
 }
 
 /** The five most recent things that happened to this task — comments and
@@ -69,7 +184,13 @@ function Hint({ children }: { children: string }): JSX.Element {
  *  moves. Legacy fallback: a pre-#175 payload may still embed `comments` (and a
  *  viaHub issue's thread lives on the hub, where the proc returns []) — use the
  *  embedded thread when the fetch comes back empty. */
-function RecentActivity({ issue }: { issue: IssueViewModel }): JSX.Element | null {
+function RecentActivity({
+  issue,
+  onOpenFull,
+}: {
+  issue: IssueViewModel
+  onOpenFull: () => void
+}): JSX.Element {
   const trpc = useStoreSelector((s) => s.trpc)
   const [comments, setComments] = useState<IssueComment[]>(issue.comments ?? [])
   const [events, setEvents] = useState<IssueEvent[]>([])
@@ -88,23 +209,24 @@ function RecentActivity({ issue }: { issue: IssueViewModel }): JSX.Element | nul
       cancelled = true
     }
   }, [issue.id, issue.updatedAt])
-  // `issues.events` has no per-subject filter, so this is the whole repo's log
-  // filtered down to one issue — the same shape the issue page uses. It is
-  // deliberately NOT keyed on `issue.updatedAt`: a supervised issue mutates
-  // constantly, and refetching the entire log on every agent state write would
-  // make the dock the most expensive surface in the app. A filter on the
-  // procedure is the real fix; see the issue filed against it.
+  // Narrowed to THIS issue on the server (POD-532: `subject` filters in SQL, on
+  // `idx_podium_events_subject`), so the dock reads one issue's events instead of
+  // paging the repo-wide log and filtering here. That is what makes keying on
+  // `issue.updatedAt` affordable — the feed now tracks a supervised issue live
+  // instead of going stale until the panel is reopened.
   useEffect(() => {
     let cancelled = false
     Promise.resolve()
-      .then(() => trpc.issues.events.query({ since: 0, repoPath: issue.repoPath, limit: 1000 }))
+      .then(() =>
+        trpc.issues.events.query({
+          since: 0,
+          repoPath: issue.repoPath,
+          subject: issue.id,
+          limit: 200,
+        }),
+      )
       .then((rows) => {
-        if (!cancelled)
-          setEvents(
-            rows
-              .filter((row) => row.subject === issue.id)
-              .map((row) => ({ ...row, payload: row.payload ?? null })),
-          )
+        if (!cancelled) setEvents(rows.map((row) => ({ ...row, payload: row.payload ?? null })))
       })
       .catch(() => {
         if (!cancelled) setEvents([])
@@ -112,167 +234,91 @@ function RecentActivity({ issue }: { issue: IssueViewModel }): JSX.Element | nul
     return () => {
       cancelled = true
     }
-  }, [issue.id, issue.repoPath, trpc])
+  }, [issue.id, issue.repoPath, issue.updatedAt, trpc])
   const shown = buildActivityFeed(comments, events).slice(-5).reverse()
-  if (shown.length === 0) return null
   return (
-    <DockSection storageKey="activity" title="Recent activity" count={shown.length}>
+    <DockPart title="Recent activity" count={shown.length}>
       <div className="flex flex-col gap-1" data-testid="dock-recent-activity">
-        {shown.map((item) => (
-          <div
-            key={item.id}
-            className="shell-type-secondary flex items-start gap-2 px-1 py-1 text-foreground/80"
-          >
-            {item.kind === 'comment' ? (
-              <MessageSquare size={11} className="mt-0.5 flex-none text-muted-foreground" />
-            ) : (
-              <History size={11} className="mt-0.5 flex-none text-muted-foreground" />
-            )}
-            <span className="min-w-0 flex-1 whitespace-pre-wrap">
-              {item.kind === 'comment' ? item.body : item.line.text}
-            </span>
-            <span className="shell-type-micro flex-none text-muted-foreground/65">
-              {relativeTime(item.ts, Date.now())}
-            </span>
-          </div>
-        ))}
+        {shown.length === 0 ? (
+          <Hint>Nothing has happened here yet.</Hint>
+        ) : (
+          shown.map((item) => (
+            <div
+              key={item.id}
+              className="flex items-start gap-2 px-1 py-1 text-[12px] leading-relaxed text-foreground/80"
+            >
+              {item.kind === 'comment' ? (
+                <MessageSquare size={11} className="mt-1 flex-none text-muted-foreground" />
+              ) : (
+                <History size={11} className="mt-1 flex-none text-muted-foreground" />
+              )}
+              <span className="min-w-0 flex-1 whitespace-pre-wrap">
+                {item.kind === 'comment' ? item.body : item.line.text}
+              </span>
+              <span className="flex-none font-mono text-[10px] text-muted-foreground/65">
+                {relativeTime(item.ts, Date.now())}
+              </span>
+            </div>
+          ))
+        )}
       </div>
-    </DockSection>
+      <button
+        data-pressable
+        type="button"
+        onClick={onOpenFull}
+        data-testid="dock-open-full-activity"
+        className="mt-1 w-full px-1 py-1.5 text-left text-[11px] text-muted-foreground hover:text-foreground"
+      >
+        Open full activity <ExternalLink size={10} className="inline align-[-1px]" />
+      </button>
+    </DockPart>
   )
 }
 
-/** Header card: identity, stage, meta, and the agent-maintained current state
- *  (activityNotes — posted via `podium issue state` or the assistant digest). */
-function SummaryHeader({ issue }: { issue: IssueViewModel }): JSX.Element {
-  const state = issue.activityNotes
-    ? { text: issue.activityNotes, updatedAt: issue.notesUpdatedAt }
-    : null
-  const accent = STAGE_ACCENT[issue.stage]
+/** The task head: identity, title, description and the one control strip. Fixed
+ *  above the scroll — the artifact's `inspect-head`. */
+function InspectHead({ issue }: { issue: IssueViewModel }): JSX.Element {
   return (
-    <header className="border-b border-border/60 px-3 pt-3 pb-3">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 font-mono text-[11px] text-muted-foreground/70">
-            <button
-              data-pressable
-              type="button"
-              className="cursor-pointer hover:text-foreground"
-              title={`${issue.id} — click to copy "${issueDisplayRef(issue)}"`}
-              onClick={() =>
-                copyToClipboard(issueDisplayRef(issue), `Copied ${issueDisplayRef(issue)}`)
-              }
-            >
-              {issueDisplayRef(issue)}
-            </button>
-          </div>
-          <h2 className="text-[14px] leading-snug font-semibold text-foreground">{issue.title}</h2>
-        </div>
-        <StageChip stage={issue.stage} />
+    <header className="flex-none border-b border-border/60 px-3 pt-3 pb-3">
+      <div className="flex items-center gap-2 font-mono text-[11px] text-muted-foreground/70">
+        <StageGlyph stage={issue.stage} size={12} />
+        <button
+          data-pressable
+          type="button"
+          className="cursor-pointer hover:text-foreground"
+          title={`${issue.id} — click to copy "${issueDisplayRef(issue)}"`}
+          onClick={() =>
+            copyToClipboard(issueDisplayRef(issue), `Copied ${issueDisplayRef(issue)}`)
+          }
+        >
+          {issueDisplayRef(issue)}
+        </button>
+        <span className="ml-auto text-[10px] tracking-[0.08em] text-muted-foreground/60 uppercase">
+          Task
+        </span>
       </div>
-      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-        <span className="font-mono">P{issue.priority}</span>
-        {issue.assignee && (
-          <span className="inline-flex items-center gap-1">
-            <User size={11} aria-hidden="true" /> {issue.assignee}
-          </span>
-        )}
-        {issue.blocked ? (
-          <span className="inline-flex items-center gap-1 text-red-400">
-            <CircleAlert size={11} aria-hidden="true" /> blocked
-          </span>
-        ) : null}
-        {issue.childCount > 0 && (
-          <span className="font-mono tabular-nums">
-            {issue.childDoneCount}/{issue.childCount} subissues done
-          </span>
-        )}
-      </div>
+      <h2 className="mt-1.5 text-[14px] leading-snug font-semibold text-foreground">
+        {issue.title}
+      </h2>
       {issue.description.trim() && (
-        <p className="shell-type-secondary mt-2.5 whitespace-pre-wrap leading-relaxed text-foreground/85">
+        <p className="mt-1.5 line-clamp-3 text-[12px] leading-relaxed text-muted-foreground">
           {issue.description}
         </p>
       )}
-      {/* Current state — the paragraph agents keep updated for the human. */}
-      <div
-        className={cn(
-          'relative mt-2.5 rounded-md bg-muted/40 py-2 pr-2.5 pl-3.5 text-[13px] leading-relaxed',
-          state ? 'text-foreground/90' : 'text-muted-foreground/60 italic',
-        )}
-      >
-        <span
-          className={cn('absolute inset-y-1.5 left-1.5 w-[3px] rounded-full', accent.dot)}
-          aria-hidden="true"
-        />
-        {state ? state.text : 'No status posted yet.'}
-        {state?.updatedAt && (
-          <div className="mt-1 text-[10px] tracking-wide text-muted-foreground/60 uppercase">
-            updated {relativeTime(state.updatedAt, Date.now())}
-          </div>
-        )}
-      </div>
       <IssueCompactControls issue={issue} />
     </header>
   )
 }
 
-/** A child of the docked issue. Clicking it opens that subissue's page — same
- *  destination as the issue page's own sub-issue list and the sidebar's "Open". */
-function SubissueRow({
-  sub,
-  depth = 0,
-  onOpen,
-}: {
-  sub: IssueViewModel
-  depth?: number
-  onOpen: () => void
-}): JSX.Element {
-  const a = STAGE_ACCENT[sub.stage]
-  const closed = sub.stage === 'done' || Boolean(sub.closedReason)
-  return (
-    <button
-      data-pressable
-      type="button"
-      onClick={onOpen}
-      title={`Open ${issueDisplayRef(sub)} ${sub.title}`}
-      className={cn(
-        'flex w-full items-center gap-2 rounded-md px-1 py-1 text-left text-[13px] hover:bg-accent/40',
-        sub.archived && 'opacity-60',
-      )}
-      style={{ paddingLeft: `${4 + depth * 16}px` }}
-    >
-      <span className={cn('size-2 flex-none rounded-full', a.dot)} aria-hidden="true" />
-      <span className="font-mono text-[11px] text-muted-foreground/70" title={issueIdTitle(sub)}>
-        {issueDisplayRef(sub)}
-      </span>
-      <span
-        className={cn(
-          'min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap',
-          closed && 'text-muted-foreground line-through decoration-muted-foreground/40',
-        )}
-      >
-        {sub.title}
-      </span>
-      {sub.archived && (
-        <span className="flex-none rounded border px-1 text-[10px] text-muted-foreground uppercase">
-          archived
-        </span>
-      )}
-      {sub.blocked && <span className="flex-none text-[10px] text-red-400 uppercase">blocked</span>}
-    </button>
-  )
-}
-
-/** Todo / Artifacts / Deferred for one issue, each in a collapsible section.
- *  `slug` namespaces persisted open-state and distinguishes subissue panels. */
-function PanelSections({
+/** Todo / Artifacts / Deferred / git — the issue's evidence, inline under one
+ *  heading rather than three collapsibles. */
+function EvidenceAndChecks({
   issue,
   machineId,
-  slug,
 }: {
   issue: IssueViewModel
   machineId?: string
-  slug: string
-}): JSX.Element {
+}): JSX.Element | null {
   const { trpc, httpOrigin, openFileInWorktree, openArtifact } = useStoreSelector(
     (s) => ({
       trpc: s.trpc,
@@ -298,204 +344,268 @@ function PanelSections({
     label: string
   } | null>(null)
 
-  const toggleTodo = (index1: number, done: boolean) => {
+  const toggleTodo = (index1: number, done: boolean): void => {
     void trpc.issues.panelApply
       .mutate({ id: issue.id, op: done ? 'todo-done' : 'todo-undone', index: index1 })
       .catch(() => {})
   }
 
+  // "Only when the issue actually has them" — an empty evidence heading is
+  // chrome, and the artifact does not render one.
+  if (todos.length === 0 && artifacts.length === 0 && deferred.length === 0 && !issue.gitState)
+    return null
+
   return (
-    <>
-      <DockSection storageKey={`${slug}.todo`} title="Todo" count={todos.length}>
-        {todos.length === 0 ? (
-          <Hint>No todos published.</Hint>
-        ) : (
-          <>
-            <div className="mb-2 flex items-center gap-2">
-              <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
-                <div
-                  className="h-full rounded-full bg-success/80 transition-[width] duration-300"
-                  style={{ width: `${todos.length ? (doneCount / todos.length) * 100 : 0}%` }}
-                />
-              </div>
-              <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
-                {doneCount}/{todos.length}
-              </span>
-            </div>
-            <div className="flex flex-col gap-0.5">
-              {todos.map((t, i) => (
-                <div
-                  // biome-ignore lint/suspicious/noArrayIndexKey: todos are positional (1-based index API)
-                  key={i}
-                  className="flex cursor-pointer items-start gap-2 rounded-md px-1 py-1 text-[13px] hover:bg-accent/50"
-                >
-                  <Checkbox
-                    checked={t.done}
-                    onCheckedChange={(checked) => toggleTodo(i + 1, checked === true)}
-                    className="mt-0.5"
-                    aria-label={`${t.done ? 'Reopen' : 'Complete'} ${t.text}`}
-                  />
-                  <span
-                    className={cn(
-                      'transition-colors',
-                      t.done
-                        ? 'text-muted-foreground line-through decoration-muted-foreground/40'
-                        : 'text-foreground',
-                    )}
-                  >
-                    {t.text}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-      </DockSection>
-
-      <DockSection storageKey={`${slug}.artifacts`} title="Artifacts" count={artifacts.length}>
-        {artifacts.length === 0 ? (
-          <Hint>No artifacts published.</Hint>
-        ) : (
-          <div className="flex flex-col gap-2.5">
-            {artifacts.map((a) => {
-              const kind = artifactKind(a.entry ?? a.path)
-              const label = a.title ?? basename(a.path)
-              // Snapshotted artifacts ([spec:SP-0fc9]) serve from the permanent
-              // store; legacy path-only entries need the live worktree root.
-              const src = artifactUrl({
-                httpOrigin,
-                issueId: issue.id,
-                artifact: a,
-                root,
-                machineId,
-              })
-              if (src && kind === 'image') {
-                return (
-                  <figure key={a.path}>
-                    <button
-                      data-pressable
-                      type="button"
-                      className="block w-full cursor-zoom-in"
-                      title={`View ${label} full size`}
-                      onClick={() => setLightbox({ kind: 'image', src, label })}
-                    >
-                      <img
-                        src={src}
-                        alt={label}
-                        className="max-w-full rounded-md border border-border shadow-sm"
-                      />
-                    </button>
-                    <figcaption className="mt-1 text-[11px] text-muted-foreground">
-                      {label}
-                    </figcaption>
-                  </figure>
-                )
-              }
-              if (src && kind === 'video') {
-                return (
-                  <figure key={a.path}>
-                    {/* Inline preview only (first frame + play glyph); clicking
-                        opens the lightbox, where the video plays with controls. */}
-                    <button
-                      data-pressable
-                      type="button"
-                      className="group relative block w-full cursor-zoom-in"
-                      title={`Play ${label}`}
-                      onClick={() => setLightbox({ kind: 'video', src, label })}
-                    >
-                      <video
-                        src={src}
-                        preload="metadata"
-                        muted
-                        className="pointer-events-none max-w-full rounded-md border border-border shadow-sm"
-                      />
-                      <span className="absolute inset-0 flex items-center justify-center">
-                        <span className="flex size-9 items-center justify-center rounded-full bg-black/55 text-white transition-colors group-hover:bg-black/75">
-                          <Play size={16} aria-hidden="true" className="translate-x-px" />
-                        </span>
-                      </span>
-                    </button>
-                    <figcaption className="mt-1 text-[11px] text-muted-foreground">
-                      {label}
-                    </figcaption>
-                  </figure>
-                )
-              }
-              return (
-                <Button
-                  key={a.path}
-                  variant="ghost"
-                  size="sm"
-                  className="h-auto w-full justify-start gap-2 rounded-md border border-border/60 bg-muted/30 px-2 py-1.5 text-left font-normal hover:bg-accent/60"
-                  disabled={!root && !a.artifactId}
-                  onClick={() => {
-                    // Snapshotted artifacts ([spec:SP-0fc9]) open their stored bytes
-                    // as an in-app artifact-scoped file tab — the source file may be
-                    // gone, and openFileInWorktree re-homes the dock's Issue panel to
-                    // root's containing workspace (#441). Only legacy path-only
-                    // entries open as live worktree file tabs.
-                    if (a.artifactId) {
-                      openArtifact({
-                        issueId: issue.id,
-                        artifactId: a.artifactId,
-                        path: a.entry ?? basename(a.path),
-                        ...(root ? { worktreePath: root } : {}),
-                      })
-                    } else if (root) {
-                      // Artifact paths may be worktree-relative; file tabs need absolute.
-                      // Owned by this issue (POD-149) so the tab stays in its strip.
-                      openFileInWorktree({
-                        machineId,
-                        root,
-                        path: a.path.startsWith('/') ? a.path : `${root}/${a.path}`,
-                        issueId: issue.id,
-                      })
-                    }
-                  }}
-                >
-                  <FileText size={14} className="flex-none text-blue-300" />
-                  <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[13px]">
-                    {label}
-                  </span>
-                  <span className="flex-none font-mono text-[10px] text-muted-foreground/60">
-                    {basename(a.path)}
-                  </span>
-                </Button>
-              )
-            })}
-          </div>
-        )}
-      </DockSection>
-
-      <DockSection storageKey={`${slug}.deferred`} title="Deferred" count={deferred.length}>
-        {deferred.length === 0 ? (
-          <Hint>Nothing deferred.</Hint>
-        ) : (
-          <div className="flex flex-col gap-1">
-            {deferred.map((d) => (
+    <DockPart title="Evidence & checks" testId="dock-evidence">
+      {todos.length > 0 && (
+        <>
+          <div className="mb-1.5 flex items-center gap-2">
+            <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
               <div
-                key={`${d.addedAt}:${d.text}`}
-                className="flex items-baseline gap-2 rounded-md px-1 py-0.5 text-[13px] text-foreground/80"
+                className="h-full rounded-full bg-success/80 transition-[width] duration-300"
+                style={{ width: `${(doneCount / todos.length) * 100}%` }}
+              />
+            </div>
+            <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
+              {doneCount}/{todos.length}
+            </span>
+          </div>
+          <div className="mb-2 flex flex-col gap-0.5">
+            {todos.map((t, i) => (
+              <div
+                // biome-ignore lint/suspicious/noArrayIndexKey: todos are positional (1-based index API)
+                key={i}
+                className="flex cursor-pointer items-start gap-2 rounded-md px-1 py-1 text-[12.5px] hover:bg-accent/50"
               >
-                <span className="size-1 flex-none translate-y-[-2px] rounded-full bg-amber-400/70" />
-                <span className="min-w-0 flex-1">{d.text}</span>
-                <span className="flex-none font-mono text-[10px] text-muted-foreground/60">
-                  {new Date(d.addedAt).toLocaleDateString()}
+                <Checkbox
+                  checked={t.done}
+                  onCheckedChange={(checked) => toggleTodo(i + 1, checked === true)}
+                  className="mt-0.5"
+                  aria-label={`${t.done ? 'Reopen' : 'Complete'} ${t.text}`}
+                />
+                <span
+                  className={cn(
+                    'transition-colors',
+                    t.done
+                      ? 'text-muted-foreground line-through decoration-muted-foreground/40'
+                      : 'text-foreground',
+                  )}
+                >
+                  {t.text}
                 </span>
               </div>
             ))}
           </div>
-        )}
-      </DockSection>
+        </>
+      )}
 
+      {artifacts.length > 0 && (
+        <div className="mb-2 flex flex-col gap-2.5">
+          {artifacts.map((a) => {
+            const kind = artifactKind(a.entry ?? a.path)
+            const label = a.title ?? basename(a.path)
+            // Snapshotted artifacts ([spec:SP-0fc9]) serve from the permanent
+            // store; legacy path-only entries need the live worktree root.
+            const src = artifactUrl({
+              httpOrigin,
+              issueId: issue.id,
+              artifact: a,
+              root,
+              machineId,
+            })
+            if (src && kind === 'image') {
+              return (
+                <figure key={a.path}>
+                  <button
+                    data-pressable
+                    type="button"
+                    className="block w-full cursor-zoom-in"
+                    title={`View ${label} full size`}
+                    onClick={() => setLightbox({ kind: 'image', src, label })}
+                  >
+                    <img
+                      src={src}
+                      alt={label}
+                      className="max-w-full rounded-md border border-border shadow-sm"
+                    />
+                  </button>
+                  <figcaption className="mt-1 text-[11px] text-muted-foreground">
+                    {label}
+                  </figcaption>
+                </figure>
+              )
+            }
+            if (src && kind === 'video') {
+              return (
+                <figure key={a.path}>
+                  {/* Inline preview only (first frame + play glyph); clicking
+                      opens the lightbox, where the video plays with controls. */}
+                  <button
+                    data-pressable
+                    type="button"
+                    className="group relative block w-full cursor-zoom-in"
+                    title={`Play ${label}`}
+                    onClick={() => setLightbox({ kind: 'video', src, label })}
+                  >
+                    <video
+                      src={src}
+                      preload="metadata"
+                      muted
+                      className="pointer-events-none max-w-full rounded-md border border-border shadow-sm"
+                    />
+                    <span className="absolute inset-0 flex items-center justify-center">
+                      <span className="flex size-9 items-center justify-center rounded-full bg-black/55 text-white transition-colors group-hover:bg-black/75">
+                        <Play size={16} aria-hidden="true" className="translate-x-px" />
+                      </span>
+                    </span>
+                  </button>
+                  <figcaption className="mt-1 text-[11px] text-muted-foreground">
+                    {label}
+                  </figcaption>
+                </figure>
+              )
+            }
+            return (
+              <Button
+                key={a.path}
+                variant="ghost"
+                size="sm"
+                className="h-auto w-full justify-start gap-2 rounded-md px-1 py-1.5 text-left font-normal hover:bg-accent/60"
+                disabled={!root && !a.artifactId}
+                onClick={() => {
+                  // Snapshotted artifacts ([spec:SP-0fc9]) open their stored bytes
+                  // as an in-app artifact-scoped file tab — the source file may be
+                  // gone, and openFileInWorktree re-homes the dock's Issue panel to
+                  // root's containing workspace (#441). Only legacy path-only
+                  // entries open as live worktree file tabs.
+                  if (a.artifactId) {
+                    openArtifact({
+                      issueId: issue.id,
+                      artifactId: a.artifactId,
+                      path: a.entry ?? basename(a.path),
+                      ...(root ? { worktreePath: root } : {}),
+                    })
+                  } else if (root) {
+                    // Artifact paths may be worktree-relative; file tabs need absolute.
+                    // Owned by this issue (POD-149) so the tab stays in its strip.
+                    openFileInWorktree({
+                      machineId,
+                      root,
+                      path: a.path.startsWith('/') ? a.path : `${root}/${a.path}`,
+                      issueId: issue.id,
+                    })
+                  }
+                }}
+              >
+                <FileText size={14} className="flex-none text-blue-300" />
+                <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[12.5px]">
+                  {label}
+                </span>
+                <span className="flex-none font-mono text-[10px] text-muted-foreground/60">
+                  {basename(a.path)}
+                </span>
+              </Button>
+            )
+          })}
+        </div>
+      )}
+
+      {deferred.length > 0 && (
+        <div className="mb-2 flex flex-col gap-1">
+          {deferred.map((d) => (
+            <div
+              key={`${d.addedAt}:${d.text}`}
+              className="flex items-baseline gap-2 px-1 py-0.5 text-[12.5px] text-foreground/80"
+            >
+              <span className="size-1 flex-none translate-y-[-2px] rounded-full bg-amber-400/70" />
+              <span className="min-w-0 flex-1">{d.text}</span>
+              <span className="flex-none font-mono text-[10px] text-muted-foreground/60">
+                {new Date(d.addedAt).toLocaleDateString()}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <IssueGitScope issue={issue} />
       {lightbox && <MediaLightbox {...lightbox} onClose={() => setLightbox(null)} />}
-    </>
+    </DockPart>
   )
 }
 
-/** Issue tab of the right dock: summary header (identity, stage, agent-posted
- *  current state), subissue overview, then the collapsible panel sections —
- *  for the issue owning the active worktree plus subissues with panels. */
+/** One line of the intake canvas — the sessionless dock's only content shape. */
+function IntakeField({
+  label,
+  value,
+  loading = false,
+}: {
+  label: string
+  value: string
+  loading?: boolean
+}): JSX.Element {
+  return (
+    <div className="grid grid-cols-[52px_minmax(0,1fr)] items-center gap-2 border-t border-border/50 py-2.5 text-[12px]">
+      <span className="font-mono text-[10px] text-muted-foreground/80">{label}</span>
+      <span className={cn('min-w-0 truncate text-muted-foreground', loading && 'animate-pulse')}>
+        {value}
+      </span>
+    </div>
+  )
+}
+
+/** The dock with no inspected task. A conversation that has not become work yet
+ *  is a normal state, not an error: this says what will appear and where, and
+ *  never asks for a task to be created. */
+function IntakeDock({ session }: { session?: SessionMeta }): JSX.Element {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col" data-testid="dock-intake">
+      <header className="flex-none border-b border-border/60 px-3 pt-3 pb-3">
+        <div className="flex items-center gap-2 font-mono text-[11px] text-muted-foreground/70">
+          {session ? (
+            <KindIcon kind={session.agentKind} chip />
+          ) : (
+            <span className="size-1.5 rounded-full bg-muted-foreground/50" aria-hidden="true" />
+          )}
+          <span className="tracking-[0.06em] uppercase">Live session</span>
+          <span className="ml-auto text-[10px] tracking-[0.08em] text-muted-foreground/60 uppercase">
+            Ready
+          </span>
+        </div>
+        <h2 className="mt-1.5 text-[14px] leading-snug font-semibold text-foreground">
+          Conversation workspace
+        </h2>
+        <p className="mt-1.5 text-[12px] leading-relaxed text-muted-foreground">
+          Start in chat. Task details, plan and team will appear here when the agent structures the
+          work.
+        </p>
+      </header>
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-3 pb-6">
+        <DockPart title="Taking shape">
+          <IntakeField label="Task" value="Waiting for your first message" loading />
+          <IntakeField label="Plan" value="The agent will outline the work" />
+          <IntakeField
+            label="Team"
+            value={
+              session ? `${sessionDisplayName(session)} · ready` : 'Agents will appear as they join'
+            }
+          />
+        </DockPart>
+        <p className="text-[10.5px] leading-relaxed text-muted-foreground/60">
+          If the conversation stays exploratory, this view stays light. Podium does not force a
+          task.
+        </p>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Issue tab of the right dock: the approved task inspector. A fixed head
+ * (identity, title, description, controls), the decision band when the issue
+ * needs you, and then ONE scroll — current update, work, agents & sessions,
+ * relations, evidence, activity. No collapsible section chrome and no nested
+ * per-subissue tier: the whole task reads top to bottom.
+ */
 export function IssuePanelView({
   cwd,
   machineId,
@@ -509,71 +619,60 @@ export function IssuePanelView({
    *  session attachment and cwd containment. */
   issueId?: string
 }): JSX.Element {
-  const {
-    sessions,
-    setPane,
-    setView,
-    markIssueRead,
-    markSessionRead,
-  } = useStoreSelector(
-    (s) => ({
-      sessions: s.sessions,
-      setPane: s.setPane,
-      setView: s.setView,
-      markIssueRead: s.markIssueRead,
-      markSessionRead: s.markSessionRead,
-    }),
-    shallowEqual,
-  )
+  const { sessions, setPane, setView, setOpenIssueId, markIssueRead, markSessionRead } =
+    useStoreSelector(
+      (s) => ({
+        sessions: s.sessions,
+        setPane: s.setPane,
+        setView: s.setView,
+        setOpenIssueId: s.setOpenIssueId,
+        markIssueRead: s.markIssueRead,
+        markSessionRead: s.markSessionRead,
+      }),
+      shallowEqual,
+    )
   const issues = useReplicaIssues()
   const { setFocusedIssueId } = useOperatorFocus()
   const issue = useMemo(
-    () => issueForPanel({ issues, sessions, cwd, sessionId, issueId }),
+    () =>
+      cwd || sessionId || issueId
+        ? issueForPanel({ issues, sessions, cwd, sessionId, issueId })
+        : null,
     [issues, sessions, cwd, sessionId, issueId],
   )
-  // Subissue list keeps archived children visible (marked); the per-child panel
-  // sections below deliberately skip archived children so they don't clutter the
-  // parent view (issue #133).
+  const issueById = useMemo(() => new Map(issues.map((i) => [i.id, i])), [issues])
+  // DIRECT children only — the artifact's Work section is one tier deep with a
+  // completed fold, not a flattened recursive subtree.
   const children = useMemo(() => (issue ? subIssuesOf(issues, issue.id) : []), [issues, issue])
+  // The whole subtree, for the meter only: "N of M done" describes the work the
+  // task is answerable for, which is deeper than its direct children.
   const subtree = useMemo(() => {
     if (!issue) return []
-    const out: Array<{ issue: IssueViewModel; depth: number }> = []
+    const out: IssueViewModel[] = []
     const seen = new Set<string>([issue.id])
-    const walk = (parentId: string, depth: number): void => {
+    const walk = (parentId: string): void => {
       for (const child of subIssuesOf(issues, parentId)) {
         if (seen.has(child.id)) continue
         seen.add(child.id)
-        out.push({ issue: child, depth })
-        walk(child.id, depth + 1)
+        out.push(child)
+        walk(child.id)
       }
     }
-    walk(issue.id, 0)
+    walk(issue.id)
     return out
   }, [issues, issue])
-  const doneChildren = subtree.filter(
-    ({ issue: child }) => child.stage === 'done' || child.closedReason,
-  )
-  const openChildren = subtree.filter(({ issue: child }) => !child.closedReason && child.stage !== 'done')
-  const subPanels = useMemo(
-    () => children.filter((c) => !c.archived).filter(panelNonEmpty),
-    [children],
-  )
   // Typed relations (POD-85): the compact disclosure surface — the sidebar
   // whispers (⤷ tick), this panel names every edge.
   const relations = useMemo(() => (issue ? groupRelations(issue) : []), [issue])
-  const issueById = useMemo(() => new Map(issues.map((i) => [i.id, i])), [issues])
+  const [showCompleted, setShowCompleted] = useState(false)
+  const [showAllActive, setShowAllActive] = useState(false)
+  const [showRetired, setShowRetired] = useState(false)
 
   const focusIssue = (target: IssueViewModel): void => {
     setFocusedIssueId(target.id)
     void markIssueRead(target.id)
-    const memberIds = new Set(target.memberSessionIds ?? [])
-    const targetSessions = sessions
-      .filter(
-        (session) =>
-          !session.archived &&
-          session.status !== 'exited' &&
-          (session.issueId === target.id || memberIds.has(session.sessionId)),
-      )
+    const targetSessions = issueSessions(target, sessions)
+      .filter(isOpenSession)
       .sort((a, b) => b.lastActiveAt.localeCompare(a.lastActiveAt))
     const targetSession =
       targetSessions.find((session) => session.sessionId === target.coordinatorSessionId) ??
@@ -586,103 +685,203 @@ export function IssuePanelView({
   }
 
   if (!issue) {
-    return (
-      <div className="p-3 text-xs text-muted-foreground/70">
-        This chat has no task yet. Keep talking — its mission will fill in as the agent learns what you need.
-      </div>
-    )
+    return <IntakeDock session={sessions.find((s) => s.sessionId === sessionId)} />
+  }
+
+  const scope = [issue, ...subtree]
+  const done = scope.filter((i) => i.stage === 'done' || Boolean(i.closedReason)).length
+  const run = scope.filter(
+    (i) => !i.closedReason && (i.stage === 'in_progress' || i.stage === 'review'),
+  ).length
+
+  const openChildren = children.filter((c) => c.stage !== 'done' && !c.closedReason)
+  const doneChildren = children.filter((c) => c.stage === 'done' || Boolean(c.closedReason))
+
+  const all = issueSessions(issue, sessions)
+  const activeSessions = all.filter(isOpenSession).sort((a, b) => {
+    if (a.sessionId === issue.coordinatorSessionId) return -1
+    if (b.sessionId === issue.coordinatorSessionId) return 1
+    return b.lastActiveAt.localeCompare(a.lastActiveAt)
+  })
+  const retiredSessions = all.filter((s) => !isOpenSession(s))
+  const shownSessions = showAllActive ? activeSessions : activeSessions.slice(0, 5)
+  const moved = all.find((s) => s.handoffTarget)
+
+  const author = coordinatorSession(issue, activeSessions)
+  const notesAt = issue.notesUpdatedAt ?? issue.updatedAt
+
+  const openFullIssue = (): void => {
+    setOpenIssueId(issue.id)
+    setView('issues')
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto">
-      <SummaryHeader issue={issue} />
-      {subtree.length > 0 && (
-        <DockSection storageKey="subissues" title="Subtree work" count={subtree.length}>
-          <div className="flex flex-col gap-0.5" data-testid="dock-subissues">
-            {openChildren.map(({ issue: sub, depth }) => (
-              <SubissueRow
+    <div className="flex min-h-0 flex-1 flex-col">
+      <InspectHead issue={issue} />
+      <IssueDecisionBand issue={issue} />
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-3 pb-6">
+        <DockPart title="Current update" testId="dock-current-update">
+          <div className="border-l-[3px] border-primary/60 pl-2.5">
+            <div className="flex items-center gap-2 font-mono text-[10px] text-muted-foreground">
+              {author && <KindIcon kind={author.agentKind} chip />}
+              <span className="min-w-0 truncate">
+                Current{author ? ` · ${sessionDisplayName(author)}` : ''}
+                {notesAt ? ` · ${relativeTime(notesAt, Date.now())}` : ''}
+              </span>
+            </div>
+            <p
+              className={cn(
+                'mt-1.5 whitespace-pre-wrap text-[12.5px] leading-relaxed',
+                issue.activityNotes ? 'text-foreground/85' : 'text-muted-foreground/60 italic',
+              )}
+            >
+              {issue.activityNotes || 'No status posted yet.'}
+            </p>
+          </div>
+          <SubtreeMeter done={done} run={run} total={scope.length} />
+        </DockPart>
+
+        {children.length > 0 && (
+          <DockPart title="Work" count={children.length} testId="dock-subissues">
+            {openChildren.map((sub) => (
+              <UnifiedRow
                 key={sub.id}
                 sub={sub}
-                depth={depth}
+                meta={operationalState(sub, issueSessions(sub, sessions), issueById).label}
                 onOpen={() => focusIssue(sub)}
               />
             ))}
-            {doneChildren.length > 0 && issue.stage !== 'done' && !issue.closedReason && (
-              <details className="rounded border border-border/50 px-1.5 py-1">
-                <summary className="cursor-pointer text-[11px] text-muted-foreground">
-                  ✓ {doneChildren.length} done
-                </summary>
-                <div className="mt-1 flex flex-col gap-0.5">
-                  {doneChildren.map(({ issue: sub, depth }) => (
-                    <SubissueRow
-                      key={sub.id}
-                      sub={sub}
-                      depth={depth}
-                      onOpen={() => focusIssue(sub)}
-                    />
+            {doneChildren.length > 0 && (
+              <>
+                <FoldRow
+                  open={showCompleted}
+                  label={`Show ${doneChildren.length} completed`}
+                  onToggle={() => setShowCompleted((v) => !v)}
+                />
+                {showCompleted &&
+                  doneChildren.map((sub) => (
+                    <UnifiedRow key={sub.id} sub={sub} meta="Done" onOpen={() => focusIssue(sub)} />
                   ))}
-                </div>
-              </details>
+              </>
             )}
-          </div>
-        </DockSection>
-      )}
-      {relations.length > 0 && (
-        <DockSection
-          storageKey="relations"
+          </DockPart>
+        )}
+
+        <DockPart title="Agents & sessions" count={activeSessions.length} testId="dock-sessions">
+          {activeSessions.length > 0 ? (
+            shownSessions.map((session) => (
+              <IssueSessionRow
+                key={session.sessionId}
+                session={session}
+                onOpen={() => {
+                  setPane('A', session.sessionId)
+                  void markSessionRead(session.sessionId)
+                  setView('workspace')
+                }}
+              />
+            ))
+          ) : (
+            // A task with no agent is not an error — say why there is nobody on
+            // it, in the same words the flight deck uses.
+            <div
+              className="flex items-center gap-2 px-1 py-1.5 text-[11.5px] text-muted-foreground"
+              data-testid="dock-presence-note"
+            >
+              {moved ? (
+                <>
+                  <ArrowRight size={11} aria-hidden="true" />
+                  Session moved to {moved.handoffTarget}
+                </>
+              ) : issue.stage === 'done' || issue.closedReason ? (
+                <>
+                  <Check size={11} aria-hidden="true" />
+                  Completed · session retired
+                </>
+              ) : (
+                <>
+                  <Play size={11} aria-hidden="true" />
+                  Ready to start
+                </>
+              )}
+            </div>
+          )}
+          {activeSessions.length > 5 && (
+            <FoldRow
+              open={showAllActive}
+              label={showAllActive ? 'Show fewer' : `${activeSessions.length - 5} more active`}
+              onToggle={() => setShowAllActive((v) => !v)}
+            />
+          )}
+          {retiredSessions.length > 0 && (
+            <>
+              <FoldRow
+                open={showRetired}
+                label={`Retired · ${retiredSessions.length}`}
+                onToggle={() => setShowRetired((v) => !v)}
+              />
+              {showRetired &&
+                retiredSessions.map((session) => (
+                  <IssueSessionRow
+                    key={session.sessionId}
+                    session={session}
+                    onOpen={() => {
+                      setPane('A', session.sessionId)
+                      setView('workspace')
+                    }}
+                  />
+                ))}
+            </>
+          )}
+        </DockPart>
+
+        <DockPart
           title="Relations"
           count={relations.reduce((n, g) => n + g.entries.length, 0)}
+          testId="dock-relations"
         >
-          <div className="flex flex-col gap-1.5" data-testid="dock-relations">
-            {relations.map((group) => (
-              <div key={group.section} className="flex items-baseline gap-2">
-                <span className="w-[84px] flex-none text-[9.5px] text-muted-foreground uppercase tracking-wide">
+          {relations.length === 0 ? (
+            <Hint>No linked work.</Hint>
+          ) : (
+            relations.map((group) => (
+              <div key={group.section} className="mb-1.5">
+                <div className="mb-0.5 text-[9.5px] tracking-wide text-muted-foreground uppercase">
                   {group.section}
-                </span>
-                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  {group.entries.map((entry) => {
-                    const target = issueById.get(entry.id)
-                    return (
-                      <button
-                        data-pressable
-                        key={`${group.section}-${entry.direction}-${entry.id}`}
-                        type="button"
-                        className="flex min-w-0 items-center gap-1.5 truncate text-left text-[11.5px] hover:text-primary hover:underline"
-                        onClick={() => target && focusIssue(target)}
-                        title={target ? `${issueDisplayRef(target)} ${target.title}` : entry.id}
-                      >
-                        {target && <StageGlyph stage={target.stage} size={12} />}
-                        <span className="min-w-0 truncate">
-                          <span className="font-mono text-[10px] text-muted-foreground">
-                            {target ? issueDisplayRef(target) : '?'}
-                          </span>{' '}
-                          {target?.title ?? entry.id}
-                        </span>
-                      </button>
-                    )
-                  })}
                 </div>
+                {group.entries.map((entry) => {
+                  const target = issueById.get(entry.id)
+                  return target ? (
+                    <UnifiedRow
+                      key={`${group.section}-${entry.direction}-${entry.id}`}
+                      sub={target}
+                      meta={entry.type}
+                      onOpen={() => focusIssue(target)}
+                    />
+                  ) : (
+                    <div
+                      key={`${group.section}-${entry.direction}-${entry.id}`}
+                      className="px-1 py-1 font-mono text-[11px] text-muted-foreground/60"
+                    >
+                      {entry.id}
+                    </div>
+                  )
+                })}
               </div>
-            ))}
-          </div>
-        </DockSection>
-      )}
-      <PanelSections issue={issue} machineId={machineId} slug="main" />
-      {subPanels.map((sub) => (
-        <DockSection
-          key={sub.id}
-          storageKey={`sub.${sub.seq}`}
-          title={`${issueDisplayRef(sub)} ${sub.title}`}
-          accent={STAGE_ACCENT[sub.stage].dot}
-          defaultOpen={false}
-        >
-          <PanelSections issue={sub} machineId={machineId} slug={`sub.${sub.seq}`} />
-        </DockSection>
-      ))}
-      {/* Activity sits LAST, as it does on the issue page and in the approved
-          reference: it is history. Above the fold belongs to the live work —
-          subtree, sessions, relations, evidence. */}
-      <RecentActivity issue={issue} />
+            ))
+          )}
+        </DockPart>
+
+        <EvidenceAndChecks issue={issue} machineId={machineId} />
+
+        {/* Activity sits LAST, as it does on the issue page and in the approved
+            reference: it is history. Above the fold belongs to the live work —
+            update, work, sessions, relations, evidence. */}
+        <RecentActivity issue={issue} onOpenFull={openFullIssue} />
+
+        <p className="text-[10.5px] leading-relaxed text-muted-foreground/60">
+          The current update is this task's live state, kept by the agent working it; comments and
+          lifecycle events form the activity feed.
+        </p>
+      </div>
     </div>
   )
 }
