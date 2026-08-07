@@ -6,7 +6,12 @@ import { effectivePanelMode, type PanelMode } from '@podium/client-core/ui-state
 export { effectivePanelMode, effectivePanelMode as initialPanelMode, type PanelMode }
 
 import { attentionGroup } from '@podium/client-core/focus'
-import { formatClock, panelLabel, resumeCommand } from '@podium/client-core/viewmodels'
+import {
+  formatClock,
+  panelLabel,
+  resolveIssueReference,
+  resumeCommand,
+} from '@podium/client-core/viewmodels'
 import type { SessionId } from '@podium/model'
 import { isSnoozed } from '@podium/model'
 import { SWITCH_TRACE_MARKS } from '@podium/protocol'
@@ -172,6 +177,10 @@ export function AgentPanel({
     shallowEqual,
   )
   const issues = useReplicaIssues()
+  // Live stage lookup for native-terminal ref underlines (POD-529). A ref keeps
+  // the getter fresh without remounting the terminal when the replica updates.
+  const issuesRef = useRef(issues)
+  issuesRef.current = issues
   const { guardedArchive } = useSessionGuard()
   const session = sessions.find((s) => s.sessionId === sessionId)
   // An optimistically-spawned session doesn't exist server-side yet (#119): the
@@ -453,11 +462,13 @@ export function AgentPanel({
         knownPaths: knownPathsRef.current,
         onOpen: (abs) => openFile(sessionId, abs),
       })
-      // Human-facing ref links (#474): PREFIX-N tokens in agent output become
-      // clickable — plain opens the miniview, Cmd/Ctrl jumps to the full view.
+      // Human-facing ref links (#474 / POD-529): PREFIX-N tokens in agent output
+      // become clickable (plain = miniview, Cmd/Ctrl = full view) and painted
+      // with a live stage-coloured underline when the issue is known.
       mounted.view.setRefLinks({
         isKnownPrefix: (p) => isKnownRefPrefix(p),
         onActivate: (ref, event) => activateRef(ref, event),
+        resolveStage: (ref) => resolveIssueReference(ref, issuesRef.current)?.stage ?? null,
       })
       // Draft sync between the PTY and chat, both directions (#17/#62/#53,
       // POD-859). Everything it needs from React arrives as a getter, so no
@@ -569,6 +580,19 @@ export function AgentPanel({
       })
     })
   }, [hub, sessionId, session?.cwd, openFile])
+
+  // Re-paint stage-coloured underlines when the issue replica changes (POD-529).
+  // resolveStage always reads issuesRef; setRefLinks only needs to schedule.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mountedRef is a stable ref from useTerminalSession
+  useEffect(() => {
+    const view = mountedRef.current?.view
+    if (!view) return
+    view.setRefLinks({
+      isKnownPrefix: (p) => isKnownRefPrefix(p),
+      onActivate: (ref, event) => activateRef(ref, event),
+      resolveStage: (ref) => resolveIssueReference(ref, issuesRef.current)?.stage ?? null,
+    })
+  }, [issues, mountedRef])
 
   const sendKey = (key: SpecialKey): void => {
     mountedRef.current?.connection.sendInput(keySequence(key))

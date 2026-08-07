@@ -1,15 +1,17 @@
+import type { IssueStage } from '@podium/model'
 import { anyRefMatcher } from '@podium/protocol'
 import type { BufferLike, Cell } from './buffer-line'
 import { findRefMatches, rowCells } from './ref-link-provider'
 
 /**
- * Persistent (glanceable) marking of ref tokens in the terminal (#517).
+ * Persistent (glanceable) marking of ref tokens in the terminal (#517, POD-529).
  *
  * xterm link decorations only appear on hover, so tokens like `POD-441` are
  * invisible affordances until the mouse happens to cross them. This layer draws
- * an accent-tinted pill with a solid underline (matching the chat `.ref-link`
- * chip style) behind every known-prefix ref in the CURRENT VIEWPORT, so
- * mentions stand out at a glance.
+ * a stage-tinted pill with an underline (matching the chat `.ref-link` chip
+ * language) behind every known-prefix ref in the CURRENT VIEWPORT, so mentions
+ * stand out at a glance and issue workflow state is visible without inserting
+ * glyphs into the fixed cell buffer.
  *
  * Mechanism: an absolutely-positioned, pointer-events-none div appended into
  * `.xterm-screen` (position: relative, sized exactly cols×cellW / rows×cellH by
@@ -20,11 +22,32 @@ import { findRefMatches, rowCells } from './ref-link-provider'
  * divs are pooled (hidden, not destroyed) so steady streaming does not churn DOM.
  */
 
+/** Accent colours aligned with chat `a.ref-link--issue[data-issue-stage=…]`. */
+export const REF_STAGE_ACCENT: Readonly<Record<IssueStage, string>> = {
+  proposed: 'rgb(217, 70, 239)',
+  backlog: 'color-mix(in srgb, var(--muted-foreground, #94a3b8) 70%, transparent)',
+  planning: 'var(--muted-foreground, #94a3b8)',
+  in_progress: 'rgb(245, 158, 11)',
+  review: 'rgb(14, 165, 233)',
+  done: 'var(--success, #22c55e)',
+}
+
+const DEFAULT_REF_ACCENT = 'var(--primary, #D97757)'
+
+/** CSS colour for a ref decoration; unknown/session refs keep the default accent. */
+export function refStageAccent(stage: IssueStage | null | undefined): string {
+  return stage ? REF_STAGE_ACCENT[stage] : DEFAULT_REF_ACCENT
+}
+
 export interface MentionRect {
   left: number
   top: number
   width: number
   height: number
+  /** The matched token text (e.g. `POD-13`). */
+  ref: string
+  /** Live workflow stage for issue refs; null for session/unresolved. */
+  stage: IssueStage | null
 }
 
 /** Buffer surface the overlay needs: rows + where the viewport starts. */
@@ -43,6 +66,7 @@ export function mentionRects(
   isKnownPrefix: (prefix: string) => boolean,
   cellWidth: number,
   cellHeight: number,
+  resolveStage?: (ref: string) => IssueStage | null | undefined,
 ): MentionRect[] {
   const out: MentionRect[] = []
   for (let r = 0; r < rows.length; r += 1) {
@@ -57,6 +81,8 @@ export function mentionRects(
         top: r * cellHeight,
         width: (last.x - first.x + 1) * cellWidth,
         height: cellHeight,
+        ref: m.ref,
+        stage: resolveStage?.(m.ref) ?? null,
       })
     }
   }
@@ -71,6 +97,8 @@ export interface RefUnderlineOverlayHooks {
   getRows: () => number
   /** null = ref links unconfigured; the layer stays empty. */
   getIsKnownPrefix: () => ((prefix: string) => boolean) | null
+  /** Optional live stage for issue refs (POD-529). Session/unknown omit. */
+  getResolveStage?: () => ((ref: string) => IssueStage | null | undefined) | null | undefined
 }
 
 export class RefUnderlineOverlay {
@@ -142,21 +170,19 @@ export class RefUnderlineOverlay {
       }
       rowsCells.push(rowCells(buf, viewportY + r))
     }
-    this.showRects(mentionRects(rowsCells, isKnown, rect.width / cols, rect.height / rows))
+    const resolveStage = this.hooks.getResolveStage?.() ?? undefined
+    this.showRects(mentionRects(rowsCells, isKnown, rect.width / cols, rect.height / rows, resolveStage))
   }
 
   private showRects(rects: MentionRect[]): void {
     const doc = this.layer.ownerDocument
     while (this.pool.length < rects.length) {
       const el = doc.createElement('div')
-      // Match the chat `.ref-link` chip language: accent-tinted rounded pill
-      // with a solid hairline underline. Deliberately no dotted border — WebKit
-      // (the Tauri shell) and Chromium rasterize dotted 1px borders differently,
-      // and at fractional cell widths the dots smear.
-      el.style.cssText =
-        'position:absolute;box-sizing:border-box;border-radius:3px;' +
-        'background:color-mix(in srgb, var(--primary, #D97757) 10%, transparent);' +
-        'border-bottom:1px solid color-mix(in srgb, var(--primary, #D97757) 60%, transparent)'
+      // Geometry only at create time; stage colour/style is applied per paint so
+      // pooled nodes can move between stages without recreation.
+      // Deliberately no dotted border for the default path — WebKit (Tauri) and
+      // Chromium rasterize 1px dots differently at fractional cell widths.
+      el.style.cssText = 'position:absolute;box-sizing:border-box;border-radius:3px'
       this.layer.appendChild(el)
       this.pool.push(el)
     }
@@ -168,11 +194,25 @@ export class RefUnderlineOverlay {
         if (el.style.display !== 'none') el.style.display = 'none'
         continue
       }
+      const accent = refStageAccent(r.stage)
+      // Backlog uses a dashed underline (matches the dashed StageGlyph); other
+      // stages keep a solid hairline so colour is the primary stage signal.
+      const borderStyle = r.stage === 'backlog' ? 'dashed' : 'solid'
       el.style.display = 'block'
       el.style.left = `${r.left}px`
       el.style.top = `${r.top}px`
       el.style.width = `${r.width}px`
       el.style.height = `${r.height}px`
+      // Stage colour lives on --ref-accent so paint and tests share one source;
+      // color-mix against it matches the chat chip language in real browsers.
+      el.style.setProperty('--ref-accent', accent)
+      el.style.backgroundColor = 'color-mix(in srgb, var(--ref-accent) 12%, transparent)'
+      el.style.borderBottomWidth = '1px'
+      el.style.borderBottomStyle = borderStyle
+      el.style.borderBottomColor = 'color-mix(in srgb, var(--ref-accent) 65%, transparent)'
+      el.dataset.ref = r.ref
+      if (r.stage) el.dataset.issueStage = r.stage
+      else delete el.dataset.issueStage
     }
   }
 
