@@ -6,6 +6,7 @@ import { useEffect, useMemo } from 'react'
 import { useReplicaIssues } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
+import { usePromptAutoGrow } from '@/features/superagent/usePromptAutoGrow'
 import { AtMentionMenu } from '@/lib/at-mention/AtMentionMenu'
 import { issueMentions } from '@/lib/at-mention/mention-sources'
 import { useAtMenu, useAtTrigger } from '@/lib/at-mention/useAtMention'
@@ -16,6 +17,26 @@ import { AttachmentStrip } from './AttachmentStrip'
 import { OfferBar } from './OfferBar'
 import type { UseAttachmentsResult } from './use-attachments'
 import { VoiceButton } from './VoiceButton'
+
+/**
+ * The shared auto-grow, as a renderless child instead of a call in the body.
+ *
+ * `compact` is fixed for the lifetime of a mounted composer, so rendering the
+ * hook conditionally is stable — and it is what keeps the two height
+ * implementations from ever both running. The alternative (one hook taking an
+ * `enabled` flag) would put the main chat's height back on the Superagent's
+ * code path, which is the one thing this split exists to prevent.
+ */
+function PromptAutoGrow({
+  taRef,
+  value,
+}: {
+  taRef: RefObject<HTMLTextAreaElement | null>
+  value: string
+}): null {
+  usePromptAutoGrow({ taRef, value })
+  return null
+}
 
 /**
  * THE COMPOSER (POD-405) — one auto-growing box with the attach / voice / send
@@ -59,6 +80,28 @@ import { VoiceButton } from './VoiceButton'
  * The picker takes no keys the composer needs: `mention.onKeyDown` reports
  * whether it consumed one, and the send/newline/IME handling below is reached
  * unchanged whenever it did not.
+ *
+ * ---------------------------------------------------------------------------
+ * `compact` IS THE SUPERAGENT, AND IT WEARS THE SHARED PROMPT BOX (POD-516)
+ * ---------------------------------------------------------------------------
+ *
+ * One mount site passes `compact`: `SuperagentView` → `ChatView` → here. Every
+ * other `<ChatView>` in the app (the terminal pane's chat mode, mobile) leaves
+ * it false. So `compact` is not a size knob, it is *which product surface this
+ * is* — and the Superagent's prompt box has one design, whether the thread is
+ * empty or a hundred turns deep.
+ *
+ * The empty-thread box lives in `SuperagentView`; this is the same box after
+ * the first turn. They are ONE implementation: `.prompt-dock` / `.prompt-well` /
+ * `.prompt-input` in styles.css, and `usePromptAutoGrow` for the height. What
+ * `compact` selects here is nothing but that class set — the structure, the
+ * keyboard contract, the @-menu and the send path are shared with the main
+ * chat, unchanged.
+ *
+ * The main chat composer keeps its own ground, its own radius and its own
+ * measurement, and every difference between the two paths is one `compact ? :`
+ * away from being read. There is no shared "mode" flag inside a single effect
+ * or class string: a change to one path cannot reach the other.
  */
 export function ChatComposer({
   taRef,
@@ -123,8 +166,14 @@ export function ChatComposer({
 
   // Auto-grow the composer with its content, capped by the max-height (~8
   // lines), after which it scrolls. Runs on every draft change.
+  //
+  // THE MAIN CHAT'S OWN MEASUREMENT, and only the main chat's: under `compact`
+  // the Superagent's box is sized by <PromptAutoGrow> below, which derives its
+  // cap from the field's own line-height instead of a hard 176px, so the two
+  // must never both write `style.height`.
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-measure when the draft changes
   useEffect(() => {
+    if (compact) return
     const ta = taRef.current
     if (!ta) return
     // Measure the content height at height:auto, then restore the previous
@@ -146,7 +195,7 @@ export function ChatComposer({
     ta.style.height = prev || `${target}px`
     void ta.offsetHeight
     ta.style.height = `${target}px`
-  }, [draft])
+  }, [draft, compact])
 
   // ---- @ context: issues from the replica, files from the session's checkout ----
   // Both lists are capped: the menu is a shortlist, and a menu long enough to
@@ -178,14 +227,23 @@ export function ChatComposer({
       // leaves a dead gap above the keyboard under the composer. --kb-open (0/1) is
       // set from visualViewport by the shell when a soft keyboard is tracked.
       className={cn(
-        'border-t border-border px-3 pt-2.5 pb-[calc(10px+(1-var(--kb-open,0))*env(safe-area-inset-bottom,0px))]',
-        // Flat Field (POD-159): every chat composer mirrors the native
-        // Claude Code / superagent prompt box — mono, CLI `>` prefix, block
-        // caret, flat background.
-        'bg-background px-3.5 font-mono',
+        compact
+          ? // The Superagent's box: inset from all four edges with the thread
+            // dissolving into the ground above it, instead of a full-bleed bar
+            // welded on by a top seam. `.prompt-dock` carries its own bottom
+            // safe-area maths, so nothing is restated here.
+            'prompt-dock font-mono'
+          : cn(
+              'border-t border-border px-3 pt-2.5 pb-[calc(10px+(1-var(--kb-open,0))*env(safe-area-inset-bottom,0px))]',
+              // Flat Field (POD-159): every chat composer mirrors the native
+              // Claude Code / superagent prompt box — mono, CLI `>` prefix, block
+              // caret, flat background.
+              'bg-background px-3.5 font-mono',
+            ),
       )}
       {...attachments.dropHandlers}
     >
+      {compact && <PromptAutoGrow taRef={taRef} value={draft} />}
       {/* Agent action offer [spec:SP-c7f1]: the agent's suggested next
           actions, shown only while an offer exists for this session. The
           message sits above compact buttons; a click sends the button's
@@ -218,10 +276,32 @@ export function ChatComposer({
           offline copy — as of {new Date(offlineAsOf).toLocaleString()}
         </div>
       )}
-      <div className="relative flex flex-col gap-0.5 rounded-lg border border-border-strong bg-background px-3 py-1.5 focus-within:border-primary">
+      {/* THE FIELD. Under `compact` it is `.prompt-well`: grooved into the
+          pane with the same --well-* bevel the command bar's wells use, and
+          lifting a step on focus. Carved, not floated — and no yellow focus
+          outline, because the yellow block caret inside is already this box's
+          "you are typing here" and The Signal Rule pays for that sentence once.
+          `.prompt-well` is itself the flex ROW (mark · field · actions), which
+          is why the row and the attachment strip share one column child below:
+          the well may hold exactly one in-flow item. */}
+      <div
+        className={cn(
+          'relative',
+          compact
+            ? 'prompt-well'
+            : 'flex flex-col gap-0.5 rounded-lg border border-border-strong bg-background px-3 py-1.5 focus-within:border-primary',
+        )}
+      >
         <AtMentionMenu mention={mention} hint="↑↓ to move · ↵ to insert · esc to dismiss" />
         {attachments.dragOver && (
-          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl border-2 border-dashed border-primary bg-primary/5">
+          <div
+            className={cn(
+              'pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl border-2 border-dashed border-primary bg-primary/5',
+              // Follow the well's own corner, or the drop target reads as a
+              // second box laid over the field.
+              compact && 'rounded-[9px]',
+            )}
+          >
             <span className="text-sm font-medium text-primary">Drop image to attach</span>
           </div>
         )}
@@ -234,110 +314,137 @@ export function ChatComposer({
           onChange={attachments.onFileInputChange}
         />
         <BlockCaret taRef={taRef} value={draft} />
-        <div className="flex items-start gap-2">
-          <span className="shell-type-primary flex-none pt-[5px] text-text-dim" aria-hidden="true">
-            &gt;
-          </span>
-          <Textarea
-            ref={taRef}
-            rows={1}
-            placeholder={placeholder}
-            className="shell-type-primary block max-h-44 min-h-0 w-full resize-none overflow-y-auto rounded-none border-0 bg-transparent p-0.5 text-foreground caret-transparent outline-none transition-[height] duration-300 ease-[cubic-bezier(0.25,1,0.35,1)] [field-sizing:fixed] placeholder:text-text-faint focus-visible:border-0 focus-visible:ring-0 disabled:bg-transparent disabled:text-muted-foreground disabled:opacity-100 dark:bg-transparent dark:disabled:bg-transparent"
-            value={draft}
-            disabled={!enabled}
-            onChange={(e) => {
-              onDraftChange(e.target.value)
-              trigger.sync()
-            }}
-            // Caret moves that are not edits — a click, an arrow, a selection —
-            // open and close a mention just as typing does.
-            onSelect={trigger.sync}
-            onKeyDown={(e) => {
-              // The @ menu gets first refusal, and takes ONLY the keys it uses
-              // while it is open (never during an IME composition). Everything
-              // below is reached unchanged when it declines.
-              if (mention.onKeyDown(e)) return
-              // Desktop: Enter submits, Shift+Enter is a newline (⌘/Ctrl+Enter
-              // still submits). Mobile keeps plain Enter as a newline — the
-              // send button submits there.
-              // Some browsers clear isComposing on the Enter keydown that
-              // confirms a candidate, but continue to report the legacy IME
-              // keyCode. In either case, let the composition finish untouched.
-              if (
-                e.key === 'Enter' &&
-                (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229)
-              ) {
-                return
-              }
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault()
-                onSend()
-                return
-              }
-              if (e.key === 'Enter' && !e.shiftKey && !isMobile) {
-                e.preventDefault()
-                onSend()
-              }
-            }}
-            onPaste={attachments.onPaste}
-          />
-          {/* The action cluster is INLINE on the input row (POD-178: a separate
-              bottom row read as an unreachable empty line in the box). Compact
-              keeps plain ghost icons; the regular composer keeps a primary send
-              button, just inline and small. */}
-          <div className="flex flex-none items-center gap-0.5 self-end">
-            {headless && turnRunning && canInterrupt && (
+        <div className={cn('flex min-w-0 flex-col gap-0.5', compact && 'flex-1')}>
+          <div className="flex items-start gap-2">
+            <span
+              className={cn(
+                'shell-type-primary',
+                // `.prompt-mark` lights with the field on focus; the main chat's
+                // mark stays dim and is nudged to its own text baseline.
+                compact ? 'prompt-mark' : 'flex-none pt-[5px] text-text-dim',
+              )}
+              aria-hidden="true"
+            >
+              &gt;
+            </span>
+            <Textarea
+              ref={taRef}
+              rows={1}
+              placeholder={placeholder}
+              className={cn(
+                'shell-type-primary min-h-0 resize-none rounded-none border-0 bg-transparent text-foreground caret-transparent outline-none [field-sizing:fixed] focus-visible:border-0 focus-visible:ring-0 disabled:bg-transparent disabled:text-muted-foreground disabled:opacity-100 dark:bg-transparent dark:disabled:bg-transparent',
+                compact
+                  ? // `.prompt-input` owns the height transition, the padding and
+                    // the cap (in px, from usePromptAutoGrow) — so no `max-h-*`
+                    // here, which would clamp against the animated height, and no
+                    // `overflow-y-auto`, which is driven by [data-capped].
+                    // Placeholder ink steps up from Faint to Dim: at 10.5px on
+                    // this ground Faint is under 4.5:1 and this is the only line
+                    // of copy left in the box.
+                    'prompt-input min-w-0 flex-1 px-0 shadow-none placeholder:text-text-dim'
+                  : 'block max-h-44 w-full overflow-y-auto p-0.5 transition-[height] duration-300 ease-[cubic-bezier(0.25,1,0.35,1)] placeholder:text-text-faint',
+              )}
+              value={draft}
+              disabled={!enabled}
+              onChange={(e) => {
+                onDraftChange(e.target.value)
+                trigger.sync()
+              }}
+              // Caret moves that are not edits — a click, an arrow, a selection —
+              // open and close a mention just as typing does.
+              onSelect={trigger.sync}
+              onKeyDown={(e) => {
+                // The @ menu gets first refusal, and takes ONLY the keys it uses
+                // while it is open (never during an IME composition). Everything
+                // below is reached unchanged when it declines.
+                if (mention.onKeyDown(e)) return
+                // Desktop: Enter submits, Shift+Enter is a newline (⌘/Ctrl+Enter
+                // still submits). Mobile keeps plain Enter as a newline — the
+                // send button submits there.
+                // Some browsers clear isComposing on the Enter keydown that
+                // confirms a candidate, but continue to report the legacy IME
+                // keyCode. In either case, let the composition finish untouched.
+                if (
+                  e.key === 'Enter' &&
+                  (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229)
+                ) {
+                  return
+                }
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault()
+                  onSend()
+                  return
+                }
+                if (e.key === 'Enter' && !e.shiftKey && !isMobile) {
+                  e.preventDefault()
+                  onSend()
+                }
+              }}
+              onPaste={attachments.onPaste}
+            />
+            {/* The action cluster is INLINE on the input row (POD-178: a separate
+                bottom row read as an unreachable empty line in the box). Compact
+                keeps plain ghost icons; the regular composer keeps a primary send
+                button, just inline and small. */}
+            <div className="flex flex-none items-center gap-0.5 self-end">
+              {headless && turnRunning && canInterrupt && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-6 rounded-md text-destructive hover:bg-transparent hover:text-destructive [&_svg:not([class*='size-'])]:size-3.5"
+                  title="Stop this turn"
+                  onClick={onInterrupt}
+                >
+                  <Square size={16} aria-hidden="true" />
+                </Button>
+              )}
               <Button
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="size-6 rounded-md text-destructive hover:bg-transparent hover:text-destructive [&_svg:not([class*='size-'])]:size-3.5"
-                title="Stop this turn"
-                onClick={onInterrupt}
+                className={cn(
+                  'size-6 rounded-md text-muted-foreground hover:bg-transparent hover:text-foreground',
+                  "[&_svg:not([class*='size-'])]:size-3.5",
+                )}
+                title="Attach image"
+                onClick={attachments.openFilePicker}
               >
-                <Square size={16} aria-hidden="true" />
+                <Paperclip size={16} aria-hidden="true" />
               </Button>
-            )}
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className={cn(
-                'size-6 rounded-md text-muted-foreground hover:bg-transparent hover:text-foreground',
-                "[&_svg:not([class*='size-'])]:size-3.5",
-              )}
-              title="Attach image"
-              onClick={attachments.openFilePicker}
-            >
-              <Paperclip size={16} aria-hidden="true" />
-            </Button>
-            <VoiceButton voice={voice} />
-            <Button
-              type="button"
-              size="icon"
-              variant={compact ? 'ghost' : 'default'}
-              className={cn(
-                compact
-                  ? "size-6 rounded-md text-muted-foreground hover:bg-transparent hover:text-foreground disabled:bg-transparent disabled:opacity-40 [&_svg:not([class*='size-'])]:size-3.5"
-                  : "size-7 rounded-md bg-primary text-primary-foreground hover:bg-primary/80 disabled:bg-secondary disabled:text-muted-foreground/70 disabled:opacity-100 [&_svg:not([class*='size-'])]:size-3.5",
-              )}
-              disabled={sendDisabled}
-              title="Send (Enter)"
-              onClick={onSend}
-            >
-              <ArrowUp size={16} aria-hidden="true" />
-            </Button>
+              <VoiceButton voice={voice} />
+              {/* THE ARMED SEND. Compact matches the empty-thread box exactly:
+                  a quiet glyph in Dim ink while there is nothing to send —
+                  legible without hovering, not 40% opacity — that FILLS Superade
+                  Yellow over 150ms the moment it can act. Sending is the primary
+                  action, which is the one thing The Signal Rule buys yellow for,
+                  and it is the only yellow left in this box now that the focus
+                  border is gone. */}
+              <Button
+                type="button"
+                size="icon"
+                variant={compact ? 'ghost' : 'default'}
+                className={cn(
+                  compact
+                    ? cn(
+                        "size-6 rounded-md transition-colors duration-150 motion-reduce:transition-none [&_svg:not([class*='size-'])]:size-3.5",
+                        sendDisabled
+                          ? 'bg-transparent text-text-dim hover:bg-transparent hover:text-text-dim disabled:bg-transparent disabled:text-text-dim disabled:opacity-100'
+                          : 'bg-primary text-primary-foreground hover:bg-primary/80',
+                      )
+                    : "size-7 rounded-md bg-primary text-primary-foreground hover:bg-primary/80 disabled:bg-secondary disabled:text-muted-foreground/70 disabled:opacity-100 [&_svg:not([class*='size-'])]:size-3.5",
+                )}
+                disabled={sendDisabled}
+                title="Send (Enter)"
+                onClick={onSend}
+              >
+                <ArrowUp size={16} aria-hidden="true" />
+              </Button>
+            </div>
           </div>
+          <AttachmentStrip attachments={attachments.attachments} onRemove={attachments.remove} />
         </div>
-        <AttachmentStrip attachments={attachments.attachments} onRemove={attachments.remove} />
       </div>
-      {compact && (
-        <div className="flex items-center gap-2 px-1 pt-1.5 text-[10.5px] text-text-faint">
-          <span className="text-text-dim">⏵⏵ auto-delegate on</span>
-          <span>(shift+tab to cycle)</span>
-          <span className="ml-auto">? for shortcuts</span>
-        </div>
-      )}
     </div>
   )
 }
