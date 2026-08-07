@@ -33,27 +33,27 @@ export default defineConfig({
   webServer: [
     {
       // Relay + daemon, which ALSO serves the built web UI on its own origin (:8799) —
-      // matching production since the backend-serves-web change (b7c02a3). We build model before
-      // protocol because protocol's dist imports model's dist, then build the web and serve it
-      // same-origin from the relay, so the browser opens its WebSocket
-      // same-origin. (A separate cross-origin preview server has its client WS upgrade
-      // refused, so the old two-server split no longer connects.) The specs load from the
-      // baseURL (:8799) and pass `?server=ws://localhost:8799`; @podium/source runs TS source.
+      // matching production since the backend-serves-web change (b7c02a3). Specs load
+      // from baseURL (:8799) and pass `?server=ws://localhost:8799`; @podium/source
+      // runs TS source for the harness itself. (A separate cross-origin preview had
+      // its client WS upgrade refused, so the old two-server split no longer connects.)
       //
-      // Timeout is the full sequential chain (model → protocol → web → mobile export →
-      // serve-harness), not harness boot alone. On a quiet host the boot is ~100s and
-      // fits 180s with headroom; under shared-host contention the same warm-cache chain
-      // has timed out at 180s (POD-535 / POD-503). 10 minutes removes that cliff — it
-      // is not a claim that the chain inherently needs 10 minutes. The sanctioned lane
-      // (`bun run test:browser`) also takes the test:heavy lease so it is not the one
-      // heavy path that races everyone else. Cold-checkout self-containment of this
-      // command is unchanged (POD-1389).
-      command:
-        'bun run --filter @podium/model build && bun run --filter @podium/protocol build && bun run --filter @podium/web build && bun run --filter @podium/mobile build:web && bun --conditions=@podium/source serve-harness.ts',
+      // Builds are NOT here. model → protocol → web → mobile export used to sit in
+      // this command and routinely spent 100–190s before serve-harness started,
+      // which under shared-host load blew the old 180s budget with zero tests run
+      // (POD-535). scripts/browser-lane.ts already builds those packages for the
+      // test process; duplicating them under Playwright's wall clock made every
+      // suite wait on a second full chain. Hand-run playwright needs a prior
+      // `bun run build` and `bun run --filter @podium/mobile build:web`, or the
+      // sanctioned `bun run test:browser` entry point.
+      //
+      // Timeout is harness boot only (~5s to /health). 180s is generous headroom,
+      // not a multi-minute build budget.
+      command: 'bun --conditions=@podium/source serve-harness.ts',
       env: { ...process.env, PODIUM_UPDATE_CHANNEL: 'edge' },
       url: `${ORIGIN}/health`,
       reuseExistingServer: false,
-      timeout: 600_000,
+      timeout: 180_000,
     },
   ],
 })

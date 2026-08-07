@@ -55,8 +55,9 @@ commands do not; when an agent runs those by hand on the shared host:
 
 The same applies to a bare `bun scripts/browser-lane.ts` or a hand-rolled Playwright
 invocation that bypasses `bun run test:browser` — those skip the wrapper and will race
-other heavy work (the webServer boot that is ~100s on a quiet host has timed out at
-180s under contention; POD-535). Prefer the package script.
+other heavy work. Prefer the package script. Hand-rolled Playwright also needs a prior
+`bun run build` and `bun run --filter @podium/mobile build:web`: the config's
+`webServer` only boots the harness (POD-535); it no longer rebuilds packages.
 
 The wrapper renews the 30-minute lease every 10 minutes while the child runs. If renewal fails, it terminates the child rather than allowing an unleased test to continue; an interrupted process still has the 30-minute TTL as the recovery path.
 

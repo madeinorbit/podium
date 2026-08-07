@@ -31,18 +31,21 @@ nothing blocking may ever be folded in beside a swallowed red.
 
 ## What the lane does that the Playwright config does not
 
-The config (`tests/e2e/playwright.config.ts`) is used **unchanged**. Two things had
-to live in the runner instead:
+The config (`tests/e2e/playwright.config.ts`) is used **almost unchanged** — its
+`webServer` only boots `serve-harness.ts`. Three things live in the runner instead:
 
-1. **Building the workspace packages.** The test process imports `@podium/protocol`
-   without the `@podium/source` condition, so it resolves to `dist`, which imports
-   `@podium/model`'s `dist`. The config's `webServer` builds protocol + web for the
-   *server*; nothing built what the *test process* loads. On a fresh checkout every
-   suite dies with `Cannot find module …/packages/model/dist/index.js`.
+1. **Building workspace packages, web, and the mobile web export (POD-535).** The
+   test process imports `@podium/protocol` without the `@podium/source` condition,
+   so it resolves to `dist`. The harness also serves `apps/web/dist` and the Expo
+   mobile export. Those used to rebuild inside Playwright's `webServer` command
+   and spent minutes under its wall clock; the lane builds them once, then the
+   harness starts in ~5s. On a fresh checkout every suite dies without this step
+   (`Cannot find module …/packages/model/dist/index.js`).
 2. **Probing imports per suite.** Playwright aborts the entire run when a single
    file fails to import — `Total: 0 tests in 0 files`, and no census at all. The
    runner probes first (fast, no browser), names the unloadable suites as ERRORED,
    and runs the rest, so one rotten import cannot hide the state of the other 69.
+3. **The `test:heavy` lease** (via `bun run test:browser` → `test-heavy.ts`).
 
 <!-- CENSUS RESULTS -->
 

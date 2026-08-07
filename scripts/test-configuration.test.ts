@@ -414,30 +414,44 @@ describe('test lane configuration', () => {
     }
   })
 
-  it('builds browser workspace dependencies in cold-checkout order [POD-1389]', () => {
-    // Inspect the configured commands rather than the filesystem. A model dist
-    // borrowed from this or a neighboring checkout must not make this guard green.
-    const modelBuild = 'bun run --filter @podium/model build'
-    const protocolBuild = 'bun run --filter @podium/protocol build'
+  it('builds browser workspace dependencies in the lane, not under webServer [POD-1389][POD-535]', () => {
+    // Cold-checkout self-containment moved out of Playwright's webServer wall
+    // clock: the lane builds packages + web + mobile once; webServer only boots
+    // the harness. Inspect the source and config rather than the filesystem so a
+    // borrowed neighbouring dist cannot make this guard green.
+    const lane = readFileSync(new URL('./browser-lane.ts', import.meta.url), 'utf8')
+    expect(lane, 'lane must run the workspace build').toMatch(/run\('bun', \['run', 'build'\]/)
+    expect(lane, 'lane must export mobile web for phone projects').toMatch(
+      /@podium\/mobile['"],\s*['"]build:web['"]/,
+    )
+    // Root `bun run build` is packages/* then @podium/web; packages/* includes
+    // model before protocol alphabetically only by workspace graph — the
+    // historical order guarantee was model-before-protocol in one shell string.
+    // The root build script is the order of record for the lane.
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+      scripts: Record<string, string>
+    }
+    expect(pkg.scripts.build).toMatch(/packages\/\*/)
+    expect(pkg.scripts.build).toMatch(/@podium\/web/)
+
     for (const playwright of [browserConfig, phase3BrowserConfig]) {
       const command = webServerCommand(playwright)
-      expect(command).toContain(modelBuild)
-      expect(command).toContain(protocolBuild)
-      expect(command.indexOf(modelBuild)).toBeLessThan(command.indexOf(protocolBuild))
+      expect(command, 'webServer must not re-run package builds').not.toMatch(/--filter/)
+      expect(command, 'webServer must boot the harness only').toContain('serve-harness.ts')
     }
   })
 
-  it('gives webServer headroom so contention is not a hard cliff [POD-535]', () => {
-    // Quiet-host boot is ~100s (fits 180s); the same warm-cache chain has timed
-    // out at 180s under shared-host load. The floor is headroom, not a claim
-    // that the chain needs 10 minutes. Serialization lives on test:browser via
-    // test-heavy; this budget is the remaining safety net for hand-runs and
-    // residual load.
+  it('keeps webServer budget for harness boot only [POD-535]', () => {
+    // Builds left this command; serve-harness answers /health in ~5s. A multi-
+    // minute floor would re-invite stuffing builds back into webServer.
     for (const playwright of [browserConfig, phase3BrowserConfig]) {
-      const { timeout } = webServerEntry(playwright)
-      expect(timeout, 'webServer timeout missing or too short for contention headroom').toBeGreaterThanOrEqual(
-        600_000,
+      const { timeout, command } = webServerEntry(playwright)
+      expect(command).toContain('serve-harness.ts')
+      expect(timeout, 'webServer timeout missing').toBeTypeOf('number')
+      expect(timeout!, 'harness-only boot should not need a multi-minute budget').toBeLessThanOrEqual(
+        180_000,
       )
+      expect(timeout!, 'harness-only boot still needs some headroom').toBeGreaterThanOrEqual(60_000)
     }
   })
 

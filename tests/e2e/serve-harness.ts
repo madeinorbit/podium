@@ -9,7 +9,8 @@
  * Run: bun --conditions=@podium/source tests/e2e/serve-harness.ts
  *      (the @podium/source condition resolves workspace packages to TS source; no build)
  * Port: PORT (default 8799). Health: GET /health. The playwright.config webServer starts
- * this automatically; the specs connect via `?server=ws://localhost:8799`.
+ * this automatically (harness only — package/web/mobile builds live in browser-lane);
+ * the specs connect via `?server=ws://localhost:8799`.
  */
 import { execFileSync } from 'node:child_process'
 import { appendFileSync, chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'

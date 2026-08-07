@@ -22,15 +22,13 @@ export default defineConfig({
   ],
   webServer: [
     {
-      // Same budget as playwright.config.ts: quiet-host boot fits 180s; contention
-      // has pushed the warm-cache chain over that cliff (POD-535). 10 minutes is
-      // headroom, not a claim the chain needs that long.
-      command:
-        'bun run --filter @podium/model build && bun run --filter @podium/protocol build && bun run --filter @podium/web build && bun --conditions=@podium/source serve-harness.ts',
+      // Harness-only, same as playwright.config.ts (POD-535): package builds live
+      // in the lane / a prior `bun run build`, not under Playwright's webServer clock.
+      command: 'bun --conditions=@podium/source serve-harness.ts',
       url: `${ORIGIN}/health`,
       reuseExistingServer: false,
       env: { PODIUM_PASSWORD: process.env.PODIUM_PASSWORD ?? '' },
-      timeout: 600_000,
+      timeout: 180_000,
     },
   ],
 })

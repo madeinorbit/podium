@@ -10,18 +10,17 @@
  *
  * Invoke via `bun run test:browser` (not this file bare). The package script
  * wraps this process in `scripts/test-heavy.ts` so a live session takes the
- * shared `test:heavy` lease for the whole build + webServer + run. The chain
- * fits a quiet host in ~100s; without the lease it races integration/e2e and
- * the webServer 180s cliff reappears under contention (POD-535).
+ * shared `test:heavy` lease for the whole build + webServer + run.
  *
- * The Playwright config is used UNCHANGED. Two things live here instead:
+ * Three things live here that the Playwright config does not:
  *
- * 1. THE BUILD. The test process imports `@podium/protocol` without
- *    `--conditions=@podium/source`, so it resolves to `dist`, which imports
- *    `@podium/model`'s `dist` — and a fresh checkout has neither. The config's
- *    `webServer` builds protocol + web for the SERVER; nothing built the
- *    packages the TEST process itself loads. Without this step every suite dies
- *    on `Cannot find module .../packages/model/dist/index.js`.
+ * 1. THE BUILD (POD-535 / POD-1389). The test process imports `@podium/protocol`
+ *    without `--conditions=@podium/source`, so it resolves to `dist`. The
+ *    harness also serves `apps/web/dist` and the Expo mobile export. Both used
+ *    to rebuild inside Playwright's webServer command, so every run paid a
+ *    second multi-minute chain under Playwright's wall clock and timed out at
+ *    180s under host load. The lane builds once — workspace packages + web +
+ *    mobile web export — then webServer only boots serve-harness (~5s).
  *
  * 2. THE LOAD PROBE. Playwright aborts the whole run when ONE file fails to
  *    import — `Total: 0 tests in 0 files`, exit non-zero, no census. That is how
@@ -29,6 +28,11 @@
  *    nothing at all. So the lane probes first, reports the unloadable suites as
  *    ERRORED (they are broken, and named as broken), and runs the rest, so one
  *    rotten import cannot hide the state of the other 69.
+ *
+ * 3. THE LEASE (via package.json → test-heavy). Serializes against other heavy
+ *    agent lanes. Does not guarantee a quiet host — other processes still run
+ *    outside the lease — but it is the shared-host contract the other heavy
+ *    scripts already use.
  *
  * Quarantine lives in ./browser-quarantine.ts — a list, printed every run, not a
  * `testIgnore` glob nobody can see.
@@ -77,12 +81,24 @@ if (QUARANTINE.length > 0) {
   console.log('QUARANTINED: none — every suite runs.')
 }
 
-console.log('\nbuilding workspace packages (the test process loads them from dist)…')
+// Workspace packages + web for the test process and the harness-served UI;
+// mobile web export for phone-sized projects. Order matters for cold checkouts:
+// protocol's dist imports model's dist (POD-1389). `bun run build` already does
+// packages/* then @podium/web; mobile is separate (not in the root build).
+console.log('\nbuilding workspace packages + web (test process + harness UI)…')
 const built = run('bun', ['run', 'build'], true)
 if (built.status !== 0) {
   console.error(built.stdout ?? '')
   console.error(built.stderr ?? '')
   console.error('browser lane: package build failed — no suite can load. Stopping.')
+  process.exit(1)
+}
+console.log('building @podium/mobile web export (served at /mobile)…')
+const mobile = run('bun', ['run', '--filter', '@podium/mobile', 'build:web'], true)
+if (mobile.status !== 0) {
+  console.error(mobile.stdout ?? '')
+  console.error(mobile.stderr ?? '')
+  console.error('browser lane: mobile web export failed — phone projects cannot load. Stopping.')
   process.exit(1)
 }
 
