@@ -152,8 +152,10 @@ const removeAll = () => {
   for (const dir of tmpState.containers.splice(0)) removeDir(dir)
   tmpState.activeContainer = undefined
 }
-// Register exit handlers once per process — re-evaluating this module must not stack them
-// (a multi-file reused runner would otherwise hit MaxListenersExceededWarning).
+// Register exit handlers once per process — re-evaluating this module (vitest) or reminting
+// (bun hooks) must not stack them. Four listeners per mint, one per event NAME, so a 62-file
+// reused runner would pass Node's 10-per-event warning threshold at file 11 and re-run the
+// whole accumulated cleanup once per file on exit. [POD-527]
 if (!tmpState.exitHandlersInstalled) {
   tmpState.exitHandlersInstalled = true
   process.on('exit', removeAll)

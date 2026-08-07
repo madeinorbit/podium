@@ -34,6 +34,13 @@ if (!task.isolate && !runner.isTerminated && !isMemoryLimitReached
 That is what lets one shard run a reused project and an isolated project side by side in one
 invocation, rather than needing two.
 
+It also means the *file order* decides how much reuse actually happens: the runner is only
+handed on when `this.queue[0]` is another non-isolated file of the same project. Vitest's
+`BaseSequencer` sorts by project name first — "Projects run sequential" in its own comment —
+so under the default order the reused project's 62 files are contiguous and the chain is
+maximal. That matters for reading the randomized-order evidence below, because
+`RandomSequencer` replaces that sort *entirely* with a shuffle over all files.
+
 What the worker then does *not* do is the point. Its per-file loop:
 
 ```js
@@ -122,8 +129,12 @@ inside file 1's and vanished when file 1's was released. The host tmp root is no
 once, on the first evaluation in the process, and every container is anchored to it.
 
 **3. Exit handlers stacked one set per file.** `process.on('exit', removeAll)` plus three
-signal handlers, registered on every re-evaluation: 60 files meant 240 listeners and a
-`MaxListenersExceededWarning`. They are installed once per process now, against a container
+signal handlers, registered on every re-evaluation. Four listeners per file, one *per event
+name*, so a 62-file runner would pass Node's 10-per-event warning threshold at file 11 and
+re-run the whole accumulated cleanup once per file on exit — that much is arithmetic from the
+code rather than something observed, since the fix landed with the reuse. What *is* observed is
+the fixed behaviour: the probe below asserts the count does not grow across three files in one
+process. They are installed once per process now, against a container
 list that lives on a `globalThis` symbol rather than in module scope — module scope being
 exactly what re-evaluation throws away.
 
@@ -191,6 +202,12 @@ There is nothing to fix. On reading, **all eight restore correctly**: the four f
 pair `useFakeTimers` with `useRealTimers` (two through `beforeEach`/`afterEach`, two through
 `try`/`finally`), the three env writers save the prior value and restore or delete it in
 `afterEach`, and `telegram-send` captures `globalThis.fetch` and puts it back.
+
+**Measured, not just read.** A throwaway config put all 70 into a single reused runner with the
+leak guard armed: 70 files, 701 tests, **zero leak-guard failures**, and the only red was the
+pre-existing `daemon-mux` one. One run in one order is stronger evidence here than it would
+normally be, because the guard's question is per-file — *did this file leave the process as it
+found it* — and a file that restores cannot contaminate any neighbour, whatever the order.
 
 They are demoted because the scan reads **text** and cannot know that a restore runs on every
 path. Which is the distinction that generalises past this issue: **the population is bounded by
@@ -289,6 +306,96 @@ two-worker cap. The reused project's only deviation is **one additional setupFil
 guard, appended to the shared three, never replacing them. `passWithNoTests: false` holds for
 every project, which is why the isolated project is emitted only when the scan actually
 demoted something rather than being allowed to be empty.
+
+## What it cost, measured
+
+### How it was measured, because the host makes that the first question
+
+This is a shared six-core host that normally runs several agents at once. Across the
+measurement block `/proc/loadavg` sampled every 10s read **26 to 43** — 3× to 5× oversubscribed
+— and a neighbour separately observed a **peak of 94** twenty minutes before the block started.
+That peak is *not* the condition these numbers ran under and is quoted only so nobody mistakes
+it for one.
+
+Absolute seconds on such a host are noise. The evidence is built to survive that:
+
+- **Paired and alternating.** reuse, isolated, reuse, isolated, reuse, isolated — same config,
+  one CLI flag apart (`--isolate` forces isolation back on for every project) — so drift over
+  the block hits both arms rather than one.
+- **Within-run phase ratios, not wall clock.** Vitest reports import/collect separately from
+  transform and from test bodies, and a ratio taken inside one run is immune to what the host
+  was doing in a way wall clock is not.
+
+How much that mattered: **pair 2's *reused* arm is slower in wall clock than pair 1's *isolated*
+arm.** Anyone reporting absolute seconds from this block would have published whichever direction
+the dice fell.
+
+### The A/B — three pairs, six runs
+
+| pair | host load | import/collect | setup | process CPU |
+| --- | --- | --- | --- | --- |
+| 1 | ~27 | 224.90 s → 119.05 s (**−47.1%**) | 45.03 → 29.35 s | 153.24 → 88.06 s (−42.5%) |
+| 2 | ~42 | 534.78 s → 325.50 s (**−39.1%**) | 102.35 → 89.51 s | 216.15 → 133.91 s (−38.0%) |
+| 3 | ~38 | 236.54 s → 151.46 s (**−36.0%**) | 40.88 → 40.84 s | 131.40 → 70.07 s (−46.7%) |
+
+**All six runs identical**: 70 files, 701 tests, one failure — `gateway/daemon-mux.test.ts`,
+which is one of the three POD-515 documented on main before this chain started. It fails inside
+the *reused* project, which is worth stating plainly: the reused runner reports a genuine
+pre-existing failure rather than swallowing it.
+
+(701, not POD-520's 698: `static-web.test.ts` gained 3 tests on main between POD-520's branch
+point and here. Not this change.)
+
+### The whole lane
+
+`bun run test -- --filter @podium/server`, all five shards, contracts reused:
+
+| shard | files | tests | failed | import/collect |
+| --- | ---: | ---: | ---: | ---: |
+| `boundary` | 71 | 1,119 | 1 | 599.78 s |
+| `services` | 47 | 570 | 1 | 501.60 s |
+| `store` | 105 | 1,771 | 0 | 417.52 s |
+| `contracts` (reused) | 70 | 701 | 1 | 113.75 s |
+| `normalized-wire` | 2 | 8 | 0 | 77.57 s |
+| **total** | **295** | **4,169** | **3** | **1,710.22 s** |
+
+**The three known failures are still exactly three, the same three by name**, in three different
+shards. `derived-family.runtime.test.ts` did *not* start passing despite changing on main — the
+chain's identical-results anchor is intact. **No leak-guard failure anywhere in the lane.**
+
+### The share of the cost this actually addresses
+
+POD-515's review measured import/collect at 53.5% of aggregate phase work and named it the
+dominant cost. Two findings, and the second is a correction the first does not soften.
+
+**The review understated it.** In this lane import/collect is **66.4%** of aggregate phase work
+(1,710.22 s of 2,574.99 s across transform, setup, import and bodies). POD-523 moved migration
+replay out of test bodies, which raised import's share rather than lowering it. Import/collect
+is now two thirds of the lane.
+
+**And runner reuse reaches about 4% of it.** Scaling the contracts shard back to isolated by the
+three measured ratios (1.562, 1.643, 1.889):
+
+| | contracts isolated | saved | baseline lane import | **share addressed** |
+| --- | ---: | ---: | ---: | ---: |
+| lowest ratio | 177.6 s | 63.9 s | 1,774.1 s | **3.60%** |
+| median ratio | 186.9 s | 73.1 s | 1,783.4 s | **4.10%** |
+| highest ratio | 214.9 s | 101.1 s | 1,811.4 s | **5.58%** |
+
+The reason is structural and was visible from the start: **`contracts` is 10.5% of baseline lane
+import.** `boundary` and `services` together are **61.8%** — and they are exactly where reuse is
+not safe, because they compose the application and hold singletons. `store` is another 23.4%.
+
+So the review was right that import/collect dominates, and more right than it knew. It was wrong
+that runner reuse is the lever for it. Reuse is safe precisely where the cost is smallest; the
+lever for the other 85% would have to reach shards that compose the application, and nothing
+here shows that is safe. A 40% cut on a tenth of the cost is a real result and a small one, and
+publishing it as a ratio on `contracts` alone would have been the same mistake POD-520 named
+when it caught itself reading 64% as a lane number.
+
+Caveat on the share, stated rather than buried: the lane runs its shards concurrently, so every
+shard's import phase is inflated by the others. The inflation is roughly uniform, which is why a
+*share* survives it where absolute seconds do not.
 
 ## What this does not do
 
