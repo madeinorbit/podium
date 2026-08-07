@@ -26,6 +26,13 @@ export interface LockHolderWire {
    * on the next queue advance report false here so status is not misleading.
    */
   alive: boolean
+  /**
+   * Live session cwd/worktree root when the session is known and alive; null
+   * for operator, dead sessions, and unknown-relay. Shared-worktree collision
+   * detection keys on this (issue labels alone lie when many issues share a
+   * checkout).
+   */
+  workspace: string | null
 }
 
 export interface LockQueueEntryWire extends Omit<LockHolderWire, 'sessionId'> {

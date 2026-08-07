@@ -20,7 +20,13 @@ const grantedWire = (name: string) => ({
   lock: {
     repoId: 'r',
     name,
-    holder: { sessionId: 's1', issueId: null, label: 'session:s1', alive: true },
+    holder: {
+      sessionId: 's1',
+      issueId: null,
+      label: 'session:s1',
+      alive: true,
+      workspace: '/wt/a',
+    },
     note: null,
     acquiredAt: 'now',
     expiresAt: 'later',
@@ -34,7 +40,13 @@ const queuedWire = (name: string, position: number) => ({
   position,
   lock: {
     ...grantedWire(name).lock,
-    holder: { sessionId: 's2', issueId: 'iss_2', label: 'issue:#2', alive: true },
+    holder: {
+      sessionId: 's2',
+      issueId: 'iss_2',
+      label: 'issue:#2',
+      alive: true,
+      workspace: '/wt/b',
+    },
     queue: [
       {
         position: 1,
@@ -43,6 +55,7 @@ const queuedWire = (name: string, position: number) => ({
         label: 'issue:#3',
         enqueuedAt: '2026-08-07T09:12:52.000Z',
         alive: false,
+        workspace: null,
       },
     ],
   },
@@ -94,10 +107,10 @@ describe('runLockCli', () => {
     expect(out.exitCode).toBe(EXIT_QUEUED)
     expect(out.text).toContain('position 2')
     // Acquire-time text names the holder's session so the agent can address them.
-    expect(out.text).toContain('s2 on issue:#2 [alive]')
+    expect(out.text).toContain('s2 on issue:#2 workspace /wt/b [alive]')
   })
 
-  it('status prints session id and liveness per holder and queue row', async () => {
+  it('status prints session id, workspace, and liveness per holder and queue row', async () => {
     const lock = {
       ...queuedWire('test:heavy', 1).lock,
       name: 'test:heavy',
@@ -106,6 +119,7 @@ describe('runLockCli', () => {
         issueId: 'iss_527',
         label: 'issue:#527',
         alive: true,
+        workspace: '/repo/.worktrees/issue-527',
       },
       queue: [
         {
@@ -115,6 +129,7 @@ describe('runLockCli', () => {
           label: 'issue:#516',
           enqueuedAt: '2026-08-07T09:12:52.000Z',
           alive: true,
+          workspace: '/repo/.worktrees/issue-516',
         },
         {
           position: 2,
@@ -123,6 +138,7 @@ describe('runLockCli', () => {
           label: 'issue:#516',
           enqueuedAt: '2026-08-07T09:15:00.000Z',
           alive: false,
+          workspace: null,
         },
       ],
       acquiredAt: '2026-08-07T09:00:00.000Z',
@@ -133,8 +149,12 @@ describe('runLockCli', () => {
     } as never
     const out = await runLockCli(['status', 'test:heavy', '--repoPath', '/r'], client)
     expect(out.exitCode).toBe(0)
-    expect(out.text).toContain("held by 3a61f07a-holder on issue:#527 [alive]")
-    expect(out.text).toContain('1. sess-516-a on issue:#516 [alive]')
+    expect(out.text).toContain(
+      'held by 3a61f07a-holder on issue:#527 workspace /repo/.worktrees/issue-527 [alive]',
+    )
+    expect(out.text).toContain(
+      '1. sess-516-a on issue:#516 workspace /repo/.worktrees/issue-516 [alive]',
+    )
     expect(out.text).toContain('2. sess-516-ghost on issue:#516 [dead]')
   })
 

@@ -13,9 +13,10 @@ import { DEFAULT_LOCK_TTL_SECONDS, LockService } from './service'
 
 const REPO = '/repo'
 
-function harness(opts?: { alive?: Set<string> }) {
+function harness(opts?: { alive?: Set<string>; workspace?: Map<string, string> }) {
   const store = new SessionStore(':memory:')
   const alive = opts?.alive ?? new Set<string>()
+  const workspace = opts?.workspace ?? new Map<string, string>()
   let nowMs = Date.parse('2026-07-13T12:00:00.000Z')
   const sendMail = vi.fn()
   const appendEvent = vi.fn()
@@ -26,6 +27,7 @@ function harness(opts?: { alive?: Set<string> }) {
     now: () => nowMs,
     resolveRepoId: (repoPath) => `repo:${repoPath}`,
     sessionAlive: (sessionId) => alive.has(sessionId),
+    sessionWorkspace: (sessionId) => workspace.get(sessionId) ?? null,
     sendMail,
     appendEvent,
   })
@@ -33,6 +35,7 @@ function harness(opts?: { alive?: Set<string> }) {
     svc,
     store,
     alive,
+    workspace,
     sendMail,
     appendEvent,
     advance: (ms: number) => {
@@ -41,12 +44,13 @@ function harness(opts?: { alive?: Set<string> }) {
   }
 }
 
-const agent = (n: number) => ({
+const agent = (n: number, workspace: string | null = null) => ({
   sessionId: asSessionId(`sess_${n}`),
   issueId: asIssueId(`iss_${n}`),
   label: `issue:#${n}`,
+  workspace,
 })
-const OPERATOR = { sessionId: null, issueId: null, label: 'operator' }
+const OPERATOR = { sessionId: null, issueId: null, label: 'operator', workspace: null }
 
 describe('LockService', () => {
   it('grants a free lock with the default TTL and holder identity', () => {
@@ -60,6 +64,7 @@ describe('LockService', () => {
       issueId: 'iss_1',
       label: 'issue:#1',
       alive: false, // harness sessionAlive defaults to empty set
+      workspace: null,
     })
     expect(r.lock.secondsLeft).toBe(DEFAULT_LOCK_TTL_SECONDS)
     expect(r.lock.queue).toEqual([])
@@ -100,6 +105,7 @@ describe('LockService', () => {
         label: 'issue:#2',
         enqueuedAt: '2026-07-13T12:00:00.000Z',
         alive: false,
+        workspace: null,
       },
       {
         position: 2,
@@ -108,6 +114,7 @@ describe('LockService', () => {
         label: 'issue:#3',
         enqueuedAt: '2026-07-13T12:00:01.000Z',
         alive: false,
+        workspace: null,
       },
     ])
   })
@@ -134,14 +141,15 @@ describe('LockService', () => {
       sessionId: asSessionId('sess_1b'),
       issueId: asIssueId('iss_1'),
       label: 'issue:#1',
+      workspace: null,
     }
     const otherIssue = agent(2)
     svc.acquire(a, { repoPath: REPO, name: 'l' })
     // Same issue, different session, holder is sibling → refuse
     expect(() => svc.acquire(sibling, { repoPath: REPO, name: 'l' })).toThrow(
-      /sibling sess_1 \(issue:#1\) already holds/,
+      /sibling sess_1 \(issue:#1\) already holds.*same issue/,
     )
-    // Other issue may still queue
+    // Other issue may still queue (different issue + no shared workspace)
     expect(svc.acquire(otherIssue, { repoPath: REPO, name: 'l' })).toMatchObject({
       granted: false,
       position: 1,
@@ -164,12 +172,60 @@ describe('LockService', () => {
       sessionId: asSessionId('sess_1c'),
       issueId: asIssueId('iss_1'),
       label: 'issue:#1',
+      workspace: null,
     }
     expect(() => svc.acquire(third, { repoPath: REPO, name: 'l' })).toThrow(
       /sibling sess_1b \(issue:#1\) is already queued/,
     )
     expect(
       svc.acquire(third, { repoPath: REPO, name: 'l', allowSibling: true }),
+    ).toMatchObject({ granted: false, position: 2 })
+  })
+
+  it('refuses co-located sessions that share a worktree even on different issues', () => {
+    // POD-516 incident: many issues in one checkout; issue-keyed refuse misses them.
+    const wt = '/repo/.worktrees/issue-516'
+    const { svc, alive, workspace } = harness()
+    alive.add('sess_516').add('sess_539').add('sess_527')
+    workspace.set('sess_516', wt).set('sess_539', wt).set('sess_527', '/repo/.worktrees/issue-527')
+    const on516 = {
+      sessionId: asSessionId('sess_516'),
+      issueId: asIssueId('iss_516'),
+      label: 'issue:#516',
+      workspace: wt,
+    }
+    const on539 = {
+      sessionId: asSessionId('sess_539'),
+      issueId: asIssueId('iss_539'),
+      label: 'issue:#539',
+      workspace: wt,
+    }
+    const on527 = {
+      sessionId: asSessionId('sess_527'),
+      issueId: asIssueId('iss_527'),
+      label: 'issue:#527',
+      workspace: '/repo/.worktrees/issue-527',
+    }
+    svc.acquire(on516, { repoPath: REPO, name: 'test:heavy' })
+    expect(() => svc.acquire(on539, { repoPath: REPO, name: 'test:heavy' })).toThrow(
+      /sharing this worktree/,
+    )
+    // Different worktree may still queue
+    expect(svc.acquire(on527, { repoPath: REPO, name: 'test:heavy' })).toMatchObject({
+      granted: false,
+      position: 1,
+    })
+    // Status surfaces the live workspace on each row
+    const status = svc.status({ repoPath: REPO, name: 'test:heavy' })[0]!
+    expect(status.holder).toMatchObject({ sessionId: 'sess_516', workspace: wt, alive: true })
+    expect(status.queue[0]).toMatchObject({
+      sessionId: 'sess_527',
+      workspace: '/repo/.worktrees/issue-527',
+      alive: true,
+    })
+    // Override still works for genuine concurrent access
+    expect(
+      svc.acquire(on539, { repoPath: REPO, name: 'test:heavy', allowSibling: true }),
     ).toMatchObject({ granted: false, position: 2 })
   })
 
@@ -181,12 +237,34 @@ describe('LockService', () => {
       sessionId: asSessionId('sess_1b'),
       issueId: asIssueId('iss_1'),
       label: 'issue:#1',
+      workspace: null,
     }
     const first = svc.acquire(sibling, { repoPath: REPO, name: 'l', allowSibling: true })
     expect(first).toMatchObject({ granted: false, position: 1 })
     // Same session again — position unchanged, no error
     const again = svc.acquire(sibling, { repoPath: REPO, name: 'l' })
     expect(again).toMatchObject({ granted: false, position: 1 })
+  })
+
+  it('same-session re-acquire renews (does not queue) — FIFO was never violated by re-hold', () => {
+    // Pin POD-527's measurement so nobody re-diagnoses renewal as queue-jumping.
+    const { svc, advance } = harness()
+    const first = svc.acquire(agent(1), { repoPath: REPO, name: 'l', ttlSeconds: 120 })
+    if (!first.granted) throw new Error('expected grant')
+    const acquiredAt = first.lock.acquiredAt
+    advance(30_000)
+    // A foreign waiter sits in the queue
+    expect(svc.acquire(agent(2), { repoPath: REPO, name: 'l' })).toMatchObject({
+      granted: false,
+      position: 1,
+    })
+    const renewed = svc.acquire(agent(1), { repoPath: REPO, name: 'l', ttlSeconds: 120 })
+    expect(renewed).toMatchObject({ granted: true, alreadyHeld: true })
+    if (!renewed.granted) throw new Error('unreachable')
+    expect(renewed.lock.acquiredAt).toBe(acquiredAt)
+    // Waiter is still position 1 — holder did not re-enter the queue ahead of them
+    expect(renewed.lock.queue).toHaveLength(1)
+    expect(renewed.lock.queue[0]?.sessionId).toBe(asSessionId('sess_2'))
   })
 
   it('release advances the queue FIFO and mails the new holder; non-holder release errors', () => {

@@ -41,19 +41,23 @@ const fmtSeconds = (s: number): string => (s >= 60 ? `${Math.floor(s / 60)}m${s 
 
 /**
  * Addressable principal line: session id first (what cancel/mail need), issue
- * label second. Liveness is always printed so dead waiters are not mistaken
- * for live ones (status does not prune; advanceQueue does).
+ * label second, live workspace third (shared-checkout collisions). Liveness is
+ * always printed so dead waiters are not mistaken for live ones (status does
+ * not prune; advanceQueue does).
  */
 function principalLine(p: {
   sessionId: string | null
   label: string
   alive: boolean
+  workspace?: string | null
 }): string {
   const who =
     p.sessionId != null && p.sessionId !== ''
       ? `${p.sessionId} on ${p.label}`
       : p.label
-  return `${who} [${p.alive ? 'alive' : 'dead'}]`
+  const ws =
+    p.workspace != null && p.workspace !== '' ? ` workspace ${p.workspace}` : ''
+  return `${who}${ws} [${p.alive ? 'alive' : 'dead'}]`
 }
 
 function holderLine(l: LockWire): string {
@@ -84,7 +88,7 @@ export const LOCK_COMMANDS: IssueCommand[] = [
   {
     name: 'acquire',
     summary:
-      'Acquire (or renew) a named lease lock: acquire <name> [--ttl 10m] [--note "…"] [--wait [--timeout 300]] [--allow-sibling]. Queued if held by someone else. Refuses when a sibling session on the same issue already holds or is queued (pass --allow-sibling to override).',
+      'Acquire (or renew) a named lease lock: acquire <name> [--ttl 10m] [--note "…"] [--wait [--timeout 300]] [--allow-sibling]. Queued if held by someone else. Refuses when another session on the same issue or shared worktree already holds or is queued (pass --allow-sibling to override).',
     args: z.object({
       ...nameArg,
       ...repoArg,

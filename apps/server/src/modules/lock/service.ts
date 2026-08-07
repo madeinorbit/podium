@@ -28,6 +28,12 @@ export interface LockCallerIdentity {
   sessionId: LockHolderId | null
   issueId: IssueId | null
   label: string
+  /**
+   * Live workspace root for this caller (session cwd, usually the issue
+   * worktree). Used to refuse co-located multi-issue contention that issue
+   * labels alone cannot see. Null for the operator / unknown-relay.
+   */
+  workspace: string | null
 }
 
 /**
@@ -60,10 +66,22 @@ export interface LockServiceDeps {
    *  registry.ts). Narrowing this to `SessionId` would force a cast at the one
    *  call site and hide that mechanism. */
   sessionAlive(sessionId: LockHolderId): boolean
+  /**
+   * Live session workspace root (cwd) for addressability + co-location refuse.
+   * Unknown / exited / sentinels → null. Same key type as sessionAlive.
+   */
+  sessionWorkspace(sessionId: LockHolderId): string | null
   /** Best-effort agent mail to an issue (IssueService.sendMail); never throws. */
   sendMail(issueId: string, from: string, body: string): void
   /** Durable event log append (steal audit trail). Best-effort. */
   appendEvent(e: { ts: string; kind: string; subject: string; payload?: unknown }): void
+}
+
+/** Normalize a path for co-location compares (trailing slashes, empty → null). */
+export function normalizeWorkspace(raw: string | null | undefined): string | null {
+  if (raw == null) return null
+  const trimmed = raw.trim().replace(/\/+$/, '')
+  return trimmed.length > 0 ? trimmed : null
 }
 
 const fmtTtl = (s: number): string => (s % 60 === 0 ? `${s / 60}m` : `${s}s`)
@@ -87,24 +105,38 @@ export class LockService {
     return this.deps.sessionAlive(sessionId)
   }
 
+  private workspaceOf(sessionId: LockHolderId | null): string | null {
+    if (sessionId == null || sessionId === OPERATOR_LOCK_SESSION || sessionId === 'unknown-session') {
+      return null
+    }
+    return normalizeWorkspace(this.deps.sessionWorkspace(sessionId))
+  }
+
+  private principalWire(
+    sessionId: LockHolderId | null,
+    issueId: IssueId | null,
+    label: string,
+  ): LockHolderWire {
+    return {
+      sessionId,
+      issueId,
+      label,
+      alive: this.isAlive(sessionId),
+      workspace: this.workspaceOf(sessionId),
+    }
+  }
+
   private toWire(lock: LockRow): LockWire {
     const queue = this.deps.locks.listWaiters(lock.repoId, lock.name).map((w, i) => ({
       position: i + 1,
+      ...this.principalWire(w.sessionId, w.issueId, w.label),
       sessionId: w.sessionId,
-      issueId: w.issueId,
-      label: w.label,
       enqueuedAt: w.enqueuedAt,
-      alive: this.isAlive(w.sessionId),
     }))
     return {
       repoId: lock.repoId,
       name: lock.name,
-      holder: {
-        sessionId: lock.holderSessionId,
-        issueId: lock.holderIssueId,
-        label: lock.holderLabel,
-        alive: this.isAlive(lock.holderSessionId),
-      },
+      holder: this.principalWire(lock.holderSessionId, lock.holderIssueId, lock.holderLabel),
       note: lock.note,
       acquiredAt: lock.acquiredAt,
       expiresAt: lock.expiresAt,
@@ -114,23 +146,56 @@ export class LockService {
   }
 
   /**
-   * A sibling is another session bound to the same issue. Concurrent siblings
-   * on one lock is almost always accidental contention (four implementors
-   * re-queueing the same suite), so acquire refuses by default and names the
-   * sibling so the caller can yield or re-coordinate. `--allow-sibling` opts
-   * into genuine serialised multi-session work on one issue.
+   * A sibling is another session that already holds or is queued for the same
+   * lock and shares either (a) the same issue binding, or (b) the same live
+   * workspace root. Issue-only keying misses the multi-issue / shared-worktree
+   * collision (POD-516): many issues in one checkout all label as the worktree
+   * owner, and their real issue ids do not match each other. `--allow-sibling`
+   * opts into genuine concurrent multi-session access.
    */
   private findSibling(
     lock: LockRow,
     caller: LockCallerIdentity,
-  ): { kind: 'holder' | 'waiter'; sessionId: LockHolderId | null; label: string; position?: number } | null {
-    if (caller.issueId == null) return null
-    if (
-      lock.holderIssueId === caller.issueId &&
-      lock.holderSessionId !== caller.sessionId
-    ) {
+  ): {
+    kind: 'holder' | 'waiter'
+    reason: 'issue' | 'workspace'
+    sessionId: LockHolderId | null
+    label: string
+    position?: number
+  } | null {
+    const callerKey = this.sessionKey(caller)
+    const callerWorkspace =
+      normalizeWorkspace(caller.workspace) ?? this.workspaceOf(caller.sessionId)
+
+    const matches = (
+      otherSessionId: LockHolderId | null,
+      otherIssueId: IssueId | null,
+    ): 'issue' | 'workspace' | null => {
+      if (otherSessionId === caller.sessionId) return null
+      // Operator (null session) is never a "sibling" of an agent.
+      if (caller.sessionId == null || otherSessionId == null) return null
+      if (otherSessionId === OPERATOR_LOCK_SESSION || otherSessionId === 'unknown-session') {
+        return null
+      }
+      if (
+        caller.issueId != null &&
+        otherIssueId != null &&
+        otherIssueId === caller.issueId
+      ) {
+        return 'issue'
+      }
+      if (callerWorkspace != null) {
+        const otherWs = this.workspaceOf(otherSessionId)
+        if (otherWs != null && otherWs === callerWorkspace) return 'workspace'
+      }
+      return null
+    }
+
+    const holderReason = matches(lock.holderSessionId, lock.holderIssueId)
+    if (holderReason) {
       return {
         kind: 'holder',
+        reason: holderReason,
         sessionId: lock.holderSessionId,
         label: lock.holderLabel,
       }
@@ -138,9 +203,15 @@ export class LockService {
     const waiters = this.deps.locks.listWaiters(lock.repoId, lock.name)
     for (let i = 0; i < waiters.length; i++) {
       const w = waiters[i]!
-      if (w.issueId === caller.issueId && w.sessionId !== this.sessionKey(caller)) {
+      if (w.sessionId === callerKey) continue
+      const reason = matches(
+        w.sessionId === OPERATOR_LOCK_SESSION ? null : w.sessionId,
+        w.issueId,
+      )
+      if (reason) {
         return {
           kind: 'waiter',
+          reason,
           sessionId: w.sessionId === OPERATOR_LOCK_SESSION ? null : w.sessionId,
           label: w.label,
           position: i + 1,
@@ -215,6 +286,9 @@ export class LockService {
           sessionId: w.sessionId === OPERATOR_LOCK_SESSION ? null : w.sessionId,
           issueId: w.issueId,
           label: w.label,
+          workspace: this.workspaceOf(
+            w.sessionId === OPERATOR_LOCK_SESSION ? null : w.sessionId,
+          ),
         },
         DEFAULT_LOCK_TTL_SECONDS,
         null,
@@ -244,7 +318,10 @@ export class LockService {
       name: string
       ttlSeconds?: number
       note?: string
-      /** Opt into queueing/holding alongside another session on the same issue. */
+      /**
+       * Opt into queueing/holding alongside another session on the same issue
+       * or shared worktree (co-located multi-session access).
+       */
       allowSibling?: boolean
     },
   ): LockAcquireResult {
@@ -283,13 +360,17 @@ export class LockService {
                 sibling.sessionId != null
                   ? `${sibling.sessionId} (${sibling.label})`
                   : sibling.label
+              const via =
+                sibling.reason === 'workspace'
+                  ? 'sharing this worktree'
+                  : 'on the same issue'
               if (sibling.kind === 'holder') {
                 throw new Error(
-                  `sibling ${who} already holds lock '${input.name}' — coordinate with them, or pass --allow-sibling for serialised multi-session access on this issue`,
+                  `sibling ${who} already holds lock '${input.name}' (${via}) — coordinate with them, or pass --allow-sibling for serialised multi-session access`,
                 )
               }
               throw new Error(
-                `sibling ${who} is already queued for lock '${input.name}' at position ${sibling.position} — coordinate with them, or pass --allow-sibling for serialised multi-session access on this issue`,
+                `sibling ${who} is already queued for lock '${input.name}' at position ${sibling.position} (${via}) — coordinate with them, or pass --allow-sibling for serialised multi-session access`,
               )
             }
           }
@@ -331,12 +412,7 @@ export class LockService {
           return {
             released: true as const,
             next: next
-              ? {
-                  sessionId: next.holderSessionId,
-                  issueId: next.holderIssueId,
-                  label: next.holderLabel,
-                  alive: this.isAlive(next.holderSessionId),
-                }
+              ? this.principalWire(next.holderSessionId, next.holderIssueId, next.holderLabel)
               : null,
           }
         }),
@@ -427,12 +503,11 @@ export class LockService {
           const existing = this.deps.locks.getLock(repoId, input.name)
           const previousHolder: LockHolderWire | null =
             existing && !this.sameHolder(existing, caller)
-              ? {
-                  sessionId: existing.holderSessionId,
-                  issueId: existing.holderIssueId,
-                  label: existing.holderLabel,
-                  alive: this.isAlive(existing.holderSessionId),
-                }
+              ? this.principalWire(
+                  existing.holderSessionId,
+                  existing.holderIssueId,
+                  existing.holderLabel,
+                )
               : null
           this.deps.locks.removeWaiterBySession(repoId, input.name, this.sessionKey(caller))
           const row = this.grantTo(repoId, input.name, caller, ttl, input.note ?? null)

@@ -981,6 +981,14 @@ export class SessionRegistry {
     // carries a session-derived field, so the tail had nothing to reconcile — and
     // the one time the gate did open, boot reconciliation had already published
     // the same rows (modules/issues/service/index.ts).
+    const sessionWorkspace = (sessionId: string): string | null => {
+      // LockSessionKey may be a sentinel; miss → null (no co-location key).
+      const s = (liveSessions as ReadonlyMap<string, { cwd?: string; status: string }>).get(
+        sessionId,
+      )
+      if (!s || s.status === 'exited' || !s.cwd) return null
+      return s.cwd
+    }
     const locks = new LockService({
       locks: this.store.locks,
       transact: (fn) => this.store.transact(fn),
@@ -995,6 +1003,7 @@ export class SessionRegistry {
         const s = (liveSessions as ReadonlyMap<string, { status: string }>).get(sessionId)
         return !!s && s.status !== 'exited'
       },
+      sessionWorkspace,
       // Grant/steal notifications ride agent mail; best-effort by contract
       // (the waiter also discovers the grant via polling).
       sendMail: (issueId, from, body) => {
@@ -1007,6 +1016,7 @@ export class SessionRegistry {
     const lockCommands = new LockCommandDispatcher({
       locks,
       issues,
+      sessionWorkspace,
     })
     // Unified messaging (#237) [spec:SP-34d7]: the one send path. Sender is
     // stamped by each surface from its authenticated caller; issue-addressed
