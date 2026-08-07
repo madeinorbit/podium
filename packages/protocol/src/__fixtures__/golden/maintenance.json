@@ -473,12 +473,14 @@
         "eventRetentionMaxRows": 1,
         "changeKeepRows": 1,
         "changeMaxAgeMs": 1,
-        "maintenanceCommandMaxAgeMs": 1
+        "maintenanceCommandMaxAgeMs": 1,
+        "worktreeGcMode": "off",
+        "worktreeGcAfterDays": 1
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"status\":\"ready\",\"fencingToken\":1,\"expiresAt\":\"2026-01-02T03:04:05.000Z\",\"messageWaitTtlMs\":1,\"autoArchiveReadWindowMs\":1,\"eventRetentionMaxAgeDays\":1,\"eventRetentionMaxRows\":1,\"changeKeepRows\":1,\"changeMaxAgeMs\":1,\"maintenanceCommandMaxAgeMs\":1}"
+      "encoded": "{\"status\":\"ready\",\"fencingToken\":1,\"expiresAt\":\"2026-01-02T03:04:05.000Z\",\"messageWaitTtlMs\":1,\"autoArchiveReadWindowMs\":1,\"eventRetentionMaxAgeDays\":1,\"eventRetentionMaxRows\":1,\"changeKeepRows\":1,\"changeMaxAgeMs\":1,\"maintenanceCommandMaxAgeMs\":1,\"worktreeGcMode\":\"off\",\"worktreeGcAfterDays\":1}"
     },
     {
       "schema": "MaintenanceHandshakeReply",
@@ -493,12 +495,14 @@
         "eventRetentionMaxRows": 1,
         "changeKeepRows": 1,
         "changeMaxAgeMs": 1,
-        "maintenanceCommandMaxAgeMs": 1
+        "maintenanceCommandMaxAgeMs": 1,
+        "worktreeGcMode": "off",
+        "worktreeGcAfterDays": 1
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"status\":\"ready\",\"fencingToken\":1,\"expiresAt\":\"2026-01-02T03:04:05.000Z\",\"messageWaitTtlMs\":1,\"autoArchiveReadWindowMs\":1,\"eventRetentionMaxAgeDays\":1,\"eventRetentionMaxRows\":1,\"changeKeepRows\":1,\"changeMaxAgeMs\":1,\"maintenanceCommandMaxAgeMs\":1}"
+      "encoded": "{\"status\":\"ready\",\"fencingToken\":1,\"expiresAt\":\"2026-01-02T03:04:05.000Z\",\"messageWaitTtlMs\":1,\"autoArchiveReadWindowMs\":1,\"eventRetentionMaxAgeDays\":1,\"eventRetentionMaxRows\":1,\"changeKeepRows\":1,\"changeMaxAgeMs\":1,\"maintenanceCommandMaxAgeMs\":1,\"worktreeGcMode\":\"off\",\"worktreeGcAfterDays\":1}"
     },
     {
       "schema": "MaintenanceHandshakeReply",
@@ -644,6 +648,42 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"fromCursor\":1,\"toEventId\":1}"
+    },
+    {
+      "schema": "WorktreeGcObservation",
+      "variant": "minimal",
+      "wire": {
+        "issueId": "issueId",
+        "worktreePath": "worktreePath",
+        "stage": "stage",
+        "closedReason": null,
+        "closedAt": "2026-01-02T03:04:05.000Z",
+        "deletedAt": null,
+        "mode": "propose",
+        "afterDays": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"issueId\":\"issueId\",\"worktreePath\":\"worktreePath\",\"stage\":\"stage\",\"closedReason\":null,\"closedAt\":\"2026-01-02T03:04:05.000Z\",\"deletedAt\":null,\"mode\":\"propose\",\"afterDays\":1}"
+    },
+    {
+      "schema": "WorktreeGcObservation",
+      "variant": "full",
+      "wire": {
+        "issueId": "issueId",
+        "worktreePath": "worktreePath",
+        "stage": "stage",
+        "closedReason": "closedReason",
+        "closedAt": "2026-01-02T03:04:05.000Z",
+        "deletedAt": null,
+        "mode": "propose",
+        "afterDays": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"issueId\":\"issueId\",\"worktreePath\":\"worktreePath\",\"stage\":\"stage\",\"closedReason\":\"closedReason\",\"closedAt\":\"2026-01-02T03:04:05.000Z\",\"deletedAt\":null,\"mode\":\"propose\",\"afterDays\":1}"
     }
   ]
 }

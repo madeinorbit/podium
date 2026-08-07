@@ -246,6 +246,36 @@ export const HibernationPolicy = z.object({
 export type HibernationPolicy = z.infer<typeof HibernationPolicy>
 
 /**
+ * Worktree garbage-collection policy for closed issues (POD-564).
+ *
+ * INSTANCE, for {@link HibernationPolicy}'s reason: a checkout occupies one
+ * machine's disk, and there is no per-reader answer to how long a finished
+ * issue may keep it.
+ *
+ * `propose` IS THE DEFAULT, deliberately. Archive already gives the checkout
+ * back (POD-567), but only for work someone archived; the tail this sweeps is
+ * ~97 done-but-never-archived directories on the origin host, and sub-issues,
+ * which the archive sweep never reaches at all. A first run that size has to be
+ * inspectable before it applies, so `propose` records what it WOULD free and
+ * leaves the disk alone, and `auto` is the flip a person makes once the list
+ * reads right. `off` stops the janitor from proposing at all.
+ *
+ * `afterDays` is measured from `closedAt` — the stable close anchor, not
+ * `updatedAt`, which any touch moves.
+ */
+export const WorktreeGcPolicy = z.object({
+  mode: z.enum(['off', 'propose', 'auto']).default('propose'),
+  /** Days a closed issue keeps its checkout before the sweep considers it. */
+  afterDays: z
+    .number()
+    .int()
+    .min(1)
+    .max(365 * 2)
+    .default(14),
+})
+export type WorktreeGcPolicy = z.infer<typeof WorktreeGcPolicy>
+
+/**
  * Branch and merge policy.
  *
  * INSTANCE. `mergeStyle` is the sharpest argument for the whole distinction:
@@ -316,5 +346,10 @@ export const InstancePreferences = z.object({
   issues: IssueAssistantPolicy.default({}),
   steward: StewardPolicy.default({}),
   experimental: ExperimentalFlags.default({}),
+  // Appended, not slotted next to `hibernation` where it belongs by topic: this
+  // aggregate's key order is the serialized order of a persisted settings blob,
+  // and inserting in the middle rewrites the JSON of every row that already has
+  // one. Topic adjacency is what the doc comments are for.
+  worktreeGc: WorktreeGcPolicy.default({}),
 })
 export type InstancePreferences = z.infer<typeof InstancePreferences>

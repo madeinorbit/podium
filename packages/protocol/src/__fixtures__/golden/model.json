@@ -2541,11 +2541,15 @@
         "steward": {
           "enabled": true
         },
-        "experimental": {}
+        "experimental": {},
+        "worktreeGc": {
+          "mode": "propose",
+          "afterDays": 14
+        }
       },
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"hibernation\":{\"enabled\":true,\"memoryPct\":80,\"loadPerCore\":1.5,\"maxIdleSessions\":8,\"idleMinutes\":30},\"gitWorkflow\":{\"defaultParentBranch\":\"\",\"mergeStyle\":\"ff-only\",\"autoRebaseBeforeMerge\":true},\"issues\":{\"assistantEnabled\":true},\"steward\":{\"enabled\":true},\"experimental\":{}}"
+      "encoded": "{\"hibernation\":{\"enabled\":true,\"memoryPct\":80,\"loadPerCore\":1.5,\"maxIdleSessions\":8,\"idleMinutes\":30},\"gitWorkflow\":{\"defaultParentBranch\":\"\",\"mergeStyle\":\"ff-only\",\"autoRebaseBeforeMerge\":true},\"issues\":{\"assistantEnabled\":true},\"steward\":{\"enabled\":true},\"experimental\":{},\"worktreeGc\":{\"mode\":\"propose\",\"afterDays\":14}}"
     },
     {
       "schema": "InstancePreferences",
@@ -2571,12 +2575,16 @@
         },
         "experimental": {
           "experimental.key": true
+        },
+        "worktreeGc": {
+          "mode": "off",
+          "afterDays": 1
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"hibernation\":{\"enabled\":true,\"memoryPct\":50,\"loadPerCore\":1,\"maxIdleSessions\":1,\"idleMinutes\":1},\"gitWorkflow\":{\"defaultParentBranch\":\"gitWorkflow.defaultParentBranch\",\"mergeStyle\":\"ff-only\",\"autoRebaseBeforeMerge\":true},\"issues\":{\"assistantEnabled\":true},\"steward\":{\"enabled\":true},\"experimental\":{\"experimental.key\":true}}"
+      "encoded": "{\"hibernation\":{\"enabled\":true,\"memoryPct\":50,\"loadPerCore\":1,\"maxIdleSessions\":1,\"idleMinutes\":1},\"gitWorkflow\":{\"defaultParentBranch\":\"gitWorkflow.defaultParentBranch\",\"mergeStyle\":\"ff-only\",\"autoRebaseBeforeMerge\":true},\"issues\":{\"assistantEnabled\":true},\"steward\":{\"enabled\":true},\"experimental\":{\"experimental.key\":true},\"worktreeGc\":{\"mode\":\"off\",\"afterDays\":1}}"
     },
     {
       "schema": "IntegrationSecrets",
@@ -10554,6 +10562,30 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "\"planning\""
+    },
+    {
+      "schema": "WorktreeGcPolicy",
+      "variant": "minimal",
+      "wire": {},
+      "parseAdded": {
+        "mode": "propose",
+        "afterDays": 14
+      },
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"mode\":\"propose\",\"afterDays\":14}"
+    },
+    {
+      "schema": "WorktreeGcPolicy",
+      "variant": "full",
+      "wire": {
+        "mode": "off",
+        "afterDays": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"mode\":\"off\",\"afterDays\":1}"
     }
   ]
 }

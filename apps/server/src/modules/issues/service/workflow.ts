@@ -41,6 +41,8 @@ function watchesParentBranch(row: IssueRow): boolean {
   )
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000
+
 /** Group key for {@link IssueGitWorkflowModule.sweepParentBranchMovement}: every
  *  issue sharing one machine's copy of one repo's watched ref is answered by a
  *  single `rev-parse`. JSON so no separator can collide with a path. The third
@@ -111,6 +113,9 @@ export class IssueGitWorkflowModule {
     this.action = this.action.bind(this)
     this.freeWorktreeKeepBranch = this.freeWorktreeKeepBranch.bind(this)
     this.releaseWorktreeIfIdle = this.releaseWorktreeIfIdle.bind(this)
+    this.tryWorktreeGcObserved = this.tryWorktreeGcObserved.bind(this)
+    this.listReclaimableWorktrees = this.listReclaimableWorktrees.bind(this)
+    this.releaseReclaimableWorktrees = this.releaseReclaimableWorktrees.bind(this)
     this.ensureWorktree = this.ensureWorktree.bind(this)
     this.cleanup = this.cleanup.bind(this)
     this.integrate = this.integrate.bind(this)
@@ -650,6 +655,161 @@ export class IssueGitWorkflowModule {
     const freed = await this.freeWorktreeKeepBranch(id, principal)
     if (!freed.ok) return this.refuseRelease(row, worktreePath, freed.output)
     return { freed: freed.worktreeFreed }
+  }
+
+  /**
+   * THE GC candidate predicate, in one place (POD-564).
+   *
+   * The janitor's SQL asks this question of a durable snapshot, this asks it of
+   * the live row inside the mutation, and {@link listReclaimableWorktrees} asks
+   * it for the panel. Three call sites, one rule — and the two disk clauses (a
+   * clean tree, nobody standing in the directory) are deliberately NOT here:
+   * they cannot be answered from a row, and answering them from anything cached
+   * is how an unattended job deletes someone's uncommitted work.
+   *
+   * `archived` is not a clause. Archive frees the checkout on its way past
+   * (POD-567), so an archived row that still has a path is one whose free was
+   * refused — a candidate, not an exclusion. Neither is `parentId`: the archive
+   * sweep's top-level-only scope is exactly why sub-issue worktrees survive
+   * forever, and they are the tail this exists to reach.
+   */
+  private isWorktreeGcCandidate(row: IssueRow, nowMs: number, afterDays: number): boolean {
+    if (!row.worktreePath || row.deletedAt) return false
+    if (!this.store.isClosed(row)) return false
+    const closedMs = Date.parse(row.closedAt ?? '')
+    if (!Number.isFinite(closedMs)) return false
+    return closedMs <= nowMs - afterDays * DAY_MS
+  }
+
+  /**
+   * What the sweep would reclaim right now — the panel's list and the one-click
+   * button's input (POD-564).
+   *
+   * Ordered oldest-close first, the order the janitor proposes in, so what the
+   * panel shows and what an `auto` run takes first are the same list.
+   */
+  listReclaimableWorktrees(nowMs: number = Date.now()): Array<{
+    issueId: string
+    title: string
+    worktreePath: string
+    closedAt: string
+    machineId: string | null
+  }> {
+    const { afterDays } = this.store.d.getSettings().worktreeGc
+    const live = this.store.d.listSessions()
+    return [...this.store.rows.values()]
+      .filter((row) => this.isWorktreeGcCandidate(row, nowMs, afterDays))
+      .filter((row) => liveSessionsUsingWorktree(row.worktreePath, live).length === 0)
+      .sort((a, b) => (a.closedAt ?? '').localeCompare(b.closedAt ?? '') || a.id.localeCompare(b.id))
+      .map((row) => ({
+        issueId: row.id,
+        title: row.title,
+        worktreePath: row.worktreePath as string,
+        closedAt: row.closedAt as string,
+        machineId: row.machineId ?? null,
+      }))
+  }
+
+  /**
+   * Release every reclaimable checkout now — the one-click apply behind the
+   * proposal list (POD-564).
+   *
+   * Deliberately NOT a flip of `worktreeGc.mode`: the operator asked for THESE
+   * directories back, which is a different act from standing consent to an
+   * unattended sweep. Each release goes through {@link releaseWorktreeIfIdle},
+   * so the same rules hold as on the automatic path — never `force`, a dirty
+   * tree refuses and is reported, the branch is kept.
+   */
+  async releaseReclaimableWorktrees(
+    principal: CommandPrincipal,
+    nowMs: number = Date.now(),
+  ): Promise<{ freed: string[]; refused: Array<{ issueId: string; reason: string }> }> {
+    const freed: string[] = []
+    const refused: Array<{ issueId: string; reason: string }> = []
+    for (const candidate of this.listReclaimableWorktrees(nowMs)) {
+      const result = await this.releaseWorktreeIfIdle(candidate.issueId, principal)
+      if (result.freed) freed.push(candidate.issueId)
+      else refused.push({ issueId: candidate.issueId, reason: result.reason ?? 'not released' })
+    }
+    return { freed, refused }
+  }
+
+  /**
+   * The janitor's worktree-gc proposal, revalidated and applied (POD-564).
+   *
+   * A janitor observation is a PROPOSAL about a SQLite snapshot, so every clause
+   * is re-read here against the live row, and the disk clauses are re-read again
+   * inside {@link releaseWorktreeIfIdle}. Two outcomes are not failures and are
+   * reported as such by the caller: `precondition` means the world moved between
+   * propose and apply — the worktree was already freed, the issue reopened, an
+   * agent walked back into the directory — and `not-due` means the age gate says
+   * not yet.
+   *
+   * THE POLICY IS CHECKED, NOT ASSUMED. `mode` and `afterDays` ride the
+   * observation and are compared against settings before anything else, because
+   * the failure they prevent is not a stale sweep: a janitor that believes
+   * `auto` while settings say `propose` would delete ~97 directories the
+   * operator asked only to be shown.
+   */
+  async tryWorktreeGcObserved(
+    observed: {
+      issueId: string
+      worktreePath: string
+      stage: string
+      closedReason: string | null
+      closedAt: string
+      deletedAt: null
+      mode: 'propose' | 'auto'
+      afterDays: number
+    },
+    nowMs: number,
+    principal: CommandPrincipal,
+  ): Promise<
+    | { outcome: 'proposed' | 'freed' }
+    | { outcome: 'refused'; reason: string }
+    | { outcome: 'precondition' | 'not-due' }
+  > {
+    const policy = this.store.d.getSettings().worktreeGc
+    if (policy.mode === 'off') return { outcome: 'precondition' }
+    if (policy.mode !== observed.mode || policy.afterDays !== observed.afterDays) {
+      return { outcome: 'precondition' }
+    }
+    const row = this.store.rows.get(observed.issueId)
+    if (!row) return { outcome: 'precondition' }
+    // The worktree freed between propose and apply lands HERE: the path no
+    // longer matches, so the answer is `precondition`, not an error.
+    if (row.worktreePath !== observed.worktreePath) return { outcome: 'precondition' }
+    if (row.stage !== observed.stage || (row.closedReason ?? null) !== observed.closedReason) {
+      return { outcome: 'precondition' }
+    }
+    if ((row.closedAt ?? null) !== observed.closedAt) return { outcome: 'precondition' }
+    if (row.deletedAt || !this.store.isClosed(row)) return { outcome: 'precondition' }
+    // Every other clause has been checked above, so the predicate can only fail
+    // on age here — and it measures against the SERVER's window and the ROW's
+    // own `closedAt`, never the numbers the observation carried.
+    if (!this.isWorktreeGcCandidate(row, nowMs, policy.afterDays)) {
+      return { outcome: 'not-due' }
+    }
+    // Checked here as well as inside releaseWorktreeIfIdle, and the duplication
+    // is the point: a session that walked into the directory since the proposal
+    // is a clause that stopped holding, so it retries next tick as
+    // `precondition` rather than consuming the occurrence and emitting a
+    // refusal event every 30 seconds for as long as the agent works there.
+    if (liveSessionsUsingWorktree(row.worktreePath, this.store.d.listSessions()).length > 0) {
+      return { outcome: 'precondition' }
+    }
+    if (observed.mode === 'propose') {
+      this.store.emitEvent('issue.worktree_gc_proposed', row.id, {
+        seq: row.seq,
+        worktreePath: observed.worktreePath,
+        closedAt: observed.closedAt,
+        afterDays: policy.afterDays,
+      })
+      return { outcome: 'proposed' }
+    }
+    const result = await this.releaseWorktreeIfIdle(row.id, principal)
+    if (result.freed) return { outcome: 'freed' }
+    return { outcome: 'refused', reason: result.reason ?? 'not released' }
   }
 
   private refuseRelease(

@@ -18,6 +18,7 @@ import {
   Roles,
   Sidebar,
   StewardPolicy,
+  WorktreeGcPolicy,
 } from '@podium/model'
 import { z } from 'zod'
 
@@ -73,7 +74,8 @@ export const AUTO_CONTINUE_MAX_DELAY_MS = 300_000
  *     {@link NotificationRouting}
  *   - `preferences-instance`: {@link HibernationPolicy},
  *     {@link GitWorkflowPolicy}, {@link IssueAssistantPolicy},
- *     {@link StewardPolicy}, {@link ExperimentalFlags}
+ *     {@link StewardPolicy}, {@link ExperimentalFlags},
+ *     {@link WorktreeGcPolicy}
  *   - `server-secrets`: {@link ApiKeySecrets}, {@link IntegrationSecrets},
  *     {@link NotificationSecrets}
  *
@@ -99,6 +101,7 @@ export {
   Roles,
   Sidebar,
   StewardPolicy,
+  WorktreeGcPolicy,
 }
 
 /**
@@ -331,6 +334,11 @@ export const PodiumSettings = z.object({
    * `draftSync.enabled` key is migrated onto it by `normalizeSettings` and dropped.
    */
   experimental: ExperimentalFlags.default({}),
+  /** How long a closed issue keeps its checkout, and whether the janitor sweep
+   *  only proposes the release or applies it (POD-564). Appended rather than
+   *  slotted after `hibernation`: the key order here is a persisted blob's
+   *  serialized order. */
+  worktreeGc: WorktreeGcPolicy.default({}),
 })
 export type PodiumSettings = z.infer<typeof PodiumSettings>
 

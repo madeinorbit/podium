@@ -100,12 +100,13 @@ describe('settingsLeafPaths — the instrument, probed first', () => {
 
 describe('the classification is TOTAL over the split shapes', () => {
   it('classifies every leaf of every tier, and the count is non-trivial', () => {
-    // A cardinality a broken walk cannot reach. 40 = 24 personal + 11 instance
+    // A cardinality a broken walk cannot reach. 42 = 24 personal + 13 instance
     // + 5 secret; the three parts are pinned separately below so a failure names
-    // which half moved rather than only that the total did.
-    expect(SETTINGS_CLASSIFICATION.length).toBe(40)
+    // which half moved rather than only that the total did. Instance went 11 →
+    // 13 with `worktreeGc.mode` / `worktreeGc.afterDays` (POD-564).
+    expect(SETTINGS_CLASSIFICATION.length).toBe(42)
     expect(settingsPathsInTier('personal-preference').length).toBe(24)
-    expect(settingsPathsInTier('instance-preference').length).toBe(11)
+    expect(settingsPathsInTier('instance-preference').length).toBe(13)
     expect(settingsPathsInTier('server-secret').length).toBe(5)
   })
 

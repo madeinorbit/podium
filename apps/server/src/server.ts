@@ -421,6 +421,9 @@ export async function startServer(
       issues: registry.modules.issues,
       sessions: registry.modules.sessions,
       automations: registry.modules.automations,
+      // Read per handshake, never captured: a settings flip must reach the next
+      // lease, not wait for a server restart (POD-564).
+      worktreeGcPolicy: () => store.settings.getSettings().worktreeGc,
       liveSessionIds: () =>
         new Set(
           registry.modules.sessions

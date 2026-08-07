@@ -40,7 +40,8 @@ const classifiedPaths = () => SETTINGS_CLASSIFICATION.map((c) => c.path)
 
 describe('the blob walk, probed before it is believed', () => {
   it('finds a non-trivial number of leaves, nested ones included', () => {
-    expect(blobLeaves().length).toBe(40)
+    // 40 + `worktreeGc.mode` / `worktreeGc.afterDays` (POD-564).
+    expect(blobLeaves().length).toBe(42)
     expect(blobLeaves()).toContain('roles.coding.model')
     expect(blobLeaves()).toContain('roles.background.accountId')
     expect(blobLeaves()).toContain('notifications.telegramBotToken')
@@ -95,10 +96,11 @@ describe('the blob COMPOSES the model schemas — no restatement', () => {
     ['steward', model.StewardPolicy],
     ['autoContinue', model.AutoContinuePreferences],
     ['experimental', model.ExperimentalFlags],
+    ['worktreeGc', model.WorktreeGcPolicy],
   ]
 
   it('pins EVERY composable member, not a sample', () => {
-    // Membership pin: the day an eleventh group is added, this fails until it is
+    // Membership pin: the day a twelfth group is added, this fails until it is
     // listed. `notifications` is excluded by name below because it is the one
     // member assembled from TWO groups.
     expect(COMPOSED.map(([k]) => k).sort()).toEqual(
@@ -176,6 +178,7 @@ describe('the composed blob still parses exactly as before', () => {
       steward: { enabled: true },
       autoContinue: { enabled: false, promptDismissed: false },
       experimental: {},
+      worktreeGc: { mode: 'propose', afterDays: 14 },
     })
   })
 
@@ -193,6 +196,9 @@ describe('the composed blob still parses exactly as before', () => {
       'steward',
       'autoContinue',
       'experimental',
+      // Appended, never slotted by topic: this list IS the serialized order of
+      // a persisted blob (POD-564).
+      'worktreeGc',
     ])
     expect(Object.keys(parsed.notifications)).toEqual([
       'web',

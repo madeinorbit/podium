@@ -43,14 +43,17 @@ import {
   messageExpiryRunKey,
   type SessionAutoArchiveObservation,
   type StewardPollObservation,
+  type WorktreeGcObservation,
   sessionAutoArchiveRunKey,
   stewardPollRunKey,
+  worktreeGcRunKey,
 } from '@podium/protocol'
 import { stateDir } from '@podium/runtime/config'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { runTimeBudgetedJob } from '@podium/runtime/time-budget'
 
 const CANDIDATE_LIMIT = 100
+const DAY_MS = 24 * 60 * 60 * 1000
 const CANDIDATE_PAGE_SIZE = 25
 const LEASE_RENEW_AHEAD_MS = 30_000
 const DEFAULT_TICK_MS = 30_000
@@ -88,6 +91,16 @@ export interface MaintenanceCommandsPrunePlanInput {
 
 export interface AutoArchiveReadInput {
   cutoffReadAt: string
+  limit: number
+}
+
+/** Reclaimable-checkout scan window (POD-564). `mode`/`afterDays` come off the
+ *  lease, not off this build, and ride back out on every observation so the
+ *  server can refuse a policy it does not share. */
+export interface WorktreeGcReadInput {
+  cutoffClosedAt: string
+  mode: 'propose' | 'auto'
+  afterDays: number
   limit: number
 }
 
@@ -131,6 +144,9 @@ export interface JanitorDeps {
   readSessionAutoArchiveCandidates?(
     input: AutoArchiveReadInput,
   ): SessionAutoArchiveObservation[] | Promise<SessionAutoArchiveObservation[]>
+  readWorktreeGcCandidates?(
+    input: WorktreeGcReadInput,
+  ): WorktreeGcObservation[] | Promise<WorktreeGcObservation[]>
   readDueAutomations?(
     nowIso: string,
   ): AutomationFireObservation[] | Promise<AutomationFireObservation[]>
@@ -306,6 +322,7 @@ export class JanitorService {
       await this.runMaintenanceCommandsPrune(lease, nowMs)
       await this.runAutoArchive(lease, nowMs)
       await this.runSessionAutoArchive(lease, nowMs)
+      await this.runWorktreeGc(lease, nowMs)
       await this.runAutomationFires(lease, nowMs)
       await this.runStewardPoll(lease)
       await this.runConnectScans(lease, nowMs)
@@ -449,6 +466,42 @@ export class JanitorService {
       if (!cont) break
     }
     this.markJobEnd('session-auto-archive')
+  }
+
+  /**
+   * Propose reclaimable checkouts on finished issues (POD-564).
+   *
+   * `off` returns before the read, so the sweep costs nothing at all when the
+   * operator has turned it off — and the mode is the LEASE's, so flipping the
+   * setting takes effect on the next handshake without restarting the janitor.
+   *
+   * Everything this reads is a durable SQLite fact. Whether the directory is
+   * clean, and whether a live agent is standing in it right now, are not facts
+   * this process can know; the server re-reads both inside the mutation.
+   */
+  private async runWorktreeGc(lease: ReadyLease, nowMs: number): Promise<void> {
+    if (!this.deps.readWorktreeGcCandidates) return
+    const mode = lease.worktreeGcMode
+    if (mode === 'off') return
+    this.markJobStart('worktree-gc', nowMs)
+    const candidates = await this.deps.readWorktreeGcCandidates({
+      cutoffClosedAt: new Date(nowMs - lease.worktreeGcAfterDays * DAY_MS).toISOString(),
+      mode,
+      afterDays: lease.worktreeGcAfterDays,
+      limit: CANDIDATE_LIMIT,
+    })
+    for (const observed of candidates) {
+      const cont = await this.applyOne({
+        protocolVersion: MAINTENANCE_PROTOCOL_VERSION,
+        schemaVersion: MAINTENANCE_SCHEMA_VERSION,
+        jobKind: 'worktree-gc',
+        runKey: worktreeGcRunKey(observed),
+        fencingToken: lease.fencingToken,
+        observed,
+      })
+      if (!cont) break
+    }
+    this.markJobEnd('worktree-gc')
   }
 
   private async runAutomationFires(lease: ReadyLease, nowMs: number): Promise<void> {
@@ -926,6 +979,82 @@ export class IssueAutoArchiveReader {
   }
 }
 
+/**
+ * Reclaimable checkouts on finished issues (POD-564).
+ *
+ * NO `parent_id IS NULL` GATE — and that absence is the point, not an oversight
+ * copied wrong from the two archive readers above. `sweepAutoArchive` is scoped
+ * to top-level issues, so every sub-issue's worktree is permanently outside the
+ * archive door's reach; they are a large share of what is actually on the disk.
+ * Archived rows are in scope for the same reason: POD-567 frees on archive, so
+ * one that still has a path is one whose free was refused.
+ *
+ * The live-session clause is a durable APPROXIMATION here — `sessions.status`
+ * is the last state the server wrote, and the cwd match is `isMemberCwd`'s
+ * prefix rule spelled in SQL. It exists to keep the janitor from proposing work
+ * that will obviously be refused, and it is not the guard: the server re-reads
+ * the live registry at apply time, and that read is the one that decides.
+ */
+export class WorktreeGcReader {
+  constructor(private readonly db: SqlDatabase) {}
+
+  async read(input: WorktreeGcReadInput): Promise<WorktreeGcObservation[]> {
+    const candidates: WorktreeGcObservation[] = []
+    let cursor: { closedAt: string; id: string } | undefined
+    let done = false
+    await runTimeBudgetedJob(() => {
+      if (done || candidates.length >= input.limit) return 'done'
+      const pageSize = Math.min(CANDIDATE_PAGE_SIZE, input.limit - candidates.length)
+      const params: Array<string | number> = [input.cutoffClosedAt]
+      const after = cursor ? 'AND (i.closed_at, i.id) > (?, ?)' : ''
+      if (cursor) params.push(cursor.closedAt, cursor.id)
+      params.push(pageSize)
+      const rows = this.db
+        .prepare(
+          `SELECT i.id, i.worktree_path, i.stage, i.closed_reason, i.closed_at
+           FROM issues i
+           WHERE i.worktree_path IS NOT NULL
+             AND i.deleted_at IS NULL
+             AND (i.stage = 'done' OR i.closed_reason IS NOT NULL)
+             AND i.closed_at IS NOT NULL
+             AND i.closed_at <= ?
+             AND NOT EXISTS (
+               SELECT 1 FROM sessions s
+               WHERE s.status IN ('live', 'starting', 'reconnecting')
+                 AND (s.cwd = i.worktree_path OR s.cwd LIKE i.worktree_path || '/%')
+             )
+             ${after}
+           ORDER BY i.closed_at ASC, i.id ASC
+           LIMIT ?`,
+        )
+        .all(...params) as Array<{
+        id: string
+        worktree_path: string
+        stage: string
+        closed_reason: string | null
+        closed_at: string
+      }>
+      for (const row of rows) {
+        candidates.push({
+          issueId: asIssueId(row.id),
+          worktreePath: row.worktree_path,
+          stage: row.stage,
+          closedReason: row.closed_reason,
+          closedAt: row.closed_at,
+          deletedAt: null,
+          mode: input.mode,
+          afterDays: input.afterDays,
+        })
+      }
+      const last = rows.at(-1)
+      done = rows.length < pageSize
+      if (last) cursor = { closedAt: last.closed_at, id: last.id }
+      return done || candidates.length >= input.limit ? 'done' : 'continue'
+    })
+    return candidates
+  }
+}
+
 /** Due automations from durable schedule state (overlap revalidated at apply). */
 export class AutomationDueReader {
   constructor(private readonly db: SqlDatabase) {}
@@ -1073,6 +1202,7 @@ export async function startJanitor(options: {
   const commandPlanner = new MaintenanceCommandsPrunePlanner(db)
   const archiveReader = new IssueAutoArchiveReader(db)
   const sessionArchiveReader = new SessionAutoArchiveReader(db)
+  const worktreeGcReader = new WorktreeGcReader(db)
   const automationReader = new AutomationDueReader(db)
   const stewardReader = new StewardPollReader(db)
   const connectScanReader = new ConnectScanReader(db)
@@ -1085,6 +1215,7 @@ export async function startJanitor(options: {
     planMaintenanceCommandsPrune: (input) => commandPlanner.plan(input),
     readAutoArchiveCandidates: (input) => archiveReader.read(input),
     readSessionAutoArchiveCandidates: (input) => sessionArchiveReader.read(input),
+    readWorktreeGcCandidates: (input) => worktreeGcReader.read(input),
     readDueAutomations: (nowIso) => automationReader.read(nowIso),
     readStewardPollWindow: () => stewardReader.read(),
     readConnectScanCandidates: (nowIso) => connectScanReader.read(nowIso),
