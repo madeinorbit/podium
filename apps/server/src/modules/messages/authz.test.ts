@@ -1,20 +1,39 @@
 /**
- * CHARACTERIZATION — agent-mail AUTHZ and IDENTITY as they behave TODAY
- * (POD-727, for POD-728 / POD-729).
+ * Agent-mail AUTHZ and IDENTITY — who may send to whom, whose box a reply lands
+ * in, and what each principal class is allowed to do.
  *
- * Podium is becoming multi-user within one tenant (docs/multi-user-readiness.md;
- * §3.1.5 is about this exact code). POD-728 will CHANGE the authz semantics of
- * this surface. The point of characterization is that those become VERIFIED
- * changes rather than assumptions, so this file pins today's surface exactly —
- * including the parts that are wrong on purpose to record, such as the
- * unknown-id vs out-of-scope-id error divergence that makes the send path an
- * existence oracle.
+ * WHAT THIS FILE IS, AND WHAT IT STOPPED BEING (POD-521). It was written as
+ * POD-727's characterization suite: a pin of the mail surface taken so POD-728
+ * and POD-729 could change its authz semantics against a known baseline. Those
+ * landed. The framing that told a reader this was a photograph of a pre-migration
+ * state has been removed, because it invites treating a failure here as a stale
+ * recording rather than as a live authorization regression.
  *
- * Where a behaviour is an artefact of the SINGLE-OPERATOR model (one shared
- * password, one OPERATOR capability that is admin over everything), the test
- * says so. Those comments are the decision list POD-728 has to work through:
- * §3.2 attribution must name a person, and §3.1.6 S1/S2/S3 make the superagent
- * and attention routing per-user. None of it is asserted as desirable.
+ * It was mapped case by case against the suites that were supposed to have
+ * absorbed it — `service.test.ts`, `gate-agent.test.ts`, `multi-user.test.ts`,
+ * `cutover.test.ts` — before any of it was touched. Roughly a third overlaps;
+ * the rest is sole coverage, including: `--outside-scope` crossing scope WITHOUT
+ * elevating the clamp matrix, the spawn-on-wake seam sitting downstream of the
+ * same access check, superagent wake cooldowns keyed by their accountable user,
+ * `replyTarget` falling back to the operator box for superagent/operator/system
+ * senders, and three of the four POD-463 legacy raw-ref resolution arms. Nothing
+ * was deleted; see docs/agents/pod-521-oracle-retirement.md for the map and for
+ * why the overlap turned out to be partial rather than containment.
+ *
+ * TWO THINGS THE SUITE STILL RECORDS ON PURPOSE, both about the CODE:
+ *
+ *   SINGLE-OPERATOR — behaviour that is only safe while Podium has one human.
+ *                     Each is a decision ADR 9 has to make per-user, and each is
+ *                     asserted as it behaves TODAY, never as it should behave.
+ *   A DIVERGENCE     — the unknown-id and out-of-scope-id answers on the SUBTREE
+ *                     axis still differ, which makes the send path an existence
+ *                     oracle for ids inside the caller's human ceiling. The
+ *                     ceiling axis converged (see `multi-user.test.ts`); this one
+ *                     did not. Recorded in the assertion so closing it is a
+ *                     deliberate diff.
+ *
+ * Section letters (A1-A7) are kept: they are how the readiness doc and the
+ * commit history refer to these groups.
  */
 
 import { asIssueId, asSessionId, FIRST_ADMIN_USER_ID, type IssueScope } from '@podium/model'
@@ -43,7 +62,7 @@ async function rejectsWith(p: Promise<unknown>, code: string, message: string): 
 // unchanged.
 // ---------------------------------------------------------------------------
 
-describe('characterization: the sender is stamped from the capability, never from the payload (A1)', () => {
+describe('the sender is stamped from the capability, never from the payload (A1)', () => {
   it('ignores every sender-shaped field a client smuggles into the send payload', async () => {
     const h = mailHarness()
     const mine = h.createIssue({ title: 'mine' })
@@ -79,7 +98,7 @@ describe('characterization: the sender is stamped from the capability, never fro
   })
 
   it('derives the sender principal from the capability scope, and never mistakes an issueless agent for the operator', () => {
-    // SINGLE-OPERATOR ARTEFACT: scope 'all' IS the operator here, because there
+    // SINGLE-OPERATOR: scope 'all' IS the operator here, because there
     // is exactly one such capability. POD-728 dissolves this into named people.
     expect(senderFromCapability({ scope: { kind: 'all' } })).toEqual({ kind: 'operator' })
     expect(
@@ -125,7 +144,7 @@ describe('characterization: the sender is stamped from the capability, never fro
 // RESOLVED target issue.
 // ---------------------------------------------------------------------------
 
-describe('characterization: target gating on send (A2)', () => {
+describe('target gating on send (A2)', () => {
   it('gates an issue-addressed send on write access to the RESOLVED issue, and takes --outside-scope as the confirmation', async () => {
     const h = mailHarness()
     const mine = h.createIssue({ title: 'mine' })
@@ -239,7 +258,7 @@ describe('characterization: target gating on send (A2)', () => {
 // deliberate, documented change rather than a silent one.
 // ---------------------------------------------------------------------------
 
-describe('characterization: unknown vs out-of-scope vs in-scope target (A3)', () => {
+describe('unknown vs out-of-scope vs in-scope target (A3)', () => {
   it('DIVERGES today: an unknown id succeeds-then-dead-letters while an out-of-scope id throws PRECONDITION_FAILED', async () => {
     const h = mailHarness()
     const mine = h.createIssue({ title: 'mine' })
@@ -312,7 +331,7 @@ describe('characterization: unknown vs out-of-scope vs in-scope target (A3)', ()
 // A4 — INBOX SCOPE ARITHMETIC: three arms, and peek is NOT consume.
 // ---------------------------------------------------------------------------
 
-describe('characterization: inbox scope arithmetic — own consumes, in-scope peeks do not (A4)', () => {
+describe('inbox scope arithmetic — own consumes, in-scope peeks do not (A4)', () => {
   it('consumes only the caller’s OWN issue box', async () => {
     const h = mailHarness()
     const own = h.createIssue({ title: 'own' })
@@ -351,7 +370,7 @@ describe('characterization: inbox scope arithmetic — own consumes, in-scope pe
     )) as { id: string; body: string; status: string }[]
     // In scope (the peeked issue's ancestors include the caller's subtree root):
     // the body comes back UNFILTERED even though the caller neither sent nor
-    // received it. SINGLE-TENANT ARTEFACT — §3.1.5 revisits who may read whose
+    // received it. SINGLE-OPERATOR — §3.1.5 revisits who may read whose
     // traffic once principals are people.
     expect(rows.map((m) => m.body)).toEqual(['not for the parent'])
     // And it is NOT consumed: still queued for its real recipient.
@@ -419,7 +438,7 @@ describe('characterization: inbox scope arithmetic — own consumes, in-scope pe
 // A5 — the read surfaces' authz: show / status / reply / dismiss / ledger.
 // ---------------------------------------------------------------------------
 
-describe('characterization: read-surface and reply authz (A5)', () => {
+describe('read-surface and reply authz (A5)', () => {
   // EDITED BY POD-728, and this pin anticipated the edit: it read "POD-728
   // reclassifies this (own traffic for a member, cross-user at admin grade) —
   // this pin is what proves the reclassification happened."
@@ -568,7 +587,7 @@ describe('characterization: read-surface and reply authz (A5)', () => {
 // shows up in the diff.
 // ---------------------------------------------------------------------------
 
-describe('characterization: the operator principal class (A6)', () => {
+describe('the operator principal class (A6)', () => {
   it('is exempt from the wake cooldown, and the sweep does not brake it either', () => {
     const h = mailHarness()
     const iss = h.createIssue({ title: 'sleeper' })
@@ -653,7 +672,7 @@ describe('characterization: the operator principal class (A6)', () => {
         ).message,
     )
     for (const row of rows) {
-      // SINGLE-OPERATOR ARTEFACT: every non-agent sender's replies land in the
+      // SINGLE-OPERATOR: every non-agent sender's replies land in the
       // ONE operator box. §3.1.6 S1/S2/S3 make the superagent and attention
       // routing per-user, so POD-728 must decide whose box these go to.
       expect(h.svc.replyTarget(row)).toEqual({ kind: 'operator' })
@@ -693,7 +712,7 @@ describe('characterization: the operator principal class (A6)', () => {
     )
     // ... and "another" operator replies in-thread. senderKey collapses BOTH to
     // the literal string 'operator', so this reads as the requester answering
-    // its own request and does NOT satisfy it. SINGLE-OPERATOR ARTEFACT: with
+    // its own request and does NOT satisfy it. SINGLE-OPERATOR: with
     // named people (§3.2 attribution) these are two different principals and one
     // of them genuinely IS the answer.
     h.svc.send(
@@ -715,7 +734,7 @@ describe('characterization: the operator principal class (A6)', () => {
 // hand an unresolvable ref to the issue_messages mirror's foreign key.
 // ---------------------------------------------------------------------------
 
-describe('characterization: reply to a legacy raw-ref sender (A7, POD-463)', () => {
+describe('reply to a legacy raw-ref sender (A7, POD-463)', () => {
   const legacyRow = (
     h: ReturnType<typeof mailHarness>,
     fromIssue: string,
