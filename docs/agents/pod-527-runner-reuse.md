@@ -429,9 +429,15 @@ The guards live there, so it was run whole: **49 files, 809 tests, 6 failures ac
 
 All four are in the set POD-531 (*Bug: guardrail audits fail on main*) documents on a clean main
 — `rearch-audit` (3 cases), `audit-god-objects`, `audit-durable-classes`, and
-`test-configuration`'s pre-existing mobile `setupFiles` case. A strict subset of the 7-across-6
-POD-520 recorded, with no new file. `server-test-reuse.test.ts` and `server-test-shards.test.ts`
-both pass, and every case this change adds to `test-configuration.test.ts` passes.
+`test-configuration`'s mobile `setupFiles` case. A strict subset of the 7-across-6 POD-520
+recorded, with no new file. `server-test-reuse.test.ts` and `server-test-shards.test.ts` both
+pass, and every case this change adds to `test-configuration.test.ts` passes.
+
+**One of those four is since fixed and this branch's baseline has moved.** Re-running after
+rebasing onto current main, `scripts/test-configuration.test.ts` passes **entirely** — main
+fixed the mobile `setupFiles` case that POD-531 documented and that both POD-520 and this issue
+had been carrying as a known red. Do not inherit it as a known failure from this document; the
+table above records the run as it happened, not the state of the tree now.
 
 ### The share of the cost this actually addresses
 
