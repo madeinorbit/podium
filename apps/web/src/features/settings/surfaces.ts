@@ -154,6 +154,10 @@ export const NOT_ON_THIS_SCREEN: Readonly<Record<string, string>> = {
     'Written by dismissing the auto-continue prompt. A readAt/snooze-shaped fact (POD-351, POD-731): it records that THIS user dismissed something, and a settings row for it would invite an admin to un-dismiss it for everyone.',
   'steward.enabled':
     'No control ships for it. The steward is toggled by configuration, and adding a switch is a product decision rather than a classification one.',
+  'worktreeGc.mode':
+    'No control ships for it YET. The janitor sweep landed with POD-564; its rows belong on the Hibernation tab and arrive with POD-563, which should move this path into TAB_PATHS rather than leave it named here.',
+  'worktreeGc.afterDays':
+    'See worktreeGc.mode — the same POD-563 rows claim both, and both leave this list together.',
 }
 
 /** The tabs on one surface, in declaration order. */
