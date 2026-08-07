@@ -30,6 +30,11 @@ import {
   type RunMutation,
 } from './issue-page-commands'
 
+/** Page size for the subject-narrowed event drain. One issue's whole history is
+ *  normally far below this, so the drain is a single round trip; a full page is
+ *  the signal that more remain. */
+const EVENTS_PAGE = 200
+
 export interface IssuePageModel {
   trpc: Trpc
   issues: IssueViewModel[]
@@ -120,10 +125,13 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
   }, [issue.id, issue.updatedAt])
 
   // Load this issue's state-transition events for the activity feed (interleaved
-  // with comments below). The events route is repo-scoped and cursor-paged
-  // (ascending from `since`), so on open we drain to the end, then advance the
-  // cursor and let each `issuesChanged` broadcast pull only the new tail. This is
-  // best-effort: a fetch error just leaves the comment-only feed intact.
+  // with comments below). The events route is cursor-paged (ascending from
+  // `since`) and narrowed to this issue's subject SERVER-SIDE (POD-532), so a
+  // page holds only rows this feed will render — no repo-wide download, and no
+  // issue silently emptied by its events falling outside the newest page. On
+  // open we drain to the end, then advance the cursor and let each
+  // `issuesChanged` broadcast pull only the new tail. This is best-effort: a
+  // fetch error just leaves the comment-only feed intact.
   // Deps are the issue identity only — `trpc`/`hub` are stable store singletons,
   // so keying on them would just risk a refetch loop if their identity churned.
   // biome-ignore lint/correctness/useExhaustiveDependencies: reload only on issue switch; trpc/hub are stable
@@ -133,20 +141,23 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
     const absorb = (rows: IssueEvent[]): void => {
       if (cancelled || rows.length === 0) return
       since = rows.reduce((m, r) => Math.max(m, r.id), since)
-      const mine = rows.filter((r) => r.subject === issue.id)
-      if (mine.length > 0)
-        setEvents((prev) => {
-          const seen = new Set(prev.map((e) => e.id))
-          const added = mine.filter((e) => !seen.has(e.id))
-          return added.length > 0 ? [...prev, ...added] : prev
-        })
+      setEvents((prev) => {
+        const seen = new Set(prev.map((e) => e.id))
+        const added = rows.filter((e) => !seen.has(e.id))
+        return added.length > 0 ? [...prev, ...added] : prev
+      })
     }
     const drain = (): void => {
-      loadIssueEventsPage(trpc, { since, repoPath: issue.repoPath, limit: 1000 })
+      loadIssueEventsPage(trpc, {
+        since,
+        repoPath: issue.repoPath,
+        subject: issue.id,
+        limit: EVENTS_PAGE,
+      })
         .then((rows) => {
           if (cancelled) return
           absorb(rows)
-          if (rows.length === 1000) drain() // a full page means more remain
+          if (rows.length === EVENTS_PAGE) drain() // a full page means more remain
         })
         .catch(() => {
           // best-effort — keep whatever we already have

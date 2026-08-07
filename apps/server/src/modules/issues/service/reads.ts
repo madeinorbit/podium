@@ -612,7 +612,7 @@ export class IssueReportsModule {
   /** Durable event-log read; cursor = the last event id the caller has seen. */
   listEvents(
     sinceId: number,
-    opts?: { kinds?: string[]; repoPath?: string; limit?: number },
+    opts?: { kinds?: string[]; repoPath?: string; subject?: string; limit?: number },
   ): ReturnType<SessionStore['events']['listEventsSince']> {
     return this.store.deps.store.events.listEventsSince(sinceId, opts)
   }

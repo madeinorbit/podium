@@ -1,7 +1,10 @@
 import { asSessionId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
+import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionMeta } from '@podium/model'
+import { DRIZZLE_MIGRATIONS } from './migrations/drizzle-manifest.generated'
+import { runDrizzleMigrations } from './migrations'
 import { SessionStore } from './store'
 import { IssueService, type IssueDeps } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
@@ -51,6 +54,59 @@ describe('SessionStore event log', () => {
     expect(store.events.listEventsSince(0, { kinds: ['a', 'c'] }).map((e) => e.kind)).toEqual(['a', 'c'])
     expect(store.events.listEventsSince(0, { repoPath: '/r2' }).map((e) => e.kind)).toEqual(['b'])
     expect(store.events.listEventsSince(0, { limit: 2 }).length).toBe(2)
+  })
+
+  // POD-532: the per-issue activity feed used to drain the whole repo log and
+  // filter on `subject` in the browser. The filter belongs here.
+  it('narrows to one subject, and returns every subject when omitted', () => {
+    const store = new SessionStore(':memory:')
+    store.events.appendEvent({ ts: 't1', kind: 'issue.created', subject: 'POD-1', repoPath: '/r' })
+    store.events.appendEvent({ ts: 't2', kind: 'issue.created', subject: 'POD-2', repoPath: '/r' })
+    const mine = store.events.appendEvent({
+      ts: 't3',
+      kind: 'issue.closed',
+      subject: 'POD-1',
+      repoPath: '/r',
+    })
+
+    expect(store.events.listEventsSince(0, { subject: 'POD-1' }).map((e) => e.kind)).toEqual([
+      'issue.created',
+      'issue.closed',
+    ])
+    expect(store.events.listEventsSince(0, { subject: 'POD-9' })).toEqual([])
+    // The omitted case is the whole point of keeping the parameter optional:
+    // every existing caller reads repo-wide exactly as before.
+    expect(store.events.listEventsSince(0).map((e) => e.subject)).toEqual([
+      'POD-1',
+      'POD-2',
+      'POD-1',
+    ])
+    // Composes with the cursor and the other filters rather than replacing them.
+    expect(
+      store.events.listEventsSince(0, { subject: 'POD-1', kinds: ['issue.closed'] }).map((e) => e.id),
+    ).toEqual([mine])
+    expect(store.events.listEventsSince(0, { subject: 'POD-1', repoPath: '/other' })).toEqual([])
+    expect(store.events.listEventsSince(mine, { subject: 'POD-1' })).toEqual([])
+  })
+
+  // The narrowed read exists to be CHEAP enough to refetch on every issue tick.
+  // Without an index SQLite walks the log — the rows carry JSON payloads, so a
+  // walk costs the payload bytes, not the row count. The plan is what decides;
+  // a timing assertion on a small fixture passes either way.
+  it('searches an index for a subject-narrowed read instead of scanning the log', () => {
+    const db = openDatabase(':memory:')
+    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    const plan = (db
+      .prepare(
+        'EXPLAIN QUERY PLAN SELECT * FROM podium_events WHERE id > ? AND subject = ? ORDER BY id ASC LIMIT ?',
+      )
+      .all(0, 'POD-1', 200) as { detail: string }[])
+      .map((r) => r.detail)
+      .join(' | ')
+
+    expect(plan).toContain('idx_podium_events_subject')
+    expect(plan).toContain('SEARCH')
+    expect(plan).not.toContain('SCAN podium_events')
   })
 
   it('reads a kind window with the last prior value for step-function consumers', () => {

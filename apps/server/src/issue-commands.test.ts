@@ -786,6 +786,16 @@ describe('ISSUE_COMMANDS registry', () => {
     expect(out.data).toEqual(rows)
   })
 
+  it('events forwards --subject so the server narrows the log (POD-532)', async () => {
+    const { client, calls } = mockClient({ events: [] })
+    await cmd('events').run(client, { since: 0, subject: 'iss_a', limit: 10 })
+    expect(calls).toContainEqual({
+      path: 'events',
+      kind: 'query',
+      input: { since: 0, subject: 'iss_a', limit: 10 },
+    })
+  })
+
   it('events renders (no events) when the log is empty past the cursor', async () => {
     const { client } = mockClient({ events: [] })
     const out = await cmd('events').run(client, { since: 0 })

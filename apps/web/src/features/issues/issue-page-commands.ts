@@ -226,10 +226,12 @@ export function issuePageCommands({ trpc, issue, run }: IssuePageDeps) {
 export const loadIssueComments = (trpc: Trpc, id: string): Promise<ActivityComment[]> =>
   trpc.issues.comments.query({ id })
 
-/** One ascending, cursor-paged slice of the repo-scoped issue event log. */
+/** One ascending, cursor-paged slice of the issue event log. `subject` narrows
+ *  the page to a single issue's events in SQL (POD-532); omit it for the
+ *  repo-wide read. */
 export const loadIssueEventsPage = (
   trpc: Trpc,
-  args: { since: number; repoPath: string; limit: number },
+  args: { since: number; repoPath: string; subject?: string; limit: number },
 ): Promise<IssueEvent[]> => trpc.issues.events.query(args) as Promise<IssueEvent[]>
 
 /** The configured git merge style (drives which git action is primary). */

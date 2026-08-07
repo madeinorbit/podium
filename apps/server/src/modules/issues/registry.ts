@@ -385,6 +385,7 @@ const defs = {
       ctx.reports.listEvents(input.since, {
         ...(input.kinds ? { kinds: input.kinds } : {}),
         ...(input.repoPath ? { repoPath: input.repoPath } : {}),
+        ...(input.subject ? { subject: input.subject } : {}),
         ...(input.limit != null ? { limit: input.limit } : {}),
       }),
   }),

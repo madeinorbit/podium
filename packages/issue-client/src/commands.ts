@@ -1428,10 +1428,11 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'events',
-    summary: `Event log since a cursor: events --since <id> [--kind a,b] [--limit n]. Returns at most ${ISSUE_EVENTS_DEFAULT_LIMIT} events per call; page with --since <last id>.`,
+    summary: `Event log since a cursor: events --since <id> [--kind a,b] [--subject POD-12] [--limit n]. Returns at most ${ISSUE_EVENTS_DEFAULT_LIMIT} events per call; page with --since <last id>.`,
     args: z.strictObject({
       since: z.coerce.number().int().min(0).default(0),
       kind: z.string().optional(),
+      subject: z.string().optional(),
       repoPath: z.string().optional(),
       limit: z.coerce.number().int().optional(),
     }),
@@ -1449,6 +1450,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         since: a.since as number,
         ...(kinds?.length ? { kinds } : {}),
         ...(a.repoPath ? { repoPath: a.repoPath as string } : {}),
+        ...(a.subject ? { subject: a.subject as string } : {}),
         limit,
       })) as { id: number; ts: string; kind: string; subject: string; payload: unknown }[]
       const lines = rows.map(
@@ -1460,6 +1462,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         const next = [
           `podium issue events --since ${rows[rows.length - 1]!.id}`,
           kinds?.length ? `--kind ${kinds.join(',')}` : '',
+          a.subject ? `--subject ${a.subject as string}` : '',
           a.limit != null ? `--limit ${limit}` : '',
         ]
           .filter(Boolean)

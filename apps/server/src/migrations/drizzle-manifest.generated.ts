@@ -58,6 +58,7 @@ export const DRIZZLE_MIGRATIONS: DrizzleMigration[] = [
   { name: "20260804050000_index-applied-mutations-applied-at", sql: "CREATE INDEX IF NOT EXISTS `idx_applied_mutations_applied_at` ON `applied_mutations` (`applied_at`);\n" },
   { name: "20260804190311_machine-build-report", sql: "ALTER TABLE `machines` ADD `app_version` text;--> statement-breakpoint\nALTER TABLE `machines` ADD `wire_schema_digest` text;--> statement-breakpoint\nALTER TABLE `machines` ADD `install_kind` text;--> statement-breakpoint\nALTER TABLE `machines` ADD `delivery_caps_json` text;--> statement-breakpoint\nALTER TABLE `machines` ADD `build_reported_at` text;" },
   { name: "20260804200000_podium-managed-machines", sql: "ALTER TABLE machines ADD COLUMN podium_managed INTEGER NOT NULL DEFAULT 1;\n" },
+  { name: "20260807080429_index-podium-events-subject", sql: "CREATE INDEX `idx_podium_events_subject` ON `podium_events` (`subject`);\n" },
 ]
 
 /**
