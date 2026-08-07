@@ -1,0 +1,1168 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>POD-516 · Spine line variants</title>
+<style>
+/* ═══════════════════════════════════════════════════════════════════════════
+   POD-516 round 3 — three variants for the Flight Deck's spine lines.
+
+   Same tree, three times. The geometry constants are VERBATIM from
+   apps/web/src/app/FlightDeck.tsx:84-99, so anything measured here transfers
+   to the implementation 1:1. Tokens are the Superade theme (index.css:420-600
+   light "Daylight", :525-600 dark), restated locally because this file is
+   standalone.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/* ── Superade · Daylight (light) ──────────────────────────────────────────── */
+:root {
+  --background: #f5f6f9;
+  --engraved: #edeff2;
+  --bar: #e8eaef;
+  --rail-s: #f2f4f6;
+  --chip: #ffffff;
+  --card: #f9fafc;
+  --muted: #f0f2f5;
+  --secondary: #edeff2;
+
+  --hairline-soft: #e5e6ea;
+  --hairline-bar: #d0d2d7;
+  --border: #dadce1;
+  --border-strong: #c7c9cf;
+
+  --foreground: #2a313f;
+  --text-strong: #0e1626;
+  --text-dim: #6f747f;
+  --text-faint: #9da1a9;
+  --label: #6a707a;
+
+  --primary: #f5c518;
+  --primary-rim: #c8990a;
+  --attention: #8a6200;         /* ochre — yellow as INK on paper */
+  --attention-fill: #f5c518;
+  --attention-fg: #0e1626;
+  --info: #1d4ed8;
+  --success: #1d4ed8;           /* Superade has no green */
+  --working: #2a62f0;           /* --motion-working, light equivalent */
+  --flow: #64748b;
+
+  --carve: rgb(14 22 38 / 0.26);
+  --carve-drop: rgb(14 22 38 / 0.28);
+
+  /* The groove's two lips (variant B). A channel has a lip that CARRIES THE
+     MEANING and a lip that only supplies the bevel — and which side is which
+     flips with the ground, exactly as the Wells do (index.css:503-516). On
+     paper the shadow lip leads and white is the bevel. */
+  --groove-meaning: #c2c5cc;
+  --groove-meaning-quiet: #d7d9de;
+  --groove-bevel: rgb(255 255 255 / 0.9);
+  --groove-lit-quiet: rgb(255 255 255 / 0.7);   /* page chrome only */
+  --groove-dark: rgb(14 22 38 / 0.22);          /* page chrome only */
+
+  --page-ink: var(--foreground);
+  --shadow-page: 0 1px 2px rgb(14 22 38 / 0.05);
+  color-scheme: light;
+}
+
+/* ── Superade · dark (canonical) ──────────────────────────────────────────── */
+:root.dark {
+  --background: #0a0f1c;
+  --engraved: #070b16;
+  --bar: #050912;
+  --rail-s: #0e1626;
+  --chip: #16223c;
+  --card: #121b30;
+  --muted: #17223c;
+  --secondary: #223564;
+
+  --hairline-soft: #1e2a4c;
+  --hairline-bar: #283a66;
+  --border: #243356;
+  --border-strong: #364a78;
+
+  --foreground: #d7d7e0;
+  --text-strong: #f3f3f8;
+  --text-dim: #818ba5;
+  --text-faint: #737e9a;
+  --label: #8b94ac;
+
+  --primary: #f5c518;
+  --primary-rim: #f5c518;
+  --attention: #f5c518;
+  --attention-fill: #f5c518;
+  --attention-fg: #161006;
+  --info: #2f6bff;
+  --success: #2f6bff;
+  --working: #6f9dff;
+  --flow: #94a3b8;
+
+  --carve: rgb(0 0 0 / 0.85);
+  --carve-drop: rgb(0 0 0 / 0.9);
+
+  /* On navy the recess catches ambient light, so the LIT lip carries the
+     meaning and black supplies the bevel — the light-theme roles, inverted. */
+  --groove-meaning: #35497a;
+  --groove-meaning-quiet: #26355c;
+  --groove-bevel: rgb(0 0 0 / 0.72);
+  --groove-lit-quiet: rgb(255 255 255 / 0.05);  /* page chrome only */
+  --groove-dark: rgb(0 0 0 / 0.72);             /* page chrome only */
+
+  --shadow-page: none;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  font-size: 13px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  padding-bottom: 96px;
+}
+.mono { font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace; }
+
+/* ── Page chrome ──────────────────────────────────────────────────────────── */
+.wrap { max-width: 1240px; margin: 0 auto; padding: 0 28px; }
+
+header.top {
+  position: sticky; top: 0; z-index: 20;
+  background: var(--bar);
+  border-bottom: 1px solid var(--hairline-soft);
+  box-shadow: 0 5px 10px -5px var(--carve-drop);
+}
+.topinner {
+  max-width: 1240px; margin: 0 auto; padding: 0 28px;
+  height: 44px; display: flex; align-items: center; gap: 12px;
+}
+.mark {
+  width: 9px; height: 9px; border-radius: 2px;
+  background: var(--primary); box-shadow: 0 0 0 1px var(--primary-rim);
+  flex: none;
+}
+.topinner h1 {
+  font-size: 12px; font-weight: 600; margin: 0; letter-spacing: -0.01em;
+  color: var(--text-strong);
+}
+.topinner .sub {
+  font-size: 10.5px; color: var(--text-dim); letter-spacing: 0.02em;
+}
+.spacer { flex: 1; }
+
+/* The well — DESIGN.md §5's signature, reused so the page's own chrome is the
+   product's chrome and not a design-doc costume. */
+.well {
+  display: flex; align-items: center; height: 30px; padding: 0 2px;
+  border-radius: 8px;
+  background: var(--well-floor, rgb(127 127 127 / 0.06));
+  box-shadow: inset 0 1px 0 var(--groove-dark), inset 0 -1px 0 var(--groove-lit-quiet);
+}
+.well button {
+  height: 26px; padding: 0 10px; border: 0; background: transparent;
+  color: var(--text-dim); font: inherit; font-size: 11px; border-radius: 6px;
+  cursor: pointer; white-space: nowrap;
+}
+.well button[aria-pressed="true"] {
+  background: var(--chip); color: var(--text-strong);
+  box-shadow: inset 0 1px 0 var(--groove-lit-quiet), 0 1px 0 var(--groove-dark);
+}
+.well .sep { width: 1px; height: 16px; background: var(--hairline-bar); margin: 0 4px; }
+label.rangewrap {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 10.5px; color: var(--text-dim);
+}
+input[type=range] { width: 108px; accent-color: var(--primary); }
+
+/* ── Intro ────────────────────────────────────────────────────────────────── */
+.lede { padding: 34px 0 8px; max-width: 68ch; }
+.lede h2 {
+  font-size: 21px; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 10px;
+  color: var(--text-strong);
+}
+.lede p { margin: 0 0 10px; color: var(--text-dim); font-size: 13px; }
+.lede strong { color: var(--foreground); font-weight: 500; }
+
+.kicker {
+  font-size: 8.5px; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--label);
+}
+
+/* ── Variant block ────────────────────────────────────────────────────────── */
+.variant { padding: 40px 0 8px; border-top: 1px solid var(--hairline-soft); margin-top: 34px; }
+.vhead { display: flex; align-items: baseline; gap: 12px; margin-bottom: 4px; }
+.vhead .num {
+  font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--text-faint);
+}
+.vhead h3 {
+  margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.015em;
+  color: var(--text-strong);
+}
+.vhead .verdict {
+  margin-left: auto; font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase;
+  font-family: ui-monospace, Menlo, monospace; padding: 2px 7px; border-radius: 4px;
+}
+.verdict[data-v="build"] { color: var(--attention); border: 1px solid color-mix(in srgb, var(--attention) 45%, transparent); }
+.verdict[data-v="hold"] { color: var(--text-dim); border: 1px solid var(--hairline-bar); }
+.vhead .tag { font-size: 11px; color: var(--text-dim); }
+
+.split { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr); gap: 30px; align-items: start; margin-top: 18px; }
+@media (max-width: 880px) { .split { grid-template-columns: 1fr; } }
+
+.notes p { margin: 0 0 12px; font-size: 12.5px; color: var(--text-dim); max-width: 62ch; }
+.notes p:first-child { color: var(--foreground); }
+.notes b { color: var(--text-strong); font-weight: 600; }
+.notes .cost {
+  border-top: 1px solid var(--hairline-soft);
+  margin-top: 16px; padding-top: 12px;
+  display: grid; grid-template-columns: 84px minmax(0,1fr); gap: 4px 12px;
+  font-size: 11.5px;
+}
+.notes .cost dt { color: var(--label); font-family: ui-monospace, Menlo, monospace; font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; padding-top: 3px; }
+.notes .cost dd { margin: 0; color: var(--text-dim); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   THE DECK — column 2 of the operator workspace, engraved into the chassis.
+   ═════════════════════════════════════════════════════════════════════════ */
+.deckshell {
+  width: var(--col-w, 320px);
+  flex: none;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--hairline-soft);
+}
+.deckbar {
+  height: 36px; display: flex; align-items: center; gap: 8px; padding: 0 10px;
+  background: var(--bar); border-bottom: 1px solid var(--hairline-soft);
+  font-family: ui-monospace, Menlo, monospace; font-size: 8.5px;
+  letter-spacing: 0.12em; text-transform: uppercase; color: var(--label);
+}
+.deckbar .cnt { margin-left: auto; letter-spacing: 0; text-transform: none; font-size: 9.5px; color: var(--text-dim); }
+.deck {
+  background: var(--engraved);
+  padding: 8px 8px 12px 0;
+  box-shadow:
+    inset 3px 0 6px -3px var(--carve),
+    inset -3px 0 6px -3px var(--carve),
+    inset 0 3px 6px -3px var(--carve);
+}
+.deckfoot {
+  background: var(--bar); border-top: 1px solid var(--hairline-soft);
+  padding: 7px 8px; display: flex; gap: 6px; align-items: center;
+}
+.deckfoot button {
+  font: inherit; font-size: 10.5px; height: 24px; padding: 0 9px; cursor: pointer;
+  border-radius: 6px; border: 1px solid var(--border-strong);
+  background: var(--chip); color: var(--text-dim);
+}
+.deckfoot button:hover { color: var(--text-strong); }
+.deckfoot .hint { font-size: 9.5px; color: var(--text-faint); font-family: ui-monospace, Menlo, monospace; }
+.deckfoot button[disabled] { opacity: 0.4; cursor: default; }
+
+/* ── Rows ─────────────────────────────────────────────────────────────────── */
+.trow { position: relative; }
+.hungwrap { position: relative; }
+.hrow { position: relative; }
+.nwrap { position: relative; padding-bottom: 2px; }
+
+.strip {
+  position: relative;
+  min-height: 30px; display: flex; align-items: center; gap: 4px;
+  padding-right: 6px; border-radius: 6px;
+  border: 1px solid var(--hairline-soft);
+  background: var(--rail-s);
+}
+.strip[data-selected] {
+  border-color: color-mix(in srgb, var(--issue) calc(50 * var(--line-scale, 1%)), var(--hairline-soft));
+  background: color-mix(in srgb, var(--issue) calc(28 * var(--tint-scale, 1%)), var(--engraved));
+  box-shadow: inset 2px 0 0 var(--issue);
+}
+:root:not(.dark) { --tint-scale: 0.5%; --line-scale: 0.85%; }
+:root.dark { --tint-scale: 1%; --line-scale: 1%; }
+
+.chev { width: 20px; flex: none; text-align: center; color: var(--text-dim); font-size: 9px; line-height: 1; }
+.glyph { width: 13px; height: 13px; flex: none; border-radius: 3px; }
+.glyph[data-stage="started"] { box-shadow: inset 0 0 0 1.5px var(--info); }
+.glyph[data-stage="started"]::after { content: ''; display: block; margin: 4px; width: 5px; height: 5px; border-radius: 50%; background: var(--info); }
+.glyph[data-stage="done"] { background: color-mix(in srgb, var(--success) 22%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--success) 55%, transparent); }
+.glyph[data-stage="done"]::after { content: '✓'; display: block; font-size: 9px; line-height: 13px; text-align: center; color: var(--success); }
+.glyph[data-stage="proposed"] { box-shadow: inset 0 0 0 1.5px var(--text-faint); border-radius: 50%; }
+.glyph[data-stage="blocked"] { box-shadow: inset 0 0 0 1.5px var(--text-dim); border-radius: 50%; }
+.glyph[data-stage="blocked"]::after { content: ''; display: block; height: 1.5px; background: var(--text-dim); margin: 5.7px 2.5px; transform: rotate(-45deg); }
+.glyph[data-stage="moved"] { box-shadow: inset 0 0 0 1.5px var(--text-faint); border-radius: 50%; opacity: 0.7; }
+
+.title { flex: 1; min-width: 0; font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--foreground); }
+.strip[data-selected] .title { color: var(--text-strong); }
+.title .ref { font-family: ui-monospace, Menlo, monospace; font-size: 10.5px; font-weight: 400; color: var(--text-faint); margin-right: 5px; }
+.slot { flex: none; display: flex; align-items: center; gap: 5px; font-family: ui-monospace, Menlo, monospace; font-size: 10.5px; color: var(--text-dim); }
+.dot-att { width: 5px; height: 5px; border-radius: 50%; background: var(--attention-fill); flex: none; box-shadow: 0 0 0 0.5px var(--primary-rim); }
+.mk { flex: none; font-size: 10px; line-height: 1; }
+.mk[data-m="done"] { color: var(--success); }
+.mk[data-m="blocked"], .mk[data-m="moved"] { color: var(--text-dim); }
+.mk[data-m="idle"] { color: var(--text-faint); }
+
+/* Bands hung under a strip */
+.band {
+  margin-left: 22px; min-height: 24px; display: flex; align-items: center; gap: 6px;
+  padding: 2px 8px; border-radius: 0 5px 5px 0; background: var(--bar);
+  font-size: 12px; color: var(--text-dim);
+}
+.band[data-lit] { background: var(--muted); color: var(--foreground); }
+.band .who { display: flex; align-items: center; gap: 5px; min-width: 0; flex: 1; }
+.band .kind { width: 9px; height: 9px; border-radius: 2px; flex: none; background: color-mix(in srgb, #d97757 70%, transparent); }
+.band .kind[data-k="codex"] { background: color-mix(in srgb, var(--flow) 70%, transparent); border-radius: 50%; }
+.band .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.band .role { font-family: ui-monospace, Menlo, monospace; font-size: 10.5px; color: var(--text-faint); flex: none; white-space: nowrap; }
+.band .right { flex: none; display: flex; align-items: center; gap: 5px; font-family: ui-monospace, Menlo, monospace; font-size: 10.5px; font-variant-numeric: tabular-nums; }
+.band .right[data-needs] { color: var(--attention); font-weight: 600; font-family: inherit; }
+.bang {
+  width: 12px; height: 12px; border-radius: 50%; background: var(--attention-fill);
+  color: var(--attention-fg); font-size: 8px; font-weight: 700; line-height: 12px;
+  text-align: center; flex: none;
+}
+.band[data-note] { font-family: ui-monospace, Menlo, monospace; font-size: 10.5px; color: var(--text-dim); }
+.band[data-retired] { opacity: 0.6; }
+
+.nband {
+  margin-left: 20px; height: 20px; display: flex; align-items: center; gap: 6px;
+  padding-left: 4px; padding-right: 8px; border-radius: 0 5px 5px 0;
+  font-family: ui-monospace, Menlo, monospace; font-size: 10.5px; color: var(--text-faint);
+}
+.nband .nm { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* The braille spinner — the product's ONE piece of perpetual motion. It is here
+   so every variant is judged next to the motion it has to coexist with. */
+.spb { color: var(--working); font-family: ui-monospace, Menlo, monospace; font-size: 10px; }
+.spb::after { content: "⠋"; animation: podium-spb 800ms steps(1) infinite; }
+@keyframes podium-spb {
+  0% { content: "⠋"; } 11% { content: "⠙"; } 22% { content: "⠹"; } 33% { content: "⠸"; }
+  44% { content: "⠼"; } 55% { content: "⠴"; } 66% { content: "⠦"; } 77% { content: "⠧"; }
+  88% { content: "⠇"; } 100% { content: "⠏"; }
+}
+.tmr { color: var(--working); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   THE LINES. Everything below this point is what the three variants disagree
+   about. Markup is IDENTICAL across all three — only these rules change.
+   ═════════════════════════════════════════════════════════════════════════ */
+.rail, .elbow { position: absolute; pointer-events: none; }
+.elbow { box-sizing: border-box; }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   VARIANT A — THE CURRENT
+   Resting state is exactly today's hairline. All the life is in EVENTS: one
+   one-shot pulse of light travels the real ancestry path from the trunk down to
+   the row the thing happened on, then the deck is dead still again.
+   ─────────────────────────────────────────────────────────────────────────── */
+[data-variant="a"] .rail { width: 1px; background: var(--tone, var(--hairline-soft)); }
+[data-variant="a"] .elbow {
+  border-left: 1px solid var(--tone, var(--hairline-soft));
+  border-bottom: 1px solid var(--tone, var(--hairline-soft));
+}
+[data-variant="a"] [data-tone="hung"] { --tone: var(--hairline-bar); }
+[data-variant="a"] [data-tone="native"] { --tone: color-mix(in srgb, var(--border) 70%, transparent); }
+[data-variant="a"] [data-tone="attention"] { --tone: color-mix(in srgb, var(--attention) 80%, transparent); }
+[data-variant="a"] [data-tone="live"] { --tone: color-mix(in srgb, var(--info) 80%, transparent); }
+[data-variant="a"] [data-tone="retired"] { --tone: color-mix(in srgb, var(--hairline-soft) 60%, transparent); }
+
+/* The pulse: a 26px travelling band inside the 1px rail. Transform-only, so it
+   composites; one keyframe serves every segment on the path, staggered by
+   --d so the light appears to run continuously across separately drawn rows. */
+[data-variant="a"] .rail { overflow: hidden; }
+[data-variant="a"] .rail.pulse::after {
+  content: ''; position: absolute; left: 0; width: 1px; height: 26px;
+  background: linear-gradient(180deg, transparent, var(--pulse, var(--working)) 60%, transparent);
+  animation: spine-current var(--dur, 340ms) cubic-bezier(0.16, 1, 0.3, 1) var(--d, 0ms) 1 both;
+}
+@keyframes spine-current {
+  from { transform: translateY(-26px); }
+  to   { transform: translateY(var(--travel, 60px)); }
+}
+[data-variant="a"] .elbow.pulse {
+  animation: spine-elbow-flash 420ms ease-out var(--d, 0ms) 1 both;
+}
+@keyframes spine-elbow-flash {
+  0%   { border-left-color: var(--pulse, var(--working)); border-bottom-color: var(--pulse, var(--working)); }
+  30%  { border-left-color: var(--pulse, var(--working)); border-bottom-color: var(--pulse, var(--working)); }
+  100% { border-left-color: var(--tone, var(--hairline-bar)); border-bottom-color: var(--tone, var(--hairline-bar)); }
+}
+/* Reduced motion / rm toggle: no travel. The path simply holds its lit tone. */
+[data-variant="a"] .rail.lit, [data-variant="a"] .elbow.lit { --tone: var(--pulse, var(--working)); }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   VARIANT B — THE MILLED CHANNEL
+   The tree is not drawn on the column, it is cut into it. Every rail is a 2px
+   groove: a shadow lip and a lit lip, the Wells bevel (DESIGN.md §5) turned
+   vertical. Depth makes the channel shallower. State is a material property,
+   never a colour: done is welded flush, blocked is a broken channel, retired
+   keeps only its indent. The issue colour lives in the LIT LIP and nowhere else.
+   ─────────────────────────────────────────────────────────────────────────── */
+/* Every rail and elbow declares two ROLES — the lip that means something and
+   the lip that only bevels — and the theme decides which physical side each
+   role lands on. One mapping rule, and every tone/state rule below stays
+   theme-agnostic: they only ever set --meaning. */
+[data-variant="b"] .rail, [data-variant="b"] .elbow {
+  --meaning: var(--groove-meaning-quiet);
+  --meaning-hot: var(--meaning);
+  --bevel: var(--groove-bevel);
+  --lip-l: var(--meaning); --lip-l-hot: var(--meaning-hot);
+  --lip-r: var(--bevel);   --lip-r-hot: var(--bevel);
+}
+:root.dark [data-variant="b"] .rail, :root.dark [data-variant="b"] .elbow {
+  --lip-l: var(--bevel);   --lip-l-hot: var(--bevel);
+  --lip-r: var(--meaning); --lip-r-hot: var(--meaning-hot);
+}
+[data-variant="b"] .rail {
+  width: 2px;
+  /* Two 1px layers, one per lip, each a VERTICAL gradient so a single rail can
+     change tone at the elbow — that is how "needs you" lights the segment
+     pointing at the row and nothing above it, without a second span. */
+  background:
+    linear-gradient(180deg, var(--lip-r-hot) 0 var(--hot, 0px), var(--lip-r) var(--hot, 0px)) 100% 0 / 1px 100% no-repeat,
+    linear-gradient(180deg, var(--lip-l-hot) 0 var(--hot, 0px), var(--lip-l) var(--hot, 0px)) 0 0 / 1px 100% no-repeat;
+  opacity: var(--shallow, 1);
+}
+[data-variant="b"] .elbow {
+  border-left: 1px solid var(--lip-l);
+  border-bottom: 1px solid var(--lip-l);
+  border-bottom-left-radius: var(--r, 6px);
+  opacity: var(--shallow, 1);
+}
+[data-variant="b"] .elbow::before {
+  content: ''; position: absolute; inset: 0 0 1px 1px;
+  border-left: 1px solid var(--lip-r);
+  border-bottom: 1px solid var(--lip-r);
+  border-bottom-left-radius: calc(var(--r, 6px) - 1px);
+}
+/* Identity. A trunk carries the colour of the branch it IS — the ancestor whose
+   rail it is — and an elbow carries the colour of the child it turns into. So
+   one violet trunk sprouts cyan elbows, and a subtree is legible as a subtree
+   without a single saturated line. Tint, never fill: the issue mixes into the
+   meaning lip only, through the theme's own --issue-line-scale. */
+[data-variant="b"] [data-tone="own"] { --meaning: var(--groove-meaning); }
+[data-variant="b"] [data-tone="own"][data-issue] { --meaning: color-mix(in srgb, var(--issue) calc(40 * var(--line-scale, 1%)), var(--groove-meaning)); }
+[data-variant="b"] [data-tone="native"] { --shallow: 0.55; }
+/* Depth: the channel is milled shallower the further in it goes. */
+[data-variant="b"] [data-lvl="1"] { --shallow: 0.74; }
+[data-variant="b"] [data-lvl="2"] { --shallow: 0.54; }
+/* State as material — carried by the ELBOW that enters the row and by that
+   row's own hung rails, never by the pass-through trunk, which belongs to the
+   parent branch and has to stay continuous. Losing the bevel lip IS the
+   material change: a two-lip channel collapses to a one-line weld. */
+[data-variant="b"] [data-state="done"] { --bevel: transparent; --meaning: var(--groove-meaning-quiet); --shallow: 0.6; }
+[data-variant="b"] .rail[data-state="blocked"] {
+  -webkit-mask-image: repeating-linear-gradient(180deg, #000 0 3px, transparent 3px 6px);
+  mask-image: repeating-linear-gradient(180deg, #000 0 3px, transparent 3px 6px);
+}
+[data-variant="b"] .elbow[data-state="blocked"] {
+  -webkit-mask-image: repeating-linear-gradient(90deg, #000 0 3px, transparent 3px 6px);
+  mask-image: repeating-linear-gradient(90deg, #000 0 3px, transparent 3px 6px);
+}
+[data-variant="b"] [data-state="retired"] { --bevel: transparent; --shallow: 0.3; }
+/* The ONE legal colour: the segment that points at the row asking for you. On
+   the rail it stops dead at the elbow (--hot), so nothing above is implicated. */
+[data-variant="b"] [data-tone="attention"] { --meaning-hot: var(--attention); --shallow: 1; }
+[data-variant="b"] .elbow[data-tone="attention"] { --meaning: var(--attention); }
+/* The join gesture — the channel reaching down to meet a session that arrived.
+   One shot, 240ms, then still. This is the only motion variant B owns. */
+[data-variant="b"] .elbow.join { animation: spine-join 260ms cubic-bezier(0.16, 1, 0.3, 1) 1 both; transform-origin: left center; }
+[data-variant="b"] .rail.join { animation: spine-join-rail 200ms cubic-bezier(0.16, 1, 0.3, 1) 1 both; transform-origin: top center; }
+@keyframes spine-join { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+@keyframes spine-join-rail { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   VARIANT C — THE LOAD-BEARING SPINE
+   The line's weight is data. A segment is drawn in proportion to how much LIVE
+   work hangs off it downstream, so the trunk is heaviest near the root and
+   thins toward the leaves: you read where the mass of the mission is without
+   reading a word. Every junction is a node — hollow if nothing lives below it,
+   filled if something does, in the child's issue colour when it has one.
+   ─────────────────────────────────────────────────────────────────────────── */
+[data-variant="c"] .rail {
+  width: 2px;
+  background: var(--tone, var(--foreground));
+  opacity: calc(0.24 + 0.66 * var(--load, 0));
+  clip-path: inset(0 calc(1px - 1px * var(--load, 0)) 0 0);
+}
+[data-variant="c"] .elbow {
+  border-left: 1px solid var(--tone, var(--foreground));
+  border-bottom: 1px solid var(--tone, var(--foreground));
+  opacity: calc(0.26 + 0.6 * var(--load, 0));
+}
+[data-variant="c"] .rail, [data-variant="c"] .elbow { --tone: color-mix(in srgb, var(--foreground) 42%, var(--border-strong)); }
+[data-variant="c"] [data-tone="native"] { --tone: var(--border-strong); }
+[data-variant="c"] [data-tone="attention"] { --tone: var(--attention); opacity: 0.9; }
+[data-variant="c"] .node {
+  position: absolute; width: 4px; height: 4px; border-radius: 1px;
+  background: var(--engraved);
+  box-shadow: inset 0 0 0 1px var(--nodetone, var(--text-faint));
+  pointer-events: none;
+}
+[data-variant="c"] .node[data-fill] { background: var(--nodetone, var(--text-dim)); }
+[data-variant="c"] .node[data-nstate="done"] { width: 4px; height: 2px; border-radius: 1px; margin-top: 1px; background: var(--nodetone); box-shadow: none; opacity: 0.55; }
+[data-variant="c"] .node[data-nstate="blocked"]::after { content: ''; position: absolute; left: -1px; right: -1px; top: 1.5px; height: 1px; background: var(--nodetone); }
+[data-variant="c"] .node[data-nstate="retired"] { display: none; }
+[data-variant="c"] .node[data-nstate="attention"] { --nodetone: var(--attention-fill); box-shadow: 0 0 0 0.5px var(--primary-rim); }
+[data-variant="a"] .node, [data-variant="b"] .node { display: none; }
+/* Join: the node ignites and the elbow draws out. One shot. */
+[data-variant="c"] .node.join { animation: podium-ignite 260ms cubic-bezier(0.16, 1, 0.3, 1) 1 both; }
+@keyframes podium-ignite { 0% { transform: scale(0.5); } 55% { transform: scale(1.35); } 100% { transform: scale(1); } }
+[data-variant="c"] .elbow.join { animation: spine-join 260ms cubic-bezier(0.16, 1, 0.3, 1) 1 both; }
+
+/* ── Reduced motion: every variant degrades to a still, legible tree. ─────── */
+@media (prefers-reduced-motion: reduce) {
+  .spb::after, .rail.pulse::after, .elbow.pulse, .join { animation: none !important; }
+  .spb::after { content: "⠿"; }
+}
+body[data-rm="1"] .spb::after { animation: none !important; content: "⠿"; }
+body[data-rm="1"] .rail.pulse::after,
+body[data-rm="1"] .elbow.pulse,
+body[data-rm="1"] .join { animation: none !important; }
+body[data-rm="1"] .rail.pulse::after { display: none; }
+
+/* ── The verdict block ────────────────────────────────────────────────────── */
+.verdictblock {
+  margin-top: 46px; padding: 26px 28px 30px; border-radius: 10px;
+  background: var(--card); border: 1px solid var(--border);
+  box-shadow: inset 0 1px 0 var(--groove-lit-quiet);
+}
+.verdictblock h3 { margin: 6px 0 14px; font-size: 19px; font-weight: 600; letter-spacing: -0.02em; color: var(--text-strong); }
+.verdictblock p { margin: 0 0 12px; font-size: 13px; color: var(--text-dim); max-width: 74ch; }
+.verdictblock b { color: var(--text-strong); font-weight: 600; }
+.verdictblock ol { margin: 4px 0 0; padding-left: 18px; color: var(--text-dim); font-size: 12.5px; max-width: 74ch; }
+.verdictblock li { margin-bottom: 7px; }
+.verdictblock code, .notes code, .lede code {
+  font-family: ui-monospace, Menlo, monospace; font-size: 0.9em;
+  background: color-mix(in srgb, var(--foreground) 8%, transparent);
+  padding: 1px 4px; border-radius: 3px; color: var(--foreground);
+}
+.rule { border: 0; border-top: 1px solid var(--hairline-soft); margin: 18px 0; }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="topinner">
+    <span class="mark" aria-hidden="true"></span>
+    <h1>Spine line variants</h1>
+    <span class="sub mono">POD-516 · round 3</span>
+    <span class="spacer"></span>
+    <div class="well" role="group" aria-label="Theme">
+      <button id="t-dark" aria-pressed="true">Dark</button>
+      <button id="t-light" aria-pressed="false">Daylight</button>
+      <span class="sep" aria-hidden="true"></span>
+      <button id="t-rm" aria-pressed="false" title="Simulate prefers-reduced-motion">Reduced motion</button>
+    </div>
+    <label class="rangewrap">
+      <span class="mono">COL</span>
+      <input type="range" id="colw" min="248" max="420" value="330" />
+      <span class="mono" id="colwv" style="width:34px">330</span>
+    </label>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <section class="lede">
+    <div class="kicker">The problem</div>
+    <h2>The tree lines work, and they are boring.</h2>
+    <p>
+      Column&nbsp;2 is a live tree: issues nest into issues, sessions hang off issues, native
+      subagents hang off sessions. It renders <strong>flat</strong>: one strip per row, each row
+      drawing the rail segments that cross it plus its own elbow, so a filter or a search can drop
+      any row without re-parenting anything. Every variant below keeps that, and every variant below
+      uses the exact geometry constants in <code>FlightDeck.tsx:84-99</code>.
+    </p>
+    <p>
+      Today every line is one <code>1px bg-hairline-soft</code> span. It states topology and nothing
+      else. On a surface an operator watches all day while a dozen agents work, the lines are the
+      only element that touches every row, which makes them the cheapest place in the product to
+      put <strong>state and life</strong>, and the most expensive place to put decoration.
+    </p>
+    <p>
+      Same tree, three times. Three levels of issue nesting, a branch with several sessions, one
+      session with its own native subagents, one blocked task, one done task, one proposed task with
+      nobody on it, and one session that stopped and needs you. Drag <span class="mono">COL</span>
+      to the narrowest column the shell allows; toggle Daylight and reduced motion.
+    </p>
+  </section>
+
+  <section class="variant" id="v-a">
+    <div class="vhead">
+      <span class="num">01</span>
+      <h3>The Current</h3>
+      <span class="tag">motion · event-driven</span>
+      <span class="verdict" data-v="hold">hold</span>
+    </div>
+    <div class="split">
+      <div class="deckshell" data-variant="a">
+        <div class="deckbar"><span>Mission spine</span><span class="cnt mono">7 tasks · 4 running</span></div>
+        <div class="deck" data-deck="a"></div>
+        <div class="deckfoot">
+          <button data-fire="a">Replay event</button>
+          <span class="hint">a session just stopped and asked</span>
+        </div>
+      </div>
+      <div class="notes">
+        <p>
+          <b>The idea.</b> At rest the spine is exactly what ships today: a 1px hairline that says
+          topology and nothing more. All of the expression is spent on <b>events</b>. When something
+          real happens, a single pulse of light runs the actual ancestry path from the trunk down to
+          the row it happened on, arrives, and dies. The deck stops being a picture of the mission
+          and becomes an instrument reacting to the machines: you catch movement in your periphery
+          and your eye is already travelling to the row before you have read a word.
+        </p>
+        <p>
+          The travelling band is a 26px gradient inside the 1px rail, translated on the GPU, with a
+          per-segment <code>--d</code> delay so light appears to run continuously across rows that
+          are drawn independently. The elbow it lands on flashes once and decays back.
+        </p>
+        <p>
+          <b>Where it breaks.</b> Two places, and both are structural. First, at eight concurrent
+          agents the events never stop, and a stream of one-shots is indistinguishable from
+          perpetual motion, which the Agent State Grammar reserves for the braille spinner alone,
+          precisely so "something is computing" has exactly one voice. Second, motion is the
+          product's scarcest signal and this spends it on <em>every</em> transition, including the
+          ones the operator does not care about. It would need a coalescing rule (one pulse per
+          branch per second, and only for events an operator would act on) before it is safe. A rule
+          that has to suppress most of its own output is a sign the idea is too loud for the job. Resting state also stays exactly as boring as today's, which is the actual complaint.
+        </p>
+        <dl class="cost">
+          <dt>Per row</dt><dd>Identical to today at rest: one 1px span per rail. Zero animated nodes when nothing is happening.</dd>
+          <dt>Per event</dt><dd>One <code>::after</code> + one transform animation on each segment of the path, ~340ms, then removed. Path length ≈ tree depth, not row count.</dd>
+          <dt>Reduced motion</dt><dd>No travel; the path holds its lit tone for ~1.2s and returns. Legible, still.</dd>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <section class="variant" id="v-b">
+    <div class="vhead">
+      <span class="num">02</span>
+      <h3>The Milled Channel</h3>
+      <span class="tag">material · carved</span>
+      <span class="verdict" data-v="build">build this</span>
+    </div>
+    <div class="split">
+      <div class="deckshell" data-variant="b">
+        <div class="deckbar"><span>Mission spine</span><span class="cnt mono">7 tasks · 4 running</span></div>
+        <div class="deck" data-deck="b"></div>
+        <div class="deckfoot">
+          <button data-join="b">A session joins</button>
+          <span class="hint">260ms, one shot, then still</span>
+        </div>
+      </div>
+      <div class="notes">
+        <p>
+          <b>The idea.</b> The tree is not drawn <em>on</em> the column; it is <b>cut into</b> it.
+          Every rail is a 2px channel with two lips, a shadow lip and a lit lip, which is the
+          Wells bevel from DESIGN.md §5 stood on end, lit by the same upper-left light as every
+          other groove in the product. The elbow stops being an ASCII corner and becomes a milled
+          bend with a real 6px radius. Nothing floats, nothing glows: the spine gains depth by
+          going <em>further in</em>, which is the one elevation move this system actually owns.
+        </p>
+        <p>
+          Three things ride on that material for free. <b>Depth</b> is the channel getting
+          shallower (level 1 full, level 2 at 74%, level 3 at 54%), so nesting reads even where the
+          indent is only 14px. <b>Identity</b> is the issue colour mixed into one lip, at hairline
+          strength: a trunk carries the colour of the branch it <em>is</em> and an elbow the colour
+          of the child it turns into, so a violet mission sprouts a cyan sub-branch and you can see
+          which is which without a single saturated line. <b>State</b> is a property of the metal
+          rather than a colour: a done branch's elbow is welded flush to one line, a blocked one is
+          broken into a 3-on/3-off stipple by a mask, a retired one keeps its indent and gives up
+          its groove. None of it touches the pass-through trunk, which belongs to the parent.
+          Only one thing is allowed to take a hue: the segment from the junction down to a session
+          that stopped and asked, which is the literal definition of the Signal Rule.
+        </p>
+        <p>
+          <b>Where it breaks.</b> Which lip carries the meaning has to <em>flip</em> between the
+          themes, because on navy a recess catches ambient light and on paper it casts shadow. So this
+          is two tokens and one mapping rule rather than one colour, and a call site that hard-codes a
+          side will look right in exactly one theme. Beyond that: the two lips are 1px each, so on
+          a fractional device-pixel ratio they blur into one soft 2px line and lose the bevel. It
+          degrades to a slightly heavier hairline, never to mud, and the geometry constants already
+          keep every rail on an integer pixel. It also has no life of its own, which is why it takes
+          exactly one motion event: the join gesture, the channel reaching down and out to meet a
+          session that just arrived.
+        </p>
+        <dl class="cost">
+          <dt>Per row</dt><dd>Same node count as today (one span per rail, one per elbow), plus one <code>::before</code> on each elbow. No extra DOM, no JS, no animation at rest.</dd>
+          <dt>Paint</dt><dd>Two-stop <code>linear-gradient</code> instead of a flat colour; the blocked stipple is a mask on an element that is already composited. Free at 40 rows and free at 400.</dd>
+          <dt>Reduced motion</dt><dd>Nothing to disable except the join gesture. The resting tree is already still.</dd>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <section class="variant" id="v-c">
+    <div class="vhead">
+      <span class="num">03</span>
+      <h3>The Load-Bearing Spine</h3>
+      <span class="tag">information · weight</span>
+      <span class="verdict" data-v="hold">hold</span>
+    </div>
+    <div class="split">
+      <div class="deckshell" data-variant="c">
+        <div class="deckbar"><span>Mission spine</span><span class="cnt mono">7 tasks · 4 running</span></div>
+        <div class="deck" data-deck="c"></div>
+        <div class="deckfoot">
+          <button data-join="c">A session joins</button>
+          <span class="hint">the node ignites, the elbow draws out</span>
+        </div>
+      </div>
+      <div class="notes">
+        <p>
+          <b>The idea.</b> Make the line <b>carry information it is currently wasting</b>. A rail
+          segment is drawn in proportion to how much live work hangs off it downstream: the trunk is
+          heaviest near the root where all the work converges and thins toward the leaves, so a
+          glance at the left edge tells you where the mass of the mission is before you read a
+          single title. Every junction becomes a 4px node: hollow when nothing lives below it,
+          filled when something does, in the child's own issue colour when it has one, flattened to
+          a bar when the branch is done, barred through when it is blocked, gone when it is retired.
+          It is the most <em>useful</em> of the three: it answers "where is the work" with geometry.
+        </p>
+        <p>
+          <b>Where it breaks.</b> Three ways. It needs a real derivation, downstream live-session
+          load per segment, which is a new backward pass in <code>mission.ts</code> and a new
+          number to keep correct on every store update. Weight is already spoken for: this system
+          uses line weight for depth, and a line whose weight also means load gives one channel two
+          meanings, so a deep quiet branch and a shallow busy one become hard to tell apart. And the
+          nodes are the christmas-tree risk: at 40 rows you get 40 small marks down the left edge,
+          each individually justified, collectively a beaded curtain. Nodes are also the one element
+          here that competes with the stage glyph 8px to their right for the same "what state is
+          this" question.
+        </p>
+        <dl class="cost">
+          <dt>Per row</dt><dd>One extra 4px node per junction (~1 per row), plus a <code>--load</code> custom property per rail. Widths change via <code>clip-path</code>, never layout, so no reflow.</dd>
+          <dt>Derivation</dt><dd>New: O(n) backward pass beside <code>treeGuides</code>, recomputed whenever sessions change. Today's guides need no such thing.</dd>
+          <dt>Reduced motion</dt><dd>Only the join ignite is motion; everything else is static.</dd>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <div class="verdictblock">
+    <div class="kicker">The recommendation</div>
+    <h3>Build 02, The Milled Channel — plus exactly one gesture from 01.</h3>
+    <p>
+      The complaint is not that the spine lacks features; it is that it is <b>boring</b>, and the
+      resting state is 90% of the time. 01 leaves the resting state exactly as it is and buys life
+      with motion this product has already decided it will not sell. The braille spinner is the one
+      perpetual voice, on purpose, and a stream of pulses from eight agents becomes a second one. 03
+      is the cleverest of the three and the only one that adds information, but it pays for that
+      with a new derivation, a second meaning on a channel that already carries depth, and a bead
+      down every row.
+    </p>
+    <p>
+      02 is the one that makes the surface look more like itself. It takes the system's own
+      signature (carved, not floating; separation earned with ground, inset edges and hairlines)
+      and applies it to the one element that touches every row. It costs no new DOM, no JS, no
+      derivation and no perpetual motion; it makes depth, branch identity and blocked/done/retired
+      state all legible at 8px of horizontal space; and it obeys the Signal Rule strictly, spending
+      a hue on exactly one thing: the segment pointing at the session that stopped and asked you a
+      question.
+    </p>
+    <hr class="rule" />
+    <div class="kicker">What to build, in order</div>
+    <ol>
+      <li>
+        Give <code>Hung</code> and <code>BranchGuides</code> a <b>channel</b> instead of a
+        <code>bg-*</code> class. The rail span becomes 2px carrying two 1px background layers,
+        one per lip, each a <em>vertical</em> gradient with a stop at <code>--hot</code>. The
+        elbow becomes a bordered box with <code>border-bottom-left-radius</code> plus one
+        <code>::before</code> inset <code>0 0 1px 1px</code> for the second lip. Node count per
+        row is unchanged from today.
+      </li>
+      <li>
+        Model the lips as <b>roles, not sides</b>: <code>--meaning</code> (the lip that carries
+        colour and state) and <code>--bevel</code> (the lip that only makes it a groove). One
+        mapping rule puts meaning on the <em>left</em> lip in Daylight and on the <em>right</em>
+        lip in dark, because a recess on navy catches light and a groove on paper casts shadow. It is
+        the same inversion the Wells already make (<code>index.css:503-516</code>). Every rule
+        after this one is theme-agnostic and only ever sets <code>--meaning</code>. Two new tokens:
+        <code>--groove-meaning</code> (+ a <code>-quiet</code> sibling) and
+        <code>--groove-bevel</code>.
+      </li>
+      <li>
+        Pass depth down as <code>--shallow</code> (1 / 0.74 / 0.54) and state as a data attribute.
+        <code>done</code> sets <code>--bevel: transparent</code>, which collapses the channel to
+        one welded line; <code>blocked</code> applies the 3px/3px repeating mask (180deg on rails,
+        90deg on elbows); <code>retired</code> drops the bevel and falls to 0.3.
+      </li>
+      <li>
+        Two rules keep it honest about ownership, and they are the ones easiest to get wrong:
+        a <b>pass-through trunk carries the parent branch's colour and never the crossing row's
+        state</b> (it belongs to the parent and has to stay continuous), and the <b>elbow carries
+        the child's colour and the child's state</b>. Mix through the existing
+        <code>--issue-line-scale</code> so light and dark scale themselves.
+      </li>
+      <li>
+        Keep exactly one hue rule: the hung rail serving a session with
+        <code>sessionNeedsHuman</code> sets <code>--meaning-hot: var(--attention)</code> and
+        <code>--hot: 13px</code>, so the tone runs only from the top of that segment to its elbow
+        and stops. No ancestor rail is ever tinted by a descendant's obligation; the strip
+        already carries the dot.
+      </li>
+      <li>
+        Add the join gesture last: the new elbow reveals with <code>clip-path: inset(0 100% 0 0)</code>
+        → <code>inset(0)</code> over 260ms and its rail <code>scaleY(0→1)</code> over 200ms, one
+        shot, gated the same way <code>usePhaseMorph</code> already gates the phase morphs so a
+        freshly mounted list never replays them.
+      </li>
+    </ol>
+  </div>
+
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════════════
+   Geometry — VERBATIM from apps/web/src/app/FlightDeck.tsx:84-99.
+   ═════════════════════════════════════════════════════════════════════════ */
+const G = {
+  SPINE_PAD: 8, DEPTH_STEP: 14, RAIL_INSET: 6, BAND_MID: 15,
+  AGENT_INDENT: 22, AGENT_RAIL: 8, HUNG_MID: 12,
+  NATIVE_INDENT: 20, NATIVE_RAIL: 7, NATIVE_MID: 10,
+};
+/* Elbow radii, chosen so the curve always fits its run and its half-row. */
+const R_OWN = 6, R_HUNG = 7, R_NAT = 6;
+
+const VIOLET = '#8b5cf6', CYAN = '#06b6d4';
+
+/* A realistic mission. Three nesting levels, a branch with several sessions,
+   one session with natives, one blocked, one done, one proposed with nobody on
+   it, one retired, and one session that needs the human. */
+const TREE = [
+  { ref: 'POD-516', title: 'Multi-agent operator workspace UI', depth: 0, color: VIOLET,
+    stage: 'started', state: 'working', label: '4 running', hung: [] },
+
+  { ref: 'POD-517', title: 'Sidebar entry progress', depth: 1, color: VIOLET,
+    stage: 'started', state: 'working', label: 'Working', hung: [
+      { t: 'session', name: 'sidebar-impl', kind: 'claude', role: 'coordinator', phase: 'working', time: '04:12' },
+      { t: 'session', name: 'deck-review',  kind: 'codex',  role: 'operator-added peer', phase: 'idle', time: '6m' },
+    ] },
+
+  { ref: 'POD-518', title: 'Flight Deck spine pass', depth: 1, color: VIOLET, selected: true,
+    stage: 'started', state: 'working', label: 'Working', attention: true, hung: [
+      { t: 'session', name: 'spine-impl', kind: 'claude', role: 'phase lead', phase: 'needs', time: '02:31',
+        natives: [ { name: 'explore', working: true }, { name: 'code-review', working: false } ] },
+      { t: 'session', name: 'groove-design', kind: 'claude', role: 'by spine-impl', phase: 'working', time: '11:47' },
+    ] },
+
+  { ref: 'POD-521', title: 'Elbow geometry', depth: 2, color: VIOLET,
+    stage: 'done', state: 'done', label: 'Done', hung: [
+      { t: 'note', kind: 'done', text: 'Landed 20m ago' },
+    ] },
+
+  { ref: 'POD-519', title: 'Task inspector pass', depth: 1, color: CYAN,
+    stage: 'blocked', state: 'blocked', label: 'Blocked', hung: [
+      { t: 'note', kind: 'blocked', text: 'Blocked by POD-521' },
+      { t: 'session', name: 'inspector-impl', kind: 'claude', role: 'coordinator', phase: 'working', time: '00:48' },
+    ] },
+
+  { ref: 'POD-520', title: 'Superagent composer', depth: 1, color: CYAN,
+    stage: 'proposed', state: 'idle', label: 'Proposed', hung: [
+      { t: 'note', kind: 'waiting', text: 'No session yet' },
+    ] },
+
+  { ref: 'POD-522', title: 'Telemetry rollup', depth: 1, color: null,
+    stage: 'moved', state: 'retired', label: 'Moved', hung: [
+      { t: 'note', kind: 'moved', text: 'Moved to POD-530' },
+    ] },
+];
+
+/* treeGuides — the exact algorithm from lib/mission.ts:656-671. */
+function treeGuides(rows) {
+  const out = new Array(rows.length);
+  const moreAtDepth = [];
+  for (let i = rows.length - 1; i >= 0; i -= 1) {
+    const depth = rows[i].depth ?? 0;
+    const carries = [];
+    for (let l = 1; l <= depth; l += 1) carries.push(moreAtDepth[l] === true);
+    out[i] = carries;
+    moreAtDepth.length = depth + 1;
+    moreAtDepth[depth] = true;
+  }
+  return out;
+}
+
+/* Variant C's derivation: live sessions still to come inside a level's branch.
+   In production this is one backward pass beside treeGuides — see the notes. */
+const live = (row) => row.hung.filter((h) => h.t === 'session' && (h.phase === 'working' || h.phase === 'needs')).length;
+function loadAt(i, level) {
+  let sum = 0;
+  for (let j = i; j < TREE.length; j += 1) {
+    if (j > i && TREE[j].depth < level) break;
+    sum += live(TREE[j]);
+  }
+  return Math.min(sum, 4) / 4;
+}
+function ownLoad(i) {
+  let sum = live(TREE[i]);
+  for (let j = i + 1; j < TREE.length && TREE[j].depth > TREE[i].depth; j += 1) sum += live(TREE[j]);
+  return Math.min(sum, 4) / 4;
+}
+/* The nearest ancestor of row i at a given depth — a trunk carries the colour
+   of the branch it IS, not of the row it happens to be crossing. */
+function ancestorAt(i, depth) {
+  for (let j = i; j >= 0; j -= 1) if (TREE[j].depth === depth) return TREE[j];
+  return null;
+}
+const hasKids = (i) => i + 1 < TREE.length && TREE[i + 1].depth > TREE[i].depth;
+
+/* ── Markup helpers. Identical DOM for all three variants. ─────────────────── */
+const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+const px = (n) => `${n}px`;
+
+function rail({ x, top, height, tone, lvl, state, issue, load, key, hot }) {
+  const a = [
+    `class="rail"`, `data-tone="${tone}"`,
+    `style="left:${px(x)};top:${px(top)};height:${height};${issue ? `--issue:${issue};` : ''}${load !== undefined ? `--load:${load};` : ''}${hot !== undefined ? `--hot:${px(hot)};` : ''}"`,
+  ];
+  if (lvl !== undefined) a.push(`data-lvl="${lvl}"`);
+  if (state) a.push(`data-state="${state}"`);
+  if (issue) a.push(`data-issue`);
+  if (key) a.push(`data-key="${key}"`);
+  return `<i ${a.join(' ')}></i>`;
+}
+function elbow({ x, mid, run, r, tone, lvl, state, issue, load, key }) {
+  const a = [
+    `class="elbow"`, `data-tone="${tone}"`,
+    `style="left:${px(x)};top:${px(mid - r)};width:${px(run)};height:${px(r + 1)};--r:${px(r)};${issue ? `--issue:${issue};` : ''}${load !== undefined ? `--load:${load};` : ''}"`,
+  ];
+  if (lvl !== undefined) a.push(`data-lvl="${lvl}"`);
+  if (state) a.push(`data-state="${state}"`);
+  if (issue) a.push(`data-issue`);
+  if (key) a.push(`data-key="${key}"`);
+  return `<i ${a.join(' ')}></i>`;
+}
+function node({ x, mid, fill, nstate, tone, key }) {
+  const a = [
+    `class="node"`,
+    `style="left:${px(x - 1)};top:${px(mid - 2)};${tone ? `--nodetone:${tone};` : ''}"`,
+  ];
+  if (fill) a.push('data-fill');
+  if (nstate) a.push(`data-nstate="${nstate}"`);
+  if (key) a.push(`data-key="${key}"`);
+  return `<i ${a.join(' ')}></i>`;
+}
+
+const STAGE_MARK = { working: '', done: '✓', blocked: '⊘', moved: '→', idle: '⧗', retired: '→' };
+
+function sessionBand(s) {
+  const needs = s.phase === 'needs';
+  const working = s.phase === 'working';
+  return `
+    <div class="band" ${needs || working ? 'data-lit' : ''}>
+      <span class="who">
+        <span class="kind" data-k="${s.kind}"></span>
+        <span class="nm">${esc(s.name)}</span>
+        <span class="role">${esc(s.role)}</span>
+      </span>
+      <span class="right" ${needs ? 'data-needs' : ''}>
+        ${needs ? `<span class="bang">!</span>Needs you<span class="mono" style="font-weight:400;color:var(--attention)"> 02:31</span>`
+          : working ? `<span class="spb"></span><span class="tmr">${esc(s.time)}</span>`
+          : `<span style="color:var(--text-faint)">⧗</span>${esc(s.time)}`}
+      </span>
+    </div>`;
+}
+const NOTE_MARK = { done: '✓', blocked: '⊘', waiting: '↓', moved: '→' };
+function noteBand(n) {
+  return `<div class="band" data-note ${n.kind === 'moved' ? 'data-retired' : ''}>
+      <span style="flex:none">${NOTE_MARK[n.kind]}</span><span class="nm">${esc(n.text)}</span>
+    </div>`;
+}
+
+/* ── One task row, with everything hung under it. ─────────────────────────── */
+function taskRow(row, i, carries, variant) {
+  const depth = row.depth;
+  const bandLeft = G.SPINE_PAD + depth * G.DEPTH_STEP;
+  const guides = [];
+
+  if (depth > 0) {
+    // Ancestor rails crossing this row's whole block.
+    carries.slice(0, -1).forEach((carry, level) => {
+      if (!carry) return;
+      const anc = ancestorAt(i, level);
+      guides.push(rail({
+        x: G.SPINE_PAD + level * G.DEPTH_STEP + G.RAIL_INSET,
+        top: 0, height: '100%', tone: 'own', lvl: level,
+        issue: anc && anc.color,
+        load: loadAt(i, level + 1),
+      }));
+    });
+    // This row's own rail — it belongs to the PARENT branch, so it carries the
+    // parent's colour, stays continuous, and never takes this row's state.
+    const ownX = G.SPINE_PAD + (depth - 1) * G.DEPTH_STEP + G.RAIL_INSET;
+    const carriesOn = carries[depth - 1];
+    const parent = ancestorAt(i, depth - 1);
+    guides.push(rail({
+      x: ownX, top: 0,
+      height: carriesOn ? '100%' : px(G.BAND_MID - R_OWN),
+      tone: 'own', lvl: depth - 1, issue: parent && parent.color,
+      load: loadAt(i, depth),
+    }));
+    // The elbow turning into THIS row — it carries this row's colour and state.
+    guides.push(elbow({
+      x: ownX, mid: G.BAND_MID, run: G.DEPTH_STEP - G.RAIL_INSET, r: R_OWN,
+      tone: 'own', lvl: depth - 1, state: row.state, issue: row.color,
+      load: ownLoad(i),
+    }));
+    guides.push(node({
+      x: ownX, mid: G.BAND_MID,
+      fill: ownLoad(i) > 0,
+      nstate: row.state === 'done' ? 'done' : row.state === 'blocked' ? 'blocked'
+        : row.state === 'retired' ? 'retired' : row.attention ? 'attention' : null,
+      tone: row.attention ? 'var(--attention-fill)' : (row.color || 'var(--text-dim)'),
+    }));
+  }
+
+  // The hung block: sessions, then notes.
+  const hung = row.hung;
+  const hungHtml = hung.map((h, hi) => {
+    const last = hi === hung.length - 1;
+    const needs = h.t === 'session' && h.phase === 'needs';
+    const working = h.t === 'session' && h.phase === 'working';
+    const hState = h.t === 'note'
+      ? (h.kind === 'done' ? 'done' : h.kind === 'blocked' ? 'blocked' : h.kind === 'moved' ? 'retired' : null)
+      : null;
+    const tone = needs ? 'attention' : 'hung';
+    const hLoad = needs || working ? 1 : 0.12;
+    const key = `${row.ref}:${h.t === 'session' ? h.name : h.kind}`;
+
+    const inner = h.t === 'session' ? sessionBand(h) : noteBand(h);
+    const natives = (h.natives || []).map((n, ni) => {
+      const nlast = ni === (h.natives.length - 1);
+      return `<div class="nrow">
+        ${rail({ x: G.NATIVE_RAIL, top: 0, height: nlast ? px(G.NATIVE_MID - R_NAT) : '100%', tone: 'native', load: n.working ? 0.6 : 0.12 })}
+        ${elbow({ x: G.NATIVE_RAIL, mid: G.NATIVE_MID, run: G.NATIVE_INDENT - G.NATIVE_RAIL, r: R_NAT, tone: 'native', load: n.working ? 0.6 : 0.12 })}
+        ${node({ x: G.NATIVE_RAIL, mid: G.NATIVE_MID, fill: n.working, tone: 'var(--text-faint)' })}
+        <div class="nband">
+          <span class="nm">${esc(n.name)}</span>
+          <span>${n.working ? 'working' : 'waiting'}</span>
+        </div>
+      </div>`;
+    }).join('');
+
+    return `<div class="hrow">
+      ${rail({ x: G.AGENT_RAIL, top: 0, height: last ? px(G.HUNG_MID - R_HUNG) : '100%', tone, state: hState, load: hLoad, key, hot: needs ? G.HUNG_MID + 1 : undefined })}
+      ${elbow({ x: G.AGENT_RAIL, mid: G.HUNG_MID, run: G.AGENT_INDENT - G.AGENT_RAIL, r: R_HUNG, tone, state: hState, load: hLoad, key })}
+      ${node({ x: G.AGENT_RAIL, mid: G.HUNG_MID, fill: needs || working,
+               nstate: needs ? 'attention' : hState, key,
+               tone: needs ? 'var(--attention-fill)' : working ? 'var(--text-dim)' : 'var(--text-faint)' })}
+      ${inner}
+      ${natives ? `<div class="nwrap">${natives}</div>` : ''}
+    </div>`;
+  }).join('');
+
+  const stripStyle = `margin-left:${px(bandLeft)};${row.color ? `--issue:${row.color};` : '--issue:var(--flow);'}`;
+  return `<div class="trow" data-row="${i}" data-depth="${depth}">
+    ${guides.join('')}
+    <div class="strip" ${row.selected ? 'data-selected' : ''} style="${stripStyle}">
+      <span class="chev">${row.hung.length || hasKids(i) ? '▾' : ''}</span>
+      <span class="glyph" data-stage="${row.stage}"></span>
+      <span class="title"><span class="ref">${esc(row.ref)}</span>${esc(row.title)}</span>
+      <span class="slot">
+        ${row.attention ? '<span class="dot-att"></span>' : ''}
+        ${row.state === 'working' ? '<span class="spb"></span>' : `<span class="mk" data-m="${row.state}">${STAGE_MARK[row.state] || ''}</span>`}
+        <span>${esc(row.label)}</span>
+      </span>
+    </div>
+    ${hung.length ? `<div class="hungwrap" style="margin-left:${px(bandLeft)}">${hungHtml}</div>` : ''}
+  </div>`;
+}
+
+/* ── Build all three decks. ───────────────────────────────────────────────── */
+const guides = treeGuides(TREE);
+for (const v of ['a', 'b', 'c']) {
+  const deck = document.querySelector(`[data-deck="${v}"]`);
+  deck.innerHTML = TREE.map((row, i) => taskRow(row, i, guides[i], v)).join('');
+}
+
+/* ── Variant A: replay one event. The pulse walks the REAL ancestry path from
+      the trunk down to the row it happened on. ────────────────────────────── */
+const TRUNK_X = G.SPINE_PAD + G.RAIL_INSET; // 14px — the level-0 trunk
+document.querySelector('[data-fire="a"]').addEventListener('click', () => {
+  const deck = document.querySelector('[data-deck="a"]');
+  const targetRow = 2;                       // POD-518
+  const targetKey = 'POD-518:spine-impl';    // the session that asked
+  const path = [];
+  deck.querySelectorAll('.trow').forEach((tr) => {
+    const idx = Number(tr.dataset.row);
+    if (idx > targetRow) return;
+    tr.querySelectorAll('.rail').forEach((el) => {
+      if (Math.round(parseFloat(el.style.left)) === TRUNK_X) path.push(el);
+    });
+  });
+  const hungRail = deck.querySelector(`.rail[data-key="${targetKey}"]`);
+  const hungElbow = deck.querySelector(`.elbow[data-key="${targetKey}"]`);
+  if (hungRail) path.push(hungRail);
+
+  const reduced = document.body.dataset.rm === '1'
+    || window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  if (reduced) {
+    [...path, hungElbow].forEach((el) => el && el.classList.add('lit'));
+    setTimeout(() => [...path, hungElbow].forEach((el) => el && el.classList.remove('lit')), 1200);
+    return;
+  }
+
+  let delay = 0;
+  path.forEach((el) => {
+    const h = el.getBoundingClientRect().height;
+    el.style.setProperty('--travel', px(Math.max(h, 4)));
+    el.style.setProperty('--d', `${delay}ms`);
+    el.style.setProperty('--dur', `${Math.max(140, Math.min(360, h * 4))}ms`);
+    el.style.setProperty('--pulse', 'var(--attention)');
+    el.classList.remove('pulse'); void el.offsetWidth; el.classList.add('pulse');
+    delay += Math.max(90, Math.min(240, h * 2.6));
+  });
+  if (hungElbow) {
+    hungElbow.style.setProperty('--d', `${delay}ms`);
+    hungElbow.style.setProperty('--pulse', 'var(--attention)');
+    hungElbow.classList.remove('pulse'); void hungElbow.offsetWidth; hungElbow.classList.add('pulse');
+  }
+  setTimeout(() => {
+    path.forEach((el) => el.classList.remove('pulse'));
+    if (hungElbow) hungElbow.classList.remove('pulse');
+  }, delay + 700);
+});
+
+/* ── Variants B and C: the join gesture. ──────────────────────────────────── */
+for (const v of ['b', 'c']) {
+  document.querySelector(`[data-join="${v}"]`).addEventListener('click', () => {
+    const deck = document.querySelector(`[data-deck="${v}"]`);
+    const key = 'POD-517:deck-review';
+    const els = deck.querySelectorAll(`[data-key="${key}"]`);
+    els.forEach((el) => { el.classList.remove('join'); void el.offsetWidth; });
+    els.forEach((el) => el.classList.add('join'));
+    setTimeout(() => els.forEach((el) => el.classList.remove('join')), 700);
+  });
+}
+
+/* ── Controls ─────────────────────────────────────────────────────────────── */
+const root = document.documentElement;
+const setTheme = (dark) => {
+  root.classList.toggle('dark', dark);
+  document.getElementById('t-dark').setAttribute('aria-pressed', String(dark));
+  document.getElementById('t-light').setAttribute('aria-pressed', String(!dark));
+};
+document.getElementById('t-dark').addEventListener('click', () => setTheme(true));
+document.getElementById('t-light').addEventListener('click', () => setTheme(false));
+const rm = document.getElementById('t-rm');
+rm.addEventListener('click', () => {
+  const on = document.body.dataset.rm !== '1';
+  document.body.dataset.rm = on ? '1' : '0';
+  rm.setAttribute('aria-pressed', String(on));
+});
+const colw = document.getElementById('colw'), colwv = document.getElementById('colwv');
+const applyW = () => {
+  document.querySelectorAll('.deckshell').forEach((d) => d.style.setProperty('--col-w', px(colw.value)));
+  colwv.textContent = colw.value;
+};
+colw.addEventListener('input', applyW);
+applyW();
+</script>
+</body>
+</html>
