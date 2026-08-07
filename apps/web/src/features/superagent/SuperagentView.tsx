@@ -1,7 +1,7 @@
 import { shallowEqual } from '@podium/client-core/store'
 import { reposToViews, superagentSlice } from '@podium/client-core/viewmodels'
 import { useVoiceInput } from '@podium/terminal-client-react'
-import { Eraser, Mic, Send, SquareTerminal } from 'lucide-react'
+import { ArrowUp, Eraser, Mic, SquareTerminal } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { DockHeaderActions } from '@/app/DockHeaderSlot'
@@ -14,9 +14,11 @@ import type { AtOption } from '@/lib/at-mention/at-mention'
 import { issueMentions } from '@/lib/at-mention/mention-sources'
 import { useAtMenu, useAtTrigger } from '@/lib/at-mention/useAtMention'
 import { BlockCaret } from '@/lib/BlockCaret'
+import { BrailleSpinner } from '@/lib/motion'
 import { useConversationSearch } from '@/lib/useConversationSearch'
 import { cn } from '@/lib/utils'
 import { useIssueEvents } from './useIssueEvents'
+import { usePromptAutoGrow } from './usePromptAutoGrow'
 
 /** ONE chat across all issues (engraved-column.md §2.5): the column always
  *  binds the global thread; per-turn issue context rides the focus payload.
@@ -35,14 +37,27 @@ const clock = (ts: string): string => {
 const BAR_ACTION_CLS =
   'size-5 flex-none rounded-[5px] text-text-dim hover:bg-chip hover:text-text-strong'
 
+/** The prompt box's inline actions: 24px square — exactly one 24px text row, so
+ *  the resting composer has no seam between its glyph column and its text. */
+const ACTION_CLS =
+  'flex size-6 flex-none items-center justify-center rounded-[6px] border-0 transition-colors duration-150 disabled:cursor-default motion-reduce:transition-none'
+
 /**
  * The Superagent dock pane — the portfolio copilot, and NOTHING else.
  *
- * It is three things (POD-516 §1.2, from the approved POD-491 artifact): the
- * dock-top (owned by `RightDock`, the pane's only chrome and its ONE header —
- * this pane lends it two icon actions and renders no header of its own), a
- * "Current focus" line saying which mission it is looking at, and the one
- * global conversation with its composer.
+ * It is TWO things (POD-516 §1.2): the dock-top (owned by `RightDock`, the
+ * pane's only chrome and its ONE header — this pane lends it two icon actions
+ * and renders no header of its own), and the one global conversation with its
+ * composer.
+ *
+ * It used to open with a "Current focus" line naming the selected mission.
+ * That line is gone (operator, round 3: "no need to list the focus it has,
+ * remove that"). It was reporting a fact the operator had just performed —
+ * they selected the task, so the sidebar row, the ID square in the rail and the
+ * tab strip are all already saying which one — and it was saying it in the one
+ * place where it was also slightly untrue: the thread is global, the selection
+ * only rides the turn's focus payload. That capability is untouched; only the
+ * caption is gone.
  *
  * The Tray used to sit above the chat here, with a second collapsible section
  * bar and a drag separator between them. It is gone: web attention now reads
@@ -54,7 +69,6 @@ export function SuperagentView(): JSX.Element {
     hub,
     trpc,
     sessions,
-    selectedIssueId,
     refreshSuperThreads,
     setPane,
     setSelectedWorktree,
@@ -66,7 +80,6 @@ export function SuperagentView(): JSX.Element {
       hub: s.hub,
       trpc: s.trpc,
       sessions: s.sessions,
-      selectedIssueId: s.selectedIssueId,
       refreshSuperThreads: s.refreshSuperThreads,
       setPane: s.setPane,
       setSelectedWorktree: s.setSelectedWorktree,
@@ -76,7 +89,6 @@ export function SuperagentView(): JSX.Element {
     }),
     shallowEqual,
   )
-  const issues = useReplicaIssues()
   const [error, setError] = useState<string | null>(null)
   const [pendingFirstTurn, setPendingFirstTurn] = useState<string | null>(null)
   // POD-330 (audit item zero): the thread list is STORE state. The view used to
@@ -90,14 +102,6 @@ export function SuperagentView(): JSX.Element {
   // no split handle. The dock-top's close chevron is the only fold left, and
   // the shell owns it.
   const feed = useIssueEvents(trpc, readPosition, true, true)
-
-  // The "Current focus" line (artifact `#super-focus`): the mission the
-  // operator has selected, named so the copilot's scope is never a guess.
-  // Client-derived from the selection — the thread itself stays global.
-  const focusTitle = useMemo(
-    () => issues.find((issue) => issue.id === selectedIssueId)?.title ?? null,
-    [issues, selectedIssueId],
-  )
 
   const refreshThreads = () => refreshSuperThreads().catch(() => {})
 
@@ -180,18 +184,10 @@ export function SuperagentView(): JSX.Element {
           <Eraser size={12} aria-hidden="true" />
         </Button>
       </DockHeaderActions>
-      {/* The subtitle went with the heading. "One thread across every task and
-          session" was a static sentence restating, less precisely, what the
-          live line below it and the composer's own placeholder already say —
-          and DESIGN.md's no-repeated-class-banner rule is about exactly this. */}
-      <div data-testid="super-focus" className="flex-none px-[18px] pt-3.5">
-        <div className="border-l-2 border-hairline-soft py-0.5 pl-2.5">
-          <div className="label-mono-micro">Current focus</div>
-          <div className="mt-0.5 truncate text-[12px] leading-[1.45] text-text-dim">
-            {focusTitle ?? 'Nothing selected — ask across every task.'}
-          </div>
-        </div>
-      </div>
+      {/* Nothing stands between the dock title and the conversation. The
+          subtitle went with the heading, and the focus line went with round 3 —
+          what this box's scope is, the composer's own placeholder says, at the
+          moment the operator is about to use it. */}
       {error && (
         <div
           role="alert"
@@ -225,7 +221,10 @@ export function SuperagentView(): JSX.Element {
           />
         </div>
       ) : (
-        <div data-superagent-composer className="flex min-h-0 flex-1 flex-col">
+        // `data-prompt-bounds` is the surface the composer measures itself
+        // against: its cap is a share of THIS box, so a short dock never ends
+        // up mostly composer (usePromptAutoGrow).
+        <div data-superagent-composer data-prompt-bounds className="flex min-h-0 flex-1 flex-col">
           <FreshThreadComposer
             threadId={THREAD_ID}
             onError={setError}
@@ -274,29 +273,11 @@ function FreshThreadComposer({
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const voice = useVoiceInput((text) => setDraft((d) => (d ? `${d} ${text}` : text)))
 
-  // Auto-grow the composer with its content like the native-agent one, capped
-  // at ~6 lines after which it scrolls. Measured at height:auto, then set as an
-  // explicit px height so the CSS height transition animates grow/shrink (the
-  // momentary auto never paints).
-  useEffect(() => {
-    const ta = inputRef.current
-    if (!ta) return
-    // Measure at auto, restore the previous height, reflow, then set the
-    // target — otherwise the transition starts from 'auto' (uninterpolable)
-    // and snaps instead of animating. When empty, scrollHeight includes the
-    // (possibly wrapped) placeholder — size to one line instead.
-    const prev = ta.style.height
-    ta.style.height = 'auto'
-    const cs = getComputedStyle(ta)
-    const oneLine =
-      Number.parseFloat(cs.lineHeight) +
-      Number.parseFloat(cs.paddingTop) +
-      Number.parseFloat(cs.paddingBottom)
-    const target = ta.value ? Math.min(ta.scrollHeight, 114) : oneLine
-    ta.style.height = prev || `${target}px`
-    void ta.offsetHeight
-    ta.style.height = `${target}px`
-  }, [draft])
+  // One line at rest, a line at a time as the prompt wraps, capped at eight
+  // lines or 42% of the pane — whichever comes first — after which it scrolls
+  // inside. All of it in `usePromptAutoGrow`, which the chat composer's own
+  // copy of this measurement is meant to fold into next.
+  usePromptAutoGrow({ taRef: inputRef, value: draft })
 
   // ---- @ context: repos, worktrees, past conversations, issues ----
   // The orchestrator's token stays `@label(path)`: it is what the seed prompt
@@ -365,6 +346,9 @@ function FreshThreadComposer({
     options: atOptions,
   })
 
+  /** There is something to send, and nothing already going. */
+  const armed = !busy && draft.trim().length > 0
+
   const send = async () => {
     const text = draft.trim()
     if (!text || busy) return
@@ -395,7 +379,7 @@ function FreshThreadComposer({
     <>
       <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-[18px] py-3.5">
         {sentText === null && (
-          <div className="mx-auto my-6 max-w-[46ch] text-center text-[13px] text-muted-foreground/70">
+          <div className="shell-type-primary mx-auto my-6 max-w-[46ch] text-center text-muted-foreground">
             Your orchestrator. Ask it to start agents, set up worktrees, dig through past
             conversations, or work tickets. Type{' '}
             <code className="rounded-sm bg-background px-[3px] font-mono text-[0.92em]">@</code> to
@@ -410,30 +394,39 @@ function FreshThreadComposer({
               </div>
               <div className="chat-md whitespace-pre-wrap">{sentText}</div>
             </div>
+            {/* The one signal for "an agent is computing" is the braille spinner
+                in its working blue (DESIGN.md §5 Agent State Grammar). This line
+                used to breathe on `animate-pulse`, which the same rule forbids —
+                a pulse is decoration and it competes with the real signal. */}
             <div
               role="status"
               aria-live="polite"
-              className="mx-auto w-full max-w-[960px] animate-pulse text-xs text-muted-foreground/70"
+              className="shell-type-micro mx-auto flex w-full max-w-[960px] items-center gap-2 text-muted-foreground"
             >
+              <BrailleSpinner size={10} className="text-live" />
               Starting the conversation…
             </div>
           </>
         )}
       </div>
-      <div className="flex-none border-t border-hairline-soft px-3.5 pt-2.5 pb-[calc(10px+env(safe-area-inset-bottom,0px))] font-mono">
-        <div className="relative flex items-end gap-2 rounded-lg border border-border-strong bg-bar/70 px-3 py-1.5 transition-colors focus-within:border-primary">
+      {/* THE PROMPT BOX. No top seam and no full-bleed bar: it is inset from all
+          four edges and the thread dissolves into the ground above it, so it
+          reads as an object sitting ON the conversation. Its separation is
+          carved, not floated — `.prompt-well` grooves it into the pane with the
+          same --well-* bevel the command bar's wells use (styles.css). */}
+      <div className="prompt-dock font-mono" data-testid="super-composer">
+        <div className="prompt-well">
           <AtMentionMenu mention={mention} hint="↑↓ to move · ↵ to insert · esc to dismiss" />
-          <span
-            className="flex-none pt-[3px] text-[13px] leading-[1.45] text-text-dim"
-            aria-hidden="true"
-          >
+          <span className="prompt-mark shell-type-primary" aria-hidden="true">
             &gt;
           </span>
           <BlockCaret taRef={inputRef} value={draft} />
           <Textarea
             ref={inputRef}
-            className="min-h-0 flex-1 resize-none overflow-y-auto rounded-none border-0 bg-transparent p-0 text-[13px] leading-[1.45] text-foreground caret-transparent shadow-none field-sizing-fixed transition-[height] duration-300 ease-[cubic-bezier(0.25,1,0.35,1)] placeholder:text-text-faint focus-visible:border-0 focus-visible:ring-0 dark:bg-transparent"
+            className="prompt-input shell-type-primary min-h-0 flex-1 resize-none rounded-none border-0 bg-transparent px-0 text-foreground caret-transparent shadow-none field-sizing-fixed placeholder:text-text-dim focus-visible:border-0 focus-visible:ring-0 dark:bg-transparent"
             rows={1}
+            // With the focus line gone this is the only statement of the box's
+            // scope, so it names it rather than saying "Message…".
             placeholder="Ask across all tasks…"
             value={draft}
             onChange={(e) => {
@@ -458,35 +451,51 @@ function FreshThreadComposer({
               }
             }}
           />
-          {voice.supported && (
+          {/* The actions sit on the LAST line as the box grows (`self-end`), and
+              at one line the 24px cell is exactly the 24px text row, so nothing
+              shifts between the resting state and the first wrap. */}
+          <div className="flex flex-none items-center gap-0.5 self-end">
+            {voice.supported && (
+              <button
+                data-pressable
+                type="button"
+                className={cn(
+                  ACTION_CLS,
+                  'text-text-dim hover:bg-chip hover:text-text-strong',
+                  // Listening is a live state, so it reads in the live blue and
+                  // holds STILL: DESIGN.md's motion grammar spends perpetual
+                  // motion only on an agent actually computing, and the old
+                  // `animate-pulse text-destructive` broke both halves of it.
+                  voice.listening && 'bg-chip text-live',
+                )}
+                title={voice.listening ? 'Stop voice input' : 'Voice input'}
+                onClick={voice.toggle}
+              >
+                <Mic size={14} aria-hidden="true" />
+              </button>
+            )}
+            {/* THE ARMED SEND. Empty, it is a quiet glyph that is still legible
+                without hovering (dim ink, not 40% opacity). The moment there is
+                something to send it fills Superade Yellow over 150ms — this is
+                the primary action, which is the one thing The Signal Rule buys
+                yellow for. */}
             <button
               data-pressable
               type="button"
               className={cn(
-                'flex size-6 flex-none items-center justify-center rounded-md border-0 bg-transparent text-muted-foreground transition-colors hover:text-foreground',
-                voice.listening && 'animate-pulse text-destructive',
+                ACTION_CLS,
+                armed
+                  ? 'bg-primary text-primary-foreground hover:bg-primary/80'
+                  : 'bg-transparent text-text-dim',
               )}
-              title={voice.listening ? 'Stop voice input' : 'Voice input'}
-              onClick={voice.toggle}
+              disabled={!armed}
+              title="Send (Enter · shift+Enter for a newline)"
+              aria-label="Send"
+              onClick={() => void send()}
             >
-              <Mic size={14} aria-hidden="true" />
+              <ArrowUp size={14} aria-hidden="true" />
             </button>
-          )}
-          <button
-            data-pressable
-            type="button"
-            className="flex size-6 flex-none items-center justify-center rounded-md border-0 bg-transparent text-muted-foreground transition-colors hover:text-foreground disabled:cursor-default disabled:opacity-40"
-            disabled={busy || !draft.trim()}
-            title="Send"
-            onClick={() => void send()}
-          >
-            <Send size={14} aria-hidden="true" />
-          </button>
-        </div>
-        <div className="flex items-center gap-2 px-1 pt-1.5 text-[10.5px] text-text-faint">
-          <span className="text-text-dim">⏵⏵ auto-delegate on</span>
-          <span>(shift+tab to cycle)</span>
-          <span className="ml-auto">? for shortcuts</span>
+          </div>
         </div>
       </div>
     </>

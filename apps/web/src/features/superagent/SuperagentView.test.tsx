@@ -7,10 +7,11 @@ import { DockHeaderSlotProvider } from '@/app/DockHeaderSlot'
 import { makeIssue } from '@/lib/test-issue'
 
 // ---------------------------------------------------------------------------
-// The Superagent dock pane's contract (POD-516 §1.2, from the approved POD-491
-// artifact): "Current focus" + the ONE global conversation, under the dock
-// title bar's single header. Nothing else — no second header, no Tray, no
-// collapsible section bar, no drag separator.
+// The Superagent dock pane's contract (POD-516 §1.2): the ONE global
+// conversation and its composer, under the dock title bar's single header.
+// Nothing else — no second header, no "Current focus" line (round 3: "no need
+// to list the focus it has, remove that"), no Tray, no collapsible section bar,
+// no drag separator, and no status strip under the prompt box.
 // Preview correction #66: the legacy transcript chrome (Search transcript /
 // Earlier conversation) and the CTX badge above the composer must never render.
 //
@@ -183,9 +184,8 @@ async function mount(): Promise<void> {
 }
 
 describe('Superagent pane structure (POD-516 §1.2)', () => {
-  it('is the focus line and the conversation — nothing else', async () => {
+  it('is the conversation and its composer — nothing else', async () => {
     await mount()
-    expect(container.querySelector('[data-testid="super-focus"]')).not.toBeNull()
     expect(container.querySelector('[data-superagent-composer]')).not.toBeNull()
     // The dock-top is the pane's only chrome: no second collapsible bar.
     expect(container.querySelector('[data-testid="super-bar"]')).toBeNull()
@@ -233,19 +233,38 @@ describe('Superagent pane structure (POD-516 §1.2)', () => {
     expect(container.textContent).not.toContain('ALL TASKS · NEWEST FIRST')
   })
 
-  it('names the selected mission as the current focus (artifact #super-focus)', async () => {
+  // "no need to list the focus it has, remove that". The pane no longer names
+  // the selected mission — the sidebar row, the rail's ID square and the tab
+  // strip all already say which task is selected, and the thread is global
+  // either way. Both the selected and the nothing-selected wordings go.
+  it('does not name the selected mission — the focus line is gone', async () => {
     storeIssues = [makeIssue({ id: 'p', seq: 7, title: 'Multi-agent operator workspace' })]
     storeSelectedIssueId = 'p'
     await mount()
-    const focus = container.querySelector('[data-testid="super-focus"]')
-    expect(focus?.textContent).toContain('Current focus')
-    expect(focus?.textContent).toContain('Multi-agent operator workspace')
+    expect(container.querySelector('[data-testid="super-focus"]')).toBeNull()
+    expect(container.textContent).not.toContain('Current focus')
+    expect(container.textContent).not.toContain('Multi-agent operator workspace')
   })
 
-  it('says so plainly when nothing is selected — the thread is still global', async () => {
+  it('shows no focus placeholder when nothing is selected either', async () => {
     await mount()
-    const focus = container.querySelector('[data-testid="super-focus"]')
-    expect(focus?.textContent).toContain('ask across every task')
+    expect(container.querySelector('[data-testid="super-focus"]')).toBeNull()
+    expect(container.textContent).not.toContain('Nothing selected')
+  })
+
+  // "the 'auto delegate on' and other infos there can be removed". The composer
+  // is a box: no status strip under it, and the scope it does state is stated
+  // once, by the placeholder, inside the box.
+  it('carries no meta strip under the prompt box', async () => {
+    await mount()
+    const composer = container.querySelector('[data-testid="super-composer"]')
+    expect(composer).not.toBeNull()
+    expect(composer?.textContent).not.toContain('auto-delegate')
+    expect(composer?.textContent).not.toContain('shift+tab to cycle')
+    expect(composer?.textContent).not.toContain('? for shortcuts')
+    expect(container.querySelector('textarea')?.getAttribute('placeholder')).toBe(
+      'Ask across all tasks…',
+    )
   })
 
   it('keeps the composer mounted — there is no section to collapse it into', async () => {

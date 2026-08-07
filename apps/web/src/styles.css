@@ -4325,3 +4325,143 @@ a.ref-link--session::before {
   line-height: 1.5;
   color: var(--attention);
 }
+
+/* ── The prompt well (POD-516) ───────────────────────────────────────────────
+   The Superagent composer. "A modern floating prompt box" in this system's
+   language is NOT a card on a drop shadow — The Carved Rule reserves shadows
+   for what will disappear, and a rounded outline card floating on a dark ground
+   is the AI-chat look PRODUCT.md lists as an anti-reference. So the box borrows
+   the command bar's WELL and uses it as a field:
+
+     · it is grooved into the pane's own ground (the --well-* tokens carry the
+       per-ground recipe — floor a hair ABOVE on navy, a hair BELOW on paper);
+     · it is inset from all four edges instead of welded to the bottom by a
+       full-width seam, so it reads as an object ON the pane, not as its base;
+     · the thread DISSOLVES into the ground above it (::before) rather than
+       being cut off by a rule, which is what makes it read as sitting over the
+       conversation.
+
+   Three classes are the whole primitive — `.prompt-dock` (the region),
+   `.prompt-well` (the field) and `.prompt-input` (the growing textarea) — so
+   the chat composer can adopt it by swapping classes rather than by copying a
+   box. Height is driven from `usePromptAutoGrow`. */
+.prompt-dock {
+  --prompt-ground: var(--background);
+  position: relative;
+  flex: none;
+  padding: 8px 10px calc(10px + (1 - var(--kb-open, 0)) * env(safe-area-inset-bottom, 0px));
+}
+.right-dock-shell .prompt-dock {
+  --prompt-ground: var(--engraved);
+}
+/* 22px of ground gradient standing ON the scroller above. Pointer-transparent:
+   the text under it stays selectable, it only stops being legible. */
+.prompt-dock::before {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 100%;
+  left: 0;
+  height: 22px;
+  background: linear-gradient(to bottom, transparent, var(--prompt-ground));
+  pointer-events: none;
+}
+.prompt-well {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 8px;
+  /* rounded.composer — the one radius DESIGN.md names for this control. */
+  border-radius: 9px;
+  padding: 6px 6px 6px 10px;
+  background-color: var(--well-floor);
+  box-shadow:
+    inset 0 0 0 1px var(--border-strong),
+    inset 0 2px 3px -2px var(--well-lip),
+    inset 0 -1px 0 var(--well-lit);
+  transition:
+    background-color 150ms ease,
+    box-shadow 150ms ease;
+}
+/* Focus is a MATERIAL change, not a coloured callout: the floor lifts one step
+   and the groove's rim brightens from the idle-composer border to the ink ramp.
+   The yellow block caret that appears inside is already this field's "you are
+   typing here"; a yellow outline round it would be the same sentence twice, and
+   The Signal Rule only pays for that sentence once. */
+.prompt-well:focus-within {
+  background-image: linear-gradient(var(--well-hover), var(--well-hover));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--text-dim) 82%, transparent),
+    inset 0 2px 4px -2px var(--well-lip),
+    inset 0 -1px 0 var(--well-lit);
+}
+/* The CLI prompt mark lights with the field. */
+.prompt-mark {
+  flex: none;
+  padding-block: 3px;
+  color: var(--text-dim);
+  user-select: none;
+  transition: color 150ms ease;
+}
+.prompt-well:focus-within .prompt-mark {
+  color: var(--text-strong);
+}
+/* Below the cap the box GROWS instead of scrolling — see usePromptAutoGrow's
+   note 2. Growing is quick because the keystroke that caused it is already on
+   screen; shrinking takes longer because nothing is waiting on it.
+   `height` IS the animated property, deliberately: the composer's siblings have
+   to give up the room it takes, so a transform would only fake it and leave the
+   thread overlapped. Bounded to one small element between 24px and 150px. */
+.prompt-input {
+  padding-block: 3px;
+  overflow: hidden;
+  transition-property: height;
+  transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  transition-duration: 0s;
+}
+.prompt-input[data-capped="true"] {
+  overflow-y: auto;
+}
+.prompt-input[data-grow="up"] {
+  transition-duration: 150ms;
+}
+.prompt-input[data-grow="down"] {
+  transition-duration: 240ms;
+}
+@media (prefers-reduced-motion: reduce) {
+  .prompt-input[data-grow] {
+    transition-duration: 0s;
+  }
+  .prompt-well {
+    transition: none;
+  }
+  .prompt-mark {
+    transition: none;
+  }
+}
+
+/* ── Blocked hatch (POD-516 round 3 §8) ──────────────────────────────────────
+   A stopped task is drawn over, not framed: a shallow diagonal rule laid across
+   whatever ground the band already has (`bg-rail` at rest, the issue tint when
+   selected), so it composites rather than replacing a surface. No border, no
+   second box, no hue — the tint channel and the elevation vocabulary are both
+   left alone.
+
+   IT IS NOT AMBER, and cannot become amber. In the Superade theme `--warning`
+   IS `--attention` (#f5c518), so a "warning-toned" blocked strip would read as
+   "answer me" on the exact surface built to tell obligation from state. Blocked
+   asks nothing; it just is not moving. The rule is drawn in the theme's own
+   foreground at 5%, which is one step of texture in both dark and Daylight and
+   still legible when a strip already carries a 28% issue tint.
+
+   The mission gauge's blocked segment wears the same class, so "stopped" is one
+   texture in the column and the meter both, and the meter never spends the
+   signal colour on work that is asking nothing. */
+.deck-hatch {
+  background-image: repeating-linear-gradient(
+    135deg,
+    transparent 0 4px,
+    color-mix(in srgb, var(--foreground) 5%, transparent) 4px 8px
+  );
+}
