@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { expect, test } from '@playwright/test'
+import { expect, type Page, test } from '@playwright/test'
 
 test.skip(
   ({ isMobile, browserName }) => !isMobile || browserName !== 'chromium',
@@ -14,6 +14,65 @@ const DEAD_SERVER = 'ws://127.0.0.1:1'
 const AUTH_STATUS = { needsAuth: false, authed: true, userId: 'user:sole' }
 
 test.beforeAll(() => mkdirSync(ARTIFACTS, { recursive: true }))
+
+/**
+ * The acceptance clause the screenshots cannot prove.
+ *
+ * "No material layout shift" is the one launch property a human reading stills
+ * will always sign off on, because the shift happens BETWEEN the two frames
+ * they are shown. So it is measured, not photographed: Chromium's own
+ * layout-shift entries, accumulated across the whole launch, are the same
+ * instrument that defines CLS.
+ *
+ * The threshold is web-vitals' "good" bound. The design intent is stricter —
+ * only opacity animates, so a correct launch scores ~0 — but the bound is what
+ * the criterion actually claims, and a test should fail on the claim rather
+ * than on a number that happens to hold today. A skeleton whose rows are a
+ * different height than the content they cover blows straight through it.
+ */
+const CLS_GOOD = 0.1
+
+async function readLayoutShift(page: Page): Promise<number> {
+  return page.evaluate(
+    () => (globalThis as unknown as { __cls: { score: number } }).__cls?.score ?? 0,
+  )
+}
+
+async function observeLayoutShift(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const cls = { score: 0 }
+    ;(globalThis as unknown as { __cls: typeof cls }).__cls = cls
+    new PerformanceObserver((list) => {
+      for (const entry of list.getEntries() as (PerformanceEntry & {
+        value: number
+        hadRecentInput: boolean
+      })[]) {
+        // Shifts within 500ms of a real interaction are the user's doing, not
+        // the launch's — the same exclusion the CLS definition makes.
+        if (!entry.hadRecentInput) cls.score += entry.value
+      }
+    }).observe({ type: 'layout-shift', buffered: true })
+  })
+}
+
+test('replacing skeletons with content does not shift the page', async ({ page }) => {
+  await observeLayoutShift(page)
+  // A slow auth probe holds the launch open long enough that skeletons are
+  // genuinely painted and genuinely replaced, which is the window under test.
+  await page.route('**/auth/status', async (route) => {
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 1_500))
+    await route.continue()
+  })
+
+  await page.goto(`/mobile?server=${RELAY}`)
+  await expect(page.getByRole('button', { name: 'New work' })).toBeVisible({ timeout: 60_000 })
+  // Let the crossfade finish and any late replica rows land before scoring.
+  await expect(page.getByLabel('Podium')).toHaveCount(0)
+  await page.waitForTimeout(1_000)
+
+  const score = await readLayoutShift(page)
+  expect(score, `cumulative layout shift across launch was ${score}`).toBeLessThan(CLS_GOOD)
+})
 
 test('a slow cold launch has one uninterrupted brand transition', async ({ page }) => {
   await page.addInitScript(() => {
