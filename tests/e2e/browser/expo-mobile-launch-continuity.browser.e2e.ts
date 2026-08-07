@@ -116,7 +116,21 @@ test('a slow cold launch has one uninterrupted brand transition', async ({ page 
         .__launchProbe,
   )
   expect(probe).toEqual({ mounts: 1, maxAtOnce: 1 })
-  await page.screenshot({ path: resolve(ARTIFACTS, '02-cold-first-frame.png'), fullPage: true })
+
+  /*
+    The SETTLED frame, not the first one.
+
+    The first frame here is the Work silhouette, which is already captured by
+    the cold-offline case — photographing it twice produced two byte-identical
+    screenshots and no evidence of what happens next. What is worth showing is
+    the other end of the transition, and it doubles as the control for the
+    suppression this issue adds: the empty state must still ARRIVE once the
+    replica resolves. A launch that never showed it would satisfy every
+    "no empty state" assertion in this file while being plainly broken.
+  */
+  await expect(page.getByLabel('Loading work')).toHaveCount(0, { timeout: 30_000 })
+  await expect(page.getByText(/No work yet/)).toBeVisible({ timeout: 30_000 })
+  await page.screenshot({ path: resolve(ARTIFACTS, '02-cold-settled-frame.png'), fullPage: true })
 })
 
 test('a cold offline launch paints the Work silhouette, never its empty state', async ({
