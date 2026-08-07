@@ -7,11 +7,12 @@ import {
 } from '@podium/client-core/ui-state'
 import { type FileScope, scopeKey } from '@podium/client-core/viewmodels'
 import { Columns2, Eye, Pencil, Save, X } from 'lucide-react'
-import { type JSX, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { type JSX, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { scopedAssetUrl } from '@/lib/asset-url'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
+import { usePersistedUiValue } from '@/lib/use-persisted-ui-state'
 import { canSave } from './editor-save'
 import {
   buildStaticHtmlPreview,
@@ -47,20 +48,30 @@ export function HtmlFilePanel({
   const saveFeedbackId = useId()
   const mobile = useIsMobile()
   const tabId = `file:${scopeKey(scope)}:${path}`
-  const [mode, setMode] = useState<Mode>(
-    () => readFilePanelMode(uiState, HTML_MODE_MAP_KEY, tabId) ?? 'preview',
+  // The mode map is per-user REPLICATED, so it is SUBSCRIBED rather than seeded
+  // (POD-540). Seeding was worse here than elsewhere: the mount effect wrote the
+  // fallback straight back into the map, so a stored mode that arrived a moment
+  // later lost last-writer-wins against a default this panel never chose. The
+  // stored value IS the mode now, and it is written only when the user picks one.
+  const mode = usePersistedUiValue(
+    HTML_MODE_MAP_KEY,
+    useCallback(
+      (raw: string | null): Mode =>
+        readFilePanelMode({ get: () => raw }, HTML_MODE_MAP_KEY, tabId) ?? 'preview',
+      [tabId],
+    ),
+  )
+  const setMode = useCallback(
+    (next: Mode): void => writeFilePanelMode(uiState, HTML_MODE_MAP_KEY, tabId, next),
+    [uiState, tabId],
   )
   const [cssTextByPath, setCssTextByPath] = useState<Record<string, string>>({})
   const viewRef = useRef<EditorView | null>(null)
   const fileDir = dirOf(path)
 
   useEffect(() => {
-    writeFilePanelMode(uiState, HTML_MODE_MAP_KEY, tabId, mode)
-  }, [uiState, tabId, mode])
-
-  useEffect(() => {
     if (mobile && mode === 'split') setMode('source')
-  }, [mobile, mode])
+  }, [mobile, mode, setMode])
 
   const stylesheetPaths = useMemo(
     () => (doc.status === 'ready' ? linkedStylesheetPathsForStaticHtml(doc.content, fileDir) : []),

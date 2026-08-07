@@ -2,13 +2,20 @@ import { DOCK_SECTION_KEY_PREFIX } from '@podium/client-core/ui-state'
 import { ChevronRight } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useCallback } from 'react'
-import { useStoreSelector } from '@/app/store'
-import { usePersistedUiStateFrom } from '@/lib/hooks/use-persisted-ui-state'
+import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 import { cn } from '@/lib/utils'
 
 // ui-state key family for per-section open state; the legacy localStorage keys
 // of the same names migrate in once (replica LEGACY_UI_PREFIXES). REPLICATED
 // under dock.section.* — subscribe rather than seed (POD-540).
+//
+// Note: after the operator-workspace Task recomposition (POD-516), the Task
+// dock no longer mounts DockSection. The component stays until that lands so
+// this branch's IssuePanelView still has its collapsible sections.
+
+function writeOpen(open: boolean): string {
+  return open ? '1' : '0'
+}
 
 /** Collapsible dock section: micro-label header with a count chip and a
  *  rotating chevron; the body collapses via a grid-rows transition (height
@@ -29,12 +36,12 @@ export function DockSection({
   defaultOpen?: boolean
   children: ReactNode
 }): JSX.Element {
-  const ui = useStoreSelector((s) => s.uiState)
-  const key = DOCK_SECTION_KEY_PREFIX + storageKey
-  const open = usePersistedUiStateFrom(ui, key, (raw) => (raw === null ? defaultOpen : raw === '1'))
-  const toggle = useCallback(() => {
-    ui.set(key, open ? '0' : '1')
-  }, [ui, key, open])
+  const [open, setOpen] = usePersistedUiState(
+    DOCK_SECTION_KEY_PREFIX + storageKey,
+    useCallback((raw: string | null) => (raw === null ? defaultOpen : raw === '1'), [defaultOpen]),
+    writeOpen,
+  )
+  const toggle = useCallback(() => setOpen(!open), [setOpen, open])
 
   return (
     <section className="border-b border-border/60">

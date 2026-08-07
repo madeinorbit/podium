@@ -10,10 +10,11 @@ import {
 import { type FileScope, scopeKey } from '@podium/client-core/viewmodels'
 import { asSessionId } from '@podium/model'
 import { Columns2, Eye, Pencil, Save, X } from 'lucide-react'
-import { type JSX, useEffect, useId, useRef, useState } from 'react'
+import { type JSX, useCallback, useEffect, useId, useRef, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
+import { usePersistedUiValue } from '@/lib/use-persisted-ui-state'
 import { canSave } from './editor-save'
 import { MarkdownPreview } from './MarkdownPreview'
 import { OpenInBrowserButton } from './OpenInBrowserButton'
@@ -46,19 +47,30 @@ export function MarkdownFilePanel({
   const md = isMarkdown(path)
   const mobile = useIsMobile()
   const tabId = `file:${scopeKey(scope)}:${path}`
-  const [mode, setMode] = useState<Mode>(
-    () => readFilePanelMode(uiState, MD_MODE_MAP_KEY, tabId) ?? (md ? 'preview' : 'source'),
+  // Per-tab mode is per-user REPLICATED: SUBSCRIBE, never seed. A `useState`
+  // initializer read the map before the replica had the row, and the mount
+  // effect then wrote that fallback back — so a stored mode arriving a moment
+  // later lost last-writer-wins to a default nobody picked (POD-540).
+  const mode = usePersistedUiValue(
+    MD_MODE_MAP_KEY,
+    useCallback(
+      (raw: string | null): Mode =>
+        readFilePanelMode({ get: () => raw }, MD_MODE_MAP_KEY, tabId) ??
+        (md ? 'preview' : 'source'),
+      [tabId, md],
+    ),
+  )
+  const setMode = useCallback(
+    (next: Mode): void => writeFilePanelMode(uiState, MD_MODE_MAP_KEY, tabId, next),
+    [uiState, tabId],
   )
   const viewRef = useRef<EditorView | null>(null)
   const previewScrollRef = useRef<HTMLDivElement | null>(null)
 
-  // Persist mode per tab; collapse split → source on mobile (no room for two panes).
-  useEffect(() => {
-    writeFilePanelMode(uiState, MD_MODE_MAP_KEY, tabId, mode)
-  }, [uiState, tabId, mode])
+  // Collapse split → source on mobile (no room for two panes).
   useEffect(() => {
     if (mobile && mode === 'split') setMode('source')
-  }, [mobile, mode])
+  }, [mobile, mode, setMode])
 
   // Split-mode scroll sync: map the editor's top visible line <-> the preview's
   // top visible block via data-source-line anchors. A guard flag prevents the two

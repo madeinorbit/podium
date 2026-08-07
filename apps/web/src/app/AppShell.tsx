@@ -18,8 +18,8 @@ import { SidebarRail } from '@/features/worklist/SidebarRail'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import { ResizableAside, ResizableColumn } from '@/features/worklist/sidebar-common'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
-import { usePersistedUiStateFrom } from '@/lib/hooks/use-persisted-ui-state'
 import { effectiveIssueColorHex, FLOW_SLATE } from '@/lib/issueColors'
+import { usePersistedUiState, usePersistedUiValue } from '@/lib/use-persisted-ui-state'
 import type { KernelAssembly } from '@/lib/kernelReplica'
 import { ShadowComparisonRunner } from '@/lib/shadow/ShadowComparisonRunner'
 import { useFeature } from '@/lib/use-feature'
@@ -235,15 +235,21 @@ function AppBody(): JSX.Element {
   // collapse/fold is read as null and the surface boots expanded forever after.
   // Device-local keys do not have this problem (they are in the local cache at
   // mount), which is why a resized column kept its width while a collapsed one
-  // did not keep its collapse. Same idiom as use-terminal-appearance / POD-516.
-  const sidebarCollapsed = usePersistedUiStateFrom(uiState, SIDEBAR_COLLAPSED_KEY, (raw) =>
-    readBooleanState(raw),
+  // did not keep its collapse. Shared hook: `@/lib/use-persisted-ui-state`.
+  const [sidebarCollapsed, setSidebarCollapsed] = usePersistedUiState(
+    SIDEBAR_COLLAPSED_KEY,
+    readBooleanState,
+    (collapsed) => String(collapsed),
   )
   // Subscribe to the raw key so a late replica row re-renders us; then apply the
   // legacy superOpen fallback only while the key is still absent.
-  const superModeRaw = usePersistedUiStateFrom(uiState, SUPERAGENT_MODE_KEY, (raw) => raw)
+  const superModeRaw = usePersistedUiValue(SUPERAGENT_MODE_KEY, (raw) => raw)
   const superMode = readSuperagentMode(superModeRaw, superOpen)
-  const rightPanel = usePersistedUiStateFrom(uiState, RIGHT_PANEL_KEY, readRightPanel)
+  const [rightPanel, setRightPanelState] = usePersistedUiState(
+    RIGHT_PANEL_KEY,
+    readRightPanel,
+    (panel) => panel ?? '',
+  )
   const commandPaletteEnabled = useFeature('command-palette')
   const gitPanelEnabled = useFeature('git-panel')
   const messagesPanelEnabled = useFeature('messages-panel')
@@ -256,9 +262,6 @@ function AppBody(): JSX.Element {
     })
   const visibleRightPanel = panelAllowed(rightPanel) ? rightPanel : null
 
-  const setSidebarCollapsed = (collapsed: boolean): void => {
-    uiState.set(SIDEBAR_COLLAPSED_KEY, String(collapsed))
-  }
   // Tracks the last mode WE wrote so the mode→superOpen mirror does not fight
   // the superOpen→mode mirror (palette/concierge drives superOpen; the shell
   // and the replica drive the key).
@@ -272,7 +275,7 @@ function AppBody(): JSX.Element {
   }
   const setRightPanel = (panel: RightPanelTab | null): void => {
     if (!panelAllowed(panel)) return
-    uiState.set(RIGHT_PANEL_KEY, panel ?? '')
+    setRightPanelState(panel)
   }
 
   // superOpen (store) is how surfaces outside the shell drive the column
