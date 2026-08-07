@@ -427,16 +427,31 @@ describe('test lane configuration', () => {
     }
   })
 
-  it('gives webServer enough time for the sequential build chain [POD-535]', () => {
-    // The command is four builds (three in phase3) plus serve-harness. Measured
-    // wall times under host load exceed the old 180s budget even with warm turbo
-    // and Metro caches; zero tests run when Playwright aborts the wait.
+  it('gives webServer headroom so contention is not a hard cliff [POD-535]', () => {
+    // Quiet-host boot is ~100s (fits 180s); the same warm-cache chain has timed
+    // out at 180s under shared-host load. The floor is headroom, not a claim
+    // that the chain needs 10 minutes. Serialization lives on test:browser via
+    // test-heavy; this budget is the remaining safety net for hand-runs and
+    // residual load.
     for (const playwright of [browserConfig, phase3BrowserConfig]) {
       const { timeout } = webServerEntry(playwright)
-      expect(timeout, 'webServer timeout missing or too short for the build chain').toBeGreaterThanOrEqual(
+      expect(timeout, 'webServer timeout missing or too short for contention headroom').toBeGreaterThanOrEqual(
         600_000,
       )
     }
+  })
+
+  it('serializes the browser lane under the shared heavy-test lease [POD-535]', () => {
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+      scripts: Record<string, string>
+    }
+    const script = pkg.scripts['test:browser']
+    expect(script, 'test:browser must go through test-heavy').toMatch(
+      /scripts\/test-heavy\.ts\b/,
+    )
+    expect(script, 'test:browser must still run the browser-lane body').toMatch(
+      /scripts\/browser-lane\.ts\b/,
+    )
   })
 
   it('keeps every browser suite reachable from a script and a CI job [POD-1227]', () => {
@@ -447,8 +462,10 @@ describe('test lane configuration', () => {
     const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
       scripts: Record<string, string>
     }
+    // Through test-heavy so a live session serializes against integration/e2e/
+    // acceptance rather than racing them on the shared host (POD-535).
     expect(pkg.scripts['test:browser'], 'the browser lane script is gone').toBe(
-      'bun scripts/browser-lane.ts',
+      'bun scripts/test-heavy.ts -- bun scripts/browser-lane.ts',
     )
 
     const ci = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')

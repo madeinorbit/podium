@@ -8,6 +8,12 @@
  * "runtime verified" in handoffs and merge commits kept borrowing their
  * authority (POD-756 counted them and did not run them). This file is the lane.
  *
+ * Invoke via `bun run test:browser` (not this file bare). The package script
+ * wraps this process in `scripts/test-heavy.ts` so a live session takes the
+ * shared `test:heavy` lease for the whole build + webServer + run. The chain
+ * fits a quiet host in ~100s; without the lease it races integration/e2e and
+ * the webServer 180s cliff reappears under contention (POD-535).
+ *
  * The Playwright config is used UNCHANGED. Two things live here instead:
  *
  * 1. THE BUILD. The test process imports `@podium/protocol` without

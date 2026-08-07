@@ -22,8 +22,9 @@ export default defineConfig({
   ],
   webServer: [
     {
-      // Same budget as playwright.config.ts: sequential model → protocol → web builds
-      // plus serve-harness exceed 180s under load even with warm caches (POD-535).
+      // Same budget as playwright.config.ts: quiet-host boot fits 180s; contention
+      // has pushed the warm-cache chain over that cliff (POD-535). 10 minutes is
+      // headroom, not a claim the chain needs that long.
       command:
         'bun run --filter @podium/model build && bun run --filter @podium/protocol build && bun run --filter @podium/web build && bun --conditions=@podium/source serve-harness.ts',
       url: `${ORIGIN}/health`,

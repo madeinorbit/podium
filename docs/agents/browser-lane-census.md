@@ -12,7 +12,7 @@ built, so the count went stale (54 → 70) and the baseline was never re-measure
 **Read this document before citing any browser suite as evidence.** A suite listed
 below as failing does not verify anything today.
 
-- Lane: `bun run test:browser` → `scripts/browser-lane.ts`
+- Lane: `bun run test:browser` → `scripts/test-heavy.ts` (shared-host lease) → `scripts/browser-lane.ts`
 - Quarantine: `scripts/browser-quarantine.ts` (printed on every run)
 - CI: the `browser` job in `.github/workflows/ci.yml`, **non-blocking**, one leg
   per Playwright project

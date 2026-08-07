@@ -44,12 +44,19 @@ The lexical response-contract behavior remains protected by deterministic tests.
 The shared forked Vitest configuration defaults to at most two workers and keeps one worker available as the floor. This is the safe setting for the six-core, 11 GB development host so a test run leaves headroom for the live Podium instance and other agent sessions. Set `PODIUM_TEST_WORKERS=<positive integer>` to choose another ceiling, or `PODIUM_TEST_WORKERS=auto` to restore Vitest's CPU-count default on a dedicated CI/test host. `fileParallelism` remains enabled.
 
 The package default (`bun run test`) and `bun run test:affected` automatically acquire the
-`test:heavy` advisory lease from a live Podium session. The root process lanes that call
-`scripts/test-heavy.ts` do the same; direct package, browser, and multi-instance commands
+`test:heavy` advisory lease from a live Podium session. Root process lanes that call
+`scripts/test-heavy.ts` do the same — including `test:browser`, `test:integration`,
+`test:acceptance`, `test:e2e`, and `test:smoke:agents`. Direct package and multi-instance
+commands do not; when an agent runs those by hand on the shared host:
 
     podium lock acquire test:heavy --ttl 30m --wait
-    bun run test:integration
+    bun run test:multi-instance
     podium lock release test:heavy
+
+The same applies to a bare `bun scripts/browser-lane.ts` or a hand-rolled Playwright
+invocation that bypasses `bun run test:browser` — those skip the wrapper and will race
+other heavy work (the webServer boot that is ~100s on a quiet host has timed out at
+180s under contention; POD-535). Prefer the package script.
 
 The wrapper renews the 30-minute lease every 10 minutes while the child runs. If renewal fails, it terminates the child rather than allowing an unleased test to continue; an interrupted process still has the 30-minute TTL as the recovery path.
 

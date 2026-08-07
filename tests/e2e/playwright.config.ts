@@ -41,10 +41,13 @@ export default defineConfig({
       // baseURL (:8799) and pass `?server=ws://localhost:8799`; @podium/source runs TS source.
       //
       // Timeout is the full sequential chain (model → protocol → web → mobile export →
-      // serve-harness), not harness boot alone. serve-harness answers /health in ~5s;
-      // the four builds routinely exceed the old 180s budget even on turbo/Metro cache
-      // hits under host load (POD-535). 10 minutes leaves headroom without changing the
-      // cold-checkout self-containment of this command (POD-1389).
+      // serve-harness), not harness boot alone. On a quiet host the boot is ~100s and
+      // fits 180s with headroom; under shared-host contention the same warm-cache chain
+      // has timed out at 180s (POD-535 / POD-503). 10 minutes removes that cliff — it
+      // is not a claim that the chain inherently needs 10 minutes. The sanctioned lane
+      // (`bun run test:browser`) also takes the test:heavy lease so it is not the one
+      // heavy path that races everyone else. Cold-checkout self-containment of this
+      // command is unchanged (POD-1389).
       command:
         'bun run --filter @podium/model build && bun run --filter @podium/protocol build && bun run --filter @podium/web build && bun run --filter @podium/mobile build:web && bun --conditions=@podium/source serve-harness.ts',
       env: { ...process.env, PODIUM_UPDATE_CHANNEL: 'edge' },
