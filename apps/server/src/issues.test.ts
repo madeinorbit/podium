@@ -949,9 +949,9 @@ describe('IssueService archive cascade to sessions (#133)', () => {
  * checkout it left behind was ~82 of the ~100 stale worktrees on the origin host.
  *
  * The invariant under every case here: the branch survives. Freeing is reversible
- * (`ensureWorktree` rebuilds from the branch on resume), refusing is safe — so
- * the only unacceptable outcome, discarding uncommitted work, is the one no
- * automatic path can produce.
+ * (`ensureWorktree` rebuilds from the branch on resume / start / add-session),
+ * refusing is safe — so the only unacceptable outcome, discarding uncommitted
+ * work, is the one no automatic path can produce.
  */
 describe('archive frees the worktree, keeping the branch (POD-567)', () => {
   /** The free is fire-and-forget off a synchronous archive (see `onIssueArchived`)
@@ -1094,6 +1094,107 @@ describe('archive frees the worktree, keeping the branch (POD-567)', () => {
     expect(
       h.store.events.listEventsSince(0, { kinds: ['issue.worktree_free_refused'] }).length,
     ).toBe(0)
+  })
+})
+
+/**
+ * After free (stop / archive): worktreePath is null, branch survives.
+ * Resume already rebuilt via ensureWorktree; NEW-agent paths must too —
+ * otherwise the only way back in is an old session (POD-580).
+ */
+describe('new agent after worktree free (POD-580)', () => {
+  /** Branch kept, checkout gone — the post-free row shape. */
+  const freedWithBranch = (svc: IssueService, title = 'Shipped') => {
+    const w = svc.create({ repoPath: '/r', title, startNow: false })
+    svc.update(w.id, { worktreePath: null, branch: 'issue/x', stage: 'in_progress' })
+    return w
+  }
+
+  it('addSession rebuilds via worktreeAddExisting then spawns into it', async () => {
+    const { svc, deps } = harness()
+    const w = freedWithBranch(svc)
+    deps.repoOp = vi.fn(async (op: string) =>
+      op === 'worktreeAddExisting'
+        ? { ok: true, output: 'Preparing worktree' }
+        : { ok: true, output: '' },
+    ) as typeof deps.repoOp
+
+    await svc.addSession(w.id)
+
+    expect(deps.repoOp).toHaveBeenCalledWith(
+      'worktreeAddExisting',
+      '/r',
+      { path: '/r/.worktrees/issue-x', branch: 'issue/x' },
+      undefined,
+    )
+    expect(svc.get(w.id)!.worktreePath).toBe('/r/.worktrees/issue-x')
+    expect(deps.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cwd: '/r/.worktrees/issue-x',
+        issueId: w.id,
+      }),
+    )
+    // Never tried to create the branch again (-b would fail: branch exists).
+    expect(
+      (deps.repoOp as ReturnType<typeof vi.fn>).mock.calls.every(
+        (c: unknown[]) => c[0] !== 'worktreeAdd',
+      ),
+    ).toBe(true)
+  })
+
+  it('addSession still refuses when neither worktree nor branch is recorded', () => {
+    const { svc } = harness()
+    const w = svc.create({ repoPath: '/r', title: 'Never started', startNow: false })
+    expect(() => svc.addSession(w.id)).toThrow(/issue not started/)
+  })
+
+  it('start attaches the preserved branch (worktreeAddExisting) and spawns a new agent', async () => {
+    const { svc, deps } = harness()
+    const w = freedWithBranch(svc, 'Restart me')
+    deps.repoOp = vi.fn(async (op: string) =>
+      op === 'worktreeAddExisting'
+        ? { ok: true, output: 'Preparing worktree' }
+        : { ok: true, output: '' },
+    ) as typeof deps.repoOp
+
+    const started = await svc.start(w.id)
+
+    expect(started.worktreePath).toBe('/r/.worktrees/issue-x')
+    expect(started.branch).toBe('issue/x')
+    expect(deps.repoOp).toHaveBeenCalledWith(
+      'worktreeAddExisting',
+      '/r',
+      { path: '/r/.worktrees/issue-x', branch: 'issue/x' },
+      undefined,
+    )
+    expect(
+      (deps.repoOp as ReturnType<typeof vi.fn>).mock.calls.every(
+        (c: unknown[]) => c[0] !== 'worktreeAdd',
+      ),
+    ).toBe(true)
+    expect(deps.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cwd: '/r/.worktrees/issue-x',
+        issueId: w.id,
+      }),
+    )
+  })
+
+  it('start still creates a fresh branch with worktreeAdd when none is recorded', async () => {
+    const { svc, deps } = harness()
+    const w = svc.create({ repoPath: '/r', title: 'Brand new', startNow: false })
+    await svc.start(w.id)
+    expect(deps.repoOp).toHaveBeenCalledWith(
+      'worktreeAdd',
+      '/r',
+      expect.objectContaining({ branch: 'issue/1-brand-new' }),
+      undefined,
+    )
+    expect(
+      (deps.repoOp as ReturnType<typeof vi.fn>).mock.calls.every(
+        (c: unknown[]) => c[0] !== 'worktreeAddExisting',
+      ),
+    ).toBe(true)
   })
 })
 

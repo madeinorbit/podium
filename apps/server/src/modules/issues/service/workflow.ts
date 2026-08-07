@@ -283,64 +283,94 @@ export class IssueGitWorkflowModule {
     row.defaultAgent = agent
     row.defaultModel = opts?.model ?? stored.model
     row.defaultEffort = opts?.effort ?? stored.effort
-    /**
-     * A machine-pinned start has to reach the target BEFORE the worktree add (POD-1424).
-     *
-     * Two things had to be true and neither was. The repository has to be resolved by
-     * IDENTITY, because two machines have two layouts and comparing the source path
-     * literally made a present repo read as absent; and the start point has to EXIST
-     * there, because `worktree add <path> <startPoint>` fails on a start point the
-     * target cannot resolve — and our own branches are on no shared remote, so a clone
-     * cannot fetch them.
-     *
-     * ORDER IS THE PROPERTY. This runs first and the worktree add uses the path it
-     * returns: the repo path on the TARGET, which is not `row.repoPath`.
-     * requireMachineForRepo keeps its job and now runs AFTER, against the resolved path,
-     * so what it still catches — an offline machine — is exactly what it has an
-     * actionable message for.
-     *
-     * The move is committed through `rehome` rather than by assigning `row.repoPath`
-     * here, because repoPath and machineId have to travel together — the file-browser
-     * root, the sidebar's worktree and the cwd the next agent spawns into are all
-     * derived from the pair, and `rehome` is the guarded transition that already moves
-     * them as one.
-     */
-    let startRepoPath = row.repoPath
-    let startPoint = row.parentBranch
-    if (row.machineId && this.store.d.prepareMachineStart) {
-      const prepared = await this.store.d.prepareMachineStart({
-        repoPath: row.repoPath,
-        machineId: row.machineId,
-        ...(row.parentBranch ? { startPoint: row.parentBranch } : {}),
-      })
-      startRepoPath = prepared.repoPath
-      // A bundled branch lands as OBJECTS, not as a ref, so the branch name does not
-      // resolve on the target even though its commit does. prepareMachineStart hands
-      // back whatever the target can actually resolve — the name when it was already
-      // there, a commit id when it had to be shipped.
-      if (prepared.startPoint) startPoint = prepared.startPoint
-    }
-    // Refuse a foreign repository BEFORE creating anything (POD-1461). The same identity
-    // rule rehome applies: a target whose repoId differs would renumber this issue into
-    // another repo. Checked here rather than after the add, so a refusal costs nothing.
-    if (startRepoPath !== row.repoPath && !this.isSameRepoIdentity(row, startRepoPath)) {
-      throw new Error(
-        `refusing to start on ${startRepoPath}: it is not the same repository as ${row.repoPath}`,
+
+    // Branch preserved after free/archive (worktreePath null, branch set): attach the
+    // existing branch — do NOT `worktree add -b`, which fails because the branch is
+    // still there. Same rebuild as resume (`ensureWorktree` → worktreeAddExisting).
+    // Fresh starts (no branch) take the create path below.
+    let path: string
+    if (row.branch) {
+      const ensured = await this.ensureWorktree(id)
+      if (!ensured.ok || !ensured.worktreePath) {
+        throw new Error(ensured.output || 'failed to recreate worktree from branch')
+      }
+      path = ensured.worktreePath
+    } else {
+      /**
+       * A machine-pinned start has to reach the target BEFORE the worktree add (POD-1424).
+       *
+       * Two things had to be true and neither was. The repository has to be resolved by
+       * IDENTITY, because two machines have two layouts and comparing the source path
+       * literally made a present repo read as absent; and the start point has to EXIST
+       * there, because `worktree add <path> <startPoint>` fails on a start point the
+       * target cannot resolve — and our own branches are on no shared remote, so a clone
+       * cannot fetch them.
+       *
+       * ORDER IS THE PROPERTY. This runs first and the worktree add uses the path it
+       * returns: the repo path on the TARGET, which is not `row.repoPath`.
+       * requireMachineForRepo keeps its job and now runs AFTER, against the resolved path,
+       * so what it still catches — an offline machine — is exactly what it has an
+       * actionable message for.
+       *
+       * The move is committed through `rehome` rather than by assigning `row.repoPath`
+       * here, because repoPath and machineId have to travel together — the file-browser
+       * root, the sidebar's worktree and the cwd the next agent spawns into are all
+       * derived from the pair, and `rehome` is the guarded transition that already moves
+       * them as one.
+       */
+      let startRepoPath = row.repoPath
+      let startPoint = row.parentBranch
+      if (row.machineId && this.store.d.prepareMachineStart) {
+        const prepared = await this.store.d.prepareMachineStart({
+          repoPath: row.repoPath,
+          machineId: row.machineId,
+          ...(row.parentBranch ? { startPoint: row.parentBranch } : {}),
+        })
+        startRepoPath = prepared.repoPath
+        // A bundled branch lands as OBJECTS, not as a ref, so the branch name does not
+        // resolve on the target even though its commit does. prepareMachineStart hands
+        // back whatever the target can actually resolve — the name when it was already
+        // there, a commit id when it had to be shipped.
+        if (prepared.startPoint) startPoint = prepared.startPoint
+      }
+      // Refuse a foreign repository BEFORE creating anything (POD-1461). The same identity
+      // rule rehome applies: a target whose repoId differs would renumber this issue into
+      // another repo. Checked here rather than after the add, so a refusal costs nothing.
+      if (startRepoPath !== row.repoPath && !this.isSameRepoIdentity(row, startRepoPath)) {
+        throw new Error(
+          `refusing to start on ${startRepoPath}: it is not the same repository as ${row.repoPath}`,
+        )
+      }
+      if (row.machineId) this.store.d.requireMachineForRepo?.(row.machineId, startRepoPath)
+      const branch = this.store.slug(row.seq, row.title)
+      path = this.worktreePathFor(startRepoPath, branch)
+      const res = await this.store.d.repoOp(
+        'worktreeAdd',
+        startRepoPath,
+        { path, branch, ...(startPoint ? { startPoint } : {}) },
+        row.machineId ?? undefined,
       )
+      if (!res.ok) throw new Error(`worktree add failed: ${res.output}`)
+      // POD-665: the daemon just created this worktree out from under connected
+      // clients — nudge them to re-fetch repos rather than sit invisible until reload.
+      this.store.d.onWorktreesChanged?.(row.repoPath, row.machineId ?? undefined)
+      row.branch = branch
+      row.worktreePath = path
+      /**
+       * repoPath TRAVELS WITH the worktree (POD-1461).
+       *
+       * Leaving it on the source produced an inconsistent row — repoPath on one machine,
+       * worktreePath and machineId on another — and every later operation that derives a
+       * path from that pair then sent one machine's path to the other. Observed: stopping
+       * such a session ran `git -C <source>/podium worktree remove <target>/...` and died
+       * with "Permission denied", orphaning the checkout on the target.
+       *
+       * Handoff never had this bug because it commits through rehome, which moves the pair
+       * as one. This is the same move, so it obeys the same rule; the identity guard above
+       * is rehome's, applied before anything was built.
+       */
+      row.repoPath = startRepoPath
     }
-    if (row.machineId) this.store.d.requireMachineForRepo?.(row.machineId, startRepoPath)
-    const branch = this.store.slug(row.seq, row.title)
-    const path = this.worktreePathFor(startRepoPath, branch)
-    const res = await this.store.d.repoOp(
-      'worktreeAdd',
-      startRepoPath,
-      { path, branch, ...(startPoint ? { startPoint } : {}) },
-      row.machineId ?? undefined,
-    )
-    if (!res.ok) throw new Error(`worktree add failed: ${res.output}`)
-    // POD-665: the daemon just created this worktree out from under connected
-    // clients — nudge them to re-fetch repos rather than sit invisible until reload.
-    this.store.d.onWorktreesChanged?.(row.repoPath, row.machineId ?? undefined)
     // Starting a CLOSED issue is an explicit reopen (#24): clear the closed
     // markers so the issue doesn't get a live worktree while staying
     // derived-closed (invisible to ready/open). Emitted as issue.reopened so
@@ -357,22 +387,6 @@ export class IssueGitWorkflowModule {
       // this cleared when the stamp was a column.
       this.store.writeIssueUserState(row.id, { tuckedAt: null })
     }
-    row.branch = branch
-    row.worktreePath = path
-    /**
-     * repoPath TRAVELS WITH the worktree (POD-1461).
-     *
-     * Leaving it on the source produced an inconsistent row — repoPath on one machine,
-     * worktreePath and machineId on another — and every later operation that derives a
-     * path from that pair then sent one machine's path to the other. Observed: stopping
-     * such a session ran `git -C <source>/podium worktree remove <target>/...` and died
-     * with "Permission denied", orphaning the checkout on the target.
-     *
-     * Handoff never had this bug because it commits through rehome, which moves the pair
-     * as one. This is the same move, so it obeys the same rule; the identity guard above
-     * is rehome's, applied before anything was built.
-     */
-    row.repoPath = startRepoPath
     row.stage = 'in_progress'
     // `assignee` is a branded `UserId` by POD-361's recorded decision ('free text
     // today, inventory §9'), and an `agent:<kind>` tag is not a user. The cast is
@@ -664,7 +678,8 @@ export class IssueGitWorkflowModule {
 
   /**
    * Ensure the issue's worktree exists on disk for the preserved branch
-   * [spec:SP-9904]. Used on resume after stop freed the working copy.
+   * [spec:SP-9904]. Used on resume after stop/archive freed the working copy,
+   * and by `start` / `addSession` when a NEW agent needs the same rebuild.
    * Idempotent when the worktree is already present.
    */
   async ensureWorktree(
@@ -915,7 +930,38 @@ export class IssueGitWorkflowModule {
     return branch || null
   }
 
+  /**
+   * Spawn another agent (or shell) on an already-started issue.
+   *
+   * When the checkout was freed but the branch survived (stop / archive —
+   * worktreePath null, branch set), rebuild via {@link ensureWorktree} first.
+   * That is the same attach path resume uses; without it this threw
+   * "issue not started" and left the only re-entry through an old session.
+   *
+   * Return type widens only on the rebuild branch (sync when the worktree is
+   * already present), matching `ensureSessionWorktree` and keeping the common
+   * add-session path on the wire without an extra turn.
+   */
   addSession(
+    id: string,
+    agentKind?: string,
+    opts?: { spawnedBy?: string; forceUnknownModel?: boolean },
+  ): IssueWire | Promise<IssueWire> {
+    const row = this.store.rowOrThrow(id)
+    if (!row.worktreePath) {
+      if (!row.branch) throw new Error('issue not started')
+      return this.ensureWorktree(id).then((ensured) => {
+        if (!ensured.ok || !ensured.worktreePath) {
+          throw new Error(ensured.output || 'failed to recreate worktree from branch')
+        }
+        return this.spawnAddedSession(id, agentKind, opts)
+      })
+    }
+    return this.spawnAddedSession(id, agentKind, opts)
+  }
+
+  /** Shared spawn tail once a worktree path is known to exist on the issue. */
+  private spawnAddedSession(
     id: string,
     agentKind?: string,
     opts?: { spawnedBy?: string; forceUnknownModel?: boolean },
@@ -963,7 +1009,8 @@ export class IssueGitWorkflowModule {
     })
     return this.store.toWire(row)
   }
-  addShell(id: string, opts?: { spawnedBy?: string }): IssueWire {
+
+  addShell(id: string, opts?: { spawnedBy?: string }): IssueWire | Promise<IssueWire> {
     return this.addSession(id, 'shell', opts)
   }
 
