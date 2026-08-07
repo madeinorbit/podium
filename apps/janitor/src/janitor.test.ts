@@ -562,22 +562,34 @@ describe('WorktreeGcReader proposes reclaimable checkouts [POD-564]', () => {
         cwd TEXT NOT NULL,
         status TEXT NOT NULL
       )`)
+      // POSITIONAL, not `@name`. This lane runs vitest under Bun, and bun:sqlite
+      // binds an object with BARE keys as nothing at all — every column arrives
+      // NULL and the reader correctly proposes nothing, so the suite fails with
+      // no error to read. node:sqlite accepts the same object, which is why the
+      // named form passes under `bunx vitest` and only dies in the real lane.
       const insert = db.prepare(
         `INSERT INTO issues (id, parent_id, stage, closed_reason, closed_at, worktree_path, deleted_at)
-         VALUES (@id, @parent_id, @stage, @closed_reason, @closed_at, @worktree_path, @deleted_at)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
       )
-      seed(
-        (row) =>
-          insert.run({
-            parent_id: null,
-            stage: 'done',
-            closed_reason: null,
-            closed_at: CLOSED,
-            deleted_at: null,
-            ...row,
-          } as never),
-        db,
-      )
+      seed((row) => {
+        const full = {
+          parent_id: null,
+          stage: 'done',
+          closed_reason: null,
+          closed_at: CLOSED,
+          deleted_at: null,
+          ...row,
+        } as Record<string, string | null>
+        insert.run(
+          full.id ?? null,
+          full.parent_id ?? null,
+          full.stage ?? null,
+          full.closed_reason ?? null,
+          full.closed_at ?? null,
+          full.worktree_path ?? null,
+          full.deleted_at ?? null,
+        )
+      }, db)
       return await new WorktreeGcReader(db).read({
         cutoffClosedAt: CUTOFF,
         mode: 'propose',
