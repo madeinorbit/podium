@@ -23,12 +23,21 @@
  * Platform-neutral: no DOM, no storage.
  */
 import {
+  isIssueClosed,
   normalizeOriginUrl,
   repoNameFromOrigin,
   type GitRepositoryWire,
   type HostMetricsWire,
+  type SessionMeta,
+  type SessionStatus,
 } from '@podium/model'
 import type { RepoView, WorktreeView } from '../../types'
+
+/** Path containment (POSIX) — same rule as dock-panel's cwdInWorktree, local so
+ *  this facts module stays free of other viewmodel edges. */
+function cwdUnderRoot(cwd: string, root: string): boolean {
+  return cwd === root || cwd.startsWith(root.endsWith('/') ? root : `${root}/`)
+}
 
 // ---------------------------------------------------------------------------
 // Repo / worktree structure. A machine fact.
@@ -225,4 +234,210 @@ export function hostMemoryView(host: HostMetricsWire): HostMemoryView {
     severity,
     title: `${host.hostname} — memory ${label} used (${pct}%)${swap}`,
   }
+}
+
+// ---------------------------------------------------------------------------
+// Host pressure (POD-563 / POD-554 PR 6) — load + residency + reclaimable inventory.
+// Pure derivations from the streamed host sample and the client sessions/issues
+// slices. No new streaming channel; inventory is not GiB (no du probe yet).
+// ---------------------------------------------------------------------------
+
+/** Default load-per-core the meter fills against when policy has load pressure off. */
+export const DEFAULT_LOAD_PER_CORE = 1.5
+
+/** Amber health-dot threshold: reclaimable worktree count past this asks the operator. */
+export const RECLAIMABLE_WORKTREE_THRESHOLD = 20
+
+const RESIDENT_STATUSES: ReadonlySet<SessionStatus> = new Set([
+  'live',
+  'starting',
+  'reconnecting',
+])
+
+export interface HostLoadView {
+  /** load1 ÷ cores, or null when the daemon has not shipped `load`. */
+  perCore: number | null
+  /** 0–100 meter fill against the parking threshold (clamped). */
+  meterPct: number
+  /** Display value, e.g. `1.8×` or `—`. */
+  label: string
+  severity: MemorySeverity
+  title: string
+}
+
+/**
+ * Present one host's load sample. The meter fills against `loadPerCore` (full =
+ * parking is happening), not against a notional 100%. Past threshold clamps at
+ * 100% and the value takes critical tone.
+ */
+export function hostLoadView(
+  host: HostMetricsWire,
+  loadPerCore: number | null = DEFAULT_LOAD_PER_CORE,
+): HostLoadView {
+  const load = host.load
+  if (!load || load.cpuCount <= 0) {
+    return {
+      perCore: null,
+      meterPct: 0,
+      label: '—',
+      severity: 'ok',
+      title: `${host.hostname} — load unavailable`,
+    }
+  }
+  const perCore = load.one / load.cpuCount
+  const threshold = loadPerCore ?? DEFAULT_LOAD_PER_CORE
+  const ratio = threshold > 0 ? perCore / threshold : 0
+  const meterPct = Math.min(100, Math.round(ratio * 100))
+  const severity: MemorySeverity = ratio >= 1 ? 'critical' : ratio >= 0.8 ? 'warn' : 'ok'
+  const label = `${perCore.toFixed(1)}×`
+  return {
+    perCore,
+    meterPct,
+    label,
+    severity,
+    title: `${host.hostname} — load ${label} per core (threshold ${threshold.toFixed(1)}×)`,
+  }
+}
+
+/** Sessions whose process is resident on this machine (not working-count). */
+export function residentSessionsOnMachine(
+  sessions: readonly SessionMeta[],
+  machineId: string | undefined,
+): SessionMeta[] {
+  if (!machineId) return []
+  return sessions.filter(
+    (s) => s.machineId === machineId && RESIDENT_STATUSES.has(s.status) && !s.archived,
+  )
+}
+
+export interface HostAgentsView {
+  count: number
+  /** 0–100 when a cap is set; null means no meter. */
+  meterPct: number | null
+  severity: MemorySeverity
+  title: string
+}
+
+/**
+ * Agent residency on one machine. Meter only when `maxIdleSessions` is set —
+ * full meter = at the idle-session convergence target. Never a working count
+ * (StatusStrip owns that fact).
+ */
+export function hostAgentsView(
+  sessions: readonly SessionMeta[],
+  machineId: string | undefined,
+  maxIdleSessions: number | null,
+  hostname: string,
+): HostAgentsView {
+  const count = residentSessionsOnMachine(sessions, machineId).length
+  if (maxIdleSessions == null) {
+    return {
+      count,
+      meterPct: null,
+      severity: 'ok',
+      title: `${hostname} — ${count} agent session${count === 1 ? '' : 's'} live here`,
+    }
+  }
+  const ratio = maxIdleSessions > 0 ? count / maxIdleSessions : count > 0 ? 1 : 0
+  const meterPct = Math.min(100, Math.round(ratio * 100))
+  const severity: MemorySeverity = ratio >= 1 ? 'critical' : ratio >= 0.8 ? 'warn' : 'ok'
+  return {
+    count,
+    meterPct,
+    severity,
+    title: `${hostname} — ${count} agent session${count === 1 ? '' : 's'} live here (target ${maxIdleSessions})`,
+  }
+}
+
+/** Split idle-live sessions into parkable vs protected (needs_user / no resume). */
+export function idleSessionSplit(
+  sessions: readonly SessionMeta[],
+  machineId: string | undefined,
+): { parkable: number; protected: number; idle: number } {
+  if (!machineId) return { parkable: 0, protected: 0, idle: 0 }
+  let parkable = 0
+  let protectedCount = 0
+  for (const s of sessions) {
+    if (s.machineId !== machineId || s.status !== 'live' || s.archived) continue
+    const phase = s.agentState?.phase
+    if (phase !== 'idle' && phase !== 'ended' && phase !== 'needs_user') continue
+    // needs_user and sessions without a resume ref are protected on purpose.
+    if (phase === 'needs_user' || !s.resumable) protectedCount += 1
+    else parkable += 1
+  }
+  return { parkable, protected: protectedCount, idle: parkable + protectedCount }
+}
+
+export interface ReclaimableWorktree {
+  issueId: string
+  title: string
+  worktreePath: string
+  closedAt: string
+  machineId: string | null
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+/**
+ * Closed issues whose checkout is still on disk and free of live sessions —
+ * the same GC candidate predicate as the janitor (POD-564), evaluated on the
+ * client so the panel needs no new streaming channel. Age is measured from
+ * `closedAt` against `afterDays`. No dirty-tree check (that is apply-time).
+ */
+export function listReclaimableWorktreesClient(args: {
+  issues: readonly {
+    id: string
+    title: string
+    stage: string
+    closedReason?: string | null
+    closedAt?: string | null
+    deletedAt?: string | null
+    worktreePath?: string | null
+    machineId?: string | null
+  }[]
+  sessions: readonly SessionMeta[]
+  afterDays: number
+  machineId?: string
+  nowMs?: number
+}): ReclaimableWorktree[] {
+  const nowMs = args.nowMs ?? Date.now()
+  const cutoff = nowMs - args.afterDays * DAY_MS
+  const live = args.sessions.filter((s) => RESIDENT_STATUSES.has(s.status))
+  return args.issues
+    .filter((row) => {
+      if (!row.worktreePath || row.deletedAt) return false
+      if (!isIssueClosed(row)) return false
+      const closedMs = Date.parse(row.closedAt ?? '')
+      if (!Number.isFinite(closedMs) || closedMs > cutoff) return false
+      if (args.machineId != null && (row.machineId ?? null) !== args.machineId) return false
+      const occupied = live.some((s) => cwdUnderRoot(s.cwd, row.worktreePath as string))
+      return !occupied
+    })
+    .map((row) => ({
+      issueId: row.id,
+      title: row.title,
+      worktreePath: row.worktreePath as string,
+      closedAt: row.closedAt as string,
+      machineId: row.machineId ?? null,
+    }))
+    .sort((a, b) => a.closedAt.localeCompare(b.closedAt) || a.issueId.localeCompare(b.issueId))
+}
+
+/** Phase breakdown for an AGT tooltip (working ≠ resident). */
+export function residencyBreakdown(
+  sessions: readonly SessionMeta[],
+  machineId: string | undefined,
+): { working: number; idle: number; waiting: number; other: number } {
+  let working = 0
+  let idle = 0
+  let waiting = 0
+  let other = 0
+  for (const s of residentSessionsOnMachine(sessions, machineId)) {
+    const phase = s.agentState?.phase
+    if (phase === 'working' || phase === 'compacting') working += 1
+    else if (phase === 'idle' || phase === 'ended') idle += 1
+    else if (phase === 'needs_user') waiting += 1
+    else other += 1
+  }
+  return { working, idle, waiting, other }
 }

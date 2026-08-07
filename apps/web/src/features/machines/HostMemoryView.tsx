@@ -1,38 +1,55 @@
 import { shallowEqual } from '@podium/client-core/store'
-import { formatMemBytes, hostMemoryView, panelLabel } from '@podium/client-core/viewmodels'
+import {
+  formatMemBytes,
+  hostMemoryView,
+  listReclaimableWorktreesClient,
+  panelLabel,
+} from '@podium/client-core/viewmodels'
 import type { AgentMemoryWire, HostMemoryWire, ProjectMemoryWire, SessionId } from '@podium/model'
 import type { PodiumSettings } from '@podium/runtime'
+import { Loader2 } from 'lucide-react'
 import type { JSX } from 'react'
-import { useEffect, useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useEffect, useMemo, useState } from 'react'
+import { useReplicaIssues, useStoreSelector } from '@/app/store'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { cn } from '@/lib/utils'
 import { describeHealth, useConnectionHealth } from './ConnectionIndicator'
 
-/** The host-memory hibernation knob, lazily fetched from the server. Shared by
- *  the memory chip's tooltip and the memory modal so both reflect the live
- *  setting without either reaching into the (settings-less) store. Returns null
- *  until the first fetch resolves. */
-export function useHibernationSetting(): PodiumSettings['hibernation'] | null {
+/** Lifecycle knobs the host-pressure surfaces need (hibernation + worktree GC).
+ *  Lazily fetched so chips/panels reflect live settings without a settings store.
+ *  Returns null until the first fetch resolves. */
+export function useHostLifecycleSettings(): {
+  hibernation: PodiumSettings['hibernation']
+  worktreeGc: PodiumSettings['worktreeGc']
+} | null {
   const trpc = useStoreSelector((s) => s.trpc)
-  const [hibernation, setHibernation] = useState<PodiumSettings['hibernation'] | null>(null)
+  const [settings, setSettings] = useState<{
+    hibernation: PodiumSettings['hibernation']
+    worktreeGc: PodiumSettings['worktreeGc']
+  } | null>(null)
   useEffect(() => {
     let alive = true
     trpc.settings.get
       .query()
       .then((s) => {
-        if (alive) setHibernation(s.hibernation)
+        if (alive) setSettings({ hibernation: s.hibernation, worktreeGc: s.worktreeGc })
       })
       .catch(() => {
-        // Best-effort: a failed settings fetch just omits the hibernation note.
+        // Best-effort: a failed settings fetch just omits the lifecycle notes.
       })
     return () => {
       alive = false
     }
   }, [trpc])
-  return hibernation
+  return settings
+}
+
+/** @deprecated Prefer {@link useHostLifecycleSettings}; kept for call sites that
+ *  only need the hibernation half. */
+export function useHibernationSetting(): PodiumSettings['hibernation'] | null {
+  return useHostLifecycleSettings()?.hibernation ?? null
 }
 
 /** Shape of trpc hosts.memoryBreakdown — the daemon's answer minus wire plumbing. */
@@ -48,14 +65,13 @@ interface Breakdown {
 
 const REFRESH_MS = 5_000
 
-export type HostInfoTab = 'connection' | 'memory'
+export type HostInfoTab = 'connection' | 'memory' | 'reclaim'
 
 /**
- * Host info panel: one modal with a Connection tab and a Memory tab, opened from
- * either the connection indicator or the memory chip (mobile and desktop share
- * it). `initialTab` selects which one is shown first based on what was tapped;
- * `machineId` is the daemon machine whose chip was clicked, so the Memory tab
- * shows THAT machine (not always the first one).
+ * Host info panel: Connection, Memory, and Reclaim tabs. Opened from the
+ * connection indicator, the machine chip, or the LoadPanel Review button.
+ * `machineId` is the daemon machine whose chip was clicked so Memory/Reclaim
+ * show THAT machine (not always the first one).
  */
 export function HostInfoView({
   onClose,
@@ -92,6 +108,7 @@ export function HostInfoView({
             <TabsList className="bg-transparent">
               <TabsTrigger value="connection">Connection</TabsTrigger>
               <TabsTrigger value="memory">Memory</TabsTrigger>
+              <TabsTrigger value="reclaim">Reclaim</TabsTrigger>
             </TabsList>
           </div>
           <TabsContent value="connection" className="overflow-y-auto">
@@ -99,6 +116,9 @@ export function HostInfoView({
           </TabsContent>
           <TabsContent value="memory" className="overflow-y-auto">
             <MemoryPanel onClose={onClose} machineId={machineId} />
+          </TabsContent>
+          <TabsContent value="reclaim" className="overflow-y-auto">
+            <ReclaimPanel machineId={machineId} />
           </TabsContent>
         </Tabs>
       </DialogContent>
@@ -456,5 +476,159 @@ function LegendSwatch({ className, label }: { className: string; label: string }
       <span className={cn('size-2 flex-none rounded-[2px]', className)} aria-hidden="true" />
       {label}
     </span>
+  )
+}
+
+/**
+ * Reclaim tab — the janitor's candidate list for this machine (POD-563).
+ * Candidates are derived client-side from issues + sessions + worktreeGc.afterDays
+ * (same predicate as the server list). Free keeps the branch via issues.stop.
+ * Dirty trees refuse at free time; those reasons surface as "held".
+ */
+function ReclaimPanel({ machineId }: { machineId?: string }): JSX.Element {
+  const { trpc, sessions } = useStoreSelector(
+    (s) => ({ trpc: s.trpc, sessions: s.sessions }),
+    shallowEqual,
+  )
+  const issues = useReplicaIssues()
+  const lifecycle = useHostLifecycleSettings()
+  const afterDays = lifecycle?.worktreeGc.afterDays ?? 14
+  const candidates = useMemo(
+    () =>
+      listReclaimableWorktreesClient({
+        issues,
+        sessions,
+        afterDays,
+        ...(machineId ? { machineId } : {}),
+      }),
+    [issues, sessions, afterDays, machineId],
+  )
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [batchBusy, setBatchBusy] = useState(false)
+  const [held, setHeld] = useState<Array<{ issueId: string; reason: string }>>([])
+  const [freed, setFreed] = useState<string[]>([])
+  const [error, setError] = useState<string | null>(null)
+
+  const remaining = candidates.filter((c) => !freed.includes(c.issueId))
+
+  const freeOne = async (issueId: string): Promise<'freed' | 'held'> => {
+    try {
+      await trpc.issues.stop.mutate({ id: issueId })
+      setFreed((prev) => (prev.includes(issueId) ? prev : [...prev, issueId]))
+      setHeld((prev) => prev.filter((h) => h.issueId !== issueId))
+      return 'freed'
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : String(e)
+      setHeld((prev) => {
+        const without = prev.filter((h) => h.issueId !== issueId)
+        return [...without, { issueId, reason }]
+      })
+      return 'held'
+    }
+  }
+
+  const onFree = async (issueId: string): Promise<void> => {
+    setBusyId(issueId)
+    setError(null)
+    await freeOne(issueId)
+    setBusyId(null)
+  }
+
+  const onFreeAll = async (): Promise<void> => {
+    setBatchBusy(true)
+    setError(null)
+    for (const c of remaining) {
+      await freeOne(c.issueId)
+    }
+    setBatchBusy(false)
+  }
+
+  const ageDays = (closedAt: string): number => {
+    const ms = Date.now() - Date.parse(closedAt)
+    if (!Number.isFinite(ms) || ms < 0) return 0
+    return Math.floor(ms / (24 * 60 * 60 * 1000))
+  }
+
+  return (
+    <div className="flex flex-col gap-3 p-3.5">
+      <p className="m-0 text-[13px] text-muted-foreground">
+        Closed issues whose checkouts are still on disk and free of live sessions. Free keeps the
+        branch; uncommitted changes refuse and show as held.
+      </p>
+      {remaining.length === 0 && held.length === 0 ? (
+        <div className="text-xs text-muted-foreground/70">Nothing reclaimable on this machine.</div>
+      ) : (
+        <>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
+              {remaining.length} candidate{remaining.length === 1 ? '' : 's'}
+            </span>
+            {remaining.length > 0 && (
+              <button
+                data-pressable
+                type="button"
+                className="cursor-pointer border border-border-strong rounded px-2 py-0.5 text-[11px] bg-secondary text-foreground disabled:opacity-50"
+                disabled={batchBusy || busyId != null}
+                onClick={() => void onFreeAll()}
+              >
+                {batchBusy ? 'Freeing…' : 'Free all'}
+              </button>
+            )}
+          </div>
+          <div className="flex flex-col gap-1">
+            {remaining.map((c) => (
+              <div
+                key={c.issueId}
+                className="flex items-baseline gap-2 text-xs text-foreground"
+                title={c.worktreePath}
+              >
+                <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
+                  {c.title}
+                </span>
+                <span className="flex-none text-[11px] text-muted-foreground/70 tabular-nums">
+                  {ageDays(c.closedAt)}d
+                </span>
+                <button
+                  data-pressable
+                  type="button"
+                  className="flex-none cursor-pointer border-0 bg-transparent p-0 text-[11px] text-primary underline underline-offset-2 disabled:opacity-50 hover:no-underline"
+                  disabled={batchBusy || busyId != null}
+                  onClick={() => void onFree(c.issueId)}
+                >
+                  {busyId === c.issueId ? (
+                    <Loader2 size={11} className="inline animate-spin" aria-label="Freeing" />
+                  ) : (
+                    'Free'
+                  )}
+                </button>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+      {held.length > 0 && (
+        <div className="flex flex-col gap-1 border-t border-border pt-2">
+          <div className="text-[11px] font-semibold tracking-[0.08em] text-warning uppercase">
+            Held · {held.length} by uncommitted changes or refusal
+          </div>
+          {held.map((h) => {
+            const title = candidates.find((c) => c.issueId === h.issueId)?.title ?? h.issueId
+            return (
+              <div key={h.issueId} className="text-xs text-muted-foreground" title={h.reason}>
+                <span className="text-foreground">{title}</span>
+                <span className="block text-[11px] text-warning/90">{h.reason}</span>
+              </div>
+            )
+          })}
+        </div>
+      )}
+      {error && <div className="text-xs text-destructive">{error}</div>}
+      {lifecycle && (
+        <p className="m-0 text-[11px] text-muted-foreground/70">
+          Worktree GC: {lifecycle.worktreeGc.mode === 'off' ? 'off' : lifecycle.worktreeGc.mode} ·
+          after {lifecycle.worktreeGc.afterDays} days
+        </p>
+      )}
+    </div>
   )
 }

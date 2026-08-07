@@ -572,6 +572,11 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
 html[data-density="balanced"] .header-host-indicators :is(.header-mark, .header-value) {
   display: none;
 }
+/* AGT is an operator residency number — hide the whole readout at balanced
+   density. LOAD inherits the mark/value hide above and reads as a bare meter. */
+html[data-density="balanced"] .header-agent-readout {
+  display: none;
+}
 html[data-density="balanced"] .header-quota-label {
   font-size: 0;
   letter-spacing: 0;
@@ -678,6 +683,52 @@ html[data-density="balanced"] .header-quota-pools {
   .header-value[data-tone="ok"] {
     display: none;
   }
+}
+/* Below the mark-shed rung, AGT goes entirely. MEM and LOAD never do — they are
+   the pressure readout (POD-563). */
+@media (max-width: 940px) {
+  .header-agent-readout {
+    display: none;
+  }
+}
+
+/* Reclaimable inventory rows inside the machine-load popover (POD-563). */
+.hp-rrow {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 2.5px 0;
+  font-size: 11px;
+}
+.hp-rrow-k {
+  width: 96px;
+  flex: none;
+  color: var(--text-dim);
+}
+.hp-rrow-v {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--foreground);
+}
+.hp-rrow-held {
+  color: var(--warning);
+}
+.hp-review-btn {
+  flex: none;
+  height: 20px;
+  padding: 0 8px;
+  border: 1px solid var(--border-strong, var(--border));
+  border-radius: 4px;
+  background: var(--superade, var(--primary));
+  color: var(--race-navy, var(--primary-foreground));
+  font-size: 10.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.hp-review-btn:hover {
+  filter: brightness(1.06);
 }
 @media (prefers-reduced-motion: reduce) {
   .header-machine-chip,
