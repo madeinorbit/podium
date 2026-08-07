@@ -378,3 +378,16 @@ raced against it.
 
 Do not read the 36–47% import reduction measured on `contracts` as a lane number. A ratio on the
 cheapest shard is exactly the error POD-520 caught itself making with its 64% replay figure.
+
+### The method note worth carrying forward
+
+The correction above exists because the denominator was fixed *before* the numerator was known.
+POD-527 was told to report the share of **lane** import/collect its shard addressed, and to state
+what remained unaddressed, in its opening brief — before it had measured anything. Having done the
+work, the available headline was "36–47% import reduction", which is true of `contracts` and
+meaningless about the gate. The instruction that prevented it was given when there was still
+nothing to be tempted by.
+
+Two issues in this chain caught the same error class in themselves unprompted (POD-520 with its 64%
+replay figure, POD-527 with this), which suggests the failure is not carelessness but the ordinary
+gravity of an improvement measured against the thing it improved. Ask for the denominator up front.
