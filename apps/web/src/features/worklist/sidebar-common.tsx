@@ -588,10 +588,15 @@ export function PanelRow({
           <span className={cn('flex min-w-0 flex-1', hibernated && 'italic opacity-60')}>
             <WorkerLabel session={session} chip />
           </span>
-          {/* M6 coordinator/driver badge — who is driving this issue. */}
+          {/* M6 coordinator/driver badge — who is driving this issue.
+              On `--info`, not raw sky-500: the Flight Deck's spine says `coord`
+              about the same session in the same words, and two columns naming
+              one role in two different blues is how a palette comes apart. Sky
+              is not in this theme's palette (navy · yellow · red · blue) and
+              was never tokenised. */}
           {coordinator && (
             <span
-              className="shell-type-micro flex-none rounded border border-sky-500/50 bg-sky-500/10 px-1 font-semibold uppercase tracking-wide text-sky-600 dark:text-sky-400"
+              className="shell-type-micro flex-none rounded border border-info/45 bg-info/10 px-1 font-semibold tracking-wide text-info uppercase"
               data-testid="coordinator-badge"
               title="Coordinator session — drives this issue"
             >

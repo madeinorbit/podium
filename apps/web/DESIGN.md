@@ -254,7 +254,11 @@ Utilities are visited and left, so they open as a **bounded inset sheet over a h
 Every issue-tinted surface derives from one `--issue` custom property scoped per subtree, mixed over its base surface (`issue-mix-*` utilities), with a derived text ramp per scope. Reselecting or recoloring crossfades every derived mix together over 0.4s via a registered `@property`. Uncolored issues run identical mechanics in Flow Slate, slightly quieter.
 
 ### Agent State Grammar (signature)
-The braille spinner (10-frame CSS `content` animation) plus a counting mono timer are the ONLY perpetual motion, running only while an agent computes. Phase changes are single one-shot morphs (~150–400ms, ease-out), then total stillness. Live activity reads calm blue (#6f9dff) in every theme — red is reserved for alerts and destructive actions (POD-166 R10). No pulses, no glows, no breathing rings.
+The braille spinner (10-frame CSS `content` animation) plus a counting mono timer are the canonical perpetual motion, running only while an agent computes. Phase changes are single one-shot morphs (~150–400ms, ease-out), then total stillness. Live activity reads calm blue (#6f9dff) in every theme — red is reserved for alerts and destructive actions (POD-166 R10). No pulses, no glows, no breathing rings.
+
+**The predicate, not the device (POD-516 R3).** What licenses perpetual motion is not *being the spinner* — it is being driven by "an agent is computing right now". A surface may render that same fact as its own texture provided it gates on the identical predicate the spinner gates on, and provided it is the texture of the thing the fact is about rather than a second signal beside it. The worklist row's progress meter is the sanctioned instance: its running segment sweeps (1.6s ease-in-out) only while a session on that row is actually working, so a parked `in_progress` task and a stopped fleet both leave the row completely still. Anything whose motion would outlive the computing it depicts is still forbidden.
+
+**Structural motion is not state motion.** Space opening and closing — a session row joining a task, a branch folding, a reserved seat appearing, a strip growing as work leaves Proposed — is a one-shot transition of layout (~200–260ms), not a status signal, and does not spend the stillness budget. It must be latched so a freshly mounted list never replays it on first paint, and gated on `prefers-reduced-motion`.
 
 ## 6. Do's and Don'ts
 
@@ -272,5 +276,5 @@ The braille spinner (10-frame CSS `content` animation) plus a counting mono time
 - **Don't** ship enterprise-DevOps-console sprawl: cluttered toolbars, inconsistent panels, Jenkins/Grafana utilitarianism.
 - **Don't** let it feel like Electron-app blandness — a website in a frame; the shell is an instrument with native manners (real pointer cursors, no text selection on chrome, safe-area aware).
 - **Don't** flat-fill an issue color, use terracotta or a signal hue as an issue color, or add a green anywhere in the Superade theme — its palette is navy, yellow, red, blue.
-- **Don't** add perpetual motion beyond the working spinner and timer; stillness is the "needs you" signal and must stay legible.
+- **Don't** add perpetual motion that is not gated on the working spinner's own predicate; stillness is the "needs you" signal and must stay legible.
 - **Don't** use white text on Superade Yellow — ink on yellow is always Race Navy.
