@@ -3,12 +3,14 @@ import { asSessionId } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { DockHeaderSlotProvider } from '@/app/DockHeaderSlot'
 import { makeIssue } from '@/lib/test-issue'
 
 // ---------------------------------------------------------------------------
 // The Superagent dock pane's contract (POD-516 §1.2, from the approved POD-491
-// artifact): head + "Current focus" + the ONE global conversation. Nothing
-// else — no Tray, no second collapsible section bar, no drag separator.
+// artifact): "Current focus" + the ONE global conversation, under the dock
+// title bar's single header. Nothing else — no second header, no Tray, no
+// collapsible section bar, no drag separator.
 // Preview correction #66: the legacy transcript chrome (Search transcript /
 // Earlier conversation) and the CTX badge above the composer must never render.
 //
@@ -134,6 +136,9 @@ const { SuperagentView } = await import('./SuperagentView')
 
 let container: HTMLDivElement
 let root: Root
+/** Stands in for the dock title bar's action slot: the pane portals its two
+ *  icon actions there instead of wearing a header of its own. */
+let dockHeaderSlot: HTMLElement
 
 beforeEach(() => {
   isMobile = false
@@ -145,12 +150,17 @@ beforeEach(() => {
   readPosition.advance.mockClear()
   container = document.createElement('div')
   document.body.appendChild(container)
+  // Outside `container`: createRoot clears its container on first commit, and
+  // the real slot lives in the dock title bar, above this pane's own subtree.
+  dockHeaderSlot = document.createElement('span')
+  document.body.appendChild(dockHeaderSlot)
   root = createRoot(container)
 })
 
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  dockHeaderSlot.remove()
   vi.clearAllMocks()
 })
 
@@ -163,23 +173,44 @@ async function flush(): Promise<void> {
 
 async function mount(): Promise<void> {
   act(() => {
-    root.render(<SuperagentView />)
+    root.render(
+      <DockHeaderSlotProvider value={dockHeaderSlot}>
+        <SuperagentView />
+      </DockHeaderSlotProvider>,
+    )
   })
   await flush()
 }
 
 describe('Superagent pane structure (POD-516 §1.2)', () => {
-  it('is the head, the focus line and the conversation — nothing else', async () => {
+  it('is the focus line and the conversation — nothing else', async () => {
     await mount()
-    expect(container.querySelector('[data-testid="super-head"]')?.textContent).toContain(
-      'Portfolio copilot',
-    )
-    expect(container.querySelector('[data-testid="super-head"]')?.textContent).toContain(
-      'One thread across every task and session.',
-    )
+    expect(container.querySelector('[data-testid="super-focus"]')).not.toBeNull()
     expect(container.querySelector('[data-superagent-composer]')).not.toBeNull()
     // The dock-top is the pane's only chrome: no second collapsible bar.
     expect(container.querySelector('[data-testid="super-bar"]')).toBeNull()
+  })
+
+  // POD-516 item 10: "Superagent" is the dock title; a "Portfolio copilot"
+  // heading under it named the same surface a second time. ONE header.
+  it('renders no header of its own — the dock title bar is the only one', async () => {
+    await mount()
+    expect(container.querySelector('[data-testid="super-head"]')).toBeNull()
+    expect(container.querySelector('h1, h2, h3')).toBeNull()
+    expect(container.textContent).not.toContain('Portfolio copilot')
+    expect(container.textContent).not.toContain('One thread across every task and session')
+  })
+
+  it('lends its two actions to the dock title bar instead of a bar of its own', async () => {
+    await mount()
+    expect(
+      dockHeaderSlot.querySelector('button[title="Clear context — start the global chat fresh"]'),
+    ).not.toBeNull()
+    expect(
+      dockHeaderSlot.querySelector('button[title="Open this conversation in a terminal session"]'),
+    ).not.toBeNull()
+    // …and nowhere else: two clear buttons is the failure this replaces.
+    expect(container.querySelector('button[title^="Clear context"]')).toBeNull()
   })
 
   // "remove the tray functionality completely. code, ui, all incl. traces."
@@ -268,7 +299,7 @@ describe('standing event feed removal (POD-113)', () => {
 describe('Clear context', () => {
   it('routes through superagent.clear so the global thread restarts fresh', async () => {
     await mount()
-    const btn = container.querySelector<HTMLButtonElement>(
+    const btn = dockHeaderSlot.querySelector<HTMLButtonElement>(
       'button[title="Clear context — start the global chat fresh"]',
     )
     expect(btn).not.toBeNull()
@@ -283,7 +314,7 @@ describe('Clear context', () => {
 describe('Open in terminal', () => {
   it('clears the issue selection so the pane lands on the PTY session, not an issue workspace', async () => {
     await mount()
-    const btn = container.querySelector<HTMLButtonElement>(
+    const btn = dockHeaderSlot.querySelector<HTMLButtonElement>(
       'button[title="Open this conversation in a terminal session"]',
     )
     expect(btn).not.toBeNull()

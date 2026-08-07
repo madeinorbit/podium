@@ -1,9 +1,10 @@
 import { shallowEqual } from '@podium/client-core/store'
 import { reposToViews, superagentSlice } from '@podium/client-core/viewmodels'
 import { useVoiceInput } from '@podium/terminal-client-react'
-import { Eraser, Mic, Send, Sparkles, SquareTerminal } from 'lucide-react'
+import { Eraser, Mic, Send, SquareTerminal } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { DockHeaderActions } from '@/app/DockHeaderSlot'
 import { useReplicaIssues, useSlice, useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -29,18 +30,19 @@ const clock = (ts: string): string => {
     : `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
-/** The head's quiet icon actions: 20×20, --text-dim at rest, hover
- *  --text-strong on the raised --chip tier, 5px radius. */
+/** The pane's quiet icon actions, worn by the dock title bar: 20×20, --text-dim
+ *  at rest, hover --text-strong on the raised --chip tier, 5px radius. */
 const BAR_ACTION_CLS =
   'size-5 flex-none rounded-[5px] text-text-dim hover:bg-chip hover:text-text-strong'
 
 /**
  * The Superagent dock pane — the portfolio copilot, and NOTHING else.
  *
- * It is four things (POD-516 §1.2, from the approved POD-491 artifact): the
- * dock-top (owned by `RightDock`, the pane's only chrome), a head naming what
- * this thread is, a "Current focus" line saying which mission it is looking
- * at, and the one global conversation with its composer.
+ * It is three things (POD-516 §1.2, from the approved POD-491 artifact): the
+ * dock-top (owned by `RightDock`, the pane's only chrome and its ONE header —
+ * this pane lends it two icon actions and renders no header of its own), a
+ * "Current focus" line saying which mission it is looking at, and the one
+ * global conversation with its composer.
  *
  * The Tray used to sit above the chat here, with a second collapsible section
  * bar and a drag separator between them. It is gone: web attention now reads
@@ -153,45 +155,36 @@ export function SuperagentView(): JSX.Element {
 
   return (
     <section data-testid="superagent-pane" className="flex min-h-0 min-w-0 flex-1 flex-col">
-      {/* super-head: what this thread IS. One star, one name, one sentence —
-          the pane's identity, not a second collapsible bar. */}
-      <div
-        data-testid="super-head"
-        className="flex flex-none items-start gap-2.5 border-b border-hairline-soft px-[18px] py-3.5"
-      >
-        <Sparkles size={17} className="mt-px flex-none text-attention" aria-hidden="true" />
-        <div className="min-w-0 flex-1">
-          <h2 className="text-[13px] font-semibold leading-tight text-text-strong">
-            Portfolio copilot
-          </h2>
-          <p className="mt-1 text-[11px] leading-[1.45] text-text-dim">
-            One thread across every task and session.
-          </p>
-        </div>
-        <span className="flex flex-none items-center gap-1">
-          {thread?.harnessSessionId && (
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className={BAR_ACTION_CLS}
-              title="Open this conversation in a terminal session"
-              onClick={() => void openInTerminal()}
-            >
-              <SquareTerminal size={12} aria-hidden="true" />
-            </Button>
-          )}
+      {/* The pane's two controls, in the dock title bar. There is ONE header
+          (POD-516 item 10): "Superagent" already names this surface, so a
+          "Portfolio copilot" heading under it was the same name twice. */}
+      <DockHeaderActions>
+        {thread?.harnessSessionId && (
           <Button
             variant="ghost"
             size="icon-sm"
             className={BAR_ACTION_CLS}
-            title="Clear context — start the global chat fresh"
-            onClick={() => void clear()}
+            title="Open this conversation in a terminal session"
+            onClick={() => void openInTerminal()}
           >
-            <Eraser size={12} aria-hidden="true" />
+            <SquareTerminal size={12} aria-hidden="true" />
           </Button>
-        </span>
-      </div>
-      <div data-testid="super-focus" className="flex-none px-[18px] pt-3">
+        )}
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className={BAR_ACTION_CLS}
+          title="Clear context — start the global chat fresh"
+          onClick={() => void clear()}
+        >
+          <Eraser size={12} aria-hidden="true" />
+        </Button>
+      </DockHeaderActions>
+      {/* The subtitle went with the heading. "One thread across every task and
+          session" was a static sentence restating, less precisely, what the
+          live line below it and the composer's own placeholder already say —
+          and DESIGN.md's no-repeated-class-banner rule is about exactly this. */}
+      <div data-testid="super-focus" className="flex-none px-[18px] pt-3.5">
         <div className="border-l-2 border-hairline-soft py-0.5 pl-2.5">
           <div className="label-mono-micro">Current focus</div>
           <div className="mt-0.5 truncate text-[12px] leading-[1.45] text-text-dim">

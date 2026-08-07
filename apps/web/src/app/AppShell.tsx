@@ -438,7 +438,9 @@ function AppBody(): JSX.Element {
               handleSide="left"
               className="max-w-[45vw]"
             >
-              <aside className="right-dock-shell issue-base-card issue-fade">
+              {/* No issue tint: the dock is a dark default surface (POD-516
+                  item 9) — see `.right-dock-shell` in styles.css. */}
+              <aside className="right-dock-shell">
                 <RightDock tab={visibleRightPanel} onClose={() => setRightPanel(null)} />
               </aside>
             </ResizableColumn>

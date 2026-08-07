@@ -157,6 +157,22 @@ describe('RightRail', () => {
     expect(screen.queryByText('ISSUE COLOUR')).toBeNull()
   })
 
+  // POD-516 item 9: the right dock and its rail are a DARK DEFAULT surface.
+  // They used to wear `issue-base-card issue-fade`, pulling the selected
+  // issue's tint across cells that mostly are not about that issue. The tint
+  // channel narrows here on purpose — but the ID square keeps its own colour.
+  it('wears no issue tint, while the ID square keeps its colour', () => {
+    const issue = makeIssue({ id: 'i1', seq: 65, color: 'violet' })
+    render(
+      <RightRail issue={issue} rightPanel={null} onPanelChange={vi.fn()} onColorChange={vi.fn()} />,
+    )
+    const rail = screen.getByTestId('right-rail')
+    expect(rail.className).not.toContain('issue-fade')
+    expect(rail.className).not.toContain('issue-base-')
+    // The square identifies ONE issue, so it stays coloured.
+    expect(screen.getByTestId('issue-id-square').style.background).not.toBe('var(--muted)')
+  })
+
   it('falls back to a dashed resting square when no issue is selected', () => {
     const onPanelChange = vi.fn()
     render(<RightRail rightPanel={null} onPanelChange={onPanelChange} />)

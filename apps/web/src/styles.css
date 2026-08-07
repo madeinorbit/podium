@@ -1399,17 +1399,34 @@ html[data-density="balanced"] .header-quota-pools {
   /* Surface tint lives in index.css (12% coloured / 9% slate, §2.6) — this
      shorthand would silently reset it. */
 }
+/* The right dock is a DARK DEFAULT surface (POD-516 item 9), not an
+   issue-tinted one. It used to wear `issue-base-card issue-fade`, but a tint
+   only means something when the surface IS that issue — and this dock also
+   hosts Superagent, Git, Files, Shell, Messages and the merge queue, so the
+   selected issue's colour asserted a relationship that is usually untrue.
+   Deliberately narrows §2's issue-colour channel on this one surface; the ID
+   square in the rail keeps its own colour, because it identifies one issue.
+
+   Written in TOKENS, not a dark literal: the dock body takes --engraved (§4's
+   own name for "recessed column, flat, no issue tint") and the icon rail takes
+   --bar, the frame tier the command bar and status strip already wear — so the
+   right edge steps DOWN away from the workspace in every theme: deep navy in
+   Superade, quiet paper greys in Daylight, where a hard-coded dark value would
+   have been a hole. Same tonal ordering as the POD-491 artifact, whose dock sits
+   a step under the pane and whose icon rail sits under the dock. */
 .right-dock-shell {
   display: flex;
   width: 100%;
   min-width: 0;
   min-height: 0;
   flex-direction: column;
-  /* Same hairline language as the rail (#65): 35% issue tint, 30% slate —
-     the quiet override lives with the rail's in index.css. */
-  border-left: 1px solid color-mix(in srgb, var(--issue) 35%, transparent);
-  /* No background here: the aside wears issue-base-card issue-fade (same tint
-     language as the rail) — an unlayered rule would override that utility. */
+  border-left: 1px solid var(--border);
+  /* Flat, like .engraved-column's surface but without its groove: this column
+     scrolls long content and a lip under a sticky header reads as grime. */
+  background: var(--engraved);
+  /* Content INSIDE the dock may still be about one issue (the task panel). Its
+     tints mix over the dock's own surface, not the --card default. */
+  --issue-base: var(--engraved);
 }
 .right-rail {
   display: flex;
@@ -1419,7 +1436,12 @@ html[data-density="balanced"] .header-quota-pools {
   align-items: center;
   gap: 6px;
   padding: 10px 0;
-  border-left: 1px solid color-mix(in srgb, var(--issue) 35%, transparent);
+  border-left: 1px solid var(--border);
+  background: var(--bar);
+  /* A 44px vertical bar, carved like the folded one (§4's engraved-bar) — the
+     separation the tint gradient used to give it now comes from the groove. */
+  box-shadow: var(--shadow-engraved-bar);
+  --issue-base: var(--bar);
 }
 .right-rail-cell {
   display: flex;
@@ -1431,7 +1453,9 @@ html[data-density="balanced"] .header-quota-pools {
   border: 0;
   border-radius: var(--radius-row);
   background: transparent;
-  color: color-mix(in srgb, var(--issue) 45%, var(--muted-foreground));
+  /* Neutral chrome ink: these cells are Superagent / Git / Files / Shell /
+     Messages, none of which belong to the selected issue. */
+  color: var(--muted-foreground);
 }
 
 /* Scrollable region with no visible scrollbar (sidebar work list, transcripts). */

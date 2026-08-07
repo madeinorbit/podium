@@ -17,19 +17,20 @@ import {
   X,
 } from 'lucide-react'
 import type { JSX } from 'react'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { WorktreeFileTree } from '@/features/files/WorktreeFileTree'
 import { GitPanelView } from '@/features/git/GitPanelView'
 import { IssuePanelView } from '@/features/issues/IssuePanelView'
 import { MergeQueuePanel } from '@/features/merge-queue/MergeQueuePanel'
 import { MessageLedgerView } from '@/features/messages/MessageLedgerView'
-import { missionIssueIds, missionRootFor } from '@/lib/mission'
 import { SuperagentView } from '@/features/superagent/SuperagentView'
 import { DockShellPanel } from '@/features/terminal/DockShellPanel'
+import { missionIssueIds, missionRootFor } from '@/lib/mission'
+import { DockHeaderSlotProvider } from './DockHeaderSlot'
+import { resolveFocus, useOperatorFocus } from './operator-focus'
 import type { RightPanelTab } from './shell-state'
 import { useReplicaIssues, useStoreSelector } from './store'
-import { resolveFocus, useOperatorFocus } from './operator-focus'
 
 /** The right-panel surfaces, including the docked Superagent chat home. */
 export type { RightPanelTab } from './shell-state'
@@ -80,6 +81,10 @@ export function RightDock({
     label: 'Panel',
     icon: FolderTree,
   }
+  // The dock title bar is every panel's ONE header (POD-516 item 10): a panel
+  // with controls of its own portals them in here instead of growing a second
+  // bar with a second name under this one.
+  const [headerActions, setHeaderActions] = useState<HTMLElement | null>(null)
   // Task navigation is issue-first: selecting a sidebar row must update this
   // dock even when the issue has no live session to become the active pane.
   // The other dock tabs remain pane/worktree-driven.
@@ -139,98 +144,106 @@ export function RightDock({
   }, [active, issues, repos, sessions])
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col" data-right-dock-panel={tab}>
-      <div className="flex h-11 flex-none items-center gap-2.5 border-b border-border px-3.5">
-        <span className="flex min-w-0 flex-1 items-center gap-[7px]">
-          <panel.icon size={16} className="flex-none text-primary" aria-hidden="true" />
-          <span className="truncate text-[15px] font-semibold text-secondary-foreground">
-            {panel.label}
+    <DockHeaderSlotProvider value={headerActions}>
+      <div className="flex min-h-0 flex-1 flex-col" data-right-dock-panel={tab}>
+        <div className="flex h-11 flex-none items-center gap-2.5 border-b border-border px-3.5">
+          <span className="flex min-w-0 flex-1 items-center gap-[7px]">
+            {/* Chrome ink, not signal ink: this glyph is lit on every panel, and a
+              permanently-yellow mark where nothing is asked of the operator is
+              the exact spend The Signal Rule guards. */}
+            <panel.icon size={16} className="flex-none text-text-dim" aria-hidden="true" />
+            <span className="truncate text-[15px] font-semibold text-secondary-foreground">
+              {panel.label}
+            </span>
           </span>
-        </span>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className="size-7 flex-none text-muted-foreground"
-          title={`Close ${panel.label.toLowerCase()} panel`}
-          onClick={onClose}
-        >
-          <X size={14} aria-hidden="true" />
-        </Button>
+          <span className="flex flex-none items-center gap-1">
+            <span ref={setHeaderActions} className="flex items-center gap-1 empty:hidden" />
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="size-7 flex-none text-muted-foreground"
+              title={`Close ${panel.label.toLowerCase()} panel`}
+              onClick={onClose}
+            >
+              <X size={14} aria-hidden="true" />
+            </Button>
+          </span>
+        </div>
+        {tab === 'files' &&
+          (active ? (
+            <WorktreeFileTree key={active.cwd} root={active.cwd} machineId={active.machineId} />
+          ) : (
+            <div className="p-3 text-xs text-muted-foreground/70">No active session.</div>
+          ))}
+        {tab === 'git' &&
+          (active ? (
+            // Keyed by cwd: switching worktrees re-roots status/log/diff state.
+            <GitPanelView
+              key={active.cwd}
+              cwd={active.cwd}
+              machineId={active.machineId}
+              issue={
+                (active.issueId ? issues.find((i) => i.id === active.issueId) : undefined) ??
+                issueForCwd(issues, active.cwd) ??
+                undefined
+              }
+            />
+          ) : (
+            <div className="p-3 text-xs text-muted-foreground/70">No active session.</div>
+          ))}
+        {tab === 'mail' &&
+          (active ? (
+            <MessageLedgerView
+              key={active.sessionId ?? active.cwd}
+              sessionId={active.sessionId}
+              issueId={
+                sessions.find((s) => s.sessionId === active.sessionId)?.issueId ??
+                issueForCwd(issues, active.cwd)?.id
+              }
+            />
+          ) : (
+            <div className="p-3 text-xs text-muted-foreground/70">No active session.</div>
+          ))}
+        {tab === 'issue' &&
+          (selectedIssue ? (
+            <IssuePanelView
+              cwd={selectedIssue.worktreePath ?? selectedIssue.repoPath}
+              machineId={selectedIssue.machineId}
+              issueId={selectedIssue.id}
+            />
+          ) : active ? (
+            <IssuePanelView
+              cwd={active.cwd}
+              machineId={active.machineId}
+              sessionId={active.sessionId}
+              issueId={active.issueId}
+            />
+          ) : (
+            <div className="p-3 text-xs text-muted-foreground/70">No active session.</div>
+          ))}
+        {tab === 'superagent' && <SuperagentView />}
+        {tab === 'shell' &&
+          (active ? (
+            // Keyed by cwd: switching worktrees swaps to THAT worktree's shell.
+            <DockShellPanel key={active.cwd} cwd={active.cwd} machineId={active.machineId} />
+          ) : (
+            <div className="p-3 text-xs text-muted-foreground/70">No active worktree.</div>
+          ))}
+        {tab === 'merge-queue' && (
+          <MergeQueuePanel
+            issues={issues}
+            scope={mergeQueueScope}
+            // A queue entry can be any issue in the repo, including one outside
+            // the mission on screen — so this moves the MISSION, not just the
+            // focus inside it. Focusing alone would be discarded by
+            // `resolveFocus` as not-in-mission and silently snap back.
+            onSelectIssue={(issue) => {
+              setSelectedIssueId(issue.id)
+              setFocusedIssueId(issue.id)
+            }}
+          />
+        )}
       </div>
-      {tab === 'files' &&
-        (active ? (
-          <WorktreeFileTree key={active.cwd} root={active.cwd} machineId={active.machineId} />
-        ) : (
-          <div className="p-3 text-xs text-muted-foreground/70">No active session.</div>
-        ))}
-      {tab === 'git' &&
-        (active ? (
-          // Keyed by cwd: switching worktrees re-roots status/log/diff state.
-          <GitPanelView
-            key={active.cwd}
-            cwd={active.cwd}
-            machineId={active.machineId}
-            issue={
-              (active.issueId ? issues.find((i) => i.id === active.issueId) : undefined) ??
-              issueForCwd(issues, active.cwd) ??
-              undefined
-            }
-          />
-        ) : (
-          <div className="p-3 text-xs text-muted-foreground/70">No active session.</div>
-        ))}
-      {tab === 'mail' &&
-        (active ? (
-          <MessageLedgerView
-            key={active.sessionId ?? active.cwd}
-            sessionId={active.sessionId}
-            issueId={
-              sessions.find((s) => s.sessionId === active.sessionId)?.issueId ??
-              issueForCwd(issues, active.cwd)?.id
-            }
-          />
-        ) : (
-          <div className="p-3 text-xs text-muted-foreground/70">No active session.</div>
-        ))}
-      {tab === 'issue' &&
-        (selectedIssue ? (
-          <IssuePanelView
-            cwd={selectedIssue.worktreePath ?? selectedIssue.repoPath}
-            machineId={selectedIssue.machineId}
-            issueId={selectedIssue.id}
-          />
-        ) : active ? (
-          <IssuePanelView
-            cwd={active.cwd}
-            machineId={active.machineId}
-            sessionId={active.sessionId}
-            issueId={active.issueId}
-          />
-        ) : (
-          <div className="p-3 text-xs text-muted-foreground/70">No active session.</div>
-        ))}
-      {tab === 'superagent' && <SuperagentView />}
-      {tab === 'shell' &&
-        (active ? (
-          // Keyed by cwd: switching worktrees swaps to THAT worktree's shell.
-          <DockShellPanel key={active.cwd} cwd={active.cwd} machineId={active.machineId} />
-        ) : (
-          <div className="p-3 text-xs text-muted-foreground/70">No active worktree.</div>
-        ))}
-      {tab === 'merge-queue' && (
-        <MergeQueuePanel
-          issues={issues}
-          scope={mergeQueueScope}
-          // A queue entry can be any issue in the repo, including one outside
-          // the mission on screen — so this moves the MISSION, not just the
-          // focus inside it. Focusing alone would be discarded by
-          // `resolveFocus` as not-in-mission and silently snap back.
-          onSelectIssue={(issue) => {
-            setSelectedIssueId(issue.id)
-            setFocusedIssueId(issue.id)
-          }}
-        />
-      )}
-    </div>
+    </DockHeaderSlotProvider>
   )
 }

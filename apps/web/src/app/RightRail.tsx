@@ -12,8 +12,10 @@ import { type RightPanelTab, rightPanelAllowed } from './shell-state'
 import type { IssueViewModel } from './store'
 import { useReplicaIssues, useStoreSelector } from './store'
 
-/** The rail sits on the tinted --card gradient — corner badges punch out of it. */
-const RAIL_SURFACE = 'var(--card)'
+/** The rail sits on the flat --bar tier (POD-516 item 9: the right dock is a
+ *  dark default surface, not the selected issue's tint) — corner badges punch
+ *  out of it, so this must name the rail's ACTUAL surface. */
+const RAIL_SURFACE = 'var(--bar)'
 
 function railBadge(phase: MotionPhase, waitingCount: number): IdSquareBadge | null {
   if (waitingCount > 0) return { kind: 'count', count: waitingCount }
@@ -37,6 +39,12 @@ function railBadge(phase: MotionPhase, waitingCount: number): IdSquareBadge | nu
  * It used to come from `trayCount`; POD-516 removed the web Tray, so it comes
  * from `portfolioActionableCount` — the same module, and the same attention
  * predicate, the Flight Deck's "Needs you" filter runs on.
+ *
+ * The rail carries NO issue tint (POD-516 item 9). It hosts Superagent, Git,
+ * Files, Shell and Messages alongside the task cell, so a tint pulled from the
+ * selected issue asserted a relationship most of these cells do not have. The
+ * ID square keeps its own colour — it identifies one specific issue, and it is
+ * how the operator finds their place here.
  */
 export function RightRail({
   issue,
@@ -76,11 +84,7 @@ export function RightRail({
     ? memberSessions.filter((session) => motionPhase(session) === 'waiting').length
     : 0
   return (
-    <nav
-      aria-label="Panels"
-      className="right-rail issue-base-card issue-fade"
-      data-testid="right-rail"
-    >
+    <nav aria-label="Panels" className="right-rail" data-testid="right-rail">
       {issue && onColorChange ? (
         <IdSquare
           issue={issue}

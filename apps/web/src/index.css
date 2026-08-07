@@ -609,8 +609,14 @@
      tab strip 18 (over tabstrip) · rail fade 16 ·
      attention rows 11–13 · workspace pane 10–12 ·
      hairlines 30–50 · selection rings 35.
-   The Superagent pane is deliberately OUTSIDE this channel: it stays a flat
-   --engraved surface in both modes.
+   Two surfaces are deliberately OUTSIDE this channel. The Superagent pane stays
+   a flat --engraved surface in both modes. And the RIGHT DOCK, with its icon
+   rail, is a dark default (POD-516 item 9, styles.css `.right-dock-shell`): the
+   dock hosts Superagent, Git, Files, Shell, Messages and the merge queue as
+   often as it hosts the task, so a tint drawn from the selected issue claimed a
+   relationship that usually is not there — a tint only carries meaning when the
+   surface IS that issue. The dock's ID square keeps its own colour; it names one
+   specific issue and is how the operator finds their place in the rail.
    The base defaults to --background; put issue-base-{card,tabstrip,rail}
    alongside a mix utility to tint over a different surface. */
 
@@ -738,10 +744,6 @@
     color-mix(in srgb, var(--issue) calc(13 * var(--issue-tint-scale, 1%)), var(--issue-base, var(--card))),
     var(--issue-base, var(--card)) 240px
   );
-}
-[data-issue-colored='false'] .right-rail,
-[data-issue-colored='false'] .right-dock-shell {
-  border-left-color: color-mix(in srgb, var(--issue) calc(30 * var(--issue-line-scale, 1%)), transparent);
 }
 
 /* ── Mono micro-typography ────────────────────────────────────────────────────
