@@ -78,7 +78,10 @@ describe('bun multi-file hermetic roots [POD-553]', () => {
     const parsed = lines.map((line) => {
       const m = line.match(/^PROBE (\S+) pid=(\d+) state=(\S+) tmp=(\S+)$/)
       expect(m, line).toBeTruthy()
-      return { label: m![1], pid: m![2], state: m![3], tmp: m![4] }
+      // Narrow the captures HERE, not at each use: every group in the pattern is
+      // mandatory, so a truthy match captured all four. Without this the fields stay
+      // `string | undefined` and the `.startsWith()` calls below do not compile.
+      return { label: m![1]!, pid: m![2]!, state: m![3]!, tmp: m![4]! }
     })
     expect(parsed[0]!.label).toBe('one')
     expect(parsed[1]!.label).toBe('two')
