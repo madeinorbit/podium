@@ -13,11 +13,15 @@
  *   1. one row per mission, no children, no bands, no per-row disclosure;
  *   2. attention still bubbles up from a descendant, in words;
  *   3. the fleet stack carries real harness kinds, the live total and `×N`;
- *   4. the only foldable things left are the Proposed and Closed group headers.
+ *   4. the only foldable things left are group headers.
+ *
+ * Round 2 cut one of those group headers: the operator does not want a Proposed
+ * section in this column, so the tucked-away (Closed) and suspended (Snoozed)
+ * folds are all that remain.
  */
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { proposedFoldKey } from './fold-keys'
+import { closedFoldKey } from './fold-keys'
 import { SidebarUnified } from './SidebarUnified'
 
 /**
@@ -285,17 +289,12 @@ describe('the worklist is one flat row per mission (POD-516 §1.1)', () => {
     expect(solo.querySelector('[data-testid="issue-fleet-summary"]')).toBeNull()
   })
 
-  it('ends the column with the two group folds and nothing else foldable', () => {
+  it('ends the column with the tucked-away fold and nothing else foldable', () => {
     render(<SidebarUnified />)
-    const proposed = screen.getByTestId('proposed-fold-toggle')
     const closed = screen.getByTestId('closed-fold-toggle')
-    expect(proposed.textContent).toContain('Proposed · 1')
     expect(closed.textContent).toContain('Closed · 1')
-    // Both start folded, and Proposed comes first — the artifact's order.
-    expect(proposed.getAttribute('aria-expanded')).toBe('false')
     expect(closed.getAttribute('aria-expanded')).toBe('false')
-    expect(proposed.compareDocumentPosition(closed) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    // They are the ONLY disclosures in the column. (The ID square's colour
+    // It is the ONLY disclosure in the column here. (The ID square's colour
     // picker also carries aria-expanded, but it is a popup — `aria-haspopup`
     // separates "opens a menu" from "reveals the rows beneath me".)
     expect(
@@ -304,18 +303,29 @@ describe('the worklist is one flat row per mission (POD-516 §1.1)', () => {
         .filter(
           (button) => button.hasAttribute('aria-expanded') && !button.hasAttribute('aria-haspopup'),
         ),
-    ).toEqual([proposed, closed])
+    ).toEqual([closed])
   })
 
-  it('opens the proposed fold onto one dim line per untriaged issue', () => {
+  /**
+   * ROUND 2, LEFT SIDEBAR ITEM 3 — "dont put proposed section in here. not
+   * needed! we only have the tucked away stuff + suspended."
+   *
+   * Round 1 added a Proposed fold, derived in this component from the raw issue
+   * list because the worklist slice drops `stage === 'proposed'` at the row
+   * level. Removing the fold therefore has to remove untriaged work from the
+   * column ENTIRELY — the test that matters is not "the toggle is gone" but
+   * "the proposal itself is nowhere", including as an ordinary row leaking back
+   * in through some other path.
+   */
+  it('shows no proposed work anywhere in the column', () => {
     render(<SidebarUnified />)
-    fireEvent.click(screen.getByTestId('proposed-fold-toggle'))
-    const rows = screen.getAllByTestId('proposed-fold-row')
-    expect(rows).toHaveLength(1)
-    expect(rows[0]?.textContent).toContain('Review captures')
-    expect(rows[0]?.textContent).toContain('proposed')
-    // A proposal is not live work: it never gets a full row's chrome.
-    expect(rows[0]?.querySelector('[data-testid="unified-issue-row"]')).toBeNull()
+    expect(screen.queryByTestId('proposed-fold-toggle')).toBeNull()
+    expect(screen.queryByTestId('proposed-issue-fold')).toBeNull()
+    expect(screen.queryByText('Review captures')).toBeNull()
+    // Not hiding in the two folds that remain, either.
+    fireEvent.click(screen.getByTestId('closed-fold-toggle'))
+    expect(screen.queryByText('Review captures')).toBeNull()
+    expect(screen.queryByTestId('snoozed-fold-toggle')).toBeNull()
   })
 
   // POD-540. The fold keys are per-user REPLICATED (that is what the
@@ -327,21 +337,21 @@ describe('the worklist is one flat row per mission (POD-516 §1.1)', () => {
   // that bug is the whole of the column's memory.
   it('restores a fold from replicated layout state that lands after mount', () => {
     render(<SidebarUnified />)
-    const toggle = () => screen.getByTestId('proposed-fold-toggle')
+    const toggle = () => screen.getByTestId('closed-fold-toggle')
     expect(toggle().getAttribute('aria-expanded')).toBe('false')
 
-    act(() => ui.hydrate(proposedFoldKey('/repo'), 'false'))
+    act(() => ui.hydrate(closedFoldKey('/repo'), 'false'))
 
     expect(toggle().getAttribute('aria-expanded')).toBe('true')
-    expect(screen.getAllByTestId('proposed-fold-row')).toHaveLength(1)
+    expect(screen.getAllByTestId('closed-fold-row')).toHaveLength(1)
   })
 
   it('writes a fold through the store rather than holding it in local state', () => {
     render(<SidebarUnified />)
-    fireEvent.click(screen.getByTestId('proposed-fold-toggle'))
+    fireEvent.click(screen.getByTestId('closed-fold-toggle'))
     // The press wrote; the value came back through the subscription. One source
     // of truth, so the rendered fold and the stored row cannot diverge.
-    expect(ui.get(proposedFoldKey('/repo'))).toBe('false')
-    expect(screen.getByTestId('proposed-fold-toggle').getAttribute('aria-expanded')).toBe('true')
+    expect(ui.get(closedFoldKey('/repo'))).toBe('false')
+    expect(screen.getByTestId('closed-fold-toggle').getAttribute('aria-expanded')).toBe('true')
   })
 })

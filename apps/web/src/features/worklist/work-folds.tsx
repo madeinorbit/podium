@@ -10,7 +10,7 @@ import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
 import { useId } from 'react'
 import { type RowTransitionItem, useArrivals } from '@/lib/motion'
 import { cn } from '@/lib/utils'
-import { closedFoldKey, proposedFoldKey, snoozedFoldKey } from './fold-keys'
+import { closedFoldKey, snoozedFoldKey } from './fold-keys'
 import { useCollapsed } from './sidebar-common'
 
 /**
@@ -108,10 +108,9 @@ export type TransitionWorkRow = RowTransitionItem<WorkPlacement>
  *  of it is amber. */
 export function foldedMarker(
   issue: IssueNavigationModel,
-  lane: 'closed' | 'snoozed' | 'proposed',
+  lane: 'closed' | 'snoozed',
   now: number,
 ): string {
-  if (lane === 'proposed') return 'proposed'
   if (lane === 'snoozed') {
     const until = issue.deferUntil ? Date.parse(issue.deferUntil) : NaN
     if (!Number.isFinite(until)) return 'snoozed'
@@ -148,7 +147,7 @@ export function FoldedWorkRow({
   onContextMenu,
 }: {
   issue: IssueNavigationModel
-  lane: 'closed' | 'snoozed' | 'proposed'
+  lane: 'closed' | 'snoozed'
   now: number
   active: boolean
   onSelect: () => void
@@ -156,7 +155,7 @@ export function FoldedWorkRow({
 }): JSX.Element {
   const marker = foldedMarker(issue, lane, now)
   // How long ago the work was last touched — closed rows date from the close,
-  // suspended and proposed rows from their last activity (POD-293). One dim
+  // suspended rows from their last activity (POD-293). One dim
   // stamp so a fold still answers "when", without pulling any live-row chrome
   // back in.
   const stampIso = lane === 'closed' ? (issue.closedAt ?? issue.updatedAt) : issue.updatedAt
@@ -252,69 +251,6 @@ export function SnoozedIssueFold({
               </div>
             )
           })}
-        </div>
-      )}
-    </div>
-  )
-}
-
-/**
- * Project-local disclosure for PROPOSED work (POD-516 §1.1, item 5).
- *
- * The approved artifact ends the worklist with exactly two group headers,
- * `▸ Proposed n` and `▸ Closed n`, and this is the first of them. Proposed
- * issues are the operator's intake queue — work an agent filed but nobody has
- * accepted — so they must be reachable from the column that holds the human's
- * place, without ever competing with live missions for a full row. They read as
- * one dim line each, exactly like a closed row, and stay folded by default.
- */
-export function ProposedIssueFold({
-  groupKey,
-  issues,
-  now,
-  selectedIssueId,
-  onSelect,
-}: {
-  groupKey: string
-  issues: IssueNavigationModel[]
-  now: number
-  selectedIssueId: string | null
-  onSelect: (issue: IssueNavigationModel) => void
-}): JSX.Element {
-  const [collapsed, toggle] = useCollapsed(proposedFoldKey(groupKey), true)
-  const contentId = useId()
-  return (
-    <div className="min-w-0" data-testid="proposed-issue-fold">
-      <button
-        data-pressable
-        type="button"
-        className="group/fold flex min-h-[31px] w-full items-center gap-1.5 rounded-[5px] px-2 py-0.5 text-left font-mono text-[10px] font-medium tracking-[.035em] text-text-faint hover:text-muted-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong focus-visible:outline-offset-[-2px]"
-        aria-expanded={!collapsed}
-        aria-controls={contentId}
-        onClick={toggle}
-        data-testid="proposed-fold-toggle"
-      >
-        <ChevronRight
-          size={11}
-          className={cn('flex-none transition-transform duration-150', !collapsed && 'rotate-90')}
-          aria-hidden="true"
-        />
-        <span>Proposed · {issues.length}</span>
-        <span className="h-px min-w-4 flex-1 bg-hairline-soft" aria-hidden="true" />
-      </button>
-      {!collapsed && (
-        <div id={contentId} className="min-w-0" data-testid="proposed-fold-rows">
-          {issues.map((issue) => (
-            <div key={issue.id} className="min-w-0 opacity-60" data-testid="proposed-fold-row">
-              <FoldedWorkRow
-                issue={issue}
-                lane="proposed"
-                now={now}
-                active={selectedIssueId === issue.id}
-                onSelect={() => onSelect(issue)}
-              />
-            </div>
-          ))}
         </div>
       )}
     </div>

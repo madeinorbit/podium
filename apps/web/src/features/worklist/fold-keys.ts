@@ -2,11 +2,16 @@
  * THE SIDEBAR'S FOLD KEYS (POD-407).
  *
  * The collapsible things in the worklist persist their open/closed state: the
- * per-group snoozed, proposed and closed folds. Since POD-516 flattened the
- * column these GROUP folds are the only foldable things in it — the per-issue
- * row disclosure is gone, and so is its key. Their keys were inline template
- * literals at the call sites, which is a hazard rather than an untidiness — see
- * below.
+ * per-group snoozed and closed folds. Since POD-516 flattened the column these
+ * GROUP folds are the only foldable things in it — the per-issue row disclosure
+ * is gone, and so is its key. Their keys were inline template literals at the
+ * call sites, which is a hazard rather than an untidiness — see below.
+ *
+ * A third key, `proposed-fold`, went with the Proposed section the operator cut
+ * in POD-516 round 2. Removing the key is deliberate rather than tidy-up: a
+ * stale `podium:sidebar:proposed-fold:*` row is per-user replicated state with
+ * no reader, and leaving the spelling behind invites a future fold to adopt it
+ * and inherit somebody's year-old collapse.
  *
  * ---------------------------------------------------------------------------
  * THE KEY SPELLING DECIDES WHERE THE STATE LIVES
@@ -33,10 +38,6 @@
 /** Per-project-group fold over snoozed issues. */
 export const snoozedFoldKey = (groupKey: string): string =>
   `podium:sidebar:snoozed-fold:${groupKey}`
-
-/** Per-project-group fold over proposed (untriaged) issues. */
-export const proposedFoldKey = (groupKey: string): string =>
-  `podium:sidebar:proposed-fold:${groupKey}`
 
 /** Per-project-group fold over closed issues. */
 export const closedFoldKey = (groupKey: string): string => `podium:sidebar:closed-fold:${groupKey}`
