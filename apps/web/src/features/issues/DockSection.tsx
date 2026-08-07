@@ -1,17 +1,15 @@
-import type { UiState } from '@podium/client-core/replica'
 import { DOCK_SECTION_KEY_PREFIX } from '@podium/client-core/ui-state'
 import { ChevronRight } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
-import { useCallback, useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useCallback } from 'react'
+import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 import { cn } from '@/lib/utils'
 
 // ui-state key family for per-section open state; the legacy localStorage keys
 // of the same names migrate in once (replica LEGACY_UI_PREFIXES).
 
-function readOpen(ui: UiState, key: string, fallback: boolean): boolean {
-  const raw = ui.get(DOCK_SECTION_KEY_PREFIX + key)
-  return raw === null ? fallback : raw === '1'
+function writeOpen(open: boolean): string {
+  return open ? '1' : '0'
 }
 
 /** Collapsible dock section: micro-label header with a count chip and a
@@ -33,14 +31,15 @@ export function DockSection({
   defaultOpen?: boolean
   children: ReactNode
 }): JSX.Element {
-  const ui = useStoreSelector((s) => s.uiState)
-  const [open, setOpen] = useState(() => readOpen(ui, storageKey, defaultOpen))
-  const toggle = useCallback(() => {
-    setOpen((o) => {
-      ui.set(DOCK_SECTION_KEY_PREFIX + storageKey, o ? '0' : '1')
-      return !o
-    })
-  }, [ui, storageKey])
+  // Per-section open state is per-user REPLICATED layout, so it must be
+  // SUBSCRIBED: seeding it into `useState` reads the key before the replica has
+  // the row and pins the section to `defaultOpen` forever (POD-540).
+  const [open, setOpen] = usePersistedUiState(
+    DOCK_SECTION_KEY_PREFIX + storageKey,
+    useCallback((raw: string | null) => (raw === null ? defaultOpen : raw === '1'), [defaultOpen]),
+    writeOpen,
+  )
+  const toggle = useCallback(() => setOpen(!open), [setOpen, open])
 
   return (
     <section className="border-b border-border/60">

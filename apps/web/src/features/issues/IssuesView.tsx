@@ -7,6 +7,7 @@ import { ToolbarSlot } from '@/app/ToolbarSlot'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
+import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 import { cn } from '@/lib/utils'
 import { IssueContextMenu } from './IssueContextMenu'
 import { IssueListView } from './IssueListView'
@@ -41,10 +42,14 @@ export function IssuesView(): JSX.Element {
   const openIssueId = useStoreSelector((store) => store.openIssueId)
   const setOpenIssueId = useStoreSelector((store) => store.setOpenIssueId)
   const trpc = useStoreSelector((store) => store.trpc)
-  const ui = useStoreSelector((store) => store.uiState)
   const isMobile = useIsMobile()
-  const [display, setDisplay] = useState<IssuesDisplay>(() =>
-    readIssuesDisplay(ui.get(DISPLAY_KEY)),
+  // Display options are per-user REPLICATED, so they are subscribed rather than
+  // seeded — a `useState` initializer reads the key before the replica has the
+  // row and the board is stuck on the defaults for the session (POD-540).
+  const [display, setDisplay] = usePersistedUiState<IssuesDisplay>(
+    DISPLAY_KEY,
+    readIssuesDisplay,
+    writeIssuesDisplay,
   )
   const [creating, setCreating] = useState<null | { stage?: IssueStage }>(null)
   const [filter, setFilter] = useState<BoardFilter>({})
@@ -58,9 +63,7 @@ export function IssuesView(): JSX.Element {
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
 
   const updateDisplay = (patch: IssuesDisplayPatch): void => {
-    const next = { ...display, ...patch, badges: { ...display.badges, ...(patch.badges ?? {}) } }
-    setDisplay(next)
-    ui.set(DISPLAY_KEY, writeIssuesDisplay(next))
+    setDisplay({ ...display, ...patch, badges: { ...display.badges, ...(patch.badges ?? {}) } })
   }
   const toggleExpand = (id: string): void =>
     setExpanded((current) => {
