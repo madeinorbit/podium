@@ -141,6 +141,11 @@ export type AgentIconComponent = ComponentType<Record<string, unknown>>
  * cannot reach into either one's folder for a lookup. Icon, tint and tone are
  * the same question about the same key, and they now answer from the same file.
  *
+ * The old module was DELETED rather than left as a re-export: `rearch-audit`
+ * counts a re-export-only file pointing at another workspace as a shim tombstone
+ * and refuses to let that count grow, which is the right call — the two call
+ * sites import from here now.
+ *
  * `undefined` for an unknown harness is deliberate and matches the old helper:
  * callers already render a neutral glyph in that case, and inventing a mark for
  * a harness we know nothing about would claim a brand.
