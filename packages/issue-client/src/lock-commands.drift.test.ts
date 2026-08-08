@@ -1,8 +1,7 @@
-
 import { LOCK_COMMAND_NAMES, type LockCommandName } from '@podium/commands'
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import type { IssueTrpc } from './client.js'
-import { LOCK_COMMANDS, parseTtl } from './lock-commands.js'
+import { LOCK_COMMANDS, parseDurationSeconds, parseTtl } from './lock-commands.js'
 
 /**
  * Lock CLI-table drift pins [spec:SP-85d1] — the `podium lock` command table is
@@ -69,5 +68,10 @@ describe('parseTtl', () => {
   it('rejects garbage and non-positive values', () => {
     expect(() => parseTtl('soon')).toThrow(/invalid --ttl/)
     expect(() => parseTtl('0m')).toThrow(/positive/)
+  })
+
+  it("blames the flag it was called for, so --timeout doesn't report itself as --ttl", () => {
+    expect(parseDurationSeconds('30m', '--timeout')).toBe(1800)
+    expect(() => parseDurationSeconds('soon', '--timeout')).toThrow(/invalid --timeout/)
   })
 })

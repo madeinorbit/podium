@@ -20,15 +20,24 @@ import type { IssueCommand, IssueCommandResult } from './commands.js'
 /** Default lease TTL: 2 minutes. */
 export const DEFAULT_LOCK_TTL_SECONDS = 120
 
-/** Parse a human TTL (`10m`, `30s`, `2h`, bare seconds `600`) to seconds. */
-export function parseTtl(raw: string): number {
+/**
+ * Parse a human duration (`10m`, `30s`, `2h`, bare seconds `600`) to seconds.
+ * `flag` only names the offending flag in the error — `--ttl` and the CLI's
+ * `--timeout` accept exactly the same spellings.
+ */
+export function parseDurationSeconds(raw: string, flag: string): number {
   const m = /^(\d+)([smh]?)$/.exec(raw.trim())
-  if (!m) throw new Error(`invalid --ttl '${raw}' (use e.g. 10m, 30s, 2h, or seconds)`)
+  if (!m) throw new Error(`invalid ${flag} '${raw}' (use e.g. 10m, 30s, 2h, or seconds)`)
   const n = Number(m[1])
   const mult = m[2] === 'h' ? 3600 : m[2] === 'm' ? 60 : 1
   const seconds = n * mult
-  if (seconds <= 0) throw new Error(`invalid --ttl '${raw}': must be positive`)
+  if (seconds <= 0) throw new Error(`invalid ${flag} '${raw}': must be positive`)
   return seconds
+}
+
+/** Parse a human TTL (`10m`, `30s`, `2h`, bare seconds `600`) to seconds. */
+export function parseTtl(raw: string): number {
+  return parseDurationSeconds(raw, '--ttl')
 }
 
 // ---- wire shapes (owned by @podium/protocol; aliases retain the CLI's API) ----
@@ -88,7 +97,7 @@ export const LOCK_COMMANDS: IssueCommand[] = [
   {
     name: 'acquire',
     summary:
-      'Acquire (or renew) a named lease lock: acquire <name> [--ttl 10m] [--note "…"] [--wait [--timeout 300]] [--allow-sibling]. Queued if held by someone else. Refuses when another session on the same issue or shared worktree already holds or is queued (pass --allow-sibling to override).',
+      'Acquire (or renew) a named lease lock: acquire <name> [--ttl 10m] [--note "…"] [--wait [--timeout 30m]] [--allow-sibling]. Queued if held by someone else. --wait blocks in that queue until granted, however long the holder takes; add --timeout to bound it. Anything that stops the wait — the timeout expiring, Ctrl-C, SIGTERM — leaves the queue on the way out and says so, so a grant never lands on a command that is gone. Refuses when another session on the same issue or shared worktree already holds or is queued (pass --allow-sibling to override).',
     args: z.object({
       ...nameArg,
       ...repoArg,

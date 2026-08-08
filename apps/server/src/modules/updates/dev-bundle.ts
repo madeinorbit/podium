@@ -163,6 +163,10 @@ export function createPodiumDevBundleLock(
   }
   return {
     async acquire() {
+      // Bounded on purpose: a bare `--wait` blocks until granted, and this one
+      // is awaited in-process by a build request. One full lease is the longest
+      // an honest holder can keep it; past that the CLI leaves the queue and
+      // this fails loudly instead of stalling the rebuild forever.
       await command([
         'lock',
         'acquire',
@@ -170,6 +174,8 @@ export function createPodiumDevBundleLock(
         '--ttl',
         DEV_BUNDLE_LOCK_TTL,
         '--wait',
+        '--timeout',
+        DEV_BUNDLE_LOCK_TTL,
       ])
       return true
     },

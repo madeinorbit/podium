@@ -1,17 +1,23 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  EXIT_INTERRUPTED,
   EXIT_QUEUED,
   EXIT_WAIT_TIMEOUT,
+  fmtDuration,
   mergeLockArgv,
   parseLockArgs,
   runLockCli,
+  sleepUnlessAborted,
 } from './lock-cli'
 
 /**
  * `podium lock` / `podium merge-lock` CLI dispatch [spec:SP-85d1] —
  * mocked-client style (see issue-cli.test.ts): parse, positional mapping, the
  * merge:<branch> name mapping, exit-code contract (0 granted · 3 queued ·
- * 4 wait-timeout), and the --wait poll loop.
+ * 4 wait-timeout · 130 interrupted), and the --wait poll loop — which after
+ * POD-612 blocks until granted with no default deadline, and hands the queue
+ * place back on every way out of the wait (--timeout, SIGINT/SIGTERM), because
+ * the waiter row belongs to the agent session and outlives this process.
  */
 
 const grantedWire = (name: string) => ({
@@ -67,6 +73,57 @@ describe('parseLockArgs', () => {
     expect(r.command).toBe('acquire')
     expect(r.positionals).toEqual(['merge:main'])
     expect(r.args).toMatchObject({ ttl: '10m', wait: true, timeout: '30' })
+  })
+
+  it('accepts a human --timeout the same way --ttl is spelled', () => {
+    const r = parseLockArgs(['acquire', 'l', '--wait', '--timeout', '45m'])
+    expect(r.args).toMatchObject({ wait: true, timeout: '45m' })
+  })
+})
+
+describe('sleepUnlessAborted', () => {
+  it('resolves at once for a signal that is already spent', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    // A ten-minute nap: only the aborted check can make this return.
+    const start = Date.now()
+    await sleepUnlessAborted(600_000, controller.signal)
+    expect(Date.now() - start).toBeLessThan(1_000)
+  })
+
+  it('resolves for a signal that goes aborted as the listener is registered', async () => {
+    // An AbortSignal never replays `abort` to a listener added afterwards, so
+    // without the post-registration re-check this sleeps the full ten minutes.
+    let aborted = false
+    const spent = {
+      get aborted() {
+        return aborted
+      },
+      addEventListener: () => {
+        aborted = true
+      },
+      removeEventListener: () => {},
+    } as unknown as AbortSignal
+    const start = Date.now()
+    await sleepUnlessAborted(600_000, spent)
+    expect(Date.now() - start).toBeLessThan(1_000)
+  })
+
+  it('still sleeps normally when nothing aborts', async () => {
+    const controller = new AbortController()
+    const start = Date.now()
+    await sleepUnlessAborted(5, controller.signal)
+    expect(Date.now() - start).toBeGreaterThanOrEqual(4)
+  })
+})
+
+describe('fmtDuration', () => {
+  it('spells seconds the way the wait messages quote them back', () => {
+    expect(fmtDuration(45)).toBe('45s')
+    expect(fmtDuration(90)).toBe('1m30s')
+    expect(fmtDuration(1800)).toBe('30m')
+    expect(fmtDuration(7200)).toBe('2h')
+    expect(fmtDuration(9999)).toBe('2h46m39s')
   })
 })
 
@@ -198,27 +255,68 @@ describe('runLockCli', () => {
     expect(sleep).toHaveBeenCalledTimes(2)
   })
 
-  it('acquire --wait times out with its own exit code (timeout capped at 540s) and auto-cancels the waiter', async () => {
-    const mutate = vi.fn(async () => queuedWire('l', 1))
+  it('acquire --wait backs off between polls instead of hammering acquire every 3s', async () => {
+    const mutate = vi
+      .fn()
+      .mockResolvedValueOnce(queuedWire('l', 1))
+      .mockResolvedValueOnce(queuedWire('l', 1))
+      .mockResolvedValueOnce(queuedWire('l', 1))
+      .mockResolvedValueOnce(grantedWire('l'))
+    const client = { lock: { acquire: { mutate } } } as never
+    const slept: number[] = []
+    const out = await runLockCli(['acquire', 'l', '--repoPath', '/r', '--wait'], client, {
+      sleep: async (ms) => {
+        slept.push(ms)
+      },
+    })
+    expect(out.exitCode).toBe(0)
+    expect(slept).toEqual([3000, 4500, 6750])
+  })
+
+  it('bare --wait has no deadline: it stays queued through a hold past the old 300s cap', async () => {
+    // The POD-612 shape: a holder that legitimately runs 13m+ while renewing.
+    const mutate = vi.fn(async () => queuedWire('test:heavy', 1))
+    const cancel = vi.fn(async () => ({ cancelled: true }))
+    const client = { lock: { acquire: { mutate }, cancel: { mutate: cancel } } } as never
+    let nowMs = 0
+    const out = await runLockCli(['acquire', 'test:heavy', '--repoPath', '/r', '--wait'], client, {
+      now: () => nowMs,
+      sleep: async (ms) => {
+        nowMs += ms
+        // Granted after 13 minutes — the old cap dropped the waiter at five.
+        if (nowMs >= 780_000) mutate.mockResolvedValue(grantedWire('test:heavy'))
+      },
+    })
+    expect(out.exitCode).toBe(0)
+    expect(out.text).toContain("acquired 'test:heavy'")
+    expect(nowMs).toBeGreaterThanOrEqual(780_000)
+    expect(cancel).not.toHaveBeenCalled()
+  })
+
+  it('--timeout is honoured exactly as asked (no silent clamp) and leaves the queue on expiry', async () => {
+    const mutate = vi.fn(async () => queuedWire('l', 2))
     const cancel = vi.fn(async () => ({ cancelled: true }))
     const client = { lock: { acquire: { mutate }, cancel: { mutate: cancel } } } as never
     let nowMs = 0
     const out = await runLockCli(
+      // 9999s: the old loop silently clamped anything over 540s.
       ['acquire', 'l', '--repoPath', '/r', '--wait', '--timeout', '9999'],
       client,
       {
         now: () => nowMs,
-        sleep: async () => {
-          nowMs += 300_000 // two sleeps blow past the 540s cap
+        sleep: async (ms) => {
+          nowMs += ms
         },
       },
     )
     expect(out.exitCode).toBe(EXIT_WAIT_TIMEOUT)
-    expect(out.text).toContain('timed out after 540s')
+    expect(nowMs).toBe(9_999_000)
+    expect(out.text).toContain('timed out after 2h46m39s')
+    expect(out.text).toContain('left the queue — nothing will be granted to you now')
     expect(cancel).toHaveBeenCalledWith({ repoPath: '/r', name: 'l' })
   })
 
-  it('--wait timeout still exits 4 when the best-effort cancel fails', async () => {
+  it('a failed cancel at the deadline names the queue place still to clean up', async () => {
     const client = {
       lock: {
         acquire: { mutate: vi.fn(async () => queuedWire('l', 1)) },
@@ -230,13 +328,182 @@ describe('runLockCli', () => {
       },
     } as never
     let nowMs = 0
-    const out = await runLockCli(['acquire', 'l', '--repoPath', '/r', '--wait'], client, {
+    const out = await runLockCli(
+      ['acquire', 'l', '--repoPath', '/r', '--wait', '--timeout', '60'],
+      client,
+      {
+        now: () => nowMs,
+        sleep: async (ms) => {
+          nowMs += ms
+        },
+      },
+    )
+    expect(out.exitCode).toBe(EXIT_WAIT_TIMEOUT)
+    expect(out.text).toContain('could NOT leave the queue')
+    expect(out.text).toContain('podium lock cancel l')
+  })
+
+  it('a grant landing in the deadline gap wins over the timeout (cancel refuses a holder)', async () => {
+    const mutate = vi
+      .fn()
+      .mockResolvedValueOnce(queuedWire('l', 1))
+      .mockResolvedValue(grantedWire('l'))
+    const client = {
+      lock: {
+        acquire: { mutate },
+        cancel: {
+          mutate: vi.fn(async () => {
+            throw new Error("you hold lock 'l' — use `release`, not cancel")
+          }),
+        },
+      },
+    } as never
+    // The clock jumps to the deadline right after the first poll, so the
+    // timeout path runs against a lock that has just been granted to us.
+    let reads = 0
+    const out = await runLockCli(
+      ['acquire', 'l', '--repoPath', '/r', '--wait', '--timeout', '60'],
+      client,
+      { now: () => (reads++ === 0 ? 0 : 60_000), sleep: async () => {} },
+    )
+    expect(out.exitCode).toBe(0)
+    expect(out.text).toContain("acquired 'l'")
+  })
+
+  it('an interrupted --wait leaves the queue before it exits', async () => {
+    // The waiter row is keyed to the agent SESSION, which outlives this CLI
+    // process — so nothing server-side would prune it. The CLI has to.
+    const mutate = vi.fn(async () => queuedWire('test:heavy', 2))
+    const cancel = vi.fn(async () => ({ cancelled: true }))
+    const client = { lock: { acquire: { mutate }, cancel: { mutate: cancel } } } as never
+    const controller = new AbortController()
+    let nowMs = 0
+    const out = await runLockCli(['acquire', 'test:heavy', '--repoPath', '/r', '--wait'], client, {
+      signal: controller.signal,
       now: () => nowMs,
-      sleep: async () => {
-        nowMs += 600_000
+      sleep: async (ms) => {
+        nowMs += ms
+        if (nowMs >= 10_000) controller.abort() // Ctrl-C mid-sleep
       },
     })
-    expect(out.exitCode).toBe(EXIT_WAIT_TIMEOUT)
+    expect(out.exitCode).toBe(EXIT_INTERRUPTED)
+    expect(out.text).toMatch(/^interrupted after \d+s waiting for 'test:heavy';/)
+    expect(out.text).toContain('left the queue — nothing will be granted to you now')
+    expect(cancel).toHaveBeenCalledWith({ repoPath: '/r', name: 'test:heavy' })
+  })
+
+  it('an interrupt that races a grant keeps the lock instead of cancelling it', async () => {
+    // Granted on the very round the interrupt is seen: the grant wins, and the
+    // caller is told to release what it now holds.
+    const controller = new AbortController()
+    const mutate = vi.fn(async () => {
+      controller.abort()
+      return grantedWire('l')
+    })
+    const cancel = vi.fn(async () => ({ cancelled: true }))
+    const client = { lock: { acquire: { mutate }, cancel: { mutate: cancel } } } as never
+    const out = await runLockCli(['acquire', 'l', '--repoPath', '/r', '--wait'], client, {
+      signal: controller.signal,
+      sleep: async () => {},
+    })
+    expect(out.exitCode).toBe(0)
+    expect(out.text).toContain("acquired 'l'")
+    expect(cancel).not.toHaveBeenCalled()
+  })
+
+  it('an interrupt whose cancel is refused because the grant landed reports the lock it now holds', async () => {
+    const mutate = vi
+      .fn()
+      .mockResolvedValueOnce(queuedWire('l', 1))
+      .mockResolvedValue(grantedWire('l'))
+    const client = {
+      lock: {
+        acquire: { mutate },
+        cancel: {
+          mutate: vi.fn(async () => {
+            throw new Error("you hold lock 'l' — use `release`, not cancel")
+          }),
+        },
+      },
+    } as never
+    const controller = new AbortController()
+    controller.abort()
+    const out = await runLockCli(['acquire', 'l', '--repoPath', '/r', '--wait'], client, {
+      signal: controller.signal,
+      sleep: async () => {},
+    })
+    expect(out.exitCode).toBe(0)
+    expect(out.text).toContain('granted as the wait was interrupted')
+    expect(out.text).toContain('podium lock release l')
+  })
+
+  it('an already-aborted signal stops the wait after one round without sleeping', async () => {
+    const mutate = vi.fn(async () => queuedWire('l', 1))
+    const cancel = vi.fn(async () => ({ cancelled: true }))
+    const client = { lock: { acquire: { mutate }, cancel: { mutate: cancel } } } as never
+    const sleep = vi.fn(async () => {})
+    const controller = new AbortController()
+    controller.abort()
+    const out = await runLockCli(['acquire', 'l', '--repoPath', '/r', '--wait'], client, {
+      signal: controller.signal,
+      sleep,
+    })
+    expect(out.exitCode).toBe(EXIT_INTERRUPTED)
+    expect(mutate).toHaveBeenCalledTimes(1)
+    expect(sleep).not.toHaveBeenCalled()
+  })
+
+  it('a garbage --timeout is refused', async () => {
+    const client = {
+      lock: { acquire: { mutate: vi.fn(async () => queuedWire('l', 1)) } },
+    } as never
+    await expect(
+      runLockCli(['acquire', 'l', '--repoPath', '/r', '--wait', '--timeout', 'soon'], client),
+    ).rejects.toThrow(/invalid --timeout 'soon'/)
+  })
+
+  it('--wait narrates the queue so a long block is never silent', async () => {
+    const mutate = vi
+      .fn()
+      .mockResolvedValueOnce(queuedWire('l', 3))
+      .mockResolvedValueOnce(queuedWire('l', 3))
+      .mockResolvedValueOnce(queuedWire('l', 1))
+      .mockResolvedValueOnce(grantedWire('l'))
+    const client = { lock: { acquire: { mutate } } } as never
+    const lines: string[] = []
+    const out = await runLockCli(['acquire', 'l', '--repoPath', '/r', '--wait'], client, {
+      sleep: async () => {},
+      onProgress: (l) => lines.push(l),
+    })
+    expect(out.exitCode).toBe(0)
+    expect(lines).toEqual([
+      "waiting until granted — queued for 'l' at position 3; held by s2 on issue:#2 workspace /wt/b [alive], expires in 10m0s",
+      "'l': now position 1 (was 3)",
+    ])
+  })
+
+  it('an unbudging queue still reports itself once a minute, so a long block never looks hung', async () => {
+    const mutate = vi.fn(async () => queuedWire('l', 4))
+    const client = {
+      lock: { acquire: { mutate }, cancel: { mutate: vi.fn(async () => ({ cancelled: true })) } },
+    } as never
+    const lines: string[] = []
+    let nowMs = 0
+    await runLockCli(['acquire', 'l', '--repoPath', '/r', '--wait', '--timeout', '3m'], client, {
+      now: () => nowMs,
+      sleep: async (ms) => {
+        nowMs += ms
+      },
+      onProgress: (l) => lines.push(l),
+    })
+    expect(lines[0]).toContain('waiting up to 3m')
+    // Position never moves, so everything after the opener is a heartbeat —
+    // roughly one a minute, not one per poll.
+    const beats = lines.slice(1)
+    expect(beats).toHaveLength(2)
+    for (const beat of beats) {
+      expect(beat).toMatch(/^'l': still queued at position 4 after \d+m\d*s?$/)
+    }
   })
 
   it('cancel leaves the queue (and merge-lock maps it onto merge:<branch>)', async () => {
