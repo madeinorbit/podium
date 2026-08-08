@@ -18,7 +18,7 @@ import { BrailleSpinner } from '@/lib/motion'
 import { useConversationSearch } from '@/lib/useConversationSearch'
 import { cn } from '@/lib/utils'
 import { useIssueEvents } from './useIssueEvents'
-import { usePromptAutoGrow } from './usePromptAutoGrow'
+import { usePromptAutoGrow } from '@/lib/use-prompt-auto-grow'
 
 /** ONE chat across all issues (engraved-column.md §2.5): the column always
  *  binds the global thread; per-turn issue context rides the focus payload.

@@ -1,7 +1,7 @@
 import { asIssueId, asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from './api'
-import { createDraftAgent } from './spawn-agent'
+import { agentAcceptsArgvPrompt, createDraftAgent } from './spawn-agent'
 
 function api() {
   const create = vi.fn(async (_input: unknown) => ({}))
@@ -11,6 +11,7 @@ function api() {
       sessions: { create: { mutate: create }, resumeAndSend: { mutate: resumeAndSend } },
     } as unknown as PodiumClientApi,
     create,
+    resumeAndSend,
   }
 }
 
@@ -63,5 +64,72 @@ describe('spawn machine-USE placement', () => {
     for (const field of ['actor', 'owner', 'ownerId', 'origin']) {
       expect(createdKeys, `spawn payload asserts attribution field '${field}'`).not.toContain(field)
     }
+  })
+})
+
+describe('firstPrompt delivery (POD-549)', () => {
+  it.each(['claude-code', 'codex', 'grok'] as const)(
+    'puts firstPrompt on create.initialPrompt for argv agent %s and does not resumeAndSend',
+    async (agentKind) => {
+      const { trpc, create, resumeAndSend } = api()
+      await createDraftAgent({
+        ...base,
+        agentKind,
+        trpc,
+        target: { path: '/worktree', repoPath: '/repo', placement: 'allowed' },
+        firstPrompt: '  fix the bug  ',
+      })
+
+      expect(create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agentKind,
+          initialPrompt: 'fix the bug',
+        }),
+      )
+      expect(resumeAndSend).not.toHaveBeenCalled()
+    },
+  )
+
+  it('falls back to resumeAndSend for non-argv agents after create seeds the draft', async () => {
+    const { trpc, create, resumeAndSend } = api()
+    await createDraftAgent({
+      ...base,
+      agentKind: 'opencode',
+      trpc,
+      target: { path: '/worktree', repoPath: '/repo', placement: 'allowed' },
+      firstPrompt: 'do the thing',
+    })
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ initialPrompt: 'do the thing', agentKind: 'opencode' }),
+    )
+    expect(resumeAndSend).toHaveBeenCalledWith({
+      sessionId: 'session-1',
+      text: 'do the thing',
+    })
+  })
+
+  it('omits initialPrompt and resumeAndSend when firstPrompt is blank', async () => {
+    const { trpc, create, resumeAndSend } = api()
+    await createDraftAgent({
+      ...base,
+      agentKind: 'grok',
+      trpc,
+      target: { path: '/worktree', repoPath: '/repo', placement: 'allowed' },
+      firstPrompt: '   ',
+    })
+
+    const payload = create.mock.calls[0]?.[0] as Record<string, unknown>
+    expect(payload).not.toHaveProperty('initialPrompt')
+    expect(resumeAndSend).not.toHaveBeenCalled()
+  })
+
+  it('agentAcceptsArgvPrompt matches harness argvPrompt capability', () => {
+    expect(agentAcceptsArgvPrompt('claude-code')).toBe(true)
+    expect(agentAcceptsArgvPrompt('codex')).toBe(true)
+    expect(agentAcceptsArgvPrompt('grok')).toBe(true)
+    expect(agentAcceptsArgvPrompt('opencode')).toBe(false)
+    expect(agentAcceptsArgvPrompt('cursor')).toBe(false)
+    expect(agentAcceptsArgvPrompt('shell')).toBe(false)
   })
 })

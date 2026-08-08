@@ -1123,6 +1123,90 @@ describe('spawn transport failure (#263 review finding 4)', () => {
   })
 })
 
+describe('resumeAndSend holds for optimistic spawn (POD-546)', () => {
+  const spawnSendApi = () => {
+    const api = makeApi()
+    api.sessions.resumeAndSend = { mutate: vi.fn(async () => ({ ok: true, disposition: 'accepted' })) }
+    return api
+  }
+
+  it('does not call resumeAndSend until the create id is on the server', async () => {
+    const api = spawnSendApi()
+    let releaseCreate!: () => void
+    const createGate = new Promise<void>((resolve) => {
+      releaseCreate = resolve
+    })
+    const resumeCalls: Array<{ sessionId: string; text: string }> = []
+    api.sessions.create = {
+      mutate: vi.fn(async (input: { sessionId: SessionId }) => {
+        await createGate
+        // Mirror the server broadcast that retires the spawn overlay.
+        holder.engine?.replica.applyChanges('sessions', [session(input.sessionId, '/w')], [])
+        return { sessionId: input.sessionId }
+      }),
+    }
+    api.sessions.resumeAndSend = {
+      mutate: vi.fn(async (input: { sessionId: string; text: string }) => {
+        resumeCalls.push({ sessionId: input.sessionId, text: input.text })
+        return { ok: true, disposition: 'accepted' }
+      }),
+    }
+    const holder: { engine?: ReturnType<typeof makeEngine>['engine'] } = {}
+    const { engine, hub } = makeEngine({ api })
+    holder.engine = engine
+    engine.start()
+    hub.health = { status: 'ok', rttMs: 1, since: 0 }
+    hub.emit('connectionHealth', hub.health)
+    await settle(40)
+
+    const { sessionId } = engine
+      .getSnapshot()
+      .spawnDraftAgent({ target: { path: '/w', repoPath: '/w' }, agentKind: 'grok' })
+    expect(engine.getSnapshot().pendingSpawnIds.has(sessionId)).toBe(true)
+
+    // Composer fires immediately — the classic mobile race.
+    const sendPromise = engine.getSnapshot().resumeAndSend(sessionId, 'hello from mobile')
+    await settle(40)
+    expect(resumeCalls).toEqual([])
+
+    releaseCreate()
+    await sendPromise
+    await settle(40)
+
+    expect(resumeCalls).toEqual([{ sessionId, text: 'hello from mobile' }])
+    expect(engine.getSnapshot().pendingSpawnIds.has(sessionId)).toBe(false)
+    engine.dispose()
+  })
+
+  it('ok:false from resumeAndSend is not treated as applied', async () => {
+    const api = spawnSendApi()
+    api.sessions.resumeAndSend = {
+      mutate: vi.fn(async () => ({
+        ok: false,
+        reason: 'dead-lettered: session no longer exists',
+        disposition: 'dead_letter',
+      })),
+    }
+    const { engine, hub } = makeEngine({ api })
+    engine.start()
+    hub.health = { status: 'ok', rttMs: 1, since: 0 }
+    hub.emit('connectionHealth', hub.health)
+    await settle(40)
+
+    // Existing session id (no spawn hold) — authority refuses the send.
+    engine.replica.applyChanges('sessions', [session('s-known', '/w')], [])
+    await settle(10)
+    await engine.getSnapshot().resumeAndSend(asSessionId('s-known'), 'lost if applied')
+    await settle(40)
+
+    expect(engine.getSnapshot().outboxSize).toBe(0)
+    expect(engine.getSnapshot().outboxDeadLetters).toMatchObject([
+      { entry: { kind: 'resumeAndSend' } },
+    ])
+    engine.dispose()
+  })
+})
+
 describe('outbox drain on reconnect', () => {
   it('a queued write retries when hub connection health recovers', async () => {
     const api = makeApi()

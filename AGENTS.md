@@ -26,6 +26,18 @@ This project uses Podium's issue tracker for work management. If you are running
 session, use the `podium issue` CLI (start with `podium issue prime`). Track durable/discovered
 work as issues, not markdown TODO lists. Full guide: **[docs/agents/podium-issues.md](docs/agents/podium-issues.md)**.
 
+### Landing on main
+
+Hard procedure — not a preference. Under the merge lock, refresh **local `main`**, rebase the
+**issue branch** onto it, `git merge --ff-only` the issue tip into local main, push, release.
+**Never** cherry-pick onto main or push a temp tip: that leaves a closed issue “ready to merge”
+in the sidebar forever. Done when the issue tip is an ancestor of `origin/main`
+(`git merge-base --is-ancestor <issue-tip> origin/main`, or `gitState.merged`) — not merely
+when `gitState.ahead` is 0 (ahead is measured against `parentBranch`, which can be a dead
+sibling for stacked issues). Full write-up:
+**[docs/agents/podium-issues.md § Landing on main](docs/agents/podium-issues.md#landing-on-main)**
+(prime text: `MERGE_LANDING_RULE` in `@podium/protocol`).
+
 ## Delegating to other agents
 
 `podium agent spawn` puts another agent on an issue. Podium infers nothing about a delegate —
@@ -56,20 +68,28 @@ exit with an error.
 
 ### Cached package test lanes
 
-`bun run test` is the default. It enters `scripts/test.ts`, which runs the 23
+`bun run test` is the default. It enters `scripts/test.ts`, which runs the 28
 package-owned `test` tasks through Turbo with task concurrency set to one.
 
 | Lane | Scope | Cache / safety |
 | --- | --- | --- |
-| `bun run test` | all 23 package tasks, including scripts, desktop, web/mobile, server normalized-wire, and the runtime Bun unit | Turbo-cached; package tasks run one at a time |
+| `bun run test` | all 28 package tasks: one per package with tests (scripts, desktop, web/mobile, the runtime Bun unit) plus `@podium/server`'s aggregate and its five cache shards | Turbo-cached; package tasks run one at a time |
 | `bun run test:unit` | compatibility alias for the default command | same |
 | `bun run test:web`, `test:mobile`, `test:cached` | focused cached app probes | Turbo-cached |
 | `bun run test:affected` | changed package tasks and their dependents | refuses files no package task can cover |
 
 Every package task inherits the shared `@podium/source` resolution, hermetic setup
-files, two-worker ceiling, retry policy, and unit exclusion list. The server task
-keeps normalized-wire in a separate one-worker config; the runtime task owns the
-focused `*.bun.test.ts` unit file instead of invoking it from a root sweep.
+files, two-worker ceiling, retry policy, and unit exclusion list. The runtime task owns
+the focused `*.bun.test.ts` unit file instead of invoking it from a root sweep.
+
+`@podium/server` is the one package whose task is an aggregate: five independently cached
+shards (`contracts`, `store`, `services`, `boundary`, `normalized-wire`) whose membership
+and file-level Turbo inputs are **generated** from the import closure. `apps/server/test-shards.json`
+and `apps/server/turbo.json` are not hand-editable; re-run `bun scripts/server-test-shards.ts --write`
+after adding, moving, or deleting an `apps/server` test file, or the drift guard in the
+default lane fails. The `contracts` shard also reuses one Vitest runner across the files a
+static scan clears — see **[docs/agents/testing.md](docs/agents/testing.md)** before adding
+or debugging a server test.
 
 All commands pass through the install fingerprint (`PODIUM_CHECK_ENV_HASH`) and the
 same missing-link refusal as typecheck. Bare `--force`/`TURBO_FORCE` is rejected;
@@ -79,8 +99,8 @@ filed.
 Tell a hit from a miss by Turbo's summary line:
 
 ```
-Cached:    23 cached, 23 total          Time:   ... >>> FULL TURBO   <- hit, nothing ran
-Cached:    22 cached, 23 total          Time:   ...                  <- one task executed
+Cached:    28 cached, 28 total          Time:   ... >>> FULL TURBO   <- hit, nothing ran
+Cached:    27 cached, 28 total          Time:   ...                  <- one task executed
 ```
 
 `>>> FULL TURBO` means no task executed. The cache key is honest: every task includes its
@@ -89,7 +109,7 @@ web/mobile include source-imported workspace packages, while scripts includes th
 trees its architecture/configuration audits read. `dependsOn: ["^test"]` does not carry source
 content into a task whose dependency has no test task, so those inputs are explicit.
 
-The 23-task graph is deliberate. `@podium/terminal-client-react` has no test files and no
+The 28-task graph is deliberate. `@podium/terminal-client-react` has no test files and no
 task; every default test file has a package owner and a real config/task. Adding another
 package requires the same config, hermetic setup, exclusion, and Turbo-input audit.
 
@@ -100,8 +120,9 @@ Evidence for the cache-key coverage table: **[docs/agents/pod-1378-cache-evidenc
 `bun run test:affected` runs the `test` turbo task filtered to the packages your change
 actually touches — the ones whose sources changed, plus every package that depends on them.
 
-**Today that means all 23 package test tasks.** The graph includes scripts, desktop,
-web/mobile, the server normalized-wire pair, and the runtime Bun unit file. It reads the
+**Today that means all 28 package test tasks.** The graph includes scripts, desktop,
+web/mobile, the five `@podium/server` shards behind their aggregate, and the runtime Bun
+unit file. It reads the
 task graph rather than package.json, so a package task is selected for changed package
 sources and for every package that depends on them.
 
@@ -180,4 +201,4 @@ UI/interaction behavior still requires runtime verification.
 - [docs/agents/agent-state-classification.md](docs/agents/agent-state-classification.md) — how agent run-state is classified from transcripts.
 - [docs/agents/podium-issues.md](docs/agents/podium-issues.md) — use the `podium issue` CLI to track work from inside a session.
 - [docs/agents/delegating.md](docs/agents/delegating.md) — spawn other agents: placement, naming, concurrency, advisory locks.
-- [docs/agents/testing.md](docs/agents/testing.md) — the four test lanes and which suite to run when.
+- [docs/agents/testing.md](docs/agents/testing.md) — every test lane, which one to run when, the generated `@podium/server` shards, and the shared-host `test:heavy` lease.

@@ -322,15 +322,21 @@ describe('POD-384 parent-branch movement watch', () => {
   }
 
   /** A branch one commit ahead of `main`, whose reflog proves the tip has moved
-   *  off its creation point (so containment reads as "landed", not "fresh"). */
+   *  off its creation point (so containment reads as "landed", not "fresh").
+   *  isMergedInto is ABSENT until a test flips it — after POD-576 the ancestry
+   *  check always runs, so a present key would mark unlanded work as merged. */
   const unlandedScript = (): Record<string, string> => ({
     'revParseVerify:main': 'tip-1',
     statusProbe: '## issue/1',
     logHead: 'sha-tip\t2026-07-20T11:00:00Z',
     'revListCount:main..HEAD': '1',
-    isMergedInto: '',
     branchReflog: 'sha-tip\nsha-created',
   })
+
+  /** Mark the script as "contained in parent" for the ungated ancestry check. */
+  const markLanded = (script: Record<string, string>) => {
+    script.isMergedInto = ''
+  }
 
   it('records a parent tip on first sight instead of fanning out at boot', async () => {
     const script = unlandedScript()
@@ -360,6 +366,7 @@ describe('POD-384 parent-branch movement watch', () => {
     // worktree, no turn edge on this issue's sessions, nothing else to notice it.
     script['revParseVerify:main'] = 'tip-2'
     script['revListCount:main..HEAD'] = '0'
+    markLanded(script)
     await svc.sweepParentBranchMovement()
 
     expect(svc.get(id)?.gitState).toMatchObject({ ahead: 0, merged: true })
@@ -377,6 +384,7 @@ describe('POD-384 parent-branch movement watch', () => {
 
     script['revParseVerify:main'] = 'tip-2'
     script['revListCount:main..HEAD'] = '0'
+    markLanded(script)
     await svc.sweepParentBranchMovement()
 
     expect(svc.get(a)?.gitState).toMatchObject({ merged: true })
@@ -428,5 +436,94 @@ describe('POD-384 parent-branch movement watch', () => {
     await svc.sweepParentBranchMovement()
 
     expect(repoOp).not.toHaveBeenCalled()
+  })
+
+  // POD-576: a stacked issue's cut parent freezes when that sibling lands. The
+  // hard land moves main, so the sweep must also watch the landing base — not
+  // only the dead parent — or the finished issue never re-probes.
+  it('re-probes a stacked issue when the landing base moves even if the cut parent is frozen', async () => {
+    const script: Record<string, string> = {
+      'revParseVerify:issue/520-parent': 'parent-tip-frozen',
+      'revParseVerify:main': 'main-tip-1',
+      statusProbe: '## issue/527',
+      logHead: 'sha-tip\t2026-08-07T12:00:00Z',
+      'revListCount:issue/520-parent..HEAD': '9',
+      // First isMergedInto key is bare op name in this harness → single response
+      // for both parents; simulate "not in parent, in main" via the probe path
+      // only after main moves (see below).
+      isMergedInto: '',
+      branchReflog: 'sha-tip\nsha-created',
+    }
+    const { svc, repoOp } = harness([], script)
+    const id = svc.create({ repoPath: '/repo', title: 'stacked', startNow: false }).id
+    giveWorktree(svc, id, 'issue/520-parent')
+
+    // First sight of both watched refs: record, do not probe.
+    await svc.sweepParentBranchMovement()
+    expect(repoOp.mock.calls.filter(([op]) => op === 'revParseVerify')).toHaveLength(2)
+    expect(svc.get(id)?.gitState).toBeUndefined()
+
+    // Seed the stranded snapshot: still ahead of the dead parent.
+    // Custom isMergedInto: fail for parent, succeed for main only after we flip
+    // the script — here pre-land, neither contains it.
+    repoOp.mockImplementation(async (op: string, _cwd: string, args?: Record<string, string>) => {
+      if (op === 'revListCount') {
+        const key = `${op}:${args?.from}..${args?.to}`
+        const output = script[key]
+        return output !== undefined ? { ok: true, output } : { ok: false, output: '' }
+      }
+      if (op === 'revParseVerify') {
+        const key = `${op}:${args?.ref}`
+        const output = script[key]
+        return output !== undefined ? { ok: true, output } : { ok: false, output: '' }
+      }
+      if (op === 'isMergedInto') {
+        // Before/after land: tip is in main only once main advanced past it.
+        if (args?.parentBranch === 'main' && script['revParseVerify:main'] === 'main-tip-2') {
+          return { ok: true, output: '' }
+        }
+        return { ok: false, output: '' }
+      }
+      const output = script[op]
+      return output !== undefined ? { ok: true, output } : { ok: false, output: '' }
+    })
+
+    await svc.refreshGitState(id)
+    expect(svc.get(id)?.gitState).toMatchObject({ shared: false, ahead: 9 })
+    expect(svc.get(id)?.gitState?.merged).toBeUndefined()
+
+    // Somebody lands on main from another checkout. Cut parent does not move.
+    script['revParseVerify:main'] = 'main-tip-2'
+    await svc.sweepParentBranchMovement()
+
+    expect(svc.get(id)?.gitState).toMatchObject({ ahead: 9, merged: true })
+  })
+
+  it('retargeting parentBranch re-probes gitState against the new base [POD-576]', async () => {
+    const script = unlandedScript()
+    script['revListCount:issue/520-parent..HEAD'] = '9'
+    // Drop main's rev-list so the first probe only has the cut-parent count.
+    delete script['revListCount:main..HEAD']
+    const { svc } = harness([], script)
+    const id = svc.create({ repoPath: '/repo', title: 'stacked', startNow: false }).id
+    giveWorktree(svc, id, 'issue/520-parent')
+
+    await svc.refreshGitState(id)
+    expect(svc.get(id)?.gitState).toMatchObject({ ahead: 9 })
+    expect(svc.get(id)?.gitState?.merged).toBeUndefined()
+
+    // Retarget to main; next probe measures against main (0 ahead, merged).
+    script['revListCount:main..HEAD'] = '0'
+    markLanded(script)
+
+    svc.update(id, { parentBranch: 'main' })
+    // refreshGitState is fire-and-forget from update — wait for the coalesced probe.
+    for (let i = 0; i < 50; i++) {
+      const gs = svc.get(id)?.gitState
+      if (gs?.ahead === 0 && gs.merged === true) break
+      await new Promise((r) => setTimeout(r, 10))
+    }
+
+    expect(svc.get(id)?.gitState).toMatchObject({ ahead: 0, merged: true })
   })
 })

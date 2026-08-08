@@ -10,7 +10,7 @@ import type { ControlMessage } from '@podium/protocol'
 import { bundleStagePath } from '../handoff-package'
 import { buildHarnessExec } from '../harness-exec.js'
 import { repoOpCommand } from '../repo-op'
-import { scanClaudeUsage } from '../usage-scan'
+import { scanHostUsage } from '../usage-scan'
 import type { ControlHandlers, DaemonContext } from './context'
 
 const execFileAsync = promisify(execFile)
@@ -182,11 +182,12 @@ const USAGE_MEMO_TTL_MS = 120_000
 /**
  * PAST THE TTL, SERVE STALE AND RESCAN BEHIND IT (POD-1624) — the same shape the
  * quota memo uses, and here it protects more than one reader's latency. This scan
- * JSON.parses every `"usage"`-bearing line of every transcript touched in the last
- * 7 days, and it runs on the DAEMON's event loop, which is the loop carrying PTY
- * traffic. A memo that only bounds how OFTEN the scan runs still lets it block
- * that loop for the duration whenever it does; serving the previous buckets keeps
- * the request off the critical path entirely.
+ * JSON.parses every usage-bearing line of every Claude and Codex transcript
+ * touched in the last 7 days, and it runs on the DAEMON's event loop, which is
+ * the loop carrying PTY traffic. POD-570 added the Codex half, roughly doubling
+ * the walk (see POD-577). A memo that only bounds how OFTEN the scan runs still
+ * lets it block that loop for the duration whenever it does; serving the previous
+ * buckets keeps the request off the critical path entirely.
  *
  * WORST-CASE STALENESS: TTL + one scan (~120s + the scan's own duration). The
  * rescan is kicked off by the first read past the TTL, never deferred.
@@ -203,7 +204,7 @@ function rescanUsage(ctx: DaemonContext, sinceMs: number): Promise<void> {
   const started = (async () => {
     let buckets: UsageBucketWire[]
     try {
-      buckets = await scanClaudeUsage({
+      buckets = await scanHostUsage({
         sinceMs,
         ...(ctx.homeDir ? { homeDir: ctx.homeDir } : {}),
       })

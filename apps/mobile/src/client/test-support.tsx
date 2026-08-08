@@ -86,7 +86,11 @@ function stubApi(fixture: MobileStoreFixture): MobileTrpc {
       answerAskUserQuestion: { mutate: noop },
       create: { mutate: async () => ({ sessionId: 'created' }) },
     },
-    issues: { update: { mutate: noop }, clearNeedsHuman: { mutate: noop } },
+    issues: {
+      update: { mutate: noop },
+      panelApply: { mutate: async () => ({}) },
+      clearNeedsHuman: { mutate: noop },
+    },
     repos: { list: { query: async () => [] } },
     ...(fixture.api ?? {}),
   } as unknown as MobileTrpc

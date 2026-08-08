@@ -19,6 +19,7 @@ import {
   ISSUE_TREE_DEFAULT_MAX_DEPTH,
   ISSUE_TREE_DEFAULT_MAX_NODES,
   LOCK_RULE,
+  MERGE_LANDING_RULE,
   SELF_REF_RULE,
   SPINOFF_RULE,
   TITLE_RULE,
@@ -658,8 +659,11 @@ export class IssueReportsModule {
       // Response discipline (#237 [spec:SP-34d7 acks], [POD-835 §04b] [spec:SP-bf44]).
       'A podium message only needs a reply when it asked for one — it was sent `--expect-response`, or is a question (the envelope says so). Then reply with WHAT YOU DID / your answer before going idle: `podium mail reply <id> --body "…"` (any substantive reply in the thread satisfies it). An ordinary message needs NO reply — receipt is automatic; do not send bare acknowledgements.',
       'Stay in your worktree: NEVER `cd` into another checkout (even briefly — it re-homes this session in the UI); use `git -C <path> …` for commands against other checkouts.',
-      // Finish-workflow merge coordination [spec:SP-85d1] — advisory merge lock.
-      'Merging to a shared branch (e.g. main): first `podium merge-lock acquire --wait`, then rebase onto that branch, `git merge --ff-only`, and `podium merge-lock release` IMMEDIATELY after the merge.',
+      // Finish-workflow merge coordination [spec:SP-85d1] — single-sourced in
+      // @podium/protocol so the prime and docs/agents/podium-issues.md cannot drift.
+      // HARD procedure: local main under the lock, ff-merge the issue branch tip;
+      // never cherry-pick onto main (leaves closed issues "ready to merge" forever).
+      MERGE_LANDING_RULE,
       // The generic lease underneath merge-lock, and how to delegate [spec:SP-4ef9,
       // SP-85d1]. Both live in @podium/protocol so the prime and the committed guide
       // cannot drift apart.

@@ -5,6 +5,7 @@ import {
   mergeTranscriptItems,
   panelLabel,
   prependTranscriptItems,
+  sessionDotTone,
   sessionTitle,
 } from '@podium/client-core/viewmodels'
 import type { TranscriptItem, WorkState } from '@podium/model'
@@ -16,6 +17,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { KeyboardAvoidingView, Platform, StyleSheet, View } from 'react-native'
 import {
   readTranscriptPage,
+  useBooting,
   useHub,
   useIssue,
   useIssues,
@@ -27,15 +29,23 @@ import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { Composer } from '../components/Composer'
 import { Icon } from '../components/Icon'
 import { IdSquare } from '../components/IdSquare'
+import {
+  BootstrapCrossfade,
+  DetailSkeleton,
+  TranscriptSkeleton,
+} from '../components/LaunchPlaceholders'
 import { PressableScale } from '../components/PressableScale'
+import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
 import { HeaderButton, Screen } from '../components/Screen'
+import { SessionActionCard } from '../components/SessionActionCard'
 import { TaskPeekSheet } from '../components/TaskPeekSheet'
 import { type PendingTurn, TranscriptList } from '../components/TranscriptList'
-import { TrayCard, type TrayCardActions } from '../components/TrayCard'
 import { EmptyState } from '../components/ui'
+import { useRefreshableList } from '../hooks/useRefreshableTab'
+import { resolveOfferArtifacts } from '../lib/offer-artifacts'
 import { hasSessionBackTarget, sessionBackTarget, sessionHref } from '../lib/session-route'
-import { FLOW_SLATE, issueColorHex } from '../theme/issueColors'
-import { color, space } from '../theme/theme'
+import { FLOW_SLATE, flow, issueColorHex } from '../theme/issueColors'
+import { color } from '../theme/theme'
 import { sessionAbsence } from './session-absence'
 
 const WORK_STATES: (WorkState | null)[] = [
@@ -64,8 +74,13 @@ export function SessionScreen() {
   const allSessions = useSessions()
   const issues = useIssues()
   const session = useSession(sessionId)
+  const { connected, onRefresh, refreshing, refreshControl, refreshAccessibilityProps } =
+    useRefreshableList()
+  const booting = useBooting()
 
-  const [items, setItems] = useState<TranscriptItem[]>([])
+  const [items, setItems] = useState<TranscriptItem[]>(() =>
+    sessionId ? (store.replica.transcriptWindow(sessionId)?.items ?? []) : [],
+  )
   const [loaded, setLoaded] = useState(false)
   // Turns sent from this screen, painted until the server echoes them into the
   // transcript (POD-338). A parked session queues the message and answers
@@ -74,6 +89,11 @@ export function SessionScreen() {
   const turnSeq = useRef(0)
   const [menuOpen, setMenuOpen] = useState(false)
   const [workMenuOpen, setWorkMenuOpen] = useState(false)
+  const [draftInsertion, setDraftInsertion] = useState<{ id: number; text: string } | null>(null)
+  // What the feed owes the floating composer. Only ever the RESTING height, so
+  // growing the field does not relayout the transcript under the operator.
+  const [composerHeight, setComposerHeight] = useState(0)
+  const insertionSeq = useRef(0)
   const goBack = useCallback(() => {
     if (hasBackTarget) {
       router.dismissTo(backTarget)
@@ -94,7 +114,8 @@ export function SessionScreen() {
     if (!sessionId) return
     let alive = true
     let unsubscribe: (() => void) | null = null
-    setItems([])
+    const cached = store.replica.transcriptWindow(sessionId)
+    setItems(cached?.items ?? [])
     setLoaded(false)
     setPendingTurns([])
     paging.current = { hasMore: false, loading: false }
@@ -108,6 +129,7 @@ export function SessionScreen() {
       .then((page) => {
         if (!alive) return
         setItems(page.items)
+        if (page.items.length > 0) store.replica.putTranscriptWindow(sessionId, page.items)
         setLoaded(true)
         paging.current = { head: page.head, hasMore: page.hasMore, loading: false }
         attach(page.tail)
@@ -121,7 +143,14 @@ export function SessionScreen() {
       alive = false
       unsubscribe?.()
     }
-  }, [trpc, hub, sessionId])
+  }, [trpc, hub, sessionId, store.replica])
+
+  // Live deltas extend the same bounded replica window, so a later warm or
+  // offline open paints the conversation instead of an empty transcript.
+  useEffect(() => {
+    if (!sessionId || items.length === 0) return
+    store.replica.putTranscriptWindow(sessionId, items)
+  }, [items, sessionId, store.replica])
 
   useEffect(() => {
     if (pendingTurns.length === 0) return
@@ -202,6 +231,22 @@ export function SessionScreen() {
 
   const title = session ? sessionTitle(session) : 'Session'
   const issue = useIssue(session?.issueId)
+  // A peek stores the selected identity, but renders the replica's live row so
+  // a todo toggle updates in the still-open sheet instead of waiting for reopen.
+  const livePeekIssue = peekIssue
+    ? (issues.find((candidate) => candidate.id === peekIssue.id) ?? peekIssue)
+    : null
+  const offerArtifacts = useMemo(
+    () =>
+      session?.offer
+        ? resolveOfferArtifacts({
+            offer: session.offer,
+            issue,
+            ...(session.lastInputAt ? { lastInputAt: session.lastInputAt } : {}),
+          })
+        : [],
+    [issue, session],
+  )
   // The issue colour flows through the chrome; slate when the issue is uncoloured.
   const accent = issue ? (issueColorHex(issue.color) ?? FLOW_SLATE) : undefined
 
@@ -257,14 +302,6 @@ export function SessionScreen() {
     return actions
   }, [nextSession, store, session])
 
-  const offerActions: TrayCardActions = {
-    onOfferAction: (target, prompt) => store.resumeAndSend(target.sessionId, prompt),
-    onOpenSession: () => {},
-    onOpenIssue: (target) => router.push(`/issue/${encodeURIComponent(target.id)}`),
-    onResolve: (target) => void store.trpc.issues.clearNeedsHuman.mutate({ id: target.id }),
-    onOpenArtifact: (target) => router.push(`/issue/${encodeURIComponent(target.id)}`),
-  }
-
   if (!sessionId || !session) {
     // A SESSION THAT IS NOT HERE IS THREE DIFFERENT FACTS (doc §3.1 ¶2).
     // Deleted, evicted from THIS principal's view (a share revoked, or never
@@ -278,11 +315,17 @@ export function SessionScreen() {
     )
     return (
       <Screen title="Session" onBack={goBack} safeBottom>
-        <EmptyState title={absence.title} body={absence.body} />
+        <BootstrapCrossfade resolved={!booting} placeholder={<DetailSkeleton />}>
+          <EmptyState title={absence.title} body={absence.body} />
+        </BootstrapCrossfade>
       </Screen>
     )
   }
   const activity = chatActivity(session, false)
+  const issueTodos = issue?.panel?.todos ?? []
+  const todoProgress = issueTodos.length
+    ? { done: issueTodos.filter((todo) => todo.done).length, total: issueTodos.length }
+    : undefined
 
   return (
     <Screen
@@ -295,7 +338,9 @@ export function SessionScreen() {
       onBack={goBack}
       backLabel="Back"
       accent={accent}
-      safeBottom
+      // No `safeBottom`: the floating composer is the bottom-most thing on this
+      // screen and pays that inset itself, so it can drop it when the keyboard
+      // takes the bottom edge [POD-502].
       leading={
         issue ? (
           <PressableScale
@@ -304,7 +349,13 @@ export function SessionScreen() {
             onPress={() => issue && setPeekIssue(issue)}
             hitSlop={8}
           >
-            <IdSquare issue={issue} state="working" size={18} />
+            <IdSquare
+              issue={issue}
+              state={
+                issue.needsHuman || sessionDotTone(session) === 'attention' ? 'waiting' : 'working'
+              }
+              size={18}
+            />
           </PressableScale>
         ) : undefined
       }
@@ -326,60 +377,109 @@ export function SessionScreen() {
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        {loaded && items.length === 0 && pendingTurns.length === 0 ? (
-          <EmptyState fill title="No transcript yet" body="Send a message to get things moving." />
-        ) : (
-          <TranscriptList
-            items={items}
-            live={session?.status === 'live'}
-            assetContext={{
-              httpOrigin: store.httpOrigin,
-              sessionId,
-              cwd: session.cwd,
-            }}
-            pendingTurns={pendingTurns}
-            onRetryPending={retry}
-            onAnswer={async (choices) => {
-              await trpc.sessions.answerAskUserQuestion.mutate({ sessionId, choices })
-            }}
-            onLoadOlder={loadOlder}
-            onRefPress={(ref) => {
-              const seq = Number(ref.slice(4))
-              const target = issues.find((i) => i.seq === seq)
-              if (target) setPeekIssue(target)
-            }}
-          />
-        )}
-        {session.offer && issue ? (
-          <View style={styles.offerWrap}>
-            <TrayCard
-              item={{
-                kind: 'offer',
-                issue,
-                session,
-                offer: session.offer,
-                since: session.offer.createdAt,
+        <BootstrapCrossfade
+          resolved={loaded || items.length > 0}
+          placeholder={<TranscriptSkeleton />}
+        >
+          <PullToRefreshBoundary
+            connected={connected}
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+          >
+            <TranscriptList
+              items={items}
+              live={session?.status === 'live'}
+              assetContext={{
+                httpOrigin: store.httpOrigin,
+                sessionId,
+                cwd: session.cwd,
               }}
-              issues={issues}
-              sessions={allSessions}
-              httpOrigin={store.httpOrigin}
-              actions={offerActions}
-              now={Date.now()}
+              pendingTurns={pendingTurns}
+              onRetryPending={retry}
+              onQuote={(text) => setDraftInsertion({ id: insertionSeq.current++, text })}
+              bottomInset={composerHeight}
+              todos={todoProgress}
+              onOpenTodos={issue ? () => setPeekIssue(issue) : undefined}
+              showOpenTodos={session.agentState?.phase === 'idle'}
+              streaming={
+                activity?.tone === 'working' &&
+                items.at(-1)?.role === 'assistant' &&
+                items.at(-1)?.answer !== true
+              }
+              tail={{
+                label:
+                  activity?.label ??
+                  (session.agentState?.phase === 'idle' ? 'Idle' : session.status),
+                tone: activity?.tone === 'attention' ? 'attention' : activity ? 'working' : 'idle',
+                since: session.agentState?.since,
+              }}
+              refreshControl={refreshControl}
+              refreshAccessibilityProps={refreshAccessibilityProps}
+              emptyComponent={
+                // An offer is itself the thing to act on — do not tell the
+                // operator the session is empty underneath a pending decision.
+                loaded && items.length === 0 && pendingTurns.length === 0 && !session.offer ? (
+                  <EmptyState
+                    fill
+                    title="No transcript yet"
+                    body="Send a message to get things moving."
+                  />
+                ) : undefined
+              }
+              onAnswer={async (choices) => {
+                await trpc.sessions.answerAskUserQuestion.mutate({ sessionId, choices })
+              }}
+              onLoadOlder={loadOlder}
+              onRefPress={(ref) => {
+                const seq = Number(ref.slice(4))
+                const target = issues.find((i) => i.seq === seq)
+                if (target) setPeekIssue(target)
+              }}
+              footer={
+                session.offer ? (
+                  <SessionActionCard
+                    offer={session.offer}
+                    evidenceCount={offerArtifacts.length}
+                    onAction={(prompt) => store.resumeAndSend(session.sessionId, prompt)}
+                    onOpenEvidence={
+                      issue
+                        ? () => router.push(`/issue/${encodeURIComponent(issue.id)}`)
+                        : undefined
+                    }
+                  />
+                ) : undefined
+              }
             />
-          </View>
-        ) : null}
-        <Composer
-          placeholder="Message the agent…"
-          onSend={send}
-          caption={activity?.label}
-          captionTone={activity?.tone === 'attention' ? 'attention' : 'working'}
-        />
+          </PullToRefreshBoundary>
+        </BootstrapCrossfade>
+        {/* The composer floats OVER the feed rather than ending it [POD-502]:
+            messages run under the capsule and dissolve into the scrim above
+            it, which is what makes it read as lifted off the page rather than
+            welded to the bottom edge. The feed pays for it with the composer's
+            own resting height. */}
+        <View style={styles.composerLayer} pointerEvents="box-none">
+          <Composer
+            placeholder="Message the agent…"
+            onSend={send}
+            draftInsertion={draftInsertion}
+            scrimColor={accent ? flow.paneBg(accent) : color.bg}
+            onRestingHeight={setComposerHeight}
+          />
+        </View>
       </KeyboardAvoidingView>
       <TaskPeekSheet
-        issue={peekIssue}
+        issue={livePeekIssue}
         session={session}
         sessions={allSessions}
         onClose={() => setPeekIssue(null)}
+        onToggleTodo={(index, done) => {
+          if (!livePeekIssue) return
+          void trpc.issues.panelApply.mutate({
+            id: livePeekIssue.id,
+            op: done ? 'todo-done' : 'todo-undone',
+            index,
+          })
+        }}
       />
       <ActionSheet
         visible={menuOpen}
@@ -404,8 +504,12 @@ const styles = StyleSheet.create({
   flex: {
     flex: 1,
   },
-  offerWrap: {
-    paddingHorizontal: space.sm + 2,
-    paddingBottom: space.xs,
+  /** Anchored to the KeyboardAvoidingView's padding edge, so it rides the
+   *  keyboard without the feed underneath it having to move. */
+  composerLayer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
 })

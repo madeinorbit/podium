@@ -30,6 +30,7 @@ const EXCEPTIONS: Record<string, Record<string, string>> = {
     setup: 'sidebar hosts the repo add/scan flow',
   },
   terminal: { chat: 'agent pane embeds the chat surface' },
+  issues: { chat: 'issue and session rows embed the chat OfferBar' },
   superagent: { chat: 'superagent thread is a chat surface' },
   settings: {
     setup: 'settings reuses the SetupView form',

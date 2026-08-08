@@ -4,7 +4,7 @@ import type { JSX, ReactNode } from 'react'
 import { useEffect, useState } from 'react'
 import type { IssueViewModel } from '@/app/store'
 import { Button } from '@/components/ui/button'
-import { issueIdTitle, issueRefLabel } from '@/lib/issue-label'
+import { issueIdTitle, issueRefLabel } from '@/lib/issue-labels'
 import {
   formatLeaseRemaining,
   type MergeQueuePanelState,

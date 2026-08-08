@@ -7,15 +7,20 @@ describe('session routes', () => {
       pathname: '/session/[sessionId]',
       params: { sessionId: 'session/a', backTo: '/issue/issue-1' },
     })
+    expect(sessionHref('session/a', '/')).toEqual({
+      pathname: '/session/[sessionId]',
+      params: { sessionId: 'session/a', backTo: '/work' },
+    })
   })
 
   it.each([
-    [undefined, '/'],
+    [undefined, '/work'],
+    ['/', '/work'],
     ['/work', '/work'],
     ['%2Fissue%2Fissue-1', '/issue/issue-1'],
-    ['https://example.com', '/'],
-    ['//example.com', '/'],
-    ['/session/other', '/'],
+    ['https://example.com', '/work'],
+    ['//example.com', '/work'],
+    ['/session/other', '/work'],
   ])('normalizes back target %s to %s', (value, expected) => {
     expect(sessionBackTarget(value)).toBe(expected)
   })

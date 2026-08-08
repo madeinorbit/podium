@@ -19,6 +19,8 @@ describe('maintenance route [spec:SP-c29e]', () => {
     changeKeepRows: 20_000,
     changeMaxAgeMs: 3 * 24 * 60 * 60 * 1000,
     maintenanceCommandMaxAgeMs: 14 * 24 * 60 * 60 * 1000,
+    worktreeGcMode: 'propose' as const,
+    worktreeGcAfterDays: 14,
   }))
   const apply = vi.fn((command) => ({
     status: 'applied' as const,

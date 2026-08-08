@@ -87,6 +87,10 @@ export type IssueGitWorkflowCapability = Pick<
   | 'createAndMaybeStart'
   | 'action'
   | 'freeWorktreeKeepBranch'
+  | 'releaseWorktreeIfIdle'
+  | 'tryWorktreeGcObserved'
+  | 'listReclaimableWorktrees'
+  | 'releaseReclaimableWorktrees'
   | 'ensureWorktree'
   | 'cleanup'
   | 'integrate'
@@ -186,6 +190,7 @@ class IssueServiceRoot implements IssueTrackerCapabilities {
     let hierarchy: IssueHierarchyModule
     let commentsMail: IssueCommentsMailModule
     let attention: IssueAttentionModule
+    let gitWorkflow: IssueGitWorkflowModule
     const reports = new IssueReportsModule(store)
     hierarchy = new IssueHierarchyModule(store, () => crud)
     attention = new IssueAttentionModule(
@@ -193,14 +198,16 @@ class IssueServiceRoot implements IssueTrackerCapabilities {
       () => crud,
       () => hierarchy,
       () => reports,
+      () => gitWorkflow,
     )
     crud = new IssueCrudModule(
       store,
       () => hierarchy,
       () => attention,
+      () => gitWorkflow,
     )
     commentsMail = new IssueCommentsMailModule(store, () => reports)
-    const gitWorkflow = new IssueGitWorkflowModule(
+    gitWorkflow = new IssueGitWorkflowModule(
       store,
       () => crud,
       () => commentsMail,

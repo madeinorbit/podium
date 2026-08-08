@@ -1,10 +1,11 @@
 import { shallowEqual } from '@podium/client-core/store'
+import { resolveIssueReference } from '@podium/client-core/viewmodels'
 import type { MachineWire, SessionId, SessionMeta } from '@podium/model'
 import { useTerminalSession } from '@podium/terminal-client-react'
 import { Monitor } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useRef } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useReplicaIssues, useStoreSelector } from '@/app/store'
 import { Badge } from '@/components/ui/badge'
 import { isKnownRefPrefix } from '@/lib/markdown'
 import { activateRef } from '@/lib/ref-activation'
@@ -172,19 +173,34 @@ function DockShellTerminal({
 }): JSX.Element {
   const { settings, appearance } = useTerminalAppearance()
   const termBg = settings.background ?? TERMINAL_DEFAULTS.background
-  const { containerRef, ready } = useTerminalSession({
+  const issues = useReplicaIssues()
+  const issuesRef = useRef(issues)
+  issuesRef.current = issues
+  const { containerRef, ready, mountedRef } = useTerminalSession({
     hub,
     sessionId,
     appearance,
     focusWhenReady: true,
-    // Human-facing ref links (#474): clickable PREFIX-N tokens in shell output.
+    // Human-facing ref links (#474 / POD-529): clickable PREFIX-N tokens with
+    // live stage-coloured underlines when the issue is known.
     onMounted: (mounted) => {
       mounted.view.setRefLinks({
         isKnownPrefix: (p) => isKnownRefPrefix(p),
         onActivate: (ref, event) => activateRef(ref, event),
+        resolveStage: (ref) => resolveIssueReference(ref, issuesRef.current)?.stage ?? null,
       })
     },
   })
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mountedRef is a stable ref from useTerminalSession
+  useEffect(() => {
+    const view = mountedRef.current?.view
+    if (!view) return
+    view.setRefLinks({
+      isKnownPrefix: (p) => isKnownRefPrefix(p),
+      onActivate: (ref, event) => activateRef(ref, event),
+      resolveStage: (ref) => resolveIssueReference(ref, issuesRef.current)?.stage ?? null,
+    })
+  }, [issues, mountedRef])
   return (
     <div
       className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"

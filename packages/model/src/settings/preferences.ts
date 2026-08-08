@@ -206,20 +206,35 @@ export type PersonalPreferences = z.infer<typeof PersonalPreferences>
  * Idle-session hibernation policy.
  *
  * INSTANCE, NOT PERSONAL, and this is the case the brief asks to be named rather
- * than defaulted. Every member is a MACHINE resource decision — a host memory
- * ceiling and a per-machine idle-live convergence target — and ADR 9 D3 rule 3
- * puts facts about a machine under the machine's scoping, which is not the
- * reader's. A per-user memory ceiling is not a preference that can be honoured:
- * the host has one amount of memory.
+ * than defaulted. Every member is a MACHINE resource decision — host memory and
+ * load ceilings plus a per-machine idle-live convergence target — and ADR 9 D3
+ * rule 3 puts facts about a machine under the machine's scoping, which is not
+ * the reader's. A per-user memory or load ceiling is not a preference that can
+ * be honoured: the host has one amount of memory and one run queue.
  */
 export const HibernationPolicy = z.object({
   enabled: z.boolean().default(true),
   /** Hibernate idle sessions once host memory use crosses this percentage. */
   memoryPct: z.number().int().min(50).max(95).default(80),
+  /**
+   * Hibernate idle sessions once load1 / cpuCount crosses this ratio.
+   * Null turns load pressure off. Default 1.5: the run queue is half again
+   * the core count, so every request is already waiting (POD-566 / POD-526).
+   * Policy uses load1, not load5 — a day-long pin leaves load5 high long after
+   * the fleet drains and would over-park during recovery.
+   */
+  loadPerCore: z.number().min(0.5).max(8).nullable().default(1.5),
   /** Per-machine idle-live convergence target [spec:SP-c29e]. Null is
    * unlimited; zero is valid and parks every session that passes the safety
-   * gates. */
-  maxIdleSessions: z.number().int().min(0).nullable().default(30),
+   * gates.
+   *
+   * The default was 30 (POD-568). That is not a ceiling anyone would choose
+   * deliberately — it is roughly the fleet size that made an 8-core host
+   * unusable in POD-526, and because count pressure runs INDEPENDENTLY of
+   * memory, the policy was converging correctly toward a target nobody wanted.
+   * Eight is the number a person would pick for one machine; raise it here, not
+   * by leaving the ceiling high enough never to bind. */
+  maxIdleSessions: z.number().int().min(0).nullable().default(8),
   /** A session counts as idle after this many minutes without activity. */
   idleMinutes: z
     .number()
@@ -227,8 +242,55 @@ export const HibernationPolicy = z.object({
     .min(1)
     .max(24 * 60)
     .default(30),
+  /**
+   * Park live shell sessions after this many hours of quiet (no input, no
+   * output). Null turns shell reaping off — the default, deliberately.
+   *
+   * Shells have no harness observer, so their phase stays unknown and the
+   * agent hibernation path cannot park them (no resume ref, no terminal
+   * proof). Folding them into maxIdleSessions would only inflate the
+   * overage; this is the explicit opt-in that actually reaps them via
+   * park-as-hibernated (inspectable, resumable by a fresh spawn). POD-565.
+   */
+  idleShellHours: z
+    .number()
+    .int()
+    .min(1)
+    .max(24 * 30)
+    .nullable()
+    .default(null),
 })
 export type HibernationPolicy = z.infer<typeof HibernationPolicy>
+
+/**
+ * Worktree garbage-collection policy for closed issues (POD-564).
+ *
+ * INSTANCE, for {@link HibernationPolicy}'s reason: a checkout occupies one
+ * machine's disk, and there is no per-reader answer to how long a finished
+ * issue may keep it.
+ *
+ * `propose` IS THE DEFAULT, deliberately. Archive already gives the checkout
+ * back (POD-567), but only for work someone archived; the tail this sweeps is
+ * ~97 done-but-never-archived directories on the origin host, and sub-issues,
+ * which the archive sweep never reaches at all. A first run that size has to be
+ * inspectable before it applies, so `propose` records what it WOULD free and
+ * leaves the disk alone, and `auto` is the flip a person makes once the list
+ * reads right. `off` stops the janitor from proposing at all.
+ *
+ * `afterDays` is measured from `closedAt` — the stable close anchor, not
+ * `updatedAt`, which any touch moves.
+ */
+export const WorktreeGcPolicy = z.object({
+  mode: z.enum(['off', 'propose', 'auto']).default('propose'),
+  /** Days a closed issue keeps its checkout before the sweep considers it. */
+  afterDays: z
+    .number()
+    .int()
+    .min(1)
+    .max(365 * 2)
+    .default(14),
+})
+export type WorktreeGcPolicy = z.infer<typeof WorktreeGcPolicy>
 
 /**
  * Branch and merge policy.
@@ -301,5 +363,10 @@ export const InstancePreferences = z.object({
   issues: IssueAssistantPolicy.default({}),
   steward: StewardPolicy.default({}),
   experimental: ExperimentalFlags.default({}),
+  // Appended, not slotted next to `hibernation` where it belongs by topic: this
+  // aggregate's key order is the serialized order of a persisted settings blob,
+  // and inserting in the middle rewrites the JSON of every row that already has
+  // one. Topic adjacency is what the doc comments are for.
+  worktreeGc: WorktreeGcPolicy.default({}),
 })
 export type InstancePreferences = z.infer<typeof InstancePreferences>

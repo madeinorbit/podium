@@ -22,12 +22,11 @@
  */
 
 import { asMachineId } from '@podium/model'
-import { openDatabase, type SqlDatabase, type SqlParam } from '@podium/runtime/sqlite'
+import type { SqlDatabase, SqlParam } from '@podium/runtime/sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { runDrizzleMigrations } from '../migrations'
-import { DRIZZLE_MIGRATIONS } from '../migrations/drizzle-manifest.generated'
 import { deriveRepoId } from '../repo-id'
 import { SessionStore } from '../store'
+import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { ReposRepository } from './repos'
 
 const HOST = 'machine-host'
@@ -71,8 +70,7 @@ const tableReads = (table: string): number =>
   )
 
 beforeEach(() => {
-  const raw = openDatabase(':memory:')
-  runDrizzleMigrations(raw, DRIZZLE_MIGRATIONS)
+  const raw = openMigratedTestDatabase()
   counts = new Map()
   repos = new ReposRepository(counting(raw, counts), () => {}, asMachineId(HOST))
   repos.addRepo('/home/u/alpha', HOST, undefined, 'AL')

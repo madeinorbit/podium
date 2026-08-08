@@ -427,6 +427,113 @@ describe('ClaudeCausalObserver [spec:SP-cdb2]', () => {
     })
   })
 
+  // A daemon restart mid-turn re-bootstraps from a transcript-tail guess. When that
+  // guess is 'idle' the epoch the agent is actually in was never opened here, and
+  // before POD-593 every hook it went on to emit was discarded for the life of the
+  // session: working agents reported idle and their questions never surfaced.
+  it('revives an epoch it never saw open from in-flight hook evidence [POD-593]', async () => {
+    const causal = observer()
+    causal.bootstrap()
+    expect(
+      await causal.observeHook(
+        hook('PostToolUse', { prompt_id: 'live-turn', tool_use_id: 'tool-1' }),
+        110,
+      ),
+    ).toMatchObject({
+      transitionKind: 'turn_opened',
+      turnEpoch: 1,
+      priorPhase: 'idle',
+      nextPhase: 'working',
+      providerPromptId: 'live-turn',
+      inputOrigin: 'unknown',
+    })
+    // Revived once, the epoch behaves like any other: further activity while
+    // already working stays the usual no-op instead of opening a turn per hook.
+    expect(
+      await causal.observeHook(
+        hook('PreToolUse', { prompt_id: 'live-turn', tool_use_id: 'tool-2' }),
+        120,
+      ),
+    ).toBeNull()
+    expect(await causal.observeHook(hook('Stop', { prompt_id: 'live-turn' }), 130)).toMatchObject({
+      transitionKind: 'turn_terminal',
+      turnEpoch: 1,
+      nextPhase: 'idle',
+    })
+  })
+
+  // Emitting the revival is only half the fix — the server's durable gate fences a
+  // new epoch on exactly +1 AND transitionKind 'turn_opened', so a revival shaped
+  // as a bare activity edge would be rejected 'noncausal_epoch_open' and the
+  // session would stay just as frozen. Drive the real gate, not a stand-in.
+  it('emits a revival the durable acceptance gate accepts [POD-593]', async () => {
+    const causal = observer()
+    const lease = {
+      provider: 'claude-code' as const,
+      providerSessionId: 'claude-1',
+      bindingVersion: 3,
+      observationGeneration: 7,
+    }
+    const boot = causal.bootstrap()
+    if (!boot) throw new Error('expected bootstrap snapshot')
+    const booted = acceptAgentObservation(null, lease, boot, at)
+    expect(booted.kind).toBe('snapshot_applied')
+    if (booted.kind === 'rejected') throw new Error(booted.rejectionReason)
+
+    const revived = await causal.observeHook(
+      hook('PostToolUse', { prompt_id: 'live-turn', tool_use_id: 'tool-1' }),
+      110,
+    )
+    if (!revived) throw new Error('expected a revival observation')
+    const accepted = acceptAgentObservation(booted.checkpoint, lease, revived, at)
+    expect(accepted.kind).toBe('live_transition_accepted')
+    if (accepted.kind === 'rejected') throw new Error(accepted.rejectionReason)
+    expect(accepted.checkpoint.turnState.phase).toBe('working')
+    // The whole symptom was this staying null while the agent worked.
+    expect(accepted.checkpoint.lastLiveReceiptAt).not.toBeNull()
+  })
+
+  // The question/permission path is the reason this matters most: needs_user rides
+  // the same gate, so a frozen session could not report that it was waiting on a human.
+  it('revives on a permission request so a waiting agent still surfaces [POD-593]', async () => {
+    const causal = observer()
+    causal.bootstrap()
+    expect(
+      await causal.observeHook(
+        hook('PermissionRequest', { prompt_id: 'live-turn', tool_name: 'Bash' }),
+        110,
+      ),
+    ).toMatchObject({
+      transitionKind: 'turn_opened',
+      turnEpoch: 1,
+      nextPhase: 'needs_user',
+      state: { need: { kind: 'permission', summary: 'Bash' } },
+    })
+  })
+
+  // Revival must not become a back door around the absorbing terminal: the
+  // discriminator is whether the hook names a turn OTHER than the one that closed.
+  it('refuses to revive on stragglers from the turn terminal already closed [POD-593]', async () => {
+    const causal = observer()
+    causal.bootstrap()
+    await causal.observeHook(hook('UserPromptSubmit', { prompt_id: 'p1' }), 110)
+    expect(await causal.observeHook(hook('Stop', { prompt_id: 'p1' }), 120)).not.toBeNull()
+    // Same turn → still absorbed.
+    expect(
+      await causal.observeHook(hook('PostToolUse', { prompt_id: 'p1', tool_use_id: 't' }), 130),
+    ).toBeNull()
+    // Unattributable → cannot prove a new turn, still absorbed.
+    expect(
+      await causal.observeHook(hook('PostToolUse', { tool_use_id: 'anon' }), 140),
+    ).toBeNull()
+    // A terminal hook must never open a turn, however it is labelled.
+    expect(await causal.observeHook(hook('Stop', { prompt_id: 'p2' }), 150)).toBeNull()
+    // A genuinely different turn → revived.
+    expect(
+      await causal.observeHook(hook('PostToolUse', { prompt_id: 'p2', tool_use_id: 't2' }), 160),
+    ).toMatchObject({ transitionKind: 'turn_opened', turnEpoch: 2, providerPromptId: 'p2' })
+  })
+
   it('opens epochs only on exact-session provider-confirmed prompts and preserves input origins', async () => {
     const causal = observer({ ...idle, idle: { kind: 'done' as const } })
     causal.bootstrap()

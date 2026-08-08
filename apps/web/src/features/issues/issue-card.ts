@@ -3,13 +3,12 @@ import type { IssueStage } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import type { IssueViewModel } from '@/app/store'
 
-export const STAGE_LABELS: Record<IssueStage, string> = { ...ISSUE_STAGE_LABELS }
+// Pure label helpers live in lib so non-issues features can use them without a
+// cross-feature import (features.structure.test.ts). Re-export for issue-local
+// call sites that already import from this module.
+export { issueIdTitle, issueRefLabel, issueRefLong } from '@/lib/issue-labels'
 
-/** The ref/label formatters now live in `@/lib/issue-label` — they are pure
- *  string helpers and other features (merge-queue) need them without importing
- *  across the feature boundary. Re-exported here only for the call sites that
- *  still reach through this module; import from `@/lib/issue-label` in new code. */
-export { issueIdTitle, issueRefLabel, issueRefLong } from '@/lib/issue-label'
+export const STAGE_LABELS: Record<IssueStage, string> = { ...ISSUE_STAGE_LABELS }
 
 export function issueCardModel(issue: IssueViewModel): {
   title: string

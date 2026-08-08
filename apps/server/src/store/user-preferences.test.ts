@@ -25,10 +25,9 @@
 
 import { asUserId, FIRST_ADMIN_USER_ID, type UserId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
-import { openDatabase } from '@podium/runtime/sqlite'
+import type { openDatabase } from '@podium/runtime/sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { runDrizzleMigrations } from '../migrations'
-import { DRIZZLE_MIGRATIONS } from '../migrations/drizzle-manifest.generated'
+import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { SettingsRepository } from './settings'
 
 /** The second person. POD-315 mints real accounts; the storage is keyed for them
@@ -43,8 +42,7 @@ let settings: SettingsRepository
 let db: ReturnType<typeof openDatabase>
 
 beforeEach(() => {
-  db = openDatabase(':memory:')
-  runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+  db = openMigratedTestDatabase()
   settings = new SettingsRepository(db)
 })
 

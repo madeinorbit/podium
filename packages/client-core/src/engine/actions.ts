@@ -146,6 +146,11 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
     sessionId: SessionId
     issueId: IssueId
   }
+  /**
+   * Hold a first chat send until an optimistic spawn's create has reconciled
+   * (or rolled back). See OptimismLedger.waitForSpawnConfirmed (POD-546).
+   */
+  waitForSpawnConfirmed(sessionId: SessionId): Promise<void>
   setSessionDraft(sessionId: SessionId, text: string): void
   /** Re-read the signed-in user's superagent threads. A NAMED refresh, replacing
    *  the `superRefreshKey` counter the view used to watch: a counter says only
@@ -458,6 +463,10 @@ export function createEngineActions<TApi extends PodiumClientApi>(
       }
     },
     resumeAndSend: async (sessionId, text) => {
+      // Optimistic spawn paints the session id before the server has it. A send
+      // in that window dead-letters as "unknown session" and used to be treated
+      // as applied — the prompt never reached the agent (POD-546).
+      await rt.waitForSpawnConfirmed(sessionId)
       await rt.outbox.enqueue('resumeAndSend', { sessionId, text })
     },
     renameSession: async (sessionId, name) => rt.enqueueOverlayed('rename', { sessionId, name }),

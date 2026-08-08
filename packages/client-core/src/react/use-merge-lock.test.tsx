@@ -26,6 +26,8 @@ const LOCK: LockWire = {
     sessionId: asSessionId('sess_holder'),
     issueId: asIssueId('iss_holder'),
     label: 'issue:#41',
+    alive: true,
+    workspace: '/wt/holder',
   },
   note: 'landing',
   acquiredAt: '2026-08-06T12:00:00.000Z',
@@ -38,6 +40,8 @@ const LOCK: LockWire = {
       issueId: asIssueId('iss_first'),
       label: 'issue:#42',
       enqueuedAt: '2026-08-06T12:00:10.000Z',
+      alive: true,
+      workspace: '/wt/first',
     },
     {
       position: 2,
@@ -45,6 +49,8 @@ const LOCK: LockWire = {
       issueId: asIssueId('iss_second'),
       label: 'issue:#43',
       enqueuedAt: '2026-08-06T12:00:20.000Z',
+      alive: false,
+      workspace: null,
     },
   ],
 }

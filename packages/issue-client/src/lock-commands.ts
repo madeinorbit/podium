@@ -39,13 +39,38 @@ type AcquireWire = LockAcquireResultWire
 
 const fmtSeconds = (s: number): string => (s >= 60 ? `${Math.floor(s / 60)}m${s % 60}s` : `${s}s`)
 
+/**
+ * Addressable principal line: session id first (what cancel/mail need), issue
+ * label second, live workspace third (shared-checkout collisions). Liveness is
+ * always printed so dead waiters are not mistaken for live ones (status does
+ * not prune; advanceQueue does).
+ */
+function principalLine(p: {
+  sessionId: string | null
+  label: string
+  alive: boolean
+  workspace?: string | null
+}): string {
+  const who =
+    p.sessionId != null && p.sessionId !== ''
+      ? `${p.sessionId} on ${p.label}`
+      : p.label
+  const ws =
+    p.workspace != null && p.workspace !== '' ? ` workspace ${p.workspace}` : ''
+  return `${who}${ws} [${p.alive ? 'alive' : 'dead'}]`
+}
+
 function holderLine(l: LockWire): string {
-  return `held by ${l.holder.label}${l.note ? ` (${l.note})` : ''}, expires in ${fmtSeconds(l.secondsLeft)}`
+  return `held by ${principalLine(l.holder)}${l.note ? ` (${l.note})` : ''}, expires in ${fmtSeconds(l.secondsLeft)}`
+}
+
+function queueLine(w: QueueEntryWire): string {
+  return `  ${w.position}. ${principalLine(w)} (since ${w.enqueuedAt})`
 }
 
 function renderStatus(l: LockWire): string {
   const queue = l.queue.length
-    ? `\nqueue:\n${l.queue.map((w) => `  ${w.position}. ${w.label} (since ${w.enqueuedAt})`).join('\n')}`
+    ? `\nqueue:\n${l.queue.map((w) => queueLine(w)).join('\n')}`
     : ''
   return `'${l.name}' ${holderLine(l)} (acquired ${l.acquiredAt})${queue}`
 }
@@ -63,7 +88,7 @@ export const LOCK_COMMANDS: IssueCommand[] = [
   {
     name: 'acquire',
     summary:
-      'Acquire (or renew) a named lease lock: acquire <name> [--ttl 10m] [--note "…"] [--wait [--timeout 300]]. Queued if held by someone else.',
+      'Acquire (or renew) a named lease lock: acquire <name> [--ttl 10m] [--note "…"] [--wait [--timeout 300]] [--allow-sibling]. Queued if held by someone else. Refuses when another session on the same issue or shared worktree already holds or is queued (pass --allow-sibling to override).',
     args: z.object({
       ...nameArg,
       ...repoArg,
@@ -71,6 +96,7 @@ export const LOCK_COMMANDS: IssueCommand[] = [
       note: z.string().optional(),
       wait: z.boolean().optional(),
       timeout: z.union([z.string(), z.number()]).optional(),
+      allowSibling: z.boolean().optional(),
     }),
     positionals: ['name'],
     async run(c, a): Promise<IssueCommandResult> {
@@ -79,6 +105,7 @@ export const LOCK_COMMANDS: IssueCommand[] = [
         name: a.name as string,
         ...(ttlSeconds(a) != null ? { ttlSeconds: ttlSeconds(a) } : {}),
         ...(a.note != null ? { note: a.note as string } : {}),
+        ...(a.allowSibling === true ? { allowSibling: true } : {}),
       })) as AcquireWire
       if (r.granted) {
         return {
@@ -119,7 +146,7 @@ export const LOCK_COMMANDS: IssueCommand[] = [
         name: a.name as string,
       })) as { released: true; next: HolderWire | null }
       return {
-        text: `released '${a.name}'${r.next ? `; granted to ${r.next.label}` : ''}`,
+        text: `released '${a.name}'${r.next ? `; granted to ${principalLine(r.next)}` : ''}`,
         data: r,
       }
     },
@@ -175,7 +202,7 @@ export const LOCK_COMMANDS: IssueCommand[] = [
       })) as { lock: LockWire; previousHolder: HolderWire | null }
       return {
         text: r.previousHolder
-          ? `stole '${r.lock.name}' from ${r.previousHolder.label} (expires in ${fmtSeconds(r.lock.secondsLeft)})`
+          ? `stole '${r.lock.name}' from ${principalLine(r.previousHolder)} (expires in ${fmtSeconds(r.lock.secondsLeft)})`
           : `acquired '${r.lock.name}' (was free; expires in ${fmtSeconds(r.lock.secondsLeft)})`,
         data: r,
       }

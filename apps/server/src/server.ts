@@ -421,6 +421,9 @@ export async function startServer(
       issues: registry.modules.issues,
       sessions: registry.modules.sessions,
       automations: registry.modules.automations,
+      // Read per handshake, never captured: a settings flip must reach the next
+      // lease, not wait for a server restart (POD-564).
+      worktreeGcPolicy: () => store.settings.getSettings().worktreeGc,
       liveSessionIds: () =>
         new Set(
           registry.modules.sessions
@@ -568,7 +571,16 @@ export async function startServer(
     expoMobilePresent: () => mobileIndex !== '' && existsSync(mobileIndex),
     redirectPhoneRoot: opts.redirectPhoneRootToMobile ?? true,
   })
-  if (mobileWebDir) registerWebStatic(app, mobileWebDir, { basePath: '/mobile', lazy: true })
+  // crossOriginIsolated: expo-sqlite web needs SharedArrayBuffer for durable
+  // OPFS persistence (POD-541). Without these headers the replica degrades to
+  // in-memory and offline deep links paint "Task not found."
+  if (mobileWebDir) {
+    registerWebStatic(app, mobileWebDir, {
+      basePath: '/mobile',
+      lazy: true,
+      crossOriginIsolated: true,
+    })
+  }
 
   let webDir = process.env.PODIUM_WEB_DIR
   if (!webDir) {

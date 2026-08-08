@@ -4,7 +4,7 @@ import { Check, Inbox, Play, RotateCcw, SkipForward, X } from 'lucide-react-nati
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { useConnected, useIssues, useTrpc } from '../client/hooks'
+import { useBooting, useIssues, useTrpc } from '../client/hooks'
 import { Icon } from '../components/Icon'
 import { PressableScale } from '../components/PressableScale'
 import { Screen } from '../components/Screen'
@@ -56,7 +56,7 @@ export function ProposalScreeningScreen() {
   const router = useRouter()
   const issues = useIssues()
   const trpc = useTrpc()
-  const connected = useConnected()
+  const booting = useBooting()
   const issueById = useCallback((id: string) => issues.find((issue) => issue.id === id), [issues])
   const insets = useSafeAreaInsets()
   const [deck, setDeck] = useState<Deck>(() => ({
@@ -144,7 +144,6 @@ export function ProposalScreeningScreen() {
   )
   // The store paints from the local replica first; an empty board while the
   // socket is still down is "not loaded yet", not "nothing to screen".
-  const booting = issues.length === 0 && !connected
   const failure = failures[failures.length - 1]
 
   const body = (() => {

@@ -22,12 +22,26 @@ export interface UsageSummaryView {
 }
 
 // Per-MTok API list prices (approximate; used as the "what this would have cost
-// off-subscription" equivalence). Cache reads bill at 10% of input; cache
-// writes at 125%. Substring matching keeps new model ids in the right family.
+// off-subscription" equivalence). Cache reads bill at 10% of input on both
+// providers; cache writes at 125% (Anthropic — OpenAI doesn't bill them, and
+// Codex reports the field as 0, so the term vanishes on its own).
+//
+// Substring matching keeps new model ids in the right family, which is what
+// makes this table survive a release: `gpt-5.6-sol` and `gpt-5-codex` both land
+// on the gpt-5 row. ORDER IS SIGNIFICANT — first match wins, so a narrower id
+// has to precede the family it belongs to, or `gpt-5-mini` bills as `gpt-5`.
 const PRICING: { match: string; inPerM: number; outPerM: number }[] = [
   { match: 'opus', inPerM: 15, outPerM: 75 },
   { match: 'sonnet', inPerM: 3, outPerM: 15 },
   { match: 'haiku', inPerM: 1, outPerM: 5 },
+  { match: 'gpt-5-nano', inPerM: 0.05, outPerM: 0.4 },
+  { match: 'gpt-5-mini', inPerM: 0.25, outPerM: 2 },
+  { match: 'gpt-5', inPerM: 1.25, outPerM: 10 },
+  // Codex's own model ids don't all carry the family name: its guardian
+  // subagent bills as `codex-auto-review`, which without this row landed on the
+  // Sonnet-priced fallback — 2.4x its likely rate, on a real share of the
+  // machine's Codex traffic.
+  { match: 'codex', inPerM: 1.25, outPerM: 10 },
 ]
 const DEFAULT_PRICING = { inPerM: 3, outPerM: 15 }
 

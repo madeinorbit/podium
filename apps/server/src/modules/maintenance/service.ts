@@ -25,6 +25,7 @@ import {
   messageExpiryRunKey,
   sessionAutoArchiveRunKey,
   stewardPollRunKey,
+  worktreeGcRunKey,
 } from '@podium/protocol'
 import type { SessionStore } from '../../store'
 import type { MessageRow } from '../../store/types'
@@ -43,7 +44,7 @@ export interface MaintenanceServiceOptions {
   now?: () => number
   leaseTtlMs?: number
   /** Optional until issue auto-archive migrates; tests may omit. */
-  issues?: Pick<IssueService, 'tryAutoArchiveObserved'>
+  issues?: Pick<IssueService, 'tryAutoArchiveObserved' | 'tryWorktreeGcObserved'>
   sessions?: {
     tryAutoArchiveStoppedObserved(
       observed: Extract<MaintenanceCommand, { jobKind: 'session-auto-archive' }>['observed'],
@@ -51,6 +52,10 @@ export interface MaintenanceServiceOptions {
     ): 'applied' | 'precondition' | 'not-due'
   }
   automations?: Pick<AutomationsService, 'applyObservedOccurrence'>
+  /** The worktree-GC policy as settings have it — read fresh on every handshake
+   *  and again inside every apply, never cached on this service. Absent means
+   *  the sweep is not wired here, which reads to the janitor as `off`. */
+  worktreeGcPolicy?: () => { mode: 'off' | 'propose' | 'auto'; afterDays: number }
   liveSessionIds?: () => Set<string>
   /** Steward poll: deliveries durable before cursor advance. */
   stewardTick?: () => void | Promise<void>
@@ -70,6 +75,7 @@ export class MaintenanceService {
   private readonly issues: MaintenanceServiceOptions['issues']
   private readonly sessions: MaintenanceServiceOptions['sessions']
   private readonly automations: MaintenanceServiceOptions['automations']
+  private readonly worktreeGcPolicy: () => { mode: 'off' | 'propose' | 'auto'; afterDays: number }
   private readonly liveSessionIds: () => Set<string>
   private readonly stewardTick: MaintenanceServiceOptions['stewardTick']
   private readonly connectScan: MaintenanceServiceOptions['connectScan']
@@ -85,6 +91,7 @@ export class MaintenanceService {
     this.issues = options.issues
     this.sessions = options.sessions
     this.automations = options.automations
+    this.worktreeGcPolicy = options.worktreeGcPolicy ?? (() => ({ mode: 'off', afterDays: 14 }))
     this.liveSessionIds = options.liveSessionIds ?? (() => new Set())
     this.stewardTick = options.stewardTick
     this.connectScan = options.connectScan
@@ -103,6 +110,7 @@ export class MaintenanceService {
       }
     }
 
+    const policy = this.worktreeGcPolicy()
     return this.write(() => {
       const nowMs = this.now()
       const now = new Date(nowMs).toISOString()
@@ -136,6 +144,10 @@ export class MaintenanceService {
         changeKeepRows: CHANGE_KEEP_ROWS,
         changeMaxAgeMs: CHANGE_MAX_AGE_MS,
         maintenanceCommandMaxAgeMs: MAINTENANCE_COMMAND_MAX_AGE_MS,
+        // Settings, not a constant: the janitor gets the policy WITH the lease
+        // so a flip takes effect on the next handshake (POD-564).
+        worktreeGcMode: policy.mode,
+        worktreeGcAfterDays: policy.afterDays,
       }
     })
   }
@@ -153,7 +165,8 @@ export class MaintenanceService {
     if (
       command.jobKind === 'automation-fire' ||
       command.jobKind === 'steward-poll' ||
-      command.jobKind === 'connect-scan'
+      command.jobKind === 'connect-scan' ||
+      command.jobKind === 'worktree-gc'
     ) {
       const gate = this.write(() => this.gateCommand(command))
       if (gate) return gate
@@ -163,6 +176,9 @@ export class MaintenanceService {
       }
       if (command.jobKind === 'steward-poll') {
         return await this.applyStewardPoll(command)
+      }
+      if (command.jobKind === 'worktree-gc') {
+        return await this.applyWorktreeGc(command, nowMs)
       }
       return this.applyConnectScan(command, nowMs)
     }
@@ -387,6 +403,46 @@ export class MaintenanceService {
       new Date(nowMs).toISOString(),
     )
     return applied
+  }
+
+  /**
+   * Free (or, under `propose`, only record) one reclaimable checkout (POD-564).
+   *
+   * A SIDE-EFFECTING job: the release runs git through the daemon, so it cannot
+   * sit inside the SQLite transaction — fence first, act outside, re-fence
+   * before recording, exactly as automation-fire and steward-poll do.
+   *
+   * A REFUSAL IS AN APPLIED OCCURRENCE, not a stale one, and that is a decision
+   * worth naming. A dirty worktree is refused every time it is asked, so
+   * retrying it each tick would emit `issue.worktree_free_refused` twice a
+   * minute forever. Recording it consumes the occurrence: the refusal is in the
+   * log once, the directory is untouched, and the next sweep re-asks after the
+   * command row ages out of `maintenance_commands` retention — or immediately,
+   * under a new runKey, if the issue is reopened and re-closed. What did NOT
+   * happen is reported by the caller's own event, never by a status that says
+   * the disk was reclaimed.
+   */
+  private async applyWorktreeGc(
+    command: Extract<MaintenanceCommand, { jobKind: 'worktree-gc' }>,
+    nowMs: number,
+  ): Promise<MaintenanceCommandReply> {
+    const observed = command.observed
+    if (worktreeGcRunKey(observed) !== command.runKey) {
+      return this.stale(command, 'invalid-run-key')
+    }
+    if (!this.issues) return this.stale(command, 'precondition')
+    const result = await this.issues.tryWorktreeGcObserved(
+      observed,
+      nowMs,
+      systemPrincipal('expiry'),
+    )
+    if (result.outcome === 'not-due') return this.stale(command, 'not-due')
+    if (result.outcome === 'precondition') return this.stale(command, 'precondition')
+    return this.recordIfStillFenced(command, {
+      status: 'applied',
+      jobKind: command.jobKind,
+      runKey: command.runKey,
+    })
   }
 
   /**

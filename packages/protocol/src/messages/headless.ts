@@ -9,6 +9,14 @@ import { z } from 'zod'
 // frames live below; the event schemas are defined first because the
 // server→web activity frame joins the ServerMessage union.
 
+const HeadlessHarnessSessionFields = z.object({
+  /** The harness's own session id (resume value for the next turn).
+   *  UNBRANDED BY DECISION: harness-minted, so it names the harness's id space
+   *  and not Podium's `SessionId` — see `ids/brands.ts`, which lists a resume
+   *  ref among the ids that must stay raw. */
+  harnessSessionId: z.string().optional(),
+})
+
 /** Mid-turn progress from the daemon driver: cumulative partial assistant text
  *  (claude/codex only) or a coarse status change. Small on purpose — the real
  *  transcript items arrive via the transcript tail; these only animate the turn. */
@@ -25,10 +33,7 @@ export const HeadlessTurnEvent = z.discriminatedUnion('kind', [
     status: z.enum(['starting', 'running', 'tool']),
     /** Human label (e.g. the tool name) for status 'tool'. */
     label: z.string().optional(),
-    /** A stream-captured native session id. First-turn Codex/OpenCode drivers
-     *  publish this as soon as the harness reports it so the daemon can bind
-     *  the canonical transcript tail before the turn completes. */
-    harnessSessionId: z.string().optional(),
+    ...HeadlessHarnessSessionFields.shape,
   }),
 ])
 export type HeadlessTurnEvent = z.infer<typeof HeadlessTurnEvent>
@@ -112,11 +117,7 @@ export const HeadlessTurnResultMessage = z.object({
   requestId: z.string(),
   ok: z.boolean(),
   error: z.string().optional(),
-  /** The harness's own session id (resume value for the next turn).
-   *  UNBRANDED BY DECISION: harness-minted, so it names the harness's id space
-   *  and not Podium's `SessionId` — see `ids/brands.ts`, which lists a resume
-   *  ref among the ids that must stay raw. */
-  harnessSessionId: z.string().optional(),
+  ...HeadlessHarnessSessionFields.shape,
   /** Final assistant text — durability/fallback; the transcript tail is canonical. */
   output: z.string().optional(),
 })

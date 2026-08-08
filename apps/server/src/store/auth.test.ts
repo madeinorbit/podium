@@ -1,14 +1,12 @@
 import { FIRST_ADMIN_USER_ID } from '@podium/model'
-import { openDatabase } from '@podium/runtime/sqlite'
 import { beforeEach, expect, it } from 'vitest'
-import { applyBaselineSchema } from '../migrations'
+import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { AuthRepository } from './auth'
 
 let repo: AuthRepository
 
 beforeEach(() => {
-  const db = openDatabase(':memory:')
-  applyBaselineSchema(db)
+  const db = openMigratedTestDatabase()
   repo = new AuthRepository(db)
 })
 

@@ -8,6 +8,7 @@
  */
 
 import {
+  isIssueClosed,
   isIssueColorSlot,
   type IssueId,
   IssueStage,
@@ -344,6 +345,38 @@ export class IssuesRepository {
         deletedAt: (r.deleted_at as string | null | undefined) ?? null,
         archived: !!r.archived,
       })
+    }
+    return out
+  }
+
+  /**
+   * The FINISHED-WORK PROJECTION — two columns, no row mapping.
+   *
+   * The auto-hibernate sweep orders its candidates by whether the work they sit
+   * on is finished (POD-568), which it asks once per host sample. Answering that
+   * with `getIssues()` would be `SELECT *` plus `mapIssueRow`'s JSON parses over
+   * every issue a live session touches, on a five-second path — the exact cost
+   * {@link listIssueCwdRows} exists to have removed.
+   *
+   * Only `stage` and `closed_reason` are read, and the predicate itself stays
+   * {@link isIssueClosed}'s so there is one definition of finished. Deleted rows
+   * count as closed: a session on a tombstoned issue is at least as reapable as
+   * one on a done issue, and quarantining it would order it BELOW live work.
+   */
+  closedIssueIds(): Set<string> {
+    const rows = this.db
+      .prepare('SELECT id, stage, closed_reason, deleted_at FROM issues')
+      .all() as Record<string, unknown>[]
+    const out = new Set<string>()
+    for (const r of rows) {
+      if (typeof r.id !== 'string') continue
+      const closed =
+        r.deleted_at != null ||
+        isIssueClosed({
+          stage: typeof r.stage === 'string' ? r.stage : '',
+          closedReason: (r.closed_reason as string | null | undefined) ?? null,
+        })
+      if (closed) out.add(r.id)
     }
     return out
   }

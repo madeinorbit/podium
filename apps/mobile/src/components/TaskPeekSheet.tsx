@@ -25,12 +25,15 @@ export function TaskPeekSheet({
   session,
   sessions = [],
   onClose,
+  onToggleTodo,
 }: {
   issue: IssueNavigationModel | null
   /** When opened from a session context, "Open session" targets it. */
   session?: SessionMeta
   sessions?: readonly SessionMeta[]
   onClose: () => void
+  /** The session chat supplies this so the plan bridge is checkable in-place. */
+  onToggleTodo?: (index1: number, done: boolean) => void
 }) {
   const router = useRouter()
   const pathname = usePathname()
@@ -54,6 +57,8 @@ export function TaskPeekSheet({
     .map((s) => s.offer)
     .sort((a, b) => (b?.createdAt ?? '').localeCompare(a?.createdAt ?? ''))[0]
   const artifactCount = issue.panel?.artifacts?.length ?? 0
+  const todos = issue.panel?.todos ?? []
+  const doneTodos = todos.filter((todo) => todo.done).length
   const branch = issue.branch ?? undefined
 
   return (
@@ -96,6 +101,42 @@ export function TaskPeekSheet({
               {issue.description.trim()}
             </Text>
           </ScrollView>
+        ) : null}
+        {todos.length > 0 ? (
+          <View style={styles.plan}>
+            <View style={styles.planHead}>
+              <Text style={styles.planLabel}>PLAN</Text>
+              <Text style={styles.planCount}>
+                {doneTodos}/{todos.length}
+              </Text>
+            </View>
+            <View style={styles.progressTrack}>
+              <View
+                style={[styles.progressFill, { width: `${(doneTodos / todos.length) * 100}%` }]}
+              />
+            </View>
+            <ScrollView style={styles.todoList} nestedScrollEnabled>
+              {todos.map((todo, index) => (
+                <PressableScale
+                  // biome-ignore lint/suspicious/noArrayIndexKey: issue todos are positional; the mutation API addresses this exact 1-based index.
+                  key={`${index}:${todo.text}`}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: todo.done, disabled: !onToggleTodo }}
+                  accessibilityLabel={todo.text}
+                  disabled={!onToggleTodo}
+                  onPress={() => onToggleTodo?.(index + 1, !todo.done)}
+                  style={({ pressed }) => [styles.todo, pressed && styles.todoPressed]}
+                >
+                  <Text style={[styles.todoCheck, todo.done && styles.todoCheckDone]}>
+                    {todo.done ? '✓' : '○'}
+                  </Text>
+                  <Text style={[styles.todoText, todo.done && styles.todoTextDone]}>
+                    {todo.text}
+                  </Text>
+                </PressableScale>
+              ))}
+            </ScrollView>
+          </View>
         ) : null}
         {artifactCount > 0 ? (
           <Text
@@ -204,6 +245,68 @@ const styles = StyleSheet.create({
     ...mono(400),
     color: color.textFaint,
     fontSize: font.micro,
+  },
+  plan: {
+    gap: space.xs + 1,
+  },
+  planHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  planLabel: {
+    ...monoLabel(),
+    color: color.textFaint,
+  },
+  planCount: {
+    ...mono(500),
+    marginLeft: 'auto',
+    color: color.textDim,
+    fontSize: font.micro,
+  },
+  progressTrack: {
+    height: 3,
+    overflow: 'hidden',
+    borderRadius: radius.full,
+    backgroundColor: color.elevated,
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: radius.full,
+    backgroundColor: color.success,
+  },
+  todoList: {
+    maxHeight: 150,
+  },
+  todo: {
+    minHeight: 34,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: space.sm,
+    paddingVertical: 6,
+    paddingHorizontal: 2,
+  },
+  todoPressed: {
+    opacity: 0.6,
+  },
+  todoCheck: {
+    ...mono(500),
+    width: 16,
+    color: color.textMicro,
+    fontSize: font.small,
+  },
+  todoCheckDone: {
+    color: color.success,
+  },
+  todoText: {
+    ...sans(400),
+    flex: 1,
+    color: color.body,
+    fontSize: font.small,
+    lineHeight: leading(font.small, 'prose'),
+  },
+  todoTextDone: {
+    color: color.textFaint,
+    textDecorationLine: 'line-through',
   },
   actions: {
     flexDirection: 'row',

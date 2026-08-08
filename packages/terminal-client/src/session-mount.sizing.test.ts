@@ -133,7 +133,9 @@ function fakeHub() {
     requestControl: () => {
       calls.requestControl += 1
     },
-    redraw: () => {},
+    redraw: () => {
+      calls.redraw += 1
+    },
     state: () => current,
   }
   const hub = {
@@ -261,6 +263,16 @@ describe('mountSession eligibility-gated sizing', () => {
 
     expect(calls.requestControl, 'already-controller phone needs no takeover').toBe(0)
     expect(calls.resize.at(-1)).toEqual([150, 50])
+    expect(calls.redraw, 'soft-nudge so alt-screen TUIs fully repaint after phone fit').toBeGreaterThanOrEqual(1)
+    // Local xterm stays on the server grid until geometry acks — optimistic
+    // phone-grid resize would reflow attach-replay frames into shredded TUI
+    // fragments (mobile Grok/Claude). Crop-and-pan holds until the PTY moves.
+    expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
+      cols: 80,
+      rows: 24,
+    })
+
+    state(150, 50, 'controller') // server applied the phone viewport
     expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
       cols: 150,
       rows: 50,

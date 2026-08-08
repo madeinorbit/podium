@@ -57,8 +57,102 @@ describe('codexRecordToItems', () => {
         arguments: '{"cmd":"ls -la"}',
       }),
     )
-    expect(items[0]).toMatchObject({ role: 'tool', toolName: 'exec_command', toolUseId: 'call_1' })
-    expect(items[0]?.toolInput).toContain('ls -la')
+    expect(items[0]).toMatchObject({
+      role: 'tool',
+      toolName: 'Bash',
+      toolInput: 'ls -la',
+      toolUseId: 'call_1',
+    })
+  })
+
+  it('unwraps unified exec calls into the command the reader cares about', () => {
+    const items = codexRecordToItems(
+      env('response_item', {
+        type: 'custom_tool_call',
+        name: 'exec',
+        call_id: 'call_exec',
+        input:
+          'const r = await tools.exec_command({"cmd":"bun run test:web","workdir":"/repo"}); text(r.output);',
+      }),
+    )
+
+    expect(items[0]).toMatchObject({
+      role: 'tool',
+      toolName: 'Bash',
+      toolInput: 'bun run test:web',
+      toolUseId: 'call_exec',
+    })
+  })
+
+  it('does not mistake tool names inside a command string for nested calls', () => {
+    const items = codexRecordToItems(
+      env('response_item', {
+        type: 'custom_tool_call',
+        name: 'exec',
+        input:
+          'const r = await tools.exec_command({"cmd":"rg -n \\"tools.apply_patch(\\" packages"}); text(r.output);',
+      }),
+    )
+
+    expect(items[0]).toMatchObject({
+      toolName: 'Bash',
+      toolInput: 'rg -n "tools.apply_patch(" packages',
+    })
+  })
+
+  it('names a wrapped patch by the files it changes', () => {
+    const patch =
+      '*** Begin Patch\n*** Update File: packages/transcript/src/codex.ts\n@@\n-old\n+new\n*** End Patch'
+    const items = codexRecordToItems(
+      env('response_item', {
+        type: 'custom_tool_call',
+        name: 'exec',
+        call_id: 'call_patch',
+        input: `const patch = ${JSON.stringify(patch)}; text(await tools.apply_patch(patch));`,
+      }),
+    )
+
+    expect(items[0]).toMatchObject({
+      role: 'tool',
+      toolName: 'Edit',
+      toolInput: 'packages/transcript/src/codex.ts',
+      toolPaths: ['packages/transcript/src/codex.ts'],
+    })
+  })
+
+  it('describes command polling and multi-tool orchestration without saying exec', () => {
+    const poll = codexRecordToItems(
+      env('response_item', {
+        type: 'custom_tool_call',
+        name: 'exec',
+        input:
+          'let { output } = await tools.write_stdin({"session_id":6663,"chars":""}); text(output);',
+      }),
+    )
+    const parallel = codexRecordToItems(
+      env('response_item', {
+        type: 'custom_tool_call',
+        name: 'exec',
+        input:
+          'const rs = await Promise.all([tools.exec_command({"cmd":"bun test"}), tools.exec_command({"cmd":"bun run typecheck"})]); text(rs.length);',
+      }),
+    )
+
+    expect(poll[0]).toMatchObject({ toolName: 'Bash', toolInput: 'command session 6663' })
+    expect(parallel[0]).toMatchObject({ toolName: 'Workflow', toolTitle: '2 commands' })
+  })
+
+  it('keeps unrecognized exec scripts quiet without exposing their JavaScript', () => {
+    const items = codexRecordToItems(
+      env('response_item', {
+        type: 'custom_tool_call',
+        name: 'exec',
+        input: 'for (;;) { break }',
+      }),
+    )
+
+    expect(items[0]).toMatchObject({ toolName: 'Workflow', toolTitle: 'automation' })
+    expect(items[0]?.toolInput).toBeUndefined()
   })
 
   it('maps function_call_output to a tool-result item paired by call_id', () => {

@@ -4,7 +4,7 @@
  * single reusable RoleBackendEditor (SP-6454 B3) used by the sessions,
  * superagent, and background-LLM tabs. Extracted verbatim from SettingsView.tsx.
  */
-import { type AccountId, asAccountId, type MachineId, type SessionId } from '@podium/model'
+import { type AccountId, asAccountId, type MachineId, type SessionMeta } from '@podium/model'
 import type { ApiProvider, HarnessAgent, RoleBackend } from '@podium/runtime'
 import type { JSX } from 'react'
 import { Input } from '@/components/ui/input'
@@ -104,13 +104,11 @@ export interface AccountView {
   credentialSource?: 'stored' | 'legacy'
   loginRequired?: boolean
   loginMachines?: { id: MachineId; name: string }[]
-  loginAttempt?: {
-    sessionId: SessionId
-    machineId: MachineId
-    machineName: string
-    status: 'running' | 'refreshing' | 'succeeded' | 'failed'
-    error?: string
-  }
+  loginAttempt?: Pick<SessionMeta, 'sessionId'> &
+    Required<Pick<SessionMeta, 'machineId' | 'machineName'>> & {
+      status: 'running' | 'refreshing' | 'succeeded' | 'failed'
+      error?: string
+    }
 }
 
 export function providerLabel(p: ApiProvider): string {
@@ -140,6 +138,12 @@ export function harnessAgentLabel(agent: HarnessAgent): string {
 
 export function clampInt(raw: string, min: number, max: number, fallback: number): number {
   const n = Number.parseInt(raw, 10)
+  if (Number.isNaN(n)) return fallback
+  return Math.min(max, Math.max(min, n))
+}
+
+export function clampNumber(raw: string, min: number, max: number, fallback: number): number {
+  const n = Number.parseFloat(raw)
   if (Number.isNaN(n)) return fallback
   return Math.min(max, Math.max(min, n))
 }

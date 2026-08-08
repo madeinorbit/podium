@@ -1,25 +1,9 @@
-import { fileURLToPath } from 'node:url'
-import { defineConfig } from 'vitest/config'
-import { sharedVitestConfig } from '../../vitest.config'
-import { normalizedWireTests } from '../../vitest.unit.config'
-
-const repositoryRoot = fileURLToPath(new URL('../../', import.meta.url))
+import { createServerShardConfig } from './vitest.shard'
 
 /**
- * The server's normalized-wire pair is intentionally serialized after its regular unit
- * files. Keep it in the server package task so it is cached with the owner while retaining
- * the root lane's one-worker load guard.
+ * The server's normalized-wire pair, as its own cache unit. It stays IN the default gate
+ * and keeps the root lane's one-worker load guard — see `createServerShardConfig`, which
+ * serializes this shard specifically. Sharding it means giving it an independent Turbo
+ * hash, never moving it out of `bun run test` or relaxing it.
  */
-export default defineConfig({
-  root: repositoryRoot,
-  resolve: sharedVitestConfig.resolve,
-  test: {
-    ...sharedVitestConfig.test,
-    name: 'normalized-wire',
-    include: normalizedWireTests,
-    passWithNoTests: false,
-    retry: 0,
-    fileParallelism: false,
-    maxWorkers: 1,
-  },
-})
+export default createServerShardConfig('normalized-wire')

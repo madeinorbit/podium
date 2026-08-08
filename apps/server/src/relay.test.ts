@@ -3215,7 +3215,14 @@ describe('hibernation', () => {
     const settings = store.settings.getSettings()
     store.settings.setSettings({
       ...settings,
-      hibernation: { enabled: true, memoryPct: 80, maxIdleSessions: null, idleMinutes: 1 },
+      hibernation: {
+        enabled: true,
+        memoryPct: 80,
+        loadPerCore: null,
+        maxIdleSessions: null,
+        idleMinutes: 1,
+        idleShellHours: null,
+      },
     })
     const sessionId = liveSession(reg, daemon)
     // Mark the agent idle, with activity old enough to pass the idle cutoff.
@@ -3258,7 +3265,14 @@ describe('hibernation', () => {
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     store.settings.setSettings({
       ...store.settings.getSettings(),
-      hibernation: { enabled: true, memoryPct: 80, maxIdleSessions: null, idleMinutes: 1 },
+      hibernation: {
+        enabled: true,
+        memoryPct: 80,
+        loadPerCore: null,
+        maxIdleSessions: null,
+        idleMinutes: 1,
+        idleShellHours: null,
+      },
     })
     const sessionId = liveSession(reg, daemon)
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -3293,7 +3307,14 @@ describe('hibernation', () => {
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     store.settings.setSettings({
       ...store.settings.getSettings(),
-      hibernation: { enabled: true, memoryPct: 80, maxIdleSessions: null, idleMinutes: 1 },
+      hibernation: {
+        enabled: true,
+        memoryPct: 80,
+        loadPerCore: null,
+        maxIdleSessions: null,
+        idleMinutes: 1,
+        idleShellHours: null,
+      },
     })
     const sessionId = liveSession(reg, daemon)
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {

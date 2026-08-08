@@ -738,7 +738,7 @@ describe('settings', () => {
     expect(s.roles.coding.accountId).toBe('') // '' = the role's default (claude-code)
     expect(s.roles.background.model).toBe('google/gemini-2.5-flash')
     expect(s.hibernation.memoryPct).toBe(80)
-    expect(s.hibernation.maxIdleSessions).toBe(30)
+    expect(s.hibernation.maxIdleSessions).toBe(8)
     store.close()
   })
 

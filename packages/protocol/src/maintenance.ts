@@ -22,8 +22,13 @@ import { z } from 'zod'
 // a v2 janitor's observation still PARSES under a permissive reader but means
 // something else, so the mismatch has to be refused at the handshake rather
 // than discovered as a silently empty sweep.
-export const MAINTENANCE_PROTOCOL_VERSION = 3
-export const MAINTENANCE_SCHEMA_VERSION = 'maintenance-v3'
+// v4 (POD-564): the `worktree-gc` job kind, and the two handshake fields that
+// carry its policy. Additive for an OLD janitor — it simply never sends the new
+// kind — but not for a NEW one: a v4 janitor's worktree-gc command fails a v3
+// server's `MaintenanceCommand` parse outright, which is a 400 rather than a
+// refusal with a reason. Same bump, same reason, as v2's session-auto-archive.
+export const MAINTENANCE_PROTOCOL_VERSION = 4
+export const MAINTENANCE_SCHEMA_VERSION = 'maintenance-v4'
 export const MESSAGE_WAIT_TTL_MS = 7 * 24 * 60 * 60_000
 
 /** Shared retention constants the janitor and server both honor. */
@@ -62,6 +67,18 @@ export const MaintenanceHandshakeReply = z.discriminatedUnion('status', [
     changeKeepRows: z.number().int().nonnegative(),
     changeMaxAgeMs: z.number().int().nonnegative(),
     maintenanceCommandMaxAgeMs: z.number().int().positive(),
+    /**
+     * The worktree-GC policy, as SETTINGS have it right now (POD-564) — not a
+     * protocol constant like every field above it, which is why it rides the
+     * lease rather than the janitor's own build.
+     *
+     * `off` is the janitor's instruction to not sweep at all; `propose` and
+     * `auto` both sweep, and the difference is what the SERVER does with the
+     * command. The janitor re-handshakes ahead of every lease expiry, so a
+     * settings flip is picked up within one lease TTL without a restart.
+     */
+    worktreeGcMode: z.enum(['off', 'propose', 'auto']),
+    worktreeGcAfterDays: z.number().int().positive(),
   }),
   z.object({
     status: z.literal('busy'),
@@ -201,6 +218,42 @@ export const SessionAutoArchiveObservation = z.object({
 })
 export type SessionAutoArchiveObservation = z.infer<typeof SessionAutoArchiveObservation>
 
+/**
+ * One reclaimable checkout on a finished issue (POD-564).
+ *
+ * Same declared-legitimate class as the two observations above: `deletedAt:
+ * z.null()` is a PRECONDITION the gate exists to refuse, not a restatement of
+ * the issue aggregate's field type, and the bounds are input bounds on a
+ * janitor-supplied payload.
+ *
+ * What is deliberately NOT a precondition here is `archived`. The archive seam
+ * (POD-567) frees the checkout on its way past, so an archived row that still
+ * has a `worktreePath` is one whose free was REFUSED — dirty tree, live session
+ * — or one archived before that seam existed. Those are exactly the directories
+ * this sweep is for, so gating them out would exclude its best candidates.
+ *
+ * `mode` and `afterDays` ride the wire for POD-1229's reason, and the stakes are
+ * higher here than they were for `readerUserId`: if the janitor believes `auto`
+ * and settings say `propose`, an unattended job deletes ~97 directories the
+ * operator asked to only be SHOWN. The server refuses any observation whose
+ * policy disagrees with the one it would apply, so a disagreement is a
+ * `precondition` with a reason rather than a silent over-reach in either
+ * direction.
+ */
+export const WorktreeGcObservation = z.object({
+  issueId: z.string().min(1).max(256).pipe(IssueIdField),
+  worktreePath: z.string().min(1).max(4096),
+  stage: z.string().min(1).max(64),
+  closedReason: z.string().nullable(),
+  /** The stable close anchor the age gate measures from — never `updatedAt`. */
+  closedAt: z.string().datetime(),
+  deletedAt: z.null(),
+  /** `off` never reaches the wire: it stops the sweep at the janitor. */
+  mode: z.enum(['propose', 'auto']),
+  afterDays: z.number().int().positive(),
+})
+export type WorktreeGcObservation = z.infer<typeof WorktreeGcObservation>
+
 /** One due automation occurrence. firedAt is the scheduled nextRunAt, not wall clock. */
 export const AutomationFireObservation = z.object({
   automationId: z.string().min(1).max(256).pipe(AutomationIdField),
@@ -302,6 +355,14 @@ const ConnectScanCommand = z.object({
   observed: ConnectScanObservation,
 })
 
+const WorktreeGcCommand = z.object({
+  ...VersionClaim,
+  jobKind: z.literal('worktree-gc'),
+  runKey: z.string().min(1).max(1024),
+  fencingToken: z.number().int().positive(),
+  observed: WorktreeGcObservation,
+})
+
 export const MaintenanceCommand = z.discriminatedUnion('jobKind', [
   MessageExpiryCommand,
   EventLogPruneCommand,
@@ -312,6 +373,7 @@ export const MaintenanceCommand = z.discriminatedUnion('jobKind', [
   AutomationFireCommand,
   StewardPollCommand,
   ConnectScanCommand,
+  WorktreeGcCommand,
 ])
 export type MaintenanceCommand = z.infer<typeof MaintenanceCommand>
 
@@ -325,6 +387,7 @@ export const MaintenanceJobKind = z.enum([
   'automation-fire',
   'steward-poll',
   'connect-scan',
+  'worktree-gc',
 ])
 export type MaintenanceJobKind = z.infer<typeof MaintenanceJobKind>
 
@@ -430,6 +493,29 @@ export function issueAutoArchiveRunKey(observed: IssueAutoArchiveObservation): s
  *  returns a bare string forces every caller to cast, which is how a brand ends
  *  up adopted nowhere. The `automationId` parameter stays a plain string so
  *  callers holding either form still compile — POD-362 narrows it. */
+/**
+ * Occurrence identity for one checkout's release (POD-564).
+ *
+ * The path is IN the key, not just the issue id: an issue whose worktree was
+ * freed and later recreated somewhere else is a new directory to decide about,
+ * and `closedAt` does the same job for a reopened-and-reclosed issue.
+ *
+ * `mode` is in the key for the flip that matters — propose, then auto. Without
+ * it the recorded propose would answer `already-applied` forever and the
+ * operator's one flip would free nothing. `afterDays` is deliberately NOT: it
+ * bounds WHICH rows become candidates, and a widened window should not re-ask
+ * about a directory already decided.
+ */
+export function worktreeGcRunKey(observed: WorktreeGcObservation): string {
+  return [
+    'worktree-gc',
+    encode(observed.issueId),
+    encode(observed.worktreePath),
+    encode(observed.closedAt),
+    encode(observed.mode),
+  ].join('/')
+}
+
 export function automationOccurrenceRunId(automationId: string, firedAt: string): AutomationRunId {
   return asAutomationRunId(`arun_${encode(automationId)}_${encode(firedAt)}`.slice(0, 128))
 }

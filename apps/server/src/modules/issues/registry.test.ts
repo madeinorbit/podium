@@ -234,6 +234,52 @@ describe('handler↔contract schema identity', () => {
   })
 })
 
+/**
+ * THE ONE CELL THE RETIRED REGISTRY ORACLE WAS THE ONLY GUARD ON (POD-521).
+ *
+ * `registry-metadata.oracle.test.ts` compared all sixty-eight commands against a
+ * fixture recorded before the POD-311 split — kind, action, scope, target, input
+ * type, input key set and `cli` — and is retired. Every other cell it measured is
+ * owned by a live check, and the mapping is written out in
+ * docs/agents/pod-521-oracle-retirement.md. Only this one had no other owner.
+ *
+ * NOT ONE issue contract declares `cli` presentation hints. Verbs, positionals and
+ * summaries live in `@podium/issue-client`'s table, which is the rendering layer;
+ * `CommandContractBase.cli` exists because OTHER planes use it. The failure this
+ * refuses is a second source of truth for the help screen appearing quietly — a
+ * contract growing hints that `podium issue --help` does not read, or reads instead
+ * of the table, with nothing breaking either way at the point the hint is added.
+ *
+ * The cells NOT carried over, and who holds each now:
+ *   kind          `issues.expected-revision.test.ts` — partitions the table by kind
+ *                 and holds each side to its conflict declaration, so a flip lands a
+ *                 command in a bucket whose assertion it fails; `NON_MUTATING_NAMES`
+ *                 in `@podium/commands` pins the same split at compile time, by
+ *                 subtraction, so a NEW command defaults to "must declare".
+ *   action        `EXPECTED_PROC_ACTION` above, both directions.
+ *   scope         the `policy.resource` biconditional above, both directions.
+ *   target        `OLD_SCOPED_TARGET_FIELD` above — set equality AND the field each
+ *                 extractor reads.
+ *   inputType     `contract.test.ts` in `@podium/commands`, which reads through the
+ *                 `.merge()` / `.optional()` wrappers the tables actually use.
+ *   inputKeys     `handler↔contract schema identity` above pins the handler to the
+ *                 contract's own schema INSTANCE, so there is no second key set to
+ *                 drift; `commands-field-drift.test.ts` compares it with the CLI.
+ *   names         `def keys are exactly the protocol name list` above.
+ */
+describe('the issue contract table declares no CLI hints', () => {
+  it('no issue contract declares CLI hints — issue-client owns the rendering layer', () => {
+    const declaring = ISSUE_COMMAND_NAMES.filter(
+      (name) => (ISSUE_CONTRACTS[name] as { cli?: unknown }).cli !== undefined,
+    )
+    expect(declaring).toEqual([])
+    // Non-vacuity: the loop met the whole table, and `cli` is a property the
+    // contract type really admits — so `[]` is a measured absence, not a typo
+    // reading a field that could never be set.
+    expect(ISSUE_COMMAND_NAMES.length).toBeGreaterThan(60)
+  })
+})
+
 // Authz matrix: historical classifications plus deliberate lifecycle posture changes.
 describe('guardIssueCommand authorization matrix', () => {
   const registries: SessionRegistry[] = []

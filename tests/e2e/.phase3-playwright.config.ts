@@ -22,8 +22,10 @@ export default defineConfig({
   ],
   webServer: [
     {
+      // Harness-only, same as playwright.config.ts (POD-535): package builds live
+      // in the lane / `browser-lane.ts --build-only`, not under Playwright's clock.
       command:
-        'bun run --filter @podium/model build && bun run --filter @podium/protocol build && bun run --filter @podium/web build && bun --conditions=@podium/source serve-harness.ts',
+        'bun browser-dist-preflight.ts && bun --conditions=@podium/source serve-harness.ts',
       url: `${ORIGIN}/health`,
       reuseExistingServer: false,
       env: { PODIUM_PASSWORD: process.env.PODIUM_PASSWORD ?? '' },

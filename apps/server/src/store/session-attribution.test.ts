@@ -29,10 +29,9 @@ import {
   asSessionId,
   asUserId,
 } from '@podium/model'
-import { openDatabase } from '@podium/runtime/sqlite'
+import type { openDatabase } from '@podium/runtime/sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { runDrizzleMigrations } from '../migrations'
-import { DRIZZLE_MIGRATIONS } from '../migrations/drizzle-manifest.generated'
+import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { SessionsRepository } from './sessions'
 import type { SessionRow } from './types'
 
@@ -43,8 +42,7 @@ let db: ReturnType<typeof openDatabase>
 let sessions: SessionsRepository
 
 beforeEach(() => {
-  db = openDatabase(':memory:')
-  runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+  db = openMigratedTestDatabase()
   sessions = new SessionsRepository(db)
 })
 
@@ -165,7 +163,10 @@ describe('session attribution pair — durable round trip', () => {
     // in the upsert is what makes that structural rather than a convention.
     sessions.upsertSession(row('sess-5', DELEGATED))
     sessions.upsertSession({
-      ...row('sess-5', { actor: actorUser(asUserId('user:mallory')), onBehalfOf: asUserId('user:mallory') }),
+      ...row('sess-5', {
+        actor: actorUser(asUserId('user:mallory')),
+        onBehalfOf: asUserId('user:mallory'),
+      }),
       title: 'renamed',
     })
     const back = reread('sess-5')

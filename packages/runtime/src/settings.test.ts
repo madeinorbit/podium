@@ -113,11 +113,25 @@ describe('normalizeSettings — coding.seedCliTheme [spec:SP-a04d]', () => {
 })
 
 describe('normalizeSettings — idle-session target', () => {
-  it('defaults an absent target to 30 but preserves explicit unlimited', () => {
-    expect(normalizeSettings({}).hibernation.maxIdleSessions).toBe(30)
+  it('defaults an absent target to 8 but preserves explicit unlimited', () => {
+    expect(normalizeSettings({}).hibernation.maxIdleSessions).toBe(8)
     expect(
       normalizeSettings({ hibernation: { maxIdleSessions: null } }).hibernation.maxIdleSessions,
     ).toBeNull()
+  })
+
+  it('defaults loadPerCore to 1.5 and preserves explicit off', () => {
+    expect(normalizeSettings({}).hibernation.loadPerCore).toBe(1.5)
+    expect(
+      normalizeSettings({ hibernation: { loadPerCore: null } }).hibernation.loadPerCore,
+    ).toBeNull()
+  })
+
+  it('defaults idleShellHours to off and preserves an explicit hours value', () => {
+    expect(normalizeSettings({}).hibernation.idleShellHours).toBeNull()
+    expect(
+      normalizeSettings({ hibernation: { idleShellHours: 48 } }).hibernation.idleShellHours,
+    ).toBe(48)
   })
 })
 

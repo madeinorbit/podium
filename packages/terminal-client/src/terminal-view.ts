@@ -8,6 +8,7 @@ import type { TerminalDiagnosticData } from './terminal-diagnostics'
 import { wireTouchScroll } from './touch-scroll'
 import { makeUrlLinkProvider } from './url-link-provider'
 import { computeGrid } from './viewport'
+import { wireWheelFallback } from './wheel-fallback'
 // xterm renders its rows, cursor, selection overlay and the hidden char-measure /
 // helper-textarea elements relative to styles in this sheet. Without it the measure
 // element renders visibly (a stray row of `$`/`-`), the selection overlay detaches
@@ -343,6 +344,19 @@ export class TerminalView {
     // the application enables mouse tracking — which Claude Code does — so the
     // pane must translate drags into wheel events itself.
     this.cleanup.push(wireTouchScroll(el, this.term))
+    // Wheel fallback (POD-530). Grok's fullscreen TUI (and similar agents) often
+    // leave mouse tracking off and give the local viewport nothing to scroll, so
+    // a wheel produces zero PTY input. When xterm cannot handle the wheel, inject
+    // PageUp/PageDown through the same onData path keystrokes use (never arrows —
+    // those browse prompt history in agent TUIs like Grok; POD-552).
+    this.cleanup.push(
+      wireWheelFallback(this.term, (data) => {
+        // Prefer the live onData sink (controller-gated by session-mount). Fall
+        // back to term.input so a pre-onData wheel still reaches listeners.
+        if (this.dataSink) this.dataSink(data)
+        else this.term.input(data)
+      }),
+    )
   }
 
   /** Mount the persistent ref-underline layer (#517) into `.xterm-screen` and
@@ -357,6 +371,7 @@ export class TerminalView {
       getCols: () => this.term.cols,
       getRows: () => this.term.rows,
       getIsKnownPrefix: () => this.refLinkConfig?.isKnownPrefix ?? null,
+      getResolveStage: () => this.refLinkConfig?.resolveStage ?? null,
     })
     this.refOverlay = overlay
     const subs = [

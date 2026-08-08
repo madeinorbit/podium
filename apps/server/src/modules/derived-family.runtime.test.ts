@@ -76,15 +76,15 @@ const routerRecord = (name: string): Record<string, unknown> =>
 describe('the derived families, against the RUNNING appRouter', () => {
   /**
    * THE NON-VACUITY PIN. Every assertion below is `it.each`-driven, and a table
-   * that quietly shrank would report green by running fewer cases. Twenty-three
-   * is POD-314's own count — the writes the census said this issue owned — so a
+   * that quietly shrank would report green by running fewer cases. Twenty-four
+   * is the current contract-table count, so a
    * family dropping out of the derivation fails HERE rather than silently
    * reducing the coverage of everything after it.
    */
-  it('governs eleven families and twenty-three derived writes', () => {
+  it('governs eleven families and twenty-four derived writes', () => {
     expect(FAMILIES).toHaveLength(11)
     const total = FAMILIES.reduce((n, f) => n + Object.keys(f.table).length, 0)
-    expect(total).toBe(23)
+    expect(total).toBe(24)
   })
 
   it.each(

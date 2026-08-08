@@ -3,11 +3,9 @@
  */
 
 import { asUserId, FIRST_ADMIN_USER_ID, type UserId } from '@podium/model'
-import { openDatabase } from '@podium/runtime/sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { runDrizzleMigrations } from '../../migrations'
-import { DRIZZLE_MIGRATIONS } from '../../migrations/drizzle-manifest.generated'
 import { UserLayoutRepository } from '../../store/user-layout'
+import { openMigratedTestDatabase } from '../../test-support/migrated-database'
 import { LayoutService } from './service'
 
 const ALICE: UserId = FIRST_ADMIN_USER_ID
@@ -16,8 +14,7 @@ const BOB: UserId = asUserId('user:bob')
 let service: LayoutService
 
 beforeEach(() => {
-  const db = openDatabase(':memory:')
-  runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+  const db = openMigratedTestDatabase()
   service = new LayoutService({ layout: new UserLayoutRepository(db) })
 })
 

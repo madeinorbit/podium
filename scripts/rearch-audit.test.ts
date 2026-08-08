@@ -1,5 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { PER_USER_STATE_KEYS } from '../packages/model/src/aggregates/registry'
 import { RETAINED_REPRESENTATIONS } from '../packages/model/src/representations/registry'
@@ -40,6 +42,8 @@ import {
   SESSION_VOCABULARY,
 } from './representation-audit'
 
+const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url))
+
 /** A context over in-memory sources, so the rule tests never touch the repo. */
 function ctxOf(files: Record<string, string>, dirs: Record<string, string[]> = {}): AuditContext {
   const srcs: SourceFile[] = Object.entries(files).map(([file, source]) => ({
@@ -56,7 +60,9 @@ describe('registered residue', () => {
       ...new Set(REGISTERED_RESIDUE.flatMap((entry) => entry.sites.map((site) => site.file))),
     ]
     const live = ctxOf(
-      Object.fromEntries(registeredFiles.map((file) => [file, readFileSync(file, 'utf8')])),
+      Object.fromEntries(
+        registeredFiles.map((file) => [file, readFileSync(join(REPO_ROOT, file), 'utf8')]),
+      ),
     )
     for (const residue of REGISTERED_RESIDUE) {
       for (const site of residue.sites) {
@@ -688,18 +694,19 @@ describe('diffBaseline', () => {
 // ---------------------------------------------------------------------------
 
 // EVERY case here launches full-tree audit PROCESSES, so the watchdog is set on
-// the block rather than case by case. 90s, not the 20s default (POD-333): a
-// watchdog is not a detector, and sized just above the measured runtime it turns
-// machine load into a red test that asserted nothing. One full-tree audit is
-// ~17s wall clock on this repo (measured A/B at POD-333: 17.09s on the
-// pre-change detector, 16.3-17.2s after — the shim sweep did not move it), and
-// several cases launch two or three each.
-describe('CLI exit codes', { timeout: 90_000 }, () => {
-  const script = new URL('./rearch-audit.ts', import.meta.url).pathname
+// the block rather than case by case. Sized well above the measured runtime so
+// machine load cannot turn a correct green into a red that asserted nothing
+// (POD-333, re-sized at POD-531 after the tree grew: one full-tree audit is
+// ~30–66s under a shared host, not the 17s measured when the detector was
+// smaller). Several cases launch an in-process walk plus two or three CLI
+// spawns, so the per-case budget is a few audits, not one.
+const CLI_AUDIT_TIMEOUT_MS = 240_000
+describe('CLI exit codes', { timeout: CLI_AUDIT_TIMEOUT_MS }, () => {
+  const script = fileURLToPath(new URL('./rearch-audit.ts', import.meta.url))
 
   /** Run the audit for real; returns its exit code (never throws on non-zero). */
   function run(args: string[]): number {
-    const r = spawnSync('bun', [script, ...args], { encoding: 'utf8' })
+    const r = spawnSync('bun', [script, ...args], { cwd: REPO_ROOT, encoding: 'utf8' })
     if (r.error) throw r.error
     return r.status ?? -1
   }
@@ -749,8 +756,8 @@ describe('CLI exit codes', { timeout: 90_000 }, () => {
   //
   // Each case launches full-tree audit processes; the full node lane can
   // saturate the 20s default.
-  const fullLaneAuditTimeout = 90_000
-  const repoRootForPhase = new URL('..', import.meta.url).pathname
+  const fullLaneAuditTimeout = CLI_AUDIT_TIMEOUT_MS
+  const repoRootForPhase = REPO_ROOT
 
   /** First phase with undeclared residue (must gate) and first clear phase. */
   function liveAndClearPhases(): { live: string; clear: string } {
@@ -806,7 +813,7 @@ describe('CLI exit codes', { timeout: 90_000 }, () => {
   it('an output flag cannot swallow the baseline write', () => {
     // `--json --update-baseline` used to exit 0 having written NOTHING: --json
     // returned first. Actions must run before reports.
-    const file = new URL('./rearch-audit-baseline.json', import.meta.url).pathname
+    const file = fileURLToPath(new URL('./rearch-audit-baseline.json', import.meta.url))
     const original = readFileSync(file, 'utf8')
     try {
       writeFileSync(file, original.replace(/"publish-computed-fanout": \d+/, '"x-planted": 99'))
@@ -974,7 +981,7 @@ describe('publish-computed-fanout: the anchor behind its ZERO_BY_DESIGN exemptio
 })
 
 describe('against the live repo', () => {
-  const repoRoot = new URL('..', import.meta.url).pathname
+  const repoRoot = REPO_ROOT
   const results = runAudit(loadContext(repoRoot))
 
   it('every check still binds to a real anchor', () => {

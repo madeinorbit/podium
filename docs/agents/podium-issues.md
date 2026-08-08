@@ -149,6 +149,65 @@ the issue.)
 moving an issue to `review` renders nothing by itself. When you set `--stage review`, always
 post an offer naming the decision you need (merge, send back, discuss).
 
+## Landing on main
+
+Landing an issue branch on a shared branch (usually `main`) is a **hard procedure**, not a
+preference. The prime injects the same text as `MERGE_LANDING_RULE` in `@podium/protocol`
+(`packages/protocol/src/delegation.ts`) so this guide and every new session cannot drift.
+
+### Always
+
+1. `podium merge-lock acquire --wait` — while you hold it, only you may move main.
+   It refuses if a sibling (another session on your issue, or one sharing your worktree)
+   already holds or is queued for it; coordinate with the session it names rather than
+   reaching for `--allow-sibling`, which is for deliberate serialised multi-session access.
+2. **Refresh local `main`** from origin on the main checkout:
+   `git -C <main-checkout> fetch origin` then
+   `git -C <main-checkout> merge --ff-only origin/main`.
+   Stay in your issue worktree; never `cd` into the main checkout (it re-homes the session).
+3. On the **issue branch**, `git rebase` onto that local `main`.
+4. On **local `main`**, `git merge --ff-only <issue-branch>` so the **issue tip** becomes an
+   ancestor of main.
+5. `git -C <main-checkout> push origin main`, then `podium merge-lock release` **immediately**.
+
+Integration target is **local `main` under the lock**. `origin/main` is what you sync from at
+the start and publish to at the end — it is not a shortcut around local main.
+
+### Never
+
+- Cherry-pick the issue commit onto main (or onto a temp branch you then push as main).
+- Push a temp branch tip to `origin/main`.
+- “Land the unique content under a new SHA” and leave the issue branch behind.
+- Treat diverged history as permission to invent an alternate land path. If rebase fails or
+  foreign commits appear on the issue branch, **stop and ask**.
+
+### Why ancestry matters
+
+A closed issue with a private branch that is **not** an ancestor of the landing base (and
+`gitState.merged !== true`) stays **“ready to merge”** in the sidebar forever
+(`issueAwaitingMerge` in client-core). Shipping the blobs onto main by cherry-pick does
+**not** clear that: the issue branch tip must join main’s history (or git must report
+`merged: true`).
+
+`gitState.ahead` is only a proxy, measured against `parentBranch` (where the branch was
+cut from). For a stacked issue whose cut parent has itself landed, that ref freezes and
+`ahead` can stay `> 0` forever even when the tip is already on main [POD-576]. Trust the
+ancestry check, not the ahead counter alone.
+
+### Done only when
+
+The issue tip is an ancestor of the landing base:
+
+```bash
+git -C <main-checkout> merge-base --is-ancestor <issue-tip> origin/main
+```
+
+Or, equivalently, `gitState.merged` is true. Content-on-main without that is **not** a
+finished land.
+
+Caveat: `merge-base` reads the **local** `origin/main` ref — authoritative right after
+your own push (the push moved it), stale for anyone checking later until they fetch.
+
 ## Rules
 
 - Track durable, discovered, or cross-session work as issues — not markdown TODO files or a parallel list.

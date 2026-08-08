@@ -8,13 +8,13 @@ real processes, browsers, PTYs, or agent CLIs that cannot be safely hidden in a 
 
 | Lane | Command | What's in it | Cost / guard |
 | --- | --- | --- | --- |
-| **Default package tests** | `bun run test` (`test:unit` is a compatibility alias) | 23 Turbo tasks covering all 998 default files: package Vitest suites, scripts, desktop, web/mobile, server normalized-wire, and the runtime Bun unit | Cached; tasks serial, Vitest capped at 2 workers |
+| **Default package tests** | `bun run test` (`test:unit` is a compatibility alias) | 28 Turbo tasks covering every default file: one task per package with tests (scripts, desktop, web/mobile, the runtime Bun unit) plus `@podium/server`'s aggregate and its five cache shards | Cached; tasks serial, Vitest capped at 2 workers |
 | **Focused package probes** | `bun run test:web`, `bun run test:mobile`, `bun run test:cached` | One or both app package tasks | Cached; same install fingerprint |
 | **Affected package tests** | `bun run test:affected` | Package tasks for changed packages and dependents | Refuses files no package task can cover |
 | **Inner loop** | `bun run test:changed`, `test:related`, `test:watch` | Root `node` and `normalized-wire` projects selected by Vitest | Fast approximation; not a commit gate |
 | **Integration** | `bun run test:integration` | `vitest.integration.config.ts` plus acceptance: process/PTY/abduco/daemon suites, real-port boots, and loop-split load | Minutes; shared test lease |
 | **E2E** | `bun run test:e2e` | Full-stack server + daemon Vitest files under `tests/e2e/**` with `@podium/source` | Minutes; heavy; no browser |
-| **Browser** | `bun run test:browser` | Playwright browser suites under `tests/e2e/browser/**.browser.e2e.ts` | Tens of minutes; heavy; see browser census |
+| **Browser** | `bun run test:browser` | Playwright browser suites under `tests/e2e/browser/**.browser.e2e.ts` | Tens of minutes; heavy; see browser census. Scope one suite with `-- --suite <name>` (do not hand-roll `playwright test`) |
 | **Agent smoke** | `bun run test:smoke:agents` | Five real agent CLIs, gated by `PODIUM_REAL_CLI=1` | Real money; explicit human request only |
 | **Multi-instance** | `bun run test:multi-instance` | Separate concurrent runtimes plus installer coverage | Minutes; heavy; see [multi-instance.md](../multi-instance.md) |
 | **Full Bun lane** | `bun run test:bun` | All `*.bun.test.ts` suites, including compiled-daemon/lifecycle integration | Heavy; `bun test`, never Vitest |
@@ -39,17 +39,81 @@ is stochastic instruction compliance, not evidence that the CLI transport works.
 The lexical response-contract behavior remains protected by deterministic tests.
 
 
+## The `@podium/server` lane is generated — regenerate it when you add a test
+
+`@podium/server`'s `test` task is an aggregate over five independently cached shards
+(`contracts`, `store`, `services`, `boundary`, `normalized-wire`) [POD-520]. Shard
+membership AND the per-file Turbo input globs are **derived from the real import
+closure**, so `apps/server/test-shards.json` and `apps/server/turbo.json` are generated
+files: never hand-edit them, and never coarsen the globs to directories (that costs most
+of the cache benefit). After adding, moving, or deleting any `apps/server` test file:
+
+    bun scripts/server-test-shards.ts --write
+
+`scripts/server-test-shards.test.ts` recomputes both files on every default run and fails
+on any difference — including the inverse check that no `apps/server` file can change
+without some shard's key noticing. It fails as a plain array diff, so a red naming server
+test paths means the `--write` above, not a broken test.
+
+Iterating on one shard: `bun run --cwd apps/server test:contracts` (likewise `test:store`,
+`test:services`, `test:boundary`, `test:normalized-wire`; `test:unsharded` runs the old
+whole-package shape).
+
+Two mechanisms underneath that lane change how a server test behaves:
+
+- **Store tests clone a pre-migrated database** [POD-523]. A globalSetup builds one schema
+  image keyed by the migration manifest and every store test clones it, so a changed
+  migration is a lane-level input that invalidates all five shards, not just `store`.
+- **The `contracts` shard reuses one Vitest runner** [POD-527]: `isolate: false` for the
+  files a static scan clears, the rest still forked, and an after-file leak guard that
+  fails the offending file by name with the global/env key that moved. A contracts failure
+  naming a moved key is that guard, not a flake. Do **not** stress reuse with a whole-shard
+  `--sequence.shuffle.files`: it replaces Vitest's project-first sequencer, breaks the reuse
+  chain, and exercises reuse *less* than the default order. Shuffle the reused project alone
+  (`--project server:contracts:reused --sequence.shuffle.files`).
+
+Measurements and rationale: [POD-520 cache shards](pod-520-server-test-cache-shards.md),
+[POD-523 pre-migrated store fixture](pod-523-pre-migrated-store-fixture.md),
+[POD-527 runner reuse](pod-527-runner-reuse.md).
+
 ## Shared-host resource guard
 
 The shared forked Vitest configuration defaults to at most two workers and keeps one worker available as the floor. This is the safe setting for the six-core, 11 GB development host so a test run leaves headroom for the live Podium instance and other agent sessions. Set `PODIUM_TEST_WORKERS=<positive integer>` to choose another ceiling, or `PODIUM_TEST_WORKERS=auto` to restore Vitest's CPU-count default on a dedicated CI/test host. `fileParallelism` remains enabled.
 
 The package default (`bun run test`) and `bun run test:affected` automatically acquire the
-`test:heavy` advisory lease from a live Podium session. The root process lanes that call
-`scripts/test-heavy.ts` do the same; direct package, browser, and multi-instance commands
+`test:heavy` advisory lease from a live Podium session. Root process lanes that call
+`scripts/test-heavy.ts` do the same (`test:integration`, `test:acceptance`, `test:e2e`,
+`test:smoke:agents`). `test:browser` / `scripts/browser-lane.ts` take the lease inside
+the lane body so both the package script and a bare script invocation serialize.
+Direct package and multi-instance commands do not; when an agent runs those by hand:
 
     podium lock acquire test:heavy --ttl 30m --wait
-    bun run test:integration
+    bun run test:multi-instance
     podium lock release test:heavy
+
+`acquire` refuses when a **sibling** — another session on your issue, or any session sharing
+your worktree — already holds or is queued for that lock [POD-556]. That is the shared-root
+checkout's normal case, and the refusal names the session so you can coordinate; pass
+`--allow-sibling` only when serialized multi-session access is genuinely what you want.
+Re-acquiring your own held lock renews it rather than queueing.
+
+A hand-rolled Playwright invocation that bypasses the lane still skips the lease and
+will race other heavy work — and it shares the fixed default port 8799 with any other
+Playwright run on the host (lease does not cover that). Prefer the package script when
+you can. One-suite verification belongs on the lane (POD-536) so build, selection,
+and exit status stay correct:
+
+    bun run test:browser -- --suite <stem> --project=chromium-pixel
+
+If you must bypass the lane, build first so webServer does not start against empty
+dist (POD-535):
+
+    bun scripts/browser-lane.ts --build-only
+    bunx playwright test --config tests/e2e/playwright.config.ts --project=chromium-pixel <suite>
+
+Use the equals form of `--project` (space form swallows the next arg). If dist is
+missing, webServer fails fast with that build-only command rather than a deep
+module-not-found.
 
 The wrapper renews the 30-minute lease every 10 minutes while the child runs. If renewal fails, it terminates the child rather than allowing an unleased test to continue; an interrupted process still has the 30-minute TTL as the recovery path.
 
@@ -68,7 +132,7 @@ A human running `bun run test` in a terminal without `PODIUM_SESSION_ID` takes n
 | Touched agent-bridge / daemon / server process, PTY, or abduco code | Also `bun run test:integration` |
 | Full-stack flows, before landing UI/server interaction work | `bun run test:e2e` |
 | Touched instance identity, state roots, port derivation, CLI routing, agent ownership, or lifecycle | Also `bun run test:multi-instance` |
-| Changed a web UI surface a `*.browser.e2e.ts` suite covers | Also `bun run test:browser` (scope it: `bun run test:browser -- --grep …`) — and do not cite a suite as runtime verification without re-running it |
+| Changed a web UI surface a `*.browser.e2e.ts` suite covers | Also `bun run test:browser` (scope it: `bun run test:browser -- --suite <stem>` or `-- --suite <stem> --project=chromium-pixel`) — and do not cite a suite as runtime verification without re-running it. Prefer the lane over a hand-rolled `playwright test` invocation: positional filters cannot narrow the full-lane argv, `--project` is variadic (use the `=` form), and piping through `tail`/`grep` masks Playwright's exit status |
 | Real agent CLI behavior | `bun run test:smoke:agents` — ONLY on explicit human request |
 
 Always invoke Vitest through the repo's direct Bun entry point (`bun --bun node_modules/vitest/vitest.mjs run ...`), never plain `vitest` and

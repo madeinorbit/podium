@@ -101,6 +101,7 @@ function harness() {
     revealFileTab: vi.fn(),
     recordRecentFile: vi.fn(),
     spawnDraftAgent: vi.fn(() => ({ sessionId, issueId: asIssueId('issue-1') })),
+    waitForSpawnConfirmed: vi.fn(async () => {}),
     setSessionDraft: vi.fn(),
     refreshSuperThreads,
   } as unknown as EngineActionRuntime<PodiumClientApi>

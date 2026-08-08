@@ -1,3 +1,4 @@
+import type { IssueStage } from '@podium/model'
 import { anyRefMatcher, parseAnyRef } from '@podium/protocol'
 import type { ILink, ILinkProvider } from '@xterm/xterm'
 import type { BufferLike, Cell } from './buffer-line'
@@ -17,6 +18,12 @@ export interface RefLinkConfig {
   isKnownPrefix: (prefix: string) => boolean
   /** Activate a ref token; the MouseEvent carries the modifier (Cmd/Ctrl). */
   onActivate: (ref: string, event: MouseEvent) => void
+  /**
+   * Optional live workflow stage for issue refs (POD-529). Session tokens and
+   * unresolved issues should return null so the underline keeps the default
+   * accent. Read from a live issues projection on each call.
+   */
+  resolveStage?: (ref: string) => IssueStage | null | undefined
 }
 
 // A ref token is short; cap the scanned row so a pathological line can't drive

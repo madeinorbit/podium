@@ -30,8 +30,9 @@ export interface GitProbeIo {
  * deliberately still unbranded.
  *
  * The rest are probe-local inputs with no issue field behind them: where to look,
- * whether the checkout is shared, and the harness-supplied attribution inputs
- * this module never guesses from checkout state.
+ * whether the checkout is shared, the branch work lands on (POD-576), and the
+ * harness-supplied attribution inputs this module never guesses from checkout
+ * state.
  */
 export interface GitProbeTarget
   extends Pick<IssueWire, 'parentBranch' | 'branch' | 'machineId'> {
@@ -39,6 +40,14 @@ export interface GitProbeTarget
   cwd: string
   /** True = multi-task checkout (no issue-owned worktree): merge axis off. */
   shared: boolean
+  /**
+   * Branch work actually lands on (usually `main` / `defaultParentBranch`).
+   * Distinct from {@link parentBranch}, which is where the issue was CUT from.
+   * For a stacked issue whose cut parent has itself landed, the cut parent is a
+   * dead ref forever; the landing base is what moved and is the authoritative
+   * merge-axis ancestry target [POD-576].
+   */
+  landingBranch?: string
   /** Harness-attributed commit shas for this task's sessions. */
   commits?: string[]
   /** Harness-observed files this task's sessions touched (repo-relative). */
@@ -121,19 +130,40 @@ export async function probeGitState(
   const ahead = !target.shared && aheadRes.ok ? Number.parseInt(aheadRes.output, 10) : Number.NaN
   const unpushed = unpushedRes.ok ? Number.parseInt(unpushedRes.output, 10) : Number.NaN
 
-  // Merge-axis "landed" check, only worth a subprocess once nothing is ahead.
+  // Merge-axis "landed" check [POD-576]. Ancestry is the authoritative answer;
+  // `ahead` is only a derived proxy measured against parentBranch (the cut
+  // base). Gating this on ahead === 0 made the verdict unreachable precisely
+  // when a stacked issue's cut parent had landed and frozen: the tip can be an
+  // ancestor of the landing base (main) while still counting N commits ahead of
+  // that dead sibling ref. Run the check always, against both the cut parent and
+  // the landing base when they differ.
+  //
   // Containment alone can't tell "landed" from "fresh branch still sitting AT
-  // its start point" (both are ancestors of the parent), so also require the
-  // tip to have moved off the branch's creation point — the oldest reflog
-  // entry. No reflog (unlikely on locally-created worktrees) → fall back to
-  // the containment answer rather than never reporting merged.
+  // its start point" (both are ancestors of main), so also require the tip to
+  // have moved off the branch's creation point — the oldest reflog entry. No
+  // reflog (unlikely on locally-created worktrees) → fall back to the
+  // containment answer rather than never reporting merged.
   let merged = false
-  if (!target.shared && ahead === 0 && target.branch !== null) {
-    const res = await op('isMergedInto', {
-      branch: target.branch,
-      parentBranch: target.parentBranch,
-    })
-    if (res.ok) {
+  if (!target.shared && target.branch !== null) {
+    const mergeParents = [
+      ...new Set(
+        [target.parentBranch, target.landingBranch]
+          .map((b) => b?.trim() ?? '')
+          .filter((b) => b !== ''),
+      ),
+    ]
+    let contained = false
+    for (const parent of mergeParents) {
+      const res = await op('isMergedInto', {
+        branch: target.branch,
+        parentBranch: parent,
+      })
+      if (res.ok) {
+        contained = true
+        break
+      }
+    }
+    if (contained) {
       const reflog = await op('branchReflog', { branch: target.branch })
       const shas = reflog.output.split('\n').filter(Boolean)
       const creationSha = shas[shas.length - 1]

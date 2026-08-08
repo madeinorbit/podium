@@ -62,6 +62,34 @@ describe('appRouter', () => {
     ])
   })
 
+  it('sessions.create passes initialPrompt to the daemon spawn for argv agents (POD-549)', async () => {
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const daemon: unknown[] = []
+    registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (m) => daemon.push(m))
+    const repos = new RepoRegistry(registry, registry.sessionStore)
+    const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
+    const call = appRouter.createCaller({
+      registry,
+      repos,
+      superagent,
+      capability: OPERATOR,
+      principal: TEST_PRINCIPAL,
+    })
+    await call.sessions.create({
+      agentKind: 'grok',
+      cwd: '/p',
+      initialPrompt: 'do the thing',
+    })
+    expect(daemon).toContainEqual(
+      expect.objectContaining({
+        type: 'spawn',
+        agentKind: 'grok',
+        initialPrompt: 'do the thing',
+      }),
+    )
+    registry.dispose()
+  })
+
   it("sessions.resume stamps spawnedBy 'user' on its fresh-spawn fallback (issue #60)", async () => {
     const { call } = caller()
     const { sessionId } = await call.sessions.resume({

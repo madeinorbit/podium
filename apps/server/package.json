@@ -29,7 +29,13 @@
   "scripts": {
     "typecheck": "tsgo --noEmit",
     "typecheck:tsc": "tsc --noEmit",
-    "test": "bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests && bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.normalized-wire.config.ts --passWithNoTests"
+    "test": "bun ../../scripts/server-test-shards.ts",
+    "test:contracts": "bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.contracts.config.ts",
+    "test:store": "bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.store.config.ts",
+    "test:services": "bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.services.config.ts",
+    "test:boundary": "bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.boundary.config.ts",
+    "test:normalized-wire": "bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.normalized-wire.config.ts",
+    "test:unsharded": "bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests && bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.normalized-wire.config.ts"
   },
   "devDependencies": {
     "typescript": "^6.0.3",

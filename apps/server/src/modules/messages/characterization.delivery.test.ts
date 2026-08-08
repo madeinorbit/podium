@@ -265,7 +265,9 @@ describe('characterization: urgency x target state (D3)', () => {
         fn: 'interruptText',
         sessionId: asSessionId('sBusy'),
         text: 'c',
-        inputOrigin: 'mail',
+        // Operator chat rides the mail substrate but is still person-origin
+        // (controller) so offers clear and turns attribute correctly (POD-552).
+        inputOrigin: 'controller',
         sourceMessageId: expect.stringMatching(/^msg_/),
         principal: {
           kind: 'user',
@@ -333,7 +335,7 @@ describe('characterization: urgency x target state (D3)', () => {
         fn: 'queueText',
         sessionId: asSessionId('s1'),
         text: 'now',
-        inputOrigin: 'mail',
+        inputOrigin: 'controller',
         sourceMessageId: expect.stringMatching(/^msg_/),
         principal: {
           kind: 'user',

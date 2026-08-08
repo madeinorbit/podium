@@ -30,15 +30,17 @@ import { useBooting, useMobileStore, useSessions } from '../client/hooks'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { Icon } from '../components/Icon'
 import { IdSquare, type IdSquareState } from '../components/IdSquare'
+import { BootstrapCrossfade, WorkSkeleton } from '../components/LaunchPlaceholders'
 import { NewWorkButton } from '../components/NewWorkButton'
 import { PressableScale } from '../components/PressableScale'
+import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
 import { Screen } from '../components/Screen'
 import { BrailleSpinner } from '../components/StatusGlyphs'
 import { TaskPeekSheet } from '../components/TaskPeekSheet'
-import { EmptyState, ListSkeleton, StatusDot } from '../components/ui'
+import { EmptyState, StatusDot } from '../components/ui'
 import { useCollapsed } from '../hooks/useCollapsed'
-import { useRefreshableTab } from '../hooks/useRefreshableTab'
 import { useMinimizeTabBarOnScroll } from '../hooks/useMinimizeTabBarOnScroll'
+import { useRefreshableTab } from '../hooks/useRefreshableTab'
 import { useTabBarInset } from '../hooks/useTabBarInset'
 import { sessionHref } from '../lib/session-route'
 import { FLOW_SLATE, flow, issueColorHex } from '../theme/issueColors'
@@ -118,7 +120,8 @@ export function WorkScreen() {
   const store = useMobileStore()
   const sessionsAll = useSessions()
   const booting = useBooting()
-  const { listRef, refreshControl } = useRefreshableTab('work')
+  const { listRef, refreshControl, refreshAccessibilityProps, refreshing, onRefresh, connected } =
+    useRefreshableTab('work')
   const tabBarInset = useTabBarInset()
   const minimizeOnScroll = useMinimizeTabBarOnScroll()
   // THE SAME LIST THE DESKTOP SIDEBAR RENDERS, DERIVED ONCE (POD-331/POD-332).
@@ -227,61 +230,75 @@ export function WorkScreen() {
       subtitle={`${issueCount} task${issueCount === 1 ? '' : 's'} · ${agentCount} agent${agentCount === 1 ? '' : 's'}`}
       right={<NewWorkButton />}
     >
-      <SectionList
-        ref={listRef as never}
-        sections={sections}
-        keyExtractor={(row) => (row.kind === 'issue' ? row.issue.id : row.worktree.path)}
-        refreshControl={refreshControl}
-        contentContainerStyle={[styles.listContent, { paddingBottom: tabBarInset + space.lg }]}
-        {...minimizeOnScroll}
-        stickySectionHeadersEnabled={false}
-        renderSectionHeader={({ section }) => (
-          <View style={styles.groupLabel}>
-            {section.pinned ? <Icon as={Pin} size={9} color={color.accent} /> : null}
-            <Text style={styles.groupLabelText} numberOfLines={1}>
-              {section.label}
-            </Text>
-            <View style={styles.rule} />
-          </View>
-        )}
-        renderItem={({ item }) => renderRow(item)}
-        renderSectionFooter={({ section }) => (
-          <View style={styles.folds}>
-            {section.snoozedRows.length > 0 ? (
-              <Fold
-                storageKey={`podium:sidebar:snoozed-fold:${section.key}`}
-                label="Snoozed"
-                rows={section.snoozedRows}
-                lane="snoozed"
-                now={now}
-                onOpen={openIssue}
-                onLongPress={setMenuIssue}
-              />
-            ) : null}
-            {section.closedRows.length > 0 ? (
-              <Fold
-                storageKey={`podium:sidebar:closed-fold:${section.key}`}
-                label="Closed"
-                rows={section.closedRows}
-                lane="closed"
-                now={now}
-                onOpen={openIssue}
-                onLongPress={setMenuIssue}
-              />
-            ) : null}
-          </View>
-        )}
-        ListEmptyComponent={
-          booting ? (
-            <ListSkeleton />
-          ) : (
-            <EmptyState
-              title="No work yet"
-              body="Tasks and their agents appear here — the same list, in the same order, as the desktop sidebar."
-            />
-          )
-        }
-      />
+      {/* Crossfade OUTSIDE the refresh boundary: while the replica is still
+          resolving there is nothing to pull-to-refresh, so the skeleton should
+          cover the refresh affordance too rather than invite a gesture that
+          would race the bootstrap. */}
+      <BootstrapCrossfade resolved={!booting} placeholder={<WorkSkeleton />}>
+        <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
+          <SectionList
+            ref={listRef as never}
+            sections={sections}
+            keyExtractor={(row) => (row.kind === 'issue' ? row.issue.id : row.worktree.path)}
+            refreshControl={refreshControl}
+            contentContainerStyle={[styles.listContent, { paddingBottom: tabBarInset + space.lg }]}
+            {...refreshAccessibilityProps}
+            {...minimizeOnScroll}
+            stickySectionHeadersEnabled={false}
+            renderSectionHeader={({ section }) => (
+              <View style={styles.groupLabel}>
+                {section.pinned ? <Icon as={Pin} size={9} color={color.accent} /> : null}
+                <Text style={styles.groupLabelText} numberOfLines={1}>
+                  {section.label}
+                </Text>
+                <View style={styles.rule} />
+              </View>
+            )}
+            renderItem={({ item }) => renderRow(item)}
+            renderSectionFooter={({ section }) => (
+              <View style={styles.folds}>
+                {section.snoozedRows.length > 0 ? (
+                  <Fold
+                    storageKey={`podium:sidebar:snoozed-fold:${section.key}`}
+                    label="Snoozed"
+                    rows={section.snoozedRows}
+                    lane="snoozed"
+                    now={now}
+                    onOpen={openIssue}
+                    onLongPress={setMenuIssue}
+                  />
+                ) : null}
+                {section.closedRows.length > 0 ? (
+                  <Fold
+                    storageKey={`podium:sidebar:closed-fold:${section.key}`}
+                    label="Closed"
+                    rows={section.closedRows}
+                    lane="closed"
+                    now={now}
+                    onOpen={openIssue}
+                    onLongPress={setMenuIssue}
+                  />
+                ) : null}
+              </View>
+            )}
+            ListEmptyComponent={
+              // Guarded on `booting` even though the crossfade covers this
+              // screen: ListEmptyComponent is rendered by the list whenever its
+              // data is empty, with no notion of whether loading has finished, so
+              // without this the empty state is CONSTRUCTED during bootstrap and
+              // sits in the tree — and in the accessibility tree — underneath an
+              // opaque placeholder. The crossfade stops it being SEEN; this stops
+              // it being built. Related conditions, not the same one.
+              booting ? null : (
+                <EmptyState
+                  title="No work yet"
+                  body="Tasks and their agents appear here — the same list, in the same order, as the desktop sidebar."
+                />
+              )
+            }
+          />
+        </PullToRefreshBoundary>
+      </BootstrapCrossfade>
       <TaskPeekSheet issue={peek} sessions={sessionsAll} onClose={() => setPeek(null)} />
       <ActionSheet
         visible={menuIssue !== null}

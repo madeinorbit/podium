@@ -14,6 +14,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { OfferBar } from '@/features/chat/OfferBar'
+import { assertSendAccepted } from '@/lib/assert-send-accepted'
 import { issueNeedsHuman, sessionNeedsHuman } from '@/lib/mission'
 import { type ContextMenuAnchor, SessionContextMenu } from '@/lib/SessionContextMenu'
 import { cn } from '@/lib/utils'
@@ -191,6 +193,10 @@ function SessionAnswer({ session }: { session: SessionMeta }): JSX.Element | nul
     setSending(index)
     trpc.sessions.sendText
       .mutate({ sessionId: session.sessionId, text: prompt, mutationId: randomUUID() })
+      .then((result) => {
+        // Substrate refuses with HTTP 200 + ok:false — surface it (POD-552).
+        assertSendAccepted(result)
+      })
       .catch((error: unknown) =>
         toast.error(error instanceof Error ? error.message : String(error)),
       )

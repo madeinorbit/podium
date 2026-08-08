@@ -140,8 +140,12 @@
  *     not what a consumer does with the value.
  */
 
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import * as brands from '../packages/model/src/ids/brands'
 import type { AuditContext, AuditSite } from './rearch-audit'
+
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 // ---------------------------------------------------------------------------
 // The vocabulary — read from the model, never restated here
@@ -733,7 +737,7 @@ if (import.meta.main) {
   const { loadContext } = await import('./rearch-audit')
   const argv = process.argv.slice(2)
   const only = argv.includes('--form') ? argv[argv.indexOf('--form') + 1] : undefined
-  const sites = entityIdSites(loadContext(process.cwd()))
+  const sites = entityIdSites(loadContext(REPO_ROOT))
   const byForm = new Map<string, number>()
   for (const s of sites) byForm.set(s.form, (byForm.get(s.form) ?? 0) + 1)
   console.log(`entity-id field positions: ${sites.length} (floor ${MIN_ID_FIELD_SITES})`)
@@ -742,7 +746,7 @@ if (import.meta.main) {
     `  ratcheted: raw=${sites.filter((s) => s.form === 'zod-string' && s.brand !== 'Machine' && !s.excused).length} machine=${sites.filter((s) => s.brand === 'Machine' && s.form === 'zod-string').length} excused=${sites.filter((s) => s.form === 'zod-string' && s.excused).length}`,
   )
   if (argv.includes('--unreachable')) {
-    const wider = idFieldsWithNoBrandVocabulary(loadContext(process.cwd()))
+    const wider = idFieldsWithNoBrandVocabulary(loadContext(REPO_ROOT))
     const byKey = new Map<string, number>()
     for (const s of wider) {
       const k = s.text.slice(0, s.text.indexOf(':'))

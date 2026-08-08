@@ -3,9 +3,9 @@ import type { PodiumSettings } from '@podium/runtime'
 import type { JSX } from 'react'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
-import { clampInt, Row, Section } from './shared'
+import { clampInt, clampNumber, Row, Section } from './shared'
 
-/** Auto-hibernation thresholds for idle sessions on memory pressure. */
+/** Auto-hibernation thresholds for idle sessions under resource pressure. */
 export function HibernationSection({
   settings,
   patch,
@@ -19,7 +19,7 @@ export function HibernationSection({
   return (
     <Section
       title="Auto-hibernation"
-      hint="Idle sessions hibernate to relieve memory pressure or converge toward the per-machine idle-session target. One click resumes them."
+      hint="Idle sessions hibernate to relieve memory or load pressure, or to converge toward the per-machine idle-session target. One click resumes them."
     >
       <Row label="Enabled">
         <Switch
@@ -41,6 +41,30 @@ export function HibernationSection({
               hibernation: {
                 ...settings.hibernation,
                 memoryPct: clampInt(e.target.value, 50, 95, 80),
+              },
+            })
+          }
+        />
+      </Row>
+      <Row
+        label="Load per core"
+        description="load1 ÷ cores. Empty turns load pressure off. Default 1.5 means the run queue is half again the core count."
+      >
+        <Input
+          aria-label="Load per core"
+          className="w-[90px] flex-none"
+          type="number"
+          min={0.5}
+          max={8}
+          step={0.1}
+          placeholder="Off"
+          value={settings.hibernation.loadPerCore ?? ''}
+          onChange={(e) =>
+            patch({
+              hibernation: {
+                ...settings.hibernation,
+                loadPerCore:
+                  e.target.value === '' ? null : clampNumber(e.target.value, 0.5, 8, 1.5),
               },
             })
           }
@@ -71,8 +95,9 @@ export function HibernationSection({
         description={
           <>
             Per machine. Empty means unlimited. This is a convergence target for eligible idle live
-            sessions, not a hard cap; protected or ineligible sessions stay live. Count and memory
-            pressure act independently.
+            sessions, not a hard cap; protected or ineligible sessions stay live. Count, memory, and
+            load pressure act independently. Quiet unobserved agents (no phase signal) count toward
+            the target after at least 4 hours.
             {unmet > 0 && (
               <span className="mt-1 block font-medium text-warning">
                 Cap unmet: {unmet} protected/ineligible
@@ -93,7 +118,30 @@ export function HibernationSection({
               hibernation: {
                 ...settings.hibernation,
                 maxIdleSessions:
-                  e.target.value === '' ? null : clampInt(e.target.value, 0, 10000, 30),
+                  e.target.value === '' ? null : clampInt(e.target.value, 0, 10000, 8),
+              },
+            })
+          }
+        />
+      </Row>
+      <Row
+        label="Idle shell hours"
+        description="Park live shells after this many hours with no input or output. Empty turns shell reaping off (default). Shells are never folded into the agent idle cap."
+      >
+        <Input
+          aria-label="Idle shell hours"
+          className="w-[90px] flex-none"
+          type="number"
+          min={1}
+          max={720}
+          placeholder="Off"
+          value={settings.hibernation.idleShellHours ?? ''}
+          onChange={(e) =>
+            patch({
+              hibernation: {
+                ...settings.hibernation,
+                idleShellHours:
+                  e.target.value === '' ? null : clampInt(e.target.value, 1, 720, 24),
               },
             })
           }

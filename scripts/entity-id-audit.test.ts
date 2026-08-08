@@ -23,6 +23,7 @@
  *      renaming the *declaration* must change nothing.
  */
 
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
   assertBrandsLoaded,
@@ -41,6 +42,8 @@ import {
 } from './entity-id-audit'
 import type { AuditContext } from './rearch-audit'
 import { loadContext, stripComments } from './rearch-audit'
+
+const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url))
 
 /** A one-file in-memory context. `raw` carries the comments, because the excuse
  *  marker lives in one. */
@@ -451,7 +454,7 @@ describe('the population floor', () => {
   })
 
   it('clears the floor against the real tree, and by a wide margin', () => {
-    const sites = entityIdSites(loadContext(process.cwd()))
+    const sites = entityIdSites(loadContext(REPO_ROOT))
     expect(sites.length).toBeGreaterThan(MIN_ID_FIELD_SITES)
     // Every counted form must be non-empty on the real tree. A form that has
     // silently stopped matching is invisible in a single total.

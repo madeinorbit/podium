@@ -1,3 +1,4 @@
+import { agentAcceptsArgvPrompt } from '@podium/client-core'
 import { useSlice } from '@podium/client-core/react'
 import {
   machineViewsFromWire,
@@ -121,14 +122,20 @@ export function NewSessionScreen() {
 
       // A custom title still uses the server half of that mechanism. The shared
       // optimistic helper does not carry titles, but the draft issue is durable.
+      // Resolve kind before create so initialPrompt can ride argv when supported
+      // (POD-549 — resumeAndSend alone leaves Grok idle).
+      const kind = resolveDefaultAgent(agentKind, sessions)
       const created = await store.trpc.sessions.create.mutate({
         cwd: target.path,
+        agentKind: kind,
         ...(target.machineId ? { machineId: target.machineId } : {}),
-        ...(agentKind ? { agentKind } : {}),
         ...(title.trim() ? { title: title.trim() } : {}),
         ...(issueId ? { issueId } : { draftIssue: { repoPath: target.repoPath } }),
+        ...(text ? { initialPrompt: text } : {}),
       })
-      if (text) await store.resumeAndSend(created.sessionId, text)
+      if (text && !agentAcceptsArgvPrompt(kind)) {
+        await store.resumeAndSend(created.sessionId, text)
+      }
       router.replace(sessionHref(created.sessionId, backTarget))
     } catch (e) {
       setBusy(false)

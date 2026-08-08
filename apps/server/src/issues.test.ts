@@ -12,7 +12,7 @@ import {
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { repoOpCommand } from '../../daemon/src/repo-op'
-import { userCommandPrincipal } from './command-principal'
+import { systemPrincipal, userCommandPrincipal } from './command-principal'
 import { sessionsForIssue } from './issue-util'
 import { MODEL_CATALOG_VERSION } from './model-catalog'
 import { type IssueDeps, IssueService } from './modules/issues/service'
@@ -78,6 +78,27 @@ const sess = (cwd: string, phase = 'working'): SessionMeta =>
     archived: false,
     agentState: { phase, since: 't', nativeSubagentCount: 0 },
   }) as unknown as SessionMeta
+
+/** Record the git ops a free makes, and script the `status` each tree reports.
+ *  Assigns `deps.repoOp` as the PORT it is declared as (same shape as `scriptOps`
+ *  further down): the harness builds it with `vi.fn()`, but the assignment is
+ *  typed by `IssueDeps`, so no mock API is visible on it.
+ *
+ *  `status` takes a resolver as well as a string because a sweep over SEVERAL
+ *  checkouts has to be able to make one of them dirty and leave the rest clean
+ *  (POD-564) — a single string can only describe a fleet that agrees. */
+const recordOps = (
+  h: ReturnType<typeof harness>,
+  status: string | ((cwd: string) => string) = '## issue/x\n',
+): { op: string; cwd: string; args?: Record<string, string> }[] => {
+  const ops: { op: string; cwd: string; args?: Record<string, string> }[] = []
+  h.deps.repoOp = async (op, cwd, args) => {
+    ops.push({ op, cwd, ...(args ? { args } : {}) })
+    const reported = typeof status === 'string' ? status : status(cwd)
+    return { ok: true, output: op === 'status' ? reported : '' }
+  }
+  return ops
+}
 
 describe('IssueService repo_id scoping (#140)', () => {
   it('unifies one origin checked out at two paths into a single #N sequence', () => {
@@ -940,6 +961,245 @@ describe('IssueService archive cascade to sessions (#133)', () => {
     expect(setSessionArchived).toHaveBeenCalledTimes(1)
     expect(setSessionArchived).toHaveBeenCalledWith('/r/wt/live', true)
     expect(setSessionArchived).not.toHaveBeenCalledWith('/r/wt/gone', true)
+  })
+})
+
+/**
+ * Archive gives the DISK back too (POD-567) — the second half of the same
+ * teardown the cascade above starts. Archive already stopped the processes; the
+ * checkout it left behind was ~82 of the ~100 stale worktrees on the origin host.
+ *
+ * The invariant under every case here: the branch survives. Freeing is reversible
+ * (`ensureWorktree` rebuilds from the branch on resume / start / add-session),
+ * refusing is safe — so the only unacceptable outcome, discarding uncommitted
+ * work, is the one no automatic path can produce.
+ */
+describe('archive frees the worktree, keeping the branch (POD-567)', () => {
+  /** The free is fire-and-forget off a synchronous archive (see `onIssueArchived`)
+   *  — a macrotask lets its repoOp round trips settle before asserting. */
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+  const startedIssue = (h: ReturnType<typeof harness>, title = 'Shipped') => {
+    const w = h.svc.create({ repoPath: '/r', title, startNow: false })
+    h.svc.update(w.id, { worktreePath: '/r/.worktrees/issue-x', branch: 'issue/x' })
+    return w.id
+  }
+
+  it('frees the checkout on a manual archive, keeps the branch, and never forces', async () => {
+    const h = harness()
+    const ops = recordOps(h)
+    const id = startedIssue(h)
+
+    h.svc.archive(id)
+    await settle()
+
+    expect(h.svc.get(id)!.worktreePath).toBeNull()
+    expect(h.svc.get(id)!.branch).toBe('issue/x')
+    const remove = ops.find((o) => o.op === 'worktreeRemove')
+    expect(remove?.cwd).toBe('/r') // the repo, with the worktree path as an arg
+    expect(remove?.args).toEqual({ path: '/r/.worktrees/issue-x' }) // NO force, ever
+    expect(h.store.events.listEventsSince(0, { kinds: ['issue.worktree_freed'] }).length).toBe(1)
+  })
+
+  it('frees on the read-gated 7-day sweep too, not only on the operator’s own archive', async () => {
+    const h = harness()
+    const id = startedIssue(h, 'Aged out')
+    h.svc.close(id)
+    h.svc.markIssueRead(id)
+
+    const readAtMs = Date.parse('2026-06-30T00:00:00.000Z')
+    expect(h.svc.sweepAutoArchive(readAtMs + 8 * 24 * 3600_000).map((w) => w.id)).toEqual([id])
+    await settle()
+
+    expect(h.svc.get(id)!.worktreePath).toBeNull()
+    expect(h.svc.get(id)!.branch).toBe('issue/x')
+  })
+
+  it('an unmerged branch is NOT a refusal — that is the merge-pending case', async () => {
+    // The worktree is clean but the branch has never landed. Freeing is exactly
+    // right here: the commits live on the branch, and resume rebuilds the checkout.
+    const h = harness()
+    recordOps(h, '## issue/x...origin/main [ahead 3]')
+    const id = startedIssue(h, 'Waiting on merge')
+
+    h.svc.archive(id)
+    await settle()
+
+    expect(h.svc.get(id)!.worktreePath).toBeNull()
+    expect(h.svc.get(id)!.branch).toBe('issue/x')
+  })
+
+  it('refuses on a dirty tree: the checkout stays, and the refusal is recorded', async () => {
+    const h = harness()
+    const ops = recordOps(h, '## issue/x\n M src/unsaved.ts')
+    const id = startedIssue(h, 'Half-finished')
+
+    h.svc.archive(id)
+    await settle()
+
+    expect(h.svc.get(id)!.worktreePath).toBe('/r/.worktrees/issue-x')
+    expect(ops.some((o) => o.op === 'worktreeRemove')).toBe(false)
+    const refused = h.store.events.listEventsSince(0, { kinds: ['issue.worktree_free_refused'] })
+    expect(refused.length).toBe(1)
+    // The reason travels with it — "why is this directory still here" is answerable.
+    expect(JSON.stringify(refused[0]!.payload)).toContain('unsaved.ts')
+  })
+
+  it('refuses while a live session from ANOTHER issue is sitting in the path', async () => {
+    // The cascade parks THIS issue's sessions, so the gate is really about the
+    // squatter: removing the worktree under it is the same data loss as a dirty tree.
+    const sessions: SessionMeta[] = []
+    const h = harness(sessions)
+    const ops = recordOps(h)
+    const id = startedIssue(h, 'Shared checkout')
+    const other = h.svc.create({ repoPath: '/r', title: 'Neighbour', startNow: false })
+    sessions.push({
+      ...sess('/r/.worktrees/issue-x'),
+      issueId: other.id,
+    } as unknown as SessionMeta)
+
+    h.svc.archive(id)
+    await settle()
+
+    // Not even inspected: the guard runs before any git op on the path.
+    expect(ops.some((o) => o.op === 'worktreeRemove')).toBe(false)
+    expect(h.svc.get(id)!.worktreePath).toBe('/r/.worktrees/issue-x')
+    expect(h.setSessionArchived).not.toHaveBeenCalledWith('/r/.worktrees/issue-x', true)
+    expect(
+      h.store.events.listEventsSince(0, { kinds: ['issue.worktree_free_refused'] }).length,
+    ).toBe(1)
+  })
+
+  it('does not free on close — only archive, because `done` is an agent-writable claim', async () => {
+    const h = harness()
+    const ops = recordOps(h)
+    const id = startedIssue(h, 'Done, awaiting review')
+
+    h.svc.close(id)
+    await settle()
+
+    expect(h.svc.get(id)!.worktreePath).toBe('/r/.worktrees/issue-x')
+    expect(ops.some((o) => o.op === 'worktreeRemove')).toBe(false)
+  })
+
+  it('un-archiving does not free anything (and re-archiving a freed issue is a no-op)', async () => {
+    const h = harness()
+    recordOps(h)
+    const id = startedIssue(h)
+    h.svc.archive(id)
+    await settle()
+    h.svc.update(id, { archived: false })
+    const afterUnarchive = recordOps(h) // a fresh recorder — starts empty
+
+    h.svc.update(id, { archived: true })
+    await settle()
+
+    // Nothing left to free: no git op, no refusal event.
+    expect(afterUnarchive.length).toBe(0)
+    expect(
+      h.store.events.listEventsSince(0, { kinds: ['issue.worktree_free_refused'] }).length,
+    ).toBe(0)
+  })
+})
+
+/**
+ * After free (stop / archive): worktreePath is null, branch survives.
+ * Resume already rebuilt via ensureWorktree; NEW-agent paths must too —
+ * otherwise the only way back in is an old session (POD-580).
+ */
+describe('new agent after worktree free (POD-580)', () => {
+  /** Branch kept, checkout gone — the post-free row shape. */
+  const freedWithBranch = (svc: IssueService, title = 'Shipped') => {
+    const w = svc.create({ repoPath: '/r', title, startNow: false })
+    svc.update(w.id, { worktreePath: null, branch: 'issue/x', stage: 'in_progress' })
+    return w
+  }
+
+  it('addSession rebuilds via worktreeAddExisting then spawns into it', async () => {
+    const { svc, deps } = harness()
+    const w = freedWithBranch(svc)
+    deps.repoOp = vi.fn(async (op: string) =>
+      op === 'worktreeAddExisting'
+        ? { ok: true, output: 'Preparing worktree' }
+        : { ok: true, output: '' },
+    ) as typeof deps.repoOp
+
+    await svc.addSession(w.id)
+
+    expect(deps.repoOp).toHaveBeenCalledWith(
+      'worktreeAddExisting',
+      '/r',
+      { path: '/r/.worktrees/issue-x', branch: 'issue/x' },
+      undefined,
+    )
+    expect(svc.get(w.id)!.worktreePath).toBe('/r/.worktrees/issue-x')
+    expect(deps.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cwd: '/r/.worktrees/issue-x',
+        issueId: w.id,
+      }),
+    )
+    // Never tried to create the branch again (-b would fail: branch exists).
+    expect(
+      (deps.repoOp as ReturnType<typeof vi.fn>).mock.calls.every(
+        (c: unknown[]) => c[0] !== 'worktreeAdd',
+      ),
+    ).toBe(true)
+  })
+
+  it('addSession still refuses when neither worktree nor branch is recorded', () => {
+    const { svc } = harness()
+    const w = svc.create({ repoPath: '/r', title: 'Never started', startNow: false })
+    expect(() => svc.addSession(w.id)).toThrow(/issue not started/)
+  })
+
+  it('start attaches the preserved branch (worktreeAddExisting) and spawns a new agent', async () => {
+    const { svc, deps } = harness()
+    const w = freedWithBranch(svc, 'Restart me')
+    deps.repoOp = vi.fn(async (op: string) =>
+      op === 'worktreeAddExisting'
+        ? { ok: true, output: 'Preparing worktree' }
+        : { ok: true, output: '' },
+    ) as typeof deps.repoOp
+
+    const started = await svc.start(w.id)
+
+    expect(started.worktreePath).toBe('/r/.worktrees/issue-x')
+    expect(started.branch).toBe('issue/x')
+    expect(deps.repoOp).toHaveBeenCalledWith(
+      'worktreeAddExisting',
+      '/r',
+      { path: '/r/.worktrees/issue-x', branch: 'issue/x' },
+      undefined,
+    )
+    expect(
+      (deps.repoOp as ReturnType<typeof vi.fn>).mock.calls.every(
+        (c: unknown[]) => c[0] !== 'worktreeAdd',
+      ),
+    ).toBe(true)
+    expect(deps.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cwd: '/r/.worktrees/issue-x',
+        issueId: w.id,
+      }),
+    )
+  })
+
+  it('start still creates a fresh branch with worktreeAdd when none is recorded', async () => {
+    const { svc, deps } = harness()
+    const w = svc.create({ repoPath: '/r', title: 'Brand new', startNow: false })
+    await svc.start(w.id)
+    expect(deps.repoOp).toHaveBeenCalledWith(
+      'worktreeAdd',
+      '/r',
+      expect.objectContaining({ branch: 'issue/1-brand-new' }),
+      undefined,
+    )
+    expect(
+      (deps.repoOp as ReturnType<typeof vi.fn>).mock.calls.every(
+        (c: unknown[]) => c[0] !== 'worktreeAddExisting',
+      ),
+    ).toBe(true)
   })
 })
 
@@ -4191,5 +4451,253 @@ describe('IssueService surfaces daemon argv-hardening rejections (issue #81)', (
     const r = await svc.action(c.id, 'pr')
     expect(r.ok).toBe(false)
     expect(r.output).toBe("unsafe branch: must not start with '-' (got '-D')")
+  })
+})
+
+/**
+ * The tail archive cannot reach (POD-564).
+ *
+ * POD-567 gives the checkout back when a finished issue is ARCHIVED. This sweep
+ * is for the work nobody archived — 37 such issues and ~97 done-stage worktrees
+ * on the origin host — and for every SUB-ISSUE, which the archive sweep's
+ * top-level-only scope excludes permanently.
+ *
+ * The janitor only proposes. Every clause is re-read here, and the two that
+ * cannot be read from a row at all — a clean tree, an empty directory — are
+ * re-read on disk by `releaseWorktreeIfIdle`, never cached.
+ */
+describe('worktree GC sweep for closed work (POD-564)', () => {
+  const CLOSED_AT = '2026-06-30T00:00:00.000Z'
+  const DUE = Date.parse(CLOSED_AT) + 15 * 24 * 3600_000
+
+  const gcHarness = (
+    worktreeGc: { mode: 'off' | 'propose' | 'auto'; afterDays: number },
+    sessions: SessionMeta[] = [],
+  ) => {
+    const h = harness(sessions)
+    h.deps.getSettings = () => normalizeSettings({ worktreeGc })
+    return { ...h, svc: new IssueService(h.deps) }
+  }
+
+  const closedIssueWithCheckout = (
+    h: { svc: IssueService },
+    over: { title?: string; parentId?: IssueId; path?: string } = {},
+  ) => {
+    const created = h.svc.create({
+      repoPath: '/r',
+      title: over.title ?? 'Shipped',
+      startNow: false,
+      ...(over.parentId ? { parentId: over.parentId } : {}),
+    })
+    h.svc.update(created.id, {
+      worktreePath: over.path ?? `/r/.worktrees/${created.id}`,
+      branch: `issue/${created.id}`,
+    })
+    h.svc.close(created.id)
+    return created.id
+  }
+
+  const observationFor = (
+    h: { svc: IssueService },
+    id: string,
+    mode: 'propose' | 'auto',
+    afterDays = 14,
+  ) => {
+    const row = h.svc.get(id)!
+    return {
+      issueId: id,
+      worktreePath: row.worktreePath as string,
+      stage: row.stage,
+      closedReason: row.closedReason ?? null,
+      closedAt: row.closedAt as string,
+      deletedAt: null as null,
+      mode,
+      afterDays,
+    }
+  }
+
+  it('under `propose` it records what it would free and leaves the disk alone', async () => {
+    // The first run on the origin host is ~97 directories. It has to be
+    // inspectable before it applies, which is the whole reason propose is the
+    // default rather than auto.
+    const h = gcHarness({ mode: 'propose', afterDays: 14 })
+    const ops = recordOps(h)
+    const id = closedIssueWithCheckout(h)
+
+    const result = await h.svc.tryWorktreeGcObserved(
+      observationFor(h, id, 'propose'),
+      DUE,
+      systemPrincipal('expiry'),
+    )
+
+    expect(result).toEqual({ outcome: 'proposed' })
+    expect(h.svc.get(id)!.worktreePath).not.toBeNull()
+    expect(ops.some((o) => o.op === 'worktreeRemove')).toBe(false)
+    const proposed = h.store.events.listEventsSince(0, { kinds: ['issue.worktree_gc_proposed'] })
+    expect(proposed.length).toBe(1)
+    expect(proposed[0]!.payload).toMatchObject({ worktreePath: h.svc.get(id)!.worktreePath })
+  })
+
+  it('under `auto` it frees the checkout, keeps the branch, and never forces', async () => {
+    const h = gcHarness({ mode: 'auto', afterDays: 14 })
+    const ops = recordOps(h)
+    const id = closedIssueWithCheckout(h)
+    const path = h.svc.get(id)!.worktreePath
+
+    const result = await h.svc.tryWorktreeGcObserved(
+      observationFor(h, id, 'auto'),
+      DUE,
+      systemPrincipal('expiry'),
+    )
+
+    expect(result).toEqual({ outcome: 'freed' })
+    expect(h.svc.get(id)!.worktreePath).toBeNull()
+    expect(h.svc.get(id)!.branch).toBe(`issue/${id}`)
+    const remove = ops.find((o) => o.op === 'worktreeRemove')
+    expect(remove?.args).toEqual({ path }) // NO force, ever
+  })
+
+  it('REFUSES a dirty tree and reports it, rather than discarding the work', async () => {
+    const h = gcHarness({ mode: 'auto', afterDays: 14 })
+    recordOps(h, '## issue/x\n M src/unsaved.ts')
+    const id = closedIssueWithCheckout(h, { title: 'Half-finished' })
+
+    const result = await h.svc.tryWorktreeGcObserved(
+      observationFor(h, id, 'auto'),
+      DUE,
+      systemPrincipal('expiry'),
+    )
+
+    expect(result.outcome).toBe('refused')
+    expect(result).toMatchObject({ reason: expect.stringContaining('unsaved.ts') })
+    expect(h.svc.get(id)!.worktreePath).not.toBeNull()
+    expect(
+      h.store.events.listEventsSince(0, { kinds: ['issue.worktree_free_refused'] }).length,
+    ).toBe(1)
+  })
+
+  it('a live session in the path is `precondition` — retried, not reported as a refusal', async () => {
+    // Distinct from the dirty tree above ON PURPOSE. An agent working in a
+    // closed issue's checkout is a clause that stopped holding, so the next
+    // sweep re-asks; recording a refusal instead would put the same event in
+    // the log twice a minute for as long as the agent works there.
+    const sessions: SessionMeta[] = []
+    const h = gcHarness({ mode: 'auto', afterDays: 14 }, sessions)
+    const ops = recordOps(h)
+    const id = closedIssueWithCheckout(h, { path: '/r/.worktrees/shared' })
+    const neighbour = h.svc.create({ repoPath: '/r', title: 'Neighbour', startNow: false })
+    sessions.push({
+      ...sess('/r/.worktrees/shared'),
+      issueId: neighbour.id,
+    } as unknown as SessionMeta)
+
+    const result = await h.svc.tryWorktreeGcObserved(
+      observationFor(h, id, 'auto'),
+      DUE,
+      systemPrincipal('expiry'),
+    )
+
+    expect(result).toEqual({ outcome: 'precondition' })
+    expect(ops.some((o) => o.op === 'worktreeRemove')).toBe(false)
+    expect(
+      h.store.events.listEventsSince(0, { kinds: ['issue.worktree_free_refused'] }).length,
+    ).toBe(0)
+  })
+
+  it('a checkout freed between propose and apply is `precondition`, not an error', async () => {
+    const h = gcHarness({ mode: 'auto', afterDays: 14 })
+    const id = closedIssueWithCheckout(h)
+    const observed = observationFor(h, id, 'auto')
+    h.svc.update(id, { worktreePath: null })
+
+    expect(await h.svc.tryWorktreeGcObserved(observed, DUE, systemPrincipal('expiry'))).toEqual({
+      outcome: 'precondition',
+    })
+  })
+
+  it('refuses an observation whose policy is not the one settings would apply', async () => {
+    // The failure this prevents is not a stale sweep: a janitor that believes
+    // `auto` while settings say `propose` deletes ~97 directories the operator
+    // asked only to be shown.
+    const h = gcHarness({ mode: 'propose', afterDays: 14 })
+    const id = closedIssueWithCheckout(h)
+
+    expect(
+      await h.svc.tryWorktreeGcObserved(
+        observationFor(h, id, 'auto'),
+        DUE,
+        systemPrincipal('expiry'),
+      ),
+    ).toEqual({ outcome: 'precondition' })
+    expect(
+      await h.svc.tryWorktreeGcObserved(
+        observationFor(h, id, 'propose', 30),
+        DUE,
+        systemPrincipal('expiry'),
+      ),
+    ).toEqual({ outcome: 'precondition' })
+    expect(h.svc.get(id)!.worktreePath).not.toBeNull()
+  })
+
+  it('refuses everything while the mode is `off`', async () => {
+    const h = gcHarness({ mode: 'off', afterDays: 14 })
+    const id = closedIssueWithCheckout(h)
+
+    expect(
+      await h.svc.tryWorktreeGcObserved(
+        observationFor(h, id, 'auto'),
+        DUE,
+        systemPrincipal('expiry'),
+      ),
+    ).toEqual({ outcome: 'precondition' })
+    expect(h.svc.get(id)!.worktreePath).not.toBeNull()
+  })
+
+  it('says not-due until the close is older than the window', async () => {
+    const h = gcHarness({ mode: 'auto', afterDays: 14 })
+    const id = closedIssueWithCheckout(h)
+
+    expect(
+      await h.svc.tryWorktreeGcObserved(
+        observationFor(h, id, 'auto'),
+        Date.parse(CLOSED_AT) + 5 * 24 * 3600_000,
+        systemPrincipal('expiry'),
+      ),
+    ).toEqual({ outcome: 'not-due' })
+  })
+
+  it('lists a SUB-ISSUE’s checkout — the archive sweep can never reach one', async () => {
+    const sessions: SessionMeta[] = []
+    const h = gcHarness({ mode: 'propose', afterDays: 14 }, sessions)
+    const parent = h.svc.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    const child = closedIssueWithCheckout(h, { title: 'Sub', parentId: parent.id })
+    const open = h.svc.create({ repoPath: '/r', title: 'Still going', startNow: false })
+    h.svc.update(open.id, { worktreePath: '/r/.worktrees/open', branch: 'issue/open' })
+    const busy = closedIssueWithCheckout(h, { title: 'Occupied', path: '/r/.worktrees/busy' })
+    sessions.push(sess('/r/.worktrees/busy'))
+
+    const reclaimable = h.svc.listReclaimableWorktrees(DUE)
+
+    expect(reclaimable.map((c) => c.issueId)).toEqual([child])
+    expect(reclaimable.map((c) => c.issueId)).not.toContain(open.id)
+    expect(reclaimable.map((c) => c.issueId)).not.toContain(busy)
+  })
+
+  it('releases the whole reclaimable list on one click, reporting what refused', async () => {
+    const h = gcHarness({ mode: 'propose', afterDays: 14 })
+    const clean = closedIssueWithCheckout(h, { title: 'Clean', path: '/r/.worktrees/clean' })
+    const dirty = closedIssueWithCheckout(h, { title: 'Dirty', path: '/r/.worktrees/dirty' })
+    recordOps(h, (cwd) =>
+      cwd === '/r/.worktrees/dirty' ? '## issue/d\n M src/unsaved.ts' : '## issue/c\n',
+    )
+
+    const result = await h.svc.releaseReclaimableWorktrees(systemPrincipal('expiry'), DUE)
+
+    expect(result.freed).toEqual([clean])
+    expect(result.refused.map((r) => r.issueId)).toEqual([dirty])
+    expect(h.svc.get(clean)!.worktreePath).toBeNull()
+    expect(h.svc.get(dirty)!.worktreePath).toBe('/r/.worktrees/dirty')
+    // Reversible on both sides: nothing lost the branch.
+    expect(h.svc.get(clean)!.branch).toBe(`issue/${clean}`)
   })
 })

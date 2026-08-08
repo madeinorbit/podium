@@ -6,13 +6,11 @@
 
 import { readPositionAdvanceInput } from '@podium/commands'
 import { asUserId, FIRST_ADMIN_USER_ID, type UserId } from '@podium/model'
-import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
 import { type CommandPrincipal, userCommandPrincipal } from '../../command-principal'
-import { runDrizzleMigrations } from '../../migrations'
-import { DRIZZLE_MIGRATIONS } from '../../migrations/drizzle-manifest.generated'
 import { UserReadPositionRepository } from '../../store/user-read-position'
-import { readPositionActor, readPositionAuthzFailure, type ReadPositionAuthzDeps } from './authz'
+import { openMigratedTestDatabase } from '../../test-support/migrated-database'
+import { type ReadPositionAuthzDeps, readPositionActor, readPositionAuthzFailure } from './authz'
 import { ReadPositionService } from './service'
 
 const ALICE: UserId = FIRST_ADMIN_USER_ID
@@ -67,16 +65,15 @@ describe('the actor comes from the principal, and the input cannot supply one', 
     expect(
       readPositionAdvanceInput.safeParse({ streamId: 'notAStream', lastEventId: 1 }).success,
     ).toBe(false)
-    expect(readPositionAdvanceInput.safeParse({ streamId: 'issueEvents', lastEventId: 1 }).success).toBe(
-      true,
-    )
+    expect(
+      readPositionAdvanceInput.safeParse({ streamId: 'issueEvents', lastEventId: 1 }).success,
+    ).toBe(true)
   })
 })
 
 describe('a refused principal does not write', () => {
   it('gate refusal means the repository is never called; the positive control writes', () => {
-    const db = openDatabase(':memory:')
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    const db = openMigratedTestDatabase()
     const repo = new UserReadPositionRepository(db)
     const service = new ReadPositionService({ cursors: repo })
 

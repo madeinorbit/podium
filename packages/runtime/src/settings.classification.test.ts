@@ -40,7 +40,8 @@ const classifiedPaths = () => SETTINGS_CLASSIFICATION.map((c) => c.path)
 
 describe('the blob walk, probed before it is believed', () => {
   it('finds a non-trivial number of leaves, nested ones included', () => {
-    expect(blobLeaves().length).toBe(39)
+    // 42 + `hibernation.idleShellHours` (POD-565).
+    expect(blobLeaves().length).toBe(43)
     expect(blobLeaves()).toContain('roles.coding.model')
     expect(blobLeaves()).toContain('roles.background.accountId')
     expect(blobLeaves()).toContain('notifications.telegramBotToken')
@@ -95,10 +96,11 @@ describe('the blob COMPOSES the model schemas — no restatement', () => {
     ['steward', model.StewardPolicy],
     ['autoContinue', model.AutoContinuePreferences],
     ['experimental', model.ExperimentalFlags],
+    ['worktreeGc', model.WorktreeGcPolicy],
   ]
 
   it('pins EVERY composable member, not a sample', () => {
-    // Membership pin: the day an eleventh group is added, this fails until it is
+    // Membership pin: the day a twelfth group is added, this fails until it is
     // listed. `notifications` is excluded by name below because it is the one
     // member assembled from TWO groups.
     expect(COMPOSED.map(([k]) => k).sort()).toEqual(
@@ -162,7 +164,14 @@ describe('the composed blob still parses exactly as before', () => {
       },
       apiKeys: { openrouter: '', anthropic: '', openai: '' },
       integrations: { linearApiKey: '' },
-      hibernation: { enabled: true, memoryPct: 80, maxIdleSessions: 30, idleMinutes: 30 },
+      hibernation: {
+        enabled: true,
+        memoryPct: 80,
+        loadPerCore: 1.5,
+        maxIdleSessions: 8,
+        idleMinutes: 30,
+        idleShellHours: null,
+      },
       notifications: { web: true, ntfyTopic: '', telegramBotToken: '', telegramChatId: '' },
       sidebar: { repoSort: 'lastUsed', repoOrder: [], groupByRepo: false },
       gitWorkflow: { defaultParentBranch: '', mergeStyle: 'ff-only', autoRebaseBeforeMerge: true },
@@ -170,6 +179,7 @@ describe('the composed blob still parses exactly as before', () => {
       steward: { enabled: true },
       autoContinue: { enabled: false, promptDismissed: false },
       experimental: {},
+      worktreeGc: { mode: 'propose', afterDays: 14 },
     })
   })
 
@@ -187,6 +197,9 @@ describe('the composed blob still parses exactly as before', () => {
       'steward',
       'autoContinue',
       'experimental',
+      // Appended, never slotted by topic: this list IS the serialized order of
+      // a persisted blob (POD-564).
+      'worktreeGc',
     ])
     expect(Object.keys(parsed.notifications)).toEqual([
       'web',
@@ -203,12 +216,20 @@ describe('the composed blob still parses exactly as before', () => {
     expect(() => normalizeSettings({ hibernation: { memoryPct: 20 } })).toThrow()
     expect(() => normalizeSettings({ hibernation: { memoryPct: 99 } })).toThrow()
     expect(() => normalizeSettings({ hibernation: { idleMinutes: 0 } })).toThrow()
+    expect(() => normalizeSettings({ hibernation: { loadPerCore: 0.1 } })).toThrow()
+    expect(() => normalizeSettings({ hibernation: { loadPerCore: 9 } })).toThrow()
     expect(() => normalizeSettings({ gitWorkflow: { mergeStyle: 'rebase' } })).toThrow()
     expect(() => normalizeSettings({ sidebar: { repoSort: 'random' } })).toThrow()
     // …and the valid neighbours still pass, so the refusals above are not a
     // schema that rejects everything.
     expect(normalizeSettings({ hibernation: { memoryPct: 50 } }).hibernation.memoryPct).toBe(50)
     expect(normalizeSettings({ hibernation: { memoryPct: 95 } }).hibernation.memoryPct).toBe(95)
+    expect(normalizeSettings({ hibernation: { loadPerCore: 0.5 } }).hibernation.loadPerCore).toBe(
+      0.5,
+    )
+    expect(normalizeSettings({ hibernation: { loadPerCore: null } }).hibernation.loadPerCore).toBe(
+      null,
+    )
     expect(normalizeSettings({ gitWorkflow: { mergeStyle: 'pr' } }).gitWorkflow.mergeStyle).toBe(
       'pr',
     )

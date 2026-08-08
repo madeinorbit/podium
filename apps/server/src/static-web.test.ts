@@ -196,6 +196,42 @@ describe('registerWebStatic', () => {
       rmSync(mobile, { recursive: true, force: true })
     }
   })
+
+  it('serves .wasm with application/wasm so compileStreaming succeeds [POD-541]', async () => {
+    writeFileSync(join(dir, 'engine.wasm'), Buffer.from([0x00, 0x61, 0x73, 0x6d]))
+    const res = await app.request('/engine.wasm')
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toBe('application/wasm')
+  })
+
+  it('opts mobile into cross-origin isolation so SharedArrayBuffer is available [POD-541]', async () => {
+    // expo-sqlite's web sync bridge needs SAB; SAB needs COOP+COEP. Without them
+    // the replica degrades to memory and offline deep links lose the task.
+    const mobile = mkdtempSync(join(tmpdir(), 'podium-mobile-iso-'))
+    try {
+      writeFileSync(join(mobile, 'index.html'), '<!doctype html><title>Podium Mobile</title>')
+      writeFileSync(join(mobile, 'app.js'), 'console.log(1)')
+      const app = new Hono()
+      registerWebStatic(app, mobile, { basePath: '/mobile', crossOriginIsolated: true })
+
+      for (const path of ['/mobile', '/mobile/', '/mobile/app.js']) {
+        const res = await app.request(path)
+        expect(res.status, path).toBe(200)
+        expect(res.headers.get('Cross-Origin-Opener-Policy'), path).toBe('same-origin')
+        expect(res.headers.get('Cross-Origin-Embedder-Policy'), path).toBe('credentialless')
+        expect(res.headers.get('Cross-Origin-Resource-Policy'), path).toBe('same-origin')
+      }
+    } finally {
+      rmSync(mobile, { recursive: true, force: true })
+    }
+  })
+
+  it('does not isolate the desktop shell by default [POD-541]', async () => {
+    const res = await app.request('/')
+    expect(res.status).toBe(200)
+    expect(res.headers.get('Cross-Origin-Opener-Policy')).toBeNull()
+    expect(res.headers.get('Cross-Origin-Embedder-Policy')).toBeNull()
+  })
   it('404s the Apple touch-icon when the dist ships none [POD-421]', async () => {
     const bare = mkdtempSync(join(tmpdir(), 'podium-bare-'))
     try {

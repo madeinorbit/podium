@@ -10,7 +10,7 @@ import {
 import { formatIssueRef } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
 import type { CommandPrincipal } from '../../../command-principal'
-import { sessionsForIssue } from '../../../issue-util'
+import { liveSessionsUsingWorktree, sessionsForIssue } from '../../../issue-util'
 import { type LinearIssue, searchIssues } from '../../../linear'
 import { assertModelSelectionValid } from '../../../model-validation'
 import type { IssueRow } from '../../../store'
@@ -41,23 +41,31 @@ function watchesParentBranch(row: IssueRow): boolean {
   )
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000
+
 /** Group key for {@link IssueGitWorkflowModule.sweepParentBranchMovement}: every
- *  issue sharing one machine's copy of one repo's parent branch is answered by a
- *  single `rev-parse`. JSON so no separator can collide with a path. */
-function parentBranchKey(row: IssueRow): string {
-  return JSON.stringify([row.machineId ?? '', row.repoPath, row.parentBranch])
+ *  issue sharing one machine's copy of one repo's watched ref is answered by a
+ *  single `rev-parse`. JSON so no separator can collide with a path. The third
+ *  slot is the watched ref (cut parent and/or landing base — see the sweep). */
+function parentBranchKey(machineId: string | null | undefined, repoPath: string, ref: string): string {
+  return JSON.stringify([machineId ?? '', repoPath, ref])
 }
 
-/** What one {@link parentBranchKey} group carries into the sweep: the three row
- *  fields the `rev-parse` needs, plus the issues answered by it.
- *
- *  PICKED from {@link IssueRow} rather than restated. The three are read straight
- *  off the row and are never re-derived here, so a second spelling of their types
- *  would be a copy of the issue vocabulary that could drift from it silently —
- *  the thing `scripts/representation-audit.ts` counts. `ids` is this sweep's own
- *  accumulator and belongs to no entity, which is why it is written out. */
-type ParentBranchGroup = Pick<IssueRow, 'repoPath' | 'parentBranch' | 'machineId'> & {
+/** What one {@link parentBranchKey} group carries into the sweep: the machine/
+ *  repo/ref the `rev-parse` needs, plus the issues answered by it. */
+type ParentBranchGroup = {
+  repoPath: string
+  /** The ref under watch — either an issue's parentBranch or the landing base. */
+  watchedRef: string
+  machineId: string | null
   ids: string[]
+}
+
+/** Default branch work lands on when an issue's cut parent is not itself the
+ *  shared integration branch. Mirrors create-time fallback in crud.ts. */
+function landingBaseFromSettings(defaultParentBranch: string | undefined): string {
+  const trimmed = defaultParentBranch?.trim() ?? ''
+  return trimmed !== '' ? trimmed : 'main'
 }
 
 /**
@@ -104,6 +112,10 @@ export class IssueGitWorkflowModule {
     this.createAndMaybeStart = this.createAndMaybeStart.bind(this)
     this.action = this.action.bind(this)
     this.freeWorktreeKeepBranch = this.freeWorktreeKeepBranch.bind(this)
+    this.releaseWorktreeIfIdle = this.releaseWorktreeIfIdle.bind(this)
+    this.tryWorktreeGcObserved = this.tryWorktreeGcObserved.bind(this)
+    this.listReclaimableWorktrees = this.listReclaimableWorktrees.bind(this)
+    this.releaseReclaimableWorktrees = this.releaseReclaimableWorktrees.bind(this)
     this.ensureWorktree = this.ensureWorktree.bind(this)
     this.cleanup = this.cleanup.bind(this)
     this.integrate = this.integrate.bind(this)
@@ -276,64 +288,94 @@ export class IssueGitWorkflowModule {
     row.defaultAgent = agent
     row.defaultModel = opts?.model ?? stored.model
     row.defaultEffort = opts?.effort ?? stored.effort
-    /**
-     * A machine-pinned start has to reach the target BEFORE the worktree add (POD-1424).
-     *
-     * Two things had to be true and neither was. The repository has to be resolved by
-     * IDENTITY, because two machines have two layouts and comparing the source path
-     * literally made a present repo read as absent; and the start point has to EXIST
-     * there, because `worktree add <path> <startPoint>` fails on a start point the
-     * target cannot resolve — and our own branches are on no shared remote, so a clone
-     * cannot fetch them.
-     *
-     * ORDER IS THE PROPERTY. This runs first and the worktree add uses the path it
-     * returns: the repo path on the TARGET, which is not `row.repoPath`.
-     * requireMachineForRepo keeps its job and now runs AFTER, against the resolved path,
-     * so what it still catches — an offline machine — is exactly what it has an
-     * actionable message for.
-     *
-     * The move is committed through `rehome` rather than by assigning `row.repoPath`
-     * here, because repoPath and machineId have to travel together — the file-browser
-     * root, the sidebar's worktree and the cwd the next agent spawns into are all
-     * derived from the pair, and `rehome` is the guarded transition that already moves
-     * them as one.
-     */
-    let startRepoPath = row.repoPath
-    let startPoint = row.parentBranch
-    if (row.machineId && this.store.d.prepareMachineStart) {
-      const prepared = await this.store.d.prepareMachineStart({
-        repoPath: row.repoPath,
-        machineId: row.machineId,
-        ...(row.parentBranch ? { startPoint: row.parentBranch } : {}),
-      })
-      startRepoPath = prepared.repoPath
-      // A bundled branch lands as OBJECTS, not as a ref, so the branch name does not
-      // resolve on the target even though its commit does. prepareMachineStart hands
-      // back whatever the target can actually resolve — the name when it was already
-      // there, a commit id when it had to be shipped.
-      if (prepared.startPoint) startPoint = prepared.startPoint
-    }
-    // Refuse a foreign repository BEFORE creating anything (POD-1461). The same identity
-    // rule rehome applies: a target whose repoId differs would renumber this issue into
-    // another repo. Checked here rather than after the add, so a refusal costs nothing.
-    if (startRepoPath !== row.repoPath && !this.isSameRepoIdentity(row, startRepoPath)) {
-      throw new Error(
-        `refusing to start on ${startRepoPath}: it is not the same repository as ${row.repoPath}`,
+
+    // Branch preserved after free/archive (worktreePath null, branch set): attach the
+    // existing branch — do NOT `worktree add -b`, which fails because the branch is
+    // still there. Same rebuild as resume (`ensureWorktree` → worktreeAddExisting).
+    // Fresh starts (no branch) take the create path below.
+    let path: string
+    if (row.branch) {
+      const ensured = await this.ensureWorktree(id)
+      if (!ensured.ok || !ensured.worktreePath) {
+        throw new Error(ensured.output || 'failed to recreate worktree from branch')
+      }
+      path = ensured.worktreePath
+    } else {
+      /**
+       * A machine-pinned start has to reach the target BEFORE the worktree add (POD-1424).
+       *
+       * Two things had to be true and neither was. The repository has to be resolved by
+       * IDENTITY, because two machines have two layouts and comparing the source path
+       * literally made a present repo read as absent; and the start point has to EXIST
+       * there, because `worktree add <path> <startPoint>` fails on a start point the
+       * target cannot resolve — and our own branches are on no shared remote, so a clone
+       * cannot fetch them.
+       *
+       * ORDER IS THE PROPERTY. This runs first and the worktree add uses the path it
+       * returns: the repo path on the TARGET, which is not `row.repoPath`.
+       * requireMachineForRepo keeps its job and now runs AFTER, against the resolved path,
+       * so what it still catches — an offline machine — is exactly what it has an
+       * actionable message for.
+       *
+       * The move is committed through `rehome` rather than by assigning `row.repoPath`
+       * here, because repoPath and machineId have to travel together — the file-browser
+       * root, the sidebar's worktree and the cwd the next agent spawns into are all
+       * derived from the pair, and `rehome` is the guarded transition that already moves
+       * them as one.
+       */
+      let startRepoPath = row.repoPath
+      let startPoint = row.parentBranch
+      if (row.machineId && this.store.d.prepareMachineStart) {
+        const prepared = await this.store.d.prepareMachineStart({
+          repoPath: row.repoPath,
+          machineId: row.machineId,
+          ...(row.parentBranch ? { startPoint: row.parentBranch } : {}),
+        })
+        startRepoPath = prepared.repoPath
+        // A bundled branch lands as OBJECTS, not as a ref, so the branch name does not
+        // resolve on the target even though its commit does. prepareMachineStart hands
+        // back whatever the target can actually resolve — the name when it was already
+        // there, a commit id when it had to be shipped.
+        if (prepared.startPoint) startPoint = prepared.startPoint
+      }
+      // Refuse a foreign repository BEFORE creating anything (POD-1461). The same identity
+      // rule rehome applies: a target whose repoId differs would renumber this issue into
+      // another repo. Checked here rather than after the add, so a refusal costs nothing.
+      if (startRepoPath !== row.repoPath && !this.isSameRepoIdentity(row, startRepoPath)) {
+        throw new Error(
+          `refusing to start on ${startRepoPath}: it is not the same repository as ${row.repoPath}`,
+        )
+      }
+      if (row.machineId) this.store.d.requireMachineForRepo?.(row.machineId, startRepoPath)
+      const branch = this.store.slug(row.seq, row.title)
+      path = this.worktreePathFor(startRepoPath, branch)
+      const res = await this.store.d.repoOp(
+        'worktreeAdd',
+        startRepoPath,
+        { path, branch, ...(startPoint ? { startPoint } : {}) },
+        row.machineId ?? undefined,
       )
+      if (!res.ok) throw new Error(`worktree add failed: ${res.output}`)
+      // POD-665: the daemon just created this worktree out from under connected
+      // clients — nudge them to re-fetch repos rather than sit invisible until reload.
+      this.store.d.onWorktreesChanged?.(row.repoPath, row.machineId ?? undefined)
+      row.branch = branch
+      row.worktreePath = path
+      /**
+       * repoPath TRAVELS WITH the worktree (POD-1461).
+       *
+       * Leaving it on the source produced an inconsistent row — repoPath on one machine,
+       * worktreePath and machineId on another — and every later operation that derives a
+       * path from that pair then sent one machine's path to the other. Observed: stopping
+       * such a session ran `git -C <source>/podium worktree remove <target>/...` and died
+       * with "Permission denied", orphaning the checkout on the target.
+       *
+       * Handoff never had this bug because it commits through rehome, which moves the pair
+       * as one. This is the same move, so it obeys the same rule; the identity guard above
+       * is rehome's, applied before anything was built.
+       */
+      row.repoPath = startRepoPath
     }
-    if (row.machineId) this.store.d.requireMachineForRepo?.(row.machineId, startRepoPath)
-    const branch = this.store.slug(row.seq, row.title)
-    const path = this.worktreePathFor(startRepoPath, branch)
-    const res = await this.store.d.repoOp(
-      'worktreeAdd',
-      startRepoPath,
-      { path, branch, ...(startPoint ? { startPoint } : {}) },
-      row.machineId ?? undefined,
-    )
-    if (!res.ok) throw new Error(`worktree add failed: ${res.output}`)
-    // POD-665: the daemon just created this worktree out from under connected
-    // clients — nudge them to re-fetch repos rather than sit invisible until reload.
-    this.store.d.onWorktreesChanged?.(row.repoPath, row.machineId ?? undefined)
     // Starting a CLOSED issue is an explicit reopen (#24): clear the closed
     // markers so the issue doesn't get a live worktree while staying
     // derived-closed (invisible to ready/open). Emitted as issue.reopened so
@@ -350,22 +392,6 @@ export class IssueGitWorkflowModule {
       // this cleared when the stamp was a column.
       this.store.writeIssueUserState(row.id, { tuckedAt: null })
     }
-    row.branch = branch
-    row.worktreePath = path
-    /**
-     * repoPath TRAVELS WITH the worktree (POD-1461).
-     *
-     * Leaving it on the source produced an inconsistent row — repoPath on one machine,
-     * worktreePath and machineId on another — and every later operation that derives a
-     * path from that pair then sent one machine's path to the other. Observed: stopping
-     * such a session ran `git -C <source>/podium worktree remove <target>/...` and died
-     * with "Permission denied", orphaning the checkout on the target.
-     *
-     * Handoff never had this bug because it commits through rehome, which moves the pair
-     * as one. This is the same move, so it obeys the same rule; the identity guard above
-     * is rehome's, applied before anything was built.
-     */
-    row.repoPath = startRepoPath
     row.stage = 'in_progress'
     // `assignee` is a branded `UserId` by POD-361's recorded decision ('free text
     // today, inventory §9'), and an `agent:<kind>` tag is not a user. The cast is
@@ -586,6 +612,220 @@ export class IssueGitWorkflowModule {
   }
 
   /**
+   * Give a finished issue's disk back, keeping everything reversible (POD-567).
+   *
+   * The GUARDED wrapper around {@link freeWorktreeKeepBranch}: it is the whole
+   * automatic path, so it is where "automatic never destroys work" is enforced
+   * rather than at each caller. Three rules, and they are the reason this is one
+   * function instead of a copied block:
+   *
+   * - **Never `force`.** A dirty tree refuses and stays on disk. Uncommitted work
+   *   is the one thing with no second copy, so an unattended job must leave it
+   *   exactly where its author left it and say so.
+   * - **No live session may be standing in the path** — checked by *path*, not by
+   *   issue, because a session attached to a DIFFERENT issue can be sitting in
+   *   this worktree and removing it underneath one is the same data loss.
+   * - **The branch is kept unconditionally, unmerged included.** That is not a
+   *   refusal case, it is the merge-pending case: the branch holds the work and
+   *   `ensureWorktree` rebuilds the checkout on resume.
+   *
+   * A refusal is REPORTED, never swallowed: it returns its reason and emits
+   * `issue.worktree_free_refused` so "held by uncommitted changes" is a fact in
+   * the log rather than a directory nobody can explain later.
+   *
+   * Callers: the archive seam (`IssueAttentionModule.onIssueArchived`), and the
+   * closed-worktree GC sweep (POD-564) which wants exactly these gates.
+   */
+  async releaseWorktreeIfIdle(
+    id: string,
+    principal: CommandPrincipal,
+  ): Promise<{ freed: boolean; reason?: string }> {
+    const row = this.store.rowOrThrow(id)
+    const worktreePath = row.worktreePath
+    if (!worktreePath) return { freed: false }
+    const stillUsing = liveSessionsUsingWorktree(worktreePath, this.store.d.listSessions())
+    if (stillUsing.length > 0) {
+      return this.refuseRelease(
+        row,
+        worktreePath,
+        `${stillUsing.length} live session(s) still in ${worktreePath}`,
+      )
+    }
+    // NO force — deliberately not plumbed as an option. See the rules above.
+    const freed = await this.freeWorktreeKeepBranch(id, principal)
+    if (!freed.ok) return this.refuseRelease(row, worktreePath, freed.output)
+    return { freed: freed.worktreeFreed }
+  }
+
+  /**
+   * THE GC candidate predicate, in one place (POD-564).
+   *
+   * The janitor's SQL asks this question of a durable snapshot, this asks it of
+   * the live row inside the mutation, and {@link listReclaimableWorktrees} asks
+   * it for the panel. Three call sites, one rule — and the two disk clauses (a
+   * clean tree, nobody standing in the directory) are deliberately NOT here:
+   * they cannot be answered from a row, and answering them from anything cached
+   * is how an unattended job deletes someone's uncommitted work.
+   *
+   * `archived` is not a clause. Archive frees the checkout on its way past
+   * (POD-567), so an archived row that still has a path is one whose free was
+   * refused — a candidate, not an exclusion. Neither is `parentId`: the archive
+   * sweep's top-level-only scope is exactly why sub-issue worktrees survive
+   * forever, and they are the tail this exists to reach.
+   */
+  private isWorktreeGcCandidate(row: IssueRow, nowMs: number, afterDays: number): boolean {
+    if (!row.worktreePath || row.deletedAt) return false
+    if (!this.store.isClosed(row)) return false
+    const closedMs = Date.parse(row.closedAt ?? '')
+    if (!Number.isFinite(closedMs)) return false
+    return closedMs <= nowMs - afterDays * DAY_MS
+  }
+
+  /**
+   * What the sweep would reclaim right now — the panel's list and the one-click
+   * button's input (POD-564).
+   *
+   * Ordered oldest-close first, the order the janitor proposes in, so what the
+   * panel shows and what an `auto` run takes first are the same list.
+   */
+  listReclaimableWorktrees(nowMs: number = Date.now()): Array<{
+    issueId: string
+    title: string
+    worktreePath: string
+    closedAt: string
+    machineId: string | null
+  }> {
+    const { afterDays } = this.store.d.getSettings().worktreeGc
+    const live = this.store.d.listSessions()
+    return [...this.store.rows.values()]
+      .filter((row) => this.isWorktreeGcCandidate(row, nowMs, afterDays))
+      .filter((row) => liveSessionsUsingWorktree(row.worktreePath, live).length === 0)
+      .sort((a, b) => (a.closedAt ?? '').localeCompare(b.closedAt ?? '') || a.id.localeCompare(b.id))
+      .map((row) => ({
+        issueId: row.id,
+        title: row.title,
+        worktreePath: row.worktreePath as string,
+        closedAt: row.closedAt as string,
+        machineId: row.machineId ?? null,
+      }))
+  }
+
+  /**
+   * Release every reclaimable checkout now — the one-click apply behind the
+   * proposal list (POD-564).
+   *
+   * Deliberately NOT a flip of `worktreeGc.mode`: the operator asked for THESE
+   * directories back, which is a different act from standing consent to an
+   * unattended sweep. Each release goes through {@link releaseWorktreeIfIdle},
+   * so the same rules hold as on the automatic path — never `force`, a dirty
+   * tree refuses and is reported, the branch is kept.
+   */
+  async releaseReclaimableWorktrees(
+    principal: CommandPrincipal,
+    nowMs: number = Date.now(),
+  ): Promise<{ freed: string[]; refused: Array<{ issueId: string; reason: string }> }> {
+    const freed: string[] = []
+    const refused: Array<{ issueId: string; reason: string }> = []
+    for (const candidate of this.listReclaimableWorktrees(nowMs)) {
+      const result = await this.releaseWorktreeIfIdle(candidate.issueId, principal)
+      if (result.freed) freed.push(candidate.issueId)
+      else refused.push({ issueId: candidate.issueId, reason: result.reason ?? 'not released' })
+    }
+    return { freed, refused }
+  }
+
+  /**
+   * The janitor's worktree-gc proposal, revalidated and applied (POD-564).
+   *
+   * A janitor observation is a PROPOSAL about a SQLite snapshot, so every clause
+   * is re-read here against the live row, and the disk clauses are re-read again
+   * inside {@link releaseWorktreeIfIdle}. Two outcomes are not failures and are
+   * reported as such by the caller: `precondition` means the world moved between
+   * propose and apply — the worktree was already freed, the issue reopened, an
+   * agent walked back into the directory — and `not-due` means the age gate says
+   * not yet.
+   *
+   * THE POLICY IS CHECKED, NOT ASSUMED. `mode` and `afterDays` ride the
+   * observation and are compared against settings before anything else, because
+   * the failure they prevent is not a stale sweep: a janitor that believes
+   * `auto` while settings say `propose` would delete ~97 directories the
+   * operator asked only to be shown.
+   */
+  async tryWorktreeGcObserved(
+    observed: {
+      issueId: string
+      worktreePath: string
+      stage: string
+      closedReason: string | null
+      closedAt: string
+      deletedAt: null
+      mode: 'propose' | 'auto'
+      afterDays: number
+    },
+    nowMs: number,
+    principal: CommandPrincipal,
+  ): Promise<
+    | { outcome: 'proposed' | 'freed' }
+    | { outcome: 'refused'; reason: string }
+    | { outcome: 'precondition' | 'not-due' }
+  > {
+    const policy = this.store.d.getSettings().worktreeGc
+    if (policy.mode === 'off') return { outcome: 'precondition' }
+    if (policy.mode !== observed.mode || policy.afterDays !== observed.afterDays) {
+      return { outcome: 'precondition' }
+    }
+    const row = this.store.rows.get(observed.issueId)
+    if (!row) return { outcome: 'precondition' }
+    // The worktree freed between propose and apply lands HERE: the path no
+    // longer matches, so the answer is `precondition`, not an error.
+    if (row.worktreePath !== observed.worktreePath) return { outcome: 'precondition' }
+    if (row.stage !== observed.stage || (row.closedReason ?? null) !== observed.closedReason) {
+      return { outcome: 'precondition' }
+    }
+    if ((row.closedAt ?? null) !== observed.closedAt) return { outcome: 'precondition' }
+    if (row.deletedAt || !this.store.isClosed(row)) return { outcome: 'precondition' }
+    // Every other clause has been checked above, so the predicate can only fail
+    // on age here — and it measures against the SERVER's window and the ROW's
+    // own `closedAt`, never the numbers the observation carried.
+    if (!this.isWorktreeGcCandidate(row, nowMs, policy.afterDays)) {
+      return { outcome: 'not-due' }
+    }
+    // Checked here as well as inside releaseWorktreeIfIdle, and the duplication
+    // is the point: a session that walked into the directory since the proposal
+    // is a clause that stopped holding, so it retries next tick as
+    // `precondition` rather than consuming the occurrence and emitting a
+    // refusal event every 30 seconds for as long as the agent works there.
+    if (liveSessionsUsingWorktree(row.worktreePath, this.store.d.listSessions()).length > 0) {
+      return { outcome: 'precondition' }
+    }
+    if (observed.mode === 'propose') {
+      this.store.emitEvent('issue.worktree_gc_proposed', row.id, {
+        seq: row.seq,
+        worktreePath: observed.worktreePath,
+        closedAt: observed.closedAt,
+        afterDays: policy.afterDays,
+      })
+      return { outcome: 'proposed' }
+    }
+    const result = await this.releaseWorktreeIfIdle(row.id, principal)
+    if (result.freed) return { outcome: 'freed' }
+    return { outcome: 'refused', reason: result.reason ?? 'not released' }
+  }
+
+  private refuseRelease(
+    row: IssueRow,
+    worktreePath: string,
+    reason: string,
+  ): { freed: false; reason: string } {
+    this.store.emitEvent('issue.worktree_free_refused', row.id, {
+      seq: row.seq,
+      worktreePath,
+      reason,
+    })
+    return { freed: false, reason }
+  }
+
+  /**
    * The issue's repository as the PINNED machine has it (POD-1571).
    *
    * Falls back to the issue's own path on absence, deliberately: that is what makes
@@ -598,7 +838,8 @@ export class IssueGitWorkflowModule {
 
   /**
    * Ensure the issue's worktree exists on disk for the preserved branch
-   * [spec:SP-9904]. Used on resume after stop freed the working copy.
+   * [spec:SP-9904]. Used on resume after stop/archive freed the working copy,
+   * and by `start` / `addSession` when a NEW agent needs the same rebuild.
    * Idempotent when the worktree is already present.
    */
   async ensureWorktree(
@@ -849,7 +1090,38 @@ export class IssueGitWorkflowModule {
     return branch || null
   }
 
+  /**
+   * Spawn another agent (or shell) on an already-started issue.
+   *
+   * When the checkout was freed but the branch survived (stop / archive —
+   * worktreePath null, branch set), rebuild via {@link ensureWorktree} first.
+   * That is the same attach path resume uses; without it this threw
+   * "issue not started" and left the only re-entry through an old session.
+   *
+   * Return type widens only on the rebuild branch (sync when the worktree is
+   * already present), matching `ensureSessionWorktree` and keeping the common
+   * add-session path on the wire without an extra turn.
+   */
   addSession(
+    id: string,
+    agentKind?: string,
+    opts?: { spawnedBy?: string; forceUnknownModel?: boolean },
+  ): IssueWire | Promise<IssueWire> {
+    const row = this.store.rowOrThrow(id)
+    if (!row.worktreePath) {
+      if (!row.branch) throw new Error('issue not started')
+      return this.ensureWorktree(id).then((ensured) => {
+        if (!ensured.ok || !ensured.worktreePath) {
+          throw new Error(ensured.output || 'failed to recreate worktree from branch')
+        }
+        return this.spawnAddedSession(id, agentKind, opts)
+      })
+    }
+    return this.spawnAddedSession(id, agentKind, opts)
+  }
+
+  /** Shared spawn tail once a worktree path is known to exist on the issue. */
+  private spawnAddedSession(
     id: string,
     agentKind?: string,
     opts?: { spawnedBy?: string; forceUnknownModel?: boolean },
@@ -897,7 +1169,8 @@ export class IssueGitWorkflowModule {
     })
     return this.store.toWire(row)
   }
-  addShell(id: string, opts?: { spawnedBy?: string }): IssueWire {
+
+  addShell(id: string, opts?: { spawnedBy?: string }): IssueWire | Promise<IssueWire> {
     return this.addSession(id, 'shell', opts)
   }
 
@@ -1049,7 +1322,7 @@ export class IssueGitWorkflowModule {
   }
 
   /**
-   * Parent-branch movement watch [POD-384].
+   * Parent-branch / landing-base movement watch [POD-384, POD-576].
    *
    * A merge is the one git event that SETTLES an issue's merge axis, and it
    * almost never happens anywhere the three session-scoped triggers above can
@@ -1060,30 +1333,48 @@ export class IssueGitWorkflowModule {
    * out of the sidebar's closed fold indefinitely — it renders as a delivery
    * that never landed, hours after it landed.
    *
-   * So watch the one ref a merge MUST move: the parent branch. One `rev-parse`
-   * per (machine, repo, parentBranch) group answers "did anything land?" for
-   * every issue in that group, and only a MOVED tip costs a probe — the steady
-   * state is one cheap git call per repo per tick.
+   * So watch every ref a merge might move. That is the issue's cut
+   * {@link IssueRow.parentBranch} (in-app merge into the parent) AND, when the
+   * issue is stacked on something other than the landing base, the landing base
+   * itself (the hard-land-on-main path). A landed sibling cut-parent is the one
+   * category of parent that never moves again; watching only it is structurally
+   * blind to the land that actually settles the axis [POD-576].
+   *
+   * One `rev-parse` per (machine, repo, ref) group answers "did anything land?"
+   * for every issue in that group, and only a MOVED tip costs a probe — the
+   * steady state is one cheap git call per watched ref per tick.
    *
    * A tip seen for the first time is recorded, not acted on. `gitStates` is
    * ephemeral, so a fresh process holds no stale snapshot to correct, and
    * fanning out across every issue at boot would be pure cost.
    */
   async sweepParentBranchMovement(): Promise<void> {
+    const landingBase = landingBaseFromSettings(
+      this.store.d.getSettings().gitWorkflow.defaultParentBranch,
+    )
     const groups = new Map<string, ParentBranchGroup>()
-    for (const row of this.store.rows.values()) {
-      if (!watchesParentBranch(row)) continue
-      const key = parentBranchKey(row)
+    const addToGroup = (row: IssueRow, ref: string) => {
+      if (ref === '') return
+      const key = parentBranchKey(row.machineId, row.repoPath, ref)
       const group = groups.get(key)
-      if (group) group.ids.push(row.id)
-      else {
+      if (group) {
+        if (!group.ids.includes(row.id)) group.ids.push(row.id)
+      } else {
         groups.set(key, {
           repoPath: row.repoPath,
-          parentBranch: row.parentBranch,
-          machineId: row.machineId,
+          watchedRef: ref,
+          machineId: row.machineId ?? null,
           ids: [row.id],
         })
       }
+    }
+    for (const row of this.store.rows.values()) {
+      if (!watchesParentBranch(row)) continue
+      addToGroup(row, row.parentBranch)
+      // Stacked issue: also watch the landing base, because that is the ref the
+      // hard land procedure moves. Without this, a dead sibling parent freezes
+      // the watch forever (POD-576).
+      if (row.parentBranch !== landingBase) addToGroup(row, landingBase)
     }
     // Forget tips no live issue watches any more (closed out, worktree freed) so
     // the map stays bounded by current work rather than by history.
@@ -1095,14 +1386,14 @@ export class IssueGitWorkflowModule {
           .repoOp(
             'revParseVerify',
             group.repoPath,
-            { ref: group.parentBranch },
+            { ref: group.watchedRef },
             // The row carries "no machine" as null; the rpc reads it as undefined
             // (= pick by repo affinity). Narrowed here, at the one call, rather
             // than by giving the group its own spelling of the field.
             group.machineId ?? undefined,
           )
           .catch(() => ({ ok: false, output: '' }))
-        // An unreadable parent branch (offline machine, ref not there yet) leaves
+        // An unreadable watched ref (offline machine, ref not there yet) leaves
         // the last known tip intact: the next readable sweep compares against a
         // real observation instead of treating recovery as movement.
         if (!res.ok) return
@@ -1126,6 +1417,9 @@ export class IssueGitWorkflowModule {
     try {
       const members = this.store.sessionsFor(row)
       const attribution = this.gitAttributionFor(members)
+      const landingBranch = landingBaseFromSettings(
+        this.store.d.getSettings().gitWorkflow.defaultParentBranch,
+      )
       const state = await probeGitState(
         {
           repoOp: (op, opCwd, args, machineId) =>
@@ -1135,6 +1429,9 @@ export class IssueGitWorkflowModule {
           cwd,
           shared,
           parentBranch: row.parentBranch,
+          // Authoritative merge-axis ancestry target [POD-576]: where work lands,
+          // not only where the branch was cut from.
+          landingBranch,
           branch: row.branch,
           machineId: row.machineId ?? undefined,
           ...attribution,

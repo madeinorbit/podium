@@ -52,6 +52,11 @@ export interface LockCommandDeps {
   locks: LockService
   /** Issue seq lookup for holder labels (`issue:#<seq>`). */
   issues: IssueService
+  /**
+   * Live session workspace root (cwd) for co-location refuse + status display.
+   * Unknown / operator → null.
+   */
+  sessionWorkspace?(sessionId: LockHolderId): string | null
 }
 
 /** Per-call execution context: caller identity + the LockService. */
@@ -86,7 +91,11 @@ export class LockCommandCtx {
     } else if (sessionId) {
       label = `session:${sessionId}`
     }
-    return { sessionId, issueId, label }
+    const workspace =
+      sessionId != null && sessionId !== UNKNOWN_RELAY_SESSION
+        ? (this.deps.sessionWorkspace?.(sessionId) ?? null)
+        : null
+    return { sessionId, issueId, label, workspace }
   }
 }
 
@@ -122,7 +131,12 @@ const ttlField = { ttlSeconds: z.number().int().positive().max(86_400).optional(
 const defs = {
   acquire: def({
     kind: 'mutation',
-    input: lockRef.extend({ ...ttlField, note: z.string().max(500).optional() }),
+    input: lockRef.extend({
+      ...ttlField,
+      note: z.string().max(500).optional(),
+      /** Opt into holding/queueing beside another session on the same issue or worktree. */
+      allowSibling: z.boolean().optional(),
+    }),
     action: 'write',
     cli: { positional: ['name'], summary: 'Acquire (or renew) a named lease lock.' },
     handler: (ctx, input) => ctx.locks.acquire(ctx.callerIdentity(), input),

@@ -1,9 +1,18 @@
-import { readdirSync, readFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import desktopConfig from '../apps/desktop/vitest.config'
 import mobileConfig from '../apps/mobile/vitest.config'
+import serverBoundaryConfig from '../apps/server/vitest.boundary.config'
+import serverPackageConfig from '../apps/server/vitest.config'
+import serverContractsConfig from '../apps/server/vitest.contracts.config'
 import normalizedWirePackageConfig from '../apps/server/vitest.normalized-wire.config'
+import serverServicesConfig from '../apps/server/vitest.services.config'
+import { REUSE_GUARD_SETUP_FILE } from '../apps/server/vitest.shard'
+import serverStoreConfig from '../apps/server/vitest.store.config'
 import webConfig from '../apps/web/vitest.config'
 import frontendPerfConfig from '../apps/web/vitest.frontend-perf.config'
 import phase3BrowserConfig from '../tests/e2e/.phase3-playwright.config'
@@ -17,6 +26,7 @@ import unitConfig, { normalizedWireTests } from '../vitest.unit.config'
 import { REAL_AGENT_CLIS } from './agent-smoke-reporter'
 import { QUARANTINE } from './browser-quarantine'
 import { HEAVY_LANES, ORACLE_LANES } from './oracle'
+import { runWithHeavyTestLease } from './test-heavy'
 import scriptsConfig from './vitest.config'
 
 type Project =
@@ -32,6 +42,10 @@ type Project =
         fileParallelism?: boolean
         sequence?: { groupOrder?: number }
         setupFiles?: string[]
+        globalSetup?: string[]
+        isolate?: boolean
+        passWithNoTests?: boolean
+        testTimeout?: number
       }
     }
 type Config = {
@@ -42,16 +56,27 @@ type Config = {
     include?: string[]
     projects?: Project[]
     retry?: number
+    passWithNoTests?: boolean
     minWorkers?: number
     maxWorkers?: number
     fileParallelism?: boolean
     setupFiles?: string[]
+    globalSetup?: string[]
     testTimeout?: number
+    isolate?: boolean
   }
 }
 
 const config = (value: unknown): Config => value as Config
 const repoRoot = new URL('../', import.meta.url)
+/** The five POD-520 cache shards, which together are the @podium/server test lane. */
+const serverShardConfigs = [
+  ['contracts', serverContractsConfig],
+  ['store', serverStoreConfig],
+  ['services', serverServicesConfig],
+  ['boundary', serverBoundaryConfig],
+  ['normalized-wire', normalizedWirePackageConfig],
+] as const
 const sharedSetupFiles = sharedVitestConfig.test.setupFiles.map((file) =>
   fileURLToPath(new URL(file, repoRoot)),
 )
@@ -74,16 +99,26 @@ const namedProject = (value: unknown, name: string) => {
   return project
 }
 const nodeProject = (value: unknown) => namedProject(value, 'node')
-const webServerCommand = (value: unknown): string => {
+/** A shard's inline projects, if it has any — POD-527 gives `contracts` two. */
+const shardProjects = (value: unknown): (Config['test'] | undefined)[] =>
+  (config(value).test?.projects ?? []).map((project) =>
+    typeof project === 'string' ? undefined : (project.test as Config['test']),
+  )
+const webServerEntry = (value: unknown): { command: string; timeout?: number } => {
   const webServer = (value as { webServer?: unknown }).webServer
   const server = Array.isArray(webServer) ? webServer[0] : webServer
   if (!server || typeof server !== 'object' || !('command' in server)) {
     throw new Error('Playwright webServer command is missing')
   }
-  const command = server.command
+  const command = (server as { command: unknown }).command
   if (typeof command !== 'string') throw new Error('Playwright webServer command is not a string')
-  return command
+  const timeout = (server as { timeout?: unknown }).timeout
+  if (timeout !== undefined && typeof timeout !== 'number') {
+    throw new Error('Playwright webServer timeout is not a number')
+  }
+  return { command, timeout: timeout as number | undefined }
 }
+const webServerCommand = (value: unknown): string => webServerEntry(value).command
 
 describe('test lane configuration', () => {
   it('never collects ignored nested worktrees', () => {
@@ -94,21 +129,52 @@ describe('test lane configuration', () => {
     expect(nodeProject(rootConfig).test?.setupFiles).toEqual([
       './test-hermetic-env.ts',
       './test-hermetic-vitest-hooks.ts',
+      // POD-523: pre-migrated store fixture. Listed here (rather than only in the
+      // server package) because every lane that collects apps/server must make the
+      // same real-chain-vs-clone decision per file.
+      './test-pre-migrated-store.ts',
     ])
     const bunfig = readFileSync(new URL('../bunfig.toml', import.meta.url), 'utf8')
     expect(bunfig).toContain('preload = ["./test-hermetic-env.ts", "./test-hermetic-bun-hooks.ts"]')
   })
 
   it('keeps web and mobile on the shared Vitest hardening', () => {
+    expect(config(webConfig).test?.setupFiles, 'web lost hermetic setup files').toEqual(
+      sharedSetupFiles,
+    )
+    // Mobile keeps the shared hermetic pair and adds `one-react.ts` last so a
+    // dual-React checkout fails with a message that names the fix (3c11c8f43).
+    expect(config(mobileConfig).test?.setupFiles, 'mobile lost hermetic setup files').toEqual([
+      ...sharedSetupFiles,
+      fileURLToPath(new URL('../apps/mobile/test/one-react.ts', import.meta.url)),
+    ])
     for (const [name, appConfig] of [
       ['web', webConfig],
       ['mobile', mobileConfig],
     ] as const) {
-      expect(config(appConfig).test?.setupFiles, `${name} lost hermetic setup files`).toEqual(
-        sharedSetupFiles,
-      )
       expect(config(appConfig).test?.testTimeout, `${name} lost the shared timeout`).toBe(
         sharedVitestConfig.test.testTimeout,
+      )
+    }
+  })
+
+  it('builds the pre-migrated schema image in every lane that collects apps/server', () => {
+    // POD-523. The setupFile decides per test FILE whether to clone or migrate; this
+    // globalSetup is what gives it something to clone. A lane that lost it does not
+    // fail — every store quietly goes back to replaying 54 migrations — so the
+    // config is asserted here and the runtime effect in
+    // apps/server/src/pre-migrated-store-wiring.test.ts.
+    const globalSetup = [fileURLToPath(new URL('test-pre-migrated-schema.ts', repoRoot))]
+    expect(sharedVitestConfig.test.globalSetup).toEqual(globalSetup)
+    for (const [name, lane] of [
+      ['root node', nodeProject(rootConfig)],
+      ['unit node', nodeProject(unitConfig)],
+      ['integration', config(integrationConfig)],
+      ['server package', config(serverPackageConfig)],
+      ['server normalized-wire', config(normalizedWirePackageConfig)],
+    ] as const) {
+      expect(lane.test?.globalSetup, `${name} lost the schema image globalSetup`).toEqual(
+        globalSetup,
       )
     }
   })
@@ -118,9 +184,78 @@ describe('test lane configuration', () => {
       expect(config(packageConfig).test?.setupFiles).toEqual(sharedVitestConfig.test.setupFiles)
       expect(config(packageConfig).test?.maxWorkers).toBe(sharedVitestConfig.test.maxWorkers)
     }
-    expect(config(normalizedWirePackageConfig).test?.include).toEqual(normalizedWireTests)
+    // Sorted: the shard's include comes from the generated manifest, which is sorted,
+    // while normalizedWireTests is written in run order. Same two files either way.
+    expect([...(config(normalizedWirePackageConfig).test?.include ?? [])].sort()).toEqual(
+      [...normalizedWireTests].sort(),
+    )
     expect(config(normalizedWirePackageConfig).test?.fileParallelism).toBe(false)
     expect(config(normalizedWirePackageConfig).test?.maxWorkers).toBe(1)
+  })
+
+  it('keeps every server shard on the shared hermetic setup and worker cap [POD-520]', () => {
+    // The split turned one server lane into five. Each is a separate Vitest invocation, so
+    // each can lose the hardening on its own: the env scrubber that keeps a suite off the
+    // live instance, POD-523's store fixture, and the two-worker cap that keeps the shared
+    // six-core host survivable when Turbo runs the shards back to back.
+    //
+    // POD-527 gave one shard PROJECTS, so the same properties are now asserted twice: once
+    // on the shard config and once on each project inside it. A project is where a Vitest
+    // option actually takes effect, so a shard that kept the hardening at the top and lost
+    // it in a project would have passed the original loop while running unhardened.
+    for (const [name, shardConfig] of serverShardConfigs) {
+      const lanes: [string, Config['test'] | undefined][] = [
+        [name, config(shardConfig).test],
+        ...shardProjects(shardConfig).map((test): [string, Config['test'] | undefined] => [
+          test?.name ?? `${name} project`,
+          test,
+        ]),
+      ]
+      for (const [lane, test] of lanes) {
+        // The reused project carries ONE extra setupFile and nothing else. It is the
+        // after-file leak guard, and it is additive on purpose: the reused runner keeps the
+        // env scrubber, the state-root assertion and POD-523's store fixture exactly as
+        // every other lane has them, and then adds the check that they were left as found.
+        expect(test?.setupFiles, `${lane} lost hermetic setup`).toEqual(
+          test?.isolate === false
+            ? [...sharedVitestConfig.test.setupFiles, REUSE_GUARD_SETUP_FILE]
+            : sharedVitestConfig.test.setupFiles,
+        )
+        expect(test?.globalSetup, `${lane} lost the schema image`).toEqual([
+          fileURLToPath(new URL('test-pre-migrated-schema.ts', repoRoot)),
+        ])
+        expect(test?.testTimeout, `${lane} lost the shared timeout`).toBe(
+          sharedVitestConfig.test.testTimeout,
+        )
+        expect(test?.retry, `${lane} gained a retry`).toBe(0)
+        // An explicit file list that collects nothing means the manifest and the filesystem
+        // disagree. That has to be a failure, or a mis-generated shard passes as a green.
+        // No project is exempt: a shard only grows a project when the scan put files in it.
+        expect(test?.passWithNoTests, `${lane} would pass empty`).toBe(false)
+        // normalized-wire is the deliberately serialized one; the rest keep the shared cap.
+        expect(test?.maxWorkers, `${lane} changed the worker cap`).toBe(
+          name === 'normalized-wire' ? 1 : 2,
+        )
+      }
+    }
+  })
+
+  it('turns isolation off in exactly one project, and only additively [POD-527]', () => {
+    // POD-515 rejected `isolate: false` as a lane-wide setting: it trades wall time for
+    // flakiness. The reuse it asked for is therefore scoped to one project of one shard, and
+    // this is what stops that scope from spreading — a second project that dropped isolation
+    // would have to be added here, deliberately, rather than arriving with a config tidy-up.
+    const nonIsolated: string[] = []
+    for (const [name, shardConfig] of serverShardConfigs) {
+      expect(
+        config(shardConfig).test?.isolate,
+        `${name} dropped isolation at the shard level, which would take every project with it`,
+      ).toBeUndefined()
+      for (const test of shardProjects(shardConfig)) {
+        if (test?.isolate === false) nonIsolated.push(test.name ?? `${name} (unnamed project)`)
+      }
+    }
+    expect(nonIsolated).toEqual(['server:contracts:reused'])
   })
 
   it('keeps retries out of the default project and scopes them to integration', () => {
@@ -234,17 +369,174 @@ describe('test lane configuration', () => {
     expect(pkg.scripts['test:smoke:agents']).toContain('PODIUM_REAL_CLI=1')
   })
 
-  it('builds browser workspace dependencies in cold-checkout order [POD-1389]', () => {
-    // Inspect the configured commands rather than the filesystem. A model dist
-    // borrowed from this or a neighboring checkout must not make this guard green.
-    const modelBuild = 'bun run --filter @podium/model build'
-    const protocolBuild = 'bun run --filter @podium/protocol build'
+  it('fails the whole command when a shard fails, even though the aggregate is skipped [POD-520]', () => {
+    // The inverse of the trap above, and the one that would be invisible to every other
+    // guard here because they all reason about the task GRAPH rather than the process.
+    //
+    // With `--continue`, three red shards leave `@podium/server#test` skipped — the task
+    // Turbo was actually asked to run never executes, so it never fails. If Turbo then
+    // exited 0 on the grounds that the requested task did not fail, `bun run test` would
+    // report success on a lane with three failing shards and CI would stop failing.
+    // Observed twice on real cold runs (exit=1), and pinned here on a fixture so it stays
+    // an assertion rather than a memory: a dependency task fails, the dependent is not
+    // run, and the exit code is still non-zero.
+    const fixture = mkdtempSync(join(tmpdir(), 'podium-turbo-exit-'))
+    try {
+      mkdirSync(join(fixture, 'packages/a'), { recursive: true })
+      writeFileSync(
+        join(fixture, 'package.json'),
+        JSON.stringify({
+          name: 'fixture-root',
+          private: true,
+          packageManager: 'bun@1.2.0',
+          workspaces: ['packages/*'],
+        }),
+      )
+      writeFileSync(
+        join(fixture, 'turbo.json'),
+        JSON.stringify({
+          tasks: {
+            shard: { dependsOn: [], inputs: ['$TURBO_DEFAULT$'], outputs: [] },
+            check: { dependsOn: ['shard'], inputs: ['$TURBO_DEFAULT$'], outputs: [] },
+          },
+        }),
+      )
+      writeFileSync(
+        join(fixture, 'packages/a/package.json'),
+        JSON.stringify({
+          name: 'pkg-a',
+          version: '0.0.0',
+          scripts: { shard: 'exit 1', check: 'echo AGGREGATE_RAN' },
+        }),
+      )
+      writeFileSync(join(fixture, 'bun.lock'), '')
+
+      const turbo = fileURLToPath(new URL('../node_modules/.bin/turbo', import.meta.url))
+      const run = spawnSync(turbo, ['run', 'check', '--continue=dependencies-successful'], {
+        cwd: fixture,
+        encoding: 'utf8',
+      })
+      const output = `${run.stdout ?? ''}${run.stderr ?? ''}`
+      // Skipped, not run — nothing reports on top of the failure.
+      expect(output, 'the aggregate ran despite its dependency failing').not.toContain(
+        'AGGREGATE_RAN',
+      )
+      // …and skipped still means the command fails.
+      expect(run.status, `turbo exited ${run.status} with a failed dependency task`).not.toBe(0)
+    } finally {
+      rmSync(fixture, { recursive: true, force: true })
+    }
+  })
+
+  it('propagates the runner exit code instead of exiting 0 [POD-520]', async () => {
+    // The other link in that chain. Turbo going red is worthless if the wrapper swallows
+    // it, and `bun run test`'s exit status rests on one expression at the end of main():
+    // `process.exit(await runWithHeavyTestLease([...]))`. Both halves are asserted so a
+    // later refactor of the wrapper cannot quietly make the pipeline green.
+    expect(
+      await runWithHeavyTestLease(['bash', '-c', 'exit 3'], { cwd: fileURLToPath(repoRoot) }),
+    ).toBe(3)
+    expect(
+      await runWithHeavyTestLease(['bash', '-c', 'exit 0'], { cwd: fileURLToPath(repoRoot) }),
+    ).toBe(0)
+
+    // …and that the value is what main() exits with, rather than being computed and dropped.
+    const source = readFileSync(new URL('./test.ts', import.meta.url), 'utf8')
+    expect(source).toMatch(/process\.exit\(\s*await runWithHeavyTestLease\(/)
+  })
+
+  it('reports every lane without running anything on a failed dependency [POD-520]', () => {
+    // Sharding @podium/server made `--continue` necessary: without it Turbo stops at the
+    // first failing shard and a red in `contracts` hides what `store`, `services` and
+    // `boundary` would have said. The VALUE matters more than the flag. `always` would run
+    // a task whose dependency failed — for the server that is the exhaustiveness refusal
+    // running after a shard died, i.e. a roster check reporting on a lane that did not
+    // finish. `dependencies-successful` skips it instead, so nothing ever reports on top
+    // of a failure.
+    const source = readFileSync(new URL('./test.ts', import.meta.url), 'utf8')
+    expect(source).toContain("'--continue=dependencies-successful'")
+    expect(source).not.toContain("'--continue=always'")
+
+    // The other half of "nothing runs on a failed dependency": no package's test task may
+    // depend on another package's test task, so `--continue` cannot let one package's
+    // green be reported while its upstream is red. The only dependency edges among test
+    // tasks are @podium/server#test -> its own shards, declared in apps/server/turbo.json.
+    const turbo = JSON.parse(readFileSync(new URL('../turbo.json', import.meta.url), 'utf8')) as {
+      tasks: Record<string, { dependsOn?: string[] }>
+    }
+    for (const [name, task] of Object.entries(turbo.tasks)) {
+      if (!name.endsWith('#test') && name !== 'test') continue
+      expect(task.dependsOn ?? [], `${name} gained a cross-package test dependency`).toEqual([])
+    }
+  })
+
+  it('builds browser workspace dependencies in the lane, not under webServer [POD-1389][POD-535]', () => {
+    // Cold-checkout self-containment moved out of Playwright's webServer wall
+    // clock: the lane builds packages + web + mobile once; webServer only boots
+    // the harness. Inspect the source and config rather than the filesystem so a
+    // borrowed neighbouring dist cannot make this guard green.
+    const lane = readFileSync(new URL('./browser-lane.ts', import.meta.url), 'utf8')
+    expect(lane, 'lane must run the workspace build').toMatch(/run\('bun', \['run', 'build'\]/)
+    expect(lane, 'lane must export mobile web for phone projects').toMatch(
+      /@podium\/mobile['"],\s*['"]build:web['"]/,
+    )
+    // Root `bun run build` is packages/* then @podium/web; packages/* includes
+    // model before protocol alphabetically only by workspace graph — the
+    // historical order guarantee was model-before-protocol in one shell string.
+    // The root build script is the order of record for the lane.
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+      scripts: Record<string, string>
+    }
+    expect(pkg.scripts.build).toMatch(/packages\/\*/)
+    expect(pkg.scripts.build).toMatch(/@podium\/web/)
+
     for (const playwright of [browserConfig, phase3BrowserConfig]) {
       const command = webServerCommand(playwright)
-      expect(command).toContain(modelBuild)
-      expect(command).toContain(protocolBuild)
-      expect(command.indexOf(modelBuild)).toBeLessThan(command.indexOf(protocolBuild))
+      expect(command, 'webServer must not re-run package builds').not.toMatch(/--filter/)
+      expect(command, 'webServer must boot the harness only').toContain('serve-harness.ts')
+      expect(command, 'webServer must fail-fast when dist is missing').toContain(
+        'browser-dist-preflight.ts',
+      )
     }
+
+    // Hand-run bridge (POD-535): --build-only must exist and must not take the
+    // lease (callers often already hold test:heavy for the playwright half).
+    // Preferred one-suite path is --suite (POD-536); both must stay on the lane.
+    expect(lane, 'lane must expose --build-only for hand-runs').toContain('--build-only')
+    expect(lane).toMatch(/buildOnly|BUILD_ONLY/)
+    expect(lane, 'lane must expose --suite selection').toContain('--suite')
+    expect(lane).toMatch(/resolveSelectedSuites|suiteSelectors/)
+  })
+
+
+  it('keeps webServer budget for harness boot only [POD-535]', () => {
+    // Builds left this command; serve-harness answers /health in ~5s. A multi-
+    // minute floor would re-invite stuffing builds back into webServer.
+    for (const playwright of [browserConfig, phase3BrowserConfig]) {
+      const { timeout, command } = webServerEntry(playwright)
+      expect(command).toContain('serve-harness.ts')
+      expect(timeout, 'webServer timeout missing').toBeTypeOf('number')
+      expect(timeout!, 'harness-only boot should not need a multi-minute budget').toBeLessThanOrEqual(
+        180_000,
+      )
+      expect(timeout!, 'harness-only boot still needs some headroom').toBeGreaterThanOrEqual(60_000)
+    }
+  })
+
+  it('takes the heavy-test lease inside the browser lane body [POD-535]', () => {
+    // Lease must live in browser-lane.ts itself: wrapping only package.json left
+    // bare `bun scripts/browser-lane.ts` unprotected, and a held lease still
+    // lost to another agent's harness on the fixed port (POD-503 evidence).
+    const lane = readFileSync(new URL('./browser-lane.ts', import.meta.url), 'utf8')
+    expect(lane, 'lane must import the shared lease helper').toMatch(/runWithHeavyTestLease/)
+    expect(lane, 'lane must gate on session identity like other heavy scripts').toMatch(
+      /shouldAcquireHeavyTestLease/,
+    )
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+      scripts: Record<string, string>
+    }
+    // package.json is the thin entry; do not double-wrap (nested acquire deadlocks).
+    expect(pkg.scripts['test:browser']).toBe('bun scripts/browser-lane.ts')
   })
 
   it('keeps every browser suite reachable from a script and a CI job [POD-1227]', () => {

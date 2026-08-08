@@ -15,8 +15,16 @@ interface BunDb {
   prepare(sql: string): BunStatement
   exec(sql: string): void
   close(): void
+  /** `sqlite3_serialize` — the database's whole page image as a fresh buffer. */
+  serialize(): Uint8Array
 }
-type BunCtor = new (path: string, options?: { readonly?: boolean; create?: boolean }) => BunDb
+type BunCtor = (new (
+  path: string,
+  options?: { readonly?: boolean; create?: boolean },
+) => BunDb) & {
+  /** `sqlite3_deserialize` — a NEW in-memory database holding a COPY of `image`. */
+  deserialize(image: Uint8Array, readOnly?: boolean): BunDb
+}
 
 let Ctor: BunCtor | undefined
 function database(): BunCtor {
@@ -56,6 +64,27 @@ export function openBunDatabase(path: string, opts?: OpenOptions): SqlDatabase {
   const db = opts?.readOnly
     ? new (database())(path, { readonly: true })
     : new (database())(path, { create: true })
+  return wrap(db)
+}
+
+/**
+ * A NEW in-memory database built from a page image produced by `serializeBunDatabase`.
+ *
+ * `sqlite3_deserialize` COPIES the image, so the source buffer is neither aliased nor
+ * mutated by later writes: one image can seed any number of independent databases.
+ * That is what makes it usable as a test fixture — see apps/server's pre-migrated
+ * store fixture, which clones a fully-migrated schema instead of replaying the chain.
+ */
+export function deserializeBunDatabase(image: Uint8Array): SqlDatabase {
+  return wrap(database().deserialize(image))
+}
+
+/** This database's whole page image — the input `deserializeBunDatabase` takes. */
+export function serializeBunDatabase(db: SqlDatabase): Uint8Array | undefined {
+  return rawByWrapper.get(db)?.serialize()
+}
+
+function wrap(db: BunDb): SqlDatabase {
   const wrapper: SqlDatabase = {
     prepare(sql) {
       const st = db.prepare(sql)

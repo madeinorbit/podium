@@ -150,6 +150,11 @@ const createInput = z.object({
   machineId: z.string().optional(),
   issueId: IssueIdField.optional(),
   workflowRevisionId: z.string().optional(),
+  /** First user prompt for a fresh session. Argv-capable harnesses (claude/codex/
+   *  grok) receive it on the launch command; others seed the composer draft.
+   *  Mobile/web spawn must send this — resumeAndSend PTY type-in is not a
+   *  substitute for Grok's first turn (POD-549). */
+  initialPrompt: z.string().optional(),
   /** uuid-bounded: it feeds durableLabel → the systemd-run scope name. The uuid
    *  check is KEPT and the shared `SessionIdField` is piped in after it (POD-362):
    *  swapping `SessionIdField` for a bare `.brand<'SessionId'>()` here would be

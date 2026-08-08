@@ -741,19 +741,31 @@ export class SessionRegistry {
         getSettings: () => this.store.settings.getSettings(),
         clients: () => clientRegistry.values(),
         machineName: (id) => machines.machineName(id),
-        sessions: () =>
-          [...liveSessions.values()].map((session) => ({
+        sessions: () => {
+          // ONE statement per projection, not one per session (POD-568): the
+          // sweep asks for this on every host sample, and the whole point of the
+          // narrow query is that a five-second path never materializes issue rows.
+          const closed = this.store.issues.closedIssueIds()
+          return [...liveSessions.values()].map((session) => ({
             sessionId: session.sessionId,
             machineId: session.machineId,
             status: session.status,
+            agentKind: session.agentKind,
             resume: session.resume,
             agentState: session.agentState,
             lastActiveAt: session.lastActiveAt,
             lastResumedAtMs: session.terminal.lastResumedAtMs,
             lastInputAtMs: session.terminal.lastInputAtMs,
             lastOutputAtMs: session.terminal.lastOutputAtMs,
-          })),
+            // Bound issue only. A session whose cwd merely sits INSIDE some
+            // issue's worktree resolves through `issueForCwd`, which is a
+            // per-session durable read; it would land in the no-issue tier,
+            // which is already above open work and below closed work.
+            ...(session.issueId != null ? { issueClosed: closed.has(session.issueId) } : {}),
+          }))
+        },
         hibernateSession: (input) => sessionsSvc.hibernateSession(input),
+        parkShellSession: (input) => sessionsSvc.parkShellSession(input),
         hasValidTerminalProof: (sessionId) => sessionsSvc.hasValidTerminalProof(sessionId),
         terminalProofMissing: (sessionId) => sessionsSvc.terminalProofMissing(sessionId),
         daemonRequest: requestBroker,
@@ -981,6 +993,14 @@ export class SessionRegistry {
     // carries a session-derived field, so the tail had nothing to reconcile — and
     // the one time the gate did open, boot reconciliation had already published
     // the same rows (modules/issues/service/index.ts).
+    const sessionWorkspace = (sessionId: string): string | null => {
+      // LockSessionKey may be a sentinel; miss → null (no co-location key).
+      const s = (liveSessions as ReadonlyMap<string, { cwd?: string; status: string }>).get(
+        sessionId,
+      )
+      if (!s || s.status === 'exited' || !s.cwd) return null
+      return s.cwd
+    }
     const locks = new LockService({
       locks: this.store.locks,
       transact: (fn) => this.store.transact(fn),
@@ -995,6 +1015,7 @@ export class SessionRegistry {
         const s = (liveSessions as ReadonlyMap<string, { status: string }>).get(sessionId)
         return !!s && s.status !== 'exited'
       },
+      sessionWorkspace,
       // Grant/steal notifications ride agent mail; best-effort by contract
       // (the waiter also discovers the grant via polling).
       sendMail: (issueId, from, body) => {
@@ -1007,6 +1028,7 @@ export class SessionRegistry {
     const lockCommands = new LockCommandDispatcher({
       locks,
       issues,
+      sessionWorkspace,
     })
     // Unified messaging (#237) [spec:SP-34d7]: the one send path. Sender is
     // stamped by each surface from its authenticated caller; issue-addressed

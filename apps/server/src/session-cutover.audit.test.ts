@@ -530,12 +530,18 @@ describe('AC4 · the per-user split actually happened', () => {
     }
   })
 
-  it('the ONE remaining singleton is readAt, still on the session row, owned by POD-1076', async () => {
-    // Honest reporting rather than a green claim: `read_at` is still a column on the
-    // session row. POD-1076 owns the (userId, entityId) move and POD-380 recorded
-    // why it waits (POD-1077's scoped feed). What POD-382 can and does assert is
-    // that its COMMAND is already self-scoped, so the move is storage-only — no
-    // contract change, no wire change, no replica migration.
+  it('the read marker is per principal in STORAGE, not one column on the session row', async () => {
+    // TITLE CORRECTED BY POD-521, body unchanged. This was "the ONE remaining
+    // singleton is readAt, still on the session row" — a temporary pin reporting
+    // honestly that one field had not yet moved. POD-1076 moved it, and rewrote the
+    // body into the positive form below without retitling, so the name went on
+    // asserting the opposite of what the code checks. A test whose title says
+    // "still on the session row" three lines above an assertion that the column is
+    // gone is worse than no title.
+    //
+    // What remains is not a temporary pin and is not being retired: a per-principal
+    // read marker, measured against STORAGE rather than the wire, plus the property
+    // a column could never express — a different principal has no marker at all.
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     await o.call.sessions.markRead({ sessionId })

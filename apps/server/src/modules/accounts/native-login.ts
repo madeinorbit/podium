@@ -1,4 +1,4 @@
-import type { HarnessAgent, MachineId, SessionId, UserId } from '@podium/model'
+import type { HarnessAgent, MachineId, SessionId, SessionMeta, UserId } from '@podium/model'
 import { asMachineId } from '@podium/model'
 import type { EventBus } from '../bus'
 import type { MachinesService } from '../machines/service'
@@ -6,13 +6,11 @@ import type { SessionLifecycle } from '../sessions/lifecycle'
 
 export type NativeLoginAttemptStatus = 'running' | 'refreshing' | 'succeeded' | 'failed'
 
-export interface NativeLoginAttempt {
-  sessionId: SessionId
-  machineId: MachineId
-  machineName: string
-  status: NativeLoginAttemptStatus
-  error?: string
-}
+export type NativeLoginAttempt = Pick<SessionMeta, 'sessionId'> &
+  Required<Pick<SessionMeta, 'machineId' | 'machineName'>> & {
+    status: NativeLoginAttemptStatus
+    error?: string
+  }
 
 /** Coordinates native CLI authentication without ever seeing provider tokens.
  * The PTY and inventory remain the two sources of truth. */

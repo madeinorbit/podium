@@ -1,15 +1,17 @@
 import { relativeTime, withoutShells } from '@podium/client-core/focus'
 import { sessionCardModel } from '@podium/client-core/viewmodels'
-import { ISSUE_STAGES } from '@podium/model'
+import { ISSUE_STAGES, type IssueWire } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { Plus } from 'lucide-react-native'
 import { useCallback, useMemo, useState } from 'react'
 import { ScrollView, StyleSheet, Text, View } from 'react-native'
-import { useIssue, useMobileStore, useSessions } from '../client/hooks'
+import { useBooting, useConnected, useIssue, useMobileStore, useSessions } from '../client/hooks'
 import { ActionSheet } from '../components/ActionSheet'
 import { Composer } from '../components/Composer'
 import { Icon } from '../components/Icon'
+import { IssueQuestionCard } from '../components/IssueQuestionCard'
+import { BootstrapCrossfade, DetailSkeleton } from '../components/LaunchPlaceholders'
 import { PressableScale } from '../components/PressableScale'
 import { HeaderButton, Screen } from '../components/Screen'
 import { SessionCard } from '../components/SessionCard'
@@ -23,13 +25,9 @@ export function IssueScreen() {
     Array.isArray(params.issueId) ? params.issueId[0] : (params.issueId ?? ''),
   )
   const router = useRouter()
-  const trpc = useMobileStore().trpc
-  const allSessions = useSessions()
   const issue = useIssue(issueId)
-  const now = Date.now()
-  const [stageMenuOpen, setStageMenuOpen] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [starting, setStarting] = useState(false)
+  const booting = useBooting()
+  const connected = useConnected()
 
   /**
    * Back, with somewhere to go [POD-402, the trap in POD-358].
@@ -46,18 +44,59 @@ export function IssueScreen() {
     else router.replace('/work')
   }, [router])
 
-  const sessions = useMemo(
-    () => withoutShells(allSessions).filter((s) => s.issueId === issueId && !s.archived),
-    [allSessions, issueId],
-  )
-
-  if (!issue) {
-    return (
-      <Screen title="Task" onBack={goBack}>
-        <EmptyState title="Task not found." />
-      </Screen>
+  const addAgent = useCallback(() => {
+    if (!issue) return
+    const cwd = issue.worktreePath ?? issue.repoPath
+    router.push(
+      `/new-session?issueId=${encodeURIComponent(issue.id)}&cwd=${encodeURIComponent(cwd)}&backTo=${encodeURIComponent(`/issue/${encodeURIComponent(issue.id)}`)}`,
     )
-  }
+  }, [issue, router])
+
+  // POD-541: "Task not found" is a claim about existence. Offline, a missing
+  // row more often means "the cache does not have it" than "it does not exist"
+  // — keep the page-shaped skeleton rather than a false deletion. Only claim
+  // absence once we are connected and no longer booting.
+  const certainAbsence = issue === undefined && !booting && connected
+  const resolved = issue !== undefined || certainAbsence
+
+  return (
+    <Screen
+      title={issue ? `${issueDisplayRef(issue)} ${issue.title}` : 'Task'}
+      onBack={goBack}
+      right={
+        issue ? (
+          <HeaderButton label="Add agent" onPress={addAgent}>
+            <Icon as={Plus} size={17} color={color.text} />
+          </HeaderButton>
+        ) : undefined
+      }
+    >
+      <BootstrapCrossfade resolved={resolved} placeholder={<DetailSkeleton />}>
+        {issue ? (
+          <IssueContent issue={issue} />
+        ) : certainAbsence ? (
+          <EmptyState title="Task not found." />
+        ) : (
+          <DetailSkeleton />
+        )}
+      </BootstrapCrossfade>
+    </Screen>
+  )
+}
+
+function IssueContent({ issue }: { issue: IssueWire }) {
+  const router = useRouter()
+  const store = useMobileStore()
+  const trpc = store.trpc
+  const allSessions = useSessions()
+  const now = Date.now()
+  const [stageMenuOpen, setStageMenuOpen] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [starting, setStarting] = useState(false)
+  const sessions = useMemo(
+    () => withoutShells(allSessions).filter((s) => s.issueId === issue.id && !s.archived),
+    [allSessions, issue.id],
+  )
 
   const setStage = async (stage: (typeof ISSUE_STAGES)[number]) => {
     setError(null)
@@ -92,23 +131,11 @@ export function IssueScreen() {
     }
   }
 
-  const addAgent = () => {
-    const cwd = issue.worktreePath ?? issue.repoPath
-    router.push(
-      `/new-session?issueId=${encodeURIComponent(issue.id)}&cwd=${encodeURIComponent(cwd)}&backTo=${encodeURIComponent(`/issue/${encodeURIComponent(issue.id)}`)}`,
-    )
-  }
+  const askingSession =
+    sessions.find((session) => session.sessionId === issue.humanQuestionAskedBy) ?? sessions[0]
 
   return (
-    <Screen
-      title={`${issueDisplayRef(issue)} ${issue.title}`}
-      onBack={goBack}
-      right={
-        <HeaderButton label="Add agent" onPress={addAgent}>
-          <Icon as={Plus} size={17} color={color.text} />
-        </HeaderButton>
-      }
-    >
+    <>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.metaRow}>
           <PressableScale
@@ -127,6 +154,30 @@ export function IssueScreen() {
           {issue.assignee ? <Pill label={issue.assignee} /> : null}
         </View>
         {error ? <Text style={styles.error}>{error}</Text> : null}
+        {issue.needsHuman ? (
+          <IssueQuestionCard
+            issue={issue}
+            onAnswer={
+              askingSession
+                ? (answer) => store.resumeAndSend(askingSession.sessionId, answer)
+                : undefined
+            }
+            onOpenSession={
+              askingSession
+                ? () =>
+                    router.push(
+                      sessionHref(
+                        askingSession.sessionId,
+                        `/issue/${encodeURIComponent(issue.id)}`,
+                      ),
+                    )
+                : undefined
+            }
+            onResolve={async () => {
+              await trpc.issues.clearNeedsHuman.mutate({ id: issue.id })
+            }}
+          />
+        ) : null}
         {issue.description.trim() ? (
           <Text style={styles.description} selectable>
             {issue.description.trim()}
@@ -169,7 +220,8 @@ export function IssueScreen() {
           sessions.map((session) => (
             <SessionCard
               key={session.sessionId}
-              model={sessionCardModel(session, undefined, now)}
+              model={sessionCardModel(session, issue, now)}
+              issue={issue}
               onPress={() =>
                 router.push(
                   sessionHref(session.sessionId, `/issue/${encodeURIComponent(issue.id)}`),
@@ -202,7 +254,7 @@ export function IssueScreen() {
         }))}
         onClose={() => setStageMenuOpen(false)}
       />
-    </Screen>
+    </>
   )
 }
 

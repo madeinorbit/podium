@@ -11,6 +11,8 @@ import {
   MaintenanceHandshakeReply,
   messageExpiryRunKey,
   sessionAutoArchiveRunKey,
+  WorktreeGcObservation,
+  worktreeGcRunKey,
 } from './maintenance'
 
 describe('maintenance protocol [spec:SP-c29e]', () => {
@@ -33,6 +35,8 @@ describe('maintenance protocol [spec:SP-c29e]', () => {
     changeKeepRows: 20_000,
     changeMaxAgeMs: 1,
     maintenanceCommandMaxAgeMs: 1,
+    worktreeGcMode: 'propose' as const,
+    worktreeGcAfterDays: 14,
   }
 
   it('bumps compatibility for the indexed expiry-reader schema', () => {
@@ -40,7 +44,11 @@ describe('maintenance protocol [spec:SP-c29e]', () => {
     // `readerUserId`. A v2 janitor's payload still PARSES under a permissive
     // reader, so the handshake is the only thing that can stop it — which makes
     // this literal a wire gate, not a label. Asserted with `toBe` deliberately.
-    expect(MAINTENANCE_SCHEMA_VERSION).toBe('maintenance-v3')
+    //
+    // v4 (POD-564) is the other direction: a v4 janitor's `worktree-gc` command
+    // does not PARSE at a v3 server, so without a bump the sweep would surface
+    // as HTTP 400s instead of an orderly "upgrade me".
+    expect(MAINTENANCE_SCHEMA_VERSION).toBe('maintenance-v4')
   })
 
   it('requires an exact compatibility claim before a lease can be issued', () => {
@@ -377,5 +385,64 @@ describe('IssueAutoArchiveObservation refuses what it exists to refuse', () => {
     expect(issueAutoArchiveRunKey(valid)).not.toBe(
       issueAutoArchiveRunKey({ ...valid, readerUserId: asUserId('user:other') }),
     )
+  })
+})
+
+describe('worktree-gc carries the policy it was proposed under [POD-564]', () => {
+  const valid = {
+    issueId: asIssueId('iss_gc'),
+    worktreePath: '/r/.worktrees/issue-7',
+    stage: 'done',
+    closedReason: null,
+    closedAt: '2026-07-01T00:00:00.000Z',
+    deletedAt: null,
+    mode: 'propose' as const,
+    afterDays: 14,
+  }
+  const command = (observed: unknown) => ({
+    protocolVersion: 4,
+    schemaVersion: MAINTENANCE_SCHEMA_VERSION,
+    jobKind: 'worktree-gc' as const,
+    runKey: worktreeGcRunKey(valid),
+    fencingToken: 1,
+    observed,
+  })
+
+  it('accepts a well-formed observation — the counterfactual for the refusals below', () => {
+    expect(MaintenanceCommand.parse(command(valid)).jobKind).toBe('worktree-gc')
+    expect(WorktreeGcObservation.parse(valid).mode).toBe('propose')
+  })
+
+  it('REFUSES a deleted issue — the precondition composing off the aggregate would lose', () => {
+    expect(() =>
+      MaintenanceCommand.parse(command({ ...valid, deletedAt: '2026-07-02T00:00:00.000Z' })),
+    ).toThrow()
+  })
+
+  it('refuses `off` on the wire: that mode stops the sweep at the janitor', () => {
+    expect(() => MaintenanceCommand.parse(command({ ...valid, mode: 'off' }))).toThrow()
+  })
+
+  it('refuses an empty worktree path — the field names what will be removed', () => {
+    expect(() => MaintenanceCommand.parse(command({ ...valid, worktreePath: '' }))).toThrow()
+  })
+
+  it('separates propose from auto in the run key, so the operator’s flip can apply', () => {
+    // Without `mode` in the key, the recorded proposal would answer
+    // already-applied forever and switching to `auto` would free nothing.
+    expect(worktreeGcRunKey({ ...valid, mode: 'auto' })).not.toBe(worktreeGcRunKey(valid))
+    expect(worktreeGcRunKey(valid)).toContain('worktree-gc')
+  })
+
+  it('keys on the PATH and the close, so a recreated or reclosed checkout is re-asked', () => {
+    expect(worktreeGcRunKey({ ...valid, worktreePath: '/r/.worktrees/issue-7b' })).not.toBe(
+      worktreeGcRunKey(valid),
+    )
+    expect(worktreeGcRunKey({ ...valid, closedAt: '2026-08-01T00:00:00.000Z' })).not.toBe(
+      worktreeGcRunKey(valid),
+    )
+    // ...but NOT on the window: widening `afterDays` must not re-ask about a
+    // directory already decided.
+    expect(worktreeGcRunKey({ ...valid, afterDays: 30 })).toBe(worktreeGcRunKey(valid))
   })
 })

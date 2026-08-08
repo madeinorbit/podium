@@ -24,10 +24,26 @@ const ROOT = join(import.meta.dir, '..')
 const SRC = join(ROOT, 'assets', 'icon.svg')
 const OUT = join(ROOT, 'public', 'icons')
 
-/** Expo's own icon source (app.json `icon`, and the splash mark). */
+/** Expo's own icon source (app.json `icon`). */
 const ICON_PNG = join(ROOT, 'assets', 'icon.png')
 writeFileSync(ICON_PNG, await sharp(SRC, { density: 384 }).resize(1024, 1024).png().toBuffer())
 console.log('assets/icon.png 1024')
+
+/**
+ * Native launch chrome is the same bare Race Navy as the PWA launch images.
+ * The transparent pixel replaces Expo's target-grid template without creating
+ * a second static logo before BootSplash's one animated brand moment.
+ */
+const SPLASH_PNG = join(ROOT, 'assets', 'splash-icon.png')
+writeFileSync(
+  SPLASH_PNG,
+  await sharp({
+    create: { width: 1, height: 1, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
+  })
+    .png()
+    .toBuffer(),
+)
+console.log('assets/splash-icon.png transparent')
 
 /** Race Navy — color.bg. The launch screen must be this, not white. */
 const BG = { r: 0x0a, g: 0x0f, b: 0x1c, alpha: 1 }
@@ -119,7 +135,7 @@ const manifest = {
 }
 writeFileSync(
   join(ROOT, 'public', 'manifest.webmanifest'),
-  JSON.stringify(manifest, null, 2) + '\n',
+  `${JSON.stringify(manifest, null, 2)}\n`,
 )
 console.log('manifest.webmanifest')
 

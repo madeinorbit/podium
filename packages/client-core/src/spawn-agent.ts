@@ -21,9 +21,12 @@ export interface SpawnTarget {
  * optimistic row that reconciles by id when the broadcast lands. This function does
  * NOT touch UI state; `store.spawnDraftAgent` wraps it with the optimistic overlay
  * (instant row + rollback-on-failure). Rejects if the create fails, so the wrapper
- * can roll back. `firstPrompt` (command-palette fallback) is delivered via
- * resumeAndSend, which queues until the agent is ready and falls back to a plain
- * send when it's already live.
+ * can roll back.
+ *
+ * `firstPrompt` rides `sessions.create.initialPrompt` so argv-capable harnesses
+ * (claude/codex/grok) get it on the launch command — race-free. resumeAndSend is
+ * only the fallback for harnesses that cannot take a launch argv: typing into a
+ * fresh Grok PTY does not start a turn (POD-549).
  */
 export class SpawnPlacementError extends Error {
   constructor(readonly reason: 'unauthorized' | 'unreachable') {
@@ -34,6 +37,15 @@ export class SpawnPlacementError extends Error {
     )
     this.name = 'SpawnPlacementError'
   }
+}
+
+/**
+ * Harnesses whose first prompt is a launch argv token. Mirrors
+ * `packages/harness` `capabilities.argvPrompt` without pulling that package into
+ * client-core.
+ */
+export function agentAcceptsArgvPrompt(kind: AgentKind): boolean {
+  return kind === 'claude-code' || kind === 'codex' || kind === 'grok'
 }
 
 /**
@@ -55,19 +67,42 @@ export async function createDraftAgent(args: {
   firstPrompt?: string
 }): Promise<void> {
   assertSpawnPlacement(args.target)
+  const text = args.firstPrompt?.trim()
   await args.trpc.sessions.create.mutate({
     sessionId: args.sessionId,
     agentKind: args.agentKind,
     cwd: args.target.path,
     draftIssue: { repoPath: args.target.repoPath, issueId: args.issueId },
     ...(args.target.machineId ? { machineId: args.target.machineId } : {}),
+    ...(text ? { initialPrompt: text } : {}),
   })
-  const text = args.firstPrompt?.trim()
-  if (text) {
+  // Non-argv harnesses only get a composer draft seed from create; still deliver
+  // via resumeAndSend. Argv agents already received the prompt on launch —
+  // re-typing it would double-fire.
+  if (text && !agentAcceptsArgvPrompt(args.agentKind)) {
     // Best-effort: the session exists either way; a failed first-prompt delivery
     // must not fail the spawn (the user lands in the session and can retype).
-    await args.trpc.sessions.resumeAndSend
-      .mutate({ sessionId: args.sessionId, text })
-      .catch(() => {})
+    // Still honour ok:false — a swallowed dead-letter looks like a delivered
+    // first turn while the agent stays idle (POD-546).
+    try {
+      const result = await args.trpc.sessions.resumeAndSend.mutate({
+        sessionId: args.sessionId,
+        text,
+      })
+      if (
+        result !== null &&
+        typeof result === 'object' &&
+        'ok' in result &&
+        (result as { ok: unknown }).ok === false
+      ) {
+        console.debug(
+          '[podium] first prompt refused after spawn',
+          args.sessionId,
+          (result as { reason?: string }).reason,
+        )
+      }
+    } catch {
+      // transport blip — session is up; retype from the composer
+    }
   }
 }

@@ -9,6 +9,39 @@
  *  has is what it TELLS the delegate. Guidance is therefore the feature.
  */
 
+/**
+ * How an issue branch lands on a shared branch (usually `main`) [spec:SP-85d1].
+ *
+ * Injected into the prime rules verbatim. The failure this text exists to prevent
+ * is the one agents invent under load: cherry-pick the unique commit onto
+ * `origin/main` and push a temp tip. That ships the blobs but leaves the ISSUE
+ * BRANCH tip out of main's history, so the sidebar keeps "ready to merge"
+ * forever (`issueAwaitingMerge`). Content-on-main is not enough; ancestry of
+ * the issue branch is the contract.
+ *
+ * Integration target is LOCAL `main` under the merge lock (refresh it from
+ * origin first, merge into it, then push). `origin/main` alone is not a
+ * substitute for that path.
+ *
+ * Done criterion is the git fact the UI proxies for [POD-576]: the issue tip
+ * is an ancestor of the landing base. `gitState.ahead === 0` is only a proxy
+ * measured against `parentBranch` (where the branch was cut from); for a
+ * stacked issue whose cut parent has itself landed, that proxy can stay > 0
+ * forever even when the tip is already on main. Prefer
+ * `git merge-base --is-ancestor <issue-tip> origin/main` (or `gitState.merged`).
+ * Caveat: merge-base reads the LOCAL `origin/main` ref — authoritative right
+ * after your own push (the push moved it), stale later until you fetch.
+ */
+export const MERGE_LANDING_RULE =
+  'Landing an issue on a shared branch (e.g. main) — HARD procedure, not a preference: ' +
+  '(1) `podium merge-lock acquire --wait` (you alone may move main while you hold it). ' +
+  '(2) Refresh LOCAL `main` from origin (`git fetch` then `git merge --ff-only origin/main` on the main checkout — use `git -C <main-checkout>` from an issue worktree; never `cd` into it). ' +
+  '(3) On the ISSUE branch, `git rebase` onto that local `main`. Diverged history is NOT an alternate land path — if rebase fails or foreign commits appear, STOP and ask; do not invent another route. ' +
+  '(4) On LOCAL `main`, `git merge --ff-only <issue-branch>` so the issue tip becomes an ancestor of main. ' +
+  '(5) `git push origin main`, then `podium merge-lock release` IMMEDIATELY. ' +
+  'NEVER cherry-pick the issue commit onto main. NEVER push a temp branch tip to main. NEVER "land the unique content under a new SHA" and leave the issue branch behind. ' +
+  'Done when `git -C <main-checkout> merge-base --is-ancestor <issue-tip> origin/main` (or `gitState.merged` is true) — not merely when `gitState.ahead` is 0: ahead is measured against parentBranch, which for a stacked issue can be a landed sibling that never moves again, and closed + wrong ahead keeps "ready to merge" in the sidebar forever. merge-base reads the LOCAL origin/main ref (current right after your push; fetch first if checking later). Full guide: docs/agents/podium-issues.md#landing-on-main.'
+
 /** Advisory named leases [spec:SP-85d1]. Injected into the prime rules verbatim,
  *  next to the merge-lock rule.
  *
@@ -20,7 +53,8 @@ export const LOCK_RULE =
   'Locks are not just for merging: `podium lock acquire <name> [--ttl 10m] [--wait]` takes an advisory lease on ANY name ' +
   '(`release`/`renew`/`cancel`/`status`/`steal`; `podium merge-lock` is only sugar for the lock named `merge:<branch>`). ' +
   'Use one whenever two sessions could touch the same thing — shared files, a migration number, a dev server, a deploy. ' +
-  'Leases are ADVISORY: nothing enforces them, they expire (default 2m — pass `--ttl` or `renew`), and they only work if BOTH sides agree to take them.'
+  'Leases are ADVISORY: nothing enforces them, they expire (default 2m — pass `--ttl` or `renew`), and they only work if BOTH sides agree to take them. ' +
+  '`acquire` REFUSES when a sibling — another session on your issue, or any session sharing your worktree — already holds or is queued for that lock: coordinate with the session it names, or pass `--allow-sibling` when serialised multi-session access is what you actually want. Re-acquiring a lock you already hold renews it.'
 
 /** How an agent must delegate. Compact by design: this rides the prime, which is
  *  injected into every session, and most sessions never delegate — so this states

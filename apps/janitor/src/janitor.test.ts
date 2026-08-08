@@ -6,8 +6,10 @@ import {
   type MaintenanceCommandReply,
   type MaintenanceHandshake,
   type MaintenanceHandshakeReply,
+  type WorktreeGcObservation,
+  worktreeGcRunKey,
 } from '@podium/protocol'
-import { openDatabase } from '@podium/runtime/sqlite'
+import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it, vi } from 'vitest'
 import {
   ChangeLogPrunePlanner,
@@ -16,10 +18,17 @@ import {
   EventLogPrunePlanner,
   JanitorService,
   MessageExpiryReader,
+  type WorktreeGcReadInput,
+  WorktreeGcReader,
 } from './janitor'
 
 const readyLease = (
-  over: Partial<{ fencingToken: number; expiresAt: string }> = {},
+  over: Partial<{
+    fencingToken: number
+    expiresAt: string
+    worktreeGcMode: 'off' | 'propose' | 'auto'
+    worktreeGcAfterDays: number
+  }> = {},
 ): Extract<MaintenanceHandshakeReply, { status: 'ready' }> => ({
   status: 'ready',
   fencingToken: over.fencingToken ?? 1,
@@ -31,6 +40,8 @@ const readyLease = (
   changeKeepRows: 20_000,
   changeMaxAgeMs: 3 * 24 * 60 * 60 * 1000,
   maintenanceCommandMaxAgeMs: 14 * 24 * 60 * 60 * 1000,
+  worktreeGcMode: over.worktreeGcMode ?? 'propose',
+  worktreeGcAfterDays: over.worktreeGcAfterDays ?? 14,
 })
 
 describe('JanitorService [spec:SP-c29e]', () => {
@@ -516,5 +527,195 @@ describe('JanitorService [spec:SP-c29e]', () => {
     } finally {
       db.close()
     }
+  })
+})
+
+/**
+ * The tail that archive cannot reach (POD-564).
+ *
+ * Every case here is a durable-snapshot question. Whether the tree is clean and
+ * whether an agent is standing in the directory right now are NOT — the server
+ * re-reads both inside the mutation, and the SQL below only keeps the janitor
+ * from proposing work that is obviously already refused.
+ */
+describe('WorktreeGcReader proposes reclaimable checkouts [POD-564]', () => {
+  const CLOSED = '2026-07-01T00:00:00.000Z'
+  const CUTOFF = '2026-07-15T00:00:00.000Z'
+
+  const withDb = async (
+    seed: (insertIssue: (row: Record<string, unknown>) => void, db: SqlDatabase) => void,
+    input: Partial<WorktreeGcReadInput> = {},
+  ) => {
+    const db = openDatabase(':memory:')
+    try {
+      db.exec(`CREATE TABLE issues (
+        id TEXT PRIMARY KEY,
+        parent_id TEXT,
+        stage TEXT,
+        closed_reason TEXT,
+        closed_at TEXT,
+        worktree_path TEXT,
+        deleted_at TEXT
+      )`)
+      db.exec(`CREATE TABLE sessions (
+        id TEXT PRIMARY KEY,
+        cwd TEXT NOT NULL,
+        status TEXT NOT NULL
+      )`)
+      // POSITIONAL, not `@name`. This lane runs vitest under Bun, and bun:sqlite
+      // binds an object with BARE keys as nothing at all — every column arrives
+      // NULL and the reader correctly proposes nothing, so the suite fails with
+      // no error to read. node:sqlite accepts the same object, which is why the
+      // named form passes under `bunx vitest` and only dies in the real lane.
+      const insert = db.prepare(
+        `INSERT INTO issues (id, parent_id, stage, closed_reason, closed_at, worktree_path, deleted_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      seed((row) => {
+        const full = {
+          parent_id: null,
+          stage: 'done',
+          closed_reason: null,
+          closed_at: CLOSED,
+          deleted_at: null,
+          ...row,
+        } as Record<string, string | null>
+        insert.run(
+          full.id ?? null,
+          full.parent_id ?? null,
+          full.stage ?? null,
+          full.closed_reason ?? null,
+          full.closed_at ?? null,
+          full.worktree_path ?? null,
+          full.deleted_at ?? null,
+        )
+      }, db)
+      return await new WorktreeGcReader(db).read({
+        cutoffClosedAt: CUTOFF,
+        mode: 'propose',
+        afterDays: 14,
+        limit: 100,
+        ...input,
+      })
+    } finally {
+      db.close()
+    }
+  }
+
+  it('proposes a SUB-ISSUE’s checkout — the hole the archive sweep can never reach', async () => {
+    // `sweepAutoArchive` gates on `parent_id IS NULL`, so a sub-issue's worktree
+    // is outside the archive door permanently. If this reader ever grows that
+    // same gate, the sweep silently stops reclaiming most of what is on disk.
+    const found = await withDb((issue) => {
+      issue({ id: 'iss_parent', worktree_path: '/r/.worktrees/parent' })
+      issue({ id: 'iss_child', parent_id: 'iss_parent', worktree_path: '/r/.worktrees/child' })
+    })
+    // Ordered oldest-close first, then by id — both closed at the same instant here.
+    expect(found.map((c) => c.issueId)).toEqual(['iss_child', 'iss_parent'])
+  })
+
+  it('carries the policy it was proposed under, so the server can refuse a disagreement', async () => {
+    const [found] = await withDb(
+      (issue) => issue({ id: 'iss_1', worktree_path: '/r/.worktrees/one' }),
+      { mode: 'auto', afterDays: 30 },
+    )
+    expect(found).toEqual({
+      issueId: 'iss_1',
+      worktreePath: '/r/.worktrees/one',
+      stage: 'done',
+      closedReason: null,
+      closedAt: CLOSED,
+      deletedAt: null,
+      mode: 'auto',
+      afterDays: 30,
+    })
+  })
+
+  it('skips open work, deleted rows, checkouts already freed, and closes inside the window', async () => {
+    const found = await withDb((issue) => {
+      issue({ id: 'iss_open', stage: 'in_progress', closed_at: null, worktree_path: '/r/w/open' })
+      issue({ id: 'iss_deleted', worktree_path: '/r/w/del', deleted_at: CLOSED })
+      issue({ id: 'iss_freed', worktree_path: null })
+      issue({ id: 'iss_young', closed_at: '2026-07-16T00:00:00.000Z', worktree_path: '/r/w/young' })
+      issue({ id: 'iss_ok', worktree_path: '/r/w/ok' })
+    })
+    expect(found.map((c) => c.issueId)).toEqual(['iss_ok'])
+  })
+
+  it('counts a close REASON as closed, not only the done stage', async () => {
+    const found = await withDb((issue) =>
+      issue({
+        id: 'iss_dup',
+        stage: 'in_progress',
+        closed_reason: 'duplicate',
+        worktree_path: '/r/w/dup',
+      }),
+    )
+    expect(found.map((c) => c.issueId)).toEqual(['iss_dup'])
+  })
+
+  it('leaves a directory an agent is still standing in — including one from another issue', async () => {
+    const found = await withDb((issue, db) => {
+      issue({ id: 'iss_busy', worktree_path: '/r/.worktrees/busy' })
+      issue({ id: 'iss_idle', worktree_path: '/r/.worktrees/idle' })
+      const session = db.prepare('INSERT INTO sessions (id, cwd, status) VALUES (?, ?, ?)')
+      // A subdirectory of the worktree, and a session that belongs to nobody
+      // here: the match is on the PATH, the way the server's guard makes it.
+      session.run('ses_1', '/r/.worktrees/busy/packages/web', 'live')
+      // An exited session is not standing in anything.
+      session.run('ses_2', '/r/.worktrees/idle', 'exited')
+    })
+    expect(found.map((c) => c.issueId)).toEqual(['iss_idle'])
+  })
+})
+
+describe('the sweep is off when the operator says off [POD-564]', () => {
+  const gcService = (
+    worktreeGcMode: 'off' | 'propose' | 'auto',
+    readWorktreeGcCandidates: () => WorktreeGcObservation[],
+  ) => {
+    const apply = vi.fn(
+      async (command: MaintenanceCommand): Promise<MaintenanceCommandReply> => ({
+        status: 'applied',
+        jobKind: command.jobKind,
+        runKey: command.runKey,
+      }),
+    )
+    const service = new JanitorService({
+      generationId: 'gen_gc',
+      now: () => Date.parse('2026-07-18T00:00:00.000Z'),
+      handshake: async () => readyLease({ expiresAt: '2099-01-01T00:00:00.000Z', worktreeGcMode }),
+      readExpiryCandidates: () => [],
+      readWorktreeGcCandidates,
+      apply,
+    })
+    return { service, apply }
+  }
+
+  const candidate: WorktreeGcObservation = {
+    issueId: asIssueId('iss_gc'),
+    worktreePath: '/r/.worktrees/gc',
+    stage: 'done',
+    closedReason: null,
+    closedAt: '2026-07-01T00:00:00.000Z',
+    deletedAt: null,
+    mode: 'propose',
+    afterDays: 14,
+  }
+
+  it('does not even read candidates under `off`', async () => {
+    const read = vi.fn(() => [candidate])
+    const { service, apply } = gcService('off', read)
+    await service.tick()
+    expect(read).not.toHaveBeenCalled()
+    expect(apply.mock.calls.some(([c]) => c.jobKind === 'worktree-gc')).toBe(false)
+  })
+
+  it('proposes one command per candidate under `propose`, keyed by path and close', async () => {
+    const { service, apply } = gcService('propose', () => [candidate])
+    await service.tick()
+    const sent = apply.mock.calls.map(([c]) => c).filter((c) => c.jobKind === 'worktree-gc')
+    expect(sent).toHaveLength(1)
+    expect(sent[0]?.runKey).toBe(worktreeGcRunKey(candidate))
   })
 })

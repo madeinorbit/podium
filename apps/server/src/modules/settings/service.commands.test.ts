@@ -19,19 +19,17 @@
  *    own schema rejects, so "it wrote something" is not the only thing proved.
  */
 
+import type { TelegramChatBinding, UserId } from '@podium/model'
 import {
   asUserId,
   SERVER_SECRET_KEYS,
   type SecretPresenceWire,
   type ServerSecretKey,
 } from '@podium/model'
-import type { TelegramChatBinding, UserId } from '@podium/model'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { openDatabase } from '@podium/runtime/sqlite'
-import { DRIZZLE_MIGRATIONS } from '../../migrations/drizzle-manifest.generated'
-import { runDrizzleMigrations } from '../../migrations'
 import { SettingsRepository } from '../../store/settings'
+import { openMigratedTestDatabase } from '../../test-support/migrated-database'
 import { EventBus } from '../bus'
 import { SettingsService } from './service'
 
@@ -47,8 +45,7 @@ import { SettingsService } from './service'
  * matter what the shipped one did.
  */
 function makeStore(): SettingsRepository {
-  const db = openDatabase(':memory:')
-  runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+  const db = openMigratedTestDatabase()
   return new SettingsRepository(db)
 }
 

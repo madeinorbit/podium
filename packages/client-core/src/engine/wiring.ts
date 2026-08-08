@@ -26,6 +26,7 @@ import { applyLegacyMetadataState } from '../replica/legacy-wire-v1-binding'
 import { LegacyWireV1Feed } from '../replica/legacy-wire-v1-feed'
 import type { Replica } from '../replica/replica'
 import { type FeedSinkPort, SocketHub } from '../socket-transport'
+import { assertSendAccepted } from './send-outcome'
 import type { StoreNotices } from './types'
 
 /** Outboxed mutation kinds → their tRPC inputs (docs/spec/outbox-write-path.md
@@ -363,7 +364,12 @@ export function createEngineOutbox(args: EngineOutboxCallbacks): Outbox<OutboxKi
       layoutSet: (i) => api.layout.set.mutate(i),
       layoutClear: (i) => api.layout.clear.mutate(i),
       settingsUpdatePersonal: (i) => api.settings.updatePersonal.mutate(i),
-      resumeAndSend: (i) => api.sessions.resumeAndSend.mutate(i),
+      resumeAndSend: async (i) => {
+        const result = await api.sessions.resumeAndSend.mutate(i)
+        // dead_letter / refused is HTTP 200 with ok:false — must not be applied
+        assertSendAccepted(result)
+        return result
+      },
       rename: (i) => api.sessions.rename.mutate(i),
       setArchived: (i) => api.sessions.setArchived.mutate(i),
       setWorkState: (i) => api.sessions.setWorkState.mutate(i),

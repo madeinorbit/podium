@@ -3,10 +3,8 @@
  */
 
 import { asUserId, FIRST_ADMIN_USER_ID, type UserId } from '@podium/model'
-import { openDatabase } from '@podium/runtime/sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { runDrizzleMigrations } from '../migrations'
-import { DRIZZLE_MIGRATIONS } from '../migrations/drizzle-manifest.generated'
+import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { UserLayoutRepository } from './user-layout'
 
 const ALICE: UserId = FIRST_ADMIN_USER_ID
@@ -16,8 +14,7 @@ const AT = '2026-08-02T09:00:00.000Z'
 let layout: UserLayoutRepository
 
 beforeEach(() => {
-  const db = openDatabase(':memory:')
-  runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+  const db = openMigratedTestDatabase()
   layout = new UserLayoutRepository(db)
 })
 
@@ -34,9 +31,9 @@ describe('UserLayoutRepository', () => {
   })
 
   it('setMany is atomic on the closed set and refuses a free-form key', () => {
-    expect(() =>
-      layout.setMany(ALICE, { dockTab: 'mail', 'not.a.key': 1 }, AT),
-    ).toThrow(/not a replicated layout key/)
+    expect(() => layout.setMany(ALICE, { dockTab: 'mail', 'not.a.key': 1 }, AT)).toThrow(
+      /not a replicated layout key/,
+    )
     expect(layout.getSnapshot(ALICE)).toEqual({})
 
     layout.setMany(ALICE, { dockTab: 'mail', 'sidebar.section.closed': true }, AT)

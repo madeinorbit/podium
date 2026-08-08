@@ -1,7 +1,14 @@
 // @vitest-environment happy-dom
+import type { IssueStage } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { BufferLike, Cell } from './buffer-line'
-import { mentionRects, RefUnderlineOverlay, type ViewportBufferLike } from './ref-underline-overlay'
+import {
+  mentionRects,
+  REF_STAGE_ACCENT,
+  RefUnderlineOverlay,
+  refStageAccent,
+  type ViewportBufferLike,
+} from './ref-underline-overlay'
 
 /** Build a row of unstyled cells from a string. */
 function cells(text: string, y = 0): Cell[] {
@@ -14,15 +21,27 @@ describe('mentionRects', () => {
   it('positions one rect per mention in cell geometry', () => {
     const rows = [cells('no refs here'), cells('see POD-13 now', 1)]
     const rects = mentionRects(rows, known, 8, 17)
-    expect(rects).toEqual([{ left: 4 * 8, top: 1 * 17, width: 6 * 8, height: 17 }])
+    expect(rects).toEqual([
+      { left: 4 * 8, top: 1 * 17, width: 6 * 8, height: 17, ref: 'POD-13', stage: null },
+    ])
   })
 
   it('handles multiple mentions and skips unknown prefixes', () => {
     const rows = [cells('POD-1 UTF-8 WEB-22')]
     const rects = mentionRects(rows, known, 10, 20)
     expect(rects).toEqual([
-      { left: 0, top: 0, width: 5 * 10, height: 20 },
-      { left: 12 * 10, top: 0, width: 6 * 10, height: 20 },
+      { left: 0, top: 0, width: 5 * 10, height: 20, ref: 'POD-1', stage: null },
+      { left: 12 * 10, top: 0, width: 6 * 10, height: 20, ref: 'WEB-22', stage: null },
+    ])
+  })
+
+  it('attaches resolved stages when a resolver is supplied', () => {
+    const rows = [cells('POD-1 and WEB-22')]
+    const stages: Record<string, IssueStage> = { 'POD-1': 'in_progress', 'WEB-22': 'done' }
+    const rects = mentionRects(rows, known, 8, 17, (ref) => stages[ref] ?? null)
+    expect(rects.map((r) => [r.ref, r.stage])).toEqual([
+      ['POD-1', 'in_progress'],
+      ['WEB-22', 'done'],
     ])
   })
 
@@ -35,11 +54,23 @@ describe('mentionRects', () => {
       ...[...'POD-7'].map((char, i) => ({ char, x: 3 + i, y: 0, styled: false })),
     ]
     const rects = mentionRects([row], known, 8, 17)
-    expect(rects).toEqual([{ left: 3 * 8, top: 0, width: 5 * 8, height: 17 }])
+    expect(rects).toEqual([
+      { left: 3 * 8, top: 0, width: 5 * 8, height: 17, ref: 'POD-7', stage: null },
+    ])
   })
 
   it('returns nothing for empty rows', () => {
     expect(mentionRects([[], []], known, 8, 17)).toEqual([])
+  })
+})
+
+describe('refStageAccent', () => {
+  it('maps every stage to a non-default accent', () => {
+    for (const stage of Object.keys(REF_STAGE_ACCENT) as IssueStage[]) {
+      expect(refStageAccent(stage)).toBe(REF_STAGE_ACCENT[stage])
+    }
+    expect(refStageAccent(null)).toContain('--primary')
+    expect(refStageAccent(undefined)).toContain('--primary')
   })
 })
 
@@ -72,7 +103,11 @@ function fakeBuf(rows: string[], viewportY = 0): ViewportBufferLike {
   return buf
 }
 
-function makeOverlay(rows: string[], prefix: ((p: string) => boolean) | null = known) {
+function makeOverlay(
+  rows: string[],
+  prefix: ((p: string) => boolean) | null = known,
+  resolveStage?: (ref: string) => IssueStage | null | undefined,
+) {
   const screen = document.createElement('div')
   document.body.appendChild(screen)
   // happy-dom has no layout; give the screen a measured size (80×24 grid at 8×17).
@@ -84,6 +119,7 @@ function makeOverlay(rows: string[], prefix: ((p: string) => boolean) | null = k
     getCols: () => 80,
     getRows: () => 24,
     getIsKnownPrefix: () => prefix,
+    getResolveStage: () => resolveStage ?? null,
   })
   return { screen, overlay }
 }
@@ -125,5 +161,38 @@ describe('RefUnderlineOverlay', () => {
     expect(screen.querySelector('.podium-ref-underlines')).toBeTruthy()
     overlay.dispose()
     expect(screen.querySelector('.podium-ref-underlines')).toBeNull()
+  })
+
+  it('paints stage colour and dashed backlog underline from the live resolver', () => {
+    const stages: Record<string, IssueStage> = {
+      'POD-13': 'in_progress',
+      'WEB-2': 'backlog',
+    }
+    const { screen, overlay } = makeOverlay(
+      ['see POD-13 now', 'and WEB-2'],
+      known,
+      (ref) => stages[ref] ?? null,
+    )
+    overlay.refreshNow()
+    const shown = visibleRects(screen)
+    expect(shown).toHaveLength(2)
+    expect(shown[0]?.dataset.ref).toBe('POD-13')
+    expect(shown[0]?.dataset.issueStage).toBe('in_progress')
+    expect(shown[0]?.style.getPropertyValue('--ref-accent')).toBe(REF_STAGE_ACCENT.in_progress)
+    expect(shown[0]?.style.borderBottomStyle).toBe('solid')
+    expect(shown[1]?.dataset.issueStage).toBe('backlog')
+    expect(shown[1]?.style.getPropertyValue('--ref-accent')).toBe(REF_STAGE_ACCENT.backlog)
+    expect(shown[1]?.style.borderBottomStyle).toBe('dashed')
+    overlay.dispose()
+  })
+
+  it('keeps the default accent when stage is unresolved', () => {
+    const { screen, overlay } = makeOverlay(['POD-1'], known, () => null)
+    overlay.refreshNow()
+    const el = visibleRects(screen)[0]
+    expect(el?.dataset.issueStage).toBeUndefined()
+    expect(el?.style.getPropertyValue('--ref-accent')).toContain('--primary')
+    expect(el?.style.borderBottomStyle).toBe('solid')
+    overlay.dispose()
   })
 })

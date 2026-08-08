@@ -692,6 +692,7 @@ export const WIRE_FIXTURES: WireFixture[] = [
       name: 'ludovico',
       sampledAt: '2026-07-30T10:00:00.000Z',
       memory: HOST_MEMORY_FULL,
+      load: { one: 12, five: 10, fifteen: 8, cpuCount: 8 },
       idleCapUnmet: 2,
     },
   },

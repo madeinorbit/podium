@@ -4,13 +4,16 @@ import type { IssueWire, SessionMeta } from '@podium/model'
 import { useRouter } from 'expo-router'
 import { useMemo, useState } from 'react'
 import { SectionList, StyleSheet, Text, View } from 'react-native'
-import { useConnected, useIssues, useSessions } from '../client/hooks'
+import { useBooting, useIssues, useSessions } from '../client/hooks'
+import { BootstrapCrossfade, WorkSkeleton } from '../components/LaunchPlaceholders'
 import { NewWorkButton } from '../components/NewWorkButton'
+import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
 import { Screen } from '../components/Screen'
 import { SessionCard } from '../components/SessionCard'
 import { CountPill } from '../components/StatusGlyphs'
 import { TaskPeekSheet } from '../components/TaskPeekSheet'
 import { EmptyState } from '../components/ui'
+import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { sessionHref } from '../lib/session-route'
 import { color, font, mono, monoLabel, space } from '../theme/theme'
 
@@ -23,7 +26,9 @@ export function SessionsScreen() {
   const router = useRouter()
   const sessions = useSessions()
   const issues = useIssues()
-  const connected = useConnected()
+  const { connected, onRefresh, refreshing, refreshControl, refreshAccessibilityProps } =
+    useRefreshableList()
+  const booting = useBooting()
   const now = Date.now()
   const [peek, setPeek] = useState<{ issue: IssueWire; session: SessionMeta } | null>(null)
 
@@ -52,49 +57,64 @@ export function SessionsScreen() {
       }
       right={<NewWorkButton />}
     >
-      <SectionList
-        sections={sections}
-        keyExtractor={(session) => session.sessionId}
-        stickySectionHeadersEnabled={false}
-        contentContainerStyle={styles.listContent}
-        renderSectionHeader={({ section }) => (
-          <View style={styles.sectionHeader}>
-            <Text
-              style={[
-                styles.sectionLabel,
-                section.key === 'needsYou' && styles.needsYouLabel,
-                section.key === 'working' && styles.workingLabel,
-              ]}
-            >
-              {section.title.toUpperCase()}
-            </Text>
-            {section.key === 'needsYou' ? (
-              <CountPill count={section.data.length} />
-            ) : (
-              <Text style={styles.sectionCount}>{section.data.length}</Text>
+      <BootstrapCrossfade resolved={!booting} placeholder={<WorkSkeleton />}>
+        <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
+          <SectionList
+            sections={sections}
+            keyExtractor={(session) => session.sessionId}
+            stickySectionHeadersEnabled={false}
+            contentContainerStyle={styles.listContent}
+            refreshControl={refreshControl}
+            {...refreshAccessibilityProps}
+            renderSectionHeader={({ section }) => (
+              <View style={styles.sectionHeader}>
+                <Text
+                  style={[
+                    styles.sectionLabel,
+                    section.key === 'needsYou' && styles.needsYouLabel,
+                    section.key === 'working' && styles.workingLabel,
+                  ]}
+                >
+                  {section.title.toUpperCase()}
+                </Text>
+                {section.key === 'needsYou' ? (
+                  <CountPill count={section.data.length} />
+                ) : (
+                  <Text style={styles.sectionCount}>{section.data.length}</Text>
+                )}
+                <View style={styles.sectionRule} />
+              </View>
             )}
-            <View style={styles.sectionRule} />
-          </View>
-        )}
-        renderItem={({ item: session }) => {
-          const issue = issueFor(session)
-          return (
-            <SessionCard
-              model={sessionCardModel(session, issue, now)}
-              issue={issue}
-              agentColor={session.agentColor}
-              onPress={() => router.push(sessionHref(session.sessionId, '/work'))}
-              onLongPress={issue ? () => setPeek({ issue, session }) : undefined}
-            />
-          )
-        }}
-        ListEmptyComponent={
-          <EmptyState
-            title="No agents running"
-            body="Start a session with the + button, or fire off a task from the board."
+            renderItem={({ item: session }) => {
+              const issue = issueFor(session)
+              return (
+                <SessionCard
+                  model={sessionCardModel(session, issue, now)}
+                  issue={issue}
+                  agentColor={session.agentColor}
+                  onPress={() => router.push(sessionHref(session.sessionId, '/work'))}
+                  onLongPress={issue ? () => setPeek({ issue, session }) : undefined}
+                />
+              )
+            }}
+            ListEmptyComponent={
+              // Guarded on `booting` even though the crossfade covers this
+              // screen: ListEmptyComponent is rendered by the list whenever its
+              // data is empty, with no notion of whether loading has finished, so
+              // without this the empty state is CONSTRUCTED during bootstrap and
+              // sits in the tree — and in the accessibility tree — underneath an
+              // opaque placeholder. The crossfade stops it being SEEN; this stops
+              // it being built. Related conditions, not the same one.
+              booting ? null : (
+                <EmptyState
+                  title="No agents running"
+                  body="Start a session with the + button, or fire off a task from the board."
+                />
+              )
+            }
           />
-        }
-      />
+        </PullToRefreshBoundary>
+      </BootstrapCrossfade>
       <TaskPeekSheet
         issue={peek?.issue ?? null}
         session={peek?.session}

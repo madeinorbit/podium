@@ -112,7 +112,9 @@ export const grokManifest: AgentManifest = {
     hookInstall: 'global-env',
     observationProvider: 'grok',
     observationProtocol: 'generic',
-    submitVerification: false,
+    // Bracketed-paste + one CR can leave Grok's paste chip unsubmitted; retry
+    // Enter until a user turn appears or the phase leaves idle (POD-552).
+    submitVerification: true,
     exclusiveInteractiveResume: false,
     promptTitleFallback: false,
     mcpConfigTransport: 'none',

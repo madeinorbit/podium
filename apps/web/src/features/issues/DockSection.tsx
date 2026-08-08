@@ -6,7 +6,12 @@ import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 import { cn } from '@/lib/utils'
 
 // ui-state key family for per-section open state; the legacy localStorage keys
-// of the same names migrate in once (replica LEGACY_UI_PREFIXES).
+// of the same names migrate in once (replica LEGACY_UI_PREFIXES). REPLICATED
+// under dock.section.* — subscribe rather than seed (POD-540).
+//
+// Note: after the operator-workspace Task recomposition (POD-516), the Task
+// dock no longer mounts DockSection. The component stays until that lands so
+// this branch's IssuePanelView still has its collapsible sections.
 
 function writeOpen(open: boolean): string {
   return open ? '1' : '0'

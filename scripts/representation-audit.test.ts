@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import type { AuditContext, SourceFile } from './rearch-audit'
 import { stripComments } from './rearch-audit'
@@ -17,10 +18,12 @@ import {
   unregisteredRestatements,
 } from './representation-audit'
 
+const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url))
+
 /** A one-file context, so each case is exactly the source it names. */
 function ctxOf(source: string, file = 'apps/server/src/probe.ts'): AuditContext {
   const files: SourceFile[] = [{ file, stripped: stripComments(source), isTest: false }]
-  return { repoRoot: process.cwd(), files, listDir: () => [] }
+  return { repoRoot: REPO_ROOT, files, listDir: () => [] }
 }
 
 /**
@@ -478,7 +481,7 @@ describe('the two checks whose live answer is ZERO can say non-zero', () => {
    */
   it('fires on a registry entry whose FILE does not exist', () => {
     const planted = [{ symbol: 'Ghost', site: 'apps/server/src/does-not-exist.ts' }]
-    const sites = danglingRegistryEntries(process.cwd(), planted)
+    const sites = danglingRegistryEntries(REPO_ROOT, planted)
     expect(sites.map((s) => s.text)).toEqual(['Ghost: registered site does not exist'])
   })
 
@@ -486,7 +489,7 @@ describe('the two checks whose live answer is ZERO can say non-zero', () => {
     // A real file that certainly does not declare this symbol. The check anchors
     // on the declaration keyword, so a mere mention would not satisfy it either.
     const planted = [{ symbol: 'NeverDeclaredAnywhere', site: 'package.json' }]
-    const sites = danglingRegistryEntries(process.cwd(), planted)
+    const sites = danglingRegistryEntries(REPO_ROOT, planted)
     expect(sites.map((s) => s.text)).toEqual([
       'NeverDeclaredAnywhere: registered but no longer declared at this site',
     ])
@@ -501,7 +504,7 @@ describe('the two checks whose live answer is ZERO can say non-zero', () => {
         site: 'packages/model/src/representations/registry.ts',
       },
     ]
-    expect(danglingRegistryEntries(process.cwd(), planted)).toEqual([])
+    expect(danglingRegistryEntries(REPO_ROOT, planted)).toEqual([])
   })
 
   it('REFUSES to run on an empty vocabulary rather than reporting zero', () => {

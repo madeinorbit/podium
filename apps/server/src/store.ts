@@ -37,7 +37,7 @@ import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { asMachineId, type MachineId } from '@podium/model'
 import { stateDir } from '@podium/runtime/config'
-import { openDatabase, type SqlDatabase, transaction } from '@podium/runtime/sqlite'
+import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import { SyncRepository } from '@podium/sync'
 import { DRIZZLE_MIGRATIONS } from './migrations/drizzle-manifest.generated'
 import { runDrizzleMigrations } from './migrations/index'
@@ -68,6 +68,7 @@ import { SuperagentRepository } from './store/superagent'
 import { TelegramBindingsRepository } from './store/telegram-bindings'
 import { UsersRepository } from './store/users'
 import { WorkflowsRepository } from './store/workflows'
+import { openStoreDatabase } from './store-database'
 
 export type { MessagePrincipalRef } from './store/messages'
 export * from './store/types'
@@ -162,7 +163,11 @@ export class SessionStore {
     // route and grant in this process is keyed by.
     this.hostMachineId = asMachineId(hostMachineId)
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
-    this.db = openDatabase(path)
+    // `openStoreDatabase` is `openDatabase` everywhere except under a test runner
+    // that installed the pre-migrated fixture (see store-database.ts). The migration
+    // chain below still runs either way — on a pre-migrated database it simply finds
+    // nothing pending, which is exactly what a second boot of a real install does.
+    this.db = openStoreDatabase(path)
     this.db.exec('PRAGMA journal_mode = WAL')
     this.db.exec('PRAGMA busy_timeout = 5000')
     // node:sqlite enables foreign keys on a fresh connection. Migrations use

@@ -61,18 +61,25 @@ describe('served — the ceremony contracts reach a dispatcher', () => {
     })
   }
 
-  it('and the derived router actually serves both keys', async () => {
-    // The other direction, against the object the server builds. The derived
-    // surface asserts membership in BOTH directions at module load, so an
-    // exposure declared with no procedure throws before a request is answered —
-    // this proves that assertion ran and passed for these two.
-    const { settingsFamilyProcedures } = await import(
-      '../apps/server/src/modules/settings/trpc'
-    )
-    const built = settingsFamilyProcedures() as unknown as Record<string, unknown>
-    expect(Object.keys(built)).toContain('telegramSetupStart')
-    expect(Object.keys(built)).toContain('telegramSetupPoll')
-  })
+  // Importing settings/trpc pulls a large server graph (~18s cold alone; longer
+  // under the package-gate's two workers). The 20s suite default timed out as
+  // "does not serve both keys" when the load was the real defect (POD-531).
+  it(
+    'and the derived router actually serves both keys',
+    async () => {
+      // The other direction, against the object the server builds. The derived
+      // surface asserts membership in BOTH directions at module load, so an
+      // exposure declared with no procedure throws before a request is answered —
+      // this proves that assertion ran and passed for these two.
+      const { settingsFamilyProcedures } = await import(
+        '../apps/server/src/modules/settings/trpc'
+      )
+      const built = settingsFamilyProcedures() as unknown as Record<string, unknown>
+      expect(Object.keys(built)).toContain('telegramSetupStart')
+      expect(Object.keys(built)).toContain('telegramSetupPoll')
+    },
+    60_000,
+  )
 
   it('the derived surface is not simply everything — the check can say NO', () => {
     // Non-vacuity: `settings.get` is a read with no contract, so it must NOT

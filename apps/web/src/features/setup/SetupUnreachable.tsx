@@ -163,9 +163,9 @@ export function SetupUnreachable({
               automatic retries exhausted
             </div>
             <button
+              data-pressable
               className="podium-unreachable-button"
               type="button"
-              data-pressable
               onClick={onRetry}
             >
               <span>Retry connection</span>

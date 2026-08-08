@@ -1,8 +1,17 @@
-import { render, screen } from '@testing-library/react'
-import type { ReactNode } from 'react'
+import { fireEvent, render, screen } from '@testing-library/react'
+import type { ComponentProps, ReactNode } from 'react'
+import type { View } from 'react-native'
 import { describe, expect, it, vi } from 'vitest'
 
-vi.mock('expo-blur', () => ({ BlurView: () => null }))
+vi.mock('react-native-safe-area-context', () => ({
+  useSafeAreaInsets: () => ({ top: 20, right: 0, bottom: 34, left: 0 }),
+}))
+// The composer's surface IS the BlurView, the way the tab bar's capsule is —
+// a null stub would erase the component under test rather than its blur.
+vi.mock('expo-blur', async () => {
+  const { View } = await import('react-native')
+  return { BlurView: (props: ComponentProps<typeof View>) => <View {...props} /> }
+})
 vi.mock('expo-linear-gradient', () => ({
   LinearGradient: ({ children }: { children: ReactNode }) => <>{children}</>,
 }))
@@ -26,5 +35,51 @@ describe('Composer activity caption', () => {
 
     rerender(<Composer placeholder="Message the agent…" onSend={vi.fn()} caption={null} />)
     expect(screen.queryByTestId('composer-caption')).toBeNull()
+  })
+
+  it('appends a keyed transcript quote without replacing the current draft', () => {
+    const { container, rerender } = render(
+      <Composer placeholder="Message the agent…" onSend={vi.fn()} draftInsertion={null} />,
+    )
+    const input = container.querySelector('textarea')
+    expect(input).not.toBeNull()
+    if (!input) return
+    fireEvent.change(input, { target: { value: 'My note' } })
+
+    rerender(
+      <Composer
+        placeholder="Message the agent…"
+        onSend={vi.fn()}
+        draftInsertion={{ id: 1, text: '> quoted\n\n' }}
+      />,
+    )
+
+    expect(input.value).toBe('My note\n> quoted\n\n')
+  })
+})
+
+describe('Composer floating dock', () => {
+  const dockOf = (container: HTMLElement) =>
+    (container.querySelector('[data-testid="composer-bar"]')?.parentElement ??
+      null) as HTMLElement | null
+
+  it('pays the bottom safe area when nothing else is below it', () => {
+    const { container } = render(<Composer placeholder="Message the agent…" onSend={vi.fn()} />)
+    // 34 of home indicator plus the 8 the surface floats above it.
+    expect(dockOf(container)?.style.paddingBottom).toBe('42px')
+  })
+
+  it('lets chrome below it replace that inset rather than stacking on it', () => {
+    // The tab bar's measured inset already contains the safe area [POD-420];
+    // adding the composer's own would float it a home-indicator too high.
+    const { container } = render(
+      <Composer placeholder="Message the agent…" onSend={vi.fn()} bottomInset={72} />,
+    )
+    expect(dockOf(container)?.style.paddingBottom).toBe('80px')
+  })
+
+  it('drops no glyph in front of the text field', () => {
+    const { container } = render(<Composer placeholder="Message the agent…" onSend={vi.fn()} />)
+    expect(container.textContent).not.toContain('>')
   })
 })

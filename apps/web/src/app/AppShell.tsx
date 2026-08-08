@@ -2,7 +2,7 @@ import { shallowEqual } from '@podium/client-core/store'
 import type { IssueColorSlot } from '@podium/model'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import type { CSSProperties, JSX, ReactNode } from 'react'
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { IssuePeekOverlay } from '@/components/IssuePeekOverlay'
 import { RefMiniviewHost, RefPrefixSync } from '@/components/RefMiniview'
@@ -20,7 +20,7 @@ import { effectiveIssueColorHex, FLOW_SLATE } from '@/lib/issueColors'
 import type { KernelAssembly } from '@/lib/kernelReplica'
 import { ShadowComparisonRunner } from '@/lib/shadow/ShadowComparisonRunner'
 import { useFeature } from '@/lib/use-feature'
-import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
+import { usePersistedUiState, usePersistedUiValue } from '@/lib/use-persisted-ui-state'
 import { useKernelReplica } from '@/lib/use-kernel-replica'
 import { AppErrorPage } from './AppErrorPage'
 import { ApprovalDialog } from './ApprovalDialog'
@@ -247,14 +247,9 @@ function AppBody(): JSX.Element {
   // the replica has the row — then never runs again, so a stored "folded" is
   // read as null and the column boots open forever after. Device-local keys do
   // not have this problem (they are in the local cache at mount), which is why
-  // the column's WIDTH persisted while its mode did not. Same idiom as
-  // use-terminal-appearance.
-  const flightDeckCollapsed = readFlightDeckCollapsed(
-    useSyncExternalStore(
-      (onChange) => uiState.subscribe(onChange),
-      () => uiState.get(SUPERAGENT_MODE_KEY),
-    ),
-  )
+  // the column's WIDTH persisted while its mode did not. Goes through the one
+  // shared subscribe hook every replicated key now uses.
+  const flightDeckCollapsed = usePersistedUiValue(SUPERAGENT_MODE_KEY, readFlightDeckCollapsed)
   // SUBSCRIBED, not seeded — same reason as `flightDeckCollapsed` above: this
   // key is per-user REPLICATED, so a `useState` initializer reads it before the
   // replica has the row and never runs again. That is why opening the

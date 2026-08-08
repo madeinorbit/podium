@@ -18,6 +18,7 @@ import {
   messageExpiryRunKey,
   sessionAutoArchiveRunKey,
   stewardPollRunKey,
+  worktreeGcRunKey,
 } from '@podium/protocol'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { type MessageRow, SessionStore } from '../../store'
@@ -264,7 +265,14 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
           return write()
         },
       },
-      { now: () => nowMs, leaseTtlMs: 90_000, issues: { tryAutoArchiveObserved } },
+      {
+        now: () => nowMs,
+        leaseTtlMs: 90_000,
+        issues: {
+          tryAutoArchiveObserved,
+          tryWorktreeGcObserved: vi.fn(async () => ({ outcome: 'proposed' as const })),
+        },
+      },
     )
     const lease = handshake('gen_a')
     if (lease.status !== 'ready') throw new Error('expected lease')
@@ -495,5 +503,146 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     })
     expect(reply).toMatchObject({ status: 'applied' })
     expect(scans).toEqual(['remote'])
+  })
+})
+
+describe('worktree-gc is the janitor asking, never deciding [POD-564]', () => {
+  let store: SessionStore
+  let nowMs: number
+  let service: MaintenanceService
+  let policy: { mode: 'off' | 'propose' | 'auto'; afterDays: number }
+  let tryWorktreeGcObserved: ReturnType<typeof vi.fn>
+
+  const observed = {
+    issueId: asIssueId('iss_gc'),
+    worktreePath: '/r/.worktrees/issue-gc',
+    stage: 'done',
+    closedReason: null,
+    closedAt: '2026-07-01T00:00:00.000Z',
+    deletedAt: null as null,
+    mode: 'propose' as const,
+    afterDays: 14,
+  }
+
+  beforeEach(() => {
+    nowMs = Date.parse('2026-07-18T00:00:00.000Z')
+    store = new SessionStore(':memory:')
+    policy = { mode: 'propose', afterDays: 14 }
+    tryWorktreeGcObserved = vi.fn(async () => ({ outcome: 'proposed' as const }))
+    service = new MaintenanceService(
+      store,
+      {
+        run<T>({ write }: { authorize?: () => void; write: () => T }): T {
+          return write()
+        },
+      },
+      {
+        now: () => nowMs,
+        leaseTtlMs: 90_000,
+        issues: {
+          tryAutoArchiveObserved: vi.fn(() => 'applied' as const),
+          tryWorktreeGcObserved: tryWorktreeGcObserved as never,
+        },
+        worktreeGcPolicy: () => policy,
+      },
+    )
+  })
+
+  const lease = () => {
+    const reply = service.handshake({
+      protocolVersion: MAINTENANCE_PROTOCOL_VERSION,
+      schemaVersion: MAINTENANCE_SCHEMA_VERSION,
+      generationId: 'gen_gc',
+    })
+    if (reply.status !== 'ready') throw new Error('expected lease')
+    return reply
+  }
+
+  const command = (over: Partial<typeof observed> = {}) => {
+    const o = { ...observed, ...over }
+    return {
+      protocolVersion: MAINTENANCE_PROTOCOL_VERSION,
+      schemaVersion: MAINTENANCE_SCHEMA_VERSION,
+      jobKind: 'worktree-gc' as const,
+      runKey: worktreeGcRunKey(o),
+      fencingToken: lease().fencingToken,
+      observed: o,
+    }
+  }
+
+  it('hands the policy out with the lease, so a settings flip reaches the next handshake', () => {
+    expect(lease()).toMatchObject({ worktreeGcMode: 'propose', worktreeGcAfterDays: 14 })
+    policy = { mode: 'auto', afterDays: 30 }
+    nowMs += 10_000
+    expect(lease()).toMatchObject({ worktreeGcMode: 'auto', worktreeGcAfterDays: 30 })
+  })
+
+  it('reads `off` as a policy the janitor is told, not one this service silently applies', () => {
+    policy = { mode: 'off', afterDays: 14 }
+    expect(lease()).toMatchObject({ worktreeGcMode: 'off' })
+  })
+
+  it('revalidates through the issues seam and records the occurrence once', async () => {
+    const cmd = command()
+    expect(await service.apply(cmd)).toMatchObject({ status: 'applied' })
+    expect(tryWorktreeGcObserved).toHaveBeenCalledWith(
+      cmd.observed,
+      nowMs,
+      expect.objectContaining({ kind: 'system', job: 'expiry' }),
+    )
+    expect(await service.apply(cmd)).toMatchObject({ status: 'already-applied' })
+  })
+
+  it('a worktree freed between propose and apply is `precondition`, not an error', async () => {
+    tryWorktreeGcObserved.mockResolvedValueOnce({ outcome: 'precondition' })
+    expect(await service.apply(command({ worktreePath: '/r/.worktrees/gone' }))).toMatchObject({
+      status: 'stale',
+      reason: 'precondition',
+    })
+  })
+
+  it('says not-due when the close is younger than the window', async () => {
+    tryWorktreeGcObserved.mockResolvedValueOnce({ outcome: 'not-due' })
+    expect(await service.apply(command({ closedAt: '2026-07-17T00:00:00.000Z' }))).toMatchObject({
+      status: 'stale',
+      reason: 'not-due',
+    })
+  })
+
+  it('records a REFUSAL as applied, so a dirty tree is not re-asked every 30 seconds', async () => {
+    // The occurrence is the ATTEMPT, not the removal: the directory stays, the
+    // refusal is in the log once, and the next sweep re-asks after the command
+    // row ages out of retention. Retrying each tick would emit a refusal event
+    // twice a minute for as long as the work is uncommitted.
+    tryWorktreeGcObserved.mockResolvedValueOnce({
+      outcome: 'refused',
+      reason: 'worktree has unsaved changes',
+    })
+    const cmd = command()
+    expect(await service.apply(cmd)).toMatchObject({ status: 'applied' })
+    expect(await service.apply(cmd)).toMatchObject({ status: 'already-applied' })
+  })
+
+  it('refuses a run key that does not describe its own observation', async () => {
+    expect(
+      await service.apply({ ...command(), runKey: 'worktree-gc/somebody-elses-key' }),
+    ).toMatchObject({ status: 'stale', reason: 'invalid-run-key' })
+    expect(tryWorktreeGcObserved).not.toHaveBeenCalled()
+  })
+
+  it('refuses when no issues seam is wired at all', async () => {
+    service = new MaintenanceService(
+      store,
+      {
+        run<T>({ write }: { authorize?: () => void; write: () => T }): T {
+          return write()
+        },
+      },
+      { now: () => nowMs, leaseTtlMs: 90_000, worktreeGcPolicy: () => policy },
+    )
+    expect(await service.apply(command())).toMatchObject({
+      status: 'stale',
+      reason: 'precondition',
+    })
   })
 })
