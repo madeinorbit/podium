@@ -16,7 +16,7 @@
  */
 
 import type { SessionId, TranscriptItem } from '@podium/model'
-import type { InboxPrincipalReference } from '../sessions/inbox'
+import type { AnswerChoice, InboxPrincipalReference } from '../sessions/inbox'
 
 /** The session shape the delivery gate reads (SessionMeta subset). */
 export interface AnswerTargetSession {
@@ -28,7 +28,8 @@ export interface AnswerDeliveryDeps {
   sessions: {
     answerAskUserQuestion(input: {
       sessionId: SessionId
-      choices: { optionIndices: number[] }[]
+      choices?: AnswerChoice[]
+      skip?: boolean
       principal: InboxPrincipalReference
     }): {
       ok: boolean
@@ -50,7 +51,7 @@ export interface AnswerDeliveryDeps {
 
 export type AnswerDeliveryResult =
   /** Digits typed into the live native menu. */
-  | { ok: true; via: 'menu'; choices: { optionIndices: number[] }[]; note?: string }
+  | { ok: true; via: 'menu'; choices: AnswerChoice[]; note?: string }
   /** Delivered as a chat message (textFallback, no live menu). */
   | { ok: true; via: 'text' }
   /** Not delivered; `message` keeps the tool belt's exact refusal strings. */
@@ -107,7 +108,7 @@ export async function deliverAnswerToSession(
   // One choice entry per question (the registry types digits into the
   // native menu). The single answer text is resolved against each
   // question's options — the dominant case is a single question.
-  const choices: { optionIndices: number[] }[] = []
+  const choices: AnswerChoice[] = []
   const notes: string[] = []
   for (const qq of questions) {
     const labels = (qq.options ?? []).map((o) => o.label ?? '')
@@ -133,7 +134,12 @@ export async function deliverAnswerToSession(
     if (!qq.multiSelect && idx.length > 1) {
       notes.push(`single-select — used first of ${idx.join(',')}`)
     }
-    choices.push({ optionIndices: qq.multiSelect ? idx : idx.slice(0, 1) })
+    // The shape rides along: a multi-select question's digits only toggle, so
+    // the menu needs a Tab from us to move off it (POD-609).
+    choices.push({
+      optionIndices: qq.multiSelect ? idx : idx.slice(0, 1),
+      ...(qq.multiSelect ? { multiSelect: true } : {}),
+    })
   }
   const r = deps.sessions.answerAskUserQuestion({ sessionId, choices, principal: input.principal })
   if (!r.ok) return { ok: false, message: 'failed: session not running' }

@@ -137,4 +137,36 @@ describe('the command-plane table', () => {
     // none for a later edit to start trusting (ADR 3 D7.1).
     expect(parsed).toEqual({ sessionId: asSessionId('s'), choices: [{ optionIndices: [1] }] })
   })
+
+  it('answerAskUserQuestion accepts free-text via Other and skip, not both', () => {
+    const input = sessionCommandPlane.defs.answerAskUserQuestion.input
+    expect(
+      input.parse({
+        sessionId: asSessionId('s'),
+        choices: [{ freeText: 'ship the long path', otherIndex: 3 }],
+      }),
+    ).toEqual({
+      sessionId: asSessionId('s'),
+      choices: [{ freeText: 'ship the long path', otherIndex: 3 }],
+    })
+    expect(input.parse({ sessionId: asSessionId('s'), skip: true })).toEqual({
+      sessionId: asSessionId('s'),
+      skip: true,
+    })
+    expect(input.safeParse({ sessionId: asSessionId('s') }).success).toBe(false)
+    expect(
+      input.safeParse({
+        sessionId: asSessionId('s'),
+        skip: true,
+        choices: [{ optionIndices: [1] }],
+      }).success,
+    ).toBe(false)
+    // freeText without otherIndex is unrepresentable — the digit is load-bearing.
+    expect(
+      input.safeParse({
+        sessionId: asSessionId('s'),
+        choices: [{ freeText: 'no index' }],
+      }).success,
+    ).toBe(false)
+  })
 })

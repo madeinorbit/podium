@@ -23,12 +23,21 @@
  * Platform-neutral: no DOM, no storage.
  */
 import {
-  normalizeOriginUrl,
-  repoNameFromOrigin,
   type GitRepositoryWire,
   type HostMetricsWire,
+  isIssueClosed,
+  normalizeOriginUrl,
+  repoNameFromOrigin,
+  type SessionMeta,
+  type SessionStatus,
 } from '@podium/model'
 import type { RepoView, WorktreeView } from '../../types'
+
+/** Path containment (POSIX) — same rule as dock-panel's cwdInWorktree, local so
+ *  this facts module stays free of other viewmodel edges. */
+function cwdUnderRoot(cwd: string, root: string): boolean {
+  return cwd === root || cwd.startsWith(root.endsWith('/') ? root : `${root}/`)
+}
 
 // ---------------------------------------------------------------------------
 // Repo / worktree structure. A machine fact.
@@ -225,4 +234,276 @@ export function hostMemoryView(host: HostMetricsWire): HostMemoryView {
     severity,
     title: `${host.hostname} — memory ${label} used (${pct}%)${swap}`,
   }
+}
+
+// ---------------------------------------------------------------------------
+// Host pressure (POD-563 / POD-554 PR 6) — load + residency + reclaimable inventory.
+// Pure derivations from the streamed host sample and the client sessions/issues
+// slices. No new streaming channel; inventory is not GiB (no du probe yet).
+// ---------------------------------------------------------------------------
+
+/** Default load-per-core the meter fills against when policy has load pressure off. */
+export const DEFAULT_LOAD_PER_CORE = 1.5
+
+/** Amber health-dot threshold: reclaimable worktree count past this asks the operator. */
+export const RECLAIMABLE_WORKTREE_THRESHOLD = 20
+
+const RESIDENT_STATUSES: ReadonlySet<SessionStatus> = new Set(['live', 'starting', 'reconnecting'])
+
+export interface HostLoadView {
+  /** load1 ÷ cores, or null when the daemon has not shipped `load`. */
+  perCore: number | null
+  /** 0–100 meter fill against the parking threshold (clamped). */
+  meterPct: number
+  /** Display value, e.g. `1.8×` or `—`. */
+  label: string
+  severity: MemorySeverity
+  title: string
+}
+
+/**
+ * Present one host's load sample. The meter fills against `loadPerCore` (full =
+ * parking is happening), not against a notional 100%. Past threshold clamps at
+ * 100% and the value takes critical tone.
+ */
+export function hostLoadView(
+  host: HostMetricsWire,
+  loadPerCore: number | null = DEFAULT_LOAD_PER_CORE,
+): HostLoadView {
+  const load = host.load
+  if (!load || load.cpuCount <= 0) {
+    return {
+      perCore: null,
+      meterPct: 0,
+      label: '—',
+      severity: 'ok',
+      title: `${host.hostname} — load unavailable`,
+    }
+  }
+  const perCore = load.one / load.cpuCount
+  const threshold = loadPerCore ?? DEFAULT_LOAD_PER_CORE
+  const ratio = threshold > 0 ? perCore / threshold : 0
+  const meterPct = Math.min(100, Math.round(ratio * 100))
+  const severity: MemorySeverity = ratio >= 1 ? 'critical' : ratio >= 0.8 ? 'warn' : 'ok'
+  const label = `${perCore.toFixed(1)}×`
+  return {
+    perCore,
+    meterPct,
+    label,
+    severity,
+    title: `${host.hostname} — load ${label} per core (threshold ${threshold.toFixed(1)}×)`,
+  }
+}
+
+/** Sessions whose process is resident on this machine (not working-count). */
+export function residentSessionsOnMachine(
+  sessions: readonly SessionMeta[],
+  machineId: string | undefined,
+): SessionMeta[] {
+  if (!machineId) return []
+  return sessions.filter(
+    (s) => s.machineId === machineId && RESIDENT_STATUSES.has(s.status) && !s.archived,
+  )
+}
+
+/**
+ * The ONLY thing {@link listReclaimableWorktreesClient} reads out of the
+ * sessions slice: where live agents are currently standing. Returned as a
+ * stable string so a React memo can depend on the occupancy rather than on the
+ * sessions array identity — that array is replaced on every token count, phase
+ * flip and title edit (many per second under load), none of which can move a
+ * checkout in or out of the candidate list.
+ *
+ * Sorted, so two renders that describe the same occupancy compare equal
+ * whatever order the store happens to hold the sessions in.
+ */
+export function residentWorktreeKey(sessions: readonly SessionMeta[]): string {
+  const cwds: string[] = []
+  for (const s of sessions) if (RESIDENT_STATUSES.has(s.status)) cwds.push(s.cwd)
+  return cwds.sort().join('\n')
+}
+
+/** Split a {@link residentWorktreeKey} back into the paths it encodes. */
+export function occupiedRootsFromKey(key: string): string[] {
+  return key === '' ? [] : key.split('\n')
+}
+
+export interface HostAgentsView {
+  count: number
+  /** 0–100 when a cap is set; null means no meter. */
+  meterPct: number | null
+  severity: MemorySeverity
+  title: string
+}
+
+/**
+ * Agent residency on one machine. Meter only when `maxIdleSessions` is set —
+ * full meter = at the idle-session convergence target. Never a working count
+ * (StatusStrip owns that fact).
+ */
+export function hostAgentsView(
+  sessions: readonly SessionMeta[],
+  machineId: string | undefined,
+  maxIdleSessions: number | null,
+  hostname: string,
+): HostAgentsView {
+  const count = residentSessionsOnMachine(sessions, machineId).length
+  if (maxIdleSessions == null) {
+    return {
+      count,
+      meterPct: null,
+      severity: 'ok',
+      title: `${hostname} — ${count} agent session${count === 1 ? '' : 's'} live here`,
+    }
+  }
+  const ratio = maxIdleSessions > 0 ? count / maxIdleSessions : count > 0 ? 1 : 0
+  const meterPct = Math.min(100, Math.round(ratio * 100))
+  const severity: MemorySeverity = ratio >= 1 ? 'critical' : ratio >= 0.8 ? 'warn' : 'ok'
+  return {
+    count,
+    meterPct,
+    severity,
+    title: `${hostname} — ${count} agent session${count === 1 ? '' : 's'} live here (target ${maxIdleSessions})`,
+  }
+}
+
+/** Split idle-live sessions into parkable vs protected (needs_user / no resume). */
+export function idleSessionSplit(
+  sessions: readonly SessionMeta[],
+  machineId: string | undefined,
+): { parkable: number; protected: number; idle: number } {
+  if (!machineId) return { parkable: 0, protected: 0, idle: 0 }
+  let parkable = 0
+  let protectedCount = 0
+  for (const s of sessions) {
+    if (s.machineId !== machineId || s.status !== 'live' || s.archived) continue
+    const phase = s.agentState?.phase
+    if (phase !== 'idle' && phase !== 'ended' && phase !== 'needs_user') continue
+    // needs_user and sessions without a resume ref are protected on purpose.
+    if (phase === 'needs_user' || !s.resumable) protectedCount += 1
+    else parkable += 1
+  }
+  return { parkable, protected: protectedCount, idle: parkable + protectedCount }
+}
+
+export interface ReclaimableWorktree {
+  issueId: string
+  title: string
+  worktreePath: string
+  closedAt: string
+  machineId: string | null
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+/**
+ * Closed issues whose checkout is still on disk and free of live sessions —
+ * the same GC candidate predicate as the janitor (POD-564), evaluated on the
+ * client so the panel needs no new streaming channel. Age is measured from
+ * `closedAt` against `afterDays`. No dirty-tree check (that is apply-time).
+ *
+ * Occupancy arrives as `occupiedRoots` (from {@link occupiedRootsFromKey})
+ * rather than as the sessions array, so a caller can memoise on the small
+ * stable key instead of on a slice that churns many times a second.
+ *
+ * MACHINE-AGNOSTIC, exactly like the server's `listReclaimableWorktrees`. Each
+ * result carries its own `machineId` (null when the row records none); placing
+ * them onto host chips is {@link placeReclaimable}'s single job, so the header
+ * and the panels cannot disagree about it.
+ */
+export function listReclaimableWorktreesClient(args: {
+  issues: readonly {
+    id: string
+    title: string
+    stage: string
+    closedReason?: string | null
+    closedAt?: string | null
+    deletedAt?: string | null
+    worktreePath?: string | null
+    machineId?: string | null
+  }[]
+  /** Working directories of resident sessions — see {@link residentWorktreeKey}. */
+  occupiedRoots: readonly string[]
+  afterDays: number
+  nowMs?: number
+}): ReclaimableWorktree[] {
+  const nowMs = args.nowMs ?? Date.now()
+  const cutoff = nowMs - args.afterDays * DAY_MS
+  return args.issues
+    .filter((row) => {
+      if (!row.worktreePath || row.deletedAt) return false
+      if (!isIssueClosed(row)) return false
+      const closedMs = Date.parse(row.closedAt ?? '')
+      if (!Number.isFinite(closedMs) || closedMs > cutoff) return false
+      const occupied = args.occupiedRoots.some((cwd) =>
+        cwdUnderRoot(cwd, row.worktreePath as string),
+      )
+      return !occupied
+    })
+    .map((row) => ({
+      issueId: row.id,
+      title: row.title,
+      worktreePath: row.worktreePath as string,
+      closedAt: row.closedAt as string,
+      machineId: row.machineId ?? null,
+    }))
+    .sort((a, b) => a.closedAt.localeCompare(b.closedAt) || a.issueId.localeCompare(b.issueId))
+}
+
+/**
+ * WHICH OF THESE CHECKOUTS BELONG TO THE MACHINE ON THIS CHIP.
+ *
+ * The rule exists because an issue row's `machineId` is usually NULL: the
+ * server records one only when an issue is deliberately placed on a remote
+ * machine, and every git op it runs passes `row.machineId ?? undefined`, which
+ * routes to the LOCAL daemon. So "no machine recorded" does not mean "nowhere",
+ * it means "the hub". Filtering `row.machineId === thisMachine` — the obvious
+ * reading — therefore drops every ordinary checkout and leaves a panel that
+ * confidently reports zero while the disk fills up.
+ *
+ * The client cannot name the hub (no wire field says which machine runs the
+ * server), so:
+ *
+ * - a row that NAMES a machine belongs to that machine and no other;
+ * - a row that names none belongs here when this is the only machine, where
+ *   "the hub" is unambiguous;
+ * - otherwise it cannot be placed, and is COUNTED rather than dropped, so a
+ *   multi-machine instance says "N unplaceable" instead of quietly under-
+ *   reporting. Offering them under every chip would double-count them and offer
+ *   a free that routes somewhere other than the chip you clicked.
+ */
+export function placeReclaimable(
+  candidates: readonly ReclaimableWorktree[],
+  args: { machineId?: string | undefined; soleMachine: boolean },
+): { here: ReclaimableWorktree[]; unplaceable: number } {
+  const here: ReclaimableWorktree[] = []
+  let unplaceable = 0
+  for (const candidate of candidates) {
+    if (candidate.machineId === null) {
+      if (args.soleMachine) here.push(candidate)
+      else unplaceable += 1
+      continue
+    }
+    if (args.machineId === undefined || candidate.machineId === args.machineId) here.push(candidate)
+  }
+  return { here, unplaceable }
+}
+
+/** Phase breakdown for an AGT tooltip (working ≠ resident). */
+export function residencyBreakdown(
+  sessions: readonly SessionMeta[],
+  machineId: string | undefined,
+): { working: number; idle: number; waiting: number; other: number } {
+  let working = 0
+  let idle = 0
+  let waiting = 0
+  let other = 0
+  for (const s of residentSessionsOnMachine(sessions, machineId)) {
+    const phase = s.agentState?.phase
+    if (phase === 'working' || phase === 'compacting') working += 1
+    else if (phase === 'idle' || phase === 'ended') idle += 1
+    else if (phase === 'needs_user') waiting += 1
+    else other += 1
+  }
+  return { working, idle, waiting, other }
 }

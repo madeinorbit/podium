@@ -1,5 +1,6 @@
 import { shallowEqual } from '@podium/client-core/store'
 import {
+  type AskAnswerChoice,
   type ChatActivity,
   type ChatRow,
   type ChatSessionReference,
@@ -133,7 +134,7 @@ export interface ChatSurface {
   ctxSeq: number | null
   offer: SessionMeta['offer'] | null
   sendOfferPrompt: (prompt: string, offerAt: string) => Promise<void>
-  answerAsk: (choices: { optionIndices: number[] }[]) => Promise<void>
+  answerAsk: (answer: import('./AskUserQuestionCard').AskUserQuestionAnswer) => Promise<void>
   activity: ChatActivity | null
 
   // -- headless superagent routing -------------------------------------------
@@ -407,15 +408,24 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     )
   }, [draft, attachments, setDraft, send])
 
-  // Answer a live AskUserQuestion from its chat card: send the chosen 1-based
-  // option index per question to the server, which types the matching digit(s)
-  // into the agent's native menu. Memoized so its identity stays stable —
-  // ChatBlockView is memo'd and a fresh callback each render would defeat that
-  // for every block. The payload carries choices and nothing else: who answered
-  // is the authority's to stamp (doc §3.1.3 A3).
+  // Answer a live AskUserQuestion from its chat card: option digits, free text
+  // via the native Other entry, or skip (Esc). The server types the matching
+  // keystrokes into the agent's native menu. Memoized so its identity stays
+  // stable — ChatBlockView is memo'd and a fresh callback each render would
+  // defeat that for every block. Who answered is the authority's to stamp
+  // (doc §3.1.3 A3); the payload carries only the answer shape.
   const answerAsk = useMemo(
-    () => async (choices: { optionIndices: number[] }[]) => {
-      await trpc.sessions.answerAskUserQuestion.mutate({ sessionId, choices })
+    () => async (answer: import('./AskUserQuestionCard').AskUserQuestionAnswer) => {
+      if ('skip' in answer && answer.skip) {
+        await trpc.sessions.answerAskUserQuestion.mutate({ sessionId, skip: true })
+        return
+      }
+      if ('choices' in answer) {
+        await trpc.sessions.answerAskUserQuestion.mutate({
+          sessionId,
+          choices: answer.choices,
+        })
+      }
     },
     [trpc, sessionId],
   )

@@ -1,4 +1,13 @@
 import type { AgentKind } from '@podium/model'
+import { SquareTerminal } from 'lucide-react'
+import type { ComponentType } from 'react'
+import {
+  ClaudeCodeIcon,
+  CursorIcon,
+  GrokIcon,
+  OpenAIcon,
+  OpenCodeIcon,
+} from '@/lib/icons/AgentIcons'
 
 /**
  * Per-kind brand tone (POD-293) as TOTAL RESOLVERS over tables.
@@ -110,4 +119,46 @@ export function agentBrandText(kind: WireHarnessKind): string | null {
  *  mark of its own (the dot is omitted entirely, as before). */
 export function agentBrandDot(kind: WireHarnessKind): string | null {
   return BRAND_DOT[kind as AgentKind] ?? null
+}
+
+/** An agent-kind icon.
+ *
+ *  Props stay open (`Record<string, unknown>`) because the table mixes two
+ *  families — the hand-drawn brand marks in `lib/icons/AgentIcons` and a lucide
+ *  glyph for the shell — whose prop types are compatible in practice and
+ *  incompatible to the checker (lucide returns `ReactNode`, the marks return
+ *  `Element`; one takes `aria-hidden: boolean`, JSX passes `"true"`). This is
+ *  the alias `NewPanelMenu` already used for the same list before POD-591 moved
+ *  it here, kept rather than tightened: narrowing buys no safety at call sites
+ *  that only ever pass size, class and aria-hidden. */
+export type AgentIconComponent = ComponentType<Record<string, unknown>>
+
+/**
+ * Harness mark. The FOURTH kind→visual table in this module and the reason it
+ * moved here from `features/worklist/agent-icon.ts` (POD-591): the sidebar's
+ * fleet stack and the board card's now render from one component
+ * (`components/IssueFleetSummary`), which sits under both features and so
+ * cannot reach into either one's folder for a lookup. Icon, tint and tone are
+ * the same question about the same key, and they now answer from the same file.
+ *
+ * The old module was DELETED rather than left as a re-export: `rearch-audit`
+ * counts a re-export-only file pointing at another workspace as a shim tombstone
+ * and refuses to let that count grow, which is the right call — the two call
+ * sites import from here now.
+ *
+ * `undefined` for an unknown harness is deliberate and matches the old helper:
+ * callers already render a neutral glyph in that case, and inventing a mark for
+ * a harness we know nothing about would claim a brand.
+ */
+export const AGENT_KIND_ICON: Record<AgentKind, AgentIconComponent> = {
+  'claude-code': ClaudeCodeIcon,
+  codex: OpenAIcon,
+  grok: GrokIcon,
+  opencode: OpenCodeIcon,
+  cursor: CursorIcon,
+  shell: SquareTerminal,
+}
+
+export function agentIconFor(kind: WireHarnessKind): AgentIconComponent | undefined {
+  return AGENT_KIND_ICON[kind as AgentKind]
 }

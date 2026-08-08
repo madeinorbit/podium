@@ -20,10 +20,9 @@ import { useReplicaIssues, useSlice, useStoreSelector } from '@/app/store'
 import { DropdownMenu, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { NewIssueDialog } from '@/features/issues/NewIssueDialog'
 import { RepoScanFlow } from '@/features/setup/RepoScanFlow'
-import { agentBrandText } from '@/lib/agent-tone'
+import { agentBrandText, agentIconFor } from '@/lib/agent-tone'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
-import { agentIconFor } from './agent-icon'
 import { NewAgentMenu } from './NewAgentMenu'
 
 /**

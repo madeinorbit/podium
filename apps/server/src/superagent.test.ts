@@ -1,5 +1,5 @@
 import { asSessionId, asThreadId, FIRST_ADMIN_USER_ID, type TranscriptItem } from '@podium/model'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   buildBtwDelta,
   buildBtwRecap,
@@ -443,13 +443,18 @@ describe('session-steering tool belt (issue #62)', () => {
     expect(h.inputs).toContain('2')
   })
 
-  it('answer_question passes multi-select numbers through as a comma set + Enter, deduped', async () => {
+  it('answer_question types multi-select numbers one at a time, then Tab and the confirm CR, deduped', async () => {
     const h = harness({ transcriptItems: [askItem(true)] })
     const sessionId = h.spawn(true)
     markPending(h, sessionId)
     const out = await h.answer({ sessionId, answer: '1,3,3' })
-    expect(JSON.parse(out)).toEqual({ answered: true, choices: [{ optionIndices: [1, 3] }] })
-    expect(h.inputs).toContain('1,3\r')
+    expect(JSON.parse(out)).toEqual({
+      answered: true,
+      choices: [{ optionIndices: [1, 3], multiSelect: true }],
+    })
+    // The script outlives the call: the digits and their closing keys are paced
+    // apart because the CLI folds a multi-character write into one dead key.
+    await vi.waitFor(() => expect(h.inputs).toEqual(['1', '3', '\t', '\r']))
   })
 
   it('answer_question refuses when no question is pending (stale menu in the tail)', async () => {

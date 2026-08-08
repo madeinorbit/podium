@@ -1,8 +1,6 @@
 /**
- * The Linear-style properties aside for the issue page — a stack of labelled
- * `PropertyMenu` / inline rows, then relations, sessions, git, and the About
- * block. Rendered in the desktop `<aside>` and mirrored inside the mobile
- * `Details` disclosure.
+ * The properties rail for the issue page. Rendered in the desktop `<aside>` and
+ * mirrored inside the mobile `Details` disclosure.
  *
  * This file is COMPOSITION. POD-646 split the 821-line
  * `issue-page-properties.tsx` by the question each part answers rather than by
@@ -13,18 +11,34 @@
  * (./IssueAbout.tsx). Each of those has a reason to change that the others do
  * not, which is why they are separate files and not one file with headings.
  *
+ * POD-591 RANKED IT. It used to be a flat form — ten property rows of identical
+ * weight, then relations, sessions, git and About — so Status and Estimate
+ * looked equally important, and Estimate / Due / Defer took three permanent rows
+ * near the top while being empty on nearly every task. The order now follows the
+ * questions an operator actually asks, in order:
+ *
+ *   what state is it in, and whose is it   → the property head
+ *   who is working it                      → sessions
+ *   where is the branch                    → git
+ *   what does it touch                     → relations
+ *   the long tail                          → "More fields", folded
+ *   provenance                             → About
+ *
+ * NOTHING WAS REMOVED. "More fields" holds exactly what used to sit inline, and
+ * it opens by default whenever any of those fields is set, so a task that HAS an
+ * estimate or a due date still shows it without a click.
+ *
  * All mutations still go through the named commands in
  * `../issue-page-commands.ts`; the pure derivations still come from
  * `../issue-page-model.ts`.
  */
 import { shallowEqual } from '@podium/client-core'
 import { ISSUE_STAGES, type IssueId, IssueType } from '@podium/model'
-import { ExternalLink, Plus, X } from 'lucide-react'
-import type { JSX } from 'react'
+import { ChevronRight, ExternalLink, Plus, X } from 'lucide-react'
+import type { JSX, ReactNode } from 'react'
 import { useEffect, useState } from 'react'
 import { type IssueViewModel, useReplicaIssues, useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { PropertyMenu, type PropertyOption } from '@/lib/PropertyMenu'
 import { STAGE_LABELS } from '../issue-card'
 import { PriorityGlyph, StageGlyph } from '../issue-glyphs'
@@ -38,6 +52,7 @@ import {
   UNASSIGNED,
   useMergeStyle,
 } from '../issue-page-model'
+import { DateProperty, EstimateProperty } from './DateProperty'
 import { IssueAbout } from './IssueAbout'
 import { IssueGitBlock } from './IssueGitBlock'
 import { IssueParentRow } from './IssueParentRow'
@@ -77,13 +92,11 @@ export function IssueProperties({
     .map((id) => sessions.find((session) => session.sessionId === id))
     .filter((session) => session !== undefined)
   const mergeStyle = useMergeStyle(trpc)
-  const [deferDate, setDeferDate] = useState('')
   // Relation add is two steps: pick a dep type, then a target issue.
   const [addRelType, setAddRelType] = useState('blocks')
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset only on issue switch
   useEffect(() => {
-    setDeferDate('')
     setAddRelType('blocks')
   }, [issue.id])
 
@@ -118,10 +131,18 @@ export function IssueProperties({
     { value: 'close:wontfix', label: 'Close: wontfix' },
   ]
 
+  // The fold opens itself when it has something to say — see the module note.
+  const hasLongTail =
+    issue.type !== 'task' ||
+    issue.parentId != null ||
+    issue.estimateMin != null ||
+    issue.dueAt != null ||
+    issue.deferUntil != null ||
+    Boolean(issue.linearUrl || issue.linearIdentifier)
+
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-col">
-        {/* Status */}
+    <div className="flex flex-col">
+      <div className="flex flex-col px-3.5 py-3">
         <PropertyRow label="Status">
           <PropertyMenu
             selectedValue={`stage:${issue.stage}`}
@@ -140,7 +161,6 @@ export function IssueProperties({
           />
         </PropertyRow>
 
-        {/* Priority */}
         <PropertyRow label="Priority">
           <PropertyMenu
             selectedValue={String(issue.priority)}
@@ -158,7 +178,6 @@ export function IssueProperties({
           />
         </PropertyRow>
 
-        {/* Assignee */}
         <PropertyRow label="Assignee">
           <PropertyMenu
             allowFreeText
@@ -168,29 +187,18 @@ export function IssueProperties({
             onSelect={(v) => commands.update({ assignee: v === UNASSIGNED ? '' : v })}
             trigger={
               <TriggerButton disabled={busy}>
-                {issue.assignee || <span className="text-muted-foreground">Unassigned</span>}
+                {issue.assignee || <span className="text-text-faint">Unassigned</span>}
               </TriggerButton>
             }
           />
         </PropertyRow>
 
-        {/* Type */}
-        <PropertyRow label="Type">
-          <PropertyMenu
-            selectedValue={issue.type}
-            options={IssueType.options.map((t) => ({ value: t, label: t }))}
-            onSelect={(v) => commands.update({ type: v as IssueType })}
-            trigger={<TriggerButton disabled={busy}>{issue.type}</TriggerButton>}
-          />
-        </PropertyRow>
-
-        {/* Labels */}
         <PropertyRow label="Labels">
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1">
             {issue.labels.map((label) => (
               <span
                 key={label}
-                className="inline-flex items-center gap-1 rounded border border-primary/40 bg-primary/5 py-0.5 pr-1 pl-1.5 text-[11px] text-primary"
+                className="inline-flex items-center gap-1 rounded-[4px] bg-primary/10 py-px pr-1 pl-1.5 text-[10.5px] text-primary"
               >
                 {label}
                 <button
@@ -202,7 +210,7 @@ export function IssueProperties({
                   className="rounded-sm text-primary/70 hover:text-primary disabled:opacity-50"
                   onClick={() => commands.removeLabel(label)}
                 >
-                  <X size={11} aria-hidden="true" />
+                  <X size={10} aria-hidden="true" />
                 </button>
               </span>
             ))}
@@ -217,161 +225,146 @@ export function IssueProperties({
                   variant="ghost"
                   size="sm"
                   disabled={busy}
-                  className="h-6 gap-1 px-1.5 text-[12px] text-muted-foreground"
+                  className="h-6 gap-1 px-1.5 text-[11px] text-text-faint"
                 >
-                  <Plus size={12} aria-hidden="true" /> Add
+                  <Plus size={11} aria-hidden="true" /> Add
                 </Button>
               }
             />
           </div>
         </PropertyRow>
-
-        {/* Estimate (minutes) */}
-        <PropertyRow label="Estimate">
-          <Input
-            key={`estimate-${issue.id}`}
-            type="number"
-            min={0}
-            defaultValue={issue.estimateMin ?? ''}
-            placeholder="minutes"
-            aria-label="Estimate (minutes)"
-            disabled={busy}
-            className="h-7 max-w-[120px]"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault()
-                e.currentTarget.blur()
-              }
-            }}
-            onBlur={(e) => {
-              const raw = e.currentTarget.value.trim()
-              if (raw === '') return
-              const n = Number(raw)
-              if (!Number.isInteger(n) || n === (issue.estimateMin ?? null)) return
-              commands.update({ estimateMin: n })
-            }}
-          />
-        </PropertyRow>
-
-        {/* Due date */}
-        <PropertyRow label="Due">
-          <div className="flex items-center gap-1.5">
-            <Input
-              key={`due-${issue.id}`}
-              type="date"
-              defaultValue={issue.dueAt ? issue.dueAt.slice(0, 10) : ''}
-              aria-label="Due date"
-              disabled={busy}
-              className="h-7 max-w-[150px]"
-              onChange={(e) => commands.setDueDate(e.currentTarget.value)}
-            />
-            {issue.dueAt && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                title="Clear due date"
-                aria-label="Clear due date"
-                disabled={busy}
-                onClick={() => commands.setDueDate('')}
-              >
-                <X size={13} aria-hidden="true" />
-              </Button>
-            )}
-          </div>
-        </PropertyRow>
-
-        {/* Defer */}
-        <PropertyRow label="Defer">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Input
-              type="date"
-              value={deferDate}
-              aria-label="Defer until"
-              disabled={busy}
-              className="h-7 max-w-[150px]"
-              onChange={(e) => setDeferDate(e.target.value)}
-            />
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              className="h-7"
-              disabled={busy || !deferDate}
-              onClick={() => commands.defer(deferDate, () => setDeferDate(''))}
-            >
-              Defer
-            </Button>
-            {issue.deferUntil && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-7"
-                disabled={busy}
-                onClick={commands.undefer}
-              >
-                Unsnooze
-              </Button>
-            )}
-          </div>
-        </PropertyRow>
-
-        <IssueParentRow
-          issue={issue}
-          parentEdge={resolve(issue.parentId)}
-          busy={busy}
-          mateOptions={mateOptions}
-          matesById={matesById}
-          onSetParent={(id) => commands.setParent(id)}
-          onNavigate={onNavigate}
-        />
-
-        {/* Linear (integration link — identifier + click-through) */}
-        {(issue.linearUrl || issue.linearIdentifier) && (
-          <PropertyRow label="Linear">
-            {issue.linearUrl ? (
-              <a
-                href={issue.linearUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1 pt-1 text-[13px] text-primary hover:underline"
-              >
-                {issue.linearIdentifier ?? 'Open'} <ExternalLink size={12} aria-hidden="true" />
-              </a>
-            ) : (
-              <span className="block pt-1 text-[13px]">{issue.linearIdentifier}</span>
-            )}
-          </PropertyRow>
-        )}
       </div>
 
-      <IssueRelations
-        issue={issue}
-        busy={busy}
-        commands={commands}
-        mateOptions={mateOptions}
-        hasMates={repoMates.length > 0}
-        addRelType={addRelType}
-        onAddRelTypeChange={setAddRelType}
-        onNavigate={onNavigate}
-      />
+      <RailSection>
+        <IssueSessionsBlock
+          issue={issue}
+          busy={busy}
+          commands={commands}
+          memberSessions={memberSessions}
+          movedOn={movedOn}
+          machines={machines}
+          onOpenSession={openSession}
+        />
+      </RailSection>
 
-      <IssueSessionsBlock
-        issue={issue}
-        busy={busy}
-        commands={commands}
-        memberSessions={memberSessions}
-        movedOn={movedOn}
-        machines={machines}
-        onOpenSession={openSession}
-      />
+      {issue.worktreePath && (
+        <RailSection>
+          <IssueGitBlock issue={issue} busy={busy} commands={commands} mergeStyle={mergeStyle} />
+        </RailSection>
+      )}
 
-      <IssueGitBlock issue={issue} busy={busy} commands={commands} mergeStyle={mergeStyle} />
+      <RailSection>
+        <IssueRelations
+          issue={issue}
+          busy={busy}
+          commands={commands}
+          mateOptions={mateOptions}
+          hasMates={repoMates.length > 0}
+          addRelType={addRelType}
+          onAddRelTypeChange={setAddRelType}
+          onNavigate={onNavigate}
+        />
+      </RailSection>
 
-      <IssueAbout issue={issue} />
+      <RailSection>
+        <details className="group/more" open={hasLongTail}>
+          <summary className="flex cursor-pointer list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
+            <ChevronRight
+              size={11}
+              aria-hidden="true"
+              className="flex-none text-text-faint transition-transform group-open/more:rotate-90"
+            />
+            <span className="label-mono">More fields</span>
+            {!hasLongTail && (
+              <span className="ml-auto font-mono text-[9px] text-text-faint">none set</span>
+            )}
+          </summary>
+          <div className="mt-1 flex flex-col">
+            <PropertyRow label="Type">
+              <PropertyMenu
+                selectedValue={issue.type}
+                options={IssueType.options.map((t) => ({ value: t, label: t }))}
+                onSelect={(v) => commands.update({ type: v as IssueType })}
+                trigger={<TriggerButton disabled={busy}>{issue.type}</TriggerButton>}
+              />
+            </PropertyRow>
+
+            <IssueParentRow
+              issue={issue}
+              parentEdge={resolve(issue.parentId)}
+              busy={busy}
+              mateOptions={mateOptions}
+              matesById={matesById}
+              onSetParent={(id) => commands.setParent(id)}
+              onNavigate={onNavigate}
+            />
+
+            <PropertyRow label="Estimate">
+              <EstimateProperty
+                value={issue.estimateMin}
+                disabled={busy}
+                onSelect={(minutes) => commands.update({ estimateMin: minutes })}
+                onClear={() => commands.update({ estimateMin: null })}
+              />
+            </PropertyRow>
+
+            <PropertyRow label="Due">
+              <DateProperty
+                value={issue.dueAt}
+                placeholder="No due date"
+                ariaLabel="Due date"
+                disabled={busy}
+                onSelect={(value) => commands.setDueDate(value)}
+                onClear={() => commands.setDueDate('')}
+              />
+            </PropertyRow>
+
+            <PropertyRow label="Defer">
+              <DateProperty
+                value={issue.deferUntil}
+                placeholder="Snooze until…"
+                ariaLabel="Defer until"
+                disabled={busy}
+                onSelect={(value) => commands.defer(value, () => {})}
+                {...(issue.deferUntil ? { onClear: commands.undefer } : {})}
+              />
+            </PropertyRow>
+
+            {/* Linear (integration link — identifier + click-through) */}
+            {(issue.linearUrl || issue.linearIdentifier) && (
+              <PropertyRow label="Linear">
+                {issue.linearUrl ? (
+                  <a
+                    href={issue.linearUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 pt-1 text-[12px] text-primary hover:underline"
+                  >
+                    {issue.linearIdentifier ?? 'Open'} <ExternalLink size={11} aria-hidden="true" />
+                  </a>
+                ) : (
+                  <span className="block pt-1 text-[12px]">{issue.linearIdentifier}</span>
+                )}
+              </PropertyRow>
+            )}
+          </div>
+        </details>
+      </RailSection>
+
+      <RailSection>
+        <IssueAbout issue={issue} />
+      </RailSection>
     </div>
   )
+}
+
+/** One hairline-separated band of the rail.
+ *
+ *  The rail separates by LINE, not by card: DESIGN.md's Carved Rule forbids
+ *  floating a panel per section, and six bordered boxes stacked in a 272px
+ *  column is the SaaS-dashboard look the anti-references name. */
+function RailSection({ children }: { children: ReactNode }): JSX.Element {
+  return <div className="border-hairline-soft border-t px-3.5 py-3">{children}</div>
 }
 
 /** Re-exported for the call sites that used to import it from the properties

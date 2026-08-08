@@ -366,15 +366,44 @@ describe('claudeRecordToItems — injected vs real user turns', () => {
     expect(claudeRecordToItems(rec)).toEqual([])
   })
 
-  it('flags a user interrupt as an event but keeps role "user" (recognized, not reclassified)', () => {
+  // Both wordings Claude Code emits, in both content shapes it emits them in: a
+  // plain stop arrives as string content, while stopping mid-tool arrives as a
+  // lone text block in array content. Exact-equality on the bare wording missed
+  // the tool-use variant entirely and it rendered as an ordinary "You" bubble
+  // (POD-605).
+  const interruptMarkers = [
+    '[Request interrupted by user]',
+    '[Request interrupted by user for tool use]',
+  ]
+
+  for (const marker of interruptMarkers) {
+    it(`flags "${marker}" as an event but keeps role "user" (recognized, not reclassified)`, () => {
+      const rec = {
+        type: 'user',
+        uuid: 'int1',
+        message: { role: 'user', content: [{ type: 'text', text: marker }] },
+      }
+      const items = claudeRecordToItems(rec)
+      expect(items).toHaveLength(1)
+      expect(items[0]).toMatchObject({ role: 'user', event: 'interrupt' })
+    })
+
+    it(`flags "${marker}" when it arrives as string content`, () => {
+      const rec = { type: 'user', uuid: 'int2', message: { role: 'user', content: marker } }
+      expect(claudeRecordToItems(rec)[0]).toMatchObject({ role: 'user', event: 'interrupt' })
+    })
+  }
+
+  it('does not flag a typed prompt that merely mentions the marker', () => {
     const rec = {
       type: 'user',
-      uuid: 'int1',
-      message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user]' }] },
+      uuid: 'int3',
+      message: {
+        role: 'user',
+        content: 'why does [Request interrupted by user] show up as a bubble?',
+      },
     }
-    const items = claudeRecordToItems(rec)
-    expect(items).toHaveLength(1)
-    expect(items[0]).toMatchObject({ role: 'user', event: 'interrupt' })
+    expect(claudeRecordToItems(rec)[0]?.event).toBeUndefined()
   })
 })
 

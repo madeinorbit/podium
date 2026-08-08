@@ -572,6 +572,11 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
 html[data-density="balanced"] .header-host-indicators :is(.header-mark, .header-value) {
   display: none;
 }
+/* AGT is an operator residency number — hide the whole readout at balanced
+   density. LOAD inherits the mark/value hide above and reads as a bare meter. */
+html[data-density="balanced"] .header-agent-readout {
+  display: none;
+}
 html[data-density="balanced"] .header-quota-label {
   font-size: 0;
   letter-spacing: 0;
@@ -678,6 +683,40 @@ html[data-density="balanced"] .header-quota-pools {
   .header-value[data-tone="ok"] {
     display: none;
   }
+}
+/* Below the mark-shed rung, AGT goes entirely. MEM and LOAD never do — they are
+   the pressure readout (POD-563). */
+@media (max-width: 940px) {
+  .header-agent-readout {
+    display: none;
+  }
+}
+
+/* Label/value rows in the health popover — the reclaimable inventory is the
+   first user (POD-563). Named for the shape, alongside `.hp-prow` (a process
+   row: name, detail, right-aligned bytes) and `.hp-winrow` (the quota window
+   grid); neither of those is a label/value pair, so this is a third row kind
+   rather than a variant of either. The `Review` affordance is NOT a fourth
+   primitive: `.hp-link` is already this popover's button, used by the
+   hibernation and GC shortcuts below it. */
+.hp-kv {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 2.5px 0;
+  font-size: 11px;
+}
+.hp-kv-key {
+  width: 96px;
+  flex: none;
+  color: var(--text-dim);
+}
+.hp-kv-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--foreground);
 }
 @media (prefers-reduced-motion: reduce) {
   .header-machine-chip,

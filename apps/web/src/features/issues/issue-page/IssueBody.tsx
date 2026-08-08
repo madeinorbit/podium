@@ -6,7 +6,7 @@
 
 import { relativeTime } from '@podium/client-core/focus'
 import { isPendingSync, isUpstreamStale, isViaHub } from '@podium/model'
-import { Pin, Plus } from 'lucide-react'
+import { ChevronRight, Pin, Plus } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import type { IssueViewModel } from '@/app/store'
@@ -42,7 +42,7 @@ export function IssueTitle({
         aria-label="Task title"
         autoFocus
         disabled={busy}
-        className="mb-2 h-auto font-semibold text-[22px] tracking-tight"
+        className="mb-2 h-auto font-semibold text-[18px] tracking-[-0.012em]"
         onKeyDown={(e) => {
           if (e.key === 'Enter') {
             e.preventDefault()
@@ -60,7 +60,7 @@ export function IssueTitle({
     <button
       data-pressable
       type="button"
-      className="mb-2 block w-full break-words text-left font-semibold text-[22px] text-foreground leading-snug tracking-tight hover:opacity-80"
+      className="mb-1.5 block w-full break-words text-left font-semibold text-[18px] text-foreground leading-[1.3] tracking-[-0.012em] transition-colors hover:text-foreground/80"
       onClick={() => onEditingChange(true)}
       title="Click to edit title"
     >
@@ -84,7 +84,7 @@ export function IssueDescription({
   onCommit: (value: string) => void
 }): JSX.Element {
   return (
-    <section className="mb-7">
+    <section className="group/section mb-7">
       {editing ? (
         <Textarea
           key={`desc-${issue.id}`}
@@ -128,11 +128,20 @@ export function IssueDescription({
 export function IssueBrief({ issue }: { issue: IssueViewModel }): JSX.Element | null {
   if (!issue.brief) return null
   return (
-    <details className="mb-7 rounded-md border border-border/70 bg-muted/20 px-3 py-2">
-      <summary className="cursor-pointer font-medium text-[12px] text-muted-foreground">
-        Brief
+    // Collapsed by default and framed by hairlines rather than a box: the brief
+    // is long, written FOR an agent, and sits between two things a human reads.
+    // A bordered card here made the page's least-read text its loudest object.
+    <details className="mb-7 border-border border-y py-2" data-testid="issue-brief">
+      <summary className="flex cursor-pointer list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
+        <span className="label-mono">Brief</span>
+        <span className="text-[10.5px] text-text-faint">written for the agent</span>
+        <ChevronRight
+          size={12}
+          aria-hidden="true"
+          className="ml-auto text-text-faint transition-transform group-open:rotate-90 [details[open]>summary>&]:rotate-90"
+        />
       </summary>
-      <div className="mt-2 whitespace-pre-wrap break-words text-[12px] text-foreground/80 leading-relaxed">
+      <div className="mt-2.5 whitespace-pre-wrap break-words text-[12px] text-muted-foreground leading-relaxed">
         {issue.brief}
       </div>
     </details>
@@ -140,26 +149,58 @@ export function IssueBrief({ issue }: { issue: IssueViewModel }): JSX.Element | 
 }
 
 /**
- * The at-a-glance dossier line under the title: workflow state (with closed
- * reason), lifecycle flags (draft / pinned / archived), provenance (agent-created,
- * internal audience), hub-sync state, and freshness (created / updated). These are
- * the row-level facts agents stamp that previously never surfaced on the page.
+ * THE DOSSIER LINE under the title — one line of machine voice, plus a chip for
+ * each EXCEPTION.
+ *
+ * It used to be nine pills of equal weight: stage, type, draft, pinned,
+ * archived, agent-created, internal, hub state, and a timestamp pair. Nine
+ * emphasised things emphasise nothing, and the two facts an operator actually
+ * reads here — what stage is this, and how stale is it — were the hardest to
+ * find in the row.
+ *
+ * The rule now: an ORDINARY fact (stage, type, priority, assignee, timestamps)
+ * is mono text on the line, because it is true of every task and carries no
+ * alarm. An EXCEPTION (draft, pinned, archived, agent-created, internal, a stale
+ * hub mirror) keeps a chip, because a chip means "this one is not like the
+ * others". Nothing was dropped — every fact the strip carried is still here.
  */
 export function StatusStrip({ issue }: { issue: IssueViewModel }): JSX.Element {
   const now = Date.now()
   const created = relativeTime(issue.createdAt, now)
   const updated = relativeTime(issue.updatedAt, now)
+  const facts: { key: string; text: string; title?: string }[] = [
+    {
+      key: 'stage',
+      text: issue.closedReason
+        ? `Closed · ${issue.closedReason}`
+        : (STAGE_LABELS[issue.stage] ?? issue.stage),
+    },
+    { key: 'type', text: issue.type },
+    { key: 'priority', text: `P${issue.priority}` },
+    ...(issue.assignee ? [{ key: 'assignee', text: issue.assignee }] : []),
+    ...(created ? [{ key: 'created', text: `created ${created}`, title: issue.createdAt }] : []),
+    ...(updated ? [{ key: 'updated', text: `updated ${updated}`, title: issue.updatedAt }] : []),
+  ]
   return (
-    <div className="mb-5 flex flex-wrap items-center gap-1.5" data-testid="status-strip">
-      <StatusChip>
-        <StageGlyph stage={issue.stage} size={12} />
-        {issue.closedReason ? `Closed · ${issue.closedReason}` : STAGE_LABELS[issue.stage]}
-      </StatusChip>
-      <StatusChip>{issue.type}</StatusChip>
+    <div
+      className="mb-5 flex flex-wrap items-center gap-x-1.5 gap-y-1 font-mono text-[9.5px] text-text-dim tabular-nums"
+      data-testid="status-strip"
+    >
+      <StageGlyph stage={issue.stage} size={12} />
+      {facts.map((fact, index) => (
+        <span key={fact.key} className="flex items-center gap-1.5">
+          {index > 0 && (
+            <span aria-hidden="true" className="text-text-faint">
+              ·
+            </span>
+          )}
+          <span title={fact.title}>{fact.text}</span>
+        </span>
+      ))}
       {issue.draft && <StatusChip tone="sky">draft</StatusChip>}
       {issue.pinned && (
         <StatusChip tone="amber">
-          <Pin size={10} aria-hidden="true" /> pinned
+          <Pin size={9} aria-hidden="true" /> pinned
         </StatusChip>
       )}
       {issue.archived && <StatusChip>archived</StatusChip>}
@@ -190,13 +231,6 @@ export function StatusStrip({ issue }: { issue: IssueViewModel }): JSX.Element {
         >
           {isUpstreamStale(issue) ? 'hub · stale' : isPendingSync(issue) ? 'hub · syncing' : 'hub'}
         </StatusChip>
-      )}
-      {(created || updated) && (
-        <span className="ml-1 text-[11px] text-muted-foreground/70">
-          {created && <span title={issue.createdAt}>created {created}</span>}
-          {created && updated && ' · '}
-          {updated && <span title={issue.updatedAt}>updated {updated}</span>}
-        </span>
       )}
     </div>
   )
@@ -239,7 +273,7 @@ export function LongFormFields({
   return (
     <div data-testid="long-form-fields">
       {filled.map(({ field, label }) => (
-        <section key={field} className="mb-7 flex flex-col gap-1.5">
+        <section key={field} className="group/section mb-7 flex flex-col gap-1.5">
           <SectionHeading>{label}</SectionHeading>
           {editing === field ? (
             <Textarea

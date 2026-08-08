@@ -1,8 +1,5 @@
 // @vitest-environment happy-dom
-import {
-  asSessionId,
-  type SessionMeta,
-} from '@podium/model'
+import { asSessionId, type SessionMeta } from '@podium/model'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PanelRow } from './sidebar-common'
@@ -45,13 +42,7 @@ describe('PanelRow error status', () => {
       },
     } satisfies SessionMeta
 
-    render(
-      <PanelRow
-        session={session}
-        active={false}
-        onSelect={vi.fn()}
-      />,
-    )
+    render(<PanelRow session={session} active={false} onSelect={vi.fn()} />)
 
     expect(screen.getByText('error: usage_limit')).toBeTruthy()
     expect(screen.queryByTitle("Send 'continue' to the errored agent")).toBeNull()

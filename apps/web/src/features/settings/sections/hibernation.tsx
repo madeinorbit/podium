@@ -2,10 +2,18 @@ import type { HostMetricsWire } from '@podium/model'
 import type { PodiumSettings } from '@podium/runtime'
 import type { JSX } from 'react'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
-import { clampInt, clampNumber, Row, Section } from './shared'
+import { clampInt, clampNumber, Row, Section, Subsection } from './shared'
 
-/** Auto-hibernation thresholds for idle sessions under resource pressure. */
+/** Auto-hibernation thresholds for idle sessions under resource pressure, plus
+ *  worktree GC (POD-564 / POD-563). */
 export function HibernationSection({
   settings,
   patch,
@@ -48,7 +56,7 @@ export function HibernationSection({
       </Row>
       <Row
         label="Load per core"
-        description="load1 ÷ cores. Empty turns load pressure off. Default 1.5 means the run queue is half again the core count."
+        description="load1 ÷ cores. Empty turns load pressure off. Default 1.5 means the run queue is half again the core count. The top-bar LOAD meter fills against this threshold."
       >
         <Input
           aria-label="Load per core"
@@ -97,7 +105,7 @@ export function HibernationSection({
             Per machine. Empty means unlimited. This is a convergence target for eligible idle live
             sessions, not a hard cap; protected or ineligible sessions stay live. Count, memory, and
             load pressure act independently. Quiet unobserved agents (no phase signal) count toward
-            the target after at least 4 hours.
+            the target after at least 4 hours. The top-bar AGT meter fills against this when set.
             {unmet > 0 && (
               <span className="mt-1 block font-medium text-warning">
                 Cap unmet: {unmet} protected/ineligible
@@ -147,6 +155,58 @@ export function HibernationSection({
           }
         />
       </Row>
+
+      <Subsection
+        title="Worktree GC"
+        hint="Closed issues keep their checkouts until age and policy say otherwise. Propose records what it would free; auto applies. Uncommitted changes always refuse."
+      >
+        <Row
+          label="Mode"
+          description="Propose is the default so a first run of a large backlog is inspectable before anything is deleted from disk."
+        >
+          <Select
+            value={settings.worktreeGc.mode}
+            onValueChange={(value) =>
+              patch({
+                worktreeGc: {
+                  ...settings.worktreeGc,
+                  mode: value as 'off' | 'propose' | 'auto',
+                },
+              })
+            }
+          >
+            <SelectTrigger aria-label="Worktree GC mode" className="w-[140px] flex-none">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="off">Off</SelectItem>
+              <SelectItem value="propose">Propose</SelectItem>
+              <SelectItem value="auto">Auto</SelectItem>
+            </SelectContent>
+          </Select>
+        </Row>
+        <Row
+          label="After (days)"
+          description="Measured from the issue's closedAt. Archive already frees on its way past; this sweeps the closed-but-never-archived tail."
+        >
+          <Input
+            aria-label="Worktree GC after days"
+            className="w-[90px] flex-none"
+            type="number"
+            min={1}
+            max={730}
+            value={settings.worktreeGc.afterDays}
+            onChange={(e) =>
+              patch({
+                worktreeGc: {
+                  ...settings.worktreeGc,
+                  afterDays: clampInt(e.target.value, 1, 730, 14),
+                },
+              })
+            }
+          />
+        </Row>
+      </Subsection>
     </Section>
   )
 }

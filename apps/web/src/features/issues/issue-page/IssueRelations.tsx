@@ -34,6 +34,7 @@ import { PropertyMenu, type PropertyOption } from '@/lib/PropertyMenu'
 import { StageGlyph } from '../issue-glyphs'
 import type { IssuePageCommands } from '../issue-page-commands'
 import { groupRelations } from '../issue-relations'
+import { SectionHeading } from './chrome'
 import { edgeIssue, IssueEdgeLink, useIssueEdgeResolver } from './issue-edges'
 
 export function IssueRelations({
@@ -58,13 +59,14 @@ export function IssueRelations({
   const resolve = useIssueEdgeResolver()
   const relations = groupRelations(issue)
   return (
-    <section className="flex flex-col gap-1.5">
-      <h3 className="font-medium text-[12px] text-muted-foreground">Relations</h3>
+    <section className="group/section flex flex-col gap-2">
+      <SectionHeading>Relations</SectionHeading>
+      {relations.length === 0 && !issue.dependencyNote && issue.blockedByNotes.length === 0 && (
+        <p className="text-[11px] text-text-faint">No links to other tasks.</p>
+      )}
       {relations.map((group) => (
         <div key={group.section} className="flex flex-col gap-0.5">
-          <span className="text-[11px] text-muted-foreground uppercase tracking-wide">
-            {group.section}
-          </span>
+          <span className="label-mono">{group.section}</span>
           {group.entries.map((entry) => {
             const edge = resolve(entry.id)
             // A `hidden` edge draws nothing — under a `hidden` policy, and for a
@@ -76,10 +78,10 @@ export function IssueRelations({
             return (
               <div
                 key={`${group.section}-${entry.direction}-${entry.id}`}
-                className="group flex items-center justify-between gap-2"
+                className="group -mx-1.5 flex min-h-[24px] items-center justify-between gap-2 rounded-[4.8px] px-1.5 transition-colors hover:bg-accent"
               >
-                <span className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-[13px]">
-                  {target && <StageGlyph stage={target.stage} size={13} />}
+                <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[12px]">
+                  {target && <StageGlyph stage={target.stage} size={12} />}
                   <IssueEdgeLink edge={edge} onNavigate={onNavigate} fallbackId={entry.id} />
                 </span>
                 <button

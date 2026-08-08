@@ -1,15 +1,30 @@
 import { shallowEqual } from '@podium/client-core/store'
-import { hostMemoryView } from '@podium/client-core/viewmodels'
+import {
+  hostAgentsView,
+  hostLoadView,
+  hostMemoryView,
+  listReclaimableWorktreesClient,
+  occupiedRootsFromKey,
+  placeReclaimable,
+  RECLAIMABLE_WORKTREE_THRESHOLD,
+  residencyBreakdown,
+  residentWorktreeKey,
+} from '@podium/client-core/viewmodels'
 import { CircleArrowUp, CloudUpload, MemoryStick } from 'lucide-react'
 import type { JSX } from 'react'
-import { useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useMemo, useState } from 'react'
+import { useReplicaIssues, useStoreSelector } from '@/app/store'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { machineNeedsUpdate, useServerAppVersion } from '@/lib/version-skew'
 import { ConnectionIndicator, describeHealth, useStableConnection } from './ConnectionIndicator'
 import { HealthPopover } from './HealthPopover'
-import { type HostInfoTab, HostInfoView, useHibernationSetting } from './HostMemoryView'
+import {
+  type HostInfoTab,
+  HostInfoView,
+  useHibernationSetting,
+  useHostLifecycleSettings,
+} from './HostMemoryView'
 import { LoadPanel } from './LoadPanel'
 import { OutboxRecoveryIndicator } from './OutboxRecovery'
 import { QuotaIndicator } from './QuotaIndicator'
@@ -173,15 +188,22 @@ export function HostIndicators({ compact = false }: { compact?: boolean }): JSX.
 }
 
 /**
- * Machine health in the 44px desktop header. This is the same host-memory data
- * and HostInfoView used by the retired footer, only compressed into dot/name/meter
- * chips. Multiple hosts remain individually inspectable.
+ * Machine health in the 44px desktop header. Memory, load, and agent residency
+ * share one chip per machine (POD-563) — host pressure is more of the host
+ * instrument, not a third group in the well.
  */
 export function HeaderHostIndicators(): JSX.Element {
-  const { hostMetrics, machines, trpc } = useStoreSelector(
-    (s) => ({ hostMetrics: s.hostMetrics, machines: s.machines, trpc: s.trpc }),
+  const { hostMetrics, machines, sessions, trpc } = useStoreSelector(
+    (s) => ({
+      hostMetrics: s.hostMetrics,
+      machines: s.machines,
+      sessions: s.sessions,
+      trpc: s.trpc,
+    }),
     shallowEqual,
   )
+  const issues = useReplicaIssues()
+  const lifecycle = useHostLifecycleSettings()
   // POD-838: a daemon whose build trails the server silently loses additive protocol
   // features, so skew earns a spot in the 44px header, not just Settings → Machines.
   const serverAppVersion = useServerAppVersion(trpc)
@@ -194,6 +216,34 @@ export function HeaderHostIndicators(): JSX.Element {
           const description = describeHealth(health, Date.now())
           return `${description.headline}. ${description.detail}`
         })()
+
+  const afterDays = lifecycle?.worktreeGc.afterDays ?? 14
+  // One scan for every machine, grouped afterwards, rather than one scan per
+  // host — and keyed on what the scan can actually see. The sessions slice is
+  // replaced on every token count and phase flip; only where live agents STAND
+  // can move a checkout in or out of the list, so the memo depends on that key
+  // (`occupancyKey`) instead of on the array. `issues` stays a plain dep: its
+  // identity already changes only when an issue row does.
+  const occupancyKey = residentWorktreeKey(sessions)
+  const soleMachine = hostMetrics.length === 1
+  const soleMachineId = hostMetrics[0]?.machineId
+  const reclaimByMachine = useMemo(() => {
+    const map = new Map<string, number>()
+    if (hostMetrics.length === 0) return map
+    const candidates = listReclaimableWorktreesClient({
+      issues,
+      occupiedRoots: occupiedRootsFromKey(occupancyKey),
+      afterDays,
+    })
+    for (const candidate of placeReclaimable(candidates, { soleMachine }).here) {
+      // Unattributed rows land on the sole machine; placeReclaimable already
+      // refused to place them when there is more than one.
+      const id = candidate.machineId ?? soleMachineId
+      if (!id) continue
+      map.set(id, (map.get(id) ?? 0) + 1)
+    }
+    return map
+  }, [hostMetrics.length, soleMachine, soleMachineId, issues, occupancyKey, afterDays])
 
   return (
     <div className="topbar-well header-host-indicators">
@@ -224,9 +274,37 @@ export function HeaderHostIndicators(): JSX.Element {
       )}
       {hostMetrics.map((host) => {
         const memory = hostMemoryView(host)
-        const tone = SEVERITY[memory.severity]
+        const load = hostLoadView(host, lifecycle?.hibernation.loadPerCore ?? null)
+        const agents = hostAgentsView(
+          sessions,
+          host.machineId,
+          lifecycle?.hibernation.maxIdleSessions ?? null,
+          host.hostname,
+        )
+        const memTone = SEVERITY[memory.severity]
+        const loadTone = SEVERITY[load.severity]
+        const agentTone = SEVERITY[agents.severity]
         const machine = machines.find((m) => m.id === host.machineId)
         const needsUpdate = machine != null && machineNeedsUpdate(machine, serverAppVersion)
+        const reclaimCount = host.machineId ? (reclaimByMachine.get(host.machineId) ?? 0) : 0
+        const reclaimablePast =
+          reclaimCount >= RECLAIMABLE_WORKTREE_THRESHOLD && health.status === 'ok'
+        const phases = residencyBreakdown(sessions, host.machineId)
+        const agentTitleParts = [
+          agents.title,
+          phases.working > 0 || phases.idle > 0 || phases.waiting > 0
+            ? `${phases.working} working, ${phases.idle} idle, ${phases.waiting} waiting on you`
+            : null,
+        ].filter(Boolean)
+        const aria = [
+          host.hostname,
+          memory.title,
+          load.title,
+          agentTitleParts.join(' — '),
+          reclaimablePast ? `${reclaimCount} reclaimable worktrees` : null,
+        ]
+          .filter(Boolean)
+          .join('; ')
         return (
           <HealthPopover
             key={host.machineId}
@@ -235,13 +313,16 @@ export function HeaderHostIndicators(): JSX.Element {
                 data-pressable
                 type="button"
                 className="header-machine-chip"
-                aria-label={`${host.hostname}: ${memory.title}`}
+                aria-label={aria}
+                title={agentTitleParts.join(' — ')}
               >
                 <span
                   className={cn(
                     'size-1.5 flex-none rounded-full',
                     health.status === 'ok'
-                      ? 'bg-success'
+                      ? reclaimablePast
+                        ? 'bg-warning'
+                        : 'bg-success'
                       : health.status === 'degraded'
                         ? 'bg-warning'
                         : 'bg-destructive',
@@ -256,19 +337,42 @@ export function HeaderHostIndicators(): JSX.Element {
                     aria-label="Update available"
                   />
                 )}
-                {/* The bar used to sit unlabelled beside the hostname, one pixel
-                    tier away from the quota meters and indistinguishable from
-                    them. Named and numbered, it says what it measures. */}
                 <span className="header-readout">
                   <span className="header-mark">MEM</span>
                   <span className="header-meter" role="presentation">
                     <span
-                      className={cn('block h-full', tone.fill)}
+                      className={cn('block h-full', memTone.fill)}
                       style={{ width: `${memory.pct}%` }}
                     />
                   </span>
                   <span className="header-value" data-tone={TONE_KEY[memory.severity]}>
                     {memory.pct}%
+                  </span>
+                </span>
+                <span className="header-readout">
+                  <span className="header-mark">LOAD</span>
+                  <span className="header-meter" role="presentation">
+                    <span
+                      className={cn('block h-full', loadTone.fill)}
+                      style={{ width: `${load.meterPct}%` }}
+                    />
+                  </span>
+                  <span className="header-value" data-tone={TONE_KEY[load.severity]}>
+                    {load.label}
+                  </span>
+                </span>
+                <span className="header-readout header-agent-readout">
+                  <span className="header-mark">AGT</span>
+                  {agents.meterPct != null && (
+                    <span className="header-meter" role="presentation">
+                      <span
+                        className={cn('block h-full', agentTone.fill)}
+                        style={{ width: `${agents.meterPct}%` }}
+                      />
+                    </span>
+                  )}
+                  <span className="header-value" data-tone={TONE_KEY[agents.severity]}>
+                    {agents.count}
                   </span>
                 </span>
               </button>
@@ -287,6 +391,7 @@ export function HeaderHostIndicators(): JSX.Element {
                   ) : undefined
                 }
                 onOpenConnection={() => setInfo({ tab: 'connection', machineId: host.machineId })}
+                onOpenReclaim={() => setInfo({ tab: 'reclaim', machineId: host.machineId })}
               />
             )}
           </HealthPopover>

@@ -1,15 +1,15 @@
 import { asIssueId, asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import { makeIssue } from '@/lib/test-issue'
 import {
   contextMenuTargets,
   deferDateFromNow,
-  issueHasCloseReason,
   issueHandoffAvailability,
+  issueHasCloseReason,
   issueMenuEligibility,
   resolveIssueHandoffSession,
   toggleLabelAcross,
 } from './issue-context-menu'
-import { makeIssue } from '@/lib/test-issue'
 
 const handoffRepos = [
   {

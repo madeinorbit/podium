@@ -1,4 +1,5 @@
 import type {
+  AskAnswerChoice,
   ChatActivity,
   ChatBlock,
   ChatRow,
@@ -124,7 +125,7 @@ export function TranscriptFeed({
   httpOrigin: string
   openFile: (sessionId: SessionId, path: string) => void
   onOpenImage: (url: string) => void
-  onAnswerAsk: (choices: { optionIndices: number[] }[]) => Promise<void>
+  onAnswerAsk: (answer: import('./AskUserQuestionCard').AskUserQuestionAnswer) => Promise<void>
   livePendingAskIndex: number
   lastAnswerBlockIndex: number
   ctxSeq: number | null

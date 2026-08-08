@@ -11,8 +11,11 @@
 import { ExternalLink } from 'lucide-react'
 import type { JSX } from 'react'
 import type { IssueViewModel } from '@/app/store'
+import { GitStamp } from '@/components/GitStamp'
 import { Button } from '@/components/ui/button'
+import { aheadCount } from '../issue-card'
 import type { IssuePageCommands, MergeStyle } from '../issue-page-commands'
+import { SectionHeading } from './chrome'
 
 const MERGE_LABEL = 'FF-only merge'
 
@@ -29,13 +32,29 @@ export function IssueGitBlock({
 }): JSX.Element | null {
   if (!issue.worktreePath) return null
   const primaryIsPr = mergeStyle === 'pr'
+  // THE SIGNAL RULE, APPLIED (POD-591). The primary action used to be a
+  // permanent Superade-Yellow slab in the aside of EVERY task, merged or not,
+  // started or not — the loudest pixel on the page, asking for nothing. Yellow
+  // is spent only when there is something to land; otherwise both actions are
+  // outline and the button still works exactly as before.
+  const landable = aheadCount(issue) > 0
+  const primaryVariant = landable ? undefined : ('outline' as const)
   return (
-    <section className="flex flex-col gap-2">
-      <h3 className="font-medium text-[12px] text-muted-foreground">Git</h3>
-      <div className="flex flex-wrap gap-2">
+    <section className="group/section flex flex-col gap-2">
+      <SectionHeading>Branch</SectionHeading>
+      {/* The state the page never showed: branch, merge axis, dirty count. It
+          was in the sidebar row for this same task and nowhere on its page. */}
+      <GitStamp
+        issueBranch={issue.branch}
+        git={issue.gitState}
+        density="panel"
+        className="min-w-0"
+      />
+      <div className="flex flex-wrap gap-1.5">
         {primaryIsPr ? (
           <Button
             type="button"
+            variant={primaryVariant}
             size="sm"
             disabled={busy}
             onClick={() => void commands.gitAction('pr')}
@@ -45,6 +64,7 @@ export function IssueGitBlock({
         ) : (
           <Button
             type="button"
+            variant={primaryVariant}
             size="sm"
             disabled={busy}
             onClick={() => void commands.gitAction('merge')}

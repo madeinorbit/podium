@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-density="compact">
+<head>
+<meta charset="utf-8"/>
+<title>POD-563 — implemented chip fixture</title>
+<style>
+:root {
+  --race-navy:#0a0f1c; --chip-navy:#16223c; --engraved:#070b16; --bar:#050912;
+  --superade:#f5c518; --success:#3eb489; --warning:#c8990a; --destructive:#e5303f;
+  --ink-strong:#f3f3f8; --muted-foreground:#9a9aa8; --text-dim:#6c7690; --label:#7a84a0;
+  --hairline-soft:#1e2a4c; --border-strong:#364a78; --shell-type-micro:8.5px;
+  --font-mono: ui-monospace, SF Mono, Menlo, monospace;
+  --font-sans: ui-sans-serif, system-ui, sans-serif;
+  --radius:6px;
+}
+body { margin:0; padding:32px; background:var(--race-navy); color:var(--ink-strong); font-family:var(--font-sans); }
+h1 { font-size:15px; margin:0 0 6px; }
+.sub { color:var(--muted-foreground); font-size:12px; margin:0 0 20px; max-width:70ch; }
+.bar { display:flex; align-items:center; height:44px; padding:0 10px; background:var(--bar);
+  border:1px solid var(--hairline-soft); border-radius:8px; margin-bottom:14px; }
+.header-host-indicators { display:flex; align-items:center; gap:0; }
+.header-machine-chip {
+  display:inline-flex; align-items:center; gap:7px; height:26px; padding:0 8px;
+  border:1px solid transparent; border-radius:var(--radius); color:var(--muted-foreground);
+  font-size:10.5px; white-space:nowrap; background:transparent;
+}
+.header-machine-chip[data-pinned] { border-color:var(--border-strong); background:var(--chip-navy); }
+.header-machine-name { font-family:var(--font-mono); font-size:var(--shell-type-micro); color:var(--muted-foreground); max-width:12ch; overflow:hidden; text-overflow:ellipsis; }
+.header-readout { display:inline-flex; align-items:center; gap:4px; }
+.header-mark { font-family:var(--font-mono); font-size:var(--shell-type-micro); font-weight:600; letter-spacing:0.06em; color:var(--text-dim); }
+.header-meter { display:inline-block; width:36px; height:3.5px; overflow:hidden; border-radius:2px; background:var(--engraved); }
+.header-meter > span { display:block; height:100%; }
+.header-value { min-width:3.6ch; text-align:right; font-family:var(--font-mono); font-size:var(--shell-type-micro); font-weight:500; font-variant-numeric:tabular-nums; color:var(--text-dim); }
+.header-value[data-tone="warn"] { color:var(--warning); }
+.header-value[data-tone="crit"] { color:var(--destructive); }
+.dot { width:6px; height:6px; border-radius:50%; background:var(--success); flex:none; }
+.dot[data-tone="reclaim"] { background:var(--superade); }
+.dot[data-tone="down"] { background:var(--destructive); }
+.fill-ok { background:var(--success); }
+.fill-warn { background:var(--warning); }
+.fill-crit { background:var(--destructive); }
+.row { display:grid; grid-template-columns: 110px 1fr; gap:12px; align-items:center; margin:10px 0; }
+.lab { font-family:var(--font-mono); font-size:10px; letter-spacing:0.08em; text-transform:uppercase; color:var(--label); }
+code { font-family:var(--font-mono); font-size:11px; color:var(--muted-foreground); }
+</style>
+</head>
+<body>
+  <h1>POD-563 — implemented machine-chip fixture</h1>
+  <p class="sub">Mirrors production class names (<code>.header-readout</code> / <code>.header-mark</code> / <code>.header-meter</code> / <code>.header-value</code> / <code>.header-agent-readout</code>). LOAD fills against loadPerCore; AGT is residency.</p>
+
+  <div class="row"><span class="lab">healthy</span>
+    <div class="bar"><div class="header-host-indicators">
+      <button class="header-machine-chip" type="button">
+        <span class="dot"></span><span class="header-machine-name">podium-vps</span>
+        <span class="header-readout"><span class="header-mark">MEM</span><span class="header-meter"><span class="fill-ok" style="width:34%"></span></span><span class="header-value" data-tone="ok">34%</span></span>
+        <span class="header-readout"><span class="header-mark">LOAD</span><span class="header-meter"><span class="fill-ok" style="width:27%"></span></span><span class="header-value" data-tone="ok">0.4×</span></span>
+        <span class="header-readout header-agent-readout"><span class="header-mark">AGT</span><span class="header-meter"><span class="fill-ok" style="width:38%"></span></span><span class="header-value" data-tone="ok">3</span></span>
+      </button>
+    </div></div>
+  </div>
+
+  <div class="row"><span class="lab">parking</span>
+    <div class="bar"><div class="header-host-indicators">
+      <button class="header-machine-chip" type="button" data-pinned>
+        <span class="dot"></span><span class="header-machine-name">podium-vps</span>
+        <span class="header-readout"><span class="header-mark">MEM</span><span class="header-meter"><span class="fill-ok" style="width:35%"></span></span><span class="header-value" data-tone="ok">35%</span></span>
+        <span class="header-readout"><span class="header-mark">LOAD</span><span class="header-meter"><span class="fill-crit" style="width:100%"></span></span><span class="header-value" data-tone="crit">1.8×</span></span>
+        <span class="header-readout header-agent-readout"><span class="header-mark">AGT</span><span class="header-meter"><span class="fill-crit" style="width:100%"></span></span><span class="header-value" data-tone="crit">39</span></span>
+      </button>
+    </div></div>
+  </div>
+
+  <div class="row"><span class="lab">reclaimable</span>
+    <div class="bar"><div class="header-host-indicators">
+      <button class="header-machine-chip" type="button">
+        <span class="dot" data-tone="reclaim"></span><span class="header-machine-name">podium-vps</span>
+        <span class="header-readout"><span class="header-mark">MEM</span><span class="header-meter"><span class="fill-ok" style="width:34%"></span></span><span class="header-value" data-tone="ok">34%</span></span>
+        <span class="header-readout"><span class="header-mark">LOAD</span><span class="header-meter"><span class="fill-ok" style="width:31%"></span></span><span class="header-value" data-tone="ok">0.5×</span></span>
+        <span class="header-readout header-agent-readout"><span class="header-mark">AGT</span><span class="header-meter"><span class="fill-ok" style="width:38%"></span></span><span class="header-value" data-tone="ok">3</span></span>
+      </button>
+    </div></div>
+  </div>
+</body></html>

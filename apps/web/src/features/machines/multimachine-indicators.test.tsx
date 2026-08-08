@@ -16,7 +16,14 @@ import { QuotaIndicator } from './QuotaIndicator'
 const memoryBreakdown = vi.fn()
 const quotaSummary = vi.fn()
 const settingsGet = vi.fn(async () => ({
-  hibernation: { enabled: false, memoryPct: 80, idleMinutes: 30 },
+  hibernation: {
+    enabled: false,
+    memoryPct: 80,
+    idleMinutes: 30,
+    loadPerCore: 1.5,
+    maxIdleSessions: 8,
+  },
+  worktreeGc: { mode: 'propose' as const, afterDays: 14 },
 }))
 const setView = vi.fn()
 const setSettingsTab = vi.fn()
@@ -28,6 +35,7 @@ const host = (hostname: string, machineId: string) => ({
   name: hostname,
   sampledAt: '2026-07-07T00:00:00.000Z',
   memory: { totalBytes: 32e9, availableBytes: 20e9, swapTotalBytes: 0, swapFreeBytes: 0 },
+  load: { one: 2, five: 1.5, fifteen: 1, cpuCount: 8 },
 })
 
 const breakdownFor = (hostname: string) => ({
@@ -48,6 +56,7 @@ vi.mock('@/app/store', () => {
     // reads this. Empty = nothing parked = the chip renders nothing.
     outboxDeadLetters: [],
     sessions: [],
+    issues: [],
     // POD-838: vmi trails the server build; podium-host matches it.
     machines: [
       {
@@ -74,6 +83,7 @@ vi.mock('@/app/store', () => {
       hosts: { memoryBreakdown: { mutate: memoryBreakdown } },
       settings: { get: { query: settingsGet } },
       setup: { info: { query: setupInfo } },
+      issues: { stop: { mutate: vi.fn() } },
     },
   })
   // The selector-store hook reads slices off the same store shape.
@@ -338,7 +348,25 @@ describe('header chips flag version skew', () => {
     await waitFor(() => expect(screen.getByLabelText('Update available')).toBeTruthy())
     // ...and exactly one chip carries it — podium-host matches the server.
     expect(screen.getAllByLabelText('Update available')).toHaveLength(1)
-    const vmiChip = screen.getByRole('button', { name: /^vmi:/i })
+    // Aria label is multi-part (MEM/LOAD/AGT); match on hostname.
+    const vmiChip = screen.getByRole('button', { name: /vmi/i })
     expect(vmiChip.querySelector('[aria-label="Update available"]')).toBeTruthy()
+  })
+})
+
+// POD-563: host pressure extends the machine chip (no strip) with LOAD + AGT.
+describe('header machine chip carries host-pressure readouts', () => {
+  it('renders MEM, LOAD, and AGT marks on each machine chip', async () => {
+    render(<HeaderHostIndicators />)
+    await waitFor(() => expect(settingsGet).toHaveBeenCalled())
+    const chips = screen.getAllByRole('button').filter((el) =>
+      el.classList.contains('header-machine-chip'),
+    )
+    expect(chips.length).toBeGreaterThanOrEqual(2)
+    for (const chip of chips) {
+      const marks = [...chip.querySelectorAll('.header-mark')].map((n) => n.textContent)
+      expect(marks).toEqual(expect.arrayContaining(['MEM', 'LOAD', 'AGT']))
+      expect(chip.querySelector('.header-agent-readout')).toBeTruthy()
+    }
   })
 })

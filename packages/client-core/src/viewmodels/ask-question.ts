@@ -14,6 +14,22 @@ export interface AskQuestion {
   options: AskOption[]
 }
 
+/**
+ * One question's answer on its way to the server: the listed options it picked
+ * (1-based), or free text through the native Other entry — plus the SHAPE of the
+ * question that produced it.
+ *
+ * The shape travels because the native menu the server types into drives the two
+ * differently: a single-select commits on the digit, a multi-select only toggles
+ * and needs a Tab to move on, and one pick looks identical from the server side
+ * (POD-609). A card that answers without it leaves the agent on a dialog.
+ */
+export type AskAnswerChoice = { multiSelect?: boolean } & (
+  | { optionIndices: number[] }
+  /** The native menu's Other entry: `otherIndex` is 1-based (= option count + 1). */
+  | { freeText: string; otherIndex: number }
+)
+
 /** Parse an AskUserQuestion tool call's raw `toolInputJson` into its questions,
  *  dropping any malformed entry (missing/non-array `options`). */
 export function parseAskQuestions(toolInputJson: string | undefined): AskQuestion[] {

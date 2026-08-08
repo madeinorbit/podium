@@ -1,4 +1,5 @@
 import {
+  type AskAnswerChoice,
   envelopePrincipal,
   formatChurn,
   isImagePath,
@@ -402,7 +403,7 @@ export const ChatBlockView = memo(function ChatBlockView({
   onOpenImage: (src: string) => void
   /** True only for the latest unanswered AskUserQuestion on a live session. */
   askLivePending: boolean
-  onAnswerAsk: (choices: { optionIndices: number[] }[]) => Promise<void>
+  onAnswerAsk: (answer: import('./AskUserQuestionCard').AskUserQuestionAnswer) => Promise<void>
   /** Headless superagent sessions: collapse machine-authored [BTW/CONCIERGE
    *  CONTEXT/UPDATE] user blocks into a quiet disclosure row. */
   collapseContext?: boolean

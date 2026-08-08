@@ -28,6 +28,12 @@ import type { SessionInputGatewayPort } from '../../gateway/daemon-ports'
 import type { Session } from './session'
 
 const SUBMIT_CR_DELAY_MS = 90
+/** Gap between two keystrokes typed into a native menu — see
+ *  {@link SessionInbox.answerAskUserQuestion}. Comfortably above the CLI key
+ *  parser's own 50ms byte-run window, so no two keys share a read. */
+const MENU_KEY_DELAY_MS = 120
+/** Extra settle before the keystroke that COMMITS the answer set. */
+const MENU_CONFIRM_DELAY_MS = 240
 const SUBMIT_VERIFY_DELAY_MS = 1_600
 const SUBMIT_MAX_RETRIES = 2
 const READY_FLOOR_MS = 800
@@ -185,6 +191,32 @@ export interface SessionInboxDeps {
    * grant table. Production always injects it.
    */
   authorizeDrive?(principal: ClientPrincipal, sessionId: SessionId): boolean
+}
+
+/**
+ * One question's answer, as the client picked it: listed options, or the free
+ * text the native menu's Other entry takes (POD-599).
+ *
+ * `multiSelect` is the QUESTION's shape, not the answer's, and it travels
+ * because the menu cannot be driven without it — see
+ * {@link SessionInbox.answerAskUserQuestion}.
+ */
+export type AnswerChoice = { multiSelect?: boolean } & (
+  | { optionIndices: number[] }
+  | { freeText: string; otherIndex: number }
+)
+
+/** Several picks can only have come from a multi-select, so a client that
+ *  cannot say so is still read correctly. */
+const isMultiSelect = (choice: AnswerChoice): boolean =>
+  choice.multiSelect ?? ('optionIndices' in choice && choice.optionIndices.length > 1)
+
+/** The ONE shape the native menu commits by itself, so the ONE shape that must
+ *  not be given a closing CR. Kept next to the choice type because both sides
+ *  of the asymmetry have to read the same way. */
+const isLoneSingleSelect = (choices: AnswerChoice[]): boolean => {
+  const only = choices.length === 1 ? choices[0] : undefined
+  return only !== undefined && !isMultiSelect(only)
 }
 
 export interface InboxSendInput {
@@ -362,9 +394,43 @@ export class SessionInbox {
     setTimeout(tick, READY_POLL_MS).unref?.()
   }
 
+  /**
+   * Type an answer into the live native AskUserQuestion menu.
+   *
+   * The script below is not a guess: it was read out of the shipped Claude Code
+   * bundle (2.1.226) and then verified by driving a real session in a PTY —
+   * docs/agent-harness-reference/claude.md §6 carries the contract and
+   * docs/agents/evidence/pod-609-ask-menu-drive.md the screens. Three facts
+   * shape it, and each one is a way a payload can silently do NOTHING:
+   *
+   *  - ONE KEYSTROKE PER WRITE. The CLI's key parser folds a multi-character
+   *    chunk into a SINGLE key event whose name is the whole string, so `"12"`
+   *    arrives as the key "12", matches no digit, and the menu does not move at
+   *    all. Every keystroke therefore leaves on its own timer (POD-609).
+   *  - A MULTI-SELECT QUESTION DOES NOT ADVANCE. Its digits only toggle boxes;
+   *    Tab moves to the next question's tab, and past the last question that
+   *    tab IS the review step.
+   *  - ONLY A LONE SINGLE-SELECT QUESTION SUBMITS ON THE DIGIT. Every other
+   *    shape — several questions, or a multi-select — ends on "Ready to submit
+   *    your answers?" with "Submit answers" focused, so one closing CR commits
+   *    the set. Without it the agent stays blocked on a dialog nobody presses.
+   *
+   * That last asymmetry is why the CR is conditional: on the lone single-select
+   * path the dialog is already gone, and a blind CR would land in the composer.
+   *
+   * The three answer routes ride the SAME script (POD-599 brought the last two):
+   *  - Options: the digit(s), one keystroke each.
+   *  - Free text: the native menu always has an Other entry after the agent
+   *    options. Digit `otherIndex` focuses its field, the text follows, and a CR
+   *    commits it as the custom answer — free text must never land as a raw chat
+   *    send on top of an open menu.
+   *  - Skip: Esc cancels the whole dialog ("User declined to answer questions"),
+   *    so it takes no confirm.
+   */
   answerAskUserQuestion(input: {
     sessionId: SessionId
-    choices: { optionIndices: number[] }[]
+    choices?: AnswerChoice[]
+    skip?: boolean
     principal: InboxPrincipalReference
   }): { ok: boolean } {
     const session = this.deps.getSession(input.sessionId)
@@ -374,24 +440,66 @@ export class SessionInbox {
     if (!session || !ownerUserId || (session.status !== 'live' && session.status !== 'starting')) {
       return { ok: false }
     }
-    for (const choice of input.choices) {
-      const digits = choice.optionIndices.filter((n) => Number.isInteger(n) && n >= 1 && n <= 9)
-      if (digits.length === 0) continue
-      this.sendInput(
-        session,
-        digits.length === 1 ? String(digits[0]) : `${digits.join(',')}\r`,
-        'human',
-        input.principal.attribution,
-      )
+    const attribution = input.principal.attribution
+    let delayMs = 0
+    let typed = false
+    const key = (data: string, gapBefore = MENU_KEY_DELAY_MS): void => {
+      if (typed) delayMs += gapBefore
+      this.scheduleInput(input.sessionId, data, 'human', attribution, delayMs)
+      typed = true
+    }
+    if (input.skip) {
+      key('\x1b')
+    } else {
+      const choices = input.choices ?? []
+      for (const choice of choices) {
+        if ('freeText' in choice) {
+          const otherIndex = choice.otherIndex
+          if (!Number.isInteger(otherIndex) || otherIndex < 1 || otherIndex > 9) continue
+          // Ink needs a frame to move focus into the field before characters
+          // land as the custom answer rather than as menu digits.
+          key(String(otherIndex))
+          key(choice.freeText)
+          key('\r')
+        } else {
+          const digits = choice.optionIndices.filter((n) => Number.isInteger(n) && n >= 1 && n <= 9)
+          if (digits.length === 0) continue
+          for (const digit of digits) key(String(digit))
+        }
+        if (isMultiSelect(choice)) key('\t')
+      }
+      if (typed && !isLoneSingleSelect(choices)) key('\r', MENU_CONFIRM_DELAY_MS)
     }
     // Answering the agent's question is always a person acting.
-    this.deps.prepareSend(input.sessionId, input.principal.attribution, 'answer', 'human')
+    this.deps.prepareSend(input.sessionId, attribution, 'answer', 'human')
     this.deps.attention.answered({
       ownerUserId,
       sessionId: input.sessionId,
-      attribution: input.principal.attribution,
+      attribution,
     })
     return { ok: true }
+  }
+
+  /** Send now, or after `delayMs`. The session is re-read at send time: a menu
+   *  dies with its process, and a late keystroke must not land in whatever
+   *  replaced it. Unref'd so a pending keystroke cannot hold the process up. */
+  private scheduleInput(
+    sessionId: SessionId,
+    data: string,
+    inputOrigin: ObservationInputOrigin,
+    attribution: Attribution,
+    delayMs: number,
+  ): void {
+    const send = (): void => {
+      const session = this.deps.getSession(sessionId)
+      if (!session || (session.status !== 'live' && session.status !== 'starting')) return
+      this.sendInput(session, data, inputOrigin, attribution)
+    }
+    if (delayMs <= 0) {
+      send()
+      return
+    }
+    setTimeout(send, delayMs).unref?.()
   }
 
   stateChanged(input: {

@@ -26,15 +26,16 @@ describe('formatIssueEvent', () => {
   })
 
   it('falls back to the raw stage when the target is unknown', () => {
-    expect(
-      formatIssueEvent(ev({ kind: 'issue.stage_changed', payload: { to: 'weird' } })),
-    ).toEqual({ icon: 'moved', text: 'moved to weird' })
+    expect(formatIssueEvent(ev({ kind: 'issue.stage_changed', payload: { to: 'weird' } }))).toEqual(
+      { icon: 'moved', text: 'moved to weird' },
+    )
   })
 
   it('labels issue.closed with the reason', () => {
-    expect(
-      formatIssueEvent(ev({ kind: 'issue.closed', payload: { reason: 'wontfix' } })),
-    ).toEqual({ icon: 'closed', text: 'closed (wontfix)' })
+    expect(formatIssueEvent(ev({ kind: 'issue.closed', payload: { reason: 'wontfix' } }))).toEqual({
+      icon: 'closed',
+      text: 'closed (wontfix)',
+    })
   })
 
   it('defaults the close reason to done when absent', () => {
@@ -87,9 +88,9 @@ describe('formatIssueEvent', () => {
     expect(formatIssueEvent(ev({ kind: 'issue.integration', payload: { integrated: 3 } }))).toEqual(
       { icon: 'integration', text: 'integration ran' },
     )
-    expect(
-      formatIssueEvent(ev({ kind: 'issue.integration', payload: { blockedAt: 12 } })),
-    ).toEqual({ icon: 'integration', text: 'integration blocked at #12' })
+    expect(formatIssueEvent(ev({ kind: 'issue.integration', payload: { blockedAt: 12 } }))).toEqual(
+      { icon: 'integration', text: 'integration blocked at #12' },
+    )
   })
 
   it('hides pure UI-sync bookkeeping events', () => {
@@ -97,15 +98,36 @@ describe('formatIssueEvent', () => {
     expect(formatIssueEvent(ev({ kind: 'issue.panel' }))).toBeNull()
   })
 
-  it('renders an unknown kind generically (forward-compat with S2 kinds)', () => {
+  it('renders an unknown kind generically, and marks it minor (POD-591)', () => {
+    // Still rendered — a future event type is never silently dropped — but
+    // flagged so a flood of them collapses instead of burying the transitions.
     expect(formatIssueEvent(ev({ kind: 'issue.pinned' }))).toEqual({
       icon: 'generic',
       text: 'pinned',
+      minor: true,
     })
     expect(formatIssueEvent(ev({ kind: 'issue.snoozed_until' }))).toEqual({
       icon: 'generic',
       text: 'snoozed until',
+      minor: true,
     })
+  })
+
+  it('never marks a known transition minor — those are what the feed is for', () => {
+    for (const kind of [
+      'issue.created',
+      'issue.stage_changed',
+      'issue.closed',
+      'issue.started',
+      'issue.session_attached',
+      'issue.cleaned',
+      'issue.needs_human',
+      'issue.needs_human_cleared',
+      'issue.ready',
+      'issue.integration',
+    ]) {
+      expect(formatIssueEvent(ev({ kind }))?.minor, kind).toBeUndefined()
+    }
   })
 
   it('tolerates a null/non-object payload', () => {
@@ -124,7 +146,12 @@ describe('buildActivityFeed', () => {
   const events: IssueEvent[] = [
     ev({ id: 10, kind: 'issue.created', ts: '2026-07-07T00:00:01.000Z' }),
     ev({ id: 11, kind: 'issue.state', ts: '2026-07-07T00:00:03.000Z' }),
-    ev({ id: 12, kind: 'issue.stage_changed', ts: '2026-07-07T00:00:04.000Z', payload: { to: 'review' } }),
+    ev({
+      id: 12,
+      kind: 'issue.stage_changed',
+      ts: '2026-07-07T00:00:04.000Z',
+      payload: { to: 'review' },
+    }),
   ]
 
   it('interleaves comments and events in chronological order', () => {

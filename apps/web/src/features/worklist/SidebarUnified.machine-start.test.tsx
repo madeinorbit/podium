@@ -7,7 +7,10 @@ import { SidebarUnified } from './SidebarUnified'
 // Optimistic spawn (#119): the sidebar goes through store.spawnDraftAgent, which
 // mints client-side ids and paints the row before any server round-trip — the
 // component never calls trpc.sessions.create directly anymore.
-const spawnDraftAgent = vi.fn(() => ({ sessionId: asSessionId('new-session'), issueId: 'draft-issue' }))
+const spawnDraftAgent = vi.fn(() => ({
+  sessionId: asSessionId('new-session'),
+  issueId: 'draft-issue',
+}))
 const settingsGet = vi.fn(async () => ({ sessionDefaults: { agent: 'claude-code' } }))
 const settingsSet = vi.fn(async (settings) => settings)
 const setSelectedWorktree = vi.fn()

@@ -1,0 +1,562 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>POD-554 — Top-bar host pressure (static mock)</title>
+<style>
+  :root {
+    --race-navy: #0a0f1c;
+    --panel-navy: #121b30;
+    --chip-navy: #16223c;
+    --engraved: #070b16;
+    --bar: #050912;
+    --tabstrip-navy: #0c1322;
+    --superade: #f5c518;
+    --alert-red: #e5303f;
+    --live-mint: #3eb489;
+    --ink-strong: #f3f3f8;
+    --ink: #d7d7e0;
+    --muted-foreground: #9a9aa8;
+    --text-dim: #6c7690;
+    --text-faint: #525c78;
+    --label: #7a84a0;
+    --seam: #243356;
+    --hairline-soft: #1e2a4c;
+    --border: #1e2a4c;
+    --border-strong: #364a78;
+    --success: #3eb489;
+    --warning: #c8990a;
+    --destructive: #e5303f;
+    --accent: #16223c;
+    --radius: 6px;
+    --micro: 8.5px;
+    --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+    --font-mono: "Geist Mono Variable", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 40px 28px 80px;
+    background: var(--race-navy);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 12px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+
+  h1 {
+    margin: 0 0 4px;
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--ink-strong);
+    letter-spacing: -0.01em;
+  }
+  .sub { margin: 0 0 8px; color: var(--muted-foreground); font-size: 12.5px; }
+  .meta {
+    margin: 0 0 36px;
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+  }
+  h2 {
+    margin: 46px 0 6px;
+    font-size: 9.5px;
+    font-family: var(--font-mono);
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--label);
+  }
+  h2:first-of-type { margin-top: 8px; }
+  .note { margin: 0 0 16px; color: var(--muted-foreground); max-width: 68ch; font-size: 12px; }
+  .note b { color: var(--ink); font-weight: 500; }
+  code {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--ink);
+    background: var(--engraved);
+    padding: 1px 4px;
+    border-radius: 3px;
+  }
+
+  /* ---------------- the command bar ---------------- */
+  .bar-frame {
+    border: 1px solid var(--hairline-soft);
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 8px;
+  }
+  .bar-caption {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 7px 12px;
+    background: var(--tabstrip-navy);
+    border-bottom: 1px solid var(--hairline-soft);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--label);
+  }
+  .bar-caption .tag {
+    padding: 1px 6px;
+    border-radius: 3px;
+    letter-spacing: 0.06em;
+  }
+  .tag-now { background: rgba(122,132,160,.16); color: var(--muted-foreground); }
+  .tag-new { background: rgba(245,197,24,.14); color: var(--superade); }
+  .bar-caption .why {
+    margin-left: auto;
+    text-transform: none;
+    letter-spacing: 0;
+    font-family: var(--font-sans);
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 44px;
+    padding: 0 8px;
+    background: var(--bar);
+  }
+  .logo {
+    width: 19px; height: 19px; flex: none;
+    border-radius: 3px;
+    background: linear-gradient(160deg, var(--superade), #b8930f);
+  }
+  .well {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    height: 30px;
+    padding: 0 3px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--chip-navy) 30%, transparent);
+    box-shadow: inset 0 1px 0 rgba(0,0,0,.6), inset 0 -1px 0 rgba(54,74,120,.35);
+  }
+  .mode {
+    display: inline-flex; align-items: center; gap: 5px;
+    height: 26px; padding: 0 8px; border-radius: 5px;
+    color: var(--text-dim); font-size: 11.5px;
+  }
+  .mode[data-active] {
+    background: color-mix(in srgb, var(--chip-navy) 85%, transparent);
+    color: var(--ink-strong);
+    box-shadow: inset 0 1px 0 rgba(54,74,120,.5);
+  }
+  .mode .glyph { width: 13px; height: 13px; flex: none; opacity: .8;
+    background: currentColor;
+    -webkit-mask: var(--m) center/contain no-repeat; mask: var(--m) center/contain no-repeat; }
+  .gap { flex: 1 1 auto; }
+
+  /* instrument well */
+  .chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    height: 26px; padding: 0 8px;
+    border: 1px solid transparent; border-radius: var(--radius);
+    color: var(--muted-foreground); font-size: 10.5px; white-space: nowrap;
+  }
+  .chip[data-pinned] { border-color: var(--border-strong); background: var(--chip-navy); }
+  .dot { width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--success); }
+  .dot[data-tone="reclaim"] { background: var(--superade); }
+  .dot[data-tone="down"] { background: var(--destructive); }
+  .host {
+    max-width: 12ch; overflow: hidden; text-overflow: ellipsis;
+    font-family: var(--font-mono); font-size: var(--micro); color: var(--muted-foreground);
+  }
+  .readout { display: inline-flex; align-items: center; gap: 4px; }
+  .mark {
+    font-family: var(--font-mono); font-size: var(--micro); font-weight: 600;
+    letter-spacing: 0.06em; color: var(--text-dim);
+  }
+  .meter {
+    display: inline-block; width: 36px; height: 3.5px; flex: none;
+    overflow: hidden; border-radius: 2px; background: var(--engraved);
+  }
+  .meter.narrow { width: 30px; }
+  .meter > i { display: block; height: 100%; }
+  .fill-ok { background: var(--success); }
+  .fill-warn { background: var(--warning); }
+  .fill-crit { background: var(--destructive); }
+  .val {
+    min-width: 3.6ch; text-align: right;
+    font-family: var(--font-mono); font-size: var(--micro); font-weight: 500;
+    font-variant-numeric: tabular-nums; color: var(--text-dim);
+  }
+  .val[data-tone="warn"] { color: var(--warning); }
+  .val[data-tone="crit"] { color: var(--destructive); }
+  .seam-v { width: 1px; height: 14px; margin: 0 1px; flex: none; background: var(--hairline-soft); }
+  .qlabel {
+    font-family: var(--font-mono); font-size: var(--micro); font-weight: 600;
+    letter-spacing: 0.12em; text-transform: uppercase; color: var(--label);
+  }
+  .util { display: inline-flex; gap: 2px; }
+  .util span {
+    width: 28px; height: 28px; border-radius: 5px;
+    background: color-mix(in srgb, var(--chip-navy) 40%, transparent);
+  }
+  .new-bit { position: relative; }
+  .new-bit::after {
+    content: ""; position: absolute; inset: -3px -4px; border-radius: 4px;
+    border: 1px dashed color-mix(in srgb, var(--superade) 55%, transparent);
+    pointer-events: none;
+  }
+
+  /* ---------------- popover ---------------- */
+  .pop {
+    width: 340px;
+    background: var(--panel-navy);
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    box-shadow: 0 14px 34px rgb(0 0 0 / .65), 0 2px 8px rgb(0 0 0 / .5);
+    overflow: hidden;
+  }
+  .pop-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    padding: 9px 11px 8px; border-bottom: 1px solid var(--hairline-soft);
+  }
+  .pop-title { font-family: var(--font-mono); font-size: 11px; color: var(--ink-strong); }
+  .pop-figs { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); }
+  .pop-sect { padding: 9px 11px; border-bottom: 1px solid var(--hairline-soft); }
+  .sect-label {
+    font-family: var(--font-mono); font-size: var(--micro); font-weight: 600;
+    letter-spacing: 0.12em; text-transform: uppercase; color: var(--label);
+    margin-bottom: 6px;
+  }
+  .seg { display: flex; height: 5px; border-radius: 2px; overflow: hidden; background: var(--engraved); }
+  .seg > i { display: block; height: 100%; }
+  .s-agents { background: #2f6bff; }
+  .s-projects { background: #3eb489; }
+  .s-other { background: #364a78; }
+  .legend { display: flex; gap: 12px; margin-top: 6px; font-size: 10px; color: var(--text-dim); }
+  .legend i { display: inline-block; width: 6px; height: 6px; border-radius: 2px; margin-right: 4px; }
+  .prow {
+    display: flex; align-items: baseline; gap: 8px;
+    padding: 2.5px 0; font-size: 11px; color: var(--ink);
+  }
+  .prow .nm { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .prow .dt { color: var(--text-dim); font-size: 10px; }
+  .prow .by { font-family: var(--font-mono); font-size: 10px; color: var(--muted-foreground); }
+  .prow-muted .nm, .prow-muted .by { color: var(--text-faint); }
+  .rrow {
+    display: flex; align-items: baseline; gap: 10px;
+    padding: 3px 0; font-size: 11px;
+  }
+  .rrow .k { width: 96px; flex: none; color: var(--text-dim); }
+  .rrow .v { flex: 1 1 auto; color: var(--ink); font-family: var(--font-mono); font-size: 10.5px; }
+  .rrow .v.held { color: var(--warning); }
+  .btn {
+    flex: none; height: 20px; padding: 0 8px;
+    border: 1px solid var(--border-strong); border-radius: 4px;
+    background: var(--chip-navy); color: var(--ink);
+    font-family: var(--font-sans); font-size: 10.5px; cursor: default;
+  }
+  .btn-primary { background: var(--superade); border-color: var(--superade); color: var(--race-navy); font-weight: 500; }
+  .hib { padding: 9px 11px; font-size: 11px; color: var(--muted-foreground); line-height: 1.55; }
+  .link { color: var(--superade); text-decoration: none; border-bottom: 1px solid rgba(245,197,24,.3); }
+  .pop-foot {
+    display: flex; justify-content: space-between;
+    padding: 6px 11px; background: var(--tabstrip-navy);
+    font-family: var(--font-mono); font-size: 9.5px; color: var(--text-faint);
+  }
+
+  /* ---------------- layout helpers ---------------- */
+  .row2 { display: flex; gap: 22px; flex-wrap: wrap; align-items: flex-start; }
+  .col { flex: 1 1 340px; min-width: 320px; }
+  .scroller { overflow-x: auto; }
+  .scroller > * { min-width: 900px; }
+  .states { display: grid; gap: 10px; }
+  .state-row {
+    display: grid; grid-template-columns: 120px 1fr; gap: 14px; align-items: center;
+    padding: 9px 12px; border: 1px solid var(--hairline-soft); border-radius: 6px;
+    background: var(--bar);
+  }
+  .state-name {
+    font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--label);
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--hairline-soft); vertical-align: top; }
+  th {
+    font-family: var(--font-mono); font-size: 9.5px; font-weight: 600;
+    letter-spacing: 0.1em; text-transform: uppercase; color: var(--label);
+  }
+  td:first-child { font-family: var(--font-mono); font-size: 10.5px; color: var(--muted-foreground); white-space: nowrap; }
+  td b { color: var(--ink-strong); font-weight: 500; }
+  .rule { height: 1px; background: var(--hairline-soft); margin: 42px 0 0; border: 0; }
+  .foot { margin-top: 34px; color: var(--text-faint); font-size: 11px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Top-bar host pressure</h1>
+  <p class="sub">Static mock for POD-554 — where a host-pressure readout lives, and what it says.</p>
+  <p class="meta">no implementation · reuses <code>.header-readout</code> / <code>.header-meter</code> / <code>.hp-*</code> · companion to lifecycle-policy.md</p>
+
+  <h2>1 · The command bar today</h2>
+  <p class="note">One chip per machine carrying a single readout, then a hairline, then quota. The instrument well is one object with internal structure — that is the constraint the proposal has to honour.</p>
+
+  <div class="bar-frame scroller">
+    <div class="bar-caption">
+      <span class="tag tag-now">today</span>
+      <span>HeaderHostIndicators + QuotaIndicator</span>
+      <span class="why">memory is the only pressure the bar can see</span>
+    </div>
+    <div class="topbar">
+      <span class="logo"></span>
+      <span class="well">
+        <span class="mode" data-active><span class="glyph"></span>Work</span>
+        <span class="mode"><span class="glyph"></span>Tasks</span>
+        <span class="mode"><span class="glyph"></span>Workflows</span>
+      </span>
+      <span class="gap"></span>
+      <span class="well">
+        <span class="chip">
+          <span class="dot"></span>
+          <span class="host">podium-vps</span>
+          <span class="readout">
+            <span class="mark">MEM</span>
+            <span class="meter"><i class="fill-ok" style="width:35%"></i></span>
+            <span class="val">35%</span>
+          </span>
+        </span>
+        <span class="seam-v"></span>
+        <span class="chip">
+          <span class="qlabel">Quota</span>
+          <span class="readout"><span class="mark">CC</span><span class="meter narrow"><i class="fill-ok" style="width:41%"></i></span><span class="val">41%</span></span>
+          <span class="readout"><span class="mark">CX</span><span class="meter narrow"><i class="fill-warn" style="width:77%"></i></span><span class="val" data-tone="warn">77%</span></span>
+        </span>
+      </span>
+      <span class="seam-v"></span>
+      <span class="util"><span></span><span></span></span>
+    </div>
+  </div>
+
+  <h2>2 · Proposed — the same chip, three readouts</h2>
+  <p class="note">No new group, no new seam. <b>LOAD</b> and <b>AGT</b> join <b>MEM</b> inside the machine chip, because host pressure is not a peer of host memory — it is host, more of it. Shown here at the POD-526 incident reading: memory fine, machine on fire.</p>
+
+  <div class="bar-frame scroller">
+    <div class="bar-caption">
+      <span class="tag tag-new">proposed</span>
+      <span>machine chip · MEM + LOAD + AGT</span>
+      <span class="why">load 14.2 on 8 cores = 1.8× per core — past the 1.5× parking threshold</span>
+    </div>
+    <div class="topbar">
+      <span class="logo"></span>
+      <span class="well">
+        <span class="mode" data-active><span class="glyph"></span>Work</span>
+        <span class="mode"><span class="glyph"></span>Tasks</span>
+        <span class="mode"><span class="glyph"></span>Workflows</span>
+      </span>
+      <span class="gap"></span>
+      <span class="well">
+        <span class="chip" data-pinned>
+          <span class="dot" data-tone="reclaim" title="reclaimable inventory past threshold"></span>
+          <span class="host">podium-vps</span>
+          <span class="readout">
+            <span class="mark">MEM</span>
+            <span class="meter"><i class="fill-ok" style="width:35%"></i></span>
+            <span class="val">35%</span>
+          </span>
+          <span class="readout new-bit">
+            <span class="mark">LOAD</span>
+            <span class="meter"><i class="fill-crit" style="width:100%"></i></span>
+            <span class="val" data-tone="crit">1.8×</span>
+          </span>
+          <span class="readout new-bit">
+            <span class="mark">AGT</span>
+            <span class="meter"><i class="fill-crit" style="width:100%"></i></span>
+            <span class="val" data-tone="crit">39</span>
+          </span>
+        </span>
+        <span class="seam-v"></span>
+        <span class="chip">
+          <span class="qlabel">Quota</span>
+          <span class="readout"><span class="mark">CC</span><span class="meter narrow"><i class="fill-ok" style="width:41%"></i></span><span class="val">41%</span></span>
+          <span class="readout"><span class="mark">CX</span><span class="meter narrow"><i class="fill-warn" style="width:77%"></i></span><span class="val" data-tone="warn">77%</span></span>
+        </span>
+      </span>
+      <span class="seam-v"></span>
+      <span class="util"><span></span><span></span></span>
+    </div>
+  </div>
+
+  <h2>3 · What the meters are scaled against</h2>
+  <p class="note">Load has no natural ceiling, so filling a bar to "100%" would be meaningless. <b>Both new meters fill against the policy threshold that governs them</b> — a full meter means "Podium is parking agents right now", which is the only question the readout has to answer, and it stays honest when a threshold is retuned.</p>
+
+  <table>
+    <thead><tr><th>readout</th><th>meter fills against</th><th>value</th><th>source</th></tr></thead>
+    <tbody>
+      <tr><td>MEM</td><td>used / total</td><td><b>35%</b></td><td>existing <code>HostMetricsWire.memory</code></td></tr>
+      <tr><td>LOAD</td><td><b>load1 ÷ cores ÷ hibernation.loadPerCore</b> (clamped)</td><td><b>1.8×</b> per core</td><td>new <code>HostMetricsWire.load</code> — policy PR 3</td></tr>
+      <tr><td>AGT</td><td><b>live sessions ÷ maxIdleSessions</b>; no meter when the cap is null</td><td><b>39</b> resident</td><td>derived client-side from the <code>sessions</code> slice — no wire change</td></tr>
+    </tbody>
+  </table>
+  <p class="note" style="margin-top:14px">AGT counts <b>residency</b>, not activity — <code>status ∈ {live, starting, reconnecting}</code> on this machine. The status strip already owns "N agents working" and one fact is never stated in two places. Residency vs activity <em>is</em> the POD-526 story: five agents visibly working, thirty-nine resident.</p>
+
+  <h2>4 · States</h2>
+  <p class="note">At rest, marks and values sit at dim ink and only the meters carry tint. The health dot is the chip's one escalation channel — it takes Superade Yellow only when something is genuinely being asked of the operator, per The Signal Rule.</p>
+
+  <div class="states">
+    <div class="state-row">
+      <span class="state-name">healthy</span>
+      <span class="chip">
+        <span class="dot"></span><span class="host">podium-vps</span>
+        <span class="readout"><span class="mark">MEM</span><span class="meter"><i class="fill-ok" style="width:34%"></i></span><span class="val">34%</span></span>
+        <span class="readout"><span class="mark">LOAD</span><span class="meter"><i class="fill-ok" style="width:27%"></i></span><span class="val">0.4×</span></span>
+        <span class="readout"><span class="mark">AGT</span><span class="meter"><i class="fill-ok" style="width:38%"></i></span><span class="val">3</span></span>
+      </span>
+    </div>
+    <div class="state-row">
+      <span class="state-name">approaching</span>
+      <span class="chip">
+        <span class="dot"></span><span class="host">podium-vps</span>
+        <span class="readout"><span class="mark">MEM</span><span class="meter"><i class="fill-ok" style="width:48%"></i></span><span class="val">48%</span></span>
+        <span class="readout"><span class="mark">LOAD</span><span class="meter"><i class="fill-warn" style="width:85%"></i></span><span class="val" data-tone="warn">1.3×</span></span>
+        <span class="readout"><span class="mark">AGT</span><span class="meter"><i class="fill-warn" style="width:88%"></i></span><span class="val" data-tone="warn">7</span></span>
+      </span>
+    </div>
+    <div class="state-row">
+      <span class="state-name">parking</span>
+      <span class="chip">
+        <span class="dot"></span><span class="host">podium-vps</span>
+        <span class="readout"><span class="mark">MEM</span><span class="meter"><i class="fill-ok" style="width:35%"></i></span><span class="val">35%</span></span>
+        <span class="readout"><span class="mark">LOAD</span><span class="meter"><i class="fill-crit" style="width:100%"></i></span><span class="val" data-tone="crit">1.8×</span></span>
+        <span class="readout"><span class="mark">AGT</span><span class="meter"><i class="fill-crit" style="width:100%"></i></span><span class="val" data-tone="crit">39</span></span>
+      </span>
+    </div>
+    <div class="state-row">
+      <span class="state-name">reclaimable</span>
+      <span class="chip">
+        <span class="dot" data-tone="reclaim"></span><span class="host">podium-vps</span>
+        <span class="readout"><span class="mark">MEM</span><span class="meter"><i class="fill-ok" style="width:34%"></i></span><span class="val">34%</span></span>
+        <span class="readout"><span class="mark">LOAD</span><span class="meter"><i class="fill-ok" style="width:31%"></i></span><span class="val">0.5×</span></span>
+        <span class="readout"><span class="mark">AGT</span><span class="meter"><i class="fill-ok" style="width:38%"></i></span><span class="val">3</span></span>
+      </span>
+    </div>
+    <div class="state-row">
+      <span class="state-name">link down</span>
+      <span class="chip">
+        <span class="dot" data-tone="down"></span><span class="host">podium-vps</span>
+        <span class="readout"><span class="mark">MEM</span><span class="meter"><i class="fill-ok" style="width:34%"></i></span><span class="val">34%</span></span>
+        <span class="readout"><span class="mark">LOAD</span><span class="meter"><i style="width:0"></i></span><span class="val">—</span></span>
+        <span class="readout"><span class="mark">AGT</span><span class="meter"><i style="width:0"></i></span><span class="val">—</span></span>
+      </span>
+    </div>
+  </div>
+  <p class="note" style="margin-top:14px"><b>reclaimable</b> is the only state where the machine is calm and the dot still lights: 97 stale checkouts are not costing CPU right now, but they are the operator's to release. Link health outranks it when both apply. Stale samples blank the values rather than showing a last-known number.</p>
+
+  <h2>5 · The pinned panel — where the inventory lives</h2>
+  <p class="note">"97 worktrees · 34 GiB" is a slow-moving inventory, not a five-second sample. On the bar it would be a number that never moves beside two that move constantly. It belongs one tier down, in the panel the chip already opens.</p>
+
+  <div class="row2">
+    <div class="col">
+      <div class="pop">
+        <div class="pop-head">
+          <span class="pop-title">podium-vps</span>
+          <span class="pop-figs">8.0 / 23.4 GB · 35% · load 1.8×</span>
+        </div>
+
+        <div class="pop-sect">
+          <div class="seg">
+            <i class="s-agents" style="width:31%"></i>
+            <i class="s-projects" style="width:14%"></i>
+            <i class="s-other" style="width:9%"></i>
+          </div>
+          <div class="legend">
+            <span><i class="s-agents"></i>Agents 7.2 GB</span>
+            <span><i class="s-projects"></i>Projects 3.3 GB</span>
+            <span><i class="s-other"></i>Other 2.1 GB</span>
+          </div>
+        </div>
+
+        <div class="pop-sect">
+          <div class="sect-label">Agents &amp; shells</div>
+          <div class="prow"><span class="nm">Claude — Lifecycle policy design</span><span class="dt">4 processes</span><span class="by">612 MB</span></div>
+          <div class="prow"><span class="nm">Codex — Operator workspace build</span><span class="dt">3 processes</span><span class="by">548 MB</span></div>
+          <div class="prow prow-muted"><span class="nm">…36 more resident sessions</span><span class="dt"></span><span class="by">6.1 GB</span></div>
+        </div>
+
+        <div class="pop-sect new-bit">
+          <div class="sect-label">Reclaimable</div>
+          <div class="rrow">
+            <span class="k">Worktrees</span>
+            <span class="v">97 checkouts · 34.2 GiB</span>
+            <button class="btn btn-primary" type="button">Review</button>
+          </div>
+          <div class="rrow">
+            <span class="k">Idle sessions</span>
+            <span class="v">19 parkable · 2 protected</span>
+          </div>
+          <div class="rrow">
+            <span class="k">Held</span>
+            <span class="v held">4 by uncommitted changes</span>
+          </div>
+        </div>
+
+        <div class="hib">
+          Auto-hibernation on: agents idle 30 min park past <b>1.5× load</b> or 80% memory. One click resumes them. <a class="link" href="#">Hibernation settings ›</a><br />
+          Worktree GC: proposing after 14 days. <a class="link" href="#">GC settings ›</a>
+        </div>
+
+        <div class="pop-foot"><span>sampled every 5s</span><span>connection ▸</span></div>
+      </div>
+    </div>
+
+    <div class="col">
+      <h2 style="margin-top:0">Why these lines</h2>
+      <table>
+        <tbody>
+          <tr><td>Worktrees</td><td><b>The headline number.</b> Closed issues whose checkout is still on disk, with no live session in it. Review opens the janitor's candidate list.</td></tr>
+          <tr><td>Idle sessions</td><td>Splits what the policy <em>can</em> park from what it refuses to — <code>needs_user</code> and no-resume-ref sessions are protected on purpose.</td></tr>
+          <tr><td>Held</td><td><b>The most important line here.</b> The one class automation will never touch. Without it, an operator has no way to learn that some of that disk is theirs to resolve rather than the janitor's.</td></tr>
+          <tr><td>GC link</td><td>Second deep-link beside the existing hibernation one, using the same <code>setSettingsTab</code> pattern already in LoadPanel.</td></tr>
+        </tbody>
+      </table>
+
+      <h2>Fetch cost</h2>
+      <p class="note">The three bar readouts ride the existing 5-second sample and the client store. The inventory needs a <code>du</code> + <code>git status</code> walk, so it is fetched <b>on panel open only</b>, cached 60s — the same shape as the existing <code>memoryBreakdown</code> daemon RPC. An inventory probe walking 100 worktrees every five seconds would be a small copy of the problem this issue exists to fix.</p>
+    </div>
+  </div>
+
+  <h2>6 · Narrow behaviour</h2>
+  <p class="note">The bar gives up words before data, and data before controls. The new readouts slot into the existing shed ladder without inventing a rung. A number that has crossed a threshold is never shed.</p>
+  <table>
+    <thead><tr><th>width</th><th>what goes</th><th>what stays</th></tr></thead>
+    <tbody>
+      <tr><td>≥ 1180</td><td>—</td><td>all three readouts, marks and values</td></tr>
+      <tr><td>1100</td><td>hostname truncates (already <code>flex: 0 1 auto</code>)</td><td>all readouts</td></tr>
+      <tr><td>1024</td><td>AGT's value → glyph only</td><td>unless a cap is set and exceeded</td></tr>
+      <tr><td>940</td><td>MEM and LOAD marks (existing <code>.header-mark</code> rule)</td><td>meters and values</td></tr>
+      <tr><td>below</td><td>AGT entirely</td><td><b>MEM and LOAD never shed</b> — they are the pressure readout</td></tr>
+      <tr><td>balanced density</td><td>marks + values (existing rule); AGT hidden</td><td>LOAD reads as a bare meter, which is the right glanceable answer</td></tr>
+    </tbody>
+  </table>
+
+  <h2>7 · Rejected</h2>
+  <table>
+    <tbody>
+      <tr><td>separate strip</td><td>A third group in a well whose stated rule is host + quota divided by hairlines.</td></tr>
+      <tr><td>status strip</td><td>The strip carries <em>window</em>-scoped facts. Host pressure is machine-scoped, and the strip has no place to say which machine.</td></tr>
+      <tr><td>reuse the skyline</td><td>The skyline is fleet-wide working agents over 12h. Same shape, different fact.</td></tr>
+      <tr><td>GiB in the bar</td><td>A number that never moves beside two that move constantly.</td></tr>
+      <tr><td>a new fleet view</td><td><code>HostInfoView</code> is already the machine-scoped tabbed modal — Review becomes its third tab.</td></tr>
+      <tr><td>AGT = "working"</td><td>Duplicates the status strip. Residency is the fact with no home.</td></tr>
+    </tbody>
+  </table>
+
+  <hr class="rule" />
+  <p class="foot">Static mock — nothing here is wired. Sequenced after the load wire field (policy PR 3) and the worktree-GC job (policy PR 5). No new CSS primitives: reuses <code>.header-readout</code>, <code>.header-mark</code>, <code>.header-meter</code>, <code>.header-value</code>, <code>.hp-*</code>.</p>
+
+</div>
+</body>
+</html>

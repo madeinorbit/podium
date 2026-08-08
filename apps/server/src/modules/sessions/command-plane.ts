@@ -55,7 +55,7 @@ import {
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachineUseResolver } from '../machines/service'
 import type { SendDisposition } from '../messages/service'
-import { inboxPrincipalFromCommand } from './inbox'
+import { type AnswerChoice, inboxPrincipalFromCommand } from './inbox'
 import type { IssueSessionLifecycle } from '../issue-session-lifecycle'
 import type { SessionLifecycle } from './lifecycle'
 import {
@@ -388,7 +388,7 @@ type CreateInput = z.infer<typeof sessionCommandPlaneInputs.create>
 type ResumeInput = z.infer<typeof sessionCommandPlaneInputs.resume>
 type SendInput = { sessionId: SessionId; text: string; mutationId?: string }
 type TargetInput = { sessionId: SessionId }
-type AnswerInput = { sessionId: SessionId; choices: { optionIndices: number[] }[] }
+type AnswerInput = { sessionId: SessionId; choices?: AnswerChoice[]; skip?: true }
 
 /** What `mail.send` answers with, narrowed to the keys the chat paths return.
  *  Exported because it is the INFERRED return type of two tRPC procedures — an

@@ -13,9 +13,7 @@ export interface IssuesKeyState {
 }
 
 /** The current visual layout: flat rows (list) or per-column stacks (board). */
-export type IssuesNav =
-  | { kind: 'rows'; ids: IssueId[] }
-  | { kind: 'columns'; columns: IssueId[][] }
+export type IssuesNav = { kind: 'rows'; ids: IssueId[] } | { kind: 'columns'; columns: IssueId[][] }
 
 export type IssuesKeyAction =
   | { kind: 'next' }

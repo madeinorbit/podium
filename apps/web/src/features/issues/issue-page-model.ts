@@ -7,7 +7,7 @@
 
 import { shallowEqual } from '@podium/client-core'
 import { subIssuesOf } from '@podium/client-core/viewmodels'
-import type { IssueId, UserId } from '@podium/model'
+import type { IssueId, SessionId, SessionMeta, UserId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { useEffect, useState } from 'react'
 import { type IssueViewModel, useReplicaIssues, useStoreSelector } from '@/app/store'
@@ -53,13 +53,28 @@ export interface IssuePageModel {
   mail: IssueMailMessage[]
   /** Sub-issues (archived children stay visible — issue #133). */
   children: IssueViewModel[]
+  /** This issue's member sessions, resolved against the session world. The Now
+   *  block and the rail's roster both render from this one list (POD-591), so
+   *  they can never disagree about who is on the task. */
+  memberSessions: SessionMeta[]
+  /** [spec:SP-a1c0] (#411) Route through the central action — never roll
+   *  per-feature navigation (setPane+setView flips the URL then reverts). */
+  openSession: (sessionId: SessionId) => void
   /** Optimistic local append after a posted comment (the updatedAt-keyed
    *  refetch then replaces it with server truth). */
   appendLocalComment: (body: string) => void
 }
 
 export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]): IssuePageModel {
-  const { trpc, hub } = useStoreSelector((s) => ({ trpc: s.trpc, hub: s.hub }), shallowEqual)
+  const { trpc, hub, sessions, navigateToSession } = useStoreSelector(
+    (s) => ({
+      trpc: s.trpc,
+      hub: s.hub,
+      sessions: s.sessions,
+      navigateToSession: s.navigateToSession,
+    }),
+    shallowEqual,
+  )
   const issues = useReplicaIssues()
   const [toast, setToast] = useState('')
   const [busy, setBusy] = useState(false)
@@ -197,6 +212,10 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
     repoName: issue.repoPath.split('/').filter(Boolean).pop() ?? issue.repoPath,
     feed: buildActivityFeed(comments, events),
     mail,
+    memberSessions: (issue.memberSessionIds ?? [])
+      .map((id) => (sessions ?? []).find((session) => session.sessionId === id))
+      .filter((session): session is SessionMeta => session !== undefined),
+    openSession: navigateToSession,
     children: subIssuesOf(issues, issue.id),
     appendLocalComment: (body) =>
       setComments((cur) => [...cur, { author: 'me', body, createdAt: new Date().toISOString() }]),

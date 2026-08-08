@@ -24,22 +24,26 @@ describe('issuesKeyReduce — next / prev over rows', () => {
   })
   it('next advances to the following id', () => {
     expect(
-      issuesKeyReduce({ focusId: asIssueId('a'), selected: [] }, { kind: 'next' }, rows(['a', 'b'])).focusId,
+      issuesKeyReduce({ focusId: asIssueId('a'), selected: [] }, { kind: 'next' }, rows(['a', 'b']))
+        .focusId,
     ).toBe('b')
   })
   it('next clamps at the end (no wrap)', () => {
     expect(
-      issuesKeyReduce({ focusId: asIssueId('b'), selected: [] }, { kind: 'next' }, rows(['a', 'b'])).focusId,
+      issuesKeyReduce({ focusId: asIssueId('b'), selected: [] }, { kind: 'next' }, rows(['a', 'b']))
+        .focusId,
     ).toBe('b')
   })
   it('prev clamps at the start (no wrap)', () => {
     expect(
-      issuesKeyReduce({ focusId: asIssueId('a'), selected: [] }, { kind: 'prev' }, rows(['a', 'b'])).focusId,
+      issuesKeyReduce({ focusId: asIssueId('a'), selected: [] }, { kind: 'prev' }, rows(['a', 'b']))
+        .focusId,
     ).toBe('a')
   })
   it('prev moves backward', () => {
     expect(
-      issuesKeyReduce({ focusId: asIssueId('b'), selected: [] }, { kind: 'prev' }, rows(['a', 'b'])).focusId,
+      issuesKeyReduce({ focusId: asIssueId('b'), selected: [] }, { kind: 'prev' }, rows(['a', 'b']))
+        .focusId,
     ).toBe('a')
   })
   it('next on an empty nav yields null focus', () => {
@@ -55,27 +59,39 @@ describe('issuesKeyReduce — next / prev flatten columns', () => {
     ['x', 'y'],
   ])
   it('next crosses the column boundary in visual order', () => {
-    expect(issuesKeyReduce({ focusId: asIssueId('b'), selected: [] }, { kind: 'next' }, nav).focusId).toBe('x')
+    expect(
+      issuesKeyReduce({ focusId: asIssueId('b'), selected: [] }, { kind: 'next' }, nav).focusId,
+    ).toBe('x')
   })
   it('prev crosses back across the boundary', () => {
-    expect(issuesKeyReduce({ focusId: asIssueId('x'), selected: [] }, { kind: 'prev' }, nav).focusId).toBe('b')
+    expect(
+      issuesKeyReduce({ focusId: asIssueId('x'), selected: [] }, { kind: 'prev' }, nav).focusId,
+    ).toBe('b')
   })
   it('next clamps at the last flattened id', () => {
-    expect(issuesKeyReduce({ focusId: asIssueId('y'), selected: [] }, { kind: 'next' }, nav).focusId).toBe('y')
+    expect(
+      issuesKeyReduce({ focusId: asIssueId('y'), selected: [] }, { kind: 'next' }, nav).focusId,
+    ).toBe('y')
   })
 })
 
 describe('issuesKeyReduce — left / right across columns', () => {
   it('right moves to the same row index in the adjacent non-empty column', () => {
     expect(
-      issuesKeyReduce({ focusId: asIssueId('a'), selected: [] }, { kind: 'right' }, cols([['a'], ['x', 'y']]))
-        .focusId,
+      issuesKeyReduce(
+        { focusId: asIssueId('a'), selected: [] },
+        { kind: 'right' },
+        cols([['a'], ['x', 'y']]),
+      ).focusId,
     ).toBe('x')
   })
   it('right clamps the row index to the target column length', () => {
     expect(
-      issuesKeyReduce({ focusId: asIssueId('b'), selected: [] }, { kind: 'right' }, cols([['a', 'b'], ['x']]))
-        .focusId,
+      issuesKeyReduce(
+        { focusId: asIssueId('b'), selected: [] },
+        { kind: 'right' },
+        cols([['a', 'b'], ['x']]),
+      ).focusId,
     ).toBe('x')
   })
   it('left moves to the previous column keeping the row index', () => {
@@ -92,22 +108,33 @@ describe('issuesKeyReduce — left / right across columns', () => {
   })
   it('right skips an empty column', () => {
     expect(
-      issuesKeyReduce({ focusId: asIssueId('a'), selected: [] }, { kind: 'right' }, cols([['a'], [], ['z']]))
-        .focusId,
+      issuesKeyReduce(
+        { focusId: asIssueId('a'), selected: [] },
+        { kind: 'right' },
+        cols([['a'], [], ['z']]),
+      ).focusId,
     ).toBe('z')
   })
   it('right is a no-op with no non-empty column to the right', () => {
     expect(
-      issuesKeyReduce({ focusId: asIssueId('x'), selected: [] }, { kind: 'right' }, cols([['a'], ['x']]))
-        .focusId,
+      issuesKeyReduce(
+        { focusId: asIssueId('x'), selected: [] },
+        { kind: 'right' },
+        cols([['a'], ['x']]),
+      ).focusId,
     ).toBe('x')
   })
   it('left/right are no-ops on rows nav', () => {
     expect(
-      issuesKeyReduce({ focusId: asIssueId('a'), selected: [] }, { kind: 'right' }, rows(['a', 'b'])).focusId,
+      issuesKeyReduce(
+        { focusId: asIssueId('a'), selected: [] },
+        { kind: 'right' },
+        rows(['a', 'b']),
+      ).focusId,
     ).toBe('a')
     expect(
-      issuesKeyReduce({ focusId: asIssueId('b'), selected: [] }, { kind: 'left' }, rows(['a', 'b'])).focusId,
+      issuesKeyReduce({ focusId: asIssueId('b'), selected: [] }, { kind: 'left' }, rows(['a', 'b']))
+        .focusId,
     ).toBe('b')
   })
 })
@@ -115,14 +142,20 @@ describe('issuesKeyReduce — left / right across columns', () => {
 describe('issuesKeyReduce — toggleSelect', () => {
   it('adds the focused id to the selection', () => {
     expect(
-      issuesKeyReduce({ focusId: asIssueId('a'), selected: [] }, { kind: 'toggleSelect' }, rows(['a', 'b']))
-        .selected,
+      issuesKeyReduce(
+        { focusId: asIssueId('a'), selected: [] },
+        { kind: 'toggleSelect' },
+        rows(['a', 'b']),
+      ).selected,
     ).toEqual(['a'])
   })
   it('removes an already-selected focused id', () => {
     expect(
-      issuesKeyReduce({ focusId: asIssueId('a'), selected: [asIssueId(asIssueId('a'))] }, { kind: 'toggleSelect' }, rows(['a', 'b']))
-        .selected,
+      issuesKeyReduce(
+        { focusId: asIssueId('a'), selected: [asIssueId(asIssueId('a'))] },
+        { kind: 'toggleSelect' },
+        rows(['a', 'b']),
+      ).selected,
     ).toEqual([])
   })
   it('no-ops when focus is null', () => {
@@ -135,13 +168,18 @@ describe('issuesKeyReduce — toggleSelect', () => {
 
 describe('issuesKeyReduce — clear', () => {
   it('drops the selection first, keeping focus', () => {
-    const r = issuesKeyReduce({ focusId: asIssueId('a'), selected: [asIssueId(asIssueId('a'))] }, { kind: 'clear' }, rows(['a']))
+    const r = issuesKeyReduce(
+      { focusId: asIssueId('a'), selected: [asIssueId(asIssueId('a'))] },
+      { kind: 'clear' },
+      rows(['a']),
+    )
     expect(r.selected).toEqual([])
     expect(r.focusId).toBe('a')
   })
   it('drops focus once the selection is already empty', () => {
     expect(
-      issuesKeyReduce({ focusId: asIssueId('a'), selected: [] }, { kind: 'clear' }, rows(['a'])).focusId,
+      issuesKeyReduce({ focusId: asIssueId('a'), selected: [] }, { kind: 'clear' }, rows(['a']))
+        .focusId,
     ).toBe(null)
   })
 })
@@ -149,7 +187,8 @@ describe('issuesKeyReduce — clear', () => {
 describe('issuesKeyReduce — normalization of vanished focus', () => {
   it('next from a focus id no longer in nav lands on the first id', () => {
     expect(
-      issuesKeyReduce({ focusId: asIssueId('gone'), selected: [] }, { kind: 'next' }, rows(['a'])).focusId,
+      issuesKeyReduce({ focusId: asIssueId('gone'), selected: [] }, { kind: 'next' }, rows(['a']))
+        .focusId,
     ).toBe('a')
   })
   it('never returns a focus id absent from nav (toggleSelect no-ops)', () => {
@@ -163,7 +202,8 @@ describe('issuesKeyReduce — normalization of vanished focus', () => {
   })
   it('clear on a vanished focus normalizes to null', () => {
     expect(
-      issuesKeyReduce({ focusId: asIssueId('gone'), selected: [] }, { kind: 'clear' }, rows(['a'])).focusId,
+      issuesKeyReduce({ focusId: asIssueId('gone'), selected: [] }, { kind: 'clear' }, rows(['a']))
+        .focusId,
     ).toBe(null)
   })
 })

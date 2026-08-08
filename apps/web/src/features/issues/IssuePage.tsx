@@ -1,10 +1,11 @@
 import type { IssueId } from '@podium/model'
-import type { JSX } from 'react'
+import type { CSSProperties, JSX } from 'react'
 import { useEffect, useState } from 'react'
 import type { IssueViewModel } from '@/app/store'
+import { issueColorHex } from '@/lib/issueColors'
 import { cn } from '@/lib/utils'
 import { IssueCloseDialog, type IssueCloseReason } from './issue-lifecycle'
-import { IssueActivitySection, MailSection } from './issue-page/IssueActivity'
+import { CommentComposer, IssueActivitySection, MailSection } from './issue-page/IssueActivity'
 import { IssueAgentActivity } from './issue-page/IssueAgentActivity'
 import { IssueBanners } from './issue-page/IssueBanners'
 import {
@@ -15,6 +16,7 @@ import {
   StatusStrip,
 } from './issue-page/IssueBody'
 import { IssueDetailHeader } from './issue-page/IssueDetailHeader'
+import { IssueNow } from './issue-page/IssueNow'
 import { IssueProperties } from './issue-page/IssueProperties'
 import { IssueSubIssues } from './issue-page/IssueSubIssues'
 import { useEvictionGuard } from './issue-page/use-eviction-guard'
@@ -68,6 +70,7 @@ export function IssuePage({
 }): JSX.Element {
   const model = useIssuePageModel(issue, orderedIds)
   const { busy, toast, run, prev, next, repoName, feed, mail, children, issues } = model
+  const { memberSessions, openSession } = model
   const commands = issuePageCommands({ trpc: model.trpc, issue, run })
 
   // If this issue is unshared while open (POD-1077 evict), leave — once, and
@@ -141,15 +144,27 @@ export function IssuePage({
   }
 
   const targets = repoMatesOf(issues, issue)
+  const issueHex = issueColorHex(issue.color)
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col" data-testid="issue-page">
+    // The page runs the issue-colour channel (POD-591): `--issue` is scoped
+    // here, so the todo meter, the activity timeline's nodes and the sub-task
+    // rows all pick up this task's own colour — the same channel the sidebar
+    // row, its tab and its workspace pane already use for it. Uncoloured issues
+    // inherit the neutral slate flow and the mechanics run identically.
+    <div
+      className="issue-scope flex min-h-0 min-w-0 flex-1 flex-col"
+      style={issueHex ? ({ '--issue': issueHex } as CSSProperties) : undefined}
+      data-issue-colored={issueHex ? 'true' : 'false'}
+      data-testid="issue-page"
+    >
       <IssueDetailHeader
         issue={issue}
         repoName={repoName}
         busy={busy}
         commands={commands}
         targets={targets}
+        sessions={memberSessions}
         prev={prev}
         next={next}
         onBack={onBack}
@@ -157,91 +172,105 @@ export function IssuePage({
       />
 
       <div className="flex min-h-0 flex-1">
-        <div className="min-w-0 flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-3xl px-6 py-5 md:px-8">
-            <IssueBanners
-              issue={issue}
-              busy={busy}
-              commands={commands}
-              onBack={onBack}
-              onNavigate={onNavigate}
-            />
+        {/* The document column scrolls; the composer below it does not (POD-591).
+            `overscroll-contain` keeps a flick at the end of the feed inside this
+            column instead of rubber-banding the window behind it — the native
+            manner a desktop app is expected to have. */}
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+            <div className="mx-auto w-full max-w-3xl px-6 py-6 md:px-8">
+              <IssueBanners
+                issue={issue}
+                busy={busy}
+                commands={commands}
+                onBack={onBack}
+                onNavigate={onNavigate}
+              />
 
-            <IssueTitle
-              issue={issue}
-              busy={busy}
-              editing={editingTitle}
-              onEditingChange={setEditingTitle}
-              onCommit={commitTitle}
-            />
+              <IssueTitle
+                issue={issue}
+                busy={busy}
+                editing={editingTitle}
+                onEditingChange={setEditingTitle}
+                onCommit={commitTitle}
+              />
 
-            <StatusStrip issue={issue} />
+              <StatusStrip issue={issue} />
 
-            <IssueDescription
-              issue={issue}
-              busy={busy}
-              editing={editingDesc}
-              onEditingChange={setEditingDesc}
-              onCommit={commitDescription}
-            />
+              {/* What is true right now: live agents, and where the branch is.
+                The page used to know less about its own task than the sidebar
+                row for it did — see the module note. */}
+              <IssueNow issue={issue} sessions={memberSessions} onOpenSession={openSession} />
 
-            <IssueBrief issue={issue} />
+              <IssueDescription
+                issue={issue}
+                busy={busy}
+                editing={editingDesc}
+                onEditingChange={setEditingDesc}
+                onCommit={commitDescription}
+              />
 
-            {/* Long-form spec fields agents write via `podium issue update`. */}
-            <LongFormFields issue={issue} busy={busy} commands={commands} />
+              <IssueBrief issue={issue} />
 
-            {/* The agent-published panel: todos / artifacts / deferred. */}
-            <IssueAgentActivity issue={issue} busy={busy} commands={commands} />
+              {/* Long-form spec fields agents write via `podium issue update`. */}
+              <LongFormFields issue={issue} busy={busy} commands={commands} />
 
-            <IssueSubIssues
-              issue={issue}
-              subIssues={children}
-              busy={busy}
-              addingChild={addingChild}
-              childTitle={childTitle}
-              onAddingChange={setAddingChild}
-              onChildTitleChange={setChildTitle}
-              onCreate={createChild}
-              onNavigate={onNavigate}
-            />
+              {/* The agent-published panel: todos / artifacts / deferred. */}
+              <IssueAgentActivity issue={issue} busy={busy} commands={commands} />
 
-            <MailSection mail={mail} />
+              <IssueSubIssues
+                issue={issue}
+                subIssues={children}
+                busy={busy}
+                addingChild={addingChild}
+                childTitle={childTitle}
+                onAddingChange={setAddingChild}
+                onChildTitleChange={setChildTitle}
+                onCreate={createChild}
+                onNavigate={onNavigate}
+              />
 
-            {/* Properties (mobile) — the desktop aside is hidden <md, so mirror
+              <MailSection mail={mail} />
+
+              {/* Properties (mobile) — the desktop aside is hidden <md, so mirror
                 its rows in a collapsible disclosure above the activity feed. */}
-            <details
-              className="mb-4 rounded-lg border border-border md:hidden"
-              data-testid="issue-details-mobile"
-            >
-              <summary className="cursor-pointer select-none px-3 py-2 font-medium text-[13px] text-foreground">
-                Details
-              </summary>
-              <div className="border-border border-t px-3 py-2">
-                <IssueProperties
-                  issue={issue}
-                  busy={busy}
-                  commands={commands}
-                  onNavigate={onNavigate}
-                  onRequestClose={setCloseReason}
-                />
-              </div>
-            </details>
+              <details
+                className="mb-4 rounded-lg border border-border md:hidden"
+                data-testid="issue-details-mobile"
+              >
+                <summary className="cursor-pointer select-none px-3 py-2 font-medium text-[13px] text-foreground">
+                  Details
+                </summary>
+                <div className="border-border border-t px-3 py-2">
+                  <IssueProperties
+                    issue={issue}
+                    busy={busy}
+                    commands={commands}
+                    onNavigate={onNavigate}
+                    onRequestClose={setCloseReason}
+                  />
+                </div>
+              </details>
 
-            <IssueActivitySection
-              issue={issue}
-              busy={busy}
-              commands={commands}
-              feed={feed}
-              commentBody={commentBody}
-              onCommentBodyChange={setCommentBody}
-              onPost={postComment}
-            />
+              <IssueActivitySection issue={issue} busy={busy} commands={commands} feed={feed} />
+            </div>
           </div>
+
+          {/* Pinned, not appended. A task with 26 artifacts and a day of events
+              put the reply box six thousand pixels down the scroll, so replying
+              meant first travelling past everything you were replying to. */}
+          <CommentComposer
+            issueId={issue.id}
+            busy={busy}
+            value={commentBody}
+            onChange={setCommentBody}
+            onPost={postComment}
+          />
         </div>
 
         <aside
           data-testid="issue-aside"
-          className="hidden w-[280px] shrink-0 overflow-y-auto border-border border-l px-4 py-4 md:block"
+          className="hidden w-[272px] shrink-0 overflow-y-auto overscroll-contain border-border border-l bg-rail md:block"
         >
           <IssueProperties
             issue={issue}

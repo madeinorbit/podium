@@ -35,7 +35,7 @@ import { shallowEqual } from '@podium/client-core'
 import { relativeTime } from '@podium/client-core/focus'
 import { artifactKind, artifactUrl, basename } from '@podium/client-core/viewmodels'
 import type { IssuePanelArtifact } from '@podium/model'
-import { FileText, Play } from 'lucide-react'
+import { ChevronRight, FileText, Play } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { type IssueViewModel, useStoreSelector } from '@/app/store'
@@ -76,6 +76,12 @@ export function IssueAgentActivity({
   if (todos.length === 0 && artifacts.length === 0 && deferred.length === 0) return null
 
   const doneCount = todos.filter((t) => t.done).length
+  // The 1-based index IS the API `toggleTodo` takes, so it is carried alongside
+  // each todo rather than recovered from a filtered array's position — a
+  // partitioned list whose keys are its own indices toggles the wrong row.
+  const indexed = todos.map((todo, index) => ({ todo, index }))
+  const openTodos = indexed.filter((t) => !t.todo.done)
+  const doneTodos = indexed.filter((t) => t.todo.done)
   // An issue with no dedicated worktree is worked in the repo's primary
   // checkout — serve its artifacts from there.
   const root = issue.worktreePath ?? issue.repoPath
@@ -106,40 +112,58 @@ export function IssueAgentActivity({
       <AgentActivityAttribution issue={issue} />
 
       {todos.length > 0 && (
-        <section className="mb-7 flex flex-col gap-1.5">
+        <section className="mb-7 flex flex-col gap-2">
           <SectionHeading count={`${doneCount}/${todos.length}`}>Todo</SectionHeading>
-          <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
-            <div
-              className="h-full rounded-full bg-success/80 transition-[width] duration-300"
-              style={{ width: `${(doneCount / todos.length) * 100}%` }}
-            />
+          <div className="flex items-center gap-2.5">
+            <div className="h-[3px] flex-1 overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-[var(--issue)] transition-[width] duration-300"
+                style={{ width: `${(doneCount / todos.length) * 100}%` }}
+              />
+            </div>
+            <span className="font-mono text-[9px] text-text-faint tabular-nums">
+              {Math.round((doneCount / todos.length) * 100)}%
+            </span>
           </div>
+          {/* OPEN WORK FIRST, DONE WORK FOLDED (POD-591). A live task carries
+              twenty todos and two thirds of them are struck through — a wall of
+              crossed-out text between the description and everything below it.
+              What is left to do is the question this section answers; what was
+              already done is an audit trail, one click away. */}
           <div className="flex flex-col gap-0.5">
-            {todos.map((t, i) => (
-              // biome-ignore lint/a11y/noLabelWithoutControl: the Checkbox inside renders a Base UI role=checkbox button, which biome can't see as a control
-              <label
-                // biome-ignore lint/suspicious/noArrayIndexKey: todos are positional (1-based index API)
-                key={i}
-                className="flex cursor-pointer items-start gap-2 rounded px-1 py-1 text-[13px] hover:bg-muted/50"
-              >
-                <Checkbox
-                  checked={t.done}
-                  disabled={busy}
-                  onCheckedChange={(checked) => commands.toggleTodo(i + 1, checked === true)}
-                  className="mt-0.5"
-                />
-                <span
-                  className={cn(
-                    t.done
-                      ? 'text-muted-foreground line-through decoration-muted-foreground/40'
-                      : 'text-foreground',
-                  )}
-                >
-                  {t.text}
-                </span>
-              </label>
+            {openTodos.map(({ todo, index }) => (
+              <TodoRow
+                key={`open-${index}`}
+                todo={todo}
+                index={index}
+                busy={busy}
+                commands={commands}
+              />
             ))}
           </div>
+          {doneTodos.length > 0 && (
+            <details className="group/done">
+              <summary className="flex cursor-pointer list-none items-center gap-1.5 py-0.5 text-[11px] text-text-dim hover:text-foreground [&::-webkit-details-marker]:hidden">
+                <ChevronRight
+                  size={11}
+                  aria-hidden="true"
+                  className="transition-transform group-open/done:rotate-90"
+                />
+                {doneTodos.length} done
+              </summary>
+              <div className="mt-0.5 flex flex-col gap-0.5">
+                {doneTodos.map(({ todo, index }) => (
+                  <TodoRow
+                    key={`done-${index}`}
+                    todo={todo}
+                    index={index}
+                    busy={busy}
+                    commands={commands}
+                  />
+                ))}
+              </div>
+            </details>
+          )}
         </section>
       )}
 
@@ -250,6 +274,35 @@ export function IssueAgentActivity({
   )
 }
 
+/** One todo. The 1-based `index` is the toggle API's argument, threaded from the
+ *  unpartitioned list so an open/done split cannot toggle the wrong row. */
+function TodoRow({
+  todo,
+  index,
+  busy,
+  commands,
+}: {
+  todo: { text: string; done: boolean }
+  index: number
+  busy: boolean
+  commands: IssuePageCommands
+}): JSX.Element {
+  return (
+    // biome-ignore lint/a11y/noLabelWithoutControl: the Checkbox inside renders a Base UI role=checkbox button, which biome can't see as a control
+    <label className="-mx-1.5 flex cursor-pointer items-start gap-2 rounded-[4.8px] px-1.5 py-1 text-[12.5px] transition-colors hover:bg-accent">
+      <Checkbox
+        checked={todo.done}
+        disabled={busy}
+        onCheckedChange={(checked) => commands.toggleTodo(index + 1, checked === true)}
+        className="mt-[3px]"
+      />
+      <span className={cn('leading-[1.45]', todo.done ? 'text-text-faint' : 'text-foreground')}>
+        {todo.text}
+      </span>
+    </label>
+  )
+}
+
 /** Who produced this work, from the issue's own server-stamped `createdBy`
  *  pair. Renders nothing when the projection carries no pair — an older row
  *  genuinely does not know, and "unknown · for you" would be a fabrication. */
@@ -261,7 +314,11 @@ function AgentActivityAttribution({ issue }: { issue: IssueViewModel }): JSX.Ele
       data-testid="agent-activity-attribution"
     >
       <span>Published by</span>
-      <AttributionPair attribution={issue.createdBy} />
+      {/* `compact` (POD-591): this is a one-line dense row, which is the case
+          the flag was built for. Without it an agent actor's full uuid ran the
+          width of the column — the page's only visible uuid, and the reason the
+          human half beside it was the part that got clipped. */}
+      <AttributionPair compact attribution={issue.createdBy} />
     </p>
   )
 }

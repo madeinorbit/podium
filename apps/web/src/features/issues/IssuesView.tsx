@@ -9,6 +9,8 @@ import { Input } from '@/components/ui/input'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 import { cn } from '@/lib/utils'
+import { BoardShortcutSheet } from './BoardShortcutSheet'
+import { boardKeyAction } from './board-shortcuts'
 import { IssueContextMenu } from './IssueContextMenu'
 import { IssueListView } from './IssueListView'
 import { IssuePage } from './IssuePage'
@@ -61,6 +63,7 @@ export function IssuesView(): JSX.Element {
     anchor: { x: number; y: number }
   } | null>(null)
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
+  const [showShortcuts, setShowShortcuts] = useState(false)
 
   const updateDisplay = (patch: IssuesDisplayPatch): void => {
     setDisplay({ ...display, ...patch, badges: { ...display.badges, ...(patch.badges ?? {}) } })
@@ -85,9 +88,10 @@ export function IssuesView(): JSX.Element {
   const moveIssue = (id: string, stage: IssueStage): void =>
     runMut(trpc.issues.update.mutate({ id, patch: { stage } }))
   const approveIssue = (id: string): void => runMut(trpc.issues.promote.mutate({ id }))
-  const approveAndStart = (id: string): void =>
-    runMut(trpc.issues.promote.mutate({ id }).then(() => trpc.issues.start.mutate({ id })))
-  const archiveIssue = (id: string): void => runMut(trpc.issues.archive.mutate({ id }))
+  // `approve & start` and `archive` left this file with the card's three-button
+  // bar (POD-591). They are not lost: both are on the right-click menu, which
+  // acts on a selection rather than on one card, and that is where a decision
+  // taken over 140 proposals belongs. The card keeps Approve alone.
   const setAssignee = (id: string, assignee: string): void =>
     runMut(trpc.issues.update.mutate({ id, patch: { assignee } }))
   const setPriority = (id: string, priority: number): void =>
@@ -122,56 +126,40 @@ export function IssuesView(): JSX.Element {
       )
         return
       if (document.querySelector('[role="dialog"], [role="menu"]')) return
-      switch (event.key) {
-        case 'c':
+      // Bindings come from `board-shortcuts.ts`, which the `?` sheet also reads
+      // (POD-591) — so a key the board answers is a key the sheet lists, by
+      // construction rather than by two people remembering.
+      const bound = boardKeyAction(event.key)
+      if (!bound) return
+      switch (bound.kind) {
+        case 'nav':
+          // Escape is the one binding that must NOT preventDefault: it is also
+          // how the browser leaves full screen and how a native wrapper cancels.
+          if (event.key !== 'Escape') event.preventDefault()
+          if (bound.action.kind === 'toggleSelect' && !focusRef.current) return
+          dispatchKey(bound.action)
+          return
+        case 'create':
           event.preventDefault()
           setCreating({})
-          break
-        case 'Escape':
-          dispatchKey({ kind: 'clear' })
-          break
-        case 'j':
-        case 'ArrowDown':
+          return
+        case 'open':
+          if (!focusRef.current) return
           event.preventDefault()
-          dispatchKey({ kind: 'next' })
-          break
-        case 'k':
-        case 'ArrowUp':
+          setOpenIssueId(focusRef.current)
+          return
+        case 'property':
+          if (!focusRef.current) return
           event.preventDefault()
-          dispatchKey({ kind: 'prev' })
-          break
-        case 'ArrowLeft':
+          setPropMenu({ kind: event.key as PropMenuKind, id: focusRef.current })
+          document
+            .querySelector(`[data-issue-id="${focusRef.current}"]`)
+            ?.scrollIntoView({ block: 'nearest' })
+          return
+        case 'help':
           event.preventDefault()
-          dispatchKey({ kind: 'left' })
-          break
-        case 'ArrowRight':
-          event.preventDefault()
-          dispatchKey({ kind: 'right' })
-          break
-        case 'Enter':
-          if (focusRef.current) {
-            event.preventDefault()
-            setOpenIssueId(focusRef.current)
-          }
-          break
-        case 'x':
-          if (focusRef.current) {
-            event.preventDefault()
-            dispatchKey({ kind: 'toggleSelect' })
-          }
-          break
-        case 's':
-        case 'p':
-        case 'a':
-        case 'l':
-          if (focusRef.current) {
-            event.preventDefault()
-            setPropMenu({ kind: event.key, id: focusRef.current })
-            document
-              .querySelector(`[data-issue-id="${focusRef.current}"]`)
-              ?.scrollIntoView({ block: 'nearest' })
-          }
-          break
+          setShowShortcuts(true)
+          return
       }
     }
     window.addEventListener('keydown', onKey)
@@ -318,16 +306,13 @@ export function IssuesView(): JSX.Element {
           columns={view.orderedByStage}
           allIssues={issues}
           badges={display.badges}
+          ordering={display.ordering}
           stageCounts={view.stageCounts}
           epicProgress={view.epicProgress}
           onOpen={setOpenIssueId}
           onMoveIssue={moveIssue}
           onApprove={approveIssue}
-          onApproveStart={approveAndStart}
-          onArchive={archiveIssue}
           onCreateIn={(stage) => setCreating({ stage })}
-          onSetAssignee={setAssignee}
-          assignees={view.assignees}
           focusId={focusId}
           selected={selectedIds}
           onToggleSelect={toggleSelectId}
@@ -345,6 +330,7 @@ export function IssuesView(): JSX.Element {
       {creating && (
         <NewIssueDialog initialStage={creating.stage} onClose={() => setCreating(null)} />
       )}
+      {showShortcuts && <BoardShortcutSheet onClose={() => setShowShortcuts(false)} />}
       {selectedIds.length > 0 && (
         <BulkBar
           count={selectedIds.length}

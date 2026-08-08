@@ -68,6 +68,30 @@ export function sanitizeBody(body: string): string {
   return body.replace(/[\u0000-\u0008\u000b-\u001f\u007f\u0080-\u009f]/g, '')
 }
 
+/**
+ * How a mail-handling turn must END [POD-604].
+ *
+ * Mail only ever lands on an IDLE session — a running one queues until its turn
+ * ends — so almost every delivery interrupts an agent that has just finished
+ * and reported. Two things the human relies on are then at risk, and they fail
+ * in opposite directions:
+ *
+ *  - the SUMMARY genuinely is lost: the mail-handling turn appends after it, so
+ *    a human returning hours later reads "replied to POD-588" where the account
+ *    of the actual work used to be. It has to be restated.
+ *  - the OFFER is not lost — a `mail`-origin turn deliberately does not clear it
+ *    (`userOpenedTurn`, POD-118) — but `podium offer` REPLACES rather than
+ *    stacks, so an agent that posts a mail-flavoured card destroys the
+ *    "ready to merge" one the human was coming back to click. The instruction is
+ *    therefore to leave it alone, NOT to re-post it.
+ */
+export const TURN_CLOSE_RULE =
+  `[before you go idle: a human returning here reads only your LAST message. In one or two plain ` +
+  `sentences say who mailed you, what they wanted and what you did — then repeat, below that, the ` +
+  `summary of your own work this interrupted, so it is still what they see.]\n` +
+  `[your standing offer survived this mail: leave it, or re-post it unchanged — never replace it ` +
+  `with one about the mail. Check the issue stage still matches reality before you stop.]\n`
+
 /** Render the delivery envelope. Server-only: bodies never carry frames of
  *  their own — a spoofed "[podium message …]" inside `body` lands INSIDE the
  *  real frame and reads as quoted text. */
@@ -76,6 +100,7 @@ export function renderEnvelope(
   fromLabel: string,
   toLabel: string,
   note?: string,
+  opts?: { turnClose?: boolean },
 ): string {
   // The seance constraint [spec:SP-34d7 read-toolkit tier 4]: a question's
   // frame binds the receiver — answer from existing context, reply, then
@@ -100,6 +125,7 @@ export function renderEnvelope(
     (note ? `${note}\n` : '') +
     questionRule +
     responseRule +
+    (opts?.turnClose ? TURN_CLOSE_RULE : '') +
     `[end podium message ${m.id}]`
   )
 }
@@ -159,20 +185,32 @@ export class MessageRenderer {
     // Substrate boundary: every NON-operator delivered body is control-stripped
     // so it can never break out of the bracketed paste (ESC[201~) in typeText.
     const body = sanitizeBody(message.body)
+    // `turnClose` is for mail an AGENT will act on [POD-604]. Two exclusions,
+    // both about who actually reads the frame: the operator path above is the
+    // human typing into a session they are still watching, and a `toKind:
+    // operator` row is an escalation queued for UI pickup — its reader is the
+    // human, who has no turn to close and no offer to preserve.
     return renderEnvelope(
       { ...message, body },
       this.fromLabel(message),
       this.toLabel(message),
       this.crossMachineNote(message, receiverSessionId),
+      { turnClose: message.toKind !== 'operator' },
     )
   }
 
   /** The coalesced pointer rendering (also used for oversized bodies). */
   pointerText(rows: MessageRow[]): string {
     const senders = [...new Set(rows.map((m) => this.fromLabel(m)))]
+    // The pointer path leads to the same interrupted-turn problem the envelope's
+    // TURN_CLOSE_RULE covers [POD-604] — reading the inbox is still a turn that
+    // buries the summary the human was coming back to. Said in one line here
+    // because a coalesced nudge has to stay a nudge.
     return (
       `[podium] ${rows.length} message(s) from ${senders.join(', ')} — ` +
-      `run 'podium issue mail inbox' to read them`
+      `run 'podium issue mail inbox' to read them, then close your turn by saying briefly ` +
+      `who mailed you and what you did, repeating your previous summary below that, and ` +
+      `leaving your standing offer as it is`
     )
   }
 

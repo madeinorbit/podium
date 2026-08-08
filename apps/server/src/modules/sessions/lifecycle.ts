@@ -100,6 +100,7 @@ import type { SessionDaemonProjection } from './daemon-projection'
 import { machineUseGateForCapability } from './handoff/access'
 import type { AssertMachineUse, HandoffCaller } from './handoff/ports'
 import {
+  type AnswerChoice,
   type InboxPrincipalReference,
   inboxActorColumns,
   inboxActorFromColumns,
@@ -211,7 +212,8 @@ export class SessionLifecycle {
   readonly resumeAndSend!: SessionInbox['resumeAndSend']
   readonly answerAskUserQuestion!: (input: {
     sessionId: SessionId
-    choices: { optionIndices: number[] }[]
+    choices?: AnswerChoice[]
+    skip?: boolean
     principal?: InboxPrincipalReference
   }) => { ok: boolean }
   readonly setSessionDraft!: (

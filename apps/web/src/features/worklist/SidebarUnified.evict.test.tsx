@@ -189,7 +189,13 @@ describe('an evicted issue leaves the sidebar without a deletion', () => {
     // Tucked/decayed rows leave the live list while still existing in the slice.
     // Absence from the WORKLIST is not the eviction test; absence from the
     // replica's issues is.
-    currentIssues = [issue('iss_shared', 'Shared with me', { tuckedAt: '2026-08-01T12:00:00.000Z', stage: 'done', closedReason: 'completed' })]
+    currentIssues = [
+      issue('iss_shared', 'Shared with me', {
+        tuckedAt: '2026-08-01T12:00:00.000Z',
+        stage: 'done',
+        closedReason: 'completed',
+      }),
+    ]
     currentSelected = SHARED.id
     render(<SidebarUnified />)
 

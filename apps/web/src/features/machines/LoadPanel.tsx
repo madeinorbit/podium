@@ -1,13 +1,23 @@
 import { shallowEqual } from '@podium/client-core/store'
-import { formatMemBytes, hostMemoryView, panelLabel } from '@podium/client-core/viewmodels'
+import {
+  formatMemBytes,
+  hostLoadView,
+  hostMemoryView,
+  idleSessionSplit,
+  listReclaimableWorktreesClient,
+  occupiedRootsFromKey,
+  panelLabel,
+  placeReclaimable,
+  residentWorktreeKey,
+} from '@podium/client-core/viewmodels'
 import type { AgentMemoryWire, HostMemoryWire, ProjectMemoryWire, SessionId } from '@podium/model'
 import { Loader2 } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
-import { useEffect, useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useEffect, useMemo, useState } from 'react'
+import { useReplicaIssues, useStoreSelector } from '@/app/store'
 import { cn } from '@/lib/utils'
 import { HealthPopoverFooter } from './HealthPopover'
-import { useHibernationSetting } from './HostMemoryView'
+import { useHostLifecycleSettings } from './HostMemoryView'
 
 interface Breakdown {
   hostname: string
@@ -25,22 +35,25 @@ const REFRESH_MS = 5_000
  * The machine-load popover body. Hover tier: hostname + used/total headline and
  * the composition bar (agents / project processes / other) so you see WHAT is
  * eating the machine before deciding to click. Pinned tier: per-session and
- * per-project rows, the hibernation status with a settings shortcut, and a
- * footer jump to connection detail.
+ * per-project rows, reclaimable inventory, hibernation + worktree-GC status
+ * with settings shortcuts, and a footer jump to connection detail.
  *
  * The per-process breakdown (a /proc walk) is fetched once the panel opens and
  * refreshed every 5s only while it stays open — same cadence the old modal used.
+ * Reclaimable inventory is derived client-side (no du probe; count only).
  */
 export function LoadPanel({
   machineId,
   pinned,
   updateNote,
   onOpenConnection,
+  onOpenReclaim,
 }: {
   machineId?: string
   pinned: boolean
   updateNote?: ReactNode
   onOpenConnection: () => void
+  onOpenReclaim?: () => void
 }): JSX.Element {
   const { trpc, sessions, hostMetrics, setView, setSettingsTab } = useStoreSelector(
     (s) => ({
@@ -52,7 +65,10 @@ export function LoadPanel({
     }),
     shallowEqual,
   )
-  const hibernation = useHibernationSetting()
+  const issues = useReplicaIssues()
+  const lifecycle = useHostLifecycleSettings()
+  const hibernation = lifecycle?.hibernation ?? null
+  const worktreeGc = lifecycle?.worktreeGc ?? null
   const [data, setData] = useState<Breakdown | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -83,6 +99,26 @@ export function LoadPanel({
     : metric
       ? hostMemoryView(metric)
       : null
+  const load = metric ? hostLoadView(metric, hibernation?.loadPerCore ?? null) : null
+  const idleSplit = idleSessionSplit(sessions, machineId)
+  const afterDays = worktreeGc?.afterDays ?? 14
+  // Keyed on live-agent occupancy, not the sessions array — see the same memo in
+  // HeaderHostIndicators. The panel refreshes its /proc breakdown every 5s; the
+  // candidate scan has no reason to follow that cadence.
+  const occupancyKey = residentWorktreeKey(sessions)
+  const soleMachine = hostMetrics.length === 1
+  const reclaimable = useMemo(
+    () =>
+      placeReclaimable(
+        listReclaimableWorktreesClient({
+          issues,
+          occupiedRoots: occupiedRootsFromKey(occupancyKey),
+          afterDays,
+        }),
+        { machineId, soleMachine },
+      ),
+    [issues, occupancyKey, afterDays, machineId, soleMachine],
+  )
 
   const total = data?.memory.totalBytes ?? 0
   const agentBytes = data?.agents.reduce((sum, a) => sum + a.bytes, 0) ?? 0
@@ -95,18 +131,33 @@ export function LoadPanel({
     return `${panelLabel(s.agentKind)} — ${s.title}`
   }
 
-  const hibActive =
+  const memActive =
     hibernation?.enabled === true && mem !== null && mem.pct >= hibernation.memoryPct
+  const loadActive =
+    hibernation?.enabled === true &&
+    hibernation.loadPerCore != null &&
+    load?.perCore != null &&
+    load.perCore >= hibernation.loadPerCore
+  const hibActive = memActive || loadActive
+
+  const openHibernation = (): void => {
+    setSettingsTab('hibernation')
+    setView('settings')
+  }
+
+  const figures = [
+    mem?.label,
+    mem != null ? `${mem.pct}%` : null,
+    load?.perCore != null ? `load ${load.label}` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ')
 
   return (
     <>
       <div className="hp-header">
         <span className="hp-title">{mem?.hostname ?? '…'}</span>
-        {mem && (
-          <span className="hp-figures">
-            {mem.label} · {mem.pct}%
-          </span>
-        )}
+        {figures && <span className="hp-figures">{figures}</span>}
       </div>
       <div className="hp-section">
         {data ? (
@@ -141,8 +192,12 @@ export function LoadPanel({
           <div className="hp-dim-line">
             {hibernation.enabled
               ? hibActive
-                ? 'Hibernating stale agents to free memory'
-                : `Auto-hibernation standing by — parks idle agents past ${hibernation.memoryPct}%`
+                ? loadActive && !memActive
+                  ? `Load ${load?.label ?? ''} per core — auto-hibernation parks idle agents past ${hibernation.loadPerCore}×`
+                  : 'Hibernating stale agents to free resources'
+                : hibernation.loadPerCore != null
+                  ? `Auto-hibernation standing by at ${hibernation.loadPerCore}× load or ${hibernation.memoryPct}% memory`
+                  : `Auto-hibernation standing by — parks idle agents past ${hibernation.memoryPct}%`
               : 'Auto-hibernation off'}
           </div>
         )}
@@ -182,28 +237,73 @@ export function LoadPanel({
             </>
           ) : (
             <div className="hp-dim-line">
-              This host can't attribute memory per process (no /proc) — totals only.
+              This host can&apos;t attribute memory per process (no /proc) — totals only.
             </div>
           )}
+        </div>
+      )}
+      {pinned && (
+        <div className="hp-section">
+          <div className="hp-sect-label">Reclaimable</div>
+          <div className="hp-kv">
+            <span className="hp-kv-key">Worktrees</span>
+            <span className="hp-kv-value">
+              {reclaimable.here.length} checkout{reclaimable.here.length === 1 ? '' : 's'}
+              {reclaimable.unplaceable > 0 ? ` · ${reclaimable.unplaceable} unplaced` : ''}
+            </span>
+            {onOpenReclaim && reclaimable.here.length > 0 && (
+              <button data-pressable type="button" className="hp-link" onClick={onOpenReclaim}>
+                Review
+              </button>
+            )}
+          </div>
+          <div className="hp-kv">
+            <span className="hp-kv-key">Idle sessions</span>
+            <span className="hp-kv-value">
+              {idleSplit.parkable} parkable · {idleSplit.protected} protected
+              {metric?.idleCapUnmet != null && metric.idleCapUnmet > 0
+                ? ` · ${metric.idleCapUnmet} cap unmet`
+                : ''}
+            </span>
+          </div>
+          {/* Not a readout — a standing caveat about what Review will and will
+              not do. It reports no count, so it must not sit in the key column
+              pretending to be one. */}
+          <div className="hp-dim-line">
+            Nothing is freed from here. Review proposes; you tick what goes.
+          </div>
+        </div>
+      )}
+      {pinned && (hibernation || worktreeGc) && (
+        <div className="hp-hibernation">
           {hibernation && (
-            <div className="hp-hibernation">
+            <>
               {hibernation.enabled
                 ? hibActive
-                  ? `Memory is past ${hibernation.memoryPct}%, so agents idle ${hibernation.idleMinutes} min are hibernating to free memory. One click resumes them. `
-                  : `Auto-hibernation on: past ${hibernation.memoryPct}% memory, agents idle ${hibernation.idleMinutes} min park themselves. `
+                  ? memActive
+                    ? `Memory is past ${hibernation.memoryPct}%, so agents idle ${hibernation.idleMinutes} min are hibernating. One click resumes them. `
+                    : `Load is past ${hibernation.loadPerCore}× per core, so agents idle ${hibernation.idleMinutes} min are hibernating. One click resumes them. `
+                  : hibernation.loadPerCore != null
+                    ? `Auto-hibernation on: agents idle ${hibernation.idleMinutes} min park past ${hibernation.loadPerCore}× load or ${hibernation.memoryPct}% memory. `
+                    : `Auto-hibernation on: past ${hibernation.memoryPct}% memory, agents idle ${hibernation.idleMinutes} min park themselves. `
                 : 'Auto-hibernation is off — idle agents keep their memory until you hibernate them by hand. '}
-              <button
-                data-pressable
-                type="button"
-                className="hp-link"
-                onClick={() => {
-                  setSettingsTab('hibernation')
-                  setView('settings')
-                }}
-              >
+              <button data-pressable type="button" className="hp-link" onClick={openHibernation}>
                 Hibernation settings
               </button>
-            </div>
+            </>
+          )}
+          {worktreeGc && (
+            <>
+              {hibernation ? <br /> : null}
+              {worktreeGc.mode === 'off'
+                ? 'Worktree GC is off. '
+                : worktreeGc.mode === 'auto'
+                  ? `Worktree GC: auto-freeing after ${worktreeGc.afterDays} days. `
+                  : `Worktree GC: proposing after ${worktreeGc.afterDays} days. `}
+              <button data-pressable type="button" className="hp-link" onClick={openHibernation}>
+                GC settings
+              </button>
+            </>
           )}
         </div>
       )}

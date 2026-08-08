@@ -4,6 +4,7 @@ import {
   resolveServerConfig,
   type ServerConfig,
 } from '@podium/client-core/transport'
+import type { AskAnswerChoice } from '@podium/client-core/viewmodels'
 import type { IssueStage, IssueType, IssueWire, SessionId, TranscriptItem } from '@podium/model'
 import { WIRE_VERSION } from '@podium/protocol'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
@@ -40,7 +41,8 @@ interface MobileTrpcExtras {
     sendText: MutationProcedure<{ sessionId: SessionId; text: string; mutationId?: string }>
     answerAskUserQuestion: MutationProcedure<{
       sessionId: SessionId
-      choices: { optionIndices: number[] }[]
+      skip?: true
+      choices?: AskAnswerChoice[]
     }>
   }
   superagent: {

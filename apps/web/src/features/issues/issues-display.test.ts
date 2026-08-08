@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { makeIssue as issue } from '@/lib/test-issue'
 import {
   computeEpicProgress,
   computeEpicProgressMap,
@@ -8,7 +9,6 @@ import {
   readIssuesDisplay,
   writeIssuesDisplay,
 } from './issues-display'
-import { makeIssue as issue } from '@/lib/test-issue'
 
 describe('readIssuesDisplay', () => {
   it('defaults on null/garbage/partial input', () => {

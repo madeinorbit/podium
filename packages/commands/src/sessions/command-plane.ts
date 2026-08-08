@@ -265,12 +265,68 @@ const resumeAndSend: CommandDef = {
     'OFFLINE-ELIGIBLE, against this issue’s brief and against a literal reading of ADR 3 Am1 D18.3, because the outbox oracle pins it in the covered set as must-not-change. D18.3 argues from a queued command minting a NEW process after a revoked grant — that is a spawn. This wakes an EXISTING session, carries a stable mutationId the authority dedupes (D11.7), and is bounded by D10/D11’s inequality rather than by its delivery class; making it direct-only would poison-drop user-authored work (D9 invariant 1). Escalated to the coordinator as a brief error rather than resolved silently.',
 }
 
-const answerInput = z.object({
-  sessionId: SessionIdField,
-  choices: z
-    .array(z.object({ optionIndices: z.array(z.number().int().min(1).max(9)).min(1) }))
-    .min(1),
-})
+/**
+ * One answer to one AskUserQuestion question.
+ *
+ * Claude's native menu always appends an Other entry after the agent-supplied
+ * options (agents are told not to include Other themselves). Selecting it is
+ * the free-text escape: type Other's digit (1-based `otherIndex` =
+ * optionCount+1) to focus the free-text field, then the text, then Enter.
+ * `optionIndices` is the existing digit path for listed options.
+ *
+ * `multiSelect` is the QUESTION's shape rather than the answer's, and it rides
+ * along because the menu cannot be driven without it: a multi-select's digits
+ * only toggle, so it takes a Tab to move on where a single-select advances
+ * itself, and the server cannot tell the two apart from one pick (POD-609).
+ */
+const answerChoice = z.union([
+  z.object({
+    optionIndices: z.array(z.number().int().min(1).max(9)).min(1),
+    multiSelect: z.boolean().optional(),
+  }),
+  z.object({
+    freeText: z.string().trim().min(1).max(4_000),
+    /** 1-based index of the native Other entry (= agent option count + 1). */
+    otherIndex: z.number().int().min(1).max(9),
+    multiSelect: z.boolean().optional(),
+  }),
+])
+
+/**
+ * Answer or skip a live AskUserQuestion menu.
+ *
+ * - `choices`: one entry per question, in order — either listed-option indices
+ *   or free text via the native Other entry.
+ * - `skip: true`: Esc, which cancels the whole dialog ("User declined to
+ *   answer questions"). Mutually exclusive with `choices`.
+ *
+ * WHICH HUMAN answered stays unrepresentable on the wire (§3.1.3 A3).
+ */
+const answerInput = z
+  .object({
+    sessionId: SessionIdField,
+    skip: z.literal(true).optional(),
+    choices: z.array(answerChoice).min(1).optional(),
+  })
+  .superRefine((val, ctx) => {
+    if (val.skip === true) {
+      if (val.choices !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'skip cannot be combined with choices',
+          path: ['choices'],
+        })
+      }
+      return
+    }
+    if (val.choices === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'choices required unless skip is true',
+        path: ['choices'],
+      })
+    }
+  })
 
 const answerAskUserQuestion: CommandDef = {
   input: answerInput,
@@ -282,7 +338,7 @@ const answerAskUserQuestion: CommandDef = {
   redaction: { fields: [] },
   conflict: 'cmd',
   decision:
-    'WHICH HUMAN answered is server-authoritative (§3.1.3 A3): the input schema carries no identity field at all, so a payload-supplied answerer is not merely ignored — it is unrepresentable, and D7.1’s "payload identity is inert" holds by construction rather than by a check someone could delete. Typing into a live menu is the `use` verb even though it mutates nothing durable.',
+    'WHICH HUMAN answered is server-authoritative (§3.1.3 A3): the input schema carries no identity field at all, so a payload-supplied answerer is not merely ignored — it is unrepresentable, and D7.1’s "payload identity is inert" holds by construction rather than by a check someone could delete. Typing into a live menu is the `use` verb even though it mutates nothing durable. Free-text rides the native Other entry (digit → text → Enter); skip is Esc — both are still keystrokes into a live PTY, never free text layered on top of an open menu.',
 }
 
 const continueSession: CommandDef = {
