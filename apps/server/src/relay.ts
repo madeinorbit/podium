@@ -750,6 +750,7 @@ export class SessionRegistry {
             sessionId: session.sessionId,
             machineId: session.machineId,
             status: session.status,
+            agentKind: session.agentKind,
             resume: session.resume,
             agentState: session.agentState,
             lastActiveAt: session.lastActiveAt,
@@ -764,6 +765,7 @@ export class SessionRegistry {
           }))
         },
         hibernateSession: (input) => sessionsSvc.hibernateSession(input),
+        parkShellSession: (input) => sessionsSvc.parkShellSession(input),
         hasValidTerminalProof: (sessionId) => sessionsSvc.hasValidTerminalProof(sessionId),
         terminalProofMissing: (sessionId) => sessionsSvc.terminalProofMissing(sessionId),
         daemonRequest: requestBroker,

@@ -96,7 +96,8 @@ export function HibernationSection({
           <>
             Per machine. Empty means unlimited. This is a convergence target for eligible idle live
             sessions, not a hard cap; protected or ineligible sessions stay live. Count, memory, and
-            load pressure act independently.
+            load pressure act independently. Quiet unobserved agents (no phase signal) count toward
+            the target after at least 4 hours.
             {unmet > 0 && (
               <span className="mt-1 block font-medium text-warning">
                 Cap unmet: {unmet} protected/ineligible
@@ -118,6 +119,29 @@ export function HibernationSection({
                 ...settings.hibernation,
                 maxIdleSessions:
                   e.target.value === '' ? null : clampInt(e.target.value, 0, 10000, 8),
+              },
+            })
+          }
+        />
+      </Row>
+      <Row
+        label="Idle shell hours"
+        description="Park live shells after this many hours with no input or output. Empty turns shell reaping off (default). Shells are never folded into the agent idle cap."
+      >
+        <Input
+          aria-label="Idle shell hours"
+          className="w-[90px] flex-none"
+          type="number"
+          min={1}
+          max={720}
+          placeholder="Off"
+          value={settings.hibernation.idleShellHours ?? ''}
+          onChange={(e) =>
+            patch({
+              hibernation: {
+                ...settings.hibernation,
+                idleShellHours:
+                  e.target.value === '' ? null : clampInt(e.target.value, 1, 720, 24),
               },
             })
           }

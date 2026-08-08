@@ -498,6 +498,11 @@ export class SessionLifecycle {
   }): { ok: boolean; reason?: string } {
     return this.sessionTeardown.hibernateSession(input)
   }
+
+  /** Idle-shell policy park — process killed, row inspectable, no worktree free. */
+  parkShellSession(input: { sessionId: SessionId }): { ok: boolean; reason?: string } {
+    return this.sessionTeardown.parkShellSession(input.sessionId)
+  }
   /** Move one resumable worktree session to another machine ([spec:SP-3f7a]). */
   handoffSession(
     input: { sessionId: SessionId; machineId: string },

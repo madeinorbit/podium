@@ -128,6 +128,35 @@ export class SessionTeardown {
     this.ports.broadcastSessions()
   }
 
+  /**
+   * Idle-shell policy park (POD-565): kill the process, keep the row
+   * inspectable as `hibernated`. A fresh spawn is a shell's recovery path, so
+   * no resume ref is required. Worktrees are deliberately NOT freed — that
+   * stays an explicit stop; auto free would yank a checkout under other work
+   * that merely shares the path.
+   */
+  parkShellSession(sessionId: SessionId): { ok: boolean; reason?: string } {
+    const session = this.ports.sessions.get(sessionId)
+    if (!session) return { ok: false, reason: 'unknown session' }
+    if (session.agentKind !== 'shell') {
+      return { ok: false, reason: 'not a shell session' }
+    }
+    const running =
+      session.status === 'live' ||
+      session.status === 'starting' ||
+      session.status === 'reconnecting'
+    if (!running) return { ok: false, reason: 'not running' }
+    session.status = 'hibernated'
+    this.ports.autoContinue.onSessionGone(sessionId)
+    session.stoppedAt = new Date(this.ports.now()).toISOString()
+    session.stopReason = 'parent'
+    this.ports.rearmUnread(sessionId)
+    this.ports.repository.persist(session)
+    this.killStoppedSession(session)
+    this.ports.broadcastSessions()
+    return { ok: true }
+  }
+
   /** Authoritatively revalidate a stopped-session decay proposal [spec:SP-6144]. */
   tryAutoArchiveStoppedObserved(
     observed: {

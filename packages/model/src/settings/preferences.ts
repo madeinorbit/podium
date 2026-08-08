@@ -242,6 +242,23 @@ export const HibernationPolicy = z.object({
     .min(1)
     .max(24 * 60)
     .default(30),
+  /**
+   * Park live shell sessions after this many hours of quiet (no input, no
+   * output). Null turns shell reaping off — the default, deliberately.
+   *
+   * Shells have no harness observer, so their phase stays unknown and the
+   * agent hibernation path cannot park them (no resume ref, no terminal
+   * proof). Folding them into maxIdleSessions would only inflate the
+   * overage; this is the explicit opt-in that actually reaps them via
+   * park-as-hibernated (inspectable, resumable by a fresh spawn). POD-565.
+   */
+  idleShellHours: z
+    .number()
+    .int()
+    .min(1)
+    .max(24 * 30)
+    .nullable()
+    .default(null),
 })
 export type HibernationPolicy = z.infer<typeof HibernationPolicy>
 

@@ -2373,11 +2373,12 @@
         "memoryPct": 80,
         "loadPerCore": 1.5,
         "maxIdleSessions": 8,
-        "idleMinutes": 30
+        "idleMinutes": 30,
+        "idleShellHours": null
       },
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"enabled\":true,\"memoryPct\":80,\"loadPerCore\":1.5,\"maxIdleSessions\":8,\"idleMinutes\":30}"
+      "encoded": "{\"enabled\":true,\"memoryPct\":80,\"loadPerCore\":1.5,\"maxIdleSessions\":8,\"idleMinutes\":30,\"idleShellHours\":null}"
     },
     {
       "schema": "HibernationPolicy",
@@ -2387,12 +2388,13 @@
         "memoryPct": 50,
         "loadPerCore": 1,
         "maxIdleSessions": 1,
-        "idleMinutes": 1
+        "idleMinutes": 1,
+        "idleShellHours": 1
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"enabled\":true,\"memoryPct\":50,\"loadPerCore\":1,\"maxIdleSessions\":1,\"idleMinutes\":1}"
+      "encoded": "{\"enabled\":true,\"memoryPct\":50,\"loadPerCore\":1,\"maxIdleSessions\":1,\"idleMinutes\":1,\"idleShellHours\":1}"
     },
     {
       "schema": "HostLoadWire",
@@ -2528,7 +2530,8 @@
           "memoryPct": 80,
           "loadPerCore": 1.5,
           "maxIdleSessions": 8,
-          "idleMinutes": 30
+          "idleMinutes": 30,
+          "idleShellHours": null
         },
         "gitWorkflow": {
           "defaultParentBranch": "",
@@ -2549,7 +2552,7 @@
       },
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"hibernation\":{\"enabled\":true,\"memoryPct\":80,\"loadPerCore\":1.5,\"maxIdleSessions\":8,\"idleMinutes\":30},\"gitWorkflow\":{\"defaultParentBranch\":\"\",\"mergeStyle\":\"ff-only\",\"autoRebaseBeforeMerge\":true},\"issues\":{\"assistantEnabled\":true},\"steward\":{\"enabled\":true},\"experimental\":{},\"worktreeGc\":{\"mode\":\"propose\",\"afterDays\":14}}"
+      "encoded": "{\"hibernation\":{\"enabled\":true,\"memoryPct\":80,\"loadPerCore\":1.5,\"maxIdleSessions\":8,\"idleMinutes\":30,\"idleShellHours\":null},\"gitWorkflow\":{\"defaultParentBranch\":\"\",\"mergeStyle\":\"ff-only\",\"autoRebaseBeforeMerge\":true},\"issues\":{\"assistantEnabled\":true},\"steward\":{\"enabled\":true},\"experimental\":{},\"worktreeGc\":{\"mode\":\"propose\",\"afterDays\":14}}"
     },
     {
       "schema": "InstancePreferences",
@@ -2560,7 +2563,8 @@
           "memoryPct": 50,
           "loadPerCore": 1,
           "maxIdleSessions": 1,
-          "idleMinutes": 1
+          "idleMinutes": 1,
+          "idleShellHours": 1
         },
         "gitWorkflow": {
           "defaultParentBranch": "gitWorkflow.defaultParentBranch",
@@ -2584,7 +2588,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"hibernation\":{\"enabled\":true,\"memoryPct\":50,\"loadPerCore\":1,\"maxIdleSessions\":1,\"idleMinutes\":1},\"gitWorkflow\":{\"defaultParentBranch\":\"gitWorkflow.defaultParentBranch\",\"mergeStyle\":\"ff-only\",\"autoRebaseBeforeMerge\":true},\"issues\":{\"assistantEnabled\":true},\"steward\":{\"enabled\":true},\"experimental\":{\"experimental.key\":true},\"worktreeGc\":{\"mode\":\"off\",\"afterDays\":1}}"
+      "encoded": "{\"hibernation\":{\"enabled\":true,\"memoryPct\":50,\"loadPerCore\":1,\"maxIdleSessions\":1,\"idleMinutes\":1,\"idleShellHours\":1},\"gitWorkflow\":{\"defaultParentBranch\":\"gitWorkflow.defaultParentBranch\",\"mergeStyle\":\"ff-only\",\"autoRebaseBeforeMerge\":true},\"issues\":{\"assistantEnabled\":true},\"steward\":{\"enabled\":true},\"experimental\":{\"experimental.key\":true},\"worktreeGc\":{\"mode\":\"off\",\"afterDays\":1}}"
     },
     {
       "schema": "IntegrationSecrets",

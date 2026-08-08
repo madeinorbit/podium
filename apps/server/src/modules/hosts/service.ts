@@ -21,10 +21,10 @@ const OUTPUT_QUIET_MS = 60_000
 // cascade, but a 49-session overage converges in about 12 minutes rather than an hour.
 const COUNT_HIBERNATE_BURST = 4
 const COUNT_HIBERNATE_REFILL_MS = 15_000
-/** Floor on the quiet window before an unobserved session is LOG-COUNTED
- *  (POD-565 step 1). Step 2 folds the same predicate into the idle-live cap.
- *  4 h is long on purpose: absence of a phase signal means we genuinely do
- *  not know, and the cost of being wrong is killing a working agent. */
+/** Floor on the quiet window before an unobserved session counts toward the
+ *  idle-live cap and may become parkable (POD-565). 4 h is long on purpose:
+ *  absence of a phase signal means we genuinely do not know, and the cost of
+ *  being wrong is killing a working agent. */
 const UNKNOWN_PHASE_MIN_QUIET_MS = 4 * 60 * 60_000
 
 interface CountHibernateBudget {
@@ -38,6 +38,8 @@ export interface HostSessionView {
   sessionId: SessionId
   machineId: string
   status: string
+  /** Distinguishes shells (no observer, no resume) from harness agents. */
+  agentKind: string
   resume?: { kind: string; value: string } | undefined
   agentState?: AgentRuntimeState | undefined
   lastActiveAt: string
@@ -66,6 +68,12 @@ export interface HostsDeps {
     ok: boolean
     reason?: string
   }
+  /**
+   * Park a live shell for the idle-shell policy: kill the process, keep the
+   * row inspectable. Shells need no resume ref (a fresh spawn is recovery).
+   * Does not free worktrees — that stays an explicit stop.
+   */
+  parkShellSession(input: { sessionId: SessionId }): { ok: boolean; reason?: string }
   /** Server-authoritative, atomically revalidated two-pass terminal proof. */
   hasValidTerminalProof(sessionId: SessionId): boolean
   /** Distinguish mixed-version/no-proof terminals from a present but stale proof. */
@@ -180,14 +188,7 @@ export class HostsService {
       while (true) {
         const target = this.eligibleCandidates(machineId, cfg.idleMinutes, now, failed)[0]
         if (!target) break
-        const result = this.deps.hibernateSession({
-          sessionId: target.sessionId,
-          requireTerminalProof: true,
-        })
-        if (!result.ok) {
-          failed.add(target.sessionId)
-          continue
-        }
+        if (!this.tryHibernateCandidate(target, failed)) continue
         this.lastAutoHibernateMsByMachine.set(machineId, now)
         console.info(
           `[podium] memory ${usedPct.toFixed(0)}% on ${sample.hostname} ≥ ${cfg.memoryPct}% — hibernating idle session ${target.sessionId}`,
@@ -212,14 +213,7 @@ export class HostsService {
       while (true) {
         const target = this.eligibleCandidates(machineId, cfg.idleMinutes, now, failed)[0]
         if (!target) break
-        const result = this.deps.hibernateSession({
-          sessionId: target.sessionId,
-          requireTerminalProof: true,
-        })
-        if (!result.ok) {
-          failed.add(target.sessionId)
-          continue
-        }
+        if (!this.tryHibernateCandidate(target, failed)) continue
         this.lastAutoHibernateMsByMachine.set(machineId, now)
         console.info(
           `[podium] load ${loadPerCore.toFixed(2)}×/core on ${sample.hostname} ≥ ${cfg.loadPerCore}× — hibernating idle session ${target.sessionId}`,
@@ -228,10 +222,14 @@ export class HostsService {
       }
     }
 
-    // Step 1 (POD-565): always log unobserved quiet sessions. The count does
-    // NOT enter idleLiveSessions / overage — folding them into the cap without
-    // making them parkable would park OBSERVED agents to pay an unobserved
-    // debt (the intermediate-state bug the two-step split is meant to avoid).
+    // Shells never enter hibernateSession (no resume ref). Explicit opt-in.
+    if (cfg.idleShellHours !== null) {
+      this.applyShellIdlePressure(machineId, cfg.idleShellHours, now, failed)
+    }
+
+    // Unobserved quiet sessions are now IN the idle-live cap (and eligible when
+    // they have a resume ref). Log stays so first-deploy after step 2 is still
+    // inspectable; the count is no longer log-only.
     this.reportUnobservedCounted(machineId, cfg.idleMinutes, now)
 
     if (cfg.maxIdleSessions === null) {
@@ -247,6 +245,26 @@ export class HostsService {
     )
   }
 
+  /** Hibernation refuses without a resume ref. Unobserved agents that have one
+   *  skip terminal proof — no observer ran, so the long quiet window is the
+   *  safety gate. */
+  private tryHibernateCandidate(target: HostSessionView, failed: Set<string>): boolean {
+    if (!target.resume) {
+      failed.add(target.sessionId)
+      return false
+    }
+    const unobserved = this.isUnobservedPhase(target)
+    const result = this.deps.hibernateSession({
+      sessionId: target.sessionId,
+      requireTerminalProof: !unobserved,
+    })
+    if (!result.ok) {
+      failed.add(target.sessionId)
+      return false
+    }
+    return true
+  }
+
   private applyCountPressure(
     machineId: string,
     idleMinutes: number,
@@ -259,7 +277,7 @@ export class HostsService {
     while (true) {
       // Re-read after every success: hibernateSession synchronously changes the
       // session status, and the target is convergence rather than a snapshot batch.
-      const idleLive = this.idleLiveSessions(machineId)
+      const idleLive = this.idleLiveSessions(machineId, idleMinutes, now)
       const overage = idleLive.length - targetCount
       if (overage <= 0) {
         this.lastCapUnmetByMachine.delete(machineId)
@@ -281,14 +299,7 @@ export class HostsService {
 
       const target = candidates[0]
       if (!target) return undefined
-      const result = this.deps.hibernateSession({
-        sessionId: target.sessionId,
-        requireTerminalProof: true,
-      })
-      if (!result.ok) {
-        failed.add(target.sessionId)
-        continue
-      }
+      if (!this.tryHibernateCandidate(target, failed)) continue
       budget.tokens -= 1
       console.info(
         `[podium] idle-session target ${targetCount} on ${this.deps.machineName(machineId)} — hibernating idle session ${target.sessionId}`,
@@ -296,12 +307,58 @@ export class HostsService {
     }
   }
 
-  private idleLiveSessions(machineId: string): HostSessionView[] {
+  /**
+   * Park the oldest quiet live shell when idleShellHours is set. One per sample
+   * (same one-park discipline as memory/load), oldest quiet first.
+   */
+  private applyShellIdlePressure(
+    machineId: string,
+    idleShellHours: number,
+    now: number,
+    failed: Set<string>,
+  ): void {
+    const cutoff = now - idleShellHours * 60 * 60_000
+    const target = [...this.deps.sessions()]
+      .filter((session) => {
+        if (session.machineId !== machineId || session.status !== 'live') return false
+        if (session.agentKind !== 'shell') return false
+        if (failed.has(session.sessionId)) return false
+        return this.fullyQuietSinceMs(session) <= cutoff
+      })
+      .sort((a, b) => this.fullyQuietSinceMs(a) - this.fullyQuietSinceMs(b))[0]
+    if (!target) return
+    const result = this.deps.parkShellSession({ sessionId: target.sessionId })
+    if (!result.ok) {
+      failed.add(target.sessionId)
+      return
+    }
+    console.info(
+      `[podium] idle-shell ${idleShellHours}h on ${this.deps.machineName(machineId)} — parking shell session ${target.sessionId}`,
+    )
+  }
+
+  /**
+   * Idle-live set for the maxIdleSessions convergence target.
+   *
+   * Observed: phase ∈ {idle, ended, needs_user}.
+   * Unobserved (phase unknown / no agentState): counted after max(idleMinutes, 4h)
+   * fully quiet — same predicate as the step-1 log, now folded into the cap so
+   * they pay their own overage when eligible (POD-565 step 2).
+   */
+  private idleLiveSessions(
+    machineId: string,
+    idleMinutes: number,
+    now: number,
+  ): HostSessionView[] {
+    const unknownQuietMs = this.unknownQuietWindowMs(idleMinutes)
     return [...this.deps.sessions()].filter((session) => {
       if (session.machineId !== machineId || session.status !== 'live') return false
       const phase = session.agentState?.phase
       // needs_user is idle fleet load too, but deliberately protected from parking.
-      return phase === 'idle' || phase === 'ended' || phase === 'needs_user'
+      if (phase === 'idle' || phase === 'ended' || phase === 'needs_user') return true
+      return (
+        this.isUnobservedPhase(session) && this.isFullyQuietFor(session, unknownQuietMs, now)
+      )
     })
   }
 
@@ -312,32 +369,48 @@ export class HostsService {
     excluded: ReadonlySet<string>,
   ): HostSessionView[] {
     const idleCutoff = now - idleMinutes * 60_000
-    return this.idleLiveSessions(machineId)
+    const unknownQuietMs = this.unknownQuietWindowMs(idleMinutes)
+    return this.idleLiveSessions(machineId, idleMinutes, now)
       .filter((session) => {
+        if (excluded.has(session.sessionId)) return false
+        // Shells never go through hibernateSession — idleShellHours owns them.
+        if (session.agentKind === 'shell') return false
+        // No resume ref → hibernateSession would refuse. Counted, never eligible.
+        if (session.resume === undefined) return false
+
         const phase = session.agentState?.phase
-        const otherwiseEligible =
-          !excluded.has(session.sessionId) &&
-          session.resume !== undefined &&
-          (phase === 'idle' || phase === 'ended') &&
-          this.effectiveIdleSinceMs(session) <= idleCutoff &&
-          // A foreground turn can end while a background task keeps painting its
-          // TUI. A full quiet minute keeps that work protected.
-          now - session.lastOutputAtMs >= OUTPUT_QUIET_MS
-        if (!otherwiseEligible) return false
-        if (this.deps.hasValidTerminalProof(session.sessionId)) {
-          this.missingProofLogged.delete(session.sessionId)
-          return true
+        if (phase === 'idle' || phase === 'ended') {
+          const phaseEligible =
+            this.effectiveIdleSinceMs(session) <= idleCutoff &&
+            // A foreground turn can end while a background task keeps painting its
+            // TUI. A full quiet minute keeps that work protected.
+            now - session.lastOutputAtMs >= OUTPUT_QUIET_MS
+          if (!phaseEligible) return false
+          if (this.deps.hasValidTerminalProof(session.sessionId)) {
+            this.missingProofLogged.delete(session.sessionId)
+            return true
+          }
+          if (
+            this.deps.terminalProofMissing(session.sessionId) &&
+            !this.missingProofLogged.has(session.sessionId)
+          ) {
+            this.missingProofLogged.add(session.sessionId)
+            console.warn(
+              '[podium] auto-hibernate skipped terminal candidate ' +
+                session.sessionId +
+                ': missing durable terminal proof (possible mixed-version observer)',
+            )
+          }
+          return false
         }
+
+        // Unobserved harness agent with a resume ref: long quiet substitutes for
+        // terminal proof — no observer ever ran.
         if (
-          this.deps.terminalProofMissing(session.sessionId) &&
-          !this.missingProofLogged.has(session.sessionId)
+          this.isUnobservedPhase(session) &&
+          this.isFullyQuietFor(session, unknownQuietMs, now)
         ) {
-          this.missingProofLogged.add(session.sessionId)
-          console.warn(
-            '[podium] auto-hibernate skipped terminal candidate ' +
-              session.sessionId +
-              ': missing durable terminal proof (possible mixed-version observer)',
-          )
+          return true
         }
         return false
       })
@@ -357,10 +430,12 @@ export class HostsService {
    *
    * STAGE ORDERS, IT NEVER AUTHORIZES. This runs on the output of the filter
    * above, so a session reaches the sort only after passing every safety gate
-   * independently — resume ref present, phase idle/ended, idle past
-   * `idleMinutes`, a full minute of output quiet, and a revalidated terminal
-   * proof. A closed issue therefore buys a session no less protection than an
-   * open one; it only loses its place in a queue it already qualified for.
+   * independently — resume ref present, phase idle/ended (or unobserved after
+   * the long quiet window), idle past `idleMinutes`, output quiet (or the
+   * unobserved quiet floor), and a revalidated terminal proof (skipped only
+   * when no observer ever ran). A closed issue therefore buys a session no less
+   * protection than an open one; it only loses its place in a queue it already
+   * qualified for.
    *
    * That distinction is the whole reason this is a comparator and not a
    * predicate. `done` is an agent-writable claim, agents mark it while still
@@ -414,40 +489,26 @@ export class HostsService {
   }
 
   /**
-   * POD-565 step 1 — observe only. Count quiet unobserved sessions into a
-   * SEPARATE number that only this log line reads. Must NOT feed
-   * {@link idleLiveSessions} or the maxIdleSessions overage: that would make
-   * the first deploy more aggressive against observed agents (unobserved debt
-   * paid by parking everyone else). Step 2 folds them into the cap and
-   * eligibility together.
+   * Deduped log of how many quiet unobserved sessions the idle-live set now
+   * includes (POD-565). After step 2 they are in the cap; the log remains so a
+   * deploy is still inspectable.
    */
   private reportUnobservedCounted(machineId: string, idleMinutes: number, now: number): void {
-    const count = this.unobservedQuietSessions(machineId, idleMinutes, now).length
+    const unknownQuietMs = this.unknownQuietWindowMs(idleMinutes)
+    const count = [...this.deps.sessions()].filter(
+      (session) =>
+        session.machineId === machineId &&
+        session.status === 'live' &&
+        this.isUnobservedPhase(session) &&
+        this.isFullyQuietFor(session, unknownQuietMs, now),
+    ).length
     if (this.lastUnobservedCountByMachine.get(machineId) === count) return
     this.lastUnobservedCountByMachine.set(machineId, count)
     if (count === 0) return
-    const quietHours = this.unknownQuietWindowMs(idleMinutes) / 3_600_000
+    const quietHours = unknownQuietMs / 3_600_000
     console.info(
-      `[podium] idle-session cap would count ${count} unobserved quiet session(s) on ${this.deps.machineName(machineId)} (≥${quietHours}h quiet, phase unknown; log-only — not in cap yet)`,
+      `[podium] idle-session cap counting ${count} unobserved quiet session(s) on ${this.deps.machineName(machineId)} (≥${quietHours}h quiet, phase unknown)`,
     )
-  }
-
-  /**
-   * Live sessions with no phase signal (phase unknown or no agentState) that
-   * have been fully quiet for max(idleMinutes, 4h). Used by the step-1 log
-   * only; step 2 reuses the same predicate when folding into the cap.
-   */
-  private unobservedQuietSessions(
-    machineId: string,
-    idleMinutes: number,
-    now: number,
-  ): HostSessionView[] {
-    const windowMs = this.unknownQuietWindowMs(idleMinutes)
-    return [...this.deps.sessions()].filter((session) => {
-      if (session.machineId !== machineId || session.status !== 'live') return false
-      if (!this.isUnobservedPhase(session)) return false
-      return this.isFullyQuietFor(session, windowMs, now)
-    })
   }
 
   private isUnobservedPhase(session: HostSessionView): boolean {

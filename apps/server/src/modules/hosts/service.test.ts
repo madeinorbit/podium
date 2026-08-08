@@ -13,6 +13,7 @@ function session(sessionId: SessionId, overrides: Partial<HostSessionView> = {})
     sessionId,
     machineId: 'local',
     status: 'live',
+    agentKind: 'claude-code',
     resume: { kind: 'claude-session', value: sessionId },
     agentState: {
       phase: 'idle',
@@ -39,6 +40,18 @@ function unobserved(
       since: new Date(NOW - 5 * HOUR).toISOString(),
       nativeSubagentCount: 0,
     },
+    lastActiveAt: new Date(NOW - 5 * HOUR).toISOString(),
+    lastInputAtMs: NOW - 5 * HOUR,
+    lastOutputAtMs: NOW - 5 * HOUR,
+    ...overrides,
+  })
+}
+
+function shell(sessionId: SessionId, overrides: Partial<HostSessionView> = {}): HostSessionView {
+  return session(sessionId, {
+    agentKind: 'shell',
+    resume: undefined,
+    agentState: undefined,
     lastActiveAt: new Date(NOW - 5 * HOUR).toISOString(),
     lastInputAtMs: NOW - 5 * HOUR,
     lastOutputAtMs: NOW - 5 * HOUR,
@@ -77,6 +90,7 @@ function harness(input: {
   maxIdleSessions: number | null
   enabled?: boolean
   loadPerCore?: number | null
+  idleShellHours?: number | null
   fail?: Set<string>
   proven?: Set<string>
 }) {
@@ -87,20 +101,34 @@ function harness(input: {
       idleMinutes: 30,
       maxIdleSessions: input.maxIdleSessions,
       ...(input.loadPerCore !== undefined ? { loadPerCore: input.loadPerCore } : {}),
+      ...(input.idleShellHours !== undefined ? { idleShellHours: input.idleShellHours } : {}),
     },
   })
   const parked: string[] = []
+  const shellParked: string[] = []
+  const hibernateRequireProof: Array<{ sessionId: string; requireTerminalProof?: boolean }> = []
   const deps: HostsDeps = {
     getSettings: () => settings,
     clients: () => [],
     machineName: (id) => id,
     sessions: () => input.sessions,
-    hibernateSession: ({ sessionId }) => {
+    hibernateSession: ({ sessionId, requireTerminalProof }) => {
+      hibernateRequireProof.push({ sessionId, requireTerminalProof })
       if (input.fail?.has(sessionId)) return { ok: false, reason: 'raced' }
       const target = input.sessions.find((item) => item.sessionId === sessionId)
       if (target?.status !== 'live') return { ok: false, reason: 'not running' }
+      if (!target.resume) return { ok: false, reason: 'no resume ref yet — the agent has not reported one' }
       target.status = 'hibernated'
       parked.push(sessionId)
+      return { ok: true }
+    },
+    parkShellSession: ({ sessionId }) => {
+      if (input.fail?.has(sessionId)) return { ok: false, reason: 'raced' }
+      const target = input.sessions.find((item) => item.sessionId === sessionId)
+      if (target?.status !== 'live') return { ok: false, reason: 'not running' }
+      if (target.agentKind !== 'shell') return { ok: false, reason: 'not a shell session' }
+      target.status = 'hibernated'
+      shellParked.push(sessionId)
       return { ok: true }
     },
     hasValidTerminalProof: (sessionId) => input.proven?.has(sessionId) ?? true,
@@ -113,7 +141,12 @@ function harness(input: {
       nextRequestId: vi.fn(),
     } as unknown as HostsDeps['daemonRequest'],
   }
-  return { service: new HostsService(deps, new EventBus()), parked }
+  return {
+    service: new HostsService(deps, new EventBus()),
+    parked,
+    shellParked,
+    hibernateRequireProof,
+  }
 }
 
 describe('idle-session cap', () => {
@@ -499,81 +532,172 @@ describe('idle-session cap', () => {
     })
   })
 
-  // POD-565 step 1 (option A): unobserved quiet sessions are LOG-COUNTED only.
-  // They must NOT enter idleLive / overage — that would park observed agents
-  // to pay an unobserved debt. Folding into the cap is step 2.
-  describe('unobserved phase log-only (POD-565 step 1)', () => {
-    it('logs quiet unobserved sessions without parking anyone extra for them', () => {
-      const info = vi.spyOn(console, 'info').mockImplementation(() => {})
-      // Cap 1 with one known idle: under the observed-only set, no overage.
-      // Two long-quiet unobserved sessions would inflate overage if counted in
-      // idleLive — they must not.
+  // POD-565. Unobserved sessions (phase unknown / no agentState) were invisible
+  // to every pressure source. Count them after a long quiet window; act only
+  // when a resume ref exists; shells get a separate opt-in policy.
+  describe('unobserved phase (POD-565)', () => {
+    it('counts quiet unobserved sessions toward the cap so known-idle work parks first', () => {
+      // Cap 1: one known idle + one long-quiet unobserved → overage 1.
+      // The unobserved session has no terminal proof path; the known idle parks.
       const sessions = [
         session(asSessionId('known-idle')),
-        unobserved(asSessionId('hookless-a'), { resume: undefined }),
-        unobserved(asSessionId('hookless-b'), { resume: undefined }),
-      ]
-      const { service, parked } = harness({ sessions, maxIdleSessions: 1 })
-
-      service.onHostMetrics(asMachineId('local'), sample(10))
-
-      expect(parked).toEqual([])
-      expect(sessions.every((s) => s.status === 'live')).toBe(true)
-      const lines = info.mock.calls
-        .map((call) => String(call[0]))
-        .filter((line) => line.includes('unobserved quiet'))
-      expect(lines).toHaveLength(1)
-      expect(lines[0]).toContain('2 unobserved quiet session')
-      expect(lines[0]).toContain('log-only')
-    })
-
-    it('does not log recently-active unobserved sessions', () => {
-      const info = vi.spyOn(console, 'info').mockImplementation(() => {})
-      const sessions = [
-        unobserved(asSessionId('still-noisy'), {
-          lastActiveAt: new Date(NOW - HOUR).toISOString(),
-          lastInputAtMs: NOW - HOUR,
-          lastOutputAtMs: NOW - HOUR,
-        }),
-      ]
-      const { service } = harness({ sessions, maxIdleSessions: null })
-
-      service.onHostMetrics(asMachineId('local'), sample(10))
-
-      expect(
-        info.mock.calls.map((c) => String(c[0])).filter((l) => l.includes('unobserved quiet')),
-      ).toEqual([])
-    })
-
-    it('dedupes the unobserved log line until the count changes', () => {
-      const info = vi.spyOn(console, 'info').mockImplementation(() => {})
-      const sessions = [unobserved(asSessionId('hookless'))]
-      const { service } = harness({ sessions, maxIdleSessions: null })
-
-      service.onHostMetrics(asMachineId('local'), sample(10))
-      service.onHostMetrics(asMachineId('local'), sample(10))
-
-      expect(
-        info.mock.calls.map((c) => String(c[0])).filter((l) => l.includes('unobserved quiet')),
-      ).toHaveLength(1)
-    })
-
-    it('still parks observed overage the same way — unobserved do not inflate it', () => {
-      // Two known idle, cap 1 → park one. A quiet unobserved must not push a second park.
-      const sessions = [
-        session(asSessionId('old')),
-        session(asSessionId('newer'), {
-          lastActiveAt: new Date(NOW - 40 * 60_000).toISOString(),
-        }),
         unobserved(asSessionId('hookless'), { resume: undefined }),
       ]
       const { service, parked } = harness({ sessions, maxIdleSessions: 1 })
 
       service.onHostMetrics(asMachineId('local'), sample(10))
 
-      expect(parked).toEqual(['old'])
-      expect(sessions.find((s) => s.sessionId === 'hookless')?.status).toBe('live')
-      expect(sessions.find((s) => s.sessionId === 'newer')?.status).toBe('live')
+      expect(parked).toEqual(['known-idle'])
+      expect(sessions[1]?.status).toBe('live')
+    })
+
+    it('does not count a recently-active unobserved session', () => {
+      const sessions = [
+        session(asSessionId('known-idle')),
+        unobserved(asSessionId('still-noisy'), {
+          resume: undefined,
+          lastActiveAt: new Date(NOW - HOUR).toISOString(),
+          lastInputAtMs: NOW - HOUR,
+          lastOutputAtMs: NOW - HOUR,
+        }),
+      ]
+      const { service, parked } = harness({ sessions, maxIdleSessions: 1 })
+
+      service.onHostMetrics(asMachineId('local'), sample(10))
+
+      // Only known-idle is in the idle-live set → under the cap of 1.
+      expect(parked).toEqual([])
+    })
+
+    it('logs when unobserved quiet sessions enter the idle-live set', () => {
+      const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+      const sessions = [
+        unobserved(asSessionId('hookless-a'), { resume: undefined }),
+        unobserved(asSessionId('hookless-b'), { resume: undefined }),
+      ]
+      const { service } = harness({ sessions, maxIdleSessions: 0 })
+
+      service.onHostMetrics(asMachineId('local'), sample(10))
+      service.onHostMetrics(asMachineId('local'), sample(10))
+
+      const lines = info.mock.calls
+        .map((call) => String(call[0]))
+        .filter((line) => line.includes('counting') && line.includes('unobserved'))
+      expect(lines).toHaveLength(1)
+      expect(lines[0]).toContain('2 unobserved quiet session')
+    })
+
+    it('hibernates a long-quiet unobserved agent that has a resume ref without terminal proof', () => {
+      const sessions = [unobserved(asSessionId('hookless-resumable'))]
+      const { service, parked, hibernateRequireProof } = harness({
+        sessions,
+        maxIdleSessions: 0,
+        // No terminal proof — unobserved agents never produce one.
+        proven: new Set(),
+      })
+
+      service.onHostMetrics(asMachineId('local'), sample(10))
+
+      expect(parked).toEqual(['hookless-resumable'])
+      expect(hibernateRequireProof).toEqual([
+        { sessionId: 'hookless-resumable', requireTerminalProof: false },
+      ])
+    })
+
+    it('never routes an unobserved session without a resume ref into hibernateSession', () => {
+      const sessions = [unobserved(asSessionId('no-resume'), { resume: undefined })]
+      const { service, parked, hibernateRequireProof } = harness({
+        sessions,
+        maxIdleSessions: 0,
+      })
+
+      service.onHostMetrics(asMachineId('local'), sample(10))
+
+      expect(parked).toEqual([])
+      expect(hibernateRequireProof).toEqual([])
+      expect(sessions[0]?.status).toBe('live')
+    })
+
+    it('does not park shells via the agent hibernation path even when they inflate the cap', () => {
+      const sessions = [
+        session(asSessionId('known-idle')),
+        shell(asSessionId('old-shell')),
+      ]
+      const { service, parked, shellParked } = harness({
+        sessions,
+        maxIdleSessions: 1,
+        // Shell policy off — shell is counted, not parked.
+      })
+
+      service.onHostMetrics(asMachineId('local'), sample(10))
+
+      expect(parked).toEqual(['known-idle'])
+      expect(shellParked).toEqual([])
+      expect(sessions[1]?.status).toBe('live')
+    })
+
+    it('parks a quiet shell when idleShellHours is set', () => {
+      const sessions = [
+        shell(asSessionId('old-shell'), {
+          lastActiveAt: new Date(NOW - 48 * HOUR).toISOString(),
+          lastInputAtMs: NOW - 48 * HOUR,
+          lastOutputAtMs: NOW - 48 * HOUR,
+        }),
+        shell(asSessionId('fresh-shell'), {
+          lastActiveAt: new Date(NOW - HOUR).toISOString(),
+          lastInputAtMs: NOW - HOUR,
+          lastOutputAtMs: NOW - HOUR,
+        }),
+      ]
+      const { service, parked, shellParked } = harness({
+        sessions,
+        maxIdleSessions: null,
+        idleShellHours: 24,
+      })
+
+      service.onHostMetrics(asMachineId('local'), sample(10))
+
+      expect(shellParked).toEqual(['old-shell'])
+      expect(parked).toEqual([])
+      expect(sessions[1]?.status).toBe('live')
+    })
+
+    it('leaves shells alone when idleShellHours is null (default off)', () => {
+      const sessions = [shell(asSessionId('ancient-shell'))]
+      const { service, shellParked } = harness({
+        sessions,
+        maxIdleSessions: null,
+        idleShellHours: null,
+      })
+
+      service.onHostMetrics(asMachineId('local'), sample(10))
+
+      expect(shellParked).toEqual([])
+      expect(sessions[0]?.status).toBe('live')
+    })
+
+    it('parks the oldest quiet shell first under idleShellHours', () => {
+      const sessions = [
+        shell(asSessionId('newer'), {
+          lastActiveAt: new Date(NOW - 30 * HOUR).toISOString(),
+          lastInputAtMs: NOW - 30 * HOUR,
+          lastOutputAtMs: NOW - 30 * HOUR,
+        }),
+        shell(asSessionId('older'), {
+          lastActiveAt: new Date(NOW - 72 * HOUR).toISOString(),
+          lastInputAtMs: NOW - 72 * HOUR,
+          lastOutputAtMs: NOW - 72 * HOUR,
+        }),
+      ]
+      const { service, shellParked } = harness({
+        sessions,
+        maxIdleSessions: null,
+        idleShellHours: 24,
+      })
+
+      service.onHostMetrics(asMachineId('local'), sample(10))
+
+      expect(shellParked).toEqual(['older'])
     })
   })
 })

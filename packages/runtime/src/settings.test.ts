@@ -126,6 +126,13 @@ describe('normalizeSettings — idle-session target', () => {
       normalizeSettings({ hibernation: { loadPerCore: null } }).hibernation.loadPerCore,
     ).toBeNull()
   })
+
+  it('defaults idleShellHours to off and preserves an explicit hours value', () => {
+    expect(normalizeSettings({}).hibernation.idleShellHours).toBeNull()
+    expect(
+      normalizeSettings({ hibernation: { idleShellHours: 48 } }).hibernation.idleShellHours,
+    ).toBe(48)
+  })
 })
 
 describe('normalizeSettings — legacy → roles migration', () => {
