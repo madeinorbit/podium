@@ -60,8 +60,9 @@ describe('UsageView loading', () => {
 
     // Everything knowable before the fetch is REAL — this is what keeps the
     // fit-height sheet from snapping to a new size when the answer lands.
-    expect(screen.getByText('Last 5 hours')).toBeTruthy()
-    expect(screen.getByText('Tokens per hour')).toBeTruthy()
+    expect(screen.getByText('Last 7 days · API-equivalent')).toBeTruthy()
+    expect(screen.getByText('Cost per hour')).toBeTruthy()
+    expect(screen.getByText('Where it went')).toBeTruthy()
     expect(screen.getByText('API-equivalent')).toBeTruthy()
     // Seven days of 24 hour slots — the trace's geometry is known before any
     // reading is, which is the whole reason the sheet does not resize on arrival.
@@ -71,6 +72,19 @@ describe('UsageView loading', () => {
     // No hour claims a reading yet: `data-on` is what marks a measured hour, and
     // a cold trace must not draw a single bar.
     expect(body().querySelectorAll('.usage-hour[data-on]')).toHaveLength(0)
+
+    // Every interpretation added to the finished sheet owns its own unfilled
+    // slot in the cold pass, so none of these regions appears or changes height
+    // only after the request resolves.
+    expect(
+      screen.getByTestId('usage-sheet').querySelector('.usage-window-span .usage-unfilled'),
+    ).toBeTruthy()
+    expect(body().querySelector('.usage-window-sub .usage-unfilled')).toBeTruthy()
+    expect(body().querySelector('.usage-cache-saving .usage-unfilled')).toBeTruthy()
+    expect(body().querySelectorAll('.usage-provider-row')).toHaveLength(2)
+    expect(body().querySelectorAll('.usage-provider-row .usage-unfilled').length).toBeGreaterThan(0)
+    expect(body().querySelectorAll('.usage-comp-ratio .usage-unfilled')).toHaveLength(4)
+    expect(body().querySelector('.usage-prov[data-wide] .usage-unfilled')).toBeTruthy()
 
     // ...and every figure is an unfilled slot, not a zero. A `0` here would be a
     // claim about a number nobody has read yet.
@@ -107,6 +121,39 @@ describe('UsageView loading', () => {
 
     const measured = body().querySelector('.usage-hour[data-on]')!
     expect(measured.getAttribute('title')).toMatch(/\d\d:00 · .* tokens · \$/)
+  })
+
+  it('defaults the trace to cost and switches every chart reading to tokens', async () => {
+    summary.mockResolvedValue({ buckets: [bucket()] })
+    render(<UsageView onClose={() => {}} />)
+    await act(async () => {})
+
+    const figure = body().querySelector('.usage-figure')
+    expect(figure).toBeTruthy()
+    expect(screen.getByText('Cost per hour')).toBeTruthy()
+    expect(figure?.textContent).toMatch(/peak \$/)
+
+    const tokens = screen.getByRole('button', { name: 'Tokens' })
+    fireEvent.click(tokens)
+    expect(tokens.getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByText('Tokens per hour')).toBeTruthy()
+    expect(figure?.textContent).toMatch(/peak 10k/)
+  })
+
+  it('omits the cache interpretation when cache reads cost nothing', async () => {
+    summary.mockResolvedValue({ buckets: [bucket({ cacheReadTokens: 0 })] })
+    render(<UsageView onClose={() => {}} />)
+    await act(async () => {})
+
+    expect(screen.queryByText(/Cache reads bill at 10% of input/)).toBeNull()
+  })
+
+  it('names models that used fallback pricing in the footer', async () => {
+    summary.mockResolvedValue({ buckets: [bucket({ model: 'future-vendor-model' })] })
+    render(<UsageView onClose={() => {}} />)
+    await act(async () => {})
+
+    expect(screen.getByText(/1 model used the fallback rate: future-vendor-model/)).toBeTruthy()
   })
 
   it('drops the harness placeholder rather than ranking it as a model', async () => {
@@ -188,5 +235,6 @@ describe('UsageView loading', () => {
 
     expect(screen.getByText('claude-opus-5')).toBeTruthy()
     expect(screen.getByText(/^LAST READ \d\d:\d\d$/)).toBeTruthy()
+    expect(screen.getByText(/^[A-Z]{3} \d\d – [A-Z]{3} \d\d · ROLLING$/)).toBeTruthy()
   })
 })

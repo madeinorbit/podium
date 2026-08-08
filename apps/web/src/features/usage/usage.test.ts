@@ -3,9 +3,12 @@ import { describe, expect, it } from 'vitest'
 import {
   bucketCostUsd,
   bucketProvider,
+  costWeightRatio,
+  formatCostWeightRatio,
   formatShare,
   formatTick,
   formatTokens,
+  formatUsdTick,
   niceAxisMax,
   usageSummary,
 } from './usage'
@@ -13,6 +16,13 @@ import {
 // The chart's scale (POD-365). Before this the chart had no axis at all — you
 // could compare bars and not read a value — so these three functions are the
 // whole readability of it and every one of them has an edge that bites.
+
+const ZERO_BUCKET = {
+  inputTokens: 0,
+  outputTokens: 0,
+  cacheReadTokens: 0,
+  cacheCreationTokens: 0,
+} as const
 
 describe('niceAxisMax', () => {
   it.each([
@@ -152,7 +162,12 @@ describe('usageSummary', () => {
     expect(today.hours[14]?.future).toBe(false)
     expect(today.hours[15]?.future).toBe(true)
     // No earlier day has a future hour — the whole day is behind the clock.
-    expect(s.days.slice(0, 6).flatMap((d) => d.hours).some((h) => h.future)).toBe(false)
+    expect(
+      s.days
+        .slice(0, 6)
+        .flatMap((d) => d.hours)
+        .some((h) => h.future),
+    ).toBe(false)
   })
 
   it('lands a bucket in the local hour that contains it, and peaks off the busiest', () => {
@@ -209,10 +224,102 @@ describe('usageSummary', () => {
     const byKey = Object.fromEntries(s.composition.map((c) => [c.key, c]))
     expect(byKey.cacheRead?.tokens).toBe(10_000_000)
     expect(byKey.cacheRead?.estCostUsd).toBeCloseTo(3, 6)
+    expect(byKey.cacheRead?.costWeightRatio).toBeCloseTo(11 / 60, 6)
     expect(byKey.output?.tokens).toBe(1_000_000)
     expect(byKey.output?.estCostUsd).toBeCloseTo(15, 6)
+    expect(byKey.output?.costWeightRatio).toBeCloseTo(55 / 6, 6)
     // Every class is present even at zero, so the block holds its four rows.
     expect(s.composition.map((c) => c.key)).toEqual(['cacheRead', 'cacheWrite', 'input', 'output'])
+  })
+
+  it.each([
+    {
+      name: 'one active day',
+      buckets: [{ hour: atLocal(7, 10), inputTokens: 1_000_000 }],
+      days: 1,
+      rate: 15,
+    },
+    {
+      name: 'two active days',
+      buckets: [
+        { hour: atLocal(6, 10), inputTokens: 1_000_000 },
+        { hour: atLocal(7, 10), inputTokens: 3_000_000 },
+      ],
+      days: 2,
+      rate: 30,
+    },
+    {
+      name: 'no active days',
+      buckets: [{ hour: atLocal(7, 10), inputTokens: 0 }],
+      days: 0,
+      rate: null,
+    },
+  ])('derives the per-active-day reading for $name', ({ buckets, days, rate }) => {
+    const s = usageSummary(
+      buckets.map((over) => bucket({ ...ZERO_BUCKET, ...over })),
+      now,
+    )
+    expect(s.activeDayCount).toBe(days)
+    if (rate === null) expect(s.costPerActiveDayUsd).toBeNull()
+    else expect(s.costPerActiveDayUsd).toBeCloseTo(rate, 6)
+  })
+
+  it.each([
+    { cacheReadTokens: 1_000_000, outputTokens: 0, savings: 13.5, multiple: 9 },
+    { cacheReadTokens: 1_000_000, outputTokens: 1_000_000, savings: 13.5, multiple: 13.5 / 76.5 },
+    { cacheReadTokens: 0, outputTokens: 1_000_000, savings: 0, multiple: 0 },
+  ])('derives cache savings from $cacheReadTokens cached tokens', ({
+    cacheReadTokens,
+    outputTokens,
+    savings,
+    multiple,
+  }) => {
+    const s = usageSummary([bucket({ inputTokens: 0, cacheReadTokens, outputTokens })], now)
+    expect(s.cacheSavingsUsd).toBeCloseTo(savings, 6)
+    expect(s.cacheSavingsMultiple).toBeCloseTo(multiple, 6)
+  })
+
+  it('groups models by provider and ranks the rollup by cost', () => {
+    const s = usageSummary(
+      [
+        bucket({ model: 'gpt-5.6-sol', inputTokens: 8_000_000, messages: 2 }),
+        bucket({ model: 'gpt-5.6-luna', inputTokens: 4_000_000, messages: 3 }),
+        bucket({ model: 'claude-opus-5', inputTokens: 2_000_000, messages: 5 }),
+        bucket({ model: 'future-vendor', inputTokens: 1_000_000, messages: 7 }),
+      ],
+      now,
+    )
+
+    expect(s.providers.map((provider) => provider.provider)).toEqual([
+      'anthropic',
+      'openai',
+      'other',
+    ])
+    expect(s.providers[1]).toMatchObject({ totalTokens: 12_000_000, messages: 5 })
+    expect(s.providers[1]?.estCostUsd).toBeCloseTo(15, 6)
+    expect(s.unpricedModels).toEqual(['future-vendor'])
+  })
+})
+
+describe('costWeightRatio', () => {
+  it.each([
+    [25, 100, 50, 100, 2],
+    [50, 100, 25, 100, 0.5],
+    [50, 100, 0, 100, 0],
+    [0, 100, 25, 100, null],
+    [25, 0, 25, 100, null],
+    [25, 100, 25, 0, null],
+  ])('divides cost share by token share for %d/%d tokens and %d/%d cost', (tokens, totalTokens, cost, totalCost, expected) => {
+    expect(costWeightRatio(tokens, totalTokens, cost, totalCost)).toBe(expected)
+  })
+
+  it.each([
+    [42, '42x'],
+    [10, '10x'],
+    [0.7, '0.7x'],
+    [null, '—'],
+  ])('formats %s as %s', (ratio, expected) => {
+    expect(formatCostWeightRatio(ratio)).toBe(expected)
   })
 })
 
@@ -252,5 +359,17 @@ describe('formatTick', () => {
     expect(formatTick(2_500_000_000)).toBe('2.5B')
     expect(formatTick(250_000_000)).toBe('250M')
     expect(formatTick(1_500_000)).toBe('1.5M')
+  })
+})
+
+describe('formatUsdTick', () => {
+  it.each([
+    [700, '$700'],
+    [75, '$75'],
+    [2.5, '$2.5'],
+    [0.25, '$0.25'],
+    [0, '$0'],
+  ])('formats the dollar ruler mark %d as %s', (value, expected) => {
+    expect(formatUsdTick(value)).toBe(expected)
   })
 })

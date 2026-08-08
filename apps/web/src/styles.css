@@ -4072,7 +4072,7 @@ a.ref-link--session::before {
     animation: none;
   }
 }
-/* Usage: two window readouts, an hour-resolution trace of the week, the
+/* Usage: one interpreted window readout, provider rollup, an hour-resolution trace of the week, the
    token-vs-cost composition, and the model ranking — stacked down a sheet that
    ends where they do. Content that stops halfway down an empty frame is a page;
    a window's regions stretch to their frame.
@@ -4091,26 +4091,14 @@ a.ref-link--session::before {
   padding: 18px 20px;
 }
 
-/* ── The window readouts ─────────────────────────────────────────────────────
-   TWO READOUTS, NOT TWO CARDS. Same-size bordered tiles carrying a big number
-   over a small label are the SaaS-dashboard cliché PRODUCT.md names as an
-   anti-reference. Both windows are machine voice, so they read the way the
-   instrument well reads: a mono micro-label, a tabular figure, a dim sub-line,
-   divided by a hairline rather than boxed. */
+/* ── The window readout ──────────────────────────────────────────────────────
+   One answer at the rationed 24px step. The rates and counterfactual below it
+   interpret that answer without turning the surface into a metric-card row. */
 .usage-summary {
   display: flex;
   flex: none;
-  align-items: stretch;
-}
-.usage-window {
-  flex: 1;
-  min-width: 0;
-  padding: 0 20px;
-  border-left: 1px solid var(--hairline-soft);
-}
-.usage-window:first-child {
-  padding-left: 0;
-  border-left: 0;
+  flex-direction: column;
+  align-items: flex-start;
 }
 .usage-window-label {
   color: var(--label);
@@ -4125,7 +4113,7 @@ a.ref-link--session::before {
    steps everywhere steps nowhere — every other number here stays in the reading
    tier, which is what leaves this one room to be loud without a card under it. */
 .usage-window-value {
-  margin: 6px 0 4px;
+  margin: 6px 0 3px;
   color: var(--text-strong);
   font-family: var(--font-mono);
   font-size: 24px;
@@ -4134,10 +4122,35 @@ a.ref-link--session::before {
   letter-spacing: -0.015em;
   line-height: 1.05;
 }
-.usage-window-sub {
+.usage-window-star {
+  margin-left: 1px;
   color: var(--text-dim);
+  font-size: 14px;
+  font-weight: 500;
+  vertical-align: super;
+}
+.usage-window-caveat {
+  margin-bottom: 6px;
+  color: var(--text-dim);
+  font-size: 11.5px;
+}
+.usage-window-sub {
+  color: var(--muted-foreground);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+}
+.usage-cache-saving {
+  align-self: stretch;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--hairline-soft);
+  color: var(--foreground);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+.usage-cache-saving strong {
+  color: var(--text-strong);
+  font-weight: 600;
 }
 
 /* ── Section titles ──────────────────────────────────────────────────────────
@@ -4165,6 +4178,36 @@ a.ref-link--session::before {
   color: var(--text-dim);
   font-size: 11.5px;
 }
+.usage-provider-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.usage-provider-row {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr) auto;
+  gap: 4px 14px;
+  align-items: center;
+}
+.usage-provider-name {
+  color: var(--foreground);
+  font-size: 13px;
+}
+.usage-provider-cost {
+  min-width: 7ch;
+  color: var(--text-strong);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.usage-provider-sub {
+  grid-column: 2 / 4;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
 .usage-figure-peak {
   margin-left: auto;
   color: var(--text-dim);
@@ -4172,6 +4215,35 @@ a.ref-link--session::before {
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+.usage-measure-toggle {
+  display: inline-flex;
+  gap: 2px;
+  margin: 0 0 0 auto;
+  min-width: 0;
+  padding: 2px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--bar);
+}
+.usage-measure-button {
+  height: 22px;
+  padding: 0 8px;
+  border-radius: calc(var(--radius) - 1px);
+  color: var(--text-dim);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.usage-measure-button:hover {
+  color: var(--foreground);
+}
+.usage-measure-button[data-active] {
+  background: var(--chip);
+  color: var(--text-strong);
 }
 
 /* ── The trace ───────────────────────────────────────────────────────────────
@@ -4331,13 +4403,13 @@ a.ref-link--session::before {
   /* The two share columns are one object each and must not run together: the
      gap between them is wider than the gap inside them, or the eye reads four
      rails in a row instead of the same measurement taken twice. */
-  grid-template-columns: 88px minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: 88px minmax(0, 1fr) minmax(0, 1fr) 116px;
   align-items: center;
-  column-gap: 24px;
+  column-gap: 20px;
 }
-.usage-comp-head > :last-child,
-.usage-comp-row > :last-child {
-  padding-left: 24px;
+.usage-comp-head > :nth-child(3),
+.usage-comp-row > :nth-child(3) {
+  padding-left: 20px;
 }
 .usage-comp-col {
   color: var(--label);
@@ -4384,6 +4456,23 @@ a.ref-link--session::before {
   font-size: 11.5px;
   font-variant-numeric: tabular-nums;
   text-align: right;
+}
+.usage-comp-ratio-head,
+.usage-comp-ratio {
+  text-align: right;
+}
+.usage-comp-ratio {
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.usage-comp-ratio > span {
+  color: var(--text-faint);
+}
+.usage-comp-ratio[data-heavy] {
+  color: var(--attention);
 }
 
 /* ── The model ranking ───────────────────────────────────────────────────────
@@ -4477,8 +4566,7 @@ a.ref-link--session::before {
    hand's breadth of nothing beside it — the "content stopped halfway" tell, at
    the bottom of the surface instead of the side. It is now the frame's bottom
    edge: full-bleed out of the body's padding, `--bar` toned and hairline-topped,
-   the mirror of the sheet's own header, with the three facts in labelled cells
-   divided exactly the way the two window readouts at the top are.
+   the mirror of the sheet's own header, with the three facts in labelled cells.
 
    Its type stays at the shell's scale rather than the Reading Tier the content
    above uses: chrome never joins that tier (POD-407) — a frame whose text grew
@@ -4597,10 +4685,14 @@ a.ref-link--session::before {
    sheet opened from cache is already readable and gets no entrance at all. */
 .usage-body[data-arrive] .usage-window-value,
 .usage-body[data-arrive] .usage-window-sub,
+.usage-body[data-arrive] .usage-cache-saving,
+.usage-body[data-arrive] .usage-provider-cost,
+.usage-body[data-arrive] .usage-provider-sub,
 .usage-body[data-arrive] .usage-axis-tick,
 .usage-body[data-arrive] .usage-figure-peak,
 .usage-body[data-arrive] .usage-day-total,
 .usage-body[data-arrive] .usage-comp-pct,
+.usage-body[data-arrive] .usage-comp-ratio,
 .usage-body[data-arrive] .usage-table tbody tr {
   animation: usage-arrive 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
@@ -4637,10 +4729,14 @@ a.ref-link--session::before {
   }
   .usage-body[data-arrive] .usage-window-value,
   .usage-body[data-arrive] .usage-window-sub,
+  .usage-body[data-arrive] .usage-cache-saving,
+  .usage-body[data-arrive] .usage-provider-cost,
+  .usage-body[data-arrive] .usage-provider-sub,
   .usage-body[data-arrive] .usage-axis-tick,
   .usage-body[data-arrive] .usage-figure-peak,
   .usage-body[data-arrive] .usage-day-total,
   .usage-body[data-arrive] .usage-comp-pct,
+  .usage-body[data-arrive] .usage-comp-ratio,
   .usage-body[data-arrive] .usage-table tbody tr {
     animation: none;
   }
@@ -4675,16 +4771,28 @@ a.ref-link--session::before {
   }
 }
 
-/* Last reading is old and the refresh failed. Machine voice at label scale, in
-   the sheet header beside the close control — dim, because a stale figure is a
-   fact about the reading and not something asking to be acted on. */
-.usage-stamp {
-  color: var(--text-dim);
+/* The actual rolling span shares the header slot with the stale reading stamp.
+   Both are chrome-scale machine voice; the span is deliberately fainter so the
+   stale stamp becomes the first thing read when it appears. */
+.usage-toolbar {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
   font-family: var(--font-mono);
   font-size: 9px;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.1em;
+}
+.usage-window-span {
+  color: var(--text-faint);
+}
+
+/* Last reading is old and the refresh failed. Machine voice at label scale, in
+   the sheet header beside the close control — dim, because a stale figure is a
+   fact about the reading and not something asking to be acted on. */
+.usage-stamp {
+  color: var(--muted-foreground);
 }
 
 /* Cold AND unreachable: the only state with nothing truthful to draw, so it is

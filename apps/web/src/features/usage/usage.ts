@@ -27,6 +27,8 @@ export interface UsageClassShare {
   label: string
   tokens: number
   estCostUsd: number
+  /** Cost share divided by token share; null when no token share exists. */
+  costWeightRatio: number | null
 }
 
 /** One hour of the trace. `startMs` is the hour's local start. */
@@ -65,9 +67,20 @@ export interface UsageModelRow {
   messages: number
 }
 
+export interface UsageProviderRow {
+  provider: UsageProvider
+  totalTokens: number
+  estCostUsd: number
+  messages: number
+}
+
 export interface UsageSummaryView {
   fiveHour: UsageWindow
   week: UsageWindow
+  activeDayCount: number
+  costPerActiveDayUsd: number | null
+  cacheSavingsUsd: number
+  cacheSavingsMultiple: number | null
   /** Last 7 calendar days, oldest first, each with its 24 hour slots. */
   days: UsageDay[]
   /** The busiest single hour in the window — the trace's axis is scaled off it. */
@@ -75,6 +88,10 @@ export interface UsageSummaryView {
   /** Token share vs cost share of the four billing classes. */
   composition: UsageClassShare[]
   models: UsageModelRow[]
+  /** Provider totals grouped from `models`, ranked by cost. */
+  providers: UsageProviderRow[]
+  /** Models charged at DEFAULT_PRICING because no priced family matched. */
+  unpricedModels: string[]
 }
 
 // Per-MTok API list prices (approximate; used as the "what this would have cost
@@ -101,9 +118,17 @@ const PRICING: { match: string; inPerM: number; outPerM: number }[] = [
 ]
 const DEFAULT_PRICING = { inPerM: 3, outPerM: 15 }
 
+function pricingForModel(model: string): {
+  pricing: { inPerM: number; outPerM: number }
+  matched: boolean
+} {
+  const pricing = PRICING.find((x) => model.includes(x.match))
+  return { pricing: pricing ?? DEFAULT_PRICING, matched: pricing !== undefined }
+}
+
 /** The per-class cost of one bucket, in the order `TOKEN_CLASSES` names. */
 function bucketCostByClass(b: UsageBucketWire): Record<TokenClass, number> {
-  const p = PRICING.find((x) => b.model.includes(x.match)) ?? DEFAULT_PRICING
+  const p = pricingForModel(b.model).pricing
   return {
     cacheRead: (b.cacheReadTokens / 1e6) * p.inPerM * 0.1,
     cacheWrite: (b.cacheCreationTokens / 1e6) * p.inPerM * 1.25,
@@ -134,6 +159,39 @@ export function bucketProvider(model: string): UsageProvider {
   if (model.startsWith('claude')) return 'anthropic'
   if (model.startsWith('gpt') || model.includes('codex')) return 'openai'
   return 'other'
+}
+
+/** Cost share divided by token share, guarded against an absent denominator. */
+export function costWeightRatio(
+  tokens: number,
+  totalTokens: number,
+  cost: number,
+  totalCost: number,
+): number | null {
+  if (tokens <= 0 || totalTokens <= 0 || totalCost <= 0) return null
+  return cost / totalCost / (tokens / totalTokens)
+}
+
+/** Group model rows into the provider question the model table cannot answer quickly. */
+export function providerRollup(models: UsageModelRow[]): UsageProviderRow[] {
+  const grouped = new Map<UsageProvider, UsageProviderRow>()
+  for (const model of models) {
+    let provider = grouped.get(model.provider)
+    if (!provider) {
+      provider = { provider: model.provider, totalTokens: 0, estCostUsd: 0, messages: 0 }
+      grouped.set(model.provider, provider)
+    }
+    provider.totalTokens += model.totalTokens
+    provider.estCostUsd += model.estCostUsd
+    provider.messages += model.messages
+  }
+  return [...grouped.values()]
+    .filter((provider) =>
+      provider.provider === 'other'
+        ? provider.totalTokens > 0 || provider.estCostUsd > 0 || provider.messages > 0
+        : true,
+    )
+    .sort((a, b) => b.estCostUsd - a.estCostUsd)
 }
 
 function windowOver(buckets: UsageBucketWire[], sinceMs: number): UsageWindow {
@@ -185,7 +243,13 @@ export function usageSummary(all: UsageBucketWire[], nowMs: number): UsageSummar
       hours.push(slot)
       slots.set(startMs, slot)
     }
-    days.push({ day: localDay(dayStart), label: dayLabel(dayStart), hours, totalTokens: 0, estCostUsd: 0 })
+    days.push({
+      day: localDay(dayStart),
+      label: dayLabel(dayStart),
+      hours,
+      totalTokens: 0,
+      estCostUsd: 0,
+    })
   }
 
   const composition: Record<TokenClass, { tokens: number; estCostUsd: number }> = {
@@ -231,23 +295,52 @@ export function usageSummary(all: UsageBucketWire[], nowMs: number): UsageSummar
     }
   }
 
+  const activeDayCount = days.filter((day) => day.totalTokens > 0).length
+  const costPerActiveDayUsd = activeDayCount > 0 ? week.estCostUsd / activeDayCount : null
+  const totalCompositionTokens = TOKEN_CLASSES.reduce(
+    (total, key) => total + composition[key].tokens,
+    0,
+  )
+  const totalCompositionCost = TOKEN_CLASSES.reduce(
+    (total, key) => total + composition[key].estCostUsd,
+    0,
+  )
+  const compositionRows = TOKEN_CLASSES.map((key) => ({
+    key,
+    label: CLASS_LABELS[key],
+    tokens: composition[key].tokens,
+    estCostUsd: composition[key].estCostUsd,
+    costWeightRatio: costWeightRatio(
+      composition[key].tokens,
+      totalCompositionTokens,
+      composition[key].estCostUsd,
+      totalCompositionCost,
+    ),
+  }))
+  const models = [...modelMap.entries()]
+    .map(([model, v]) => ({ model, provider: bucketProvider(model), ...v }))
+    // Ranked by cost, not tokens: the sheet leads with what the week would
+    // have cost, and a table sorted on a different measure than the figure
+    // above it reads as two answers to one question.
+    .sort((a, b) => b.estCostUsd - a.estCostUsd)
+  const cacheReadCost = composition.cacheRead.estCostUsd
+  const cacheSavingsUsd = cacheReadCost * 9
+
   return {
     fiveHour,
     week,
+    activeDayCount,
+    costPerActiveDayUsd,
+    cacheSavingsUsd,
+    cacheSavingsMultiple: week.estCostUsd > 0 ? cacheSavingsUsd / week.estCostUsd : null,
     days,
     peakHourTokens,
-    composition: TOKEN_CLASSES.map((key) => ({
-      key,
-      label: CLASS_LABELS[key],
-      tokens: composition[key].tokens,
-      estCostUsd: composition[key].estCostUsd,
-    })),
-    models: [...modelMap.entries()]
-      .map(([model, v]) => ({ model, provider: bucketProvider(model), ...v }))
-      // Ranked by cost, not tokens: the sheet leads with what the week would
-      // have cost, and a table sorted on a different measure than the figure
-      // above it reads as two answers to one question.
-      .sort((a, b) => b.estCostUsd - a.estCostUsd),
+    composition: compositionRows,
+    models,
+    providers: providerRollup(models),
+    unpricedModels: models
+      .filter((model) => !pricingForModel(model.model).matched)
+      .map((model) => model.model),
   }
 }
 
@@ -305,6 +398,34 @@ export function formatCount(n: number): string {
 
 export function formatUsd(n: number): string {
   return n >= 100 ? `$${formatCount(Math.round(n))}` : `$${n.toFixed(2)}`
+}
+
+/** Dollar ruler mark: no false `.0`, while genuine half steps stay visible. */
+export function formatUsdTick(n: number): string {
+  return formatUsd(n)
+    .replace(/\.00$/, '')
+    .replace(/(\.\d)0$/, '$1')
+}
+
+/** `42x` / `10x` / `0.7x` — enough precision to state the comparison plainly. */
+export function formatCostWeightRatio(ratio: number | null): string {
+  if (ratio === null || !Number.isFinite(ratio)) return '—'
+  const digits = ratio >= 10 ? 0 : 1
+  return `${ratio.toFixed(digits).replace(/\.0$/, '')}x`
+}
+
+const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']
+
+/** `AUG 02 – AUG 08 · ROLLING` — the actual local calendar span in the chrome. */
+export function formatWindowSpan(days: UsageDay[]): string {
+  const first = days[0]?.hours[0]?.startMs
+  const last = days[days.length - 1]?.hours[0]?.startMs
+  if (first === undefined || last === undefined) return ''
+  const stamp = (ms: number): string => {
+    const date = new Date(ms)
+    return `${MONTHS[date.getMonth()]} ${String(date.getDate()).padStart(2, '0')}`
+  }
+  return `${stamp(first)} – ${stamp(last)} · ROLLING`
 }
 
 /** `97.3%` / `0.3%` — a share, at the one decimal that keeps a sliver from reading as zero. */

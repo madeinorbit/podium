@@ -1,19 +1,22 @@
-import type { CSSProperties, JSX } from 'react'
+import { type CSSProperties, type JSX, useState } from 'react'
 import { AppSheet } from '@/app/AppSheet'
 import { useStoreSelector } from '@/app/store'
 import {
+  formatCostWeightRatio,
   formatCount,
   formatHour,
   formatShare,
   formatTick,
   formatTokens,
   formatUsd,
+  formatUsdTick,
+  formatWindowSpan,
   niceAxisMax,
-  usageSummary,
   type UsageProvider,
   type UsageSummaryView,
+  usageSummary,
 } from './usage'
-import { formatClock, useArrived, useUsageFeed, type UsageFeed } from './useUsageFeed'
+import { formatClock, type UsageFeed, useArrived, useUsageFeed } from './useUsageFeed'
 
 /**
  * Usage & analytics — what the machine's agents spent, at hour resolution.
@@ -24,7 +27,8 @@ import { formatClock, useArrived, useUsageFeed, type UsageFeed } from './useUsag
  *
  * IT LEADS WITH COST (POD-596). Tokens are the raw material; the reason to open
  * this sheet is what the week would have cost off-subscription, so the dollar
- * figure is the readout and the token count is its sub-line. The old sheet
+ * figure is the readout and its active-day rate supplies the reading beneath
+ * it. The old sheet
  * answered "how many tokens" three times — window, chart and table — and "where
  * did it go" only once, badly.
  *
@@ -39,7 +43,7 @@ import { formatClock, useArrived, useUsageFeed, type UsageFeed } from './useUsag
  * a fit-height sheet open at the height of one line and snap to full size when
  * the buckets landed — a page assembling itself in front of you. The instrument
  * is drawn in full from the first frame, and only its READINGS are missing:
- * everything known before the fetch (both window labels, the gridlines, the
+ * everything known before the fetch (the window label, the gridlines, the
  * seven day columns and their labels, the composition rows, the table header,
  * the footnote) is real, and the unknown figures show as unfilled slots.
  * Reopening the sheet skips even that — see useUsageFeed.
@@ -49,6 +53,7 @@ export function UsageView({ onClose }: { onClose: () => void }): JSX.Element {
   const feed = useUsageFeed(trpc)
   const cold = feed.buckets === null
   const arrived = useArrived(!cold)
+  const summary = usageSummary(feed.buckets ?? [], Date.now())
 
   return (
     <AppSheet
@@ -58,7 +63,7 @@ export function UsageView({ onClose }: { onClose: () => void }): JSX.Element {
       // One screen of figures, so the sheet ends where they do rather than
       // stretching them to the frame.
       className="app-sheet-fit"
-      toolbar={<UsageStamp feed={feed} />}
+      toolbar={<UsageToolbar summary={summary} cold={cold} feed={feed} />}
       onClose={onClose}
     >
       {cold && feed.failed ? (
@@ -66,9 +71,28 @@ export function UsageView({ onClose }: { onClose: () => void }): JSX.Element {
       ) : feed.buckets?.length === 0 ? (
         <div className="usage-empty">No token usage recorded yet.</div>
       ) : (
-        <UsageBody feed={feed} cold={cold} arrived={arrived} />
+        <UsageBody feed={feed} summary={summary} cold={cold} arrived={arrived} />
       )}
     </AppSheet>
+  )
+}
+
+function UsageToolbar({
+  summary,
+  cold,
+  feed,
+}: {
+  summary: UsageSummaryView
+  cold: boolean
+  feed: UsageFeed
+}): JSX.Element {
+  return (
+    <span className="usage-toolbar">
+      <span className="usage-window-span">
+        {cold ? <Unfilled ch={22} /> : formatWindowSpan(summary.days)}
+      </span>
+      <UsageStamp feed={feed} />
+    </span>
   )
 }
 
@@ -82,7 +106,7 @@ function UsageStamp({ feed }: { feed: UsageFeed }): JSX.Element | null {
   return (
     <span
       className="usage-stamp"
-      title="Couldn't reach the daemon for a fresh reading, so these are the last one. Retrying automatically."
+      title="Couldn't reach the daemon for a fresh reading, so these are the last readings. Retrying automatically."
     >
       LAST READ {formatClock(feed.fetchedAt)}
     </span>
@@ -103,10 +127,12 @@ function UsageUnreachable({ onRetry }: { onRetry: () => void }): JSX.Element {
 
 function UsageBody({
   feed,
+  summary,
   cold,
   arrived,
 }: {
   feed: UsageFeed
+  summary: UsageSummaryView
   cold: boolean
   arrived: boolean
 }): JSX.Element {
@@ -115,8 +141,6 @@ function UsageBody({
   // same composition rows, same table. The layout it holds IS the layout that
   // lands, so there is no second geometry to keep in step with this one — and
   // nothing moves when the answer arrives except the values themselves.
-  const s = usageSummary(feed.buckets ?? [], Date.now())
-
   return (
     <div
       className="usage-body"
@@ -132,11 +156,12 @@ function UsageBody({
           stay the only always-on movement in the shell. */}
       {feed.waiting && <div className="usage-refreshing" aria-hidden="true" />}
       {cold && <span className="sr-only">Loading usage…</span>}
-      <UsageReadouts summary={s} cold={cold} />
-      <UsageTrace summary={s} cold={cold} arrived={arrived} />
-      <UsageComposition summary={s} cold={cold} />
-      <UsageModels summary={s} cold={cold} />
-      <UsageProvenance />
+      <UsageReadouts summary={summary} cold={cold} />
+      <UsageProviders summary={summary} cold={cold} />
+      <UsageTrace summary={summary} cold={cold} arrived={arrived} />
+      <UsageComposition summary={summary} cold={cold} />
+      <UsageModels summary={summary} cold={cold} />
+      <UsageProvenance summary={summary} cold={cold} />
     </div>
   )
 }
@@ -150,45 +175,48 @@ function UsageBody({
  * that way: it CLOSES (DESIGN.md, The Status Strip). So the fine print became
  * the frame's bottom edge — full-bleed, `--bar` toned and hairline-topped, the
  * mirror of the sheet's own 36px header — carrying the three facts as labelled
- * cells divided the way the two window readouts at the top of the sheet are.
+ * cells divided into a compact set of labelled readings.
  * The surface opens and closes on the same grammar.
  *
  * Its type does NOT join the Reading Tier the sheet's content uses: chrome never
  * does (POD-407), and a frame whose text grew with its contents stops reading as
  * the frame.
  */
-function UsageProvenance(): JSX.Element {
+function UsageProvenance({
+  summary,
+  cold,
+}: {
+  summary: UsageSummaryView
+  cold: boolean
+}): JSX.Element {
+  const pricing =
+    summary.unpricedModels.length === 0
+      ? 'Public per-model list price. Every model in this window matched a priced family.'
+      : `Public per-model list price. ${formatCount(summary.unpricedModels.length)} ${summary.unpricedModels.length === 1 ? 'model used' : 'models used'} the fallback rate: ${summary.unpricedModels.join(', ')}.`
   const facts = [
     { label: 'Source', value: 'Claude Code and Codex transcripts on this machine', wide: false },
     {
-      label: 'Cost basis',
-      // The caveat the sheet cannot do without, now that it leads with a dollar
-      // figure: an API-equivalent is not an invoice.
-      value:
-        'Public API list price for the same tokens — what this work would have cost off-subscription, not what you were billed',
+      label: 'Pricing',
+      value: pricing,
       wide: true,
     },
-    { label: 'Windows', value: 'Rolling, counted back from now', wide: false },
+    { label: 'Refreshed', value: 'Every 90s while open', wide: false },
   ]
   return (
     <footer className="usage-provenance">
       {facts.map((f) => (
         <div key={f.label} className="usage-prov" data-wide={f.wide || undefined}>
           <span className="usage-prov-label">{f.label}</span>
-          <span className="usage-prov-value">{f.value}</span>
+          <span className="usage-prov-value">
+            {cold && f.label === 'Pricing' ? <Unfilled ch={48} /> : f.value}
+          </span>
         </div>
       ))}
     </footer>
   )
 }
 
-/**
- * TWO READOUTS, NOT TWO CARDS. Same-size bordered tiles carrying a big number
- * over a small label are the SaaS-dashboard cliché PRODUCT.md names as an
- * anti-reference. Both windows are machine voice, so they read the way the
- * instrument well reads: a mono micro-label, a tabular figure, a dim sub-line,
- * divided by a hairline rather than boxed.
- */
+/** One answer, followed by the rates and counterfactual that make it legible. */
 function UsageReadouts({
   summary,
   cold,
@@ -196,30 +224,104 @@ function UsageReadouts({
   summary: UsageSummaryView
   cold: boolean
 }): JSX.Element {
-  const windows = [
-    { label: 'Last 5 hours', win: summary.fiveHour },
-    { label: 'Last 7 days', win: summary.week },
-  ]
+  const cacheMultiple =
+    summary.cacheSavingsMultiple === null
+      ? null
+      : summary.cacheSavingsMultiple.toFixed(1).replace(/\.0$/, '')
   return (
     <div className="usage-summary">
-      {windows.map(({ label, win }) => (
-        <div key={label} className="usage-window">
-          <div className="usage-window-label">{label}</div>
-          <div className="usage-window-value">
-            {cold ? <Unfilled ch={6} /> : formatUsd(win.estCostUsd)}
-          </div>
-          <div className="usage-window-sub">
-            {cold ? (
-              <Unfilled ch={26} />
-            ) : (
-              <>
-                {formatTokens(win.totalTokens)} tokens · {formatCount(win.messages)} replies
-              </>
-            )}
-          </div>
+      <div className="usage-window-label">Last 7 days · API-equivalent</div>
+      <div className="usage-window-value">
+        {cold ? <Unfilled ch={6} /> : formatUsd(summary.week.estCostUsd)}
+        <sup className="usage-window-star">*</sup>
+      </div>
+      <div className="usage-window-caveat">
+        * at API list price for the same tokens — not what you were billed
+      </div>
+      <div className="usage-window-sub">
+        {cold ? (
+          <Unfilled ch={56} />
+        ) : (
+          <>
+            {summary.costPerActiveDayUsd === null ? '—' : formatUsd(summary.costPerActiveDayUsd)}{' '}
+            per active day · {summary.activeDayCount} of 7 days ran ·{' '}
+            {formatUsd(summary.fiveHour.estCostUsd)} in the last 5 hours
+          </>
+        )}
+      </div>
+      {(cold || summary.cacheSavingsUsd > 0) && (
+        <div className="usage-cache-saving">
+          {cold ? (
+            <Unfilled ch={76} />
+          ) : (
+            <>
+              Cache reads bill at 10% of input —{' '}
+              <strong>{formatUsd(summary.cacheSavingsUsd)} less</strong> than the same tokens
+              uncached{cacheMultiple === null ? '.' : `, ${cacheMultiple}x the week's whole bill.`}
+            </>
+          )}
         </div>
-      ))}
+      )}
     </div>
+  )
+}
+
+const PROVIDER_LABEL: Record<UsageProvider, string> = {
+  anthropic: 'Anthropic',
+  openai: 'OpenAI',
+  other: 'Other',
+}
+
+/** Provider is the first useful grouping above individual model ids. */
+function UsageProviders({
+  summary,
+  cold,
+}: {
+  summary: UsageSummaryView
+  cold: boolean
+}): JSX.Element {
+  const totalCost = summary.providers.reduce((total, provider) => total + provider.estCostUsd, 0)
+  const placeholders = [0, 1]
+
+  return (
+    <section className="usage-section usage-providers">
+      <h3 className="usage-section-head">
+        Where it went
+        <span className="usage-section-hint">by provider</span>
+      </h3>
+      <div className="usage-provider-list">
+        {cold
+          ? placeholders.map((row) => (
+              <div key={row} className="usage-provider-row">
+                <span className="usage-provider-name">
+                  <Unfilled ch={8} />
+                </span>
+                <ShareTrack pct={0} cold />
+                <span className="usage-provider-cost">
+                  <Unfilled ch={6} />
+                </span>
+                <span className="usage-provider-sub">
+                  <Unfilled ch={34} />
+                </span>
+              </div>
+            ))
+          : summary.providers.map((provider) => {
+              const pct = totalCost > 0 ? (provider.estCostUsd / totalCost) * 100 : 0
+              return (
+                <div key={provider.provider} className="usage-provider-row">
+                  <span className="usage-provider-name">{PROVIDER_LABEL[provider.provider]}</span>
+                  <ShareTrack pct={pct} cold={false} />
+                  <span className="usage-provider-cost">{formatUsd(provider.estCostUsd)}</span>
+                  <span className="usage-provider-sub">
+                    {formatShare(provider.estCostUsd, totalCost)} of cost ·{' '}
+                    {formatTokens(provider.totalTokens)} tokens · {formatCount(provider.messages)}{' '}
+                    replies
+                  </span>
+                </div>
+              )
+            })}
+      </div>
+    </section>
   )
 }
 
@@ -242,21 +344,52 @@ function UsageTrace({
   cold: boolean
   arrived: boolean
 }): JSX.Element {
-  const axisMax = niceAxisMax(summary.peakHourTokens)
+  const [measure, setMeasure] = useState<'cost' | 'tokens'>('cost')
+  const valueOfHour = (hour: { totalTokens: number; estCostUsd: number }): number =>
+    measure === 'cost' ? hour.estCostUsd : hour.totalTokens
+  const valueOfDay = (day: { totalTokens: number; estCostUsd: number }): number =>
+    measure === 'cost' ? day.estCostUsd : day.totalTokens
+  const formatMeasure = measure === 'cost' ? formatUsd : formatTokens
+  const formatMeasureTick = measure === 'cost' ? formatUsdTick : formatTick
+  const peak = summary.days
+    .flatMap((day) =>
+      day.hours.map((hour) => ({ ...hour, day: day.label, value: valueOfHour(hour) })),
+    )
+    .reduce<{ value: number; startMs: number; day: string } | null>(
+      (best, hour) => (hour.value > (best?.value ?? 0) ? hour : best),
+      null,
+    )
+  const axisMax = niceAxisMax(peak?.value ?? 0)
   // Three lines, not five. A trace needs enough grid to read a value off and no
   // more; denser than this is chart junk competing with the data.
   const ticks = [0, axisMax / 2, axisMax]
-  const peak = summary.days
-    .flatMap((d) => d.hours.map((h) => ({ ...h, day: d.label })))
-    .reduce<{ totalTokens: number; startMs: number; day: string } | null>(
-      (best, h) => (h.totalTokens > (best?.totalTokens ?? 0) ? h : best),
-      null,
-    )
 
   return (
     <figure className="usage-figure">
       <figcaption className="usage-figure-caption">
-        <span className="usage-figure-title">Tokens per hour</span>
+        <span className="usage-figure-title">
+          {measure === 'cost' ? 'Cost per hour' : 'Tokens per hour'}
+        </span>
+        <fieldset className="usage-measure-toggle" aria-label="Trace measure">
+          <button
+            type="button"
+            className="usage-measure-button"
+            data-active={measure === 'cost' || undefined}
+            aria-pressed={measure === 'cost'}
+            onClick={() => setMeasure('cost')}
+          >
+            Cost
+          </button>
+          <button
+            type="button"
+            className="usage-measure-button"
+            data-active={measure === 'tokens' || undefined}
+            aria-pressed={measure === 'tokens'}
+            onClick={() => setMeasure('tokens')}
+          >
+            Tokens
+          </button>
+        </fieldset>
         {/* The peak reads out beside the caption rather than as a label pinned
             over its own column: at 168 columns a direct label is 6px wide and
             collides with its neighbours the moment the busiest hour is not at
@@ -264,9 +397,9 @@ function UsageTrace({
         <span className="usage-figure-peak">
           {cold ? (
             <Unfilled ch={16} />
-          ) : peak && peak.totalTokens > 0 ? (
+          ) : peak && peak.value > 0 ? (
             <>
-              peak {formatTokens(peak.totalTokens)} · {peak.day} {formatHour(peak.startMs)}
+              peak {formatMeasure(peak.value)} · {peak.day} {formatHour(peak.startMs)}
             </>
           ) : null}
         </span>
@@ -280,7 +413,7 @@ function UsageTrace({
               {/* The gridlines are geometry and hold from the first frame; the
                   numbers ON them are not known until the peak is, and an axis
                   labelled off an empty dataset would read 1 / 0.5 / 0. */}
-              {cold ? <Unfilled ch={3.5} /> : formatTick(t)}
+              {cold ? <Unfilled ch={3.5} /> : formatMeasureTick(t)}
             </span>
           ))}
         </div>
@@ -296,8 +429,9 @@ function UsageTrace({
           {summary.days.map((day, di) => (
             <div key={day.day} className="usage-trace-day">
               {day.hours.map((h) => {
+                const value = valueOfHour(h)
                 if (h.future) return <span key={h.startMs} className="usage-hour" data-future />
-                if (h.totalTokens === 0) return <span key={h.startMs} className="usage-hour" />
+                if (value === 0) return <span key={h.startMs} className="usage-hour" />
                 return (
                   <span
                     key={h.startMs}
@@ -310,7 +444,7 @@ function UsageTrace({
                         // inline height — a pseudo-element cannot be styled
                         // inline, and the full-height column is what makes a
                         // 4px-wide mark hoverable.
-                        '--h': `${Math.max(1.5, (h.totalTokens / axisMax) * 100)}%`,
+                        '--h': `${Math.max(1.5, (value / axisMax) * 100)}%`,
                         // The sweep runs left to right, the way the axis is read,
                         // one step per DAY rather than per hour: 168 staggered
                         // columns would take three seconds to finish, and a chart
@@ -334,7 +468,13 @@ function UsageTrace({
                   shows the shape of a day, and this is the one number about it
                   the shape cannot be read off precisely. */}
               <span className="usage-day-total">
-                {cold ? <Unfilled ch={4} /> : day.totalTokens > 0 ? formatTokens(day.totalTokens) : '—'}
+                {cold ? (
+                  <Unfilled ch={4} />
+                ) : valueOfDay(day) > 0 ? (
+                  formatMeasure(valueOfDay(day))
+                ) : (
+                  '—'
+                )}
               </span>
             </div>
           ))}
@@ -376,12 +516,29 @@ function UsageComposition({
           <span />
           <span className="usage-comp-col">tokens</span>
           <span className="usage-comp-col">cost</span>
+          <span className="usage-comp-col usage-comp-ratio-head">cost per token</span>
         </div>
         {rows.map((c) => (
           <div key={c.key} className="usage-comp-row">
             <span className="usage-comp-name">{c.label}</span>
             <CompCell part={c.tokens} whole={totalTokens} cold={cold} />
             <CompCell part={c.estCostUsd} whole={totalCost} cold={cold} />
+            <span
+              className="usage-comp-ratio"
+              data-heavy={
+                !cold && c.costWeightRatio !== null && c.costWeightRatio > 1 ? '' : undefined
+              }
+            >
+              {cold ? (
+                <Unfilled ch={10} />
+              ) : c.costWeightRatio === null ? (
+                '—'
+              ) : (
+                <>
+                  {formatCostWeightRatio(c.costWeightRatio)} <span>its weight</span>
+                </>
+              )}
+            </span>
           </div>
         ))}
       </div>
@@ -402,11 +559,7 @@ function CompCell({
   const pct = whole > 0 ? (part / whole) * 100 : 0
   return (
     <span className="usage-comp-cell">
-      <span className="usage-comp-track">
-        {!cold && pct > 0 && (
-          <span className="usage-comp-fill" style={{ width: `${Math.max(0.6, pct)}%` }} />
-        )}
-      </span>
+      <ShareTrack pct={pct} cold={cold} />
       <span className="usage-comp-pct">
         {cold ? <Unfilled ch={4} /> : formatShare(part, whole)}
       </span>
@@ -414,10 +567,14 @@ function CompCell({
   )
 }
 
-const PROVIDER_LABEL: Record<UsageProvider, string> = {
-  anthropic: 'Anthropic',
-  openai: 'OpenAI',
-  other: '—',
+function ShareTrack({ pct, cold }: { pct: number; cold: boolean }): JSX.Element {
+  return (
+    <span className="usage-comp-track">
+      {!cold && pct > 0 && (
+        <span className="usage-comp-fill" style={{ width: `${Math.max(0.6, pct)}%` }} />
+      )}
+    </span>
+  )
 }
 
 /**
@@ -425,13 +582,7 @@ const PROVIDER_LABEL: Record<UsageProvider, string> = {
  * share rail is of COST for the same reason: a rail measuring one thing under a
  * column ordered by another is two answers to one question.
  */
-function UsageModels({
-  summary,
-  cold,
-}: {
-  summary: UsageSummaryView
-  cold: boolean
-}): JSX.Element {
+function UsageModels({ summary, cold }: { summary: UsageSummaryView; cold: boolean }): JSX.Element {
   const topCost = Math.max(0, ...summary.models.map((m) => m.estCostUsd))
   // Three rows: the table is the one region whose LENGTH is genuinely unknown
   // before the answer, and holding a plausible few keeps the sheet from growing
