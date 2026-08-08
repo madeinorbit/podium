@@ -536,9 +536,26 @@ describe('idle-session cap', () => {
   // to every pressure source. Count them after a long quiet window; act only
   // when a resume ref exists; shells get a separate opt-in policy.
   describe('unobserved phase (POD-565)', () => {
-    it('counts quiet unobserved sessions toward the cap so known-idle work parks first', () => {
-      // Cap 1: one known idle + one long-quiet unobserved → overage 1.
-      // The unobserved session has no terminal proof path; the known idle parks.
+    it('counts a quiet unobserved agent that HAS a resume ref — it pays its own overage', () => {
+      // Cap 1: one known idle + one long-quiet unobserved holding a resume ref →
+      // overage 1, and the unobserved session is itself eligible to pay it.
+      const sessions = [
+        session(asSessionId('known-idle')),
+        unobserved(asSessionId('hookless-resumable')),
+      ]
+      const { service, parked } = harness({ sessions, maxIdleSessions: 1 })
+
+      service.onHostMetrics(asMachineId('local'), sample(10))
+
+      expect(parked).toHaveLength(1)
+    })
+
+    it('does NOT count an unobserved session nothing can park, so no observed agent pays', () => {
+      // THE REGRESSION THIS PINS. A session with no resume ref can never enter
+      // hibernateSession, so counting it would raise an overage that only
+      // OBSERVED agents could pay — a debt that never retires, leaving the loop
+      // in cap-unmet forever. Cap 1, one known idle plus one unparkable
+      // unobserved: the overage is 0 and nobody is parked.
       const sessions = [
         session(asSessionId('known-idle')),
         unobserved(asSessionId('hookless'), { resume: undefined }),
@@ -547,7 +564,8 @@ describe('idle-session cap', () => {
 
       service.onHostMetrics(asMachineId('local'), sample(10))
 
-      expect(parked).toEqual(['known-idle'])
+      expect(parked).toEqual([])
+      expect(sessions[0]?.status).toBe('live')
       expect(sessions[1]?.status).toBe('live')
     })
 
@@ -584,7 +602,12 @@ describe('idle-session cap', () => {
         .map((call) => String(call[0]))
         .filter((line) => line.includes('counting') && line.includes('unobserved'))
       expect(lines).toHaveLength(1)
-      expect(lines[0]).toContain('2 unobserved quiet session')
+      // BOTH numbers. Neither of these two can be parked (no resume ref), so the
+      // cap counts none of them — but the log still has to name all 2, because
+      // making this tail visible is what POD-565 is for. Reporting only the
+      // counted number would re-hide it.
+      expect(lines[0]).toContain('counting 0 of 2 unobserved quiet session')
+      expect(lines[0]).toContain('cannot be parked by any policy that is on')
     })
 
     it('hibernates a long-quiet unobserved agent that has a resume ref without terminal proof', () => {
@@ -618,22 +641,41 @@ describe('idle-session cap', () => {
       expect(sessions[0]?.status).toBe('live')
     })
 
-    it('does not park shells via the agent hibernation path even when they inflate the cap', () => {
-      const sessions = [
-        session(asSessionId('known-idle')),
-        shell(asSessionId('old-shell')),
-      ]
+    it('a quiet shell does not inflate the cap while idleShellHours is off', () => {
+      // With the shell policy off, applyShellIdlePressure never runs, so nothing
+      // on this host can park a shell. Counting it would make the known-idle
+      // agent pay for a session no policy is acting on. The POD-526 host had a
+      // shell quiet since Jul 21 sitting behind exactly this.
+      const sessions = [session(asSessionId('known-idle')), shell(asSessionId('old-shell'))]
       const { service, parked, shellParked } = harness({
         sessions,
         maxIdleSessions: 1,
-        // Shell policy off — shell is counted, not parked.
+        // Shell policy off — shell is neither counted nor parked.
       })
 
       service.onHostMetrics(asMachineId('local'), sample(10))
 
-      expect(parked).toEqual(['known-idle'])
+      expect(parked).toEqual([])
       expect(shellParked).toEqual([])
+      expect(sessions[0]?.status).toBe('live')
       expect(sessions[1]?.status).toBe('live')
+    })
+
+    it('the same shell DOES count once idleShellHours turns the policy on', () => {
+      // The predicate follows the policy rather than a constant: switch shell
+      // reaping on and the shell becomes both parkable and countable in the same
+      // breath. Cap 1 with two sessions is an overage of 1; the shell is quiet
+      // past the threshold, so the shell path takes it and the agent is spared.
+      const sessions = [session(asSessionId('known-idle')), shell(asSessionId('old-shell'))]
+      const { service, shellParked } = harness({
+        sessions,
+        maxIdleSessions: 1,
+        idleShellHours: 1,
+      })
+
+      service.onHostMetrics(asMachineId('local'), sample(10))
+
+      expect(shellParked).toEqual(['old-shell'])
     })
 
     it('parks a quiet shell when idleShellHours is set', () => {

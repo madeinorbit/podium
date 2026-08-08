@@ -186,7 +186,13 @@ export class HostsService {
       // A raced/refused candidate must not spend the cooldown or block the next
       // safely parkable session. Re-read the live projection after every attempt.
       while (true) {
-        const target = this.eligibleCandidates(machineId, cfg.idleMinutes, now, failed)[0]
+        const target = this.eligibleCandidates(
+          machineId,
+          cfg.idleMinutes,
+          now,
+          failed,
+          cfg.idleShellHours,
+        )[0]
         if (!target) break
         if (!this.tryHibernateCandidate(target, failed)) continue
         this.lastAutoHibernateMsByMachine.set(machineId, now)
@@ -211,7 +217,13 @@ export class HostsService {
 
     if (loadReady) {
       while (true) {
-        const target = this.eligibleCandidates(machineId, cfg.idleMinutes, now, failed)[0]
+        const target = this.eligibleCandidates(
+          machineId,
+          cfg.idleMinutes,
+          now,
+          failed,
+          cfg.idleShellHours,
+        )[0]
         if (!target) break
         if (!this.tryHibernateCandidate(target, failed)) continue
         this.lastAutoHibernateMsByMachine.set(machineId, now)
@@ -227,10 +239,10 @@ export class HostsService {
       this.applyShellIdlePressure(machineId, cfg.idleShellHours, now, failed)
     }
 
-    // Unobserved quiet sessions are now IN the idle-live cap (and eligible when
-    // they have a resume ref). Log stays so first-deploy after step 2 is still
-    // inspectable; the count is no longer log-only.
-    this.reportUnobservedCounted(machineId, cfg.idleMinutes, now)
+    // Unobserved quiet sessions are IN the idle-live cap when some active policy
+    // could park them, and named in the log either way. Log stays so first
+    // deploy after step 2 is still inspectable.
+    this.reportUnobservedCounted(machineId, cfg.idleMinutes, now, cfg.idleShellHours)
 
     if (cfg.maxIdleSessions === null) {
       this.lastCapUnmetByMachine.delete(machineId)
@@ -242,6 +254,7 @@ export class HostsService {
       cfg.maxIdleSessions,
       now,
       failed,
+      cfg.idleShellHours,
     )
   }
 
@@ -271,20 +284,27 @@ export class HostsService {
     targetCount: number,
     now: number,
     failed: Set<string>,
+    idleShellHours: number | null,
   ): number | undefined {
     const budget = this.countBudgetFor(machineId, now)
 
     while (true) {
       // Re-read after every success: hibernateSession synchronously changes the
       // session status, and the target is convergence rather than a snapshot batch.
-      const idleLive = this.idleLiveSessions(machineId, idleMinutes, now)
+      const idleLive = this.idleLiveSessions(machineId, idleMinutes, now, idleShellHours)
       const overage = idleLive.length - targetCount
       if (overage <= 0) {
         this.lastCapUnmetByMachine.delete(machineId)
         return
       }
 
-      const candidates = this.eligibleCandidates(machineId, idleMinutes, now, failed)
+      const candidates = this.eligibleCandidates(
+        machineId,
+        idleMinutes,
+        now,
+        failed,
+        idleShellHours,
+      )
       if (candidates.length === 0) {
         this.reportCapUnmet(machineId, targetCount, overage)
         return overage
@@ -344,11 +364,34 @@ export class HostsService {
    * Unobserved (phase unknown / no agentState): counted after max(idleMinutes, 4h)
    * fully quiet — same predicate as the step-1 log, now folded into the cap so
    * they pay their own overage when eligible (POD-565 step 2).
+   *
+   * COUNT ONLY WHAT AN ACTIVE POLICY COULD PARK. The overage drives how many
+   * sessions get hibernated, so an unobserved session that nothing can ever park
+   * would make OBSERVED agents pay a debt that never retires, and the loop would
+   * then sit in `reportCapUnmet` permanently. Two such classes are excluded:
+   *
+   *  - a SHELL while `idleShellHours` is null, because `applyShellIdlePressure`
+   *    is the only thing that can park one and it is switched off;
+   *  - an unobserved session with NO resume ref, because `hibernateSession`
+   *    refuses without one.
+   *
+   * The predicate follows the POLICY, not a constant: turn `idleShellHours` on
+   * and shells become parkable, so they start counting in the same breath.
+   *
+   * `needs_user` is deliberately NOT treated this way. It stays counted and
+   * protected — a handful of sessions a human is expected to return to, which is
+   * the established stance here; this exclusion is about an unbounded class that
+   * no policy is acting on at all.
+   *
+   * Excluded from the CAP is not excluded from SIGHT: `reportUnobservedCounted`
+   * still names every unobserved quiet session, which is the whole point of
+   * POD-565.
    */
   private idleLiveSessions(
     machineId: string,
     idleMinutes: number,
     now: number,
+    idleShellHours: number | null,
   ): HostSessionView[] {
     const unknownQuietMs = this.unknownQuietWindowMs(idleMinutes)
     return [...this.deps.sessions()].filter((session) => {
@@ -356,10 +399,19 @@ export class HostsService {
       const phase = session.agentState?.phase
       // needs_user is idle fleet load too, but deliberately protected from parking.
       if (phase === 'idle' || phase === 'ended' || phase === 'needs_user') return true
-      return (
-        this.isUnobservedPhase(session) && this.isFullyQuietFor(session, unknownQuietMs, now)
-      )
+      if (!this.isUnobservedPhase(session)) return false
+      if (!this.isFullyQuietFor(session, unknownQuietMs, now)) return false
+      return this.unobservedIsParkable(session, idleShellHours)
     })
+  }
+
+  /** Whether some policy that is currently ON could park this unobserved session. */
+  private unobservedIsParkable(
+    session: HostSessionView,
+    idleShellHours: number | null,
+  ): boolean {
+    if (session.agentKind === 'shell') return idleShellHours !== null
+    return session.resume !== undefined
   }
 
   private eligibleCandidates(
@@ -367,10 +419,11 @@ export class HostsService {
     idleMinutes: number,
     now: number,
     excluded: ReadonlySet<string>,
+    idleShellHours: number | null,
   ): HostSessionView[] {
     const idleCutoff = now - idleMinutes * 60_000
     const unknownQuietMs = this.unknownQuietWindowMs(idleMinutes)
-    return this.idleLiveSessions(machineId, idleMinutes, now)
+    return this.idleLiveSessions(machineId, idleMinutes, now, idleShellHours)
       .filter((session) => {
         if (excluded.has(session.sessionId)) return false
         // Shells never go through hibernateSession — idleShellHours owns them.
@@ -493,21 +546,44 @@ export class HostsService {
    * includes (POD-565). After step 2 they are in the cap; the log remains so a
    * deploy is still inspectable.
    */
-  private reportUnobservedCounted(machineId: string, idleMinutes: number, now: number): void {
+  /**
+   * Name every unobserved quiet session, and say which of them the cap can
+   * actually act on.
+   *
+   * The two numbers differ on purpose: {@link idleLiveSessions} counts only what
+   * an active policy could park, so a host full of shells with `idleShellHours`
+   * off reports "3 counted, 19 seen". Reporting only the counted number would
+   * re-hide exactly the tail POD-565 exists to expose, and reporting only the
+   * total would claim a cap pressure that is not being applied.
+   */
+  private reportUnobservedCounted(
+    machineId: string,
+    idleMinutes: number,
+    now: number,
+    idleShellHours: number | null,
+  ): void {
     const unknownQuietMs = this.unknownQuietWindowMs(idleMinutes)
-    const count = [...this.deps.sessions()].filter(
+    const quiet = [...this.deps.sessions()].filter(
       (session) =>
         session.machineId === machineId &&
         session.status === 'live' &&
         this.isUnobservedPhase(session) &&
         this.isFullyQuietFor(session, unknownQuietMs, now),
+    )
+    const counted = quiet.filter((session) =>
+      this.unobservedIsParkable(session, idleShellHours),
     ).length
-    if (this.lastUnobservedCountByMachine.get(machineId) === count) return
-    this.lastUnobservedCountByMachine.set(machineId, count)
-    if (count === 0) return
+    if (this.lastUnobservedCountByMachine.get(machineId) === quiet.length) return
+    this.lastUnobservedCountByMachine.set(machineId, quiet.length)
+    if (quiet.length === 0) return
     const quietHours = unknownQuietMs / 3_600_000
+    const unparkable = quiet.length - counted
+    const tail =
+      unparkable > 0
+        ? ` — ${unparkable} of them cannot be parked by any policy that is on (shells need idleShellHours; agents need a resume ref), so they are NOT in the cap`
+        : ''
     console.info(
-      `[podium] idle-session cap counting ${count} unobserved quiet session(s) on ${this.deps.machineName(machineId)} (≥${quietHours}h quiet, phase unknown)`,
+      `[podium] idle-session cap counting ${counted} of ${quiet.length} unobserved quiet session(s) on ${this.deps.machineName(machineId)} (≥${quietHours}h quiet, phase unknown)${tail}`,
     )
   }
 
