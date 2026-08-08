@@ -5,7 +5,9 @@ import {
   hostMemoryView,
   idleSessionSplit,
   listReclaimableWorktreesClient,
+  occupiedRootsFromKey,
   panelLabel,
+  residentWorktreeKey,
 } from '@podium/client-core/viewmodels'
 import type { AgentMemoryWire, HostMemoryWire, ProjectMemoryWire, SessionId } from '@podium/model'
 import { Loader2 } from 'lucide-react'
@@ -99,15 +101,19 @@ export function LoadPanel({
   const load = metric ? hostLoadView(metric, hibernation?.loadPerCore ?? null) : null
   const idleSplit = idleSessionSplit(sessions, machineId)
   const afterDays = worktreeGc?.afterDays ?? 14
+  // Keyed on live-agent occupancy, not the sessions array — see the same memo in
+  // HeaderHostIndicators. The panel refreshes its /proc breakdown every 5s; the
+  // candidate scan has no reason to follow that cadence.
+  const occupancyKey = residentWorktreeKey(sessions)
   const reclaimable = useMemo(
     () =>
       listReclaimableWorktreesClient({
         issues,
-        sessions,
+        occupiedRoots: occupiedRootsFromKey(occupancyKey),
         afterDays,
         ...(machineId ? { machineId } : {}),
       }),
-    [issues, sessions, afterDays, machineId],
+    [issues, occupancyKey, afterDays, machineId],
   )
 
   const total = data?.memory.totalBytes ?? 0
@@ -235,36 +241,31 @@ export function LoadPanel({
       {pinned && (
         <div className="hp-section">
           <div className="hp-sect-label">Reclaimable</div>
-          <div className="hp-rrow">
-            <span className="hp-rrow-k">Worktrees</span>
-            <span className="hp-rrow-v">
+          <div className="hp-kv">
+            <span className="hp-kv-key">Worktrees</span>
+            <span className="hp-kv-value">
               {reclaimable.length} checkout{reclaimable.length === 1 ? '' : 's'}
             </span>
             {onOpenReclaim && reclaimable.length > 0 && (
-              <button
-                data-pressable
-                type="button"
-                className="hp-review-btn"
-                onClick={onOpenReclaim}
-              >
+              <button data-pressable type="button" className="hp-link" onClick={onOpenReclaim}>
                 Review
               </button>
             )}
           </div>
-          <div className="hp-rrow">
-            <span className="hp-rrow-k">Idle sessions</span>
-            <span className="hp-rrow-v">
+          <div className="hp-kv">
+            <span className="hp-kv-key">Idle sessions</span>
+            <span className="hp-kv-value">
               {idleSplit.parkable} parkable · {idleSplit.protected} protected
               {metric?.idleCapUnmet != null && metric.idleCapUnmet > 0
                 ? ` · ${metric.idleCapUnmet} cap unmet`
                 : ''}
             </span>
           </div>
-          <div className="hp-rrow">
-            <span className="hp-rrow-k">Held</span>
-            <span className="hp-rrow-v hp-rrow-held">
-              dirty trees refuse at free — open Review to free
-            </span>
+          {/* Not a readout — a standing caveat about what Review will and will
+              not do. It reports no count, so it must not sit in the key column
+              pretending to be one. */}
+          <div className="hp-dim-line">
+            Nothing is freed from here. Review proposes; you tick what goes.
           </div>
         </div>
       )}

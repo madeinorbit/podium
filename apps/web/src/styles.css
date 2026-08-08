@@ -692,43 +692,31 @@ html[data-density="balanced"] .header-quota-pools {
   }
 }
 
-/* Reclaimable inventory rows inside the machine-load popover (POD-563). */
-.hp-rrow {
+/* Label/value rows in the health popover — the reclaimable inventory is the
+   first user (POD-563). Named for the shape, alongside `.hp-prow` (a process
+   row: name, detail, right-aligned bytes) and `.hp-winrow` (the quota window
+   grid); neither of those is a label/value pair, so this is a third row kind
+   rather than a variant of either. The `Review` affordance is NOT a fourth
+   primitive: `.hp-link` is already this popover's button, used by the
+   hibernation and GC shortcuts below it. */
+.hp-kv {
   display: flex;
   align-items: baseline;
   gap: 10px;
   padding: 2.5px 0;
   font-size: 11px;
 }
-.hp-rrow-k {
+.hp-kv-key {
   width: 96px;
   flex: none;
   color: var(--text-dim);
 }
-.hp-rrow-v {
+.hp-kv-value {
   flex: 1 1 auto;
   min-width: 0;
   font-family: var(--font-mono);
   font-size: 10.5px;
   color: var(--foreground);
-}
-.hp-rrow-held {
-  color: var(--warning);
-}
-.hp-review-btn {
-  flex: none;
-  height: 20px;
-  padding: 0 8px;
-  border: 1px solid var(--border-strong, var(--border));
-  border-radius: 4px;
-  background: var(--superade, var(--primary));
-  color: var(--race-navy, var(--primary-foreground));
-  font-size: 10.5px;
-  font-weight: 500;
-  cursor: pointer;
-}
-.hp-review-btn:hover {
-  filter: brightness(1.06);
 }
 @media (prefers-reduced-motion: reduce) {
   .header-machine-chip,

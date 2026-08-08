@@ -3,7 +3,9 @@ import {
   formatMemBytes,
   hostMemoryView,
   listReclaimableWorktreesClient,
+  occupiedRootsFromKey,
   panelLabel,
+  residentWorktreeKey,
 } from '@podium/client-core/viewmodels'
 import type { AgentMemoryWire, HostMemoryWire, ProjectMemoryWire, SessionId } from '@podium/model'
 import type { PodiumSettings } from '@podium/runtime'
@@ -11,11 +13,14 @@ import { Loader2 } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import { useReplicaIssues, useStoreSelector } from '@/app/store'
+import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { cn } from '@/lib/utils'
 import { describeHealth, useConnectionHealth } from './ConnectionIndicator'
+import { ReclaimConfirmDialog } from './reclaim-lifecycle'
 
 /** Lifecycle knobs the host-pressure surfaces need (hibernation + worktree GC).
  *  Lazily fetched so chips/panels reflect live settings without a settings store.
@@ -481,9 +486,17 @@ function LegendSwatch({ className, label }: { className: string; label: string }
 
 /**
  * Reclaim tab — the janitor's candidate list for this machine (POD-563).
- * Candidates are derived client-side from issues + sessions + worktreeGc.afterDays
- * (same predicate as the server list). Free keeps the branch via issues.stop.
- * Dirty trees refuse at free time; those reasons surface as "held".
+ *
+ * A PROPOSAL, not a queue. Candidates are derived client-side from issues +
+ * session occupancy + `worktreeGc.afterDays` (the same predicate as the server
+ * list), rendered with a checkbox and NOTHING ticked. The single action frees
+ * the ticked rows only, and every path to it — batch or per-row — goes through
+ * {@link ReclaimConfirmDialog}, which names the consequences before anything is
+ * stopped. There is no apply-everything button on purpose: the operator asked
+ * for the janitor's list to be approved row by row rather than accepted whole.
+ *
+ * Freeing keeps the branch (`issues.stop`); a dirty tree refuses and lands in
+ * "held" with the server's reason.
  */
 function ReclaimPanel({ machineId }: { machineId?: string }): JSX.Element {
   const { trpc, sessions } = useStoreSelector(
@@ -493,54 +506,75 @@ function ReclaimPanel({ machineId }: { machineId?: string }): JSX.Element {
   const issues = useReplicaIssues()
   const lifecycle = useHostLifecycleSettings()
   const afterDays = lifecycle?.worktreeGc.afterDays ?? 14
+  // Keyed on live-agent occupancy rather than the sessions array — see the same
+  // memo in HeaderHostIndicators.
+  const occupancyKey = residentWorktreeKey(sessions)
   const candidates = useMemo(
     () =>
       listReclaimableWorktreesClient({
         issues,
-        sessions,
+        occupiedRoots: occupiedRootsFromKey(occupancyKey),
         afterDays,
         ...(machineId ? { machineId } : {}),
       }),
-    [issues, sessions, afterDays, machineId],
+    [issues, occupancyKey, afterDays, machineId],
   )
-  const [busyId, setBusyId] = useState<string | null>(null)
-  const [batchBusy, setBatchBusy] = useState(false)
+  // Nothing is ticked until the operator ticks it. This set IS the proposal's
+  // answer, so it is never seeded from the candidate list.
+  const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set())
+  /** Issue ids the confirm dialog is currently asking about; null = closed. */
+  const [confirming, setConfirming] = useState<string[] | null>(null)
+  const [busy, setBusy] = useState(false)
   const [held, setHeld] = useState<Array<{ issueId: string; reason: string }>>([])
   const [freed, setFreed] = useState<string[]>([])
-  const [error, setError] = useState<string | null>(null)
 
   const remaining = candidates.filter((c) => !freed.includes(c.issueId))
+  const titleOf = (issueId: string): string =>
+    candidates.find((c) => c.issueId === issueId)?.title ?? issueId
+  // Ticks for rows that have since been freed (or dropped out of the list) must
+  // not keep counting toward the button.
+  const selectedIds = remaining.filter((c) => selected.has(c.issueId)).map((c) => c.issueId)
 
-  const freeOne = async (issueId: string): Promise<'freed' | 'held'> => {
+  const toggle = (issueId: string): void =>
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (!next.delete(issueId)) next.add(issueId)
+      return next
+    })
+
+  /**
+   * One free. `issues.stop` reports a refusal as `ok: true` with
+   * `worktreeFreed: false` and a reason — it stopped the sessions, it just did
+   * not take the disk — so the outcome is read off `worktreeFreed`, never off
+   * "the call did not throw".
+   */
+  const freeOne = async (issueId: string): Promise<void> => {
+    const record = (reason: string): void =>
+      setHeld((prev) => [...prev.filter((h) => h.issueId !== issueId), { issueId, reason }])
     try {
-      await trpc.issues.stop.mutate({ id: issueId })
-      setFreed((prev) => (prev.includes(issueId) ? prev : [...prev, issueId]))
-      setHeld((prev) => prev.filter((h) => h.issueId !== issueId))
-      return 'freed'
+      const result = await trpc.issues.stop.mutate({ id: issueId })
+      if (result.worktreeFreed) {
+        setFreed((prev) => (prev.includes(issueId) ? prev : [...prev, issueId]))
+        setHeld((prev) => prev.filter((h) => h.issueId !== issueId))
+        return
+      }
+      record(result.reason ?? 'the checkout was not freed')
     } catch (e) {
-      const reason = e instanceof Error ? e.message : String(e)
-      setHeld((prev) => {
-        const without = prev.filter((h) => h.issueId !== issueId)
-        return [...without, { issueId, reason }]
-      })
-      return 'held'
+      record(e instanceof Error ? e.message : String(e))
     }
   }
 
-  const onFree = async (issueId: string): Promise<void> => {
-    setBusyId(issueId)
-    setError(null)
-    await freeOne(issueId)
-    setBusyId(null)
-  }
-
-  const onFreeAll = async (): Promise<void> => {
-    setBatchBusy(true)
-    setError(null)
-    for (const c of remaining) {
-      await freeOne(c.issueId)
-    }
-    setBatchBusy(false)
+  const onConfirmed = async (): Promise<void> => {
+    const ids = confirming ?? []
+    setBusy(true)
+    for (const id of ids) await freeOne(id)
+    setBusy(false)
+    setConfirming(null)
+    setSelected((prev) => {
+      const next = new Set(prev)
+      for (const id of ids) next.delete(id)
+      return next
+    })
   }
 
   const ageDays = (closedAt: string): number => {
@@ -552,8 +586,8 @@ function ReclaimPanel({ machineId }: { machineId?: string }): JSX.Element {
   return (
     <div className="flex flex-col gap-3 p-3.5">
       <p className="m-0 text-[13px] text-muted-foreground">
-        Closed issues whose checkouts are still on disk and free of live sessions. Free keeps the
-        branch; uncommitted changes refuse and show as held.
+        Closed issues whose checkouts are still on disk and free of live sessions. Tick the ones you
+        want back — nothing here is freed until you do.
       </p>
       {remaining.length === 0 && held.length === 0 ? (
         <div className="text-xs text-muted-foreground/70">Nothing reclaimable on this machine.</div>
@@ -564,27 +598,41 @@ function ReclaimPanel({ machineId }: { machineId?: string }): JSX.Element {
               {remaining.length} candidate{remaining.length === 1 ? '' : 's'}
             </span>
             {remaining.length > 0 && (
-              <button
-                data-pressable
-                type="button"
-                className="cursor-pointer border border-border-strong rounded px-2 py-0.5 text-[11px] bg-secondary text-foreground disabled:opacity-50"
-                disabled={batchBusy || busyId != null}
-                onClick={() => void onFreeAll()}
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy || selectedIds.length === 0}
+                onClick={() => setConfirming(selectedIds)}
               >
-                {batchBusy ? 'Freeing…' : 'Free all'}
-              </button>
+                {selectedIds.length === 0
+                  ? 'Free selected'
+                  : `Free ${selectedIds.length} checkout${selectedIds.length === 1 ? '' : 's'}`}
+              </Button>
             )}
           </div>
           <div className="flex flex-col gap-1">
             {remaining.map((c) => (
               <div
                 key={c.issueId}
-                className="flex items-baseline gap-2 text-xs text-foreground"
+                className="flex items-center gap-2 text-xs text-foreground"
                 title={c.worktreePath}
               >
-                <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
+                <Checkbox
+                  id={`reclaim-${c.issueId}`}
+                  className="flex-none"
+                  checked={selected.has(c.issueId)}
+                  disabled={busy}
+                  onCheckedChange={() => toggle(c.issueId)}
+                />
+                {/* Associated by id rather than by wrapping: the row's own Free
+                    button sits in the same row, and inside a label it would tick
+                    the box on its way past. */}
+                <label
+                  htmlFor={`reclaim-${c.issueId}`}
+                  className="min-w-0 flex-1 cursor-pointer overflow-hidden text-ellipsis whitespace-nowrap"
+                >
                   {c.title}
-                </span>
+                </label>
                 <span className="flex-none text-[11px] text-muted-foreground/70 tabular-nums">
                   {ageDays(c.closedAt)}d
                 </span>
@@ -592,43 +640,50 @@ function ReclaimPanel({ machineId }: { machineId?: string }): JSX.Element {
                   data-pressable
                   type="button"
                   className="flex-none cursor-pointer border-0 bg-transparent p-0 text-[11px] text-primary underline underline-offset-2 disabled:opacity-50 hover:no-underline"
-                  disabled={batchBusy || busyId != null}
-                  onClick={() => void onFree(c.issueId)}
+                  disabled={busy}
+                  aria-label={`Free ${c.title}`}
+                  onClick={() => setConfirming([c.issueId])}
                 >
-                  {busyId === c.issueId ? (
-                    <Loader2 size={11} className="inline animate-spin" aria-label="Freeing" />
-                  ) : (
-                    'Free'
-                  )}
+                  Free
                 </button>
               </div>
             ))}
           </div>
         </>
       )}
+      {busy && (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Loader2 size={12} className="animate-spin" aria-hidden="true" />
+          <span>Freeing…</span>
+        </div>
+      )}
       {held.length > 0 && (
         <div className="flex flex-col gap-1 border-t border-border pt-2">
           <div className="text-[11px] font-semibold tracking-[0.08em] text-warning uppercase">
             Held · {held.length} by uncommitted changes or refusal
           </div>
-          {held.map((h) => {
-            const title = candidates.find((c) => c.issueId === h.issueId)?.title ?? h.issueId
-            return (
-              <div key={h.issueId} className="text-xs text-muted-foreground" title={h.reason}>
-                <span className="text-foreground">{title}</span>
-                <span className="block text-[11px] text-warning/90">{h.reason}</span>
-              </div>
-            )
-          })}
+          {held.map((h) => (
+            <div key={h.issueId} className="text-xs text-muted-foreground" title={h.reason}>
+              <span className="text-foreground">{titleOf(h.issueId)}</span>
+              <span className="block text-[11px] text-warning/90">{h.reason}</span>
+            </div>
+          ))}
         </div>
       )}
-      {error && <div className="text-xs text-destructive">{error}</div>}
       {lifecycle && (
         <p className="m-0 text-[11px] text-muted-foreground/70">
           Worktree GC: {lifecycle.worktreeGc.mode === 'off' ? 'off' : lifecycle.worktreeGc.mode} ·
           after {lifecycle.worktreeGc.afterDays} days
         </p>
       )}
+      <ReclaimConfirmDialog
+        titles={confirming?.map(titleOf) ?? null}
+        busy={busy}
+        onOpenChange={(open) => {
+          if (!open && !busy) setConfirming(null)
+        }}
+        onConfirm={() => void onConfirmed()}
+      />
     </div>
   )
 }

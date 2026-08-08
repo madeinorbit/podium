@@ -5,15 +5,13 @@ import {
   hostLoadView,
   idleSessionSplit,
   listReclaimableWorktreesClient,
-  residentSessionsOnMachine,
+  occupiedRootsFromKey,
   residencyBreakdown,
+  residentSessionsOnMachine,
+  residentWorktreeKey,
 } from './facts'
 
-const host = (over: {
-  one?: number
-  cpuCount?: number
-  load?: false
-} = {}) => ({
+const host = (over: { one?: number; cpuCount?: number; load?: false } = {}) => ({
   hostname: 'podium-vps',
   machineId: asMachineId('m1'),
   sampledAt: '2026-08-08T00:00:00.000Z',
@@ -174,16 +172,79 @@ describe('listReclaimableWorktreesClient', () => {
         machineId: 'm1',
       },
     ]
-    const sessions = [
-      session({ sessionId: 's', cwd: '/r/.worktrees/busy', status: 'live' }),
-    ]
+    const sessions = [session({ sessionId: 's', cwd: '/r/.worktrees/busy', status: 'live' })]
     const list = listReclaimableWorktreesClient({
       issues,
-      sessions,
+      occupiedRoots: occupiedRootsFromKey(residentWorktreeKey(sessions)),
       afterDays: 14,
       machineId: 'm1',
       nowMs: now,
     })
     expect(list.map((c) => c.issueId)).toEqual(['old'])
+  })
+})
+
+/**
+ * The memo key the header and both panels depend on instead of the sessions
+ * array (POD-563). It has to be stable under the churn that dominates that
+ * slice, and it has to round-trip — the candidate scan reads the paths back
+ * out of it, so a key that compares equal but decodes differently would be a
+ * silently stale candidate list.
+ */
+describe('residentWorktreeKey', () => {
+  const phase = (p: 'working' | 'idle') => ({
+    phase: p,
+    since: '2026-08-01T00:00:00.000Z',
+    nativeSubagentCount: 0,
+  })
+
+  it('ignores churn that cannot move a checkout in or out of the list', () => {
+    const before = [
+      session({ sessionId: 'a', cwd: '/r/.worktrees/a', status: 'live' }),
+      session({ sessionId: 'b', cwd: '/r/.worktrees/b', status: 'live' }),
+    ]
+    const after = [
+      // Same two sessions, re-emitted with a new phase and in the other order —
+      // the shape of a routine store update.
+      session({
+        sessionId: 'b',
+        cwd: '/r/.worktrees/b',
+        status: 'live',
+        agentState: phase('working'),
+      }),
+      session({
+        sessionId: 'a',
+        cwd: '/r/.worktrees/a',
+        status: 'live',
+        agentState: phase('idle'),
+      }),
+    ]
+    expect(residentWorktreeKey(after)).toBe(residentWorktreeKey(before))
+  })
+
+  it('changes when a session moves into or out of residency', () => {
+    const empty = residentWorktreeKey([])
+    const one = residentWorktreeKey([
+      session({ sessionId: 'a', cwd: '/r/.worktrees/a', status: 'live' }),
+    ])
+    expect(one).not.toBe(empty)
+    // A hibernated session is not standing in the directory, so it is not in the key.
+    expect(
+      residentWorktreeKey([
+        session({ sessionId: 'a', cwd: '/r/.worktrees/a', status: 'hibernated' }),
+      ]),
+    ).toBe(empty)
+  })
+
+  it('round-trips through occupiedRootsFromKey, including the empty case', () => {
+    expect(occupiedRootsFromKey(residentWorktreeKey([]))).toEqual([])
+    expect(
+      occupiedRootsFromKey(
+        residentWorktreeKey([
+          session({ sessionId: 'b', cwd: '/r/.worktrees/b', status: 'live' }),
+          session({ sessionId: 'a', cwd: '/r/.worktrees/a', status: 'starting' }),
+        ]),
+      ),
+    ).toEqual(['/r/.worktrees/a', '/r/.worktrees/b'])
   })
 })

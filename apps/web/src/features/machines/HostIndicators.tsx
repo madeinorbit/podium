@@ -4,8 +4,10 @@ import {
   hostLoadView,
   hostMemoryView,
   listReclaimableWorktreesClient,
+  occupiedRootsFromKey,
   RECLAIMABLE_WORKTREE_THRESHOLD,
   residencyBreakdown,
+  residentWorktreeKey,
 } from '@podium/client-core/viewmodels'
 import { CircleArrowUp, CloudUpload, MemoryStick } from 'lucide-react'
 import type { JSX } from 'react'
@@ -215,23 +217,26 @@ export function HeaderHostIndicators(): JSX.Element {
         })()
 
   const afterDays = lifecycle?.worktreeGc.afterDays ?? 14
+  // One scan for every machine, grouped afterwards, rather than one scan per
+  // host — and keyed on what the scan can actually see. The sessions slice is
+  // replaced on every token count and phase flip; only where live agents STAND
+  // can move a checkout in or out of the list, so the memo depends on that key
+  // (`occupancyKey`) instead of on the array. `issues` stays a plain dep: its
+  // identity already changes only when an issue row does.
+  const occupancyKey = residentWorktreeKey(sessions)
   const reclaimByMachine = useMemo(() => {
     const map = new Map<string, number>()
-    for (const host of hostMetrics) {
-      const id = host.machineId
-      if (!id) continue
-      map.set(
-        id,
-        listReclaimableWorktreesClient({
-          issues,
-          sessions,
-          afterDays,
-          machineId: id,
-        }).length,
-      )
+    if (hostMetrics.length === 0) return map
+    for (const candidate of listReclaimableWorktreesClient({
+      issues,
+      occupiedRoots: occupiedRootsFromKey(occupancyKey),
+      afterDays,
+    })) {
+      if (!candidate.machineId) continue
+      map.set(candidate.machineId, (map.get(candidate.machineId) ?? 0) + 1)
     }
     return map
-  }, [hostMetrics, issues, sessions, afterDays])
+  }, [hostMetrics.length, issues, occupancyKey, afterDays])
 
   return (
     <div className="topbar-well header-host-indicators">

@@ -23,11 +23,11 @@
  * Platform-neutral: no DOM, no storage.
  */
 import {
+  type GitRepositoryWire,
+  type HostMetricsWire,
   isIssueClosed,
   normalizeOriginUrl,
   repoNameFromOrigin,
-  type GitRepositoryWire,
-  type HostMetricsWire,
   type SessionMeta,
   type SessionStatus,
 } from '@podium/model'
@@ -248,11 +248,7 @@ export const DEFAULT_LOAD_PER_CORE = 1.5
 /** Amber health-dot threshold: reclaimable worktree count past this asks the operator. */
 export const RECLAIMABLE_WORKTREE_THRESHOLD = 20
 
-const RESIDENT_STATUSES: ReadonlySet<SessionStatus> = new Set([
-  'live',
-  'starting',
-  'reconnecting',
-])
+const RESIDENT_STATUSES: ReadonlySet<SessionStatus> = new Set(['live', 'starting', 'reconnecting'])
 
 export interface HostLoadView {
   /** load1 ÷ cores, or null when the daemon has not shipped `load`. */
@@ -308,6 +304,28 @@ export function residentSessionsOnMachine(
   return sessions.filter(
     (s) => s.machineId === machineId && RESIDENT_STATUSES.has(s.status) && !s.archived,
   )
+}
+
+/**
+ * The ONLY thing {@link listReclaimableWorktreesClient} reads out of the
+ * sessions slice: where live agents are currently standing. Returned as a
+ * stable string so a React memo can depend on the occupancy rather than on the
+ * sessions array identity — that array is replaced on every token count, phase
+ * flip and title edit (many per second under load), none of which can move a
+ * checkout in or out of the candidate list.
+ *
+ * Sorted, so two renders that describe the same occupancy compare equal
+ * whatever order the store happens to hold the sessions in.
+ */
+export function residentWorktreeKey(sessions: readonly SessionMeta[]): string {
+  const cwds: string[] = []
+  for (const s of sessions) if (RESIDENT_STATUSES.has(s.status)) cwds.push(s.cwd)
+  return cwds.sort().join('\n')
+}
+
+/** Split a {@link residentWorktreeKey} back into the paths it encodes. */
+export function occupiedRootsFromKey(key: string): string[] {
+  return key === '' ? [] : key.split('\n')
 }
 
 export interface HostAgentsView {
@@ -383,6 +401,10 @@ const DAY_MS = 24 * 60 * 60 * 1000
  * the same GC candidate predicate as the janitor (POD-564), evaluated on the
  * client so the panel needs no new streaming channel. Age is measured from
  * `closedAt` against `afterDays`. No dirty-tree check (that is apply-time).
+ *
+ * Occupancy arrives as `occupiedRoots` (from {@link occupiedRootsFromKey})
+ * rather than as the sessions array, so a caller can memoise on the small
+ * stable key instead of on a slice that churns many times a second.
  */
 export function listReclaimableWorktreesClient(args: {
   issues: readonly {
@@ -395,14 +417,14 @@ export function listReclaimableWorktreesClient(args: {
     worktreePath?: string | null
     machineId?: string | null
   }[]
-  sessions: readonly SessionMeta[]
+  /** Working directories of resident sessions — see {@link residentWorktreeKey}. */
+  occupiedRoots: readonly string[]
   afterDays: number
   machineId?: string
   nowMs?: number
 }): ReclaimableWorktree[] {
   const nowMs = args.nowMs ?? Date.now()
   const cutoff = nowMs - args.afterDays * DAY_MS
-  const live = args.sessions.filter((s) => RESIDENT_STATUSES.has(s.status))
   return args.issues
     .filter((row) => {
       if (!row.worktreePath || row.deletedAt) return false
@@ -410,7 +432,9 @@ export function listReclaimableWorktreesClient(args: {
       const closedMs = Date.parse(row.closedAt ?? '')
       if (!Number.isFinite(closedMs) || closedMs > cutoff) return false
       if (args.machineId != null && (row.machineId ?? null) !== args.machineId) return false
-      const occupied = live.some((s) => cwdUnderRoot(s.cwd, row.worktreePath as string))
+      const occupied = args.occupiedRoots.some((cwd) =>
+        cwdUnderRoot(cwd, row.worktreePath as string),
+      )
       return !occupied
     })
     .map((row) => ({
