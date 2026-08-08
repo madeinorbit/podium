@@ -169,4 +169,18 @@ describe('the command-plane table', () => {
       }).success,
     ).toBe(false)
   })
+
+  it.each(['first line\nsecond line', 'first line\rsecond line', 'first line\r\nsecond line'])(
+    'answerAskUserQuestion rejects line breaks in free text: %j',
+    (freeText) => {
+      const input = sessionCommandPlane.defs.answerAskUserQuestion.input
+
+      expect(
+        input.safeParse({
+          sessionId: asSessionId('s'),
+          choices: [{ freeText, otherIndex: 3 }],
+        }).success,
+      ).toBe(false)
+    },
+  )
 })

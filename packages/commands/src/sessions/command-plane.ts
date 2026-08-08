@@ -285,7 +285,12 @@ const answerChoice = z.union([
     multiSelect: z.boolean().optional(),
   }),
   z.object({
-    freeText: z.string().trim().min(1).max(4_000),
+    freeText: z
+      .string()
+      .regex(/^[^\r\n]*$/, 'Free-text answers must be a single line')
+      .trim()
+      .min(1)
+      .max(4_000),
     /** 1-based index of the native Other entry (= agent option count + 1). */
     otherIndex: z.number().int().min(1).max(9),
     multiSelect: z.boolean().optional(),
