@@ -21,6 +21,11 @@ const OUTPUT_QUIET_MS = 60_000
 // cascade, but a 49-session overage converges in about 12 minutes rather than an hour.
 const COUNT_HIBERNATE_BURST = 4
 const COUNT_HIBERNATE_REFILL_MS = 15_000
+/** Floor on the quiet window before an unobserved session is LOG-COUNTED
+ *  (POD-565 step 1). Step 2 folds the same predicate into the idle-live cap.
+ *  4 h is long on purpose: absence of a phase signal means we genuinely do
+ *  not know, and the cost of being wrong is killing a working agent. */
+const UNKNOWN_PHASE_MIN_QUIET_MS = 4 * 60 * 60_000
 
 interface CountHibernateBudget {
   tokens: number
@@ -95,6 +100,8 @@ export class HostsService {
   private readonly lastAutoHibernateMsByMachine = new Map<string, number>()
   private readonly countHibernateBudgetByMachine = new Map<string, CountHibernateBudget>()
   private readonly lastCapUnmetByMachine = new Map<string, string>()
+  /** Dedup key for the unobserved-quiet log line (POD-565 step 1). */
+  private readonly lastUnobservedCountByMachine = new Map<string, number>()
   private readonly missingProofLogged = new Set<string>()
 
   constructor(
@@ -153,6 +160,7 @@ export class HostsService {
     const cfg = this.deps.getSettings().hibernation
     if (!cfg.enabled) {
       this.lastCapUnmetByMachine.delete(machineId)
+      this.lastUnobservedCountByMachine.delete(machineId)
       return
     }
 
@@ -219,6 +227,12 @@ export class HostsService {
         break
       }
     }
+
+    // Step 1 (POD-565): always log unobserved quiet sessions. The count does
+    // NOT enter idleLiveSessions / overage — folding them into the cap without
+    // making them parkable would park OBSERVED agents to pay an unobserved
+    // debt (the intermediate-state bug the two-step split is meant to avoid).
+    this.reportUnobservedCounted(machineId, cfg.idleMinutes, now)
 
     if (cfg.maxIdleSessions === null) {
       this.lastCapUnmetByMachine.delete(machineId)
@@ -397,6 +411,67 @@ export class HostsService {
     console.info(
       `[podium] idle-session cap unmet: ${overage} protected/ineligible on ${this.deps.machineName(machineId)} (target ${targetCount})`,
     )
+  }
+
+  /**
+   * POD-565 step 1 — observe only. Count quiet unobserved sessions into a
+   * SEPARATE number that only this log line reads. Must NOT feed
+   * {@link idleLiveSessions} or the maxIdleSessions overage: that would make
+   * the first deploy more aggressive against observed agents (unobserved debt
+   * paid by parking everyone else). Step 2 folds them into the cap and
+   * eligibility together.
+   */
+  private reportUnobservedCounted(machineId: string, idleMinutes: number, now: number): void {
+    const count = this.unobservedQuietSessions(machineId, idleMinutes, now).length
+    if (this.lastUnobservedCountByMachine.get(machineId) === count) return
+    this.lastUnobservedCountByMachine.set(machineId, count)
+    if (count === 0) return
+    const quietHours = this.unknownQuietWindowMs(idleMinutes) / 3_600_000
+    console.info(
+      `[podium] idle-session cap would count ${count} unobserved quiet session(s) on ${this.deps.machineName(machineId)} (≥${quietHours}h quiet, phase unknown; log-only — not in cap yet)`,
+    )
+  }
+
+  /**
+   * Live sessions with no phase signal (phase unknown or no agentState) that
+   * have been fully quiet for max(idleMinutes, 4h). Used by the step-1 log
+   * only; step 2 reuses the same predicate when folding into the cap.
+   */
+  private unobservedQuietSessions(
+    machineId: string,
+    idleMinutes: number,
+    now: number,
+  ): HostSessionView[] {
+    const windowMs = this.unknownQuietWindowMs(idleMinutes)
+    return [...this.deps.sessions()].filter((session) => {
+      if (session.machineId !== machineId || session.status !== 'live') return false
+      if (!this.isUnobservedPhase(session)) return false
+      return this.isFullyQuietFor(session, windowMs, now)
+    })
+  }
+
+  private isUnobservedPhase(session: HostSessionView): boolean {
+    const phase = session.agentState?.phase
+    return phase === undefined || phase === 'unknown'
+  }
+
+  private unknownQuietWindowMs(idleMinutes: number): number {
+    return Math.max(idleMinutes * 60_000, UNKNOWN_PHASE_MIN_QUIET_MS)
+  }
+
+  private isFullyQuietFor(session: HostSessionView, windowMs: number, now: number): boolean {
+    const since = this.fullyQuietSinceMs(session)
+    return Number.isFinite(since) && now - since >= windowMs
+  }
+
+  private fullyQuietSinceMs(session: HostSessionView): number {
+    const stamps = [
+      Date.parse(session.lastActiveAt),
+      session.lastResumedAtMs,
+      session.lastInputAtMs,
+      session.lastOutputAtMs,
+    ]
+    return stamps.every(Number.isFinite) ? Math.max(...stamps) : Number.POSITIVE_INFINITY
   }
 
   /** Ask a daemon who owns the used memory. Resolves undefined when no daemon

@@ -28,6 +28,24 @@ function session(sessionId: SessionId, overrides: Partial<HostSessionView> = {})
   }
 }
 
+/** Unobserved harness agent: phase stays unknown (hooks never installed). */
+function unobserved(
+  sessionId: SessionId,
+  overrides: Partial<HostSessionView> = {},
+): HostSessionView {
+  return session(sessionId, {
+    agentState: {
+      phase: 'unknown',
+      since: new Date(NOW - 5 * HOUR).toISOString(),
+      nativeSubagentCount: 0,
+    },
+    lastActiveAt: new Date(NOW - 5 * HOUR).toISOString(),
+    lastInputAtMs: NOW - 5 * HOUR,
+    lastOutputAtMs: NOW - 5 * HOUR,
+    ...overrides,
+  })
+}
+
 function sample(
   usedPct: number,
   load?: { one: number; cpuCount: number },
@@ -478,6 +496,84 @@ describe('idle-session cap', () => {
       service.onHostMetrics(asMachineId('local'), sample(90))
 
       expect(parked).toEqual(['closed'])
+    })
+  })
+
+  // POD-565 step 1 (option A): unobserved quiet sessions are LOG-COUNTED only.
+  // They must NOT enter idleLive / overage — that would park observed agents
+  // to pay an unobserved debt. Folding into the cap is step 2.
+  describe('unobserved phase log-only (POD-565 step 1)', () => {
+    it('logs quiet unobserved sessions without parking anyone extra for them', () => {
+      const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+      // Cap 1 with one known idle: under the observed-only set, no overage.
+      // Two long-quiet unobserved sessions would inflate overage if counted in
+      // idleLive — they must not.
+      const sessions = [
+        session(asSessionId('known-idle')),
+        unobserved(asSessionId('hookless-a'), { resume: undefined }),
+        unobserved(asSessionId('hookless-b'), { resume: undefined }),
+      ]
+      const { service, parked } = harness({ sessions, maxIdleSessions: 1 })
+
+      service.onHostMetrics(asMachineId('local'), sample(10))
+
+      expect(parked).toEqual([])
+      expect(sessions.every((s) => s.status === 'live')).toBe(true)
+      const lines = info.mock.calls
+        .map((call) => String(call[0]))
+        .filter((line) => line.includes('unobserved quiet'))
+      expect(lines).toHaveLength(1)
+      expect(lines[0]).toContain('2 unobserved quiet session')
+      expect(lines[0]).toContain('log-only')
+    })
+
+    it('does not log recently-active unobserved sessions', () => {
+      const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+      const sessions = [
+        unobserved(asSessionId('still-noisy'), {
+          lastActiveAt: new Date(NOW - HOUR).toISOString(),
+          lastInputAtMs: NOW - HOUR,
+          lastOutputAtMs: NOW - HOUR,
+        }),
+      ]
+      const { service } = harness({ sessions, maxIdleSessions: null })
+
+      service.onHostMetrics(asMachineId('local'), sample(10))
+
+      expect(
+        info.mock.calls.map((c) => String(c[0])).filter((l) => l.includes('unobserved quiet')),
+      ).toEqual([])
+    })
+
+    it('dedupes the unobserved log line until the count changes', () => {
+      const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+      const sessions = [unobserved(asSessionId('hookless'))]
+      const { service } = harness({ sessions, maxIdleSessions: null })
+
+      service.onHostMetrics(asMachineId('local'), sample(10))
+      service.onHostMetrics(asMachineId('local'), sample(10))
+
+      expect(
+        info.mock.calls.map((c) => String(c[0])).filter((l) => l.includes('unobserved quiet')),
+      ).toHaveLength(1)
+    })
+
+    it('still parks observed overage the same way — unobserved do not inflate it', () => {
+      // Two known idle, cap 1 → park one. A quiet unobserved must not push a second park.
+      const sessions = [
+        session(asSessionId('old')),
+        session(asSessionId('newer'), {
+          lastActiveAt: new Date(NOW - 40 * 60_000).toISOString(),
+        }),
+        unobserved(asSessionId('hookless'), { resume: undefined }),
+      ]
+      const { service, parked } = harness({ sessions, maxIdleSessions: 1 })
+
+      service.onHostMetrics(asMachineId('local'), sample(10))
+
+      expect(parked).toEqual(['old'])
+      expect(sessions.find((s) => s.sessionId === 'hookless')?.status).toBe('live')
+      expect(sessions.find((s) => s.sessionId === 'newer')?.status).toBe('live')
     })
   })
 })
