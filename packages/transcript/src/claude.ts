@@ -186,7 +186,24 @@ const freshId = (prefix: string): string => `${prefix}-${++fallbackCounter}`
 // text is this marker. It IS a user action (role stays 'user'), but it isn't a
 // chat message — flag it so the UI shows it inline and a state detector can read
 // it as an interrupt rather than a typed prompt.
-const INTERRUPT_MARKER = '[Request interrupted by user]'
+//
+// Claude Code writes more than one wording. A plain stop is
+// "[Request interrupted by user]"; stopping while a tool call is in flight is
+// "[Request interrupted by user for tool use]", and that second turn arrives as
+// ARRAY content (a lone text block) rather than a string, so it reaches this
+// module by a different path. An exact-equality check matched only the first
+// wording, which left the tool-use interrupt rendering as an ordinary "You"
+// bubble and left the agent-state classifier reading the session as still
+// working (POD-605). Match the stable prefix and let the suffix vary, so a
+// future qualifier does not silently reopen the same hole.
+const INTERRUPT_MARKER_RE = /^\[Request interrupted by user\b[^\]]*\]$/
+
+/** True for every wording of Claude Code's stop marker. Exported because the
+ *  harness classifier must agree with the parser about what an interrupt is —
+ *  when the two disagreed, the feed and the state badge told different stories. */
+export function isClaudeInterruptMarker(text: string): boolean {
+  return INTERRUPT_MARKER_RE.test(text.trim())
+}
 
 // Claude Code injects <system-reminder> blocks INTO user turns (timestamps,
 // context nudges) — sometimes prepended/appended to a real prompt, sometimes a
@@ -219,7 +236,7 @@ function userItems(
         role: 'user',
         ts,
         text,
-        ...(text === INTERRUPT_MARKER ? { event: 'interrupt' as const } : {}),
+        ...(isClaudeInterruptMarker(text) ? { event: 'interrupt' as const } : {}),
       },
     ]
   }
@@ -283,7 +300,7 @@ function userItems(
       text,
       ...(tags.length > 0 ? { tags } : {}),
       ...(imagePaths.length > 0 ? { toolPaths: imagePaths } : {}),
-      ...(text === INTERRUPT_MARKER ? { event: 'interrupt' as const } : {}),
+      ...(isClaudeInterruptMarker(text) ? { event: 'interrupt' as const } : {}),
     })
   }
   return items

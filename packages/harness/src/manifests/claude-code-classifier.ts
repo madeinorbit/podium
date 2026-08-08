@@ -1,11 +1,10 @@
+import { isClaudeInterruptMarker } from '@podium/transcript'
 import type {
   DeterministicAgentState,
   GlobalAgentStateLabel,
 } from '../agent-state/deterministic.js'
 import { resolvedState, semanticState } from '../agent-state/deterministic.js'
 import type { TranscriptClassifierRuleSet } from '../agent-state/transcript-classifier.js'
-
-export const CLAUDE_INTERRUPT_MARKER = '[Request interrupted by user]'
 
 type RecordLike = Record<string, unknown>
 
@@ -260,10 +259,13 @@ export function extractClaudeTranscriptFeatures(
       recordText(record).length > 0 || toolUses(record).length > 0 || toolResults(record).length > 0
     )
   })
+  // Every wording of the stop marker counts, not just the bare one: interrupting
+  // mid-tool writes "[Request interrupted by user for tool use]", and while that
+  // failed the check the session kept resolving to `working` off the pre-tool
+  // preamble and the tail timer ran forever (POD-605). The predicate is shared
+  // with the transcript parser so the feed and the state badge cannot disagree.
   const terminalInterrupt =
-    isRecord(terminal) &&
-    terminal.type === 'user' &&
-    recordText(terminal) === CLAUDE_INTERRUPT_MARKER
+    isRecord(terminal) && terminal.type === 'user' && isClaudeInterruptMarker(recordText(terminal))
 
   const lastUser = realUsers.at(-1)
   const startIndex = lastUser && !terminalInterrupt ? lastUser.index + 1 : 0

@@ -523,9 +523,7 @@ describe('ClaudeCausalObserver [spec:SP-cdb2]', () => {
       await causal.observeHook(hook('PostToolUse', { prompt_id: 'p1', tool_use_id: 't' }), 130),
     ).toBeNull()
     // Unattributable → cannot prove a new turn, still absorbed.
-    expect(
-      await causal.observeHook(hook('PostToolUse', { tool_use_id: 'anon' }), 140),
-    ).toBeNull()
+    expect(await causal.observeHook(hook('PostToolUse', { tool_use_id: 'anon' }), 140)).toBeNull()
     // A terminal hook must never open a turn, however it is labelled.
     expect(await causal.observeHook(hook('Stop', { prompt_id: 'p2' }), 150)).toBeNull()
     // A genuinely different turn → revived.
@@ -905,13 +903,44 @@ describe('classifyIdleTranscript', () => {
     })
   })
 
-  it('terminal Claude interrupt marker → interrupted', () => {
+  for (const marker of [
+    '[Request interrupted by user]',
+    '[Request interrupted by user for tool use]',
+  ]) {
+    it(`terminal Claude interrupt marker "${marker}" → interrupted`, () => {
+      const records = parse([
+        assistantLine([text('Should I continue?')]),
+        userLine(marker),
+        '{"type":"summary"}',
+      ])
+      expect(classifyIdleTranscript(records, 'plan')).toEqual({
+        kind: 'interrupted',
+        summary: 'request interrupted by user',
+      })
+    })
+  }
+
+  // The real mid-tool shape: the tool is rejected, then the marker lands as a
+  // lone text block. Before POD-605 the "for tool use" wording failed the
+  // equality check, so the classifier fell through to the working branches off
+  // the pre-tool preamble ("Let me check the config") and the transcript tail
+  // kept a running timer for a session that had already stopped.
+  it('mid-tool interrupt → interrupted, not working off the pre-tool preamble', () => {
     const records = parse([
-      assistantLine([text('Should I continue?')]),
-      userLine('[Request interrupted by user]'),
-      '{"type":"summary"}',
+      assistantLine([text('Let me check the config.')]),
+      assistantLine([{ type: 'tool_use', id: 'toolu_1', name: 'Bash', input: { command: 'ls' } }]),
+      userLine([
+        {
+          type: 'tool_result',
+          tool_use_id: 'toolu_1',
+          is_error: true,
+          content:
+            "The user doesn't want to proceed with this tool use. The tool use was rejected.",
+        },
+      ]),
+      userLine([{ type: 'text', text: '[Request interrupted by user for tool use]' }]),
     ])
-    expect(classifyIdleTranscript(records, 'plan')).toEqual({
+    expect(classifyIdleTranscript(records, 'default')).toEqual({
       kind: 'interrupted',
       summary: 'request interrupted by user',
     })
