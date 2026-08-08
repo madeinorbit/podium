@@ -35,9 +35,13 @@ export function BoardShortcutSheet({ onClose }: { onClose: () => void }): JSX.El
       data-testid="board-shortcuts"
     >
       {/* The backdrop closes; it carries no other affordance, so a button with
-          an aria-label is the honest element rather than a div with a click. */}
+          an aria-label is the honest element rather than a div with a click.
+          `data-pressable-exempt`: the pressable contract animates a control the
+          eye can see being pushed, and this one is a transparent full-bleed
+          sheet — there is nothing to press down. */}
       <button
         type="button"
+        data-pressable-exempt
         aria-label="Close shortcuts"
         className="absolute inset-0 cursor-default"
         onClick={onClose}

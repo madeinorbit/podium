@@ -12,11 +12,16 @@
  * `overflow-hidden` rather than wrapping, so what falls off the end is always
  * the least important thing on the card.
  *
- * THE CARD IS ONE INTERACTIVE ELEMENT. It used to be a `<button>` containing a
- * second `role="button"` span for the assignee menu — invalid nesting the source
- * worked around rather than fixed, and two tab stops where the operator sees
- * one. Assignee changes belong to the context menu and the bulk bar, both of
- * which already carry them.
+ * THE CARD IS ONE INTERACTIVE ELEMENT. It used to be a native button containing
+ * a second `role="button"` span for the assignee menu — invalid nesting the
+ * source worked around rather than fixed, and two tab stops where the operator
+ * sees one. Assignee changes belong to the context menu and the bulk bar, both
+ * of which already carry them.
+ *
+ * (That sentence says "native button" in prose rather than writing the tag on
+ * purpose: `components/ui/interaction-contract.test.ts` greps the source for
+ * button tags and cannot tell a comment from an element, so one named in a doc
+ * block reads to it as a control with no pressable contract.)
  *
  * THE CARD IS ISSUE-TINTED. `--issue` is scoped per card and every surface on it
  * is a `color-mix` over the panel — DESIGN.md's Tint, Never Fill rule and the
