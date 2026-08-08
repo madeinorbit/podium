@@ -57,10 +57,10 @@ function NeedsYouCard({
           <AskQuestionCard
             item={pending}
             live
-            onAnswer={async (choices) => {
+            onAnswer={async (answer) => {
               await trpc.sessions.answerAskUserQuestion.mutate({
                 sessionId: session.sessionId,
-                choices,
+                ...answer,
               })
             }}
           />

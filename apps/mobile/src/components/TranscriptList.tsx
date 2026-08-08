@@ -56,7 +56,7 @@ import {
 } from '../lib/transcript-feed'
 import { color, font, leading, mono, monoLabel, radius, sans, space } from '../theme/theme'
 import { ActionSheet, type SheetAction } from './ActionSheet'
-import { AskQuestionCard } from './AskQuestionCard'
+import { type AskQuestionAnswer, AskQuestionCard } from './AskQuestionCard'
 import { Icon } from './Icon'
 import { PressableScale } from './PressableScale'
 import { RichMarkdown } from './RichMarkdown'
@@ -478,7 +478,7 @@ export function TranscriptList({
 }: {
   items: TranscriptItem[]
   live: boolean
-  onAnswer: (choices: { optionIndices: number[] }[]) => Promise<void>
+  onAnswer: (answer: AskQuestionAnswer) => Promise<void>
   /** Called when the user scrolls back to the oldest loaded item (paging). */
   onLoadOlder?: () => void
   /** Tap handler for POD-refs in message text (opens the task peek sheet). */

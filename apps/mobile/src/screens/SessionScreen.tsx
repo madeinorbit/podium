@@ -426,8 +426,8 @@ export function SessionScreen() {
                   />
                 ) : undefined
               }
-              onAnswer={async (choices) => {
-                await trpc.sessions.answerAskUserQuestion.mutate({ sessionId, choices })
+              onAnswer={async (answer) => {
+                await trpc.sessions.answerAskUserQuestion.mutate({ sessionId, ...answer })
               }}
               onLoadOlder={loadOlder}
               onRefPress={(ref) => {

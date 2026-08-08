@@ -401,11 +401,11 @@ export function SuperagentScreen() {
                     />
                   ) : undefined
                 }
-                onAnswer={async (choices) => {
+                onAnswer={async (answer) => {
                   if (podiumSid)
                     await trpc.sessions.answerAskUserQuestion.mutate({
                       sessionId: podiumSid,
-                      choices,
+                      ...answer,
                     })
                 }}
               />
