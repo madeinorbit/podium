@@ -78,7 +78,7 @@ Measurements and rationale: [POD-520 cache shards](pod-520-server-test-cache-sha
 
 ## Shared-host resource guard
 
-The shared forked Vitest configuration defaults to at most two workers and keeps one worker available as the floor. This is the safe setting for the six-core, 11 GB development host so a test run leaves headroom for the live Podium instance and other agent sessions. Set `PODIUM_TEST_WORKERS=<positive integer>` to choose another ceiling, or `PODIUM_TEST_WORKERS=auto` to restore Vitest's CPU-count default on a dedicated CI/test host. `fileParallelism` remains enabled.
+The shared forked Vitest configuration defaults to at most two workers and keeps one worker available as the floor. This is the safe default for a shared development host, so a test run leaves headroom for the live Podium instance and other agent sessions. Set `PODIUM_TEST_WORKERS=<positive integer>` to choose another ceiling, or `PODIUM_TEST_WORKERS=auto` to restore Vitest's CPU-count default on a dedicated CI/test host. `fileParallelism` remains enabled.
 
 The package default (`bun run test`) and `bun run test:affected` automatically acquire the
 `test:heavy` advisory lease from a live Podium session. Root process lanes that call
@@ -121,6 +121,56 @@ Automatic lease acquisition is identity-gated on `PODIUM_SESSION_ID`. CI and oth
 
 A human running `bun run test` in a terminal without `PODIUM_SESSION_ID` takes no automatic lease and can still collide with an agent run. On the shared host, acquire `test:heavy` manually first, or leave the default worker ceiling in place.
 
+### One lane at a time, inside your own session
+
+The lease serializes heavy work **across** sessions, and it does not cover everything you
+will run. The package lanes through `scripts/test.ts` and the root heavy lanes through
+`scripts/test-heavy.ts` take it; the Vitest inner loop (`test:changed`, `test:related`,
+`test:watch`) invokes Vitest directly and takes none, and `bun run typecheck` takes none
+either — it is a 22-package Turbo run competing for the same cores as any test lane.
+
+Nothing serializes a session against **itself** in any case: re-acquiring a lock you already
+hold renews it rather than queueing, so a second lane started from the same session walks
+straight through even where the lease does apply.
+
+So the ordering is yours to enforce, and it is needed precisely because the lease's coverage
+is partial. Run the focused lane, then `bun run typecheck`, then the final `bun run test`
+gate — **one after another, each to completion**. Do not background a lane and start the next
+(`&`, a second terminal, parallel tool calls) and do not overlap a typecheck with a test run.
+
+Overlapping does not finish sooner on a host shared with a live Podium instance and every
+other agent session; it multiplies the peak. The worker ceiling and the `test:heavy` lease
+were both sized on the assumption that one session contributes one heavy run at a time, and
+a CPU-starved run fails in timeout shapes that read like real regressions — costing a second
+full run to disprove.
+
+Never run two heavy things concurrently to save time. If a second heavy run genuinely has to
+happen, submit it from another session and let `test:heavy` serialize it — it waits for the
+lease and starts when the host is free, which is the outcome you wanted anyway.
+
+## Simple UI and bug changes
+
+A small, local UI or bug fix does not earn a full sweep at every step. The path is:
+
+1. **The smallest focused lane that covers the change.** `bun run test:related -- <file>`
+   for a unit-level fix, or `bun run test:web` / `bun run test:mobile` when the change sits
+   inside one app package. Extending an existing test beats standing up a parallel suite.
+2. **Runtime verification in the running app — mandatory, not a nice-to-have.** A green
+   focused lane is not evidence that a UI change works. Drive the surface
+   ([driving-podium.md](driving-podium.md)) or run the app and look at the change. A
+   `*.browser.e2e.ts` suite counts only if you re-ran it for *this* change; citing an
+   earlier run does not.
+3. **One full `bun run test` gate at the final substantive integration point** — the commit
+   that actually lands the behavior. That is where the standing requirement to run the
+   default lane before a substantive commit bites, and it is not skippable: the focused
+   lanes in step 1 cannot see the other package tasks your edit may have moved.
+
+This narrows what you run **on the way**, not what has to be green before the change lands.
+Nothing here removes the heavier lanes the decision table calls for — a one-line fix in
+daemon, PTY, or instance-identity code still owes `test:integration` or
+`test:multi-instance`, and a docs-only or otherwise test-independent edit still skips
+automated tests entirely with the reason stated in the handoff.
+
 ## Decision table
 
 | Situation | Run |
@@ -128,7 +178,8 @@ A human running `bun run test` in a terminal without `PODIUM_SESSION_ID` takes n
 | Iterating on changed source | `bun run test:changed` — Vitest's module graph selects tests reachable from the files changed since `HEAD` |
 | Iterating on an explicit file list | `bun run test:related -- path/to/file.ts` — add more paths after `--` as needed |
 | Repeating edits interactively | `bun run test:watch` — plain watch mode keeps the Vitest process warm |
-| Before every commit | `bun run test` (fast default) |
+| Simple, local UI or bug fix | The smallest focused lane (`test:related -- <file>`, or `test:web` / `test:mobile`) **plus** runtime verification in the running app, then one full `bun run test` at the final substantive integration point — see [Simple UI and bug changes](#simple-ui-and-bug-changes) |
+| Before every commit | `bun run test` (fast default) — after the focused lane and typecheck have finished, never alongside them ([one lane at a time](#one-lane-at-a-time-inside-your-own-session)) |
 | Touched agent-bridge / daemon / server process, PTY, or abduco code | Also `bun run test:integration` |
 | Full-stack flows, before landing UI/server interaction work | `bun run test:e2e` |
 | Touched instance identity, state roots, port derivation, CLI routing, agent ownership, or lifecycle | Also `bun run test:multi-instance` |

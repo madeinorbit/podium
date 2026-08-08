@@ -66,6 +66,23 @@ bun run typecheck -- --uncached-because="<what the cache key is missing>"
 and file the gap as an issue so the key gets fixed. Bare `--force` and `TURBO_FORCE`
 exit with an error.
 
+### One check at a time
+
+Run your focused test lane, `bun run typecheck`, and the final `bun run test` gate
+**one after another**, each to completion. Do not background one and start the next,
+and do not fire them as parallel tool calls.
+
+The `test:heavy` lease does not cover you here, and that is the point. It serializes you
+against *other* sessions rather than against yourself, and its reach is partial anyway:
+the package lanes and the root heavy lanes take it, while the Vitest inner loop
+(`test:changed`, `test:related`, `test:watch`) and `typecheck` run outside it entirely —
+`typecheck` is a 22-package Turbo run competing for the same cores as any test. So the
+ordering is yours to enforce. On a host shared with a live Podium instance and every
+other agent session, overlapping raises the peak without finishing sooner, and a starved
+run fails in timeout shapes that read like real regressions.
+
+Details: **[docs/agents/testing.md](docs/agents/testing.md)**.
+
 ### Cached package test lanes
 
 `bun run test` is the default. It enters `scripts/test.ts`, which runs the 28
@@ -193,6 +210,15 @@ lanes only when the change matches the decision table in
 for small or local changes; reserve them for critical cross-boundary behavior or regressions that
 require the real stack. Real-agent smoke tests require an explicit human request. Changed
 UI/interaction behavior still requires runtime verification.
+
+For a simple, local UI or bug change that means: the smallest focused lane that covers it
+(`bun run test:related -- <file>`, or `test:web` / `test:mobile` when the change sits in one
+app package), **plus** runtime verification in the running app — a green focused lane is not
+evidence a UI change works — and one full `bun run test` gate at the final substantive
+integration point, the commit that actually lands the behavior. That gate is where the
+requirement above bites and it is not skippable; the focused lane narrows what you run on the
+way, not what has to be green before the change lands. Heavier lanes the decision table calls
+for still apply on their own terms, however small the diff looks.
 
 ## Reference docs for agents
 
