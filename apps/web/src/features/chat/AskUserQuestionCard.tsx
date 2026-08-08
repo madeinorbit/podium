@@ -1,4 +1,9 @@
-import { type AskQuestion, isChosenOption, parseAskQuestions } from '@podium/client-core/viewmodels'
+import {
+  type AskAnswerChoice,
+  type AskQuestion,
+  isChosenOption,
+  parseAskQuestions,
+} from '@podium/client-core/viewmodels'
 import { CircleHelp } from 'lucide-react'
 import type { JSX, KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useEffect, useRef, useState } from 'react'
@@ -54,13 +59,7 @@ const tabName = (q: AskQuestion, qi: number): string => q.header?.trim() || `Q${
  * option digits, free text via the native Other entry, or skip (Esc).
  * Who answered is never on the payload — the authority stamps it.
  */
-export type AskUserQuestionAnswer =
-  | { skip: true }
-  | {
-      choices: Array<
-        { optionIndices: number[] } | { freeText: string; otherIndex: number }
-      >
-    }
+export type AskUserQuestionAnswer = { skip: true } | { choices: AskAnswerChoice[] }
 
 export function AskUserQuestionCard({
   block,
@@ -123,19 +122,29 @@ export function AskUserQuestionCard({
   const buildChoices = (
     nextPicks: Record<number, Set<number>>,
     nextCustom: Record<number, string>,
-  ): Extract<AskUserQuestionAnswer, { choices: unknown }>['choices'] | null => {
-    const choices: Extract<AskUserQuestionAnswer, { choices: unknown }>['choices'] = []
+  ): AskAnswerChoice[] | null => {
+    // The question's SHAPE travels with its answer: the native menu leaves a
+    // multi-select only on Tab, and the server cannot infer that from one pick
+    // (POD-609).
+    const choices: AskAnswerChoice[] = []
     for (let qi = 0; qi < questions.length; qi++) {
       const text = nextCustom[qi]?.trim() ?? ''
       if (text !== '') {
-        choices.push({ freeText: text, otherIndex: (questions[qi]?.options.length ?? 0) + 1 })
+        choices.push({
+          freeText: text,
+          otherIndex: (questions[qi]?.options.length ?? 0) + 1,
+          ...(questions[qi]?.multiSelect ? { multiSelect: true } : {}),
+        })
         continue
       }
       const indices = [...(nextPicks[qi] ?? new Set<number>())]
         .sort((a, b) => a - b)
         .map((oi) => oi + 1)
       if (indices.length === 0) return null
-      choices.push({ optionIndices: indices })
+      choices.push({
+        optionIndices: indices,
+        ...(questions[qi]?.multiSelect ? { multiSelect: true } : {}),
+      })
     }
     return choices
   }

@@ -153,7 +153,11 @@ describe('AskUserQuestionCard', () => {
     await act(async () => options()[2]?.click())
     expect(onAnswer).not.toHaveBeenCalled()
     await act(async () => sendButton()?.click())
-    expect(onAnswer).toHaveBeenCalledWith({ choices: [{ optionIndices: [1, 3] }] })
+    // The shape travels with the picks — the native menu leaves a multi-select
+    // question only on Tab, and the server cannot tell from the indices alone.
+    expect(onAnswer).toHaveBeenCalledWith({
+      choices: [{ optionIndices: [1, 3], multiSelect: true }],
+    })
   })
 
   it('submits free text via Other with otherIndex = optionCount + 1', async () => {

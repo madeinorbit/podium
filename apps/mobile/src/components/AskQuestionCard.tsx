@@ -1,4 +1,8 @@
-import { isChosenOption, parseAskQuestions } from '@podium/client-core/viewmodels'
+import {
+  type AskAnswerChoice,
+  isChosenOption,
+  parseAskQuestions,
+} from '@podium/client-core/viewmodels'
 import type { TranscriptItem } from '@podium/model'
 import { useState } from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
@@ -11,9 +15,7 @@ import { PressableScale } from './PressableScale'
  * Other entry, or skip. Who answered is never on the payload; the authority
  * stamps it.
  */
-export type AskQuestionAnswer =
-  | { skip: true }
-  | { choices: Array<{ optionIndices: number[] } | { freeText: string; otherIndex: number }> }
+export type AskQuestionAnswer = { skip: true } | { choices: AskAnswerChoice[] }
 
 /**
  * The agent asking the human — options rendered as big tap targets. Live cards
@@ -50,19 +52,29 @@ export function AskQuestionCard({
   const buildChoices = (
     nextPicks: Record<number, Set<number>>,
     nextCustom: Record<number, string>,
-  ): Extract<AskQuestionAnswer, { choices: unknown }>['choices'] | null => {
-    const choices: Extract<AskQuestionAnswer, { choices: unknown }>['choices'] = []
+  ): AskAnswerChoice[] | null => {
+    // The question's SHAPE travels with its answer: the native menu leaves a
+    // multi-select only on Tab, and the server cannot infer that from one pick
+    // (POD-609).
+    const choices: AskAnswerChoice[] = []
     for (let qi = 0; qi < questions.length; qi++) {
       const text = typed(nextCustom, qi)
       if (text !== '') {
-        choices.push({ freeText: text, otherIndex: (questions[qi]?.options.length ?? 0) + 1 })
+        choices.push({
+          freeText: text,
+          otherIndex: (questions[qi]?.options.length ?? 0) + 1,
+          ...(questions[qi]?.multiSelect ? { multiSelect: true } : {}),
+        })
         continue
       }
       const indices = [...(nextPicks[qi] ?? new Set<number>())]
         .sort((a, b) => a - b)
         .map((oi) => oi + 1)
       if (indices.length === 0) return null
-      choices.push({ optionIndices: indices })
+      choices.push({
+        optionIndices: indices,
+        ...(questions[qi]?.multiSelect ? { multiSelect: true } : {}),
+      })
     }
     return choices
   }

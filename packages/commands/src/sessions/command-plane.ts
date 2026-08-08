@@ -273,15 +273,22 @@ const resumeAndSend: CommandDef = {
  * the free-text escape: type Other's digit (1-based `otherIndex` =
  * optionCount+1) to focus the free-text field, then the text, then Enter.
  * `optionIndices` is the existing digit path for listed options.
+ *
+ * `multiSelect` is the QUESTION's shape rather than the answer's, and it rides
+ * along because the menu cannot be driven without it: a multi-select's digits
+ * only toggle, so it takes a Tab to move on where a single-select advances
+ * itself, and the server cannot tell the two apart from one pick (POD-609).
  */
 const answerChoice = z.union([
   z.object({
     optionIndices: z.array(z.number().int().min(1).max(9)).min(1),
+    multiSelect: z.boolean().optional(),
   }),
   z.object({
     freeText: z.string().trim().min(1).max(4_000),
     /** 1-based index of the native Other entry (= agent option count + 1). */
     otherIndex: z.number().int().min(1).max(9),
+    multiSelect: z.boolean().optional(),
   }),
 ])
 

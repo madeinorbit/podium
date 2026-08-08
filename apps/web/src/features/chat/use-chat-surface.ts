@@ -1,5 +1,6 @@
 import { shallowEqual } from '@podium/client-core/store'
 import {
+  type AskAnswerChoice,
   type ChatActivity,
   type ChatRow,
   type ChatSessionReference,

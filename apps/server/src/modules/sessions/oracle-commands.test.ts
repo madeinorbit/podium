@@ -385,6 +385,9 @@ describe('oracle: sendText / resumeAndSend', () => {
 })
 
 describe('oracle: answerAskUserQuestion', () => {
+  // The missing Enter is the load-bearing half: a LONE single-select question is
+  // the one shape the native menu submits on the digit itself, so a closing CR
+  // here would arrive after the dialog closed and land in the composer.
   it(`${MUST_NOT_CHANGE}: a single-select answer types the bare option digit (no Enter)`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
@@ -399,18 +402,7 @@ describe('oracle: answerAskUserQuestion', () => {
     expect(inputs(o.daemon).map((m) => m.inputOrigin)).toEqual(['human'])
   })
 
-  it(`${MUST_NOT_CHANGE}: a multi-select answer types comma-separated indices AND a carriage return to confirm`, async () => {
-    const o = makeOracle()
-    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    goLive(o, sessionId)
-    o.daemon.length = 0
-
-    await o.call.sessions.answerAskUserQuestion({ sessionId, choices: [{ optionIndices: [1, 3] }] })
-
-    expect(inputs(o.daemon).map((m) => Buffer.from(m.data, 'base64').toString())).toEqual(['1,3\r'])
-  })
-
-  it(`${MUST_NOT_CHANGE}: a multi-question payload is typed in order, one keystroke batch per question`, async () => {
+  it('two single-select questions each advance on their digit, and the pair ends on the confirm CR', async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     goLive(o, sessionId)
@@ -418,12 +410,99 @@ describe('oracle: answerAskUserQuestion', () => {
 
     await o.call.sessions.answerAskUserQuestion({
       sessionId,
-      choices: [{ optionIndices: [1] }, { optionIndices: [2, 3] }],
+      choices: [{ optionIndices: [1] }, { optionIndices: [2] }],
     })
+    await waitFor(() => inputs(o.daemon).length === 3, 'both digits and the confirm CR')
 
     expect(inputs(o.daemon).map((m) => Buffer.from(m.data, 'base64').toString())).toEqual([
       '1',
-      '2,3\r',
+      '2',
+      '\r',
+    ])
+  })
+
+  // POD-609 SUPERSEDES the two characterizations below. They pinned the payload
+  // that the real menu silently ignores: a comma-joined `1,3\r` reaches the CLI
+  // as ONE key event named "1,3" (its parser folds a multi-character chunk into
+  // a single key), so no box was ever ticked, and the trailing CR then toggled
+  // whatever row happened to be focused. What is pinned now is the sequence
+  // verified against a live Claude Code 2.1.226 TUI — one keystroke per write,
+  // Tab off a multi-select, one closing CR on the confirm step.
+  it(`${MUST_NOT_CHANGE}: a multi-select answer types one digit per keystroke, then Tab off the question and CR to confirm`, async () => {
+    const o = makeOracle()
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+    goLive(o, sessionId)
+    o.daemon.length = 0
+
+    await o.call.sessions.answerAskUserQuestion({
+      sessionId,
+      choices: [{ optionIndices: [1, 3], multiSelect: true }],
+    })
+    await waitFor(() => inputs(o.daemon).length === 4, 'the whole multi-select keystroke script')
+
+    expect(inputs(o.daemon).map((m) => Buffer.from(m.data, 'base64').toString())).toEqual([
+      '1',
+      '3',
+      '\t',
+      '\r',
+    ])
+    expect(inputs(o.daemon).map((m) => m.inputOrigin)).toEqual(['human', 'human', 'human', 'human'])
+  })
+
+  it(`${MUST_NOT_CHANGE}: a multi-question payload is typed in order, one keystroke per write, and ends with the confirm CR`, async () => {
+    const o = makeOracle()
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+    goLive(o, sessionId)
+    o.daemon.length = 0
+
+    await o.call.sessions.answerAskUserQuestion({
+      sessionId,
+      choices: [{ optionIndices: [1] }, { optionIndices: [2, 3], multiSelect: true }],
+    })
+    await waitFor(() => inputs(o.daemon).length === 5, 'the whole multi-question keystroke script')
+
+    expect(inputs(o.daemon).map((m) => Buffer.from(m.data, 'base64').toString())).toEqual([
+      '1',
+      '2',
+      '3',
+      '\t',
+      '\r',
+    ])
+  })
+
+  it('several picks alone mark a multi-select, so a client that cannot say so still lands', async () => {
+    const o = makeOracle()
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+    goLive(o, sessionId)
+    o.daemon.length = 0
+
+    await o.call.sessions.answerAskUserQuestion({ sessionId, choices: [{ optionIndices: [1, 3] }] })
+    await waitFor(() => inputs(o.daemon).length === 4, 'the inferred multi-select script')
+
+    expect(inputs(o.daemon).map((m) => Buffer.from(m.data, 'base64').toString())).toEqual([
+      '1',
+      '3',
+      '\t',
+      '\r',
+    ])
+  })
+
+  it('a lone multi-select still gets its Tab and CR when only one option is picked', async () => {
+    const o = makeOracle()
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+    goLive(o, sessionId)
+    o.daemon.length = 0
+
+    await o.call.sessions.answerAskUserQuestion({
+      sessionId,
+      choices: [{ optionIndices: [2], multiSelect: true }],
+    })
+    await waitFor(() => inputs(o.daemon).length === 3, 'the one-pick multi-select script')
+
+    expect(inputs(o.daemon).map((m) => Buffer.from(m.data, 'base64').toString())).toEqual([
+      '2',
+      '\t',
+      '\r',
     ])
   })
 
@@ -459,13 +538,15 @@ describe('oracle: answerAskUserQuestion', () => {
       expect(inputs(o.daemon).map((m) => Buffer.from(m.data, 'base64').toString())).toEqual(['3'])
       expect(inputs(o.daemon).map((m) => m.inputOrigin)).toEqual(['human'])
 
-      await vi.advanceTimersByTimeAsync(90)
+      await vi.advanceTimersByTimeAsync(120)
       expect(inputs(o.daemon).map((m) => Buffer.from(m.data, 'base64').toString())).toEqual([
         '3',
         'ship the long path',
       ])
 
-      await vi.advanceTimersByTimeAsync(90)
+      // A LONE single-select question auto-submits on that CR, so the script
+      // stops here — no closing confirm (POD-609).
+      await vi.advanceTimersByTimeAsync(120)
       expect(inputs(o.daemon).map((m) => Buffer.from(m.data, 'base64').toString())).toEqual([
         '3',
         'ship the long path',

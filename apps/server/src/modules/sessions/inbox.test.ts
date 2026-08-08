@@ -256,13 +256,39 @@ describe('SessionInbox authorization and identity', () => {
         )
 
       expect(decoded()).toEqual(['3'])
-      await vi.advanceTimersByTimeAsync(90)
+      await vi.advanceTimersByTimeAsync(120)
       expect(decoded()).toEqual(['3', 'custom'])
-      await vi.advanceTimersByTimeAsync(90)
+      await vi.advanceTimersByTimeAsync(120)
+      // A LONE single-select question auto-submits on that CR, so the script
+      // stops there — no closing confirm (POD-609).
       expect(decoded()).toEqual(['3', 'custom', '\r'])
       expect(h.answered).toHaveLength(1)
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  // The keystroke SEQUENCES are pinned in oracle-commands.test.ts; what this
+  // covers is the half only the inbox can see — the script outlives the call,
+  // so every later keystroke has to re-ask whether there is still a menu.
+  it('drops the rest of the answer script when the session leaves before it is typed', () => {
+    vi.useFakeTimers()
+    const h = harness()
+
+    expect(
+      h.inbox.answerAskUserQuestion({
+        sessionId: SID,
+        choices: [{ optionIndices: [1, 3], multiSelect: true }],
+        principal: agentPrincipal(),
+      }),
+    ).toEqual({ ok: true })
+    // The first digit leaves immediately; the Tab and the confirm CR are still
+    // on their timers when the process goes.
+    expect(h.sent).toHaveLength(1)
+
+    Object.assign(h.session, { status: 'exited' })
+    vi.advanceTimersByTime(5_000)
+
+    expect(h.sent).toHaveLength(1)
   })
 })
