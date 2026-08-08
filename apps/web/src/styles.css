@@ -572,8 +572,8 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
 html[data-density="balanced"] .header-host-indicators :is(.header-mark, .header-value) {
   display: none;
 }
-/* AGT is an operator residency number — hide the whole readout at balanced
-   density. LOAD inherits the mark/value hide above and reads as a bare meter. */
+/* Agent inventory and idle-target detail are operator readouts — hide both at
+   balanced density. LOAD inherits the mark/value hide above and reads as a bare meter. */
 html[data-density="balanced"] .header-agent-readout {
   display: none;
 }
@@ -684,8 +684,8 @@ html[data-density="balanced"] .header-quota-pools {
     display: none;
   }
 }
-/* Below the mark-shed rung, AGT goes entirely. MEM and LOAD never do — they are
-   the pressure readout (POD-563). */
+/* Below the mark-shed rung, agent inventory/idle details go entirely. MEM and
+   LOAD never do — they are the pressure readout (POD-563). */
 @media (max-width: 940px) {
   .header-agent-readout {
     display: none;

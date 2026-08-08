@@ -363,18 +363,22 @@ export function HeaderHostIndicators(): JSX.Element {
                 </span>
                 <span className="header-readout header-agent-readout">
                   <span className="header-mark">AGT</span>
-                  {agents.meterPct != null && (
+                  <span className="header-value">{agents.count}</span>
+                </span>
+                {agents.meterPct != null && agents.idleTarget != null && (
+                  <span className="header-readout header-agent-readout">
+                    <span className="header-mark">IDLE</span>
                     <span className="header-meter" role="presentation">
                       <span
                         className={cn('block h-full', agentTone.fill)}
                         style={{ width: `${agents.meterPct}%` }}
                       />
                     </span>
-                  )}
-                  <span className="header-value" data-tone={TONE_KEY[agents.severity]}>
-                    {agents.count}
+                    <span className="header-value" data-tone={TONE_KEY[agents.severity]}>
+                      {agents.observedIdleCount}/{agents.idleTarget}
+                    </span>
                   </span>
-                </span>
+                )}
               </button>
             }
           >

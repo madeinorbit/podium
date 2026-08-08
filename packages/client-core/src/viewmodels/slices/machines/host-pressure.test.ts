@@ -78,10 +78,22 @@ describe('hostLoadView', () => {
 })
 
 describe('residency', () => {
-  it('counts live/starting/reconnecting only on the named machine', () => {
+  it('keeps resident inventory neutral and meters only observed idle phases', () => {
     const sessions = [
-      session({ sessionId: 'a', status: 'live' }),
-      session({ sessionId: 'b', status: 'starting' }),
+      session({
+        sessionId: 'a',
+        status: 'live',
+        agentState: { phase: 'idle', since: '2026-08-01T00:00:00.000Z', nativeSubagentCount: 0 },
+      }),
+      session({
+        sessionId: 'b',
+        status: 'live',
+        agentState: {
+          phase: 'working',
+          since: '2026-08-01T00:00:00.000Z',
+          nativeSubagentCount: 0,
+        },
+      }),
       session({ sessionId: 'c', status: 'hibernated' }),
       session({ sessionId: 'd', status: 'live', machineId: asMachineId('other') }),
       session({ sessionId: 'e', status: 'reconnecting' }),
@@ -89,13 +101,32 @@ describe('residency', () => {
     expect(residentSessionsOnMachine(sessions, 'm1')).toHaveLength(3)
     const agents = hostAgentsView(sessions, 'm1', 8, 'podium-vps')
     expect(agents.count).toBe(3)
-    expect(agents.meterPct).toBe(38) // 3/8
+    expect(agents.observedIdleCount).toBe(1)
+    expect(agents.idleTarget).toBe(8)
+    expect(agents.meterPct).toBe(13) // one observed idle; other residents do not fill it
     expect(agents.severity).toBe('ok')
+  })
+
+  it('does not alarm at the target and does alarm on a known idle overage', () => {
+    const idle = (sessionId: string) =>
+      session({
+        sessionId,
+        agentState: { phase: 'idle', since: '2026-08-01T00:00:00.000Z', nativeSubagentCount: 0 },
+      })
+    expect(hostAgentsView([idle('a'), idle('b')], 'm1', 2, 'h').severity).toBe('ok')
+    expect(hostAgentsView([idle('a'), idle('b'), idle('c')], 'm1', 2, 'h').severity).toBe(
+      'critical',
+    )
   })
 
   it('omits the meter when maxIdleSessions is unlimited', () => {
     const sessions = [session({ sessionId: 'a' })]
-    expect(hostAgentsView(sessions, 'm1', null, 'h').meterPct).toBeNull()
+    expect(hostAgentsView(sessions, 'm1', null, 'h')).toMatchObject({
+      count: 1,
+      idleTarget: null,
+      meterPct: null,
+      severity: 'ok',
+    })
   })
 
   it('breaks down working vs idle vs waiting for the tooltip', () => {

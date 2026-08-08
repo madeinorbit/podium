@@ -1,4 +1,4 @@
-import { asMachineId } from '@podium/model'
+import { asMachineId, asSessionId, type SessionMeta } from '@podium/model'
 // @vitest-environment happy-dom
 /**
  * #136: the host status strip is machine-aware.
@@ -15,13 +15,15 @@ import { QuotaIndicator } from './QuotaIndicator'
 
 const memoryBreakdown = vi.fn()
 const quotaSummary = vi.fn()
+let maxIdleSessions = 8
+let sessions: SessionMeta[] = []
 const settingsGet = vi.fn(async () => ({
   hibernation: {
     enabled: false,
     memoryPct: 80,
     idleMinutes: 30,
     loadPerCore: 1.5,
-    maxIdleSessions: 8,
+    maxIdleSessions,
   },
   worktreeGc: { mode: 'propose' as const, afterDays: 14 },
 }))
@@ -48,6 +50,30 @@ const breakdownFor = (hostname: string) => ({
   otherBytes: 12e9,
 })
 
+const agentSession = (
+  sessionId: string,
+  phase: 'idle' | 'working' | 'errored' | 'unknown',
+): SessionMeta =>
+  ({
+    sessionId: asSessionId(sessionId),
+    agentKind: 'codex',
+    title: sessionId,
+    cwd: `/repo/.worktrees/${sessionId}`,
+    status: 'live',
+    controllerId: null,
+    geometry: { cols: 80, rows: 24 },
+    epoch: 0,
+    clientCount: 0,
+    createdAt: '2026-08-08T00:00:00.000Z',
+    lastActiveAt: '2026-08-08T00:00:00.000Z',
+    origin: { kind: 'user' },
+    agentState: { phase, since: '2026-08-08T00:00:00.000Z', nativeSubagentCount: 0 },
+    archived: false,
+    readAt: null,
+    unread: false,
+    machineId: asMachineId('podium-host'),
+  }) as unknown as SessionMeta
+
 vi.mock('@/app/store', () => {
   const useStore = () => ({
     hostMetrics: [host('podium-host', 'podium-host'), host('vmi', 'vmi34')],
@@ -55,7 +81,7 @@ vi.mock('@/app/store', () => {
     // POD-316: the strip now also carries the dead-letter recovery chip, which
     // reads this. Empty = nothing parked = the chip renders nothing.
     outboxDeadLetters: [],
-    sessions: [],
+    sessions,
     issues: [],
     // POD-838: vmi trails the server build; podium-host matches it.
     machines: [
@@ -129,6 +155,8 @@ const machineQuota = (
 
 beforeEach(() => {
   vi.clearAllMocks()
+  maxIdleSessions = 8
+  sessions = []
   memoryBreakdown.mockResolvedValue(breakdownFor('vmi'))
   quotaSummary.mockResolvedValue([])
   // happy-dom lacks matchMedia; useIsMobile needs it.
@@ -368,5 +396,35 @@ describe('header machine chip carries host-pressure readouts', () => {
       expect(marks).toEqual(expect.arrayContaining(['MEM', 'LOAD', 'AGT']))
       expect(chip.querySelector('.header-agent-readout')).toBeTruthy()
     }
+  })
+
+  it('shows resident inventory neutrally and meters the observed idle subset', async () => {
+    maxIdleSessions = 2
+    sessions = [
+      agentSession('idle', 'idle'),
+      agentSession('working', 'working'),
+      agentSession('errored', 'errored'),
+      agentSession('unknown', 'unknown'),
+    ]
+    render(<HeaderHostIndicators />)
+    await waitFor(() => expect(settingsGet).toHaveBeenCalled())
+
+    const chip = screen.getByRole('button', {
+      name: /podium-host.*4 agent sessions live here; 1 observed idle toward eligible-idle target 2/i,
+    })
+    const readout = (mark: string) =>
+      [...chip.querySelectorAll<HTMLElement>('.header-readout')].find(
+        (node) => node.querySelector('.header-mark')?.textContent === mark,
+      )
+
+    const agents = readout('AGT')
+    expect(agents?.querySelector('.header-value')?.textContent).toBe('4')
+    expect(agents?.querySelector('.header-value')?.hasAttribute('data-tone')).toBe(false)
+    expect(agents?.querySelector('.header-meter')).toBeNull()
+
+    const idle = readout('IDLE')
+    expect(idle?.querySelector('.header-value')?.textContent).toBe('1/2')
+    expect(idle?.querySelector('.header-value')?.getAttribute('data-tone')).toBe('ok')
+    expect(idle?.querySelector<HTMLElement>('.header-meter > span')?.style.width).toBe('50%')
   })
 })

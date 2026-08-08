@@ -105,7 +105,8 @@ export function HibernationSection({
             Per machine. Empty means unlimited. This is a convergence target for eligible idle live
             sessions, not a hard cap; protected or ineligible sessions stay live. Count, memory, and
             load pressure act independently. Quiet unobserved agents (no phase signal) count toward
-            the target after at least 4 hours. The top-bar AGT meter fills against this when set.
+            the target after at least 4 hours. The top-bar IDLE meter shows observed idle sessions
+            against this target when set; long-quiet unobserved sessions may also count.
             {unmet > 0 && (
               <span className="mt-1 block font-medium text-warning">
                 Cap unmet: {unmet} protected/ineligible

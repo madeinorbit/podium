@@ -329,17 +329,28 @@ export function occupiedRootsFromKey(key: string): string[] {
 }
 
 export interface HostAgentsView {
+  /** Every live/starting/reconnecting, non-archived session on the machine. */
   count: number
-  /** 0–100 when a cap is set; null means no meter. */
+  /** Observed live sessions in the policy's idle phases (a known lower bound). */
+  observedIdleCount: number
+  /** The eligible-idle convergence target; null means unlimited. */
+  idleTarget: number | null
+  /** Observed idle phases as a percentage of the target; null means no meter. */
   meterPct: number | null
   severity: MemorySeverity
   title: string
 }
 
 /**
- * Agent residency on one machine. Meter only when `maxIdleSessions` is set —
- * full meter = at the idle-session convergence target. Never a working count
- * (StatusStrip owns that fact).
+ * Agent inventory and the client-visible part of the idle-policy cohort on one
+ * machine. Residency stays a neutral count: `maxIdleSessions` does not apply to
+ * working, errored, starting or reconnecting sessions.
+ *
+ * The server can additionally count long-quiet sessions whose phase is unknown;
+ * their input/output timestamps are intentionally not on SessionMeta, so this
+ * view names its numerator as observed idle rather than claiming an exact policy
+ * count. It is nevertheless a safe lower bound: every phase counted here is in
+ * the server's idle-live set.
  */
 export function hostAgentsView(
   sessions: readonly SessionMeta[],
@@ -348,22 +359,33 @@ export function hostAgentsView(
   hostname: string,
 ): HostAgentsView {
   const count = residentSessionsOnMachine(sessions, machineId).length
+  const observedIdleCount = idleSessionSplit(sessions, machineId).idle
   if (maxIdleSessions == null) {
     return {
       count,
+      observedIdleCount,
+      idleTarget: null,
       meterPct: null,
       severity: 'ok',
       title: `${hostname} — ${count} agent session${count === 1 ? '' : 's'} live here`,
     }
   }
-  const ratio = maxIdleSessions > 0 ? count / maxIdleSessions : count > 0 ? 1 : 0
+  const ratio =
+    maxIdleSessions > 0
+      ? observedIdleCount / maxIdleSessions
+      : observedIdleCount > 0
+        ? 1
+        : 0
   const meterPct = Math.min(100, Math.round(ratio * 100))
-  const severity: MemorySeverity = ratio >= 1 ? 'critical' : ratio >= 0.8 ? 'warn' : 'ok'
+  // At the target is converged, not an alarm. Only a known overage is red.
+  const severity: MemorySeverity = observedIdleCount > maxIdleSessions ? 'critical' : 'ok'
   return {
     count,
+    observedIdleCount,
+    idleTarget: maxIdleSessions,
     meterPct,
     severity,
-    title: `${hostname} — ${count} agent session${count === 1 ? '' : 's'} live here (target ${maxIdleSessions})`,
+    title: `${hostname} — ${count} agent session${count === 1 ? '' : 's'} live here; ${observedIdleCount} observed idle toward eligible-idle target ${maxIdleSessions} (long-quiet sessions without a phase may also count)`,
   }
 }
 
