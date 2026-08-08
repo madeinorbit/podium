@@ -72,10 +72,11 @@ Run your focused test lane, `bun run typecheck`, and the final `bun run test` ga
 **one after another**, each to completion. Do not background one and start the next,
 and do not fire them as parallel tool calls.
 
-The `test:heavy` lease does not cover you here, and that is the point. It serializes you
-against *other* sessions rather than against yourself, and its reach is partial anyway:
-the package lanes and the root heavy lanes take it, while the Vitest inner loop
-(`test:changed`, `test:related`, `test:watch`) and `typecheck` run outside it entirely —
+The `test:heavy` lease cannot enforce within-session ordering. It serializes you against
+*other* sessions rather than against yourself, and its reach is partial anyway: the root
+package lanes through `scripts/test.ts` plus the root heavy lanes take it, while the Vitest
+inner loop (`test:changed`, `test:related`, `test:watch`) and `typecheck` run outside it
+entirely —
 `typecheck` is a 22-package Turbo run competing for the same cores as any test. So the
 ordering is yours to enforce. On a host shared with a live Podium instance and every
 other agent session, overlapping raises the peak without finishing sooner, and a starved
