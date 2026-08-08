@@ -6,6 +6,7 @@ import {
   idleSessionSplit,
   listReclaimableWorktreesClient,
   occupiedRootsFromKey,
+  placeReclaimable,
   residencyBreakdown,
   residentSessionsOnMachine,
   residentWorktreeKey,
@@ -177,10 +178,58 @@ describe('listReclaimableWorktreesClient', () => {
       issues,
       occupiedRoots: occupiedRootsFromKey(residentWorktreeKey(sessions)),
       afterDays: 14,
-      machineId: 'm1',
       nowMs: now,
     })
     expect(list.map((c) => c.issueId)).toEqual(['old'])
+  })
+})
+
+/**
+ * Placement, and why it is not `row.machineId === thisMachine` (POD-563).
+ *
+ * A real instance records `machineId` on an issue ONLY when it is deliberately
+ * placed on a remote machine — every ordinary issue, including ones created
+ * today, carries null, and the server reads that null as "the hub" (its git ops
+ * pass `row.machineId ?? undefined`, which routes locally). The obvious equality
+ * filter therefore drops EVERY ordinary checkout: verified against the live
+ * board, where 155 aged checkouts rendered as "0 reclaimable".
+ */
+describe('placeReclaimable', () => {
+  const candidate = (issueId: string, machineId: string | null) => ({
+    issueId,
+    title: issueId,
+    worktreePath: `/r/.worktrees/${issueId}`,
+    closedAt: '2026-07-01T00:00:00.000Z',
+    machineId,
+  })
+
+  it('claims unattributed checkouts for the only machine', () => {
+    const placed = placeReclaimable([candidate('a', null), candidate('b', null)], {
+      machineId: 'm1',
+      soleMachine: true,
+    })
+    expect(placed.here.map((c) => c.issueId)).toEqual(['a', 'b'])
+    expect(placed.unplaceable).toBe(0)
+  })
+
+  it('counts unattributed checkouts instead of dropping them when there are several machines', () => {
+    const placed = placeReclaimable(
+      [candidate('mine', 'm1'), candidate('theirs', 'm2'), candidate('nowhere', null)],
+      { machineId: 'm1', soleMachine: false },
+    )
+    // Never offered under a chip it might not belong to...
+    expect(placed.here.map((c) => c.issueId)).toEqual(['mine'])
+    // ...but never silently zero either.
+    expect(placed.unplaceable).toBe(1)
+  })
+
+  it('keeps an attributed checkout off every other machine', () => {
+    const placed = placeReclaimable([candidate('theirs', 'm2')], {
+      machineId: 'm1',
+      soleMachine: true,
+    })
+    expect(placed.here).toEqual([])
+    expect(placed.unplaceable).toBe(0)
   })
 })
 

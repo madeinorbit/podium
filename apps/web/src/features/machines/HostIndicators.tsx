@@ -5,6 +5,7 @@ import {
   hostMemoryView,
   listReclaimableWorktreesClient,
   occupiedRootsFromKey,
+  placeReclaimable,
   RECLAIMABLE_WORKTREE_THRESHOLD,
   residencyBreakdown,
   residentWorktreeKey,
@@ -224,19 +225,25 @@ export function HeaderHostIndicators(): JSX.Element {
   // (`occupancyKey`) instead of on the array. `issues` stays a plain dep: its
   // identity already changes only when an issue row does.
   const occupancyKey = residentWorktreeKey(sessions)
+  const soleMachine = hostMetrics.length === 1
+  const soleMachineId = hostMetrics[0]?.machineId
   const reclaimByMachine = useMemo(() => {
     const map = new Map<string, number>()
     if (hostMetrics.length === 0) return map
-    for (const candidate of listReclaimableWorktreesClient({
+    const candidates = listReclaimableWorktreesClient({
       issues,
       occupiedRoots: occupiedRootsFromKey(occupancyKey),
       afterDays,
-    })) {
-      if (!candidate.machineId) continue
-      map.set(candidate.machineId, (map.get(candidate.machineId) ?? 0) + 1)
+    })
+    for (const candidate of placeReclaimable(candidates, { soleMachine }).here) {
+      // Unattributed rows land on the sole machine; placeReclaimable already
+      // refused to place them when there is more than one.
+      const id = candidate.machineId ?? soleMachineId
+      if (!id) continue
+      map.set(id, (map.get(id) ?? 0) + 1)
     }
     return map
-  }, [hostMetrics.length, issues, occupancyKey, afterDays])
+  }, [hostMetrics.length, soleMachine, soleMachineId, issues, occupancyKey, afterDays])
 
   return (
     <div className="topbar-well header-host-indicators">

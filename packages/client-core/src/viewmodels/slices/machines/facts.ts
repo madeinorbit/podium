@@ -405,6 +405,11 @@ const DAY_MS = 24 * 60 * 60 * 1000
  * Occupancy arrives as `occupiedRoots` (from {@link occupiedRootsFromKey})
  * rather than as the sessions array, so a caller can memoise on the small
  * stable key instead of on a slice that churns many times a second.
+ *
+ * MACHINE-AGNOSTIC, exactly like the server's `listReclaimableWorktrees`. Each
+ * result carries its own `machineId` (null when the row records none); placing
+ * them onto host chips is {@link placeReclaimable}'s single job, so the header
+ * and the panels cannot disagree about it.
  */
 export function listReclaimableWorktreesClient(args: {
   issues: readonly {
@@ -420,7 +425,6 @@ export function listReclaimableWorktreesClient(args: {
   /** Working directories of resident sessions — see {@link residentWorktreeKey}. */
   occupiedRoots: readonly string[]
   afterDays: number
-  machineId?: string
   nowMs?: number
 }): ReclaimableWorktree[] {
   const nowMs = args.nowMs ?? Date.now()
@@ -431,7 +435,6 @@ export function listReclaimableWorktreesClient(args: {
       if (!isIssueClosed(row)) return false
       const closedMs = Date.parse(row.closedAt ?? '')
       if (!Number.isFinite(closedMs) || closedMs > cutoff) return false
-      if (args.machineId != null && (row.machineId ?? null) !== args.machineId) return false
       const occupied = args.occupiedRoots.some((cwd) =>
         cwdUnderRoot(cwd, row.worktreePath as string),
       )
@@ -445,6 +448,45 @@ export function listReclaimableWorktreesClient(args: {
       machineId: row.machineId ?? null,
     }))
     .sort((a, b) => a.closedAt.localeCompare(b.closedAt) || a.issueId.localeCompare(b.issueId))
+}
+
+/**
+ * WHICH OF THESE CHECKOUTS BELONG TO THE MACHINE ON THIS CHIP.
+ *
+ * The rule exists because an issue row's `machineId` is usually NULL: the
+ * server records one only when an issue is deliberately placed on a remote
+ * machine, and every git op it runs passes `row.machineId ?? undefined`, which
+ * routes to the LOCAL daemon. So "no machine recorded" does not mean "nowhere",
+ * it means "the hub". Filtering `row.machineId === thisMachine` — the obvious
+ * reading — therefore drops every ordinary checkout and leaves a panel that
+ * confidently reports zero while the disk fills up.
+ *
+ * The client cannot name the hub (no wire field says which machine runs the
+ * server), so:
+ *
+ * - a row that NAMES a machine belongs to that machine and no other;
+ * - a row that names none belongs here when this is the only machine, where
+ *   "the hub" is unambiguous;
+ * - otherwise it cannot be placed, and is COUNTED rather than dropped, so a
+ *   multi-machine instance says "N unplaceable" instead of quietly under-
+ *   reporting. Offering them under every chip would double-count them and offer
+ *   a free that routes somewhere other than the chip you clicked.
+ */
+export function placeReclaimable(
+  candidates: readonly ReclaimableWorktree[],
+  args: { machineId?: string | undefined; soleMachine: boolean },
+): { here: ReclaimableWorktree[]; unplaceable: number } {
+  const here: ReclaimableWorktree[] = []
+  let unplaceable = 0
+  for (const candidate of candidates) {
+    if (candidate.machineId === null) {
+      if (args.soleMachine) here.push(candidate)
+      else unplaceable += 1
+      continue
+    }
+    if (args.machineId === undefined || candidate.machineId === args.machineId) here.push(candidate)
+  }
+  return { here, unplaceable }
 }
 
 /** Phase breakdown for an AGT tooltip (working ≠ resident). */

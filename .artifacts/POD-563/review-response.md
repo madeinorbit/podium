@@ -1,29 +1,70 @@
-# POD-554 review of 45b251608 — status (HOLD)
+# POD-554 review of 45b251608 — closed
 
-Reviewed findings accepted. **No code rewrite yet** pending operator decision on #1.
+The operator's decision on finding 1 (keep the Reclaim tab, make it PROPOSE-FIRST
+with per-row approval) is built. Every finding below is done, plus one defect that
+runtime verification turned up.
 
 | # | Finding | Status |
 |---|---------|--------|
-| 1 | Reclaim tab applies via `issues.stop` / unconfirmed Free all | **Held for operator** — scope question. Will not restructure until POD-554 returns. |
-| 2 | Invented `--superade` / `--race-navy` on `.hp-review-btn` | Acknowledged; use `--primary` / `--primary-foreground`. Queued after #1. |
-| 3 | New `.hp-rrow*` / `.hp-review-btn` primitives | Acknowledged; out of brief. Queued after #1. |
-| 4 | Runtime verification | **NOT done.** Unit tests + file:// fixture screenshots are useful but are **not** runtime verification. Real component + real store + real CSS cascade against a live instance (worktree preview only — never shared root dist) after #1 is decided. |
-| 5 | Header recomputes reclaimable list on issues/sessions churn | Acknowledged perf nit; queued after #1. |
+| 1 | Reclaim tab applies via `issues.stop` / unconfirmed "Free all" | **Done.** `onFreeAll` deleted. Checkbox per row, nothing ticked, one action labelled with the selection count, one confirm in front of every path including per-row Free. |
+| 2 | Invented `--superade` / `--race-navy` | **Done.** `.hp-review-btn` deleted outright — `.hp-link` was already this popover's button. |
+| 3 | New `.hp-rrow*` primitives | **Done.** Renamed `.hp-kv` / `-key` / `-value`; the reason no existing primitive fitted is in the stylesheet comment. |
+| 4 | Runtime verification | **Done.** Real running app, live instance, real load + residency. Evidence below. |
+| 5 | Header recomputes reclaimable on issues/sessions churn | **Done.** One scan for all machines instead of one per host, keyed on `residentWorktreeKey` rather than the sessions array. |
+| — | `worktreeGc` in `NOT_ON_THIS_SCREEN` (3f20d5027) | **Done.** Both entries deleted, `worktreeGc` added to `TAB_PATHS.hibernation`. |
 
-## Placement
-client-core viewmodels confirmed correct — leave `hostLoadView` beside `hostMemoryView`.
+## The confirm
 
-## What exists (and what it is not)
+`ReclaimConfirmDialog` follows `issueCloseConcerns` (`features/issues/issue-lifecycle.tsx`)
+rather than inventing a second pattern: presentation-only, one named consequence
+at a time, plus the checkouts listed by title so the count can be checked against
+what was ticked.
 
-| Artifact | Is |
-|----------|-----|
-| `host-pressure.test.ts` / multimachine chip mark assertions | Unit / DOM tests — keep |
-| `implemented-chip-fixture.html` + screenshots | State review aid using **re-declared** class names — useful, **not** runtime verification |
-| Design mock screenshots | Design reference — not production |
+It names both halves. Given up: the checkouts leave the disk, attached sessions
+stop, and **the next agent there pays to rebuild the checkout**. Guaranteed:
+branches are kept unmerged-included, and a dirty tree refuses rather than being
+discarded.
 
-## Closing #4 (later)
+**On the POD-580 wording.** The brief asked the confirm to say that resuming an
+existing session recreates a freed checkout but starting a brand-new agent fails.
+That is no longer true — POD-580 landed on main as 46a9031f0 ("rebuild freed
+worktree for new agents"), which routes `start` and `addSession` through
+`ensureWorktree` exactly like resume, with tests for both. Writing it would have
+put a false statement in a destructive-action confirm, so the row states the cost
+that IS real: the rebuild itself — a fresh `git worktree add` plus any install or
+build state that lived only in the old directory.
 
-1. Operator decides finding 1; rebuild accordingly.
-2. Preview worktree build **separately** (or export to a scratch dir and point an instance at it).
-3. Do **not** write shared root `apps/web/dist` served by the live operator instance.
-4. Capture the real chip on a machine that has load + residency.
+## Defect found by the runtime pass
+
+The reclaimable inventory read **"0 checkouts" while 78 aged checkouts sat on the
+host**, and would have shipped that way.
+
+`listReclaimableWorktreesClient` filtered `row.machineId === thisMachine`. A real
+instance sets an issue's `machineId` ONLY when the issue is deliberately placed on
+a remote machine: all 587 rows on the live board carry null, including issues
+created today. The server reads that null as "the hub" — every git op it runs
+passes `row.machineId ?? undefined`, which routes to the local daemon — so the
+equality filter drops every ordinary checkout.
+
+Placement is now one exported rule (`placeReclaimable`) used by the header and
+both panels: a row that names a machine belongs to that machine only; a row that
+names none belongs here when this is the only machine; otherwise it is COUNTED and
+reported ("N record no machine") rather than silently dropped, because offering it
+under every chip would double-count it and offer a free that routes elsewhere.
+
+This is exactly what finding 4 existed to catch. Unit tests and a `file://`
+fixture both passed against the broken filter.
+
+## Runtime evidence (`.artifacts/POD-563/runtime/`)
+
+Branch build served by a second vite on :55599 proxying to the LIVE backend on
+:18787 — the operator's real board, the shared root `dist` untouched. Read-only:
+the confirm dialog was opened and dismissed, its destructive action never pressed.
+
+| Shot | Shows |
+|------|-------|
+| `runtime-chip-comfortable.png` | The chip with real data: `MEM 46%`, `LOAD 0.9×`, `AGT 31` (red — 31 resident against a target of 30), amber health dot from 78 reclaimable |
+| `runtime-chip-balanced.png` | The same chip at balanced density: marks and values shed, AGT gone entirely, MEM/LOAD survive as bare meters |
+| `runtime-popover-pinned.png` | Reclaimable inventory — `.hp-kv` rows, `.hp-link` Review consistent with the settings shortcuts below it |
+| `runtime-reclaim-selected.png` | 78 real candidates, one ticked, action reading "Free 1 checkout" |
+| `runtime-reclaim-confirm.png` | The confirm, all five consequences named |

@@ -5,6 +5,7 @@ import {
   listReclaimableWorktreesClient,
   occupiedRootsFromKey,
   panelLabel,
+  placeReclaimable,
   residentWorktreeKey,
 } from '@podium/client-core/viewmodels'
 import type { AgentMemoryWire, HostMemoryWire, ProjectMemoryWire, SessionId } from '@podium/model'
@@ -499,8 +500,8 @@ function LegendSwatch({ className, label }: { className: string; label: string }
  * "held" with the server's reason.
  */
 function ReclaimPanel({ machineId }: { machineId?: string }): JSX.Element {
-  const { trpc, sessions } = useStoreSelector(
-    (s) => ({ trpc: s.trpc, sessions: s.sessions }),
+  const { trpc, sessions, hostMetrics } = useStoreSelector(
+    (s) => ({ trpc: s.trpc, sessions: s.sessions, hostMetrics: s.hostMetrics }),
     shallowEqual,
   )
   const issues = useReplicaIssues()
@@ -509,16 +510,20 @@ function ReclaimPanel({ machineId }: { machineId?: string }): JSX.Element {
   // Keyed on live-agent occupancy rather than the sessions array — see the same
   // memo in HeaderHostIndicators.
   const occupancyKey = residentWorktreeKey(sessions)
-  const candidates = useMemo(
+  const soleMachine = hostMetrics.length === 1
+  const placed = useMemo(
     () =>
-      listReclaimableWorktreesClient({
-        issues,
-        occupiedRoots: occupiedRootsFromKey(occupancyKey),
-        afterDays,
-        ...(machineId ? { machineId } : {}),
-      }),
-    [issues, occupancyKey, afterDays, machineId],
+      placeReclaimable(
+        listReclaimableWorktreesClient({
+          issues,
+          occupiedRoots: occupiedRootsFromKey(occupancyKey),
+          afterDays,
+        }),
+        { machineId, soleMachine },
+      ),
+    [issues, occupancyKey, afterDays, machineId, soleMachine],
   )
+  const candidates = placed.here
   // Nothing is ticked until the operator ticks it. This set IS the proposal's
   // answer, so it is never seeded from the candidate list.
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set())
@@ -669,6 +674,15 @@ function ReclaimPanel({ machineId }: { machineId?: string }): JSX.Element {
             </div>
           ))}
         </div>
+      )}
+      {/* Named rather than dropped: a checkout whose issue records no machine
+          cannot be placed once there is more than one, and silence there would
+          read as "nothing to reclaim". */}
+      {placed.unplaceable > 0 && (
+        <p className="m-0 text-[11px] text-muted-foreground/70">
+          {placed.unplaceable} more reclaimable checkout{placed.unplaceable === 1 ? '' : 's'} record
+          no machine, so they cannot be shown under one host.
+        </p>
       )}
       {lifecycle && (
         <p className="m-0 text-[11px] text-muted-foreground/70">

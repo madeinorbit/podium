@@ -7,6 +7,7 @@ import {
   listReclaimableWorktreesClient,
   occupiedRootsFromKey,
   panelLabel,
+  placeReclaimable,
   residentWorktreeKey,
 } from '@podium/client-core/viewmodels'
 import type { AgentMemoryWire, HostMemoryWire, ProjectMemoryWire, SessionId } from '@podium/model'
@@ -105,15 +106,18 @@ export function LoadPanel({
   // HeaderHostIndicators. The panel refreshes its /proc breakdown every 5s; the
   // candidate scan has no reason to follow that cadence.
   const occupancyKey = residentWorktreeKey(sessions)
+  const soleMachine = hostMetrics.length === 1
   const reclaimable = useMemo(
     () =>
-      listReclaimableWorktreesClient({
-        issues,
-        occupiedRoots: occupiedRootsFromKey(occupancyKey),
-        afterDays,
-        ...(machineId ? { machineId } : {}),
-      }),
-    [issues, occupancyKey, afterDays, machineId],
+      placeReclaimable(
+        listReclaimableWorktreesClient({
+          issues,
+          occupiedRoots: occupiedRootsFromKey(occupancyKey),
+          afterDays,
+        }),
+        { machineId, soleMachine },
+      ),
+    [issues, occupancyKey, afterDays, machineId, soleMachine],
   )
 
   const total = data?.memory.totalBytes ?? 0
@@ -244,9 +248,10 @@ export function LoadPanel({
           <div className="hp-kv">
             <span className="hp-kv-key">Worktrees</span>
             <span className="hp-kv-value">
-              {reclaimable.length} checkout{reclaimable.length === 1 ? '' : 's'}
+              {reclaimable.here.length} checkout{reclaimable.here.length === 1 ? '' : 's'}
+              {reclaimable.unplaceable > 0 ? ` · ${reclaimable.unplaceable} unplaced` : ''}
             </span>
-            {onOpenReclaim && reclaimable.length > 0 && (
+            {onOpenReclaim && reclaimable.here.length > 0 && (
               <button data-pressable type="button" className="hp-link" onClick={onOpenReclaim}>
                 Review
               </button>
