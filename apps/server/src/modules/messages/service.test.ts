@@ -15,7 +15,7 @@ import { NotificationArbiter } from '../../store/notification-facts'
 import type { IssueService } from '../issues/service'
 import { SPAWN_BUDGET_PER_DAY, WAKE_COOLDOWN_MS } from './brakes'
 import { MessageGate } from './gate'
-import { INLINE_BODY_MAX, sanitizeBody } from './render'
+import { INLINE_BODY_MAX, sanitizeBody, TURN_CLOSE_RULE } from './render'
 import {
   ECHO_CONFIRM_WINDOW_MS,
   HOP_LIMIT,
@@ -403,6 +403,7 @@ describe('MessageDeliveryService.send', () => {
       expect(sent[0]!.text).toBe(
         `[podium message ${r.message.id} · from issue:#212 · to your session · reply: podium mail reply ${r.message.id}]\n` +
           `peer note\n` +
+          TURN_CLOSE_RULE +
           `[end podium message ${r.message.id}]`,
       )
     }

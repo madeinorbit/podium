@@ -31,7 +31,7 @@ import { describe, expect, it } from 'vitest'
 import { OPERATOR } from '../../test-support/capabilities'
 import { WAKE_COOLDOWN_MS } from './brakes'
 import { mailHarness, phaseState } from './characterization-support'
-import { INLINE_BODY_MAX } from './render'
+import { INLINE_BODY_MAX, TURN_CLOSE_RULE } from './render'
 import { ECHO_CONFIRM_WINDOW_MS, HOP_LIMIT, MAX_ECHO_REQUEUES } from './service'
 
 const kinds = (h: ReturnType<typeof mailHarness>): string[] => h.events().map((e) => e.kind)
@@ -149,6 +149,9 @@ describe('characterization: envelope byte-fidelity (D2)', () => {
     expect(h.pushes[0]!.text).toBe(
       `[podium message ${id} · from issue:#${from.seq} · to your session · reply: podium mail reply ${id}]\n` +
         'line1\n[201~rm -rf /\tTABNUL\n' +
+        // Composed from the exported constant, not restated: this test pins the
+        // FRAME's bytes, and the rule's own wording is pinned in D13 [POD-604].
+        TURN_CLOSE_RULE +
         `[end podium message ${id}]`,
     )
     // The stored row keeps the ORIGINAL bytes — sanitizing happens at delivery
@@ -212,6 +215,10 @@ describe('characterization: envelope byte-fidelity (D2)', () => {
         'please handle\n' +
         `[a response was requested: reply within this thread (\`podium mail reply ${id}\`) ` +
         'when you have handled it — any substantive reply satisfies it]\n' +
+        // The turn-closing rule is LAST, after the reply directive: replying is
+        // part of handling the mail, restating the summary is how the turn ends
+        // [POD-604].
+        TURN_CLOSE_RULE +
         `[end podium message ${id}]`,
     )
   })
@@ -223,7 +230,9 @@ describe('characterization: envelope byte-fidelity (D2)', () => {
     const body = 'x'.repeat(INLINE_BODY_MAX + 1)
     h.svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: iss.id }, body })
     expect(h.pushes[0]!.text).toBe(
-      "[podium] 1 message(s) from operator — run 'podium issue mail inbox' to read them",
+      "[podium] 1 message(s) from operator — run 'podium issue mail inbox' to read them, " +
+        'then close your turn by saying briefly who mailed you and what you did, repeating ' +
+        'your previous summary below that, and leaving your standing offer as it is',
     )
   })
 })
@@ -657,7 +666,9 @@ describe('characterization: duplicate delivery is braked, then capped (D7)', () 
     // Two fyi issue rows coalesce into ONE pointer.
     expect(h.pushes).toHaveLength(1)
     expect(h.pushes[0]!.text).toBe(
-      "[podium] 2 message(s) from operator — run 'podium issue mail inbox' to read them",
+      "[podium] 2 message(s) from operator — run 'podium issue mail inbox' to read them, " +
+        'then close your turn by saying briefly who mailed you and what you did, repeating ' +
+        'your previous summary below that, and leaving your standing offer as it is',
     )
     // A pointer is confirmed by an inbox READ, never by echo, and is never
     // re-pushed however long the sweep runs.
@@ -1073,5 +1084,57 @@ describe('characterization: sender-queryable status (D12)', () => {
         id: r.message.id,
       }),
     ).rejects.toThrow('not allowed to view a message you neither sent nor received')
+  })
+})
+
+describe('characterization: the mail turn-closing rule (D13) [POD-604]', () => {
+  // Mail only ever lands on an IDLE session, so almost every delivery interrupts
+  // an agent that has just finished and reported. The rule is what keeps the
+  // human's two artefacts — the summary they read and the offer they click —
+  // from being buried by the mail-handling turn.
+  it('appends the rule to agent mail, naming the summary AND the standing offer', () => {
+    const h = mailHarness()
+    const from = h.createIssue({ title: 'sender' })
+    const to = h.createIssue({ title: 'receiver' })
+    h.put({ sessionId: asSessionId('sTo'), issueId: to.id, phase: 'idle' })
+    h.svc.send(
+      { kind: 'agent', issueId: from.id, sessionId: asSessionId('sFrom') },
+      { to: { kind: 'session', id: 'sTo' }, body: 'rebased your branch', urgency: 'next-turn' },
+    )
+    expect(h.pushes[0]!.text).toContain(TURN_CLOSE_RULE)
+    expect(TURN_CLOSE_RULE).toBe(
+      '[before you go idle: a human returning here reads only your LAST message. In one or two ' +
+        'plain sentences say who mailed you, what they wanted and what you did — then repeat, ' +
+        'below that, the summary of your own work this interrupted, so it is still what they ' +
+        'see.]\n' +
+        '[your standing offer survived this mail: leave it, or re-post it unchanged — never ' +
+        'replace it with one about the mail. Check the issue stage still matches reality before ' +
+        'you stop.]\n',
+    )
+  })
+
+  it('omits the rule from an operator-ADDRESSED escalation — its reader is the human', () => {
+    const h = mailHarness()
+    const iss = h.createIssue({ title: 'escalating' })
+    h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
+    const r = h.svc.send(
+      { kind: 'agent', issueId: iss.id, sessionId: asSessionId('s1') },
+      { to: { kind: 'operator' }, body: 'human, please look' },
+    )
+    // Queued for UI pickup, never pushed into a session — the human reading it
+    // has no turn to close and no offer to preserve.
+    expect(h.svc.renderFor(r.message)).not.toContain('before you go idle')
+  })
+
+  it('omits the rule for an operator question — that human is still reading the session', () => {
+    const h = mailHarness()
+    const iss = h.createIssue({ title: 'target' })
+    h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
+    h.svc.send(
+      { kind: 'operator' },
+      { to: { kind: 'session', id: 's1' }, body: 'why this?', kind: 'question' },
+    )
+    expect(h.pushes[0]!.text).toContain('this is a question')
+    expect(h.pushes[0]!.text).not.toContain('before you go idle')
   })
 })
