@@ -94,7 +94,7 @@
  * a glance that lands mid-change reads the right number.
  */
 import type { JSX } from 'react'
-import type { MissionProgress } from '@/lib/mission'
+import type { MissionProgress } from '@podium/client-core/viewmodels'
 import { cn } from '@/lib/utils'
 
 /**

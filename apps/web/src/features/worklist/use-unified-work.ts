@@ -15,6 +15,8 @@ import { beginSwitch } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
 import {
   type IssueNavigationModel,
+  missionIssueIds,
+  missionRootFor,
   pickPaneSession,
   type RepoNavView,
   sessionsForIssueNav,
@@ -31,7 +33,6 @@ import {
 import { useEffect, useRef } from 'react'
 import { useReplicaIssues, useSlice, useStoreSelector } from '@/app/store'
 import { useOperatorFocus } from '@/app/operator-focus'
-import { missionIssueIds, missionRootFor } from '@/lib/mission'
 import type { SidebarDerivation } from './derivation'
 
 /**

@@ -2,7 +2,7 @@ import { shallowEqual } from '@podium/client-core/store'
 import { ChevronRight, Users } from 'lucide-react'
 import type { JSX } from 'react'
 import { useMemo } from 'react'
-import { buildFlightDeckRows, missionRootFor } from '@/lib/mission'
+import { buildFlightDeckRows, missionRootFor } from '@podium/client-core/viewmodels'
 import { BrailleSpinner, StatusBadge } from '@/lib/motion'
 import { useReplicaIssues, useStoreSelector } from './store'
 

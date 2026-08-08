@@ -33,7 +33,7 @@ import { Button } from '@/components/ui/button'
 import { PropertyMenu, type PropertyOption } from '@/lib/PropertyMenu'
 import { StageGlyph } from '../issue-glyphs'
 import type { IssuePageCommands } from '../issue-page-commands'
-import { groupRelations } from '../issue-relations'
+import { groupRelations } from '@podium/client-core/viewmodels'
 import { SectionHeading } from './chrome'
 import { edgeIssue, IssueEdgeLink, useIssueEdgeResolver } from './issue-edges'
 

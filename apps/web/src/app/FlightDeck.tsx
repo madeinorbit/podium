@@ -2,9 +2,29 @@ import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
 import { FLIGHT_DECK_FOLDS_KEY, FLIGHT_DECK_MODE_KEY } from '@podium/client-core/ui-state'
 import {
+  buildFlightDeckRows,
+  type CollapsedSummary,
+  type DeckIssueState,
+  deckIssueState,
+  deckSessions,
+  type DeckState,
+  type FlightDeckMode,
+  type FlightDeckRow,
   type IssueNavigationModel,
+  type IssueNote,
+  issueNote,
+  missionIssueIds,
+  missionProgress,
+  missionRootFor,
   motionPhase,
+  nativeSubagentRows,
+  type PresenceNote,
+  presenceNote,
   reposToViews,
+  sessionNeedsHuman,
+  type SessionRole,
+  sessionRole,
+  treeGuides,
 } from '@podium/client-core/viewmodels'
 import type { AgentKind, SessionMeta } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
@@ -29,28 +49,6 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { STAGE_LABELS } from '@/features/issues/issue-card'
 import { StageGlyph } from '@/features/issues/issue-glyphs'
-import {
-  buildFlightDeckRows,
-  type CollapsedSummary,
-  type DeckIssueState,
-  type DeckState,
-  deckIssueState,
-  deckSessions,
-  type FlightDeckMode,
-  type FlightDeckRow,
-  type IssueNote,
-  issueNote,
-  missionIssueIds,
-  missionProgress,
-  missionRootFor,
-  nativeSubagentRows,
-  type PresenceNote,
-  presenceNote,
-  type SessionRole,
-  sessionNeedsHuman,
-  sessionRole,
-  treeGuides,
-} from '@/lib/mission'
 import { BrailleSpinner, PhaseTimer, useArrivals } from '@/lib/motion'
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 import { cn } from '@/lib/utils'

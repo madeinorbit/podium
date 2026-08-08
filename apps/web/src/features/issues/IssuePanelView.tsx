@@ -5,6 +5,11 @@ import {
   artifactUrl,
   basename,
   issueForPanel,
+  operationalState,
+  type PresenceKind,
+  type PresenceNote,
+  presenceNote,
+  sessionNeedsHuman,
   subIssuesOf,
 } from '@podium/client-core/viewmodels'
 import type { IssueComment, SessionMeta } from '@podium/model'
@@ -31,13 +36,6 @@ import { MediaLightbox } from '@/components/MediaLightbox'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { copyToClipboard } from '@/lib/clipboard'
-import {
-  operationalState,
-  type PresenceKind,
-  type PresenceNote,
-  presenceNote,
-  sessionNeedsHuman,
-} from '@/lib/mission'
 import { cn } from '@/lib/utils'
 import { KindIcon, sessionDisplayName } from '@/lib/WorkerLabel'
 import {
@@ -51,7 +49,7 @@ import {
 import { issueIdTitle } from './issue-card'
 import { buildActivityFeed, type IssueEvent } from './issue-events'
 import { StageGlyph } from './issue-glyphs'
-import { groupRelations } from './issue-relations'
+import { groupRelations } from '@podium/client-core/viewmodels'
 
 // Where the task's identity lives, since POD-516 r3: the DOCK TITLE BAR carries
 // the stage glyph and the title (RightDock.tsx), because the title bar is every

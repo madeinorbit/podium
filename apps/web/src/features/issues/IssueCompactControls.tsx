@@ -1,6 +1,10 @@
 import { randomUUID } from '@podium/client-core/id'
 import { shallowEqual } from '@podium/client-core/store'
-import { motionPhase } from '@podium/client-core/viewmodels'
+import {
+  issueNeedsHuman,
+  motionPhase,
+  sessionNeedsHuman,
+} from '@podium/client-core/viewmodels'
 import type { IssueId, IssueStage, SessionMeta } from '@podium/model'
 import { ChevronDown, GitBranch, GitCommit, MoreHorizontal, RotateCcw } from 'lucide-react'
 import { type JSX, useState } from 'react'
@@ -16,7 +20,6 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { OfferBar } from '@/features/chat/OfferBar'
 import { assertSendAccepted } from '@/lib/assert-send-accepted'
-import { issueNeedsHuman, sessionNeedsHuman } from '@/lib/mission'
 import { type ContextMenuAnchor, SessionContextMenu } from '@/lib/SessionContextMenu'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'

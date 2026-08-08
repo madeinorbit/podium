@@ -1,9 +1,7 @@
-import {
-  type IssueNavigationModel,
-  isCoordinatorSession,
-  motionPhase,
-  sessionsForIssueNav,
-} from '@podium/client-core/viewmodels'
+import { type IssueNavigationModel } from './slices/issues'
+import { sessionsForIssueNav } from './session-ownership'
+import { motionPhase } from './session-status'
+import { isCoordinatorSession } from './slices/terminal'
 import { type AgentKind, type SessionMeta, spawnedByParentSessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 

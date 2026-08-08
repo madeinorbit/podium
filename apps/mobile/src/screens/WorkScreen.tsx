@@ -174,10 +174,15 @@ export function WorkScreen() {
     }
   }, [pinned, groups])
 
+  /**
+   * A mission row opens that mission's FLIGHT DECK, not a flat task page
+   * [POD-592]. The deck resolves the row to its mission root itself, so tapping
+   * a child anywhere lands on the same spine the desktop's second column draws.
+   */
   const openIssue = useCallback(
     (issue: IssueWire) => {
       void store.markIssueRead(issue.id)
-      router.push(`/issue/${encodeURIComponent(issue.id)}`)
+      router.push(`/mission/${encodeURIComponent(issue.id)}`)
     },
     [store.markIssueRead, router],
   )

@@ -3,6 +3,8 @@ import {
   cwdInWorktree,
   issueForCwd,
   issueForPanel,
+  missionIssueIds,
+  missionRootFor,
   reposToViews,
   resolveActiveWorktree,
 } from '@podium/client-core/viewmodels'
@@ -28,7 +30,6 @@ import { MergeQueuePanel } from '@/features/merge-queue/MergeQueuePanel'
 import { MessageLedgerView } from '@/features/messages/MessageLedgerView'
 import { SuperagentView } from '@/features/superagent/SuperagentView'
 import { DockShellPanel } from '@/features/terminal/DockShellPanel'
-import { missionIssueIds, missionRootFor } from '@/lib/mission'
 import { DockHeaderSlotProvider } from './DockHeaderSlot'
 import { resolveFocus, useOperatorFocus } from './operator-focus'
 import type { RightPanelTab } from './shell-state'

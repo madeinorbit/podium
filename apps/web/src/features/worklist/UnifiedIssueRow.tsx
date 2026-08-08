@@ -1,7 +1,8 @@
 import {
   draftIssueLabel,
-  type IssueNavigationModel,
   isDraftAgentVessel,
+  type IssueNavigationModel,
+  missionProgress,
   pendingDecisionLabel,
   pendingDecisionTitle,
   rowMotionPhase,
@@ -24,7 +25,6 @@ import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { issueIdTitle } from '@/lib/issue-labels'
 import { agentFleetTileTint, agentIconFor } from '@/lib/agent-tone'
 import { issueColorHex } from '@/lib/issueColors'
-import { missionProgress } from '@/lib/mission'
 import { PhaseTimer } from '@/lib/motion'
 import type { ContextMenuAnchor } from '@/lib/SessionContextMenu'
 import { cn } from '@/lib/utils'

@@ -21,6 +21,8 @@ import {
   archivedSessionsForIssue,
   archivedSessionsForWorktreePath,
   isCoordinatorSession,
+  missionIssueIds,
+  missionRootFor,
   orderTabs,
   orphanSessionFor,
   reposToViews,
@@ -31,7 +33,6 @@ import { asSessionId, type SessionId } from '@podium/model'
 import { Archive, Columns2, FileText, Lock, Plus, X } from 'lucide-react'
 import { type JSX, useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { missionIssueIds, missionRootFor } from '@/lib/mission'
 import { AgentPanel } from '@/features/terminal/AgentPanel'
 import { useWarmSet } from '@/features/terminal/use-warm-set'
 import { AgentStatusGlyph } from '@/lib/motion'

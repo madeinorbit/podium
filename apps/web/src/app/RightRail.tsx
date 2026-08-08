@@ -1,9 +1,13 @@
-import { aggregateMotionPhase, type MotionPhase, motionPhase } from '@podium/client-core/viewmodels'
+import {
+  aggregateMotionPhase,
+  type MotionPhase,
+  motionPhase,
+  portfolioActionableCount,
+} from '@podium/client-core/viewmodels'
 import type { IssueColorSlot } from '@podium/model'
 import type { JSX } from 'react'
 import { useMemo } from 'react'
 import { IdSquare, type IdSquareBadge, idSquareLabel } from '@/components/IdSquare'
-import { portfolioActionableCount } from '@/lib/mission'
 import { StatusBadge } from '@/lib/motion'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'

@@ -15,7 +15,7 @@ import type { IssueViewModel } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
 import type { IssueAgentKind } from '@/lib/issue-agents'
 import type { ActivityComment, IssueEvent } from './issue-events'
-import type { RelationEntry } from './issue-relations'
+import type { RelationEntry } from '@podium/client-core/viewmodels'
 
 /** The page's mutation runner: busy-gates and surfaces thrown errors verbatim
  *  as the inline toast (owned by `useIssuePageModel`). */
