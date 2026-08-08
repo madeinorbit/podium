@@ -4,25 +4,26 @@ Reviewed findings accepted. **No code rewrite yet** pending operator decision on
 
 | # | Finding | Status |
 |---|---------|--------|
-| 1 | Reclaim tab applies via `issues.stop` / unconfirmed Free all | **Held for operator** — scope question (read-only list vs apply). Will not restructure until POD-554 returns. |
-| 2 | Invented `--superade` / `--race-navy` on `.hp-review-btn` | Acknowledged; fix is use `--primary` / `--primary-foreground`. Queued after #1 decision. |
-| 3 | New `.hp-rrow*` / `.hp-review-btn` primitives | Acknowledged; brief said no new primitives. Queued after #1 decision. |
-| 4 | Runtime verification + sidebar artifacts | **Done this turn** — see below. |
-| 5 | Header recomputes reclaimable list every issues/sessions churn | Acknowledged perf nit; queued after #1 decision. |
+| 1 | Reclaim tab applies via `issues.stop` / unconfirmed Free all | **Held for operator** — scope question. Will not restructure until POD-554 returns. |
+| 2 | Invented `--superade` / `--race-navy` on `.hp-review-btn` | Acknowledged; use `--primary` / `--primary-foreground`. Queued after #1. |
+| 3 | New `.hp-rrow*` / `.hp-review-btn` primitives | Acknowledged; out of brief. Queued after #1. |
+| 4 | Runtime verification | **NOT done.** Unit tests + file:// fixture screenshots are useful but are **not** runtime verification. Real component + real store + real CSS cascade against a live instance (worktree preview only — never shared root dist) after #1 is decided. |
+| 5 | Header recomputes reclaimable list on issues/sessions churn | Acknowledged perf nit; queued after #1. |
 
 ## Placement
-client-core viewmodels confirmed correct by reviewer — leave `hostLoadView` beside `hostMemoryView`.
+client-core viewmodels confirmed correct — leave `hostLoadView` beside `hostMemoryView`.
 
-## Runtime verification (no shared dist)
+## What exists (and what it is not)
 
-- `host-pressure.test.ts` — 8/8 (load meter scale, residency, reclaimable predicate)
-- `multimachine-indicators.test.tsx` — 11/11 including **MEM/LOAD/AGT marks on each machine chip**
-- Screenshots of design mock + production-class fixture (Playwright, file://, not live dist)
+| Artifact | Is |
+|----------|-----|
+| `host-pressure.test.ts` / multimachine chip mark assertions | Unit / DOM tests — keep |
+| `implemented-chip-fixture.html` + screenshots | State review aid using **re-declared** class names — useful, **not** runtime verification |
+| Design mock screenshots | Design reference — not production |
 
-## Artifacts in this directory
+## Closing #4 (later)
 
-- `implemented-chip-states.png` — fixture using production class names
-- `implemented-chip-fixture.html` — openable fixture
-- `mock-chip-proposed.png` / `mock-load-panel.png` / `mock-chip-states.png` — design mock crops
-- `host-pressure-topbar.html` + `.md` — full design mock
-- `implementation-notes.md` — what landed vs deferred
+1. Operator decides finding 1; rebuild accordingly.
+2. Preview worktree build **separately** (or export to a scratch dir and point an instance at it).
+3. Do **not** write shared root `apps/web/dist` served by the live operator instance.
+4. Capture the real chip on a machine that has load + residency.
