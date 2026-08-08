@@ -138,7 +138,7 @@ describe('oracle: who ended this session', () => {
 })
 
 describe('oracle: who typed into this session', () => {
-  it(`${NO_PERSON}: PTY frames carry inputOrigin — 'human' for a direct keystroke path, 'mail' for a substrate send`, async () => {
+  it(`${NO_PERSON}: PTY frames carry inputOrigin — 'human' for direct terminal input, 'controller' for a chat send`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
@@ -162,8 +162,9 @@ describe('oracle: who typed into this session', () => {
     const origins = o.daemon
       .filter((m): m is Extract<ControlMessage, { type: 'input' }> => m.type === 'input')
       .map((m) => m.inputOrigin)
-    // Both are the SAME operator; the field distinguishes the PATH, not the person.
-    expect(origins).toEqual(['human', 'mail'])
+    // Both are the SAME operator; the field distinguishes direct terminal input
+    // from controller-mediated user input. Agent/system delivery remains 'mail'.
+    expect(origins).toEqual(['human', 'controller'])
   })
 })
 
