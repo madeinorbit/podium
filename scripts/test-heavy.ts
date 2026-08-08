@@ -27,6 +27,60 @@ async function runProcess(command: string[], options: TestProcessOptions): Promi
   return spawnProcess(command, options).exited
 }
 
+type HeavyTestLeaseAcquisition = {
+  exitCode: number
+  /** True only when this invocation created the hold it must later release. */
+  ownsLease: boolean
+}
+
+async function acquireHeavyTestLease(
+  options: TestProcessOptions,
+): Promise<HeavyTestLeaseAcquisition> {
+  const proc = Bun.spawn(
+    [
+      'podium',
+      'lock',
+      'acquire',
+      HEAVY_TEST_LOCK,
+      '--ttl',
+      HEAVY_TEST_LOCK_TTL,
+      '--wait',
+      '--json',
+    ],
+    {
+      cwd: options.cwd,
+      env: options.env,
+      stdio: ['inherit', 'pipe', 'inherit'],
+    },
+  )
+  const [exitCode, stdout] = await Promise.all([proc.exited, new Response(proc.stdout).text()])
+
+  let response:
+    | {
+        data?: { granted?: unknown; alreadyHeld?: unknown }
+        text?: unknown
+      }
+    | undefined
+  try {
+    response = JSON.parse(stdout) as typeof response
+  } catch {}
+
+  const output = typeof response?.text === 'string' ? response.text : stdout.trim()
+  if (output) console.log(output)
+  if (exitCode !== 0) return { exitCode, ownsLease: false }
+
+  if (response?.data?.granted !== true || typeof response.data.alreadyHeld !== 'boolean') {
+    console.error(
+      'test run refused: ' +
+        HEAVY_TEST_LOCK +
+        ' acquisition did not report whether this process owns the lease',
+    )
+    return { exitCode: 1, ownsLease: false }
+  }
+
+  return { exitCode: 0, ownsLease: !response.data.alreadyHeld }
+}
+
 /** Serialize resource-heavy test commands when invoked from a live session. */
 export async function runWithHeavyTestLease(
   command: string[],
@@ -35,17 +89,14 @@ export async function runWithHeavyTestLease(
   if (command.length === 0) throw new Error('test command is required')
   if (!shouldAcquireHeavyTestLease(options.env ?? {})) return runProcess(command, options)
 
-  const acquired = await runProcess(
-    ['podium', 'lock', 'acquire', HEAVY_TEST_LOCK, '--ttl', HEAVY_TEST_LOCK_TTL, '--wait'],
-    options,
-  )
-  if (acquired !== 0) {
+  const acquisition = await acquireHeavyTestLease(options)
+  if (acquisition.exitCode !== 0) {
     console.error(
       'test run refused: could not acquire ' +
         HEAVY_TEST_LOCK +
         '; the shared host was not tested without its resource lease',
     )
-    return acquired || 1
+    return acquisition.exitCode || 1
   }
 
   let exitCode = 1
@@ -53,7 +104,9 @@ export async function runWithHeavyTestLease(
   try {
     testProcess = spawnProcess(command, options)
   } catch (error) {
-    await runProcess(['podium', 'lock', 'release', HEAVY_TEST_LOCK], options)
+    if (acquisition.ownsLease) {
+      await runProcess(['podium', 'lock', 'release', HEAVY_TEST_LOCK], options)
+    }
     throw error
   }
   if (!testProcess) throw new Error('test process was not started')
@@ -93,15 +146,17 @@ export async function runWithHeavyTestLease(
     clearInterval(renewalTimer)
     await renewalPromise
     if (leaseRenewalFailed && exitCode === 0) exitCode = 1
-    const released = await runProcess(['podium', 'lock', 'release', HEAVY_TEST_LOCK], options)
-    if (released !== 0) {
-      console.error(
-        'warning: could not release ' +
-          HEAVY_TEST_LOCK +
-          '; its ' +
-          HEAVY_TEST_LOCK_TTL +
-          ' lease will expire automatically',
-      )
+    if (acquisition.ownsLease) {
+      const released = await runProcess(['podium', 'lock', 'release', HEAVY_TEST_LOCK], options)
+      if (released !== 0) {
+        console.error(
+          'warning: could not release ' +
+            HEAVY_TEST_LOCK +
+            '; its ' +
+            HEAVY_TEST_LOCK_TTL +
+            ' lease will expire automatically',
+        )
+      }
     }
   }
   return exitCode
