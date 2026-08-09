@@ -3515,7 +3515,7 @@ a.ref-link--issue[data-issue-stage="planning"] {
   --ref-stage-color: var(--muted-foreground);
 }
 a.ref-link--issue[data-issue-stage="in_progress"] {
-  --ref-stage-color: rgb(245 158 11);
+  --ref-stage-color: rgb(59 130 246);
 }
 a.ref-link--issue[data-issue-stage="in_progress"]::before {
   --ref-icon-mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2014%2014'%3E%3Ccircle%20cx='7'%20cy='7'%20r='6'%20fill='none'%20stroke='black'%20stroke-width='1.6'/%3E%3Cpath%20d='M7%207L7%203.8A3.2%203.2%200%200%201%209.77%208.6Z'/%3E%3C/svg%3E");
