@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Animated, Modal, PanResponder, Pressable, StyleSheet, Text, View } from 'react-native'
+import { useEffect, useRef, useState } from 'react'
+import { Animated, Modal, Pressable, StyleSheet, Text, View } from 'react-native'
+import { GestureDetector, usePanGesture } from 'react-native-gesture-handler'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import {
   color,
@@ -16,6 +17,8 @@ import { PressableScale } from './PressableScale'
 
 /** How far the sheet travels when opening — and the drag distance that dismisses it. */
 const SHEET_TRAVEL = 320
+/** PanResponder reports px/ms; gesture-handler reports px/s. */
+const DISMISS_VELOCITY = 800
 
 export interface SheetAction {
   label: string
@@ -53,7 +56,7 @@ export function ActionSheet({
       const opening = Animated.spring(slide, {
         toValue: 1,
         // JS driver on purpose: the drag below feeds the same transform via
-        // PanResponder.setValue, which a native-driven node rejects.
+        // Animated.Value.setValue, which a native-driven node rejects.
         useNativeDriver: false,
         ...spring.smooth,
       })
@@ -77,30 +80,28 @@ export function ActionSheet({
   // third of its travel, or on a fast flick, it dismisses; otherwise it springs
   // back. Downward drags only — an upward pull must not lift it off the edge.
   const drag = useRef(new Animated.Value(0)).current
-  const pan = useMemo(
-    () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponder: (_e, g) => g.dy > 4 && Math.abs(g.dy) > Math.abs(g.dx),
-        onPanResponderMove: (_e, g) => {
-          if (g.dy > 0) drag.setValue(g.dy)
-        },
-        onPanResponderRelease: (_e, g) => {
-          if (g.dy > SHEET_TRAVEL / 3 || g.vy > 0.8) {
-            onClose()
-            return
-          }
-          Animated.spring(drag, {
-            toValue: 0,
-            useNativeDriver: false,
-            ...spring.snappy,
-          }).start()
-        },
-        onPanResponderTerminate: () => {
-          drag.setValue(0)
-        },
-      }),
-    [drag, onClose],
-  )
+  const pan = usePanGesture({
+    // Gesture Handler owns the browser pointer stream. RN's responder system
+    // does not receive it when this view is inside a Modal on react-native-web.
+    activeOffsetY: 4,
+    failOffsetX: [-4, 4],
+    runOnJS: true,
+    onActivate: () => drag.stopAnimation(),
+    onUpdate: ({ translationY }) => {
+      if (translationY > 0) drag.setValue(translationY)
+    },
+    onDeactivate: ({ canceled, translationY, velocityY }) => {
+      if (!canceled && (translationY > SHEET_TRAVEL / 3 || velocityY > DISMISS_VELOCITY)) {
+        onClose()
+        return
+      }
+      Animated.spring(drag, {
+        toValue: 0,
+        useNativeDriver: false,
+        ...spring.snappy,
+      }).start()
+    },
+  })
 
   useEffect(() => {
     if (visible) drag.setValue(0)
@@ -129,9 +130,11 @@ export function ActionSheet({
           { paddingBottom: insets.bottom + space.lg, transform: [{ translateY }] },
         ]}
       >
-        <View style={styles.handleZone} {...pan.panHandlers}>
-          <View style={styles.handle} />
-        </View>
+        <GestureDetector gesture={pan} touchAction="none" userSelect="none">
+          <View style={styles.handleZone}>
+            <View style={styles.handle} />
+          </View>
+        </GestureDetector>
         {title ? (
           <Text style={styles.title} numberOfLines={1}>
             {title}

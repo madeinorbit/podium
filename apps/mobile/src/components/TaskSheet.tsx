@@ -16,7 +16,6 @@ import {
   Animated,
   Dimensions,
   Modal,
-  PanResponder,
   Platform,
   Pressable,
   ScrollView,
@@ -24,6 +23,7 @@ import {
   Text,
   View,
 } from 'react-native'
+import { GestureDetector, usePanGesture } from 'react-native-gesture-handler'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useMobileStore } from '../client/hooks'
 import { useReduceMotion } from '../hooks/useReduceMotion'
@@ -74,7 +74,7 @@ const TOP_GAP = 10
 /** Fraction of the screen the medium detent shows. */
 const MEDIUM_FRACTION = 0.52
 /** Past this velocity the flick decides, not the position. */
-const FLICK = 0.5
+const FLICK_VELOCITY = 500
 
 export function TaskSheet({
   issue,
@@ -102,7 +102,7 @@ export function TaskSheet({
   const detent = useRef<Detent>('medium')
   const [atLarge, setAtLarge] = useState(false)
   const [mounted, setMounted] = useState(false)
-  const scrollTop = useRef(0)
+  const dragStartY = useRef(CLOSED)
 
   useEffect(() => {
     const id = y.addListener(({ value }) => {
@@ -123,7 +123,7 @@ export function TaskSheet({
       Animated.spring(y, {
         toValue: target,
         // JS driver on purpose: the drag below feeds this same node through
-        // `setValue`, which a native-driven node rejects.
+        // Animated.Value.setValue, which a native-driven node rejects.
         useNativeDriver: false,
         ...(reduceMotion ? spring.smooth : spring.snappy),
       }).start(({ finished }) => {
@@ -143,64 +143,49 @@ export function TaskSheet({
       return
     }
     setMounted(true)
-    scrollTop.current = 0
     detent.current = 'closed'
     y.setValue(CLOSED)
     const raf = requestAnimationFrame(() => settle('medium'))
     return () => cancelAnimationFrame(raf)
   }, [issue?.id])
 
-  const responder = useMemo(
-    () =>
-      PanResponder.create({
-        // Claim on TOUCH-DOWN, so the head is a grab handle rather than a region
-        // that only becomes one once the finger has already travelled. This is
-        // also what makes the tap recognisable here: the release below decides
-        // between "toggled the detent" and "dragged it".
-        onStartShouldSetPanResponder: () => true,
-        // CAPTURE, not bubble. A drag that begins on a Text node inside the head
-        // never reaches the bubbling hook on react-native-web — the browser
-        // starts a text selection instead, and the sheet simply does not move.
-        onMoveShouldSetPanResponderCapture: (_e, g) => {
-          if (Math.abs(g.dy) < 4 || Math.abs(g.dy) < Math.abs(g.dx)) return false
-          // At large, the scroll owns downward drags until it is back at its top.
-          if (detent.current === 'large' && g.dy > 0 && scrollTop.current > 0) return false
-          return true
-        },
-        onPanResponderGrant: () => {
-          y.stopAnimation()
-          y.setOffset(yValue.current)
-          y.setValue(0)
-        },
-        onPanResponderMove: (_e, g) => {
-          // Rubber-band above the large detent: the sheet can be pulled past
-          // its stop, but at a fraction of the finger, so the stop is felt.
-          const raw = yValue.current + g.dy
-          y.setValue(raw < 0 ? g.dy - (g.dy * -0.62 - g.dy) * 0 : g.dy)
-          if (raw < 0) y.setValue(g.dy * 0.38)
-        },
-        onPanResponderRelease: (_e, g) => {
-          y.flattenOffset()
-          const at = yValue.current
-          // A release that went nowhere is a TAP on the head: toggle the detent.
-          // Costs nothing, and it is the only way through for a pointer that
-          // cannot express a flick.
-          if (Math.abs(g.dy) < 6 && Math.abs(g.dx) < 6) {
-            return settle(detent.current === 'large' ? 'medium' : 'large')
-          }
-          if (g.vy > FLICK) return settle(detent.current === 'large' ? 'medium' : 'closed')
-          if (g.vy < -FLICK) return settle('large')
-          const d = [
-            ['large', Math.abs(at - 0)],
-            ['medium', Math.abs(at - MEDIUM)],
-            ['closed', Math.abs(at - CLOSED)],
-          ] as const
-          settle([...d].sort((a, b) => a[1] - b[1])[0][0])
-        },
-        onPanResponderTerminationRequest: () => false,
-      }),
-    [CLOSED, MEDIUM, settle, y],
-  )
+  const pan = usePanGesture({
+    // Gesture Handler owns the pointer stream inside the Modal on web. The RN
+    // responder system never sees that stream, even though it works on iOS.
+    activeOffsetY: [-4, 4],
+    failOffsetX: [-4, 4],
+    runOnJS: true,
+    onActivate: () => {
+      y.stopAnimation()
+      dragStartY.current = yValue.current
+    },
+    onUpdate: ({ translationY }) => {
+      // Rubber-band above the large detent: the sheet can be pulled past its
+      // stop, but at a fraction of the finger, so the stop is felt.
+      const raw = dragStartY.current + translationY
+      y.setValue(raw < 0 ? raw * 0.38 : raw)
+    },
+    onDeactivate: ({ canceled, translationX, translationY, velocityY }) => {
+      if (canceled) return settle(detent.current)
+      // Preserve the head's tap-to-toggle fallback for pointers that travel a
+      // few pixels before release and therefore activate the pan.
+      if (Math.abs(translationY) < 6 && Math.abs(translationX) < 6) {
+        return settle(detent.current === 'large' ? 'medium' : 'large')
+      }
+      if (velocityY > FLICK_VELOCITY) {
+        return settle(detent.current === 'large' ? 'medium' : 'closed')
+      }
+      if (velocityY < -FLICK_VELOCITY) return settle('large')
+      const raw = dragStartY.current + translationY
+      const at = raw < 0 ? raw * 0.38 : raw
+      const d = [
+        ['large', Math.abs(at - 0)],
+        ['medium', Math.abs(at - MEDIUM)],
+        ['closed', Math.abs(at - CLOSED)],
+      ] as const
+      settle([...d].sort((a, b) => a[1] - b[1])[0][0])
+    },
+  })
 
   if (!issue || !mounted) return null
 
@@ -226,36 +211,44 @@ export function TaskSheet({
           { top, height: span, transform: [{ translateY: y }], borderTopColor: alpha(hex, 0.45) },
         ]}
       >
-        {/* ONE gesture surface for the whole head. A nested Pressable on the
-            grabber would claim the responder on touch-down and the drag would
-            never start — so the tap is recognised by the pan responder itself
-            (a release that travelled almost nowhere) rather than by a second
-            component competing for the same events. */}
-        <View
-          {...responder.panHandlers}
-          accessibilityRole="adjustable"
-          accessibilityLabel={atLarge ? 'Collapse the task' : 'Expand the task'}
-          style={styles.dragRegion}
-        >
-          <View style={styles.grabberBox}>
-            <View style={styles.grabber} />
+        {/* One gesture surface for the whole head. The grabber retains the
+            tap-to-toggle fallback without wrapping the head's own controls in
+            another Pressable; once travel becomes a pan, Gesture Handler takes
+            over from anywhere in the region. */}
+        <GestureDetector gesture={pan} touchAction="none" userSelect="none">
+          <View
+            accessibilityRole="adjustable"
+            accessibilityLabel={atLarge ? 'Collapse the task' : 'Expand the task'}
+            accessibilityActions={[
+              { name: 'increment', label: 'Expand task' },
+              { name: 'decrement', label: 'Collapse task' },
+            ]}
+            onAccessibilityAction={(event) => {
+              if (event.nativeEvent.actionName === 'increment') settle('large')
+              if (event.nativeEvent.actionName === 'decrement') settle('medium')
+            }}
+            style={styles.dragRegion}
+          >
+            <Pressable
+              accessible={false}
+              onPress={() => settle(detent.current === 'large' ? 'medium' : 'large')}
+              style={styles.grabberBox}
+            >
+              <View style={styles.grabber} />
+            </Pressable>
+            <SheetHead
+              issue={issue}
+              sessions={sessions}
+              issues={issues}
+              hex={hex}
+              onOpenSession={onOpenSession}
+            />
           </View>
-          <SheetHead
-            issue={issue}
-            sessions={sessions}
-            issues={issues}
-            hex={hex}
-            onOpenSession={onOpenSession}
-          />
-        </View>
+        </GestureDetector>
 
         <ScrollView
           style={styles.scroll}
           scrollEnabled={atLarge}
-          onScroll={(e) => {
-            scrollTop.current = e.nativeEvent.contentOffset.y
-          }}
-          scrollEventThrottle={16}
           contentContainerStyle={{ paddingBottom: space.xl }}
         >
           <SheetBody
