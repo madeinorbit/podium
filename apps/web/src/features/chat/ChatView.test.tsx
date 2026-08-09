@@ -375,7 +375,9 @@ describe('ChatView composer', () => {
     const queued = container.querySelector('[data-testid="queued-chat-message"]')
     expect(queued?.textContent).toContain('please do this next')
     expect(queued?.textContent).toContain('queued')
-    expect(container.textContent).toContain('1 message queued — delivers when the agent is ready')
+    const queueNotice = container.querySelector('[data-notice="queue"]')
+    expect(queueNotice?.textContent).toContain('Queued · 1')
+    expect(queueNotice?.textContent).toContain('sends after this turn')
   })
 
   it('does not submit Enter during composition and submits after composition ends', async () => {

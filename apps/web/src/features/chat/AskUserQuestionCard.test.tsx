@@ -34,8 +34,16 @@ const THREE = [
     header: '516 dep',
     options: [{ label: 'Promote it (Recommended)' }, { label: 'Wait for 516' }],
   },
-  { question: 'How deep does the peek go?', header: 'Peek depth', options: [{ label: 'Two detents' }, { label: 'Push' }] },
-  { question: 'Which runtime?', header: 'Runtime', options: [{ label: 'Native first' }, { label: 'PWA only' }] },
+  {
+    question: 'How deep does the peek go?',
+    header: 'Peek depth',
+    options: [{ label: 'Two detents' }, { label: 'Push' }],
+  },
+  {
+    question: 'Which runtime?',
+    header: 'Runtime',
+    options: [{ label: 'Native first' }, { label: 'PWA only' }],
+  },
 ]
 
 const options = (): HTMLButtonElement[] => [
@@ -207,12 +215,22 @@ describe('AskUserQuestionCard', () => {
   it('lifts "(Recommended)" out of the label into its own chip', () => {
     act(() =>
       root.render(
-        <AskUserQuestionCard block={ask(THREE)} cls="" index={0} livePending onAnswer={async () => {}} />,
+        <AskUserQuestionCard
+          block={ask([THREE[0]])}
+          cls=""
+          index={0}
+          livePending
+          onAnswer={async () => {}}
+        />,
       ),
     )
     expect(container.textContent).toContain('Promote it')
     expect(container.textContent).not.toContain('(Recommended)')
     expect(container.textContent?.toLowerCase()).toContain('rec')
+    // A one-click card has no separate confirm: its recommendation is the one
+    // yellow action, while the alternate remains neutral.
+    expect(options()[0]?.querySelector('.bg-primary')).not.toBeNull()
+    expect(options()[1]?.querySelector('.bg-primary')).toBeNull()
   })
 
   it('renders an answered ask as a receipt, without the recommendation suffix', () => {

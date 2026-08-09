@@ -18,8 +18,8 @@
  */
 import {
   type AgentKind,
-  idleVerdictFinishedTurn,
   type IssueWire,
+  idleVerdictFinishedTurn,
   type SessionMeta,
 } from '@podium/model'
 import { attentionGroup } from '../focus'
@@ -170,6 +170,14 @@ export function chatActivity(
     return { label: badge.label === 'compacting' ? 'Compacting…' : 'Working…', tone: 'working' }
   }
   if (badge?.tone === 'attention') return { label: badge.label, tone: 'attention' }
+  // Errors and meaningful passive stops belong at the end of the transcript,
+  // too. They used to disappear here even though `agentBadge` had already
+  // classified them, leaving the feed to fall back to a generic idle clock.
+  // Keep ordinary idle silent; only a stop that explains the turn survives.
+  if (badge?.tone === 'error') return { label: badge.label, tone: 'error' }
+  if (badge?.tone === 'idle' && (badge.label === 'interrupted' || badge.label === 'todos open')) {
+    return { label: badge.label, tone: 'idle' }
+  }
   if (!meta.agentState && meta.busy && !parked) return { label: 'Working…', tone: 'working' }
   if (justSent) return { label: 'Sending…', tone: 'working' }
   return null

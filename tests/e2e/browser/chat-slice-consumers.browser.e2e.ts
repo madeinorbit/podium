@@ -44,6 +44,7 @@ const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url)).replace(/
 const claudeSlug = (cwd: string): string => cwd.replace(/[^a-zA-Z0-9]/g, '-')
 const BUCKET = join(homedir(), '.claude', 'projects', claudeSlug(REPO_ROOT))
 const HOOKS_DIR = join(harnessEnv(Number(process.env.PORT ?? 8799)).stateDir, 'hooks')
+const EVIDENCE_DIR = fileURLToPath(new URL('../../../docs/design/POD-624/', import.meta.url))
 
 /** Bind a keyecho Claude pane to a fixture through the daemon's real hook ingest. */
 async function bindTranscript(sessionId: string, transcriptPath: string): Promise<void> {
@@ -172,18 +173,16 @@ test('send, search, minimap, voice and image-paste on the ported chat surface', 
 
   // Highlight and dimming come from the SAME derived state — what used to be
   // three independent computations inside one component. Asserted on the ROW
-  // that carries the matched text rather than on a bare class selector: the
-  // highlight is a `cn(...)` composition, and which of its outline utilities
-  // survives tailwind-merge is a styling detail, not the behaviour.
+  // that carries the matched text rather than on a bare class selector.
   const rowFor = (text: string) => page.locator('.transcript-row').filter({ hasText: text }).first()
-  await expect(rowFor('SLICE_PROMPT_ONE')).toHaveClass(/outline/)
+  await expect(rowFor('SLICE_PROMPT_ONE')).toHaveClass(/transcript-search-hit/)
   await expect(rowFor('SLICE_PROMPT_TWO')).toHaveClass(/opacity-35/)
 
   // Stepping the cursor moves the highlight to the OTHER match.
   await page.getByRole('button', { name: 'Next match (Enter)' }).locator('visible=true').click()
   await expect(counter).toHaveText('2/2')
-  await expect(rowFor('SLICE_PROMPT_THREE')).toHaveClass(/outline/)
-  await expect(rowFor('SLICE_PROMPT_ONE')).not.toHaveClass(/outline/)
+  await expect(rowFor('SLICE_PROMPT_THREE')).toHaveClass(/transcript-search-hit/)
+  await expect(rowFor('SLICE_PROMPT_ONE')).not.toHaveClass(/transcript-search-hit/)
 
   // Wrapping backwards returns to the first — the cursor is modular against the
   // same count the label prints.
@@ -192,7 +191,7 @@ test('send, search, minimap, voice and image-paste on the ported chat surface', 
     .locator('visible=true')
     .click()
   await expect(counter).toHaveText('1/2')
-  await expect(rowFor('SLICE_PROMPT_ONE')).toHaveClass(/outline/)
+  await expect(rowFor('SLICE_PROMPT_ONE')).toHaveClass(/transcript-search-hit/)
 
   await search.fill('')
   await expect(page.locator('.transcript-row.opacity-35')).toHaveCount(0)
@@ -250,6 +249,21 @@ test('send, search, minimap, voice and image-paste on the ported chat surface', 
   await expect(composer).toHaveValue(/`apps\/web\/src\/features\/chat\/ChatView\.tsx`/)
   await composer.fill('')
 
+  // The real textarea grows and shrinks with its contents. Its animated height
+  // owns the space in layout, so the attachment/action row stays attached to
+  // the same field instead of jumping or overlapping the transcript.
+  const oneLineHeight = (await composer.boundingBox())?.height ?? 0
+  await composer.fill('First line\nSecond line\nThird line\nFourth line')
+  await expect
+    .poll(async () => (await composer.boundingBox())?.height ?? 0)
+    .toBeGreaterThan(oneLineHeight + 24)
+  const grownHeight = (await composer.boundingBox())?.height ?? 0
+  await composer.fill('Short again')
+  await expect
+    .poll(async () => (await composer.boundingBox())?.height ?? 0)
+    .toBeLessThan(grownHeight)
+  await composer.fill('')
+
   // The draft is store state written through the actions seam, so wait for the
   // round-trip to land before submitting — pressing Enter against a value the
   // store has not seen yet would submit an empty draft.
@@ -303,6 +317,17 @@ test('send, search, minimap, voice and image-paste on the ported chat surface', 
   // The chip appears with its own upload state machine, naming the pasted file.
   const remove = page.locator('button[aria-label="Remove pasted.png"]')
   await expect(remove).toBeVisible({ timeout: 20_000 })
+  await expect(
+    remove.locator('xpath=ancestor::*[contains(@class, "chat-composer-well")]'),
+  ).toHaveCount(1)
+  await composer.fill(
+    'Review the attached image and keep this composer stable.\nThen summarize it.',
+  )
+  await mkdir(EVIDENCE_DIR, { recursive: true })
+  await page.screenshot({
+    path: join(EVIDENCE_DIR, 'transcript-chat-composer.png'),
+    fullPage: false,
+  })
   // Removal is the only affordance the strip owns, and it clears the attachment.
   await remove.click()
   await expect(page.locator('button[aria-label="Remove pasted.png"]')).toHaveCount(0)

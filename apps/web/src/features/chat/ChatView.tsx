@@ -117,10 +117,13 @@ export function ChatView({
   })
   const issues = useReplicaIssues()
   const issueReferences = useMemo(
-    () => new Map(issues.map((issue) => {
-      const model = issueReferenceModel(issue)
-      return [model.ref, model] as const
-    })),
+    () =>
+      new Map(
+        issues.map((issue) => {
+          const model = issueReferenceModel(issue)
+          return [model.ref, model] as const
+        }),
+      ),
     [issues],
   )
 
@@ -326,7 +329,7 @@ export function ChatView({
           <button
             data-pressable
             type="button"
-            className="absolute bottom-3 left-1/2 z-[4] inline-flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-input bg-muted px-3 py-[5px] text-xs text-foreground shadow-[0_4px_14px_var(--carve-popover-near)] hover:border-primary"
+            className="absolute bottom-3 left-1/2 z-[4] inline-flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-input bg-muted px-3 py-[5px] text-xs text-foreground shadow-[0_4px_14px_var(--carve-popover-near)] hover:border-foreground/30"
             onClick={chat.scroll.jumpToBottom}
           >
             <ArrowDownToLine size={13} aria-hidden="true" /> Jump to bottom

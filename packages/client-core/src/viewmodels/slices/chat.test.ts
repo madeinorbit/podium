@@ -373,5 +373,26 @@ describe('composer, queue, offer and activity', () => {
         justSent: true,
       }),
     ).toEqual({ label: 'Sending…', tone: 'working' })
+
+    expect(
+      chatActivityState({
+        session: session({
+          agentState: { phase: 'idle', idle: { kind: 'interrupted' } },
+        } as Partial<SessionMeta>),
+        headless: false,
+        turnRunning: false,
+        justSent: false,
+      }),
+    ).toEqual({ label: 'interrupted', tone: 'idle' })
+    expect(
+      chatActivityState({
+        session: session({
+          agentState: { phase: 'errored', error: { class: 'rate_limit', retryable: true } },
+        } as Partial<SessionMeta>),
+        headless: false,
+        turnRunning: false,
+        justSent: false,
+      }),
+    ).toEqual({ label: 'error: rate_limit', tone: 'error' })
   })
 })

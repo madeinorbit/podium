@@ -40,6 +40,7 @@ const claudeSlug = (cwd: string): string => cwd.replace(/[^a-zA-Z0-9]/g, '-')
 // in afterEach so the test leaves no trace under the real ~/.claude.
 const BUCKET = join(homedir(), '.claude', 'projects', claudeSlug(REPO_ROOT))
 const HOOKS_DIR = join(harnessEnv(Number(process.env.PORT ?? 8799)).stateDir, 'hooks')
+const EVIDENCE_DIR = fileURLToPath(new URL('../../../docs/design/POD-624/', import.meta.url))
 
 /** Bind a keyecho Claude pane to a fixture through the daemon's real hook ingest.
  * Fresh keyecho sessions have no native resume id, so current transcript routing
@@ -172,11 +173,20 @@ test('(a) a RUNNING claude session renders its on-disk transcript in the chat vi
     .first()
     .getAttribute('data-session')
   expect(activeId).not.toBeNull()
-  await bindTranscript(activeId as string, transcriptPath)
-
   // The session is RUNNING (the keyecho PTY is live) — confirm the chat toggle is
-  // offered (chatCapable) and switch to the chat view.
+  // offered (chatCapable) and switch to the chat view. Before a transcript is
+  // bound, drive both bounded loading and settled empty states in the real app.
   await expect(chatToggle(page)).toBeVisible({ timeout: 15_000 })
+  await chatToggle(page).click()
+  await expect(
+    page.getByText('Loading transcript', { exact: true }).locator('visible=true'),
+  ).toBeVisible()
+  await expect(page.getByTestId('transcript-empty-state').locator('visible=true')).toBeVisible({
+    timeout: 15_000,
+  })
+
+  await nativeToggle(page).click()
+  await bindTranscript(activeId as string, transcriptPath)
   await chatToggle(page).click()
 
   // PRIMARY ASSERTION: the live session's transcript renders. This is the core bug:
@@ -197,9 +207,7 @@ test('(a) a RUNNING claude session renders its on-disk transcript in the chat vi
   await expect(msg('TRANSCRIPT_ANSWER_DELTA added the anchored back-page read')).toBeVisible()
 
   // And it is NOT the empty state (scope to the visible panel).
-  await expect(
-    page.getByText('No transcript yet.', { exact: false }).locator('visible=true'),
-  ).toHaveCount(0)
+  await expect(page.getByTestId('transcript-empty-state').locator('visible=true')).toHaveCount(0)
 })
 
 test('an uploaded image turn reconciles its optimistic bubble with the normalized transcript echo', async ({
@@ -278,6 +286,11 @@ test('an uploaded image turn reconciles its optimistic bubble with the normalize
 test('operator prompts stick in place, push one another, and respect the appearance setting', async ({
   page,
 }) => {
+  // This case now drives tool disclosure, prompt disclosure, sticky geometry,
+  // reduced motion and the settings toggle in one real session. Give the flow
+  // headroom on the shared host instead of treating setup pressure as a product
+  // timeout.
+  test.setTimeout(90_000)
   await page.setViewportSize({ width: 1280, height: 700 })
 
   const t = '2026-06-20T11:00:00.000Z'
@@ -298,7 +311,7 @@ test('operator prompts stick in place, push one another, and respect the appeara
       'delivered-mail',
       `[podium message msg_sticky_e2e · from issue:POD-16 · to your session · reply: podium mail reply msg_sticky_e2e]
 DELIVERED_AGENT_MAIL must not replace the operator prompt
-[end podium message msg_sticky_e2e]STICKY_SECOND_PROMPT push the first away`,
+[end podium message msg_sticky_e2e]STICKY_SECOND_PROMPT push the first away while preserving the approved operator context shelf. This deliberately long instruction verifies that the shelf stays compact across multiple clauses, keeps the active brief legible, and offers a reachable disclosure without covering the transcript beneath it.`,
       t,
     ),
     answerRec('sticky-answer-2', secondAnswer, t),
@@ -340,8 +353,42 @@ DELIVERED_AGENT_MAIL must not replace the operator prompt
   await expect(firstPrompt.locator('[data-sticky-prompt-backdrop]')).toHaveCount(1)
   await expect(deliveredMail).not.toHaveAttribute('data-operator-prompt', 'true')
   await expect(deliveredMail).toHaveAttribute('data-internal-message', 'true')
-  await expect(deliveredMail).toContainText('Internal')
+  await expect(deliveredMail).toContainText('Mail')
   await expect(page.locator('[data-testid="sticky-user-message"]')).toHaveCount(0)
+
+  // A real click unfolds and refolds the settled tool run. The batch stays one
+  // transcript/minimap row while its detail is disclosed in place.
+  const workLine = scroller.locator('.work-line').first()
+  const workLineToggle = workLine.locator('.work-line-row')
+  await scroller.evaluate((el) => {
+    el.scrollTop = 0
+  })
+  await workLineToggle.click()
+  await expect(workLine).toHaveAttribute('data-open', 'true')
+  await mkdir(EVIDENCE_DIR, { recursive: true })
+  await page.screenshot({
+    path: join(EVIDENCE_DIR, 'transcript-chat-tool-detail.png'),
+    fullPage: false,
+  })
+  await workLineToggle.click()
+  await expect(workLine).toHaveAttribute('data-open', 'false')
+
+  // The operator shelf clamps long context to two lines and keeps its disclosure
+  // control reachable. Exercise both directions before sticky geometry checks.
+  const promptToggle = secondPrompt.getByTestId('prompt-expand-toggle')
+  await expect(promptToggle).toHaveText('Read more')
+  await promptToggle.click()
+  await expect(promptToggle).toHaveText('Show less')
+  await expect(secondPrompt.locator('.transcript-you-clamp')).not.toHaveAttribute(
+    'data-clamped',
+    'true',
+  )
+  await promptToggle.click()
+  await expect(promptToggle).toHaveText('Read more')
+  await expect(secondPrompt.locator('.transcript-you-clamp')).toHaveAttribute(
+    'data-clamped',
+    'true',
+  )
 
   // Start above the first prompt, then scroll its real row into the sticky
   // boundary. There is no duplicate overlay: the same DOM row stops at the top.
@@ -381,7 +428,6 @@ DELIVERED_AGENT_MAIL must not replace the operator prompt
       })
     })
     .toBe(true)
-
   // The stuck surface bleeds to both transcript edges while its content stays
   // on the shared 960px reading measure.
   expect(
@@ -457,22 +503,34 @@ DELIVERED_AGENT_MAIL must not replace the operator prompt
       })
     })
     .toBe(true)
+  await page.screenshot({
+    path: join(EVIDENCE_DIR, 'transcript-chat-sticky-context.png'),
+    fullPage: false,
+  })
 
   // The calm state transition is removed under reduced-motion; the scroll
   // tracking itself remains direct and unanimated in every mode.
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await expect(secondPrompt).toHaveCSS('transition-property', 'none')
 
-  // The default-on behavior can be disabled immediately in Appearance. Return
-  // to the same chat and prove the real prompt now scrolls away normally.
-  await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  const settings = page.getByRole('region', { name: 'Settings' })
-  await settings.getByRole('button', { name: 'Appearance', exact: true }).click()
+  // The default-on behavior can be disabled in the real Appearance surface.
+  // Navigate straight to the tab under test: opening the unrelated top-bar
+  // utility is covered by the settings browser lane, while this case owns the
+  // switch, its save boundary, and the transcript response to that preference.
+  const settingsUrl = new URL(page.url())
+  settingsUrl.pathname = '/settings/appearance'
+  await page.goto(settingsUrl.toString())
+  const settings = page.getByRole('dialog', { name: 'Settings' })
+  await expect(settings).toBeVisible({ timeout: 20_000 })
   const stickySwitch = settings.getByRole('switch', { name: 'Sticky prompts' })
   await expect(stickySwitch).toBeChecked()
   await stickySwitch.click()
   await expect(stickySwitch).not.toBeChecked()
-  await settings.getByRole('button', { name: 'Back', exact: true }).click()
+  // Appearance preferences are device-local UI-state and persist immediately;
+  // they do not participate in the server-settings save bar. The transcript
+  // behavior below is the end-to-end persistence assertion.
+  await settings.getByRole('button', { name: 'Close settings' }).click()
+  await expect(settings).toBeHidden()
   await gotoWorkspace(page)
   await expect(firstPrompt).toBeAttached({ timeout: 15_000 })
   await expect(firstPrompt).not.toHaveClass(/\bsticky\b/)
@@ -684,9 +742,7 @@ test('(re-seed) the transcript re-loads on a fresh ChatView mount (chat→native
     timeout: 15_000,
   })
   await expect(msg('RESEED_ANSWER_FOXTROT re-seeded the tail on reattach')).toBeVisible()
-  await expect(
-    page.getByText('No transcript yet.', { exact: false }).locator('visible=true'),
-  ).toHaveCount(0)
+  await expect(page.getByTestId('transcript-empty-state').locator('visible=true')).toHaveCount(0)
 })
 
 test('search deepens the loaded window so a match older than the initial read is still found (POD-1631)', async ({

@@ -1,5 +1,4 @@
 import {
-  type AskAnswerChoice,
   envelopePrincipal,
   formatChurn,
   isImagePath,
@@ -191,6 +190,7 @@ function MessageEnvelopeRow({
   cwd,
   openFile,
   issueReferences,
+  ts,
 }: {
   envelope: ParsedEnvelope
   className: string
@@ -199,6 +199,7 @@ function MessageEnvelopeRow({
   cwd: string
   openFile: (sessionId: SessionId, path: string) => void
   issueReferences: IssueReferenceLookup
+  ts?: string | undefined
 }): JSX.Element {
   const html = useMemo(
     () => renderMarkdown(envelope.body, issueReferences),
@@ -213,46 +214,43 @@ function MessageEnvelopeRow({
     >
       <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
       <div className="transcript-body">
+        {/* biome-ignore lint/a11y/noStaticElementInteractions: delegated clicks activate only semantic links emitted by sanitized markdown */}
+        {/* biome-ignore lint/a11y/useKeyWithClickEvents: keyboard users activate those generated anchors natively */}
         <div
-          className="relative overflow-hidden rounded-r-lg border border-border/70 border-l-0 bg-muted/20 px-3.5 py-2.5 before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-info/70"
+          className="message-envelope"
           onClick={(e) => {
             handleChatMdClick(e, sessionId, cwd, openFile)
           }}
         >
-          <div className="shell-type-micro flex flex-wrap items-center gap-x-2 gap-y-1 font-mono tracking-[0.11em] text-muted-foreground/70 uppercase">
-            <span className="inline-flex items-center gap-1.5 font-semibold text-info">
+          <div className="message-envelope-head">
+            <span className="message-envelope-kind">
               <MailIcon size={11} aria-hidden="true" />
-              Internal
+              Mail
             </span>
-            <span aria-hidden="true" className="h-3 w-px bg-border" />
-            <span className="tracking-normal text-muted-foreground normal-case">
+            <span aria-hidden="true" className="message-envelope-seam" />
+            <span className="message-envelope-route">
               <PrincipalLabel label={envelope.from} issueReferences={issueReferences} />
               <span className="px-1.5 text-muted-foreground/40">→</span>
               <PrincipalLabel label={envelope.to} issueReferences={issueReferences} />
             </span>
-            {envelope.question && (
-              <span className="shell-type-micro rounded-sm bg-amber-500/10 px-1.5 py-0.5 font-semibold tracking-wide text-amber-600 dark:text-amber-400">
-                question
-              </span>
-            )}
+            {envelope.question && <span className="message-envelope-badge">question</span>}
             {envelope.expectsReply && (
-              <span className="shell-type-micro rounded-sm bg-info/10 px-1.5 py-0.5 font-semibold tracking-wide text-info">
+              <span className="message-envelope-badge message-envelope-badge--reply">
                 reply requested
               </span>
             )}
-            <span className="ml-auto tracking-normal text-muted-foreground/45 normal-case">
+            <span className="message-envelope-meta">
+              <BlockClock ts={ts} />
               {envelope.id}
             </span>
           </div>
           <div
-            className="chat-md mt-2 border-border/50 border-t pt-2 text-foreground/85"
+            className="chat-md message-envelope-body"
             // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized by DOMPurify in renderMarkdown
             dangerouslySetInnerHTML={{ __html: html }}
           />
           {envelope.machineNote && (
-            <div className="shell-type-micro mt-2 border-border/50 border-t pt-1.5 font-mono text-muted-foreground/70">
-              {envelope.machineNote}
-            </div>
+            <div className="message-envelope-note">{envelope.machineNote}</div>
           )}
         </div>
       </div>
@@ -466,13 +464,13 @@ export const ChatBlockView = memo(function ChatBlockView({
     stickyOperator &&
       'sticky -top-6 z-[3] transition-[box-shadow] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
     arrived && 'transcript-arrive',
-    highlighted && 'rounded-md outline outline-1 outline-primary outline-offset-4',
+    highlighted && 'transcript-search-hit',
     dimmed && 'opacity-35',
   )
   const nonStickyRowClass = cn(
     'transcript-row mx-auto w-full max-w-[960px]',
     arrived && 'transcript-arrive',
-    highlighted && 'rounded-md outline outline-1 outline-primary outline-offset-4',
+    highlighted && 'transcript-search-hit',
     dimmed && 'opacity-35',
   )
 
@@ -551,15 +549,18 @@ export const ChatBlockView = memo(function ChatBlockView({
   // it used to render as a muted one-line tool row indistinguishable from a
   // file read, which is why the chat looked like it showed nothing at all while
   // the native view showed a prompt. It gets a named block of its own.
-  if (item.role === 'tool' && isInteractiveTool(item))
+  if (item.role === 'tool' && isInteractiveTool(item)) {
+    const planApproval = /(?:exit.*plan|plan.*approval|approve.*plan)/i.test(
+      `${item.toolName ?? ''} ${item.toolTitle ?? ''}`,
+    )
     return (
       <div className={rowClass} data-block={index} data-testid="asked-you">
         <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
         <div className="transcript-body">
-          <div className="asked-you">
+          <div className="asked-you" data-attention={planApproval ? 'plan' : 'question'}>
             <div className="asked-you-label">
               <MessageCircleQuestion size={11} aria-hidden="true" />
-              Asked you
+              {planApproval ? 'Plan ready · needs you' : 'Needs your input'}
               <span className="asked-you-tool">
                 {item.toolName ? (mcpLabel(item.toolName) ?? item.toolName) : 'a question'}
               </span>
@@ -572,6 +573,7 @@ export const ChatBlockView = memo(function ChatBlockView({
         </div>
       </div>
     )
+  }
   // Ordinary tool calls render inside a collapsed ToolBatchView, so they don't
   // reach here. Anything else stray shows as a lone quiet tool row.
   if (item.role === 'tool')
@@ -584,20 +586,23 @@ export const ChatBlockView = memo(function ChatBlockView({
       </div>
     )
 
-  // A recognized user action that isn't a chat message (e.g. interrupt) — show it
-  // as a thin inline divider, not a "You" bubble.
+  // A recognized user action that isn't a chat message (e.g. interrupt) is one
+  // composed stop event. It stays neutral — the operator already caused it —
+  // while an adjacent rejected tool keeps its own red actionable detail.
   if (item.event === 'interrupt') {
     return (
       <div
         data-block={index}
-        className={cn(
-          rowClass,
-          'my-2 flex items-center gap-2 text-[10px] uppercase tracking-[0.07em] text-muted-foreground/55',
-        )}
+        data-event="interrupt"
+        className={cn(rowClass, 'transcript-interrupt')}
       >
-        <span className="h-px flex-1 bg-border" />
-        Interrupted
-        <span className="h-px flex-1 bg-border" />
+        <span className="transcript-interrupt-rule" />
+        <span className="transcript-interrupt-stop" aria-hidden="true">
+          □
+        </span>
+        <span>Interrupted by you</span>
+        <BlockClock ts={item.ts} />
+        <span className="transcript-interrupt-rule" />
       </div>
     )
   }
@@ -617,6 +622,7 @@ export const ChatBlockView = memo(function ChatBlockView({
       cwd={cwd}
       openFile={openFile}
       issueReferences={issueReferences}
+      ts={item.ts}
     />
   ))
 
@@ -625,9 +631,9 @@ export const ChatBlockView = memo(function ChatBlockView({
   // provider turn; any human follow-up continues below as its own prompt row.
   if (envelopeBatch && envelopeBatch.operatorText === '') return <>{envelopeRows}</>
 
-  // Flat Field (POD-159): agent prose lies flat on the chassis; the operator's
-  // turn is the only elevated (embossed) surface; the final answer is marked by
-  // the field's single yellow keyline rather than a box.
+  // Agent prose lies flat on the chassis; the operator's turn is the only
+  // engraved surface. The final answer gets a quiet typographic step rather
+  // than permanent signal colour — yellow is reserved for a request to act.
   const isUser = item.role === 'user'
   const isAnswer = item.role === 'assistant' && !!item.answer
 
@@ -757,7 +763,7 @@ export const ChatBlockView = memo(function ChatBlockView({
               forceOpen={highlighted}
               label={
                 <>
-                  You
+                  Your brief · active turn
                   {/* Same label content as the non-sticky YOU row above — the
                       clamp (POD-1368) only changes WHERE the label renders, so
                       the attribution mark (doc §3.1.3 A3) rides along. */}

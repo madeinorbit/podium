@@ -47,7 +47,7 @@ export function ToolBlock({
   const subject = command ?? item.toolTitle ?? item.toolInput
   const aside = command && item.toolTitle ? item.toolTitle : undefined
   return (
-    <div className="min-w-0">
+    <div className="tool-block min-w-0" data-verdict={verdict}>
       <button
         data-pressable
         type="button"
@@ -114,11 +114,7 @@ export function ToolBlock({
           )}
         </div>
       )}
-      {open && (
-        <pre className="my-1 max-h-[280px] overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted/40 px-2.5 py-2 font-mono text-[11px] text-muted-foreground">
-          {result ?? '(no result captured)'}
-        </pre>
-      )}
+      {open && <pre className="tool-result-full">{result ?? '(no result captured)'}</pre>}
     </div>
   )
 }

@@ -2,6 +2,13 @@ import type { JSX } from 'react'
 import { cn } from '@/lib/utils'
 import type { Attachment } from './use-attachments'
 
+function fileSize(bytes: number | undefined): string | null {
+  if (bytes === undefined) return null
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
 /**
  * THE ATTACHMENT STRIP (POD-405) — one chip per image on its way into the
  * prompt, showing where it is: uploading, ready, or failed.
@@ -20,27 +27,30 @@ export function AttachmentStrip({
 }): JSX.Element | null {
   if (attachments.length === 0) return null
   return (
-    <div className="flex flex-wrap gap-1.5 px-0.5 pt-1">
+    <div className="attachment-strip" data-testid="attachment-strip">
       {attachments.map((att) => (
         <div
           key={att.id}
-          className={cn(
-            'relative flex items-center gap-1 rounded-lg border border-input bg-muted/50 px-2 py-1 text-[11px]',
-            att.state === 'failed' && 'border-destructive/50 text-destructive',
-          )}
+          className={cn('attachment-chip', att.state === 'failed' && 'attachment-chip--failed')}
         >
           {att.previewUrl && att.state !== 'failed' && (
             <img src={att.previewUrl} alt={att.name} className="size-5 rounded object-cover" />
           )}
-          <span className="max-w-[80px] truncate text-muted-foreground">{att.name}</span>
+          <span className="attachment-chip-name">{att.name}</span>
+          {fileSize(att.size) && (
+            <span className="attachment-chip-size">· {fileSize(att.size)}</span>
+          )}
           {att.state === 'uploading' && (
-            <span className="size-2.5 animate-spin rounded-full border border-muted-foreground/30 border-t-muted-foreground" />
+            <>
+              <span className="spb attachment-chip-spinner" aria-hidden="true" />
+              <span className="sr-only">Uploading</span>
+            </>
           )}
           {att.state === 'failed' && <span className="text-destructive">!</span>}
           <button
             data-pressable
             type="button"
-            className="ml-0.5 text-muted-foreground/70 hover:text-foreground"
+            className="attachment-chip-remove"
             onClick={() => onRemove(att.id)}
             aria-label={`Remove ${att.name}`}
           >

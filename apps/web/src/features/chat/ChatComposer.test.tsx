@@ -48,7 +48,14 @@ const silentVoice = {
 } as unknown as ReturnType<typeof useVoiceInput>
 
 async function mount(
-  opts: { compact: boolean; draft?: string; onSend?: () => void } = { compact: true },
+  opts: {
+    compact: boolean
+    draft?: string
+    onSend?: () => void
+    attachments?: UseAttachmentsResult
+    queuedTotal?: number
+    turnError?: string | null
+  } = { compact: true },
 ): Promise<{ ta: HTMLTextAreaElement }> {
   const { ChatComposer } = await import('./ChatComposer')
   const taRef = createRef<HTMLTextAreaElement>()
@@ -64,7 +71,7 @@ async function mount(
         isMobile={false}
         onSend={opts.onSend ?? (() => {})}
         voice={silentVoice}
-        attachments={noopAttachments}
+        attachments={opts.attachments ?? noopAttachments}
         headless={false}
         turnRunning={false}
         canInterrupt={false}
@@ -72,8 +79,8 @@ async function mount(
         offer={null}
         onOfferAction={async () => {}}
         session={undefined}
-        queuedTotal={0}
-        turnError={null}
+        queuedTotal={opts.queuedTotal ?? 0}
+        turnError={opts.turnError ?? null}
         offlineAsOf={null}
         autoFocusKey="s1"
         transcriptSettled
@@ -86,7 +93,7 @@ async function mount(
 /** The composer's outermost element — the dock. */
 const dock = () => container.firstElementChild as HTMLElement
 /** The field surface: the only element carrying `relative` under the dock. */
-const well = () => container.querySelector('.prompt-well, .border-border-strong') as HTMLElement
+const well = () => container.querySelector('.prompt-well, .chat-composer-well') as HTMLElement
 const sendButton = () =>
   container.querySelector('button[title="Send (Enter)"]') as HTMLButtonElement
 
@@ -117,8 +124,8 @@ describe('ChatComposer, compact (the Superagent box)', () => {
     expect(dock().className).toContain('prompt-dock')
     expect(well().className).toContain('prompt-well')
     expect(ta.className).toContain('prompt-input')
-    // The CLI mark lights with the field through `.prompt-well:focus-within`.
-    expect(container.querySelector('.prompt-mark')).not.toBeNull()
+    expect(container.querySelector('.prompt-mark')).toBeNull()
+    expect(ta.className).toContain('caret-foreground')
   })
 
   it('drops the old ground, the yellow focus border and the hard height cap', async () => {
@@ -146,24 +153,58 @@ describe('ChatComposer, compact (the Superagent box)', () => {
   })
 })
 
-describe('ChatComposer, non-compact (the main chat) is untouched', () => {
-  it('keeps its own dock, field and height cap, and takes none of the primitive', async () => {
+describe('ChatComposer, non-compact (the main chat)', () => {
+  it('keeps its own dock and height cap while adopting the neutral issue seam', async () => {
     const { ta } = await mount({ compact: false })
     expect(dock().className).toContain('border-t')
     expect(dock().className).not.toContain('prompt-dock')
-    expect(well().className).toContain('border-border-strong')
-    expect(well().className).toContain('focus-within:border-primary')
+    expect(well().className).toContain('chat-composer-well')
+    expect(well().className).not.toContain('focus-within:border-primary')
     expect(well().className).not.toContain('prompt-well')
     expect(ta.className).toContain('max-h-44')
     expect(ta.className).toContain('placeholder:text-text-faint')
     expect(ta.className).not.toContain('prompt-input')
     expect(container.querySelector('.prompt-mark')).toBeNull()
+    expect(ta.className).toContain('caret-foreground')
   })
 
-  it('keeps the filled primary send button at every draft state', async () => {
+  it('keeps empty send neutral and turns it yellow only when actionable', async () => {
     await mount({ compact: false, draft: '' })
-    expect(sendButton().className).toContain('bg-primary')
+    expect(sendButton().disabled).toBe(true)
+    expect(sendButton().className).toContain('disabled:bg-secondary')
     expect(sendButton().className).toContain('size-7')
+    await mount({ compact: false, draft: 'ship it' })
+    expect(sendButton().disabled).toBe(false)
+    expect(sendButton().className).toContain('bg-primary')
+  })
+
+  it('anchors notices above the field and attachments inside it', async () => {
+    const attachments = {
+      ...noopAttachments,
+      attachments: [
+        {
+          id: 'a1',
+          name: 'frame.png',
+          size: 14 * 1024,
+          previewUrl: 'blob:frame',
+          state: 'ready' as const,
+        },
+      ],
+    }
+    await mount({
+      compact: false,
+      queuedTotal: 2,
+      turnError: 'Connection refused',
+      attachments,
+    })
+    const notices = container.querySelector('.composer-notices')
+    if (!notices) throw new Error('composer notices missing')
+    expect(notices?.textContent).toContain('Queued · 2')
+    expect(notices?.textContent).toContain('Not sent')
+    expect(notices.compareDocumentPosition(well()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(well().querySelector('[data-testid="attachment-strip"]')?.textContent).toContain(
+      'frame.png· 14 KB',
+    )
   })
 })
 

@@ -174,6 +174,7 @@ export function ToolBatchView({
   dimmed,
   forceOpen,
   live = false,
+  waiting,
   arrived = false,
   turn,
   sessionId,
@@ -187,6 +188,9 @@ export function ToolBatchView({
   forceOpen: boolean
   /** True only for the trailing run of a turn the agent is still working on. */
   live?: boolean
+  /** A live tool that is an external dependency: named and still, never a
+   *  second spinner beside the transcript tail. */
+  waiting?: { label: string; detail?: string | undefined } | undefined
   /** This row landed after the feed was already on screen (POD-423) — it plays
    *  its one-shot arrival. See `useFeedArrivals`. */
   arrived?: boolean
@@ -203,20 +207,21 @@ export function ToolBatchView({
     'transcript-row mx-auto w-full max-w-[960px]',
     turnClass(turn),
     arrived && 'transcript-arrive',
-    highlighted && 'rounded-md outline outline-1 outline-primary outline-offset-4',
+    highlighted && 'transcript-search-hit',
     dimmed && 'opacity-35',
   )
   const count = row.blocks.length
   const failed = toolRunFailures(row.blocks)
   // One interval per work line, and only a live one ticks — a settled
   // transcript full of them must not re-render every second.
+  const computing = live && !waiting
   const now = useNow(live ? LIVE_TICK_MS : IDLE_TICK_MS)
   const elapsedMs = toolRunElapsedMs(row.blocks, live ? now : undefined)
   const showElapsed =
     elapsedMs !== undefined && (live || (count > 1 && elapsedMs >= MIN_SETTLED_SPAN_MS))
   // A tools row always folds ≥1 block, so the last one exists.
   const lastItem = row.blocks[count - 1]!.item
-  const settling = useSettleFlash(live)
+  const settling = useSettleFlash(computing)
   // A lone call is already named in full on the row — there is no "which four"
   // to answer, so it carries the plain native title instead of a panel.
   const previewable = count > 1
@@ -226,9 +231,15 @@ export function ToolBatchView({
         className={cn('work-line-glyph', failed > 0 && !live && 'work-line-glyph--err')}
         aria-hidden="true"
       >
-        {live ? <BrailleSpinner size={11} /> : failed > 0 ? '✕' : '✓'}
+        {computing ? <BrailleSpinner size={11} /> : waiting ? '◇' : failed > 0 ? '✕' : '✓'}
       </span>
-      <span className="work-line-phrase">{live ? toolCallPhrase(lastItem) : row.title}</span>
+      <span className="work-line-phrase">
+        {waiting
+          ? `${waiting.label}${waiting.detail ? ` · ${waiting.detail}` : ''}`
+          : live
+            ? toolCallPhrase(lastItem)
+            : row.title}
+      </span>
       {failed > 0 && <span className="work-line-fail">✕ {failed} failed</span>}
       {showElapsed && <span className="work-line-time">{formatClock(elapsedMs)}</span>}
       <span className="work-line-count">{count}</span>
@@ -243,7 +254,7 @@ export function ToolBatchView({
       <div className="transcript-body py-0.5">
         <div
           className="work-line"
-          data-state={live ? 'live' : 'done'}
+          data-state={waiting ? 'wait' : live ? 'live' : 'done'}
           data-open={expanded ? 'true' : 'false'}
           data-single={count === 1 ? 'true' : undefined}
           data-settle={settling ? 'true' : undefined}
@@ -256,16 +267,16 @@ export function ToolBatchView({
             <i />
           </div>
           {previewable ? (
-            <Tooltip.Root>
+            <Tooltip.Root disabled={expanded}>
               {/* `disabled` here means "do not open", not the HTML attribute:
                   unfolded, the calls are already on screen and a panel repeating
-                  them over the top of them is noise. The row stays clickable. */}
+                  them over the top of them is noise. Disable the tooltip root,
+                  not its button, so the same row still refolds on click. */}
               <Tooltip.Trigger
                 data-pressable
                 type="button"
                 className="work-line-row"
                 delay={PREVIEW_DELAY_MS}
-                disabled={expanded}
                 onClick={toggle}
                 aria-expanded={expanded}
               >

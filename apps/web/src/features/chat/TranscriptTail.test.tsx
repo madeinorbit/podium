@@ -1,4 +1,5 @@
-import type { ChatActivity } from '@podium/client-core/viewmodels'
+import type { ChatActivity, ChatRow } from '@podium/client-core/viewmodels'
+import type { SessionMeta, TranscriptItem } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -11,11 +12,24 @@ import { TranscriptTail } from './TranscriptTail'
 let host: HTMLDivElement
 let root: Root
 
-function mount(activity: ChatActivity | null, since?: string): void {
+function mount(
+  activity: ChatActivity | null,
+  since?: string,
+  session?: SessionMeta,
+  lastRow?: ChatRow,
+): void {
   act(() => {
-    root.render(<TranscriptTail activity={activity} since={since} />)
+    root.render(
+      <TranscriptTail activity={activity} since={since} session={session} lastRow={lastRow} />,
+    )
   })
 }
+
+const toolRow = (item: TranscriptItem): ChatRow =>
+  ({ kind: 'tools', blocks: [{ item }], blockIndices: [0], title: 'Ran a tool' }) as ChatRow
+
+const session = (agentState: SessionMeta['agentState']): SessionMeta =>
+  ({ agentState }) as unknown as SessionMeta
 
 const tail = (): HTMLElement | null => host.querySelector('[data-testid="feed-tail"]')
 const figure = (): string | undefined => host.querySelector('.feed-tail-figure')?.textContent ?? ''
@@ -48,7 +62,7 @@ describe('TranscriptTail', () => {
   it('counts a working turn on a live clock, in the live hue', () => {
     mount({ label: 'Working…', tone: 'working' }, ago(42_000))
     expect(tail()?.dataset.tail).toBe('working')
-    expect(host.textContent).toContain('Working…')
+    expect(host.textContent).toContain('Working')
     // A live timer is the one figure that earns second precision.
     expect(figure()).toBe('0:42')
     // …and it is the one state licensed to move.
@@ -69,6 +83,85 @@ describe('TranscriptTail', () => {
   it('names the approval case as an approval', () => {
     mount({ label: 'needs permission', tone: 'attention' })
     expect(host.textContent).toContain('Waiting for your approval')
+  })
+
+  it('names an unresolved shell dependency and holds the glyph still', () => {
+    const started = ago(92_000)
+    mount(
+      { label: 'Working…', tone: 'working' },
+      undefined,
+      session({ phase: 'working', since: ago(180_000), nativeSubagentCount: 0 }),
+      toolRow({
+        id: 'bash',
+        role: 'tool',
+        text: '',
+        toolName: 'Bash',
+        toolTitle: 'tests',
+        toolInput: 'bun test',
+        ts: started,
+      } as TranscriptItem),
+    )
+    expect(tail()?.dataset.tail).toBe('wait')
+    expect(host.textContent).toContain('Waiting on shell')
+    expect(host.textContent).toContain('tests')
+    expect(figure()).toBe('1:32')
+    expect(host.querySelector('.spb')).toBeNull()
+    expect(host.querySelector('.feed-tail-wait')).not.toBeNull()
+  })
+
+  it('names the subagent count and task subject without parser changes', () => {
+    mount(
+      { label: 'Working…', tone: 'working' },
+      undefined,
+      session({
+        phase: 'working',
+        since: ago(200_000),
+        nativeSubagentCount: 2,
+        awaitingSubagents: true,
+      }),
+      toolRow({
+        id: 'task',
+        role: 'tool',
+        text: '',
+        toolName: 'Task',
+        toolTitle: 'design audit',
+        ts: ago(191_000),
+      } as TranscriptItem),
+    )
+    expect(host.textContent).toContain('Waiting on 2 agents')
+    expect(host.textContent).toContain('design audit')
+  })
+
+  it('recognizes namespaced Codex shell and subagent wait tools', () => {
+    const base = { id: 'wait', role: 'tool', text: '', ts: ago(12_000) } as TranscriptItem
+    const active = { label: 'Working…', tone: 'working' } as const
+
+    mount(
+      active,
+      undefined,
+      session({ phase: 'working', since: ago(20_000), nativeSubagentCount: 0 }),
+      toolRow({ ...base, toolName: 'functions.exec_command', toolTitle: 'web tests' }),
+    )
+    expect(host.textContent).toContain('Waiting on shell')
+
+    mount(
+      active,
+      undefined,
+      session({ phase: 'working', since: ago(20_000), nativeSubagentCount: 1 }),
+      toolRow({ ...base, toolName: 'collaboration.wait_agent', toolTitle: 'visual audit' }),
+    )
+    expect(host.textContent).toContain('Waiting on 1 agent')
+  })
+
+  it('composes interrupted and error stops instead of falling back to idle', () => {
+    mount({ label: 'interrupted', tone: 'idle' }, ago(30_000))
+    expect(tail()?.dataset.tail).toBe('interrupted')
+    expect(host.textContent).toContain('Interrupted by you')
+
+    mount({ label: 'error: rate_limit', tone: 'error' }, ago(30_000))
+    expect(tail()?.dataset.tail).toBe('error')
+    expect(host.textContent).toContain('Agent stopped with an error')
+    expect(host.textContent).toContain('rate limit')
   })
 
   it('recedes when idle, and further once the session has been quiet', () => {

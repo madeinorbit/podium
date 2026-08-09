@@ -158,7 +158,9 @@ describe('ChatView offline transcript copy', () => {
     await flush()
     expect(container.textContent).toContain('cached hello')
     expect(container.textContent).toContain('cached world')
-    expect(container.textContent).toContain('offline copy — as of')
+    const notice = container.querySelector('[data-notice="offline"]')
+    expect(notice?.textContent).toContain('Offline copy')
+    expect(notice?.textContent).toContain('as of')
   })
 
   it('settles to the empty state (no notice) on a failed read with no cache', async () => {
@@ -169,7 +171,7 @@ describe('ChatView offline transcript copy', () => {
       reads[0]?.reject(new Error('fetch failed'))
     })
     await flush()
-    expect(container.textContent).not.toContain('offline copy')
+    expect(container.querySelector('[data-notice="offline"]')).toBeNull()
     expect(container.textContent).toContain('No transcript yet')
   })
 
@@ -187,7 +189,7 @@ describe('ChatView offline transcript copy', () => {
     })
     await flush()
     expect(container.textContent).toContain('live one')
-    expect(container.textContent).not.toContain('offline copy')
+    expect(container.querySelector('[data-notice="offline"]')).toBeNull()
     expect(fakeReplica.puts).toHaveLength(1)
     expect(fakeReplica.puts[0]?.key).toBe('s1')
     expect(fakeReplica.puts[0]?.items.map((i) => i.id)).toEqual(['a', 'b'])
@@ -205,7 +207,7 @@ describe('ChatView offline transcript copy', () => {
       reads[0]?.reject(new Error('offline'))
     })
     await flush()
-    expect(container.textContent).toContain('offline copy')
+    expect(container.querySelector('[data-notice="offline"]')).not.toBeNull()
     // Becoming active triggers a re-read (the becameActive refresh) — succeed it.
     act(() => {
       root.render(<ChatView sessionId={asSessionId('s1')} active={true} />)
@@ -222,6 +224,6 @@ describe('ChatView offline transcript copy', () => {
     })
     await flush()
     expect(container.textContent).toContain('fresh from server')
-    expect(container.textContent).not.toContain('offline copy')
+    expect(container.querySelector('[data-notice="offline"]')).toBeNull()
   })
 })

@@ -6,12 +6,11 @@ import { useEffect, useMemo } from 'react'
 import { useReplicaIssues } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
-import { usePromptAutoGrow } from '@/lib/use-prompt-auto-grow'
 import { AtMentionMenu } from '@/lib/at-mention/AtMentionMenu'
 import { issueMentions } from '@/lib/at-mention/mention-sources'
 import { useAtMenu, useAtTrigger } from '@/lib/at-mention/useAtMention'
 import { useFileMentions } from '@/lib/at-mention/useFileMentions'
-import { BlockCaret } from '@/lib/BlockCaret'
+import { usePromptAutoGrow } from '@/lib/use-prompt-auto-grow'
 import { cn } from '@/lib/utils'
 import { AttachmentStrip } from './AttachmentStrip'
 import { OfferBar } from './OfferBar'
@@ -258,29 +257,39 @@ export function ChatComposer({
           />
         </div>
       )}
-      {queuedTotal > 0 && (
-        <div className="flex items-center gap-1.5 pb-1.5 text-[11px] text-muted-foreground">
-          <Clock size={12} aria-hidden="true" />
-          {queuedTotal === 1 ? '1 message queued' : `${queuedTotal} messages queued`} — delivers
-          when the agent is ready
-        </div>
-      )}
-      {turnError !== null && (
-        <div className="flex items-center gap-1.5 pb-1.5 text-[11px] text-destructive">
-          {turnError}
-        </div>
-      )}
-      {offlineAsOf !== null && (
-        <div className="flex items-center gap-1.5 pb-1.5 text-[11px] text-muted-foreground">
-          <CloudOff size={12} aria-hidden="true" />
-          offline copy — as of {new Date(offlineAsOf).toLocaleString()}
+      {(queuedTotal > 0 || turnError !== null || offlineAsOf !== null) && (
+        <div className="composer-notices" aria-live="polite">
+          {queuedTotal > 0 && (
+            <div className="composer-notice" data-notice="queue">
+              <Clock size={12} aria-hidden="true" />
+              <strong>Queued · {queuedTotal}</strong>
+              <span>sends after this turn</span>
+            </div>
+          )}
+          {turnError !== null && (
+            <div
+              className="composer-notice composer-notice--error"
+              data-notice="error"
+              role="alert"
+            >
+              <strong>Not sent</strong>
+              <span>{turnError}</span>
+            </div>
+          )}
+          {offlineAsOf !== null && (
+            <div className="composer-notice" data-notice="offline">
+              <CloudOff size={12} aria-hidden="true" />
+              <strong>Offline copy</strong>
+              <span>as of {new Date(offlineAsOf).toLocaleString()}</span>
+            </div>
+          )}
         </div>
       )}
       {/* THE FIELD. Under `compact` it is `.prompt-well`: grooved into the
           pane with the same --well-* bevel the command bar's wells use, and
           lifting a step on focus. Carved, not floated — and no yellow focus
-          outline, because the yellow block caret inside is already this box's
-          "you are typing here" and The Signal Rule pays for that sentence once.
+          outline, because focus is navigation state rather than a request for
+          operator action.
           `.prompt-well` is itself the flex ROW (mark · field · actions), which
           is why the row and the attachment strip share one column child below:
           the well may hold exactly one in-flow item. */}
@@ -289,7 +298,7 @@ export function ChatComposer({
           'relative',
           compact
             ? 'prompt-well'
-            : 'flex flex-col gap-0.5 rounded-lg border border-border-strong bg-background px-3 py-1.5 focus-within:border-primary',
+            : 'chat-composer-well flex flex-col gap-0.5 rounded-[9px] border bg-background px-3 py-1.5',
         )}
       >
         <AtMentionMenu mention={mention} hint="↑↓ to move · ↵ to insert · esc to dismiss" />
@@ -313,26 +322,14 @@ export function ChatComposer({
           className="hidden"
           onChange={attachments.onFileInputChange}
         />
-        <BlockCaret taRef={taRef} value={draft} />
         <div className={cn('flex min-w-0 flex-col gap-0.5', compact && 'flex-1')}>
           <div className="flex items-start gap-2">
-            <span
-              className={cn(
-                'shell-type-primary',
-                // `.prompt-mark` lights with the field on focus; the main chat's
-                // mark stays dim and is nudged to its own text baseline.
-                compact ? 'prompt-mark' : 'flex-none pt-[5px] text-text-dim',
-              )}
-              aria-hidden="true"
-            >
-              &gt;
-            </span>
             <Textarea
               ref={taRef}
               rows={1}
               placeholder={placeholder}
               className={cn(
-                'shell-type-primary min-h-0 resize-none rounded-none border-0 bg-transparent text-foreground caret-transparent outline-none [field-sizing:fixed] focus-visible:border-0 focus-visible:ring-0 disabled:bg-transparent disabled:text-muted-foreground disabled:opacity-100 dark:bg-transparent dark:disabled:bg-transparent',
+                'shell-type-primary min-h-0 resize-none rounded-none border-0 bg-transparent text-foreground caret-foreground outline-none [field-sizing:fixed] focus-visible:border-0 focus-visible:ring-0 disabled:bg-transparent disabled:text-muted-foreground disabled:opacity-100 dark:bg-transparent dark:disabled:bg-transparent',
                 compact
                   ? // `.prompt-input` owns the height transition, the padding and
                     // the cap (in px, from usePromptAutoGrow) — so no `max-h-*`
@@ -342,7 +339,7 @@ export function ChatComposer({
                     // this ground Faint is under 4.5:1 and this is the only line
                     // of copy left in the box.
                     'prompt-input min-w-0 flex-1 px-0 shadow-none placeholder:text-text-dim'
-                  : 'block max-h-44 w-full overflow-y-auto p-0.5 transition-[height] duration-300 ease-[cubic-bezier(0.25,1,0.35,1)] placeholder:text-text-faint',
+                  : 'block max-h-44 w-full overflow-y-auto p-0.5 transition-[height] duration-200 ease-[cubic-bezier(0.25,1,0.35,1)] placeholder:text-text-faint motion-reduce:transition-none',
               )}
               value={draft}
               disabled={!enabled}

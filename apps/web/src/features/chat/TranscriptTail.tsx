@@ -1,4 +1,10 @@
-import { type ChatActivity, formatClock } from '@podium/client-core/viewmodels'
+import {
+  type ChatActivity,
+  type ChatRow,
+  formatClock,
+  toolCallPhrase,
+} from '@podium/client-core/viewmodels'
+import type { SessionMeta, TranscriptItem } from '@podium/model'
 import type { JSX } from 'react'
 import { BrailleSpinner } from '@/lib/motion/BrailleSpinner'
 import { useNow } from '@/lib/useNow'
@@ -38,6 +44,109 @@ import { useNow } from '@/lib/useNow'
 const WAITING_LABEL: Record<string, string> = {
   'needs answer': 'Waiting for your answer',
   'needs permission': 'Waiting for your approval',
+  'plan ready': 'Plan ready for your approval',
+  'waiting on decision': 'Waiting on your decision',
+}
+
+type TailMode = 'working' | 'wait' | 'waiting' | 'error' | 'interrupted' | 'note' | 'idle'
+
+export interface TranscriptTailState {
+  mode: TailMode
+  label: string
+  detail?: string
+  /** The dependency started at the tool call, not necessarily at the parent
+   *  session's broader working phase. */
+  since?: string
+}
+
+function dependencySubject(item: TranscriptItem): string | undefined {
+  const raw = item.toolTitle ?? item.toolInput
+  if (!raw) return undefined
+  const line = raw.split('\n', 1)[0]?.trim()
+  if (!line) return undefined
+  return line.length > 58 ? `${line.slice(0, 57).trimEnd()}…` : line
+}
+
+function dependencyKind(toolName: string | undefined): 'shell' | 'agent' | undefined {
+  const name = toolName?.split(/[.:/]/).at(-1)?.toLowerCase()
+  if (
+    name === 'bash' ||
+    name === 'shell' ||
+    name === 'shell_command' ||
+    name === 'exec_command' ||
+    name === 'run_command'
+  ) {
+    return 'shell'
+  }
+  if (name === 'task' || name === 'wait_agent' || name === 'agent_await') return 'agent'
+  return undefined
+}
+
+/**
+ * Turn the generic session badge into the transcript's more precise ending.
+ * This is deliberately presentation-only: it reads the tool row the feed has
+ * already built and the runtime's existing subagent facts, with no parser or
+ * protocol changes.
+ */
+export function transcriptTailState(
+  activity: ChatActivity | null,
+  session: SessionMeta | undefined,
+  lastRow: ChatRow | undefined,
+  since?: string | undefined,
+): TranscriptTailState | null {
+  const fallbackSince = session?.agentState?.since ?? since
+  if (activity?.tone === 'working' && lastRow?.kind === 'tools') {
+    const last = lastRow.blocks[lastRow.blocks.length - 1]
+    if (last) {
+      const unresolved = last.result === undefined && last.item.toolResult === undefined
+      const item = last.item
+      const subject = dependencySubject(item)
+      const dependency = dependencyKind(item.toolName)
+      if (unresolved && dependency === 'shell') {
+        return { mode: 'wait', label: 'Waiting on shell', detail: subject, since: item.ts }
+      }
+      if (unresolved && dependency === 'agent') {
+        const count =
+          session?.agentState?.nativeSubagentCount ??
+          session?.agentState?.nativeSubagents?.length ??
+          1
+        return {
+          mode: 'wait',
+          label: count === 1 ? 'Waiting on 1 agent' : `Waiting on ${count} agents`,
+          detail: subject,
+          since: item.ts,
+        }
+      }
+      if (unresolved) {
+        return {
+          mode: 'working',
+          label: toolCallPhrase(item),
+          since: item.ts ?? fallbackSince,
+        }
+      }
+    }
+  }
+
+  if (activity?.tone === 'working') {
+    return { mode: 'working', label: activity.label.replace(/…$/, ''), since: fallbackSince }
+  }
+  if (activity?.tone === 'attention') {
+    return {
+      mode: 'waiting',
+      label: WAITING_LABEL[activity.label] ?? 'Waiting for you',
+      since: fallbackSince,
+    }
+  }
+  if (activity?.tone === 'error') {
+    const detail = activity.label.replace(/^error:\s*/i, '').replaceAll('_', ' ')
+    return { mode: 'error', label: 'Agent stopped with an error', detail, since: fallbackSince }
+  }
+  if (activity?.label === 'interrupted') {
+    return { mode: 'interrupted', label: 'Interrupted by you', since: fallbackSince }
+  }
+  if (activity) return { mode: 'note', label: activity.label, since: fallbackSince }
+  if (!fallbackSince) return null
+  return { mode: 'idle', label: 'Idle', since: fallbackSince }
 }
 
 /** Seconds in the first minute, then whole minutes: past 60s the seconds digit
@@ -54,41 +163,42 @@ const STALE_IDLE_MS = 10 * 60_000
 export function TranscriptTail({
   activity,
   since,
+  session,
+  lastRow,
 }: {
   /** The session's live activity, or null when nothing is running. */
   activity: ChatActivity | null
   /** When the agent last changed phase — the origin for every figure here. */
   since?: string | undefined
+  /** Runtime detail used to name subagent dependencies without parser work. */
+  session?: SessionMeta | undefined
+  /** The visible tail row supplies the active tool's own subject. */
+  lastRow?: ChatRow | undefined
 }): JSX.Element | null {
-  const startedAt = since ? Date.parse(since) : Number.NaN
+  const state = transcriptTailState(activity, session, lastRow, since)
+  const stateSince = state?.since ?? since
+  const startedAt = stateSince ? Date.parse(stateSince) : Number.NaN
   const known = !Number.isNaN(startedAt)
-  const working = activity?.tone === 'working'
+  const working = state?.mode === 'working'
+  const waitingOnDependency = state?.mode === 'wait'
   // Two clocks so nothing wakes faster than its figure can change: the working
   // timer counts seconds, and an idle one only needs that in its first minute.
-  const coarse = useNow(working ? 1000 : 20_000)
+  const coarse = useNow(working || waitingOnDependency ? 1000 : 20_000)
   const fresh = known && coarse - startedAt < 60_000
   const fine = useNow(1000, !working && fresh)
   const now = working || !fresh ? coarse : fine
   const elapsed = known ? Math.max(0, now - startedAt) : 0
 
-  if (!activity && !known) return null
+  if (!state) return null
 
-  const kind = working
-    ? 'working'
-    : activity?.tone === 'attention'
-      ? 'waiting'
-      : activity
-        ? 'note'
-        : 'idle'
-  const label = working
-    ? activity.label
-    : kind === 'waiting'
-      ? (WAITING_LABEL[activity?.label ?? ''] ?? 'Waiting for you')
-      : kind === 'note'
-        ? (activity?.label ?? '')
-        : 'Idle'
+  const kind = state.mode
+  const label = state.label
   // A live timer reads as a clock (0:42); everything else is a duration.
-  const figure = !known ? null : working ? formatClock(elapsed) : coarseElapsed(elapsed)
+  const figure = !known
+    ? null
+    : working || waitingOnDependency
+      ? formatClock(elapsed)
+      : coarseElapsed(elapsed)
 
   return (
     <div
@@ -110,9 +220,18 @@ export function TranscriptTail({
           keyline round the three of them without the rule joining in. */}
       <span className="feed-tail-body">
         <span className="feed-tail-mark" aria-hidden="true">
-          {working ? <BrailleSpinner size={11} /> : <span className="feed-tail-dot" />}
+          {working ? (
+            <BrailleSpinner size={11} />
+          ) : waitingOnDependency ? (
+            <span className="feed-tail-wait">◇</span>
+          ) : kind === 'interrupted' ? (
+            <span className="feed-tail-stop">□</span>
+          ) : (
+            <span className="feed-tail-dot" />
+          )}
         </span>
         <span className="feed-tail-label">{label}</span>
+        {state.detail && <span className="feed-tail-detail">{state.detail}</span>}
         {/* The working timer lives inside the live region, so it is hidden from
             it: a counter that announces once a second says nothing and blocks
             everything else. The still figures stay readable. */}

@@ -102,7 +102,7 @@ export function SentImageThumb({
       data-pressable
       type="button"
       onClick={onOpen}
-      className="overflow-hidden rounded-md border border-border hover:border-primary"
+      className="overflow-hidden rounded-md border border-border hover:border-foreground/30"
       title={`Open ${name}`}
     >
       <img

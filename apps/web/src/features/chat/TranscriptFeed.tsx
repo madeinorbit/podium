@@ -1,5 +1,4 @@
 import type {
-  AskAnswerChoice,
   ChatActivity,
   ChatBlock,
   ChatRow,
@@ -10,7 +9,7 @@ import type {
 } from '@podium/client-core/viewmodels'
 import { attributionForRole, blockMatches, isInteractiveTool } from '@podium/client-core/viewmodels'
 import type { SessionId, SessionMeta } from '@podium/model'
-import { Image as ImageIcon } from 'lucide-react'
+import { ArrowUp, FileClock, FileText, Image as ImageIcon } from 'lucide-react'
 import type { JSX, RefObject } from 'react'
 import { useMemo } from 'react'
 import { type IssueReferenceLookup, renderMarkdown } from '@/lib/markdown'
@@ -18,7 +17,7 @@ import { cn } from '@/lib/utils'
 import { ChatBlockView, type TurnPosition } from './ChatBlockView'
 import type { PendingItem, QueuedChatMessage } from './chat'
 import { ToolBatchView } from './ToolBatchView'
-import { TranscriptTail } from './TranscriptTail'
+import { TranscriptTail, transcriptTailState } from './TranscriptTail'
 import { rowIdentity, useFeedArrivals } from './use-feed-arrivals'
 import type { HeadlessOverlay } from './use-headless-turn'
 
@@ -154,12 +153,18 @@ export function TranscriptFeed({
   // use-feed-arrivals. Identity is per row and index-free, so paging older
   // messages in above does not read as the whole feed arriving at once.
   const arriving = useFeedArrivals(useMemo(() => rows.map(({ row }) => rowIdentity(row)), [rows]))
+  const lastRow = rows[rows.length - 1]?.row
+  const tailState = transcriptTailState(activity, session, lastRow)
+  // A live question is already the attention surface. Repeating the same
+  // yellow signal in the tail weakens both objects, so the card owns it alone.
+  const questionOwnsAttention = livePendingAskIndex >= 0 && activity?.tone === 'attention'
   return (
     <div
       className={cn(
         'flex min-w-0 flex-1 flex-col gap-0 overflow-x-clip overflow-y-auto',
         // §2.5 feed geometry: 12px/14px padding in the narrow column.
         compact ? 'px-3.5 pt-3 pb-4' : 'px-5 pt-5 pb-6',
+        phase !== 'ready' && 'justify-center',
       )}
       ref={scrollerRef}
       onScroll={onScroll}
@@ -169,24 +174,31 @@ export function TranscriptFeed({
           `justify-end`, which makes overflow past the START edge unreachable in
           some engines: this collapses to zero the moment the feed overflows, so
           the scroll math never sees it. */}
-      <div className="mt-auto" aria-hidden="true" />
+      {phase === 'ready' && <div className="mt-auto" aria-hidden="true" />}
       {phase === 'loading' && (
-        <div
-          className="mx-auto my-8 flex items-center gap-2 text-[13px] text-muted-foreground"
-          role="status"
-          aria-live="polite"
-        >
-          <span
-            className="size-4 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground"
-            aria-hidden="true"
-          />
-          Loading transcript…
+        <div className="transcript-placeholder" role="status" aria-live="polite">
+          <span className="transcript-placeholder-mark" aria-hidden="true">
+            <FileClock size={14} strokeWidth={1.6} />
+          </span>
+          <span className="transcript-placeholder-copy">
+            <strong>Loading transcript</strong>
+            <span>Restoring the latest turn and reading position…</span>
+          </span>
         </div>
       )}
       {phase === 'empty' && (
-        <div className="mx-auto my-6 max-w-[52ch] text-center text-[13px] text-muted-foreground/70">
-          No transcript yet. For Claude, Codex, and Grok sessions the feed starts with the first
-          prompt; shells have no structured transcript.
+        <div className="transcript-placeholder" data-testid="transcript-empty-state">
+          <span className="transcript-placeholder-mark" aria-hidden="true">
+            <FileText size={14} strokeWidth={1.6} />
+          </span>
+          <span className="transcript-placeholder-copy">
+            <strong>No transcript yet</strong>
+            <span>
+              {session?.agentKind === 'shell'
+                ? 'Shell work stays in Native view.'
+                : 'The first prompt will open this transcript.'}
+            </span>
+          </span>
         </div>
       )}
       {/* Top sentinel: only the bounded tail of ROWS is mounted; more exist
@@ -199,19 +211,21 @@ export function TranscriptFeed({
           type="button"
           onClick={loadOlder}
           disabled={loadingOlder}
-          className="mx-auto my-1 inline-flex items-center gap-2 text-[12px] text-muted-foreground/70 hover:text-foreground disabled:cursor-default"
+          className="transcript-pager"
           aria-live="polite"
         >
           {loadingOlder ? (
             <>
-              <span
-                className="size-3.5 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground"
-                aria-hidden="true"
-              />
-              Loading earlier messages…
+              <ArrowUp size={11} aria-hidden="true" />
+              <strong>Earlier transcript</strong>
+              <span>loading…</span>
             </>
           ) : (
-            'Load earlier messages'
+            <>
+              <ArrowUp size={11} aria-hidden="true" />
+              <strong>Earlier transcript</strong>
+              <span>loads automatically · click to retry</span>
+            </>
           )}
         </button>
       )}
@@ -244,6 +258,11 @@ export function TranscriptFeed({
             // trailing window and `idx` is the ABSOLUTE index into the full row
             // list, so the last mounted row is `pos === rows.length - 1`.
             live={activity?.tone === 'working' && pos === rows.length - 1}
+            waiting={
+              pos === rows.length - 1 && tailState?.mode === 'wait'
+                ? { label: tailState.label, detail: tailState.detail }
+                : undefined
+            }
             arrived={arrived}
             turn={turn}
             sessionId={sessionId}
@@ -287,21 +306,18 @@ export function TranscriptFeed({
             // spaced like one — otherwise the feed's rhythm changes at the
             // moment the real row replaces it.
             'transcript-row transcript-turn-open mx-auto w-full max-w-[960px]',
-            p.state === 'failed' && 'opacity-60',
+            'transcript-pending',
+            p.state === 'failed' && 'transcript-pending--failed',
           )}
         >
           <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
           <div className="transcript-body transcript-you">
             <div className="transcript-you-label">
               You
-              {p.state === 'sending' && (
-                <span className="ml-2 tracking-normal normal-case opacity-60">sending…</span>
-              )}
-              {p.state === 'queued' && (
-                <span className="ml-2 tracking-normal normal-case text-warning">queued</span>
-              )}
+              {p.state === 'sending' && <span className="transcript-delivery">sending…</span>}
+              {p.state === 'queued' && <span className="transcript-delivery">queued</span>}
               {p.state === 'failed' && (
-                <span className="ml-2 tracking-normal normal-case text-destructive">
+                <span className="transcript-delivery transcript-delivery--error">
                   not delivered
                 </span>
               )}
@@ -333,7 +349,7 @@ export function TranscriptFeed({
           <div className="transcript-body transcript-you">
             <div className="transcript-you-label">
               You
-              <span className="ml-2 tracking-normal normal-case text-warning">queued</span>
+              <span className="transcript-delivery">queued</span>
             </div>
             <div className="chat-md whitespace-pre-wrap">{message.text}</div>
           </div>
@@ -371,10 +387,14 @@ export function TranscriptFeed({
           object in three weights (TranscriptTail). The headless driver's own
           status line already says what the agent is doing, so the tail defers
           to it and falls back to the idle clock underneath. */}
-      <TranscriptTail
-        activity={overlay?.status ? null : activity}
-        since={session?.agentState?.since}
-      />
+      {(phase === 'ready' || activity?.tone === 'working') && !questionOwnsAttention && (
+        <TranscriptTail
+          activity={overlay?.status ? null : activity}
+          since={session?.agentState?.since}
+          session={session}
+          lastRow={lastRow}
+        />
+      )}
     </div>
   )
 }

@@ -13,12 +13,11 @@ import { AtMentionMenu } from '@/lib/at-mention/AtMentionMenu'
 import type { AtOption } from '@/lib/at-mention/at-mention'
 import { issueMentions } from '@/lib/at-mention/mention-sources'
 import { useAtMenu, useAtTrigger } from '@/lib/at-mention/useAtMention'
-import { BlockCaret } from '@/lib/BlockCaret'
 import { BrailleSpinner } from '@/lib/motion'
+import { usePromptAutoGrow } from '@/lib/use-prompt-auto-grow'
 import { useConversationSearch } from '@/lib/useConversationSearch'
 import { cn } from '@/lib/utils'
 import { useIssueEvents } from './useIssueEvents'
-import { usePromptAutoGrow } from '@/lib/use-prompt-auto-grow'
 
 /** ONE chat across all issues (engraved-column.md §2.5): the column always
  *  binds the global thread; per-turn issue context rides the focus payload.
@@ -421,13 +420,9 @@ function FreshThreadComposer({
       <div className="prompt-dock font-mono" data-testid="super-composer">
         <div className="prompt-well">
           <AtMentionMenu mention={mention} hint="↑↓ to move · ↵ to insert · esc to dismiss" />
-          <span className="prompt-mark shell-type-primary" aria-hidden="true">
-            &gt;
-          </span>
-          <BlockCaret taRef={inputRef} value={draft} />
           <Textarea
             ref={inputRef}
-            className="prompt-input shell-type-primary min-h-0 flex-1 resize-none rounded-none border-0 bg-transparent px-0 text-foreground caret-transparent shadow-none field-sizing-fixed placeholder:text-text-dim focus-visible:border-0 focus-visible:ring-0 dark:bg-transparent"
+            className="prompt-input shell-type-primary min-h-0 flex-1 resize-none rounded-none border-0 bg-transparent px-0 text-foreground caret-foreground shadow-none field-sizing-fixed placeholder:text-text-dim focus-visible:border-0 focus-visible:ring-0 dark:bg-transparent"
             rows={1}
             // With the focus line gone this is the only statement of the box's
             // scope, so it names it rather than saying "Message…".

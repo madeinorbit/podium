@@ -27,7 +27,11 @@ function batchOf(items: TranscriptItem[]): ToolBatchRow {
   return row
 }
 
-function mount(row: ToolBatchRow, live = false): void {
+function mount(
+  row: ToolBatchRow,
+  live = false,
+  waiting?: { label: string; detail?: string },
+): void {
   act(() => {
     root.render(
       <ToolBatchView
@@ -37,6 +41,7 @@ function mount(row: ToolBatchRow, live = false): void {
         dimmed={false}
         forceOpen={false}
         live={live}
+        waiting={waiting}
         sessionId={asSessionId('s1')}
         cwd="/r"
         openFile={() => {}}
@@ -94,6 +99,28 @@ describe('ToolBatchView — the work line', () => {
     expect(line.querySelector('.work-line-time')?.textContent).toBe('0:09')
   })
 
+  it('renders a named external wait without a second spinner', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(Date.parse('2026-08-03T10:00:07.000Z'))
+    mount(
+      batchOf([
+        call({
+          id: 'b',
+          toolName: 'Bash',
+          toolTitle: 'tests',
+          ts: '2026-08-03T10:00:00.000Z',
+        }),
+      ]),
+      true,
+      { label: 'Waiting on shell', detail: 'tests' },
+    )
+    const line = host.querySelector('[data-testid="work-line"]')!
+    expect(line.getAttribute('data-state')).toBe('wait')
+    expect(line.querySelector('.work-line-phrase')?.textContent).toBe('Waiting on shell · tests')
+    expect(line.querySelector('.spb')).toBeNull()
+    expect(line.querySelector('.work-line-glyph')?.textContent).toBe('◇')
+  })
+
   it('keeps a failure on the collapsed row', () => {
     mount(
       batchOf([
@@ -109,7 +136,7 @@ describe('ToolBatchView — the work line', () => {
     expect(line.querySelector('.work-line-glyph')?.className).toContain('work-line-glyph--err')
   })
 
-  it('unfolds the individual calls on click', () => {
+  it('unfolds and refolds the individual calls on the same click target', () => {
     mount(batchOf([call({ id: 'a' }), call({ id: 'b', toolName: 'Bash', toolInput: 'ls -la' })]))
     const line = host.querySelector('[data-testid="work-line"]')!
     expect(line.querySelector('.work-line-list')).toBeNull()
@@ -118,6 +145,11 @@ describe('ToolBatchView — the work line', () => {
     })
     expect(line.getAttribute('data-open')).toBe('true')
     expect(line.querySelectorAll('.work-line-list .tool-row')).toHaveLength(2)
+    act(() => {
+      line.querySelector<HTMLButtonElement>('.work-line-row')!.click()
+    })
+    expect(line.getAttribute('data-open')).toBe('false')
+    expect(line.querySelector('.work-line-list')).toBeNull()
   })
 
   it('drops the fanned deck for a lone call — nothing is folded behind it', () => {

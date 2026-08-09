@@ -1637,8 +1637,8 @@ html[data-density="balanced"] .header-quota-pools {
    theme's `--issue-tint-scale` / `--issue-line-scale`, like every other tinted
    surface: a hue mixed into a light ground saturates about twice as fast, and a
    percentage written out here would be a second place that has to know it. The
-   yellow keyline on the answer is untouched: colour that means "your issue" must
-   not collide with colour that means "this is for you". */
+   answer hierarchy stays neutral: colour that means "your issue" must not
+   collide with colour that means "act now". */
 .transcript-you {
   --transcript-you-bg: color-mix(
     in srgb,
@@ -1673,30 +1673,24 @@ html[data-density="balanced"] .header-quota-pools {
   font-weight: 500;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--info);
+  color: color-mix(
+    in oklab,
+    var(--issue, var(--muted-foreground)) calc(58 * var(--issue-line-scale, 1%)),
+    var(--muted-foreground)
+  );
   margin-bottom: 3px;
 }
 
-/* A sticky operator prompt is pinned over the very transcript it belongs to, so
-   a long one would blanket the whole feed (POD-1368). Cap the prompt body at a
-   fifth of the chat viewport — `--chat-viewport-h` is published by the chat
-   scroller — minus the row's own chrome (row padding, panel padding + border,
-   and the YOU label), so the whole engraved panel stays inside the budget.
-   Measured at 19.5% of an 800px chat and 19.4% of a 720px one. The floor keeps
-   the box legible on very short viewports, where the chrome alone outgrows the
-   fifth and the cap would otherwise leave no room for text at all. */
+/* The pinned request becomes a compact context shelf. Two reading lines keep
+   the active brief available without letting it blanket the answer beneath it;
+   the fixed label row always keeps Read more reachable. */
 .transcript-you-clamp {
-  /* row padding 24 + panel padding 20 + border 2 + label row ~18 = 64px, rounded
-     up so the row measures just under its share rather than just over. */
   --transcript-prompt-chrome: 66px;
 }
 .transcript-you-clamp[data-clamped="true"] {
   position: relative;
   overflow: hidden;
-  max-height: max(
-    3rem,
-    calc(var(--chat-viewport-h, 100dvh) * 0.2 - var(--transcript-prompt-chrome))
-  );
+  max-height: 2.95em;
 }
 /* Expanded is bounded too, and scrolls inside itself. A prompt taller than the
    scrollport cannot pin its top — it scrolls away with the content, taking the
@@ -1754,12 +1748,10 @@ html[data-density="balanced"] .header-quota-pools {
   }
 }
 
-/* The final answer — flat like all agent prose, marked by the page's only
-   signal-color keyline instead of a box (The Signal Rule: yellow marks what
-   is for you). */
+/* The final answer is a typographic step, not an attention state. Yellow is
+   withheld until the operator is actually asked to act. */
 .transcript-answer {
-  border-top: 2px solid color-mix(in oklab, var(--primary) 55%, transparent);
-  padding-top: 10px;
+  padding-top: 4px;
 }
 /* The conclusion is the one thing in the feed a reader came for, and it used to
    be set at exactly the size of the narration it followed. A point and a half of
@@ -1776,7 +1768,7 @@ html[data-density="balanced"] .header-quota-pools {
   font-weight: 500;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--primary);
+  color: color-mix(in oklab, var(--muted-foreground) 78%, transparent);
   margin-bottom: 5px;
 }
 
@@ -1816,6 +1808,26 @@ html[data-density="balanced"] .header-quota-pools {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.tool-result-full {
+  max-height: 280px;
+  margin: 4px 0 5px 21px;
+  overflow: auto;
+  padding: 6px 9px;
+  border: 1px solid color-mix(in oklab, var(--border) 75%, transparent);
+  border-left: 2px solid var(--hairline-soft, var(--border));
+  border-radius: 0 6px 6px 0;
+  background: color-mix(in oklab, var(--background) 88%, black);
+  color: var(--muted-foreground);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.tool-block[data-verdict="err"] .tool-result-full {
+  border-left-color: color-mix(in oklab, var(--destructive) 60%, var(--border));
+  background: color-mix(in oklab, var(--destructive) 4%, var(--background));
 }
 
 /* ── Transcript verbosity strip (POD-376) ────────────────────────────────────
@@ -2011,10 +2023,10 @@ html[data-density="balanced"] .header-quota-pools {
   background: color-mix(in oklab, var(--foreground) 7%, transparent);
   color: var(--foreground);
 }
-/* Work still on the list reads in the success hue the panel's progress bar uses
-   — the same fact, the same colour, two surfaces. */
+/* Open work is passive context. Keep it legible without borrowing the live or
+   attention hues. */
 .chat-rail-todo[data-open="true"] {
-  color: color-mix(in oklab, var(--success) 85%, var(--foreground));
+  color: color-mix(in oklab, var(--issue, var(--foreground)) 48%, var(--foreground));
 }
 .chat-rail-todo-n {
   font-family: var(--font-mono, ui-monospace, monospace);
@@ -2060,16 +2072,15 @@ html[data-density="balanced"] .header-quota-pools {
    classes, which is what makes the hover legend a legend: the colour you are
    pointing at and the colour beside the word come from one rule.
 
-   The answer band is Superade (the Signal Rule): the feed already marks a final
-   answer with a yellow keyline, and one keyline in nine screenfuls is too low a
-   dose to read as a system. The map is where that dose becomes visible. */
+   Passive bands stay in the identity/neutral ramp. Search is the overlay and
+   operator action remains the only reason to spend Superade yellow. */
 .minimap-tick--you {
   inset-inline: 0;
-  background: var(--info);
+  background: color-mix(in oklab, var(--issue, var(--info)) 72%, var(--foreground));
 }
 .minimap-tick--answer {
   inset-inline: 0;
-  background: color-mix(in oklab, var(--primary) 85%, transparent);
+  background: color-mix(in oklab, var(--muted-foreground) 78%, transparent);
 }
 .minimap-tick--agent {
   inset-inline: 0 6px;
@@ -2091,20 +2102,20 @@ html[data-density="balanced"] .header-quota-pools {
   min-height: 3px;
   border-radius: 1px;
   pointer-events: none;
-  background: color-mix(in oklab, var(--foreground) 55%, transparent);
+  background: color-mix(in oklab, var(--issue, var(--info)) 62%, transparent);
 }
 .minimap-mark--active {
   width: 5px;
-  background: var(--foreground);
-  box-shadow: 0 0 6px color-mix(in oklab, var(--foreground) 45%, transparent);
+  background: color-mix(in oklab, var(--issue, var(--info)) 78%, var(--foreground));
+  box-shadow: 0 0 6px color-mix(in oklab, var(--issue, var(--info)) 38%, transparent);
 }
 .minimap-view {
   position: absolute;
   inset-inline: 0;
   pointer-events: none;
-  border: 1px solid color-mix(in oklab, var(--foreground) 35%, transparent);
+  border: 1px solid color-mix(in oklab, var(--issue, var(--foreground)) 50%, var(--foreground));
   border-radius: 2px;
-  background: color-mix(in oklab, var(--foreground) 15%, transparent);
+  background: color-mix(in oklab, var(--issue, var(--foreground)) 10%, transparent);
 }
 
 /* The legend, delivered on hover and tied to the band under the pointer. */
@@ -2214,8 +2225,8 @@ html[data-density="balanced"] .header-quota-pools {
   gap: 7px;
   width: 100%;
   padding: 6px 12px 6px calc(3px + 12px);
-  border-top: 1px solid color-mix(in oklab, var(--warning) 22%, transparent);
-  background: color-mix(in oklab, var(--warning) 5%, transparent);
+  border-top: 1px solid color-mix(in oklab, var(--issue, var(--border)) 22%, var(--border));
+  background: color-mix(in oklab, var(--issue, transparent) 3%, transparent);
   font-size: 11.5px;
   text-align: left;
   color: var(--muted-foreground);
@@ -2223,13 +2234,13 @@ html[data-density="balanced"] .header-quota-pools {
   transition: background-color 120ms ease;
 }
 .chat-todo-notice:hover {
-  background: color-mix(in oklab, var(--warning) 9%, transparent);
+  background: color-mix(in oklab, var(--issue, var(--foreground)) 6%, transparent);
 }
 .chat-todo-notice-go {
   margin-left: auto;
   flex: none;
   font-size: 10.5px;
-  color: color-mix(in oklab, var(--warning) 75%, var(--foreground));
+  color: color-mix(in oklab, var(--issue, var(--muted-foreground)) 50%, var(--foreground));
 }
 
 /* ── Model provenance, in the pane header ────────────────────────────────── */
@@ -2286,6 +2297,163 @@ html[data-density="balanced"] .header-quota-pools {
   margin-top: 5px;
   font-size: 13px;
   color: var(--foreground);
+}
+
+/* Interruption is one neutral stop event. A rejected call immediately above it
+   keeps the red detail; the divider itself never pretends the operator needs to
+   act on the action they just took. */
+.transcript-interrupt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-block: 5px;
+  color: color-mix(in oklab, var(--muted-foreground) 72%, transparent);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+.transcript-interrupt-rule {
+  flex: 1 1 auto;
+  height: 1px;
+  background: var(--hairline-soft, var(--border));
+}
+.transcript-interrupt-stop {
+  color: var(--text-dim, var(--muted-foreground));
+}
+.transcript-interrupt .chat-clk {
+  margin-left: 0;
+  color: var(--text-dim, var(--muted-foreground));
+}
+
+/* Mail is machine provenance, not a card asking the operator to choose. */
+.message-envelope {
+  position: relative;
+  overflow: hidden;
+  padding: 9px 13px 10px;
+  border: 1px solid color-mix(in oklab, var(--border) 78%, transparent);
+  border-left: 2px solid color-mix(in oklab, var(--info) 58%, var(--border));
+  border-radius: 0 8px 8px 0;
+  background: color-mix(in oklab, var(--muted) 18%, transparent);
+}
+.message-envelope-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  color: color-mix(in oklab, var(--muted-foreground) 72%, transparent);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--shell-type-micro);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.message-envelope-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--info);
+  font-weight: 600;
+}
+.message-envelope-seam {
+  width: 1px;
+  height: 12px;
+  background: var(--border);
+}
+.message-envelope-route {
+  letter-spacing: normal;
+  text-transform: none;
+}
+.message-envelope-badge {
+  padding: 1px 5px;
+  border: 1px solid var(--hairline-soft, var(--border));
+  border-radius: 4px;
+  background: color-mix(in oklab, var(--foreground) 3%, transparent);
+  color: var(--muted-foreground);
+  letter-spacing: 0.04em;
+}
+.message-envelope-badge--reply {
+  border-color: color-mix(in oklab, var(--info) 28%, var(--border));
+  color: var(--info);
+}
+.message-envelope-meta {
+  display: inline-flex;
+  gap: 7px;
+  margin-left: auto;
+  color: color-mix(in oklab, var(--muted-foreground) 48%, transparent);
+  letter-spacing: normal;
+  text-transform: none;
+}
+.message-envelope-meta .chat-clk {
+  margin-left: 0;
+}
+.message-envelope-body {
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px solid color-mix(in oklab, var(--border) 58%, transparent);
+  color: color-mix(in oklab, var(--foreground) 88%, transparent);
+}
+.message-envelope-note {
+  margin-top: 7px;
+  padding-top: 6px;
+  border-top: 1px solid color-mix(in oklab, var(--border) 58%, transparent);
+  color: var(--muted-foreground);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--shell-type-micro);
+}
+
+.machine-context-head {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: baseline;
+  gap: 7px;
+  padding-block: 3px;
+  color: var(--muted-foreground);
+  text-align: left;
+  cursor: pointer;
+}
+.machine-context-chevron {
+  flex: none;
+  color: color-mix(in oklab, var(--muted-foreground) 48%, transparent);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+}
+.machine-context-kind,
+.machine-context-time {
+  flex: none;
+  color: color-mix(in oklab, var(--muted-foreground) 58%, transparent);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 8.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.machine-context-label {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--foreground);
+  font-size: 11.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.machine-context-time {
+  margin-left: auto;
+  letter-spacing: normal;
+  text-transform: none;
+}
+.machine-context-body {
+  max-height: 280px;
+  margin: 4px 0 0 20px;
+  overflow: auto;
+  padding: 7px 9px;
+  border-left: 1px solid var(--hairline-soft, var(--border));
+  background: color-mix(in oklab, var(--background) 88%, black);
+  color: var(--muted-foreground);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 /* A shell command reads as the code it is, not as prose about it (POD-376). */
@@ -2433,6 +2601,12 @@ html[data-density="balanced"] .header-quota-pools {
 .work-line[data-state="live"] .work-line-phrase {
   color: var(--foreground);
 }
+.work-line[data-state="wait"] .work-line-glyph {
+  color: var(--live, var(--info));
+}
+.work-line[data-state="wait"] .work-line-phrase {
+  color: color-mix(in oklab, var(--foreground) 88%, transparent);
+}
 .work-line-fail {
   flex: none;
   padding: 1px 5px;
@@ -2457,6 +2631,9 @@ html[data-density="balanced"] .header-quota-pools {
 }
 .work-line[data-state="live"] .work-line-time {
   color: var(--live, var(--info));
+}
+.work-line[data-state="wait"] .work-line-time {
+  color: var(--text-dim, var(--muted-foreground));
 }
 .work-line-count {
   display: inline-flex;
@@ -2653,6 +2830,96 @@ html[data-density="balanced"] .header-quota-pools {
   padding-top: 2px;
   padding-bottom: 2px;
 }
+
+/* Loading, empty and paging share one quiet machine-voice object. They occupy
+   the reading column without looking like chat bubbles or generic web spinners. */
+.transcript-placeholder {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(420px, 100%);
+  margin: 28px auto;
+  padding: 11px 13px;
+  border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--foreground) 2.5%, transparent);
+  color: var(--muted-foreground);
+}
+.transcript-placeholder-mark {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 25px;
+  height: 25px;
+  border: 1px solid var(--hairline-soft, var(--border));
+  border-radius: 6px;
+  color: var(--text-dim, var(--muted-foreground));
+  background: color-mix(in oklab, var(--foreground) 3%, transparent);
+}
+.transcript-placeholder-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+.transcript-placeholder-copy strong {
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 600;
+}
+.transcript-placeholder-copy span {
+  color: var(--text-dim, var(--muted-foreground));
+  font-size: 10.5px;
+}
+.transcript-pager {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  gap: 6px;
+  margin: 4px auto 8px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 9.5px;
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    background-color 120ms ease;
+}
+.transcript-pager:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--foreground) 4%, transparent);
+  color: var(--foreground);
+}
+.transcript-pager span {
+  color: var(--text-dim, var(--muted-foreground));
+  font-weight: 400;
+}
+.transcript-pager:disabled {
+  cursor: default;
+}
+.transcript-delivery {
+  margin-left: 8px;
+  color: var(--muted-foreground);
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+}
+.transcript-delivery--error {
+  color: var(--destructive);
+}
+.transcript-pending {
+  transition: opacity 180ms ease;
+}
+.transcript-pending--failed {
+  opacity: 0.72;
+}
+.transcript-search-hit {
+  border-radius: 6px;
+  outline: 1px solid color-mix(in oklab, var(--issue, var(--info)) 68%, var(--foreground));
+  outline-offset: 4px;
+  background: color-mix(in oklab, var(--issue, transparent) 5%, transparent);
+}
 /* The narrow dock runs the same grammar at its own scale (§2.5). Specificity
    has to match `.chat-compact .transcript-row`, which would otherwise win. */
 .chat-compact .transcript-turn-open {
@@ -2756,6 +3023,15 @@ html[data-density="balanced"] .header-quota-pools {
 .feed-tail-label {
   font-size: 11.5px;
 }
+.feed-tail-detail {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-dim, var(--muted-foreground));
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* Machine voice, tabular — the figure must not change width as it counts. */
 .feed-tail-figure {
   font-family: var(--font-mono, ui-monospace, monospace);
@@ -2772,6 +3048,20 @@ html[data-density="balanced"] .header-quota-pools {
 /* Working: the live hue, and the one place in the feed licensed to move. */
 .feed-tail[data-tail="working"] {
   color: var(--live, var(--info));
+}
+/* External dependencies are named but still. The diamond shares the live hue
+   so the wait remains tied to active work without borrowing attention yellow. */
+.feed-tail[data-tail="wait"] {
+  color: var(--muted-foreground);
+}
+.feed-tail[data-tail="wait"] .feed-tail-wait {
+  color: var(--live, var(--info));
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+}
+.feed-tail[data-tail="wait"] .feed-tail-label {
+  color: var(--foreground);
+  font-weight: 600;
 }
 /* Waiting on you: the brightest of the three and the only one with a keyline —
    the same warning-keyline object "Asked you" already uses, because it is the
@@ -2792,6 +3082,25 @@ html[data-density="balanced"] .header-quota-pools {
 }
 .feed-tail[data-tail="note"] {
   color: var(--muted-foreground);
+}
+.feed-tail[data-tail="interrupted"] {
+  color: color-mix(in oklab, var(--muted-foreground) 72%, transparent);
+}
+.feed-tail-stop {
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+.feed-tail[data-tail="error"] {
+  color: var(--destructive);
+  padding-bottom: 8px;
+}
+.feed-tail[data-tail="error"] .feed-tail-body {
+  padding: 6px 10px 6px 8px;
+  border-left: 2px solid currentColor;
+  border-radius: 0 6px 6px 0;
+  background: color-mix(in oklab, currentColor 5%, transparent);
+}
+.feed-tail[data-tail="error"] .feed-tail-label {
+  font-weight: 600;
 }
 /* Idle recedes, and recedes again once it has been quiet for ten minutes:
    nothing is happening and nothing is being asked, so the row should cost the
@@ -2836,6 +3145,9 @@ html[data-density="balanced"] .header-quota-pools {
    would fire three hundred times on opening a session). One shot, then
    stillness; there is no resting state to make louder. */
 @media (prefers-reduced-motion: no-preference) {
+  .transcript-placeholder {
+    animation: transcript-arrive 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
   .transcript-arrive {
     animation: transcript-arrive 240ms cubic-bezier(0.22, 1, 0.36, 1);
   }
@@ -2869,6 +3181,7 @@ html[data-density="balanced"] .header-quota-pools {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .transcript-placeholder,
   .transcript-arrive {
     animation: none;
   }
@@ -2906,8 +3219,8 @@ html[data-density="balanced"] .header-quota-pools {
   opacity: 0.5;
 }
 .transcript-role--answer {
-  color: var(--primary);
-  opacity: 0.85;
+  color: var(--muted-foreground);
+  opacity: 0.72;
 }
 .transcript-meta {
   font-size: var(--shell-type-micro);
@@ -3132,7 +3445,7 @@ html[data-density="balanced"] .header-quota-pools {
   background-color: var(--accent);
 }
 .chat-md a {
-  color: var(--primary);
+  color: var(--info);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -3147,7 +3460,8 @@ html[data-density="balanced"] .header-quota-pools {
    `a.ref-link` outranks `.chat-md a`, which would otherwise force its solid
    underline back on. */
 a.ref-link {
-  color: var(--primary);
+  --ref-accent: var(--issue, var(--info));
+  color: var(--ref-accent);
   text-decoration: none;
   cursor: pointer;
   font-family: var(--font-mono);
@@ -3156,12 +3470,12 @@ a.ref-link {
   white-space: nowrap;
   padding: 0px 4px 1px 3px;
   border-radius: 4px;
-  background: color-mix(in srgb, var(--primary) 9%, transparent);
-  border: 1px solid color-mix(in srgb, var(--primary) 28%, transparent);
+  background: color-mix(in srgb, var(--ref-accent) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ref-accent) 28%, transparent);
 }
 a.ref-link:hover {
-  background: color-mix(in srgb, var(--primary) 16%, transparent);
-  border-color: color-mix(in srgb, var(--primary) 45%, transparent);
+  background: color-mix(in srgb, var(--ref-accent) 16%, transparent);
+  border-color: color-mix(in srgb, var(--ref-accent) 45%, transparent);
   text-decoration: none;
 }
 /* Kind icon: currentColor through an SVG mask (same technique as .code-copy),
@@ -4642,7 +4956,7 @@ a.ref-link--session::before {
   color: var(--info);
 }
 .chat-compact .transcript-answer-label {
-  color: var(--primary);
+  color: color-mix(in oklab, var(--muted-foreground) 78%, transparent);
 }
 .chat-compact .chat-ctx {
   font-weight: 400;
@@ -4663,7 +4977,7 @@ a.ref-link--session::before {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 11px;
   line-height: 1.5;
-  color: var(--attention);
+  color: var(--text-dim, var(--muted-foreground));
 }
 
 /* ── The prompt well (POD-516) ───────────────────────────────────────────────
@@ -4717,7 +5031,7 @@ a.ref-link--session::before {
   padding: 6px 6px 6px 10px;
   background-color: var(--well-floor);
   box-shadow:
-    inset 0 0 0 1px var(--border-strong),
+    inset 0 0 0 1px color-mix(in srgb, var(--issue, var(--border-strong)) 28%, var(--border-strong)),
     inset 0 2px 3px -2px var(--well-lip),
     inset 0 -1px 0 var(--well-lit);
   transition:
@@ -4726,26 +5040,128 @@ a.ref-link--session::before {
 }
 /* Focus is a MATERIAL change, not a coloured callout: the floor lifts one step
    and the groove's rim brightens from the idle-composer border to the ink ramp.
-   The yellow block caret that appears inside is already this field's "you are
-   typing here"; a yellow outline round it would be the same sentence twice, and
-   The Signal Rule only pays for that sentence once. */
+   The native caret already says "you are typing here"; a yellow outline would
+   spend the action signal before there is anything to send. */
 .prompt-well:focus-within {
   background-image: linear-gradient(var(--well-hover), var(--well-hover));
   box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--text-dim) 82%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--issue, var(--text-dim)) 52%, var(--text-dim)),
     inset 0 2px 4px -2px var(--well-lip),
+    inset 0 -1px 0 var(--well-lit),
+    0 0 0 2px color-mix(in srgb, var(--issue, var(--foreground)) 14%, transparent);
+}
+
+/* Regular chat wears the same issue-tinted, neutral-focus seam as the compact
+   prompt. Focus is navigation state; only a sendable arrow turns yellow. */
+.chat-composer-well {
+  border-color: color-mix(in srgb, var(--issue, var(--border-strong)) 30%, var(--border-strong));
+  box-shadow:
+    inset 0 2px 3px -2px var(--well-lip),
     inset 0 -1px 0 var(--well-lit);
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    background-color 150ms ease;
 }
-/* The CLI prompt mark lights with the field. */
-.prompt-mark {
+.chat-composer-well:focus-within {
+  border-color: color-mix(in srgb, var(--issue, var(--text-dim)) 54%, var(--text-dim));
+  background: color-mix(in oklab, var(--issue, transparent) 3%, var(--background));
+  box-shadow:
+    inset 0 2px 4px -2px var(--well-lip),
+    inset 0 -1px 0 var(--well-lit),
+    0 0 0 2px color-mix(in srgb, var(--issue, var(--foreground)) 13%, transparent);
+}
+
+.composer-notices {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 0 2px 6px;
+}
+.composer-notice {
+  display: flex;
+  min-height: 18px;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+}
+.composer-notice strong {
+  color: var(--foreground);
+  font-weight: 600;
+}
+.composer-notice span {
+  color: var(--text-dim, var(--muted-foreground));
+}
+.composer-notice--error {
+  padding-left: 8px;
+  border-left: 2px solid var(--destructive);
+}
+.composer-notice--error strong,
+.composer-notice--error span {
+  color: var(--destructive);
+}
+
+.attachment-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 2px 1px;
+}
+.attachment-chip {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 6px;
+  border: 1px solid var(--hairline-soft, var(--border));
+  border-radius: 6px;
+  background: color-mix(in oklab, var(--foreground) 4%, transparent);
+  color: var(--muted-foreground);
+  font-size: 10.5px;
+}
+.attachment-chip--failed {
+  border-color: color-mix(in oklab, var(--destructive) 50%, var(--border));
+  color: var(--destructive);
+}
+.attachment-chip-name {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attachment-chip-size {
   flex: none;
-  padding-block: 3px;
-  color: var(--text-dim);
-  user-select: none;
-  transition: color 150ms ease;
+  color: var(--text-dim, var(--muted-foreground));
 }
-.prompt-well:focus-within .prompt-mark {
-  color: var(--text-strong);
+.attachment-chip-spinner {
+  color: var(--live, var(--info));
+}
+.attachment-chip-remove {
+  margin-left: 2px;
+  color: color-mix(in oklab, var(--muted-foreground) 68%, transparent);
+  cursor: pointer;
+}
+.attachment-chip-remove:hover {
+  color: var(--foreground);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .composer-notice,
+  .attachment-chip {
+    animation: composer-row-arrive 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+}
+@keyframes composer-row-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 /* Below the cap the box GROWS instead of scrolling — see usePromptAutoGrow's
    note 2. Growing is quick because the keystroke that caused it is already on
@@ -4776,7 +5192,7 @@ a.ref-link--session::before {
   .prompt-well {
     transition: none;
   }
-  .prompt-mark {
+  .chat-composer-well {
     transition: none;
   }
 }

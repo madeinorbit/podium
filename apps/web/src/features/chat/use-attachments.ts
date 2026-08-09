@@ -21,6 +21,7 @@ import { hasImageItems } from './image-items'
 export interface Attachment {
   id: string
   name: string
+  size?: number
   previewUrl: string
   path?: string
   state: 'uploading' | 'ready' | 'failed'
@@ -67,6 +68,7 @@ export function useAttachments(opts: {
       const newAttachments: Attachment[] = imageFiles.map((f) => ({
         id: `att-${Date.now()}-${Math.random().toString(36).slice(2)}`,
         name: f.name,
+        size: f.size,
         previewUrl: URL.createObjectURL(f),
         state: 'uploading' as const,
       }))

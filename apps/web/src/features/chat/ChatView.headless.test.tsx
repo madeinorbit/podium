@@ -206,7 +206,7 @@ describe('ChatView headless mode', () => {
     await flush()
     expect(textarea().disabled).toBe(true)
     expect(textarea().placeholder).toContain('Working')
-    expect(container.textContent).toContain('Working…')
+    expect(container.querySelector('[data-tail="working"]')?.textContent).toContain('Working')
     expect(container.querySelector('[title="Stop this turn"]')).not.toBeNull()
   })
 
@@ -224,7 +224,7 @@ describe('ChatView headless mode', () => {
     })
     await flush()
     expect(container.textContent).toContain('Plan the release')
-    expect(container.textContent).toContain('Working…')
+    expect(container.querySelector('[data-tail="working"]')?.textContent).toContain('Working')
     expect(container.textContent).not.toContain('No transcript yet')
   })
 

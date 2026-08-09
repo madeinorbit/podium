@@ -109,8 +109,7 @@ export function AskUserQuestionCard({
     setStep(qi)
   }
 
-  const answered = (qi: number) =>
-    (picks[qi]?.size ?? 0) > 0 || (custom[qi]?.trim() ?? '') !== ''
+  const answered = (qi: number) => (picks[qi]?.size ?? 0) > 0 || (custom[qi]?.trim() ?? '') !== ''
   const allAnswered = questions.length > 0 && questions.every((_, qi) => answered(qi))
   const remaining = questions.filter((_, qi) => !answered(qi)).length
   // A lone single-select commits on option click like the native menu; free text
@@ -236,7 +235,11 @@ export function AskUserQuestionCard({
           goToStep(nextOpen)
           return
         }
-        if (questions.every((_, i) => (picks[i]?.size ?? 0) > 0 || (nextCustom[i]?.trim() ?? '') !== '')) {
+        if (
+          questions.every(
+            (_, i) => (picks[i]?.size ?? 0) > 0 || (nextCustom[i]?.trim() ?? '') !== '',
+          )
+        ) {
           void submit(picks, nextCustom)
         }
         return
@@ -345,7 +348,7 @@ export function AskUserQuestionCard({
             )}
           >
             <CircleHelp size={11} aria-hidden="true" />
-            {readOnly ? 'Question · not answered' : 'Question · needs you'}
+            {readOnly ? 'Question · not answered' : 'Needs your input'}
           </span>
           {submitState === 'sending' && (
             <span className="ml-auto flex items-center gap-1.5 font-mono text-[9px] tracking-[0.06em] text-muted-foreground">
@@ -389,7 +392,7 @@ export function AskUserQuestionCard({
                 )}
               >
                 {answered(qi) && (
-                  <span className="text-[9px] leading-none text-primary" aria-hidden="true">
+                  <span className="text-[9px] leading-none text-foreground" aria-hidden="true">
                     ✓
                   </span>
                 )}
@@ -439,6 +442,15 @@ export function AskUserQuestionCard({
                   // highlight the option the agent's result says was chosen.
                   const chosen = readOnly ? isChosen(o.label) : (picks[qi]?.has(oi) ?? false)
                   const { text, recommended } = splitRecommendation(o.label)
+                  const recommendedIndex = q.options.findIndex(
+                    (option) => splitRecommendation(option.label).recommended,
+                  )
+                  // A one-click ask has no separate confirm button, so its
+                  // recommended (or first) option is the one actionable yellow
+                  // choice. Multi-question/multi-select cards spend yellow on
+                  // the shared Send answers button instead.
+                  const primaryAction =
+                    commitsOnClick && oi === (recommendedIndex >= 0 ? recommendedIndex : 0)
                   const body = (
                     <>
                       <span
@@ -448,11 +460,13 @@ export function AskUserQuestionCard({
                           q.multiSelect ? 'rounded-[3px]' : 'rounded-[4px]',
                           readOnly
                             ? chosen
-                              ? 'text-primary'
+                              ? 'text-foreground'
                               : 'text-muted-foreground/60'
                             : chosen
                               ? 'bg-primary text-primary-foreground'
-                              : 'bg-foreground/[0.06] text-muted-foreground',
+                              : primaryAction
+                                ? 'bg-primary text-primary-foreground'
+                                : 'bg-foreground/[0.06] text-muted-foreground',
                         )}
                       >
                         {chosen ? '✓' : oi + 1}
@@ -487,7 +501,7 @@ export function AskUserQuestionCard({
                   return readOnly ? (
                     <div
                       key={`${o.label}-${oi}`}
-                      className={cn(baseCls, 'px-2 py-1.5', chosen && 'bg-primary/[0.08]')}
+                      className={cn(baseCls, 'px-2 py-1.5', chosen && 'bg-foreground/[0.04]')}
                     >
                       {body}
                     </div>
@@ -505,6 +519,7 @@ export function AskUserQuestionCard({
                         baseCls,
                         'w-full border border-transparent px-2 pt-1.5 pb-[7px] transition-colors',
                         chosen && 'border-primary/35 bg-primary/[0.08]',
+                        !chosen && primaryAction && 'border-primary/30 bg-primary/[0.035]',
                         locked
                           ? cn('cursor-default', !chosen && 'opacity-40')
                           : 'cursor-pointer hover:bg-foreground/[0.038]',
@@ -536,7 +551,7 @@ export function AskUserQuestionCard({
                     className={cn(
                       'h-[28px] w-full rounded-[7px] border border-border bg-transparent px-2.5',
                       'text-[12.5px] text-foreground placeholder:text-muted-foreground/60',
-                      'outline-none transition-colors focus:border-primary/50',
+                      'outline-none transition-colors focus:border-foreground/30',
                       locked && 'cursor-default opacity-40',
                     )}
                   />

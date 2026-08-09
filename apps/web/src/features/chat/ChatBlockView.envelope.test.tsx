@@ -69,7 +69,7 @@ describe('envelope block', () => {
     const env = host.querySelector('[data-testid="message-envelope"]')
     expect(env).not.toBeNull()
     expect(env?.getAttribute('data-internal-message')).toBe('true')
-    expect(env?.textContent).toContain('Internal')
+    expect(env?.textContent).toContain('Mail')
     const chips = env!.querySelectorAll('a.ref-link')
     // Header sender chip + body POD-86 chip (linkified by the markdown pass).
     const refs = [...chips].map((a) => a.getAttribute('data-ref'))
@@ -145,7 +145,7 @@ describe('envelope block', () => {
     expect(env?.textContent).toContain('PODIUM_INTERNAL_ONLY')
     expect(prompt?.className).toContain('sticky')
     expect(prompt?.querySelector('[data-sticky-prompt-backdrop]')).not.toBeNull()
-    expect(prompt?.textContent).toContain('You')
+    expect(prompt?.textContent).toContain('Your brief · active turn')
     expect(prompt?.textContent).toContain('please tighten the sticky prompt')
     expect(prompt?.textContent).not.toContain('PODIUM_INTERNAL_ONLY')
   })
@@ -156,5 +156,40 @@ describe('envelope block', () => {
     expect(host.querySelector('[data-operator-prompt="true"]')).toBeNull()
     expect(host.querySelector('[data-sticky-prompt-backdrop]')).toBeNull()
     expect(host.querySelector('.sticky')).toBeNull()
+  })
+})
+
+describe('operator events', () => {
+  it('composes an interrupt as a neutral stop event with its timestamp', () => {
+    mount({
+      id: 'interrupt-1',
+      role: 'user',
+      text: '',
+      event: 'interrupt',
+      ts: '2026-08-08T20:42:00.000Z',
+    } as TranscriptItem)
+
+    const event = host.querySelector('[data-event="interrupt"]')
+    expect(event).not.toBeNull()
+    expect(event?.classList.contains('transcript-interrupt')).toBe(true)
+    expect(event?.textContent).toContain('Interrupted by you')
+    expect(event?.querySelector('.transcript-interrupt-stop')?.textContent).toBe('□')
+    expect(event?.querySelector('.chat-clk')).not.toBeNull()
+  })
+
+  it('names plan approval as the pending operator action', () => {
+    mount({
+      id: 'plan-1',
+      role: 'tool',
+      text: '',
+      toolName: 'ExitPlanMode',
+      toolTitle: 'Review the proposed rollout plan',
+      toolUseId: 'plan-use',
+    } as TranscriptItem)
+
+    const card = host.querySelector('[data-testid="asked-you"] .asked-you')
+    expect(card?.getAttribute('data-attention')).toBe('plan')
+    expect(card?.textContent).toContain('Plan ready · needs you')
+    expect(card?.textContent).toContain('Review the proposed rollout plan')
   })
 })

@@ -22,22 +22,22 @@ export function MachineContextRow({
         <button
           data-pressable
           type="button"
-          className="flex w-full min-w-0 cursor-pointer items-baseline gap-[7px] py-0.5 text-left text-xs text-muted-foreground"
+          className="machine-context-head"
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
         >
-          <span className="flex-none font-mono text-[10px] text-muted-foreground/50">
+          <span className="machine-context-chevron" aria-hidden="true">
             {open ? '▾' : '▸'}
           </span>
-          <span className="flex-none text-xs font-semibold text-foreground">
-            {machineContextLabel(item.text)}
-          </span>
+          <span className="machine-context-kind">Context · machine</span>
+          <span className="machine-context-label">{machineContextLabel(item.text)}</span>
+          {item.ts && (
+            <time className="machine-context-time" dateTime={item.ts}>
+              {new Date(item.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </time>
+          )}
         </button>
-        {open && (
-          <pre className="mt-1 max-h-[280px] overflow-auto rounded-md border border-border bg-background px-2.5 py-2 text-[11px] whitespace-pre-wrap break-words text-muted-foreground">
-            {item.text}
-          </pre>
-        )}
+        {open && <pre className="machine-context-body">{item.text}</pre>}
       </div>
     </div>
   )

@@ -172,9 +172,9 @@ describe('an invisible referent', () => {
     await flush()
 
     const text = container.textContent ?? ''
-    // Not loading-forever: the spinner is not shown for a terminal referent, and
+    // Not loading-forever: the loading object is not shown for a terminal referent, and
     // no amount of flushing turns it into one.
-    expect(text).not.toContain('Loading transcript…')
+    expect(text).not.toContain('Loading transcript')
     expect(container.querySelector('[role="status"]')).toBeNull()
     // Not deleted: nothing on screen says the session was removed, and there is
     // no tombstone row standing in for it.
@@ -183,16 +183,16 @@ describe('an invisible referent', () => {
     expect(text.toLowerCase()).not.toContain('no longer exists')
   })
 
-  it('does not spin forever once the read resolves empty for a present session', async () => {
+  it('settles the bounded loading state once an empty read resolves', async () => {
     act(() => {
       root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
-    expect(container.textContent).toContain('Loading transcript…')
+    expect(container.textContent).toContain('Loading transcript')
     await act(async () => {
       reads[0]?.resolve({ items: [], hasMore: false })
     })
     await flush()
-    expect(container.textContent).not.toContain('Loading transcript…')
+    expect(container.textContent).not.toContain('Loading transcript')
     expect(container.textContent).toContain('No transcript yet')
   })
 })
