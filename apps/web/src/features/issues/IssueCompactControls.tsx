@@ -1,10 +1,6 @@
 import { randomUUID } from '@podium/client-core/id'
 import { shallowEqual } from '@podium/client-core/store'
-import {
-  issueNeedsHuman,
-  motionPhase,
-  sessionNeedsHuman,
-} from '@podium/client-core/viewmodels'
+import { issueNeedsHuman, motionPhase, sessionNeedsHuman } from '@podium/client-core/viewmodels'
 import type { IssueId, IssueStage, SessionMeta } from '@podium/model'
 import { ChevronDown, GitBranch, GitCommit, MoreHorizontal, RotateCcw } from 'lucide-react'
 import { type JSX, useState } from 'react'

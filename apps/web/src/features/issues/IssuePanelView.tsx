@@ -4,6 +4,7 @@ import {
   artifactKind,
   artifactUrl,
   basename,
+  groupRelations,
   issueForPanel,
   operationalState,
   type PresenceKind,
@@ -49,7 +50,6 @@ import {
 import { issueIdTitle } from './issue-card'
 import { buildActivityFeed, type IssueEvent } from './issue-events'
 import { StageGlyph } from './issue-glyphs'
-import { groupRelations } from '@podium/client-core/viewmodels'
 
 // Where the task's identity lives, since POD-516 r3: the DOCK TITLE BAR carries
 // the stage glyph and the title (RightDock.tsx), because the title bar is every

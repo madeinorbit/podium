@@ -41,12 +41,12 @@ import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
 import { NewPanelMenu } from './NewPanelMenu'
+import { useOperatorFocus } from './operator-focus'
 import { PanelDeck } from './PanelDeck'
 import { composeDeck, type DeckTab } from './panel-deck'
 import { useReplicaIssues, useStoreSelector } from './store'
 import { closeWorkspaceTab } from './workspace-close'
 import { fileTabsForWorkspace } from './workspace-tabs'
-import { useOperatorFocus } from './operator-focus'
 
 // A tab in the strip is either an agent/shell session or an open file editor. Both are
 // first-class: same strip, same drag/select/close behaviour. paneA/paneB hold a tab id
@@ -183,7 +183,11 @@ export function Workspace(): JSX.Element {
   ).filter((s) => !dockShellIds.has(s.sessionId))
   const sessionList = showArchived ? [...liveSessionList, ...archivedMembers] : liveSessionList
   const fileList = fileTabsForWorkspace(fileTabs, { issue, worktreePath: panelTarget?.path })
-  const orderKey = missionRoot ? `mission:${missionRoot.id}` : issue ? `issue:${issue.id}` : worktree?.path
+  const orderKey = missionRoot
+    ? `mission:${missionRoot.id}`
+    : issue
+      ? `issue:${issue.id}`
+      : worktree?.path
   const byId = new Map<string, WTab>()
   for (const s of sessionList)
     byId.set(s.sessionId, { id: s.sessionId, kind: 'session', session: s })

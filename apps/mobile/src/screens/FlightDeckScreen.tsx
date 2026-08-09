@@ -1,4 +1,5 @@
 import { relativeTime } from '@podium/client-core/focus'
+import { useSlice } from '@podium/client-core/react'
 import {
   buildFlightDeckRows,
   deckIssueState,
@@ -17,7 +18,6 @@ import {
   treeGuides,
   worklistSlice,
 } from '@podium/client-core/viewmodels'
-import { useSlice } from '@podium/client-core/react'
 import type { IssueWire, SessionMeta } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { useLocalSearchParams, useRouter } from 'expo-router'
@@ -29,20 +29,25 @@ import { Icon } from '../components/Icon'
 import { BootstrapCrossfade, DetailSkeleton } from '../components/LaunchPlaceholders'
 import { PressableScale } from '../components/PressableScale'
 import { HeaderButton, Screen } from '../components/Screen'
-import {
-  BAND_PAD,
-  CollapsedPayload,
-  RosterFold,
-  SessionBand,
-  TaskStrip,
-} from '../components/spine'
+import { BAND_PAD, CollapsedPayload, RosterFold, SessionBand, TaskStrip } from '../components/spine'
 import { TaskSheet } from '../components/TaskSheet'
 import { EmptyState } from '../components/ui'
 import { useTabBarInset } from '../hooks/useTabBarInset'
+import { applyFolds, coveredByStrip } from '../lib/deck-rows'
 import { sessionHref } from '../lib/session-route'
 import { FLOW_SLATE, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
-import { color, font, leading, mono, monoLabel, radius, sans, space, tracking } from '../theme/theme'
+import {
+  color,
+  font,
+  leading,
+  mono,
+  monoLabel,
+  radius,
+  sans,
+  space,
+  tracking,
+} from '../theme/theme'
 
 /**
  * The Flight Deck, on the phone [POD-592].
@@ -100,24 +105,7 @@ export function FlightDeckScreen() {
     [issues, sessions, root],
   )
 
-  /**
-   * A fold hides a branch's DESCENDANTS. `buildFlightDeckRows` already returns
-   * the spine flat with a depth on every row, so folding is a filter over that
-   * list rather than a second tree walk: drop every row that is deeper than a
-   * folded ancestor, until the depth returns to the ancestor's own.
-   */
-  const shown = useMemo(() => {
-    if (folded.size === 0) return rows
-    const out: FlightDeckRow[] = []
-    let hideBelow: number | null = null
-    for (const row of rows) {
-      if (hideBelow !== null && row.depth > hideBelow) continue
-      hideBelow = null
-      out.push(row)
-      if (folded.has(row.issue.id)) hideBelow = row.depth
-    }
-    return out
-  }, [rows, folded])
+  const shown = useMemo(() => applyFolds(rows, folded), [rows, folded])
 
   // The root is NOT a strip — the header is its row (POD-516 round 3), so it is
   // dropped from the spine and its agents are rendered directly under the head.
@@ -180,11 +168,19 @@ export function FlightDeckScreen() {
             />
 
             <View style={styles.controls}>
-              <ModeSegments mode={mode} onChange={setMode} attention={rootRow?.attentionCount ?? 0} />
+              <ModeSegments
+                mode={mode}
+                onChange={setMode}
+                attention={rootRow?.attentionCount ?? 0}
+              />
               <PressableScale
                 onPress={() =>
                   setFolded((prev) =>
-                    prev.size > 0 ? new Set() : new Set(rows.filter((r) => r.descendantIds.length > 0).map((r) => r.issue.id)),
+                    prev.size > 0
+                      ? new Set()
+                      : new Set(
+                          rows.filter((r) => r.descendantIds.length > 0).map((r) => r.issue.id),
+                        ),
                   )
                 }
                 accessibilityLabel="Collapse all"
@@ -279,7 +275,11 @@ function MissionHead({
         <Text
           style={[
             styles.chip,
-            { borderColor: alpha(hex, 0.45), color: alpha(hex, 0.95), backgroundColor: alpha(hex, 0.12) },
+            {
+              borderColor: alpha(hex, 0.45),
+              color: alpha(hex, 0.95),
+              backgroundColor: alpha(hex, 0.12),
+            },
           ]}
         >
           {root.stage.replace('_', ' ')}
@@ -306,18 +306,28 @@ function MissionHead({
           wait. Never computed from the filtered spine: the filter is a display
           preference, the mission's shape is not. */}
       <View style={styles.bar}>
-        <View style={[styles.barSeg, { width: seg(progress.done), backgroundColor: color.working }]} />
         <View
-          style={[styles.barSeg, { width: seg(progress.run), backgroundColor: alpha(color.working, 0.42) }]}
+          style={[styles.barSeg, { width: seg(progress.done), backgroundColor: color.working }]}
         />
-        <View style={[styles.barSeg, { width: seg(progress.block), backgroundColor: color.danger }]} />
         <View
-          style={[styles.barSeg, { width: seg(progress.wait), backgroundColor: alpha(color.idle, 0.35) }]}
+          style={[
+            styles.barSeg,
+            { width: seg(progress.run), backgroundColor: alpha(color.working, 0.42) },
+          ]}
+        />
+        <View
+          style={[styles.barSeg, { width: seg(progress.block), backgroundColor: color.danger }]}
+        />
+        <View
+          style={[
+            styles.barSeg,
+            { width: seg(progress.wait), backgroundColor: alpha(color.idle, 0.35) },
+          ]}
         />
       </View>
       <Text numberOfLines={1} style={styles.meta}>
-        {progress.done} of {progress.total} done
-        {progress.run > 0 ? ` · ${progress.run} running` : ''}
+        {progress.done}/{progress.total} done
+        {progress.run > 0 ? ` · ${progress.run} run` : ''}
         {progress.block > 0 ? ` · ${progress.block} blocked` : ''}
         {live > 0 ? ` · ${live} live` : ''}
       </Text>
@@ -419,7 +429,18 @@ function SpineRow({
   const state = deckIssueState(row.issue, row.sessions, byId)
   const note = issueNote(row.issue, byId)
   const bands = folded ? [] : deckSessions(row, mode)
-  const presence = presenceNote(row.issue, row.sessions, byId)
+  /**
+   * The presence line explains an ABSENCE the strip cannot already account for.
+   *
+   * On the desktop this note has a column of its own; here it sits directly
+   * under a strip that has just said the state word and, when there is one, the
+   * issue note. So `blocked` and `waiting` would print "Blocked by 2 tasks"
+   * immediately under "Blocked · 2 tasks", and `proposed` would print
+   * "Proposed · not started" under "Proposed". Saying it twice in adjacent
+   * lines reads as two facts, not one — it is worse than not saying it at all.
+   */
+  const raw = presenceNote(row.issue, row.sessions, byId)
+  const presence = raw && !coveredByStrip(raw, state.label) ? raw : null
   return (
     <View>
       <TaskStrip

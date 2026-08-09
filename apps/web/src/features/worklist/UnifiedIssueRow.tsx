@@ -1,7 +1,7 @@
 import {
   draftIssueLabel,
-  isDraftAgentVessel,
   type IssueNavigationModel,
+  isDraftAgentVessel,
   missionProgress,
   pendingDecisionLabel,
   pendingDecisionTitle,
@@ -22,8 +22,8 @@ import { useMemo, useState } from 'react'
 import { GitStamp } from '@/components/GitStamp'
 import { IdSquare } from '@/components/IdSquare'
 import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
-import { issueIdTitle } from '@/lib/issue-labels'
 import { agentFleetTileTint, agentIconFor } from '@/lib/agent-tone'
+import { issueIdTitle } from '@/lib/issue-labels'
 import { issueColorHex } from '@/lib/issueColors'
 import { PhaseTimer } from '@/lib/motion'
 import type { ContextMenuAnchor } from '@/lib/SessionContextMenu'

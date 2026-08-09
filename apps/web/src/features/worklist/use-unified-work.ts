@@ -31,8 +31,8 @@ import {
   type SessionId,
 } from '@podium/model'
 import { useEffect, useRef } from 'react'
-import { useReplicaIssues, useSlice, useStoreSelector } from '@/app/store'
 import { useOperatorFocus } from '@/app/operator-focus'
+import { useReplicaIssues, useSlice, useStoreSelector } from '@/app/store'
 import type { SidebarDerivation } from './derivation'
 
 /**

@@ -1,9 +1,9 @@
-import { type IssueNavigationModel } from './slices/issues'
-import { sessionsForIssueNav } from './session-ownership'
-import { motionPhase } from './session-status'
-import { isCoordinatorSession } from './slices/terminal'
 import { type AgentKind, type SessionMeta, spawnedByParentSessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
+import { sessionsForIssueNav } from './session-ownership'
+import { motionPhase } from './session-status'
+import type { IssueNavigationModel } from './slices/issues'
+import { isCoordinatorSession } from './slices/terminal'
 
 export type FlightDeckMode = 'full' | 'active' | 'needs-you'
 

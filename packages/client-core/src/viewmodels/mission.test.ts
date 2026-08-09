@@ -5,7 +5,7 @@
 // actually depends on — mission membership (formal parent edges AND agent-started
 // provenance, but never a `discovered-from` spin-off), ancestor-preserving mode
 // filters, and the per-row operational state that drives the status column.
-import type { IssueNavigationModel } from './slices/issues'
+
 import {
   ISSUE_STAGES,
   type SessionMeta,
@@ -34,6 +34,7 @@ import {
   sessionNeedsHuman,
   waitingNote,
 } from './mission'
+import type { IssueNavigationModel } from './slices/issues'
 
 // ---------------------------------------------------------------------------
 // Fixtures

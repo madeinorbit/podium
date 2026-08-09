@@ -28,10 +28,22 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useReduceMotion } from '../hooks/useReduceMotion'
 import { FLOW_SLATE, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
-import { color, elevation, font, leading, mono, monoLabel, radius, sans, space, spring, tracking } from '../theme/theme'
+import {
+  color,
+  elevation,
+  font,
+  leading,
+  mono,
+  monoLabel,
+  radius,
+  sans,
+  space,
+  spring,
+  tracking,
+} from '../theme/theme'
 import { Icon } from './Icon'
-import { kindTone } from './spine'
 import { PressableScale } from './PressableScale'
+import { kindTone } from './spine'
 
 /**
  * The task inspector as ONE sheet with TWO detents [POD-592].
@@ -140,7 +152,15 @@ export function TaskSheet({
   const responder = useMemo(
     () =>
       PanResponder.create({
-        onMoveShouldSetPanResponder: (_e, g) => {
+        // Claim on TOUCH-DOWN, so the head is a grab handle rather than a region
+        // that only becomes one once the finger has already travelled. This is
+        // also what makes the tap recognisable here: the release below decides
+        // between "toggled the detent" and "dragged it".
+        onStartShouldSetPanResponder: () => true,
+        // CAPTURE, not bubble. A drag that begins on a Text node inside the head
+        // never reaches the bubbling hook on react-native-web — the browser
+        // starts a text selection instead, and the sheet simply does not move.
+        onMoveShouldSetPanResponderCapture: (_e, g) => {
           if (Math.abs(g.dy) < 4 || Math.abs(g.dy) < Math.abs(g.dx)) return false
           // At large, the scroll owns downward drags until it is back at its top.
           if (detent.current === 'large' && g.dy > 0 && scrollTop.current > 0) return false
@@ -161,6 +181,12 @@ export function TaskSheet({
         onPanResponderRelease: (_e, g) => {
           y.flattenOffset()
           const at = yValue.current
+          // A release that went nowhere is a TAP on the head: toggle the detent.
+          // Costs nothing, and it is the only way through for a pointer that
+          // cannot express a flick.
+          if (Math.abs(g.dy) < 6 && Math.abs(g.dx) < 6) {
+            return settle(detent.current === 'large' ? 'medium' : 'large')
+          }
           if (g.vy > FLICK) return settle(detent.current === 'large' ? 'medium' : 'closed')
           if (g.vy < -FLICK) return settle('large')
           const d = [
@@ -199,7 +225,17 @@ export function TaskSheet({
           { top, height: span, transform: [{ translateY: y }], borderTopColor: alpha(hex, 0.45) },
         ]}
       >
-        <View {...responder.panHandlers}>
+        {/* ONE gesture surface for the whole head. A nested Pressable on the
+            grabber would claim the responder on touch-down and the drag would
+            never start — so the tap is recognised by the pan responder itself
+            (a release that travelled almost nowhere) rather than by a second
+            component competing for the same events. */}
+        <View
+          {...responder.panHandlers}
+          accessibilityRole="adjustable"
+          accessibilityLabel={atLarge ? 'Collapse the task' : 'Expand the task'}
+          style={styles.dragRegion}
+        >
           <View style={styles.grabberBox}>
             <View style={styles.grabber} />
           </View>
@@ -270,7 +306,11 @@ function SheetHead({
         <Text
           style={[
             styles.chip,
-            { borderColor: alpha(hex, 0.45), color: alpha(hex, 0.95), backgroundColor: alpha(hex, 0.12) },
+            {
+              borderColor: alpha(hex, 0.45),
+              color: alpha(hex, 0.95),
+              backgroundColor: alpha(hex, 0.12),
+            },
           ]}
         >
           {issue.stage.replace('_', ' ')}
@@ -284,13 +324,20 @@ function SheetHead({
       </Text>
 
       <View style={styles.decide}>
-        <PressableScale style={styles.stagePill} accessibilityLabel="Change stage" onPress={() => {}}>
+        <PressableScale
+          style={styles.stagePill}
+          accessibilityLabel="Change stage"
+          onPress={() => {}}
+        >
           <Text style={styles.stagePillText}>
             {issue.stage.replace('_', ' ').replace(/^./, (c) => c.toUpperCase())}
           </Text>
           <Icon as={ChevronDown} size={11} color={color.text} />
         </PressableScale>
-        <PressableScale style={styles.primary} accessibilityLabel={asking.length ? 'Answer' : 'Run now'}>
+        <PressableScale
+          style={styles.primary}
+          accessibilityLabel={asking.length ? 'Answer' : 'Run now'}
+        >
           <Text style={styles.primaryText}>{asking.length > 0 ? 'Answer' : 'Run now'}</Text>
         </PressableScale>
       </View>
@@ -352,7 +399,10 @@ function SheetBody({
           precisely so it can be. */}
       {issue.description.trim() ? <Text style={styles.prose}>{issue.description}</Text> : null}
 
-      <Part title="Current update" meta={issue.notesUpdatedAt ? relativeTime(issue.notesUpdatedAt, Date.now()) : undefined}>
+      <Part
+        title="Current update"
+        meta={issue.notesUpdatedAt ? relativeTime(issue.notesUpdatedAt, Date.now()) : undefined}
+      >
         <Text style={[styles.proseTight, issue.activityNotes ? null : styles.proseEmpty]}>
           {issue.activityNotes || 'No status posted yet.'}
         </Text>
@@ -374,7 +424,10 @@ function SheetBody({
       ) : null}
 
       {children.length > 0 ? (
-        <Part title="Subtasks" meta={`${children.filter((c) => c.stage === 'done').length} / ${children.length}`}>
+        <Part
+          title="Subtasks"
+          meta={`${children.filter((c) => c.stage === 'done').length} / ${children.length}`}
+        >
           {children.map((child) => (
             <View key={child.id} style={styles.row}>
               <Text style={styles.rowRef}>{issueDisplayRef(child)}</Text>
@@ -436,7 +489,9 @@ function SheetBody({
           <Text style={styles.gitLine}>
             {git?.ahead ? `↑${git.ahead} · ` : ''}
             {git?.dirtyFiles ? `${git.dirtyFiles} dirty` : 'clean'}
-            {issue.worktreePath ? ` · ${issue.worktreePath.replace(/^.*\/\.worktrees\//, '…/')}` : ''}
+            {issue.worktreePath
+              ? ` · ${issue.worktreePath.replace(/^.*\/\.worktrees\//, '…/')}`
+              : ''}
           </Text>
         </Part>
       ) : null}
@@ -477,7 +532,9 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     overflow: 'hidden',
   },
-  grabberBox: { height: 22, alignItems: 'center', justifyContent: 'center' },
+  // A drag must never leave a trail of selected text behind it.
+  dragRegion: Platform.OS === 'web' ? ({ userSelect: 'none' } as object) : {},
+  grabberBox: { height: 26, alignItems: 'center', justifyContent: 'center' },
   grabber: { width: 36, height: 5, borderRadius: 3, backgroundColor: color.borderStrong },
   flex: { flex: 1 },
 
@@ -588,7 +645,13 @@ const styles = StyleSheet.create({
   rowRef: { ...mono(400), fontSize: font.micro, color: color.textMicro, minWidth: 52 },
   rowTitle: { ...sans(400), flex: 1, fontSize: font.tiny, color: color.body },
   rowStamp: { ...mono(400), fontSize: font.micro, color: color.textMicro },
-  kind: { width: 20, height: 20, borderRadius: radius.xs, alignItems: 'center', justifyContent: 'center' },
+  kind: {
+    width: 20,
+    height: 20,
+    borderRadius: radius.xs,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   kindCh: { ...mono(600), fontSize: 9 },
   dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: color.accent },
 

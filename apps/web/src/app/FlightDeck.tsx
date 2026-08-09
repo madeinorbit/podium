@@ -5,9 +5,9 @@ import {
   buildFlightDeckRows,
   type CollapsedSummary,
   type DeckIssueState,
+  type DeckState,
   deckIssueState,
   deckSessions,
-  type DeckState,
   type FlightDeckMode,
   type FlightDeckRow,
   type IssueNavigationModel,
@@ -21,8 +21,8 @@ import {
   type PresenceNote,
   presenceNote,
   reposToViews,
-  sessionNeedsHuman,
   type SessionRole,
+  sessionNeedsHuman,
   sessionRole,
   treeGuides,
 } from '@podium/client-core/viewmodels'
@@ -1200,10 +1200,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
    */
   const rootRow = rows[0]
   const rootNote = root ? issueNote(root, byId) : null
-  const rootSessions = useMemo(
-    () => (rootRow ? deckSessions(rootRow, mode) : []),
-    [rootRow, mode],
-  )
+  const rootSessions = useMemo(() => (rootRow ? deckSessions(rootRow, mode) : []), [rootRow, mode])
   const [rosterOpen, setRosterOpen] = useState(false)
   const rootLive = useMemo(
     () =>

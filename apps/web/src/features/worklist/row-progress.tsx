@@ -93,8 +93,9 @@
  * real change and the meter should be seen to move, which is also the only way
  * a glance that lands mid-change reads the right number.
  */
-import type { JSX } from 'react'
+
 import type { MissionProgress } from '@podium/client-core/viewmodels'
+import type { JSX } from 'react'
 import { cn } from '@/lib/utils'
 
 /**

@@ -48,7 +48,72 @@ function session(
   } as SessionMeta
 }
 
+const DEMO_MISSION_SESSIONS: SessionMeta[] = [
+  session({
+    sessionId: asSessionId('demo-mission-coord'),
+    title: 'Check status and plan for landing PR 554',
+    name: 'Check status and plan for landing PR 554',
+    issueId: 'demo-mission-root',
+    agentColor: 'rose',
+    lastActiveAt: min(1),
+    agentState: {
+      phase: 'working',
+      since: min(31),
+      nativeSubagentCount: 0,
+      workingMsTotal: 1127538,
+    },
+  }),
+  session({
+    sessionId: asSessionId('demo-mission-gc-agent'),
+    title: 'Worktree GC janitor sweep',
+    name: 'Worktree GC janitor sweep',
+    issueId: 'demo-mission-gc',
+    agentColor: 'orange',
+    lastActiveAt: min(12),
+    agentState: {
+      phase: 'idle',
+      since: min(12),
+      nativeSubagentCount: 0,
+      idle: { kind: 'approval' },
+    },
+    offer: {
+      message:
+        'Worktree GC is committed and verified\nFlipping worktreeGc.mode to auto applies it; a dirty tree always refuses and is reported.',
+      actions: [
+        { label: 'Merge it', prompt: 'Merge the branch to main.' },
+        { label: 'Send back…', prompt: 'Do not merge yet. Address this feedback:', input: true },
+      ],
+      createdAt: min(12),
+    },
+  }),
+  session({
+    sessionId: asSessionId('demo-mission-hibernate-agent'),
+    title: 'Load-pressure hibernation path',
+    name: 'Load-pressure hibernation path',
+    agentKind: 'grok',
+    issueId: 'demo-mission-hibernate',
+    lastActiveAt: min(64),
+    agentState: { phase: 'idle', since: min(64), nativeSubagentCount: 0, idle: { kind: 'done' } },
+  }),
+  session({
+    sessionId: asSessionId('demo-mission-archive-agent'),
+    title: 'Archive frees the worktree',
+    name: 'Archive frees the worktree',
+    issueId: 'demo-mission-archive',
+    status: 'hibernated',
+    lastActiveAt: min(140),
+    agentState: {
+      phase: 'idle',
+      since: min(140),
+      nativeSubagentCount: 0,
+      idle: { kind: 'done' },
+      workingMsTotal: 601044,
+    },
+  }),
+]
+
 export const DEMO_SESSIONS: SessionMeta[] = [
+  ...DEMO_MISSION_SESSIONS,
   session({
     sessionId: asSessionId('demo-auth'),
     title: 'Fix OAuth token refresh',
@@ -158,7 +223,143 @@ function proposal(
   } as IssueWire
 }
 
+/**
+ * A MISSION, not a flat row [POD-592].
+ *
+ * Demo mode carried no parent/child edge at all, so the Flight Deck — the whole
+ * point of tapping a Work row — had nothing to draw and could not be seen
+ * without a live server. This is the smallest tree that exercises the spine's
+ * real vocabulary: a running root with a coordinator, a blocked child that
+ * names its blockers, two children with agents that stopped and asked, one
+ * proposal nobody has accepted, and one done.
+ */
+function missionTask(
+  partial: Partial<IssueWireInput> & Pick<IssueWire, 'id' | 'seq' | 'title' | 'description'>,
+): IssueWire {
+  return {
+    ...proposal(partial),
+    stage: 'backlog',
+    origin: 'agent',
+    ...partial,
+  } as IssueWire
+}
+
+const DEMO_MISSION: IssueWire[] = [
+  missionTask({
+    id: asIssueId('demo-mission-root'),
+    seq: 554,
+    title: 'Host resource lifecycle policy',
+    description:
+      'Closed work still leaves agent sessions and git worktrees on the host, so the board can look quiet while the machine stays overloaded. We need a safe lifecycle policy for when sessions stop and worktrees free.',
+    stage: 'review',
+    priority: 1,
+    color: 'rose',
+    branch: 'issue/554-host-resource-lifecycle-policy',
+    worktreePath: '/home/dev/src/podium/.worktrees/issue-554-host-resource-lifecycle-policy',
+    childCount: 5,
+    childDoneCount: 1,
+    activityNotes:
+      'Design is written and attached. Recommendation: treat process / worktree / branch as three resources released at three different points, ordered by how reversible each release is.',
+    notesUpdatedAt: min(18),
+    panel: {
+      todos: [
+        { text: 'Read the recommendation — the archive-vs-done decision is section 2', done: true },
+        { text: 'Decide whether to file the six PRs as issues now or later', done: false },
+      ],
+      artifacts: [],
+      deferred: [],
+    },
+    createdAt: min(2400),
+    updatedAt: min(18),
+  }),
+  missionTask({
+    id: asIssueId('demo-mission-readout'),
+    seq: 563,
+    parentId: asIssueId('demo-mission-root'),
+    title: 'Host pressure readout in top bar',
+    description:
+      'Surface load per core and agent count in the top bar so an overloaded machine is visible before it starts failing work.',
+    blocked: true,
+    ready: false,
+    deps: [
+      { id: asIssueId('demo-mission-gc'), type: 'blocks' },
+      { id: asIssueId('demo-mission-hibernate'), type: 'blocks' },
+    ],
+    createdAt: min(2300),
+    updatedAt: min(300),
+  }),
+  missionTask({
+    id: asIssueId('demo-mission-gc'),
+    seq: 564,
+    parentId: asIssueId('demo-mission-root'),
+    title: 'Worktree GC janitor sweep',
+    description:
+      'Closed issues that were never archived keep their disk checkout forever, and sub-issues are outside the archive sweep entirely. Add a janitor that proposes reclaimable checkouts rather than removing them silently.',
+    stage: 'review',
+    branch: 'issue/564-worktree-gc-janitor-sweep',
+    gitState: {
+      updatedAt: min(18),
+      branch: 'issue/564-worktree-gc-janitor-sweep',
+      ahead: 1,
+      dirtyFiles: 0,
+      shared: false,
+    },
+    activityNotes:
+      'Done and committed (f5cc373). The janitor finds closed issues whose checkout is still on disk — including sub-issues, which the archive sweep can never reach — and by default only PROPOSES them.',
+    notesUpdatedAt: min(18),
+    panel: {
+      todos: [
+        { text: 'worktreeGc setting: mode (off/propose/auto) + afterDays', done: true },
+        { text: 'worktree-gc janitor proposes reclaimable checkouts', done: true },
+        { text: 'Dirty tree refuses and is reported', done: true },
+      ],
+      artifacts: [],
+      deferred: [],
+    },
+    dependents: [{ id: asIssueId('demo-mission-readout'), type: 'blocks' }],
+    createdAt: min(2300),
+    updatedAt: min(18),
+  }),
+  missionTask({
+    id: asIssueId('demo-mission-unobserved'),
+    seq: 565,
+    parentId: asIssueId('demo-mission-root'),
+    title: 'Unobserved sessions in idle policy',
+    description:
+      'A session nobody has observed should not count against the idle policy the same way an abandoned one does.',
+    stage: 'proposed',
+    createdAt: min(2300),
+    updatedAt: min(2300),
+  }),
+  missionTask({
+    id: asIssueId('demo-mission-hibernate'),
+    seq: 566,
+    parentId: asIssueId('demo-mission-root'),
+    title: 'Load pressure hibernation trigger',
+    description:
+      'Hibernate sessions when the host is under sustained load per core, not only when a session has been idle long enough.',
+    stage: 'review',
+    branch: 'issue/566-load-pressure-hibernation-trigger',
+    dependents: [{ id: asIssueId('demo-mission-readout'), type: 'blocks' }],
+    createdAt: min(2300),
+    updatedAt: min(64),
+  }),
+  missionTask({
+    id: asIssueId('demo-mission-archive'),
+    seq: 567,
+    parentId: asIssueId('demo-mission-root'),
+    title: 'Archive frees the worktree',
+    description:
+      'Archiving an issue should free its checkout while keeping the branch, so the disk is reclaimed without losing work.',
+    stage: 'done',
+    ready: false,
+    createdAt: min(2300),
+    updatedAt: min(140),
+  }),
+]
+
 export const DEMO_ISSUES: IssueWire[] = [
+  ...DEMO_MISSION,
   proposal({
     id: asIssueId('demo-proposal-retry'),
     seq: 301,

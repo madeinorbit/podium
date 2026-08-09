@@ -1,4 +1,9 @@
-import type { CollapsedSummary, DeckIssueState, IssueNote, SessionRole } from '@podium/client-core/viewmodels'
+import type {
+  CollapsedSummary,
+  DeckIssueState,
+  IssueNote,
+  SessionRole,
+} from '@podium/client-core/viewmodels'
 import type { AgentKind } from '@podium/model'
 import { Check, ChevronDown, CircleSlash, Clock, CornerDownRight } from 'lucide-react-native'
 import type { ReactNode } from 'react'
@@ -350,13 +355,7 @@ export function roleWord(role: SessionRole): string {
 
 /** What a fold is HIDING, so the fold can still say it — descendants and the
  *  row's own agents both, because folding takes both away. */
-export function CollapsedPayload({
-  summary,
-  depth,
-}: {
-  summary: CollapsedSummary
-  depth: number
-}) {
+export function CollapsedPayload({ summary, depth }: { summary: CollapsedSummary; depth: number }) {
   const parts = [`${summary.tasks} task${summary.tasks === 1 ? '' : 's'}`]
   if (summary.done > 0) parts.push(`${summary.done} done`)
   if (summary.run > 0) parts.push(`${summary.run} running`)
@@ -399,15 +398,19 @@ export function RosterFold({
       accessibilityLabel={expanded ? 'Hide finished agents' : `Show ${count} finished agents`}
     >
       <Icon as={CornerDownRight} size={11} color={color.textMicro} />
-      <Text style={styles.rosterFoldText}>
-        {expanded ? 'hide' : `${count} finished`}
-      </Text>
+      <Text style={styles.rosterFoldText}>{expanded ? 'hide' : `${count} finished`}</Text>
     </PressableScale>
   )
 }
 
 const styles = StyleSheet.create({
-  rail: { position: 'absolute', top: 0, bottom: 0, width: StyleSheet.hairlineWidth * 2, backgroundColor: color.hairline },
+  rail: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: StyleSheet.hairlineWidth * 2,
+    backgroundColor: color.hairline,
+  },
   railHalf: { bottom: '50%' },
   railBottom: { top: '50%' },
   elbow: {
@@ -418,7 +421,14 @@ const styles = StyleSheet.create({
   },
 
   strip: { flexDirection: 'row', alignItems: 'center', paddingRight: space.md },
-  chev: { position: 'absolute', width: 20, height: 20, alignItems: 'center', justifyContent: 'center', zIndex: 3 },
+  chev: {
+    position: 'absolute',
+    width: 20,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 3,
+  },
   glyph: { width: 20, height: 20, alignItems: 'center', justifyContent: 'center' },
   glyphProposed: { opacity: 0.6 },
   stripText: { flex: 1, minWidth: 0, paddingLeft: space.sm, paddingRight: space.xs },
@@ -455,7 +465,13 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: alpha(color.border, 0.55),
   },
-  kind: { width: 20, height: 20, borderRadius: radius.xs, alignItems: 'center', justifyContent: 'center' },
+  kind: {
+    width: 20,
+    height: 20,
+    borderRadius: radius.xs,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   kindCh: { ...mono(600), fontSize: 9 },
   bandText: { flex: 1, minWidth: 0, paddingLeft: space.sm },
   bandName: {
@@ -487,9 +503,21 @@ const styles = StyleSheet.create({
   },
   payloadSpacer: { flex: 1 },
   payloadText: { ...mono(400), fontSize: font.micro, color: color.textFaint, flexShrink: 1 },
-  payloadKind: { width: 15, height: 15, borderRadius: 4, alignItems: 'center', justifyContent: 'center' },
+  payloadKind: {
+    width: 15,
+    height: 15,
+    borderRadius: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   payloadKindCh: { ...mono(600), fontSize: 8 },
 
-  rosterFold: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingBottom: 10 },
+  rosterFold: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 6,
+    paddingBottom: 10,
+  },
   rosterFoldText: { ...mono(400), fontSize: font.micro, color: color.textMicro },
 })
