@@ -9,6 +9,7 @@ Initial snapshot: 2026-08-08 around 23:00–23:30 CEST. Outcomes updated 2026-08
 - After the team stopped overlapping validation, normalized host load fell from the peak into a substantially lower raw-load band of roughly 10–30 while serialized work continued.
 - The agent count represented resident sessions, not concurrent computation. Immediate cleanup reduced residency from 38 to 35 without stopping uncertain or active work, and this host's persisted `maxIdleSessions` target was corrected from 30 to 8.
 - The durable integration combines nested lease ownership, durable waiters, queued lease metadata, clearer residency/idle signals, and a shared validation admission budget. The final typecheck is green; the final full suite completed with the known red task set plus two stale-lineage tasks documented below; and the accepted POD-619 runtime evidence covers the integrated UI behavior.
+- The branch was then rebased onto current main and revalidated before landing; the rebase changed no delivered content, and the scoped typecheck and every focused lane came back green.
 
 ## Outcomes — 2026-08-09
 
@@ -28,6 +29,41 @@ The parent waited 54 minutes in the durable `test:heavy` queue, received the kno
 The nine red full-suite tasks were daemon, protocol, runtime, scripts, server boundary, server contracts, server services, terminal-client, and web. Seven task identities overlap the measured current-main baseline. The two additional red tasks are explained by the required child lineage: this branch is rooted at shared ancestor `86b9e8af6`, while local main had advanced to `5e5698ce3`. Later main contains, among other repairs, the corrected oracle input-origin expectation (`12470800e`) and the replicated UI-state subscription contract (`4351f2931`) plus subsequent worklist changes. None of the server-services or web failure files is in this integration's `git diff main...HEAD`; no unrelated fix or main merge was folded into this branch. The future review/landing rebase is therefore a material remaining validation risk.
 
 The first parent typecheck also exposed two straightforward integration-only TypeScript errors in the merged lock waiter: a queued-only mock shape and an `AbortSignal.aborted` narrowing preserved across an injected `await`. The parent repaired those without changing runtime behavior; the clean full typecheck and the CLI's 369-test package task both passed afterward.
+
+### Landing rebase and revalidation — 2026-08-09
+
+The stale-lineage risk recorded above was closed before landing. The branch was rebased from
+shared ancestor `86b9e8af6` onto the then-current main, which had advanced by 55 commits and
+189 changed files. Exactly one commit conflicted: the POD-618 AGENTS.md paragraph against this
+branch's own earlier docs commit, resolved to the wording the pre-rebase integration tip already
+carried. Main had not touched `AGENTS.md`. After the rebase the branch's diff against main was
+byte-identical to the pre-rebase diff — the same 57 files, 10,344 insertions and 320 deletions —
+so the rebase moved the base without changing the delivered content.
+
+Main's 55 commits and this branch's 57 files overlap in exactly one file,
+`apps/web/src/styles.css`, where both sides changed only comment text; git merged it without a
+conflict. The new migration `20260808223937_queued-lock-lease-metadata` still appends after
+main's latest `20260807080429`, so migration ordering is intact.
+
+Revalidation on the new base, run one command at a time:
+
+- `tsgo --noEmit` clean in every package this branch touches — `packages/issue-client`,
+  `apps/cli`, `packages/client-core`, `apps/server`, `apps/web`, and `scripts`.
+- `scripts` — validation-admission, test-heavy, test-configuration, and server-test-shards:
+  4 files, 57 tests passed.
+- `apps/cli` `src/lock-cli.test.ts` — 30 passed.
+- `packages/issue-client` `src/lock-commands.drift.test.ts` — 6 passed.
+- `apps/server` `src/modules/lock/service.test.ts` — 18 passed.
+- `packages/client-core` `src/viewmodels/slices/machines/host-pressure.test.ts` — 15 passed.
+- `apps/web` `src/features/machines/multimachine-indicators.test.tsx` at `--maxWorkers=1` — 12 passed.
+
+The full 27-task lane was deliberately not re-run after the rebase. It had already been run to
+completion on the pre-rebase branch, its failures were the documented current-main red set, and
+at landing time `test:heavy` had a live holder and four queued waiters. Re-entering that queue
+would have cost hours of shared-host contention to re-observe a red baseline this branch does
+not own — the same overlap this issue exists to remove. The scoped typecheck plus the focused
+lanes for every changed area were run instead, and the file-overlap analysis above bounds what
+the wider lane could have added.
 
 ### Integrated UI evidence
 
@@ -89,7 +125,7 @@ The durable design is tiered rather than putting every ten-second probe behind a
 4. Match checks to regression risk. Small UI or bug changes use the smallest relevant test and required live interaction evidence; substantive integration owns the final full gate.
 5. Respect healthy leases. Check `podium lock status test:heavy`, use the lease-aware entry point, and do not steal a renewing lease merely because aggregate Turbo output is quiet.
 6. Prefer holder process age, fresh worker churn, and completed package-task logs as liveness/progress signals; an empty aggregate Turbo log is not evidence of a stalled run.
-7. Rebase this integration onto the then-current main before landing and re-evaluate the two stale-lineage task failures; do not interpret this branch's 18/27 result as a regression caused by the issue diff or as the newer main baseline.
+7. Rebase this integration onto the then-current main before landing and re-evaluate the two stale-lineage task failures; do not interpret this branch's 18/27 result as a regression caused by the issue diff or as the newer main baseline. Done at landing — see "Landing rebase and revalidation".
 
 ## Bottom line
 
