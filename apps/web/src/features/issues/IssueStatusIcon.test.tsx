@@ -1,6 +1,16 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
+import { StageGlyph } from './issue-glyphs'
 import { IssueStatusIcon } from './IssueStatusIcon'
+
+describe('StageGlyph', () => {
+  it('uses blue rather than obligation amber for in-progress work', () => {
+    const html = renderToStaticMarkup(<StageGlyph stage="in_progress" />)
+
+    expect(html).toContain('text-blue-500')
+    expect(html).not.toContain('amber')
+  })
+})
 
 describe('IssueStatusIcon', () => {
   it('renders a neutral base glyph with the stage glyph badged in the corner', () => {

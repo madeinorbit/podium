@@ -27,7 +27,7 @@ const STAGE_CLASS: Record<IssueStage, string> = {
   proposed: 'text-fuchsia-500',
   backlog: 'text-muted-foreground/70',
   planning: 'text-muted-foreground',
-  in_progress: 'text-amber-500',
+  in_progress: 'text-blue-500',
   review: 'text-sky-500',
   done: 'text-success',
 }
