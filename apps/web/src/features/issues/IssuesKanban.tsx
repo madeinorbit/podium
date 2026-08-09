@@ -349,7 +349,7 @@ function IssueColumn({
       data-kanban-column={stage}
       data-testid="issue-column"
       className={cn(
-        'issue-scope group/col flex w-[288px] min-w-[288px] flex-col border-border/60 border-r transition-colors duration-150',
+        'issue-scope group/col flex w-[304px] min-w-[304px] flex-col border-border/55 border-r transition-colors duration-150',
         over && 'issue-mix-5',
       )}
       style={dragHex ? ({ '--issue': dragHex } as CSSProperties) : undefined}
@@ -360,17 +360,17 @@ function IssueColumn({
           // `select-none`: the header is chrome, and chrome does not select —
           // a double-click near a column title must not leave "In Progress"
           // highlighted in a native window.
-          'flex h-(--section-bar-h) flex-none select-none items-center gap-2 border-hairline-bar border-b bg-bar px-3 transition-colors duration-150',
+          'flex h-(--section-bar-h) flex-none select-none items-center gap-2.5 border-hairline-bar border-b bg-bar px-4 transition-colors duration-150',
           over && 'issue-mix-9',
         )}
       >
-        <StageGlyph stage={stage} size={12} />
-        <h3 className="font-semibold text-[11.5px] text-foreground">{label}</h3>
-        <span className="font-mono text-[9.5px] text-text-dim tabular-nums">{issues.length}</span>
+        <StageGlyph stage={stage} size={13} />
+        <h3 className="font-semibold text-[12px] text-foreground">{label}</h3>
+        <span className="font-mono text-[10px] text-text-dim tabular-nums">{issues.length}</span>
         <button
           data-pressable
           type="button"
-          className="ml-auto grid size-[22px] place-items-center rounded-[5px] text-text-faint opacity-0 transition-[opacity,background-color,color] hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/col:opacity-100"
+          className="ml-auto grid size-[24px] place-items-center rounded-[6px] text-text-faint opacity-55 transition-[opacity,background-color,color] hover:bg-accent hover:text-foreground hover:opacity-100 focus-visible:opacity-100 group-hover/col:opacity-100"
           title={`New task in ${label}`}
           aria-label={`New task in ${label}`}
           onClick={() => onCreateIn(stage)}
@@ -379,7 +379,7 @@ function IssueColumn({
         </button>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-[5px] overflow-y-auto px-2.5 py-2">
+      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-3 py-3 [scrollbar-gutter:stable]">
         {issues.length === 0 && !over ? (
           <EmptyColumn label={label} onCreate={() => onCreateIn(stage)} />
         ) : (
@@ -425,12 +425,12 @@ function IssueColumn({
 /** An empty column teaches instead of reporting. */
 function EmptyColumn({ label, onCreate }: { label: string; onCreate: () => void }): JSX.Element {
   return (
-    <div className="flex flex-col items-start gap-2 px-1 py-3">
-      <p className="text-[11.5px] text-text-faint">Nothing in {label}.</p>
+    <div className="flex flex-col items-start gap-2.5 px-1 py-4">
+      <p className="text-[12px] text-text-faint">Nothing in {label}.</p>
       <button
         data-pressable
         type="button"
-        className="rounded-[4.8px] border border-border border-dashed px-2 py-1 text-[11px] text-text-dim transition-colors hover:border-border-strong hover:text-foreground"
+        className="rounded-[6px] border border-border border-dashed px-2.5 py-1.5 text-[11.5px] text-text-dim transition-colors hover:border-border-strong hover:text-foreground"
         onClick={onCreate}
       >
         <Plus size={11} aria-hidden="true" className="mr-1 inline" />
