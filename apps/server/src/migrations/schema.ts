@@ -1088,6 +1088,8 @@ export const lockWaiters = sqliteTable(
     sessionId: text('session_id').notNull(),
     issueId: text('issue_id'),
     label: text().notNull(),
+    ttlSeconds: integer('ttl_seconds').notNull().default(120),
+    note: text(),
     enqueuedAt: text('enqueued_at').notNull(),
   },
   (table) => [

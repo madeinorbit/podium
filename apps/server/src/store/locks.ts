@@ -45,6 +45,8 @@ export interface LockWaiterRow {
   sessionId: LockSessionKey
   issueId: IssueId | null
   label: string
+  ttlSeconds: number
+  note: string | null
   enqueuedAt: string
 }
 
@@ -74,6 +76,8 @@ export class LocksRepository {
       sessionId: r.session_id as LockSessionKey,
       issueId: (r.issue_id as IssueId | null) ?? null,
       label: r.label as string,
+      ttlSeconds: r.ttl_seconds as number,
+      note: (r.note as string | null) ?? null,
       enqueuedAt: r.enqueued_at as string,
     }
   }
@@ -165,14 +169,19 @@ export class LocksRepository {
   }
 
   /** Enqueue a waiter. Idempotent per (repo_id, name, session_id): re-acquiring
-   *  while queued keeps the original position (INSERT OR IGNORE). */
+   *  while queued updates the requested lease metadata in place, preserving
+   *  the original row id, timestamp, and FIFO position. */
   enqueueWaiter(w: Omit<LockWaiterRow, 'id'>): void {
     this.db
       .prepare(
-        `INSERT OR IGNORE INTO lock_waiters (repo_id, name, session_id, issue_id, label, enqueued_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO lock_waiters
+           (repo_id, name, session_id, issue_id, label, ttl_seconds, note, enqueued_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(repo_id, name, session_id) DO UPDATE SET
+           ttl_seconds = excluded.ttl_seconds,
+           note = excluded.note`,
       )
-      .run(w.repoId, w.name, w.sessionId, w.issueId, w.label, w.enqueuedAt)
+      .run(w.repoId, w.name, w.sessionId, w.issueId, w.label, w.ttlSeconds, w.note, w.enqueuedAt)
   }
 
   removeWaiter(id: number): void {

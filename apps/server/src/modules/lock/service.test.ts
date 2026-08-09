@@ -119,6 +119,57 @@ describe('LockService', () => {
     ])
   })
 
+  it('retains queued lease metadata and updates it in place on re-acquire', () => {
+    const { svc, store, alive, advance, sendMail } = harness()
+    alive.add('sess_1').add('sess_2').add('sess_3')
+    svc.acquire(agent(1), { repoPath: REPO, name: 'test:heavy' })
+    svc.acquire(agent(2), {
+      repoPath: REPO,
+      name: 'test:heavy',
+      ttlSeconds: 1_800,
+      note: 'first request',
+    })
+    advance(1_000)
+    svc.acquire(agent(3), { repoPath: REPO, name: 'test:heavy' })
+
+    const before = store.locks.listWaiters('repo:/repo', 'test:heavy')
+    expect(before[0]).toMatchObject({
+      sessionId: asSessionId('sess_2'),
+      ttlSeconds: 1_800,
+      note: 'first request',
+      enqueuedAt: '2026-07-13T12:00:00.000Z',
+    })
+
+    const again = svc.acquire(agent(2), {
+      repoPath: REPO,
+      name: 'test:heavy',
+      ttlSeconds: 2_400,
+      note: 'updated request',
+    })
+    expect(again).toMatchObject({ granted: false, position: 1 })
+    const after = store.locks.listWaiters('repo:/repo', 'test:heavy')
+    expect(after).toHaveLength(2)
+    expect(after[0]).toMatchObject({
+      id: before[0]?.id,
+      sessionId: asSessionId('sess_2'),
+      ttlSeconds: 2_400,
+      note: 'updated request',
+      enqueuedAt: '2026-07-13T12:00:00.000Z',
+    })
+    expect(after[1]?.sessionId).toBe(asSessionId('sess_3'))
+
+    svc.release(agent(1), { repoPath: REPO, name: 'test:heavy' })
+    const granted = svc.status({ repoPath: REPO, name: 'test:heavy' })[0]!
+    expect(granted.holder.sessionId).toBe(asSessionId('sess_2'))
+    expect(granted.note).toBe('updated request')
+    expect(granted.secondsLeft).toBe(2_400)
+    expect(sendMail).toHaveBeenCalledWith(
+      'iss_2',
+      'lock-manager',
+      expect.stringContaining('TTL 40m'),
+    )
+  })
+
   it('status reports per-row liveness from sessionAlive (dead waiters stay visible until advance)', () => {
     const { svc, alive } = harness()
     alive.add('sess_1').add('sess_2') // sess_3 dead

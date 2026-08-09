@@ -19,7 +19,7 @@ import type { WriteFunnel } from '../funnel'
  *  - session-bound auto-release: releaseForSession on session exit.
  */
 
-/** Default lease TTL (2 minutes) — also what queue-advance grants use. */
+/** Default lease TTL (2 minutes). */
 export const DEFAULT_LOCK_TTL_SECONDS = 120
 
 /** Who is acquiring/holding: the relayed agent's session + bound issue, or the
@@ -290,8 +290,8 @@ export class LockService {
             w.sessionId === OPERATOR_LOCK_SESSION ? null : w.sessionId,
           ),
         },
-        DEFAULT_LOCK_TTL_SECONDS,
-        null,
+        w.ttlSeconds,
+        w.note,
         { notify: true },
       )
     }
@@ -352,7 +352,7 @@ export class LockService {
           const key = this.sessionKey(caller)
           const alreadyQueued = this.deps.locks
             .listWaiters(repoId, input.name)
-            .some((w) => w.sessionId === key)
+            .find((w) => w.sessionId === key)
           if (!alreadyQueued && !input.allowSibling) {
             const sibling = this.findSibling(existing, caller)
             if (sibling) {
@@ -381,6 +381,8 @@ export class LockService {
             sessionId: key,
             issueId: caller.issueId,
             label: caller.label,
+            ttlSeconds: ttl,
+            note: input.note ?? alreadyQueued?.note ?? null,
             enqueuedAt: this.nowIso(),
           })
           const wire = this.toWire(existing)
