@@ -7,10 +7,10 @@ import {
   sessionTitle,
   subIssuesOf,
 } from '@podium/client-core/viewmodels'
-import type { IssueWire, SessionMeta } from '@podium/model'
+import { ISSUE_STAGES, type IssueWire, type SessionMeta } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import * as Haptics from 'expo-haptics'
-import { Check, ChevronDown, ExternalLink } from 'lucide-react-native'
+import { Check, ChevronDown } from 'lucide-react-native'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Animated,
@@ -25,6 +25,7 @@ import {
   View,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { useMobileStore } from '../client/hooks'
 import { useReduceMotion } from '../hooks/useReduceMotion'
 import { FLOW_SLATE, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
@@ -41,6 +42,7 @@ import {
   spring,
   tracking,
 } from '../theme/theme'
+import { ActionSheet } from './ActionSheet'
 import { Icon } from './Icon'
 import { PressableScale } from './PressableScale'
 import { kindTone } from './spine'
@@ -134,6 +136,7 @@ export function TaskSheet({
     [CLOSED, MEDIUM, onClose, reduceMotion, y],
   )
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: keyed on the task, deliberately — `settle` changes identity on every detent, and depending on it would re-seat the sheet at medium each time it moved
   useEffect(() => {
     if (!issue) {
       if (mounted) settle('closed')
@@ -145,8 +148,6 @@ export function TaskSheet({
     y.setValue(CLOSED)
     const raf = requestAnimationFrame(() => settle('medium'))
     return () => cancelAnimationFrame(raf)
-    // Re-running on `issue` alone is deliberate: switching the peeked task
-    // re-seats the sheet at medium rather than leaving it wherever it was.
   }, [issue?.id])
 
   const responder = useMemo(
@@ -239,7 +240,13 @@ export function TaskSheet({
           <View style={styles.grabberBox}>
             <View style={styles.grabber} />
           </View>
-          <SheetHead issue={issue} sessions={sessions} issues={issues} hex={hex} />
+          <SheetHead
+            issue={issue}
+            sessions={sessions}
+            issues={issues}
+            hex={hex}
+            onOpenSession={onOpenSession}
+          />
         </View>
 
         <ScrollView
@@ -284,12 +291,16 @@ function SheetHead({
   sessions,
   issues,
   hex,
+  onOpenSession,
 }: {
   issue: IssueWire
   sessions: readonly SessionMeta[]
   issues: readonly IssueWire[]
   hex: string
+  onOpenSession: (session: SessionMeta) => void
 }) {
+  const store = useMobileStore()
+  const [stageOpen, setStageOpen] = useState(false)
   const byId = useMemo(() => new Map(issues.map((i) => [i.id, i])), [issues])
   const mine = useMemo(
     () => withoutShells([...sessions]).filter((s) => s.issueId === issue.id && !s.archived),
@@ -327,16 +338,24 @@ function SheetHead({
         <PressableScale
           style={styles.stagePill}
           accessibilityLabel="Change stage"
-          onPress={() => {}}
+          onPress={() => setStageOpen(true)}
         >
           <Text style={styles.stagePillText}>
             {issue.stage.replace('_', ' ').replace(/^./, (c) => c.toUpperCase())}
           </Text>
           <Icon as={ChevronDown} size={11} color={color.text} />
         </PressableScale>
+        {/* `Answer` is a ROUTE, not a second answering surface: the agent that
+            stopped already has its offer card and its buttons in the transcript.
+            With nobody on the task at all, the same slot starts one. */}
         <PressableScale
           style={styles.primary}
-          accessibilityLabel={asking.length ? 'Answer' : 'Run now'}
+          accessibilityLabel={asking.length > 0 ? 'Answer' : 'Run now'}
+          onPress={() => {
+            const target = asking[0]
+            if (target) return onOpenSession(target)
+            void store.trpc.issues.start.mutate({ id: issue.id }).catch(() => {})
+          }}
         >
           <Text style={styles.primaryText}>{asking.length > 0 ? 'Answer' : 'Run now'}</Text>
         </PressableScale>
@@ -359,8 +378,30 @@ function SheetHead({
       ) : presence ? (
         <Text style={styles.presence}>{presence.text}</Text>
       ) : null}
+
+      <ActionSheet
+        visible={stageOpen}
+        title="Stage"
+        onClose={() => setStageOpen(false)}
+        actions={ISSUE_STAGES.map((stage) => ({
+          label: stage === issue.stage ? `${STAGE_LABEL[stage]} ✓` : STAGE_LABEL[stage],
+          disabled: stage === issue.stage,
+          onPress: () => {
+            void store.trpc.issues.update.mutate({ id: issue.id, patch: { stage } }).catch(() => {})
+          },
+        }))}
+      />
     </View>
   )
+}
+
+const STAGE_LABEL: Record<(typeof ISSUE_STAGES)[number], string> = {
+  proposed: 'Proposed',
+  backlog: 'Backlog',
+  planning: 'Planning',
+  in_progress: 'In progress',
+  review: 'Review',
+  done: 'Done',
 }
 
 function SheetBody({
