@@ -114,7 +114,7 @@ export function ResizableColumn({
   }
   return (
     <div
-      className={cn('relative flex flex-none', className)}
+      className={cn('relative flex min-w-0 flex-[0_1_auto]', className)}
       style={{ width }}
       data-resizable-column={storageKey}
       data-width={width}

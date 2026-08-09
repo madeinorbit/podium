@@ -119,3 +119,74 @@ test('desktop shell controls, collapse, dock switching, and widths persist', asy
   const cellWidth = await issueCell.evaluate((el) => getComputedStyle(el).borderLeftWidth)
   expect(cellWidth).toBe('1px')
 })
+
+test('all open workspace columns yield to a compact viewport before the right rail', async ({
+  page,
+}) => {
+  await openApp(page)
+
+  // Exercise the most hostile saved layout: in a small laptop window, every
+  // resizable column asks for its maximum width.
+  // The saved widths remain preferences; flex layout must compress the four
+  // content columns so the fixed rail is still the final 44px on screen.
+  await page.setViewportSize({ width: 1100, height: 700 })
+  await page.getByRole('separator', { name: 'Resize sidebar' }).press('End')
+  await page.getByRole('separator', { name: 'Resize Flight Deck' }).press('End')
+  const rail = page.getByTestId('right-rail')
+  const filesButton = rail.getByRole('button', { name: 'Files', exact: true })
+  await expect(rail).toBeInViewport()
+  await expect(filesButton).toBeInViewport()
+  await filesButton.click()
+  await page.getByRole('separator', { name: 'Resize right dock' }).press('End')
+  await page.evaluate(() => new Promise(requestAnimationFrame))
+
+  const geometry = await page.evaluate(() => {
+    const selectors = [
+      '[data-resizable-column="podium:sidebar:width"]',
+      '[data-resizable-column="podium:superagent:width"]',
+      '.native-agents-pane',
+      '[data-resizable-column="podium:rightdock:width"]',
+      '[data-testid="right-rail"]',
+    ]
+    const boxes = selectors.map((selector) => {
+      const element = document.querySelector(selector)
+      if (!element) return null
+      const box = element.getBoundingClientRect()
+      return { selector, left: box.left, right: box.right, width: box.width }
+    })
+    return {
+      boxes,
+      clientWidth: document.documentElement.clientWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+      scrollX: window.scrollX,
+      row: (() => {
+        const element = document.querySelector('.desktop-shell-row')
+        return element
+          ? {
+              clientWidth: element.clientWidth,
+              scrollWidth: element.scrollWidth,
+              scrollLeft: element.scrollLeft,
+            }
+          : null
+      })(),
+    }
+  })
+
+  expect(geometry.scrollWidth).toBe(geometry.clientWidth)
+  expect(geometry.scrollX).toBe(0)
+  expect(geometry.row?.scrollWidth).toBe(geometry.row?.clientWidth)
+  expect(geometry.row?.scrollLeft).toBe(0)
+  expect(geometry.boxes.every(Boolean)).toBe(true)
+  for (const box of geometry.boxes) {
+    if (!box) continue
+    expect(box.left, `${box.selector} starts outside the viewport`).toBeGreaterThanOrEqual(0)
+    expect(box.right, `${box.selector} ends outside the viewport`).toBeLessThanOrEqual(
+      geometry.clientWidth + 1,
+    )
+    expect(box.width, `${box.selector} collapsed completely`).toBeGreaterThan(0)
+  }
+
+  const railBox = geometry.boxes.at(-1)
+  expect(Math.round(railBox?.width ?? 0)).toBe(44)
+  expect(Math.round(railBox?.right ?? 0)).toBe(geometry.clientWidth)
+})

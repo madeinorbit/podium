@@ -391,7 +391,7 @@ function AppBody(): JSX.Element {
               <SidebarRail />
             </aside>
           ) : (
-            <div className="relative z-10 flex flex-none">
+            <div className="relative z-10 flex min-w-0 flex-[0_1_auto]">
               <ResizableAside>
                 <SidebarUnified />
               </ResizableAside>

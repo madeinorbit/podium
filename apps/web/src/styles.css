@@ -1434,7 +1434,12 @@ html[data-density="balanced"] .header-quota-pools {
   writing-mode: vertical-rl;
 }
 .native-agents-pane {
-  min-width: 360px;
+  /* The workspace is the elastic centre of the shell. Keep 360px as its
+     preferred share of the row, not the hard floor it used to be: a zero flex
+     basis lets maximized side columns collapse the workspace completely, while
+     a min-width pushes the protected right rail past compact viewports. */
+  flex: 1 1 360px;
+  min-width: 0;
   /* Surface tint lives in index.css (12% coloured / 9% slate, §2.6) — this
      shorthand would silently reset it. */
 }
