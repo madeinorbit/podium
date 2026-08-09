@@ -50,6 +50,13 @@ describe('renderMarkdown', () => {
     const fileAnchor = html.slice(html.indexOf('<a class="file-link'))
     expect(fileAnchor.slice(0, fileAnchor.indexOf('>'))).not.toContain('target=')
   })
+
+  it('keeps ref-link fallback anchors in the current window', () => {
+    setKnownRefPrefixes(['POD'])
+    const html = renderMarkdown('see POD-13')
+    const refAnchor = html.slice(html.indexOf('<a class="ref-link'))
+    expect(refAnchor.slice(0, refAnchor.indexOf('>'))).not.toContain('target=')
+  })
 })
 
 describe('linkifyCodePaths', () => {
@@ -81,10 +88,14 @@ describe('linkifyRefs (#474)', () => {
   it('linkifies issue, session and draft refs for registered prefixes', () => {
     setKnownRefPrefixes(['POD'])
     const out = linkifyRefs('POD-13 and POD-13-A and POD-DRAFT-3')
-    expect(out).toContain('<a class="ref-link ref-link--issue" data-ref="POD-13">POD-13</a>')
-    expect(out).toContain('<a class="ref-link ref-link--session" data-ref="POD-13-A">POD-13-A</a>')
     expect(out).toContain(
-      '<a class="ref-link ref-link--session" data-ref="POD-DRAFT-3">POD-DRAFT-3</a>',
+      '<a class="ref-link ref-link--issue" href="#POD-13" data-ref="POD-13">POD-13</a>',
+    )
+    expect(out).toContain(
+      '<a class="ref-link ref-link--session" href="#POD-13-A" data-ref="POD-13-A">POD-13-A</a>',
+    )
+    expect(out).toContain(
+      '<a class="ref-link ref-link--session" href="#POD-DRAFT-3" data-ref="POD-DRAFT-3">POD-DRAFT-3</a>',
     )
   })
 

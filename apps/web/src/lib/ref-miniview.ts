@@ -47,6 +47,7 @@ export type RefIssueLike = Pick<IssueWire, 'id' | 'seq' | 'title'> &
       // Startability fields for the card's "Run now" action (POD-110) — the same
       // structural subset `isIssueStartable` reads off IssueWire.
       | 'worktreePath'
+      | 'defaultAgent'
       | 'closedReason'
       | 'archived'
       | 'deletedAt'

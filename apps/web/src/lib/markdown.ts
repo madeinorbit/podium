@@ -1,5 +1,5 @@
-import { anyRefMatcher, parseAnyRef } from '@podium/protocol'
 import type { IssueReferenceModel } from '@podium/client-core/viewmodels'
+import { anyRefMatcher, parseAnyRef } from '@podium/protocol'
 import DOMPurify from 'dompurify'
 import { marked, type Tokens } from 'marked'
 
@@ -13,6 +13,7 @@ marked.setOptions({ gfm: true, breaks: true })
 export function externalizeLinks(html: string): string {
   return html.replace(/<a\b([^>]*)>/g, (full, attrs: string) => {
     if (!/\bhref=/.test(attrs)) return full // internal file-link (no href)
+    if (/\bclass="[^"]*\bref-link\b/.test(attrs)) return full // internal ref activation
     if (/\btarget=/.test(attrs)) return full // already targeted
     return `<a${attrs} target="_blank" rel="noopener noreferrer">`
   })
@@ -111,9 +112,10 @@ export function isKnownRefPrefix(prefix: string): boolean {
  * tag's own attributes — so it can't double-link or corrupt markup. Only tokens
  * whose prefix is a registered repo prefix become links.
  *
- * Emits `<a class="ref-link ref-link--issue" data-ref="POD-13">POD-13</a>` (no
- * href, so externalizeLinks leaves it in-window); the click handler reads
- * data-ref. The kind modifier picks the chip icon (issue vs session).
+ * Emits a real in-page anchor so keyboard activation and WebView hit testing use
+ * native link behavior. The delegated click handler prevents the hash fallback
+ * and reads data-ref; externalizeLinks keeps these in-window. The kind modifier
+ * picks the chip icon (issue vs session).
  */
 export type IssueReferenceLookup = ReadonlyMap<string, IssueReferenceModel>
 
@@ -139,7 +141,7 @@ export function linkifyRefs(html: string, issueReferences?: IssueReferenceLookup
       const liveAttrs = issue
         ? ` data-issue-stage="${issue.stage ?? ''}" data-issue-availability="${issue.availability}" aria-label="${escapeHtml(issue.accessibleLabel)}"`
         : ''
-      return `<a class="ref-link ref-link--${ref.kind}" data-ref="${tok}"${liveAttrs}>${tok}</a>`
+      return `<a class="ref-link ref-link--${ref.kind}" href="#${tok}" data-ref="${tok}"${liveAttrs}>${tok}</a>`
     })
   }
   return parts.join('')

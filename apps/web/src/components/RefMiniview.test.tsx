@@ -1,9 +1,35 @@
+import { asIssueId, asUserId } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { asIssueId, asUserId } from '@podium/model'
+import { closeMiniview, openMiniview } from '@/lib/ref-activation'
 import type { RefIssueLike, ResolvedRef } from '@/lib/ref-miniview'
-import { RefCard, seedCardPosition } from './RefMiniview'
+import { RefCard, RefMiniviewHost, seedCardPosition } from './RefMiniview'
+
+const hostStore = vi.hoisted(() => ({
+  replicaIssues: [] as RefIssueLike[],
+  legacyIssues: [] as RefIssueLike[],
+}))
+
+vi.mock('@/app/store', () => ({
+  useReplicaIssues: () => hostStore.replicaIssues,
+  useStoreSelector: (select: (state: unknown) => unknown) =>
+    select({
+      trpc: {
+        issues: {
+          start: { mutate: vi.fn() },
+          promote: { mutate: vi.fn() },
+          update: { mutate: vi.fn() },
+        },
+      },
+      issues: hostStore.legacyIssues,
+      sessions: [],
+      setOpenIssueId: vi.fn(),
+      setView: vi.fn(),
+      setPeekIssueId: vi.fn(),
+      navigateToSession: vi.fn(),
+    }),
+}))
 
 const parent: RefIssueLike = {
   id: asIssueId('iss_parent'),
@@ -21,6 +47,7 @@ const rich: RefIssueLike = {
   displayRef: 'POD-517',
   title: 'Enrich the miniview',
   stage: 'in_progress',
+  defaultAgent: 'claude-code',
   priority: 1,
   assignee: asUserId('agent:claude-code'),
   ready: false,
@@ -40,6 +67,36 @@ const rich: RefIssueLike = {
 }
 
 const issues = [rich, parent]
+
+describe('RefMiniviewHost issue resolution', () => {
+  let container: HTMLDivElement
+  let root: Root
+
+  beforeEach(() => {
+    closeMiniview()
+    hostStore.legacyIssues = []
+    hostStore.replicaIssues = []
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+  })
+
+  afterEach(() => {
+    closeMiniview()
+    act(() => root.unmount())
+    container.remove()
+  })
+
+  it('resolves a normalized replica issue absent from the legacy store', () => {
+    hostStore.replicaIssues = [rich]
+    act(() => root.render(<RefMiniviewHost />))
+    act(() => openMiniview('POD-517', { x: 100, y: 100 }))
+
+    const dialog = document.body.querySelector('[role="dialog"]')
+    expect(dialog?.textContent).toContain('Enrich the miniview')
+    expect(dialog?.textContent).not.toContain('Reference not found')
+  })
+})
 
 function issueTarget(issue: RefIssueLike): ResolvedRef {
   return { kind: 'issue', ref: { kind: 'issue', prefix: 'POD', seq: issue.seq }, issue }
@@ -189,6 +246,94 @@ describe('RefCard run now (POD-110)', () => {
     expect(container.textContent).toContain('spawn failed')
     expect(runNowButton()?.disabled).toBe(false)
   })
+
+  it('removes both copy-ref affordances', () => {
+    renderWithStart(rich, vi.fn())
+    expect(container.textContent).not.toContain('Copy ref')
+    expect(container.querySelector('[title^="Copy"]')).toBeNull()
+  })
+})
+
+describe('RefCard proposal decisions', () => {
+  let container: HTMLDivElement
+  let root: Root
+  beforeEach(() => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+  })
+  afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
+  })
+
+  const proposal: RefIssueLike = { ...rich, stage: 'proposed' }
+
+  function renderProposal(
+    onStart: (issueId: string) => Promise<unknown>,
+    onPromote: (issueId: string) => Promise<unknown>,
+    onAgentChange?: (issueId: string, defaultAgent: string) => Promise<unknown>,
+  ): void {
+    act(() => {
+      root.render(
+        <RefCard
+          refToken="POD-517"
+          target={issueTarget(proposal)}
+          issues={issues}
+          onClose={() => {}}
+          onOpenFull={() => {}}
+          onStart={onStart}
+          onPromote={onPromote}
+          onAgentChange={onAgentChange}
+        />,
+      )
+    })
+  }
+
+  it('offers start now and approval to backlog as distinct outcomes', async () => {
+    const onPromote = vi.fn(async () => ({}))
+    renderProposal(
+      vi.fn(async () => ({})),
+      onPromote,
+    )
+    expect(container.textContent).toContain('Run now')
+    const backlog = [...container.querySelectorAll('button')].find((button) =>
+      button.textContent?.includes('Add to backlog'),
+    )
+    expect(backlog).toBeDefined()
+    await act(async () => backlog?.click())
+    expect(onPromote).toHaveBeenCalledWith('iss_1')
+    expect(container.textContent).toContain('In backlog')
+  })
+
+  it('shows progress while approval is pending', async () => {
+    let resolve!: () => void
+    const pending = new Promise<void>((done) => {
+      resolve = done
+    })
+    renderProposal(
+      vi.fn(async () => ({})),
+      vi.fn(() => pending),
+    )
+    const backlog = [...container.querySelectorAll('button')].find((button) =>
+      button.textContent?.includes('Add to backlog'),
+    )
+    act(() => backlog?.click())
+    expect(container.textContent).toContain('Adding…')
+    expect(backlog?.querySelector('.animate-spin')).not.toBeNull()
+    await act(async () => resolve())
+  })
+
+  it('shows the persisted planned harness in the popup', () => {
+    renderProposal(
+      vi.fn(async () => ({})),
+      vi.fn(async () => ({})),
+      vi.fn(async () => ({})),
+    )
+    expect(container.textContent).toContain('Planned agent')
+    expect(container.textContent).toContain('Claude Code')
+    expect(container.querySelector('[aria-label="Planned agent harness"]')).not.toBeNull()
+  })
 })
 
 describe('RefCard outside-click dismissal', () => {
@@ -237,6 +382,19 @@ describe('RefCard outside-click dismissal', () => {
     })
     expect(onClose).not.toHaveBeenCalled()
   })
+
+  it('stays open while choosing from its portaled harness menu', () => {
+    const onClose = vi.fn()
+    renderWithClose(onClose)
+    const portal = document.createElement('div')
+    portal.setAttribute('data-ref-miniview-owned', 'true')
+    document.body.appendChild(portal)
+    act(() => {
+      portal.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    })
+    expect(onClose).not.toHaveBeenCalled()
+    portal.remove()
+  })
 })
 
 describe('seedCardPosition', () => {
@@ -249,11 +407,15 @@ describe('seedCardPosition', () => {
   it('clamps into the viewport on every edge', () => {
     expect(seedCardPosition({ x: 2, y: 2 }, viewport)).toEqual({ x: 12, y: 16 })
     const r = seedCardPosition({ x: 1195, y: 795 }, viewport)
-    expect(r.x).toBe(1200 - 400 - 12)
+    expect(r.x).toBe(1200 - 416 - 12)
     expect(r.y).toBe(800 - 120)
   })
 
   it('falls back to the top-right seed without an anchor', () => {
-    expect(seedCardPosition(undefined, viewport)).toEqual({ x: 1200 - 400 - 20, y: 88 })
+    expect(seedCardPosition(undefined, viewport)).toEqual({ x: 1200 - 416 - 20, y: 88 })
+  })
+
+  it('never seeds off-screen on a narrow viewport', () => {
+    expect(seedCardPosition({ x: 20, y: 40 }, { width: 320, height: 640 }).x).toBe(12)
   })
 })

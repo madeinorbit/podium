@@ -85,7 +85,7 @@ export function activateRef(
   e: { metaKey?: boolean; ctrlKey?: boolean; clientX?: number; clientY?: number },
 ): void {
   const anchor =
-    typeof e.clientX === 'number' && typeof e.clientY === 'number' && (e.clientX || e.clientY)
+    typeof e.clientX === 'number' && typeof e.clientY === 'number'
       ? { x: e.clientX, y: e.clientY }
       : undefined
   activator(ref, directModifier(e), anchor)

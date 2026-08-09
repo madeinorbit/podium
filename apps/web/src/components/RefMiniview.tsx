@@ -3,7 +3,17 @@ import { shallowEqual } from '@podium/client-core/store'
 import { type IssueReferenceModel, issueReferenceModel } from '@podium/client-core/viewmodels'
 import type { IssueId } from '@podium/model'
 import { formatLong, truncateTitle } from '@podium/protocol'
-import { Copy, ExternalLink, GripVertical, PanelRight, Play, User, X } from 'lucide-react'
+import {
+  ArchiveRestore,
+  Check,
+  ExternalLink,
+  GripVertical,
+  LoaderCircle,
+  PanelRight,
+  Play,
+  User,
+  X,
+} from 'lucide-react'
 import {
   type JSX,
   type PointerEvent as ReactPointerEvent,
@@ -16,7 +26,12 @@ import {
 import { createPortal } from 'react-dom'
 import { useReplicaIssues, useStoreSelector } from '@/app/store'
 import { isIssueStartable } from '@/features/issues/issue-startable'
-import { copyToClipboard } from '@/lib/clipboard'
+import {
+  ISSUE_AGENT_KINDS,
+  issueAgentIcon,
+  issueAgentKind,
+  issueAgentLabel,
+} from '@/lib/issue-agents'
 import { setKnownRefPrefixes } from '@/lib/markdown'
 import {
   closeMiniview,
@@ -36,6 +51,7 @@ import {
 } from '@/lib/ref-miniview'
 import { cn } from '@/lib/utils'
 import { IssueReference } from './IssueReference'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
 
 /**
  * Root-mounted host for the single floating ref miniview (#474, area 7). Owns:
@@ -44,11 +60,11 @@ import { IssueReference } from './IssueReference'
  *  - rendering the draggable <RefCard> when a ref is open and resolvable.
  */
 export function RefMiniviewHost(): JSX.Element | null {
-  const { trpc, issues, sessions, setOpenIssueId, setView, setPeekIssueId, navigateToSession } =
+  const issues = useReplicaIssues()
+  const { trpc, sessions, setOpenIssueId, setView, setPeekIssueId, navigateToSession } =
     useStoreSelector(
       (s) => ({
         trpc: s.trpc,
-        issues: s.issues,
         sessions: s.sessions,
         setOpenIssueId: s.setOpenIssueId,
         setView: s.setView,
@@ -106,12 +122,16 @@ export function RefMiniviewHost(): JSX.Element | null {
         else navigateToSession(state.ref)
       }}
       onStart={(issueId) => trpc.issues.start.mutate({ id: issueId })}
+      onPromote={(issueId) => trpc.issues.promote.mutate({ id: issueId })}
+      onAgentChange={(issueId, defaultAgent) =>
+        trpc.issues.update.mutate({ id: issueId, patch: { defaultAgent } })
+      }
     />,
     document.body,
   )
 }
 
-const CARD_WIDTH = 400
+const CARD_WIDTH = 416
 const VIEWPORT_MARGIN = 12
 
 /** Seed the card near the activating click: slightly below-left, clamped into
@@ -121,11 +141,12 @@ export function seedCardPosition(
   anchor: { x: number; y: number } | undefined,
   viewport: { width: number; height: number },
 ): { x: number; y: number } {
-  if (!anchor) return { x: Math.max(16, viewport.width - CARD_WIDTH - 20), y: 88 }
+  const width = Math.max(0, Math.min(CARD_WIDTH, viewport.width - VIEWPORT_MARGIN * 2))
+  if (!anchor) return { x: Math.max(VIEWPORT_MARGIN, viewport.width - width - 20), y: 88 }
   return {
     x: Math.min(
       Math.max(VIEWPORT_MARGIN, anchor.x - 24),
-      viewport.width - CARD_WIDTH - VIEWPORT_MARGIN,
+      Math.max(VIEWPORT_MARGIN, viewport.width - width - VIEWPORT_MARGIN),
     ),
     y: Math.min(Math.max(VIEWPORT_MARGIN, anchor.y + 14), viewport.height - 120),
   }
@@ -140,6 +161,8 @@ export function RefCard({
   onClose,
   onOpenFull,
   onStart,
+  onPromote,
+  onAgentChange,
 }: {
   refToken: string
   anchor?: { x: number; y: number }
@@ -149,6 +172,10 @@ export function RefCard({
   onOpenFull: () => void
   /** Start an agent on the issue (POD-110) — `trpc.issues.start` in the host. */
   onStart?: (issueId: string) => Promise<unknown>
+  /** Approve an agent proposal into backlog without starting it. */
+  onPromote?: (issueId: string) => Promise<unknown>
+  /** Persist the harness planned for the next session on this issue. */
+  onAgentChange?: (issueId: string, defaultAgent: string) => Promise<unknown>
 }): JSX.Element {
   // Fixed position, dragged by the header. Seeded next to the activating click
   // (falling back to top-right when there is none); the user drags it wherever.
@@ -230,6 +257,13 @@ export function RefCard({
       const el = cardEl.current
       if (!el) return
       if (e.target instanceof Node && el.contains(e.target)) return
+      // Base UI portals SelectContent to document.body. It is still owned by
+      // this popup, so choosing a harness must not trip light-dismiss.
+      if (
+        e.target instanceof Element &&
+        e.target.closest('[data-ref-miniview-owned="true"]')
+      )
+        return
       onClose()
     }
     window.addEventListener('pointerdown', onPointerDown, true)
@@ -278,32 +312,26 @@ export function RefCard({
   return (
     <div
       ref={cardEl}
-      className="fixed z-40 w-[min(400px,calc(100vw-2rem))] overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-2xl"
+      className="fixed z-40 w-[min(416px,calc(100vw-1.5rem))] origin-top-left overflow-hidden rounded-xl bg-popover text-popover-foreground shadow-[0_24px_64px_-20px_rgb(0_0_0/0.55),0_0_0_1px_var(--border)] animate-in fade-in-0 zoom-in-95 slide-in-from-top-1 duration-150 ease-out motion-reduce:animate-none"
       style={{ left: pos.x, top: pos.y }}
       role="dialog"
       aria-label={`Reference ${refToken}`}
     >
       {target?.kind === 'issue' ? (
         <>
-          {/* The head IS the drag handle: identity + stage, then title + the
-              one primary action, then the quiet meta line. */}
+          {/* The head is the drag handle. Identity stays readable rather than
+              doubling as an undiscoverable copy action. */}
           <div
-            className="cursor-grab touch-none px-4 pt-3.5 pb-3.5 active:cursor-grabbing"
+            className="cursor-grab touch-none px-4 pt-4 pb-3 active:cursor-grabbing"
             {...dragHandlers}
           >
-            <div className="mb-2 flex items-center justify-between gap-3">
-              <button
-                data-pressable
-                type="button"
-                className="min-w-0 cursor-pointer text-[11px] font-semibold tracking-[0.04em] text-muted-foreground hover:text-foreground"
-                title={`Copy "${refToken}"`}
-                onClick={() => copyToClipboard(refToken, `Copied ${refToken}`)}
-              >
+            <div className="mb-2.5 flex items-center justify-between gap-3">
+              <div className="min-w-0 text-[11px] font-semibold tracking-[0.04em] text-muted-foreground">
                 {issueRefModel && <IssueReference model={issueRefModel} showTitle={false} />}
-              </button>
+              </div>
               <span className="flex flex-none items-center gap-1.5">{closeButton}</span>
             </div>
-            <IssueSummary issue={target.issue} issues={issues} onStart={onStart} />
+            <IssueSummary issue={target.issue} issues={issues} />
             {target.issue.description?.trim() && (
               <div
                 className="mt-2 overflow-hidden text-[12px] leading-[1.5] text-muted-foreground"
@@ -335,27 +363,24 @@ export function RefCard({
               </div>
             </div>
           )}
+          {onAgentChange && (
+            <IssueHarnessPicker issue={target.issue} onAgentChange={onAgentChange} />
+          )}
           <IssueDetailsStrip issue={target.issue} />
-          {/* Footer: the two ways out. Escalation stays one rung (POD-95) —
-              "Open issue peek" raises the peek drawer, not the /issues route. */}
-          <div className="flex items-center gap-2 p-3">
+          {onStart && isIssueStartable(target.issue) && (
+            <IssueActions issue={target.issue} onStart={onStart} onPromote={onPromote} />
+          )}
+          {/* Escalation stays one rung (POD-95): open the peek drawer without
+              replacing the chat. */}
+          <div className="border-t border-border/60 p-2.5">
             <button
               data-pressable
               type="button"
-              className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md border border-border bg-muted/40 text-[12px] font-medium text-foreground/85 hover:bg-accent hover:text-foreground"
+              className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg text-[12px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               onClick={onOpenFull}
             >
               Open issue peek
               <PanelRight size={12} aria-hidden="true" />
-            </button>
-            <button
-              data-pressable
-              type="button"
-              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-muted/40 px-3 text-[12px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
-              onClick={() => copyToClipboard(refToken, `Copied ${refToken}`)}
-            >
-              <Copy size={11} aria-hidden="true" />
-              Copy ref
             </button>
           </div>
         </>
@@ -456,46 +481,191 @@ export function RefPrefixSync(): null {
   return null
 }
 
-/**
- * One-click agent start from the preview card (POD-110). Rendered only while
- * the issue is startable; once the start lands the store's worktreePath update
- * unmounts it, so local state only has to cover the in-flight window. Errors
- * render inline — the card has no toast surface.
- */
-function RunNowAction({
-  issueId,
-  onStart,
+/** The issue's persisted defaultAgent is the plan for its next session. Keep
+ *  that choice close to the proposal decision and make persistence visible. */
+function IssueHarnessPicker({
+  issue,
+  onAgentChange,
 }: {
-  issueId: string
-  onStart: (issueId: string) => Promise<unknown>
+  issue: RefIssueLike
+  onAgentChange: (issueId: string, defaultAgent: string) => Promise<unknown>
 }): JSX.Element {
-  const [state, setState] = useState<
-    { kind: 'idle' | 'busy' | 'started' } | { kind: 'error'; message: string }
-  >({ kind: 'idle' })
-  const busy = state.kind === 'busy' || state.kind === 'started'
+  const persisted = issueAgentKind(issue.defaultAgent) ?? 'claude-code'
+  const [selected, setSelected] = useState(persisted)
+  const [state, setState] = useState<'idle' | 'saving' | 'saved'>('idle')
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    setSelected(persisted)
+  }, [persisted])
+  useEffect(() => {
+    if (state !== 'saved') return
+    const timeout = window.setTimeout(() => setState('idle'), 1200)
+    return () => window.clearTimeout(timeout)
+  }, [state])
+
+  const change = (next: string | null): void => {
+    const agent = issueAgentKind(next)
+    if (!agent || agent === selected || state === 'saving') return
+    const previous = selected
+    setSelected(agent)
+    setState('saving')
+    setError('')
+    onAgentChange(issue.id, agent).then(
+      () => {
+        setState('saved')
+      },
+      (cause: unknown) => {
+        setSelected(previous)
+        setState('idle')
+        setError(cause instanceof Error ? cause.message : String(cause))
+      },
+    )
+  }
+
   return (
-    <div className="flex flex-none flex-col items-end gap-1">
-      <button
-        data-pressable
-        type="button"
-        disabled={busy}
-        className="inline-flex h-7 items-center gap-1.5 rounded-md bg-primary px-2.5 text-[11px] font-semibold text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-60"
-        onClick={() => {
-          setState({ kind: 'busy' })
-          onStart(issueId).then(
-            () => setState({ kind: 'started' }),
-            (e: unknown) =>
-              setState({ kind: 'error', message: e instanceof Error ? e.message : String(e) }),
-          )
-        }}
-      >
-        <Play size={12} aria-hidden="true" />
-        {state.kind === 'busy' ? 'Starting…' : state.kind === 'started' ? 'Started' : 'Run now'}
-      </button>
-      {state.kind === 'error' && (
-        <span className="max-w-44 text-right text-[10.5px] leading-snug text-red-400">
-          {state.message}
-        </span>
+    <div className="mx-3 mb-3 rounded-lg border border-border/60 bg-muted/30 px-3 py-2.5">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-[10px] font-semibold tracking-[0.08em] text-muted-foreground/70 uppercase">
+            Planned agent
+          </div>
+          <div className="mt-0.5 text-[11px] text-muted-foreground">
+            Used when this issue starts
+          </div>
+        </div>
+        <div className="flex flex-none items-center gap-2">
+          <span className="flex size-5 items-center justify-center" aria-hidden="true">
+            {state === 'saving' ? (
+              <LoaderCircle size={14} className="animate-spin text-muted-foreground" />
+            ) : state === 'saved' ? (
+              <Check size={14} className="animate-in zoom-in-50 text-success duration-150" />
+            ) : (
+              issueAgentIcon(selected, 14)
+            )}
+          </span>
+          <Select value={selected} onValueChange={change} disabled={state === 'saving'}>
+            <SelectTrigger
+              size="sm"
+              className="w-[148px] border-border/70 bg-background/40 text-[11.5px]"
+              aria-label="Planned agent harness"
+            >
+              <SelectValue>{issueAgentLabel(selected)}</SelectValue>
+            </SelectTrigger>
+            <SelectContent align="end" data-ref-miniview-owned="true">
+              {ISSUE_AGENT_KINDS.map((agent) => (
+                <SelectItem key={agent} value={agent}>
+                  {issueAgentIcon(agent, 13)}
+                  {issueAgentLabel(agent)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      {error && (
+        <p role="alert" className="mt-2 text-[10.5px] leading-snug text-destructive">
+          {error}
+        </p>
+      )}
+    </div>
+  )
+}
+
+/** Start immediately or, for a human-curated proposal, approve it into backlog.
+ *  Each async path owns visible progress and inline failure feedback. */
+function IssueActions({
+  issue,
+  onStart,
+  onPromote,
+}: {
+  issue: RefIssueLike
+  onStart: (issueId: string) => Promise<unknown>
+  onPromote?: (issueId: string) => Promise<unknown>
+}): JSX.Element {
+  const [starting, setStarting] = useState<'idle' | 'busy' | 'done'>('idle')
+  const [promoting, setPromoting] = useState<'idle' | 'busy' | 'done'>('idle')
+  const [error, setError] = useState('')
+  const proposed = issue.stage === 'proposed'
+
+  const start = (): void => {
+    setStarting('busy')
+    setError('')
+    onStart(issue.id).then(
+      () => setStarting('done'),
+      (cause: unknown) => {
+        setStarting('idle')
+        setError(cause instanceof Error ? cause.message : String(cause))
+      },
+    )
+  }
+  const promote = (): void => {
+    if (!onPromote) return
+    setPromoting('busy')
+    setError('')
+    onPromote(issue.id).then(
+      () => setPromoting('done'),
+      (cause: unknown) => {
+        setPromoting('idle')
+        setError(cause instanceof Error ? cause.message : String(cause))
+      },
+    )
+  }
+
+  return (
+    <div className="border-t border-border/60 bg-muted/15 p-3">
+      {proposed && (
+        <div className="mb-2.5">
+          <div className="text-[11px] font-semibold text-foreground/90">Approve this proposal</div>
+          <div className="mt-0.5 text-[10.5px] leading-snug text-muted-foreground">
+            Add it to the backlog for an agent to pick up later, or start it now.
+          </div>
+        </div>
+      )}
+      <div className="flex items-center gap-2">
+        {proposed && onPromote && (
+          <button
+            data-pressable
+            type="button"
+            disabled={promoting !== 'idle' || starting !== 'idle'}
+            className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-border bg-background/40 px-3 text-[11.5px] font-semibold text-foreground/85 transition-all hover:-translate-y-px hover:bg-accent hover:text-foreground active:translate-y-0 disabled:pointer-events-none disabled:opacity-60 motion-reduce:transform-none"
+            onClick={promote}
+          >
+            {promoting === 'busy' ? (
+              <LoaderCircle size={13} className="animate-spin" aria-hidden="true" />
+            ) : promoting === 'done' ? (
+              <Check size={13} className="animate-in zoom-in-50 text-success" aria-hidden="true" />
+            ) : (
+              <ArchiveRestore size={13} aria-hidden="true" />
+            )}
+            {promoting === 'busy'
+              ? 'Adding…'
+              : promoting === 'done'
+                ? 'In backlog'
+                : 'Add to backlog'}
+          </button>
+        )}
+        <button
+          data-pressable
+          type="button"
+          disabled={starting !== 'idle' || promoting === 'busy'}
+          className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary px-3 text-[11.5px] font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:bg-primary/90 active:translate-y-0 disabled:pointer-events-none disabled:opacity-60 motion-reduce:transform-none"
+          onClick={start}
+        >
+          {starting === 'busy' ? (
+            <LoaderCircle size={13} className="animate-spin" aria-hidden="true" />
+          ) : starting === 'done' ? (
+            <Check size={13} className="animate-in zoom-in-50" aria-hidden="true" />
+          ) : (
+            <Play size={13} aria-hidden="true" />
+          )}
+          {starting === 'busy' ? 'Starting…' : starting === 'done' ? 'Started' : 'Run now'}
+        </button>
+      </div>
+      {error && (
+        <p role="alert" className="mt-2 text-[10.5px] leading-snug text-destructive">
+          {error}
+        </p>
       )}
     </div>
   )
@@ -508,11 +678,9 @@ function RunNowAction({
 function IssueSummary({
   issue,
   issues,
-  onStart,
 }: {
   issue: RefIssueLike
   issues: readonly RefIssueLike[]
-  onStart?: (issueId: string) => Promise<unknown>
 }): JSX.Element {
   // Parent chip only when the parent is resolvable to a displayRef.
   const parentRef = issue.parentId
@@ -548,12 +716,9 @@ function IssueSummary({
   return (
     <>
       <div className="flex items-start gap-2.5">
-        <div className="min-w-0 flex-1 text-[15px] leading-[1.32] font-semibold tracking-[-0.01em] text-foreground">
+        <div className="min-w-0 flex-1 text-[16px] leading-[1.3] font-semibold tracking-[-0.015em] text-foreground">
           {truncateTitle(issue.title, 120)}
         </div>
-        {onStart && isIssueStartable(issue) && (
-          <RunNowAction issueId={issue.id} onStart={onStart} />
-        )}
       </div>
       {meta.length > 0 && (
         <div className="mt-2 flex flex-wrap items-center text-[11px] text-muted-foreground">

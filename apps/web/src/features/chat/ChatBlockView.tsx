@@ -164,9 +164,9 @@ function PrincipalLabel({
       {p.pre}
       {p.ref !== null &&
         (chip ? (
-          // biome-ignore lint/a11y/useValidAnchor: in-window chip like the markdown-emitted ref links — navigation is store-driven, there is no URL to href
           <a
             className="ref-link ref-link--issue"
+            href={`#${p.ref}`}
             data-ref={p.ref}
             data-issue-stage={issueReferences.get(p.ref)?.stage}
             data-issue-availability={issueReferences.get(p.ref)?.availability}
@@ -517,7 +517,7 @@ export const ChatBlockView = memo(function ChatBlockView({
           <div
             className="chat-md"
             onClick={(e) => {
-              handleCodeCopyClick(e)
+              handleChatMdClick(e, sessionId, cwd, openFile)
             }}
             // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized by DOMPurify above
             dangerouslySetInnerHTML={{ __html: html }}

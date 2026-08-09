@@ -1,5 +1,5 @@
-import { asSessionId } from '@podium/model'
 import type { TranscriptItem } from '@podium/model'
+import { asSessionId } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -191,5 +191,20 @@ describe('operator events', () => {
     expect(card?.getAttribute('data-attention')).toBe('plan')
     expect(card?.textContent).toContain('Plan ready · needs you')
     expect(card?.textContent).toContain('Review the proposed rollout plan')
+  })
+})
+
+describe('reference activation across transcript kinds', () => {
+  it('activates a reference inside a recap block', () => {
+    mount({
+      id: 'recap-1',
+      role: 'system',
+      systemKind: 'recap',
+      text: 'Continue POD-84.',
+    } as TranscriptItem)
+    const chip = host.querySelector<HTMLElement>('a.ref-link[data-ref="POD-84"]')
+    expect(chip).not.toBeNull()
+    act(() => chip?.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    expect(activations).toEqual(['POD-84'])
   })
 })
