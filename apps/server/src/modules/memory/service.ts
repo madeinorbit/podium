@@ -320,6 +320,11 @@ export class MemoryService {
     return this.lake.readWindow(session, input)
   }
 
+  transcriptHasPredecessors(session: LakeReadSession): boolean {
+    const nativeId = session.resume?.value
+    return nativeId ? this.lake.hasPredecessors(session.machineId, nativeId) : false
+  }
+
   /** `machineId` is the machine that ANSWERED (from the authenticated transport,
    *  never a frame body): the broker refuses a reply from any machine other than
    *  the one the ranged read was sent to (POD-1175). */
@@ -330,6 +335,8 @@ export class MemoryService {
       data: string
       fileSize: number
       eof: boolean
+      device?: string
+      inode?: string
       error?: string
     },
   ): void {

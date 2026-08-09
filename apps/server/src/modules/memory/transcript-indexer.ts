@@ -105,6 +105,15 @@ export class TranscriptIndexer {
     this.deps.index.drop(machineId, nativeId)
   }
 
+  /** A new file incarnation keeps the retired lake bytes readable, but the
+   *  current file starts at byte zero. FTS rows are rebuilt from the current
+   *  incarnation today because the index is still keyed by native id; transcript
+   *  history itself remains lossless in the lake chain. */
+  onIncarnation(machineId: string, nativeId: string): void {
+    this.lastBackfillGap.delete(machineScopedKey(machineId, nativeId))
+    this.deps.index.drop(machineId, nativeId)
+  }
+
   /**
    * Catch-up sweep (scan / daemon-attach trigger, alongside the mirror's
    * enqueueMachine): index every segment whose lake copy holds bytes the FTS

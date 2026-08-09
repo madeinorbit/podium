@@ -15,19 +15,20 @@
  * This is a drizzle-orm import used ONLY for authoring (a devDependency);
  * runtime code never imports drizzle-orm — the applier is drizzle-runner.ts.
  */
+
+import { desc, sql } from 'drizzle-orm'
 import {
-  sqliteTable,
-  foreignKey,
   type AnySQLiteColumn,
-  primaryKey,
-  index,
-  uniqueIndex,
-  unique,
   check,
-  text,
+  foreignKey,
+  index,
   integer,
+  primaryKey,
+  sqliteTable,
+  text,
+  unique,
+  uniqueIndex,
 } from 'drizzle-orm/sqlite-core'
-import { sql, desc } from 'drizzle-orm'
 
 export const sessions = sqliteTable(
   'sessions',
@@ -779,6 +780,35 @@ export const conversationSegments = sqliteTable(
   (table) => [
     index('conversation_segments_podium').on(table.podiumId, table.seqInConv),
     primaryKey({ columns: [table.machineId, table.nativeId], name: 'conversation_segments_pk' }),
+  ],
+)
+
+// One native session id can name several different transcript files over time.
+// The registry row above remains the current native-id projection; this history
+// records the file-identity incarnations whose immutable lake copies form its
+// readable transcript chain.
+export const conversationSegmentIncarnations = sqliteTable(
+  'conversation_segment_incarnations',
+  {
+    machineId: text('machine_id').notNull(),
+    nativeId: text('native_id').notNull(),
+    sequence: integer().notNull(),
+    device: text().notNull(),
+    inode: text().notNull(),
+    mirroredBytes: integer('mirrored_bytes').default(0).notNull(),
+    createdAt: text('created_at').notNull(),
+    retiredAt: text('retired_at'),
+  },
+  (table) => [
+    index('conversation_segment_incarnations_native').on(
+      table.machineId,
+      table.nativeId,
+      table.sequence,
+    ),
+    primaryKey({
+      columns: [table.machineId, table.nativeId, table.sequence],
+      name: 'conversation_segment_incarnations_pk',
+    }),
   ],
 )
 

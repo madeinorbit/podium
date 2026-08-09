@@ -463,6 +463,118 @@ if (process.env.PODIUM_E2E_PANEL_LIFECYCLE === '1') {
     },
   })
 }
+// Same-native-id transcript replacement proof (POD-660): one completed issue
+// retains a hibernated session whose lake is two device/inode incarnations. The
+// browser spec opens the real AgentPanel, which must render both files as one
+// transcript and keep the wake action visible.
+if (process.env.PODIUM_E2E_TRANSCRIPT_INCARNATION === '1') {
+  const issue = server.registry.modules.issues.create({
+    repoPath: REPO_ROOT,
+    title: 'Completed transcript incarnation',
+    startNow: false,
+  })
+  let sessionId: string | undefined
+  let lastError: unknown
+  for (let attempt = 0; attempt < 80 && sessionId === undefined; attempt++) {
+    try {
+      sessionId = server.registry.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: REPO_ROOT,
+        issueId: issue.id,
+        machineId: hostMachineId(),
+      }).sessionId
+    } catch (err) {
+      lastError = err
+      await new Promise((resolve) => setTimeout(resolve, 250))
+    }
+  }
+  if (sessionId === undefined) {
+    throw new Error(
+      `PODIUM_E2E_TRANSCRIPT_INCARNATION: the agent inventory never arrived — ${String(lastError)}`,
+    )
+  }
+  server.registry.modules.sessions.renameSession({
+    sessionId,
+    name: 'Incarnation chain subject',
+  })
+  let live = false
+  for (let attempt = 0; attempt < 80 && !live; attempt++) {
+    live =
+      server.registry.modules.sessions
+        .listSessions()
+        .find((session) => session.sessionId === sessionId)?.status === 'live'
+    if (!live) await new Promise((resolve) => setTimeout(resolve, 250))
+  }
+  if (!live) {
+    throw new Error('PODIUM_E2E_TRANSCRIPT_INCARNATION: session never became live')
+  }
+  const nativeId = 'e2e-reused-native-id'
+  const principal = inProcessMachinePrincipal(hostMachineId())
+  server.registry.modules.sessions.onSessionDaemonFrame(principal, {
+    type: 'sessionResumeRef',
+    sessionId,
+    resume: { kind: 'claude-session', value: nativeId },
+  })
+  server.registry.modules.sessions.onSessionDaemonFrame(principal, {
+    type: 'agentState',
+    sessionId,
+    state: {
+      phase: 'idle',
+      idle: { kind: 'done' },
+      since: new Date().toISOString(),
+      nativeSubagentCount: 0,
+    },
+  })
+
+  const predecessor = `${JSON.stringify({
+    type: 'user',
+    uuid: 'e2e-incarnation-user',
+    timestamp: '2026-08-08T21:06:39.000Z',
+    message: { role: 'user', content: 'Earlier transcript incarnation is still readable.' },
+  })}\n`
+  const current = `${JSON.stringify({
+    type: 'assistant',
+    uuid: 'e2e-incarnation-assistant',
+    timestamp: '2026-08-08T21:57:00.000Z',
+    message: {
+      role: 'assistant',
+      stop_reason: 'end_turn',
+      content: [{ type: 'text', text: 'Replacement inode continues the same session.' }],
+    },
+  })}\n`
+  const machineId = hostMachineId()
+  const lakeDir = join(stateDir, 'transcripts', machineId)
+  mkdirSync(lakeDir, { recursive: true })
+  writeFileSync(join(lakeDir, `${nativeId}.incarnation-1.jsonl`), predecessor)
+  writeFileSync(join(lakeDir, `${nativeId}.jsonl`), current)
+  const harnessStore = (server.registry as unknown as { store: SessionStore }).store
+  harnessStore.conversations.mirror.startIncarnation(
+    machineId,
+    nativeId,
+    { device: '7', inode: '8961297' },
+    '2026-08-08T21:06:39Z',
+  )
+  harnessStore.conversations.mirror.rotateIncarnation(
+    machineId,
+    nativeId,
+    { device: '7', inode: '7115245' },
+    Buffer.byteLength(predecessor),
+    '2026-08-08T21:57:00Z',
+  )
+  harnessStore.conversations.mirror.setMirrorCursor(
+    machineId,
+    nativeId,
+    Buffer.byteLength(current),
+    '2026-08-08T21:57:01Z',
+  )
+  const hibernated = server.registry.modules.sessions.hibernateSession({ sessionId })
+  if (!hibernated.ok) {
+    throw new Error(
+      `PODIUM_E2E_TRANSCRIPT_INCARNATION: hibernate refused — ${hibernated.reason ?? 'unknown'}`,
+    )
+  }
+  server.registry.modules.issues.close(issue.id, 'done')
+}
 if (process.env.PODIUM_E2E_FINISHED_DELEGATE === '1') {
   const issue = server.registry.modules.issues.create({
     repoPath: REPO_ROOT,

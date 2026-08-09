@@ -19,11 +19,13 @@ history, and P5's FTS index has nothing server-side to index.
 
 ### 2.1 The lake (server filesystem)
 
-- Location: `$PODIUM_STATE_DIR/transcripts/<machineId>/<nativeId>.jsonl`.
-  **Evidence-keyed, not identity-keyed** — machineId+nativeId is the segment PK,
-  is immutable, and never needs renames when registry lineage links segments
-  later; conversation-level views (export, search) join through
-  `conversation_segments.podium_id`.
+- The current incarnation lives at
+  `$PODIUM_STATE_DIR/transcripts/<machineId>/<nativeId>.jsonl`. When a provider
+  reuses the same native id for a different file identity, the completed copy is
+  moved to `<nativeId>.incarnation-<sequence>.jsonl` and the canonical path begins
+  the replacement incarnation. `conversation_segment_incarnations` preserves
+  the ordered device/inode history while `conversation_segments` remains the
+  current native-id projection.
 - Files are **byte-verbatim** copies (append-only mirror of an append-only
   source). No parsing, no re-encoding — fidelity is the point (arch §6.1).
 
@@ -41,6 +43,7 @@ New daemon⇄server control messages:
 server → daemon: transcriptMirrorRead { requestId, path, offset, maxBytes }
 daemon → server: transcriptMirrorResult {
   requestId, data (base64), fileSize, eof,   // data may be empty when offset ≥ size
+  device?, inode?,                          // identity of the opened file
   error?                                     // unreadable/denied — server backs off
 }
 ```
@@ -55,9 +58,12 @@ daemon → server: transcriptMirrorResult {
   PTY path), 256 KB chunks, repeat until `eof`. Appends bytes to the lake file,
   then advances `mirrored_bytes` (file write BEFORE cursor advance — a crash
   re-pulls a chunk, appends are idempotent by offset since we write at the cursor).
-- **Rewrite/truncate detection**: `fileSize < mirrored_bytes` → the native file was
-  rewritten (not appended) → truncate the lake copy and re-mirror from 0.
-  Verbatim-mirror correctness beats delta cleverness here.
+- **Replacement vs rewrite detection**: a changed device/inode for the same
+  native id retires the old lake copy as an immutable predecessor and re-mirrors
+  the replacement from 0. Only `fileSize < mirrored_bytes` on the *same* file
+  identity is an in-place rewrite that invalidates and truncates one segment.
+  Transcript reads pass the retired files and current file to the transcript
+  reader as one ordered file chain.
 - **Triggers**: after `indexConversations` (a scan reported new/changed
   conversations — enqueue every segment whose evidence path is known), and a
   low-frequency sweep on daemon attach (catch-up after server downtime). Dedup:

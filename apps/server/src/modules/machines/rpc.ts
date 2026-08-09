@@ -109,7 +109,10 @@ export interface RpcSessionView {
 
 interface DaemonRpcDeps {
   broker?: DaemonRequestPort
-  memory: Pick<MemoryService, 'canReadSession' | 'transcriptPathHint' | 'readTranscriptFromLake'>
+  memory: Pick<
+    MemoryService,
+    'canReadSession' | 'transcriptPathHint' | 'readTranscriptFromLake' | 'transcriptHasPredecessors'
+  >
   toMachine(machineId: string, msg: ControlMessage): void
   defaultMachine(): MachineId
   resolveMachine(requested: string | undefined, cwd: string): string
@@ -776,6 +779,32 @@ export class DaemonRpcService {
     // The `.wait` phases also record an attempted leg when it returns an empty
     // page and the other source wins; otherwise a daemon timeout/empty answer
     // vanishes from attribution and the client gap cannot be closed.
+    let fromLake: TranscriptSlice | undefined
+    let lakeMs = 0
+    let lakeAttempted = false
+    const readLake = async (): Promise<TranscriptSlice | undefined> => {
+      lakeAttempted = true
+      const tLake0 = performance.now()
+      try {
+        return await this.deps.memory.readTranscriptFromLake(session, input)
+      } finally {
+        lakeMs = performance.now() - tLake0
+        perf.record('phase', 'transcriptRead.lake.wait', lakeMs, DEPLOYMENT)
+      }
+    }
+    // A daemon can resolve only the provider's CURRENT file. Once the lake has
+    // an immutable predecessor, it is the only source that can answer an opaque
+    // cursor across the complete chain, so consult it first even while the
+    // machine is online. Fall back to the daemon if preserved files are missing.
+    if (this.deps.memory.transcriptHasPredecessors(session)) {
+      fromLake = await readLake()
+      if (fromLake) {
+        perf.record('phase', 'transcriptRead.lake', lakeMs, DEPLOYMENT)
+        perf.record('phase', 'transcriptRead.items', fromLake.items.length, DEPLOYMENT)
+        recordTotal()
+        return fromLake
+      }
+    }
     const hasDaemon = this.deps.hasDaemon(session.machineId)
     let fromDaemon: TranscriptSlice | undefined
     let daemonMs: number | undefined
@@ -819,15 +848,7 @@ export class DaemonRpcService {
       return fromDaemon
     }
     // Empty/timeout daemon answer (or no daemon): serve from the mirrored copy.
-    const tLake0 = performance.now()
-    let fromLake: TranscriptSlice | undefined
-    let lakeMs = 0
-    try {
-      fromLake = await this.deps.memory.readTranscriptFromLake(session, input)
-    } finally {
-      lakeMs = performance.now() - tLake0
-      perf.record('phase', 'transcriptRead.lake.wait', lakeMs, DEPLOYMENT)
-    }
+    if (!lakeAttempted) fromLake = await readLake()
     if (fromLake) {
       perf.record('phase', 'transcriptRead.lake', lakeMs, DEPLOYMENT)
       perf.record('phase', 'transcriptRead.items', fromLake.items.length, DEPLOYMENT)

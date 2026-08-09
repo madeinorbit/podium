@@ -60,6 +60,7 @@ export const DRIZZLE_MIGRATIONS: DrizzleMigration[] = [
   { name: "20260804200000_podium-managed-machines", sql: "ALTER TABLE machines ADD COLUMN podium_managed INTEGER NOT NULL DEFAULT 1;\n" },
   { name: "20260807080429_index-podium-events-subject", sql: "CREATE INDEX `idx_podium_events_subject` ON `podium_events` (`subject`);\n" },
   { name: "20260808223937_queued-lock-lease-metadata", sql: "ALTER TABLE `lock_waiters` ADD `ttl_seconds` integer DEFAULT 120 NOT NULL;--> statement-breakpoint\nALTER TABLE `lock_waiters` ADD `note` text;" },
+  { name: "20260809112031_transcript-segment-incarnations", sql: "CREATE TABLE `conversation_segment_incarnations` (\n\t`machine_id` text NOT NULL,\n\t`native_id` text NOT NULL,\n\t`sequence` integer NOT NULL,\n\t`device` text NOT NULL,\n\t`inode` text NOT NULL,\n\t`mirrored_bytes` integer DEFAULT 0 NOT NULL,\n\t`created_at` text NOT NULL,\n\t`retired_at` text,\n\tCONSTRAINT `conversation_segment_incarnations_pk` PRIMARY KEY(`machine_id`, `native_id`, `sequence`)\n);\n--> statement-breakpoint\nCREATE INDEX `conversation_segment_incarnations_native` ON `conversation_segment_incarnations` (`machine_id`,`native_id`,`sequence`);" },
 ]
 
 /**

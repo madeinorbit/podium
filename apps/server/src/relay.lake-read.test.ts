@@ -1,14 +1,15 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { FIRST_ADMIN_USER_ID, asSessionId, asUserId } from '@podium/model'
+import { asSessionId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
 
 // Lake-fallback transcript reads (docs/spec/search-v1.md §2.2): with the daemon
 // gone, readTranscript serves the window from the server's mirrored copy; with a
-// daemon answering normally, the daemon result wins and the lake is never parsed.
+// daemon answering normally, the daemon result wins unless only the lake can
+// provide a preserved predecessor chain.
 
 /** Real Claude Code JSONL — the lake holds native bytes verbatim, so the fixture
  *  must be the genuine record shape (message envelope, uuid, timestamp). */
@@ -41,7 +42,10 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
   function setup() {
     const lakeDir = mkdtempSync(join(tmpdir(), 'podium-lake-read-'))
     const store = new SessionStore(':memory:')
-    const registry = new SessionRegistry(store, undefined, { instanceId: 'default', mirrorLakeDir: lakeDir })
+    const registry = new SessionRegistry(store, undefined, {
+      instanceId: 'default',
+      mirrorLakeDir: lakeDir,
+    })
     cleanups.push(() => {
       registry.dispose()
       rmSync(lakeDir, { recursive: true, force: true })
@@ -150,6 +154,130 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
       { kind: 'user', id: FIRST_ADMIN_USER_ID },
     )
     expect(res.items.map((i) => i.text)).toEqual(['fresh from the daemon'])
+  })
+
+  it('reads retired and current file incarnations as one transcript chain', async () => {
+    const { lakeDir, store, registry } = setup()
+    const nativeId = 'native-reused'
+    const predecessor = `${JSON.stringify({
+      type: 'user',
+      uuid: 'u-predecessor',
+      timestamp: '2026-07-01T09:00:00.000Z',
+      message: { role: 'user', content: 'history from the original inode' },
+    })}\n`
+    const current = `${JSON.stringify({
+      type: 'assistant',
+      uuid: 'a-current',
+      timestamp: '2026-07-01T10:00:00.000Z',
+      message: {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'reply from replacement inode' }],
+      },
+    })}\n`
+    const sessionId = seedMirroredSession(registry, store, lakeDir, nativeId, current)
+    store.conversations.mirror.startIncarnation(
+      'm1',
+      nativeId,
+      { device: '7', inode: '8961297' },
+      '2026-07-01T09:00:00Z',
+    )
+    store.conversations.mirror.rotateIncarnation(
+      'm1',
+      nativeId,
+      { device: '7', inode: '7115245' },
+      Buffer.byteLength(predecessor),
+      '2026-07-01T10:00:00Z',
+    )
+    writeFileSync(join(lakeDir, 'm1', `${nativeId}.incarnation-1.jsonl`), predecessor)
+    store.conversations.mirror.setMirrorCursor(
+      'm1',
+      nativeId,
+      Buffer.byteLength(current),
+      '2026-07-01T10:00:01Z',
+    )
+    registry.gateway.detachDaemon('m1')
+    // Even with an online daemon returning the replacement file, the lake owns
+    // this read because it is the only source that can page across predecessors.
+    registry.gateway.attachDaemon('m1', (message) => {
+      if (message.type !== 'transcriptRead') return
+      registry.gateway.routeDaemonFrame('m1', {
+        type: 'transcriptReadResult',
+        requestId: message.requestId,
+        sessionId: message.sessionId,
+        items: [
+          { id: 'daemon-current', role: 'assistant', text: 'daemon only saw the replacement' },
+        ],
+        hasMore: false,
+      })
+    })
+
+    const res = await registry.modules.rpc.readTranscript(
+      { sessionId: asSessionId(sessionId), direction: 'before', limit: 10 },
+      { kind: 'user', id: FIRST_ADMIN_USER_ID },
+    )
+    expect(res.items.map((item) => item.text)).toEqual([
+      'history from the original inode',
+      'reply from replacement inode',
+    ])
+  })
+
+  it('carries daemon file identity through the server mirror boundary', async () => {
+    const { lakeDir, store, registry } = setup()
+    const nativeId = 'native-boundary'
+    const sourcePath = '/home/u/.claude/projects/-proj/native-boundary.jsonl'
+    let source = Buffer.from(
+      `${JSON.stringify({
+        type: 'user',
+        message: { role: 'user', content: 'predecessor transcript with enough history' },
+      })}\n`,
+    )
+    let inode = '8961297'
+    store.conversations.registry.ensure({
+      machineId: 'm1',
+      nativeId,
+      providerId: 'claude-code-jsonl',
+      path: sourcePath,
+      sizeBytes: source.length,
+    })
+    registry.gateway.attachDaemon('m1', (message) => {
+      if (message.type !== 'transcriptMirrorRead') return
+      const bytes = source.subarray(message.offset, message.offset + message.maxBytes)
+      registry.gateway.routeDaemonFrame('m1', {
+        type: 'transcriptMirrorResult',
+        requestId: message.requestId,
+        data: bytes.toString('base64'),
+        fileSize: source.length,
+        eof: message.offset + bytes.length >= source.length,
+        device: '7',
+        inode,
+      })
+    })
+    registry.modules.memory.triggerLakeSweep('m1')
+    await vi.waitFor(() => {
+      expect(store.conversations.mirror.mirrorCursor('m1', nativeId)).toBe(source.length)
+      expect(store.conversations.mirror.activeIncarnation('m1', nativeId)?.inode).toBe('8961297')
+    })
+
+    const predecessor = source
+    source = Buffer.from(
+      `${JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: 'next' } })}\n`,
+    )
+    inode = '7115245'
+    store.conversations.mirror.setReportedBytes('m1', nativeId, source.length)
+    registry.modules.memory.triggerLakeSweep('m1')
+
+    await vi.waitFor(() => {
+      // The first sweep may still be dropping its single-flight queue marker
+      // when the replacement is installed; retriggering is how the next daemon
+      // scan reports the dirty smaller file in production.
+      registry.modules.memory.triggerLakeSweep('m1')
+      expect(store.conversations.mirror.mirrorCursor('m1', nativeId)).toBe(source.length)
+      expect(store.conversations.mirror.incarnations('m1', nativeId)).toHaveLength(2)
+    })
+    expect(
+      readFileSync(join(lakeDir, 'm1', `${nativeId}.incarnation-1.jsonl`)).equals(predecessor),
+    ).toBe(true)
+    expect(readFileSync(join(lakeDir, 'm1', `${nativeId}.jsonl`)).equals(source)).toBe(true)
   })
 
   it('daemon attach backfills the FTS index for segments mirrored before this deploy', async () => {

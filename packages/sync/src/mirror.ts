@@ -1,7 +1,7 @@
-import { machineScopedKey } from '@podium/model'
 import { mkdirSync } from 'node:fs'
-import { open, stat } from 'node:fs/promises'
+import { open, rename, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
+import { machineScopedKey } from '@podium/model'
 
 /** The conversation-segment surface MirrorService needs — narrow on purpose so
  *  this package depends on neither apps/server's full ConversationsRepository
@@ -16,6 +16,23 @@ export interface MirrorStore {
   setReportedBytes(machineId: string, nativeId: string, bytes: number): void
   mirrorCursor(machineId: string, nativeId: string): number
   setMirrorCursor(machineId: string, nativeId: string, bytes: number, at: string): void
+  activeIncarnation(
+    machineId: string,
+    nativeId: string,
+  ): { sequence: number; device: string; inode: string } | undefined
+  startIncarnation(
+    machineId: string,
+    nativeId: string,
+    identity: { device: string; inode: string },
+    at: string,
+  ): void
+  rotateIncarnation(
+    machineId: string,
+    nativeId: string,
+    identity: { device: string; inode: string },
+    archivedBytes: number,
+    at: string,
+  ): void
 }
 
 /** One ranged read answered by the daemon (transcriptMirrorResult, decoded). */
@@ -23,6 +40,8 @@ export interface MirrorReadResult {
   data: string // base64
   fileSize: number
   eof: boolean
+  device?: string
+  inode?: string
   error?: string
 }
 
@@ -40,6 +59,11 @@ export interface MirrorServiceOptions {
   /** Fires when a rewrite (source shrank) truncated the lake copy — the indexed
    *  content for the segment is invalid and must be dropped before the re-mirror. */
   onTruncate?: (machineId: string, nativeId: string) => void
+  /** Fires when the same native id resolves to a different file identity. The
+   *  predecessor lake file has already been archived and the current cursor
+   *  reset; consumers must reset current-incarnation state without treating the
+   *  predecessor bytes as invalid. */
+  onIncarnation?: (machineId: string, nativeId: string) => void
 }
 
 /**
@@ -91,6 +115,7 @@ export class MirrorService {
   private readonly passBudgetBytes: number
   private readonly onBytes: (machineId: string, nativeId: string, lakePath: string) => void
   private readonly onTruncate: (machineId: string, nativeId: string) => void
+  private readonly onIncarnation: (machineId: string, nativeId: string) => void
 
   constructor(
     private readonly store: MirrorStore,
@@ -106,10 +131,15 @@ export class MirrorService {
     this.passBudgetBytes = options.passBudgetBytes ?? MirrorService.PASS_BUDGET_BYTES
     this.onBytes = options.onBytes ?? (() => {})
     this.onTruncate = options.onTruncate ?? (() => {})
+    this.onIncarnation = options.onIncarnation ?? (() => {})
   }
 
   lakePath(machineId: string, nativeId: string): string {
     return join(this.lakeDir, machineId, `${nativeId}.jsonl`)
+  }
+
+  archivedLakePath(machineId: string, nativeId: string, sequence: number): string {
+    return join(this.lakeDir, machineId, `${nativeId}.incarnation-${sequence}.jsonl`)
   }
 
   /** Enqueue every path-known segment of a machine — the FULL sweep. Kept as the
@@ -260,6 +290,36 @@ export class MirrorService {
       // this read was outstanding. Bail before the write, not after it throws.
       if (this.stopped) return
       if (res.error) throw new Error(res.error)
+      const identity =
+        res.device !== undefined && res.inode !== undefined
+          ? { device: res.device, inode: res.inode }
+          : undefined
+      const active = identity ? this.store.activeIncarnation(machineId, nativeId) : undefined
+      if (identity && !active) {
+        // Rolling-upgrade adoption: the canonical lake and its cursor predate
+        // file-identity replies. Attach identity without disturbing either.
+        this.store.startIncarnation(machineId, nativeId, identity, this.nowIso())
+      } else if (
+        identity &&
+        active &&
+        (active.device !== identity.device || active.inode !== identity.inode)
+      ) {
+        // A replacement file is a NEW immutable transcript segment, even when
+        // the provider reused the same native session id. Archive the canonical
+        // predecessor before resetting the current cursor; do not call the
+        // rewrite hook, because the predecessor remains valid history.
+        const archivedPath = this.archivedLakePath(machineId, nativeId, active.sequence)
+        const archivedBytes = await this.archiveCurrent(
+          machineId,
+          nativeId,
+          archivedPath,
+          await this.lakeSize(machineId, nativeId),
+        )
+        this.store.rotateIncarnation(machineId, nativeId, identity, archivedBytes, this.nowIso())
+        this.onIncarnation(machineId, nativeId)
+        cursor = 0
+        continue
+      }
       if (res.fileSize < cursor) {
         // The native file SHRANK — it was rewritten, not appended. Verbatim-mirror
         // correctness: drop our copy and re-pull from zero (spec §2.3). Everything
@@ -336,6 +396,31 @@ export class MirrorService {
     } catch {
       return 0 // no lake file yet
     }
+  }
+
+  /** Move the current canonical copy to its immutable chain position. If a
+   *  crash already completed the move but not the DB rotation, keep and measure
+   *  that predecessor rather than replacing it with an empty file. */
+  private async archiveCurrent(
+    machineId: string,
+    nativeId: string,
+    archivedPath: string,
+    currentSize: number,
+  ): Promise<number> {
+    mkdirSync(dirname(archivedPath), { recursive: true })
+    try {
+      // Recovery after rename-before-DB crash: the predecessor is already safe.
+      // Leave a replacement canonical file alone; the zero-cursor re-pull below
+      // will overwrite it byte-identically after the DB rotation completes.
+      return (await stat(archivedPath)).size
+    } catch {
+      // No archived predecessor yet — move the canonical copy below.
+    }
+    if (currentSize > 0) {
+      await rename(this.lakePath(machineId, nativeId), archivedPath)
+      return currentSize
+    }
+    return 0
   }
 
   private nowIso(): string {

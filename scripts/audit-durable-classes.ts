@@ -175,6 +175,7 @@ export const DURABLE_STORES: readonly DurableStore[] = [
   { store: 'conversations', kind: 'drizzle-table', row: 'conversation-registry' },
   { store: 'conversation_identities', kind: 'drizzle-table', row: 'conversation-registry' },
   { store: 'conversation_segments', kind: 'drizzle-table', row: 'segments' },
+  { store: 'conversation_segment_incarnations', kind: 'drizzle-table', row: 'segments' },
   {
     store: 'conversations_fts',
     kind: 'runtime-table',

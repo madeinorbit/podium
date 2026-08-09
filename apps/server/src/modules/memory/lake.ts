@@ -12,6 +12,8 @@ interface MirrorReadReply {
   data: string
   fileSize: number
   eof: boolean
+  device?: string
+  inode?: string
   error?: string
 }
 
@@ -25,6 +27,8 @@ const MIRROR_READ = daemonRequestKind<{
   data: string
   fileSize: number
   eof: boolean
+  device?: string
+  inode?: string
   error?: string
 }>('mr')
 
@@ -81,6 +85,7 @@ export class TranscriptLake {
       {
         onBytes: (machineId, nativeId, lakePath) => indexer.onBytes(machineId, nativeId, lakePath),
         onTruncate: (machineId, nativeId) => indexer.onTruncate(machineId, nativeId),
+        onIncarnation: (machineId, nativeId) => indexer.onIncarnation(machineId, nativeId),
       },
     )
   }
@@ -130,6 +135,12 @@ export class TranscriptLake {
     return path ? { pathHint: path } : undefined
   }
 
+  hasPredecessors(machineId: string, nativeId: string): boolean {
+    return this.deps.store.mirror
+      .incarnations(machineId, nativeId)
+      .some((incarnation) => !incarnation.active && incarnation.mirroredBytes > 0)
+  }
+
   async readWindow(
     session: LakeReadSession,
     input: { anchor?: string; direction: 'before' | 'after'; limit: number },
@@ -138,14 +149,28 @@ export class TranscriptLake {
   > {
     const nativeId = session.resume?.value
     if (!this.mirror || !nativeId) return undefined
-    if (this.deps.store.mirror.mirrorCursor(session.machineId, nativeId) <= 0) return undefined
-    const path = this.mirror.lakePath(session.machineId, nativeId)
+    const incarnations = this.deps.store.mirror.incarnations(session.machineId, nativeId)
+    const chain =
+      incarnations.length > 0
+        ? incarnations
+            .filter((incarnation) => incarnation.mirroredBytes > 0)
+            .map((incarnation) => {
+              const path = incarnation.active
+                ? this.mirror?.lakePath(session.machineId, nativeId)
+                : this.mirror?.archivedLakePath(session.machineId, nativeId, incarnation.sequence)
+              return path ? { path, fileId: fileIdFor(path) } : undefined
+            })
+            .filter((entry): entry is { path: string; fileId: string } => entry !== undefined)
+        : this.deps.store.mirror.mirrorCursor(session.machineId, nativeId) > 0
+          ? [this.mirror.lakePath(session.machineId, nativeId)].map((path) => ({
+              path,
+              fileId: fileIdFor(path),
+            }))
+          : []
+    if (chain.length === 0) return undefined
     const recordToItems = transcriptRecordMapperFor(session.agentKind)
     if (!recordToItems) return undefined
-    const slice = await fileChainSource(
-      [{ path, fileId: fileIdFor(path) }],
-      recordToItems,
-    ).readSlice({
+    const slice = await fileChainSource(chain, recordToItems).readSlice({
       ...(input.anchor ? { anchor: input.anchor } : {}),
       direction: input.direction,
       limit: input.limit,
@@ -203,6 +228,8 @@ export class TranscriptLake {
       data: string
       fileSize: number
       eof: boolean
+      device?: string
+      inode?: string
       error?: string
     },
   ): void {
@@ -210,6 +237,8 @@ export class TranscriptLake {
       data: message.data,
       fileSize: message.fileSize,
       eof: message.eof,
+      ...(message.device === undefined ? {} : { device: message.device }),
+      ...(message.inode === undefined ? {} : { inode: message.inode }),
       ...(message.error === undefined ? {} : { error: message.error }),
     })
   }

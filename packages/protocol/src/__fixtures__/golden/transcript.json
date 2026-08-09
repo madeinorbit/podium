@@ -109,12 +109,14 @@
         "data": "data",
         "fileSize": 1,
         "eof": true,
+        "device": "device",
+        "inode": "inode",
         "error": "error"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"transcriptMirrorResult\",\"requestId\":\"requestId\",\"data\":\"data\",\"fileSize\":1,\"eof\":true,\"error\":\"error\"}"
+      "encoded": "{\"type\":\"transcriptMirrorResult\",\"requestId\":\"requestId\",\"data\":\"data\",\"fileSize\":1,\"eof\":true,\"device\":\"device\",\"inode\":\"inode\",\"error\":\"error\"}"
     },
     {
       "schema": "TranscriptReadRequestMessage",

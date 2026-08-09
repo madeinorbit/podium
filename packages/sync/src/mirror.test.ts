@@ -25,6 +25,8 @@ interface ReadLog {
  *  optional per-path error injection and in-flight concurrency tracking. */
 class FakeDaemonFs {
   private readonly files = new Map<string, Buffer>()
+  private readonly identities = new Map<string, { device: string; inode: string }>()
+  private nextInode = 1
   readonly log: ReadLog[] = []
   /** performance.now() at each read — lets tests assert inter-chunk spacing. */
   readonly readTimes: number[] = []
@@ -38,6 +40,14 @@ class FakeDaemonFs {
 
   set(path: string, content: string | Buffer): void {
     this.files.set(path, Buffer.from(content))
+    if (!this.identities.has(path)) {
+      this.identities.set(path, { device: '7', inode: String(this.nextInode++) })
+    }
+  }
+
+  replace(path: string, content: string | Buffer): void {
+    this.files.set(path, Buffer.from(content))
+    this.identities.set(path, { device: '7', inode: String(this.nextInode++) })
   }
 
   read = async (
@@ -62,7 +72,12 @@ class FakeDaemonFs {
     const size = content.length
     const end = Math.min(size, req.offset + req.maxBytes)
     const slice = req.offset < size ? content.subarray(req.offset, end) : Buffer.alloc(0)
-    return { data: slice.toString('base64'), fileSize: size, eof: end >= size }
+    return {
+      data: slice.toString('base64'),
+      fileSize: size,
+      eof: end >= size,
+      ...this.identities.get(req.path),
+    }
   }
 }
 
@@ -76,6 +91,10 @@ class FakeMirrorStore implements MirrorStore {
   private readonly segments = new Map<
     string,
     { path: string; mirroredBytes: number; reportedBytes: number | null }
+  >()
+  private readonly incarnations = new Map<
+    string,
+    { sequence: number; device: string; inode: string; mirroredBytes: number; active: boolean }[]
   >()
 
   private key(machineId: string, nativeId: string): string {
@@ -131,6 +150,51 @@ class FakeMirrorStore implements MirrorStore {
   setMirrorCursor(machineId: string, nativeId: string, bytes: number, _at: string): void {
     const v = this.segments.get(this.key(machineId, nativeId))
     if (v) v.mirroredBytes = bytes
+  }
+
+  activeIncarnation(machineId: string, nativeId: string) {
+    return this.incarnations.get(this.key(machineId, nativeId))?.find((row) => row.active)
+  }
+
+  startIncarnation(
+    machineId: string,
+    nativeId: string,
+    identity: { device: string; inode: string },
+    _at: string,
+  ): void {
+    const key = this.key(machineId, nativeId)
+    const rows = this.incarnations.get(key) ?? []
+    if (rows.some((row) => row.active)) return
+    rows.push({ sequence: rows.length + 1, ...identity, mirroredBytes: 0, active: true })
+    this.incarnations.set(key, rows)
+  }
+
+  rotateIncarnation(
+    machineId: string,
+    nativeId: string,
+    identity: { device: string; inode: string },
+    archivedBytes: number,
+    _at: string,
+  ): void {
+    const key = this.key(machineId, nativeId)
+    const rows = this.incarnations.get(key) ?? []
+    const active = rows.find((row) => row.active)
+    if (active) {
+      active.active = false
+      active.mirroredBytes = archivedBytes
+    }
+    rows.push({
+      sequence: (active?.sequence ?? rows.length) + 1,
+      ...identity,
+      mirroredBytes: 0,
+      active: true,
+    })
+    this.incarnations.set(key, rows)
+    this.setMirrorCursor(machineId, nativeId, 0, _at)
+  }
+
+  incarnationRows(machineId: string, nativeId: string) {
+    return this.incarnations.get(this.key(machineId, nativeId)) ?? []
   }
 }
 
@@ -235,6 +299,33 @@ describe('MirrorService', () => {
 
     expect(readFileSync(mirror.lakePath('m1', 'rewrite')).equals(rewritten)).toBe(true)
     expect(store.mirrorCursor('m1', 'rewrite')).toBe(rewritten.length)
+  })
+
+  it('archives the predecessor when the same native id points to a smaller new inode', async () => {
+    const onTruncate = vi.fn()
+    const onIncarnation = vi.fn()
+    const { store, fs, mirror } = setup({ onTruncate, onIncarnation })
+    const path = seed(store, 'm1', 'reused-id')
+    const predecessor = Buffer.from('first incarnation keeps its complete history\n')
+    fs.set(path, predecessor)
+    mirror.enqueue('m1', 'reused-id', path)
+    await settle(mirror, 'm1')
+
+    const replacement = Buffer.from('new turn\n')
+    fs.replace(path, replacement)
+    mirror.enqueue('m1', 'reused-id', path)
+    await settle(mirror, 'm1')
+
+    expect(readFileSync(mirror.archivedLakePath('m1', 'reused-id', 1)).equals(predecessor)).toBe(
+      true,
+    )
+    expect(readFileSync(mirror.lakePath('m1', 'reused-id')).equals(replacement)).toBe(true)
+    expect(store.incarnationRows('m1', 'reused-id')).toEqual([
+      expect.objectContaining({ sequence: 1, mirroredBytes: predecessor.length, active: false }),
+      expect.objectContaining({ sequence: 2, mirroredBytes: 0, active: true }),
+    ])
+    expect(onIncarnation).toHaveBeenCalledWith('m1', 'reused-id')
+    expect(onTruncate).not.toHaveBeenCalled()
   })
 
   it('a deleted source (denied) marks the segment converged — no eternal retries', async () => {
