@@ -42,6 +42,7 @@ import {
   CornerDownRight,
   Hourglass,
   Search,
+  Users,
   X,
 } from 'lucide-react'
 import { motion, useReducedMotion } from 'motion/react'
@@ -139,12 +140,14 @@ const writeFolds = (folds: ReadonlySet<string>): string | null =>
   folds.size === 0 ? null : JSON.stringify([...folds])
 
 /**
- * THE MISSION GAUGE — progress and fleet as one instrument (round 3 §3, §11).
+ * THE MISSION GAUGE — progress and fleet as adjacent instruments (round 3 §3, §11).
  *
  * The reading used to sit BESIDE the track, and the fleet ("21 live / 0 coords")
  * a line below it as a pair of mono footnotes. Three facts, three places, none
- * of them composed. This is one carved well: the extent is the well's own
- * ground, the reading sits inside it, and the fleet closes it on the right.
+ * of them composed. The progress facts now share one carved well: the extent is
+ * the well's own ground and the reading sits inside it. Fleet presence is a
+ * separate chip beside the well, so `N live` cannot be mistaken for one more
+ * progress segment.
  *
  * The extent is drawn twice on purpose, the way a real gauge is — a soft tinted
  * REGION says roughly how far, and a saturated 2px rule along the floor says
@@ -157,12 +160,13 @@ const writeFolds = (folds: ReadonlySet<string>): string | null =>
  * spending the one signal colour on work that is asking nothing. It reads as the
  * same diagonal hatch a blocked strip wears instead — one idea, both places.
  *
- * MOTION. The spinner appears only while an agent in this mission is genuinely
- * computing, which is the folded rail's rule and the app's only perpetual
- * motion; the live count beside it stays neutral, because agents being present
- * asks nothing of the operator.
+ * MOTION. The running segment carries the same slow sweep as the sidebar's
+ * progress rule whenever the mission has running issues. This is task progress,
+ * not an agent-presence meter: it keeps moving while work is between model
+ * turns. The live chip stays neutral and still, because presence asks nothing
+ * of the operator.
  */
-function MissionGauge({
+export function MissionGauge({
   progress,
   live,
   working,
@@ -180,45 +184,52 @@ function MissionGauge({
     `${done} of ${total} task${total === 1 ? '' : 's'} done, ${run} running` +
     `${block > 0 ? `, ${block} blocked` : ''} · ${live} agent${live === 1 ? '' : 's'} live` +
     `${working > 0 ? `, ${working} working` : ''}`
-  const segment = (width: string, tone: string, hatch = false): JSX.Element => (
+  const segment = (width: string, tone: string, hatch = false, animated = false): JSX.Element => (
     <span
       className={cn(
-        'h-full transition-[width] duration-300 motion-reduce:transition-none',
+        'relative h-full overflow-hidden transition-[width] duration-300 motion-reduce:transition-none',
         tone,
         hatch && 'deck-hatch',
       )}
       style={{ width }}
-    />
+    >
+      {animated && <span className="row-progress-sweep" />}
+    </span>
   )
   return (
     <div
-      className="relative mt-3 flex h-[22px] items-center overflow-hidden rounded-lg bg-secondary/70 shadow-[inset_0_1px_2px_var(--carve-drop)]"
+      className="mt-3 flex items-center gap-2"
       data-testid="mission-gauge"
+      data-running={run > 0 ? 'true' : 'false'}
       role="img"
       aria-label={reading}
       title={reading}
     >
-      {/* The region: the well's ground, tinted as far as the work has come. */}
-      <span aria-hidden className="absolute inset-0 flex">
-        {segment(pct(done), 'bg-success/22')}
-        {segment(pct(run), 'bg-live/22')}
-        {segment(pct(block), 'bg-transparent', true)}
+      <span
+        className="relative flex h-[22px] min-w-0 flex-1 items-center overflow-hidden rounded-lg bg-secondary/70 shadow-[inset_0_1px_2px_var(--carve-drop)]"
+        data-testid="mission-gauge-track"
+      >
+        {/* The region: the well's ground, tinted as far as the work has come. */}
+        <span aria-hidden className="absolute inset-0 flex">
+          {segment(pct(done), 'bg-success/22')}
+          {segment(pct(run), 'bg-live/22', false, run > 0)}
+          {segment(pct(block), 'bg-transparent', true)}
+        </span>
+        {/* The floor rule: the same datum, said exactly. */}
+        <span aria-hidden className="absolute inset-x-0 bottom-0 flex h-[2px]">
+          {segment(pct(done), 'bg-success')}
+          {segment(pct(run), 'bg-live')}
+          {segment(pct(block), 'bg-text-faint')}
+        </span>
+        <span className="shell-type-micro relative min-w-0 flex-1 truncate px-2.5 font-mono tabular-nums text-foreground">
+          {words}
+        </span>
       </span>
-      {/* The floor rule: the same datum, said exactly. */}
-      <span aria-hidden className="absolute inset-x-0 bottom-0 flex h-[2px]">
-        {segment(pct(done), 'bg-success')}
-        {segment(pct(run), 'bg-live')}
-        {segment(pct(block), 'bg-text-faint')}
-      </span>
-      <span className="shell-type-micro relative min-w-0 flex-1 truncate pl-2.5 font-mono tabular-nums text-foreground">
-        {words}
-      </span>
-      <span className="shell-type-micro relative flex flex-none items-center gap-1.5 pr-2.5 pl-2 font-mono tabular-nums text-text-dim">
-        {working > 0 ? (
-          <BrailleSpinner size={9} />
-        ) : (
-          <span aria-hidden className="size-[5px] flex-none rounded-full bg-live/60" />
-        )}
+      <span
+        className="shell-type-micro flex h-[22px] flex-none items-center gap-1.5 rounded-md border border-hairline-bar bg-chip px-2 font-mono tabular-nums text-text-dim"
+        data-testid="mission-live-chip"
+      >
+        <Users size={10} aria-hidden="true" className="text-text-faint" />
         {live} live
       </span>
     </div>
@@ -909,7 +920,7 @@ function TaskRow({
       ? null
       : rawPresence
   return (
-    <div className="relative" data-flight-issue={row.issue.id} data-depth={row.depth}>
+    <div className="relative pb-1.5" data-flight-issue={row.issue.id} data-depth={row.depth}>
       <BranchGuides carries={carries} mid={proposed ? PROPOSED_MID : BAND_MID} />
       {/* The strip is a BAND: a tonal step up from the engraved column plus a
           hairline, never a lift — DESIGN.md's carved rule. Selection is the
@@ -1030,7 +1041,10 @@ function IntakeCanvas({
     },
   ]
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-4 pb-6" data-testid="flight-intake">
+    <div
+      className="min-h-0 flex-1 overflow-y-auto pt-4 pr-11 pb-6 pl-4"
+      data-testid="flight-intake"
+    >
       <div className="shell-type-micro flex items-center gap-2 font-mono tracking-wide text-text-dim uppercase">
         <KindIcon kind={kind} chip />
         {session ? sessionDisplayName(session) : 'New session'}
@@ -1203,6 +1217,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
     () => rootRoster(rootSessions, { mode, activeSessionId, open: rosterOpen }),
     [rootSessions, mode, activeSessionId, rosterOpen],
   )
+  const rootPresence = rootRow ? presenceNote(rootRow.issue, rootRow.sessions, byId) : null
   // Search keeps a match's ANCESTORS as context, the same rule the mode filters
   // follow — an exception that loses its path is an exception you cannot place.
   const visibleRows = useMemo(() => {
@@ -1306,21 +1321,17 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
   }
 
   return (
-    <aside className="engraved-column" aria-label="Flight Deck">
-      <div className="flex h-(--section-bar-h) flex-none items-center border-b border-hairline-bar bg-bar px-3">
-        <div className="min-w-0 flex-1">
-          <div className="shell-type-primary font-semibold text-text-strong">Flight Deck</div>
-        </div>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className="size-6 text-text-dim"
-          title="Collapse Flight Deck"
-          onClick={onCollapse}
-        >
-          <ChevronLeft size={12} aria-hidden="true" />
-        </Button>
-      </div>
+    <aside className="engraved-column relative" aria-label="Flight Deck">
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        className="absolute top-2 right-2 z-20 size-6 text-text-dim"
+        aria-label="Collapse Flight Deck"
+        title="Collapse Flight Deck"
+        onClick={onCollapse}
+      >
+        <ChevronLeft size={12} aria-hidden="true" />
+      </Button>
 
       {root ? (
         <>
@@ -1334,7 +1345,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
               mission still reads.
               The `1 / 16` that used to sit after the title is gone (§10) — the
               gauge below says it in words. */}
-          <div className="relative flex-none border-b issue-hairline-50 issue-hairline-slate-45 issue-mix-18 issue-mix-slate-14 issue-base-tabstrip px-4 pt-4 pb-4">
+          <div className="relative flex-none border-b issue-hairline-50 issue-hairline-slate-45 issue-mix-18 issue-mix-slate-14 issue-base-tabstrip px-4 pt-4 pr-11 pb-4">
             <div className="shell-type-micro flex items-center gap-1.5 font-mono text-text-faint">
               <StageGlyph stage={root.stage} size={12} />
               <span>{issueDisplayRef(root)}</span>
@@ -1476,10 +1487,9 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
               )}
             </div>
           )}
-          {/* No gap between row blocks: each block draws the guide rails crossing
-              it from its own top to its own bottom, so blocks have to touch or
-              the tree lines break. The breathing room lives INSIDE the block
-              (`pt-0.5` above each strip), which the rails run through. */}
+          {/* Each task block owns a small trailing gap. Because the guide rails
+              cross the whole block, the spacing separates issue groups without
+              breaking the tree into disconnected fragments. */}
           <div
             className="min-h-0 flex-1 overflow-y-auto pb-1.5 pr-2"
             data-testid="flight-deck-rows"
@@ -1498,31 +1508,43 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                 ROOT_RAIL exactly, so the header's descent runs through their
                 elbows and carries on into the first child below. */}
             {rootRow && (
-              <HungRows
-                issue={rootRow.issue}
-                sessions={roster.shown}
-                fold={
-                  roster.foldable
-                    ? {
-                        hidden: roster.hidden,
-                        open: rosterOpen,
-                        onToggle: () => setRosterOpen((open) => !open),
-                      }
-                    : undefined
-                }
-                presence={presenceNote(rootRow.issue, rootRow.sessions, byId)}
-                rootId={root.id}
-                inMission={missionSessionIds}
-                nameOf={nameOf}
-                activeSessionId={activeSessionId}
-                arrivals={arrivals}
-                settle={settle}
-                now={coarseNow}
-                inset={ROOT_BLOCK_INSET}
-                tail={visibleRows.length > 0}
-                onSelectSession={(session) => selectSession(rootRow, session)}
-                onSelectNative={(session) => selectSession(rootRow, session, true)}
-              />
+              <>
+                <HungRows
+                  issue={rootRow.issue}
+                  sessions={roster.shown}
+                  fold={
+                    roster.foldable
+                      ? {
+                          hidden: roster.hidden,
+                          open: rosterOpen,
+                          onToggle: () => setRosterOpen((open) => !open),
+                        }
+                      : undefined
+                  }
+                  presence={rootPresence}
+                  rootId={root.id}
+                  inMission={missionSessionIds}
+                  nameOf={nameOf}
+                  activeSessionId={activeSessionId}
+                  arrivals={arrivals}
+                  settle={settle}
+                  now={coarseNow}
+                  inset={ROOT_BLOCK_INSET}
+                  tail={visibleRows.length > 0}
+                  onSelectSession={(session) => selectSession(rootRow, session)}
+                  onSelectNative={(session) => selectSession(rootRow, session, true)}
+                />
+                {(roster.shown.length > 0 || rootPresence || roster.foldable) &&
+                  visibleRows.length > 0 && (
+                    <div className="relative h-2" aria-hidden>
+                      <span
+                        className="pointer-events-none absolute inset-y-0 w-px bg-hairline-soft"
+                        style={{ left: ROOT_RAIL }}
+                      />
+                    </div>
+                  )}
+              </>
+
             )}
             {visibleRows.map((row, index) => (
               <TaskRow

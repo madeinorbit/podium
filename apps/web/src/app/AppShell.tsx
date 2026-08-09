@@ -1,8 +1,10 @@
 import { shallowEqual } from '@podium/client-core/store'
 import type { IssueColorSlot } from '@podium/model'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { useReducedMotion } from 'motion/react'
 import type { CSSProperties, JSX, ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import { toast } from 'sonner'
 import { IssuePeekOverlay } from '@/components/IssuePeekOverlay'
 import { RefMiniviewHost, RefPrefixSync } from '@/components/RefMiniview'
@@ -250,6 +252,12 @@ function AppBody(): JSX.Element {
   // the column's WIDTH persisted while its mode did not. Goes through the one
   // shared subscribe hook every replicated key now uses.
   const flightDeckCollapsed = usePersistedUiValue(SUPERAGENT_MODE_KEY, readFlightDeckCollapsed)
+  const reduceMotion = useReducedMotion()
+  const flightDeckShellRef = useRef<HTMLDivElement>(null)
+  const flightDeckOpenWidth = useRef(0)
+  const flightDeckAnimation = useRef<Animation | null>(null)
+  const [flightDeckWidth, setFlightDeckWidth] = useState<number | null>(null)
+  useEffect(() => () => flightDeckAnimation.current?.cancel(), [])
   // SUBSCRIBED, not seeded — same reason as `flightDeckCollapsed` above: this
   // key is per-user REPLICATED, so a `useState` initializer reads it before the
   // replica has the row and never runs again. That is why opening the
@@ -274,6 +282,66 @@ function AppBody(): JSX.Element {
 
   const setFlightDeckCollapsed = (collapsed: boolean): void => {
     uiState.set(SUPERAGENT_MODE_KEY, collapsed ? 'folded' : 'open')
+  }
+  const persistedFlightDeckWidth = (): number => {
+    const stored = Number(uiState.get('podium:superagent:width'))
+    return Number.isFinite(stored) && stored >= 300 && stored <= 620 ? stored : 360
+  }
+  const animateFlightDeckWidth = (from: number, to: number, onFinish?: () => void): void => {
+    const shell = flightDeckShellRef.current
+    if (!shell) {
+      onFinish?.()
+      return
+    }
+    flightDeckAnimation.current?.cancel()
+    const animation = shell.animate([{ width: `${from}px` }, { width: `${to}px` }], {
+      duration: 280,
+      easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+      fill: 'both',
+    })
+    flightDeckAnimation.current = animation
+    animation.onfinish = () => {
+      animation.cancel()
+      if (flightDeckAnimation.current === animation) flightDeckAnimation.current = null
+      onFinish?.()
+    }
+  }
+  const collapseFlightDeck = (): void => {
+    const measured = Math.round(
+      flightDeckShellRef.current?.getBoundingClientRect().width ?? persistedFlightDeckWidth(),
+    )
+    flightDeckOpenWidth.current = measured
+    if (reduceMotion) {
+      flightDeckAnimation.current?.cancel()
+      flightDeckAnimation.current = null
+      setFlightDeckWidth(44)
+      setFlightDeckCollapsed(true)
+      return
+    }
+
+    // Commit the child swap before this event can paint, then let WAAPI hold
+    // the measured starting width over React's 44px end state. The wrapper is
+    // persistent, so the same DOM node carries the whole transition.
+    flushSync(() => {
+      setFlightDeckCollapsed(true)
+      setFlightDeckWidth(44)
+    })
+    animateFlightDeckWidth(measured, 44)
+  }
+  const expandFlightDeck = (): void => {
+    if (reduceMotion) {
+      flightDeckAnimation.current?.cancel()
+      flightDeckAnimation.current = null
+      setFlightDeckCollapsed(false)
+      setFlightDeckWidth(null)
+      return
+    }
+    const target = flightDeckOpenWidth.current || persistedFlightDeckWidth()
+    flushSync(() => {
+      setFlightDeckCollapsed(false)
+      setFlightDeckWidth(target)
+    })
+    animateFlightDeckWidth(44, target, () => setFlightDeckWidth(null))
   }
   const setRightPanel = (panel: RightPanelTab | null): void => {
     if (!panelAllowed(panel)) return
@@ -407,20 +475,28 @@ function AppBody(): JSX.Element {
               </button>
             </div>
           )}
-          {workspaceActive && !flightDeckCollapsed && (
-            <ResizableColumn
-              storageKey="podium:superagent:width"
-              min={300}
-              max={620}
-              defaultWidth={360}
-              handleLabel="Resize Flight Deck"
-              className="max-w-[45vw]"
+          {workspaceActive && (
+            <div
+              ref={flightDeckShellRef}
+              className="flex min-h-0 min-w-0 flex-[0_1_auto] overflow-hidden"
+              data-flight-deck-shell={flightDeckCollapsed ? 'folded' : 'open'}
+              style={{ width: flightDeckWidth ?? (flightDeckCollapsed ? 44 : undefined) }}
             >
-              <FlightDeck onCollapse={() => setFlightDeckCollapsed(true)} />
-            </ResizableColumn>
-          )}
-          {workspaceActive && flightDeckCollapsed && (
-            <FoldedFlightDeckBar onExpand={() => setFlightDeckCollapsed(false)} />
+              {flightDeckCollapsed ? (
+                <FoldedFlightDeckBar onExpand={expandFlightDeck} />
+              ) : (
+                <ResizableColumn
+                  storageKey="podium:superagent:width"
+                  min={300}
+                  max={620}
+                  defaultWidth={360}
+                  handleLabel="Resize Flight Deck"
+                  className="max-w-[45vw]"
+                >
+                  <FlightDeck onCollapse={collapseFlightDeck} />
+                </ResizableColumn>
+              )}
+            </div>
           )}
           <MainViewOutlet workspace={<Workspace />} view={baseView} />
           {workspaceActive && visibleRightPanel && (
