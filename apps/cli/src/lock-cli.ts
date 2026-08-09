@@ -296,6 +296,7 @@ export async function runLockCli(
     const timeoutS = resolveWaitTimeoutSeconds(validated.timeout)
     const name = validated.name as string
     const signal = opts?.signal
+    const interrupted = (): boolean => signal?.aborted === true
     const now = opts?.now ?? Date.now
     const sleep = opts?.sleep ?? ((ms: number) => sleepUnlessAborted(ms, signal))
     const progress = opts?.onProgress ?? (() => {})
@@ -376,7 +377,7 @@ export async function runLockCli(
       // Both ways of stopping give the place back the same way. Only ever
       // reached with a NOT-granted round in hand: a grant returns above, and
       // leaveQueue's settle covers a grant landing in the gap.
-      if (signal?.aborted === true) return giveUp('interrupt', res)
+      if (interrupted()) return giveUp('interrupt', res)
       if (deadline != null && now() >= deadline) return giveUp('timeout', res)
 
       // Never sleep past the deadline — "timed out after 10m" should be true.
@@ -384,7 +385,7 @@ export async function runLockCli(
       await sleep(Math.max(0, nap))
       // An interrupt lands mid-sleep; notice it here rather than after another
       // full acquire round.
-      if (signal?.aborted === true) return giveUp('interrupt', res)
+      if (interrupted()) return giveUp('interrupt', res)
       interval = Math.min(Math.ceil(interval * 1.5), maxInterval)
     }
   }

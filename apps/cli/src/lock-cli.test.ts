@@ -275,16 +275,16 @@ describe('runLockCli', () => {
 
   it('bare --wait has no deadline: it stays queued through a hold past the old 300s cap', async () => {
     // The POD-612 shape: a holder that legitimately runs 13m+ while renewing.
-    const mutate = vi.fn(async () => queuedWire('test:heavy', 1))
+    let nowMs = 0
+    const mutate = vi.fn(async () =>
+      nowMs >= 780_000 ? grantedWire('test:heavy') : queuedWire('test:heavy', 1),
+    )
     const cancel = vi.fn(async () => ({ cancelled: true }))
     const client = { lock: { acquire: { mutate }, cancel: { mutate: cancel } } } as never
-    let nowMs = 0
     const out = await runLockCli(['acquire', 'test:heavy', '--repoPath', '/r', '--wait'], client, {
       now: () => nowMs,
       sleep: async (ms) => {
         nowMs += ms
-        // Granted after 13 minutes — the old cap dropped the waiter at five.
-        if (nowMs >= 780_000) mutate.mockResolvedValue(grantedWire('test:heavy'))
       },
     })
     expect(out.exitCode).toBe(0)
