@@ -56,11 +56,11 @@
     "build": "vite build && bun --conditions=@podium/source ../../scripts/write-web-build-stamp.ts dist && bun ../../scripts/precompress-dist.ts dist",
     "dev": "vite --host 0.0.0.0",
     "preview": "vite preview --host 0.0.0.0",
-    "typecheck": "tsgo --noEmit",
-    "typecheck:tsc": "tsc --noEmit",
-    "test": "bun --bun vitest --config vitest.config.ts run",
-    "test:unit": "bun --bun vitest --config vitest.config.ts run",
-    "test:perf:large-state": "bun --bun vitest --config vitest.frontend-perf.config.ts run"
+    "typecheck": "bun ../../scripts/validation-admission.ts typecheck --label @podium/web:typecheck -- tsgo --noEmit",
+    "typecheck:tsc": "bun ../../scripts/validation-admission.ts typecheck --label @podium/web:typecheck:tsc -- tsc --noEmit",
+    "test": "bun ../../scripts/validation-admission.ts focused --label @podium/web:test -- bun --bun vitest --config vitest.config.ts run",
+    "test:unit": "bun ../../scripts/validation-admission.ts focused --label @podium/web:test:unit -- bun --bun vitest --config vitest.config.ts run",
+    "test:perf:large-state": "bun ../../scripts/validation-admission.ts focused --label @podium/web:test:perf -- bun --bun vitest --config vitest.frontend-perf.config.ts run"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.1",

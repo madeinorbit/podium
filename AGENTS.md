@@ -72,15 +72,15 @@ Run your focused test lane, `bun run typecheck`, and the final `bun run test` ga
 **one after another**, each to completion. Do not background one and start the next,
 and do not fire them as parallel tool calls.
 
-The `test:heavy` lease cannot enforce within-session ordering. It serializes you against
-*other* sessions rather than against yourself, and its reach is partial anyway: the root
-package lanes through `scripts/test.ts` plus the root heavy lanes take it, while the Vitest
-inner loop (`test:changed`, `test:related`, `test:watch`) and `typecheck` run outside it
-entirely —
-`typecheck` is a 22-package Turbo run competing for the same cores as any test. So the
-ordering is yours to enforce. On a host shared with a live Podium instance and every
-other agent session, overlapping raises the peak without finishing sooner, and a starved
-run fails in timeout shapes that read like real regressions.
+The `test:heavy` lease cannot enforce this ordering by itself. The broader host budget
+coordinates commands with *other* sessions: root package lanes through `scripts/test.ts`
+and other heavy lanes reserve the whole budget, focused one-shot tests take one of two
+shared permits, and typecheck takes both. Watch mode takes one permit at one worker and
+refuses a second watcher. The explicit already-held marker lets Turbo children reuse their
+parent's admission without reacquiring. It deliberately does not make overlapping commands
+in one session safe, so the ordering is still yours to enforce. On a host shared with a live
+Podium instance and every other agent session, overlapping raises the peak without finishing
+sooner, and a starved run fails in timeout shapes that read like real regressions.
 
 Details: **[docs/agents/testing.md](docs/agents/testing.md)**.
 

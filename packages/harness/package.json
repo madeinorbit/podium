@@ -35,9 +35,9 @@
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
-    "typecheck": "tsgo --noEmit",
-    "typecheck:tsc": "tsc --noEmit",
-    "test": "bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests",
+    "typecheck": "bun ../../scripts/validation-admission.ts typecheck --label @podium/harness:typecheck -- tsgo --noEmit",
+    "typecheck:tsc": "bun ../../scripts/validation-admission.ts typecheck --label @podium/harness:typecheck:tsc -- tsc --noEmit",
+    "test": "bun ../../scripts/validation-admission.ts focused --label @podium/harness:test -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests",
     "clean": "rm -rf dist"
   },
   "devDependencies": {

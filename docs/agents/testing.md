@@ -9,9 +9,9 @@ real processes, browsers, PTYs, or agent CLIs that cannot be safely hidden in a 
 | Lane | Command | What's in it | Cost / guard |
 | --- | --- | --- | --- |
 | **Default package tests** | `bun run test` (`test:unit` is a compatibility alias) | 28 Turbo tasks covering every default file: one task per package with tests (scripts, desktop, web/mobile, the runtime Bun unit) plus `@podium/server`'s aggregate and its five cache shards | Cached; tasks serial, Vitest capped at 2 workers |
-| **Focused package probes** | `bun run test:web`, `bun run test:mobile`, `bun run test:cached` | One or both app package tasks | Cached; same install fingerprint |
+| **Focused package probes** | `bun run test:web`, `bun run test:mobile`, `bun run test:cached` | One or both app package tasks | Cached; one shared host permit |
 | **Affected package tests** | `bun run test:affected` | Package tasks for changed packages and dependents | Refuses files no package task can cover |
-| **Inner loop** | `bun run test:changed`, `test:related`, `test:watch` | Root `node` and `normalized-wire` projects selected by Vitest | Fast approximation; not a commit gate |
+| **Inner loop** | `bun run test:changed`, `test:related`, `test:watch` | Root `node` and `normalized-wire` projects selected by Vitest | One-shot runs use one permit; watch uses one worker and one singleton permit |
 | **Integration** | `bun run test:integration` | `vitest.integration.config.ts` plus acceptance: process/PTY/abduco/daemon suites, real-port boots, and loop-split load | Minutes; shared test lease |
 | **E2E** | `bun run test:e2e` | Full-stack server + daemon Vitest files under `tests/e2e/**` with `@podium/source` | Minutes; heavy; no browser |
 | **Browser** | `bun run test:browser` | Playwright browser suites under `tests/e2e/browser/**.browser.e2e.ts` | Tens of minutes; heavy; see browser census. Scope one suite with `-- --suite <name>` (do not hand-roll `playwright test`) |
@@ -80,16 +80,32 @@ Measurements and rationale: [POD-520 cache shards](pod-520-server-test-cache-sha
 
 The shared forked Vitest configuration defaults to at most two workers and keeps one worker available as the floor. This is the safe default for a shared development host, so a test run leaves headroom for the live Podium instance and other agent sessions. Set `PODIUM_TEST_WORKERS=<positive integer>` to choose another ceiling, or `PODIUM_TEST_WORKERS=auto` to restore Vitest's CPU-count default on a dedicated CI/test host. `fileParallelism` remains enabled.
 
-The package default (`bun run test`) and `bun run test:affected` automatically acquire the
-`test:heavy` advisory lease from a live Podium session. Root process lanes that call
-`scripts/test-heavy.ts` do the same (`test:integration`, `test:acceptance`, `test:e2e`,
-`test:smoke:agents`). `test:browser` / `scripts/browser-lane.ts` take the lease inside
-the lane body so both the package script and a bare script invocation serialize.
-Direct package and multi-instance commands do not; when an agent runs those by hand:
+Validation uses a two-permit host budget from a live Podium session:
 
-    podium lock acquire test:heavy --ttl 30m --wait
-    bun run test:multi-instance
-    podium lock release test:heavy
+- Heavy lanes reserve both permits and retain the `test:heavy` advisory lease for
+  compatibility with older/manual callers. This includes the default package gate,
+  affected, integration, acceptance, E2E, browser, agent smoke, multi-instance, and the
+  full Bun lane.
+- Focused one-shot tests reserve one permit, so two small probes can coexist when no heavy
+  lane or typecheck is admitted. Root changed/related and focused web/mobile/cached entry
+  points use this tier, as do direct package test scripts.
+- Typecheck reserves both permits because Turbo can run many `tsgo` children. Root and
+  direct package typecheck scripts use this tier, so it does not overlap focused tests.
+- Watch reserves one permit, forces `PODIUM_TEST_WORKERS=1`, and holds a singleton
+  `validation:watch` lease. A second watcher is refused; one focused probe can still use
+  the remaining permit.
+
+A short `validation:admission` gate prevents a new focused probe from slipping ahead while
+a heavy lane or typecheck is draining the permits. Lock notes name the command, so
+`podium lock status` shows which validation is admitted and the admission-gate holder names
+the work waiting for capacity. The gate and every partially acquired permit renew while
+admission is blocked; timeout, interruption, and errors cancel the active waiter and release
+partial acquisition in reverse order. Runtime leases renew while the child runs, and every
+path releases only locks that invocation opened.
+
+Root wrappers export `PODIUM_VALIDATION_RESOURCE_HELD`; Turbo passes it to package children
+through `globalPassThroughEnv`, so direct package scripts self-guard without nested
+acquisition or changing cache keys. An outer manually-held `test:heavy` remains caller-owned.
 
 `acquire` refuses when a **sibling** — another session on your issue, or any session sharing
 your worktree — already holds or is queued for that lock [POD-556]. That is the shared-root
@@ -97,7 +113,7 @@ checkout's normal case, and the refusal names the session so you can coordinate;
 `--allow-sibling` only when serialized multi-session access is genuinely what you want.
 Re-acquiring your own held lock renews it rather than queueing.
 
-A hand-rolled Playwright invocation that bypasses the lane still skips the lease and
+A hand-rolled Vitest or Playwright invocation that bypasses package scripts still skips admission and
 will race other heavy work — and it shares the fixed default port 8799 with any other
 Playwright run on the host (lease does not cover that). Prefer the package script when
 you can. One-suite verification belongs on the lane (POD-536) so build, selection,
@@ -115,26 +131,24 @@ Use the equals form of `--project` (space form swallows the next arg). If dist i
 missing, webServer fails fast with that build-only command rather than a deep
 module-not-found.
 
-The wrapper renews the 30-minute lease every 10 minutes while the child runs. If renewal fails, it terminates the child rather than allowing an unleased test to continue; an interrupted process still has the 30-minute TTL as the recovery path.
+The wrapper renews each 30-minute lease every 10 minutes while the child runs. If renewal
+fails, it terminates the child rather than allowing an unbudgeted test to continue; an
+interrupted process still has the 30-minute TTL as the recovery path.
 
 Automatic lease acquisition is identity-gated on `PODIUM_SESSION_ID`. CI and other non-session runs retain the safe two-worker default but do not serialize against live sessions; a dedicated host can opt out explicitly with `PODIUM_TEST_WORKERS=auto bun run test`.
 
-A human running `bun run test` in a terminal without `PODIUM_SESSION_ID` takes no automatic lease and can still collide with an agent run. On the shared host, acquire `test:heavy` manually first, or leave the default worker ceiling in place.
+A human running validation in a terminal without `PODIUM_SESSION_ID` takes no automatic
+budget lease and can still collide with an agent run. On the shared host, run validation
+from a Podium session or coordinate a manual `test:heavy` hold for a heavy command.
 
 ### One lane at a time, inside your own session
 
-The lease serializes heavy work **across** sessions, and it does not cover everything you
-will run. The package lanes through `scripts/test.ts` and the root heavy lanes through
-`scripts/test-heavy.ts` take it; the Vitest inner loop (`test:changed`, `test:related`,
-`test:watch`) invokes Vitest directly and takes none, and `bun run typecheck` takes none
-either — it is a 22-package Turbo run competing for the same cores as any test lane.
+Admission bounds work **across** sessions. It does not authorize overlapping validation
+inside one session: the explicit marker exists for parent/child re-entry, and a same-session
+acquire without that marker is refused when the wrapper can identify it. Hand-rolled
+commands can still bypass the contract entirely.
 
-Nothing serializes a session against **itself** in any case: re-acquiring a lock you already
-hold renews it rather than queueing, so a second lane started from the same session walks
-straight through even where the lease does apply.
-
-So the ordering is yours to enforce, and it is needed precisely because the lease's coverage
-is partial. Run the focused lane, then `bun run typecheck`, then the final `bun run test`
+So the ordering is still yours to enforce. Run the focused lane, then `bun run typecheck`, then the final `bun run test`
 gate — **one after another, each to completion**. Do not background a lane and start the next
 (`&`, a second terminal, parallel tool calls) and do not overlap a typecheck with a test run.
 

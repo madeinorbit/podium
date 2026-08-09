@@ -20,6 +20,7 @@
 import { createHash } from 'node:crypto'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { runWithValidationAdmission } from './validation-admission'
 
 export interface ForceDecision {
   forceRequested: boolean
@@ -147,15 +148,17 @@ async function main() {
     process.exit(1)
   }
   if (decision.reason) console.error(`uncached run, reason: ${decision.reason}`)
-  const proc = Bun.spawn(
-    [join(root, 'node_modules', '.bin', 'turbo'), 'run', 'typecheck', ...decision.forwardArgs],
-    {
-      cwd: root,
-      stdio: ['inherit', 'inherit', 'inherit'],
-      env: { ...process.env, PODIUM_CHECK_ENV_HASH: fingerprint(census), TURBO_FORCE: undefined },
-    },
+  process.exit(
+    await runWithValidationAdmission(
+      'typecheck',
+      [join(root, 'node_modules', '.bin', 'turbo'), 'run', 'typecheck', ...decision.forwardArgs],
+      {
+        cwd: root,
+        label: 'workspace typecheck',
+        env: { ...process.env, PODIUM_CHECK_ENV_HASH: fingerprint(census), TURBO_FORCE: undefined },
+      },
+    ),
   )
-  process.exit(await proc.exited)
 }
 
 if (import.meta.main) await main()

@@ -13,9 +13,9 @@
   },
   "scripts": {
     "start": "tsx src/cli.tsx",
-    "typecheck": "tsgo --noEmit",
-    "typecheck:tsc": "tsc --noEmit",
-    "test": "bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests"
+    "typecheck": "bun ../../scripts/validation-admission.ts typecheck --label @podium/keyecho:typecheck -- tsgo --noEmit",
+    "typecheck:tsc": "bun ../../scripts/validation-admission.ts typecheck --label @podium/keyecho:typecheck:tsc -- tsc --noEmit",
+    "test": "bun ../../scripts/validation-admission.ts focused --label @podium/keyecho:test -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests"
   },
   "dependencies": {
     "ink": "^6.0.0",

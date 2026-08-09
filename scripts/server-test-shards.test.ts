@@ -11,8 +11,8 @@ import {
   repositoryRoot,
   SHARDS,
   shardTaskName,
-  turboPackageConfig,
   TURBO_CONFIG_PATH,
+  turboPackageConfig,
   unitLaneTestFiles,
   verify,
 } from './server-test-shards'
@@ -171,7 +171,10 @@ describe('server test cache shards', () => {
     ) as { scripts: Record<string, string> }
     // The aggregate runs the exhaustiveness refusal rather than a suite; the shards do the
     // work and Turbo reaches them through `dependsOn`.
-    expect(pkg.scripts.test).toBe('bun ../../scripts/server-test-shards.ts')
+    expect(pkg.scripts.test).toContain(
+      'validation-admission.ts focused --label @podium/server:test',
+    )
+    expect(pkg.scripts.test).toContain('bun ../../scripts/server-test-shards.ts')
     for (const shard of SHARDS) {
       expect(pkg.scripts[shardTaskName(shard.id)], `no script for shard ${shard.id}`).toContain(
         `vitest.mjs run --config vitest.${shard.id}.config.ts`,

@@ -1,5 +1,13 @@
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -364,9 +372,57 @@ describe('test lane configuration', () => {
     expect(pkg.scripts['test:acceptance:process']).toContain(
       'loop-split-process.acceptance.bun.test.ts',
     )
+    expect(pkg.scripts['test:acceptance:process']).toContain('bun scripts/test-heavy.ts --')
+    for (const name of ['test:changed', 'test:related', 'test:bun:unit']) {
+      expect(pkg.scripts[name], `${name} bypasses focused admission`).toContain(
+        'validation-admission.ts focused',
+      )
+    }
+    expect(pkg.scripts['test:watch']).toContain('validation-admission.ts watch')
+    expect(pkg.scripts['test:watch']).toContain('PODIUM_TEST_WORKERS=1')
+    for (const name of ['test:multi-instance', 'test:bun']) {
+      expect(pkg.scripts[name], `${name} bypasses heavy admission`).toContain(
+        'bun scripts/test-heavy.ts --',
+      )
+    }
     expect(pkg.scripts['test:perf:frontend']).toBe('bun run --cwd apps/web test:perf:large-state')
     expect(pkg.scripts['test:e2e']).toContain('NODE_OPTIONS=--conditions=@podium/source')
     expect(pkg.scripts['test:smoke:agents']).toContain('PODIUM_REAL_CLI=1')
+  })
+
+  it('guards direct package validation and passes root ownership through Turbo', () => {
+    const root = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+      workspaces: string[]
+    }
+    const packageFiles = root.workspaces.flatMap((workspace) => {
+      if (!workspace.endsWith('/*'))
+        return [new URL(`../${workspace}/package.json`, import.meta.url)]
+      const parent = new URL(`../${workspace.slice(0, -1)}`, import.meta.url)
+      return readdirSync(parent, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => new URL(`${entry.name}/package.json`, parent))
+    })
+    for (const file of packageFiles) {
+      if (!existsSync(file)) continue
+      const pkg = JSON.parse(readFileSync(file, 'utf8')) as {
+        name?: string
+        scripts?: Record<string, string>
+      }
+      for (const [name, script] of Object.entries(pkg.scripts ?? {})) {
+        if (!/^(test|typecheck)(?::|$)/.test(name)) continue
+        expect(
+          script,
+          `${pkg.name ?? file.pathname}#${name} bypasses validation admission`,
+        ).toContain('validation-admission.ts')
+      }
+    }
+
+    const turbo = JSON.parse(readFileSync(new URL('../turbo.json', import.meta.url), 'utf8')) as {
+      globalEnv?: string[]
+      globalPassThroughEnv?: string[]
+    }
+    expect(turbo.globalPassThroughEnv).toContain('PODIUM_VALIDATION_RESOURCE_HELD')
+    expect(turbo.globalEnv).not.toContain('PODIUM_VALIDATION_RESOURCE_HELD')
   })
 
   it('fails the whole command when a shard fails, even though the aggregate is skipped [POD-520]', () => {
@@ -440,9 +496,12 @@ describe('test lane configuration', () => {
       await runWithHeavyTestLease(['bash', '-c', 'exit 0'], { cwd: fileURLToPath(repoRoot) }),
     ).toBe(0)
 
-    // …and that the value is what main() exits with, rather than being computed and dropped.
+    // …and that either selected admission path is awaited inside process.exit(), rather
+    // than having its result computed and dropped.
     const source = readFileSync(new URL('./test.ts', import.meta.url), 'utf8')
-    expect(source).toMatch(/process\.exit\(\s*await runWithHeavyTestLease\(/)
+    expect(source).toMatch(
+      /process\.exit\(\s*admission\.shared\s*\?\s*await runWithValidationAdmission\([\s\S]*?:\s*await runWithHeavyTestLease\(/,
+    )
   })
 
   it('reports every lane without running anything on a failed dependency [POD-520]', () => {

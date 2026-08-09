@@ -27,15 +27,15 @@
     "zod": "^3.24.0"
   },
   "scripts": {
-    "typecheck": "tsgo --noEmit",
-    "typecheck:tsc": "tsc --noEmit",
-    "test": "bun ../../scripts/server-test-shards.ts",
-    "test:contracts": "bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.contracts.config.ts",
-    "test:store": "bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.store.config.ts",
-    "test:services": "bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.services.config.ts",
-    "test:boundary": "bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.boundary.config.ts",
-    "test:normalized-wire": "bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.normalized-wire.config.ts",
-    "test:unsharded": "bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests && bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.normalized-wire.config.ts"
+    "typecheck": "bun ../../scripts/validation-admission.ts typecheck --label @podium/server:typecheck -- tsgo --noEmit",
+    "typecheck:tsc": "bun ../../scripts/validation-admission.ts typecheck --label @podium/server:typecheck:tsc -- tsc --noEmit",
+    "test": "bun ../../scripts/validation-admission.ts focused --label @podium/server:test -- bun ../../scripts/server-test-shards.ts",
+    "test:contracts": "bun ../../scripts/validation-admission.ts focused --label @podium/server:test:contracts -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.contracts.config.ts",
+    "test:store": "bun ../../scripts/validation-admission.ts focused --label @podium/server:test:store -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.store.config.ts",
+    "test:services": "bun ../../scripts/validation-admission.ts focused --label @podium/server:test:services -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.services.config.ts",
+    "test:boundary": "bun ../../scripts/validation-admission.ts focused --label @podium/server:test:boundary -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.boundary.config.ts",
+    "test:normalized-wire": "bun ../../scripts/validation-admission.ts focused --label @podium/server:test:normalized-wire -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.normalized-wire.config.ts",
+    "test:unsharded": "bun ../../scripts/validation-admission.ts focused --label @podium/server:test:unsharded -- bash -c \"bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests && bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.normalized-wire.config.ts\""
   },
   "devDependencies": {
     "typescript": "^6.0.3",

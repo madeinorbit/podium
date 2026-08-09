@@ -20,9 +20,9 @@
     "@podium/transcript": "workspace:*"
   },
   "scripts": {
-    "test": "bun --bun ../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests",
-    "typecheck": "tsgo --noEmit",
-    "typecheck:tsc": "tsc --noEmit"
+    "test": "bun validation-admission.ts focused --label scripts:test -- bun --bun ../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests",
+    "typecheck": "bun validation-admission.ts typecheck --label scripts:typecheck -- tsgo --noEmit",
+    "typecheck:tsc": "bun validation-admission.ts typecheck --label scripts:typecheck:tsc -- tsc --noEmit"
   },
   "devDependencies": {
     "@types/bun": "^1.3.14",

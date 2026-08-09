@@ -26,6 +26,7 @@
 import { join } from 'node:path'
 import { runWithHeavyTestLease } from './test-heavy'
 import { decideForce, fingerprint, readCensus } from './typecheck'
+import { runWithValidationAdmission } from './validation-admission'
 
 const REFUSAL = `\
 uncached test run refused.
@@ -43,6 +44,51 @@ If you still believe the cache is wrong, state why:
 and consider filing the reason as an issue — a real gap in the cache key should
 be closed there, not worked around with --force forever.`
 
+const FOCUSED_TEST_PACKAGES = new Set(['@podium/web', '@podium/mobile'])
+
+export function decideTestAdmission(argv: string[]): {
+  shared: boolean
+  forwardArgs: string[]
+  error: string | null
+} {
+  const forwardArgs: string[] = []
+  const filters: string[] = []
+  let sharedFlags = 0
+  for (let index = 0; index < argv.length; index++) {
+    const arg = argv[index] as string
+    if (arg === '--shared-admission') {
+      sharedFlags++
+      continue
+    }
+    forwardArgs.push(arg)
+    if (arg === '--filter') {
+      const filter = argv[++index]
+      if (filter === undefined) filters.push('')
+      else {
+        filters.push(filter)
+        forwardArgs.push(filter)
+      }
+    } else if (arg.startsWith('--filter=')) {
+      filters.push(arg.slice('--filter='.length))
+    }
+  }
+  if (sharedFlags === 0) return { shared: false, forwardArgs, error: null }
+  if (
+    sharedFlags !== 1 ||
+    filters.length === 0 ||
+    filters.some((filter) => !FOCUSED_TEST_PACKAGES.has(filter))
+  ) {
+    return {
+      shared: false,
+      forwardArgs,
+      error:
+        '--shared-admission is internal to the focused web/mobile scripts and requires ' +
+        'at least one exact --filter @podium/web or --filter @podium/mobile',
+    }
+  }
+  return { shared: true, forwardArgs, error: null }
+}
+
 async function main() {
   const root = join(import.meta.dir, '..')
   const census = readCensus(root)
@@ -55,8 +101,13 @@ async function main() {
     )
     process.exit(1)
   }
+  const admission = decideTestAdmission(process.argv.slice(2))
+  if (admission.error) {
+    console.error(`test refused: ${admission.error}`)
+    process.exit(1)
+  }
   const decision = decideForce(
-    process.argv.slice(2),
+    admission.forwardArgs,
     process.env as Record<string, string | undefined>,
   )
   if (decision.forceRequested && decision.reason === null) {
@@ -68,28 +119,30 @@ async function main() {
     process.exit(1)
   }
   if (decision.reason) console.error(`uncached run, reason: ${decision.reason}`)
+  const command = [
+    join(root, 'node_modules', '.bin', 'turbo'),
+    'run',
+    'test',
+    '--concurrency=1',
+    // Report every lane's failures, not just the first one's. This became load-bearing
+    // when POD-520 split @podium/server into five shard tasks: without it Turbo stops
+    // at the first failing shard, so a red in `contracts` hides whatever `store`,
+    // `services` and `boundary` would have said — a full run used to show all of them
+    // at once because the server was a single task. `dependencies-successful` (not
+    // `always`) so a task whose dependency failed is still skipped; the run is red
+    // either way, this only decides how much of the picture you get for the CPU spent.
+    '--continue=dependencies-successful',
+    ...decision.forwardArgs,
+  ]
+  const options = {
+    cwd: root,
+    label: admission.shared ? 'focused package tests' : 'full package tests',
+    env: { ...process.env, PODIUM_CHECK_ENV_HASH: fingerprint(census), TURBO_FORCE: undefined },
+  }
   process.exit(
-    await runWithHeavyTestLease(
-      [
-        join(root, 'node_modules', '.bin', 'turbo'),
-        'run',
-        'test',
-        '--concurrency=1',
-        // Report every lane's failures, not just the first one's. This became load-bearing
-        // when POD-520 split @podium/server into five shard tasks: without it Turbo stops
-        // at the first failing shard, so a red in `contracts` hides whatever `store`,
-        // `services` and `boundary` would have said — a full run used to show all of them
-        // at once because the server was a single task. `dependencies-successful` (not
-        // `always`) so a task whose dependency failed is still skipped; the run is red
-        // either way, this only decides how much of the picture you get for the CPU spent.
-        '--continue=dependencies-successful',
-        ...decision.forwardArgs,
-      ],
-      {
-        cwd: root,
-        env: { ...process.env, PODIUM_CHECK_ENV_HASH: fingerprint(census), TURBO_FORCE: undefined },
-      },
-    ),
+    admission.shared
+      ? await runWithValidationAdmission('focused', command, options)
+      : await runWithHeavyTestLease(command, options),
   )
 }
 

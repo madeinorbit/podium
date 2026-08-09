@@ -5,7 +5,7 @@
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
-    "test": "bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests",
+    "test": "bun ../../scripts/validation-admission.ts focused --label @podium/desktop:test -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests",
     "preflight": "bun scripts/preflight.ts",
     "stage": "bun scripts/stage-sidecar.ts",
     "build": "bun scripts/preflight.ts && bun scripts/stage-sidecar.ts && tauri build",
