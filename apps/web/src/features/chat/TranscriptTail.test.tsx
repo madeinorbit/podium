@@ -69,6 +69,23 @@ describe('TranscriptTail', () => {
     expect(host.querySelector('.spb')).not.toBeNull()
   })
 
+  it('keeps just-sent transport still and timerless even with an old session clock', () => {
+    mount(
+      { label: 'Sending', tone: 'idle', transient: 'just-sent' },
+      '2024-01-01T00:00:00.000Z',
+      session({
+        phase: 'idle',
+        since: '2024-01-01T00:00:00.000Z',
+        nativeSubagentCount: 0,
+      }),
+    )
+    expect(tail()?.dataset.tail).toBe('note')
+    expect(host.textContent).toContain('Sending')
+    expect(host.querySelector('.feed-tail-figure')).toBeNull()
+    expect(host.querySelector('.spb')).toBeNull()
+    expect(tail()?.getAttribute('aria-live')).toBeNull()
+  })
+
   it('addresses the reader when the agent is waiting on them, and stays still', () => {
     mount({ label: 'needs answer', tone: 'attention' }, ago(130_000))
     expect(tail()?.dataset.tail).toBe('waiting')

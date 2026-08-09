@@ -356,7 +356,7 @@ describe('composer, queue, offer and activity', () => {
     ).toEqual({ label: 'Working…', tone: 'working' })
     expect(
       chatActivityState({ session: session(), headless: true, turnRunning: false, justSent: true }),
-    ).toEqual({ label: 'Sending…', tone: 'working' })
+    ).toEqual({ label: 'Sending', tone: 'idle', transient: 'just-sent' })
     expect(
       chatActivityState({
         session: session(),
@@ -372,7 +372,7 @@ describe('composer, queue, offer and activity', () => {
         turnRunning: false,
         justSent: true,
       }),
-    ).toEqual({ label: 'Sending…', tone: 'working' })
+    ).toEqual({ label: 'Sending', tone: 'idle', transient: 'just-sent' })
 
     expect(
       chatActivityState({

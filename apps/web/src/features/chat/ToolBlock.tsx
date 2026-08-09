@@ -70,7 +70,7 @@ export function ToolBlock({
             full rather than truncating to nothing. */}
         <span className="min-w-[46px] flex-none font-semibold text-[10.5px]">{label}</span>
         {subject && (
-          <span className={cn('min-w-0 truncate', command ? 'tool-cmd' : 'opacity-70')}>
+          <span className={cn('min-w-0 truncate', command ? 'tool-cmd' : 'tool-subject')}>
             {subject}
           </span>
         )}

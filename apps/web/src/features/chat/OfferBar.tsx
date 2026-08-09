@@ -24,7 +24,6 @@ function OfferActionLabel({ label, pending }: { label: string; pending: boolean 
           !pending && 'invisible',
         )}
       >
-        <span className="spb" aria-hidden="true" />
         Sending…
       </span>
     </span>

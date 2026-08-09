@@ -137,7 +137,13 @@ describe('ToolBatchView — the work line', () => {
   })
 
   it('unfolds and refolds the individual calls on the same click target', () => {
-    mount(batchOf([call({ id: 'a' }), call({ id: 'b', toolName: 'Bash', toolInput: 'ls -la' })]))
+    mount(
+      batchOf([
+        call({ id: 'a', toolTitle: 'a.ts', toolUseId: 'u1' }),
+        call({ id: 'a-result', toolUseId: 'u1', toolResult: 'ok' }),
+        call({ id: 'b', toolName: 'Bash', toolInput: 'ls -la' }),
+      ]),
+    )
     const line = host.querySelector('[data-testid="work-line"]')!
     expect(line.querySelector('.work-line-list')).toBeNull()
     act(() => {
@@ -145,6 +151,8 @@ describe('ToolBatchView — the work line', () => {
     })
     expect(line.getAttribute('data-open')).toBe('true')
     expect(line.querySelectorAll('.work-line-list .tool-row')).toHaveLength(2)
+    expect(line.querySelector('.tool-subject')?.textContent).toBe('a.ts')
+    expect(line.querySelector('.tool-out-line')?.textContent).toBe('ok')
     act(() => {
       line.querySelector<HTMLButtonElement>('.work-line-row')!.click()
     })

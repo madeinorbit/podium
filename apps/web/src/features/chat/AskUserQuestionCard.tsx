@@ -352,7 +352,6 @@ export function AskUserQuestionCard({
           </span>
           {submitState === 'sending' && (
             <span className="ml-auto flex items-center gap-1.5 font-mono text-[9px] tracking-[0.06em] text-muted-foreground">
-              <span className="spb" aria-hidden="true" />
               sending
             </span>
           )}

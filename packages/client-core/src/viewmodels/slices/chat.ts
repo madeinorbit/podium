@@ -634,6 +634,6 @@ export function chatActivityState(input: {
   const { session, headless, turnRunning, justSent } = input
   if (!headless) return chatActivity(session, justSent)
   if (turnRunning) return { label: 'Working…', tone: 'working' }
-  if (justSent) return { label: 'Sending…', tone: 'working' }
+  if (justSent) return { label: 'Sending', tone: 'idle', transient: 'just-sent' }
   return null
 }

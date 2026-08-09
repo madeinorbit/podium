@@ -2458,7 +2458,10 @@ html[data-density="balanced"] .header-quota-pools {
 
 /* A shell command reads as the code it is, not as prose about it (POD-376). */
 .tool-cmd {
-  color: color-mix(in oklab, var(--foreground) 78%, transparent);
+  color: color-mix(in oklab, var(--foreground) 88%, transparent);
+}
+.tool-subject {
+  color: color-mix(in oklab, var(--foreground) 76%, transparent);
 }
 
 /* The agent's description of a command, demoted beneath the command itself. */
@@ -2482,7 +2485,7 @@ html[data-density="balanced"] .header-quota-pools {
   border-left: 2px solid color-mix(in oklab, var(--border) 60%, transparent);
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 10px;
-  color: color-mix(in oklab, var(--muted-foreground) 78%, transparent);
+  color: color-mix(in oklab, var(--foreground) 72%, transparent);
   min-width: 0;
 }
 .tool-out-line {
@@ -2909,7 +2912,7 @@ html[data-density="balanced"] .header-quota-pools {
   color: var(--destructive);
 }
 .transcript-pending {
-  transition: opacity 180ms ease;
+  transition: none;
 }
 .transcript-pending--failed {
   opacity: 0.72;
@@ -5135,8 +5138,12 @@ a.ref-link--session::before {
   flex: none;
   color: var(--text-dim, var(--muted-foreground));
 }
-.attachment-chip-spinner {
-  color: var(--live, var(--info));
+.attachment-chip-state {
+  flex: none;
+  color: var(--text-dim, var(--muted-foreground));
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 9px;
+  letter-spacing: 0.02em;
 }
 .attachment-chip-remove {
   margin-left: 2px;
@@ -5148,6 +5155,9 @@ a.ref-link--session::before {
 }
 
 @media (prefers-reduced-motion: no-preference) {
+  .transcript-pending {
+    transition: opacity 180ms ease;
+  }
   .composer-notice,
   .attachment-chip {
     animation: composer-row-arrive 180ms cubic-bezier(0.22, 1, 0.36, 1);

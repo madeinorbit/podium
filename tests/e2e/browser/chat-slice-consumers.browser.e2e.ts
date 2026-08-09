@@ -230,6 +230,14 @@ test('send, search, minimap, voice and image-paste on the ported chat surface', 
     .locator('textarea[placeholder="Message the agent…"]')
     .locator('visible=true')
   await expect(composer).toBeVisible()
+  const send = page.getByTitle('Send (Enter)').locator('visible=true')
+  await expect(send).toBeDisabled()
+  await expect(send).not.toHaveClass(/btn-primary-rim/)
+  await mkdir(EVIDENCE_DIR, { recursive: true })
+  await page.screenshot({
+    path: join(EVIDENCE_DIR, 'transcript-chat-composer-empty.png'),
+    fullPage: false,
+  })
 
   // A real hover + click proves the message action crosses the feed/composer
   // boundary without shifting the row or replacing an existing draft.
@@ -270,8 +278,22 @@ test('send, search, minimap, voice and image-paste on the ported chat surface', 
   const marker = `SLICE_SEND_MARKER_${Date.now()}`
   await composer.fill(marker)
   await expect(composer).toHaveValue(marker)
+  await expect(send).toBeEnabled()
+  await expect(send).toHaveClass(/btn-primary-rim/)
+  await page.screenshot({
+    path: join(EVIDENCE_DIR, 'transcript-chat-composer-armed.png'),
+    fullPage: false,
+  })
   await composer.press('Enter')
   await expect(composer).toHaveValue('')
+  const justSentTail = page.getByTestId('feed-tail').locator('visible=true')
+  await expect(justSentTail).toContainText('Sending')
+  await expect(justSentTail.locator('figure')).toHaveCount(0)
+  await expect(justSentTail.locator('.spb')).toHaveCount(0)
+  await page.screenshot({
+    path: join(EVIDENCE_DIR, 'transcript-chat-just-sent.png'),
+    fullPage: false,
+  })
   const sentRow = page.locator('.transcript-row').filter({ hasText: marker })
   await expect(sentRow).toHaveCount(1, { timeout: 30_000 })
   await expect(sentRow).toContainText('You')
@@ -323,7 +345,6 @@ test('send, search, minimap, voice and image-paste on the ported chat surface', 
   await composer.fill(
     'Review the attached image and keep this composer stable.\nThen summarize it.',
   )
-  await mkdir(EVIDENCE_DIR, { recursive: true })
   await page.screenshot({
     path: join(EVIDENCE_DIR, 'transcript-chat-composer.png'),
     fullPage: false,

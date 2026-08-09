@@ -146,13 +146,16 @@ export function agentBadge(meta: SessionMeta, issue?: IssueWire): AgentBadge | n
 export interface ChatActivity {
   label: string
   tone: AgentBadge['tone']
+  /** Optimistic transport state before the runtime reports real computation. */
+  transient?: 'just-sent'
 }
 
 /**
  * The activity row shown pinned to the bottom of the chat view, or null for
  * nothing. Reuses `agentBadge` for instrumented agents; falls back to the PTY
- * `busy` signal for uninstrumented kinds; and shows an optimistic "Sending…"
- * immediately after a submit (`justSent`) before the first `working` event lands.
+ * `busy` signal for uninstrumented kinds; and shows an optimistic, still
+ * "Sending" state immediately after a submit (`justSent`) before the first
+ * `working` event lands.
  *
  * A parked process (hibernated/exited) cannot be working, however fresh the
  * preserved `working` phase — the header already says so, and the activity row
@@ -179,7 +182,7 @@ export function chatActivity(
     return { label: badge.label, tone: 'idle' }
   }
   if (!meta.agentState && meta.busy && !parked) return { label: 'Working…', tone: 'working' }
-  if (justSent) return { label: 'Sending…', tone: 'working' }
+  if (justSent) return { label: 'Sending', tone: 'idle', transient: 'just-sent' }
   return null
 }
 

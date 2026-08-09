@@ -332,6 +332,14 @@ DELIVERED_AGENT_MAIL must not replace the operator prompt
   await expect(chatMode).toBeVisible({ timeout: 15_000 })
   await chatMode.click()
 
+  // A dev-build update notice can arrive independently of this transcript.
+  // Dismiss it before review capture so it neither obscures the expanded tool
+  // detail nor intercepts the disclosure controls this case owns.
+  const updateDialog = page.getByRole('dialog', { name: 'Podium update' })
+  if (await updateDialog.isVisible().catch(() => false)) {
+    await updateDialog.getByRole('button', { name: 'Later' }).click()
+  }
+
   const scroller = page
     .locator('div.overflow-y-auto')
     .filter({ has: page.locator('.transcript-row') })

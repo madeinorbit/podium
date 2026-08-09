@@ -75,6 +75,7 @@ describe('OfferBar', () => {
     expect(button?.getAttribute('aria-busy')).toBe('true')
     expect(button?.disabled).toBe(true)
     expect(button?.textContent).toContain('Sending…')
+    expect(button?.querySelector('.spb')).toBeNull()
     button?.click()
     expect(onAction).toHaveBeenCalledTimes(1)
 

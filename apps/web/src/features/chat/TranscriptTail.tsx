@@ -54,6 +54,8 @@ export interface TranscriptTailState {
   mode: TailMode
   label: string
   detail?: string
+  /** Transport receipts deliberately carry no elapsed figure. */
+  timerless?: boolean
   /** The dependency started at the tool call, not necessarily at the parent
    *  session's broader working phase. */
   since?: string
@@ -95,6 +97,12 @@ export function transcriptTailState(
   since?: string | undefined,
 ): TranscriptTailState | null {
   const fallbackSince = session?.agentState?.since ?? since
+  // The optimistic YOU row already records delivery. If a tail is visible
+  // during the hand-off, keep it still and timerless: the session's previous
+  // phase timestamp may be hours old and transport is not agent computation.
+  if (activity?.transient === 'just-sent') {
+    return { mode: 'note', label: activity.label, timerless: true }
+  }
   if (activity?.tone === 'working' && lastRow?.kind === 'tools') {
     const last = lastRow.blocks[lastRow.blocks.length - 1]
     if (last) {
@@ -176,7 +184,7 @@ export function TranscriptTail({
   lastRow?: ChatRow | undefined
 }): JSX.Element | null {
   const state = transcriptTailState(activity, session, lastRow, since)
-  const stateSince = state?.since ?? since
+  const stateSince = state?.timerless ? undefined : (state?.since ?? since)
   const startedAt = stateSince ? Date.parse(stateSince) : Number.NaN
   const known = !Number.isNaN(startedAt)
   const working = state?.mode === 'working'

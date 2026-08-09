@@ -572,13 +572,13 @@ describe('chatActivity', () => {
       tone: 'working',
     })
   })
-  it('shows Sending… optimistically right after submit, before any signal', () => {
+  it('shows a still Sending receipt right after submit, before any signal', () => {
     expect(
       chatActivity(
         base({ agentState: { phase: 'idle', since: '', nativeSubagentCount: 0 } }),
         true,
       ),
-    ).toEqual({ label: 'Sending…', tone: 'working' })
+    ).toEqual({ label: 'Sending', tone: 'idle', transient: 'just-sent' })
   })
   it('never shows Working… for a parked session with a preserved working phase (#161)', () => {
     for (const status of ['hibernated', 'exited'] as const) {

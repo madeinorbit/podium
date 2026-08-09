@@ -85,6 +85,27 @@ describe('AskUserQuestionCard', () => {
     expect(onAnswer).toHaveBeenCalledWith({ choices: [{ optionIndices: [2] }] })
   })
 
+  it('names network submission without borrowing the computing spinner', async () => {
+    const onAnswer = vi.fn(() => new Promise<void>(() => {}))
+    act(() =>
+      root.render(
+        <AskUserQuestionCard
+          block={ask([{ question: 'Ship?', options: [{ label: 'Yes' }, { label: 'No' }] }])}
+          cls=""
+          index={0}
+          livePending
+          onAnswer={onAnswer}
+        />,
+      ),
+    )
+    await act(async () => {
+      options()[0]?.click()
+      await Promise.resolve()
+    })
+    expect(container.textContent).toContain('sending')
+    expect(container.querySelector('.spb')).toBeNull()
+  })
+
   it('opens one question at a time and steps to the next unanswered one', async () => {
     const onAnswer = vi.fn(async () => {})
     act(() =>

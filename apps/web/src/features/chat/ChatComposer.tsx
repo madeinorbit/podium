@@ -427,7 +427,10 @@ export function ChatComposer({
               <Button
                 type="button"
                 size="icon"
-                variant={compact ? 'ghost' : 'default'}
+                // The primary variant owns Superade's yellow silhouette. Keep
+                // the whole empty affordance neutral, including that inherited
+                // rim, and only opt into primary once the action is armed.
+                variant={compact || sendDisabled ? 'ghost' : 'default'}
                 className={cn(
                   compact
                     ? cn(
@@ -436,7 +439,12 @@ export function ChatComposer({
                           ? 'bg-transparent text-text-dim hover:bg-transparent hover:text-text-dim disabled:bg-transparent disabled:text-text-dim disabled:opacity-100'
                           : 'bg-primary text-primary-foreground hover:bg-primary/80',
                       )
-                    : "size-7 rounded-md bg-primary text-primary-foreground hover:bg-primary/80 disabled:bg-secondary disabled:text-muted-foreground/70 disabled:opacity-100 [&_svg:not([class*='size-'])]:size-3.5",
+                    : cn(
+                        "size-7 rounded-md [&_svg:not([class*='size-'])]:size-3.5",
+                        sendDisabled
+                          ? 'bg-secondary text-muted-foreground/70 hover:bg-secondary hover:text-muted-foreground/70 disabled:opacity-100'
+                          : 'bg-primary text-primary-foreground hover:bg-primary/80',
+                      ),
                 )}
                 disabled={sendDisabled}
                 title="Send (Enter)"

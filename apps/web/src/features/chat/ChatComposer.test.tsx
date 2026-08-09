@@ -171,10 +171,13 @@ describe('ChatComposer, non-compact (the main chat)', () => {
   it('keeps empty send neutral and turns it yellow only when actionable', async () => {
     await mount({ compact: false, draft: '' })
     expect(sendButton().disabled).toBe(true)
-    expect(sendButton().className).toContain('disabled:bg-secondary')
+    expect(sendButton().className).toContain('bg-secondary')
+    expect(sendButton().className).not.toContain('btn-primary-rim')
+    expect(sendButton().className).not.toContain('bg-primary')
     expect(sendButton().className).toContain('size-7')
     await mount({ compact: false, draft: 'ship it' })
     expect(sendButton().disabled).toBe(false)
+    expect(sendButton().className).toContain('btn-primary-rim')
     expect(sendButton().className).toContain('bg-primary')
   })
 
@@ -188,6 +191,13 @@ describe('ChatComposer, non-compact (the main chat)', () => {
           size: 14 * 1024,
           previewUrl: 'blob:frame',
           state: 'ready' as const,
+        },
+        {
+          id: 'a2',
+          name: 'uploading.png',
+          size: 2 * 1024,
+          previewUrl: 'blob:uploading',
+          state: 'uploading' as const,
         },
       ],
     }
@@ -205,6 +215,10 @@ describe('ChatComposer, non-compact (the main chat)', () => {
     expect(well().querySelector('[data-testid="attachment-strip"]')?.textContent).toContain(
       'frame.png· 14 KB',
     )
+    expect(well().querySelector('[data-testid="attachment-strip"]')?.textContent).toContain(
+      'uploading.png· 2 KBUploading',
+    )
+    expect(well().querySelector('[data-testid="attachment-strip"] .spb')).toBeNull()
   })
 })
 

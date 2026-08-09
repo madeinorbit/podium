@@ -40,12 +40,7 @@ export function AttachmentStrip({
           {fileSize(att.size) && (
             <span className="attachment-chip-size">· {fileSize(att.size)}</span>
           )}
-          {att.state === 'uploading' && (
-            <>
-              <span className="spb attachment-chip-spinner" aria-hidden="true" />
-              <span className="sr-only">Uploading</span>
-            </>
-          )}
+          {att.state === 'uploading' && <span className="attachment-chip-state">Uploading</span>}
           {att.state === 'failed' && <span className="text-destructive">!</span>}
           <button
             data-pressable
