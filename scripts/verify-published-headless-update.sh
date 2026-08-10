@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Verify the artifact that was actually published by the stable release workflow.
+# Verify the artifact that was actually published by the headless release workflow.
 #
 # This is intentionally separate from verify-headless-update.sh: that script exercises the
 # source seam with an ephemeral fixture key and a local feed. This script downloads the
@@ -9,7 +9,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-TAG="${1:-}"
+RELEASE="${1:-}"
 REPO="${GITHUB_REPOSITORY:-madeinorbit/podium}"
 PORT="${PODIUM_PUBLISHED_HEADLESS_PORT:-18789}"
 WORK="$(mktemp -d)"
@@ -32,13 +32,14 @@ for command in gh jq curl cp grep mktemp python3 tar tee seq; do
   require_command "$command"
 done
 
-if [ -z "$TAG" ]; then
-  echo "ABORT: pass the published release tag, for example v0.4.2" >&2
+if [ -z "$RELEASE" ]; then
+  echo "ABORT: pass the published release, for example v0.4.2 or edge" >&2
   exit 1
 fi
-case "$TAG" in
-  v*) ;;
-  *) echo "ABORT: published smoke only accepts a v* stable release tag (got '$TAG')" >&2; exit 1 ;;
+case "$RELEASE" in
+  edge) CHANNEL="edge" ;;
+  v*) CHANNEL="stable" ;;
+  *) echo "ABORT: published smoke only accepts edge or a v* stable release tag (got '$RELEASE')" >&2; exit 1 ;;
 esac
 
 RELEASE_DIR="$WORK/release"
@@ -50,7 +51,7 @@ download_release() {
   local attempt
   for attempt in $(seq 1 12); do
     rm -f "$ARTIFACT" "$MANIFEST"
-    if gh release download "$TAG" \
+    if gh release download "$RELEASE" \
       --repo "$REPO" \
       --pattern 'podium-headless-linux-x64.tar.gz' \
       --pattern 'podium-update.json' \
@@ -62,11 +63,11 @@ download_release() {
     echo "published assets are not visible yet (attempt $attempt/12); retrying" >&2
     sleep 5
   done
-  echo "ABORT: could not download the published x64 artifact and manifest for $REPO@$TAG" >&2
+  echo "ABORT: could not download the published x64 artifact and manifest for $REPO@$RELEASE" >&2
   exit 1
 }
 
-echo "=== downloading published stable assets for $REPO@$TAG ==="
+echo "=== downloading published $CHANNEL assets for $REPO@$RELEASE ==="
 download_release
 
 TARGET_VERSION="$(jq -er '.version' "$MANIFEST")"
@@ -106,6 +107,7 @@ run_captured "$GOOD_LOG" env \
   -u PODIUM_UPDATE_FEED \
   -u PODIUM_UPDATE_SIGNING_KEY \
   PODIUM_HOME="$GOOD" \
+  PODIUM_UPDATE_CHANNEL="$CHANNEL" \
   PODIUM_UPDATE_TARGET=linux-x86_64 \
   "$GOOD/podium" update
 
@@ -166,4 +168,4 @@ grep -q 'signature verification FAILED' "$BAD_LOG" || {
   exit 1
 }
 
-echo "PUBLISHED HEADLESS UPDATE VERIFIED — real stable artifact SWAPPED; tampered copy REJECTED"
+echo "PUBLISHED HEADLESS UPDATE VERIFIED — real $CHANNEL artifact SWAPPED; tampered copy REJECTED"

@@ -9,6 +9,10 @@ const desktopWorkflow = readFileSync(
 )
 const headlessWorkflow = readFileSync(join(repoRoot, '.github/workflows/release.yml'), 'utf8')
 const releaseSource = readFileSync(join(repoRoot, 'scripts/release.ts'), 'utf8')
+const publishedHeadlessSmoke = readFileSync(
+  join(repoRoot, 'scripts/verify-published-headless-update.sh'),
+  'utf8',
+)
 
 describe('desktop release workflow', () => {
   it('parses as a GitHub workflow with workflow_dispatch', () => {
@@ -54,16 +58,21 @@ describe('desktop release workflow', () => {
     expect(upload).toBeGreaterThan(prepare)
   })
 
-  it('publishes headless artifacts only for version tags without desktop assets', () => {
+  it('publishes stable from version tags and edge only from explicit dispatch', () => {
     expect(headlessWorkflow).toContain("tags: ['v*']")
+    expect(headlessWorkflow).toContain('workflow_dispatch:')
     expect(headlessWorkflow).not.toContain('branches: [main]')
-    expect(headlessWorkflow).toContain('--channel stable')
-    expect(headlessWorkflow).not.toContain('--channel edge')
+    expect(headlessWorkflow).toContain(
+      "github.event_name == 'workflow_dispatch' && 'edge' || 'stable'",
+    )
+    expect(headlessWorkflow).toContain('--channel "$PODIUM_RELEASE_CHANNEL"')
     expect(headlessWorkflow).toContain('published-smoke')
     expect(headlessWorkflow).not.toContain('TAURI_SIGNING_PRIVATE_KEY')
     expect(headlessWorkflow).not.toContain('apps/desktop')
     expect(releaseSource).not.toContain('release delete edge')
     expect(releaseSource).toContain("['release', 'upload', 'edge', ...assets, '--clobber']")
+    expect(publishedHeadlessSmoke).toContain('edge) CHANNEL="edge"')
+    expect(publishedHeadlessSmoke).toContain('PODIUM_UPDATE_CHANNEL="$CHANNEL"')
   })
 
   it('builds headless x64 and arm64 natively before one atomic publish', () => {

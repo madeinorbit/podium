@@ -17,6 +17,11 @@ necessary, but it is not evidence that the updater works in practice.
 - Run validation commands sequentially. Do not overlap focused tests, typecheck, the default
   test gate, or the heavier runtime lanes.
 
+The headless release workflow publishes stable assets only from `v*` tags. Publishing the
+rolling `edge` prerelease requires an explicit `workflow_dispatch`; ordinary pushes to `main`
+never publish it. Both paths finish by downloading the release assets that GitHub actually
+serves and exercising their production signature with the shipped updater.
+
 ## Cadence
 
 ### 1. Every updater code change
