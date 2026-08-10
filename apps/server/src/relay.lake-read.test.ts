@@ -253,10 +253,15 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
       })
     })
     registry.modules.memory.triggerLakeSweep('m1')
-    await vi.waitFor(() => {
-      expect(store.conversations.mirror.mirrorCursor('m1', nativeId)).toBe(source.length)
-      expect(store.conversations.mirror.activeIncarnation('m1', nativeId)?.inode).toBe('8961297')
-    })
+    // Each leg is a real daemon round-trip plus lake file I/O, so the 1s
+    // waitFor default is too tight on a loaded CI host.
+    await vi.waitFor(
+      () => {
+        expect(store.conversations.mirror.mirrorCursor('m1', nativeId)).toBe(source.length)
+        expect(store.conversations.mirror.activeIncarnation('m1', nativeId)?.inode).toBe('8961297')
+      },
+      { timeout: 8_000 },
+    )
 
     const predecessor = source
     source = Buffer.from(
@@ -266,14 +271,17 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
     store.conversations.mirror.setReportedBytes('m1', nativeId, source.length)
     registry.modules.memory.triggerLakeSweep('m1')
 
-    await vi.waitFor(() => {
-      // The first sweep may still be dropping its single-flight queue marker
-      // when the replacement is installed; retriggering is how the next daemon
-      // scan reports the dirty smaller file in production.
-      registry.modules.memory.triggerLakeSweep('m1')
-      expect(store.conversations.mirror.mirrorCursor('m1', nativeId)).toBe(source.length)
-      expect(store.conversations.mirror.incarnations('m1', nativeId)).toHaveLength(2)
-    })
+    await vi.waitFor(
+      () => {
+        // The first sweep may still be dropping its single-flight queue marker
+        // when the replacement is installed; retriggering is how the next daemon
+        // scan reports the dirty smaller file in production.
+        registry.modules.memory.triggerLakeSweep('m1')
+        expect(store.conversations.mirror.mirrorCursor('m1', nativeId)).toBe(source.length)
+        expect(store.conversations.mirror.incarnations('m1', nativeId)).toHaveLength(2)
+      },
+      { timeout: 8_000 },
+    )
     expect(
       readFileSync(join(lakeDir, 'm1', `${nativeId}.incarnation-1.jsonl`)).equals(predecessor),
     ).toBe(true)
