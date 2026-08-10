@@ -44,6 +44,7 @@ import {
   openTab,
   promoteTab,
   reposToViews,
+  resizeSplit,
   splitPane,
   tabIdFor,
 } from '../viewmodels'
@@ -53,6 +54,7 @@ import {
   type ReplicatedLayoutController,
 } from './replicated-layout'
 import {
+  currentWorkspace,
   type WorkspacePatch,
   type WorkspaceSelection,
   workspaceFor,
@@ -88,6 +90,7 @@ export const UI_LOCAL_ACTIONS = [
   'splitWorkspacePane',
   'closeWorkspacePane',
   'focusWorkspacePane',
+  'resizeWorkspaceSplit',
   'navigateToSession',
   'setDockShell',
   'setDockVisibleSession',
@@ -391,6 +394,7 @@ export function createEngineActions<TApi extends PodiumClientApi>(
       editWorkspace((ws) => splitPane(ws, paneId, axis, opts)),
     closeWorkspacePane: (paneId) => editWorkspace((ws) => closePane(ws, paneId)),
     focusWorkspacePane: (paneId) => editWorkspace((ws) => focusPane(ws, paneId)),
+    resizeWorkspaceSplit: (path, sizes) => editWorkspace((ws) => resizeSplit(ws, path, sizes)),
     setFocusedPane: (focusedPane) => rt.apply({ focusedPane }),
     navigateToSession: (sessionIdOrRef) => {
       const state = rt.state()
@@ -439,7 +443,27 @@ export function createEngineActions<TApi extends PodiumClientApi>(
       else delete dockShells[worktreePath]
       rt.apply({ dockShells })
     },
-    toggleSplit: () => rt.apply({ split: !rt.state().split }),
+    /**
+     * SPLIT / UNSPLIT, as a layout edit (POD-710 wave 2).
+     *
+     * `split` is DERIVED from the layout's leaf count, so the old
+     * `rt.apply({ split: !split })` was a write that the very next layout write
+     * undid: it flipped the scalar true against a single-leaf layout and the
+     * mirror derived it straight back to false. Toggling now edits the thing the
+     * scalar is a mirror OF.
+     *
+     * Collapsing merges every other pane's tabs into the first (closePane's own
+     * rule) rather than closing them — unsplitting is a change of arrangement,
+     * and it must not silently take views away with it.
+     */
+    toggleSplit: () => {
+      const leaves = leafPaneIds(currentWorkspace(rt.state()).root)
+      if (leaves.length < 2) {
+        editWorkspace((ws) => splitPane(ws, ws.focusedPaneId, 'row'))
+        return
+      }
+      editWorkspace((ws) => leaves.slice(1).reduce((acc, paneId) => closePane(acc, paneId), ws))
+    },
     openFile: (sessionId, path) => {
       const scope: FileScope = { kind: 'session', sessionId }
       const id = tabIdFor(scope, path)

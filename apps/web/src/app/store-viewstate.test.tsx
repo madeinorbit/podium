@@ -105,11 +105,19 @@ let api: {
   setPane: (p: 'A' | 'B', id: SessionId | null) => void
   setFocusedPane: (p: 'A' | 'B') => void
   toggleSplit: () => void
+  splitWorkspacePane: (paneId: string, axis: 'row' | 'column') => void
+  focusWorkspacePane: (paneId: string) => void
 } | null = null
 
 function Consumer(): null {
   const s = useStore()
-  api = { setPane: s.setPane, setFocusedPane: s.setFocusedPane, toggleSplit: s.toggleSplit }
+  api = {
+    setPane: s.setPane,
+    setFocusedPane: s.setFocusedPane,
+    toggleSplit: s.toggleSplit,
+    splitWorkspacePane: s.splitWorkspacePane,
+    focusWorkspacePane: s.focusWorkspacePane,
+  }
   return null
 }
 
@@ -175,16 +183,20 @@ describe('store reports viewState', () => {
     expect(last()).toEqual({ visible: ['s1'], focused: 's1' })
   })
 
+  // POD-710 wave 2: `split` is DERIVED from the layout's leaf count, so a second
+  // pane exists because the layout has one — `toggleSplit` is an adapter over
+  // splitting/closing panes, not a scalar flip. These cases drive the real thing
+  // and assert the same reported tuple.
   it('split on: both panes visible; focus follows focusedPane', () => {
     mount()
     act(() => {
       api?.setPane('A', asSessionId('s1'))
+      api?.splitWorkspacePane('p1', 'row') // the new pane p2 takes focus
       api?.setPane('B', asSessionId('s2'))
-      api?.toggleSplit() // split → true
-      api?.setFocusedPane('A') // selecting B above focused it; pull focus back to A
+      api?.focusWorkspacePane('p1')
     })
     expect(last()).toEqual({ visible: ['s1', 's2'], focused: 's1' })
-    act(() => api?.setFocusedPane('B'))
+    act(() => api?.focusWorkspacePane('p2'))
     expect(last()).toEqual({ visible: ['s1', 's2'], focused: 's2' })
   })
 
@@ -192,8 +204,8 @@ describe('store reports viewState', () => {
     mount()
     act(() => {
       api?.setPane('A', asSessionId('s1'))
+      api?.splitWorkspacePane('p1', 'row')
       api?.setPane('B', asSessionId('s2'))
-      api?.toggleSplit() // split on so paneB is visible + focusable
     })
     // The last selected pane was B → it holds focus.
     expect(last()).toEqual({ visible: ['s1', 's2'], focused: 's2' })
@@ -205,23 +217,25 @@ describe('store reports viewState', () => {
     mount()
     act(() => {
       api?.setPane('A', asSessionId('s1'))
+      api?.splitWorkspacePane('p1', 'row')
       api?.setPane('B', asSessionId('s2'))
-      api?.toggleSplit() // split on
-      api?.setFocusedPane('B') // focus B
     })
     expect(last()).toEqual({ visible: ['s1', 's2'], focused: 's2' })
-    act(() => api?.toggleSplit()) // split off
-    // focusedPane is still 'B' internally but must be treated as 'A'.
+    // Unsplitting merges pane B's tabs back into pane A rather than closing
+    // them, so s2 stays open — it is simply no longer a pane of its own.
+    act(() => api?.toggleSplit())
     expect(last()).toEqual({ visible: ['s1'], focused: 's1' })
   })
 
-  it('drops nulls from visible (empty pane is not reported)', () => {
+  it('drops nulls from visible (an empty pane is not reported)', () => {
     mount()
     act(() => {
       api?.setPane('A', asSessionId('s1'))
-      api?.toggleSplit() // split on, paneB still null
+      api?.toggleSplit() // splits the one-tab pane, so the new pane is empty
     })
-    expect(last()).toEqual({ visible: ['s1'], focused: 's1' })
+    // The new pane takes focus and has nothing in it: one visible session, and
+    // no focused one — the operator's pane genuinely holds no session.
+    expect(last()).toEqual({ visible: ['s1'], focused: null })
   })
 
   it('hiding the tab clears view-state via the visibilitychange listener', () => {

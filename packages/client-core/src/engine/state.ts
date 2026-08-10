@@ -158,9 +158,20 @@ export function issueActivityAt(issue: IssueWire, sessions: SessionMeta[]): stri
   return latest
 }
 
-/** Which pane the operator is typing into. `focusedPane` clamps to A when split
- *  is off — B is not on screen then and must never be reported as focused. */
+/**
+ * Which pane the operator is typing into.
+ *
+ * A SPLIT layout answers from the layout itself, because `focusedPane` is a
+ * two-valued mirror and a workspace may have more than two panes — focus on the
+ * third pane spells 'A', which would report the FIRST pane's session. An
+ * unsplit layout keeps the scalar path exactly as it was: `focusedPane` clamps
+ * to A when split is off, since B is not on screen and must never be reported.
+ */
 export function focusedPaneSession(st: EngineState): SessionId | null {
+  const ws = currentWorkspace(st)
+  if (leafPaneIds(ws.root).length >= 2) {
+    return (ws.panes[ws.focusedPaneId]?.activeTabId ?? null) as SessionId | null
+  }
   return st.split ? (st.focusedPane === 'A' ? st.paneA : st.paneB) : st.paneA
 }
 
@@ -321,7 +332,17 @@ export function workspaceUiSnapshot(st: EngineState): WorkspaceUiSnapshot {
  *  notification router. Ids that are not sessions in the CURRENT slice are
  *  dropped rather than reported. */
 export function userFocus(st: EngineState): UserFocus {
-  const paneIds = [st.paneA, st.split ? st.paneB : null].filter((x): x is SessionId => x != null)
+  const ws = currentWorkspace(st)
+  const leaves = leafPaneIds(ws.root)
+  // A split workspace reports EVERY pane it renders, not just the two the
+  // `paneA`/`paneB` mirrors can spell — a third pane's session is on screen and
+  // its PTY has the same claim on relay priority as the first two.
+  const paneIds =
+    leaves.length >= 2
+      ? leaves
+          .map((paneId) => (ws.panes[paneId]?.activeTabId ?? null) as SessionId | null)
+          .filter((x): x is SessionId => x != null)
+      : [st.paneA, st.split ? st.paneB : null].filter((x): x is SessionId => x != null)
   const focusedId = focusedPaneSession(st)
   const isSession = (id: SessionId): boolean => st.sessions.some((s) => s.sessionId === id)
   const focusedFile = focusedId ? st.fileTabs.find((f) => f.id === focusedId) : undefined

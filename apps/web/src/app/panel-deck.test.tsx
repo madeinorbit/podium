@@ -46,6 +46,8 @@ afterEach(() => {
   container.remove()
 })
 
+const FULL_BOX = { paneId: 'p1', left: 0, top: 0, width: 1, height: 1 }
+
 function renderDeck(opts: {
   tabs: DeckTab[]
   warm: Set<string>
@@ -56,12 +58,10 @@ function renderDeck(opts: {
     tabs: opts.tabs,
     warm: opts.warm,
     knownSessionIds: opts.known,
-    paneA: opts.paneA,
-    paneB: null,
-    split: false,
+    panes: [{ id: 'p1', activeTabId: opts.paneA }],
   })
   act(() => {
-    root.render(<PanelDeck items={items} split={false} onCloseFile={() => {}} />)
+    root.render(<PanelDeck items={items} panes={[FULL_BOX]} onCloseFile={() => {}} />)
   })
 }
 

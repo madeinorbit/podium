@@ -328,6 +328,23 @@ not discarded — exactly how `visibleSplit` behaves today (`Workspace.tsx:99-10
    `FlightDeck.tsx` from the rows you already get. If you truly need a viewmodel
    change, ask the orchestrator.
 
+> **DECIDED during implementation** (orchestrator-confirmed, all five stand):
+> 1. **A double click does not toggle the fold.** The pending single is cancelled, so
+>    promoting a session never costs you the branch you just opened.
+> 2. **A proposal that has sub-tasks stays in the tree.** Only proposed *leaves* move to
+>    the section — pulling out a parent would orphan its children under a row that is no
+>    longer rendered.
+> 3. **The mission header title takes the same preview/promote gesture** (round 3 §4 makes
+>    it the root's strip). Native subagent rows open as a preview plus
+>    `setPanelMode(…, 'native')`.
+> 4. **`SessionContextMenu.onRename` requires the host to own an inline editor** — the deck
+>    mounts the shared `SessionNameEditor` from `@/lib/WorkerLabel`, the same one the
+>    sidebar and the tab strip use. Ownership hazard to remember: that menu is STRIP's
+>    file, so a prop change there breaks the deck's call site.
+> 5. **The archived-sessions reveal is its own `ARCHIVED SESSIONS` section** below
+>    `PROPOSED ACTIONS`, same section idiom, leaving POD-679's departure-ticks slot below
+>    both.
+
 ### GAUGE — the mission progress bar
 
 The complaint: *"if there is only one task, it still shows two points of information

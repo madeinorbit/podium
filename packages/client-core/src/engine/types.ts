@@ -219,6 +219,12 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   splitWorkspacePane: (paneId: PaneId, axis: SplitAxis, opts?: { tabId?: TabId }) => void
   closeWorkspacePane: (paneId: PaneId) => void
   focusWorkspacePane: (paneId: PaneId) => void
+  /** Drag a pane divider. `path` routes from the layout root to the split node
+   *  being resized (`[]` is the root); `sizes` is normalized to sum to 1, so a
+   *  resizer may hand over fractions or pixels. Sizes live in the layout, which
+   *  is already persisted per task — a split's proportions are part of how the
+   *  operator arranged that task, not a separate screen preference. */
+  resizeWorkspaceSplit: (path: readonly number[], sizes: readonly number[]) => void
   paneA: SessionId | null // sessionId in pane A
   paneB: SessionId | null // sessionId in pane B (null = no split)
   /** Pane-shaped adapter over the workspace actions, kept for the call sites
@@ -299,6 +305,10 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
     path: string
   }) => Promise<Awaited<ReturnType<TApi['git']['diffFile']['query']>>>
   split: boolean
+  /** Split the focused pane in two, or — when the layout is already split —
+   *  collapse it back to one pane, merging every pane's tabs into the first.
+   *  A derived-mirror-safe adapter over `splitWorkspacePane`/`closeWorkspacePane`;
+   *  `split` itself is read-only state derived from the layout's leaf count. */
   toggleSplit: () => void
   /** Enrich the registered repos with branch/worktree metadata (fast — no
    *  filesystem walk). Discovery scanning happens explicitly via the scan flow. */
