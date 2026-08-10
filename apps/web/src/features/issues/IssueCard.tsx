@@ -235,18 +235,32 @@ export function IssueCard({
         className={cn(
           // A card is dragged, not read: `select-none` stops a drag that starts
           // on the title from painting a text selection across the column.
-          'flex w-full select-none flex-col gap-2 rounded-[9px] px-3.5 py-3 text-left',
+          //
+          // 6px inside, 10px between (the column's `gap-2.5`). Both were 8 —
+          // the three slots of a card stood as far apart as two cards did, so a
+          // column read as one run of loose lines rather than as a stack of
+          // objects. Separation between things must beat separation within one.
+          'flex w-full select-none flex-col gap-1.5 rounded-[9px] p-3 text-left',
           'issue-mix-6 issue-base-card issue-hairline-24 border',
           'transition-[background-color,border-color] duration-150 ease-out',
-          'hover:issue-mix-11 hover:issue-hairline-42',
-          selected && 'issue-mix-20 issue-hairline-55',
+          // Hover is conditioned on the selection rather than layered over it.
+          // Both write `background-color` from one class each, so the variant
+          // won on source order and putting the mouse on a SELECTED card took
+          // it from 20% back down to 11% — the card visibly deselected itself
+          // under the cursor. Selected hover steps up instead.
+          !selected && 'hover:issue-mix-11 hover:issue-hairline-42',
+          selected && 'issue-mix-20 issue-hairline-55 hover:issue-mix-26',
           focused && 'ring-2 ring-[var(--issue)]/60',
         )}
         title={issueIdTitle(issue)}
         onClick={(event) => (event.shiftKey ? onToggleSelect(issue.id) : onOpen(issue.id))}
         onContextMenu={(event) => onContextMenu(issue.id, event)}
       >
-        <div className="flex h-[16px] items-center gap-2">
+        {/* The identity row is ONE cluster, so it is spaced like one (6px) and
+            written in two sizes, not four: 10px mono for the two things that
+            are read (the ref, the age) and 9.5px for the uppercase tokens,
+            which set optically larger at the same size. */}
+        <div className="flex h-[16px] items-center gap-1.5">
           <span
             className={cn(
               'font-mono text-[10px] text-[var(--issue-dim)] tabular-nums transition-opacity',
@@ -256,10 +270,10 @@ export function IssueCard({
           >
             {issueRefLabel(issue)}
           </span>
-          <PriorityGlyph priority={issue.priority} size={12} />
+          <PriorityGlyph priority={issue.priority} size={11} />
           {epic && (
             <span
-              className="font-mono text-[9px] text-[var(--issue-muted)] uppercase tracking-[0.08em]"
+              className="font-mono text-[9.5px] text-[var(--issue-muted)] uppercase tracking-[0.08em]"
               title="Epic"
             >
               epic
@@ -269,7 +283,7 @@ export function IssueCard({
               note in issue-card.ts. `task` is the default and every card would
               carry it, so only a departure from it is worth the ink. */}
           {badges.type && !epic && issue.type !== 'task' && (
-            <span className="font-mono text-[9px] text-text-faint uppercase tracking-[0.08em]">
+            <span className="font-mono text-[9.5px] text-text-faint uppercase tracking-[0.08em]">
               {issue.type}
             </span>
           )}
@@ -283,17 +297,21 @@ export function IssueCard({
               ◇
             </span>
           )}
-          <span className="ml-auto flex items-center gap-2">
+          <span className="ml-auto flex items-center gap-1.5">
+            {/* 16px, the size this component documents for the board — an 18px
+                tile of saturated terracotta was the loudest thing on a card and
+                won the first look from the title, which is what a board card
+                exists to show. */}
             {badges.sessions && sessions.length > 0 && (
-              <IssueFleetSummary sessions={sessions} unread={issue.unread === true} size={18} />
+              <IssueFleetSummary sessions={sessions} unread={issue.unread === true} size={16} />
             )}
-            <span className="font-mono text-[9.5px] text-text-faint tabular-nums">
+            <span className="font-mono text-[10px] text-text-faint tabular-nums">
               {cardAge(issue.updatedAt, now)}
             </span>
           </span>
         </div>
 
-        <div className="line-clamp-2 min-w-0 break-words font-medium text-[13.5px] text-[var(--issue-bright)] leading-[1.4]">
+        <div className="line-clamp-2 min-w-0 break-words font-medium text-[13.5px] text-[var(--issue-bright)] leading-[1.35]">
           {issue.title}
         </div>
 
@@ -317,7 +335,11 @@ export function IssueCard({
         }
         aria-pressed={selected}
         className={cn(
-          'absolute top-[14px] left-[14px] size-3 rounded-[3px] border transition-opacity',
+          // Measured against the ref it replaces, not derived from the padding:
+          // this box is positioned on the card's BORDER box and the ref sits
+          // inside the border, so 12/14 left the checkbox a pixel high and a
+          // pixel left of the text it stands in for.
+          'absolute top-[15px] left-[13px] size-3 rounded-[3px] border transition-opacity',
           'opacity-0 group-hover/card:opacity-100 focus-visible:opacity-100',
           selected
             ? 'border-transparent bg-[var(--issue)] opacity-100'
@@ -351,10 +373,14 @@ export function IssueCard({
           bulk bar, which act on a selection instead of one card at a time. */}
       {onApprove && (
         <div
-          className="pointer-events-none absolute right-[9px] bottom-[9px] flex translate-y-0.5 items-center gap-1 pl-6 opacity-0 transition-[opacity,transform] duration-150 ease-out group-hover/card:pointer-events-auto group-hover/card:translate-y-0 group-hover/card:opacity-100 focus-within:pointer-events-auto focus-within:translate-y-0 focus-within:opacity-100"
+          // Inset to the card's own padding, so the button's edges land on the
+          // title's, and the fade that clears the second line of a wrapped
+          // title runs 56px rather than 24 — at 24 the text stopped dead a few
+          // pixels from a yellow slab instead of receding under it.
+          className="pointer-events-none absolute right-3 bottom-3 flex translate-y-0.5 items-center gap-1 pl-14 opacity-0 transition-[opacity,transform] duration-150 ease-out group-hover/card:pointer-events-auto group-hover/card:translate-y-0 group-hover/card:opacity-100 focus-within:pointer-events-auto focus-within:translate-y-0 focus-within:opacity-100"
           style={{
             background:
-              'linear-gradient(90deg, transparent, color-mix(in srgb, var(--issue) calc(11 * var(--issue-tint-scale, 1%)), var(--card)) 24px)',
+              'linear-gradient(90deg, transparent, color-mix(in srgb, var(--issue) calc(11 * var(--issue-tint-scale, 1%)), var(--card)) 56px)',
           }}
           data-testid="proposal-actions"
         >

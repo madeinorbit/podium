@@ -360,7 +360,10 @@ function IssueColumn({
           // `select-none`: the header is chrome, and chrome does not select —
           // a double-click near a column title must not leave "In Progress"
           // highlighted in a native window.
-          'flex h-(--section-bar-h) flex-none select-none items-center gap-2.5 border-hairline-bar border-b bg-bar px-4 transition-colors duration-150',
+          // px-3 is not a spacing preference: it is the card gutter below. The
+          // stage glyph and the `+` sit on the exact edges the cards do, so one
+          // left edge and one right edge run the whole height of the column.
+          'flex h-(--section-bar-h) flex-none select-none items-center gap-2 border-hairline-bar border-b bg-bar px-3 transition-colors duration-150',
           over && 'issue-mix-9',
         )}
       >
@@ -379,7 +382,14 @@ function IssueColumn({
         </button>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-3 py-3 [scrollbar-gutter:stable]">
+      {/* `scroll-none`, not a stable scrollbar gutter: the gutter is reserved
+          INSIDE the padding box, so every card sat 12px from the left edge of
+          its column and 28px from the right — a 16px lean that no amount of
+          card polish can correct. The sidebar's work list, the app's other tall
+          column of rows, already scrolls without a bar; the column keeps its
+          own "N more" foot as the depth cue. The 15px it gives back goes to the
+          cards, which is why titles now fit on one line more often. */}
+      <div className="scroll-none flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-3 pt-3 pb-6">
         {issues.length === 0 && !over ? (
           <EmptyColumn label={label} onCreate={() => onCreateIn(stage)} />
         ) : (
@@ -411,7 +421,7 @@ function IssueColumn({
         {remaining > 0 && (
           <div
             ref={sentinel}
-            className="flex-none py-2 text-center font-mono text-[9px] text-text-faint"
+            className="flex-none py-3 text-center font-mono text-[9.5px] text-text-faint"
             data-testid="column-more"
           >
             {remaining} more
@@ -425,7 +435,10 @@ function IssueColumn({
 /** An empty column teaches instead of reporting. */
 function EmptyColumn({ label, onCreate }: { label: string; onCreate: () => void }): JSX.Element {
   return (
-    <div className="flex flex-col items-start gap-2.5 px-1 py-4">
+    // No inset of its own: the sentence and the button start on the same left
+    // edge the cards would have used, so an empty column reads as the same
+    // column with nothing in it rather than as a different layout.
+    <div className="flex flex-col items-start gap-2.5 pt-1 pb-4">
       <p className="text-[12px] text-text-faint">Nothing in {label}.</p>
       <button
         data-pressable
