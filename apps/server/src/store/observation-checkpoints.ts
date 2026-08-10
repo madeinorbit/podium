@@ -11,6 +11,30 @@ function sameFacts(a: TerminalCandidateFacts, b: TerminalCandidateFacts): boolea
   return JSON.stringify(a) === JSON.stringify(b)
 }
 
+function sameFactsAcrossReattachment(
+  previous: TerminalCandidateFacts,
+  next: TerminalCandidateFacts,
+): boolean {
+  const {
+    observerGeneration: previousGeneration,
+    lastOutputAtMs: previousOutputAt,
+    outputCount: previousOutputCount,
+    ...previousStable
+  } = previous
+  const {
+    observerGeneration: nextGeneration,
+    lastOutputAtMs: nextOutputAt,
+    outputCount: nextOutputCount,
+    ...nextStable
+  } = next
+  return (
+    nextGeneration > previousGeneration &&
+    nextOutputAt >= previousOutputAt &&
+    nextOutputCount >= previousOutputCount &&
+    JSON.stringify(previousStable) === JSON.stringify(nextStable)
+  )
+}
+
 export type ObservationRebindResult =
   | {
       kind: 'accepted'
@@ -52,7 +76,7 @@ export class ObservationCheckpointsRepository {
     }
     return {
       // SERIALIZATION EDGE: an untyped sqlite column re-entering its id space.
-    sessionId: r.session_id as SessionId,
+      sessionId: r.session_id as SessionId,
       provider: provider.data,
       providerSessionId: (r.provider_session_id as string | null) ?? null,
       bindingVersion: Number(r.binding_version),
@@ -405,6 +429,56 @@ export class ObservationCheckpointsRepository {
         )
         .run(JSON.stringify(proof), confirmed ? at : null, at, facts.sessionId)
       return confirmed ? 'confirmed' : 'recorded'
+    })
+  }
+
+  /**
+   * Translate one confirmed proof across an exact, freshly fenced reattachment.
+   * The caller supplies the current facts only after the daemon has replayed the
+   * durable checkpoint under the new observer generation. Generation and PTY
+   * repaint counters may advance; every causal/work fact must remain identical.
+   */
+  renewTerminalCandidate(facts: TerminalCandidateFacts, at: string): boolean {
+    return transaction(this.db, () => {
+      const current = this.getTerminalCandidate(facts.sessionId)
+      if (
+        !current?.confirmedAt ||
+        current.consumedAt ||
+        !sameFactsAcrossReattachment(current.facts, facts)
+      )
+        return false
+      const lease = this.read(facts.sessionId)
+      const checkpoint = lease?.checkpoint
+      if (
+        !lease ||
+        lease.provider !== facts.provider ||
+        lease.providerSessionId !== facts.providerSessionId ||
+        lease.bindingVersion !== facts.bindingVersion ||
+        lease.observationGeneration !== facts.observerGeneration ||
+        checkpoint?.lastTransitionId !== facts.lastTransitionId ||
+        checkpoint.terminalFence?.transitionId !== facts.terminalTransitionId ||
+        JSON.stringify(checkpoint.providerCursor) !== JSON.stringify(facts.providerCursor)
+      )
+        return false
+      const previousProof = JSON.stringify({
+        facts: current.facts,
+        firstLivePollSequence: current.firstLivePollSequence,
+        lastLivePollSequence: current.lastLivePollSequence,
+      })
+      const proof = {
+        facts,
+        firstLivePollSequence: current.firstLivePollSequence,
+        lastLivePollSequence: current.lastLivePollSequence,
+      }
+      const result = this.db
+        .prepare(
+          `UPDATE session_terminal_candidates
+           SET proof_json = ?, updated_at = ?
+           WHERE session_id = ? AND proof_json = ?
+             AND confirmed_at IS NOT NULL AND consumed_at IS NULL`,
+        )
+        .run(JSON.stringify(proof), at, facts.sessionId, previousProof)
+      return Number(result.changes) === 1
     })
   }
 

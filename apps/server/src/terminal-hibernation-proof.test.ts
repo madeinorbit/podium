@@ -1,5 +1,4 @@
-import type { SessionId } from '@podium/model'
-import type { AgentRuntimeState } from '@podium/model'
+import type { AgentRuntimeState, SessionId } from '@podium/model'
 import type { AgentObservation, ControlMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
@@ -45,7 +44,9 @@ function harness({
   const daemon: ControlMessage[] = []
   const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
   registries.push(registry)
-  registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) => daemon.push(message))
+  registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+    daemon.push(message),
+  )
   const { sessionId } = registry.modules.sessions.createSession({
     agentKind: 'codex',
     cwd: '/proj',
@@ -214,6 +215,84 @@ describe('durable terminal hibernation proof', () => {
     ).toBe(false)
   })
 
+  it.each([
+    'daemon',
+    'server',
+  ] as const)('renews an exact terminal proof after %s reattachment and replay output', (restartKind) => {
+    const h = harness()
+    h.confirm(1)
+    expect(h.registry.modules.sessions.hasValidTerminalProof(h.sessionId)).toBe(true)
+
+    let registry = h.registry
+    const controls: ControlMessage[] = []
+    if (restartKind === 'daemon') {
+      registry.gateway.detachDaemon(registry.sessionStore.hostMachineId)
+    } else {
+      registry.dispose()
+      registry = new SessionRegistry(h.store, undefined, { instanceId: 'default' })
+      registries.push(registry)
+    }
+    registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+      controls.push(message),
+    )
+    const reattach = controls.find(
+      (message): message is Extract<ControlMessage, { type: 'reattach' }> =>
+        message.type === 'reattach' && message.sessionId === h.sessionId,
+    )
+    expect(reattach?.observationGeneration).toBe(2)
+
+    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+      type: 'bind',
+      sessionId: h.sessionId,
+      cmd: 'codex',
+      cwd: '/proj',
+      agentKind: 'codex',
+      geometry: { cols: 80, rows: 24 },
+    })
+    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+      type: 'agentFrameBatch',
+      sessionId: h.sessionId,
+      frames: [
+        Buffer.from('reattach shrink repaint').toString('base64'),
+        Buffer.from('reattach restore repaint').toString('base64'),
+      ],
+    })
+    expect(registry.modules.sessions.hasValidTerminalProof(h.sessionId)).toBe(false)
+
+    // A legacy frame remains effect-free and cannot renew the fenced proof.
+    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+      type: 'agentState',
+      sessionId: h.sessionId,
+      state: runtime('working', 50),
+    })
+    expect(registry.modules.sessions.hasValidTerminalProof(h.sessionId)).toBe(false)
+
+    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+      type: 'agentObservation',
+      observation: {
+        ...h.terminal,
+        observerGeneration: 2,
+        provenance: 'bootstrap',
+        transitionKind: 'snapshot',
+        receivedAt: at(51),
+      },
+    })
+    const renewed = h.store.observationCheckpoints.getTerminalCandidate(h.sessionId)
+    expect(renewed?.facts).toMatchObject({ observerGeneration: 2, outputCount: 2 })
+    expect(renewed?.confirmedAt).toBeTruthy()
+    expect(registry.modules.sessions.hasValidTerminalProof(h.sessionId)).toBe(true)
+
+    // Renewal is one generation transition, not an output amnesty. Any later
+    // terminal activity invalidates the translated proof again.
+    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+      type: 'agentFrame',
+      sessionId: h.sessionId,
+      seq: 3,
+      data: Buffer.from('real later output').toString('base64'),
+    })
+    expect(registry.modules.sessions.hasValidTerminalProof(h.sessionId)).toBe(false)
+  })
+
   it('cannot use a stale proof after a real new prompt', () => {
     const { registry, sessionId, base, observe, confirm } = harness()
     confirm(1)
@@ -327,7 +406,9 @@ describe('durable terminal hibernation proof', () => {
     const controls: ControlMessage[] = []
     const restarted = new SessionRegistry(h.store, undefined, { instanceId: 'default' })
     registries.push(restarted)
-    restarted.gateway.attachDaemon(restarted.sessionStore.hostMachineId, (message) => controls.push(message))
+    restarted.gateway.attachDaemon(restarted.sessionStore.hostMachineId, (message) =>
+      controls.push(message),
+    )
     const continues = () =>
       controls.filter(
         (message) =>
@@ -365,7 +446,9 @@ describe('durable terminal hibernation proof', () => {
     const controls: ControlMessage[] = []
     const restarted = new SessionRegistry(h.store, undefined, { instanceId: 'default' })
     registries.push(restarted)
-    restarted.gateway.attachDaemon(restarted.sessionStore.hostMachineId, (message) => controls.push(message))
+    restarted.gateway.attachDaemon(restarted.sessionStore.hostMachineId, (message) =>
+      controls.push(message),
+    )
     restarted.gateway.routeDaemonFrame(restarted.sessionStore.hostMachineId, {
       type: 'bind',
       sessionId: h.sessionId,
