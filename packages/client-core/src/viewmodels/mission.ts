@@ -107,6 +107,41 @@ export function missionRootFor(
   return current
 }
 
+/**
+ * The origin a spin-off was discovered from, or null when it is not one.
+ *
+ * An OUTGOING `discovered-from` dep is what `attach --spinoff` writes (see
+ * issue-relations.ts for the verified direction), and it is the model's own
+ * statement that this work is nobody's sub-task.
+ */
+export function spinOffOriginId(issue: {
+  deps?: ReadonlyArray<{ id: string; type: string }>
+}): string | null {
+  return issue.deps?.find((dep) => dep.type === 'discovered-from')?.id ?? null
+}
+
+/** Stages that mean nobody has picked the work up yet. Work that has not begun
+ *  has not gone anywhere, whatever shape it was filed in. */
+const UNSTARTED = new Set(['proposed', 'backlog'])
+
+/**
+ * A spin-off the operator has STARTED has left the mission that discovered it.
+ *
+ * Both halves matter. Until it starts it belongs on the origin's spine — the
+ * deck is the only surface that shows a proposal at all, and the whole point of
+ * showing it there is that the operator triages it in the context that produced
+ * it. The moment it is started as its own thing, it is its own thing: it gets a
+ * sidebar row, and the origin is released.
+ *
+ * Without this, mission membership follows `startedBySession` alone — and
+ * `issues.create` stamps that field on EVERY agent create — so a spin-off filed
+ * by a mission agent was dragged back onto the origin's spine for good, counted
+ * in its progress, and the origin could never read as finished (POD-679).
+ */
+export function hasLeftMission(issue: IssueNavigationModel): boolean {
+  return !UNSTARTED.has(issue.stage) && spinOffOriginId(issue) !== null
+}
+
 export function missionIssueIds(
   issues: readonly IssueNavigationModel[],
   rootId: string,
@@ -127,8 +162,11 @@ export function missionIssueIds(
     ids.add(id)
     for (const child of children.get(id) ?? []) stack.push(child.id)
   }
-  // Agent-started children belong to the mission when their starting session
-  // is already in the mission; discovered-from relations remain separate.
+  // Agent-started children belong to the mission when their starting session is
+  // already in the mission — unless they have LEFT it (see `hasLeftMission`):
+  // provenance is not membership once the operator has started the work on its
+  // own. The parent-child walk above is untouched; a spin-off never has a
+  // parentId, so only this fallback could ever have claimed one.
   let changed = true
   while (changed) {
     changed = false
@@ -140,6 +178,7 @@ export function missionIssueIds(
     for (const issue of issues) {
       if (
         !ids.has(issue.id) &&
+        !hasLeftMission(issue) &&
         issue.startedBySession &&
         missionSessions.has(issue.startedBySession)
       ) {
@@ -216,6 +255,56 @@ export function missionProgress(
   }
   const total = scope.length
   return { total, done, run, block, wait: Math.max(0, total - done - run - block) }
+}
+
+/** Work that was discovered here and is now running as its own task. */
+export interface MissionDeparture {
+  issue: IssueNavigationModel
+  /** The mission member it was discovered from — the root, or a task on it. */
+  originId: string
+  /** What it is doing now, out there, in the spine's own state vocabulary. */
+  state: DeckIssueState
+}
+
+/**
+ * What LEFT this mission — the departure ticks under the spine (POD-679).
+ *
+ * A started spin-off is no longer a member (`hasLeftMission`), and a mission
+ * that simply dropped the row would be lying by omission: the operator watched
+ * an agent file that work here, and "where did it go?" has to stay answerable
+ * from the surface it went missing from. So the origin keeps ONE LINE per
+ * departure — provenance without membership. It is not a task: it holds no
+ * seat, wears no mark, and carries no weight in `missionProgress`.
+ *
+ * FINISHED DEPARTURES ARE DROPPED. The tick exists so the operator can find
+ * work that is still happening somewhere else; a done spin-off is answered by
+ * the issue's own Relations block, and keeping it here would grow the mission's
+ * footer forever with rows nobody can act on.
+ */
+export function missionDepartures(
+  issues: readonly IssueNavigationModel[],
+  sessions: readonly SessionMeta[],
+  rootId: string | null | undefined,
+  allWorktreePaths: readonly string[] = [],
+): MissionDeparture[] {
+  if (!rootId) return []
+  const ids = missionIssueIds(issues, rootId, sessions)
+  const sessionList = [...sessions]
+  const worktreePaths = [...allWorktreePaths]
+  const byId = new Map<string, IssueNavigationModel>(issues.map((issue) => [issue.id, issue]))
+  const out: MissionDeparture[] = []
+  for (const issue of issues) {
+    if (issue.archived || issue.deletedAt || ids.has(issue.id)) continue
+    if (issue.stage === 'done' || issue.closedReason) continue
+    const originId = hasLeftMission(issue) ? spinOffOriginId(issue) : null
+    if (!originId || !ids.has(originId)) continue
+    out.push({
+      issue,
+      originId,
+      state: deckIssueState(issue, sessionsForIssue(issue, sessionList, worktreePaths), byId),
+    })
+  }
+  return out.sort((a, b) => a.issue.seq - b.issue.seq)
 }
 
 /**
@@ -903,8 +992,64 @@ export function relationNote(
  * Presence stays OUT of this: "session moved to POD-612" and "no session yet"
  * are facts about the agent SLOT, and the slot is where they belong.
  */
+/** Where a proposal will live if it is started as it stands. */
+export type ProposalPlacement = 'own' | 'mission'
+
+export interface ProposalShape {
+  placement: ProposalPlacement
+  /** The issue this proposal came out of, when the replica can resolve it. */
+  originId: string | null
+  originRef: string | null
+}
+
+/**
+ * The SHAPE of a proposal: does starting it keep it here, or send it away?
+ *
+ * The agent that filed the work already answered this — a sub-issue is
+ * decomposition its parent cannot ship without, a spin-off is independent work
+ * with a `discovered-from` edge. It answered it in a CLI litmus test the
+ * operator never sees, and then the operator's Start click inherited that
+ * answer blind (POD-679). This is the answer, in the operator's language, so it
+ * can ride on the strip and be corrected before anything runs.
+ *
+ * Null for a proposal that came from nowhere in particular: a top-level
+ * proposal with no origin has no placement decision to state.
+ */
+export function proposalShape(
+  issue: IssueNavigationModel,
+  byId?: ReadonlyMap<string, IssueNavigationModel>,
+): ProposalShape | null {
+  return issue.stage === 'proposed' ? discoveredPlacement(issue, byId) : null
+}
+
+/**
+ * The same reading, at any stage — what the placement IS right now.
+ *
+ * `proposalShape` is the chip's gate (a strip only states a shape while the
+ * decision is still open). The controls need the answer for work that has left
+ * `proposed` too: promoting a proposal to backlog does not decide where it
+ * lives, and a placement chosen wrongly stays correctable after it starts.
+ */
+export function discoveredPlacement(
+  issue: IssueNavigationModel,
+  byId?: ReadonlyMap<string, IssueNavigationModel>,
+): ProposalShape | null {
+  const refOf = (id: string | null | undefined): string | null => {
+    const target = id ? byId?.get(id) : undefined
+    return target ? issueDisplayRef(target) : null
+  }
+  const spinOrigin = spinOffOriginId(issue)
+  if (spinOrigin) {
+    return { placement: 'own', originId: spinOrigin, originRef: refOf(spinOrigin) }
+  }
+  if (issue.parentId) {
+    return { placement: 'mission', originId: issue.parentId, originRef: refOf(issue.parentId) }
+  }
+  return null
+}
+
 export interface IssueNote {
-  kind: 'blocked' | 'waiting' | 'relation'
+  kind: 'blocked' | 'waiting' | 'relation' | 'shape-own' | 'shape-mission'
   /** What the strip prints: a display ref, a count, or the authored prose. */
   short: string
   /** The sentence, for the hover title and the accessible name. */
@@ -933,6 +1078,29 @@ export function issueNote(
       short: refs.length === 1 ? (refs[0] as string) : many(),
       full: waitingNote(issue, byId) as string,
     }
+  }
+  // A PROPOSAL SAYS WHERE IT WILL LAND, not where it came from. The provenance
+  // chip ("Discovered from POD-516") is a fact about the past; the operator
+  // reading this strip is about to decide the future, and the sentence names
+  // the consequence rather than the edge type that encodes it.
+  const shape = proposalShape(issue, byId)
+  if (shape) {
+    const origin = shape.originRef
+    return shape.placement === 'own'
+      ? {
+          kind: 'shape-own',
+          short: 'on its own',
+          full: origin
+            ? `Starts on its own — ${origin} can close without it`
+            : 'Starts on its own — the task that found it can close without it',
+        }
+      : {
+          kind: 'shape-mission',
+          short: 'in this mission',
+          full: origin
+            ? `Part of ${origin} — that task is not done until this is`
+            : 'Part of the task that found it — that task is not done until this is',
+        }
   }
   const edge = relationEdge(issue, byId)
   return edge ? { kind: 'relation', short: edge.ref, full: `${edge.verb} ${edge.ref}` } : null

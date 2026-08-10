@@ -21,6 +21,7 @@ import {
   issueNeedsHuman,
   issueNote,
   type MissionProgress,
+  missionDepartures,
   missionIssueIds,
   missionProgress,
   missionRootFor,
@@ -261,6 +262,120 @@ describe('missionIssueIds', () => {
     ]
     const sessions = [sess('s-c1', { issueId: 'c1' })]
     expect([...missionIssueIds(issues, 'root', sessions)].sort()).toEqual(['c1', 'root'])
+  })
+
+  /**
+   * The case above passes for the wrong reason on real data: `issues.create`
+   * stamps `startedBySession` on EVERY agent create, so the started-by fallback
+   * dragged every spin-off straight back onto the origin's spine — where it was
+   * counted in the mission's progress and could never be released (POD-679).
+   */
+  it('a STARTED spin-off leaves, even though a mission session filed it', () => {
+    const issues = [
+      issue('root'),
+      issue('c1', { parentId: 'root' }),
+      issue('spin', {
+        startedBySession: 's-c1',
+        stage: 'in_progress',
+        deps: [{ id: 'c1', type: 'discovered-from' }],
+      }),
+    ]
+    const sessions = [sess('s-c1', { issueId: 'c1' })]
+    expect([...missionIssueIds(issues, 'root', sessions)].sort()).toEqual(['c1', 'root'])
+  })
+
+  it('keeps a spin-off that is still PROPOSED — the deck is where it gets triaged', () => {
+    const issues = [
+      issue('root'),
+      issue('c1', { parentId: 'root' }),
+      issue('spin', {
+        startedBySession: 's-c1',
+        stage: 'proposed',
+        deps: [{ id: 'c1', type: 'discovered-from' }],
+      }),
+    ]
+    const sessions = [sess('s-c1', { issueId: 'c1' })]
+    expect([...missionIssueIds(issues, 'root', sessions)].sort()).toEqual(['c1', 'root', 'spin'])
+  })
+
+  it('keeps an approved-but-unstarted spin-off — nothing has gone anywhere yet', () => {
+    const issues = [
+      issue('root'),
+      issue('c1', { parentId: 'root' }),
+      issue('spin', {
+        startedBySession: 's-c1',
+        stage: 'backlog',
+        deps: [{ id: 'c1', type: 'discovered-from' }],
+      }),
+    ]
+    const sessions = [sess('s-c1', { issueId: 'c1' })]
+    expect([...missionIssueIds(issues, 'root', sessions)].sort()).toEqual(['c1', 'root', 'spin'])
+  })
+
+  it('a departed spin-off stops counting against the mission it came from', () => {
+    const issues = [
+      issue('root', { stage: 'done' }),
+      issue('c1', { parentId: 'root', stage: 'done' }),
+      issue('spin', {
+        startedBySession: 's-c1',
+        stage: 'in_progress',
+        deps: [{ id: 'c1', type: 'discovered-from' }],
+      }),
+    ]
+    const sessions = [sess('s-c1', { issueId: 'c1' })]
+    expect(missionProgress(issues, sessions, 'root')).toEqual({
+      total: 2,
+      done: 2,
+      run: 0,
+      block: 0,
+      wait: 0,
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// missionDepartures — what the mission discovered and no longer owns
+// ---------------------------------------------------------------------------
+
+describe('missionDepartures', () => {
+  const departed = (over: Partial<UnbrandIds<IssueNavigationModel>> = {}) =>
+    issue('spin', {
+      seq: 44,
+      startedBySession: 's-c1',
+      stage: 'in_progress',
+      deps: [{ id: 'c1', type: 'discovered-from' }],
+      ...over,
+    })
+  const base = [issue('root'), issue('c1', { parentId: 'root' })]
+  const sessions = [sess('s-c1', { issueId: 'c1' })]
+
+  it('names the work that left, and the task it left from', () => {
+    const out = missionDepartures([...base, departed()], sessions, 'root')
+    expect(out.map((d) => [d.issue.id, d.originId])).toEqual([['spin', 'c1']])
+    // It reports what the work is doing OUT THERE, in the spine's own words.
+    expect(out[0]?.state.label).toBe('Not started')
+  })
+
+  it('says nothing about a proposal — that one is still on the spine', () => {
+    const proposal = departed({ stage: 'proposed' })
+    expect(missionDepartures([...base, proposal], sessions, 'root')).toEqual([])
+  })
+
+  it('drops a finished departure rather than growing a permanent footer', () => {
+    expect(missionDepartures([...base, departed({ stage: 'done' })], sessions, 'root')).toEqual([])
+    expect(
+      missionDepartures([...base, departed({ closedReason: 'wontfix' })], sessions, 'root'),
+    ).toEqual([])
+  })
+
+  it('ignores work discovered from some OTHER mission', () => {
+    const elsewhere = issue('spin', {
+      stage: 'in_progress',
+      deps: [{ id: 'stranger', type: 'discovered-from' }],
+    })
+    expect(
+      missionDepartures([...base, issue('stranger'), elsewhere], sessions, 'root'),
+    ).toEqual([])
   })
 })
 
@@ -1354,6 +1469,50 @@ describe('issueNote', () => {
 
   it('is null on a plain task, so the strip stays one line', () => {
     expect(issueNote(issue('a'), index([issue('a')]))).toBeNull()
+  })
+
+  /**
+   * A PROPOSAL STATES ITS SHAPE (POD-679). Provenance is a fact about the past;
+   * the operator reading a proposal is about to decide the future, so the chip
+   * names the consequence of starting it as it stands.
+   */
+  it('a proposed spin-off says it will start on its own, and what that frees', () => {
+    const subject = issue('a', {
+      stage: 'proposed',
+      deps: [{ id: 'origin', type: 'discovered-from' }],
+    })
+    const note = issueNote(subject, index([origin, subject]))
+    expect(note?.kind).toBe('shape-own')
+    expect(note?.short).toBe('on its own')
+    expect(note?.full).toBe('Starts on its own — #9 can close without it')
+  })
+
+  it('a proposed sub-task says it belongs to the task that found it', () => {
+    const subject = issue('a', { stage: 'proposed', parentId: 'origin' })
+    const note = issueNote(subject, index([origin, subject]))
+    expect(note?.kind).toBe('shape-mission')
+    expect(note?.short).toBe('in this mission')
+    expect(note?.full).toBe('Part of #9 — that task is not done until this is')
+  })
+
+  it('goes back to plain provenance once the proposal has been started', () => {
+    const subject = issue('a', {
+      stage: 'in_progress',
+      deps: [{ id: 'origin', type: 'discovered-from' }],
+    })
+    expect(issueNote(subject, index([origin, subject]))?.kind).toBe('relation')
+  })
+
+  it('still puts a real blocker above the shape', () => {
+    const subject = issue('a', {
+      stage: 'proposed',
+      blocked: true,
+      deps: [
+        { id: 'dep', type: 'blocks' },
+        { id: 'origin', type: 'discovered-from' },
+      ],
+    })
+    expect(issueNote(subject, index([dep, origin, subject]))?.kind).toBe('blocked')
   })
 })
 

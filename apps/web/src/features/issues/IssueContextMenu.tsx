@@ -1,5 +1,9 @@
 import { shallowEqual } from '@podium/client-core/store'
-import { reposToViews } from '@podium/client-core/viewmodels'
+import {
+  discoveredPlacement,
+  type ProposalPlacement,
+  reposToViews,
+} from '@podium/client-core/viewmodels'
 import {
   DEFER_NEXT_MESSAGE,
   ISSUE_COLOR_HEX,
@@ -240,6 +244,19 @@ export function IssueContextMenu({
   const restore = (): void =>
     run(() => Promise.all(ids.map((id) => trpc.issues.restore.mutate({ id }))))
 
+  /**
+   * Move discovered work between "part of the mission" and "its own thing"
+   * (POD-679) — one mutation, so the parent link and the provenance edge can
+   * never disagree. The origin comes from the issue's CURRENT placement: the
+   * parent it hangs under, or the task it was discovered from.
+   */
+  const movePlacement = (placement: ProposalPlacement): void => {
+    const byId = new Map(allIssues.map((issue) => [issue.id as string, issue]))
+    const originId = discoveredPlacement(first, byId)?.originId
+    if (!originId) return
+    run(() => trpc.issues.setPlacement.mutate({ id: first.id, placement, originId }))
+  }
+
   const menuData = createIssueMenuData({
     issues,
     allIssues,
@@ -313,6 +330,12 @@ export function IssueContextMenu({
         return
       case 'delete':
         del()
+        return
+      case 'placeOnOwn':
+        movePlacement('own')
+        return
+      case 'placeInMission':
+        movePlacement('mission')
         return
     }
   }

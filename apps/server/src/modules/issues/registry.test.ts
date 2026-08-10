@@ -57,6 +57,7 @@ const EXPECTED_PROC_ACTION: Record<string, 'read' | 'write' | 'manage'> = {
   unshare: 'write',
   depRemove: 'write',
   reparent: 'write',
+  setPlacement: 'write',
   supersede: 'write',
   duplicate: 'write',
 }
@@ -96,6 +97,7 @@ const OLD_SCOPED_TARGET_FIELD: Record<string, 'id' | 'fromId' | 'oldId' | 'none'
   share: 'id',
   unshare: 'id',
   reparent: 'id',
+  setPlacement: 'id',
   depRemove: 'fromId',
   supersede: 'oldId',
   duplicate: 'id',
@@ -182,7 +184,7 @@ describe('issue command registry completeness', () => {
     const unscoped = ISSUE_COMMAND_NAMES.filter(
       (n) => ISSUE_CONTRACTS[n].policy.resource !== 'issue',
     )
-    expect(scoped.length).toBe(35)
+    expect(scoped.length).toBe(36)
     expect(unscoped.length).toBe(35)
     // The predicate the assertion above applies, run on PLANTED pairs so it is
     // observed saying NO before its silence is read as agreement.
@@ -215,7 +217,7 @@ describe('handler↔contract schema identity', () => {
       expect(def?.input, name).toBe(ISSUE_CONTRACTS[name].input)
       checked += 1
     }
-    expect(checked).toBe(70)
+    expect(checked).toBe(71)
   })
 
   it('`toBe` here is load-bearing: an equal-but-separate schema would pass toEqual', () => {

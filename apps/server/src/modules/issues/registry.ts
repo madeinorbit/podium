@@ -903,6 +903,49 @@ const defs = {
       return ctx.hierarchy.reparent(input.id, input.parentId)
     },
   }),
+  /**
+   * POD-679 — the operator's answer to "part of this, or its own thing?".
+   *
+   * The two placements are the SAME decision seen from both sides, so they are
+   * one command rather than a reparent the caller has to remember to pair with
+   * a dep edit. Order matters within each: the provenance edge is written
+   * BEFORE the parent link is dropped, so no interleaving leaves the issue
+   * top-level with nothing pointing back at where it came from.
+   *
+   * Operator-only, like `promote`: this is the triage decision itself. An agent
+   * that wants to file work in one shape or the other already says so at
+   * creation (`attach --subissue` / `--spinoff`).
+   */
+  setPlacement: def('setPlacement', {
+    kind: 'mutation',
+    target: targetId,
+    handler: (ctx, input) => {
+      if (ctx.caller.capability.scope.kind !== 'all') {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'only an operator may decide where discovered work lives',
+        })
+      }
+      if (input.id === input.originId) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'an issue cannot be its own origin' })
+      }
+      const issue = ctx.reports.get(input.id)
+      if (!issue) throw new TRPCError({ code: 'NOT_FOUND', message: `unknown issue ${input.id}` })
+      const origin = ctx.reports.get(input.originId)
+      if (!origin) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: `unknown issue ${input.originId}` })
+      }
+      if (input.placement === 'own') {
+        const withEdge = ctx.hierarchy.addDep(input.id, input.originId, 'discovered-from')
+        return issue.parentId ? ctx.hierarchy.reparent(input.id, null) : withEdge
+      }
+      ctx.hierarchy.reparent(input.id, input.originId)
+      // The edge is removed only after the parent link exists, and only the one
+      // pointing at THIS origin — an issue discovered from somewhere else keeps
+      // saying so.
+      return ctx.hierarchy.removeDep(input.id, input.originId, 'discovered-from')
+    },
+  }),
   claim: def('claim', {
     kind: 'mutation',
     target: targetId,

@@ -13,6 +13,8 @@ import {
   type IssueNavigationModel,
   type IssueNote,
   issueNote,
+  type MissionDeparture,
+  missionDepartures,
   missionIssueIds,
   missionProgress,
   missionRootFor,
@@ -32,6 +34,7 @@ import { issueDisplayRef } from '@podium/protocol'
 import {
   ArrowDown,
   ArrowRight,
+  ArrowUpRight,
   Ban,
   Check,
   ChevronDown,
@@ -279,8 +282,17 @@ function StateMark({ state }: { state: DeckState }): JSX.Element {
  * hover title, which is the only way it fits at the column's narrowest.
  */
 function IssueNoteChip({ note }: { note: IssueNote }): JSX.Element {
+  // `shape-own` is the one that leaves, and it takes the same arrow the
+  // departure tick below the spine uses — the chip and the tick are two halves
+  // of one story, so they may not be drawn with two different marks.
   const Glyph =
-    note.kind === 'blocked' ? Ban : note.kind === 'waiting' ? ArrowDown : CornerDownRight
+    note.kind === 'blocked'
+      ? Ban
+      : note.kind === 'waiting'
+        ? ArrowDown
+        : note.kind === 'shape-own'
+          ? ArrowUpRight
+          : CornerDownRight
   return (
     <span
       className="shell-type-micro flex max-w-[10rem] flex-none items-center gap-1 font-mono text-text-faint"
@@ -1016,6 +1028,62 @@ function TaskRow({
 }
 
 /**
+ * WHAT LEFT — the departure ticks under the spine (POD-679).
+ *
+ * Work discovered here and started as its own thing is not a member of this
+ * mission any more: it holds no seat, wears no state mark, and does not move
+ * the gauge. But a row that simply vanished would be a lie by omission — the
+ * operator watched an agent file it here — so the mission keeps one line each,
+ * and the line is a way back to it.
+ *
+ * Deliberately OUTSIDE the tree: no rail, no elbow, and a label above rather
+ * than an indent below. A guide line running into these would say the one thing
+ * this whole change exists to stop saying — that they are still in here.
+ */
+export function DepartureTicks({
+  departures,
+  onOpen,
+}: {
+  departures: readonly MissionDeparture[]
+  onOpen: (issue: IssueNavigationModel) => void
+}): JSX.Element | null {
+  if (departures.length === 0) return null
+  return (
+    <div
+      className="mt-2 border-t border-hairline-soft pt-1.5"
+      style={{ marginLeft: GUTTER }}
+      data-testid="flight-departures"
+    >
+      <div className="shell-type-micro font-mono tracking-wide text-text-faint uppercase">
+        Left this mission
+      </div>
+      {departures.map((departure) => (
+        <button
+          data-pressable
+          type="button"
+          key={departure.issue.id}
+          data-testid="flight-departure"
+          data-departure-issue={departure.issue.id}
+          className="shell-type-micro flex min-h-[22px] w-full items-center gap-1.5 font-mono text-text-faint hover:text-text-dim"
+          title={`${issueDisplayRef(departure.issue)} runs on its own · ${departure.state.label}`}
+          onClick={() => onOpen(departure.issue)}
+        >
+          <ArrowUpRight size={9} aria-hidden className="flex-none" />
+          <span className="flex-none">{issueDisplayRef(departure.issue)}</span>
+          <span className="min-w-0 flex-1 truncate text-left">{departure.issue.title}</span>
+          <span className="flex-none">
+            {departure.state.attention && (
+              <span aria-hidden className="mr-1.5 inline-block size-[5px] rounded-full bg-attention align-middle" />
+            )}
+            {departure.state.label.toLowerCase()}
+          </span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/**
  * The empty deck: a canvas that fills as the conversation does, never an error
  * and never a demand for a task. A fresh Codex keeps its ordinary chat and
  * composer; this column simply shows what it has learned so far.
@@ -1094,6 +1162,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
     paneB,
     split,
     setSelectedWorktree,
+    setSelectedIssueId,
     setPane,
     setPanelMode,
     setView,
@@ -1110,6 +1179,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
       paneB: store.paneB,
       split: store.split,
       setSelectedWorktree: store.setSelectedWorktree,
+      setSelectedIssueId: store.setSelectedIssueId,
       setPane: store.setPane,
       setPanelMode: store.setPanelMode,
       setView: store.setView,
@@ -1173,6 +1243,12 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
   )
   const focused = resolveFocus(focusedIssueId, missionMembers, root?.id)
   const progress = missionProgress(issues, sessions, root?.id)
+  // What this mission discovered and no longer owns. Derived beside the rows
+  // from the same membership set, so a departure can never also be a strip.
+  const departures = useMemo(
+    () => missionDepartures(issues, sessions, root?.id, allWorktreePaths),
+    [issues, sessions, root, allWorktreePaths],
+  )
   const liveCount = rows[0]?.liveAgentCount ?? 0
   const workingCount = rows[0]?.workingAgentCount ?? 0
   // The Needs-you badge counts what the filter SHOWS — sessions that stopped and
@@ -1307,6 +1383,29 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
     if (target) {
       setPane('A', target.sessionId)
       void markSessionRead(target.sessionId)
+    }
+    setView('workspace')
+  }
+  /**
+   * A departure tick is a way BACK to the work, so it re-roots the deck onto it
+   * rather than focusing something this mission no longer contains. Selecting
+   * an issue outside `missionMembers` would leave the focus resolver with
+   * nothing to resolve and the column showing the same spine.
+   */
+  const openDeparture = (issue: IssueNavigationModel): void => {
+    setSelectedIssueId(issue.id)
+    setFocusedIssueId(issue.id)
+    void markIssueRead(issue.id)
+    if (issue.worktreePath) setSelectedWorktree(issue.worktreePath)
+    const live = sessions
+      .filter(
+        (session) =>
+          session.issueId === issue.id && !session.archived && session.status !== 'exited',
+      )
+      .sort((a, b) => b.lastActiveAt.localeCompare(a.lastActiveAt))[0]
+    if (live) {
+      setPane('A', live.sessionId)
+      void markSessionRead(live.sessionId)
     }
     setView('workspace')
   }
@@ -1577,6 +1676,10 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                     : 'Nothing here in this view.'}
               </p>
             )}
+            {/* Not filtered by the mode or the search: a departure is a fact
+                about this mission, not a task in it, and the view controls
+                narrow the spine. */}
+            <DepartureTicks departures={departures} onOpen={openDeparture} />
           </div>
         </>
       ) : (

@@ -1,9 +1,24 @@
 import { randomUUID } from '@podium/client-core/id'
 import { shallowEqual } from '@podium/client-core/store'
-import { issueNeedsHuman, motionPhase, sessionNeedsHuman } from '@podium/client-core/viewmodels'
+import {
+  discoveredPlacement,
+  issueNeedsHuman,
+  motionPhase,
+  type ProposalPlacement,
+  sessionNeedsHuman,
+} from '@podium/client-core/viewmodels'
 import type { IssueId, IssueStage, SessionMeta } from '@podium/model'
-import { ChevronDown, GitBranch, GitCommit, MoreHorizontal, RotateCcw } from 'lucide-react'
-import { type JSX, useState } from 'react'
+import {
+  ArrowUpRight,
+  Check,
+  ChevronDown,
+  CornerDownRight,
+  GitBranch,
+  GitCommit,
+  MoreHorizontal,
+  RotateCcw,
+} from 'lucide-react'
+import { type JSX, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import type { IssueViewModel } from '@/app/store'
 import { useReplicaIssues, useStoreSelector } from '@/app/store'
@@ -400,6 +415,92 @@ export function IssueDecisionBand({ issue }: { issue: IssueViewModel }): JSX.Ele
 }
 
 /**
+ * The start control's second half: WHERE the work will live once it runs.
+ *
+ * One decision, two destinations, each named by what it does to the task that
+ * found this work rather than by the edge it writes. The current shape — the
+ * one the filing agent chose, and the one the plain Start button takes — is
+ * ticked, so the menu reads as a confirmation with an escape hatch instead of
+ * an open question the operator has to answer every time.
+ */
+function PlacementMenu({
+  placement,
+  busy,
+  onStart,
+}: {
+  placement: { placement: ProposalPlacement; originRef: string | null }
+  busy: boolean
+  onStart: (moveTo: ProposalPlacement) => void
+}): JSX.Element {
+  const origin = placement.originRef
+  const options: Array<{
+    key: ProposalPlacement
+    label: string
+    why: string
+    Glyph: typeof ArrowUpRight
+  }> = [
+    {
+      key: 'own',
+      label: 'Start on its own',
+      why: origin
+        ? `Its own row in the sidebar. ${origin} can close without it.`
+        : 'Its own row in the sidebar. The task that found it can close without it.',
+      Glyph: ArrowUpRight,
+    },
+    {
+      key: 'mission',
+      label: origin ? `Start inside ${origin}` : 'Start inside this mission',
+      why: origin
+        ? `Stays on that spine. ${origin} is not done until this is.`
+        : 'Stays on this mission’s spine, which is not done until this is.',
+      Glyph: CornerDownRight,
+    },
+  ]
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            type="button"
+            size="sm"
+            data-testid="task-placement-trigger"
+            aria-label="Where should this work live?"
+            title="Where should this work live?"
+            disabled={busy}
+            className="h-7 rounded-l-none border-l border-l-black/20 px-1.5"
+          >
+            <ChevronDown size={11} aria-hidden="true" />
+          </Button>
+        }
+      />
+      <DropdownMenuContent align="start" className="max-w-[19rem]">
+        {options.map((option) => (
+          <DropdownMenuItem
+            key={option.key}
+            data-testid={`task-placement-${option.key}`}
+            className="items-start gap-2"
+            onClick={() => onStart(option.key)}
+          >
+            <option.Glyph size={12} aria-hidden="true" className="mt-0.5 flex-none" />
+            <span className="flex min-w-0 flex-col">
+              <span className="flex items-center gap-1.5">
+                {option.label}
+                {option.key === placement.placement && (
+                  <Check size={11} aria-hidden="true" className="flex-none opacity-70" />
+                )}
+              </span>
+              <span className="text-[10.5px] leading-[1.35] text-muted-foreground">
+                {option.why}
+              </span>
+            </span>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+/**
  * The task head's control strip: the stage dropdown, the ONE primary action the
  * issue's state resolves to, and the shared issue context menu. Every other
  * lifecycle affordance lives in that menu rather than competing for the row.
@@ -428,6 +529,19 @@ export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.
   const active = issueSessions(issue, sessions).filter(isOpenSession)
   const action = resolveTaskAction(issue, active)
   const closed = Boolean(issue.closedReason) || issue.archived
+  // WHERE THIS WORK WILL LIVE, offered at the moment it starts (POD-679).
+  // Only while it has not started: once an agent is on it, the same two moves
+  // live in the context menu, where a correction belongs.
+  const placement = useMemo(() => {
+    // DISCOVERED work only. `startedBySession` is stamped exactly when a
+    // non-operator filed the issue, so this is the fork on work an AGENT found
+    // — the case where the operator inherited a placement decision they never
+    // made. A sub-task the operator planned themselves needs no second opinion
+    // on the button; the context menu still offers the move.
+    if (action.kind !== 'start-work' || !issue.startedBySession) return null
+    const byId = new Map(issues.map((candidate) => [candidate.id as string, candidate]))
+    return discoveredPlacement(issue, byId)
+  }, [action.kind, issue, issues])
 
   const confirmClose = (reason: IssueCloseReason): void => {
     setClosing(true)
@@ -460,15 +574,37 @@ export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.
         return
       }
       case 'start-work':
-        setStarting(true)
-        trpc.issues.start
-          .mutate({ id: issue.id })
-          .catch((error: unknown) =>
-            toast.error(error instanceof Error ? error.message : String(error)),
-          )
-          .finally(() => setStarting(false))
+        startWork()
         return
     }
+  }
+
+  /**
+   * Start the work, optionally moving it first.
+   *
+   * The placement move goes BEFORE the start deliberately: an agent that boots
+   * into a worktree and reads its own issue should find the shape the operator
+   * chose, not the one it is about to be moved out of. A failed move therefore
+   * cancels the start rather than running the work in the wrong place.
+   */
+  const startWork = (moveTo?: ProposalPlacement): void => {
+    setStarting(true)
+    const origin = placement?.originId
+    const start = (): Promise<unknown> => trpc.issues.start.mutate({ id: issue.id })
+    // Nothing to move is the ordinary case, and it stays a DIRECT call: routing
+    // it through a resolved promise would delay every plain start by a tick for
+    // the sake of one branch's symmetry.
+    const run =
+      moveTo && origin && moveTo !== placement?.placement
+        ? trpc.issues.setPlacement
+            .mutate({ id: issue.id, placement: moveTo, originId: origin })
+            .then(start)
+        : start()
+    run
+      .catch((error: unknown) =>
+        toast.error(error instanceof Error ? error.message : String(error)),
+      )
+      .finally(() => setStarting(false))
   }
 
   return (
@@ -528,22 +664,32 @@ export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.
           <RotateCcw size={12} aria-hidden="true" /> Reopen issue
         </Button>
       ) : (
-        <Button
-          type="button"
-          variant={action.warn ? 'outline' : 'default'}
-          size="sm"
-          data-testid="task-primary-action"
-          data-action={action.kind}
-          disabled={starting}
-          className={cn(
-            'h-7 px-2.5 text-[11.5px] font-semibold',
-            action.warn &&
-              'border-attention/50 bg-attention/15 text-attention hover:bg-attention/25',
-          )}
-          onClick={runAction}
-        >
-          {starting && action.kind === 'start-work' ? 'Starting…' : action.label}
-        </Button>
+        <div className="flex items-center">
+          <Button
+            type="button"
+            variant={action.warn ? 'outline' : 'default'}
+            size="sm"
+            data-testid="task-primary-action"
+            data-action={action.kind}
+            disabled={starting}
+            className={cn(
+              'h-7 px-2.5 text-[11.5px] font-semibold',
+              action.warn &&
+                'border-attention/50 bg-attention/15 text-attention hover:bg-attention/25',
+              placement && 'rounded-r-none',
+            )}
+            onClick={runAction}
+          >
+            {starting && action.kind === 'start-work' ? 'Starting…' : action.label}
+          </Button>
+          {/* THE FORK (POD-679). The plain button keeps the agent's own call, so
+              the fast path costs no extra click; this is for the case the
+              operator already knows the work is something else. Both entries are
+              phrased as the CONSEQUENCE for the origin — "POD-516 can close
+              without it" is what the operator is actually choosing between, and
+              `parentId` versus `discovered-from` is not. */}
+          {placement && <PlacementMenu placement={placement} busy={starting} onStart={startWork} />}
+        </div>
       )}
       <Button
         type="button"

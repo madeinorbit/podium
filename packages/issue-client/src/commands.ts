@@ -696,6 +696,36 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     },
   },
   {
+    name: 'placement',
+    summary:
+      'Decide where discovered work lives (operator only): placement <id> --own|--mission --origin <ref>.',
+    args: z.strictObject({
+      id: idArg,
+      own: z.boolean().optional(),
+      mission: z.boolean().optional(),
+      origin: z.string(),
+    }),
+    positionals: ['id'],
+    async run(c, a) {
+      if (Boolean(a.own) === Boolean(a.mission)) {
+        throw new Error('placement takes --own or --mission, not both and not neither')
+      }
+      const placement = a.own ? 'own' : 'mission'
+      const i = (await c.issues.setPlacement.mutate({
+        id: a.id as string,
+        placement,
+        originId: a.origin as string,
+      })) as { seq: number }
+      return {
+        text:
+          placement === 'own'
+            ? `#${i.seq} now runs on its own (discovered from ${a.origin as string})`
+            : `#${i.seq} is now part of ${a.origin as string}`,
+        data: i,
+      }
+    },
+  },
+  {
     name: 'close',
     summary:
       'Close an issue: close <id> [--reason done|superseded|duplicate|wontfix] [--note "handoff"].',
