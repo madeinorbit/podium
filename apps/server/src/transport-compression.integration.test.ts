@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { constants, gunzipSync, gzipSync, inflateRawSync } from 'node:zlib'
 import { asSessionId } from '@podium/model'
+import { CAP_METADATA_DELTA, WIRE_VERSION } from '@podium/protocol'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { ServerHandle } from './server'
 import { startServer } from './server'
@@ -422,6 +423,23 @@ describe('transport compression on real Bun wires', () => {
     const machineId = server.registry.modules.machines.hostMachineId
     const discardDaemonControl = (): void => {}
     server.registry.gateway.attachDaemon(machineId, discardDaemonControl)
+
+    const bootstrapClient = await openRawWebSocket(server.port, '/client')
+    bootstrapClient.socket.write(
+      maskedTextFrame(
+        JSON.stringify({
+          type: 'hello',
+          clientId: '',
+          viewport: { cols: 80, rows: 24, dpr: 1 },
+          caps: [CAP_METADATA_DELTA],
+          wireVersion: WIRE_VERSION,
+        }),
+      ),
+    )
+    const bootstrap = await frameOfType(bootstrapClient, 'feedBootstrap')
+    expect(bootstrap.frame.rsv1).toBe(false)
+    bootstrapClient.socket.destroy()
+
     const client = await openRawWebSocket(server.port, '/client')
     expect(client.responseHeaders.get('sec-websocket-extensions')).toContain('permessage-deflate')
     const initial = await frameOfType(client, 'sessionsChanged')

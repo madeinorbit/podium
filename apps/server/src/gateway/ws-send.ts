@@ -29,15 +29,20 @@ export interface GatewaySocket extends SendSocket {
 }
 
 export const WS_COMPRESSION_MIN_BYTES = 1024
-export const WS_COMPRESSION_MAX_BYTES = 32 * 1024 * 1024
+/** Bun deflates synchronously inside send(); keep that event-loop work small. */
+export const WS_COMPRESSION_MAX_BYTES = 256 * 1024
 export const WS_MAX_PAYLOAD_BYTES = 64 * 1024 * 1024
 
 const PRECOMPRESSED_MIME =
   /^(?:image\/(?!svg\+xml)|audio\/|video\/|font\/|application\/(?:gzip|zip|x-7z-compressed|x-rar-compressed|pdf|wasm))\b/i
 
-function carriesPrecompressedBytes(msg: unknown): boolean {
+function mustStayIdentity(msg: unknown): boolean {
   if (!msg || typeof msg !== 'object') return false
   const frame = msg as { type?: unknown; contentType?: unknown }
+  // A whole visible world can be tens of MiB. Native Bun compression happens
+  // synchronously in send(), so deflating a reconnect bootstrap stalls every
+  // client on the server even when the world was already cached.
+  if (frame.type === 'feedBootstrap') return true
   if (frame.type === 'imageUploadRequest') return true
   return (
     frame.type === 'fileAssetResult' &&
@@ -47,12 +52,9 @@ function carriesPrecompressedBytes(msg: unknown): boolean {
 }
 
 export function shouldCompressWebSocketFrame(bytes: string, msg?: unknown): boolean {
+  if (mustStayIdentity(msg)) return false
   const byteLength = Buffer.byteLength(bytes)
-  return (
-    byteLength >= WS_COMPRESSION_MIN_BYTES &&
-    byteLength <= WS_COMPRESSION_MAX_BYTES &&
-    !carriesPrecompressedBytes(msg)
-  )
+  return byteLength >= WS_COMPRESSION_MIN_BYTES && byteLength <= WS_COMPRESSION_MAX_BYTES
 }
 
 export function safeSend(ws: SendSocket, msg: Parameters<typeof encodeFn>[0], limit: number): void {

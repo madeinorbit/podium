@@ -12,6 +12,7 @@ import {
   safeSend,
   safeSendEncoded,
   shouldCompressWebSocketFrame,
+  WS_COMPRESSION_MAX_BYTES,
   WS_COMPRESSION_MIN_BYTES,
 } from './gateway/ws-send'
 import { attachWebSockets } from './gateway/ws-server'
@@ -44,6 +45,13 @@ describe('websocket compression eligibility', () => {
       }),
     ).toBe(false)
     expect(shouldCompressWebSocketFrame(bytes, { type: 'imageUploadRequest' })).toBe(false)
+  })
+
+  it('keeps reconnect bootstraps and multi-megabyte work off the event loop', () => {
+    const eligible = 'x'.repeat(WS_COMPRESSION_MAX_BYTES)
+    expect(shouldCompressWebSocketFrame(eligible, { type: 'feedDelta' })).toBe(true)
+    expect(shouldCompressWebSocketFrame(eligible, { type: 'feedBootstrap' })).toBe(false)
+    expect(shouldCompressWebSocketFrame(`${eligible}x`, { type: 'feedDelta' })).toBe(false)
   })
 })
 
