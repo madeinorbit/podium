@@ -292,6 +292,13 @@ export async function startServer(
     // which is also the auth the agents on that machine actually run under.
     modelProbe: (machineId) => registry.modules.rpc.modelProbe(machineId),
   })
+  // Resolve release authorities before serving the fleet read model. Failures are
+  // captured as per-channel unavailable reasons; startup remains operational.
+  await Promise.all([
+    registry.modules.updates.refreshTarget('edge'),
+    registry.modules.updates.refreshTarget('stable'),
+  ])
+
   // The persistent same-host shared secret, read (or created 0600) from the state dir.
   // The server hashes it into the local machine's stored credential below; the bundled
   // local daemon reads the SAME file (or, in-process, gets this value via ServerHandle)

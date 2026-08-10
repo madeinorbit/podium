@@ -125,6 +125,8 @@ export interface MachinesDeps {
    * deployment has no target descriptor yet, so every machine is unreported.
    */
   targetVersion?: (machineId: string) => string | undefined
+  /** Actionable reason the selected authority has no trusted target. */
+  targetUnavailableReason?: (machineId: string) => string | undefined
   store: SessionStore
   /**
    * THIS HOST'S machine id — the UUID in `<stateDir>/machine.id`, read once by the
@@ -559,8 +561,10 @@ export class MachinesService {
   listMachines(use?: MachineUseResolver, owned?: MachineOwnedResolver): MachineListing[] {
     return this.machineRecords().map((m) => {
       let target: string | undefined
+      let targetUnavailableReason: string | undefined
       try {
         target = this.deps.targetVersion?.(m.id)
+        targetUnavailableReason = this.deps.targetUnavailableReason?.(m.id)
       } catch {
         target = undefined
       }
@@ -576,6 +580,7 @@ export class MachinesService {
         lastSeenAt: m.lastSeenAt,
         updateChannel: m.updateChannel,
         targetVersion: target ?? null,
+        targetUnavailableReason: targetUnavailableReason ?? null,
         appVersion: m.appVersion,
         wireSchemaDigest: m.wireSchemaDigest,
         installKind: m.installKind,

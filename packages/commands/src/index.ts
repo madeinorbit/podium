@@ -148,6 +148,8 @@ export {
   fleetServerRoleOf,
   machineAdoptContract,
   machineAdoptInput,
+  machineApplyUpdateContract,
+  machineApplyUpdateInput,
   machinePairingCodeContract,
   machinePairingCodeInput,
   machineRenameContract,

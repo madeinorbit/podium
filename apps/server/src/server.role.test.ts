@@ -132,6 +132,7 @@ describe('startServer with the hub role disabled (node shape)', () => {
       .sort()
     expect(hubNames).toEqual([
       'machines.adopt',
+      'machines.applyUpdate',
       'machines.pairingCode',
       'machines.rename',
       'machines.setUpdateChannel',

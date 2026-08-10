@@ -72,16 +72,23 @@ export const machineRenameHandler = ({ ctx, input }: FleetArgs<{ id: string; nam
   return mods(ctx).machines.listMachines()
 }
 
-export const machineSetUpdateChannelHandler = ({
+export const machineSetUpdateChannelHandler = async ({
   ctx,
   input,
 }: FleetArgs<{ id: string; channel: UpdateChannel }>) => {
   const modules = mods(ctx)
   modules.machines.setUpdateChannel(input.id, input.channel)
-  // The mutation is the human authorization. An unavailable target grants nothing;
-  // the persisted selection remains visible as intent rather than false success.
-  modules.updates.authorizeMachine(input.id)
+  await modules.updates.refreshTarget(input.channel)
   return modules.machines.listMachines()
+}
+
+export const machineApplyUpdateHandler = async ({ ctx, input }: FleetArgs<{ id: string }>) => {
+  const modules = mods(ctx)
+  const machine = modules.machines.listMachines().find((candidate) => candidate.id === input.id)
+  if (!machine) throw new TRPCError({ code: 'NOT_FOUND', message: 'machine not found' })
+  await modules.updates.refreshTarget(machine.updateChannel ?? 'stable')
+  const grantedMachineIds = modules.updates.authorizeMachine(input.id)
+  return { machines: modules.machines.listMachines(), grantedMachineIds }
 }
 
 export const machineShareHandler = ({

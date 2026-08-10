@@ -167,6 +167,8 @@ export const machineSetUpdateChannelInput = z.object({
   id: z.string(),
   channel: UpdateChannel,
 })
+
+export const machineApplyUpdateInput = z.object({ id: z.string() })
 export const machineShareInput = z.object({
   id: z.string(),
   grantee: z.string().min(1),
@@ -451,6 +453,42 @@ export const machineSetUpdateChannelContract = {
   conflictRule:
     'Last Authority commit wins for this field; an old grant remains scoped to the authority under which it was issued',
 } as const satisfies FleetCommandContract<typeof machineSetUpdateChannelInput>
+
+/** Apply the selected trusted target to exactly one managed machine. */
+export const machineApplyUpdateContract = {
+  name: 'machines.applyUpdate',
+  version: 1,
+  visibility: 'owned-compute',
+  input: machineApplyUpdateInput,
+  policy: {
+    action: 'manage',
+    roleFloor: 'member',
+    resource: 'machine',
+    machineVerb: 'manage',
+    confirmation: 'none',
+    rationale:
+      'Applying a target changes the managed daemon installation and is authorized per machine. ' +
+      'It never widens into a fleet wave and cannot proceed without a resolved trusted target.',
+  },
+  exposure: SERVED_ON,
+  delivery: FLEET_DELIVERY,
+  redaction: PUBLIC_REDACTION,
+  ownership: { creates: [], note: 'Creates no row; it issues one scoped convergence grant.' },
+  attribution: FLEET_ATTRIBUTION,
+  errorConsistency: {
+    callerSuppliedTargetId: true,
+    invisibleFailsAs: 'nonexistent',
+    distinguishesUnauthorizedFromUnreachable: false,
+    note:
+      'An invisible machine and an unknown id share one refusal. Offline and unavailable target ' +
+      'states remain explicit in the returned machine read model.',
+  },
+  serverRole: 'hub',
+  cli: { summary: 'Apply a managed machine update target' },
+  conflict: 'cmd',
+  conflictRule:
+    'Idempotent while the same target is in flight; the grant is scoped to this machine and its selected authority',
+} as const satisfies FleetCommandContract<typeof machineApplyUpdateInput>
 
 /**
  * Share one machine verb. The target row gate requires `manage`, then the
@@ -1183,6 +1221,7 @@ export const FLEET_CONTRACTS = {
   'machines.unshare': machineUnshareContract,
   'machines.transferOwnership': machineTransferOwnershipContract,
   'machines.adopt': machineAdoptContract,
+  'machines.applyUpdate': machineApplyUpdateContract,
   'machines.revoke': machineRevokeContract,
   'machines.transferServer': machineTransferServerContract,
   'machines.pairingCode': machinePairingCodeContract,

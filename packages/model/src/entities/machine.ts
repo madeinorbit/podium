@@ -288,6 +288,8 @@ export const MachineWire = z.object({
   versionState: z.enum(['unreported', 'current', 'behind', 'ahead']).optional(),
   /** The selected channel's currently advertised target label, when available. */
   targetVersion: z.string().nullable().optional(),
+  /** Why the selected authority currently has no trusted target. */
+  targetUnavailableReason: z.string().nullable().optional(),
 })
 export type MachineWire = z.infer<typeof MachineWire>
 

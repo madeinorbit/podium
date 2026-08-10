@@ -89,6 +89,7 @@ import { SettingsService, type TelegramSetupClient } from './modules/settings/se
 import { SpecsService } from './modules/specs/service'
 import { deliverAnswerToSession } from './modules/superagent/answer-delivery'
 import type { HeadlessService } from './modules/superagent/headless'
+import { resolveReleaseTarget } from './modules/updates/release-target'
 import { UpdatesService } from './modules/updates/service'
 import { WorkflowService } from './modules/workflows/service'
 import { inferRepoFromRoots } from './repo-registry'
@@ -341,6 +342,7 @@ export class SessionRegistry {
       ...(options.updatePubkey ? { updatePubkey: options.updatePubkey } : {}),
       store: this.store,
       targetVersion: (machineId) => updates?.targetVersion(machineId) ?? options.targetVersion?.(),
+      targetUnavailableReason: (machineId) => updates?.targetUnavailableReasonFor(machineId),
       // ONE READER of `<stateDir>/machine.id`: the composition root passes the id to
       // the store, and every consumer takes the store's copy. A second `readOrCreate*`
       // call anywhere in the process would be a second opinion about who this host is.
@@ -379,6 +381,7 @@ export class SessionRegistry {
       send: (machineId, message) => machines.toMachine(machineId, message),
       now: this.now,
       nextGrantId: () => randomUUID(),
+      resolveTarget: resolveReleaseTarget,
       concurrency: 3,
     })
     updates = updatesService

@@ -13,6 +13,7 @@ export interface UpdatesDeps {
   now(): number
   nextGrantId(): string
   concurrency: number
+  resolveTarget?(channel: 'edge' | 'stable'): Promise<UpdateTarget>
 }
 
 interface MachineConvergenceState {
@@ -47,6 +48,7 @@ const freshRollout = (): ChannelRolloutState => ({
  */
 export class UpdatesService {
   private readonly targets = new Map<UpdateChannel, UpdateTarget>()
+  private readonly unavailableReasons = new Map<UpdateChannel, string>()
   private readonly rollouts = new Map<UpdateChannel, ChannelRolloutState>()
   private readonly machineStates = new Map<string, MachineConvergenceState>()
   private readonly pendingGrants = new Map<string, PendingGrant>()
@@ -70,6 +72,18 @@ export class UpdatesService {
     return machine ? this.target(this.channelOf(machine)) : undefined
   }
 
+  /** Explain why a machine's selected authority cannot currently advertise a target. */
+  targetUnavailableReasonFor(machineId: string): string | undefined {
+    const machine = this.deps.machines().find((candidate) => candidate.id === machineId)
+    if (!machine) return 'Machine is no longer registered.'
+    const channel = this.channelOf(machine)
+    if (this.target(channel)) return undefined
+    return (
+      this.unavailableReasons.get(channel) ??
+      `${channel} target has not been resolved by this coordinator.`
+    )
+  }
+
   setTarget(channel: UpdateChannel, target: UpdateTarget): void
   /** Compatibility form for the existing development publisher. */
   setTarget(target: UpdateTarget): void
@@ -77,6 +91,8 @@ export class UpdatesService {
     const channel = typeof channelOrTarget === 'string' ? channelOrTarget : 'dev'
     const target = typeof channelOrTarget === 'string' ? maybeTarget : channelOrTarget
     if (!target) throw new Error(`missing ${channel} update target`)
+
+    this.unavailableReasons.delete(channel)
 
     // Re-publishing the same label can replace its artifact descriptor without
     // invalidating the proof already made for that target.
@@ -92,6 +108,30 @@ export class UpdatesService {
     }
     for (const [machineId, pending] of this.pendingGrants) {
       if (pending.channel === channel) this.pendingGrants.delete(machineId)
+    }
+  }
+
+  /** Refresh one selected authority without turning a failed lookup into a stale grant. */
+  async refreshTarget(channel: UpdateChannel): Promise<void> {
+    if (channel === 'dev') {
+      if (!this.target('dev')) {
+        this.unavailableReasons.set(
+          'dev',
+          'Development target is not currently published by this source server.',
+        )
+      }
+      return
+    }
+    if (!this.deps.resolveTarget) {
+      this.unavailableReasons.set(channel, `${channel} target resolver is not configured.`)
+      return
+    }
+    try {
+      this.setTarget(channel, await this.deps.resolveTarget(channel))
+    } catch (error) {
+      if (!this.target(channel)) {
+        this.unavailableReasons.set(channel, error instanceof Error ? error.message : String(error))
+      }
     }
   }
 
