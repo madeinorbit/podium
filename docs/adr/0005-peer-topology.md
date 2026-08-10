@@ -34,7 +34,7 @@ Verified on the integrated tree at this writing:
 | Local machine auth secret | `packages/runtime/src/local-machine.ts`: `LOCAL_MACHINE_ID = 'local'`, `readOrCreateDaemonSecret` |
 | Remote join payload | `packages/runtime/src/join.ts`: `JoinPayload` fields `v`, `serverUrl`, `pairCode`, optional `name` |
 | Pairing codes | `apps/server/src/hub/pairing.ts`: `PairingManager` — single-use, default TTL 600_000 ms, in-memory |
-| Mutation origin fields (seam seed) | `packages/protocol/src/messages/mutations.ts`: `MutationEnvelope.origin.{actor, machineId?}`, `mutationId`, `sentAt` (informational; not conflict clock) |
+| Durable write identity | `packages/sync/src/outbox/records.ts`: `OutboxRecord.mutationId`, `command`, and transport-derived `attribution` |
 | Half-built federation to retire | `packages/sync/src/upstream.ts` (`UpstreamSync`, 501 lines) + `packages/sync/src/upstream-forwarder.ts` (`UpstreamForwarder`, 324 lines); cookie name shared via `packages/protocol/src/session-cookie.ts` `SESSION_COOKIE = 'podium_session'` |
 | Instance isolation | `packages/runtime/src/instance.ts` + [spec:SP-15aa]: `INSTANCE_ID_PATTERN`, per-instance state/ports/units |
 | Ledger adopted decisions | `docs/rearchitecture-v3.md` §1: “Two processes, one peer protocol”; “HUB DEFERRED” per [spec:SP-0371] |

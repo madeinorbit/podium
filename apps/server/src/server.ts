@@ -319,9 +319,9 @@ export async function startServer(
   // RETIRED at POD-309: the node⇄hub dialer (`UpstreamSync`) and the issue write
   // forwarder (`UpstreamForwarder`) were constructed here when config.json carried an
   // `upstream` block. Federation is deferred, not cancelled ([spec:SP-0371], ADR 5 D1);
-  // what survives it is the SEAM — authority/feed identity, the mutation-envelope
-  // origin/causation fields, the reserved node-peer caps, and kernel ports with no
-  // transport baked in — none of which is wired from this composition root.
+  // what survives it is the SEAM — authority/feed identity, outbox attribution,
+  // the reserved node-peer caps, and kernel ports with no transport baked in —
+  // none of which is wired from this composition root.
   //
   // Anything an operator had QUEUED in `upstream_outbox` when this build lands is
   // parked, not discarded: `reportParkedUpstreamMutations` is the operator-visible

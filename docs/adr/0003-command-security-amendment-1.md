@@ -163,7 +163,7 @@ class that has no row has no principal source, and therefore no principal.
 | Alternative | Why rejected |
 |---|---|
 | Keep `OPERATOR` as the tRPC principal and add users later | `OPERATOR` is `admin` + `scope: 'all'` and `checkIssueAccess` short-circuits on `scope.kind === 'all'`. Every ownership check would be dead code on the one transport humans actually use, so nothing would be tested until the flip. |
-| Carry `onBehalfOf` as a field on `MutationEnvelope.origin` | That is exactly the free-string identity D7.1 declares inert. A payload-supplied delegator is an impersonation primitive: any agent could mail, close or spawn as anyone. The delegation must be a server-minted record the transport resolves. |
+| Carry `onBehalfOf` in the durable write payload | A payload-supplied delegator is an impersonation primitive: any agent could mail, close or spawn as anyone. The delegation must be a server-minted record the transport resolves. |
 | One `principal` opaque string per transport, parsed per handler | Reproduces the `PROC_ACTION` string-map failure [spec:SP-3fe2] / POD-248 fixed once already: a rename silently resets authz. Structured principal, resolved at context construction, is the shipped lesson. |
 | Give Telegram a D3 exposure tag so commands can be invoked from chat | Contradicts ADR 7 (external chat is outside the peer planes) and D3 rule 3. It would also make an unauthenticated inbound webhook a command surface — the precise shape D3 exists to forbid. |
 | Give the system class a service user so everything has a user | Readiness §3.1.6 S5 rejects it directly: a system job with a human identity can act *as* that person and widen their visibility. See D21. |

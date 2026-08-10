@@ -8,12 +8,13 @@
  *
  * SCOPE NOTE (POD-728, CLOSED BY POD-311): this package landed with agent-mail as
  * its first tenant, leaving three things open. All three are now done: the issue
- * registry is migrated (`issues/`), and the two stranded protocol contract sets are
- * ABSORBED rather than re-exported — `protocol/commands.ts` is `framework.ts`,
- * `protocol/messages/mutations.ts` is `mutations.ts`, and the two session tables
- * that depended on the framework (`session-commands.ts`, `session-command-plane.ts`)
- * came with it because they had to: `@podium/commands` imports `@podium/protocol`,
- * so a framework here with consumers there would be a cycle.
+ * registry is migrated (`issues/`), and the live protocol contract sets are
+ * ABSORBED rather than re-exported — `protocol/commands.ts` is `framework.ts`, and
+ * the two session tables that depended on the framework (`session-commands.ts`,
+ * `session-command-plane.ts`) came with it because they had to:
+ * `@podium/commands` imports `@podium/protocol`, so a framework here with consumers
+ * there would be a cycle. The speculative mutation envelope was later deleted:
+ * production writes use the sync package's `OutboxCommand` contract.
  *
  * NO RE-EXPORT SHIMS were left behind in `@podium/protocol`. A shim would have made
  * the move invisible to every call site and would have added to the `reexport-shims`
@@ -312,12 +313,6 @@ export {
   modelsRefreshContract,
   modelsRefreshInput,
 } from './models/contracts'
-export {
-  MUTATION_RESULT_KINDS,
-  MutationEnvelope,
-  MutationResult,
-  type MutationResultKind,
-} from './mutations'
 export {
   PERF_CONTRACT_NAMES,
   PERF_CONTRACTS,

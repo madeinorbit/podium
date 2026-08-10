@@ -18,10 +18,9 @@ Podium already has a **command registry** for issues and locks
 `CommandDef` in `packages/protocol/src/commands.ts` ([spec:SP-3fe2]). Four
 surfaces share handlers today: HTTP tRPC, daemon agent relay
 ([spec:SP-b85a]), in-process MCP, and CLI (presentation over the same table).
-A generic `MutationEnvelope` / `MutationResult` lives in
-`packages/protocol/src/messages/mutations.ts` but nothing on the wire sends it
-yet. The client outbox (`packages/client-core/src/outbox.ts`,
-`docs/spec/outbox-write-path.md`) is a durable FIFO with stable `mutationId`s
+A generic mutation envelope was prototyped but never sent on the wire and has
+been deleted. The shipped sync outbox uses `OutboxCommand` and durable
+`OutboxRecord` values with stable `mutationId`s
 and a partial state model (`queued` plus post-resolution `awaiting-truth`).
 Authority-side idempotency uses `applied_mutations`, pruned by
 `APPLIED_MUTATIONS_MAX_AGE_MS` in `apps/server/src/modules/sessions/service.ts`
@@ -35,7 +34,7 @@ That substrate is incomplete relative to the 2026-07-13 adversarial review
 |---|---|---|
 | Transport exposure | Registration implies exposure on every derived surface | Sensitive or unfinished commands leak onto CLI/MCP/relay by default |
 | Offline class | Implicit (some store methods outboxed; command-plane WS frames classified separately in `message-class.ts`) | Spawn/kill-class ops can be mis-queued; secret-bearing settings can be persisted client-side (POD-352) |
-| Principal | `Capability` is threaded correctly on relay/tRPC *in the issues path*, but `MutationEnvelope.origin.actor` exists as a free string | Payload-forged principals become possible if handlers trust the envelope |
+| Principal | `Capability` is threaded correctly on relay/tRPC *in the issues path* | New payload identity fields could become forged principals if handlers trust them |
 | Apply-time re-auth | Authz runs at first accept; offline replay reuses the same path without a stated re-check contract | Rights revoked while offline still apply on reconnect |
 | Outbox lifecycle | Poison = silent drop + toast; no dead-letter recovery | User-authored work vanishes (finding 8: worst gap) |
 | Ordering | Global FIFO (client) / per-session FIFO (queued_messages) | Head-of-line blocking across unrelated aggregates |
@@ -77,9 +76,8 @@ the age inequality **imports** the receipt constant (D11) — it does not hard-c
 
 A command contract is pure data + pure functions. **Handlers do not live at L1**
 (finding 1): they register in L3 feature modules and join at the composition
-root (POD-311). The stranded `CommandDef` + `MutationEnvelope` /
-`MutationResult` types fold into one contract framework (home package decided
-by ADR 8; working name `packages/commands`).
+root (POD-311). The stranded `CommandDef` folded into one contract framework
+(home package decided by ADR 8; working name `packages/commands`).
 
 Every contract **must** declare:
 
@@ -260,9 +258,8 @@ The handler context exposes a **transport-derived principal** only:
 
 **Hard rules:**
 
-1. `MutationEnvelope.origin.actor` (and any future payload identity fields) are
-   **informational / audit only**. Forged values are inert: tests must prove a
-   mismatched `origin.actor` cannot escalate or rebind `Capability`
+1. Payload identity fields are **informational / audit only**. Forged values are
+   inert: tests must prove they cannot escalate or rebind `Capability`
    (POD-315 AC).
 2. Handlers receive `Principal` / `Capability` from context construction — not
    from parsing `input`.
@@ -332,9 +329,9 @@ bold.
    entities+cursor+overlay+outbox in one transactional store, so "clear the
    store" would otherwise eat unsent writes.)
 
-Maps onto today's `MutationResult` kinds: `applied` / `rejected` / `queued`
-(transport). Expand storage to carry the full state enum; `awaiting-truth`
-remains an overlay retention flag under `applied`.
+The shipped outbox state machine distinguishes applied, rejected, and queued
+transport outcomes. Expand storage to carry the full state enum;
+`awaiting-truth` remains an overlay retention flag under `applied`.
 
 ### D10 — Retry and age limits (ADR 3 owns these numbers)
 
@@ -547,7 +544,7 @@ rejected for single-operator Podium:
 | Contract type | `CommandDef` (`input`, `action`, `scope?`, `cli?`) | Full field set D1 |
 | Issue registry | 64 names in `ISSUE_COMMAND_NAMES`; handlers co-located | Contracts L1 / handlers L3 join |
 | Lock registry | 6 names in `LOCK_COMMAND_NAMES` | Same framework |
-| Envelope | `MutationEnvelope` + `MutationResult` (unused on wire) | Outbox + authority submit path |
+| Durable write | `OutboxCommand` + `OutboxRecord` | Outbox + authority submit path |
 | Authz | `authorize` + `Capability` + `IssueCaller` | Policy D2 + principal D7 + re-auth D8 |
 | Client outbox | `queued` + `awaiting-truth`; poison drop | Full D9 state machine + dead-letter UX (POD-316) |
 | Receipts | `APPLIED_MUTATIONS_MAX_AGE_MS` prune (30d today) | ADR 2 owns value; ADR 3 imports it into D11 lint; outbox max age 14d + ≥2d skew |
@@ -651,7 +648,7 @@ descriptions when reconciled by POD-359.
 - `docs/rearchitecture-v3.md` §1 move 3 (command contracts)
 - `docs/spec/outbox-write-path.md`
 - `docs/agents/driving-podium.md` (agent mint path)
-- `packages/protocol/src/commands.ts`, `messages/mutations.ts`, `messages/message-class.ts`
+- `packages/commands/src/framework.ts`, `packages/sync/src/outbox/records.ts`, `packages/protocol/src/messages/message-class.ts`
 - `packages/domain/src/issue-authz.ts`
 - `packages/runtime/src/session-mint.ts`, `apps/cli/src/auth-cli.ts`
 - `packages/client-core/src/outbox.ts`
