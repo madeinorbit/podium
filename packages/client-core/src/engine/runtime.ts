@@ -49,7 +49,6 @@
  */
 
 import type { IssueId, LayoutWire, ReadPositionWire, SessionId } from '@podium/model'
-import { asSessionId } from '@podium/model'
 import type { PodiumClientApi } from '../api'
 import type { OutboxEntry } from '../outbox'
 import { bindSwitchTraceUi } from '../perf/switch-trace'
@@ -70,7 +69,7 @@ import {
   type RouteState,
   routeDefaults,
 } from '../ui-state'
-import { type RecentFileEntry, reposToViews } from '../viewmodels'
+import { openTab, type RecentFileEntry, reposToViews, type WorkspaceKey } from '../viewmodels'
 import { createEngineActions, type EngineActions } from './actions'
 import { BootFetches } from './boot'
 import { dedupeSessions, OptimismLedger } from './optimism'
@@ -88,7 +87,12 @@ import {
   initialEngineState,
   tabIsVisible,
   userFocus,
+  type WorkspacePatch,
+  workspaceFor,
+  workspaceKeyForState,
+  workspaceMirrorPatch,
   workspaceUiSnapshot,
+  workspaceWritePatch,
 } from './state'
 import {
   defaultFormatError,
@@ -205,6 +209,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private baseIssues: EngineState['issues'] = []
   private baseIssueProjections: EngineState['issueProjections'] = []
   private prevRoute: RouteState
+  /** Which workspace is on screen (POD-710). A change here is a TASK SWITCH, and
+   *  the pane mirrors are re-derived from the workspace being switched to. */
+  private workspaceKey: WorkspaceKey
   private connectTimer: ReturnType<typeof setTimeout> | null = null
   private offs: Array<() => void> = []
   private started = false
@@ -368,6 +375,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         },
       },
     })
+    this.workspaceKey = workspaceKeyForState(this.state)
     this.statics = this.buildStatics(actions)
     this.subStore = createSubscriptionStore<Store<TApi>>(this.buildSnapshot())
   }
@@ -696,6 +704,11 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // Worktree fallback selection.
     if (any('sessions', 'repos', 'reposLoaded', 'selectedWorktree'))
       this.reactions.worktreeFallback()
+    // TASK SWITCH → restore that workspace's panes (POD-710). The layouts are
+    // the truth; the pane scalars follow whichever workspace is now on screen.
+    // `issues` is in the trigger set because the key resolves through the
+    // mission root, which an issue update can move.
+    if (any('selectedIssueId', 'selectedWorktree', 'issues')) this.syncWorkspaceSelection()
     // State→URL mirror — the single URL writer.
     if (any('selectedWorktree', 'paneA'))
       this.routerUi.mirrorWorkspaceRoute(workspaceUiSnapshot(this.state))
@@ -708,6 +721,34 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // …and the same for the issue the operator has in the foreground (POD-272).
     if (any('issues', 'sessions', 'view', 'selectedIssueId', 'openIssueId'))
       this.reactions.updateIssueMarkReadTimer()
+  }
+
+  /** Re-derive the pane mirrors when the workspace on screen changes. A write
+   *  INSIDE one workspace already carries its own mirror (workspaceWritePatch),
+   *  so this fires only on the switch. */
+  private syncWorkspaceSelection(): void {
+    const key = workspaceKeyForState(this.state)
+    if (key === this.workspaceKey) return
+    const leaving = this.state.workspaces[this.workspaceKey]
+    this.workspaceKey = key
+    // Mirror only: switching to a task that has never been opened must not
+    // persist an empty layout for it.
+    this.apply(workspaceMirrorPatch(workspaceFor(this.state, key), leaving))
+  }
+
+  /** Open a tab in the workspace a navigation is landing in — `selection` is the
+   *  selected issue/worktree AFTER the navigation, which may not be the one on
+   *  screen yet. */
+  private openWorkspaceTab(
+    tabId: string,
+    selection?: { selectedIssueId?: IssueId | null; selectedWorktree?: string | null },
+  ): WorkspacePatch {
+    const st = { ...this.state, ...selection }
+    const key = workspaceKeyForState(st)
+    const next = openTab(workspaceFor(st, key), tabId, { permanent: true })
+    const previous = this.workspaceKey
+    this.workspaceKey = key
+    return workspaceWritePatch(st, key, next, previous)
   }
 
   private buildSnapshot(): Store<TApi> {
@@ -771,7 +812,14 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       if (canShow) patch.selectedWorktree = route.worktree
     }
     if (route.pane && route.pane !== prev?.pane && route.pane !== st.paneA) {
-      patch.paneA = asSessionId(route.pane)
+      // A deep-linked pane is an OPEN, so the workspace it lands in gains the
+      // tab; the mirror would otherwise erase it on the next layout write.
+      Object.assign(
+        patch,
+        this.openWorkspaceTab(route.pane, {
+          ...(patch.selectedWorktree ? { selectedWorktree: patch.selectedWorktree } : {}),
+        }),
+      )
     }
     this.apply(patch)
     this.routerUi.mirrorWorkspaceRoute(workspaceUiSnapshot(this.state))
@@ -866,12 +914,17 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   // the tab's issue/worktree keeps fileTabsForWorkspace from dropping the tab
   // and bouncing the pane; an open peek overlay is closed so the tab is visible.
   private revealFileTab(args: { tabId: string; worktreePath?: string; issueId?: IssueId }): void {
-    this.apply({
+    const selection = {
       ...(args.issueId ? { selectedIssueId: args.issueId } : {}),
       ...(args.worktreePath ? { selectedWorktree: args.worktreePath } : {}),
+    }
+    this.apply({
+      ...selection,
       ...(this.state.peekIssueId ? { peekIssueId: null } : {}),
-      paneA: asSessionId(args.tabId),
-      focusedPane: 'A',
+      // The tab is a real member of the landing workspace, not just a pane
+      // value — otherwise the strip would not show what the pane is rendering.
+      // Its mirror sets paneA/focusedPane, so nothing here writes them twice.
+      ...this.openWorkspaceTab(args.tabId, selection),
     })
     this.router.navigate({
       ...routeDefaults('workspace'),

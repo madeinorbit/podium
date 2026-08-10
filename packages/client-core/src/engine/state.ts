@@ -16,7 +16,6 @@
  * to wait for it to arrive.
  */
 
-import type { SuperThreadView } from '../viewmodels/slices/superagent'
 import type {
   AutomationRunWire,
   AutomationWire,
@@ -38,12 +37,21 @@ import type { OutboxDeadLetterEntry } from '../outbox'
 import type { IssueProjectionRow } from '../replica/contract'
 import type { MainView, WorkspaceUiSnapshot } from '../ui-state'
 import {
+  allTabIds,
   type DockTab,
   EMPTY_PINS,
+  emptyWorkspace,
   type FileTab,
+  leafPaneIds,
+  missionRootFor,
   type PinState,
   type RecentFileEntry,
+  type WorkspaceKey,
+  type WorkspaceLayout,
+  type WorkspaceMap,
+  workspaceKeyFor,
 } from '../viewmodels'
+import type { SuperThreadView } from '../viewmodels/slices/superagent'
 import { EMPTY_ID_SET } from './overlay'
 import type { Store, UserFocus } from './types'
 
@@ -80,6 +88,13 @@ export interface EngineState {
   paletteOpen: boolean
   selectedWorktree: string | null
   selectedIssueId: IssueId | null
+  /**
+   * Editor-style tab workspaces (POD-710), one per task in the left sidebar,
+   * keyed by {@link workspaceKeyForState}. THE source of truth for what is open:
+   * `paneA` / `paneB` / `split` / `focusedPane` below are derived mirrors of it
+   * (see {@link workspaceMirrorPatch}).
+   */
+  workspaces: WorkspaceMap
   paneA: SessionId | null
   paneB: SessionId | null
   split: boolean
@@ -149,6 +164,129 @@ export function focusedPaneSession(st: EngineState): SessionId | null {
   return st.split ? (st.focusedPane === 'A' ? st.paneA : st.paneB) : st.paneA
 }
 
+// ---------------------------------------------------------------------------
+// Workspaces (POD-710)
+// ---------------------------------------------------------------------------
+
+/** The fields a workspace write touches: the layouts themselves and the four
+ *  pane scalars they are mirrored into. Narrower than `Partial<EngineState>` so
+ *  it can be applied to the action surface's state as well as the engine's. */
+export interface WorkspacePatch {
+  workspaces?: WorkspaceMap
+  paneA?: SessionId | null
+  paneB?: SessionId | null
+  split?: boolean
+  focusedPane?: 'A' | 'B'
+}
+
+/** The selection a workspace key is computed from. */
+export type WorkspaceSelection = Pick<
+  EngineState,
+  'issues' | 'selectedIssueId' | 'selectedWorktree'
+>
+
+/**
+ * WHICH WORKSPACE IS ON SCREEN — the one key everything else agrees on.
+ *
+ * The mission root wins over the selected sub-issue because a mission shares one
+ * tab strip: selecting a task inside it must not swap the strip for an empty
+ * one. This mirrors what `Workspace.tsx` has always computed inline; it lives
+ * here so the engine and the view cannot disagree about which task's tabs they
+ * are writing.
+ */
+export function workspaceKeyForState(st: WorkspaceSelection): WorkspaceKey {
+  const selected = st.selectedIssueId
+    ? st.issues.find((i) => i.id === st.selectedIssueId && !i.archived && !i.deletedAt)
+    : undefined
+  const root = selected ? missionRootFor(st.issues, selected.id) : undefined
+  return workspaceKeyFor({
+    missionRootId: root?.id ?? null,
+    issueId: st.selectedIssueId,
+    worktreePath: st.selectedWorktree,
+  })
+}
+
+/** The layout for a key — always a layout, never undefined, so no caller has to
+ *  invent the empty case. */
+export function workspaceFor(
+  st: Pick<EngineState, 'workspaces'>,
+  key: WorkspaceKey,
+): WorkspaceLayout {
+  return st.workspaces[key] ?? emptyWorkspace(key)
+}
+
+/** The workspace the operator is looking at. */
+export function currentWorkspace(
+  st: WorkspaceSelection & Pick<EngineState, 'workspaces'>,
+): WorkspaceLayout {
+  return workspaceFor(st, workspaceKeyForState(st))
+}
+
+const leafCount = (ws: WorkspaceLayout | undefined): number =>
+  ws ? leafPaneIds(ws.root).length : 0
+
+/**
+ * THE DERIVED MIRROR — `paneA` / `paneB` / `split` / `focusedPane` from a layout.
+ *
+ * These four scalars have consumers well outside the tab strip (the `?pane=`
+ * route param, the PTY-relay priority in {@link userFocus}, the warm set,
+ * `use-unified-work`, the flight deck), so POD-710 keeps them rather than
+ * rewriting every one: the layout is the truth and these are recomputed on every
+ * layout write.
+ *
+ * ONE COMPATIBILITY CLAUSE. `split` and `paneB` are still WRITTEN directly by
+ * the pre-POD-710 surface — `toggleSplit` and `setPane('B', …)` — and until the
+ * split UI is rebuilt on panes (wave 2) a single-leaf layout has no opinion
+ * about them. So a write that neither produces nor leaves a real second pane
+ * mirrors `paneA` only, instead of zeroing a second pane the operator can still
+ * see. Any layout that has, or just had, ≥2 leaves mirrors all four.
+ */
+export function workspaceMirrorPatch(
+  next: WorkspaceLayout,
+  prev: WorkspaceLayout | undefined,
+): WorkspacePatch {
+  const leaves = leafPaneIds(next.root)
+  const activeOf = (paneId: string | undefined): SessionId | null => {
+    const id = paneId ? (next.panes[paneId]?.activeTabId ?? null) : null
+    // Tab ids carry file tabs too; the pane scalars have always been typed as
+    // session ids and read as opaque tab ids (see revealFileTab).
+    return id === null ? null : (id as SessionId)
+  }
+  const paneA = activeOf(leaves[0])
+  if (leaves.length < 2 && leafCount(prev) < 2) return { paneA, focusedPane: 'A' }
+  return {
+    paneA,
+    paneB: activeOf(leaves[1]),
+    split: leaves.length >= 2,
+    focusedPane: leaves[1] !== undefined && next.focusedPaneId === leaves[1] ? 'B' : 'A',
+  }
+}
+
+/**
+ * The patch for ONE layout write: the workspace entry plus its mirror. Returns
+ * an empty patch when the reducer was a no-op, so an inert action publishes no
+ * snapshot at all.
+ *
+ * `prevKey` differs from `key` only when the workspace itself is changing (a
+ * task switch); the mirror needs the layout leaving the screen to decide whether
+ * a second pane is going away.
+ */
+export function workspaceWritePatch(
+  st: Pick<EngineState, 'workspaces'>,
+  key: WorkspaceKey,
+  next: WorkspaceLayout,
+  prevKey: WorkspaceKey = key,
+): WorkspacePatch {
+  const mirror = workspaceMirrorPatch(next, st.workspaces[prevKey])
+  const current = st.workspaces[key]
+  // A key nobody has opened anything in stays ABSENT: a no-op action on a fresh
+  // task must not persist an empty layout for every task ever selected.
+  const vacuous =
+    current === undefined && leafPaneIds(next.root).length === 1 && allTabIds(next).length === 0
+  if (current === next || vacuous) return mirror
+  return { workspaces: { ...st.workspaces, [key]: next }, ...mirror }
+}
+
 /** The issue in the FOREGROUND: the open issue page, or the issue whose
  *  sessions the workspace is showing. Any other surface has none.
  *
@@ -168,6 +306,7 @@ export function workspaceUiSnapshot(st: EngineState): WorkspaceUiSnapshot {
     selectedWorktree: st.selectedWorktree,
     selectedIssueId: st.selectedIssueId,
     dockTab: st.dockTab,
+    workspaces: st.workspaces,
     paneA: st.paneA,
     paneB: st.paneB,
     split: st.split,
@@ -262,6 +401,10 @@ export function initialEngineState(seed: EngineStateSeed): EngineState {
     // Workspace pane state: a deep-linked ?wt= wins over the persisted selection.
     selectedWorktree: seed.persisted.selectedWorktree,
     selectedIssueId: seed.persisted.selectedIssueId,
+    // Restored exactly, across task switches AND across reloads (POD-710). The
+    // pane scalars below were flushed from the same layouts, so they already
+    // agree with them and need no boot-time re-derivation.
+    workspaces: seed.persisted.workspaces,
     // DECODE EDGE: the pane selection comes from the URL route or persisted UI
     // state — both raw strings — so this is where it re-enters the id space.
     paneA: seed.persisted.paneA,

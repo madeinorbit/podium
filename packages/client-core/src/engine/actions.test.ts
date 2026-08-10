@@ -45,6 +45,7 @@ function harness() {
     paletteOpen: false,
     selectedWorktree: null,
     selectedIssueId: null,
+    workspaces: {},
     paneA: null,
     paneB: null,
     split: false,

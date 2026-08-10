@@ -8,7 +8,6 @@
  * single-operator placement.
  */
 
-import type { SuperThreadView } from '../viewmodels/slices/superagent'
 import type {
   AgentKind,
   IssueId,
@@ -23,12 +22,44 @@ import type { PodiumClientApi } from '../api'
 import type { SocketHub } from '../socket-transport'
 import type { SpawnTarget } from '../spawn-agent'
 import { type Router, routeDefaults } from '../ui-state'
-import type { DockTab, FileScope, FileTab, PinKind, PinState, RecentFileEntry } from '../viewmodels'
-import { reposToViews, tabIdFor } from '../viewmodels'
+import type {
+  DockTab,
+  FileScope,
+  FileTab,
+  PaneId,
+  PinKind,
+  PinState,
+  RecentFileEntry,
+  TabId,
+  WorkspaceLayout,
+  WorkspaceMap,
+} from '../viewmodels'
+import {
+  activateTab,
+  closePane,
+  closeTab,
+  focusPane,
+  leafPaneIds,
+  moveTab,
+  openTab,
+  promoteTab,
+  reposToViews,
+  splitPane,
+  tabIdFor,
+} from '../viewmodels'
+import type { SuperThreadView } from '../viewmodels/slices/superagent'
 import {
   createReplicatedLayoutController,
   type ReplicatedLayoutController,
 } from './replicated-layout'
+import {
+  type WorkspacePatch,
+  type WorkspaceSelection,
+  workspaceFor,
+  workspaceKeyForState,
+  workspaceMirrorPatch,
+  workspaceWritePatch,
+} from './state'
 import type { Store, StoreNotices } from './types'
 import type { EngineOutbox, OutboxKinds } from './wiring'
 
@@ -48,6 +79,15 @@ export const UI_LOCAL_ACTIONS = [
   'setSelectedIssueId',
   'setPane',
   'setFocusedPane',
+  'openSessionTab',
+  'openTabInWorkspace',
+  'promoteWorkspaceTab',
+  'activateWorkspaceTab',
+  'closeWorkspaceTab',
+  'moveWorkspaceTab',
+  'splitWorkspacePane',
+  'closeWorkspacePane',
+  'focusWorkspacePane',
   'navigateToSession',
   'setDockShell',
   'setDockVisibleSession',
@@ -112,6 +152,7 @@ type ActionState = {
   paletteOpen: boolean
   selectedWorktree: string | null
   selectedIssueId: IssueId | null
+  workspaces: WorkspaceMap
   paneA: SessionId | null
   paneB: SessionId | null
   split: boolean
@@ -165,6 +206,46 @@ function reducePin(state: PinState, kind: PinKind, id: string, pinned: boolean):
   return { ...state, [key]: pinned ? [...values, id] : values }
 }
 
+/** The slice of action state a workspace write reads. */
+type WorkspaceStateSlice = Pick<
+  ActionState,
+  'issues' | 'selectedIssueId' | 'selectedWorktree' | 'workspaces'
+>
+
+/** Reduce the current workspace and re-derive the pane mirrors — the pure core
+ *  of every workspace action. */
+function workspaceEdit(
+  st: WorkspaceStateSlice,
+  reduce: (ws: WorkspaceLayout) => WorkspaceLayout,
+  selection?: Partial<WorkspaceSelection>,
+): WorkspacePatch {
+  const prevKey = workspaceKeyForState(st)
+  const key = selection ? workspaceKeyForState({ ...st, ...selection }) : prevKey
+  return workspaceWritePatch(st, key, reduce(workspaceFor(st, key)), prevKey)
+}
+
+/**
+ * Drop a tab from EVERY workspace, not just the one on screen.
+ *
+ * Used where the thing behind the tab is gone (a killed session, a closed file),
+ * which is the only reason a tab may disappear from a workspace the operator is
+ * not looking at. Closing a tab by hand goes through `closeWorkspaceTab` and
+ * touches the current workspace alone.
+ */
+function forgetTab(st: WorkspaceStateSlice, tabId: TabId): WorkspacePatch {
+  const workspaces: WorkspaceMap = {}
+  let changed = false
+  for (const [key, ws] of Object.entries(st.workspaces)) {
+    const next = closeTab(ws, tabId)
+    if (next !== ws) changed = true
+    workspaces[key] = next
+  }
+  if (!changed) return {}
+  const key = workspaceKeyForState(st)
+  const current = workspaces[key]
+  return { workspaces, ...(current ? workspaceMirrorPatch(current, st.workspaces[key]) : {}) }
+}
+
 export function createEngineActions<TApi extends PodiumClientApi>(
   rt: EngineActionRuntime<TApi>,
 ): EngineActions<TApi> {
@@ -174,6 +255,33 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     api,
     notices: rt.notices,
   })
+  /**
+   * ONE WRITE PATH for the tab workspaces (POD-710). Every action below rewrites
+   * exactly the CURRENT workspace and re-derives the pane mirrors from it, so
+   * `paneA`/`paneB`/`split`/`focusedPane` can never drift from what is on
+   * screen. `selection` names the workspace a navigation is moving TO, when the
+   * same apply also changes the selected issue/worktree.
+   */
+  const editWorkspace = (
+    reduce: (ws: WorkspaceLayout) => WorkspaceLayout,
+    selection?: Partial<WorkspaceSelection>,
+  ): void => {
+    rt.apply(workspaceEdit(rt.state(), reduce, selection))
+  }
+
+  const openInWorkspace = (tabId: TabId, opts?: { permanent?: boolean; paneId?: PaneId }): void => {
+    if (!tabId) return
+    editWorkspace((ws) =>
+      openTab(ws, tabId, {
+        // Default PERMANENT: only the flight deck's single click asks for a
+        // preview, and a caller that has not thought about it wants a tab that
+        // stays rather than one the next click recycles.
+        permanent: opts?.permanent !== false,
+        ...(opts?.paneId !== undefined ? { paneId: opts.paneId } : {}),
+      }),
+    )
+  }
+
   return {
     replicatedLayout,
     setPinned: async (kind: PinKind, id: string, pinned: boolean) => {
@@ -242,8 +350,47 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     setPaletteOpen: (paletteOpen) => rt.apply({ paletteOpen }),
     setSelectedWorktree: (selectedWorktree) => rt.apply({ selectedWorktree }),
     setSelectedIssueId: (selectedIssueId) => rt.apply({ selectedIssueId }),
-    setPane: (pane, id) =>
-      rt.apply(pane === 'A' ? { paneA: id, focusedPane: pane } : { paneB: id, focusedPane: pane }),
+    // Pane-shaped adapter over the workspace model. Pane A IS the first leaf
+    // pane, so selecting into it opens (or activates) a tab there and the mirror
+    // reports it back as `paneA`. Pane B keeps writing the scalar until the
+    // split UI is rebuilt on real panes: with a single-leaf layout there is no
+    // second pane to open into, and clearing a pane has no layout meaning.
+    setPane: (pane, id) => {
+      const st = rt.state()
+      const leaves = leafPaneIds(workspaceFor(st, workspaceKeyForState(st)).root)
+      const paneId = pane === 'A' ? leaves[0] : leaves[1]
+      if (id === null || paneId === undefined) {
+        rt.apply(pane === 'A' ? { paneA: id, focusedPane: pane } : { paneB: id, focusedPane: pane })
+        return
+      }
+      editWorkspace((ws) => openTab(ws, id, { permanent: true, paneId }))
+    },
+    openSessionTab: (sessionId, opts) => openInWorkspace(sessionId, opts),
+    openTabInWorkspace: (tabId, opts) => openInWorkspace(tabId, opts),
+    promoteWorkspaceTab: (tabId) => editWorkspace((ws) => promoteTab(ws, tabId)),
+    activateWorkspaceTab: (tabId) => editWorkspace((ws) => activateTab(ws, tabId)),
+    // Closing a tab closes a VIEW: the session is untouched (it lives in the
+    // flight deck now), and a file tab's buffer goes with its only view.
+    closeWorkspaceTab: (tabId) => {
+      const st = rt.state()
+      // A file tab's buffer dies with its view, so it leaves every workspace; a
+      // session tab is only a view here and closes in the one on screen.
+      const isFile = st.fileTabs.some((tab) => tab.id === tabId)
+      const patch = isFile ? forgetTab(st, tabId) : workspaceEdit(st, (ws) => closeTab(ws, tabId))
+      const fileTabs = st.fileTabs.filter((tab) => tab.id !== tabId)
+      rt.apply({
+        ...patch,
+        ...(fileTabs.length !== st.fileTabs.length ? { fileTabs } : {}),
+        ...(patch.paneA === undefined && st.paneA === tabId ? { paneA: null } : {}),
+        ...(patch.paneB === undefined && st.paneB === tabId ? { paneB: null } : {}),
+      })
+    },
+    moveWorkspaceTab: (tabId, toPaneId, toIndex) =>
+      editWorkspace((ws) => moveTab(ws, tabId, toPaneId, toIndex)),
+    splitWorkspacePane: (paneId, axis, opts) =>
+      editWorkspace((ws) => splitPane(ws, paneId, axis, opts)),
+    closeWorkspacePane: (paneId) => editWorkspace((ws) => closePane(ws, paneId)),
+    focusWorkspacePane: (paneId) => editWorkspace((ws) => focusPane(ws, paneId)),
     setFocusedPane: (focusedPane) => rt.apply({ focusedPane }),
     navigateToSession: (sessionIdOrRef) => {
       const state = rt.state()
@@ -255,9 +402,20 @@ export function createEngineActions<TApi extends PodiumClientApi>(
           .map((candidate) => candidate.path)
           .filter((path) => meta.cwd === path || meta.cwd.startsWith(`${path}/`))
           .sort((a, b) => b.length - a.length)[0] ?? state.selectedWorktree
-      rt.apply({
+      const selection = {
         ...(meta.issueId ? { selectedIssueId: meta.issueId } : {}),
         ...(worktree ? { selectedWorktree: worktree } : {}),
+      }
+      rt.apply({
+        ...selection,
+        // Landing on a session opens it as a real tab in the workspace it
+        // belongs to — otherwise the pane would show a session the strip has no
+        // tab for, and the next layout write would mirror it away.
+        ...workspaceEdit(
+          { ...state, ...selection },
+          (ws) => openTab(ws, meta.sessionId, { permanent: true }),
+          selection,
+        ),
         paneA: meta.sessionId,
         focusedPane: 'A',
       })
@@ -378,10 +536,12 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     },
     closeFileTab: (id) => {
       const state = rt.state()
+      const patch = forgetTab(state, id)
       rt.apply({
         fileTabs: state.fileTabs.filter((tab) => tab.id !== id),
-        paneA: state.paneA === id ? null : state.paneA,
-        paneB: state.paneB === id ? null : state.paneB,
+        paneA: patch.paneA ?? (state.paneA === id ? null : state.paneA),
+        paneB: patch.paneB ?? (state.paneB === id ? null : state.paneB),
+        ...(patch.workspaces ? { workspaces: patch.workspaces } : {}),
       })
     },
     readFileScoped: ((scope: FileScope, path: string) =>
@@ -425,12 +585,16 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     killSession: async (sessionId) => {
       await api.sessions.kill.mutate({ sessionId }).catch(() => {})
       const state = rt.state()
+      // A killed session's tabs are views onto something that no longer exists —
+      // the one case where a tab goes away without the operator closing it.
+      const patch = forgetTab(state, sessionId)
       rt.apply({
+        ...(patch.workspaces ? { workspaces: patch.workspaces } : {}),
         fileTabs: state.fileTabs.filter(
           (tab) => !(tab.scope.kind === 'session' && tab.scope.sessionId === sessionId),
         ),
-        paneA: state.paneA === sessionId ? null : state.paneA,
-        paneB: state.paneB === sessionId ? null : state.paneB,
+        paneA: patch.paneA ?? (state.paneA === sessionId ? null : state.paneA),
+        paneB: patch.paneB ?? (state.paneB === sessionId ? null : state.paneB),
         pins: { ...state.pins, panels: state.pins.panels.filter((id) => id !== sessionId) },
         tabOrders: Object.fromEntries(
           Object.entries(state.tabOrders).map(([worktree, ids]) => [
