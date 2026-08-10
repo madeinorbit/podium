@@ -54,6 +54,7 @@ import {
   daemonRequestKind,
 } from '../daemon-request'
 import type { LakeReadSession, MemoryService } from '../memory/service'
+import type { PortableStateWriteFence } from '../server-transfer/portable-fence'
 import type { MemoryReader } from '../memory/types'
 import { DEPLOYMENT, perf } from '../perf/registry'
 
@@ -119,6 +120,7 @@ interface DaemonRpcDeps {
   machineName(id: string): string
   onlineMachineIds(): MachineId[]
   getSession(sessionId: SessionId): RpcSessionView | undefined
+  portableStateFence?: PortableStateWriteFence
 }
 
 /** A daemon reply's payload: the message minus its wire plumbing. */
@@ -707,20 +709,22 @@ export class DaemonRpcService {
     // The upload is written to (and read back by) the machine that runs the session,
     // so the returned path is valid in that session's prompt.
     const session = this.deps.getSession(input.sessionId)
-    return this.request(
-      IMAGE_UPLOAD,
-      30_000,
-      () => ({ path: '' }),
-      (requestId) => ({
-        type: 'imageUploadRequest',
-        requestId,
-        sessionId: input.sessionId,
-        filename: input.filename,
-        mimeType: input.mimeType,
-        dataBase64: input.dataBase64,
-      }),
-      session?.machineId,
-    )
+    const write = () =>
+      this.request(
+        IMAGE_UPLOAD,
+        30_000,
+        () => ({ path: '' }),
+        (requestId) => ({
+          type: 'imageUploadRequest',
+          requestId,
+          sessionId: input.sessionId,
+          filename: input.filename,
+          mimeType: input.mimeType,
+          dataBase64: input.dataBase64,
+        }),
+        session?.machineId,
+      )
+    return this.deps.portableStateFence ? this.deps.portableStateFence.runWriter(write) : write()
   }
 
   /** The recorded segment path for a session's conversation, shaped for message

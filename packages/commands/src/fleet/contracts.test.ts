@@ -1,5 +1,5 @@
 /**
- * The L1 gate over the thirteen fleet contracts: classifications are TOTAL, the
+ * The L1 gate over the fifteen fleet contracts: classifications are TOTAL, the
  * `manage` / `use` partition is exact, the server-role split is exact, and the
  * visibility classes agree with ADR 1's matrix rather than with a literal
  * written twice.
@@ -24,7 +24,7 @@ import {
   fleetServerRoleOf,
 } from './contracts'
 
-const FOURTEEN: readonly FleetContractName[] = [
+const FIFTEEN: readonly FleetContractName[] = [
   'machines.rename',
   'machines.applyUpdate',
   'machines.setUpdateChannel',
@@ -60,9 +60,9 @@ const contracts = (): AnyCommandContract[] =>
 const isDeclaredMatrixRow = (row: string): boolean =>
   OWNERSHIP_MATRIX.some((r) => (r.id as string) === row)
 
-describe('the thirteen fleet contracts', () => {
-  it('declares exactly the thirteen fleet commands, and no fourteenth', () => {
-    expect([...FLEET_COMMAND_NAMES].sort()).toEqual([...FOURTEEN].sort())
+describe('the fifteen fleet contracts', () => {
+  it('declares exactly the fifteen fleet commands, and no sixteenth', () => {
+    expect([...FLEET_COMMAND_NAMES].sort()).toEqual([...FIFTEEN].sort())
   })
 
   it('passes the classification lint with no unclassified field', () => {
@@ -213,7 +213,7 @@ describe('the thirteen fleet contracts', () => {
       if (!errs.callerSuppliedTargetId) continue
       expect([name, errs.distinguishesUnauthorizedFromUnreachable]).toEqual([
         name,
-        contract.policy.machineVerb === 'use',
+        contract.policy.machineVerb === 'use' || name === 'machines.transferServer',
       ])
       expect([name, errs.invisibleFailsAs]).toEqual([name, 'nonexistent'])
     }
@@ -317,14 +317,14 @@ describe('the thirteen fleet contracts', () => {
     //
     // Everywhere else there IS an owner, and a floor of `admin` would make ADR 9
     // D6 M1's "Owner + admins" unreachable for the owner themselves.
-    const ADMIN_FLOOR = ['machines.pairingCode', 'machines.adopt']
+    const ADMIN_FLOOR = ['machines.pairingCode', 'machines.adopt', 'machines.transferServer']
     for (const name of ADMIN_FLOOR) expect([name, byFloor[name]]).toEqual([name, 'admin'])
-    for (const name of FOURTEEN.filter((n) => !ADMIN_FLOOR.includes(n))) {
+    for (const name of FIFTEEN.filter((n) => !ADMIN_FLOOR.includes(n))) {
       expect([name, byFloor[name]]).toEqual([name, 'member'])
     }
     // Non-vacuity: the admin set is a strict, non-empty subset. If a refactor
     // made every floor `admin` the loop above would pass and this would not.
-    expect(ADMIN_FLOOR.length).toBeLessThan(FOURTEEN.length)
+    expect(ADMIN_FLOOR.length).toBeLessThan(FIFTEEN.length)
     expect(Object.values(byFloor).some((f) => f === 'member')).toBe(true)
   })
 

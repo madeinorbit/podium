@@ -181,7 +181,8 @@ export const machineRevokeInput = z.object({ id: z.string() })
 export const machineTransferServerInput = z.object({
   targetMachineId: z.string().min(1),
   publicUrl: z.string().min(1).max(2048),
-  confirmation: z.literal(true),
+  port: z.number().int().min(1).max(65535).optional(),
+  confirmation: z.literal('TRANSFER SERVER'),
 })
 
 /** WHO the machine goes to is a payload field; WHO IS ASKING is not, and never
@@ -813,13 +814,12 @@ export const machineTransferServerContract = {
   input: machineTransferServerInput,
   policy: {
     action: 'manage',
-    roleFloor: 'member',
+    roleFloor: 'admin',
     resource: 'machine',
     machineVerb: 'manage',
-    machineSharingAuthority: 'owner-only',
     confirmation: 'confirm',
     rationale:
-      'Transfers the server authority and portable state to an online paired machine. Only the current machine owner may start it; the target daemon must validate every byte before promotion and pre-promotion failures must be abortable.',
+      'Transfers every user, credential, secret, and enrollment authority to an online paired machine. It is instance-admin grade, reauthorizes the target at every apply phase, and requires candidate and serving proofs before authority moves.',
   },
   exposure: SERVED_ON,
   delivery: FLEET_DELIVERY,
@@ -832,8 +832,8 @@ export const machineTransferServerContract = {
   errorConsistency: {
     callerSuppliedTargetId: true,
     invisibleFailsAs: 'nonexistent',
-    distinguishesUnauthorizedFromUnreachable: false,
-    note: 'Authorization is resolved before the handler. An authorized offline target is reported as unreachable; it is never queued.',
+    distinguishesUnauthorizedFromUnreachable: true,
+    note: 'An invisible target is absent-shaped. Inside the caller’s visible set, revoked authorization and an offline daemon remain distinct and every apply phase checks both again.',
   },
   serverRole: 'hub',
   cli: { summary: 'Move server authority to another machine' },

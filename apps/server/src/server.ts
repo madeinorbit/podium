@@ -44,6 +44,11 @@ import {
   recordHelloBuild,
 } from './gateway/peer-handshake'
 import { attachWebSockets, type NativeServer, serveNative } from './gateway/ws-server'
+import {
+  assertWritableServerBoot,
+  reconcileSafeServerTransferBoot,
+} from './modules/server-transfer/journal'
+import { PortableStateFence } from './modules/server-transfer/portable-fence'
 import { PairingManager } from './hub/pairing'
 import { applyEnvFirstAdminPassword, retireInstancePassword } from './instance-password-migration'
 import { IssueToolProvider } from './issue-mcp'
@@ -213,6 +218,9 @@ export async function startServer(
   // reads the same file in its own process; all-in-one is handed it in memory.
   const hostMachineId = readOrCreateLocalMachineId()
   const updateSigningKey = readOrCreateUpdateSigningKey()
+  reconcileSafeServerTransferBoot(stateDir())
+  assertWritableServerBoot(stateDir())
+  const portableStateFence = new PortableStateFence()
   const store = new SessionStore(undefined, hostMachineId)
   // RETIRING THE INSTANCE PASSWORD (POD-1554), before anything can serve a login and
   // before the open-exposure check below. Order matters between these two: the legacy
@@ -256,10 +264,11 @@ export async function startServer(
     // release-manifest descriptor remains an optional /version publication seam.
     targetVersion: () => appVersion,
     mirrorLakeDir: join(stateDir(), 'transcripts'),
+    portableStateFence,
     // Enrollment ledger (POD-1114, D19.4): pairing root + append-only enrollment,
     // owner and revocation at the state-root tier, outside podium.db. Opened
     // before service construction so pair/hello/revoke share one durability domain.
-    enrollment: openEnrollmentLedger(stateDir()),
+    enrollment: openEnrollmentLedger(stateDir(), portableStateFence),
     // Inbound daemon pairing is a HUB capability, injected here (the composition
     // root) so core (relay/machines) never imports hub/pairing — see roles.ts.
     // Node role = no manager = `pair` handshakes rejected, minting throws; the

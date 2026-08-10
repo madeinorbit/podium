@@ -13,6 +13,7 @@ import { dirname, join } from 'node:path'
 import { PodiumSettings } from '@podium/runtime'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterAll, describe, expect, it } from 'vitest'
+import { DRIZZLE_MIGRATIONS } from './migrations/drizzle-manifest.generated'
 import { deriveRepoId } from './repo-id'
 import type { SessionRow } from './store'
 import { SessionStore } from './store'
@@ -91,6 +92,13 @@ async function tmpDbPath(): Promise<string> {
 }
 
 describe('SessionStore repos', () => {
+  it('reports the newest migration recorded by a real migrated store', () => {
+    const store = new SessionStore(':memory:')
+    const expected = [...DRIZZLE_MIGRATIONS].map(({ name }) => name).sort().at(-1)
+    expect(store.schemaVersionForTransfer()).toBe(expected)
+    store.close()
+  })
+
   it('starts empty, adds, dedupes, lists in insertion order, removes', () => {
     const store = new SessionStore(':memory:')
     expect(store.repos.listRepoPaths()).toEqual([])

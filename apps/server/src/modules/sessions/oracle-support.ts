@@ -47,6 +47,7 @@ import { appRouter } from '../../router'
 import { SessionStore } from '../../store'
 import { OPERATOR } from '../../test-support/capabilities'
 import { SuperagentService } from '../superagent'
+import type { PortableStateFence } from '../server-transfer/portable-fence'
 
 // ---------------------------------------------------------------------------
 // Tags
@@ -166,7 +167,11 @@ export interface OfflineMachine {
  * unknown machine rather than an offline one.
  */
 export function makeOracle(
-  opts: { machineId?: string; offlineMachines?: OfflineMachine[] } = {},
+  opts: {
+    machineId?: string
+    offlineMachines?: OfflineMachine[]
+    portableStateFence?: PortableStateFence
+  } = {},
 ): Oracle {
   const store = new SessionStore(':memory:')
   for (const machine of opts.offlineMachines ?? []) {
@@ -191,7 +196,10 @@ export function makeOracle(
       }),
     )
   }
-  const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
+  const reg = new SessionRegistry(store, undefined, {
+    instanceId: 'default',
+    ...(opts.portableStateFence ? { portableStateFence: opts.portableStateFence } : {}),
+  })
   registries.push(reg)
   // The daemon the oracle attaches is THIS HOST's (POD-318): the registry
   // provisioned its row on construction, so it has a credential to have

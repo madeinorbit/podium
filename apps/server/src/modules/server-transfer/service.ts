@@ -1,526 +1,738 @@
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { createReadStream } from 'node:fs'
+import { join } from 'node:path'
+import { validatePublicUrl } from '@podium/runtime/setup'
+import { TransferJournal, isActiveTransfer } from './journal'
+import { TransferLock } from './lock'
 import {
-  copyFile,
-  lstat,
-  mkdir,
-  open,
-  readdir,
-  readFile,
-  rename,
-  rm,
-  stat,
-  writeFile,
-} from 'node:fs/promises'
-import { dirname, join } from 'node:path'
-import type { ServerTransferManifestEntry } from '@podium/protocol'
-import { canonicalServerTransferManifest } from '@podium/protocol'
-import { loadConfig, saveConfig } from '@podium/runtime/config'
-import { validatePublicUrl, wssFrom } from '@podium/runtime/setup'
+  MAX_TRANSFER_BYTES,
+  TRANSFER_SPACE_MARGIN_BYTES,
+  assertSnapshotCapacity,
+  createPortableSnapshot,
+  estimatePortableBytes,
+  manifestWithDigest,
+} from './manifest'
+import {
+  SERVER_TRANSFER_CONFIRMATION,
+  TRANSFER_FAILURE_CODES,
+  type ServerTransferAuthorization,
+  type PromotedTargetMetadata,
+  type ServerTransferInput,
+  type ServerTransferManifest,
+  type ServerTransferOutcome,
+  type ServerTransferRpc,
+  type TargetHealthProof,
+  type TransferFailureCode,
+  type TransferProof,
+  type TransferRecord,
+} from './types'
 
-const MAX_BYTES = 512 * 1024 * 1024
-const CHUNK_BYTES = 4 * 1024 * 1024
-const ROOT_FILES = new Set(['podium.db', 'enrollment.ledger'])
-const ROOT_DIRS = new Set(['transcripts', 'artifacts', 'uploads'])
-export type ServerTransferJournalState =
-  | 'idle'
-  | 'preparing'
-  | 'staged'
-  | 'validated'
-  | 'source-fenced'
-  | 'committing'
-  | 'committed'
-  | 'commit-uncertain'
-  | 'aborted'
-  | 'abort-uncertain'
-interface Journal {
-  version: 1
-  transferId: string
-  targetMachineId: string
-  publicUrl: string
-  state: ServerTransferJournalState
-  manifestDigest?: string
-  createdAt: string
-  updatedAt: string
-  error?: string
+const CHUNK_BYTES = 512 * 1024
+
+export interface ServerTransferTargetState {
+  exists: boolean
+  online: boolean
+  capable: boolean
 }
-interface Reply {
-  ok: boolean
-  state: string
-  error?: string
-}
-export interface ServerTransferRpc {
-  serverTransferPrepare(
-    input: {
-      transferId: string
-      manifest: ServerTransferManifestEntry[]
-      manifestDigest: string
-      totalBytes: number
-    },
-    machineId: string,
-  ): Promise<Reply>
-  serverTransferChunk(
-    input: { transferId: string; path: string; offset: number; data: Buffer },
-    machineId: string,
-  ): Promise<Reply>
-  serverTransferValidate(id: string, digest: string, machineId: string): Promise<Reply>
-  serverTransferPromote(
-    id: string,
-    digest: string,
-    publicUrl: string,
-    machineId: string,
-  ): Promise<Reply>
-  serverTransferAbort(id: string, reason: string | undefined, machineId: string): Promise<Reply>
-}
+
 export interface ServerTransferDeps {
   stateRoot: string
+  sourceInstanceId: string
+  sourceMachineId: string
+  sourceFeedIdentity: () => { feedId: string; feedEpoch: string }
+  sourceApplicationVersion: string
+  sourceSchemaVersion: () => string
+  sourceWireSchemaDigest: string
   rpc: ServerTransferRpc
-  online(machineId: string): boolean
-  sourceMachineId?: string
-  checkpoint?: () => void
-  fence?: () => Promise<void> | void
-  releaseFence?: () => Promise<void> | void
-  restartAsDaemon?: (serverUrl: string) => void
+  targetState(machineId: string): ServerTransferTargetState
+  localPromotedTransfer():
+    | PromotedTargetMetadata
+    | undefined
+    | Promise<PromotedTargetMetadata | undefined>
+  sourceHealthy(): void | Promise<void>
+  checkpoint(): void | Promise<void>
+  /** Covers SQLite and every durable portable-file writer. */
+  fence(): void | Promise<void>
+  releaseFence(): void | Promise<void>
+  /** Persist daemon mode/config without exiting the source process. */
+  demoteSource(input: {
+    transferId: string
+    targetMachineId: string
+    publicUrl: string
+  }): void | Promise<void>
+  /** Called only after the committed journal has been fsync'd. */
+  afterCommitted?(input: { serverUrl: string }): void
+  snapshotAvailableBytes?: () => number | Promise<number>
   now?: () => Date
+  uuid?: () => string
 }
-export interface ServerTransferInput {
-  targetMachineId: string
-  publicUrl: string
-  confirmation: true
-}
-export interface ServerTransferOutcome {
-  ok: boolean
-  transferId: string
-  state: 'committed' | 'commit-uncertain'
-  targetMachineId: string
-  publicUrl: string
-  error?: string
-}
+
 export class ServerTransferError extends Error {
   constructor(
+    readonly code: TransferFailureCode,
     message: string,
-    readonly transferId: string,
-    readonly phase: string,
   ) {
     super(message)
     this.name = 'ServerTransferError'
   }
 }
 
-const digest = (items: ServerTransferManifestEntry[]) =>
-  createHash('sha256').update(canonicalServerTransferManifest(items)).digest('hex')
-async function hash(path: string): Promise<string> {
-  const h = createHash('sha256')
-  for await (const part of createReadStream(path)) h.update(part)
-  return h.digest('hex')
+const fail = (code: TransferFailureCode, message: string): ServerTransferError =>
+  new ServerTransferError(code, message)
+
+function classified(
+  error: unknown,
+  fallback: TransferFailureCode = TRANSFER_FAILURE_CODES.INTERNAL,
+) {
+  if (error instanceof ServerTransferError) return { code: error.code, message: error.message }
+  return { code: fallback, message: error instanceof Error ? error.message : String(error) }
 }
-const allowed = (path: string) => {
-  const first = path.split('/')[0] ?? ''
+
+function proofMatches(
+  proof: TransferProof | undefined,
+  manifest: ServerTransferManifest,
+  targetMachineId: string,
+): proof is TransferProof {
   return (
-    !path.includes('\\') &&
-    !path.startsWith('/') &&
-    !path.split('/').includes('..') &&
-    (ROOT_FILES.has(path) || (ROOT_DIRS.has(first) && path !== first))
+    proof !== undefined &&
+    proof.transferId === manifest.transferId &&
+    proof.manifestDigest === manifest.digest &&
+    proof.targetMachineId === targetMachineId &&
+    proof.feedId === manifest.sourceFeedId &&
+    proof.feedEpoch === manifest.sourceFeedEpoch &&
+    proof.schemaVersion === manifest.schemaVersion &&
+    proof.buildVersion.length > 0
   )
 }
-async function listFiles(root: string): Promise<string[]> {
-  const out: string[] = []
-  const walk = async (absolute: string, prefix: string): Promise<void> => {
-    const info = await lstat(absolute)
-    if (info.isSymbolicLink()) throw new Error(`portable state contains symlink: ${prefix}`)
-    if (info.isFile()) {
-      if (!allowed(prefix)) throw new Error(`portable path is not allowed: ${prefix}`)
-      out.push(prefix)
-      return
-    }
-    if (!info.isDirectory()) throw new Error(`portable path is not regular: ${prefix}`)
-    for (const name of (await readdir(absolute)).sort())
-      await walk(join(absolute, name), `${prefix}/${name}`)
-  }
-  for (const name of [...ROOT_FILES, ...ROOT_DIRS]) {
-    try {
-      const path = join(root, name)
-      const info = await lstat(path)
-      if (info.isSymbolicLink()) throw new Error(`portable root is symlink: ${name}`)
-      if (info.isFile()) out.push(name)
-      else if (info.isDirectory()) await walk(path, name)
-      else throw new Error(`portable root is not regular: ${name}`)
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    }
-  }
-  return [...new Set(out)].sort()
-}
-async function makeManifest(root: string): Promise<ServerTransferManifestEntry[]> {
-  const items: ServerTransferManifestEntry[] = []
-  for (const path of await listFiles(root)) {
-    const info = await stat(join(root, path))
-    if (!info.isFile() || info.size > MAX_BYTES) throw new Error(`invalid portable file: ${path}`)
-    items.push({
-      path,
-      size: info.size,
-      mode: info.mode & 0o777,
-      sha256: await hash(join(root, path)),
-    })
-  }
-  if (items.reduce((n, item) => n + item.size, 0) > MAX_BYTES)
-    throw new Error('portable state exceeds 512 MiB')
-  return items
-}
-async function sync(path: string): Promise<void> {
-  const file = await open(path, 'r')
-  try {
-    await file.sync()
-  } finally {
-    await file.close()
-  }
-}
-async function atomic(path: string, value: unknown): Promise<void> {
-  const tmp = `${path}.${process.pid}.tmp`
-  await mkdir(dirname(path), { recursive: true, mode: 0o700 })
-  await writeFile(tmp, JSON.stringify(value), { mode: 0o600 })
-  await sync(tmp)
-  await rename(tmp, path)
-}
-async function journalAt(path: string): Promise<Journal | undefined> {
-  try {
-    return JSON.parse(await readFile(path, 'utf8')) as Journal
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
-    throw error
-  }
-}
-async function copySnapshot(
-  root: string,
-  destination: string,
-  items: ServerTransferManifestEntry[],
-): Promise<void> {
-  for (const item of items) {
-    const to = join(destination, item.path)
-    await mkdir(dirname(to), { recursive: true, mode: 0o700 })
-    const tmp = `${to}.${process.pid}.tmp`
-    await copyFile(join(root, item.path), tmp)
-    await sync(tmp)
-    await rename(tmp, to)
-  }
-}
-async function changed(root: string, expected: ServerTransferManifestEntry[]): Promise<boolean> {
-  const current = await makeManifest(root)
+
+function healthProofMatches(
+  proof: TargetHealthProof | undefined,
+  manifest: ServerTransferManifest,
+  targetMachineId: string,
+  publicUrl: string,
+): proof is TargetHealthProof {
   return (
-    digest(current) !== digest(expected) || JSON.stringify(current) !== JSON.stringify(expected)
+    proofMatches(proof, manifest, targetMachineId) &&
+    proof.health === 'serving' &&
+    proof.publicUrl === publicUrl
   )
 }
-async function upload(
-  root: string,
-  items: ServerTransferManifestEntry[],
-  id: string,
-  machineId: string,
+
+function normalizedPublicUrl(input: ServerTransferInput): string {
+  if (input.confirmation !== SERVER_TRANSFER_CONFIRMATION) {
+    throw fail(
+      TRANSFER_FAILURE_CODES.INVALID_CONFIRMATION,
+      'server transfer confirmation is invalid',
+    )
+  }
+  const checked = validatePublicUrl(input.publicUrl.trim())
+  if (!checked.ok) throw fail(TRANSFER_FAILURE_CODES.INVALID_URL, checked.error)
+  const parsed = new URL(checked.normalized)
+  if (input.port !== undefined) {
+    const effectivePort = Number(parsed.port || (parsed.protocol === 'https:' ? 443 : 80))
+    if (effectivePort !== input.port) {
+      throw fail(
+        TRANSFER_FAILURE_CODES.INVALID_URL,
+        'the selected target port does not match the public URL',
+      )
+    }
+  }
+  return checked.normalized
+}
+
+async function uploadSnapshot(
+  packageDir: string,
+  manifest: ServerTransferManifest,
+  targetMachineId: string,
   rpc: ServerTransferRpc,
+  onProgress: (bytesCopied: number, totalBytes: number) => void,
 ): Promise<void> {
-  for (const item of items) {
+  let copied = 0
+  for (let fileIndex = 0; fileIndex < manifest.files.length; fileIndex += 1) {
+    const entry = manifest.files[fileIndex]
+    if (!entry) throw fail(TRANSFER_FAILURE_CODES.INTERNAL, 'manifest file index is missing')
     let offset = 0
-    for await (const part of createReadStream(join(root, item.path), {
+    for await (const part of createReadStream(join(packageDir, ...entry.path.split('/')), {
       highWaterMark: CHUNK_BYTES,
     })) {
       const data = Buffer.isBuffer(part) ? part : Buffer.from(part)
-      const reply = await rpc.serverTransferChunk(
-        { transferId: id, path: item.path, offset, data },
-        machineId,
+      const result = await rpc.serverTransferChunk(
+        {
+          transferId: manifest.transferId,
+          manifestDigest: manifest.digest,
+          fileIndex,
+          offset,
+          expectedLength: data.length,
+          data,
+        },
+        targetMachineId,
       )
-      if (!reply.ok) throw new Error(reply.error ?? `target rejected ${item.path}`)
+      if (
+        !result.ok ||
+        result.state !== 'staging' ||
+        result.manifestDigest !== manifest.digest ||
+        result.path !== entry.path ||
+        result.offset !== offset ||
+        result.receivedBytes !== data.length
+      ) {
+        throw fail(
+          TRANSFER_FAILURE_CODES.TARGET_REJECTED,
+          result.ok ? 'target returned an invalid chunk acknowledgement' : result.error.detail,
+        )
+      }
       offset += data.length
+      copied += data.length
+      onProgress(copied, manifest.packageBytes)
     }
-    if (offset !== item.size) throw new Error(`snapshot size changed: ${item.path}`)
+    if (offset !== entry.size) {
+      throw fail(TRANSFER_FAILURE_CODES.SNAPSHOT_FAILED, 'snapshot size changed during upload')
+    }
   }
-}
-async function abortTarget(
-  rpc: ServerTransferRpc,
-  id: string,
-  machineId: string,
-  reason: string,
-): Promise<void> {
-  const reply = await rpc.serverTransferAbort(id, reason, machineId)
-  if (!reply.ok || reply.state !== 'aborted')
-    throw new Error(reply.error ?? 'target abort not confirmed')
 }
 
 export class ServerTransferService {
-  private readonly journalPath: string
-  private readonly lockPath: string
-  private readonly now: () => Date
-  private lockFile: Awaited<ReturnType<typeof open>> | undefined
+  private readonly journal: TransferJournal
+  private readonly lock: TransferLock
+  private readonly uuid: () => string
+
   constructor(private readonly deps: ServerTransferDeps) {
-    const dir = join(deps.stateRoot, '.server-transfer')
-    this.journalPath = join(dir, 'journal.json')
-    this.lockPath = join(dir, 'source.lock')
-    this.now = deps.now ?? (() => new Date())
+    const transferRoot = join(deps.stateRoot, '.server-transfer')
+    this.journal = new TransferJournal(transferRoot, deps.now)
+    this.lock = new TransferLock(join(transferRoot, 'source.lock'), deps.now)
+    this.uuid = deps.uuid ?? randomUUID
   }
-  private async lock(): Promise<void> {
-    if (this.lockFile) throw new Error('a server transfer is already running')
-    await mkdir(dirname(this.lockPath), { recursive: true, mode: 0o700 })
-    for (;;) {
-      try {
-        const handle = await open(this.lockPath, 'wx', 0o600)
-        try {
-          await handle.writeFile(
-            JSON.stringify({ pid: process.pid, startedAt: this.now().toISOString() }),
-          )
-          this.lockFile = handle
-          return
-        } catch (error) {
-          await handle.close().catch(() => {})
-          await rm(this.lockPath, { force: true })
-          throw error
+
+  status() {
+    return this.journal.read()
+  }
+
+  async publicStatus(machines: ReadonlyArray<{ id: string }>) {
+    const entry = this.journal.read()
+    const promoted = entry ? undefined : await this.deps.localPromotedTransfer()
+    const promotedSourceConnected = promoted
+      ? this.deps.targetState(promoted.sourceMachineId).online
+      : false
+    return {
+      sourceMachineId: promoted?.sourceMachineId ?? this.deps.sourceMachineId,
+      targetEligibility: machines.map(({ id }) => {
+        if (id === this.deps.sourceMachineId) {
+          return { targetMachineId: id, eligible: false, reason: 'current-server' } as const
         }
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-        let owner: { pid?: number } = {}
-        try {
-          owner = JSON.parse(await readFile(this.lockPath, 'utf8')) as typeof owner
-        } catch {
-          throw new Error('another transfer is active (lock unreadable)')
+        const target = this.deps.targetState(id)
+        if (!target.online) {
+          return { targetMachineId: id, eligible: false, reason: 'offline' } as const
         }
-        let alive = false
-        if (typeof owner.pid === 'number') {
-          try {
-            process.kill(owner.pid, 0)
-            alive = true
-          } catch (probe) {
-            if ((probe as NodeJS.ErrnoException).code !== 'ESRCH') alive = true
+        if (!target.capable) {
+          return { targetMachineId: id, eligible: false, reason: 'unsupported' } as const
+        }
+        return { targetMachineId: id, eligible: true } as const
+      }),
+      transfer: entry
+        ? {
+            transferId: entry.record.transferId,
+            targetMachineId: entry.record.targetMachineId,
+            publicUrl: entry.record.publicUrl,
+            state: entry.state,
+            sourceFenced:
+              entry.state === 'source-fenced' ||
+              entry.state === 'committing' ||
+              entry.state === 'committed' ||
+              entry.state === 'commit-uncertain',
+            phase: entry.record.phase,
+            bytesCopied: entry.record.bytesCopied,
+            totalBytes: entry.record.totalBytes,
+            targetProof: entry.record.targetProof,
+            sourceConnected: entry.record.sourceConnected,
+            ...(entry.error ? { error: entry.error } : {}),
+            ...(entry.cleanup ? { cleanup: entry.cleanup } : {}),
           }
-        }
-        if (alive) throw new Error('a server transfer is already running')
-        await rm(this.lockPath, { force: true })
-      }
+        : promoted
+          ? {
+              transferId: promoted.transferId,
+              targetMachineId: promoted.targetMachineId,
+              publicUrl: promoted.publicUrl,
+              state: 'committed' as const,
+              sourceFenced: true,
+              phase: promotedSourceConnected ? ('connected' as const) : ('switching' as const),
+              targetProof: true,
+              sourceConnected: promotedSourceConnected,
+            }
+          : null,
     }
   }
-  private async unlock(): Promise<void> {
-    await this.lockFile?.close().catch(() => {})
-    this.lockFile = undefined
-    await rm(this.lockPath, { force: true })
-  }
-  private async writeJournal(input: {
-    id: string
-    machineId: string
-    url: string
-    state: ServerTransferJournalState
-    digest?: string
-    error?: string
-  }): Promise<void> {
-    const old = await journalAt(this.journalPath)
-    const sameTransfer = old?.transferId === input.id
-    await atomic(this.journalPath, {
-      version: 1,
-      transferId: input.id,
-      targetMachineId: input.machineId,
-      publicUrl: input.url,
-      state: input.state,
-      ...(input.digest
-        ? { manifestDigest: input.digest }
-        : sameTransfer && old?.manifestDigest
-          ? { manifestDigest: old.manifestDigest }
-          : {}),
-      createdAt: sameTransfer && old?.createdAt ? old.createdAt : this.now().toISOString(),
-      updatedAt: this.now().toISOString(),
-      ...(input.error ? { error: input.error } : {}),
-    } satisfies Journal)
-  }
-  async transfer(input: ServerTransferInput): Promise<ServerTransferOutcome> {
-    if (input.confirmation !== true)
-      throw new Error('server transfer requires explicit confirmation')
-    const check = validatePublicUrl(input.publicUrl.trim())
-    if (this.deps.sourceMachineId === input.targetMachineId)
-      throw new Error('target machine is already the server')
-    if (!check.ok) throw new Error(check.error)
-    if (!this.deps.online(input.targetMachineId)) throw new Error('target machine is offline')
-    await this.lock()
-    const id = randomUUID()
-    const url = check.normalized
-    const snapshotRoot = join(this.deps.stateRoot, '.server-transfer', 'snapshots', id)
-    let phase: 'preparing' | 'staging' | 'validating' | 'fencing' | 'committing' = 'preparing'
-    let journalOwned = false
-    let targetMayBeStaged = false
-    let fenceHeld = false
+
+  async transfer(
+    input: ServerTransferInput,
+    authorization: ServerTransferAuthorization,
+  ): Promise<ServerTransferOutcome> {
+    const publicUrl = normalizedPublicUrl(input)
+    await this.lock.acquire()
     try {
-      const old = await journalAt(this.journalPath)
-      if (old?.state === 'commit-uncertain' || old?.state === 'abort-uncertain')
-        throw new Error('previous transfer is uncertain; recover it before starting another')
-      if (old && !['idle', 'aborted', 'committed'].includes(old.state))
-        throw new Error(`transfer already in progress: ${old.state}`)
-      await this.writeJournal({ id, machineId: input.targetMachineId, url, state: 'preparing' })
-      journalOwned = true
-      this.deps.checkpoint?.()
-      const items = await makeManifest(this.deps.stateRoot)
-      const d = digest(items)
-      await this.writeJournal({
-        id,
-        machineId: input.targetMachineId,
-        url,
-        state: 'preparing',
-        digest: d,
-      })
-      await copySnapshot(this.deps.stateRoot, snapshotRoot, items)
-      phase = 'staging'
-      targetMayBeStaged = true
-      const prepared = await this.deps.rpc.serverTransferPrepare(
-        {
-          transferId: id,
-          manifest: items,
-          manifestDigest: d,
-          totalBytes: items.reduce((n, item) => n + item.size, 0),
-        },
-        input.targetMachineId,
-      )
-      if (!prepared.ok || !['staging', 'prepared'].includes(prepared.state))
-        throw new Error(prepared.error ?? 'target refused preparation')
-      await upload(snapshotRoot, items, id, input.targetMachineId, this.deps.rpc)
-      await this.writeJournal({
-        id,
-        machineId: input.targetMachineId,
-        url,
-        state: 'staged',
-        digest: d,
-      })
-      phase = 'validating'
-      const valid = await this.deps.rpc.serverTransferValidate(id, d, input.targetMachineId)
-      if (!valid.ok || valid.state !== 'validated')
-        throw new Error(valid.error ?? 'target validation failed')
-      await this.writeJournal({
-        id,
-        machineId: input.targetMachineId,
-        url,
-        state: 'validated',
-        digest: d,
-      })
-      if (await changed(this.deps.stateRoot, items))
-        throw new Error('source changed during staging; transfer aborted')
-      phase = 'fencing'
-      this.deps.checkpoint?.()
-      fenceHeld = true
-      await this.deps.fence?.()
-      if (await changed(this.deps.stateRoot, items))
-        throw new Error('source changed at fence; transfer aborted')
-      await this.writeJournal({
-        id,
-        machineId: input.targetMachineId,
-        url,
-        state: 'source-fenced',
-        digest: d,
-      })
-      await this.writeJournal({
-        id,
-        machineId: input.targetMachineId,
-        url,
-        state: 'committing',
-        digest: d,
-      })
-      phase = 'committing'
-      const promoted = await this.deps.rpc.serverTransferPromote(id, d, url, input.targetMachineId)
-      if (!promoted.ok || promoted.state !== 'promoted') {
-        const error = promoted.error ?? 'target promotion was not confirmed'
-        await this.writeJournal({
-          id,
-          machineId: input.targetMachineId,
-          url,
-          state: 'commit-uncertain',
-          digest: d,
-          error,
-        })
-        return {
-          ok: false,
-          transferId: id,
-          state: 'commit-uncertain',
-          targetMachineId: input.targetMachineId,
-          publicUrl: url,
-          error,
+      const existing = this.journal.read()
+      if (existing?.state === 'committed') {
+        if (
+          existing.record.targetMachineId === input.targetMachineId &&
+          existing.record.publicUrl === publicUrl
+        ) {
+          return this.outcome(existing.record, true, 'committed')
         }
+        throw fail(
+          TRANSFER_FAILURE_CODES.ACTIVE_TRANSFER,
+          'the server was already transferred to another target',
+        )
       }
-      const previous = loadConfig()
-      const { publicUrl: _old, ...rest } = previous
-      saveConfig({ ...rest, mode: 'daemon', serverUrl: wssFrom(url) })
-      await this.writeJournal({
-        id,
-        machineId: input.targetMachineId,
-        url,
-        state: 'committed',
-        digest: d,
-      })
-      if (this.deps.restartAsDaemon)
-        setTimeout(() => this.deps.restartAsDaemon?.(wssFrom(url)), 250)
-      return {
-        ok: true,
-        transferId: id,
-        state: 'committed',
+      if (existing?.state === 'commit-uncertain') {
+        return this.inspectUncertain(existing.record, authorization)
+      }
+      if (existing && isActiveTransfer(existing.state)) {
+        throw fail(
+          TRANSFER_FAILURE_CODES.ACTIVE_TRANSFER,
+          `a server transfer is already ${existing.state}`,
+        )
+      }
+
+      await authorization.reauthorize('prepare')
+      await this.preflight(input)
+
+      const operationId = this.uuid()
+      const probeTransferId = this.uuid()
+      const initialPackageDir = join(
+        this.deps.stateRoot,
+        '.server-transfer',
+        'snapshots',
+        operationId,
+        'initial',
+      )
+      let record: TransferRecord = {
+        operationId,
+        phase: 'preparing',
+        bytesCopied: 0,
+        totalBytes: 0,
+        transferId: probeTransferId,
         targetMachineId: input.targetMachineId,
-        publicUrl: url,
+        publicUrl,
+        ...(input.port === undefined ? {} : { port: input.port }),
+        sourceMachineId: this.deps.sourceMachineId,
+        sourceInstanceId: this.deps.sourceInstanceId,
+        packageDir: initialPackageDir,
+        manifest: null,
+        idempotencyKey: this.uuid(),
+        targetProof: false,
+        sourceConnected: false,
+      }
+      this.journal.begin(record)
+
+      let prepared: { transferId: string; manifestDigest: string } | undefined
+      let fenceHeld = false
+      const persistProgress = (bytesCopied: number, totalBytes: number) => {
+        record = { ...record, phase: 'copying', bytesCopied, totalBytes }
+        this.journal.updateRecord(record)
+      }
+      try {
+        const initialManifest = await this.snapshot(record, initialPackageDir)
+        record = {
+          ...record,
+          manifest: initialManifest,
+          phase: 'copying',
+          bytesCopied: 0,
+          totalBytes: initialManifest.packageBytes,
+        }
+        this.journal.updateRecord(record)
+
+        await authorization.reauthorize('stage')
+        this.assertTarget(input.targetMachineId)
+        prepared = {
+          transferId: initialManifest.transferId,
+          manifestDigest: initialManifest.digest,
+        }
+        await this.stage(initialManifest, initialPackageDir, input.targetMachineId, persistProgress)
+        this.journal.transition('staged')
+        record = { ...record, phase: 'validating' }
+        this.journal.updateRecord(record)
+
+        await authorization.reauthorize('validate')
+        this.assertTarget(input.targetMachineId)
+        await this.validate(initialManifest, input.targetMachineId)
+        this.journal.transition('validated')
+
+        await authorization.reauthorize('fence')
+        this.assertTarget(input.targetMachineId)
+        record = { ...record, phase: 'switching' }
+        this.journal.updateRecord(record)
+        // Persist fence intent first. A crash after this write must not reopen a
+        // writable source even if the in-memory gate was not fully installed.
+        this.journal.transition('source-fenced')
+        await this.deps.fence()
+        fenceHeld = true
+
+        const finalPackageDir = join(
+          this.deps.stateRoot,
+          '.server-transfer',
+          'snapshots',
+          operationId,
+          'final',
+        )
+        let finalManifest = await this.snapshot(record, finalPackageDir)
+        if (finalManifest.digest !== initialManifest.digest) {
+          await this.abortPrepared(prepared, input.targetMachineId, 'final-snapshot-changed')
+          prepared = undefined
+
+          const finalTransferId = this.uuid()
+          finalManifest = manifestWithDigest({
+            ...finalManifest,
+            transferId: finalTransferId,
+          })
+          record = {
+            ...record,
+            phase: 'copying',
+            bytesCopied: 0,
+            totalBytes: finalManifest.packageBytes,
+            transferId: finalTransferId,
+            packageDir: finalPackageDir,
+            manifest: finalManifest,
+            probe: {
+              transferId: initialManifest.transferId,
+              manifestDigest: initialManifest.digest,
+            },
+            targetProof: false,
+          }
+          this.journal.updateRecord(record)
+
+          await authorization.reauthorize('stage')
+          this.assertTarget(input.targetMachineId)
+          prepared = {
+            transferId: finalManifest.transferId,
+            manifestDigest: finalManifest.digest,
+          }
+          await this.stage(finalManifest, finalPackageDir, input.targetMachineId, persistProgress)
+          record = { ...record, phase: 'validating' }
+          this.journal.updateRecord(record)
+          await authorization.reauthorize('validate')
+          this.assertTarget(input.targetMachineId)
+          await this.validate(finalManifest, input.targetMachineId)
+        }
+
+        record = { ...record, manifest: finalManifest, phase: 'switching', targetProof: true }
+        this.journal.updateRecord(record)
+
+        await authorization.reauthorize('commit')
+        this.assertTarget(input.targetMachineId)
+        this.journal.transition('committing')
+        const promoted = await this.deps.rpc.serverTransferPromote(
+          {
+            transferId: finalManifest.transferId,
+            manifestDigest: finalManifest.digest,
+            publicUrl,
+            ...(input.port === undefined ? {} : { port: input.port }),
+            targetMode: 'server',
+            idempotencyKey: record.idempotencyKey,
+          },
+          input.targetMachineId,
+        )
+        if (
+          !promoted.ok ||
+          promoted.state !== 'promoted' ||
+          !healthProofMatches(promoted.proof, finalManifest, input.targetMachineId, publicUrl)
+        ) {
+          throw fail(
+            TRANSFER_FAILURE_CODES.COMMIT_UNCERTAIN,
+            promoted.ok ? 'target promotion proof is missing' : promoted.error.detail,
+          )
+        }
+
+        const acknowledgementCleanup = await this.acknowledgePromoted(
+          finalManifest,
+          input.targetMachineId,
+        )
+
+        await this.deps.demoteSource({
+          transferId: finalManifest.transferId,
+          targetMachineId: input.targetMachineId,
+          publicUrl,
+        })
+        record = { ...record, targetProof: true, sourceConnected: false }
+        this.journal.commit(record, acknowledgementCleanup)
+        fenceHeld = false
+        this.deps.afterCommitted?.({ serverUrl: publicUrl })
+        return this.outcome(
+          record,
+          true,
+          'committed',
+          undefined,
+          acknowledgementCleanup,
+        )
+      } catch (error) {
+        const current = this.journal.read()
+        const detail = classified(error)
+        if (current?.state === 'committing') {
+          this.journal.commitUncertain({
+            code: TRANSFER_FAILURE_CODES.COMMIT_UNCERTAIN,
+            message: detail.message,
+          })
+          return this.outcome(record, false, 'commit-uncertain', {
+            code: TRANSFER_FAILURE_CODES.COMMIT_UNCERTAIN,
+            message: detail.message,
+          })
+        }
+
+        let cleanup: { result: 'cleaned' | 'pending'; detail?: string } = { result: 'cleaned' }
+        if (prepared) {
+          try {
+            await this.abortPrepared(prepared, input.targetMachineId, detail.code)
+          } catch (abortError) {
+            cleanup = { result: 'pending', detail: classified(abortError).message }
+          }
+        }
+        if (fenceHeld) {
+          try {
+            await this.deps.releaseFence()
+            fenceHeld = false
+          } catch (releaseError) {
+            cleanup = { result: 'pending', detail: classified(releaseError).message }
+          }
+        }
+        this.journal.abort(detail, cleanup)
+        return this.outcome(record, false, 'aborted', detail, cleanup)
+      }
+    } finally {
+      await this.lock.release()
+    }
+  }
+
+  private async snapshot(record: TransferRecord, packageDir: string) {
+    const identity = this.deps.sourceFeedIdentity()
+    return createPortableSnapshot({
+      stateRoot: this.deps.stateRoot,
+      packageDir,
+      transferId: record.transferId,
+      sourceInstanceId: this.deps.sourceInstanceId,
+      sourceMachineId: this.deps.sourceMachineId,
+      targetMachineId: record.targetMachineId,
+      sourceFeedId: identity.feedId,
+      sourceFeedEpoch: identity.feedEpoch,
+      sourceApplicationVersion: this.deps.sourceApplicationVersion,
+      sourceSchemaVersion: this.deps.sourceSchemaVersion(),
+      checkpoint: this.deps.checkpoint,
+    })
+  }
+
+  private async stage(
+    manifest: ServerTransferManifest,
+    packageDir: string,
+    targetMachineId: string,
+    onProgress: (bytesCopied: number, totalBytes: number) => void,
+  ): Promise<void> {
+    const result = await this.deps.rpc.serverTransferPrepare(
+      {
+        transferId: manifest.transferId,
+        sourceMachineId: this.deps.sourceMachineId,
+        manifest,
+        packageLimits: { totalBytes: manifest.packageBytes, maxChunkBytes: CHUNK_BYTES },
+      },
+      targetMachineId,
+    )
+    if (
+      !result.ok ||
+      result.state !== 'prepared' ||
+      result.manifestDigest !== manifest.digest ||
+      result.targetMachineId !== targetMachineId ||
+      result.targetCapability !== 'server-only' ||
+      result.wireSchemaDigest !== this.deps.sourceWireSchemaDigest ||
+      result.buildVersion.length === 0
+    ) {
+      throw fail(
+        TRANSFER_FAILURE_CODES.TARGET_UNSUPPORTED,
+        result.ok ? 'target prepare proof is incomplete' : result.error.detail,
+      )
+    }
+    if (
+      !result.space.sufficient ||
+      result.space.availableBytes < manifest.packageBytes * 2 + TRANSFER_SPACE_MARGIN_BYTES
+    ) {
+      throw fail(TRANSFER_FAILURE_CODES.DISK_FULL, 'target has insufficient transfer space')
+    }
+    await uploadSnapshot(packageDir, manifest, targetMachineId, this.deps.rpc, onProgress)
+  }
+
+  private async validate(
+    manifest: ServerTransferManifest,
+    targetMachineId: string,
+  ): Promise<TransferProof> {
+    const result = await this.deps.rpc.serverTransferValidate(
+      { transferId: manifest.transferId, manifestDigest: manifest.digest },
+      targetMachineId,
+    )
+    if (
+      !result.ok ||
+      result.state !== 'validated' ||
+      !proofMatches(result.proof, manifest, targetMachineId)
+    ) {
+      throw fail(
+        TRANSFER_FAILURE_CODES.TARGET_PROOF_MISSING,
+        result.ok ? 'target candidate proof is invalid' : result.error.detail,
+      )
+    }
+    return result.proof
+  }
+
+  private async acknowledgePromoted(
+    manifest: ServerTransferManifest,
+    targetMachineId: string,
+  ): Promise<{ result: 'pending'; detail: string } | undefined> {
+    try {
+      const result = await this.deps.rpc.serverTransferAcknowledge(
+        { transferId: manifest.transferId, manifestDigest: manifest.digest },
+        targetMachineId,
+      )
+      if (
+        result.ok &&
+        result.state === 'promoted' &&
+        result.transferId === manifest.transferId &&
+        result.manifestDigest === manifest.digest &&
+        result.acknowledged === true
+      ) {
+        return undefined
+      }
+      return {
+        result: 'pending',
+        detail: result.ok ? 'target acknowledgement was not confirmed' : result.error.detail,
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      if (!journalOwned) throw error
-      if (phase === 'committing') {
-        await this.writeJournal({
-          id,
-          machineId: input.targetMachineId,
-          url,
-          state: 'commit-uncertain',
-          error: message,
-        })
-        return {
-          ok: false,
-          transferId: id,
-          state: 'commit-uncertain',
-          targetMachineId: input.targetMachineId,
-          publicUrl: url,
-          error: message,
-        }
-      }
-      if (targetMayBeStaged) {
-        try {
-          await abortTarget(this.deps.rpc, id, input.targetMachineId, message)
-        } catch (abortError) {
-          await this.writeJournal({
-            id,
-            machineId: input.targetMachineId,
-            url,
-            state: 'abort-uncertain',
-            error: `abort not confirmed: ${abortError}`,
+      return { result: 'pending', detail: classified(error).message }
+    }
+  }
+
+  private async abortPrepared(
+    prepared: { transferId: string; manifestDigest: string },
+    targetMachineId: string,
+    reason: string,
+  ): Promise<void> {
+    const result = await this.deps.rpc.serverTransferAbort(
+      {
+        transferId: prepared.transferId,
+        manifestDigest: prepared.manifestDigest,
+        reason,
+      },
+      targetMachineId,
+    )
+    if (
+      !result.ok ||
+      result.state !== 'aborted' ||
+      result.transferId !== prepared.transferId ||
+      result.manifestDigest !== prepared.manifestDigest ||
+      result.cleanup !== 'cleaned'
+    ) {
+      throw fail(
+        TRANSFER_FAILURE_CODES.TARGET_REJECTED,
+        result.ok ? 'target cleanup was not confirmed' : result.error.detail,
+      )
+    }
+  }
+
+  private async preflight(input: ServerTransferInput): Promise<void> {
+    this.assertTarget(input.targetMachineId)
+    await this.deps.sourceHealthy()
+    const portableBytes = await estimatePortableBytes(this.deps.stateRoot)
+    if (portableBytes > MAX_TRANSFER_BYTES) {
+      throw fail(
+        TRANSFER_FAILURE_CODES.SNAPSHOT_FAILED,
+        'portable state exceeds the transfer limit',
+      )
+    }
+    const available = await this.deps.snapshotAvailableBytes?.()
+    await assertSnapshotCapacity(this.deps.stateRoot, portableBytes, available)
+  }
+
+  private assertTarget(targetMachineId: string): void {
+    if (targetMachineId === this.deps.sourceMachineId) {
+      throw fail(TRANSFER_FAILURE_CODES.TARGET_IS_SOURCE, 'target machine is the current server')
+    }
+    const target = this.deps.targetState(targetMachineId)
+    if (!target.exists)
+      throw fail(TRANSFER_FAILURE_CODES.TARGET_NOT_FOUND, 'target machine is unavailable')
+    if (!target.online)
+      throw fail(TRANSFER_FAILURE_CODES.TARGET_OFFLINE, 'target machine is offline')
+    if (!target.capable) {
+      throw fail(
+        TRANSFER_FAILURE_CODES.TARGET_UNSUPPORTED,
+        'target does not support server transfer',
+      )
+    }
+  }
+
+  private async inspectUncertain(
+    record: TransferRecord,
+    authorization: ServerTransferAuthorization,
+  ): Promise<ServerTransferOutcome> {
+    await authorization.reauthorize('commit')
+    if (record.manifest) {
+      try {
+        const status = await this.deps.rpc.serverTransferStatus(
+          { transferId: record.transferId, manifestDigest: record.manifest.digest },
+          record.targetMachineId,
+        )
+        if (
+          status.ok &&
+          status.state === 'promoted' &&
+          status.transferId === record.transferId &&
+          status.manifestDigest === record.manifest.digest &&
+          healthProofMatches(
+            status.proof,
+            record.manifest,
+            record.targetMachineId,
+            record.publicUrl,
+          )
+        ) {
+          const acknowledgementCleanup = await this.acknowledgePromoted(
+            record.manifest,
+            record.targetMachineId,
+          )
+          await this.deps.demoteSource({
+            transferId: record.transferId,
+            targetMachineId: record.targetMachineId,
+            publicUrl: record.publicUrl,
           })
-          throw new ServerTransferError(
-            `transfer failed and abort was not confirmed: ${abortError}`,
-            id,
-            phase,
+          const committed = {
+            ...record,
+            phase: 'switching' as const,
+            targetProof: true,
+            sourceConnected: false,
+          }
+          this.journal.resolveCommitted(committed, acknowledgementCleanup)
+          this.deps.afterCommitted?.({ serverUrl: record.publicUrl })
+          return this.outcome(
+            committed,
+            true,
+            'committed',
+            undefined,
+            acknowledgementCleanup,
           )
         }
+      } catch {
+        // A missing/mismatched proof or failed source cutover stays uncertain.
       }
-      if (fenceHeld) {
-        try {
-          await this.deps.releaseFence?.()
-          fenceHeld = false
-        } catch (releaseError) {
-          await this.writeJournal({
-            id,
-            machineId: input.targetMachineId,
-            url,
-            state: 'abort-uncertain',
-            error: `source fence release not confirmed: ${releaseError}`,
-          })
-          throw new ServerTransferError(
-            `transfer failed and source fence release was not confirmed: ${releaseError}`,
-            id,
-            phase,
-          )
-        }
-      }
-      await this.writeJournal({
-        id,
-        machineId: input.targetMachineId,
-        url,
-        state: 'aborted',
-        error: message,
-      })
-      throw new ServerTransferError(message, id, phase)
-    } finally {
-      await this.unlock()
+    }
+    return this.outcome(record, false, 'commit-uncertain', {
+      code: TRANSFER_FAILURE_CODES.COMMIT_UNCERTAIN,
+      message: 'target commit remains uncertain; operator recovery is required',
+    })
+  }
+
+  private outcome(
+    record: TransferRecord,
+    ok: boolean,
+    state: 'aborted' | 'committed' | 'commit-uncertain',
+    error?: { code: string; message: string },
+    cleanup?: { result: 'cleaned' | 'pending'; detail?: string },
+  ): ServerTransferOutcome {
+    return {
+      ok,
+      transferId: record.transferId,
+      state,
+      targetMachineId: record.targetMachineId,
+      publicUrl: record.publicUrl,
+      ...(error ? { error } : {}),
+      ...(cleanup ? { cleanup } : {}),
     }
   }
 }

@@ -5,9 +5,10 @@ import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness/metad
 import type { AgentKind, SessionId, SessionMeta } from '@podium/model'
 import { asSessionId, asUserId, FIRST_ADMIN_USER_ID, spawnedByParentSessionId } from '@podium/model'
 import type { LiveServerMessage, VisibilityResolver } from '@podium/protocol'
-import { formatIssueRef, SubscriptionRegistry } from '@podium/protocol'
+import { formatIssueRef, SubscriptionRegistry, wireSchemaDigest } from '@podium/protocol'
 import { durableSessionLabel } from '@podium/runtime/instance'
 import { stateDir } from '@podium/runtime/local-machine'
+import { prepareSourceDaemonCutover } from '@podium/runtime/transfer-lifecycle'
 import {
   DEVICE_GRADE_PRINCIPAL,
   FeedIdentityRegistry,
@@ -64,7 +65,10 @@ import { LoginPropagationService } from './modules/machines/login-propagation'
 import { DaemonRpcService } from './modules/machines/rpc'
 import { MachinesService, type PairingCodes } from './modules/machines/service'
 import { MemoryService } from './modules/memory/service'
-import { restartAsDaemon } from './modules/server-transfer/lifecycle'
+import { retireSourceAfterTransfer } from './modules/server-transfer/lifecycle'
+import { PortableStateFence } from './modules/server-transfer/portable-fence'
+import { serverTransferRpcAdapter } from './modules/server-transfer/rpc-adapter'
+import { readPromotedTargetMetadata } from './modules/server-transfer/target-status'
 import { ServerTransferService } from './modules/server-transfer/service'
 import { MessageGate } from './modules/messages/gate'
 import { principalMailPolicy } from './modules/messages/handlers/context'
@@ -122,6 +126,7 @@ interface SessionRegistryOptions {
   /** Root of the transcript lake ($PODIUM_STATE_DIR/transcripts). Opt-in: when unset
    *  (the default — every existing test), NO mirror traffic is produced. */
   mirrorLakeDir?: string
+  portableStateFence?: PortableStateFence
   /** Live model-list probe (grok/cursor/opencode `models`). Injected in tests so the
    *  catalog never shells out; defaults to the real CLI probe. */
   modelProbe?: ModelProbe
@@ -274,6 +279,7 @@ export class SessionRegistry {
     notificationPushers ??= DEFAULT_NOTIFICATION_PUSHERS
     const { instanceId } = options
     this.now = options.now ?? Date.now
+    const portableStateFence = options.portableStateFence ?? new PortableStateFence()
     // Resolve feature state once, then keep it atomic with settings changes. This also
     // avoids reading persistence during instruction preparation after async recovery.
     let currentSettings = this.store.settings.getSettings()
@@ -562,6 +568,7 @@ export class SessionRegistry {
       hasDaemon: (machineId) => machines.hasDaemon(machineId),
       machineName: (id) => machines.machineName(id),
       onlineMachineIds: () => machines.onlineMachineIds(),
+      portableStateFence,
       getSession: (sessionId) => {
         const session = liveSessions.get(sessionId)
         return session
@@ -578,13 +585,50 @@ export class SessionRegistry {
     })
     const serverTransfer = new ServerTransferService({
       stateRoot: stateDir(),
+      sourceInstanceId: options.instanceId,
       sourceMachineId: this.store.hostMachineId,
-      rpc,
-      online: (machineId) => machines.hasDaemon(machineId),
+      sourceFeedIdentity: () => {
+        const identity = this.store.sync.readFeedIdentity()
+        return {
+          feedId: identity?.feedId ?? 'uninitialized',
+          feedEpoch: identity?.epoch ?? 'uninitialized',
+        }
+      },
+      sourceApplicationVersion: options.targetVersion?.() ?? 'dev',
+      sourceSchemaVersion: () => this.store.schemaVersionForTransfer(),
+      sourceWireSchemaDigest: wireSchemaDigest(),
+      rpc: serverTransferRpcAdapter(rpc),
+      localPromotedTransfer: () => readPromotedTargetMetadata(stateDir()),
+      targetState: (machineId) => ({
+        exists: machines.listMachines().some((machine) => machine.id === machineId),
+        online: machines.hasDaemon(machineId),
+        // The dedicated prepare proof is the authoritative capability check.
+        capable: true,
+      }),
+      sourceHealthy: () => this.store.checkpointForTransfer(),
       checkpoint: () => this.store.checkpointForTransfer(),
-      fence: () => this.store.beginTransferFence(),
-      releaseFence: () => this.store.endTransferFence(),
-      restartAsDaemon,
+      fence: async () => {
+        await portableStateFence.acquire()
+        try {
+          await memory.pauseMirroringForTransfer()
+          this.store.beginTransferFence()
+        } catch (error) {
+          memory.resumeMirroringAfterTransfer()
+          portableStateFence.release()
+          throw error
+        }
+      },
+      releaseFence: () => {
+        this.store.endTransferFence()
+        memory.resumeMirroringAfterTransfer()
+        portableStateFence.release()
+      },
+      demoteSource: ({ transferId, publicUrl }) => {
+        prepareSourceDaemonCutover({ transferId, serverUrl: publicUrl })
+      },
+      // The service fsyncs committed before this callback. Desktop continuity
+      // therefore sees matching daemon config + committed journal before exit.
+      afterCommitted: ({ serverUrl }) => retireSourceAfterTransfer(serverUrl),
     })
     const loginPropagation = new LoginPropagationService({
       store: this.store,
@@ -827,10 +871,14 @@ export class SessionRegistry {
     // Permanent artifact snapshots ([spec:SP-0fc9] #441): the server pulls bytes
     // from the owning daemon at artifact-add time into <state-dir>/artifacts and
     // serves them locally via /files/artifact (registered in server.ts).
-    const issueArtifacts = new IssueArtifactStore(join(stateDir(), 'artifacts'), {
-      readAsset: (i) => rpc.readAsset(i),
-      listDir: (i) => rpc.listDir(i),
-    })
+    const issueArtifacts = new IssueArtifactStore(
+      join(stateDir(), 'artifacts'),
+      {
+        readAsset: (i) => rpc.readAsset(i),
+        listDir: (i) => rpc.listDir(i),
+      },
+      portableStateFence,
+    )
     const issues = new IssueService({
       store: this.store,
       artifacts: issueArtifacts,

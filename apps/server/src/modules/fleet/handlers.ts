@@ -21,7 +21,7 @@ import { TRPCError } from '@trpc/server'
 import { attributionOf, onBehalfOfUser } from '../../command-principal'
 import type { Context } from '../../trpc'
 import { mods } from '../../trpc'
-import { fleetAuthzDeps, fleetUsePredicate } from './authz'
+import { fleetAuthzDeps, fleetAuthzFailure, fleetUsePredicate } from './authz'
 
 /** What the composition root supplies that core may not import for itself. */
 export interface FleetPorts {
@@ -184,8 +184,18 @@ export const machineRevokeHandler = ({ ctx, input }: FleetArgs<{ id: string }>) 
 export const machineTransferServerHandler = ({
   ctx,
   input,
-}: FleetArgs<{ targetMachineId: string; publicUrl: string; confirmation: true }>) =>
-  mods(ctx).serverTransfer.transfer(input)
+}: FleetArgs<{
+  targetMachineId: string
+  publicUrl: string
+  port?: number
+  confirmation: 'TRANSFER SERVER'
+}>) =>
+  mods(ctx).serverTransfer.transfer(input, {
+    reauthorize: () => {
+      const refusal = fleetAuthzFailure('machines.transferServer', input, fleetAuthzDeps(ctx))
+      if (refusal) throw refusal
+    },
+  })
 
 export const machinePairingCodeHandler = ({
   ctx,
