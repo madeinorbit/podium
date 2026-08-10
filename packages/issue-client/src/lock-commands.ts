@@ -61,12 +61,8 @@ function principalLine(p: {
   alive: boolean
   workspace?: string | null
 }): string {
-  const who =
-    p.sessionId != null && p.sessionId !== ''
-      ? `${p.sessionId} on ${p.label}`
-      : p.label
-  const ws =
-    p.workspace != null && p.workspace !== '' ? ` workspace ${p.workspace}` : ''
+  const who = p.sessionId != null && p.sessionId !== '' ? `${p.sessionId} on ${p.label}` : p.label
+  const ws = p.workspace != null && p.workspace !== '' ? ` workspace ${p.workspace}` : ''
   return `${who}${ws} [${p.alive ? 'alive' : 'dead'}]`
 }
 
@@ -79,9 +75,7 @@ function queueLine(w: QueueEntryWire): string {
 }
 
 function renderStatus(l: LockWire): string {
-  const queue = l.queue.length
-    ? `\nqueue:\n${l.queue.map((w) => queueLine(w)).join('\n')}`
-    : ''
+  const queue = l.queue.length ? `\nqueue:\n${l.queue.map((w) => queueLine(w)).join('\n')}` : ''
   return `'${l.name}' ${holderLine(l)} (acquired ${l.acquiredAt})${queue}`
 }
 
@@ -101,6 +95,28 @@ const ttlArg = { ttl: z.string().optional() }
 
 const ttlSeconds = (a: Record<string, unknown>): number | undefined =>
   a.ttl != null ? parseTtl(String(a.ttl)) : undefined
+
+/**
+ * Re-report a granted acquire as the first-time acquisition it is when the
+ * grant landed on the caller's OWN queue place, rather than as the same-session
+ * renew the server sees.
+ *
+ * The server cannot tell the two apart: `--wait` is a poll loop, so by the time
+ * the next round runs, advanceQueue has already made the waiter the holder and
+ * `acquire` can only report `alreadyHeld` [POD-675]. Callers read `alreadyHeld`
+ * as "another process of my session holds this" — a re-entry guard — and a
+ * queued grant mislabelled that way makes them refuse over, and then leak, the
+ * lease they were just handed. Only the wait loop knows it was queued, so only
+ * the wait loop can correct the label.
+ */
+export function asQueuedGrant(res: IssueCommandResult): IssueCommandResult {
+  const data = res.data as AcquireWire | undefined
+  if (data?.granted !== true || !data.alreadyHeld) return res
+  return {
+    text: `acquired '${data.lock.name}' (expires in ${fmtSeconds(data.lock.secondsLeft)})`,
+    data: { ...data, alreadyHeld: false },
+  }
+}
 
 /** The `podium lock` commands. `--wait`/`--timeout` on acquire are handled by the
  *  CLI dispatcher (a poll loop over this same acquire body), not here. */

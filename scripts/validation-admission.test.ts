@@ -16,12 +16,16 @@ afterEach(() => {
   for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true })
 })
 
+/** The acquire argv the wrapper builds, including its owner-pid lease stamp. */
+const acquireCall = (name: string, label: string): string =>
+  `lock acquire ${name} --ttl 30m --note ${label} [pid ${process.pid}] --allow-sibling --wait --json`
+
 function fakePodium(
   options: {
     alreadyHeld?: string
     failLock?: string
     blockLock?: string
-    statusLocks?: { name: string; sessionId?: string }[]
+    statusLocks?: { name: string; sessionId?: string; note?: string }[]
   } = {},
 ): {
   env: Record<string, string | undefined>
@@ -31,9 +35,10 @@ function fakePodium(
   tempDirs.push(dir)
   const log = join(dir, 'calls.log')
   const executable = join(dir, 'podium')
-  const status = (options.statusLocks ?? []).map(({ name, sessionId }) => ({
+  const status = (options.statusLocks ?? []).map(({ name, sessionId, note }) => ({
     name,
     secondsLeft: 60,
+    note: note ?? null,
     holder: { sessionId: sessionId ?? 'other-session' },
   }))
   writeFileSync(
@@ -68,6 +73,13 @@ fi
 }
 
 const calls = (log: string): string[] => readFileSync(log, 'utf8').trim().split('\n')
+
+/** A pid that is certainly gone — the stamp a wrapper that died leaves behind. */
+async function exitedPid(): Promise<number> {
+  const proc = Bun.spawn(['bash', '-c', 'exit 0'], { stdio: ['ignore', 'ignore', 'ignore'] })
+  await proc.exited
+  return proc.pid
+}
 
 describe('validation resource classes', () => {
   it('weights focused/watch as one permit and typecheck/heavy as the full budget', () => {
@@ -139,11 +151,12 @@ describe('runWithValidationAdmission', () => {
     ).resolves.toBe(0)
 
     expect(calls(log)).toEqual([
-      'lock acquire validation:admission --ttl 30m --note focused probe --allow-sibling --wait --json',
       'lock status --json',
-      'lock acquire test:heavy --ttl 30m --note focused probe --allow-sibling --wait --json',
+      acquireCall('validation:admission', 'focused probe'),
       'lock status --json',
-      'lock acquire validation:shared:1 --ttl 30m --note focused probe --allow-sibling --wait --json',
+      acquireCall('test:heavy', 'focused probe'),
+      'lock status --json',
+      acquireCall('validation:shared:1', 'focused probe'),
       'lock release test:heavy',
       'lock release validation:admission',
       'lock release validation:shared:1',
@@ -162,15 +175,13 @@ describe('runWithValidationAdmission', () => {
 
     expect(calls(log).filter((call) => call.startsWith('lock acquire validation:shared:'))).toEqual(
       [
-        'lock acquire validation:shared:1 --ttl 30m --note workspace typecheck --allow-sibling --wait --json',
-        'lock acquire validation:shared:2 --ttl 30m --note workspace typecheck --allow-sibling --wait --json',
+        acquireCall('validation:shared:1', 'workspace typecheck'),
+        acquireCall('validation:shared:2', 'workspace typecheck'),
       ],
     )
     const allCalls = calls(log)
     expect(allCalls.indexOf('lock release validation:admission')).toBeGreaterThan(
-      allCalls.indexOf(
-        'lock acquire validation:shared:2 --ttl 30m --note workspace typecheck --allow-sibling --wait --json',
-      ),
+      allCalls.indexOf(acquireCall('validation:shared:2', 'workspace typecheck')),
     )
   })
 
@@ -235,7 +246,11 @@ describe('runWithValidationAdmission', () => {
   })
 
   it('preserves an outer test:heavy hold and releases only leases it opened', async () => {
-    const { env, log } = fakePodium({ alreadyHeld: 'test:heavy' })
+    const { env, log } = fakePodium({
+      alreadyHeld: 'test:heavy',
+      // A manual hold carries no owner-pid stamp, so it is never reclaimed.
+      statusLocks: [{ name: 'test:heavy', sessionId: 'session-1', note: 'held by hand' }],
+    })
     await expect(
       runWithValidationAdmission('heavy', ['bash', '-c', 'exit 0'], {
         cwd: process.cwd(),
@@ -260,7 +275,8 @@ describe('runWithValidationAdmission', () => {
     ).resolves.toBe(1)
 
     expect(calls(log)).toEqual([
-      'lock acquire validation:admission --ttl 30m --note test:watch --allow-sibling --wait --json',
+      'lock status --json',
+      acquireCall('validation:admission', 'test:watch'),
       'lock status --json',
       'lock status --json',
       'lock release validation:admission',
@@ -273,11 +289,7 @@ describe('runWithValidationAdmission', () => {
     await expect(
       runWithValidationAdmission(
         'watch',
-        [
-          'bash',
-          '-c',
-          `test "$${VALIDATION_HELD_ENV}" = watch && test "$PODIUM_TEST_WORKERS" = 1`,
-        ],
+        ['bash', '-c', `test "$${VALIDATION_HELD_ENV}" = watch && test "$PODIUM_TEST_WORKERS" = 1`],
         { cwd: process.cwd(), env, label: 'direct watch' },
       ),
     ).resolves.toBe(0)
@@ -296,8 +308,96 @@ describe('runWithValidationAdmission', () => {
     ).resolves.toBe(1)
 
     expect(calls(log)).toEqual([
-      'lock acquire validation:admission --ttl 30m --note second probe --allow-sibling --wait --json',
       'lock status --json',
+      acquireCall('validation:admission', 'second probe'),
+      'lock status --json',
+      'lock release validation:admission',
+    ])
+  })
+
+  it('reclaims a lease stranded by a validation run that did not survive', async () => {
+    const dead = await exitedPid()
+    const { env, log } = fakePodium({
+      statusLocks: [
+        {
+          name: 'validation:admission',
+          sessionId: 'session-1',
+          note: `workspace typecheck [pid ${dead}]`,
+        },
+      ],
+    })
+    await expect(
+      runWithValidationAdmission('focused', ['bash', '-c', 'exit 0'], {
+        cwd: process.cwd(),
+        env,
+        label: 'after a lost run',
+      }),
+    ).resolves.toBe(0)
+
+    expect(calls(log).slice(0, 3)).toEqual([
+      'lock status --json',
+      'lock release validation:admission',
+      acquireCall('validation:admission', 'after a lost run'),
+    ])
+  })
+
+  it('refuses to a live sibling run without acquiring, so retries cannot renew its lease', async () => {
+    const { env, log } = fakePodium({
+      statusLocks: [
+        {
+          name: 'validation:admission',
+          sessionId: 'session-1',
+          note: `workspace typecheck [pid ${process.pid}]`,
+        },
+      ],
+    })
+    await expect(
+      runWithValidationAdmission('typecheck', ['bash', '-c', 'exit 0'], {
+        cwd: process.cwd(),
+        env,
+        label: 'overlapping typecheck',
+      }),
+    ).resolves.toBe(1)
+
+    // Deciding from `status` alone is the point: an acquire here would renew the
+    // very lease being refused over, and hold the queue behind it open.
+    expect(calls(log)).toEqual(['lock status --json'])
+  })
+
+  it('releases a gate it refuses over instead of stranding it for the lease TTL', async () => {
+    const { env, log } = fakePodium({ alreadyHeld: 'validation:admission' })
+    await expect(
+      runWithValidationAdmission('typecheck', ['bash', '-c', 'exit 0'], {
+        cwd: process.cwd(),
+        env,
+        label: 'unexpected hold',
+      }),
+    ).resolves.toBe(1)
+
+    expect(calls(log)).toEqual([
+      'lock status --json',
+      acquireCall('validation:admission', 'unexpected hold'),
+      'lock release validation:admission',
+    ])
+  })
+
+  it('releases a shared permit it refuses over, not just the gate', async () => {
+    // The refusal lives in the shared acquireOwned path, so every lease the
+    // wrapper takes can be stranded by it — POD-680 saw it on a permit as well
+    // as on the gate. Whatever a refusal took, the exit path gives back.
+    const { env, log } = fakePodium({ alreadyHeld: 'validation:shared:1' })
+    await expect(
+      runWithValidationAdmission('focused', ['bash', '-c', 'exit 0'], {
+        cwd: process.cwd(),
+        env,
+        label: 'unexpected permit',
+      }),
+    ).resolves.toBe(1)
+
+    expect(calls(log).slice(-4)).toEqual([
+      acquireCall('validation:shared:1', 'unexpected permit'),
+      'lock release validation:shared:1',
+      'lock release test:heavy',
       'lock release validation:admission',
     ])
   })

@@ -103,6 +103,22 @@ admission is blocked; timeout, interruption, and errors cancel the active waiter
 partial acquisition in reverse order. Runtime leases renew while the child runs, and every
 path releases only locks that invocation opened.
 
+A lease belongs to the session, which outlives the command that took it, so each wrapper
+stamps its own pid into the lock note (`… [pid 1234]`). Before it queues for the gate, a run
+settles what its session already holds: leases whose stamped process is gone are released and
+reclaimed — the automatic exit from a wrapper killed outright, or from an orphaned
+`lock acquire --wait` child granted after its parent died — and a lease whose process is still
+running is refused over *without* acquiring, because acquiring is also how you renew, and a
+refusal that renews starves everyone queued behind it for the full TTL [POD-675]. Unstamped
+notes are somebody else's (an outer manual hold) and are never reclaimed. No manual
+`podium lock release` is needed to recover: re-running the validation command *is* the
+recovery — an inversion worth knowing, because before this the retry was what made it worse.
+A refusal that re-acquired first had already renewed the lease it was refusing over, so a
+retry loop held a dead lease open indefinitely and the sessions queued behind it never
+advanced. Do not diagnose a strand from a stale expiry: a renew-on-refuse lease looks freshly
+taken while being dead. Whether the shared permits are held is the honest signal, and the
+owner pid in the note is the direct one.
+
 Root wrappers export `PODIUM_VALIDATION_RESOURCE_HELD`; Turbo passes it to package children
 through `globalPassThroughEnv`, so direct package scripts self-guard without nested
 acquisition or changing cache keys. An outer manually-held `test:heavy` remains caller-owned.
@@ -113,11 +129,14 @@ checkout's normal case, and the refusal names the session so you can coordinate;
 `--allow-sibling` only when serialized multi-session access is genuinely what you want.
 Re-acquiring your own held lock renews it rather than queueing.
 
-A hand-rolled Vitest or Playwright invocation that bypasses package scripts still skips admission and
-will race other heavy work — and it shares the fixed default port 8799 with any other
-Playwright run on the host (lease does not cover that). Prefer the package script when
-you can. One-suite verification belongs on the lane (POD-536) so build, selection,
-and exit status stay correct:
+A hand-rolled Vitest, Playwright, or `tsgo` invocation that bypasses package scripts still skips
+admission and will race other heavy work — a direct `bunx tsgo --noEmit` in a package takes no
+lease, which is why it stays available when the lease machinery itself is broken, and equally
+why it is not a way around a busy host: nothing is accounting for the compilers you start. A
+hand-rolled Playwright run also shares the fixed default port 8799 with any other Playwright
+run on the host (the lease does not cover that). Prefer the package script when you can.
+One-suite verification belongs on the lane (POD-536) so build, selection, and exit status
+stay correct:
 
     bun run test:browser -- --suite <stem> --project=chromium-pixel
 

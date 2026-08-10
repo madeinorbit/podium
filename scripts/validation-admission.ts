@@ -5,6 +5,14 @@ const SHARED_PERMITS = ['validation:shared:1', 'validation:shared:2'] as const
 const LEASE_TTL = '30m'
 const LEASE_RENEW_INTERVAL_MS = 10 * 60 * 1000
 
+/** Every lease this wrapper can be holding when a run ends, well or badly. */
+const VALIDATION_LEASES: readonly string[] = [
+  ADMISSION_LOCK,
+  HEAVY_TEST_LOCK,
+  WATCH_LOCK,
+  ...SHARED_PERMITS,
+]
+
 export const VALIDATION_HELD_ENV = 'PODIUM_VALIDATION_RESOURCE_HELD'
 
 export type ValidationClass = 'focused' | 'typecheck' | 'watch' | 'heavy'
@@ -21,6 +29,7 @@ export type ValidationProcessOptions = {
 type LockWire = {
   name: string
   secondsLeft?: number
+  note?: string | null
   holder?: { sessionId?: string | null }
 }
 
@@ -59,6 +68,34 @@ export function permitCount(validationClass: ValidationClass): number {
   return validationClass === 'focused' || validationClass === 'watch' ? 1 : 2
 }
 
+/**
+ * Stamp the owning process into the lease note.
+ *
+ * A lease belongs to the SESSION, which outlives any single validation command,
+ * so the note is the only thing that distinguishes "a run is holding this" from
+ * "a run died holding this" — the difference between waiting for it and
+ * reclaiming it [POD-675]. It is also what keeps an outer manual hold safe:
+ * unmarked notes are somebody else's and are never reclaimed.
+ */
+function leaseNote(options: ValidationProcessOptions): string {
+  return `${options.label ?? 'validation work'} [pid ${process.pid}]`
+}
+
+function leaseOwnerPid(note: string | null | undefined): number | null {
+  const match = /\[pid (\d+)\]$/.exec(note ?? '')
+  return match?.[1] == null ? null : Number(match[1])
+}
+
+/** EPERM is a live process under another uid; only ESRCH means it is gone. */
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+
 function spawnProcess(command: string[], options: ValidationProcessOptions) {
   return Bun.spawn(command, {
     cwd: options.cwd,
@@ -84,7 +121,7 @@ async function acquireLock(
     '--ttl',
     LEASE_TTL,
     '--note',
-    options.label ?? 'validation work',
+    leaseNote(options),
     '--allow-sibling',
     '--wait',
     '--json',
@@ -187,7 +224,7 @@ async function acquireOwned(
   options: ValidationProcessOptions,
   owned: string[],
   control: RunControl,
-  settings?: { allowAlreadyHeld?: boolean },
+  settings?: { allowAlreadyHeld?: boolean; heldBefore?: ReadonlySet<string> },
 ): Promise<{ exitCode: number; granted: boolean }> {
   const acquisition = await acquireLock(name, options, control)
   if (acquisition.exitCode !== 0) {
@@ -195,6 +232,12 @@ async function acquireOwned(
   }
   if (!acquisition.granted) return { exitCode: 0, granted: false }
   if (!acquisition.ownsLease && !settings?.allowAlreadyHeld) {
+    // Refusing is not a reason to walk away holding the lease. If the session
+    // did not hold it when this run looked, then this process is what made it
+    // ours — a `podium` predating POD-675 reports a grant off the wait queue as
+    // a same-session renew — so adopt it and let the exit path release it
+    // rather than strand it for the full TTL behind a starved queue.
+    if (settings?.heldBefore?.has(name) !== true) owned.push(name)
     console.error(
       `validation refused: this session already holds '${name}' without the explicit ` +
         `${VALIDATION_HELD_ENV} re-entry marker; do not overlap validation commands in one session`,
@@ -205,11 +248,60 @@ async function acquireOwned(
   return { exitCode: 0, granted: true }
 }
 
+/**
+ * Settle the leases this session already has before queueing for the gate.
+ *
+ * A lease outlives the command that took it, so a wrapper that died outright
+ * (SIGKILL, a lost host, an orphaned `lock acquire --wait` child granted after
+ * its parent was gone) leaves one held for the full TTL. The session then
+ * refuses its own next validation run, and — because acquiring is also how you
+ * renew — every retry pushes the expiry out again and keeps the queue behind it
+ * starved [POD-675]. So look before acquiring: reclaim what a dead run left,
+ * and refuse a live one without touching its lease.
+ *
+ * Only leases this wrapper stamped are ours to settle; an outer manual hold
+ * (`podium lock acquire test:heavy`) carries no owner marker and is left alone
+ * for the acquire path to reason about.
+ */
+async function settleSessionLeases(
+  status: LockWire[],
+  options: ValidationProcessOptions,
+): Promise<{ exitCode: number; heldBefore: Set<string> }> {
+  const sessionId = options.env?.PODIUM_SESSION_ID
+  const heldBefore = new Set<string>()
+  for (const lock of status) {
+    if (!VALIDATION_LEASES.includes(lock.name)) continue
+    if (lock.holder?.sessionId !== sessionId) continue
+    heldBefore.add(lock.name)
+    const pid = leaseOwnerPid(lock.note)
+    if (pid == null) continue
+    if (processAlive(pid)) {
+      console.error(
+        `validation refused: this session's validation run (pid ${pid}) still holds ` +
+          `'${lock.name}'; let it finish instead of overlapping validation commands`,
+      )
+      return { exitCode: 1, heldBefore }
+    }
+    const released = await runProcess(['podium', 'lock', 'release', lock.name], options)
+    if (released !== 0) {
+      console.error(
+        `validation refused: '${lock.name}' is stranded by a validation run that did not ` +
+          `survive (pid ${pid}) and could not be released; it expires within ${LEASE_TTL}`,
+      )
+      return { exitCode: released || 1, heldBefore }
+    }
+    heldBefore.delete(lock.name)
+    console.log(`reclaimed '${lock.name}' from a validation run that did not survive (pid ${pid})`)
+  }
+  return { exitCode: 0, heldBefore }
+}
+
 async function chooseSharedPermits(
   count: number,
   options: ValidationProcessOptions,
   owned: string[],
   control: RunControl,
+  heldBefore: ReadonlySet<string>,
 ): Promise<number> {
   const status = await lockStatus(options)
   if (status.exitCode !== 0) {
@@ -225,7 +317,7 @@ async function chooseSharedPermits(
     return (left?.secondsLeft ?? 0) - (right?.secondsLeft ?? 0)
   })
   for (const name of ordered.slice(0, count)) {
-    const acquisition = await acquireOwned(name, options, owned, control)
+    const acquisition = await acquireOwned(name, options, owned, control, { heldBefore })
     if (acquisition.exitCode !== 0) return acquisition.exitCode
     if (!acquisition.granted) return 1
   }
@@ -287,6 +379,10 @@ function startLeaseRenewal(
  * Focused tests consume one permit; typecheck and heavy lanes consume both. Watch
  * consumes one permit plus a singleton watch lease and refuses a second watcher.
  * Heavy lanes also retain `test:heavy` for compatibility with manual/older callers.
+ *
+ * Leases this session left behind are settled before the run queues for the gate
+ * (settleSessionLeases), so a wrapper that died holding one does not lock its own
+ * session out of validation for the rest of the TTL.
  */
 export async function runWithValidationAdmission(
   validationClass: ValidationClass,
@@ -338,7 +434,19 @@ async function runAdmitted(
   const owned: string[] = []
   let renewal: ReturnType<typeof startLeaseRenewal> | undefined
   try {
-    const gate = await acquireOwned(ADMISSION_LOCK, options, owned, control)
+    // Before queueing: a refusal decided from `status` costs the queue nothing,
+    // while one decided from `acquire` has already renewed the very lease it is
+    // refusing over [POD-675].
+    const preflight = await lockStatus(options)
+    if (preflight.exitCode !== 0) {
+      console.error("validation refused: could not inspect this session's validation leases")
+      return preflight.exitCode || 1
+    }
+    const settled = await settleSessionLeases(preflight.locks, options)
+    if (settled.exitCode !== 0) return settled.exitCode
+    const heldBefore = settled.heldBefore
+
+    const gate = await acquireOwned(ADMISSION_LOCK, options, owned, control, { heldBefore })
     if (gate.exitCode !== 0 || !gate.granted) {
       return (control.interruptedExitCode ?? gate.exitCode) || 1
     }
@@ -377,7 +485,7 @@ async function runAdmitted(
         )
         return 1
       }
-      const watch = await acquireOwned(WATCH_LOCK, options, owned, control)
+      const watch = await acquireOwned(WATCH_LOCK, options, owned, control, { heldBefore })
       if (watch.exitCode !== 0 || !watch.granted) {
         return (control.interruptedExitCode ?? watch.exitCode) || 1
       }
@@ -387,6 +495,7 @@ async function runAdmitted(
     // outer manual test:heavy hold by this session is valid and remains caller-owned.
     const heavy = await acquireOwned(HEAVY_TEST_LOCK, options, owned, control, {
       allowAlreadyHeld: true,
+      heldBefore,
     })
     if (heavy.exitCode !== 0 || !heavy.granted) {
       return (control.interruptedExitCode ?? heavy.exitCode) || 1
@@ -395,7 +504,13 @@ async function runAdmitted(
       return control.interruptedExitCode ?? 1
     }
 
-    const permits = await chooseSharedPermits(permitCount(validationClass), options, owned, control)
+    const permits = await chooseSharedPermits(
+      permitCount(validationClass),
+      options,
+      owned,
+      control,
+      heldBefore,
+    )
     if (permits !== 0) return control.interruptedExitCode ?? permits
     if (control.interruptedExitCode || renewal.failed()) return control.interruptedExitCode ?? 1
 

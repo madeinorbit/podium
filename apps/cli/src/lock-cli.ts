@@ -1,4 +1,5 @@
 import {
+  asQueuedGrant,
   type IssueTrpc,
   LOCK_COMMANDS,
   makeRelayIssueClient,
@@ -36,6 +37,11 @@ import { makeOperatorIssueClient } from './operator-client'
  *    cleaned up when the session itself exits (`releaseForSession`).
  * The old failure was dropping the place silently; the rule now is that
  * whoever stops waiting says so, to the server and to the caller.
+ *
+ * A grant that lands on a queue place is reported as an acquisition, not as
+ * the same-session renew the server necessarily sees (asQueuedGrant, POD-675):
+ * `alreadyHeld` is a re-entry signal for callers, and a waiter that queued for
+ * a lock did not already hold it.
  */
 
 /** Exit code for "acquire returned queued" (distinct from errors). */
@@ -228,7 +234,10 @@ async function leaveQueue(
     return { cancelled: true, granted: false }
   } catch {}
   try {
-    const settle = await runCommandOnce(cmd, client, validated)
+    // Only ever reached from inside the wait loop, i.e. after a queued round —
+    // so a grant here is this waiter's own queue place landing, not a
+    // pre-existing hold of the same session (asQueuedGrant).
+    const settle = asQueuedGrant(await runCommandOnce(cmd, client, validated))
     if ((settle.data as { granted?: boolean } | undefined)?.granted === true) {
       return { cancelled: false, granted: true, text: settle.text, data: settle.data }
     }
@@ -350,12 +359,19 @@ export async function runLockCli(
 
     let interval = baseInterval
     let opened = false
+    let wasQueued = false
     let lastPosition: number | null = null
     let narratedAt = started
     for (;;) {
-      const res = await runCommandOnce(cmd, client, validated)
+      // Once a round has come back queued, the lock is held by someone else, so
+      // any later grant is this waiter's queue place being advanced onto —
+      // never a hold the caller already had. The server reports that as a
+      // same-session renew; asQueuedGrant restores the caller's view of it.
+      const raw = await runCommandOnce(cmd, client, validated)
+      const res = wasQueued ? asQueuedGrant(raw) : raw
       const data = res.data as { granted?: boolean; position?: number } | undefined
       if (data?.granted === true) return { text: res.text, exitCode: 0, data: res.data }
+      wasQueued = true
       const position = typeof data?.position === 'number' ? data.position : null
       const waited = (): string => fmtDuration(Math.round((now() - started) / 1000))
       if (!opened) {
