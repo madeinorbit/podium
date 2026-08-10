@@ -45,7 +45,8 @@
   "scripts": {
     "typecheck": "bun ../../scripts/validation-admission.ts typecheck --label @podium/sync:typecheck -- tsgo --noEmit",
     "typecheck:tsc": "bun ../../scripts/validation-admission.ts typecheck --label @podium/sync:typecheck:tsc -- tsc --noEmit",
-    "test": "bun ../../scripts/validation-admission.ts focused --label @podium/sync:test -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests"
+    "test": "bun ../../scripts/validation-admission.ts focused --label @podium/sync:test -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests",
+    "test:perf:apply-scaling": "bun ../../scripts/validation-admission.ts heavy --label @podium/sync:test:perf -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.perf.config.ts"
   },
   "dependencies": {
     "@podium/commands": "workspace:*",

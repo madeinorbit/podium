@@ -34,6 +34,10 @@ export const normalizedWireTests = [
  */
 export const unitTestExclude = [
   ...nodeTestExclude,
+  // Performance evidence is opt-in. A benchmark may deliberately amplify a
+  // known cost curve and must never become a merge gate merely because its
+  // filename is also a valid Vitest test glob.
+  '**/*.bench.test.{ts,tsx}',
   'tests/e2e/**',
   '**/*e2e*.test.{ts,tsx}',
   '**/*.integration.*',

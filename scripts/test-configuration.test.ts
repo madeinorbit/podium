@@ -23,6 +23,7 @@ import { REUSE_GUARD_SETUP_FILE } from '../apps/server/vitest.shard'
 import serverStoreConfig from '../apps/server/vitest.store.config'
 import webConfig from '../apps/web/vitest.config'
 import frontendPerfConfig from '../apps/web/vitest.frontend-perf.config'
+import syncPerfConfig from '../packages/sync/vitest.perf.config'
 import phase3BrowserConfig from '../tests/e2e/.phase3-playwright.config'
 import browserConfig from '../tests/e2e/playwright.config'
 import acceptanceConfig from '../vitest.acceptance.config'
@@ -355,6 +356,29 @@ describe('test lane configuration', () => {
     expect(config(frontendPerfConfig).test?.retry).toBe(0)
     expect(config(frontendPerfConfig).test?.maxWorkers).toBe(1)
     expect(config(frontendPerfConfig).test?.fileParallelism).toBe(false)
+  })
+
+  it('keeps quadratic benchmarks out of the default gate and explicitly heavy', () => {
+    expect(nodeProject(unitConfig).test?.exclude).toContain('**/*.bench.test.{ts,tsx}')
+    expect(config(syncPerfConfig).test?.include).toEqual([
+      'packages/sync/src/adapters/indexeddb/apply-scaling.bench.test.ts',
+    ])
+    expect(config(syncPerfConfig).test?.retry).toBe(0)
+    expect(config(syncPerfConfig).test?.maxWorkers).toBe(1)
+    expect(config(syncPerfConfig).test?.fileParallelism).toBe(false)
+
+    const root = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+      scripts: Record<string, string>
+    }
+    const sync = JSON.parse(
+      readFileSync(new URL('../packages/sync/package.json', import.meta.url), 'utf8'),
+    ) as { scripts: Record<string, string> }
+    expect(root.scripts['test:perf:sync']).toBe(
+      'bun run --cwd packages/sync test:perf:apply-scaling',
+    )
+    expect(sync.scripts['test:perf:apply-scaling']).toContain(
+      'validation-admission.ts heavy',
+    )
   })
 
   it('routes the default unit lane through cached package tasks', () => {

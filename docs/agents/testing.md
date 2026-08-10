@@ -11,6 +11,7 @@ real processes, browsers, PTYs, or agent CLIs that cannot be safely hidden in a 
 | **Default package tests** | `bun run test` (`test:unit` is a compatibility alias) | 28 Turbo tasks covering every default file: one task per package with tests (scripts, desktop, web/mobile, the runtime Bun unit) plus `@podium/server`'s aggregate and its five cache shards | Cached; tasks serial, Vitest capped at 2 workers |
 | **Focused package probes** | `bun run test:web`, `bun run test:mobile`, `bun run test:cached` | One or both app package tasks | Cached; one shared host permit |
 | **Affected package tests** | `bun run test:affected` | Package tasks for changed packages and dependents | Refuses files no package task can cover |
+| **Sync scaling benchmark** | `bun run test:perf:sync` | Deliberately quadratic IndexedDB single-frame apply probe through 16,000 rows | Explicit heavy measurement; excluded from the default merge gate |
 | **Inner loop** | `bun run test:changed`, `test:related`, `test:watch` | Root `node` and `normalized-wire` projects selected by Vitest | One-shot runs use one permit; watch uses one worker and one singleton permit |
 | **Integration** | `bun run test:integration` | `vitest.integration.config.ts` plus acceptance: process/PTY/abduco/daemon suites, real-port boots, and loop-split load | Minutes; shared test lease |
 | **E2E** | `bun run test:e2e` | Full-stack server + daemon Vitest files under `tests/e2e/**` with `@podium/source` | Minutes; heavy; no browser |
@@ -25,6 +26,10 @@ The root process lanes remain explicit so a green unit cache cannot imply a gree
 browser, multi-instance, or real-agent run.
 `test:bun:unit` remains a compatibility probe for the runtime file; normal agents should use
 `bun run test` so that file is not run twice.
+Files named `*.bench.test.ts` are excluded from package-owned and root unit collection. A
+benchmark may intentionally amplify a known cost curve and is not merge-gate evidence merely
+because Vitest can collect it; give each benchmark an explicit performance lane with the host
+budget appropriate to its measured peak.
 The agent-smoke reporter prints ran-versus-skipped totals for each CLI. A CLI's
 viability case starts a real turn and resumes it with retained context; an
 installed but unauthenticated or broken binary runs and fails rather than being
