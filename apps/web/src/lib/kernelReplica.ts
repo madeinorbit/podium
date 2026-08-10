@@ -35,7 +35,6 @@ import {
 } from '@podium/client-core/engine'
 import { asClientPrincipal, type ClientPrincipal } from '@podium/client-core/principal'
 import {
-  type Replica as ClientReplica,
   createKernelReplica,
   createSideCache,
   FeedAuthorityClient,
@@ -43,7 +42,7 @@ import {
   PushedBootstrapSource,
   preparePrincipalNamespace,
 } from '@podium/client-core/replica'
-import type { FeedSinkPort, SocketHub } from '@podium/client-core/socket-transport'
+import type { FeedServerFrame, FeedSinkPort, SocketHub } from '@podium/client-core/socket-transport'
 import { actorUser, asUserId } from '@podium/model'
 import { type IdbFactoryLike, IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import {
@@ -107,6 +106,42 @@ export interface OpenKernelAssemblyOptions {
    * root derives multi-user evidence from existing principal namespace markers;
    * tests can inject unknown/foreign evidence to exercise fail-closed refusal. */
   readonly evidence: LegacyIdentityEvidence
+  /** Test seam for the browser's same-origin cross-tab channel. */
+  readonly broadcastChannelFactory?: (name: string) => KernelBroadcastChannel
+}
+
+export interface KernelBroadcastChannel {
+  onmessage: ((event: MessageEvent<unknown>) => void) | null
+  postMessage(message: unknown): void
+  close(): void
+}
+
+interface CrossTabFeedMessage {
+  readonly kind: 'podium-kernel-feed'
+  readonly version: 1
+  readonly principal: string
+  readonly frame: Extract<FeedServerFrame, { type: 'feedDelta' }>
+}
+
+const CROSS_TAB_SEEN_LIMIT = 512
+
+function crossTabFrameKey(frame: Extract<FeedServerFrame, { type: 'feedDelta' }>): string {
+  return `${frame.feedId}\0${frame.epoch}\0${frame.fromSeq}\0${frame.seq}`
+}
+
+function isCrossTabFeedMessage(value: unknown, principal: string): value is CrossTabFeedMessage {
+  if (value === null || typeof value !== 'object') return false
+  const message = value as Partial<CrossTabFeedMessage>
+  if (
+    message.kind !== 'podium-kernel-feed' ||
+    message.version !== 1 ||
+    message.principal !== principal ||
+    message.frame === null ||
+    typeof message.frame !== 'object'
+  ) {
+    return false
+  }
+  return message.frame.type === 'feedDelta'
 }
 
 /** What the app is owed about a migration that ran — see `summarizeMigrations`. */
@@ -222,9 +257,10 @@ export async function openKernelAssembly(
 ): Promise<KernelAssembly> {
   const { trpc } = options
   let unavailableCause: unknown
+  const databaseName = options.databaseName ?? KERNEL_REPLICA_DB
   const store = await IndexedDbSyncStore.open({
     factory: options.factory ?? (globalThis.indexedDB as unknown as IdbFactoryLike),
-    databaseName: options.databaseName ?? KERNEL_REPLICA_DB,
+    databaseName,
     onDegraded: (detail: unknown) => {
       // Recoverable corruption may cold-start in memory. An unavailable store
       // is captured here and rejected below; the supported private replica must
@@ -401,6 +437,51 @@ export async function openKernelAssembly(
   })
 
   const sink = new FeedSink({ replica: kernel, bootstraps })
+  const createBroadcastChannel =
+    options.broadcastChannelFactory ??
+    (typeof globalThis.BroadcastChannel === 'function'
+      ? (name: string) => new globalThis.BroadcastChannel(name)
+      : undefined)
+  const crossTab = createBroadcastChannel?.(`podium.kernel-replica.feed.v1:${databaseName}`)
+  const seenFrames = new Map<string, undefined>()
+  const remember = (key: string): boolean => {
+    if (seenFrames.has(key)) return false
+    seenFrames.set(key, undefined)
+    if (seenFrames.size > CROSS_TAB_SEEN_LIMIT) {
+      const oldest = seenFrames.keys().next().value
+      if (oldest !== undefined) seenFrames.delete(oldest)
+    }
+    return true
+  }
+  const relayFrame = (frame: FeedServerFrame, fromSocket: boolean): void => {
+    // Bootstrap and control frames belong to this exact socket's state-machine
+    // walk. Only ordered deltas are the shared client-install convergence path.
+    if (frame.type !== 'feedDelta') {
+      if (fromSocket) sink.frame(frame)
+      return
+    }
+    const key = crossTabFrameKey(frame)
+    if (!remember(key)) return
+    sink.frame(frame)
+    if (fromSocket) {
+      crossTab?.postMessage({
+        kind: 'podium-kernel-feed',
+        version: 1,
+        principal: options.principal,
+        frame,
+      } satisfies CrossTabFeedMessage)
+    }
+  }
+  if (crossTab !== undefined) {
+    crossTab.onmessage = (event) => {
+      if (isCrossTabFeedMessage(event.data, options.principal)) relayFrame(event.data.frame, false)
+    }
+  }
+  const feed: FeedSinkPort = {
+    connected: () => sink.connected(),
+    disconnected: () => sink.disconnected(),
+    frame: (frame) => relayFrame(frame, true),
+  }
 
   return {
     principal: asClientPrincipal(options.principal),
@@ -413,7 +494,7 @@ export async function openKernelAssembly(
       }
       return facade
     },
-    feed: sink,
+    feed,
     createOutboxFn,
     store,
     attachHub: (attached) => {
@@ -429,6 +510,7 @@ export async function openKernelAssembly(
       await store.erasePrincipal(options.principal)
     },
     dispose: async () => {
+      crossTab?.close()
       side.dispose()
       await store.settled()
       store.close()
