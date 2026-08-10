@@ -10,6 +10,7 @@ import type { CommandPrincipal } from '../../command-principal'
 export interface SessionIssueWorkflowPort {
   ensureWorktree(
     issueId: string,
+    machineId?: string,
   ): Promise<{ ok: boolean; output: string; worktreePath: string | null; issue: IssueWire }>
   freeWorktreeKeepBranch(
     issueId: string,

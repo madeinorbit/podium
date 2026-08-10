@@ -844,16 +844,26 @@ export class IssueGitWorkflowModule {
    */
   async ensureWorktree(
     id: string,
+    requestedMachineId?: string,
   ): Promise<{ ok: boolean; output: string; worktreePath: string | null; issue: IssueWire }> {
     const row = this.store.rowOrThrow(id)
-    const machineId = row.machineId ?? undefined
-    if (row.worktreePath) {
-      const st = await this.store.d.repoOp('status', row.worktreePath, undefined, machineId)
+    const machineId = requestedMachineId ?? row.machineId ?? undefined
+    const repoPath = this.repoPathOnMachine(row.repoPath, machineId)
+    // A worktree path is machine-local. It is reusable only when the issue is
+    // already homed on the requested machine AND its repository resolves to the
+    // same checkout there. Otherwise it is a stale source-machine path and the
+    // target must use its own canonical location.
+    const homeMatches =
+      requestedMachineId === undefined ||
+      (row.machineId === requestedMachineId && row.repoPath === repoPath)
+    const recordedWorktreePath = homeMatches ? row.worktreePath : null
+    if (recordedWorktreePath) {
+      const st = await this.store.d.repoOp('status', recordedWorktreePath, undefined, machineId)
       if (st.ok) {
         return {
           ok: true,
           output: 'worktree already present',
-          worktreePath: row.worktreePath,
+          worktreePath: recordedWorktreePath,
           issue: this.store.toWire(row),
         }
       }
@@ -863,7 +873,7 @@ export class IssueGitWorkflowModule {
         return {
           ok: false,
           output: `cannot inspect worktree: ${st.output}`,
-          worktreePath: row.worktreePath,
+          worktreePath: recordedWorktreePath,
           issue: this.store.toWire(row),
         }
       }
@@ -880,9 +890,8 @@ export class IssueGitWorkflowModule {
     // row.repoPath when the layouts differ (POD-1571). Resolve by identity first, then
     // guard — and run the recreate itself against the resolved path, since `git -C
     // <source path>` on the target names a directory that is not there.
-    const repoPath = this.repoPathOnMachine(row.repoPath, row.machineId)
-    const path = row.worktreePath ?? this.worktreePathFor(repoPath, row.branch)
-    if (row.machineId) this.store.d.requireMachineForRepo?.(row.machineId, repoPath)
+    const path = recordedWorktreePath ?? this.worktreePathFor(repoPath, row.branch)
+    if (machineId) this.store.d.requireMachineForRepo?.(machineId, repoPath)
     const res = await this.store.d.repoOp(
       'worktreeAddExisting',
       repoPath,
@@ -897,6 +906,8 @@ export class IssueGitWorkflowModule {
         issue: this.store.toWire(row),
       }
     }
+    row.repoPath = repoPath
+    if (requestedMachineId !== undefined) row.machineId = asMachineId(requestedMachineId)
     row.worktreePath = path
     this.store.persistRow(row)
     this.store.d.onWorktreesChanged?.(row.repoPath, row.machineId ?? undefined)

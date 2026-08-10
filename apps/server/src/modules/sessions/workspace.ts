@@ -514,19 +514,33 @@ export class SessionWorkspace {
     if (!issueId) return { ok: true, cwd: session.cwd }
     const issue = this.ports.issueAccess.getMeta(issueId)
     if (!issue) return { ok: true, cwd: session.cwd }
-    if (issue.worktreePath) return { ok: true, cwd: issue.worktreePath }
-    // No worktree recorded, but a branch is: rebuild it. This used to also require
-    // `session.stopReason`, which meant only a DELIBERATELY stopped session got its
-    // workspace back — one that crashed or was killed externally fell through to a
-    // cwd that is not there and spawned into it (POD-1704). How the process died
-    // says nothing about whether the directory exists, so it is not consulted.
+    // A recorded path is only valid on the machine that hosts its repository.
+    // Rows created before issue rehoming shipped can retain a source-machine cwd
+    // after their session moves. Trusting it makes Bun misleadingly report ENOENT
+    // against the executable (`posix_spawn '.../abduco'`) when the missing object
+    // is actually cwd.
     //
-    // Only this already-async branch widens. The common wake path (`worktreePath`
-    // recorded, just above) still returns synchronously, which POD-197 requires:
-    // `queueText` fire-and-forgets the resurrect and needs the spawn on the wire
-    // before it returns.
+    // Keep the normal recorded-worktree path synchronous (POD-197). Reconcile only
+    // when placement proves this is a cross-machine path: either the issue is homed
+    // elsewhere, or repo identity maps its stored source path to a different target
+    // checkout. The issue workflow then rebuilds and rehomes after git succeeds.
+    const assignedMachineId = session.machineId
+    const issueMachineId = issue.machineId ?? undefined
+    const machineMoved = Boolean(
+      assignedMachineId && issueMachineId && assignedMachineId !== issueMachineId,
+    )
+    const targetRepoPath =
+      !machineMoved && assignedMachineId && issueMachineId && issue.repoPath
+        ? this.findRepoOnMachine(issue.repoPath, assignedMachineId)
+        : null
+    const repoPathMoved = Boolean(targetRepoPath && targetRepoPath !== issue.repoPath)
+    const requestedMachineId = machineMoved || repoPathMoved ? assignedMachineId : undefined
+    if (issue.worktreePath && !requestedMachineId) return { ok: true, cwd: issue.worktreePath }
     if (!issue.branch) return { ok: true, cwd: session.cwd }
-    return issues.ensureWorktree(issueId).then((recreated) => {
+    const ensured = requestedMachineId
+      ? issues.ensureWorktree(issueId, requestedMachineId)
+      : issues.ensureWorktree(issueId)
+    return ensured.then((recreated) => {
       if (!recreated.ok || !recreated.worktreePath) {
         return {
           ok: false,

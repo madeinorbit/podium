@@ -298,7 +298,13 @@ export class SessionRevival {
     // The common hibernate→wake path resolves synchronously, and the spawn
     // must too: queueText fire-and-forgets this call and its callers rely on
     // the spawn being on the wire before queueText returns [POD-197].
-    const ensured = this.ports.workspace.ensureSessionWorktree(session, issues)
+    // Handoff already imported the source workspace and set session.cwd to the
+    // target path. The issue is deliberately rehomed only after this spawn
+    // succeeds, so consulting its still-source-machine worktree here would
+    // mistake the ordered handoff transition for stale resume state.
+    const ensured = adoptedBinding
+      ? { ok: true, cwd: session.cwd }
+      : this.ports.workspace.ensureSessionWorktree(session, issues)
     if (ensured instanceof Promise) {
       return ensured.then((e) => this.finishResurrect(session, e, adoptedBinding))
     }
