@@ -1011,30 +1011,34 @@ async function acknowledge(
   msg: Extract<ControlMessage, { type: 'serverTransferAcknowledgeRequest' }>,
 ): Promise<ServerTransferResultMessage> {
   await acquireLock(msg.transferId)
-  const meta = await readRequestMeta(msg.transferId)
-  if (meta.manifestDigest !== msg.manifestDigest)
-    fail('conflicting-digest', 'acknowledgement manifest digest does not own this transfer')
-  if (meta.targetMachineId !== ctx.machineId)
-    fail('identity-mismatch', 'transfer target identity changed')
-  if (meta.state !== 'promoted' || !meta.servingProof)
-    fail('refused', 'only a promoted transfer with durable serving proof can be acknowledged')
-  if (!ctx.retireAfterTransfer) fail('refused', 'target daemon has no retirement callback')
+  try {
+    const meta = await readRequestMeta(msg.transferId)
+    if (meta.manifestDigest !== msg.manifestDigest)
+      fail('conflicting-digest', 'acknowledgement manifest digest does not own this transfer')
+    if (meta.targetMachineId !== ctx.machineId)
+      fail('identity-mismatch', 'transfer target identity changed')
+    if (meta.state !== 'promoted' || !meta.servingProof)
+      fail('refused', 'only a promoted transfer with durable serving proof can be acknowledged')
+    if (!ctx.retireAfterTransfer) fail('refused', 'target daemon has no retirement callback')
 
-  const idempotent = meta.acknowledged === true
-  if (!idempotent) {
-    meta.acknowledged = true
-    await writeJson(metaPath(msg.transferId), meta)
+    const idempotent = meta.acknowledged === true
+    if (!idempotent) {
+      meta.acknowledged = true
+      await writeJson(metaPath(msg.transferId), meta)
+    }
+    return result(msg.requestId, msg.transferId, 'acknowledge', {
+      ok: true,
+      state: 'promoted',
+      manifestDigest: meta.manifestDigest,
+      publicUrl: meta.publicUrl,
+      proof: meta.proof,
+      servingProof: meta.servingProof,
+      acknowledged: true,
+      idempotent,
+    })
+  } finally {
+    await releaseLock(msg.transferId)
   }
-  return result(msg.requestId, msg.transferId, 'acknowledge', {
-    ok: true,
-    state: 'promoted',
-    manifestDigest: meta.manifestDigest,
-    publicUrl: meta.publicUrl,
-    proof: meta.proof,
-    servingProof: meta.servingProof,
-    acknowledged: true,
-    idempotent,
-  })
 }
 
 async function status(
