@@ -2,7 +2,7 @@ import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
 import type { MachineWire, UpdateChannel } from '@podium/model'
 import type { JSX } from 'react'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { type Store, useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import {
@@ -27,6 +27,225 @@ import { NetworkStep } from '@/features/setup/SetupView'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { cn } from '@/lib/utils'
 import { machineNeedsUpdate, useServerAppVersion } from '@/lib/version-skew'
+
+const SERVER_TRANSFER_PHASES = [
+  { key: 'preparing', label: 'Preparing' },
+  { key: 'copying', label: 'Copying' },
+  { key: 'validating', label: 'Validating' },
+  { key: 'switching', label: 'Switching' },
+  { key: 'connected', label: 'Connected' },
+] as const
+
+type ServerTransferPhase = (typeof SERVER_TRANSFER_PHASES)[number]['key']
+type ServerTransferDisplayState = ServerTransferPhase | 'aborted' | 'commit-uncertain'
+
+function transferPhaseIndex(state: ServerTransferDisplayState): number {
+  return SERVER_TRANSFER_PHASES.findIndex((phase) => phase.key === state)
+}
+
+/**
+ * The progress vocabulary is intentionally UI-sized rather than a restatement of
+ * every journal vertex. In particular, source-fenced/committing both render as
+ * Switching and only a proof-backed committed status renders Connected.
+ */
+export function ServerTransferProgress({
+  state,
+  targetName,
+  detail,
+}: {
+  state: ServerTransferDisplayState
+  targetName: string
+  detail?: string
+}): JSX.Element {
+  const current = transferPhaseIndex(state)
+
+  if (state === 'commit-uncertain') {
+    return (
+      <div
+        className="space-y-1 rounded-md border border-warning/40 bg-warning/10 px-3 py-2"
+        role="alert"
+      >
+        <p className="settings-label text-warning">Connection could not be confirmed</p>
+        <p className="settings-prose">
+          {detail ??
+            `${targetName} may already be serving. Keep the old server stopped, check the target, and do not retry the transfer.`}
+        </p>
+      </div>
+    )
+  }
+
+  if (state === 'aborted') {
+    return (
+      <div className="space-y-1 rounded-md border border-destructive/30 px-3 py-2" role="alert">
+        <p className="settings-label text-destructive">Transfer stopped safely</p>
+        <p className="settings-prose">
+          {detail ??
+            `The current server is still active. Resolve the reported problem before trying ${targetName} again.`}
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-2" role="status" aria-live="polite">
+      <ol
+        className="grid grid-cols-5 gap-1"
+        aria-label={`Server transfer progress for ${targetName}`}
+      >
+        {SERVER_TRANSFER_PHASES.map((phase, index) => {
+          const complete = index < current || state === 'connected'
+          const active = index === current
+          return (
+            <li
+              key={phase.key}
+              className={cn(
+                'rounded border px-1.5 py-2 text-center text-[11px]',
+                complete && 'border-success/30 bg-success/5 text-foreground',
+                active && state !== 'connected' && 'border-primary/40 bg-primary/5 text-foreground',
+                !complete && !active && 'border-border text-muted-foreground',
+              )}
+              aria-current={active ? 'step' : undefined}
+              data-transfer-phase={phase.key}
+              data-transfer-state={complete ? 'complete' : active ? 'active' : 'pending'}
+            >
+              {phase.label}
+            </li>
+          )
+        })}
+      </ol>
+      <p className="settings-prose">
+        {state === 'connected'
+          ? `${targetName} proved it is serving and the previous server reconnected as a daemon.`
+          : `${SERVER_TRANSFER_PHASES[current]?.label ?? 'Preparing'} server transfer…`}
+      </p>
+    </div>
+  )
+}
+
+export const SERVER_TRANSFER_CONFIRMATION = 'TRANSFER SERVER'
+
+type ServerTransferJournalState =
+  | 'preparing'
+  | 'staged'
+  | 'validated'
+  | 'source-fenced'
+  | 'committing'
+  | 'committed'
+  | 'aborted'
+  | 'commit-uncertain'
+
+export interface ServerTransferStatusSnapshot {
+  sourceMachineId: string
+  targetEligibility: Array<{
+    targetMachineId: string
+    eligible: boolean
+    reason?: string
+  }>
+  transfer: {
+    targetMachineId: string
+    state: ServerTransferJournalState
+    transferId: string
+    publicUrl: string
+    sourceFenced: boolean
+    targetProof: boolean
+    sourceConnected: boolean
+    error?: { code: string; message: string }
+    cleanup?: { result: 'cleaned' | 'pending'; detail?: string }
+  } | null
+}
+
+interface ServerTransferStatusProcedure {
+  query(): Promise<ServerTransferStatusSnapshot>
+}
+
+/**
+ * Temporary single lookup seam for the coordinator-owned procedure. Keeping the
+ * placeholder here means POD-1749 can replace it with direct generated access
+ * without changing the polling or rendering logic.
+ */
+function serverTransferStatusProcedure(trpc: Store['trpc']): ServerTransferStatusProcedure {
+  const procedure: ServerTransferStatusProcedure = Reflect.get(
+    trpc.machines,
+    'serverTransferStatus',
+  )
+  return procedure
+}
+
+interface ServerTransferMutationProcedure {
+  mutate(input: {
+    targetMachineId: string
+    publicUrl: string
+    confirmation: typeof SERVER_TRANSFER_CONFIRMATION
+  }): Promise<unknown>
+}
+
+function serverTransferMutationProcedure(trpc: Store['trpc']): ServerTransferMutationProcedure {
+  const procedureName: string = 'transferServer'
+  const procedure: ServerTransferMutationProcedure = Reflect.get(trpc.machines, procedureName)
+  return procedure
+}
+
+function useServerTransferStatus(trpc: Store['trpc']): {
+  snapshot: ServerTransferStatusSnapshot | null
+  error: string | null
+  refresh: () => Promise<ServerTransferStatusSnapshot | null>
+} {
+  const [snapshot, setSnapshot] = useState<ServerTransferStatusSnapshot | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const refresh = useCallback(async (): Promise<ServerTransferStatusSnapshot | null> => {
+    try {
+      const next = await serverTransferStatusProcedure(trpc).query()
+      setSnapshot(next)
+      setError(null)
+      return next
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+      return null
+    }
+  }, [trpc])
+
+  useEffect(() => {
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+
+    const poll = async (): Promise<void> => {
+      await refresh()
+      if (!cancelled) timer = setTimeout(() => void poll(), 1_000)
+    }
+    void poll()
+
+    return () => {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+    }
+  }, [refresh])
+
+  return { snapshot, error, refresh }
+}
+
+function transferDisplayState(
+  transfer: ServerTransferStatusSnapshot['transfer'],
+): ServerTransferDisplayState | null {
+  if (!transfer) return null
+  switch (transfer.state) {
+    case 'preparing':
+      return 'preparing'
+    case 'staged':
+      return 'copying'
+    case 'validated':
+      return 'validating'
+    case 'source-fenced':
+    case 'committing':
+      return 'switching'
+    case 'committed':
+      return transfer.targetProof && transfer.sourceConnected ? 'connected' : 'switching'
+    case 'aborted':
+      return 'aborted'
+    case 'commit-uncertain':
+      return 'commit-uncertain'
+  }
+}
 
 /**
  * Settings → Machines panel.
@@ -62,10 +281,20 @@ export function MachinesPanel(): JSX.Element {
   // The server's own build version — the reference each daemon's reported version is
   // compared against for the "update available" badge [POD-838].
   const serverAppVersion = useServerAppVersion(trpc)
+  const transferStatus = useServerTransferStatus(trpc)
+  const eligibleTransferTargets = new Set(
+    transferStatus.snapshot?.targetEligibility
+      .filter((target) => target.eligible)
+      .map((target) => target.targetMachineId) ?? [],
+  )
+  const activeTransferMachine =
+    machines.find((machine) => machine.id === transferStatus.snapshot?.transfer?.targetMachineId) ??
+    null
+  const sourceMachine =
+    machines.find((machine) => machine.id === transferStatus.snapshot?.sourceMachineId) ?? null
   const newlyPairedMachine = makeServerAfterPair
     ? (machines.find(
-        (machine) =>
-          !pairingBaselineIds.has(machine.id) && machine.online && machine.owned === true,
+        (machine) => !pairingBaselineIds.has(machine.id) && eligibleTransferTargets.has(machine.id),
       ) ?? null)
     : null
 
@@ -190,6 +419,10 @@ export function MachinesPanel(): JSX.Element {
         {serverTransferTarget && (
           <ServerTransferDialog
             machine={serverTransferTarget}
+            sourceName={sourceMachine?.name ?? 'the current server'}
+            status={transferStatus.snapshot}
+            statusError={transferStatus.error}
+            refreshStatus={transferStatus.refresh}
             trpc={trpc}
             open
             onOpenChange={(open) => {
@@ -200,6 +433,25 @@ export function MachinesPanel(): JSX.Element {
       </div>
 
       {hosting && !alreadyPaired && <HostThisDeviceCard hosting={hosting} />}
+
+      {activeTransferMachine && !serverTransferTarget && (
+        <div className="mb-3 flex items-center gap-3 rounded-md border border-border px-3 py-2">
+          <ServerTransferProgress
+            state={transferDisplayState(transferStatus.snapshot?.transfer ?? null) ?? 'preparing'}
+            targetName={activeTransferMachine.name}
+            detail={transferStatus.snapshot?.transfer?.error?.message}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="flex-none"
+            onClick={() => setServerTransferTarget(activeTransferMachine)}
+          >
+            View transfer
+          </Button>
+        </div>
+      )}
 
       {machines.length === 0 ? (
         <p className="settings-prose py-2">
@@ -215,7 +467,7 @@ export function MachinesPanel(): JSX.Element {
               trpc={trpc}
               isThisMachine={m.id === thisMachineId}
               onTransferServer={
-                m.online && m.id !== thisMachineId ? () => setServerTransferTarget(m) : null
+                eligibleTransferTargets.has(m.id) ? () => setServerTransferTarget(m) : null
               }
               // Inline "Enable": only on this device's own row, only while it is offline
               // (online means the daemon is already running) [spec:SP-3701].
@@ -412,8 +664,8 @@ function PairingCodeDisplay({
           <span className="flex flex-col gap-0.5">
             <span className="text-foreground">Recommended: make this the server</span>
             <span className="text-[11px] text-muted-foreground">
-              For a Mac all-in-one, pair a VPS first, then review moving the server and its portable
-              state to it.
+              If this is an always-on VPS, make it the server. Your current machine keeps its agent
+              sessions but stops hosting the shared Podium state.
             </span>
           </span>
         </label>
@@ -424,8 +676,8 @@ function PairingCodeDisplay({
           role="status"
         >
           <span className="min-w-0 flex-1 text-muted-foreground">
-            <strong className="text-foreground">{pairedMachine.name}</strong> is online and ready to
-            review as the server.
+            <strong className="text-foreground">{pairedMachine.name}</strong> is paired, and the
+            server reports it is ready for transfer review.
           </span>
           <Button type="button" size="sm" className="flex-none" onClick={onReviewPairedMachine}>
             Review transfer
@@ -464,174 +716,155 @@ function PairingCodeDisplay({
 
 function ServerTransferDialog({
   machine,
+  sourceName,
+  status,
+  statusError,
+  refreshStatus,
   trpc,
   open,
   onOpenChange,
 }: {
   machine: MachineWire
+  sourceName: string
+  status: ServerTransferStatusSnapshot | null
+  statusError: string | null
+  refreshStatus: () => Promise<ServerTransferStatusSnapshot | null>
   trpc: Store['trpc']
   open?: boolean
   onOpenChange?: (open: boolean) => void
 }): JSX.Element {
   const [internalOpen, setInternalOpen] = useState(false)
   const [publicUrl, setPublicUrl] = useState('')
-  const [loadingInfo, setLoadingInfo] = useState(false)
-  const [transferring, setTransferring] = useState(false)
-  const [confirmName, setConfirmName] = useState('')
+  const [confirmation, setConfirmation] = useState('')
+  const [awaitingStatus, setAwaitingStatus] = useState(false)
   const [transferError, setTransferError] = useState<string | null>(null)
-  const [outcome, setOutcome] = useState<'committed' | 'uncertain' | null>(null)
   const isOpen = open ?? internalOpen
+  const transfer = status?.transfer?.targetMachineId === machine.id ? status.transfer : null
+  const displayState = transferDisplayState(transfer)
 
   useEffect(() => {
-    if (!isOpen) return
-    let cancelled = false
+    if (!isOpen || transfer) return
+    setPublicUrl('')
+    setConfirmation('')
+    setAwaitingStatus(false)
     setTransferError(null)
-    setOutcome(null)
-    setConfirmName('')
-    setLoadingInfo(true)
-    void trpc.setup.info
-      .query()
-      .then((info) => {
-        if (!cancelled) setPublicUrl(info.publicUrl ?? '')
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setPublicUrl('')
-          setTransferError(error instanceof Error ? error.message : String(error))
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingInfo(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [isOpen, trpc])
+  }, [isOpen, transfer])
 
   const setDialogOpen = (next: boolean): void => {
     if (onOpenChange) onOpenChange(next)
     else setInternalOpen(next)
   }
 
-  const transfer = async (): Promise<void> => {
+  const urlIsValid = (() => {
+    try {
+      const parsed = new URL(publicUrl.trim())
+      return (parsed.protocol === 'http:' || parsed.protocol === 'https:') && parsed.host !== ''
+    } catch {
+      return false
+    }
+  })()
+
+  const startTransfer = async (): Promise<void> => {
     const url = publicUrl.trim()
-    if (!url || confirmName.trim() !== machine.name) return
-    setTransferring(true)
+    if (!urlIsValid || confirmation !== SERVER_TRANSFER_CONFIRMATION) return
+    setAwaitingStatus(true)
     setTransferError(null)
     try {
-      const result = await trpc.machines.transferServer.mutate({
+      await serverTransferMutationProcedure(trpc).mutate({
         targetMachineId: machine.id,
         publicUrl: url,
-        confirmation: true,
+        confirmation: SERVER_TRANSFER_CONFIRMATION,
       })
-      const reply = result as { state?: string; error?: string }
-      if (reply.state === 'committed') {
-        setOutcome('committed')
-        setConfirmName('')
-      } else {
-        setOutcome('uncertain')
-        setTransferError(
-          reply.error ??
-            'The target did not prove promotion. Do not retry until the target is inspected.',
-        )
+      // The mutation response is only an acknowledgement. Connected is rendered
+      // exclusively from the read-only status proof polled by the parent.
+      await refreshStatus()
+    } catch (cause) {
+      const latest = await refreshStatus()
+      const durable = latest?.transfer?.targetMachineId === machine.id ? latest.transfer : null
+      if (!durable) {
+        setAwaitingStatus(false)
+        setTransferError(cause instanceof Error ? cause.message : String(cause))
       }
-    } catch (error) {
-      setTransferError(error instanceof Error ? error.message : String(error))
-    } finally {
-      setTransferring(false)
     }
   }
 
   return (
     <Dialog open={isOpen} onOpenChange={setDialogOpen}>
-      {open === undefined && (
-        <DialogTrigger
-          render={
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="flex-none"
-              disabled={!machine.online || machine.owned !== true}
-            />
-          }
-        >
-          Make server
-        </DialogTrigger>
-      )}
       <DialogContent showCloseButton className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Make {machine.name} the server?</DialogTitle>
+          <DialogTitle>
+            Move the server from {sourceName} to {machine.name}?
+          </DialogTitle>
           <DialogDescription>
-            Podium copies only portable server state to this machine. It stays a daemon until every
-            file validates; the current server remains in place if staging fails. Promotion can only
-            finish after the target proves it became the server.
+            Portable shared state moves to {machine.name}; repositories, native credentials, and
+            running sessions stay on their machines. {sourceName} remains the server until the copy
+            validates, then reconnects to the new public URL as a daemon.
           </DialogDescription>
         </DialogHeader>
-        {outcome === 'committed' ? (
-          <p
-            className="rounded-md border border-success/30 bg-success/5 px-3 py-2 text-[12px]"
-            role="status"
-          >
-            Transfer committed. {machine.name} is taking over and this server will reconnect as a
-            daemon.
-          </p>
+
+        {displayState || awaitingStatus ? (
+          <ServerTransferProgress
+            state={displayState ?? 'preparing'}
+            targetName={machine.name}
+            detail={transfer?.error?.message}
+          />
         ) : (
           <div className="flex flex-col gap-3 text-[13px]">
             <label htmlFor="server-transfer-url" className="flex flex-col gap-1">
-              <span className="text-muted-foreground">Reachable server URL</span>
+              <span className="text-muted-foreground">New public URL</span>
               <Input
                 id="server-transfer-url"
                 value={publicUrl}
-                disabled={transferring || loadingInfo}
                 onChange={(event) => setPublicUrl(event.currentTarget.value)}
-                aria-label="Reachable server URL"
+                aria-label="New public URL"
                 placeholder="https://podium.example.com"
+                autoComplete="url"
               />
               <span className="text-[11px] text-muted-foreground">
-                Keep this stable URL if clients should reconnect without another setup.
+                Podium clients will reconnect to this HTTP(S) address after the target proves it is
+                serving.
               </span>
             </label>
-            <label htmlFor="server-transfer-name" className="flex flex-col gap-1">
+            <label htmlFor="server-transfer-confirmation" className="flex flex-col gap-1">
               <span className="text-muted-foreground">
-                Type <strong>{machine.name}</strong> to confirm
+                Type <strong>{SERVER_TRANSFER_CONFIRMATION}</strong> to confirm
               </span>
               <Input
-                id="server-transfer-name"
-                value={confirmName}
-                disabled={transferring}
-                onChange={(event) => setConfirmName(event.currentTarget.value)}
-                aria-label="Type the target machine name to confirm"
+                id="server-transfer-confirmation"
+                value={confirmation}
+                onChange={(event) => setConfirmation(event.currentTarget.value)}
+                aria-label="Server transfer confirmation"
+                autoComplete="off"
               />
             </label>
-            {transferError && (
-              <p className="text-destructive text-[12px]" role="alert">
-                {transferError}
+            {publicUrl.trim() !== '' && !urlIsValid && (
+              <p className="settings-prose text-destructive" role="alert">
+                Enter a complete HTTP or HTTPS public URL.
+              </p>
+            )}
+            {(transferError || statusError) && (
+              <p className="settings-prose text-destructive" role="alert">
+                {transferError ?? statusError}
               </p>
             )}
           </div>
         )}
-        {outcome === 'uncertain' && (
-          <p className="text-[12px] text-warning">
-            The source has stopped before it could prove the final handoff. Inspect the target and
-            transfer journal before retrying.
-          </p>
-        )}
+
         <DialogFooter showCloseButton>
-          {outcome !== 'committed' && (
+          {!displayState && !awaitingStatus && (
             <Button
               type="button"
               variant="default"
               size="sm"
-              disabled={
-                transferring ||
-                loadingInfo ||
-                publicUrl.trim() === '' ||
-                confirmName.trim() !== machine.name
-              }
-              onClick={() => void transfer()}
+              disabled={!urlIsValid || confirmation !== SERVER_TRANSFER_CONFIRMATION}
+              onClick={() => void startTransfer()}
             >
-              {transferring ? 'Transferring...' : 'Transfer server'}
+              Transfer server
+            </Button>
+          )}
+          {displayState === 'commit-uncertain' && (
+            <Button type="button" variant="outline" size="sm" onClick={() => void refreshStatus()}>
+              Check target
             </Button>
           )}
         </DialogFooter>
@@ -877,7 +1110,7 @@ function MachineRow({
         </>
       )}
 
-      {onTransferServer && machine.owned === true && (
+      {onTransferServer && (
         <Button
           type="button"
           variant="outline"

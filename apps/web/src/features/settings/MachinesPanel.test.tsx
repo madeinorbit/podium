@@ -23,7 +23,12 @@ vi.mock('@/app/store', () => ({
 vi.mock('@/features/setup/SetupView', () => ({ NetworkStep: () => null }))
 vi.mock('@/features/setup/RepoScanFlow', () => ({ RepoScanFlow: () => null }))
 
-import { MachinesPanel } from './MachinesPanel'
+import {
+  MachinesPanel,
+  SERVER_TRANSFER_CONFIRMATION,
+  ServerTransferProgress,
+  type ServerTransferStatusSnapshot,
+} from './MachinesPanel'
 
 afterEach(() => {
   cleanup()
@@ -367,43 +372,96 @@ describe('MachinesPanel ownership transfer', () => {
 })
 
 describe('MachinesPanel server transfer', () => {
-  function setServerTransferTrpc(transferMutate: () => Promise<unknown>) {
+  function status(
+    overrides: Partial<ServerTransferStatusSnapshot> = {},
+  ): ServerTransferStatusSnapshot {
+    return {
+      sourceMachineId: 'source',
+      targetEligibility: [{ targetMachineId: 'target', eligible: true }],
+      transfer: null,
+      ...overrides,
+    }
+  }
+
+  function transferStatus(
+    state: NonNullable<ServerTransferStatusSnapshot['transfer']>['state'],
+    overrides: Partial<NonNullable<ServerTransferStatusSnapshot['transfer']>> = {},
+  ): NonNullable<ServerTransferStatusSnapshot['transfer']> {
+    return {
+      targetMachineId: 'target',
+      state,
+      sourceFenced: false,
+      targetProof: false,
+      transferId: 'transfer-1',
+      publicUrl: 'https://new-podium.example.com',
+      sourceConnected: false,
+      ...overrides,
+    }
+  }
+
+  function setServerTransferTrpc(
+    transferMutate: () => Promise<unknown>,
+    statusQuery = vi.fn().mockResolvedValue(status()),
+  ) {
     storeState.trpc = {
       machines: {
         pairingCode: { mutate: vi.fn().mockResolvedValue({ code: 'CODE', joinCommand: 'join' }) },
         transferServer: { mutate: transferMutate },
+        serverTransferStatus: { query: statusQuery },
       },
       setup: {
-        info: { query: vi.fn().mockResolvedValue({ publicUrl: 'https://podium.example.com' }) },
+        info: { query: vi.fn().mockResolvedValue({ publicUrl: 'https://source.example.com' }) },
       },
     } as unknown as Store['trpc']
+    return statusQuery
   }
 
-  it('offers Make server only for an owned online target', () => {
+  it('renders Make server only from server-computed eligibility', async () => {
     storeState.machines = [
-      machine({ id: asMachineId('target'), name: 'vps', online: true, owned: true }),
-      machine({ id: asMachineId('other'), name: 'shared', online: true, owned: false }),
+      machine({ id: asMachineId('target'), name: 'vps', online: false, owned: false }),
+      machine({ id: asMachineId('other'), name: 'owned laptop', online: true, owned: true }),
     ]
-    setServerTransferTrpc(vi.fn())
+    setServerTransferTrpc(
+      vi.fn(),
+      vi.fn().mockResolvedValue(
+        status({
+          targetEligibility: [
+            { targetMachineId: 'target', eligible: true },
+            { targetMachineId: 'other', eligible: false, reason: 'current server' },
+          ],
+        }),
+      ),
+    )
     render(<MachinesPanel />)
 
-    expect(screen.getAllByRole('button', { name: 'Make server' })).toHaveLength(1)
+    expect(await screen.findAllByRole('button', { name: 'Make server' })).toHaveLength(1)
   })
 
-  it('requires the target name and passes the stable URL to the transfer command', async () => {
+  it('requires a new public URL and the exact confirmation phrase', async () => {
     const transferMutate = vi.fn().mockResolvedValue({ state: 'committed' })
+    const statusQuery = vi
+      .fn()
+      .mockResolvedValueOnce(status())
+      .mockResolvedValue(status({ transfer: transferStatus('preparing') }))
     storeState.machines = [
-      machine({ id: asMachineId('target'), name: 'vps', online: true, owned: true }),
+      machine({ id: asMachineId('source'), name: 'laptop', online: true }),
+      machine({ id: asMachineId('target'), name: 'vps', online: true }),
     ]
-    setServerTransferTrpc(transferMutate)
+    setServerTransferTrpc(transferMutate, statusQuery)
     render(<MachinesPanel />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Make server' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Make server' }))
     const confirm = await screen.findByRole('button', { name: 'Transfer server' })
     expect(confirm).toHaveProperty('disabled', true)
+    expect((screen.getByLabelText('New public URL') as HTMLInputElement).value).toBe('')
 
-    fireEvent.change(await screen.findByLabelText('Type the target machine name to confirm'), {
-      target: { value: 'vps' },
+    fireEvent.change(screen.getByLabelText('New public URL'), {
+      target: { value: 'https://new-podium.example.com' },
+    })
+    expect(confirm).toHaveProperty('disabled', true)
+
+    fireEvent.change(screen.getByLabelText('Server transfer confirmation'), {
+      target: { value: SERVER_TRANSFER_CONFIRMATION },
     })
     expect(confirm).toHaveProperty('disabled', false)
     fireEvent.click(confirm)
@@ -411,21 +469,154 @@ describe('MachinesPanel server transfer', () => {
     await waitFor(() =>
       expect(transferMutate).toHaveBeenCalledWith({
         targetMachineId: 'target',
-        publicUrl: 'https://podium.example.com',
-        confirmation: true,
+        publicUrl: 'https://new-podium.example.com',
+        confirmation: SERVER_TRANSFER_CONFIRMATION,
       }),
     )
-    expect((await screen.findByRole('status')).textContent).toMatch(/transfer committed/i)
+    expect((await screen.findByRole('status')).textContent).toMatch(/preparing/i)
+    expect(screen.getByText('Connected').getAttribute('data-transfer-state')).toBe('pending')
   })
 
-  it('recommends making the first added machine the server', async () => {
-    storeState.machines = [
-      machine({ id: asMachineId('current'), name: 'mac', online: true, owned: true }),
-    ]
-    setServerTransferTrpc(vi.fn())
+  it('does not show Connected until target proof and source reconnection are both true', async () => {
+    storeState.machines = [machine({ id: asMachineId('target'), name: 'vps', online: true })]
+    setServerTransferTrpc(
+      vi.fn(),
+      vi.fn().mockResolvedValue(
+        status({
+          transfer: transferStatus('committed', {
+            sourceFenced: true,
+            targetProof: true,
+            sourceConnected: false,
+          }),
+        }),
+      ),
+    )
     render(<MachinesPanel />)
+
+    expect((await screen.findByRole('status')).textContent).toMatch(/switching/i)
+    expect(screen.getByText('Connected').getAttribute('data-transfer-state')).toBe('pending')
+
+    cleanup()
+    setServerTransferTrpc(
+      vi.fn(),
+      vi.fn().mockResolvedValue(
+        status({
+          transfer: transferStatus('committed', {
+            sourceFenced: true,
+            targetProof: true,
+            sourceConnected: true,
+          }),
+        }),
+      ),
+    )
+    render(<MachinesPanel />)
+
+    expect((await screen.findByRole('status')).textContent).toMatch(/proved it is serving/i)
+    expect(screen.getByText('Connected').getAttribute('data-transfer-state')).toBe('complete')
+  })
+
+  it('keeps commit-uncertain in recovery and offers Check target', async () => {
+    storeState.machines = [machine({ id: asMachineId('target'), name: 'vps', online: true })]
+    setServerTransferTrpc(
+      vi.fn(),
+      vi.fn().mockResolvedValue(
+        status({
+          transfer: transferStatus('commit-uncertain', {
+            sourceFenced: true,
+            error: { code: 'commit-uncertain', message: 'promotion reply was lost' },
+          }),
+        }),
+      ),
+    )
+    render(<MachinesPanel />)
+
+    expect((await screen.findByRole('alert')).textContent).toMatch(/promotion reply was lost/i)
+    fireEvent.click(screen.getByRole('button', { name: 'View transfer' }))
+    expect(await screen.findByRole('button', { name: 'Check target' })).toBeTruthy()
+    expect(screen.queryByText(/transfer stopped safely/i)).toBeNull()
+  })
+
+  it('recommends only the first additional machine and waits for server eligibility after pairing', async () => {
+    const current = machine({ id: asMachineId('source'), name: 'laptop', online: true })
+    const target = machine({ id: asMachineId('target'), name: 'vps', online: true })
+    storeState.machines = [current]
+    setServerTransferTrpc(vi.fn())
+    const view = render(<MachinesPanel />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Add machine' }))
     expect(await screen.findByText(/recommended: make this the server/i)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Review transfer' })).toBeNull()
+
+    storeState.machines = [current, target]
+    view.rerender(<MachinesPanel />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Review transfer' }))
+
+    expect((await screen.findByRole('dialog')).textContent).toMatch(/laptop to vps/i)
+  })
+
+  it('does not recommend a server when adding before the first or after the second machine', async () => {
+    setServerTransferTrpc(vi.fn())
+    render(<MachinesPanel />)
+    fireEvent.click(screen.getByRole('button', { name: 'Add machine' }))
+    expect(screen.queryByText(/recommended: make this the server/i)).toBeNull()
+
+    cleanup()
+    storeState.machines = [
+      machine({ id: asMachineId('source') }),
+      machine({ id: asMachineId('other') }),
+    ]
+    setServerTransferTrpc(vi.fn())
+    render(<MachinesPanel />)
+    fireEvent.click(screen.getByRole('button', { name: 'Add machine' }))
+    expect(screen.queryByText(/recommended: make this the server/i)).toBeNull()
+  })
+
+  it('cancelling the add-machine recommendation never starts a transfer', async () => {
+    const transferMutate = vi.fn()
+    storeState.machines = [machine({ id: asMachineId('source'), online: true })]
+    setServerTransferTrpc(transferMutate)
+    render(<MachinesPanel />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add machine' }))
+    await screen.findByText(/recommended: make this the server/i)
+    const [close] = screen.getAllByRole('button', { name: 'Close' })
+    if (!close) throw new Error('close control missing')
+    fireEvent.click(close)
+
+    expect(transferMutate).not.toHaveBeenCalled()
+  })
+})
+
+describe('ServerTransferProgress', () => {
+  it.each([
+    ['preparing', 'Preparing'],
+    ['copying', 'Copying'],
+    ['validating', 'Validating'],
+    ['switching', 'Switching'],
+    ['connected', 'Connected'],
+  ] as const)('renders %s as its own phase', (state, label) => {
+    render(<ServerTransferProgress state={state} targetName="vps" />)
+
+    expect(screen.getByText(label).getAttribute('data-transfer-state')).toBe(
+      state === 'connected' ? 'complete' : 'active',
+    )
+    expect(screen.getByRole('status').textContent).toContain(label)
+  })
+
+  it('keeps commit-uncertain distinct and warns against retrying', () => {
+    render(<ServerTransferProgress state="commit-uncertain" targetName="vps" />)
+
+    const alert = screen.getByRole('alert')
+    expect(alert.textContent).toMatch(/could not be confirmed/i)
+    expect(alert.textContent).toMatch(/do not retry/i)
+    expect(alert.textContent).toMatch(/check the target/i)
+  })
+
+  it('describes an abort as safe for the current server', () => {
+    render(<ServerTransferProgress state="aborted" targetName="vps" />)
+
+    const alert = screen.getByRole('alert')
+    expect(alert.textContent).toMatch(/stopped safely/i)
+    expect(alert.textContent).toMatch(/current server is still active/i)
   })
 })
