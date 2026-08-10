@@ -1,6 +1,7 @@
 # POD-1816 test lane timing and memory baseline
 
-Date: 2026-08-10, Ludovico, commit `b8be49ea6` unless noted.
+Date: 2026-08-10, Ludovico. Default/cache measurements are from commit
+`b8be49ea6`; the explicit-lane sweep is from `4f36e8e37`.
 
 ## Bottom line
 
@@ -123,25 +124,64 @@ calling `pushWorld()`; SocketHub/server delivery belongs to integration coverage
 not prove a real second-account authentication boundary—the file uses feed principals under the
 current device-grade identity model.
 
-## Lane inventory not yet timed in this session
+## Explicit lane measurements
 
-No completion time is claimed for the rows below. They were not started after the operator
-asked for a status and the already-running measurements had consumed several hours.
+These lanes have no result cache, so a cache-hit/cache-miss pair does not exist. Each was run once
+with direct process-tree PSS sampling. Queue time behind another session's validation was excluded;
+failed admission attempts were discarded and retried. Every completed observation used zero swap
+and left no process-group orphan.
 
-| Lane | Why a cold/warm pair remains expensive or non-comparable |
-| --- | --- |
-| `test:watch` | Non-terminating; only startup-to-ready can be measured, then it must be stopped |
-| `test:perf:frontend`, `perf:typing` | Performance probes, not result-cached gates |
-| `test:integration` | Runs integration Vitest and then the acceptance lane |
-| `test:acceptance`, `test:acceptance:process` | Real process/PTY load; no result cache |
-| `test:e2e` | Full-stack real-process lane; no result cache |
-| `test:multi-instance` | Starts independent concurrent runtimes and installer coverage |
-| `test:browser` | Builds packages/web/mobile and runs the Playwright census; tens of minutes |
-| `test:bun`, `test:bun:unit` | Bun-native process/runtime lanes; no Turbo result cache |
-| `test:smoke:agents` | Starts real agent CLIs and consumes LLM quota; should not be repeated merely to create a warm label |
-| `oracle` | Aggregate of typecheck, test, integration, e2e, and multi-instance; derive from components instead of duplicating all five |
+| Lane | Observed wall | Native runner detail | Peak PSS | Terminal result |
+| --- | ---: | --- | ---: | --- |
+| `test:watch` | 17.108s bounded startup | Vitest emitted `RUN`; intentionally interrupted after 15s, before its initial full cycle | 196.5 MiB | Non-terminating lane; startup observation only |
+| `test:perf:frontend` | 16.321s | Vitest 8.59s; no tests collected | 325.8 MiB | Red before benchmark: React 19.2.7 / react-dom 19.2.3 mismatch |
+| `perf:typing` | 2.254s | Browser never launched | 151.1 MiB | Red before benchmark: live DB lacks `client_sessions.user_id`, so token minting fails |
+| `test:integration` | **203.546s** | Vitest 195.76s; 41/47 files pass, 284/289 tests pass | **1.114 GiB** | Red; shell `&&` therefore did not start acceptance |
+| `test:acceptance` | 35.497s | Vitest 28.35s; load case 8.98s, 1/1 pass | 526.7 MiB | Green |
+| `test:acceptance:process` | 48.984s | Bun 41.54s; 4/5 pass | 138.1 MiB | Red: publication dispatch waits 15.030s then times out |
+| `test:e2e` | 51.224s | Vitest 43.55s; 36/36 pass | 830.3 MiB | Green; verbose reporter only, same selection |
+| `test:multi-instance` | 30.818s | runtime 7.35s; managed-account Vitest 9.58s; installer/wrapper remainder about 13.89s | 538.0 MiB | Green |
+| `test:browser` as installed | 157.489s | Builds completed; 101 probes could not invoke `bunx` | 1.479 GiB | Red before import: `~/.bun/bin/bunx` is a broken symlink to `/home/till/.bun/bin/bun` |
+| `test:browser`, temporary `bunx -> bun x` PATH repair | **546.590s** | 101 suites, 582 project-expanded cases: 232 failed at browser launch, 350 skipped | **1.812 GiB** | Red: Chromium lacks `libatk-1.0.so.0`; no application test body ran |
+| `test:bun` | 27.838s | Bun 18.35s; 19/23 pass | 287.0 MiB | Red: four ordinary baseline failures |
+| `test:bun:unit` | 5.548s | Bun 0.283s; 14/14 pass | 90.5 MiB | Green |
+| `test:smoke:agents` | 61.144s | Vitest 53.51s; 14 pass, 6 fail, 2 skip | 804.1 MiB | Red; one explicit paid run only |
+| `oracle` | derived, not duplicated | Sequential `typecheck + test + integration + e2e + multi-instance` | component peaks above | Measured component subtotal is 22m46.1s with the prior warm unit wall, or 31m53.4s with cold unit, **plus current typecheck/startup** |
 
-For non-cached process lanes, “warm” can only mean a second back-to-back observation benefiting
-from OS/module/build caches; it is not equivalent to Turbo's result-cache hit. Future measurements
-should record that distinction explicitly and run one direct-PSS pass plus lightweight timing
-passes, rather than attaching the relatively expensive `/proc` sampler to every repeat.
+The oracle figures are composition bounds, not a single-commit oracle observation: its unit numbers
+come from `b8be49ea6`, while the explicit components come from `4f36e8e37`. Running it would merely
+repeat five already measured lanes and spend another 23–32 minutes. “Warm” for the explicit lanes
+would mean only OS/build-cache warmth, not a Turbo result-cache hit, so none was repeated for a
+cosmetic warm label. Agent smoke was explicitly requested and was run exactly once.
+
+## Explicit-lane duration hotspots
+
+The browser lane is the longest explicit lane at **9m06.590s**, 2.69x the integration wall and
+33.6% of the cold default wall. That is not useful application timing yet: Ludovico first has a
+broken `bunx` symlink, then its browser cannot load `libatk-1.0.so.0`. With the temporary launcher
+repair, Playwright spent the lane repeatedly starting a browser that exited before 232 test bodies;
+350 project-inapplicable cases skipped.
+
+The longest real test clusters were:
+
+| Lane / file or case | Time | Share of lane wall | Interpretation |
+| --- | ---: | ---: | --- |
+| integration `reattach-storm.integration.test.ts` | 60.873s | **29.9%** | One 30s timeout retried; 31.1% of Vitest wall |
+| agent smoke `headless-drivers.smoke.test.ts` | 42.507s | **69.5%** | OpenCode resume 24.243s, Codex 12.361s, Claude 4.988s, Grok 0.905s |
+| process acceptance user-systemd recovery | 19.211s | **39.2%** | Deliberate progress-hung janitor recovery |
+| process acceptance publication-worker recovery | 15.030s | **30.7%** | Failing fixed timeout; with the row above, 69.9% of lane wall |
+| Bun detached split lifecycle | 10.342s | **37.1%** | Server + janitor + daemon lifecycle |
+| Bun compiled control websocket | 3.510s | **12.6%** | Failing compiled-daemon case; top two are 49.8% of lane |
+| E2E relay / multi-machine / harness reap | 2.601 / 2.379 / 2.240s | 14.1% combined | Longest of 36 green E2E cases; all actual test bodies total 19.72s |
+| multi-instance runtime isolation | 6.840s | **22.2%** | Real separate runtime/agent/data/lifecycle check |
+
+Integration's peak is ordinary fan-out, not one runaway process: its 1.114 GiB tree had a largest
+process of about 293 MiB. The browser peak is different: about 1.749 GiB of its 1.812 GiB tree was
+one Vite web build process, before Playwright ran. Agent smoke's 804.1 MiB peak was dominated by an
+OpenCode process at about 519 MiB. None swapped.
+
+Therefore the remaining explicit lanes do **not** explain the earlier multi-gigabyte OOM. The only
+measured runaway remains the deliberately quadratic sync benchmark; the default gate's large peak
+remains the scripts repository-audit overlap described above. Explicit-lane optimization should
+first restore browser prerequisites, then remove the integration retry timeout and agent-smoke
+environment failures; adding swap or more test parallelism would not shorten any of those causes.
