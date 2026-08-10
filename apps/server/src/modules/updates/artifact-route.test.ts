@@ -3,6 +3,11 @@ import { Hono } from 'hono'
 import { describe, expect, it } from 'vitest'
 import { registerDevArtifactRoute } from './artifact-route'
 import type { BuiltDevBundle } from './dev-bundle'
+import {
+  developmentArtifactUrl,
+  selectDevelopmentArtifactOrigin,
+  wireDevBundlePublisher,
+} from './dev-publisher-wiring'
 
 const bytes = new Uint8Array([9, 8, 7, 6])
 const { privateKey, publicKey } = generateKeyPairSync('ed25519')
@@ -29,6 +34,59 @@ function appFor(authenticated = true) {
 }
 
 describe('development artifact route', () => {
+  it('builds an origin-relative route with encoded version and authentication token', () => {
+    const url = new URL(
+      developmentArtifactUrl('https://podium.example.test:55555', 'dev+abc/123', 'random token/?'),
+    )
+    expect(url.origin).toBe('https://podium.example.test:55555')
+    expect(url.pathname).toBe('/updates/dev-bundle/dev%2Babc%2F123')
+    expect(url.searchParams.get('token')).toBe('random token/?')
+  })
+  it('keeps a source publisher enabled for same-host fallback', () => {
+    const base = {
+      sourceRoot: '/repo/podium',
+      artifactOrigin: 'https://podium.example.test',
+      localArtifactOrigin: () => 'http://127.0.0.1:18787',
+      hasRemoteManagedMachines: () => false,
+      artifactToken: 'random-token',
+      signingKey: 'unused-until-build',
+      setTarget: () => {},
+    }
+    expect(wireDevBundlePublisher(base).enabled).toBe(true)
+    expect(
+      wireDevBundlePublisher({
+        ...base,
+        artifactOrigin: undefined,
+      }).enabled,
+    ).toBe(true)
+    expect(wireDevBundlePublisher({ ...base, sourceRoot: undefined }).enabled).toBe(false)
+  })
+
+  it('uses loopback only for a same-host managed fleet', () => {
+    const localOrigin = 'http://127.0.0.1:18787'
+    expect(
+      selectDevelopmentArtifactOrigin({
+        externalOrigin: 'https://podium.example.test',
+        localOrigin,
+        hasRemoteManagedMachines: true,
+      }),
+    ).toBe('https://podium.example.test')
+    expect(
+      selectDevelopmentArtifactOrigin({
+        externalOrigin: undefined,
+        localOrigin,
+        hasRemoteManagedMachines: false,
+      }),
+    ).toBe(localOrigin)
+    expect(() =>
+      selectDevelopmentArtifactOrigin({
+        externalOrigin: undefined,
+        localOrigin,
+        hasRemoteManagedMachines: true,
+      }),
+    ).toThrow(/requires PODIUM_DEV_ARTIFACT_BASE_URL/)
+  })
+
   it('serves the exact signed bytes to an authenticated machine', async () => {
     const app = appFor()
     const response = await app.request('/updates/dev-bundle/dev%2Babc1234', {

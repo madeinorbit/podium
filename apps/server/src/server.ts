@@ -14,7 +14,7 @@ import {
   WIRE_VERSION,
   wireSchemaDigest,
 } from '@podium/protocol'
-import { loadConfig, resolveInstanceId } from '@podium/runtime/config'
+import { loadConfig, resolveDevArtifactOrigin, resolveInstanceId } from '@podium/runtime/config'
 import { ensureInstanceStateIdentity } from '@podium/runtime/instance'
 import {
   readOrCreateDaemonSecret,
@@ -384,9 +384,15 @@ export async function startServer(
   const cloud = createCloudRuntimeProviderFromEnv()
   const devArtifactToken = randomUUID()
   let boundPort = opts.port ?? 0
+  const developmentSourceRoot = process.env.PODIUM_HOME ? undefined : DEVELOPMENT_SOURCE_ROOT
   const devPublisher = wireDevBundlePublisher({
-    sourceRoot: process.env.PODIUM_HOME ? undefined : DEVELOPMENT_SOURCE_ROOT,
-    port: () => boundPort,
+    sourceRoot: developmentSourceRoot,
+    artifactOrigin: developmentSourceRoot ? resolveDevArtifactOrigin(config) : undefined,
+    localArtifactOrigin: () => `http://127.0.0.1:${boundPort}`,
+    hasRemoteManagedMachines: () =>
+      store.machines
+        .listMachines()
+        .some((machine) => machine.id !== hostMachineId && machine.podiumManaged),
     artifactToken: devArtifactToken,
     setTarget: (target) => registry.modules.updates.setTarget(target),
     signingKey: updateSigningKey.privateKey,

@@ -37,36 +37,80 @@ export interface DevPublisherWiring {
   readonly enabled: boolean
 }
 
+export function developmentArtifactUrl(
+  origin: string,
+  version: string,
+  artifactToken: string,
+): string {
+  return `${origin}/updates/dev-bundle/${encodeURIComponent(version)}?token=${encodeURIComponent(artifactToken)}`
+}
+
+export function selectDevelopmentArtifactOrigin(input: {
+  externalOrigin: string | undefined
+  localOrigin: string
+  hasRemoteManagedMachines: boolean
+}): string {
+  if (input.externalOrigin) return input.externalOrigin
+  if (input.hasRemoteManagedMachines) {
+    throw new Error(
+      'development artifact publishing requires PODIUM_DEV_ARTIFACT_BASE_URL or ' +
+        'config.publicUrl while remote managed machines are registered',
+    )
+  }
+  return input.localOrigin
+}
+
 export function wireDevBundlePublisher(deps: {
   /** Absent (an installed server) disables the whole thing. */
   readonly sourceRoot: string | undefined
-  /** Read lazily: the port is not known until the listener binds. */
-  readonly port: () => number
+  /** Validated external origin. Absent is allowed only for same-host publication. */
+  readonly artifactOrigin: string | undefined
+  /** Loopback origin used only when the registered managed fleet is same-host. */
+  readonly localArtifactOrigin: () => string
+  /** Read at publication time so a newly joined remote machine fails closed immediately. */
+  readonly hasRemoteManagedMachines: () => boolean
   readonly artifactToken: string
   readonly signingKey: string
   readonly setTarget: (target: UpdateTarget) => void
-  readonly env?: NodeJS.ProcessEnv
 }): DevPublisherWiring {
-  const env = deps.env ?? process.env
-  const publisher = deps.sourceRoot
+  const sourceRoot = deps.sourceRoot
+  const artifactOrigin = deps.artifactOrigin
+  const publisher = sourceRoot
     ? createDevBundlePublisher({
         isSourceRun: true,
-        root: deps.sourceRoot,
-        headSha: () => developmentHeadSha(deps.sourceRoot as string),
+        root: sourceRoot,
+        headSha: () => developmentHeadSha(sourceRoot),
         signingKey: deps.signingKey,
-        artifactUrl: (version) => {
-          const base = (
-            env.PODIUM_DEV_ARTIFACT_BASE_URL ?? 'http://127.0.0.1:' + deps.port()
-          ).replace(/\/$/, '')
-          return `${base}/updates/dev-bundle/${encodeURIComponent(version)}?token=${encodeURIComponent(deps.artifactToken)}`
-        },
+        artifactUrl: (version) =>
+          developmentArtifactUrl(
+            selectDevelopmentArtifactOrigin({
+              externalOrigin: artifactOrigin,
+              localOrigin: deps.localArtifactOrigin(),
+              hasRemoteManagedMachines: deps.hasRemoteManagedMachines(),
+            }),
+            version,
+            deps.artifactToken,
+          ),
       })
     : undefined
 
+  let unavailableDiagnostic: string | undefined
   const publishTarget = (): UpdateTarget | undefined => {
-    const target = publisher?.target()
-    if (target) deps.setTarget(target)
-    return target
+    try {
+      const target = publisher?.target()
+      // A loopback target is useful to the same host through /version, but must never enter the
+      // shared update service where a later remote grant could receive it.
+      if (target && artifactOrigin) deps.setTarget(target)
+      unavailableDiagnostic = undefined
+      return target
+    } catch (error) {
+      const diagnostic = error instanceof Error ? error.message : String(error)
+      if (diagnostic !== unavailableDiagnostic) {
+        console.warn('[podium] development bundle target unavailable:', diagnostic)
+        unavailableDiagnostic = diagnostic
+      }
+      return undefined
+    }
   }
 
   return {

@@ -27,6 +27,7 @@
  * | PODIUM_TELEMETRY              | — (env-only kill switch)| `=off` suppresses sending AND the setup prompt         |
  * | PODIUM_TELEMETRY_ENDPOINT     | config.telemetry.endpoint| @podium/telemetry `resolveTelemetryEndpoint()`         |
  * | PODIUM_UPDATE_FEED            | config.updateFeed       | `resolveUpdateFeed()`                                  |
+ * | PODIUM_DEV_ARTIFACT_BASE_URL  | config.publicUrl        | `resolveDevArtifactOrigin()` (source publisher only)   |
  * | PODIUM_UPDATE_TARGET          | — → 'linux-x86_64'      | `resolveUpdateTarget()`                                |
  * | PODIUM_HOME                   | — → dirname(execPath)   | `resolveInstallDir()` (headless launcher exports it)   |
  * | PODIUM_RUN_MODE               | — (env-only)            | `resolveRunRecordMode()` ('detached' set by cli-spawn) |
@@ -566,6 +567,52 @@ export function resolveUpdateFeed(
   env: EnvSource = process.env,
 ): string | undefined {
   return env.PODIUM_UPDATE_FEED ?? config.updateFeed
+}
+
+/**
+ * Externally reachable origin used by a source server's authenticated development bundle route.
+ *
+ * The dedicated env override wins over the deployment's durable `publicUrl`. There is
+ * deliberately no loopback fallback: one target is advertised to every managed machine, and a
+ * loopback URL would send each remote daemon back to itself. Only a bare origin is accepted so
+ * appending the tokenized artifact route cannot silently discard or reinterpret a configured path.
+ */
+export function resolveDevArtifactOrigin(
+  config: Pick<PodiumConfig, 'publicUrl'> = loadConfig(),
+  env: EnvSource = process.env,
+): string | undefined {
+  const configured = env.PODIUM_DEV_ARTIFACT_BASE_URL ?? config.publicUrl
+  if (configured === undefined) return undefined
+
+  let url: URL
+  try {
+    url = new URL(configured.trim())
+  } catch {
+    throw new Error('development artifact origin must be a valid HTTP(S) URL')
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error('development artifact origin must use http:// or https://')
+  }
+  if (url.username || url.password) {
+    throw new Error('development artifact origin must not contain URL credentials')
+  }
+  if (url.pathname !== '/' || url.search || url.hash) {
+    throw new Error('development artifact origin must not contain a path, query, or fragment')
+  }
+
+  const hostname = url.hostname.toLowerCase().replace(/\.$/, '')
+  const localOnly =
+    hostname === 'localhost' ||
+    hostname.endsWith('.localhost') ||
+    hostname === '0.0.0.0' ||
+    hostname === '[::]' ||
+    hostname === '[::1]' ||
+    hostname.startsWith('127.')
+  if (localOnly) {
+    throw new Error('development artifact origin must be externally reachable, not loopback')
+  }
+
+  return url.origin
 }
 
 /** Self-update platform target: PODIUM_UPDATE_TARGET → caller-supplied fallback
