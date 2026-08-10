@@ -266,8 +266,10 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     setServerAction({ state: 'idle' })
   }, [target?.version])
 
+  const retryableServerFailure = serverAction.state === 'failed'
   const updateServer = useMemo<UpdateActions['updateServer']>(() => {
-    if (!options.updateServer && (!target || !serverBehind)) return undefined
+    if (!options.updateServer && !retryableServerFailure && (!target || !serverBehind))
+      return undefined
     const version = target?.version ?? localVersion
     const total = Math.max(1, 1 + fleet.behind)
     return async () => {
@@ -289,7 +291,15 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
         setServerAction({ state: 'failed', detail: updateErrorDetail(error) })
       }
     }
-  }, [fleet.behind, localVersion, options.updateServer, serverBehind, target, trpc])
+  }, [
+    fleet.behind,
+    localVersion,
+    options.updateServer,
+    retryableServerFailure,
+    serverBehind,
+    target,
+    trpc,
+  ])
 
   const actions = useMemo<UpdateActions>(() => {
     const install = nativeDesktopBridge()?.installUpdate

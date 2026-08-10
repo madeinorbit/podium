@@ -156,6 +156,7 @@ describe('UpdateDialog', () => {
       />,
     )
 
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
     expect(onDismiss).toHaveBeenCalledOnce()
     expect(screen.queryByTestId('update-dialog')).toBeNull()
@@ -177,8 +178,11 @@ describe('UpdateDialog', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
 
+    const retry = screen.getByRole('button', { name: 'Trying again…' })
+    const dismiss = screen.getByRole('button', { name: 'Dismiss' })
     expect(updateServer).toHaveBeenCalledOnce()
-    expect(screen.getByRole('button', { name: 'Trying again…' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Dismiss' })).toBeTruthy()
+    expect(retry.getAttribute('aria-busy')).toBe('true')
+    expect((retry as HTMLButtonElement).disabled).toBe(true)
+    expect((dismiss as HTMLButtonElement).disabled).toBe(false)
   })
 })

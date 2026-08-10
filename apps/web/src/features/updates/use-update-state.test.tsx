@@ -1,7 +1,7 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { useEffect } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { useUpdateState, type UpdateStateResult } from './use-update-state'
+import { useUpdateState, type UpdateFleetState, type UpdateStateResult } from './use-update-state'
 
 const mocks = vi.hoisted(() => ({
   makeTrpc: vi.fn(),
@@ -175,6 +175,71 @@ describe('useUpdateState server action', () => {
       diagnostic: 'The update could not be downloaded.',
     })
     expect(screen.getByTestId('view-state').textContent).not.toMatch(/unable to connect|url/i)
+
+    screen.getByRole('button', { name: /update server/i }).click()
+    await waitFor(() =>
+      expect(screen.getByTestId('view-state').textContent).toContain('in-progress'),
+    )
+    expect(mocks.mutate).toHaveBeenCalledTimes(2)
+  })
+
+  it('retains the guarded retry when the server reaches target before the attempt fails', async () => {
+    setupTransport()
+    const settledFleet: UpdateFleetState = {
+      total: 1,
+      behind: 1,
+      converging: 0,
+      failed: 0,
+      targetVersion: '0.4.2',
+    }
+    let queryCalls = 0
+    mocks.query.mockImplementation(() => {
+      queryCalls += 1
+      return Promise.resolve(settledFleet)
+    })
+
+    let failAttempt: (() => void) | undefined
+    mocks.mutate.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          failAttempt = () =>
+            reject(new Error('Unable to connect. Is the computer able to access the url?'))
+        }),
+    )
+    mocks.mutate.mockResolvedValueOnce({
+      state: 'in-progress',
+      version: '0.4.2',
+      done: 0,
+      total: 2,
+      fleet: { ...settledFleet, converging: 1, failed: 0 },
+    })
+
+    let versionReads = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => ({
+        ok: true,
+        json: async () =>
+          url.endsWith('/version')
+            ? { appVersion: ++versionReads === 1 ? '0.4.1' : '0.4.2', target }
+            : { appVersion: '0.4.1' },
+      })),
+    )
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} liveFleet />)
+    await waitFor(() => expect(screen.getByRole('button', { name: /update server/i })).toBeTruthy())
+    screen.getByRole('button', { name: /update server/i }).click()
+    await waitFor(() => {
+      expect(queryCalls).toBeGreaterThanOrEqual(2)
+      expect(results.at(-1)?.server.appVersion).toBe('0.4.2')
+    })
+
+    failAttempt?.()
+    await waitFor(() => {
+      expect(results.at(-1)?.view.state).toBe('failed')
+      expect(screen.getByRole('button', { name: /update server/i })).toBeTruthy()
+    })
 
     screen.getByRole('button', { name: /update server/i }).click()
     await waitFor(() =>
