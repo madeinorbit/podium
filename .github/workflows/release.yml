@@ -1,13 +1,12 @@
 name: release
 on:
   push:
-    branches: [main]          # → rolling edge headless assets only
     tags: ['v*']              # → stable headless assets only
 permissions:
   contents: write
 concurrency:
-  group: headless-release-${{ github.ref_type == 'branch' && 'edge' || github.ref_name }}
-  cancel-in-progress: ${{ github.ref_type == 'branch' }}
+  group: headless-release-${{ github.ref_name }}
+  cancel-in-progress: false
 jobs:
   build:
     strategy:
@@ -37,7 +36,7 @@ jobs:
       - name: Build signed ${{ matrix.arch }} headless artifact
         env:
           PODIUM_UPDATE_SIGNING_KEY: ${{ secrets.PODIUM_UPDATE_SIGNING_KEY }}
-        run: bun scripts/release.ts --channel ${{ github.ref_type == 'tag' && 'stable' || 'edge' }} --prepare-arch ${{ matrix.arch }}
+        run: bun scripts/release.ts --channel stable --prepare-arch ${{ matrix.arch }}
       - uses: actions/upload-artifact@v4
         with:
           name: headless-${{ matrix.arch }}
@@ -59,9 +58,17 @@ jobs:
       - name: Publish one multi-architecture release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          if [ "${{ github.ref_type }}" = "tag" ]; then
-            bun scripts/release.ts --channel stable --tag "${{ github.ref_name }}" --publish-dir dist-bun/release
-          else
-            bun scripts/release.ts --channel edge --publish-dir dist-bun/release
-          fi
+        run: bun scripts/release.ts --channel stable --tag "${{ github.ref_name }}" --publish-dir dist-bun/release
+
+  published-smoke:
+    name: published headless update smoke
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify the published stable artifact and signature
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: bash scripts/verify-published-headless-update.sh "${{ github.ref_name }}"

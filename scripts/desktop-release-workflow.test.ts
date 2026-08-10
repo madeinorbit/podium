@@ -54,8 +54,12 @@ describe('desktop release workflow', () => {
     expect(upload).toBeGreaterThan(prepare)
   })
 
-  it('keeps ordinary main releases headless-only without deleting desktop assets', () => {
-    expect(headlessWorkflow).toContain('branches: [main]')
+  it('publishes headless artifacts only for version tags without desktop assets', () => {
+    expect(headlessWorkflow).toContain("tags: ['v*']")
+    expect(headlessWorkflow).not.toContain('branches: [main]')
+    expect(headlessWorkflow).toContain('--channel stable')
+    expect(headlessWorkflow).not.toContain('--channel edge')
+    expect(headlessWorkflow).toContain('published-smoke')
     expect(headlessWorkflow).not.toContain('TAURI_SIGNING_PRIVATE_KEY')
     expect(headlessWorkflow).not.toContain('apps/desktop')
     expect(releaseSource).not.toContain('release delete edge')
