@@ -47,19 +47,30 @@ export function planConvergence(ctx: {
   // it could or could not have downloaded; it never needed delivery.
   if (ctx.current === ctx.target.version) return { action: 'already-current' }
 
-  const artifact = ctx.target.artifacts.headless
-  if (!artifact) return { action: 'cannot', reason: 'no-artifact' }
-  if (!ctx.caps.includes(CAP_FOR_DELIVERY[artifact.delivery])) {
-    return { action: 'cannot', reason: 'unsupported-delivery' }
+  const artifacts = [
+    ...(ctx.target.artifacts.headless ? [ctx.target.artifacts.headless] : []),
+    ...(ctx.target.artifacts.headlessAlternatives ?? []),
+  ]
+  if (artifacts.length === 0) return { action: 'cannot', reason: 'no-artifact' }
+
+  let supportsOfferedDelivery = false
+  for (const artifact of artifacts) {
+    if (!ctx.caps.includes(CAP_FOR_DELIVERY[artifact.delivery])) continue
+    supportsOfferedDelivery = true
+
+    // Git is a platform-independent checkout. Keep the descriptor here so the
+    // host-side delivery seam can fetch and check out the exact granted revision.
+    if (artifact.delivery === 'git') return { action: 'converge', delivery: 'git', artifact }
+
+    // Never select another platform's bytes. A signed, digest-matching binary
+    // for the wrong architecture is still a bricked daemon. Continue only to
+    // another explicitly offered delivery, never to another platform's asset.
+    const asset = artifact.platforms[ctx.platform]
+    if (asset) return { action: 'converge', delivery: artifact.delivery, asset }
   }
 
-  // Git is a platform-independent checkout. Keep the descriptor here so the
-  // host-side delivery seam can fetch and check out the exact granted revision.
-  if (artifact.delivery === 'git') return { action: 'converge', delivery: 'git', artifact }
-
-  // Never select another platform's bytes. A signed, digest-matching binary
-  // for the wrong architecture is still a bricked daemon.
-  const asset = artifact.platforms[ctx.platform]
-  if (!asset) return { action: 'cannot', reason: 'unsupported-platform' }
-  return { action: 'converge', delivery: artifact.delivery, asset }
+  return {
+    action: 'cannot',
+    reason: supportsOfferedDelivery ? 'unsupported-platform' : 'unsupported-delivery',
+  }
 }

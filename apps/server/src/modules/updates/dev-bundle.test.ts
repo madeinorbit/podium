@@ -125,6 +125,7 @@ describe('buildDevBundle', () => {
     const target = devTarget(built, {
       platform: 'linux-x86_64',
       artifactUrl: 'http://server.test/updates/dev-bundle/dev%2B1234567',
+      sourceRoot: '/repo/podium',
     })
     expect(target.artifacts.headless).toEqual({
       delivery: 'bundle',
@@ -136,6 +137,9 @@ describe('buildDevBundle', () => {
         },
       },
     })
+    expect(target.artifacts.headlessAlternatives).toEqual([
+      { delivery: 'git', repo: '/repo/podium', sha: '1234567' },
+    ])
   })
 
   it('releases the lease and keeps a failed build unpublished', async () => {
