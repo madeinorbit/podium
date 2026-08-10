@@ -150,6 +150,19 @@ async function snapshotEntry(
   }
 }
 
+export function manifestWithDigest(
+  body: ServerTransferManifest,
+): ServerTransferManifest & { digest: string } {
+  const files = [...body.files].sort((left, right) => left.path.localeCompare(right.path))
+  const normalized = { ...body, files }
+  return {
+    ...normalized,
+    digest: createHash('sha256')
+      .update(canonicalServerTransferManifest(normalized))
+      .digest('hex'),
+  }
+}
+
 export function serverTransferManifestDigest(manifest: ServerTransferManifest): string {
   return createHash('sha256').update(canonicalServerTransferManifest(manifest)).digest('hex')
 }
@@ -188,7 +201,7 @@ export async function createPortableSnapshot(input: {
   sourceApplicationVersion: string
   sourceSchemaVersion: string
   checkpoint(): void | Promise<void>
-}): Promise<ServerTransferManifest> {
+}): Promise<ServerTransferManifest & { digest: string }> {
   await input.checkpoint()
   await rm(input.packageDir, { recursive: true, force: true })
   await mkdir(input.packageDir, { recursive: true, mode: 0o700 })
@@ -200,7 +213,7 @@ export async function createPortableSnapshot(input: {
   if (packageBytes > MAX_TRANSFER_BYTES)
     throw new Error('portable state exceeds the transfer limit')
   await syncDirectory(input.packageDir)
-  return {
+  return manifestWithDigest({
     formatVersion: SERVER_TRANSFER_FORMAT_VERSION,
     transferId: input.transferId,
     sourceInstanceId: input.sourceInstanceId,
@@ -212,5 +225,5 @@ export async function createPortableSnapshot(input: {
     schemaVersion: input.sourceSchemaVersion,
     packageBytes,
     files: files.sort((left, right) => left.path.localeCompare(right.path)),
-  }
+  })
 }
