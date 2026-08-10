@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asMachineId } from '@podium/model'
 import { type PeerHello, type PeerHelloReply, WIRE_VERSION } from '@podium/protocol'
+import { developmentSourceVersion } from '@podium/runtime/source-version'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RawData } from 'ws'
 import { createDaemonConnection } from './connection-state'
@@ -54,6 +55,7 @@ function connection(
 ) {
   return createDaemonConnection({
     options,
+    build: buildReport(process.env, undefined),
     machineId: MACHINE_ID,
     identity,
     receiveApplicationFrame: vi.fn(),
@@ -275,6 +277,7 @@ it('reports transport loss as backoff and schedules a retry', async () => {
       identityDir: temp(),
       reconnectTimers: { setTimeout, clearTimeout: vi.fn() },
     },
+    build: buildReport(process.env, undefined),
     machineId: MACHINE_ID,
     identity: { token: 'token' },
     receiveApplicationFrame: vi.fn(),
@@ -295,11 +298,63 @@ it('reports transport loss as backoff and schedules a retry', async () => {
   await state.close()
 })
 
+it('keeps the daemon boot identity when the live source changes before reconnect', async () => {
+  const sockets = [new FakeSocket(), new FakeSocket()]
+  let socketIndex = 0
+  let retry: (() => void) | undefined
+  let head = 'AAAAAAAA1234567\n'
+  const sourceVersion = () => developmentSourceVersion('/source', () => head)
+  const build = buildReport({}, undefined, sourceVersion())
+
+  const state = createDaemonConnection({
+    options: {
+      serverUrl: 'ws://server',
+      identityDir: temp(),
+      reconnectTimers: {
+        setTimeout: (fn) => {
+          retry = fn
+          return fn
+        },
+        clearTimeout: vi.fn(),
+      },
+    },
+    build,
+    machineId: MACHINE_ID,
+    identity: { token: 'token' },
+    receiveApplicationFrame: vi.fn(),
+    sendApplicationFrame: vi.fn(),
+    onConnected: vi.fn(),
+    onTerminal: vi.fn(),
+    openSocket: () => sockets[socketIndex++] as FakeSocket,
+  })
+
+  try {
+    const started = state.start()
+    sockets[0]?.emit('open')
+    sockets[0]?.message(ok)
+    await started
+
+    head = 'BBBBBBB1234567\n'
+    expect(sourceVersion()).toBe('dev+bbbbbbb')
+    sockets[0]?.emit('close')
+    retry?.()
+    sockets[1]?.emit('open')
+
+    const firstHello = JSON.parse(sockets[0]?.sent[0] ?? '{}') as PeerHello
+    const secondHello = JSON.parse(sockets[1]?.sent[0] ?? '{}') as PeerHello
+    expect(firstHello.build?.appVersion).toBe('dev+aaaaaaa')
+    expect(secondHello.build?.appVersion).toBe('dev+aaaaaaa')
+  } finally {
+    await state.close()
+  }
+})
+
 it('retains a host diagnostic until the machine transport authenticates', async () => {
   const socket = new FakeSocket()
   const sendApplicationFrame = vi.fn()
   const state = createDaemonConnection({
     options: { serverUrl: 'ws://server', identityDir: temp() },
+    build: buildReport(process.env, undefined),
     machineId: MACHINE_ID,
     identity: { token: 'token' },
     receiveApplicationFrame: vi.fn(),

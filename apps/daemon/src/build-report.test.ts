@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { buildReport, deliveryCaps } from './build-report'
+import { captureServerBuildVersion } from '../../server/src/build-version'
+import {
+  buildReport,
+  captureDaemonBootBuild,
+  deliveryCaps,
+} from './build-report'
 
 describe('buildReport', () => {
   it('reports the baked version for an installed build', () => {
@@ -21,6 +26,31 @@ describe('buildReport', () => {
     expect(
       buildReport({ PODIUM_APP_VERSION: 'dev+explicit' }, undefined, 'dev+abc1234').appVersion,
     ).toBe('dev+explicit')
+  })
+
+  it('keeps the installed path and baked version authoritative at daemon boot', () => {
+    const boot = captureDaemonBootBuild(
+      { PODIUM_HOME: '/opt/podium', PODIUM_APP_VERSION: '0.4.2' },
+      '/usr/bin/bun',
+    )
+    expect(boot.installDir).toBe('/opt/podium')
+    expect(boot.build).toMatchObject({ appVersion: '0.4.2', installKind: 'installed' })
+  })
+
+  it('matches the server source identity for the same checkout', () => {
+    const originalVersion = process.env.PODIUM_APP_VERSION
+    delete process.env.PODIUM_APP_VERSION
+    try {
+      const daemonBuild = captureDaemonBootBuild({}, process.execPath).build
+      const serverVersion = captureServerBuildVersion({})
+
+      expect(daemonBuild.installKind).toBe('source')
+      expect(daemonBuild.appVersion).toMatch(/^dev\+[0-9a-f]{7}$/)
+      expect(daemonBuild.appVersion).toBe(serverVersion)
+    } finally {
+      if (originalVersion === undefined) delete process.env.PODIUM_APP_VERSION
+      else process.env.PODIUM_APP_VERSION = originalVersion
+    }
   })
 
   it('always carries this build wire schema digest', () => {

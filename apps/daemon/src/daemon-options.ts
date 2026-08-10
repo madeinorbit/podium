@@ -60,6 +60,8 @@ export interface DaemonOptions {
   agentRelay?: { port?: number }
   workerClient?: DiscoveryWorkerClient
   reconnectTimers?: ReconnectTimers
+  /** Test/embedding seam; production derives its checkout from the loaded source module. */
+  sourceRoot?: string
   /** Test/embedding seam; production exits so the process manager restarts the daemon. */
   restartAfterUpdate?: () => void
   /** Called after a successful server promotion; production starts the server role. */

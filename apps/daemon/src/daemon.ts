@@ -1,5 +1,6 @@
 import { asMachineId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol'
+import { captureDaemonBootBuild } from './build-report'
 import { createDaemonConnection, type DaemonConnection } from './connection-state'
 import type { DaemonOptions } from './daemon-options'
 import { createDaemonHostRuntime } from './host-runtime'
@@ -52,6 +53,11 @@ export interface DaemonHandle {
  * each live in their owning modules; this function only wires their ports.
  */
 export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
+  const { build, installDir } = captureDaemonBootBuild(
+    process.env,
+    process.execPath,
+    opts.sourceRoot,
+  )
   const instance = bootstrapDaemonInstance({
     settingsDir: opts.hooks?.settingsDir,
     socketPath: opts.hooks?.socketPath,
@@ -61,10 +67,13 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   const host = await createDaemonHostRuntime({
     options: opts,
     instance,
+    build,
+    installDir,
     send: (message) => connection?.send(message),
   })
   connection = createDaemonConnection({
     options: opts,
+    build,
     machineId: asMachineId(host.machineId),
     identity: host.identity,
     receiveApplicationFrame: host.receive,

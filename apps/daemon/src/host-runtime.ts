@@ -1,10 +1,10 @@
 import { spawnSync } from 'node:child_process'
 import { mkdir, stat } from 'node:fs/promises'
 import { hostname } from 'node:os'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { agentLaunchCommand, declaredValue } from '@podium/harness'
 import { FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
-import type { ControlMessage, DaemonMessage } from '@podium/protocol'
+import type { ControlMessage, DaemonMessage, PeerBuild } from '@podium/protocol'
 import type { AgentSession } from '@podium/pty'
 import { killAbducoSession, killTmuxServer } from '@podium/pty'
 import {
@@ -21,7 +21,7 @@ import type { RawData } from 'ws'
 import { createAgentRelayHub, startAgentRelayServer } from './agent-relay'
 import { BindingStore } from './binding-store'
 import { createBrowserOpenManager } from './browser-open'
-import { buildReport, deliveryCaps } from './build-report'
+import { deliveryCaps } from './build-report'
 import { ensurePodiumCodexHooks } from './codex-hooks'
 import { ComposerSyncEngine } from './composer-sync'
 import type { DaemonContext, DurableBackend } from './control/context'
@@ -77,9 +77,11 @@ export interface DaemonHostRuntime {
 export async function createDaemonHostRuntime(args: {
   options: DaemonOptions
   instance: DaemonInstanceBootstrap
+  build: PeerBuild
+  installDir: string | undefined
   send: (message: DaemonMessage) => void
 }): Promise<DaemonHostRuntime> {
-  const { options: opts, instance, send } = args
+  const { options: opts, instance, build, installDir, send } = args
   const config = loadConfig()
   const launch = opts.launch ?? agentLaunchCommand
   const backend = selectDurableBackend(opts)
@@ -255,10 +257,6 @@ export async function createDaemonHostRuntime(args: {
     flush: (sessionId, frames) => send({ type: 'agentFrameBatch', sessionId, frames }),
   })
 
-  const installDir =
-    process.env.PODIUM_HOME ??
-    (process.execPath.endsWith('/podium') ? dirname(process.execPath) : undefined)
-  const build = buildReport(process.env, installDir)
   const runGit = (command: string, args: string[]): { status: number | null; stdout: string } => {
     const result = spawnSync(command, args, {
       encoding: 'utf8',
