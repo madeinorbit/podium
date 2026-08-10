@@ -119,6 +119,22 @@ describe('UpdatesService', () => {
     expect(svc.fleet()[0]).toMatchObject({ state: 'current', version: '0.4.2' })
   })
 
+  it('requires the raw reconnect identity instead of optimistic current status', () => {
+    const machines = [m('a')]
+    const { svc } = make(machines)
+    svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
+    svc.authorize()
+    svc.onStatus('a', { type: 'updateStatus', state: 'current', version: '0.4.2' })
+
+    expect(svc.fleet()[0]).toMatchObject({ state: 'current', version: '0.4.2' })
+    expect(svc.machineBootedAtTarget('a', '0.4.2')).toBe(false)
+
+    const machine = machines[0]
+    if (!machine) throw new Error('test machine missing')
+    machine.version = '0.4.2'
+    expect(svc.machineBootedAtTarget('a', '0.4.2')).toBe(true)
+  })
+
   it('is idempotent: a second tick with nothing changed grants nothing new', () => {
     const { svc, send } = make([m('a'), m('b')])
     svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)

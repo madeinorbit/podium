@@ -58,18 +58,14 @@ function fleetSnapshot(updates: UpdatesService): UpdateFleetSnapshot {
 export function restartCoordinatorAfterDevelopmentFleet(
   updates: UpdatesService,
   targetVersion: string,
+  affectedMachineIds: readonly string[],
   requestCoordinatorRestart: () => void,
   pollMs = COORDINATOR_RESTART_POLL_MS,
 ): void {
   const check = (): void => {
-    const developmentStillApplying = updates
-      .fleet()
-      .some(
-        (machine) =>
-          isDevelopmentMachine(machine) &&
-          machine.online &&
-          (machine.version !== targetVersion || machine.state !== 'current'),
-      )
+    const developmentStillApplying = affectedMachineIds.some(
+      (machineId) => !updates.machineBootedAtTarget(machineId, targetVersion),
+    )
     if (!developmentStillApplying) {
       requestCoordinatorRestart()
       return
@@ -121,7 +117,15 @@ export function startUpdate(
   const grantedMachineIds = updates.authorize()
   const fleet = fleetSnapshot(updates)
   if (serverBehind && requestCoordinatorRestart) {
-    restartCoordinatorAfterDevelopmentFleet(updates, target.version, requestCoordinatorRestart)
+    const affectedMachineIds = initialFleet.machines
+      .filter((machine) => machine.online && machine.version !== target.version)
+      .map((machine) => machine.id)
+    restartCoordinatorAfterDevelopmentFleet(
+      updates,
+      target.version,
+      affectedMachineIds,
+      requestCoordinatorRestart,
+    )
   }
   return {
     state: 'in-progress',

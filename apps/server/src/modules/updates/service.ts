@@ -242,6 +242,12 @@ export class UpdatesService {
     })
   }
 
+  /** Raw handshake proof, deliberately bypassing optimistic convergence state. */
+  machineBootedAtTarget(machineId: string, targetVersion: string): boolean {
+    const machine = this.deps.machines().find((candidate) => candidate.id === machineId)
+    return machine?.online === true && machine.version === targetVersion
+  }
+
   private issueGrants(
     channel: UpdateChannel,
     target: UpdateTarget,
