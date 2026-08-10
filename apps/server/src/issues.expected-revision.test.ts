@@ -1,6 +1,8 @@
 import { TRPCError } from '@trpc/server'
 import { fetchRequestHandler } from '@trpc/server/adapters/fetch'
-import { describe, expect, it } from 'vitest'
+import { ROW } from '@podium/model'
+import type { Ledger } from '@podium/sync'
+import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { resolvePrincipal } from './command-principal'
 
@@ -123,6 +125,35 @@ describe('expectedRevision preconditions (ADR 3 D13)', () => {
     }
   })
 
+  it('routes supplied preconditions through the production Authority hook', async () => {
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    try {
+      const issue = seed(registry)
+      const base = revisionOf(registry, issue.id) as number
+      const ledger = (registry as unknown as { ledger: Ledger }).ledger
+      const commit = vi.spyOn(ledger.authority, 'commit')
+
+      await callerFor(registry).issues.update({
+        id: issue.id,
+        patch: { title: 'authority-routed' },
+        expectedRevision: base,
+      })
+
+      const requests = commit.mock.calls
+        .map(([operation]) => operation.arbitrate)
+        .filter((request) => request !== undefined)
+      expect(requests).toHaveLength(1)
+      expect(requests[0]).toMatchObject({
+        rowId: ROW.issueCore,
+        attempt: { expectedRevision: base },
+        omittedExpectedRevision: 'accept',
+        current: expect.any(Function),
+      })
+    } finally {
+      registry.dispose()
+    }
+  })
+
   it('applies a write whose precondition is current', async () => {
     const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     try {
@@ -189,11 +220,10 @@ describe('expectedRevision preconditions (ADR 3 D13)', () => {
     // anyway, so a LOCAL issue cannot reach the dispatcher without a revision —
     // attempting to blank one is rejected by the schema itself. The arm is
     // defence for wire shapes the local store does not mint (a hub-mirrored
-    // issue, a pre-ADR-2-D3 authority), and its LOGIC is pinned in
-    // packages/domain/src/issue-concurrency.test.ts, where the input can actually
-    // be constructed. This test guards the premise: if a local issue ever loses
-    // its revision, the fail-closed arm starts firing on ordinary edits and this
-    // goes red first.
+    // issue, a pre-ADR-2-D3 authority), and its logic is pinned in the sync Authority
+    // arbitration tests, where the input can actually be constructed. This test guards
+    // the premise: if a local issue ever loses its revision, the fail-closed arm starts
+    // firing on ordinary edits and this goes red first.
     const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     try {
       const issue = seed(registry)
@@ -233,6 +263,29 @@ describe('mutationId dedupe (ADR 2 D11.7 / ADR 3 D1)', () => {
       // The replay is the RECORDED result, not a second append.
       expect(replay).toEqual(first)
       expect(registry.issues.comments(issue.id)).toHaveLength(1)
+    } finally {
+      registry.dispose()
+    }
+  })
+
+  it('(b1) replays an exp-rev command without re-arbitrating its now-stale token', async () => {
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    try {
+      const issue = seed(registry)
+      const caller = callerFor(registry)
+      const base = revisionOf(registry, issue.id) as number
+      const input = {
+        id: issue.id,
+        patch: { title: 'exactly once' },
+        expectedRevision: base,
+        mutationId: 'mut-update-1',
+      }
+      const first = await caller.issues.update(input)
+      const replay = await caller.issues.update(input)
+
+      expect(replay).toEqual(first)
+      expect(registry.issues.get(issue.id)?.title).toBe('exactly once')
+      expect(revisionOf(registry, issue.id)).toBe(base + 1)
     } finally {
       registry.dispose()
     }

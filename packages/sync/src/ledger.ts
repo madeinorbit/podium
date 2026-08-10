@@ -1,6 +1,8 @@
 import type { MetadataChange, MetadataEntityKind } from '@podium/protocol'
 import { type Principal } from '@podium/protocol'
 import { Authority } from './authority/authority'
+import type { AuthorityCommit } from './authority/ports'
+import type { ArbitrationRejection } from './authority/arbitration'
 import {
   DeviceGradeNoAnchors,
   DeviceGradeUnscopedPolicy,
@@ -145,6 +147,16 @@ function isThenable(value: unknown): value is PromiseLike<unknown> {
   )
 }
 
+export class AuthorityArbitrationRejected extends Error {
+  constructor(
+    readonly reason: ArbitrationRejection,
+    readonly detail?: string,
+  ) {
+    super(`Authority rejected the write: ${reason}`)
+    this.name = 'AuthorityArbitrationRejected'
+  }
+}
+
 export class Ledger {
   /**
    * THE implementation, and the composition root's seam onto it.
@@ -221,27 +233,25 @@ export class Ledger {
    * appended wire rows (empty if fully deduped). A throw from `write`, `changes`,
    * or the append rolls everything back and leaves the baseline untouched.
    *
-   * No `authorize` and no `arbitrate` parameter, deliberately: this facade is the
-   * pre-POD-305 contract, and adding the new steps to it would let a call site
-   * take half the funnel. A caller that wants them uses `Authority` directly.
+   * The optional arbitration request is a compatibility bridge for production
+   * feature writers that still consume this facade. The decision is delegated to
+   * the SAME Authority instance; this class does not compare revisions itself.
    */
-  commit<T>(op: { write: () => T; changes: (result: T) => EntityChangeSpec[] }): {
+  commit<T>(op: {
+    write: () => T
+    changes: (result: T) => EntityChangeSpec[]
+    arbitrate?: AuthorityCommit<T>['arbitrate']
+  }): {
     result: T
     changes: MetadataChange[]
   } {
     const outcome = this.authority.commit({
+      ...(op.arbitrate === undefined ? {} : { arbitrate: op.arbitrate }),
       write: op.write,
       changes: (result: T) => op.changes(result).map(toKernelSpec),
     })
-    // Unreachable while this facade passes no `arbitrate`: with no arbitration
-    // request there is no verdict, so `commit` cannot reject. Asserted rather
-    // than assumed, because "cannot happen" plus a cast is how a silently
-    // dropped write ships.
     if (outcome.outcome !== 'committed') {
-      throw new Error(
-        `Ledger.commit: the Authority rejected a write this facade never asked it to arbitrate ` +
-          `(${outcome.reason}). That is a kernel invariant break, not a caller error.`,
-      )
+      throw new AuthorityArbitrationRejected(outcome.reason, outcome.detail)
     }
     return { result: outcome.result, changes: outcome.changes.map(toWireChange) }
   }

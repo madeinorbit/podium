@@ -92,9 +92,9 @@ export type IssueIdentity = z.infer<typeof IssueIdentity>
  *
  * Its own group rather than a member of {@link IssueIdentity} or
  * {@link IssueLifecycle} because it is a fact the AUTHORITY stamps about the row's
- * write history, not about which issue this is or where it stands. See
- * `../predicates/issue-concurrency.ts` for the comparison it feeds and
- * `./primitives.ts` for why it is not `fields/change.ts`'s `ChangeRevisionField`.
+ * write history, not about which issue this is or where it stands. The comparison is
+ * owned by the sync Authority arbitration policy; see `./primitives.ts` for why this
+ * token is not `fields/change.ts`'s `ChangeRevisionField`.
  *
  * OPTIONAL, matching main's `IssueWire.revision` and today's `IssueRow.revision`:
  * a row LITERAL that has never been written has no revision yet. That optionality

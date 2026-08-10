@@ -180,31 +180,33 @@ export class Authority implements AuthorityPort {
     // 1. AUTHORIZE. Before anything reads state, and a throw ends the call.
     op.authorize?.()
 
-    // 2. ARBITRATE. Before the write, so a rejection leaves nothing to undo. The
-    //    Authority stamps the event time here: ADR 1 D3 condition 1 makes its own
-    //    clock the only one a field-LWW row may arbitrate on, and the port has
-    //    nowhere for a caller to supply a different one.
+    // 2. ARBITRATE + 3. WRITE + APPEND, one span. The current-state hook runs
+    //    INSIDE this transaction, immediately before the write, so arbitration
+    //    is an atomic check-and-write rather than a best-effort preflight.
+    //
+    //    The Authority stamps the event time here: ADR 1 D3 condition 1 makes
+    //    its own clock the only one a field-LWW row may arbitrate on, and the
+    //    port has nowhere for a caller to supply a different one.
     const eventTime = this.deps.now()
-    if (op.arbitrate !== undefined) {
-      const verdict = arbitrate({
-        ...op.arbitrate,
-        attempt: { ...op.arbitrate.attempt, eventTime },
-      })
-      if (verdict.kind === 'reject') {
-        return verdict.detail === undefined
-          ? { outcome: 'rejected', reason: verdict.reason }
-          : { outcome: 'rejected', reason: verdict.reason, detail: verdict.detail }
+    const committed = this.deps.transact(() => {
+      if (op.arbitrate !== undefined) {
+        const { current, ...request } = op.arbitrate
+        const verdict = arbitrate({
+          ...request,
+          attempt: { ...request.attempt, eventTime },
+          ...(current === undefined ? {} : { current: current() }),
+        })
+        if (verdict.kind === 'reject') {
+          return verdict.detail === undefined
+            ? ({ outcome: 'rejected', reason: verdict.reason } as const)
+            : ({ outcome: 'rejected', reason: verdict.reason, detail: verdict.detail } as const)
+        }
       }
-    }
 
-    // 3. WRITE + APPEND, one span.
-    const { result, rows, seqs } = this.deps.transact(() => {
       const result = op.write()
-      // An async write() smuggles a Promise past transact()'s own thenable check
-      // — it is wrapped in this object, not returned directly — so the change row
-      // would commit now while the entity write ran later, OUTSIDE the
-      // transaction. That is exactly the torn state the span exists to prevent,
-      // and it fails loudly here rather than silently at 3am.
+      // An async write() smuggles a Promise past transact()'s own thenable check:
+      // it is wrapped in this object, not returned directly, so the change row
+      // would commit now while the entity write ran later outside the transaction.
       if (isThenable(result)) {
         throw new TypeError(
           'Authority.commit: write() returned a thenable — the entity write must be synchronous ' +
@@ -213,12 +215,18 @@ export class Authority implements AuthorityPort {
       }
       const rows = this.stage(op.changes(result))
       const seqs = rows.length > 0 ? this.append(rows, eventTime) : []
-      return { result, rows, seqs }
+      return { outcome: 'committed', result, rows, seqs } as const
     })
+
+    if (committed.outcome === 'rejected') return committed
 
     // 4. BROADCAST — after the span, so no subscriber can act on a rolled-back
     //    change.
-    return { outcome: 'committed', result, changes: this.finalize(rows, seqs) }
+    return {
+      outcome: 'committed',
+      result: committed.result,
+      changes: this.finalize(committed.rows, committed.seqs),
+    }
   }
 
   capture(specs: readonly StagedChangeSpec[]): readonly SequencedChange[] {

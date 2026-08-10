@@ -69,6 +69,17 @@ describe('exp-rev — ADR 1 D2, the default', () => {
     expect(verdict).toMatchObject({ kind: 'reject', reason: 'expected-revision-required' })
   })
 
+  it('accepts omitted update preconditions only when a caller opts into compatibility', () => {
+    expect(
+      arbitrate({
+        rowId,
+        attempt: at(100),
+        current: { revision: 7 },
+        omittedExpectedRevision: 'accept',
+      }),
+    ).toEqual({ kind: 'accept', rule: 'exp-rev' })
+  })
+
   it('accepts a CREATE with no expected revision', () => {
     // There is no revision to have expected. Demanding one would make it
     // impossible to create anything on the default rule — i.e. on most rows.

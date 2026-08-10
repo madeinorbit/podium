@@ -47,6 +47,7 @@ import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
 import { IssueSessionLifecycle } from './modules/issue-session-lifecycle'
 import { DurableIssueAccessIndex } from './modules/issues/access-index'
 import { IssueArtifactStore } from './modules/issues/artifact-store'
+import { IssueAuthorityArbitration } from './modules/issues/authority-arbitration'
 import { IssueAutoArchive } from './modules/issues/auto-archive'
 import { IssueCommandDispatcher } from './modules/issues/dispatcher'
 import { IssueGitWatch } from './modules/issues/git-watch'
@@ -428,6 +429,7 @@ export class SessionRegistry {
       },
     })
     this.ledger = ledger
+    const issueArbitration = new IssueAuthorityArbitration(ledger)
     // THE write funnel (modules/funnel): authorize → repo write → change append →
     // broadcast. Bridges ledger appends onto the bus and runs THE ordered
     // metadataDelta pipe (#256) — sendDelta is the one seam deltas reach
@@ -895,7 +897,7 @@ export class SessionRegistry {
       // the issue tracker anymore, and since POD-1203 no snapshot path either:
       // the appended rows ARE what a client is served.
       funnel,
-      ledger,
+      ledger: issueArbitration.ledger,
       publishSpecs: publisher,
       // Agent mail send-time nudge (issue #103): the sessions module subscribes
       // and picks the live member session to poke — see modules/sessions.
@@ -951,7 +953,7 @@ export class SessionRegistry {
     const issueSessionLifecycle = new IssueSessionLifecycle({
       issues,
       sessions: sessionsSvc,
-      ledger,
+      ledger: issueArbitration.ledger,
     })
     this.bus.on('session.wakeRequested', ({ sessionId, principal }) => {
       const authorized = sessionsSvc.authorizeQueuedInputAtApply({
@@ -1434,6 +1436,7 @@ export class SessionRegistry {
       },
     })
     const issueCommands = new IssueCommandDispatcher({
+      arbitration: issueArbitration,
       attachSession: (caller, input) => issueAttach.execute(caller, input),
       issues,
       deleteIssue: (id) => issueSessionLifecycle.deleteIssue(id),

@@ -130,6 +130,13 @@ export interface ArbitrationRequest {
   readonly attempt: ArbitrationAttempt
   /** Absent means the entity does not exist yet. */
   readonly current?: ArbitrationCurrent
+  /**
+   * Compatibility policy for an `exp-rev` update whose caller omitted the
+   * precondition. The kernel remains fail-closed by default; a production
+   * surface with legacy callers must opt into the temporary permissive arm at
+   * the Authority decision rather than bypassing arbitration in another layer.
+   */
+  readonly omittedExpectedRevision?: 'accept' | 'reject'
   /** Required iff the row's declared rule is `cmd`. */
   readonly commandRule?: CommandArbitrationRule
   /** Which role owns writes to a `single-writer` row (the row's home source). */
@@ -172,7 +179,11 @@ export function arbitrate(request: ArbitrationRequest): ArbitrationVerdict {
 
   switch (rule) {
     case 'exp-rev':
-      return arbitrateExpectedRevision(attempt, current)
+      return arbitrateExpectedRevision(
+        attempt,
+        current,
+        request.omittedExpectedRevision ?? 'reject',
+      )
 
     case 'single-writer': {
       // The home source is a property of the ROW, so a request that does not
@@ -264,6 +275,7 @@ export function arbitrate(request: ArbitrationRequest): ArbitrationVerdict {
 function arbitrateExpectedRevision(
   attempt: ArbitrationAttempt,
   current: ArbitrationCurrent | undefined,
+  omittedExpectedRevision: 'accept' | 'reject',
 ): ArbitrationVerdict {
   if (current === undefined) {
     return attempt.expectedRevision === undefined
@@ -271,7 +283,9 @@ function arbitrateExpectedRevision(
       : reject('exp-rev', 'revision-mismatch')
   }
   if (attempt.expectedRevision === undefined) {
-    return reject('exp-rev', 'expected-revision-required')
+    return omittedExpectedRevision === 'accept'
+      ? accept('exp-rev')
+      : reject('exp-rev', 'expected-revision-required')
   }
   return attempt.expectedRevision === current.revision
     ? accept('exp-rev')
