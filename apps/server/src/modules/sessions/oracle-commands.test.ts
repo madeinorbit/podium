@@ -239,7 +239,7 @@ describe('oracle: resurrect', () => {
     )
   })
 
-  it('resurrect is idempotent for a still-running session', async () => {
+  it(`${MUST_NOT_CHANGE}: resurrect is idempotent for a still-running session, so a stale banner cannot turn a successful wake into an error`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     goLive(o, sessionId)
