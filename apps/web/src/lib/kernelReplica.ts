@@ -1,12 +1,11 @@
 /**
  * THE WEB COMPOSITION ROOT FOR THE KERNEL REPLICA (POD-1223).
  *
- * POD-376 shipped every piece of this and wired none of them into the app: the
- * frame consumer, the wire mapping, the push/pull bootstrap seam, the client
- * authority port, the IndexedDB adapter and the mode resolver all exist and are
- * verified against a live server in `tests/e2e/feed-v2.e2e.test.ts`. What was
- * missing was the last hop — the object the engine actually reads through. This
- * module assembles the pieces and hands the engine its two ends:
+ * The browser now has one supported replica path. This module composes its frame
+ * consumer, wire mapping, bootstrap seam, authority port, IndexedDB adapter,
+ * read facade, and durable outbox. The retired rollout resolver and TanStack
+ * shadow path no longer sit in front of this root. The module assembles the pieces
+ * and hands the engine its two ends:
  *
  *   `createReplicaFn`  the kernel-backed `Replica` facade (the read model)
  *   `feed`             the `FeedSinkPort` the hub pushes v2 frames into
@@ -43,8 +42,6 @@ import {
   FeedSink,
   PushedBootstrapSource,
   preparePrincipalNamespace,
-  type ReplicaMode,
-  resolveReplicaMode,
 } from '@podium/client-core/replica'
 import type { FeedSinkPort, SocketHub } from '@podium/client-core/socket-transport'
 import { actorUser, asUserId } from '@podium/model'
@@ -60,7 +57,7 @@ import {
   migrateLegacyReplica,
 } from '@podium/sync/adapters/legacy-replica'
 import type { OutboxAttribution } from '@podium/sync/outbox'
-import { Replica as KernelReplica, type ReplicaEvent } from '@podium/sync/replica'
+import { Replica as KernelReplica } from '@podium/sync/replica'
 import type { Trpc } from '@/app/trpc'
 
 /** The IndexedDB database the web client's kernel replica lives in. */
@@ -90,13 +87,9 @@ export interface KernelAssembly {
   readonly feed: FeedSinkPort
   /** Real kernel Outbox over this assembly's IndexedDB store. */
   readonly createOutboxFn: CreateEngineOutbox
-  /** The kernel Replica itself — the shadow harness classifies against it. */
-  readonly kernel: KernelReplica
   readonly store: IndexedDbSyncStore
   /** Call once the engine's hub exists. Idempotent. */
   attachHub(hub: SocketHub): void
-  /** Additional kernel-event listener (the shadow harness takes one). */
-  onKernelEvent(listener: (event: ReplicaEvent) => void): () => void
   /** Fail-closed sign-out: erase this principal's IDB and side-cache namespace. */
   erasePrincipalData(): Promise<void>
   dispose(): Promise<void>
@@ -228,16 +221,26 @@ export async function openKernelAssembly(
   options: OpenKernelAssemblyOptions,
 ): Promise<KernelAssembly> {
   const { trpc } = options
+  let unavailableCause: unknown
   const store = await IndexedDbSyncStore.open({
     factory: options.factory ?? (globalThis.indexedDB as unknown as IdbFactoryLike),
     databaseName: options.databaseName ?? KERNEL_REPLICA_DB,
     onDegraded: (detail: unknown) => {
-      // Degradation is a real state, not an error: the replica keeps working in
-      // memory and `persistent` goes false, which the UI can surface.
+      // Recoverable corruption may cold-start in memory. An unavailable store
+      // is captured here and rejected below; the supported private replica must
+      // never mount without durability.
       options.onDegraded?.(detail)
+      const report = detail as { mode?: unknown; error?: unknown }
+      if (report?.mode === 'unavailable') unavailableCause = report.error
       console.warn('[podium] kernel replica storage degraded', detail)
     },
   })
+  if (store.durability() === 'unavailable') {
+    store.close()
+    throw unavailableCause instanceof Error
+      ? unavailableCause
+      : new Error('private replica storage is unavailable')
+  }
   const enumerateLocalKeys = (): string[] => Object.keys(globalThis.localStorage)
   const namespace = preparePrincipalNamespace({
     storage: globalThis.localStorage,
@@ -350,7 +353,6 @@ export async function openKernelAssembly(
     },
   })
 
-  const listeners = new Set<(event: ReplicaEvent) => void>()
   const createOutboxFn = await openKernelEngineOutbox({
     store: view.outbox,
     principal: options.principal,
@@ -395,20 +397,7 @@ export async function openKernelAssembly(
         (await trpc.sync.feedChangesSince.query({ cursor })) as never,
       bootstraps,
     }),
-    onEvent: (event) => {
-      // ONE callback, fanned out here. The facade needs it to move the read
-      // model; the shadow harness needs it to know when a comparison is worth
-      // sampling. Whoever grabbed `onEvent` for itself would have taken it from
-      // the other.
-      facade.onKernelEvent(event)
-      for (const listener of [...listeners]) {
-        try {
-          listener(event)
-        } catch {
-          // an observer must not break the replica's own application
-        }
-      }
-    },
+    onEvent: (event) => facade.onKernelEvent(event),
   })
 
   const sink = new FeedSink({ replica: kernel, bootstraps })
@@ -426,7 +415,6 @@ export async function openKernelAssembly(
     },
     feed: sink,
     createOutboxFn,
-    kernel,
     store,
     attachHub: (attached) => {
       hub = attached
@@ -434,10 +422,6 @@ export async function openKernelAssembly(
         freshWorldPending = false
         attached.requestFreshWorld()
       }
-    },
-    onKernelEvent: (listener) => {
-      listeners.add(listener)
-      return () => listeners.delete(listener)
     },
     erasePrincipalData: async () => {
       side.dispose()
@@ -449,52 +433,5 @@ export async function openKernelAssembly(
       await store.settled()
       store.close()
     },
-  }
-}
-
-/** `/version` → the scoping grade the mode resolver needs. Never throws: an
- *  unreachable probe is an unknown grade, which the resolver treats as
- *  `device-unscoped` with the reasoning written down in `mode.ts`. */
-export async function fetchFeedScoping(httpOrigin: string): Promise<string | undefined> {
-  try {
-    const res = await fetch(`${httpOrigin}/version`)
-    if (!res.ok) return undefined
-    const body = (await res.json()) as { feedScoping?: unknown }
-    return typeof body.feedScoping === 'string' ? body.feedScoping : undefined
-  } catch {
-    return undefined
-  }
-}
-
-/**
- * The resolved read path for this client. Pure resolution lives in
- * `resolveReplicaMode`; this only gathers its three inputs.
- */
-export interface ResolvedWebReplicaMode {
-  readonly mode: ReplicaMode
-  /** The grade `/version` advertised, carried out so the shadow harness can be
-   *  TOLD whether the authority is scoped instead of inferring it from data. */
-  readonly serverGrade: string | undefined
-}
-
-export async function resolveWebReplicaMode(args: {
-  httpOrigin: string
-  trpc: Trpc
-}): Promise<ResolvedWebReplicaMode> {
-  const [flags, serverGrade] = await Promise.all([
-    // An unreachable features query is FLAGS OFF, which resolves to the shipped
-    // legacy path — the same posture `useFeature` takes on a failed first load.
-    args.trpc.features.state.query().catch(() => null),
-    fetchFeedScoping(args.httpOrigin),
-  ])
-  const enabledFlag = (id: string): boolean =>
-    flags?.flags.find((f) => f.id === id)?.enabled ?? false
-  return {
-    mode: resolveReplicaMode({
-      kernelReplicaEnabled: true,
-      shadowEnabled: enabledFlag('kernel-replica-shadow'),
-      serverGrade,
-    }),
-    serverGrade,
   }
 }

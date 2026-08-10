@@ -1,5 +1,6 @@
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { asSessionId } from '@podium/model'
+import { createReplica } from '@podium/client-core/replica'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -94,6 +95,7 @@ async function render(): Promise<void> {
     root.render(
       <StoreProvider
         principal={TEST_PRINCIPAL}
+        createReplicaFn={() => createReplica()}
         config={{ httpOrigin: 'http://x', wsClientUrl: 'ws://x' }}
         onFatalError={() => {}}
       >
@@ -148,6 +150,7 @@ describe('selector-scoped store', () => {
       root.render(
         <StoreProvider
           principal={TEST_PRINCIPAL}
+          createReplicaFn={() => createReplica()}
           config={{ httpOrigin: 'http://x', wsClientUrl: 'ws://x' }}
           onFatalError={() => {}}
         >

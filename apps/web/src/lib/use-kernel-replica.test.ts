@@ -1,5 +1,9 @@
-import { describe, expect, it, vi } from 'vitest'
-import { resolveReplicaPrincipal } from './use-kernel-replica'
+import { renderHook, waitFor } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { indexedDB } from 'fake-indexeddb'
+import type { Trpc } from '@/app/trpc'
+import { openKernelAssembly } from './kernelReplica'
+import { resolveReplicaPrincipal, useKernelReplica } from './use-kernel-replica'
 
 const response = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), {
@@ -49,5 +53,50 @@ describe('offline replica principal resolution', () => {
       }),
     ).rejects.toThrow('authenticated account is unavailable')
     expect(inspectNamespaces).not.toHaveBeenCalled()
+  })
+})
+
+describe('private replica boot failure', () => {
+  it('rejects an unavailable IndexedDB store at the composition root', async () => {
+    const factory = {
+      open: () => {
+        throw new DOMException('IndexedDB is blocked', 'SecurityError')
+      },
+      deleteDatabase: indexedDB.deleteDatabase.bind(indexedDB),
+    }
+
+    await expect(
+      openKernelAssembly({
+        trpc: {} as Trpc,
+        principal: 'alice',
+        evidence: { kind: 'multi-user', signedInAs: 'alice', identitiesEverSignedIn: ['alice'] },
+        factory: factory as NonNullable<Parameters<typeof openKernelAssembly>[0]['factory']>,
+      }),
+    ).rejects.toThrow('IndexedDB is blocked')
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  it('stays fatal when the supported private replica cannot open', async () => {
+    const resolvePrincipal = vi.fn(async () => 'alice')
+    const openAssembly = vi.fn(async () => {
+      throw new DOMException('IndexedDB is blocked', 'SecurityError')
+    })
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const { result } = renderHook(() =>
+      useKernelReplica({ trpc: {} as Trpc, resolvePrincipal, openAssembly }),
+    )
+
+    await waitFor(() => {
+      expect(result.current).toEqual({
+        status: 'failed',
+        failure: 'IndexedDB is blocked',
+      })
+    })
+    expect(globalThis.__podiumReplicaPath).toBeUndefined()
   })
 })
