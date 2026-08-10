@@ -107,6 +107,17 @@ describe('pending decision — merge is distinguishable from review', () => {
     expect(pendingDecisionLabel(i, 'review')).toBe('needs review')
   })
 
+  it('asks for no decision while an open dependency blocks the delivery', () => {
+    const i = issue('POD-7', {
+      stage: 'review',
+      branch: 'issue/7',
+      gitState: unmerged,
+      blocked: true,
+    })
+    expect(issuePendingDecision(i)).toBeNull()
+    expect(issuePendingMergeCommits(i)).toBe(0)
+  })
+
   it('asks nothing of the human for work in progress', () => {
     expect(issuePendingDecision(issue('POD-3'))).toBeNull()
   })

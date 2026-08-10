@@ -34,7 +34,7 @@ import {
   sessionNeedsHuman,
   waitingNote,
 } from './mission'
-import type { IssueNavigationModel } from './slices/issues'
+import { type IssueNavigationModel, issuePendingDecision } from './slices/issues'
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -1184,6 +1184,27 @@ describe('waitingNote', () => {
     const dep = issue('dep')
     const subject = issue('a', { deps: [{ id: 'dep', type: 'blocks' }] })
     expect(waitingNote(subject, index([dep, subject]))).toMatch(/^Waiting for .+ to complete$/)
+  })
+
+  it('agrees with the sidebar that blocked review work is waiting, not merge-ready', () => {
+    const dep = issue('dep')
+    const subject = issue('a', {
+      stage: 'review',
+      branch: 'issue/a',
+      blocked: true,
+      deps: [{ id: 'dep', type: 'blocks' }],
+      gitState: {
+        updatedAt: '2026-07-01T00:00:00.000Z',
+        branch: 'issue/a',
+        shared: false,
+        merged: false,
+        ahead: 3,
+        dirtyFiles: 0,
+      },
+    })
+
+    expect(waitingNote(subject, index([dep, subject]))).toMatch(/^Waiting for .+ to complete$/)
+    expect(issuePendingDecision(subject)).toBeNull()
   })
 
   it('counts them once there is more than one', () => {

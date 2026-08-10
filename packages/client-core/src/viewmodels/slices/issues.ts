@@ -271,15 +271,18 @@ export function issueAwaitingMerge(issue: IssueWire): boolean {
  *                or artifact deliverable, or work already merged): the decision
  *                is approve / send back.
  *
- *  Deliberately derived from stage + git, never from the session offer: an
- *  offer is consumed by any user turn into that session, so a merge queue that
- *  depended on it would silently empty itself (same reasoning as the tray's
- *  review backstop, POD-118). */
+ *  Derived from stage + git + the replica's dependency verdict, never from the
+ *  session offer: an offer is consumed by any user turn into that session, so
+ *  a merge queue that depended on it would silently empty itself (same
+ *  reasoning as the tray's review backstop, POD-118). */
 export type IssuePendingDecision = 'merge' | 'review'
 
 export function issuePendingDecision(issue: IssueWire): IssuePendingDecision | null {
   const finished = issue.stage === 'done' || issue.closedReason != null
   if (!finished && issue.stage !== 'review') return null
+  // `blocked` is derived from open outgoing `blocks` edges by the replica. Such
+  // work is waiting on its dependency, not on a human merge/review decision.
+  if (issue.blocked) return null
   if (issueHasUnmergedDelivery(issue)) return 'merge'
   // A finished issue with nothing to land is simply done — only an explicit
   // review stage still holds an open question.

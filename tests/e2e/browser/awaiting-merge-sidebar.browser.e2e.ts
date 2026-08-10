@@ -125,9 +125,15 @@ test('done branch delta becomes still yellow ready-to-merge attention', async ({
   await openShell(page)
   const reviewRow = page.getByTestId('unified-issue-row').filter({ hasText: title }).first()
   await expect(reviewRow).toBeVisible({ timeout: 30_000 })
-  // The spawned agent is still running: nothing is being asked of the human yet.
-  await expect(reviewRow.locator('[data-issue-row]')).toHaveAttribute('data-phase', 'working')
-  await expect(reviewRow.getByTestId('awaiting-merge-status')).toHaveCount(0)
+  // A still-running agent suppresses the decision. On a fast harness the mock
+  // agent may already have settled, in which case the merge decision is ready.
+  const initialPhase = await reviewRow.locator('[data-issue-row]').getAttribute('data-phase')
+  if (initialPhase === 'working') {
+    await expect(reviewRow.getByTestId('awaiting-merge-status')).toHaveCount(0)
+  } else {
+    expect(initialPhase).toBe('waiting')
+    await expect(reviewRow.getByTestId('awaiting-merge-status')).toHaveText('ready to merge · 1')
+  }
 
   const sessions = await rpc<{ sessionId: string; issueId?: string | null }[]>(
     request,
@@ -144,6 +150,25 @@ test('done branch delta becomes still yellow ready-to-merge attention', async ({
   await expect(reviewRow.getByTestId('awaiting-merge-status')).toHaveText(
     'ready to merge · 1',
   )
+
+  // An open blocking dependency changes what this row is waiting for. The
+  // unlanded commit still exists, but it is not ready to merge until the
+  // dependency completes.
+  const blocker = await rpc<{ id: string }>(request, 'issues.create', {
+    repoPath,
+    title: `Merge blocker ${Date.now()}`,
+    startNow: false,
+  })
+  await rpc(request, 'issues.depAdd', {
+    fromId: created.id,
+    toId: blocker.id,
+    type: 'blocks',
+  })
+  await expect(reviewRow.getByTestId('awaiting-merge-status')).toHaveCount(0)
+  await expect(reviewRow).not.toContainText('ready to merge')
+
+  await rpc(request, 'issues.update', { id: blocker.id, patch: { stage: 'done' } })
+  await expect(reviewRow.getByTestId('awaiting-merge-status')).toHaveText('ready to merge · 1')
 
   await rpc(request, 'issues.update', { id: created.id, patch: { stage: 'done' } })
 
