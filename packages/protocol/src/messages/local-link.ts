@@ -32,6 +32,13 @@ export type LocalDaemonAttachment =
  *   in-process is a transport optimization, never a local-credential trust
  *   shortcut (ADR 9 D6 M4). Only an established reply exposes delivery.
  */
+export interface LocalPortableStateControl {
+  pauseAndDrain(): Promise<void>
+  resume(): void
+}
+
 export interface LocalDaemonLink {
   attach(opts: { hello: PeerHello; deliver: (msg: ControlMessage) => void }): LocalDaemonAttachment
+  /** All-in-one-only lifecycle control; remote daemon links never expose process memory. */
+  attachPortableState?(control: LocalPortableStateControl): void
 }

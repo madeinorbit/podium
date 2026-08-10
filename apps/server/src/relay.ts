@@ -4,7 +4,11 @@ import { join } from 'node:path'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness/metadata'
 import type { AgentKind, SessionId, SessionMeta } from '@podium/model'
 import { asSessionId, asUserId, FIRST_ADMIN_USER_ID, spawnedByParentSessionId } from '@podium/model'
-import type { LiveServerMessage, VisibilityResolver } from '@podium/protocol'
+import type {
+  LiveServerMessage,
+  LocalPortableStateControl,
+  VisibilityResolver,
+} from '@podium/protocol'
 import { formatIssueRef, SubscriptionRegistry, wireSchemaDigest } from '@podium/protocol'
 import { durableSessionLabel } from '@podium/runtime/instance'
 import { stateDir } from '@podium/runtime/local-machine'
@@ -265,6 +269,7 @@ export class SessionRegistry {
   private readonly automationScheduler: AutomationScheduler
   private readonly store: SessionStore
   private readonly now: () => number
+  private localDaemonPortableState: LocalPortableStateControl | undefined
 
   constructor(
     store: SessionStore | undefined,
@@ -608,13 +613,20 @@ export class SessionRegistry {
       sourceHealthy: () => this.store.checkpointForTransfer(),
       checkpoint: () => this.store.checkpointForTransfer(),
       fence: async () => {
-        await portableStateFence.acquire()
+        const daemonPortableState = this.localDaemonPortableState
+        await daemonPortableState?.pauseAndDrain()
+        let portableFenceHeld = false
+        let mirroringPaused = false
         try {
+          await portableStateFence.acquire()
+          portableFenceHeld = true
           await memory.pauseMirroringForTransfer()
+          mirroringPaused = true
           this.store.beginTransferFence()
         } catch (error) {
-          memory.resumeMirroringAfterTransfer()
-          portableStateFence.release()
+          if (mirroringPaused) memory.resumeMirroringAfterTransfer()
+          if (portableFenceHeld) portableStateFence.release()
+          daemonPortableState?.resume()
           throw error
         }
       },
@@ -622,6 +634,7 @@ export class SessionRegistry {
         this.store.endTransferFence()
         memory.resumeMirroringAfterTransfer()
         portableStateFence.release()
+        this.localDaemonPortableState?.resume()
       },
       demoteSource: ({ transferId, publicUrl }) => {
         prepareSourceDaemonCutover({ transferId, serverUrl: publicUrl })
@@ -1776,6 +1789,11 @@ export class SessionRegistry {
   /** Write-seam ledger — layout (and other non-session modules) capture entity rows here. */
   get changeLedger(): Ledger {
     return this.ledger
+  }
+
+  /** Register the daemon-local upload fence for the all-in-one process. */
+  attachLocalDaemonPortableState(control: LocalPortableStateControl): void {
+    this.localDaemonPortableState = control
   }
 
   dispose(): void {

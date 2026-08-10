@@ -92,6 +92,7 @@ export async function createDaemonHostRuntime(args: {
   const identity = loadIdentity({ dir: identityStateDir })
   const machineId = opts.machineId ?? identity.machineId
   const portableStateFence = new PortableStateFence()
+  opts.localLink?.attachPortableState?.(portableStateFence)
   await mkdir(instance.runtimeDir, { recursive: true })
   const bindingStore = await BindingStore.open({
     dir: join(instance.runtimeDir, 'session-bindings'),
