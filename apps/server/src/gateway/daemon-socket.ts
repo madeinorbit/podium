@@ -36,7 +36,7 @@ import type { PairingGrant } from '../modules/machines/service'
 import type { SessionRegistry } from '../relay'
 import { createDaemonAcceptor, receiveDaemonFrame, recordHelloBuild } from './peer-handshake'
 import { DAEMON_PLANE_LIVENESS } from './plane-liveness'
-import { warnDroppedFrame } from './ws-send'
+import { type GatewaySocket, warnDroppedFrame } from './ws-send'
 
 /** Freshly-attached daemons get polled this often (see the attach site) … */
 const INVENTORY_SETTLE_INTERVAL_MS = 10_000
@@ -73,7 +73,7 @@ const nextDaemonConnectionId = (): number => {
  * Extracted from the connection handler so the auth logic is unit-testable
  * against a fake socket (see `wsServer.daemon.test.ts`).
  */
-export function wireDaemonSocket(ws: import('ws').WebSocket, registry: SessionRegistry): void {
+export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): void {
   // The AUTHENTICATED principal for this socket. Typed as the principal object,
   // not a machine id, so nothing on this path can substitute a payload value.
   let principal: MachinePrincipal | undefined
@@ -82,8 +82,9 @@ export function wireDaemonSocket(ws: import('ws').WebSocket, registry: SessionRe
   // Reply helper. The reply `type` literals (helloOk/paired/…) collide with members
   // of other encode() unions, so annotate the value as a DaemonHandshakeReply to
   // pin it to the handshake schema.
-  const reply = (msg: DaemonHandshakeReply | PeerHelloReply): void =>
+  const reply = (msg: DaemonHandshakeReply | PeerHelloReply): void => {
     ws.send(encode(msg as DaemonHandshakeReply))
+  }
   // The shared framing (ADR 5 D3) does the version negotiation, the role
   // resolution, the ORDER enforcement and the strategy selection; this socket
   // supplies the transport facts and does what the step says.
@@ -91,7 +92,7 @@ export function wireDaemonSocket(ws: import('ws').WebSocket, registry: SessionRe
     machines: registry.modules.machines,
     connectionId: `daemon-${nextDaemonConnectionId()}`,
   })
-  ws.on('message', (raw: import('ws').RawData) => {
+  ws.on('message', (raw) => {
     if (principal === undefined) {
       const outcome = receiveDaemonFrame(acceptor, raw.toString())
       // A pre-auth frame that is not a handshake is dropped on the floor: it never

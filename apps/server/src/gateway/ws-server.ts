@@ -1,18 +1,61 @@
 /**
- * THE GATEWAY'S WS TRANSPORT — the upgrade gate, the two peer sockets, and the
- * per-plane liveness sweeps (POD-389; moved here from `apps/server/src/wsServer.ts`).
+ * Bun-native WebSocket upgrade boundary.
  *
- * The gateway is now the ONLY place `ws` types are imported: no feature module
- * touches a socket. BOTH halves hand their frames to a mux and stop —
- * `daemon-socket.ts` → `daemon-mux.ts` (POD-389) and `client-socket.ts` →
- * `client-mux.ts` (POD-390). This file is the upgrade gate and the liveness
- * sweeps; it knows about no feature and no frame type.
+ * Bun intercepts `ws`, but its compatibility WebSocketServer does not negotiate
+ * permessage-deflate. This boundary therefore uses Bun.serve's native server
+ * sockets and adapts them to the small evented socket interface used by the
+ * gateway's already-tested client and daemon protocol layers.
  */
 
-import type { IncomingMessage, Server } from 'node:http'
 import type { UserId, UserRole } from '@podium/model'
 import { versionSupport } from '@podium/protocol'
-import { WebSocketServer } from 'ws'
+
+export interface NativeServer<T> {
+  readonly port: number
+  upgrade(request: Request, options: { data: T }): boolean
+  stop(closeActiveConnections?: boolean): void | Promise<void>
+}
+
+interface NativeServerWebSocket<T> {
+  data: T
+  readonly readyState: number
+  getBufferedAmount(): number
+  sendText(data: string, compress?: boolean): number
+  ping(): number
+  terminate(): void
+}
+
+export interface NativeWebSocketHandler<T> {
+  data: T
+  perMessageDeflate: { compress: '3KB'; decompress: '3KB' }
+  maxPayloadLength: number
+  backpressureLimit: number
+  closeOnBackpressureLimit: boolean
+  idleTimeout: number
+  sendPings: boolean
+  open(socket: NativeServerWebSocket<T>): void
+  message(socket: NativeServerWebSocket<T>, message: string | Buffer): void
+  pong(socket: NativeServerWebSocket<T>): void
+  close(socket: NativeServerWebSocket<T>): void
+}
+
+export interface NativeServeOptions<T> {
+  port: number
+  hostname: string
+  websocket: NativeWebSocketHandler<T>
+  fetch(
+    request: Request,
+    server: NativeServer<T>,
+  ): Response | undefined | Promise<Response | undefined>
+}
+
+export function serveNative<T>(options: NativeServeOptions<T>): NativeServer<T> {
+  const runtime = globalThis as typeof globalThis & {
+    Bun: { serve<U>(options: NativeServeOptions<U>): NativeServer<U> }
+  }
+  return runtime.Bun.serve(options)
+}
+
 import type { PublicationAuthority } from '../modules/sessions/session'
 import type { SessionRegistry } from '../relay'
 import { wireClientSocket } from './client-socket'
@@ -23,31 +66,25 @@ import {
   type HeartbeatSocket,
   type SweepTimers,
 } from './plane-liveness'
+import { type GatewaySocket, shouldCompressWebSocketFrame, WS_MAX_PAYLOAD_BYTES } from './ws-send'
 
 export interface WsHandle {
+  handleRequest(request: Request, server: NativeServer<SocketData>): Response | null | undefined
+  websocket: NativeWebSocketHandler<SocketData>
   close(): Promise<void>
 }
 
 export interface WsAuthOptions {
-  /**
-   * Gate for the human-client (/client) WS upgrade. Returns false to reject the upgrade
-   * (the password is set and the request carries no valid session cookie). Absent =
-   * surface is open (loopback/all-in-one, or the user opted out of login). The /daemon
-   * link is unaffected — it has its own pre-auth handshake.
-   */
-  authorizeClient?: (req: IncomingMessage) => boolean
-  /** Resolve the authenticated account for the client socket. Present in production. */
-  userForClient?: (req: IncomingMessage) => UserId | undefined
-  roleForClient?: (req: IncomingMessage) => UserRole | undefined
-  /** Resolve a revocable, request-specific publication world on the real socket path. */
-  resolvePublicationAuthority?: (req: IncomingMessage) => PublicationAuthority
+  authorizeClient?: (request: Request) => boolean
+  userForClient?: (request: Request) => UserId | undefined
+  roleForClient?: (request: Request) => UserRole | undefined
+  resolvePublicationAuthority?: (request: Request) => PublicationAuthority
   serverRole?: string
 }
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]'])
 
-/** The hostname portion of a `Host` header (drops the port; tolerates IPv6 brackets). */
-function hostHeaderName(host: string | undefined): string | undefined {
+function hostHeaderName(host: string | null | undefined): string | undefined {
   if (!host) return undefined
   try {
     return new URL(`http://${host}`).hostname
@@ -56,22 +93,11 @@ function hostHeaderName(host: string | undefined): string | undefined {
   }
 }
 
-/**
- * Cross-Site-WebSocket-Hijacking defense for the WS upgrades. A browser sends an `Origin`
- * header it can't forge; a native client (the daemon, the `ws` lib) sends none. We allow:
- * no Origin (native), the desktop webview (`tauri:`), loopback origins, and same-origin
- * (Origin host == request Host).
- *
- * Crucially, we ALSO allow when the request's own `Host` is loopback. Behind a reverse proxy
- * (tailscale serve / nginx / caddy, which set `changeOrigin`) the backend's Host is rewritten
- * to its internal loopback address, so an Origin==Host comparison can never match a real
- * browser origin — the edge owns origin policy there. We therefore only *enforce* same-host
- * when the backend is bound to a real network host (direct exposure). The comparison is
- * hostname-only (port-insensitive): a TLS terminator forwards on a different port than the
- * public one, and same-host/different-port isn't the CSWSH threat. SameSite=Lax on the
- * session cookie is the primary CSWSH protection regardless; this is defense-in-depth.
- */
-export function isAllowedWsOrigin(origin: string | undefined, host: string | undefined): boolean {
+/** Cross-site WebSocket-hijacking defense shared by both socket planes. */
+export function isAllowedWsOrigin(
+  origin: string | null | undefined,
+  host: string | null | undefined,
+): boolean {
   if (!origin) return true
   let parsed: URL
   try {
@@ -81,139 +107,188 @@ export function isAllowedWsOrigin(origin: string | undefined, host: string | und
   }
   if (parsed.protocol === 'tauri:') return true
   if (LOOPBACK_HOSTS.has(parsed.hostname)) return true
-  // Proxied or local backend → can't/needn't verify the public origin here.
   const reqHost = hostHeaderName(host)
   if (LOOPBACK_HOSTS.has(reqHost ?? '')) return true
-  // Direct network exposure: require the Origin's hostname to match the request's, so a
-  // foreign site (evil.example) is rejected while any port on our own host is allowed.
   return Boolean(reqHost) && parsed.hostname === reqHost
 }
 
-/**
- * Test seam for the two sweeps' clock (POD-391). Production passes nothing and
- * gets real timers. It exists because the ONE thing the policy objects cannot
- * enforce for themselves is which SOCKET SET each is handed here — pairing the
- * client set with the daemon plane's policy still compiles, and did survive a
- * mutation of exactly that line. Injecting the clock lets the pairing be asserted
- * without waiting 15 real seconds on a loaded host.
- */
 export interface WsTransportDeps {
   timers?: SweepTimers
 }
 
+interface SocketData {
+  kind: 'client' | 'daemon'
+  url: string
+  userId?: UserId
+  userRole?: UserRole
+  publicationAuthority?: PublicationAuthority
+  serverRole?: string
+  socket?: NativeGatewaySocket
+}
+
+type SocketEvent = 'message' | 'close' | 'pong'
+type SocketListener = (...args: never[]) => void
+
+class NativeGatewaySocket implements GatewaySocket {
+  private readonly listeners = new Map<SocketEvent, SocketListener[]>()
+
+  constructor(private readonly native: NativeServerWebSocket<SocketData>) {}
+
+  get readyState(): number {
+    return this.native.readyState
+  }
+
+  get bufferedAmount(): number {
+    return this.native.getBufferedAmount()
+  }
+
+  send(data: string, compress = shouldCompressWebSocketFrame(data)): number {
+    return this.native.sendText(data, compress)
+  }
+
+  ping(): void {
+    this.native.ping()
+  }
+
+  terminate(): void {
+    this.native.terminate()
+  }
+
+  on(event: 'message', listener: (raw: string | Buffer) => void): this
+  on(event: 'close', listener: () => void): this
+  on(event: 'pong', listener: () => void): this
+  on(event: SocketEvent, listener: SocketListener): this {
+    const current = this.listeners.get(event)
+    if (current) current.push(listener)
+    else this.listeners.set(event, [listener])
+    return this
+  }
+
+  emit(event: SocketEvent, ...args: unknown[]): void {
+    for (const listener of this.listeners.get(event) ?? []) listener(...(args as never[]))
+  }
+}
+
+/**
+ * Build the native handler before Bun.serve starts. Per-message deflate is
+ * negotiated once, while each send decides whether its frame is worth
+ * compressing. The 3 KiB settings are Bun's smallest selectable compressor
+ * and decompressor memory modes.
+ */
 export function attachWebSockets(
-  server: Server,
   registry: SessionRegistry,
   auth: WsAuthOptions = {},
   deps: WsTransportDeps = {},
 ): WsHandle {
-  const daemonWss = new WebSocketServer({ noServer: true })
-  const clientWss = new WebSocketServer({ noServer: true })
-
-  server.on('upgrade', (req, socket, head) => {
-    const url = new URL(req.url ?? '/', 'http://localhost')
-    const pathname = url.pathname
-    // Reject a peer on an unsupported wire protocol with a clear 426 so it can tell the
-    // user to update, rather than failing later on a malformed frame. A peer that sends
-    // no `v` (older client) is allowed through unchanged.
-    if (pathname === '/daemon' || pathname === '/client') {
-      const raw = url.searchParams.get('v') ?? url.searchParams.get('pv') // 'pv' = deprecated alias
-      if (raw !== null && versionSupport(Number(raw)) !== 'ok') {
-        socket.write('HTTP/1.1 426 Upgrade Required\r\n\r\n')
-        socket.destroy()
-        return
-      }
-      // Cross-site WebSocket hijacking guard — reject a browser whose Origin isn't ours.
-      if (!isAllowedWsOrigin(req.headers.origin, req.headers.host)) {
-        socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n')
-        socket.destroy()
-        return
-      }
-    }
-    if (pathname === '/daemon') {
-      daemonWss.handleUpgrade(req, socket, head, (ws) => daemonWss.emit('connection', ws, req))
-    } else if (pathname === '/client') {
-      // Gate the human-client surface: if a login password is set, the upgrade must carry
-      // a valid session cookie. Browsers send same-origin cookies on the WS handshake, so
-      // the gate reads them off the upgrade request — mirroring the cookie the /trpc and
-      // /files HTTP guards check, one shared definition of "authed".
-      if (
-        (auth.userForClient && auth.userForClient(req) === undefined) ||
-        (auth.roleForClient && auth.roleForClient(req) === undefined) ||
-        (auth.authorizeClient && !auth.authorizeClient(req))
-      ) {
-        socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n')
-        socket.destroy()
-        return
-      }
-      clientWss.handleUpgrade(req, socket, head, (ws) => clientWss.emit('connection', ws, req))
-    } else {
-      socket.destroy()
-    }
-  })
-
-  // Liveness marks for the daemon socket: present = ponged since the last sweep.
-  const aliveDaemons = new WeakSet<HeartbeatSocket>()
-  daemonWss.on('connection', (ws) => {
-    // Pre-auth handshake gate: drop non-handshake first frames; the first hello/pair →
-    // the machine strategies → attach as the authenticated machine PRINCIPAL. UNIFIED
-    // auth — the same-host daemon authenticates through the SAME hello path as any
-    // remote, presenting the id it read from `<stateDir>/machine.id` (the id the server
-    // registered via ensureHostMachine before writing a single row, so its data is
-    // attributed regardless). No bootstrap special-case, and no extra trust for being
-    // local. The heartbeat
-    // liveness mark is layered on so a wedged daemon is terminate()d within two sweeps →
-    // fires `close` → detachDaemon.
-    wireDaemonSocket(ws, registry)
-    aliveDaemons.add(ws)
-    ws.on('pong', () => aliveDaemons.add(ws))
-  })
-
-  // Liveness marks for client sockets: present = ponged since the last sweep.
+  const clients = new Set<NativeGatewaySocket>()
+  const daemons = new Set<NativeGatewaySocket>()
   const aliveClients = new WeakSet<HeartbeatSocket>()
-  clientWss.on('connection', (ws, req) => {
-    // The connection, its principal and its frame switch belong to the client
-    // mux (POD-390); this handler layers the liveness mark on top, exactly as the
-    // daemon half above does.
-    if (
-      wireClientSocket(ws, req, registry, {
-        ...auth,
-        ...(auth.userForClient ? { userId: auth.userForClient(req) } : {}),
-        ...(auth.roleForClient ? { userRole: auth.roleForClient(req) } : {}),
-      }) === undefined
-    )
-      return
-    aliveClients.add(ws)
-    ws.on('pong', () => aliveClients.add(ws))
-  })
+  const aliveDaemons = new WeakSet<HeartbeatSocket>()
 
-  // Each plane schedules its OWN sweep at its OWN cadence (POD-391). This file
-  // no longer builds the timers, so it cannot pair a socket set with the other
-  // plane's interval — `wss.clients` is a live Set, re-iterated each tick.
-  const clientHeartbeat = CLIENT_PLANE_LIVENESS.startHeartbeat(
-    clientWss.clients,
-    aliveClients,
-    deps.timers,
-  )
-  // The daemon link gets the same dead-socket sweep the client link has always had;
-  // terminating a wedged daemon fires its `close` → the gateway's detachDaemon.
-  const daemonHeartbeat = DAEMON_PLANE_LIVENESS.startHeartbeat(
-    daemonWss.clients,
-    aliveDaemons,
-    deps.timers,
-  )
+  const websocket: NativeWebSocketHandler<SocketData> = {
+    data: {} as SocketData,
+    perMessageDeflate: { compress: '3KB', decompress: '3KB' },
+    maxPayloadLength: WS_MAX_PAYLOAD_BYTES,
+    backpressureLimit: CLIENT_PLANE_LIVENESS.sendBufferLimitBytes,
+    closeOnBackpressureLimit: false,
+    idleTimeout: 0,
+    sendPings: false,
+    open(native) {
+      const socket = new NativeGatewaySocket(native)
+      native.data.socket = socket
+      if (native.data.kind === 'daemon') {
+        daemons.add(socket)
+        aliveDaemons.add(socket)
+        wireDaemonSocket(socket, registry)
+        return
+      }
+      clients.add(socket)
+      aliveClients.add(socket)
+      const id = wireClientSocket(socket, native.data.url, registry, {
+        userId: native.data.userId,
+        userRole: native.data.userRole,
+        publicationAuthority: native.data.publicationAuthority,
+        serverRole: native.data.serverRole,
+      })
+      if (id === undefined) clients.delete(socket)
+    },
+    message(native, message) {
+      native.data.socket?.emit('message', message)
+    },
+    pong(native) {
+      const socket = native.data.socket
+      if (!socket) return
+      if (native.data.kind === 'daemon') aliveDaemons.add(socket)
+      else aliveClients.add(socket)
+      socket.emit('pong')
+    },
+    close(native) {
+      const socket = native.data.socket
+      if (!socket) return
+      clients.delete(socket)
+      daemons.delete(socket)
+      socket.emit('close')
+    },
+  }
+
+  const clientHeartbeat = CLIENT_PLANE_LIVENESS.startHeartbeat(clients, aliveClients, deps.timers)
+  const daemonHeartbeat = DAEMON_PLANE_LIVENESS.startHeartbeat(daemons, aliveDaemons, deps.timers)
 
   return {
-    close() {
+    websocket,
+    handleRequest(request, server) {
+      const url = new URL(request.url)
+      const pathname = url.pathname
+      if (pathname !== '/client' && pathname !== '/daemon') return null
+
+      const rawVersion = url.searchParams.get('v') ?? url.searchParams.get('pv')
+      if (rawVersion !== null && versionSupport(Number(rawVersion)) !== 'ok') {
+        return new Response('Upgrade Required', { status: 426 })
+      }
+      if (!isAllowedWsOrigin(request.headers.get('origin'), request.headers.get('host'))) {
+        return new Response('Forbidden', { status: 403, headers: { connection: 'close' } })
+      }
+
+      let data: SocketData
+      if (pathname === '/client') {
+        const userId = auth.userForClient?.(request)
+        const userRole = auth.roleForClient?.(request)
+        if (
+          (auth.userForClient && userId === undefined) ||
+          (auth.roleForClient && userRole === undefined) ||
+          (auth.authorizeClient && !auth.authorizeClient(request))
+        ) {
+          return new Response('Unauthorized', { status: 401, headers: { connection: 'close' } })
+        }
+        let publicationAuthority: PublicationAuthority | undefined
+        try {
+          publicationAuthority = auth.resolvePublicationAuthority?.(request)
+        } catch {
+          return new Response('Forbidden', { status: 403, headers: { connection: 'close' } })
+        }
+        data = {
+          kind: 'client',
+          url: request.url,
+          userId,
+          userRole,
+          ...(publicationAuthority ? { publicationAuthority } : {}),
+          ...(auth.serverRole ? { serverRole: auth.serverRole } : {}),
+        }
+      } else {
+        data = { kind: 'daemon', url: request.url }
+      }
+
+      return server.upgrade(request, { data })
+        ? undefined
+        : new Response('WebSocket upgrade failed', { status: 400 })
+    },
+    async close() {
       clientHeartbeat.stop()
       daemonHeartbeat.stop()
-      return new Promise<void>((resolve) => {
-        // Terminate existing connections so wss.close() resolves immediately rather
-        // than waiting for clients to disconnect on their own.
-        for (const ws of daemonWss.clients) ws.terminate()
-        for (const ws of clientWss.clients) ws.terminate()
-        daemonWss.close(() => clientWss.close(() => resolve()))
-      })
+      for (const socket of clients) socket.terminate()
+      for (const socket of daemons) socket.terminate()
+      clients.clear()
+      daemons.clear()
     },
   }
 }

@@ -21,21 +21,20 @@
  * is no path here through which a payload value could become a routing identity.
  */
 
-import type { IncomingMessage } from 'node:http'
 import type { UserId, UserRole } from '@podium/model'
 import { parseClientMessage, WIRE_VERSION } from '@podium/protocol'
 import type { PublicationAuthority } from '../modules/sessions/session'
 import type { SessionRegistry } from '../relay'
 import { CLIENT_PLANE_LIVENESS } from './plane-liveness'
-import { warnDroppedFrame } from './ws-send'
+import { type GatewaySocket, warnDroppedFrame } from './ws-send'
 
 /** How the main authority is resolved for one upgrade, plus its fallbacks. */
 export interface ClientAuthorityOptions {
   /** Account resolved from the authenticated upgrade cookie. */
   userId?: UserId
   userRole?: UserRole
-  /** Resolve a revocable, request-specific publication world on the real socket path. */
-  resolvePublicationAuthority?: (req: IncomingMessage) => PublicationAuthority
+  /** Revocable, request-specific publication world resolved at the upgrade gate. */
+  publicationAuthority?: PublicationAuthority
   serverRole?: string
 }
 
@@ -53,8 +52,8 @@ export interface ClientAuthorityOptions {
  * caller layers the heartbeat sweep on top.
  */
 export function wireClientSocket(
-  ws: import('ws').WebSocket,
-  req: IncomingMessage,
+  ws: GatewaySocket,
+  requestUrl: string,
   registry: SessionRegistry,
   auth: ClientAuthorityOptions = {},
 ): string | undefined {
@@ -63,12 +62,12 @@ export function wireClientSocket(
     ws.terminate()
     return undefined
   }
-  const url = new URL(req.url ?? '/', 'http://localhost')
+  const url = new URL(requestUrl)
   const rawVersion = url.searchParams.get('v') ?? url.searchParams.get('pv')
   const protocolVersion = rawVersion === null ? WIRE_VERSION : Number(rawVersion)
   let authority: PublicationAuthority
   try {
-    authority = auth.resolvePublicationAuthority?.(req) ?? {
+    authority = auth.publicationAuthority ?? {
       principal: 'user:' + auth.userId,
       scope: 'principal:user:' + auth.userId,
       serverRole: auth.serverRole ?? 'standalone',
@@ -95,7 +94,7 @@ export function wireClientSocket(
     userRole: auth.userRole,
     publication: { ...authority, sendPrepared: sink.sendPrepared },
   })
-  ws.on('message', (raw: import('ws').RawData) => {
+  ws.on('message', (raw) => {
     try {
       // The frame is parsed here and CLASSIFIED in the mux. The connection id
       // passed is this socket's own — a `clientId` in the payload (`hello` has

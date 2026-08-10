@@ -27,14 +27,19 @@ import type { Server } from 'node:http'
 /** Named persistence step; the name is only used in failure logs. */
 export type PersistStep = readonly [name: string, run: () => void]
 
+type StoppableServer = {
+  /** Bun.serve shutdown. Passing true closes active HTTP connections immediately. */
+  stop(closeActiveConnections?: boolean): void | Promise<void>
+}
+
 export interface CloseServerDeps {
   /**
    * attachWebSockets handle close — synchronously terminates all WS clients,
    * then resolves once both WebSocketServers have closed.
    */
   closeWebSockets: () => Promise<void>
-  /** The listening node:http server (closeAllConnections optional for older runtimes). */
-  server: Pick<Server, 'close'> & { closeAllConnections?: () => void }
+  /** Native Bun server in production; the node:http shape remains for focused tests. */
+  server: StoppableServer | (Pick<Server, 'close'> & { closeAllConnections?: () => void })
   /** Persistence steps, run in order after intake stops. */
   persist: readonly PersistStep[]
   /** Max wait for the WS close to settle before persisting anyway. Default 250ms. */
@@ -89,6 +94,24 @@ export async function closeServerFast(deps: CloseServerDeps): Promise<void> {
   //    ordinary keep-alives. Bound the callback wait so a runtime that never
   //    drains upgraded WS sockets cannot hang awaiters — the listen port is
   //    already released by close(), so same-port restart still works.
+  if ('stop' in deps.server) {
+    let stopTimer: ReturnType<typeof setTimeout> | undefined
+    try {
+      await Promise.race([
+        Promise.resolve(deps.server.stop(true)),
+        new Promise<void>((resolve) => {
+          stopTimer = setTimeout(resolve, httpGrace)
+        }),
+      ])
+    } catch (err) {
+      logError(`[podium:server] http stop failed during shutdown: ${String(err)}`)
+    } finally {
+      if (stopTimer !== undefined) clearTimeout(stopTimer)
+    }
+    return
+  }
+
+  const nodeServer = deps.server as Pick<Server, 'close'> & { closeAllConnections?: () => void }
   await new Promise<void>((resolve) => {
     let settled = false
     let httpTimer: ReturnType<typeof setTimeout> | undefined
@@ -99,8 +122,8 @@ export async function closeServerFast(deps: CloseServerDeps): Promise<void> {
       resolve()
     }
     try {
-      deps.server.close(() => finish())
-      deps.server.closeAllConnections?.()
+      nodeServer.close(() => finish())
+      nodeServer.closeAllConnections?.()
     } catch (err) {
       logError(`[podium:server] http close threw during shutdown: ${String(err)}`)
       finish()
