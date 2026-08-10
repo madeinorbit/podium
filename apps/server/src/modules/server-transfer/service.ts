@@ -11,7 +11,7 @@ import {
   createPortableSnapshot,
   estimatePortableBytes,
   manifestWithDigest,
-} from './manifest'
+} from './snapshot'
 import {
   SERVER_TRANSFER_CONFIRMATION,
   TRANSFER_FAILURE_CODES,
