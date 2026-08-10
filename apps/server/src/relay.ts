@@ -465,6 +465,7 @@ export class SessionRegistry {
       authority: ledger.authority,
       onBootstrapReadStart: feedVisibility.beginBootstrapRead,
       onBootstrapReadEnd: (principal) => feedVisibility.finishBootstrapRead(principal),
+      authorizationRevision: feedVisibility.authorizationRevision,
       identity: new FeedIdentityRegistry(
         {
           readIdentity: () => this.store.sync.readFeedIdentity(),

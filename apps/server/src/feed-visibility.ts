@@ -101,6 +101,10 @@ export interface FeedVisibility {
   readonly beginBootstrapRead: () => void
   /** Close it and record every phase it accumulated against `principal`. */
   readonly finishBootstrapRead: (principal: Principal) => void
+  /** Authority signal for mutations that can change a scoped answer without
+   * moving the change-log head (notably a same-value issue upsert beside a grant
+   * revoke). Long-lived world caches validate this as well as the head. */
+  readonly authorizationRevision: () => number
   /**
    * "May this user read this issue?", exported because the mail policy's
    * resolution-time ceiling asks the same question the feed does and a second
@@ -395,6 +399,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     anchors,
     beginBootstrapRead,
     finishBootstrapRead,
+    authorizationRevision: () => store.grants.visibilityRevision(),
     mayReadIssue: (userId, issueId) => mayReadIssue(userId, issueId),
   }
 }

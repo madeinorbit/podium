@@ -85,6 +85,19 @@ function toRow(r: Record<string, unknown>): GrantRow | undefined {
 
 export class GrantsRepository {
   private readonly visibilityAudiences = new Map<string, Set<string>>()
+  /**
+   * Process-local authority generation for caches that retain a scoped answer.
+   *
+   * Grant writes can change who sees a row even when the entity upsert declared
+   * beside them deduplicates at the change-log head. A scoped cache must validate
+   * against this authority signal as well as the feed cursor; the cursor alone is
+   * not a visibility validator.
+   */
+  private visibilityRevisionValue = 0
+
+  visibilityRevision(): number {
+    return this.visibilityRevisionValue
+  }
 
   visibilityAudienceFor(resourceKind: string, resourceId: string): readonly string[] {
     return [...(this.visibilityAudiences.get(resourceKind + ':' + resourceId) ?? [])]
@@ -199,6 +212,7 @@ export class GrantsRepository {
         row.actorId,
         row.onBehalfOf,
       )
+    this.visibilityRevisionValue += 1
   }
 
   /** Revocation of one verb. Returns whether an edge was actually removed, so a
@@ -216,7 +230,9 @@ export class GrantsRepository {
         'DELETE FROM grants WHERE resource_kind = ? AND resource_id = ? AND grantee = ? AND verb = ?',
       )
       .run(resourceKind, resourceId, grantee, verb)
-    return (before?.n ?? 0) > 0
+    const removed = (before?.n ?? 0) > 0
+    if (removed) this.visibilityRevisionValue += 1
+    return removed
   }
 
   /**
@@ -227,8 +243,9 @@ export class GrantsRepository {
    * owner already un-shared. This is not a reaper: it is part of the delete.
    */
   removeAllForResource(resourceKind: string, resourceId: string): void {
-    this.db
+    const result = this.db
       .prepare('DELETE FROM grants WHERE resource_kind = ? AND resource_id = ?')
       .run(resourceKind, resourceId)
+    if (Number(result.changes) > 0) this.visibilityRevisionValue += 1
   }
 }

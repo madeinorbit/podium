@@ -82,8 +82,10 @@ describe('the grant edge table', () => {
   })
 
   it('stores, reads back and revokes one verb without touching the others', () => {
+    const before = store.grants.visibilityRevision()
     store.grants.upsert(edge(COLLEAGUE, 'use'))
     store.grants.upsert(edge(COLLEAGUE, 'see'))
+    expect(store.grants.visibilityRevision()).toBe(before + 2)
 
     expect(store.grants.listForResource('machine', 'laptop').map((g) => g.verb).sort()).toEqual([
       'see',
@@ -91,13 +93,16 @@ describe('the grant edge table', () => {
     ])
 
     expect(store.grants.remove('machine', 'laptop', COLLEAGUE, 'use')).toBe(true)
+    expect(store.grants.visibilityRevision()).toBe(before + 3)
     expect(store.grants.listForResource('machine', 'laptop').map((g) => g.verb)).toEqual(['see'])
   })
 
   it('revoking something that was never granted reports false rather than pretending', () => {
     store.grants.upsert(edge(COLLEAGUE, 'see'))
 
+    const afterGrant = store.grants.visibilityRevision()
     expect(store.grants.remove('machine', 'laptop', COLLEAGUE, 'manage')).toBe(false)
+    expect(store.grants.visibilityRevision()).toBe(afterGrant)
     // …and the instrument can say true, in the same fixture:
     expect(store.grants.remove('machine', 'laptop', COLLEAGUE, 'see')).toBe(true)
   })
@@ -128,7 +133,9 @@ describe('the grant edge table', () => {
     store.grants.upsert(edge(COLLEAGUE, 'use', 'laptop'))
     store.grants.upsert(edge(COLLEAGUE, 'use', 'workstation'))
 
+    const beforeRemove = store.grants.visibilityRevision()
     store.grants.removeAllForResource('machine', 'laptop')
+    expect(store.grants.visibilityRevision()).toBe(beforeRemove + 1)
 
     expect(store.grants.listForResource('machine', 'laptop')).toEqual([])
     expect(store.grants.listForResource('machine', 'workstation')).toHaveLength(1)

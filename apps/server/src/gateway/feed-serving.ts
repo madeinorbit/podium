@@ -127,6 +127,7 @@ type BootstrapCause = 'attach' | 'hello' | 'version-change'
 
 interface CachedWorld {
   throughSeq: number
+  authorizationRevision: number
   readonly changesByRef: Map<string, ScopedChange>
   materialized: readonly ScopedChange[] | undefined
 }
@@ -140,6 +141,10 @@ export interface FeedServingDeps {
   /** Optional composition-root hooks for attributing the synchronous bootstrap read. */
   readonly onBootstrapReadStart?: () => void
   readonly onBootstrapReadEnd?: (principal: Principal, durationMs: number) => void
+  /** Monotonic authority signal for visibility changes that need not append a
+   * change row. A scoped cache is reusable only when both this and the feed head
+   * still match. */
+  readonly authorizationRevision?: () => number
   /** Persisted `(feedId, epoch)` — ADR 2 D1. */
   readonly identity: FeedIdentityRegistry
   /** ADR 2 D5's floor, read live per frame. */
@@ -292,8 +297,13 @@ export class FeedServing {
   } {
     const key = principalRoutingId(principal)
     const cached = this.latestWorldByPrincipal.get(key)
+    const authorizationRevision = this.deps.authorizationRevision?.() ?? 0
     const startedAt = performance.now()
-    if (cached !== undefined && cached.throughSeq === this.deps.authority.cursor()) {
+    if (
+      cached !== undefined &&
+      cached.throughSeq === this.deps.authority.cursor() &&
+      cached.authorizationRevision === authorizationRevision
+    ) {
       if (cached.materialized === undefined) {
         cached.materialized = [...cached.changesByRef.values()]
       }
@@ -316,6 +326,7 @@ export class FeedServing {
     this.latestWorldByPrincipal.delete(key)
     this.latestWorldByPrincipal.set(key, {
       throughSeq: world.throughSeq,
+      authorizationRevision,
       changesByRef,
       materialized: world.changes,
     })
@@ -347,6 +358,10 @@ export class FeedServing {
       }
     }
     cached.throughSeq = delivery.throughSeq
+    // This delivery was scoped under the authority state that exists now. If a
+    // visibility-only mutation produced no delivery, this assignment never runs
+    // and worldFor rejects the stale revision on the next connection.
+    cached.authorizationRevision = this.deps.authorizationRevision?.() ?? 0
     if (changed) cached.materialized = undefined
   }
 

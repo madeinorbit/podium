@@ -61,12 +61,15 @@ import {
   type ServerMessage,
   WIRE_VERSION,
 } from '@podium/protocol'
-import { GrantEdgeVisibilityPolicy, type VisibilityStatePort,
+import {
+  GrantEdgeVisibilityPolicy,
   NoDelegationsGranted,
+  type VisibilityStatePort,
 } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
 import { attachTestClient } from '../test-support/client-transport'
 import { ClientMux } from './client-mux'
+import { feedPrincipalOf } from './client-principal'
 import type { ClientFeaturePorts } from './client-ports'
 import { type ClientConn, ClientRegistry } from './client-registry'
 import { feedTestPlumbing } from './feed-test-plumbing'
@@ -104,7 +107,11 @@ interface Socket {
  */
 function gateway(owners: Map<string, UserId>, grants: Map<string, UserId[]> = new Map()) {
   const registry = new ClientRegistry()
-  const plumbing = feedTestPlumbing({ visibility: issueOwnershipPolicy(owners, grants) })
+  let authorizationRevision = 0
+  const plumbing = feedTestPlumbing({
+    visibility: issueOwnershipPolicy(owners, grants),
+    authorizationRevision: () => authorizationRevision,
+  })
   const ports: ClientFeaturePorts = {
     sessions: {
       onClientAttached: vi.fn(),
@@ -143,7 +150,16 @@ function gateway(owners: Map<string, UserId>, grants: Map<string, UserId[]> = ne
     return { id, received }
   }
 
-  return { mux, plumbing, registry, signIn }
+  return {
+    mux,
+    plumbing,
+    registry,
+    signIn,
+    changeVisibility: (change: () => void) => {
+      change()
+      authorizationRevision += 1
+    },
+  }
 }
 
 const helloFrom = (clientId: string, caps: string[] = [CAP_METADATA_DELTA]): ClientMessage => ({
@@ -276,6 +292,49 @@ describe("a connection's feed is scoped to the user its TRANSPORT authenticated"
     expect(changesOn(bob).filter((c) => c.entityId === 'issue-shared').map((c) => c.op)).toEqual([
       'upsert',
     ])
+  })
+
+  it('invalidates a cached world when grant visibility changes without moving the feed head', () => {
+    const owners = new Map([['issue-shared', ALICE]])
+    const grants = new Map([['issue-shared', [BOB]]])
+    const g = gateway(owners, grants)
+    commitIssue(g.plumbing, 'issue-shared', { id: 'issue-shared', title: 'ours' })
+    const head = g.plumbing.authority.cursor()
+    const bootstrap = vi.spyOn(g.plumbing.authority, 'bootstrap')
+
+    const first = g.signIn(BOB)
+    expect(leakedTo(first, 'issue-shared')).toBe(true)
+    expect(bootstrap).toHaveBeenCalledTimes(1)
+    g.mux.detachClient(first.id)
+
+    // AUTHORITY CHANGES, FEED HEAD DOES NOT. This is the same-timestamp
+    // persistWith shape: the issue upsert can deduplicate while the grant delete
+    // still changes who may see the row.
+    g.changeVisibility(() => grants.set('issue-shared', []))
+    expect(g.plumbing.authority.cursor()).toBe(head)
+
+    const afterRevoke = g.signIn(BOB)
+    expect(bootstrap).toHaveBeenCalledTimes(2)
+    expect(leakedTo(afterRevoke, 'issue-shared')).toBe(false)
+
+    const principal = g.mux.principalOf(afterRevoke.id)
+    expect(principal).toBeDefined()
+    if (principal === undefined) throw new Error('Bob connection lost its authenticated principal')
+    const uncached = g.plumbing.authority.bootstrap(feedPrincipalOf(principal))
+    const served = afterRevoke.received.find(
+      (message): message is Extract<ServerMessage, { type: 'feedBootstrap' }> =>
+        message.type === 'feedBootstrap',
+    )
+    expect(served?.changes.map((change) => [change.entity, change.entityId])).toEqual(
+      uncached.changes.map((change) => [change.entity, change.entityId]),
+    )
+
+    g.mux.detachClient(afterRevoke.id)
+    g.changeVisibility(() => grants.set('issue-shared', [BOB]))
+    expect(g.plumbing.authority.cursor()).toBe(head)
+    const afterGrant = g.signIn(BOB)
+    expect(bootstrap).toHaveBeenCalledTimes(4) // includes the direct uncached comparison
+    expect(leakedTo(afterGrant, 'issue-shared')).toBe(true)
   })
 
   it('a forged hello.clientId naming another user\'s connection does not move the scope', async () => {

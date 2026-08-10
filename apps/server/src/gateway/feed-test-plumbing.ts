@@ -41,6 +41,8 @@ export function feedTestPlumbing(
   opts: {
     diagnostics?: () => ConversationDiagnosticWire[]
     onVisibilityChanged?: (subscriberIds: readonly SubscriberId[]) => void
+    /** Override for tests whose visibility state is held outside SessionStore. */
+    authorizationRevision?: () => number
     /**
      * The policy the Authority evaluates with. OMITTED keeps `Ledger`'s own
      * default (`DeviceGradeUnscopedPolicy`), which is what every pre-POD-1497
@@ -84,6 +86,7 @@ export function feedTestPlumbing(
     ),
     retention: { minAvailableSeq: () => store.sync.minChangeSeq() },
     subscriptions,
+    authorizationRevision: opts.authorizationRevision ?? (() => store.grants.visibilityRevision()),
     ...(opts.onVisibilityChanged ? { onVisibilityChanged: opts.onVisibilityChanged } : {}),
     diagnostics: opts.diagnostics ?? (() => []),
   })
