@@ -32,14 +32,14 @@ The rows arrive. Nothing renders. Zero console errors.
       if (scoped) return { path: 'kernel', reason: 'legacy-refused-scoped-authority',
                            overridden: true }
 
-The desktop is FORCED onto the kernel replica — the off flag is overridden,
-because the legacy wire cannot express a scoped authority. But the desktop cutover
-was never done (POD-1566: *"the browser still runs the outgoing TanStack replica
-by default; the kernel replica sits behind a hidden flag that is off"*).
+At the time of this incident, per-principal scoping forced the desktop onto the
+kernel mode while the desktop composition root still read the legacy store. The
+subsequent browser and desktop cutovers removed that split; the kernel replica is
+now unconditional and the rollout resolver no longer exists.
 
-So: **kernel replica selected, legacy store read.** A state nobody designed,
+The observed state was **kernel replica selected, legacy store read** — a state nobody designed,
 produced by two changes that are each correct alone — multi-user moving the server
-to per-principal scoping, and the kernel replica waiting behind an off flag.
+to per-principal scoping, and the then-incomplete client cutover.
 
 Mobile does not have the gap because POD-1241 cut it over already:
 
@@ -48,7 +48,8 @@ Mobile does not have the gap because POD-1241 cut it over already:
 
 ## The decision
 
-**Complete the desktop cutover.** POD-1566 moves from post-merge to blocking.
+**Resolution:** the desktop and browser now compose the kernel replica unconditionally;
+the legacy mode, flags, and shadow comparison have been retired.
 
 Rejected alternatives, with reasons:
 

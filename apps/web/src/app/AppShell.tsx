@@ -20,7 +20,6 @@ import { ResizableAside, ResizableColumn } from '@/features/worklist/sidebar-com
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { effectiveIssueColorHex, FLOW_SLATE } from '@/lib/issueColors'
 import type { KernelAssembly } from '@/lib/kernelReplica'
-import { ShadowComparisonRunner } from '@/lib/shadow/ShadowComparisonRunner'
 import { useFeature } from '@/lib/use-feature'
 import { usePersistedUiState, usePersistedUiValue } from '@/lib/use-persisted-ui-state'
 import { useKernelReplica } from '@/lib/use-kernel-replica'
@@ -94,7 +93,7 @@ export function AppShell(): JSX.Element {
   // One tRPC client for the gate, memoized on the origin so the gate's effect
   // does not re-run (and re-open IndexedDB) on every render.
   const [gateTrpc] = useState(() => makeTrpc(config.httpOrigin))
-  const kernel = useKernelReplica({ httpOrigin: config.httpOrigin, trpc: gateTrpc })
+  const kernel = useKernelReplica({ trpc: gateTrpc })
 
   // Queued offline writes the boot migration could not simply carry across
   // (POD-1232). Shown once, as a toast rather than a console line, because the
@@ -105,9 +104,8 @@ export function AppShell(): JSX.Element {
     if (migrationNotice !== undefined) toast(migrationNotice)
   }, [migrationNotice])
 
-  // The store must not mount until BOTH gates settle: the desktop SQLite
-  // replica and the kernel-replica decision. Each one is a synchronous read the
-  // engine makes at construction.
+  // The store must not mount until its private replica is open. The engine reads
+  // rows synchronously at construction, so there is no usable fallback assembly.
   if (kernel.status === 'resolving') {
     return (
       <TooltipProvider>
@@ -152,14 +150,6 @@ export function AppShell(): JSX.Element {
             createOutboxFn={kernel.assembly.createOutboxFn}
           >
             <KernelHubAttach assembly={kernel.assembly} />
-            {kernel.shadow ? (
-              <ShadowComparisonRunner
-                assembly={kernel.assembly}
-                trpc={gateTrpc}
-                wsClientUrl={config.wsClientUrl}
-                authorityScoped={kernel.authorityScoped}
-              />
-            ) : null}
             <RoutedDensityProvider>
               <ThemeUiStateMirror />
               <BrowserOpenOverlay />

@@ -98,31 +98,6 @@ export const FEATURES = [
     visibility: 'edge',
   },
   {
-    // POD-376. THE READ PATH ITSELF, so it ships dark and off means today's
-    // behaviour byte for byte: a wire-v1 peer on the TanStack replica. On means
-    // the kernel Replica + Outbox over transactional IndexedDB, fed by the v2
-    // feed. Hidden rather than edge: this is not a feature a user chooses between
-    // — it is a migration, and the flag exists so the cutover is reversible per
-    // install during the rollout window, not so it becomes a preference.
-    id: 'kernel-replica',
-    name: 'Kernel replica (IndexedDB)',
-    description:
-      'Serve this client from the sync kernel’s Replica and Outbox over transactional IndexedDB, on the v2 feed, instead of the outgoing TanStack replica. Migration flag — off is the shipped path.',
-    visibility: 'hidden',
-  },
-  {
-    // POD-376's shadow comparison. Runs the OUTGOING path as a second, read-only
-    // connection beside the kernel one and reports divergence classified against
-    // the authority-side slice. Costs a socket and a second replica, so it is its
-    // own flag rather than something the cutover flag turns on: a rollout wants
-    // the cutover without paying for the comparison.
-    id: 'kernel-replica-shadow',
-    name: 'Kernel replica shadow comparison',
-    description:
-      'While the kernel replica is on, also run the outgoing TanStack path read-only and report any divergence between them. Diagnostic — costs a second connection.',
-    visibility: 'hidden',
-  },
-  {
     id: 'notifications',
     name: 'Notifications',
     description: 'Enable web and external notifications and their settings.',

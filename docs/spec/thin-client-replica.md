@@ -1,12 +1,15 @@
 # Spec: Thin-Client Replica — TanStack DB (Phase P6a)
 
-Status: **approved for implementation** · 2026-07-03
-Architecture context: `docs/offline-sync-architecture.md` §6.3 + §8. This is where
-TanStack DB enters: the browser/mobile client gains a PERSISTENT local replica of
+Status: **superseded after implementation** · 2026-08-10
+Architecture context: `docs/offline-sync-architecture.md` §6.3 + §8. This historical spec introduced the TanStack-backed browser/mobile replica
+that has since been retired from the shipped paths. It specified a persistent
+local replica of
 the durable entities plus offline transcript windows, fed by the P2 protocol
 (`sync.changesSince` + `metadataDelta`) that was built to be its input. P6a scopes
 to the web PWA (the Tauri webview runs the same bundle); React Native reuse is the
-declared reason TanStack DB was chosen (§8) but is not built here.
+declared reason TanStack DB was chosen (§8) but is not built here. The shipped
+browser and mobile paths now compose the sync kernel directly; TanStack remains
+only until POD-1245 removes the shared adapter and dependencies.
 
 ## 1. Problem
 

@@ -1,42 +1,29 @@
 /**
- * THE BOOT GATE FOR THE KERNEL REPLICA (POD-1223).
+ * THE BOOT GATE FOR THE PRIVATE REPLICA.
  *
- * Two things must settle before the store mounts, and both are asynchronous:
- * WHICH path this client runs (flags + the server's scoping grade) and, on the
- * kernel path, the IndexedDB open. The store cannot mount meanwhile — the engine
- * reads rows synchronously at construction, so mounting early would paint an
- * empty shell and then jump, which is precisely the cold-start-paint regression
- * this cutover is not allowed to cause.
+ * The authenticated principal and its IndexedDB assembly must settle before the
+ * store mounts. The engine reads rows synchronously at construction, so mounting
+ * early would paint an empty shell and then jump after hydration.
  *
- * THE FAILURE POSTURE IS THE LEGACY PATH, and it is chosen rather than defaulted
- * into. If the assembly cannot be built — no IndexedDB (private mode in some
- * browsers), a blocked upgrade, a rejected open — the app runs the shipped path
- * instead of showing an error. The kernel replica is behind a hidden flag; a
- * flag that can brick the app when its storage is unavailable is a worse
- * property than a flag that quietly does not take effect, and the resolved mode
- * carries the reason so Settings can say so.
+ * FAILURE IS FATAL. The browser has one supported private replica; if its
+ * principal cannot be resolved or IndexedDB cannot open, the shell renders an
+ * explicit retryable error and never mounts a different store.
  */
 
 import type { ClientPrincipal } from '@podium/client-core/principal'
-import { inspectPrincipalNamespaces, type ReplicaMode } from '@podium/client-core/replica'
+import { inspectPrincipalNamespaces } from '@podium/client-core/replica'
 import type { LegacyIdentityEvidence } from '@podium/sync/adapters/legacy-replica'
 import { useEffect, useState } from 'react'
 import type { Trpc } from '@/app/trpc'
-import {
-  KERNEL_SIDE_CACHE_PREFIX,
-  type KernelAssembly,
-  openKernelAssembly,
-  resolveWebReplicaMode,
-} from './kernelReplica'
+import { KERNEL_SIDE_CACHE_PREFIX, type KernelAssembly, openKernelAssembly } from './kernelReplica'
 
 export type KernelReplicaGate =
   /** Still deciding. The caller must render its loading screen. */
   | { readonly status: 'resolving' }
-  /** Run the shipped TanStack path. `assembly` is absent, not empty. */
-  | { readonly status: 'failed'; readonly mode: ReplicaMode | null; readonly failure: string }
+  /** Fatal: the supported private replica could not be opened. */
+  | { readonly status: 'failed'; readonly failure: string }
   | {
       readonly status: 'kernel'
-      readonly mode: ReplicaMode
       /** The authenticated principal this gate resolved and opened for — the
        *  value `StoreProvider` binds its whole runtime to (POD-404). It comes
        *  from `/auth/status` (or, offline, from an unambiguous single retained
@@ -44,10 +31,6 @@ export type KernelReplicaGate =
        *  "last user" key. */
       readonly principal: ClientPrincipal
       readonly assembly: KernelAssembly
-      /** True when the shadow comparison should also run (POD-1223). */
-      readonly shadow: boolean
-      /** `/version`'s grade, handed to the shadow harness. */
-      readonly authorityScoped: boolean
       /**
        * One sentence the user is OWED, or nothing (POD-1232).
        *
@@ -127,45 +110,34 @@ export function recordIdentityEvidence(principal: string): LegacyIdentityEvidenc
 }
 
 declare global {
-  /**
-   * WHICH READ PATH THIS TAB RESOLVED TO — a diagnostic, and the only way a
-   * browser test can tell the two paths apart.
-   *
-   * Without it a runtime spec asserting "the app works with the flag on" is
-   * indistinguishable from one asserting "the app works", because both paths
-   * render the same UI when they are both correct. That is the whole hazard: a
-   * green cutover spec that silently ran the legacy path proves nothing. It is
-   * written by the gate and read by nobody in the product.
-   */
-  var __podiumReplicaPath: 'legacy' | 'kernel' | 'kernel-with-shadow' | undefined
+  /** Runtime diagnostic proving the supported private replica opened. */
+  var __podiumReplicaPath: 'kernel' | undefined
 }
 
-export function useKernelReplica(args: { httpOrigin: string; trpc: Trpc }): KernelReplicaGate {
-  const { httpOrigin, trpc } = args
+export function useKernelReplica(args: {
+  trpc: Trpc
+  resolvePrincipal?: typeof resolveReplicaPrincipal
+  openAssembly?: typeof openKernelAssembly
+}): KernelReplicaGate {
+  const {
+    trpc,
+    resolvePrincipal = resolveReplicaPrincipal,
+    openAssembly = openKernelAssembly,
+  } = args
   const [gate, setGate] = useState<KernelReplicaGate>({ status: 'resolving' })
 
   useEffect(() => {
     let alive = true
     let opened: KernelAssembly | undefined
     void (async () => {
-      const { mode, serverGrade } = await resolveWebReplicaMode({ httpOrigin, trpc })
       if (!alive) return
-      if (mode.path === 'legacy') {
-        globalThis.__podiumReplicaPath = undefined
-        setGate({
-          status: 'failed',
-          mode,
-          failure: 'This server cannot provide the principal-scoped kernel replica.',
-        })
-        return
-      }
       try {
-        const principal = await resolveReplicaPrincipal()
+        const principal = await resolvePrincipal()
         // Captured DURING the open: the migration runs inside `openKernelAssembly`
         // and reports through `onDegraded`, which is the only channel that exists
         // before the store (and its toasts) are mounted.
         let notice: string | undefined
-        const assembly = await openKernelAssembly({
+        const assembly = await openAssembly({
           trpc,
           principal,
           evidence: recordIdentityEvidence(principal),
@@ -181,25 +153,20 @@ export function useKernelReplica(args: { httpOrigin: string; trpc: Trpc }): Kern
           return
         }
         opened = assembly
-        globalThis.__podiumReplicaPath = mode.path
+        globalThis.__podiumReplicaPath = 'kernel'
         setGate({
           status: 'kernel',
-          mode,
           principal: assembly.principal,
           assembly,
-          shadow: mode.path === 'kernel-with-shadow',
-          authorityScoped: serverGrade === 'per-principal',
           ...(notice === undefined ? {} : { notice }),
         })
       } catch (error) {
-        // Reported, not swallowed: a flag that silently did nothing would be
-        // indistinguishable from a flag that worked.
-        console.warn('[podium] kernel replica unavailable', error)
+        // Fatal and visible: there is no compatibility replica to fall back to.
+        console.error('[podium] private replica unavailable', error)
         if (alive) {
           globalThis.__podiumReplicaPath = undefined
           setGate({
             status: 'failed',
-            mode,
             failure: error instanceof Error ? error.message : String(error),
           })
         }
@@ -209,7 +176,7 @@ export function useKernelReplica(args: { httpOrigin: string; trpc: Trpc }): Kern
       alive = false
       if (opened) void opened.dispose()
     }
-  }, [httpOrigin, trpc])
+  }, [openAssembly, resolvePrincipal, trpc])
 
   return gate
 }

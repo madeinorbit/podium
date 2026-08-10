@@ -321,9 +321,8 @@ const NOT_A_PRODUCT_ROOT = /\.(test|spec)\.tsx?$|(^|\/)perf\//
  * Find every composition root, rather than being told where they are.
  *
  * THE FIRST VERSION WAS A HARDCODED LIST OF TWO AND IT WENT STALE IMMEDIATELY.
- * POD-1223/1228 merged two new production roots — `apps/web/src/lib/kernelReplica.ts`
- * and `apps/web/src/lib/shadow/runner.ts` — and the audit went on reporting the same
- * two findings, so a reader would have concluded the new roots were fine when the
+ * POD-1223/1228 once merged two new production roots and the audit went on
+ * reporting the same two findings, so a reader would have concluded the new roots were fine when the
  * detector had never looked at them.
  *
  * That is this run's dominant defect class wearing a different hat: not a gate that
@@ -727,12 +726,9 @@ export function runPhase2ClientAudit(repoRoot: string): AuditItem[] {
        * would have found nothing to do there — quieter than an uncounted site,
        * and it lasts just as long.
        *
-       * POD-1239's resolution is the general one: MOVE THE CONSTRUCTION to a
-       * platform file where the principal is reachable (here
-       * apps/web/src/lib/webReplica.ts), then fix it there. The count does not
-       * move — it is a swap, not an addition — which is the tell that the work
-       * was relocation rather than remediation, and is exactly what should
-       * happen.
+       * The general resolution is to MOVE THE CONSTRUCTION to a platform
+       * composition root where the principal is reachable. The browser now does
+       * that unconditionally in apps/web/src/lib/kernelReplica.ts.
        */
       id: 'unattributed-store-read',
       title: 'a persisted store adopted without establishing the current principal',
