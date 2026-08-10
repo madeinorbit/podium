@@ -78,14 +78,19 @@ instance. Follow `docs/multi-instance.md` for identity selection.
 
 In the UI, verify this sequence with real clicks:
 
-1. The panel names the target version and the affected places in user language.
-2. Clicking **Update Podium** changes the same non-modal panel to applying.
-3. The source daemon selects git delivery; an installed daemon must not select git merely
+1. Disable the checkout HEAD watcher, move the checkout to the target, and prove the
+   coordinating server PID does not change before approval.
+2. The panel names the target version and only the affected development-authority places
+   in user language; edge/stable-selected machines are not counted against the dev target.
+3. Clicking **Update Podium** changes the same non-modal panel to applying.
+4. Every selected development machine reaches the exact target and reconnects as
+   `current` before the coordinating server requests its guarded restart.
+5. The source daemon selects git delivery; an installed daemon must not select git merely
    because it is offered.
-4. Sessions remain usable while the server/daemon reconnect.
-5. The panel reaches current and disappears; `/version`, fleet status, and the checkout HEAD
-   all report the target.
-6. Repeat once more from the new version to catch stale target, pending-marker, and restart
+6. Sessions remain usable while the server/daemon reconnect.
+7. The panel reaches current and disappears; `/version`, fleet status, and the checkout HEAD
+   all report the target, while the HEAD watcher remains disabled.
+8. Repeat once more from the new version to catch stale target, pending-marker, and restart
    state that only appear on the second cycle.
 
 Run two negative variants against disposable checkouts:
