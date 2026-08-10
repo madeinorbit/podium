@@ -1348,6 +1348,7 @@ export const WIRE_FIXTURES: WireFixture[] = [
       transferId: '00000000-0000-4000-8000-000000000001',
       manifestDigest: 'b'.repeat(64),
       publicUrl: 'https://podium.example.com',
+      port: 24_444,
       targetMode: 'server',
       idempotencyKey: 'promote-once',
     },

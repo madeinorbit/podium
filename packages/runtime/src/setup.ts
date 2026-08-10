@@ -160,6 +160,7 @@ export function assertConfigWritable(): void {
 export function applySetup(input: {
   publicUrl: string
   mode?: 'all-in-one' | 'server'
+  port?: number
 }): PodiumConfig {
   assertConfigWritable()
   const prev = loadConfig()
@@ -172,6 +173,7 @@ export function applySetup(input: {
     ...prev,
     mode,
     publicUrl: input.publicUrl,
+    ...(input.port === undefined ? {} : { port: input.port }),
     // Web setup can't start the backend from inside the serving process (stopping
     // the old one would kill the request in flight), but it CAN record the
     // choice — and since POD-333 that is all there is to record. The next

@@ -323,6 +323,7 @@ describe('server transfer target daemon', () => {
       transferId,
       manifestDigest,
       publicUrl: 'https://podium.example.com',
+      port: 24_444,
       targetMode: 'server',
       idempotencyKey: 'promote-once',
     }
@@ -378,7 +379,10 @@ describe('server transfer target daemon', () => {
     )
     expect(await readFile(join(stateRoot, 'machine.id'), 'utf8')).toBe('target-machine-id')
     expect(await readFile(join(stateRoot, 'daemon.secret'), 'utf8')).toBe('target-daemon-secret')
-    expect(JSON.parse(await readFile(join(stateRoot, 'config.json'), 'utf8')).mode).toBe('server')
+    expect(JSON.parse(await readFile(join(stateRoot, 'config.json'), 'utf8'))).toMatchObject({
+      mode: 'server',
+      port: 24_444,
+    })
     expect(
       JSON.parse(
         await readFile(join(stateRoot, '.server-transfer', transferId, 'state.json'), 'utf8'),
@@ -635,7 +639,6 @@ describe('server transfer target daemon', () => {
       >
       expect(crashedJournal).toMatchObject({
         state: crashAfterMutation ? 'promoting' : 'validated',
-        servingProof: undefined,
         promotionPlan: expect.arrayContaining([
           expect.objectContaining({
             path: 'podium.db',
@@ -649,6 +652,7 @@ describe('server transfer target daemon', () => {
           }),
         ]),
       })
+      expect(crashedJournal).not.toHaveProperty('servingProof')
 
       const backupDb = join(
         stateRoot,
@@ -736,8 +740,8 @@ describe('server transfer target daemon', () => {
     expect(journal).toMatchObject({
       state: 'uncertain',
       manifestDigest,
-      servingProof: undefined,
     })
+    expect(journal).not.toHaveProperty('servingProof')
   })
 
   it('acknowledges promoted proof durably and retires only after each idempotent reply', async () => {
@@ -912,6 +916,11 @@ describe('server transfer target daemon', () => {
       JSON.parse(
         await readFile(join(stateRoot, '.server-transfer', transferId, 'state.json'), 'utf8'),
       ),
-    ).toMatchObject({ state: 'validated', promotion: undefined, publicUrl: undefined })
+    ).toMatchObject({ state: 'validated' })
+    const rolledBackJournal = JSON.parse(
+      await readFile(join(stateRoot, '.server-transfer', transferId, 'state.json'), 'utf8'),
+    )
+    expect(rolledBackJournal).not.toHaveProperty('promotion')
+    expect(rolledBackJournal).not.toHaveProperty('publicUrl')
   })
 })

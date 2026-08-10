@@ -158,6 +158,7 @@ export function serverTransferRpcAdapter(wire: WireOwnedRpc): ServerTransferRpc 
         input.manifestDigest,
         input.publicUrl,
         targetMachineId,
+        input.port,
       )
       if (
         !reply.ok ||

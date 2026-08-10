@@ -83,6 +83,7 @@ describe('server transfer protocol', () => {
         type: 'serverTransferPromoteRequest',
         ...common,
         publicUrl: 'https://podium.example.com',
+        port: 24_444,
         targetMode: 'server',
         idempotencyKey: 'promote-once',
       },

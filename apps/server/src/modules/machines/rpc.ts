@@ -1137,6 +1137,7 @@ export class DaemonRpcService {
     manifestDigest: string,
     publicUrl: string,
     machineId: string,
+    port?: number,
   ): Promise<Payload<ServerTransferResultMessage>> {
     this.serverTransferDigests.set(machineId + ':' + transferId, manifestDigest)
     return this.request(
@@ -1156,6 +1157,7 @@ export class DaemonRpcService {
         transferId,
         manifestDigest,
         publicUrl,
+        ...(port === undefined ? {} : { port }),
         targetMode: 'server',
         idempotencyKey: transferId,
       }),

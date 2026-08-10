@@ -700,16 +700,19 @@ function ServerTransferDialog({
   const [transferError, setTransferError] = useState<string | null>(null)
   const isOpen = open ?? internalOpen
   const transfer = status?.transfer?.targetMachineId === machine.id ? status.transfer : null
+  const transferId = transfer?.transferId
+  const transferState = transfer?.state
   const displayState = transferDisplayState(transfer)
+  const showProgress = (displayState !== null && displayState !== 'aborted') || awaitingStatus
 
   useEffect(() => {
-    if (!isOpen || transfer) return
+    if (!isOpen || (transferState && transferState !== 'aborted')) return
     setPublicUrl('')
     setConfirmation('')
     setAwaitingStatus(false)
     setTransferError(null)
     setCheckingTarget(false)
-  }, [isOpen, transfer])
+  }, [isOpen, transferId, transferState])
 
   const setDialogOpen = (next: boolean): void => {
     if (onOpenChange) onOpenChange(next)
@@ -783,7 +786,7 @@ function ServerTransferDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {displayState || awaitingStatus ? (
+        {showProgress ? (
           <ServerTransferProgress
             state={displayState ?? 'preparing'}
             targetName={machine.name}
@@ -823,21 +826,21 @@ function ServerTransferDialog({
                 Enter a complete HTTP or HTTPS public URL.
               </p>
             )}
-            {(transferError || statusError) && (
+            {(transferError || statusError || transfer?.error?.message) && (
               <p className="settings-prose text-destructive" role="alert">
-                {transferError ?? statusError}
+                {transferError ?? statusError ?? transfer?.error?.message}
               </p>
             )}
           </div>
         )}
-        {(displayState || awaitingStatus) && (transferError || statusError) && (
+        {showProgress && (transferError || statusError) && (
           <p className="settings-prose text-destructive" role="alert">
             {transferError ?? statusError}
           </p>
         )}
 
         <DialogFooter showCloseButton>
-          {!displayState && !awaitingStatus && (
+          {!showProgress && (
             <Button
               type="button"
               variant="default"

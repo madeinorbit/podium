@@ -50,6 +50,7 @@ import * as messageClass from '../messages/message-class'
 import * as runtimeState from '../messages/runtime-state'
 import * as search from '../messages/search'
 import * as server from '../messages/server'
+import * as serverTransfer from '../messages/server-transfer'
 import * as sync from '../messages/sync'
 import * as terminal from '../messages/terminal'
 import * as transcript from '../messages/transcript'
@@ -88,6 +89,7 @@ const MODULES: ReadonlyArray<readonly [family: string, module: Record<string, un
   ['runtime-state', runtimeState],
   ['search', search],
   ['server', server],
+  ['server-transfer', serverTransfer],
   ['sync', sync],
   ['terminal', terminal],
   ['transcript', transcript],

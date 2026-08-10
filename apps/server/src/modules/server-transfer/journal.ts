@@ -202,6 +202,20 @@ export class TransferJournal {
     return next
   }
 
+  recordCleanup(cleanup: { result: 'pending'; detail: string }): TransferJournalEntry {
+    const current = this.required()
+    if (current.state !== 'committed') {
+      throw new Error(`cannot record transfer cleanup from ${current.state}`)
+    }
+    const next = {
+      ...current,
+      cleanup,
+      updatedAt: this.now().toISOString(),
+    }
+    writeAtomic(this.dir, next)
+    return next
+  }
+
   commitUncertain(error: { code: string; message: string }): TransferJournalEntry {
     const current = this.required()
     if (current.state === 'commit-uncertain') return current

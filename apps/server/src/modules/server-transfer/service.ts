@@ -441,19 +441,17 @@ export class ServerTransferService {
           )
         }
 
-        const acknowledgementCleanup = await this.acknowledgePromoted(
-          finalManifest,
-          input.targetMachineId,
-        )
-
         await this.deps.demoteSource({
           transferId: finalManifest.transferId,
           targetMachineId: input.targetMachineId,
           publicUrl,
         })
         record = { ...record, targetProof: true, sourceConnected: false }
-        this.journal.commit(record, acknowledgementCleanup)
+        this.journal.commit(record)
         fenceHeld = false
+        const acknowledgementCleanup = this.persistAcknowledgementCleanup(
+          await this.acknowledgePromoted(finalManifest, input.targetMachineId),
+        )
         this.deps.afterCommitted?.({ serverUrl: publicUrl })
         return this.outcome(record, true, 'committed', undefined, acknowledgementCleanup)
       } catch (error) {
@@ -597,6 +595,21 @@ export class ServerTransferService {
     }
   }
 
+  private persistAcknowledgementCleanup(
+    cleanup: { result: 'pending'; detail: string } | undefined,
+  ): { result: 'pending'; detail: string } | undefined {
+    if (!cleanup) return undefined
+    try {
+      this.journal.recordCleanup(cleanup)
+      return cleanup
+    } catch (error) {
+      return {
+        result: 'pending',
+        detail: `${cleanup.detail}; cleanup status could not be persisted: ${classified(error).message}`,
+      }
+    }
+  }
+
   private async abortPrepared(
     prepared: { transferId: string; manifestDigest: string },
     targetMachineId: string,
@@ -678,10 +691,6 @@ export class ServerTransferService {
             record.publicUrl,
           )
         ) {
-          const acknowledgementCleanup = await this.acknowledgePromoted(
-            record.manifest,
-            record.targetMachineId,
-          )
           await this.deps.demoteSource({
             transferId: record.transferId,
             targetMachineId: record.targetMachineId,
@@ -693,7 +702,10 @@ export class ServerTransferService {
             targetProof: true,
             sourceConnected: false,
           }
-          this.journal.resolveCommitted(committed, acknowledgementCleanup)
+          this.journal.resolveCommitted(committed)
+          const acknowledgementCleanup = this.persistAcknowledgementCleanup(
+            await this.acknowledgePromoted(record.manifest, record.targetMachineId),
+          )
           this.deps.afterCommitted?.({ serverUrl: record.publicUrl })
           return this.outcome(committed, true, 'committed', undefined, acknowledgementCleanup)
         }

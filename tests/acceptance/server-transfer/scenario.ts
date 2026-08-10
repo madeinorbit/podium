@@ -148,12 +148,18 @@ async function successCase(
     (count) => count >= 1,
     'native client initial attach',
   )
-  const preCopyIssueTitle = 'Concurrent write committed before portable snapshot'
-  const preCopyIssueWrite = source.issues.create.mutate({
-    repoPath,
-    title: preCopyIssueTitle,
-    startNow: false,
+  const transfer = source.machines.transferServer.mutate({
+    targetMachineId: targetMachine.id,
+    publicUrl: edgeUrl,
+    confirmation: 'TRANSFER SERVER',
   })
+  await eventually(
+    () => existsSync('/coord/first-success-chunk-held'),
+    Boolean,
+    'initial snapshot upload hold',
+  )
+
+  const preCopyIssueTitle = 'Concurrent write committed during initial staging'
   connection.sendInput(
     `mkdir -p "$PODIUM_STATE_DIR/artifacts" "$PODIUM_STATE_DIR/transcripts"; ` +
       `printf artifact > "$PODIUM_STATE_DIR/artifacts/docker-transfer.txt"; ` +
@@ -161,19 +167,19 @@ async function successCase(
       `printf '\\nSENTINELS_READY\\n'\n`,
   )
   await Promise.all([
-    preCopyIssueWrite,
+    source.issues.create.mutate({
+      repoPath,
+      title: preCopyIssueTitle,
+      startNow: false,
+    }),
     eventually(
       () => evidence('source'),
       (value) => value.sentinels.artifact && value.sentinels.transcript,
-      'concurrent source writes before portable snapshot',
+      'concurrent source writes during initial staging',
     ),
   ])
 
-  const outcome = await source.machines.transferServer.mutate({
-    targetMachineId: targetMachine.id,
-    publicUrl: edgeUrl,
-    confirmation: 'TRANSFER SERVER',
-  })
+  const outcome = await transfer
   assert(
     outcome.ok && outcome.state === 'committed',
     `transfer did not commit: ${JSON.stringify(outcome)}`,
@@ -254,20 +260,17 @@ async function precommitAbortCase(
   source: ReturnType<typeof api>,
   targetMachine: Awaited<ReturnType<typeof pairTarget>>,
 ): Promise<Record<string, unknown>> {
-  await createLiveFixture(source)
-  let rejected = false
-  try {
-    await source.machines.transferServer.mutate({
-      targetMachineId: targetMachine.id,
-      publicUrl: edgeUrl,
-      confirmation: 'TRANSFER SERVER',
-    })
-  } catch (error) {
-    rejected = true
-    console.log(`[transfer-fixture:precommit-abort] expected rejection: ${String(error)}`)
-  }
+  const { sessionId } = await createLiveFixture(source)
+  const outcome = await source.machines.transferServer.mutate({
+    targetMachineId: targetMachine.id,
+    publicUrl: edgeUrl,
+    confirmation: 'TRANSFER SERVER',
+  })
   assert(existsSync('/coord/validation-digest-corrupted'), 'validation fault was not injected')
-  assert(rejected, 'corrupted target validation unexpectedly committed')
+  assert(
+    !outcome.ok && outcome.state === 'aborted',
+    `corrupted target validation did not abort: ${JSON.stringify(outcome)}`,
+  )
   const sourceEvidence = await eventually(
     () => evidence('source'),
     (value) => value.sourceJournal?.state === 'aborted',
@@ -286,8 +289,30 @@ async function precommitAbortCase(
     title: 'Source writable after abort',
     startNow: false,
   })
+  let attaches = 0
+  const hub = new SocketHub({
+    url: 'ws://source:18787/client',
+    viewport: { cols: 80, rows: 24, dpr: 1 },
+    onError: (message) => console.error(`[transfer-fixture:abort-client] ${message}`),
+  })
+  const connection = hub.attach(sessionId, {
+    onFrame: () => {},
+    onAttached: () => {
+      attaches += 1
+    },
+  })
+  hub.connect()
+  await eventually(() => attaches, (count) => count >= 1, 'shell reattach after safe abort')
+  connection.sendInput(`printf abort-live > "$PODIUM_STATE_DIR/agent-after-transfer.txt"\n`)
+  await eventually(
+    () => evidence('source'),
+    (value) => value.sentinels.agentAfterTransfer,
+    'active shell writable after safe abort',
+  )
+  hub.dispose()
   return {
     injectedFault: 'validation manifest digest mismatch',
+    outcome,
     sourceEvidence,
     targetEvidence,
     targetMachineId: targetMachine.id,
@@ -338,7 +363,44 @@ async function lostReplyCase(
   assert(await health(sourceUrl), 'fenced source lost its recovery/read surface')
   assert(await health(targetUrl), 'target did not remain healthy after promotion')
   assert(sourceEvidence.config?.mode !== 'daemon', 'uncertain source silently switched to daemon')
-  return { outcome, sessionId, sourceEvidence, targetEvidence, targetMachineId: targetMachine.id }
+
+  await eventually(
+    () => source.machines.list.query(),
+    (machines) => machines.some((machine) => machine.id === targetMachine.id && machine.online),
+    'target control channel reconnect for recovery',
+  )
+  const recoveredOutcome = await source.machines.transferServer.mutate({
+    targetMachineId: targetMachine.id,
+    publicUrl: edgeUrl,
+    confirmation: 'TRANSFER SERVER',
+  })
+  assert(
+    recoveredOutcome.ok && recoveredOutcome.state === 'committed',
+    `lost-reply recovery did not commit: ${JSON.stringify(recoveredOutcome)}`,
+  )
+  const recoveredSourceEvidence = await eventually(
+    () => evidence('source'),
+    (value) =>
+      value.primaryExited &&
+      value.config?.mode === 'daemon' &&
+      value.connectivity?.state === 'connected',
+    'source daemon reconnection after lost-reply recovery',
+  )
+  await eventually(
+    () => targetApi.sessions.list.query(),
+    (sessions) =>
+      sessions.some((session) => session.sessionId === sessionId && session.status === 'live'),
+    'durable session live after lost-reply recovery',
+  )
+  return {
+    outcome,
+    recoveredOutcome,
+    sessionId,
+    sourceEvidence,
+    recoveredSourceEvidence,
+    targetEvidence,
+    targetMachineId: targetMachine.id,
+  }
 }
 
 await eventually(() => health(sourceUrl), Boolean, 'source all-in-one health')

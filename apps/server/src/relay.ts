@@ -604,12 +604,14 @@ export class SessionRegistry {
       sourceWireSchemaDigest: wireSchemaDigest(),
       rpc: serverTransferRpcAdapter(rpc),
       localPromotedTransfer: () => readPromotedTargetMetadata(stateDir()),
-      targetState: (machineId) => ({
-        exists: machines.listMachines().some((machine) => machine.id === machineId),
-        online: machines.hasDaemon(machineId),
-        // The dedicated prepare proof is the authoritative capability check.
-        capable: true,
-      }),
+      targetState: (machineId) => {
+        const machine = machines.listMachines().find((candidate) => candidate.id === machineId)
+        return {
+          exists: machine !== undefined,
+          online: machines.hasDaemon(machineId),
+          capable: machine?.wireSchemaDigest === wireSchemaDigest(),
+        }
+      },
       sourceHealthy: () => this.store.checkpointForTransfer(),
       checkpoint: () => this.store.checkpointForTransfer(),
       fence: async () => {

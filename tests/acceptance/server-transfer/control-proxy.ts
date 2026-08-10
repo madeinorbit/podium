@@ -9,6 +9,7 @@ interface ProxyPeer {
 
 const scenario = process.env.PODIUM_TRANSFER_SCENARIO
 if (!scenario) throw new Error('PODIUM_TRANSFER_SCENARIO is required')
+let heldFirstSuccessChunk = false
 
 const textOf = (value: WireData): string =>
   typeof value === 'string' ? value : Buffer.from(value as ArrayBuffer).toString('utf8')
@@ -34,6 +35,16 @@ const server = Bun.serve<ProxyPeer>({
           frame = JSON.parse(raw) as typeof frame
         } catch {
           // Non-JSON frames are forwarded byte-for-byte below.
+        }
+        if (
+          scenario === 'success' &&
+          frame.type === 'serverTransferChunkRequest' &&
+          !heldFirstSuccessChunk
+        ) {
+          heldFirstSuccessChunk = true
+          writeFileSync('/coord/first-success-chunk-held', `${Date.now()}\n`)
+          setTimeout(() => downstream.send(raw), 250)
+          return
         }
         if (scenario === 'precommit-abort' && frame.type === 'serverTransferValidateRequest') {
           frame.manifestDigest = '0'.repeat(64)

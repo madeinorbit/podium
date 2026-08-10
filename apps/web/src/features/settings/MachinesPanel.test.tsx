@@ -576,6 +576,46 @@ describe('MachinesPanel server transfer', () => {
     expect(screen.queryByText(/transfer stopped safely/i)).toBeNull()
   })
 
+  it('allows a safely aborted transfer to be retried with fresh confirmation', async () => {
+    const transferMutate = vi.fn().mockResolvedValue({ ok: true, state: 'committed' })
+    storeState.machines = [machine({ id: asMachineId('target'), name: 'vps', online: true })]
+    setServerTransferTrpc(
+      transferMutate,
+      vi.fn().mockResolvedValue(
+        status({
+          transfer: transferStatus('aborted', {
+            error: { code: 'target-rejected', message: 'candidate validation failed' },
+          }),
+        }),
+      ),
+    )
+    render(<MachinesPanel />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'View transfer' }))
+    expect(await screen.findByText(/candidate validation failed/i)).toBeTruthy()
+    const retry = screen.getByRole('button', { name: 'Transfer server' })
+    expect(retry).toHaveProperty('disabled', true)
+    expect((screen.getByLabelText('Server transfer confirmation') as HTMLInputElement).value).toBe(
+      '',
+    )
+
+    fireEvent.change(screen.getByLabelText('New public URL'), {
+      target: { value: 'https://new-podium.example.com' },
+    })
+    fireEvent.change(screen.getByLabelText('Server transfer confirmation'), {
+      target: { value: SERVER_TRANSFER_CONFIRMATION },
+    })
+    fireEvent.click(retry)
+
+    await waitFor(() =>
+      expect(transferMutate).toHaveBeenCalledWith({
+        targetMachineId: 'target',
+        publicUrl: 'https://new-podium.example.com',
+        confirmation: SERVER_TRANSFER_CONFIRMATION,
+      }),
+    )
+  })
+
   it('recommends only the first additional machine and waits for server eligibility after pairing', async () => {
     const current = machine({ id: asMachineId('source'), name: 'laptop', online: true })
     const target = machine({ id: asMachineId('target'), name: 'vps', online: true })

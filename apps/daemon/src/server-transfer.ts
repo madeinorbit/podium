@@ -62,6 +62,7 @@ interface StageMeta {
   promotion?: {
     idempotencyKey: string
     publicUrl: string
+    port?: number
     targetMode: 'server'
   }
   publicUrl?: string
@@ -840,8 +841,8 @@ async function installPortableFile(
   await syncDirectory(dirname(destination))
 }
 
-async function persistTargetConfig(publicUrl: string): Promise<void> {
-  applySetup({ mode: 'server', publicUrl })
+async function persistTargetConfig(publicUrl: string, port?: number): Promise<void> {
+  applySetup({ mode: 'server', publicUrl, ...(port === undefined ? {} : { port }) })
   const path = configPath()
   const handle = await open(path, 'r')
   try {
@@ -875,6 +876,7 @@ async function promote(
   const promotion = {
     idempotencyKey: msg.idempotencyKey,
     publicUrl: checked.normalized,
+    ...(msg.port === undefined ? {} : { port: msg.port }),
     targetMode: msg.targetMode,
   } as const
 
@@ -922,7 +924,7 @@ async function promote(
     for (const entry of meta.manifest.files) await installPortableFile(meta, entry)
     await crashPoint(ctx, 'after-install-before-config')
 
-    await persistTargetConfig(checked.normalized)
+    await persistTargetConfig(checked.normalized, msg.port)
     await crashPoint(ctx, 'after-config-before-health')
 
     const expected: ServerTransferServingProof = {
@@ -1101,8 +1103,9 @@ async function handle(
   msg: Extract<ControlMessage, { type: `serverTransfer${string}Request` }>,
 ): Promise<void> {
   const operation = operationFor(msg.type)
+  let response: ServerTransferResultMessage
   try {
-    const response =
+    response =
       msg.type === 'serverTransferPrepareRequest'
         ? await prepare(ctx, msg)
         : msg.type === 'serverTransferChunkRequest'
@@ -1116,11 +1119,6 @@ async function handle(
                 : msg.type === 'serverTransferAcknowledgeRequest'
                   ? await acknowledge(ctx, msg)
                   : await status(ctx, msg)
-    ctx.send(response)
-    if (msg.type === 'serverTransferAcknowledgeRequest' && response.ok)
-      queueMicrotask(() => {
-        void Promise.resolve(ctx.retireAfterTransfer?.()).catch(() => {})
-      })
   } catch (error) {
     const id = msg.transferId
     const state = id
@@ -1132,7 +1130,7 @@ async function handle(
       error instanceof ServerTransferError
         ? { code: error.code, message: error.message }
         : { code: 'internal' as const, message: 'internal server-transfer failure' }
-    ctx.send({
+    response = {
       type: 'serverTransferResult',
       requestId: msg.requestId,
       ...(id ? { transferId: id } : {}),
@@ -1141,10 +1139,18 @@ async function handle(
       state,
       errorCode: state === 'uncertain' || state === 'promoting' ? 'uncertain-commit' : failure.code,
       error: failure.message,
-    })
-  } finally {
-    if (msg.transferId) await releaseLock(msg.transferId)
+    }
   }
+
+  // A caller may issue the next phase as soon as it receives this response.
+  // Release the process-wide transfer lock first, so that response delivery
+  // cannot race the previous request's cleanup/finally path.
+  if (msg.transferId) await releaseLock(msg.transferId)
+  ctx.send(response)
+  if (msg.type === 'serverTransferAcknowledgeRequest' && response.ok)
+    setTimeout(() => {
+      void Promise.resolve(ctx.retireAfterTransfer?.()).catch(() => {})
+    }, 0)
 }
 
 export const serverTransferHandlers: Pick<

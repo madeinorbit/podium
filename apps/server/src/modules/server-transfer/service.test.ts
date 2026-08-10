@@ -31,6 +31,7 @@ function fakeRpc(
     validateOk?: boolean
     promote?: 'ok' | 'throw' | 'throw-once'
     acknowledge?: 'ok' | 'throw'
+    onAcknowledge?: () => void | Promise<void>
   } = {},
 ) {
   const operations: string[] = []
@@ -127,6 +128,7 @@ function fakeRpc(
     }),
     serverTransferAcknowledge: vi.fn(async (input) => {
       operations.push('acknowledge:' + input.transferId)
+      await options.onAcknowledge?.()
       if (options.acknowledge === 'throw') throw new Error('acknowledgement reply lost')
       return {
         ok: true,
@@ -309,6 +311,39 @@ describe('ServerTransferService final-fence flow', () => {
     })
     expect(fake.rpc.serverTransferAcknowledge).toHaveBeenCalledOnce()
     expect(demoteSource).toHaveBeenCalledOnce()
+  })
+
+  it('commits durably before acknowledging target retirement', async () => {
+    let service!: ServerTransferService
+    const demoteSource = vi.fn()
+    const fake = fakeRpc({
+      onAcknowledge: () => {
+        expect(demoteSource).toHaveBeenCalledOnce()
+        expect(service.status()?.state).toBe('committed')
+      },
+    })
+    service = makeService(fake.rpc, { demoteSource })
+
+    await expect(service.transfer(input, allow)).resolves.toMatchObject({
+      ok: true,
+      state: 'committed',
+    })
+    expect(fake.rpc.serverTransferAcknowledge).toHaveBeenCalledOnce()
+  })
+
+  it('retains the target recovery channel when source demotion is not durable', async () => {
+    const fake = fakeRpc()
+    const service = makeService(fake.rpc, {
+      demoteSource: vi.fn(() => {
+        throw new Error('source config fsync failed')
+      }),
+    })
+
+    await expect(service.transfer(input, allow)).resolves.toMatchObject({
+      ok: false,
+      state: 'commit-uncertain',
+    })
+    expect(fake.rpc.serverTransferAcknowledge).not.toHaveBeenCalled()
   })
 
   it('keeps the source fenced and records commit-uncertain after a lost promotion reply', async () => {

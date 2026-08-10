@@ -137,6 +137,7 @@ export const ServerTransferPromoteRequestMessage = z.object({
   transferId,
   manifestDigest: digest,
   publicUrl: z.string().min(1).max(2048),
+  port: z.number().int().positive().max(65_535).optional(),
   targetMode: z.literal('server'),
   idempotencyKey: z.string().min(1).max(200),
 })
