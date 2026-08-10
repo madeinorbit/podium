@@ -1,10 +1,5 @@
-import {
-  HEAVY_TEST_LOCK_NAME,
-  type LockState,
-  MERGE_LOCK_NAME,
-  useLockState,
-} from '@podium/client-core/react'
-import { FlaskConical, GitMerge, LoaderCircle, RefreshCw, Timer } from 'lucide-react'
+import { type RepoLocksState, useRepoLocks } from '@podium/client-core/react'
+import { FlaskConical, GitMerge, LoaderCircle, Lock, RefreshCw, Timer } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import type { IssueViewModel } from '@/app/store'
@@ -13,14 +8,16 @@ import { issueIdTitle, issueRefLabel } from '@/lib/issue-labels'
 import {
   formatLeaseRemaining,
   type MergeQueueRepoScope,
+  type QueueGroupModel,
+  type QueueLock,
   type QueuePanelState,
   type QueuePrincipal,
+  queueGroups,
   readyMergeCandidates,
 } from './merge-queue-model'
 
 interface MergeQueuePanelViewProps {
-  mergeState: QueuePanelState
-  heavyState: QueuePanelState
+  state: QueuePanelState
   issues: readonly IssueViewModel[]
   scope: MergeQueueRepoScope
   onRefresh: () => void
@@ -33,8 +30,8 @@ interface MergeQueuePanelProps {
   onSelectIssue: (issue: IssueViewModel) => void
 }
 
-/** Project one authoritative named-lock query into the panel's display seam. */
-export function queuePanelState(state: LockState): QueuePanelState {
+/** Project one authoritative whole-repo lock query into the panel's display seam. */
+export function queuePanelState(state: RepoLocksState): QueuePanelState {
   if (state.loading) return { status: 'loading' }
   if (state.error && state.refreshedAt === null) {
     return { status: 'error', message: state.error }
@@ -42,18 +39,19 @@ export function queuePanelState(state: LockState): QueuePanelState {
 
   return {
     status: 'ready',
-    lock: state.lock
-      ? {
-          holder: {
-            ...state.lock.holder,
-            acquiredAt: state.lock.acquiredAt,
-            expiresAt: state.lock.expiresAt,
-            secondsLeft: state.lock.secondsLeft,
-            note: state.lock.note,
-          },
-          queue: state.lock.queue,
-        }
-      : null,
+    locks: state.locks.map(
+      (lock): QueueLock => ({
+        name: lock.name,
+        holder: {
+          ...lock.holder,
+          acquiredAt: lock.acquiredAt,
+          expiresAt: lock.expiresAt,
+          secondsLeft: lock.secondsLeft,
+          note: lock.note,
+        },
+        queue: lock.queue,
+      }),
+    ),
     refreshing: state.refreshing,
     ...(state.error ? { warning: state.error } : {}),
   }
@@ -65,9 +63,7 @@ export function MergeQueuePanel({
   scope,
   onSelectIssue,
 }: MergeQueuePanelProps): JSX.Element {
-  const repoPath = scope?.repoPath ?? null
-  const merge = useLockState(repoPath, MERGE_LOCK_NAME)
-  const heavy = useLockState(repoPath, HEAVY_TEST_LOCK_NAME)
+  const locks = useRepoLocks(scope?.repoPath ?? null)
 
   if (!scope) {
     return <div className="p-3 text-xs text-muted-foreground/70">No active repository.</div>
@@ -75,14 +71,10 @@ export function MergeQueuePanel({
 
   return (
     <MergeQueuePanelView
-      mergeState={queuePanelState(merge)}
-      heavyState={queuePanelState(heavy)}
+      state={queuePanelState(locks)}
       issues={issues}
       scope={scope}
-      onRefresh={() => {
-        merge.refresh()
-        heavy.refresh()
-      }}
+      onRefresh={locks.refresh}
       onSelectIssue={onSelectIssue}
     />
   )
@@ -214,6 +206,7 @@ function QueueWait({ enqueuedAt }: { enqueuedAt: string }): JSX.Element {
   )
 }
 
+/** Skeleton for the two pinned lanes; leases beyond them are not yet known. */
 function QueueLoading({ id, activeLabel }: { id: string; activeLabel: string }): JSX.Element {
   return (
     <div aria-busy="true">
@@ -231,15 +224,14 @@ function QueueLoading({ id, activeLabel }: { id: string; activeLabel: string }):
 }
 
 function ActiveLease({
-  state,
+  lock,
   issuesById,
   onSelectIssue,
 }: {
-  state: Extract<QueuePanelState, { status: 'ready' }>
+  lock: QueueLock | null
   issuesById: ReadonlyMap<string, IssueViewModel>
   onSelectIssue: (issue: IssueViewModel) => void
 }): JSX.Element {
-  const lock = state.lock
   if (!lock) return <EmptyLine>Nothing running now.</EmptyLine>
   const issue = lock.holder.issueId ? issuesById.get(lock.holder.issueId) : undefined
   const content = (
@@ -277,15 +269,15 @@ function ActiveLease({
 }
 
 function Waiters({
-  state,
+  lock,
   issuesById,
   onSelectIssue,
 }: {
-  state: Extract<QueuePanelState, { status: 'ready' }>
+  lock: QueueLock | null
   issuesById: ReadonlyMap<string, IssueViewModel>
   onSelectIssue: (issue: IssueViewModel) => void
 }): JSX.Element {
-  const waiters = state.lock?.queue ?? []
+  const waiters = lock?.queue ?? []
   if (waiters.length === 0) return <EmptyLine>No sessions waiting.</EmptyLine>
 
   return (
@@ -335,85 +327,85 @@ function Waiters({
   )
 }
 
+const GROUP_ICON = {
+  merge: GitMerge,
+  heavy: FlaskConical,
+  other: Lock,
+} as const
+
 function QueueGroup({
   id,
-  title,
-  lockName,
-  icon,
-  activeLabel,
-  state,
+  group,
   issuesById,
   ready,
   readyCount,
-  onRefresh,
+  loading,
   onSelectIssue,
 }: {
   id: string
-  title: string
-  lockName: string
-  icon: ReactNode
-  activeLabel: string
-  state: QueuePanelState
+  group: QueueGroupModel
   issuesById: ReadonlyMap<string, IssueViewModel>
-  ready: ReactNode | ((lockFree: boolean) => ReactNode)
+  /** Omitted for a lease with no notion of what is waiting to be admitted. */
+  ready?: ReactNode
   readyCount?: number
-  onRefresh: () => void
+  loading?: boolean
   onSelectIssue: (issue: IssueViewModel) => void
 }): JSX.Element {
+  const Icon = GROUP_ICON[group.kind]
   return (
     <section
       className="border-b border-hairline-soft last:border-b-0"
       aria-labelledby={`${id}-title`}
     >
       <div className="flex h-10 items-center gap-2 px-3.5">
-        {icon}
-        <h2 id={`${id}-title`} className="text-[12px] font-semibold text-foreground/90">
-          {title}
-        </h2>
-        <span className="ml-auto font-mono text-[8.5px] text-text-dim">{lockName}</span>
-      </div>
-      {state.status === 'loading' ? (
-        <QueueLoading id={id} activeLabel={activeLabel} />
-      ) : state.status === 'error' ? (
-        <div
-          className="mx-2.5 mb-2.5 rounded-md border border-destructive/25 bg-destructive/5 p-2.5"
-          role="alert"
+        <Icon size={13} className="flex-none text-info" aria-hidden="true" />
+        <h2
+          id={`${id}-title`}
+          className="min-w-0 truncate text-[12px] font-semibold text-foreground/90"
         >
-          <p className="text-[11px] font-medium text-foreground">Queue unavailable</p>
-          <p className="mt-1 text-[10.5px] leading-4 text-muted-foreground">{state.message}</p>
-          <Button className="mt-2" variant="outline" size="sm" onClick={onRefresh}>
-            <RefreshCw size={12} aria-hidden="true" /> Try again
-          </Button>
-        </div>
+          {group.title}
+        </h2>
+        {/* A free-form name can be long; it yields to the title, never wraps. */}
+        <span
+          className="ml-auto min-w-0 max-w-[55%] truncate font-mono text-[8.5px] text-text-dim"
+          title={group.name}
+        >
+          {group.name}
+        </span>
+      </div>
+      {loading ? (
+        <QueueLoading id={id} activeLabel={group.activeLabel} />
       ) : (
         <>
-          {state.warning && (
-            <div
-              className="border-t border-destructive/20 bg-destructive/5 px-3.5 py-2 text-[10.5px] leading-4 text-muted-foreground"
-              role="status"
-            >
-              Showing the last queue reading. {state.warning}
-            </div>
+          <QueueSection id={`${id}-active`} label={group.activeLabel} count={group.lock ? 1 : 0}>
+            <ActiveLease lock={group.lock} issuesById={issuesById} onSelectIssue={onSelectIssue} />
+          </QueueSection>
+          <QueueSection id={`${id}-next`} label="NEXT UP" count={group.lock?.queue.length ?? 0}>
+            <Waiters lock={group.lock} issuesById={issuesById} onSelectIssue={onSelectIssue} />
+          </QueueSection>
+          {ready !== undefined && (
+            <QueueSection id={`${id}-ready`} label="READY" count={readyCount}>
+              {ready}
+            </QueueSection>
           )}
-          <QueueSection id={`${id}-active`} label={activeLabel} count={state.lock ? 1 : 0}>
-            <ActiveLease state={state} issuesById={issuesById} onSelectIssue={onSelectIssue} />
-          </QueueSection>
-          <QueueSection id={`${id}-next`} label="NEXT UP" count={state.lock?.queue.length ?? 0}>
-            <Waiters state={state} issuesById={issuesById} onSelectIssue={onSelectIssue} />
-          </QueueSection>
-          <QueueSection id={`${id}-ready`} label="READY" count={readyCount}>
-            {typeof ready === 'function' ? ready(!state.lock) : ready}
-          </QueueSection>
         </>
       )}
     </section>
   )
 }
 
-/** Two independent queues, each preserving holder → FIFO waiters → ready order. */
+/** A stable DOM id for a free-form lock name. */
+function groupId(name: string): string {
+  return `queue-${name.replace(/[^a-zA-Z0-9]+/g, '-')}`
+}
+
+/**
+ * Every lease the repository holds, each preserving holder → FIFO waiters. The
+ * merge and heavy-test lanes are pinned in front (they have their own copy, and
+ * the operator expects them in a fixed place); the rest are whatever agents took.
+ */
 export function MergeQueuePanelView({
-  mergeState,
-  heavyState,
+  state,
   issues,
   scope,
   onRefresh,
@@ -423,11 +415,10 @@ export function MergeQueuePanelView({
     () => new Map<string, IssueViewModel>(issues.map((issue) => [issue.id, issue] as const)),
     [issues],
   )
-  const candidates =
-    mergeState.status === 'ready' ? readyMergeCandidates(issues, scope, mergeState.lock) : []
-  const refreshing =
-    (mergeState.status === 'ready' && mergeState.refreshing) ||
-    (heavyState.status === 'ready' && heavyState.refreshing)
+  const locks = state.status === 'ready' ? state.locks : []
+  const { merge, heavy, others } = queueGroups(locks)
+  const candidates = state.status === 'ready' ? readyMergeCandidates(issues, scope, merge.lock) : []
+  const refreshing = state.status === 'ready' && state.refreshing === true
 
   return (
     <section className="min-h-0 flex-1 overflow-y-auto" aria-label="Repository queues">
@@ -435,6 +426,11 @@ export function MergeQueuePanelView({
         <span className="font-mono text-[9px] font-semibold tracking-[0.1em] text-label">
           LIVE QUEUES
         </span>
+        {state.status === 'ready' && (
+          <span className="font-mono text-[9px] tabular-nums text-text-dim">
+            {locks.length} held
+          </span>
+        )}
         <Button
           variant="ghost"
           size="icon-xs"
@@ -453,48 +449,78 @@ export function MergeQueuePanelView({
         )}
       </div>
 
-      <QueueGroup
-        id="merge-queue"
-        title="Merge queue"
-        lockName={MERGE_LOCK_NAME}
-        icon={<GitMerge size={13} className="text-info" aria-hidden="true" />}
-        activeLabel="MERGING NOW"
-        state={mergeState}
-        issuesById={issuesById}
-        onRefresh={onRefresh}
-        onSelectIssue={onSelectIssue}
-        ready={
-          candidates.length === 0 ? (
-            <EmptyLine>No branches ready to merge.</EmptyLine>
-          ) : (
-            <div className="flex flex-col gap-0.5">
-              {candidates.map((issue) => (
-                <CandidateRow key={issue.id} issue={issue} onSelect={() => onSelectIssue(issue)} />
-              ))}
+      {state.status === 'error' ? (
+        <div
+          className="mx-2.5 my-2.5 rounded-md border border-destructive/25 bg-destructive/5 p-2.5"
+          role="alert"
+        >
+          <p className="text-[11px] font-medium text-foreground">Queues unavailable</p>
+          <p className="mt-1 text-[10.5px] leading-4 text-muted-foreground">{state.message}</p>
+          <Button className="mt-2" variant="outline" size="sm" onClick={onRefresh}>
+            <RefreshCw size={12} aria-hidden="true" /> Try again
+          </Button>
+        </div>
+      ) : (
+        <>
+          {state.status === 'ready' && state.warning && (
+            <div
+              className="border-b border-destructive/20 bg-destructive/5 px-3.5 py-2 text-[10.5px] leading-4 text-muted-foreground"
+              role="status"
+            >
+              Showing the last queue reading. {state.warning}
             </div>
-          )
-        }
-        readyCount={candidates.length}
-      />
+          )}
 
-      <QueueGroup
-        id="heavy-test-queue"
-        title="Heavy test queue"
-        lockName={HEAVY_TEST_LOCK_NAME}
-        icon={<FlaskConical size={13} className="text-info" aria-hidden="true" />}
-        activeLabel="TESTING NOW"
-        state={heavyState}
-        issuesById={issuesById}
-        onRefresh={onRefresh}
-        onSelectIssue={onSelectIssue}
-        ready={(lockFree) => (
-          <EmptyLine>
-            {lockFree
-              ? 'Ready for the next heavy test run.'
-              : 'New runs join this queue when they request the heavy-test lease.'}
-          </EmptyLine>
-        )}
-      />
+          <QueueGroup
+            id="merge-queue"
+            group={merge}
+            issuesById={issuesById}
+            loading={state.status === 'loading'}
+            onSelectIssue={onSelectIssue}
+            ready={
+              candidates.length === 0 ? (
+                <EmptyLine>No branches ready to merge.</EmptyLine>
+              ) : (
+                <div className="flex flex-col gap-0.5">
+                  {candidates.map((issue) => (
+                    <CandidateRow
+                      key={issue.id}
+                      issue={issue}
+                      onSelect={() => onSelectIssue(issue)}
+                    />
+                  ))}
+                </div>
+              )
+            }
+            readyCount={candidates.length}
+          />
+
+          <QueueGroup
+            id="heavy-test-queue"
+            group={heavy}
+            issuesById={issuesById}
+            loading={state.status === 'loading'}
+            onSelectIssue={onSelectIssue}
+            ready={
+              <EmptyLine>
+                {heavy.lock
+                  ? 'New runs join this queue when they request the heavy-test lease.'
+                  : 'Ready for the next heavy test run.'}
+              </EmptyLine>
+            }
+          />
+
+          {others.map((group) => (
+            <QueueGroup
+              key={group.name}
+              id={groupId(group.name)}
+              group={group}
+              issuesById={issuesById}
+              onSelectIssue={onSelectIssue}
+            />
+          ))}
+        </>
+      )}
     </section>
   )
 }

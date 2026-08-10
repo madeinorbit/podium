@@ -16,7 +16,9 @@ vi.mock('./provider', () => ({
   useStoreSelector: (select: (state: { trpc: TestTrpc }) => unknown) => select({ trpc }),
 }))
 
-const { LOCK_POLL_MS, MERGE_LOCK_NAME, useLockState } = await import('./use-merge-lock')
+const { LOCK_POLL_MS, MERGE_LOCK_NAME, useLockState, useRepoLocks } = await import(
+  './use-merge-lock'
+)
 type LockState = ReturnType<typeof useLockState>
 
 const LOCK: LockWire = {
@@ -196,5 +198,36 @@ describe('useLockState', () => {
       await vi.advanceTimersByTimeAsync(LOCK_POLL_MS)
     })
     expect(query).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('useRepoLocks', () => {
+  // POD-705: naming the leases up front can only ever find the leases someone
+  // thought of. The namespace is free-form, so the whole-repo read is the only
+  // one that reports what agents actually took.
+  it('names no lock, so it reports every lease in the repository', async () => {
+    const locks = [
+      LOCK,
+      { ...LOCK, name: 'test:heavy', queue: [] },
+      { ...LOCK, name: 'validation:admission', queue: [] },
+    ]
+    const query = vi.fn(async () => locks)
+    trpc = { lock: { status: { query } } }
+
+    let repo: ReturnType<typeof useRepoLocks> | undefined
+    function RepoProbe(): JSX.Element | null {
+      repo = useRepoLocks('/repo')
+      return null
+    }
+    render(<RepoProbe />)
+    await settle()
+
+    expect(query).toHaveBeenCalledWith({ repoPath: '/repo' })
+    expect(repo?.locks.map((lock) => lock.name)).toEqual([
+      'merge:main',
+      'test:heavy',
+      'validation:admission',
+    ])
+    expect(repo).toMatchObject({ loading: false, refreshing: false, error: null })
   })
 })

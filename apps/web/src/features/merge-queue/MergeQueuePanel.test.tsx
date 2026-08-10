@@ -2,10 +2,10 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import { MergeQueuePanelView } from './MergeQueuePanel'
-import type { QueuePanelState } from './merge-queue-model'
+import type { QueueLock, QueuePanelState } from './merge-queue-model'
 
 const scope = { repoId: 'repo-main', repoPath: '/repo' }
-const idle: QueuePanelState = { status: 'ready', lock: null }
+const idle: QueuePanelState = { status: 'ready', locks: [] }
 const ready = (over: Parameters<typeof makeIssue>[0]) =>
   makeIssue({
     repoId: 'repo-main',
@@ -23,36 +23,36 @@ const ready = (over: Parameters<typeof makeIssue>[0]) =>
     ...over,
   })
 
-const populated: QueuePanelState = {
-  status: 'ready',
-  lock: {
-    holder: {
-      sessionId: 'session-holder',
-      issueId: 'holder',
-      label: 'Merge driver',
-      acquiredAt: '2026-08-06T12:00:00.000Z',
-      expiresAt: '2026-08-06T12:04:05.000Z',
-      secondsLeft: 125,
-      note: null,
-    },
-    queue: [
-      {
-        sessionId: 'session-next',
-        issueId: 'next',
-        label: 'Queued agent',
-        position: 1,
-        enqueuedAt: '2026-08-06T12:01:00.000Z',
-      },
-      {
-        sessionId: 'session-unattached',
-        issueId: null,
-        label: 'Release shell',
-        position: 2,
-        enqueuedAt: '2026-08-06T12:01:30.000Z',
-      },
-    ],
+const mergeLock: QueueLock = {
+  name: 'merge:main',
+  holder: {
+    sessionId: 'session-holder',
+    issueId: 'holder',
+    label: 'Merge driver',
+    acquiredAt: '2026-08-06T12:00:00.000Z',
+    expiresAt: '2026-08-06T12:04:05.000Z',
+    secondsLeft: 125,
+    note: null,
   },
+  queue: [
+    {
+      sessionId: 'session-next',
+      issueId: 'next',
+      label: 'Queued agent',
+      position: 1,
+      enqueuedAt: '2026-08-06T12:01:00.000Z',
+    },
+    {
+      sessionId: 'session-unattached',
+      issueId: null,
+      label: 'Release shell',
+      position: 2,
+      enqueuedAt: '2026-08-06T12:01:30.000Z',
+    },
+  ],
 }
+
+const populated: QueuePanelState = { status: 'ready', locks: [mergeLock] }
 
 afterEach(() => {
   cleanup()
@@ -101,8 +101,7 @@ describe('MergeQueuePanelView', () => {
 
     render(
       <MergeQueuePanelView
-        mergeState={populated}
-        heavyState={idle}
+        state={populated}
         issues={issues}
         scope={scope}
         onRefresh={vi.fn()}
@@ -143,29 +142,31 @@ describe('MergeQueuePanelView', () => {
     vi.setSystemTime(new Date('2026-08-06T12:02:00.000Z'))
     render(
       <MergeQueuePanelView
-        mergeState={idle}
-        heavyState={{
+        state={{
           status: 'ready',
-          lock: {
-            holder: {
-              sessionId: 'test-holder',
-              issueId: null,
-              label: 'Browser test lane',
-              acquiredAt: '2026-08-06T12:00:00.000Z',
-              expiresAt: '2026-08-06T12:12:00.000Z',
-              secondsLeft: 600,
-              note: null,
-            },
-            queue: [
-              {
-                sessionId: 'test-next',
+          locks: [
+            {
+              name: 'test:heavy',
+              holder: {
+                sessionId: 'test-holder',
                 issueId: null,
-                label: 'Integration lane',
-                position: 1,
-                enqueuedAt: '2026-08-06T12:01:15.000Z',
+                label: 'Browser test lane',
+                acquiredAt: '2026-08-06T12:00:00.000Z',
+                expiresAt: '2026-08-06T12:12:00.000Z',
+                secondsLeft: 600,
+                note: null,
               },
-            ],
-          },
+              queue: [
+                {
+                  sessionId: 'test-next',
+                  issueId: null,
+                  label: 'Integration lane',
+                  position: 1,
+                  enqueuedAt: '2026-08-06T12:01:15.000Z',
+                },
+              ],
+            },
+          ],
         }}
         issues={[]}
         scope={scope}
@@ -184,11 +185,95 @@ describe('MergeQueuePanelView', () => {
     expect(within(heavy).getByLabelText('Work in progress').className).toContain('animate-spin')
   })
 
+  // POD-705: the lock namespace is free-form, so a panel that renders a fixed
+  // pair of names hides exactly the queue nobody thought to register — here a
+  // validation-admission lease with agents stacked behind it.
+  it('gives every unregistered lease its own queue, behind the two pinned lanes', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-06T12:02:00.000Z'))
+    const onSelectIssue = vi.fn()
+    const holder = ready({ id: 'admit', seq: 34, displayRef: 'POD-34', title: 'Admitted run' })
+    render(
+      <MergeQueuePanelView
+        state={{
+          status: 'ready',
+          locks: [
+            {
+              name: 'validation:admission',
+              holder: {
+                sessionId: 'admission-holder',
+                issueId: 'admit',
+                label: 'issue:#34',
+                acquiredAt: '2026-08-06T12:00:00.000Z',
+                expiresAt: '2026-08-06T12:05:00.000Z',
+                secondsLeft: 300,
+                note: 'focused package tests',
+              },
+              queue: [
+                {
+                  sessionId: 'admission-next',
+                  issueId: null,
+                  label: 'issue:#78',
+                  position: 1,
+                  enqueuedAt: '2026-08-06T12:01:00.000Z',
+                },
+              ],
+            },
+            {
+              name: 'podium:dev-bundle',
+              holder: {
+                sessionId: 'bundle-holder',
+                issueId: null,
+                label: 'operator',
+                acquiredAt: '2026-08-06T12:00:00.000Z',
+                expiresAt: '2026-08-06T12:15:00.000Z',
+                secondsLeft: 780,
+                note: null,
+              },
+              queue: [],
+            },
+            mergeLock,
+          ],
+        }}
+        issues={[holder]}
+        scope={scope}
+        onRefresh={vi.fn()}
+        onSelectIssue={onSelectIssue}
+      />,
+    )
+
+    // Pinned lanes first, then the free-form leases in name order.
+    expect(screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent)).toEqual([
+      'Merge queue',
+      'Heavy test queue',
+      'Podium dev bundle',
+      'Validation admission',
+    ])
+
+    const admission = queueGroup('Validation admission')
+    // The raw name is what the operator types into `podium lock`, so it stays.
+    expect(within(admission).getByTitle('validation:admission')).toBeTruthy()
+    expect(
+      within(admission)
+        .getAllByRole('heading')
+        .map((heading) => heading.textContent),
+      // A free-form lease has no notion of what is READY to request it.
+    ).toEqual(['Validation admission', 'HOLDING NOW', 'NEXT UP'])
+    expect(within(admission).getByText('Waiting 1m 00s')).toBeTruthy()
+    expect(within(admission).getByText('3m 00s left')).toBeTruthy()
+
+    fireEvent.click(within(admission).getByRole('button', { name: /POD-34 Admitted run/ }))
+    expect(onSelectIssue).toHaveBeenLastCalledWith(holder)
+
+    // Every held lease is counted, including the ones nobody registered.
+    expect(screen.getByText('3 held')).toBeTruthy()
+    expect(within(queueGroup('Podium dev bundle')).getByText('No sessions waiting.')).toBeTruthy()
+  })
+
   it('renders accessible loading geometry in the requested order', () => {
     const { container } = render(
       <MergeQueuePanelView
-        mergeState={{ status: 'loading' }}
-        heavyState={{ status: 'loading' }}
+        state={{ status: 'loading' }}
         issues={[]}
         scope={scope}
         onRefresh={vi.fn()}
@@ -210,12 +295,11 @@ describe('MergeQueuePanelView', () => {
     ])
   })
 
-  it('offers a retry for an independently failed queue', () => {
+  it('offers a retry when the one repository reading fails', () => {
     const onRefresh = vi.fn()
     render(
       <MergeQueuePanelView
-        mergeState={{ status: 'error', message: 'The daemon did not answer.' }}
-        heavyState={idle}
+        state={{ status: 'error', message: 'The daemon did not answer.' }}
         issues={[]}
         scope={scope}
         onRefresh={onRefresh}
@@ -224,8 +308,26 @@ describe('MergeQueuePanelView', () => {
     )
 
     expect(screen.getByRole('alert').textContent).toContain('The daemon did not answer.')
+    expect(screen.queryByRole('heading', { level: 2 })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
     expect(onRefresh).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the last good reading on screen when a refresh fails', () => {
+    render(
+      <MergeQueuePanelView
+        state={{ status: 'ready', locks: [mergeLock], warning: 'The daemon did not answer.' }}
+        issues={[]}
+        scope={scope}
+        onRefresh={vi.fn()}
+        onSelectIssue={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByRole('status').textContent).toContain(
+      'Showing the last queue reading. The daemon did not answer.',
+    )
+    expect(within(queueGroup('Merge queue')).getByText('Merge driver')).toBeTruthy()
   })
 
   it('counts active lease and queue wait clocks live', () => {
@@ -233,8 +335,7 @@ describe('MergeQueuePanelView', () => {
     vi.setSystemTime(new Date('2026-08-06T12:02:00.000Z'))
     render(
       <MergeQueuePanelView
-        mergeState={populated}
-        heavyState={idle}
+        state={populated}
         issues={[]}
         scope={scope}
         onRefresh={vi.fn()}
@@ -249,12 +350,11 @@ describe('MergeQueuePanelView', () => {
     expect(screen.getByText('Waiting 1m 01s')).toBeTruthy()
   })
 
-  it('refreshes both queue readings from the shared toolbar', () => {
+  it('refreshes the whole repository reading from the shared toolbar', () => {
     const onRefresh = vi.fn()
     render(
       <MergeQueuePanelView
-        mergeState={idle}
-        heavyState={idle}
+        state={idle}
         issues={[]}
         scope={scope}
         onRefresh={onRefresh}

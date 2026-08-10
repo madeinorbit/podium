@@ -45,18 +45,17 @@ const state = {
   setSelectedIssueId: vi.fn(),
 }
 
-const mergeLock = vi.hoisted(() => ({
+const repoLocks = vi.hoisted(() => ({
   query: vi.fn(),
   refresh: vi.fn(),
-  heavyRefresh: vi.fn(),
   state: {
-    lock: null,
+    locks: [],
     loading: false,
     refreshing: false,
     error: null,
     refreshedAt: Date.now(),
   } as {
-    lock: null | {
+    locks: {
       repoId: string
       name: string
       holder: { sessionId: string | null; issueId: string | null; label: string }
@@ -65,7 +64,7 @@ const mergeLock = vi.hoisted(() => ({
       expiresAt: string
       secondsLeft: number
       queue: never[]
-    }
+    }[]
     loading: boolean
     refreshing: boolean
     error: string | null
@@ -77,18 +76,9 @@ vi.mock('@podium/client-core/react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@podium/client-core/react')>()
   return {
     ...actual,
-    useLockState: (repoPath: string | null, lockName: string) => {
-      mergeLock.query(repoPath, lockName)
-      return lockName === 'merge:main'
-        ? { ...mergeLock.state, refresh: mergeLock.refresh }
-        : {
-            lock: null,
-            loading: false,
-            refreshing: false,
-            error: null,
-            refreshedAt: Date.now(),
-            refresh: mergeLock.heavyRefresh,
-          }
+    useRepoLocks: (repoPath: string | null) => {
+      repoLocks.query(repoPath)
+      return { ...repoLocks.state, refresh: repoLocks.refresh }
     },
   }
 })
@@ -112,11 +102,10 @@ vi.mock('@/features/issues/IssuePanelView', () => ({
 afterEach(() => {
   cleanup()
   state.setSelectedIssueId.mockClear()
-  mergeLock.query.mockClear()
-  mergeLock.refresh.mockClear()
-  mergeLock.heavyRefresh.mockClear()
-  mergeLock.state = {
-    lock: null,
+  repoLocks.query.mockClear()
+  repoLocks.refresh.mockClear()
+  repoLocks.state = {
+    locks: [],
     loading: false,
     refreshing: false,
     error: null,
@@ -159,21 +148,23 @@ describe('RightDock task selection', () => {
   })
 
   it('renders the active repository merge queue from the live lock projection', () => {
-    mergeLock.state = {
-      lock: {
-        repoId: 'repo-other',
-        name: 'merge:main',
-        holder: {
-          sessionId: otherSession.sessionId,
-          issueId: otherIssue.id,
-          label: 'Other merge driver',
+    repoLocks.state = {
+      locks: [
+        {
+          repoId: 'repo-other',
+          name: 'merge:main',
+          holder: {
+            sessionId: otherSession.sessionId,
+            issueId: otherIssue.id,
+            label: 'Other merge driver',
+          },
+          note: null,
+          acquiredAt: '2026-08-06T12:00:00.000Z',
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          secondsLeft: 60,
+          queue: [],
         },
-        note: null,
-        acquiredAt: '2026-08-06T12:00:00.000Z',
-        expiresAt: new Date(Date.now() + 60_000).toISOString(),
-        secondsLeft: 60,
-        queue: [],
-      },
+      ],
       loading: false,
       refreshing: false,
       error: null,
@@ -182,8 +173,8 @@ describe('RightDock task selection', () => {
 
     render(<RightDock tab="merge-queue" onClose={vi.fn()} />)
 
-    expect(mergeLock.query).toHaveBeenCalledWith('/other', 'merge:main')
-    expect(mergeLock.query).toHaveBeenCalledWith('/other', 'test:heavy')
+    // One whole-repo reading, not a request per name the UI happens to know.
+    expect(repoLocks.query).toHaveBeenCalledWith('/other')
     expect(screen.getByRole('heading', { name: 'MERGING NOW' })).toBeTruthy()
     const holder = screen.getByRole('button', { name: /Other live issue/ })
     expect(holder).toBeTruthy()
@@ -193,8 +184,8 @@ describe('RightDock task selection', () => {
   })
 
   it('maps a first-read failure to the retry interaction', () => {
-    mergeLock.state = {
-      lock: null,
+    repoLocks.state = {
+      locks: [],
       loading: false,
       refreshing: false,
       error: 'Lock authority unavailable.',
@@ -205,7 +196,6 @@ describe('RightDock task selection', () => {
 
     expect(screen.getByRole('alert').textContent).toContain('Lock authority unavailable.')
     screen.getByRole('button', { name: 'Try again' }).click()
-    expect(mergeLock.refresh).toHaveBeenCalledOnce()
-    expect(mergeLock.heavyRefresh).toHaveBeenCalledOnce()
+    expect(repoLocks.refresh).toHaveBeenCalledOnce()
   })
 })
