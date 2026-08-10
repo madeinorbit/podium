@@ -1,18 +1,15 @@
 import { SplashScreen } from 'expo-router'
-import {
-  createContext,
-  type ReactNode,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react'
-import { Animated, Easing, type LayoutChangeEvent, Platform, StyleSheet, View } from 'react-native'
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Animated, Easing, Platform, StyleSheet, View } from 'react-native'
 import { BootSplash } from '../components/BootSplash'
 import { useReduceMotion } from '../hooks/useReduceMotion'
 import { color } from '../theme/theme'
+import { LaunchReadyProvider } from './launch-ready'
+
+// The route-ready signal lives in `./launch-ready`, which does NOT import
+// expo-router — see the note there. Re-exported so existing importers of
+// `./launch` are unaffected.
+export { LaunchReadyView, useLaunchReadySignal } from './launch-ready'
 
 /**
  * Keep the OS launch surface in place until the one React launch boundary has
@@ -21,16 +18,6 @@ import { color } from '../theme/theme'
  */
 if (Platform.OS !== 'web') {
   void SplashScreen.preventAutoHideAsync().catch(() => {})
-}
-
-const LaunchReadyContext = createContext<(() => void) | null>(null)
-const NOOP_READY_SIGNAL = () => {}
-
-/** The measured-route signal. Kept as a hook so launch tests can drive the
- * boundary without pretending a synthetic DOM event is native layout. */
-export function useLaunchReadySignal(): () => void {
-  const signal = useContext(LaunchReadyContext)
-  return signal ?? NOOP_READY_SIGNAL
 }
 
 /**
@@ -93,7 +80,7 @@ export function LaunchBoundary({
 
   const context = useMemo(() => markRouteReady, [markRouteReady])
   return (
-    <LaunchReadyContext.Provider value={context}>
+    <LaunchReadyProvider value={context}>
       <View style={styles.root}>
         <Animated.View style={[styles.content, { opacity: contentOpacity }]}>
           {children}
@@ -107,30 +94,7 @@ export function LaunchBoundary({
           </Animated.View>
         ) : null}
       </View>
-    </LaunchReadyContext.Provider>
-  )
-}
-
-/**
- * Marks a route ready only after it has a measured frame. An effect is too
- * early: it proves React mounted a component, not that native/web layout has a
- * page-shaped frame ready to replace launch chrome.
- */
-export function LaunchReadyView({ children }: { children: ReactNode }) {
-  const markReady = useLaunchReadySignal()
-  const didMark = useRef(false)
-  const onLayout = useCallback(
-    (_event: LayoutChangeEvent) => {
-      if (didMark.current) return
-      didMark.current = true
-      markReady()
-    },
-    [markReady],
-  )
-  return (
-    <View style={styles.content} onLayout={onLayout} testID="launch-ready-view">
-      {children}
-    </View>
+    </LaunchReadyProvider>
   )
 }
 

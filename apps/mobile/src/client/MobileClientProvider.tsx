@@ -50,6 +50,7 @@ import { createMemoryRouterWindow } from '@podium/client-core/router'
 import type { FeedSinkPort, SocketHub } from '@podium/client-core/socket-transport'
 import { actorUser, asUserId, type SessionId } from '@podium/model'
 import type { FeedChangesSinceReplyLenient } from '@podium/protocol'
+import { type IdbFactoryLike, IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import {
   decideLegacyAdoption,
   LEGACY_STANDALONE_OUTBOX_KEY,
@@ -57,27 +58,20 @@ import {
   type LegacyMigrationOutcome,
   migrateLegacyReplica,
 } from '@podium/sync/adapters/legacy-replica'
-import {
-  type IdbFactoryLike,
-  IndexedDbSyncStore,
-} from '@podium/sync/adapters/indexeddb'
-import {
-  fromExpoSqlite,
-  type SqlDatabaseLike,
-  SqliteSyncStore,
-} from '@podium/sync/adapters/mobile-sqlite'
+import { fromExpoSqlite, SqliteSyncStore } from '@podium/sync/adapters/mobile-sqlite'
 import type { OutboxAttribution, OutboxCommand, OutboxStorePort } from '@podium/sync/outbox'
 import {
   type Cursor,
-  type ReplicaCacheStore,
   Replica as KernelReplica,
+  type ReplicaCacheStore,
   type ReplicaEvent,
   type SyncUnitOfWork,
 } from '@podium/sync/replica'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as SQLite from 'expo-sqlite'
-import { type ReactNode, useEffect, useMemo, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 import { Platform } from 'react-native'
+import { BootTroubleScreen } from '../components/BootTroubleScreen'
 import { fetchAuthStatus } from './auth'
 import { useAuthStatus } from './auth-context'
 import {
@@ -87,6 +81,10 @@ import {
   DEMO_TRANSCRIPTS,
   demoEnabled,
 } from './demoData'
+// From `./launch-ready`, not `./launch`: the boundary itself imports
+// expo-router's SplashScreen, and the composition root has no business pulling
+// the router in just to report that its boot failed.
+import { LaunchReadyView } from './launch-ready'
 import { type MobileShell, MobileShellProvider } from './shell'
 import { type MobileTrpc, makeMobileTrpc, readServerConfig } from './trpc'
 
@@ -97,6 +95,16 @@ import { type MobileTrpc, makeMobileTrpc, readServerConfig } from './trpc'
 /** The SQLite file the durable outbox and entity cache live in. */
 export const MOBILE_REPLICA_DB = 'podium-replica.db'
 
+/**
+ * How long the boot may run before the app admits something is wrong (POD-712).
+ *
+ * Deliberately generous: this is a REAL cold start on a phone — an auth
+ * round-trip, an AsyncStorage hydrate, a storage-engine open and a legacy
+ * migration — and the watchdog does not cancel any of it. It only stops the
+ * splash from being the last word, so the number needs to sit well clear of a
+ * slow-but-healthy start rather than track it closely.
+ */
+export const BOOT_STALL_MS = 15_000
 
 /** Test-only/legacy fallback. Production passes AuthStatus.userId explicitly; an
  * unattributed pre-identity store is accepted only through the injected gate. */
@@ -485,103 +493,159 @@ function LiveProvider({ children }: { children: ReactNode }) {
   // read and the app does not paint until they resolve — a replica read mid-
   // migration would show a slice that is about to be retired.
   const [openedReplica, setOpenedReplica] = useState<MobileReplica | null>(null)
+  // THE BOOT'S FAILURE SURFACE (POD-712). Without these two, a boot that threw
+  // and a boot that was merely slow both rendered `null`, which the launch
+  // boundary above shows as the wordmark splash — forever, and identically.
+  const [bootFailure, setBootFailure] = useState<string | null>(null)
+  const [bootStalled, setBootStalled] = useState(false)
+  // Bumped to run the effect again: the retry button, and the `pageshow` that
+  // follows a `pagehide` which closed the store out from under a mounted tree.
+  const [bootAttempt, setBootAttempt] = useState(0)
+  const retryBoot = useCallback(() => {
+    setBootFailure(null)
+    setBootStalled(false)
+    setOpenedReplica(null)
+    setBootAttempt((n) => n + 1)
+  }, [])
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `bootAttempt` is not read in the body — it IS the retry, the one thing that makes this effect run a second time after a failed or abandoned boot
   useEffect(() => {
+    // MOUNT LIVENESS, AND NOTHING ELSE. `pagehide` used to clear this same flag
+    // (ee02d6331), which conflated "this component went away" with "the page was
+    // backgrounded" — two different facts with opposite correct responses. A
+    // pagehide mid-boot therefore made the resolved replica close itself and
+    // skip `setOpenedReplica`, and since the effect's deps never changed there
+    // was no path back: the splash stayed up for the life of the page.
     let alive = true
     let replicaForCleanup: MobileReplica | null = null
+    // Whether the page-hide teardown ran, so `pageshow` knows a restored page is
+    // sitting on a CLOSED store and has to open a fresh one. iOS Safari fires
+    // pagehide whenever the app is backgrounded, so this is the common path back
+    // into the app, not an edge case.
+    let closedWhileHidden = false
     const closeReplica = () => {
-      alive = false
       replicaForCleanup?.store.close()
+      if (replicaForCleanup) closedWhileHidden = true
       replicaForCleanup = null
     }
-    if (typeof window !== 'undefined') window.addEventListener('pagehide', closeReplica)
+    const onPageShow = () => {
+      if (!alive || !closedWhileHidden) return
+      closedWhileHidden = false
+      retryBoot()
+    }
+    if (typeof window !== 'undefined') {
+      window.addEventListener('pagehide', closeReplica)
+      window.addEventListener('pageshow', onPageShow)
+    }
+    // A boot that is still running may still succeed, so the watchdog only
+    // OFFERS a way out; it never cancels the attempt in flight.
+    const stallTimer = setTimeout(() => {
+      if (alive) setBootStalled(true)
+    }, BOOT_STALL_MS)
     void (async () => {
-      const [bridge, status] = await Promise.all([
-        createAsyncStorageReplicaStorage(AsyncStorage, LEGACY_HYDRATE_PREFIXES),
-        inheritedAuthStatus ?? fetchAuthStatus(config.httpOrigin),
-      ])
-      if (status.userId === null) throw new Error('authenticated account is unavailable')
-      // The live server's v2 catch-up. Typed through the hand-written MobileTrpc
-      // surface is deliberately loose: the client is createTRPCClient<any>, and
-      // PodiumClientApi still only names the v1 changesSince. Runtime has the
-      // real procedure; casting here is the same seam web uses.
-      const syncV2 = trpc.sync as typeof trpc.sync & {
-        feedChangesSince: {
-          query: (input: { cursor: Cursor }) => Promise<FeedChangesSinceReplyLenient>
+      try {
+        const [bridge, status] = await Promise.all([
+          createAsyncStorageReplicaStorage(AsyncStorage, LEGACY_HYDRATE_PREFIXES),
+          inheritedAuthStatus ?? fetchAuthStatus(config.httpOrigin),
+        ])
+        if (status.userId === null) throw new Error('authenticated account is unavailable')
+        // The live server's v2 catch-up. Typed through the hand-written MobileTrpc
+        // surface is deliberately loose: the client is createTRPCClient<any>, and
+        // PodiumClientApi still only names the v1 changesSince. Runtime has the
+        // real procedure; casting here is the same seam web uses.
+        const syncV2 = trpc.sync as typeof trpc.sync & {
+          feedChangesSince: {
+            query: (input: { cursor: Cursor }) => Promise<FeedChangesSinceReplyLenient>
+          }
         }
-      }
-      const opened = await openMobileReplica({
-        // POD-541: web uses IndexedDB (ADR 6 D1). expo-sqlite's OPFS worker
-        // times out under Chromium even with COOP/COEP + correct wasm MIME, so
-        // the replica degraded to memory-only and offline deep links lost the
-        // task. Native keeps SQLite.
-        //
-        // POD-1746 reached the OPFS timeout from the other side and found two
-        // upstream bugs behind it (see patches/expo-sqlite@57.0.1.patch): the
-        // worker was constructed from an unresolved URL, and the sync bridge
-        // wrote its length prefix through a misaligned Uint32Array. That patch
-        // and the async open/delete plumbing in SqliteSyncStore are merged but
-        // NOT wired here — ADR 6 D2's reversal condition asks for a spike that
-        // passes, and this one has not been run against the current tree.
-        // Flipping web back to SQLite is the `Platform.OS === 'web'` branch
-        // below plus openDatabaseAsync/deleteDatabaseAsync; nothing else.
-        openStore: async () => {
-          if (Platform.OS === 'web') {
-            return IndexedDbSyncStore.open({
-              factory: globalThis.indexedDB as unknown as IdbFactoryLike,
-              databaseName: MOBILE_REPLICA_DB,
+        const opened = await openMobileReplica({
+          // POD-541: web uses IndexedDB (ADR 6 D1). expo-sqlite's OPFS worker
+          // times out under Chromium even with COOP/COEP + correct wasm MIME, so
+          // the replica degraded to memory-only and offline deep links lost the
+          // task. Native keeps SQLite.
+          //
+          // POD-1746 reached the OPFS timeout from the other side and found two
+          // upstream bugs behind it (see patches/expo-sqlite@57.0.1.patch): the
+          // worker was constructed from an unresolved URL, and the sync bridge
+          // wrote its length prefix through a misaligned Uint32Array. That patch
+          // and the async open/delete plumbing in SqliteSyncStore are merged but
+          // NOT wired here — ADR 6 D2's reversal condition asks for a spike that
+          // passes, and this one has not been run against the current tree.
+          // Flipping web back to SQLite is the `Platform.OS === 'web'` branch
+          // below plus openDatabaseAsync/deleteDatabaseAsync; nothing else.
+          openStore: async () => {
+            if (Platform.OS === 'web') {
+              return IndexedDbSyncStore.open({
+                factory: globalThis.indexedDB as unknown as IdbFactoryLike,
+                databaseName: MOBILE_REPLICA_DB,
+                onDegraded: (degradation) =>
+                  setNotice(
+                    `Offline changes may not survive a restart on this device (${degradation.cause}).`,
+                  ),
+              })
+            }
+            return SqliteSyncStore.open({
+              openDatabase: () => fromExpoSqlite(SQLite.openDatabaseSync(MOBILE_REPLICA_DB)),
+              deleteDatabase: () => SQLite.deleteDatabaseSync(MOBILE_REPLICA_DB),
               onDegraded: (degradation) =>
                 setNotice(
                   `Offline changes may not survive a restart on this device (${degradation.cause}).`,
                 ),
             })
-          }
-          return SqliteSyncStore.open({
-            openDatabase: () => fromExpoSqlite(SQLite.openDatabaseSync(MOBILE_REPLICA_DB)),
-            deleteDatabase: () => SQLite.deleteDatabaseSync(MOBILE_REPLICA_DB),
-            onDegraded: (degradation) =>
-              setNotice(
-                `Offline changes may not survive a restart on this device (${degradation.cause}).`,
-              ),
-          })
-        },
-        storage: bridge.storage,
-        enumerateKeys: bridge.keys,
-        flushStorage: bridge.flush,
-        principal: status.userId,
-        fetchChangesSince: async (cursor) => syncV2.feedChangesSince.query({ cursor }),
-        onDegraded: setNotice,
-      })
-      if (!alive) {
-        opened.store.close()
-        return
+          },
+          storage: bridge.storage,
+          enumerateKeys: bridge.keys,
+          flushStorage: bridge.flush,
+          principal: status.userId,
+          fetchChangesSince: async (cursor) => syncV2.feedChangesSince.query({ cursor }),
+          onDegraded: setNotice,
+        })
+        if (!alive) {
+          opened.store.close()
+          return
+        }
+        replicaForCleanup = opened
+        // ADR 6 D4.4 — never silent, in order of how much it costs the user.
+        //
+        // PARKED and REJECTED are both work that will never be sent, and both are
+        // reported: parked entries lost the attribution question, rejected ones never
+        // reached it (undecodable, or naming a command no contract in
+        // MOBILE_OUTBOX_COMMANDS resolves). Reporting only the first would leave a
+        // whole class of lost writes announced nowhere, which is the posture D4.4
+        // rules out — and `rejected` is the class a stale contract table produces, so
+        // it is exactly the one a silent path would hide from the person who could
+        // fix it. A discarded cursor is milder: one re-bootstrap, visible as a slow
+        // first paint, so it only speaks when nothing louder has.
+        const lost = opened.outcome.parked + opened.outcome.rejected.length
+        if (lost > 0) {
+          setNotice(
+            `${lost} queued change(s) from an earlier session could not be carried over and were not sent.`,
+          )
+        } else if (opened.outcome.cursorDiscarded) {
+          setNotice('Refreshing from the server after a storage upgrade.')
+        }
+        setOpenedReplica(opened)
+        setBootStalled(false)
+      } catch (cause) {
+        // The boot is the ONE path with no store, no screens and therefore no
+        // other way to speak: `shell.error` is rendered by screens a failed boot
+        // never mounts. Swallowing here (or leaving the rejection unhandled, as
+        // this fire-and-forget IIFE did) is what made a broken start look exactly
+        // like a slow one.
+        if (alive) setBootFailure(cause instanceof Error ? cause.message : String(cause))
+      } finally {
+        clearTimeout(stallTimer)
       }
-      replicaForCleanup = opened
-      // ADR 6 D4.4 — never silent, in order of how much it costs the user.
-      //
-      // PARKED and REJECTED are both work that will never be sent, and both are
-      // reported: parked entries lost the attribution question, rejected ones never
-      // reached it (undecodable, or naming a command no contract in
-      // MOBILE_OUTBOX_COMMANDS resolves). Reporting only the first would leave a
-      // whole class of lost writes announced nowhere, which is the posture D4.4
-      // rules out — and `rejected` is the class a stale contract table produces, so
-      // it is exactly the one a silent path would hide from the person who could
-      // fix it. A discarded cursor is milder: one re-bootstrap, visible as a slow
-      // first paint, so it only speaks when nothing louder has.
-      const lost = opened.outcome.parked + opened.outcome.rejected.length
-      if (lost > 0) {
-        setNotice(
-          `${lost} queued change(s) from an earlier session could not be carried over and were not sent.`,
-        )
-      } else if (opened.outcome.cursorDiscarded) {
-        setNotice('Refreshing from the server after a storage upgrade.')
-      }
-      setOpenedReplica(opened)
     })()
     return () => {
+      alive = false
+      clearTimeout(stallTimer)
       closeReplica()
-      if (typeof window !== 'undefined') window.removeEventListener('pagehide', closeReplica)
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('pagehide', closeReplica)
+        window.removeEventListener('pageshow', onPageShow)
+      }
     }
-  }, [config.httpOrigin, trpc, inheritedAuthStatus])
+  }, [config.httpOrigin, trpc, inheritedAuthStatus, bootAttempt, retryBoot])
   const routerWindow = useMemo(() => createMemoryRouterWindow(), [])
   // `info` stays a no-op: the engine's only info is a transient "a session moved
   // to X" toast, and `notice` below is a STICKY banner for the storage facts the
@@ -598,6 +662,21 @@ function LiveProvider({ children }: { children: ReactNode }) {
     () => ({ error, notice, eraseLocalData: erase ?? (async () => {}) }),
     [error, notice, erase],
   )
+  // A boot that failed, or one the watchdog says has been going too long, is
+  // wrapped in LaunchReadyView so the launch boundary RETIRES the splash and
+  // reveals it. Returning null here (the only option before POD-712) left the
+  // wordmark shimmering over a boot that was never coming back.
+  if (!openedReplica && (bootFailure !== null || bootStalled)) {
+    return (
+      <LaunchReadyView>
+        <BootTroubleScreen
+          kind={bootFailure !== null ? 'failed' : 'stalled'}
+          detail={bootFailure}
+          onRetry={retryBoot}
+        />
+      </LaunchReadyView>
+    )
+  }
   // LaunchBoundary stays mounted above auth + replica assembly. A null subtree
   // here leaves that one branded transition in place instead of remounting it.
   if (!openedReplica) return null
