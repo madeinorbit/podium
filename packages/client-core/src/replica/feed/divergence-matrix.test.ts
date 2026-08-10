@@ -249,9 +249,14 @@ describe('POD-376 divergence matrix', () => {
     return client
   }
 
-  /** Bring a client online and let its ladder settle. */
+  /** Bring a client online, deliver that socket's mandatory world, and settle. */
   async function online(client: Client): Promise<void> {
     client.sink.connected()
+    // Production FeedServing pushes one world on every admitted socket without
+    // waiting for a client request. Model that contract explicitly: the cold
+    // ladder must consume this in-flight world without replacing the socket to
+    // ask for a duplicate.
+    client.pushWorld()
     await client.replica.settled()
     await client.store.settled()
     // The storage stayed DURABLE through the bootstrap. Every case below asserts

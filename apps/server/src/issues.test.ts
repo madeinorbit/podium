@@ -1651,6 +1651,51 @@ describe('IssueService.start', () => {
     )
   })
 
+  it('resume rehomes a stale source-machine worktree onto the session machine', async () => {
+    const { svc, deps } = harness()
+    deps.requireMachineForRepo = vi.fn()
+    deps.findRepoOnMachine = vi.fn((repoPath: string, machineId: string) =>
+      repoPath === '/home/alice/src/podium' && machineId === 'mach-b'
+        ? '/home/bob/src/podium'
+        : null,
+    )
+    const created = svc.create({
+      repoPath: '/home/alice/src/podium',
+      title: 'Moved session',
+      startNow: false,
+      machineId: asMachineId('mach-a'),
+    })
+    svc.update(created.id, {
+      branch: 'issue/1-moved-session',
+      worktreePath: '/home/alice/src/podium/.worktrees/issue-1-moved-session',
+    })
+    deps.repoOp = vi.fn(async () => ({ ok: true, output: '' })) as typeof deps.repoOp
+
+    const result = await svc.ensureWorktree(created.id, 'mach-b')
+
+    expect(deps.repoOp).not.toHaveBeenCalledWith(
+      'status',
+      '/home/alice/src/podium/.worktrees/issue-1-moved-session',
+      undefined,
+      'mach-b',
+    )
+    expect(deps.repoOp).toHaveBeenCalledWith(
+      'worktreeAddExisting',
+      '/home/bob/src/podium',
+      {
+        path: '/home/bob/src/podium/.worktrees/issue-1-moved-session',
+        branch: 'issue/1-moved-session',
+      },
+      'mach-b',
+    )
+    expect(result.worktreePath).toBe('/home/bob/src/podium/.worktrees/issue-1-moved-session')
+    expect(svc.get(created.id)).toMatchObject({
+      machineId: 'mach-b',
+      repoPath: '/home/bob/src/podium',
+      worktreePath: '/home/bob/src/podium/.worktrees/issue-1-moved-session',
+    })
+  })
+
   it('an unpinned issue never consults the cross-machine resolver', async () => {
     const { svc, deps } = harness()
     deps.findRepoOnMachine = vi.fn(() => null)

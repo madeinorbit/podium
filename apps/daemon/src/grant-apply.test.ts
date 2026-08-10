@@ -1,3 +1,4 @@
+import type { UpdateGrantMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { applyGrant } from './grant-apply'
 
@@ -17,6 +18,26 @@ const target = {
     },
   },
 } as never
+
+const developmentBundleAsset = {
+  url: 'https://server.test/dev-bundle',
+  digest: 'd',
+  signature: 's',
+}
+
+const developmentTarget: UpdateGrantMessage['target'] = {
+  version: 'dev+abc1234',
+  critical: false,
+  artifacts: {
+    headless: {
+      delivery: 'bundle',
+      platforms: {
+        'linux-x86_64': developmentBundleAsset,
+      },
+    },
+    headlessAlternatives: [{ delivery: 'git', repo: '/repo/podium', sha: 'abc1234' }],
+  },
+}
 
 function deps(over: Partial<Parameters<typeof applyGrant>[1]> = {}) {
   return {
@@ -52,6 +73,17 @@ describe('applyGrant', () => {
     })
     await applyGrant({ type: 'updateGrant', grantId: 'g1', target }, d)
     expect(order).toEqual(['write', 'restart'])
+  })
+
+  it('keeps bundle delivery for an installed daemon when git is also offered', async () => {
+    const d = deps({
+      currentVersion: () => 'dev+old',
+      caps: ['update.delivery.feed', 'update.delivery.bundle'],
+    })
+    await applyGrant({ type: 'updateGrant', grantId: 'g-installed', target: developmentTarget }, d)
+    expect(d.fetchArtifact).toHaveBeenCalledWith(developmentBundleAsset, 'bundle')
+    expect(d.swap).toHaveBeenCalledOnce()
+    expect(d.restart).toHaveBeenCalledOnce()
   })
 
   it('does not swap when the signature check throws', async () => {

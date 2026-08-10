@@ -24,6 +24,8 @@ export interface MountSessionOptions {
   sessionId: SessionId
   toolbarEl?: HTMLElement
   test?: boolean
+  /** Opt-in input-event→paint diagnostics. Disabled by default. */
+  echoLatencyEnabled?: boolean
   onState?: (state: ConnectionState) => void
   /**
    * Fires once, on the first non-empty PTY frame. NOTE: this fires only when output
@@ -89,6 +91,8 @@ export interface MountedSession {
   /** Send user input, taking control first when a server-grid spectator starts
    *  interacting. The two ordered frames make the first byte land as controller. */
   sendInput(data: string): void
+  /** Toggle/reset input-event→paint diagnostics without remounting the PTY. */
+  setEchoLatencyEnabled(enabled: boolean): void
   setActive(active: boolean): void
   /** Apply a new appearance to the live terminal and re-fit: a font-metric
    *  change alters the cell size, so the grid (and the PTY, via resize) must
@@ -480,6 +484,24 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       opts.onState?.(state)
     },
   })
+  connection.setEchoLatencyEnabled?.(opts.echoLatencyEnabled ?? false)
+
+  // An output frame is not yet a visible echo: xterm parses asynchronously and
+  // the browser still has to paint its canvas/DOM. Wait for xterm's render event,
+  // then cross the next animation frame before closing the sample. When the
+  // probe is off this listener does one boolean check per render and schedules
+  // nothing.
+  let echoPaintRaf: number | undefined
+  const offEchoRender =
+    typeof view.onRender === 'function'
+      ? view.onRender(() => {
+          if (!connection.echoPaintPending?.() || echoPaintRaf !== undefined) return
+          echoPaintRaf = requestAnimationFrame(() => {
+            echoPaintRaf = undefined
+            connection.markEchoPaint?.()
+          })
+        })
+      : () => {}
 
   // Becoming the active tab of a visible page claims control (last-foregrounded-wins)
   // and fits the terminal to THIS client's viewport. We never resize/redraw/requestControl
@@ -488,7 +510,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
 
   // Paste + arrows now live in the panel's React action row / D-pad above the key
   // bar, so the bar itself no longer renders a Paste key.
-  const sendInput = (data: string): void => {
+  const sendInput = (data: string, inputEventAt?: number): void => {
     if (gridMode === 'server-grid' && connection.state().role === 'spectator') {
       // The resize observer is debounced. Sample once synchronously so an input
       // that immediately follows a rotation/keyboard change cannot take control
@@ -502,14 +524,16 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       // the viewport reported above, transfers control, then accepts this byte.
       connection.requestControl()
     }
-    connection.sendInput(data)
+    connection.sendInput(data, inputEventAt)
   }
 
   const toolbar = opts.toolbarEl ? mountKeyToolbar(opts.toolbarEl, { sendInput }) : null
 
   // Route keyboard input through the toolbar so an armed modifier (e.g. Ctrl)
   // transforms the next character the soft keyboard sends.
-  const offInput = view.onData((data) => sendInput(toolbar ? toolbar.applyModifiers(data) : data))
+  const offInput = view.onData((data, inputEventAt) =>
+    sendInput(toolbar ? toolbar.applyModifiers(data) : data, inputEventAt),
+  )
 
   // Container-size changes (ResizeObserver + visualViewport) re-fit the grid. This
   // is the backstop that catches EVERY layout path — pane drags, dock toggles, and
@@ -556,6 +580,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       screenText: () => view.screenText(),
       codexInputReady: () => codexInputReady(view),
       sendInput,
+      setEchoLatencyEnabled: (enabled: boolean) => connection.setEchoLatencyEnabled?.(enabled),
       takeControl: () => connection.requestControl(),
       sessions: () => hub.sessions(),
       attach: (id: SessionId) => hub.attach(id),
@@ -595,6 +620,9 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     connection,
     view,
     sendInput,
+    setEchoLatencyEnabled(enabled: boolean): void {
+      connection.setEchoLatencyEnabled?.(enabled)
+    },
     setActive(next: boolean): void {
       if (next === active) return
       active = next
@@ -642,6 +670,8 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
         document.removeEventListener('visibilitychange', onVisibility)
       }
       offInput()
+      offEchoRender()
+      if (echoPaintRaf !== undefined) cancelAnimationFrame(echoPaintRaf)
       offViewport()
       toolbar?.dispose()
       viewport.dispose()

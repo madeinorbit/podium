@@ -1,30 +1,26 @@
 import { z } from 'zod'
 
-export const PlatformAsset = z
-  .object({
-    url: z.string().min(1),
-    digest: z.string().min(1),
-    signature: z.string().min(1),
-  })
+export const PlatformAsset = z.object({
+  url: z.string().min(1),
+  digest: z.string().min(1),
+  signature: z.string().min(1),
+})
 
-export const FeedArtifact = z
-  .object({
-    delivery: z.literal('feed'),
-    platforms: z.record(z.string(), PlatformAsset),
-  })
+export const FeedArtifact = z.object({
+  delivery: z.literal('feed'),
+  platforms: z.record(z.string(), PlatformAsset),
+})
 
-export const BundleArtifact = z
-  .object({
-    delivery: z.literal('bundle'),
-    platforms: z.record(z.string(), PlatformAsset),
-  })
+export const BundleArtifact = z.object({
+  delivery: z.literal('bundle'),
+  platforms: z.record(z.string(), PlatformAsset),
+})
 
-export const GitArtifact = z
-  .object({
-    delivery: z.literal('git'),
-    repo: z.string().min(1),
-    sha: z.string().min(1),
-  })
+export const GitArtifact = z.object({
+  delivery: z.literal('git'),
+  repo: z.string().min(1),
+  sha: z.string().min(1),
+})
 
 export const UpdateArtifact = z.discriminatedUnion('delivery', [
   FeedArtifact,
@@ -62,8 +58,17 @@ export const UpdateTarget = z
     artifacts: z
       .object({
         headless: UpdateArtifact.optional(),
+        /**
+         * Ordered fallbacks for daemons that cannot consume the primary
+         * headless artifact. Kept separate from `headless` so older daemons
+         * continue to see and consume the original descriptor unchanged.
+         */
+        headlessAlternatives: z.array(UpdateArtifact).optional(),
         desktop: UpdateArtifact.optional(),
-        web: z.object({ digest: z.string().min(1) }).passthrough().optional(),
+        web: z
+          .object({ digest: z.string().min(1) })
+          .passthrough()
+          .optional(),
       })
       .passthrough(),
   })

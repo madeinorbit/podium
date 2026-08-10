@@ -403,7 +403,13 @@ function PaletteDialog({
           run: () => hibernateSession(id),
         })
       if (canResume)
-        sess({ id: 'session:resume', label: 'Resume session', run: () => resurrectSession(id) })
+        sess({
+          id: 'session:resume',
+          label: 'Resume session',
+          run: () => {
+            void resurrectSession(id)
+          },
+        })
       sess({
         id: 'session:btw',
         label: 'Ask superagent (BTW)',

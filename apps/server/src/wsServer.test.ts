@@ -8,7 +8,13 @@ import {
   type SweepTimers,
   sweepPlaneLiveness,
 } from './gateway/plane-liveness'
-import { safeSend, safeSendEncoded } from './gateway/ws-send'
+import {
+  safeSend,
+  safeSendEncoded,
+  shouldCompressWebSocketFrame,
+  WS_COMPRESSION_MAX_BYTES,
+  WS_COMPRESSION_MIN_BYTES,
+} from './gateway/ws-send'
 import { attachWebSockets } from './gateway/ws-server'
 
 function fakeSocket(readyState = 1) {
@@ -19,10 +25,62 @@ function fakeSendSocket(over: { readyState?: number; bufferedAmount?: number } =
   return {
     readyState: over.readyState ?? 1,
     bufferedAmount: over.bufferedAmount ?? 0,
-    send: vi.fn<(data: string) => void>(),
+    send: vi.fn<(data: string, compress?: boolean) => void>(),
     terminate: vi.fn<() => void>(),
   }
 }
+
+describe('websocket compression eligibility', () => {
+  it('skips tiny frames and compresses large JSON', () => {
+    expect(shouldCompressWebSocketFrame('x'.repeat(WS_COMPRESSION_MIN_BYTES - 1))).toBe(false)
+    expect(shouldCompressWebSocketFrame('x'.repeat(WS_COMPRESSION_MIN_BYTES))).toBe(true)
+  })
+
+  it('skips base64 envelopes carrying already-compressed assets', () => {
+    const bytes = 'x'.repeat(WS_COMPRESSION_MIN_BYTES)
+    expect(
+      shouldCompressWebSocketFrame(bytes, {
+        type: 'fileAssetResult',
+        contentType: 'image/png',
+      }),
+    ).toBe(false)
+    expect(shouldCompressWebSocketFrame(bytes, { type: 'imageUploadRequest' })).toBe(false)
+  })
+
+  it('keeps reconnect bootstraps and multi-megabyte work off the event loop', () => {
+    const eligible = 'x'.repeat(WS_COMPRESSION_MAX_BYTES)
+    expect(shouldCompressWebSocketFrame(eligible, { type: 'feedDelta' })).toBe(true)
+    expect(shouldCompressWebSocketFrame(eligible, { type: 'feedBootstrap' })).toBe(false)
+    expect(shouldCompressWebSocketFrame(`${eligible}x`, { type: 'feedDelta' })).toBe(false)
+  })
+})
+
+describe('native websocket upgrade compatibility', () => {
+  it('keeps the client surface open when optional auth resolvers are absent', async () => {
+    const scheduled: Array<{ fn: () => void; ms: number }> = []
+    const timers: SweepTimers = {
+      setInterval: (fn, ms) => {
+        scheduled.push({ fn, ms })
+        return scheduled.length - 1
+      },
+      clearInterval: () => {},
+    }
+    const registry = {} as unknown as Parameters<typeof attachWebSockets>[0]
+    const handle = attachWebSockets(registry, {}, { timers })
+    const upgrade = vi.fn(() => true)
+
+    expect(
+      handle.handleRequest(new Request('http://127.0.0.1/client'), {
+        upgrade,
+      } as unknown as Parameters<typeof handle.handleRequest>[1]),
+    ).toBeUndefined()
+    expect(upgrade).toHaveBeenCalledWith(
+      expect.any(Request),
+      expect.objectContaining({ data: expect.objectContaining({ kind: 'client' }) }),
+    )
+    await handle.close()
+  })
+})
 
 describe('safeSend', () => {
   const msg = { type: 'pong' } as const
@@ -32,7 +90,7 @@ describe('safeSend', () => {
     const ws = fakeSendSocket({ bufferedAmount: 10 })
     safeSend(ws, msg, LIMIT)
     expect(ws.send).toHaveBeenCalledOnce()
-    expect(ws.send).toHaveBeenCalledWith(encode(msg))
+    expect(ws.send).toHaveBeenCalledWith(encode(msg), false)
     expect(ws.terminate).not.toHaveBeenCalled()
   })
 
@@ -40,7 +98,7 @@ describe('safeSend', () => {
     const ws = fakeSendSocket()
     const bytes = '{"type":"sessionsChanged","sessions":[]}'
     safeSendEncoded(ws, bytes, LIMIT)
-    expect(ws.send).toHaveBeenCalledWith(bytes)
+    expect(ws.send).toHaveBeenCalledWith(bytes, false)
   })
 
   it('terminates (does not send) a slow socket whose send buffer exceeds the limit', () => {
@@ -336,12 +394,11 @@ describe('plane liveness policy', () => {
     // No real HTTP server: `attachWebSockets` only registers an `upgrade`
     // listener, and both `WebSocketServer`s are `noServer`. So this stays in the
     // unit lane, with an injected clock and nothing to bind or tear down.
-    const fakeHttpServer = { on: () => {} } as unknown as Parameters<typeof attachWebSockets>[0]
-    const unusedRegistry = {} as unknown as Parameters<typeof attachWebSockets>[1]
+    const unusedRegistry = {} as unknown as Parameters<typeof attachWebSockets>[0]
 
     it('schedules the client sweep at 15s and the daemon sweep at 10s', () => {
       const { scheduled, timers } = fakeTimers()
-      const handle = attachWebSockets(fakeHttpServer, unusedRegistry, {}, { timers })
+      const handle = attachWebSockets(unusedRegistry, {}, { timers })
       expect(scheduled.map((s) => s.ms)).toEqual([15_000, 10_000])
       void handle.close()
     })
@@ -350,7 +407,7 @@ describe('plane liveness policy', () => {
       // A leaked sweep keeps terminating sockets on a gateway that is shutting
       // down, and (before `unref`) would hold the process open.
       const { scheduled, timers } = fakeTimers()
-      const handle = attachWebSockets(fakeHttpServer, unusedRegistry, {}, { timers })
+      const handle = attachWebSockets(unusedRegistry, {}, { timers })
       void handle.close()
       expect(scheduled.map((s) => s.cleared)).toEqual([true, true])
     })

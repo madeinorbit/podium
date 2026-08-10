@@ -105,7 +105,17 @@ describe('daemon update grant over the live server socket', () => {
         version: 'dev+target',
         critical: false,
         artifacts: {
-          headless: { delivery: 'git', repo: checkout, sha: targetSha },
+          headless: {
+            delivery: 'bundle',
+            platforms: {
+              'linux-x86_64': {
+                url: 'https://server.test/dev-bundle',
+                digest: 'unused',
+                signature: 'unused',
+              },
+            },
+          },
+          headlessAlternatives: [{ delivery: 'git', repo: checkout, sha: targetSha }],
         },
       }
       const updates = server.registry.modules.updates

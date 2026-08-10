@@ -5,6 +5,7 @@ import { ChevronRight, Layers, Plus } from 'lucide-react-native'
 import { useMemo, useState } from 'react'
 import { SectionList, StyleSheet, Text, View } from 'react-native'
 import { useBooting, useIssues } from '../client/hooks'
+import { useMobileShell } from '../client/shell'
 import { Icon } from '../components/Icon'
 import { IdSquare } from '../components/IdSquare'
 import { BootstrapCrossfade, TasksSkeleton } from '../components/LaunchPlaceholders'
@@ -42,6 +43,7 @@ export function IssuesScreen() {
   const issues = useIssues()
   const [showDone, setShowDone] = useState(false)
   const booting = useBooting()
+  const { notice } = useMobileShell()
   const { listRef, refreshControl, refreshAccessibilityProps, refreshing, onRefresh, connected } =
     useRefreshableTab('issues')
   const tabBarInset = useTabBarInset()
@@ -96,6 +98,9 @@ export function IssuesScreen() {
         </>
       }
     >
+      {/* Never silent (ADR 6 D4.4): storage degradation is owed to the user, not
+          a log line. Outside the crossfade so the skeleton cannot hide it. */}
+      {notice ? <Text style={styles.notice}>{notice}</Text> : null}
       <BootstrapCrossfade resolved={!booting} placeholder={<TasksSkeleton />}>
         <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
           <SectionList
@@ -205,6 +210,12 @@ export function IssuesScreen() {
 }
 
 const styles = StyleSheet.create({
+  notice: {
+    color: color.textDim,
+    fontSize: font.small,
+    paddingHorizontal: space.xl,
+    paddingBottom: space.sm,
+  },
   listContent: {
     flexGrow: 1,
   },

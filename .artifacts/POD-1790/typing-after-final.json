@@ -1,0 +1,457 @@
+{
+  "measuredAt": "2026-08-10T11:00:44.350Z",
+  "url": "http://localhost:8890",
+  "browser": "firefox",
+  "mode": "measure",
+  "sessionId": "8f01bcd3-061d-4e0e-a6ad-56562aebc211",
+  "samples": 60,
+  "stats": {
+    "enabled": true,
+    "count": 60,
+    "p50": 47,
+    "p90": 105,
+    "max": 187,
+    "lastMs": 34,
+    "toFrame": {
+      "count": 60,
+      "p50": 19,
+      "p90": 79,
+      "max": 144,
+      "lastMs": 15
+    },
+    "frameToPaint": {
+      "count": 60,
+      "p50": 27,
+      "p90": 36,
+      "max": 79,
+      "lastMs": 19
+    },
+    "last": {
+      "toFrameMs": 15,
+      "frameToPaintMs": 19,
+      "totalMs": 34
+    }
+  },
+  "observations": [
+    {
+      "key": "x",
+      "observedMs": 134.57631799999945,
+      "totalMs": 67,
+      "toFrameMs": 32,
+      "frameToPaintMs": 35
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 73.21811900000102,
+      "totalMs": 37,
+      "toFrameMs": 12,
+      "frameToPaintMs": 25
+    },
+    {
+      "key": "x",
+      "observedMs": 104.02000399999997,
+      "totalMs": 68,
+      "toFrameMs": 42,
+      "frameToPaintMs": 26
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 80.40206200000102,
+      "totalMs": 54,
+      "toFrameMs": 19,
+      "frameToPaintMs": 35
+    },
+    {
+      "key": "x",
+      "observedMs": 70.59787700000015,
+      "totalMs": 57,
+      "toFrameMs": 22,
+      "frameToPaintMs": 35
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 70.56710999999996,
+      "totalMs": 45,
+      "toFrameMs": 20,
+      "frameToPaintMs": 25
+    },
+    {
+      "key": "x",
+      "observedMs": 76.9312030000001,
+      "totalMs": 36,
+      "toFrameMs": 14,
+      "frameToPaintMs": 22
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 80.6241259999988,
+      "totalMs": 46,
+      "toFrameMs": 17,
+      "frameToPaintMs": 29
+    },
+    {
+      "key": "x",
+      "observedMs": 100.56969500000014,
+      "totalMs": 70,
+      "toFrameMs": 47,
+      "frameToPaintMs": 23
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 56.582259000000704,
+      "totalMs": 28,
+      "toFrameMs": 4,
+      "frameToPaintMs": 24
+    },
+    {
+      "key": "x",
+      "observedMs": 131.58166300000084,
+      "totalMs": 105,
+      "toFrameMs": 79,
+      "frameToPaintMs": 26
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 161.6530700000003,
+      "totalMs": 103,
+      "toFrameMs": 33,
+      "frameToPaintMs": 70
+    },
+    {
+      "key": "x",
+      "observedMs": 117.68476399999963,
+      "totalMs": 55,
+      "toFrameMs": 26,
+      "frameToPaintMs": 29
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 230.02117100000032,
+      "totalMs": 187,
+      "toFrameMs": 144,
+      "frameToPaintMs": 43
+    },
+    {
+      "key": "x",
+      "observedMs": 129.9612709999983,
+      "totalMs": 92,
+      "toFrameMs": 71,
+      "frameToPaintMs": 21
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 135.14132699999936,
+      "totalMs": 97,
+      "toFrameMs": 76,
+      "frameToPaintMs": 21
+    },
+    {
+      "key": "x",
+      "observedMs": 277.8896599999989,
+      "totalMs": 76,
+      "toFrameMs": 43,
+      "frameToPaintMs": 33
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 316.2609850000008,
+      "totalMs": 174,
+      "toFrameMs": 95,
+      "frameToPaintMs": 79
+    },
+    {
+      "key": "x",
+      "observedMs": 193.48100200000044,
+      "totalMs": 63,
+      "toFrameMs": 25,
+      "frameToPaintMs": 38
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 99.12025999999969,
+      "totalMs": 59,
+      "toFrameMs": 37,
+      "frameToPaintMs": 22
+    },
+    {
+      "key": "x",
+      "observedMs": 85.44096600000012,
+      "totalMs": 52,
+      "toFrameMs": 22,
+      "frameToPaintMs": 30
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 206.2809159999997,
+      "totalMs": 161,
+      "toFrameMs": 136,
+      "frameToPaintMs": 25
+    },
+    {
+      "key": "x",
+      "observedMs": 159.08821100000023,
+      "totalMs": 124,
+      "toFrameMs": 86,
+      "frameToPaintMs": 38
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 134.50708399999894,
+      "totalMs": 70,
+      "toFrameMs": 40,
+      "frameToPaintMs": 30
+    },
+    {
+      "key": "x",
+      "observedMs": 148.78949199999988,
+      "totalMs": 52,
+      "toFrameMs": 31,
+      "frameToPaintMs": 21
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 182.2779180000016,
+      "totalMs": 115,
+      "toFrameMs": 87,
+      "frameToPaintMs": 28
+    },
+    {
+      "key": "x",
+      "observedMs": 173.09530500000255,
+      "totalMs": 137,
+      "toFrameMs": 108,
+      "frameToPaintMs": 29
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 115.2171500000004,
+      "totalMs": 85,
+      "toFrameMs": 64,
+      "frameToPaintMs": 21
+    },
+    {
+      "key": "x",
+      "observedMs": 83.85900199999742,
+      "totalMs": 59,
+      "toFrameMs": 30,
+      "frameToPaintMs": 29
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 41.61141800000041,
+      "totalMs": 31,
+      "toFrameMs": 9,
+      "frameToPaintMs": 22
+    },
+    {
+      "key": "x",
+      "observedMs": 69.3044860000009,
+      "totalMs": 31,
+      "toFrameMs": 11,
+      "frameToPaintMs": 20
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 71.43850899999961,
+      "totalMs": 48,
+      "toFrameMs": 22,
+      "frameToPaintMs": 26
+    },
+    {
+      "key": "x",
+      "observedMs": 55.65171300000293,
+      "totalMs": 32,
+      "toFrameMs": 13,
+      "frameToPaintMs": 19
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 88.62962200000038,
+      "totalMs": 53,
+      "toFrameMs": 24,
+      "frameToPaintMs": 29
+    },
+    {
+      "key": "x",
+      "observedMs": 73.49411400000099,
+      "totalMs": 47,
+      "toFrameMs": 23,
+      "frameToPaintMs": 24
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 78.61923699999898,
+      "totalMs": 45,
+      "toFrameMs": 18,
+      "frameToPaintMs": 27
+    },
+    {
+      "key": "x",
+      "observedMs": 66.82379299999957,
+      "totalMs": 35,
+      "toFrameMs": 8,
+      "frameToPaintMs": 27
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 80.47047600000224,
+      "totalMs": 39,
+      "toFrameMs": 10,
+      "frameToPaintMs": 29
+    },
+    {
+      "key": "x",
+      "observedMs": 60.11514199999874,
+      "totalMs": 47,
+      "toFrameMs": 11,
+      "frameToPaintMs": 36
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 55.926955999999336,
+      "totalMs": 35,
+      "toFrameMs": 14,
+      "frameToPaintMs": 21
+    },
+    {
+      "key": "x",
+      "observedMs": 79.26715899999908,
+      "totalMs": 29,
+      "toFrameMs": 9,
+      "frameToPaintMs": 20
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 51.45540400000027,
+      "totalMs": 40,
+      "toFrameMs": 9,
+      "frameToPaintMs": 31
+    },
+    {
+      "key": "x",
+      "observedMs": 57.46198000000004,
+      "totalMs": 30,
+      "toFrameMs": 8,
+      "frameToPaintMs": 22
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 55.30996999999843,
+      "totalMs": 34,
+      "toFrameMs": 12,
+      "frameToPaintMs": 22
+    },
+    {
+      "key": "x",
+      "observedMs": 76.5631710000016,
+      "totalMs": 48,
+      "toFrameMs": 25,
+      "frameToPaintMs": 23
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 55.78836700000102,
+      "totalMs": 38,
+      "toFrameMs": 9,
+      "frameToPaintMs": 29
+    },
+    {
+      "key": "x",
+      "observedMs": 89.79300800000055,
+      "totalMs": 42,
+      "toFrameMs": 11,
+      "frameToPaintMs": 31
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 106.50103699999818,
+      "totalMs": 50,
+      "toFrameMs": 13,
+      "frameToPaintMs": 37
+    },
+    {
+      "key": "x",
+      "observedMs": 53.99576700000034,
+      "totalMs": 40,
+      "toFrameMs": 6,
+      "frameToPaintMs": 34
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 76.84884999999849,
+      "totalMs": 43,
+      "toFrameMs": 16,
+      "frameToPaintMs": 27
+    },
+    {
+      "key": "x",
+      "observedMs": 47.49586099999942,
+      "totalMs": 32,
+      "toFrameMs": 8,
+      "frameToPaintMs": 24
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 57.98008699999991,
+      "totalMs": 35,
+      "toFrameMs": 8,
+      "frameToPaintMs": 27
+    },
+    {
+      "key": "x",
+      "observedMs": 57.90343199999916,
+      "totalMs": 37,
+      "toFrameMs": 5,
+      "frameToPaintMs": 32
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 60.844576999999845,
+      "totalMs": 41,
+      "toFrameMs": 6,
+      "frameToPaintMs": 35
+    },
+    {
+      "key": "x",
+      "observedMs": 71.56439800000226,
+      "totalMs": 44,
+      "toFrameMs": 18,
+      "frameToPaintMs": 26
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 44.63690900000074,
+      "totalMs": 30,
+      "toFrameMs": 8,
+      "frameToPaintMs": 22
+    },
+    {
+      "key": "x",
+      "observedMs": 87.16571499999918,
+      "totalMs": 48,
+      "toFrameMs": 19,
+      "frameToPaintMs": 29
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 107.41446899999937,
+      "totalMs": 70,
+      "toFrameMs": 44,
+      "frameToPaintMs": 26
+    },
+    {
+      "key": "x",
+      "observedMs": 72.00429799999984,
+      "totalMs": 44,
+      "toFrameMs": 12,
+      "frameToPaintMs": 32
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 66.72402299999885,
+      "totalMs": 34,
+      "toFrameMs": 15,
+      "frameToPaintMs": 19
+    }
+  ]
+}

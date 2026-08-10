@@ -1,7 +1,7 @@
 /**
  * THE WS BOUNDARY (POD-389 AC 1, EXTENDED TO THE CLIENT PLANE BY POD-390 AC 2):
- * the gateway is the only module importing WS types, and the sessions service
- * owns no socket — on EITHER plane.
+ * the gateway owns the native Bun socket boundary and the sessions service owns
+ * no socket — on EITHER plane.
  *
  * Extended here rather than duplicated into a second parallel suite: the
  * property is one property, and two walkers over the same tree drift.
@@ -71,21 +71,18 @@ describe('the WS boundary', () => {
     expect(files.length).toBeGreaterThan(100)
     expect(files.some((f) => f.endsWith('modules/sessions/lifecycle.ts'))).toBe(true)
     expect(files.some((f) => f.endsWith('modules/sessions/service.ts'))).toBe(false)
-    expect(files.filter((f) => IMPORTS_WS.test(readFileSync(f, 'utf8'))).length).toBeGreaterThan(0)
+    expect(files.some((f) => f.endsWith('gateway/ws-server.ts'))).toBe(true)
   })
 
-  it('confines every `ws` import to the gateway', () => {
+  it('uses no Node `ws` transport anywhere in the server', () => {
     const importers = files
       .filter((f) => IMPORTS_WS.test(readFileSync(f, 'utf8')))
       .map((f) => relative(SERVER_SRC, f))
       .sort()
-    // POD-390 adds the client half. Both sockets sit at the gateway EDGE and
-    // nothing behind them (mux, registry, routing table, ports) may name `ws`.
-    expect(importers).toEqual([
-      'gateway/client-socket.ts',
-      'gateway/daemon-socket.ts',
-      'gateway/ws-server.ts',
-    ])
+    expect(importers).toEqual([])
+    const boundary = readFileSync(join(SERVER_SRC, 'gateway/ws-server.ts'), 'utf8')
+    expect(boundary).toContain('serveNative')
+    expect(boundary).toContain('perMessageDeflate')
   })
 
   it('leaves no `ws` import anywhere under modules/', () => {

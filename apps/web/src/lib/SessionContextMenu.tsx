@@ -358,7 +358,11 @@ export function SessionContextMenu({
           type="button"
           role="menuitem"
           className={itemCls}
-          onClick={() => run(() => resurrectSession(id))}
+          onClick={() =>
+            run(async () => {
+              await resurrectSession(id)
+            })
+          }
         >
           <Play size={14} aria-hidden="true" /> Resume
         </button>

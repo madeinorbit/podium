@@ -40,6 +40,16 @@ export interface TerminalViewOptions extends TerminalAppearance {
 export const DEFAULT_FONT_SIZE = 15
 export const DEFAULT_LINE_HEIGHT = 1.15
 
+function monotonicEventTime(event: KeyboardEvent): number | undefined {
+  const stamp = event.timeStamp
+  if (!Number.isFinite(stamp) || stamp < 0) return undefined
+  // Modern browsers use performance.timeOrigin; older WebKit used epoch ms.
+  if (stamp > 1_000_000_000_000 && typeof performance !== 'undefined') {
+    return Math.max(0, stamp - performance.timeOrigin)
+  }
+  return stamp
+}
+
 /**
  * True when a CSS colour reads as a LIGHT background. Understands #rgb/#rrggbb
  * (the only forms Podium produces); anything else — named colours, rgb(),
@@ -135,7 +145,8 @@ export class TerminalView {
   private host: HTMLElement | null = null
   // The live onData sink, kept so synthetic input (e.g. the Shift+Enter newline
   // we substitute below) flows through the exact same path as real keystrokes.
-  private dataSink: ((data: string) => void) | undefined
+  private dataSink: ((data: string, inputEventAt?: number) => void) | undefined
+  private pendingKeyEventAt: number | undefined
   private fileLinkConfig: FileLinkConfig | null = null
   private refLinkConfig: RefLinkConfig | null = null
   // Persistent dotted underline under visible ref tokens (#517) — glanceable,
@@ -609,13 +620,28 @@ export class TerminalView {
     return (h >>> 0).toString(16)
   }
 
-  onData(cb: (data: string) => void): () => void {
+  onData(cb: (data: string, inputEventAt?: number) => void): () => void {
     this.dataSink = cb
-    const sub = this.term.onData((d) => this.dataSink?.(d))
+    const keySub = this.term.onKey(({ domEvent }) => {
+      this.pendingKeyEventAt = monotonicEventTime(domEvent)
+    })
+    const dataSub = this.term.onData((data) => {
+      const inputEventAt = this.pendingKeyEventAt
+      this.pendingKeyEventAt = undefined
+      this.dataSink?.(data, inputEventAt)
+    })
     return () => {
-      sub.dispose()
+      keySub.dispose()
+      dataSub.dispose()
       this.dataSink = undefined
+      this.pendingKeyEventAt = undefined
     }
+  }
+
+  /** Fires after xterm's renderer has drawn one or more dirty viewport rows. */
+  onRender(cb: () => void): () => void {
+    const sub = this.term.onRender(() => cb())
+    return () => sub.dispose()
   }
 
   focus(): void {

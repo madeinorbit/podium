@@ -207,6 +207,37 @@ describe('mobile SQLite adapter — store obligations', () => {
     expect(view.cache.readCursor()).toEqual(CURSOR_1)
   })
 
+  it('uses the async SQLite open hook before any synchronous transaction', async () => {
+    let syncCalled = false
+    const store = await SqliteSyncStore.open({
+      openDatabase: () => {
+        syncCalled = true
+        throw new Error('sync open must not run when async open is supplied')
+      },
+      openDatabaseAsync: async () => sqliteEngine.open(file),
+      deleteDatabase: () => undefined,
+      onDegraded: (degradation) => {
+        degradations.push(degradation)
+      },
+    })
+    expect(syncCalled).toBe(false)
+    expect(store.durability()).toBe('durable')
+    store.viewFor(ADA).cache.applyAtomic({
+      operations: [
+        {
+          kind: 'upsert',
+          entity: 'issue',
+          entityId: 'ADA-1',
+          value: { v: 4 },
+          provenance: { seq: 4 },
+        },
+      ],
+      cursor: CURSOR_1,
+    })
+    expect(readDurable(file).entities.map((row) => row.value)).toEqual([{ v: 4 }])
+    store.close()
+  })
+
   it('ADR 2 D7 rung 5 — an unreadable store refuses reads with ReplicaStoreCorruptError', async () => {
     const store = await open()
     const view = store.viewFor(ADA)

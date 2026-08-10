@@ -3,6 +3,7 @@ import type { ClientSwitchTrace } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   beginSwitch,
+  bindSwitchTraceUi,
   getRecentSwitchTraces,
   isSwitchTraced,
   markSwitch,
@@ -14,7 +15,9 @@ describe('switch-trace collector [POD-701]', () => {
   let reported: ClientSwitchTrace[]
 
   beforeEach(() => {
+    vi.unstubAllGlobals()
     vi.useFakeTimers()
+    bindSwitchTraceUi(null)
     resetSwitchTraces()
     reported = []
     setSwitchTraceReporter((t) => reported.push(t))
@@ -30,6 +33,8 @@ describe('switch-trace collector [POD-701]', () => {
   afterEach(() => {
     setSwitchTraceReporter(null)
     resetSwitchTraces()
+    bindSwitchTraceUi(null)
+    vi.unstubAllGlobals()
     vi.useRealTimers()
   })
 
@@ -67,6 +72,7 @@ describe('switch-trace collector [POD-701]', () => {
       'chat:interactable',
     ])
     for (const m of t.marks) expect(m.atMs).toBeGreaterThanOrEqual(0)
+    expect(t.marks.find((m) => m.name === 'transcript:read-end')?.meta).toEqual({ items: 42 })
     expect(t.totalMs).toBe(Math.max(...t.marks.map((m) => m.atMs)))
     expect(t.meta).toEqual({
       items: 42,
@@ -220,5 +226,62 @@ describe('switch-trace collector [POD-701]', () => {
     beginSwitch({ sessionId: asSessionId('s8') })
     expect(() => markSwitch(asSessionId('s8'), 'chat:interactable')).not.toThrow()
     expect(getRecentSwitchTraces()).toHaveLength(1)
+  })
+
+  it('does not construct the long-task observer when diagnostics are disabled', () => {
+    const observer = vi.fn()
+    vi.stubGlobal('location', { search: '' })
+    vi.stubGlobal('PerformanceObserver', observer)
+    bindSwitchTraceUi(null)
+
+    beginSwitch({ sessionId: asSessionId('observer-off') })
+    markSwitch(asSessionId('observer-off'), 'term:interactable')
+
+    expect(observer).not.toHaveBeenCalled()
+    expect(reported).toHaveLength(1)
+    expect(nth(0).marks.map((m) => m.name)).toEqual(['term:interactable'])
+    expect(nth(0).marks.some((m) => m.name === 'main:longtask')).toBe(false)
+  })
+
+  it('constructs the long-task observer when diagnostics are enabled', () => {
+    const callbackHolder: { current: PerformanceObserverCallback | null } = { current: null }
+    const observe = vi.fn()
+    const disconnect = vi.fn()
+    class FakePerformanceObserver {
+      static supportedEntryTypes = ['longtask']
+
+      constructor(next: PerformanceObserverCallback) {
+        callbackHolder.current = next
+      }
+
+      observe = observe
+      disconnect = disconnect
+    }
+
+    vi.stubGlobal('location', { search: '' })
+    vi.stubGlobal('PerformanceObserver', FakePerformanceObserver)
+    bindSwitchTraceUi({
+      get: (key) => (key === 'podium.switchTrace' ? '1' : null),
+    })
+    vi.stubGlobal('console', { ...console, debug: vi.fn(), table: vi.fn() })
+
+    beginSwitch({ sessionId: asSessionId('observer-on') })
+    expect(observe).toHaveBeenCalledWith({ type: 'longtask', buffered: true })
+    const taskStart = performance.now()
+    const observerCallback = callbackHolder.current
+    if (!observerCallback) throw new Error('observer callback was not captured')
+    observerCallback(
+      {
+        getEntries: () => [{ startTime: taskStart, duration: 125 }],
+      } as PerformanceObserverEntryList,
+      {} as PerformanceObserver,
+    )
+    markSwitch(asSessionId('observer-on'), 'term:interactable')
+
+    expect(reported).toHaveLength(1)
+    const longTask = nth(0).marks.find((m) => m.name === 'main:longtask')
+    expect(longTask?.meta).toMatchObject({ durationMs: 125 })
+    expect(longTask?.meta?.endMs).toBeGreaterThan(longTask?.meta?.startMs as number)
+    expect(disconnect).toHaveBeenCalledTimes(1)
   })
 })

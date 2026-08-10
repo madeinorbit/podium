@@ -1,10 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import type { IncomingMessage, Server } from 'node:http'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { serve } from '@hono/node-server'
 import { trpcServer } from '@hono/trpc-server'
 import { FIRST_ADMIN_USER_ID } from '@podium/model'
 import {
@@ -44,29 +42,30 @@ import {
   receiveDaemonFrame,
   recordHelloBuild,
 } from './gateway/peer-handshake'
-import { attachWebSockets } from './gateway/ws-server'
+import { attachWebSockets, type NativeServer, serveNative } from './gateway/ws-server'
 import { PairingManager } from './hub/pairing'
 import { applyEnvFirstAdminPassword, retireInstancePassword } from './instance-password-migration'
 import { IssueToolProvider } from './issue-mcp'
 import { registerMcpRoute } from './mcp-route'
 import { registerMaintenanceRoute } from './modules/maintenance/route'
 import { MaintenanceService } from './modules/maintenance/service'
-import { DEVELOPMENT_SOURCE_ROOT } from './modules/updates/dev-bundle'
-import { wireDevBundlePublisher } from './modules/updates/dev-publisher-wiring'
-import { readOrCreateUpdateSigningKey } from './modules/updates/signing-key'
 import { MessagingService } from './modules/messaging'
 import { DEPLOYMENT, perf } from './modules/perf/registry'
 import type { PublicationAuthority } from './modules/sessions/session'
 import { SuperagentService } from './modules/superagent'
+import { DEVELOPMENT_SOURCE_ROOT } from './modules/updates/dev-bundle'
+import { wireDevBundlePublisher } from './modules/updates/dev-publisher-wiring'
+import { readOrCreateUpdateSigningKey } from './modules/updates/signing-key'
 import type { PodiumPlugin } from './plugins'
 import { SessionRegistry } from './relay'
 import { MachineRepoDiscovery } from './repo-discovery'
 import { RepoRegistry } from './repo-registry'
+import { compressHttpResponse } from './response-compression'
 import { resolveServerRole, type ServerRoleConfig } from './roles'
 import { appRouter } from './router'
 import { registerSetupRoute } from './setup-route'
 import { closeServerFast } from './shutdown'
-import { registerMobileRouting, registerWebStatic } from './static-web'
+import { registerDesktopWebStatic, registerMobileRouting, registerWebStatic } from './static-web'
 import { SessionStore } from './store'
 import { wireTelemetry } from './telemetry'
 import { reportParkedUpstreamMutations } from './upstream-retirement'
@@ -200,7 +199,7 @@ export async function startServer(
      *  the same authority source so catch-up and live publication cannot drift. */
     resolvePublicationAuthority?: {
       http(request: Request): PublicationAuthority
-      websocket(request: IncomingMessage): PublicationAuthority
+      websocket(request: Request): PublicationAuthority
     }
   } = {},
 ): Promise<ServerHandle> {
@@ -591,7 +590,7 @@ export async function startServer(
     }
   }
   if (webDir) {
-    registerWebStatic(app, webDir, { stampCheck: true })
+    registerDesktopWebStatic(app, webDir)
     // Say it at boot as well as in the page. The person who redeploys is looking
     // at a terminal, not at the app — POD-1610 survived a night of rebuilding
     // because nothing on the build path ever mentioned the web dist at all.
@@ -612,14 +611,6 @@ export async function startServer(
 
   const requestedPort = opts.port ?? 0
   return new Promise<ServerHandle>((resolve, reject) => {
-    // serve() from @hono/node-server registers no 'error' handler of its own. A failed
-    // listen() (e.g. the port is already held by the systemd podium-server) then surfaces
-    // differently per runtime: Bun throws synchronously out of serve(); Node emits an
-    // async 'error' event on the underlying server. Left unhandled, either becomes a
-    // swallowed uncaughtException while this promise hangs forever. Catch BOTH and turn
-    // them into a clean rejection, disposing the half-built store so we don't leak a DB
-    // handle or its flush timer. `settled` guards against a post-listen socket 'error'
-    // being mistaken for a bind failure (and against double-settling).
     let settled = false
     const failListen = (err: unknown): void => {
       if (settled) return
@@ -634,172 +625,179 @@ export async function startServer(
       )
     }
 
-    let server: ReturnType<typeof serve>
+    const ws = attachWebSockets(registry, {
+      userForClient: (request) =>
+        requestPrincipal(request.headers.get('cookie') ?? undefined)?.user,
+      roleForClient: (request) => {
+        const principal = requestPrincipal(request.headers.get('cookie') ?? undefined)
+        return principal ? store.users.roleOf(principal.user) : undefined
+      },
+      ...(opts.resolvePublicationAuthority
+        ? { resolvePublicationAuthority: opts.resolvePublicationAuthority.websocket }
+        : {}),
+    })
+
+    let server: Pick<NativeServer<never>, 'port' | 'stop'>
     try {
-      server = serve({ fetch: app.fetch, port: requestedPort, hostname: host }, (info) => {
-        if (settled) return
-        settled = true
-        boundPort = info.port
-        devPublisher.requestBuild(true)
-        // The in-process MCP issue surface is the trusted superagent orchestrator. It calls
-        // the issue command registry DIRECTLY (not the cookie-gated HTTP /trpc, which would
-        // 401 it) as the OPERATOR — router-equal authz, no router caller involved. This is
-        // also the seam for per-agent capabilities later: pass a constrained capability
-        // instead of OPERATOR.
-        issueTools.setClientResolver((threadId) => {
-          const ownerUserId = superagent.threadOwner(threadId)
-          const account = ownerUserId ? store.users.get(ownerUserId) : undefined
-          if (!ownerUserId || !account) throw new Error('MCP thread owner is unavailable')
-          return registry.issueCommands.asIssueTrpc(
-            userCommandPrincipal(ownerUserId, account.role).capability,
-          )
-        })
-        // Bridge the issue tools into the superagent's API tool loop (issue #64):
-        // concierge (and global) threads drive the tracker through the same
-        // in-process OPERATOR caller. Constraining this to an agent capability is
-        // future work (same seam as above). Must precede setMcpEndpoint so the
-        // allowed-tool name list below includes the bridged issue tools.
-        superagent.setIssueTools(issueTools)
-        // The harness agent runs on the same host (single-machine), so loopback
-        // reaches this MCP route. Now that the port is known, point it there.
-        superagent.setMcpEndpoint(
-          `http://127.0.0.1:${info.port}/mcp`,
-          mcpToken,
-          superagent.mcpToolSpecs().map((s) => s.name),
-        )
-        const ws = attachWebSockets(server as unknown as Server, registry, {
-          // Same gate as the HTTP guard: open unless a password is set, then require a valid
-          // session cookie on the upgrade request.
-          userForClient: (req) => requestPrincipal(req.headers.cookie)?.user,
-          roleForClient: (req) => {
-            const principal = requestPrincipal(req.headers.cookie)
-            return principal ? store.users.roleOf(principal.user) : undefined
-          },
-          ...(opts.resolvePublicationAuthority
-            ? { resolvePublicationAuthority: opts.resolvePublicationAuthority.websocket }
-            : {}),
-        })
-        // Server-side stall reporter (POD-600): a lightweight analog of the
-        // daemon's reportLongTick — starved-vs-busy classification + heap/RSS,
-        // no activity counters (this process does no PTY work).
-        if (process.env.PODIUM_LOOP_PROFILE) {
-          // POD-1630: the per-second window that scopes SQL attribution to the
-          // stall rather than to all of uptime — the same cadence the daemon's
-          // loop-attribution uses, and for the same reason.
-          const attributionWindow = setInterval(() => resetQueryAttribution(), 1000)
-          attributionWindow.unref?.()
-          // POD-1653: the window above answers "what stalled this second"; a bench
-          // run asks "what ran over the last minute, and WHO issued it". Both
-          // retentions already exist (queryAttributionTotals / queryCallerStacks)
-          // but nothing could read them out of a live process. SIGUSR2 is that
-          // reader — inert unless profiling is on, and it only prints.
-          process.on('SIGUSR2', () => {
-            const out = [...queryAttributionTotals()]
-              .sort((a, b) => b[1].count - a[1].count)
-              .slice(0, 15)
-              .map(([sql, c]) => `${c.count}x/${c.wallMs.toFixed(0)}ms/${c.rows}rows ${sql}`)
-            console.warn(`[podium:loop] TOTALS\n${out.join('\n')}`)
-            for (const [key, samples] of queryCallerStacks()) {
-              console.warn(
-                `[podium:loop] STACKS ${key}\n${samples
-                  .slice(0, 3)
-                  .map((s) => `  ${s.count}x\n${s.stack}`)
-                  .join('\n')}`,
-              )
-            }
-          })
-          startLoopMetrics({
-            label: 'server',
-            onLongTick: (ms, classification) => {
-              const mu = process.memoryUsage()
-              const mb = (b: number) => (b / 1048576).toFixed(0)
-              const cls = classification ? ` | ${formatStallClassification(classification)}` : ''
-              // The stall reporter could name the COST but never the CAUSE; the
-              // tRPC and phase counters could not fill the gap because the work
-              // is not on either path. The top statements are that missing name.
-              const sql = formatTopQueries()
-              console.warn(
-                `[podium:loop] server stall ${ms.toFixed(0)}ms${cls} | heap=${mb(mu.heapUsed)}MB rss=${mb(mu.rss)}MB${sql ? ` | sql=${sql}` : ''}`,
-              )
-            },
-          })
-        }
-        // In-process daemon link [POD-196]: the local-machine equivalent of
-        // wireDaemonSocket, minus serialization. It still drives the SAME
-        // acceptor and daemonSecret strategy. Composition-root reachability is
-        // not proof of machine identity and grants no ambient `use` (M4).
-        // queueMicrotask keeps delivery async so neither side re-enters the
-        // other's call stack (the ordering the WS transport implied).
-        const localDaemonLink: LocalDaemonLink = {
-          attach: ({ hello, deliver }) => {
-            const acceptor = createDaemonAcceptor({
-              machines: registry.modules.machines,
-              connectionId: `local-daemon-${randomUUID()}`,
-            })
-            const outcome = receiveDaemonFrame(acceptor, JSON.stringify(hello))
-            if (outcome.kind !== 'established') {
-              const reply =
-                outcome.kind === 'rejected'
-                  ? PeerHelloReply.parse(outcome.reply)
-                  : { type: 'peerHelloRejected' as const, reason: 'unexpected-frame' as const }
-              return { established: false as const, reply }
-            }
-            const { principal } = outcome
-            recordHelloBuild(registry.modules.machines, outcome.machineId, {
-              build: outcome.build,
-              caps: outcome.offeredCaps,
-              at: new Date().toISOString(),
-            })
-            const send = (msg: ControlMessage): void => queueMicrotask(() => deliver(msg))
-            registry.gateway.attachDaemon(principal, send)
-            return {
-              established: true as const,
-              reply: PeerHelloReply.parse(outcome.reply),
-              machineId: principal.machine,
-              // `inventoryReport` used to be special-cased at both socket call
-              // sites; it is a row in the gateway's routing table now, so this
-              // link routes the WHOLE daemon union through one seam.
-              deliver: (msg) =>
-                queueMicrotask(() => registry.gateway.routeDaemonFrame(principal, msg)),
-              close: () => registry.gateway.detachDaemon(principal, send),
-            }
-          },
-        }
-        resolve({
-          port: info.port,
-          instanceId,
-          registry,
-          bootstrapToken,
-          localDaemonLink,
-          // Deterministic fast shutdown (POD-611): terminate WS intake, persist
-          // state unconditionally, THEN force-close lingering http sockets —
-          // see closeServerFast for the full ordering rationale. Step order
-          // below matters: sync/outbox loops stop before the store closes (a
-          // late write against a closed DB would throw), dirty activity
-          // timestamps flush while the DB is open, registry.dispose() stops the
-          // periodic flush timer, and only then does the store close.
-          close: () =>
-            closeServerFast({
-              closeWebSockets: () => ws.close(),
-              server: server as unknown as Server,
-              persist: [
-                ['messaging.stop', () => messaging.stop()],
-                // Stop the flush timer + unsubscribe. Deliberately NOT awaiting a
-                // final network flush: shutdown is a user-visible latency path
-                // (POD-611 made it deterministic and fast), and a report is worth
-                // less than a fast stop. The queue is durable — it goes next boot.
-                ['telemetry.stop', () => telemetry.stop()],
-                ['sessions.flushActivity', () => registry.modules.sessions.flushActivity()],
-                ['registry.dispose', () => registry.dispose()],
-                ['store.close', () => store.close()],
-              ],
-            }),
-        })
+      server = serveNative({
+        port: requestedPort,
+        hostname: host,
+        websocket: ws.websocket,
+        async fetch(request, nativeServer) {
+          const upgrade = ws.handleRequest(request, nativeServer as never)
+          if (upgrade !== null) return upgrade
+          return compressHttpResponse(request, await app.fetch(request))
+        },
       })
-      // Node surfaces a failed listen() as an async 'error' event (Bun throws above).
-      ;(server as unknown as Server).on('error', failListen)
     } catch (err) {
+      void ws.close()
       failListen(err)
+      return
     }
+
+    settled = true
+    boundPort = server.port
+    devPublisher.requestBuild(true)
+    // The in-process MCP issue surface is the trusted superagent orchestrator. It calls
+    // the issue command registry DIRECTLY (not the cookie-gated HTTP /trpc, which would
+    // 401 it) as the OPERATOR — router-equal authz, no router caller involved. This is
+    // also the seam for per-agent capabilities later: pass a constrained capability
+    // instead of OPERATOR.
+    issueTools.setClientResolver((threadId) => {
+      const ownerUserId = superagent.threadOwner(threadId)
+      const account = ownerUserId ? store.users.get(ownerUserId) : undefined
+      if (!ownerUserId || !account) throw new Error('MCP thread owner is unavailable')
+      return registry.issueCommands.asIssueTrpc(
+        userCommandPrincipal(ownerUserId, account.role).capability,
+      )
+    })
+    // Bridge the issue tools into the superagent's API tool loop (issue #64):
+    // concierge (and global) threads drive the tracker through the same
+    // in-process OPERATOR caller. Constraining this to an agent capability is
+    // future work (same seam as above). Must precede setMcpEndpoint so the
+    // allowed-tool name list below includes the bridged issue tools.
+    superagent.setIssueTools(issueTools)
+    // The harness agent runs on the same host (single-machine), so loopback
+    // reaches this MCP route. Now that the port is known, point it there.
+    superagent.setMcpEndpoint(
+      `http://127.0.0.1:${server.port}/mcp`,
+      mcpToken,
+      superagent.mcpToolSpecs().map((s) => s.name),
+    )
+    // Server-side stall reporter (POD-600): a lightweight analog of the
+    // daemon's reportLongTick — starved-vs-busy classification + heap/RSS,
+    // no activity counters (this process does no PTY work).
+    if (process.env.PODIUM_LOOP_PROFILE) {
+      // POD-1630: the per-second window that scopes SQL attribution to the
+      // stall rather than to all of uptime — the same cadence the daemon's
+      // loop-attribution uses, and for the same reason.
+      const attributionWindow = setInterval(() => resetQueryAttribution(), 1000)
+      attributionWindow.unref?.()
+      // POD-1653: the window above answers "what stalled this second"; a bench
+      // run asks "what ran over the last minute, and WHO issued it". Both
+      // retentions already exist (queryAttributionTotals / queryCallerStacks)
+      // but nothing could read them out of a live process. SIGUSR2 is that
+      // reader — inert unless profiling is on, and it only prints.
+      process.on('SIGUSR2', () => {
+        const out = [...queryAttributionTotals()]
+          .sort((a, b) => b[1].count - a[1].count)
+          .slice(0, 15)
+          .map(([sql, c]) => `${c.count}x/${c.wallMs.toFixed(0)}ms/${c.rows}rows ${sql}`)
+        console.warn(`[podium:loop] TOTALS\n${out.join('\n')}`)
+        for (const [key, samples] of queryCallerStacks()) {
+          console.warn(
+            `[podium:loop] STACKS ${key}\n${samples
+              .slice(0, 3)
+              .map((s) => `  ${s.count}x\n${s.stack}`)
+              .join('\n')}`,
+          )
+        }
+      })
+      startLoopMetrics({
+        label: 'server',
+        onLongTick: (ms, classification) => {
+          const mu = process.memoryUsage()
+          const mb = (b: number) => (b / 1048576).toFixed(0)
+          const cls = classification ? ` | ${formatStallClassification(classification)}` : ''
+          // The stall reporter could name the COST but never the CAUSE; the
+          // tRPC and phase counters could not fill the gap because the work
+          // is not on either path. The top statements are that missing name.
+          const sql = formatTopQueries()
+          console.warn(
+            `[podium:loop] server stall ${ms.toFixed(0)}ms${cls} | heap=${mb(mu.heapUsed)}MB rss=${mb(mu.rss)}MB${sql ? ` | sql=${sql}` : ''}`,
+          )
+        },
+      })
+    }
+    // In-process daemon link [POD-196]: the local-machine equivalent of
+    // wireDaemonSocket, minus serialization. It still drives the SAME
+    // acceptor and daemonSecret strategy. Composition-root reachability is
+    // not proof of machine identity and grants no ambient `use` (M4).
+    // queueMicrotask keeps delivery async so neither side re-enters the
+    // other's call stack (the ordering the WS transport implied).
+    const localDaemonLink: LocalDaemonLink = {
+      attach: ({ hello, deliver }) => {
+        const acceptor = createDaemonAcceptor({
+          machines: registry.modules.machines,
+          connectionId: `local-daemon-${randomUUID()}`,
+        })
+        const outcome = receiveDaemonFrame(acceptor, JSON.stringify(hello))
+        if (outcome.kind !== 'established') {
+          const reply =
+            outcome.kind === 'rejected'
+              ? PeerHelloReply.parse(outcome.reply)
+              : { type: 'peerHelloRejected' as const, reason: 'unexpected-frame' as const }
+          return { established: false as const, reply }
+        }
+        const { principal } = outcome
+        recordHelloBuild(registry.modules.machines, outcome.machineId, {
+          build: outcome.build,
+          caps: outcome.offeredCaps,
+          at: new Date().toISOString(),
+        })
+        const send = (msg: ControlMessage): void => queueMicrotask(() => deliver(msg))
+        registry.gateway.attachDaemon(principal, send)
+        return {
+          established: true as const,
+          reply: PeerHelloReply.parse(outcome.reply),
+          machineId: principal.machine,
+          // `inventoryReport` used to be special-cased at both socket call
+          // sites; it is a row in the gateway's routing table now, so this
+          // link routes the WHOLE daemon union through one seam.
+          deliver: (msg) => queueMicrotask(() => registry.gateway.routeDaemonFrame(principal, msg)),
+          close: () => registry.gateway.detachDaemon(principal, send),
+        }
+      },
+    }
+    resolve({
+      port: server.port,
+      instanceId,
+      registry,
+      bootstrapToken,
+      localDaemonLink,
+      // Deterministic fast shutdown (POD-611): terminate WS intake, persist
+      // state unconditionally, THEN force-close lingering http sockets —
+      // see closeServerFast for the full ordering rationale. Step order
+      // below matters: sync/outbox loops stop before the store closes (a
+      // late write against a closed DB would throw), dirty activity
+      // timestamps flush while the DB is open, registry.dispose() stops the
+      // periodic flush timer, and only then does the store close.
+      close: () =>
+        closeServerFast({
+          closeWebSockets: () => ws.close(),
+          server,
+          persist: [
+            ['messaging.stop', () => messaging.stop()],
+            // Stop the flush timer + unsubscribe. Deliberately NOT awaiting a
+            // final network flush: shutdown is a user-visible latency path
+            // (POD-611 made it deterministic and fast), and a report is worth
+            // less than a fast stop. The queue is durable — it goes next boot.
+            ['telemetry.stop', () => telemetry.stop()],
+            ['sessions.flushActivity', () => registry.modules.sessions.flushActivity()],
+            ['registry.dispose', () => registry.dispose()],
+            ['store.close', () => store.close()],
+          ],
+        }),
+    })
   })
 }

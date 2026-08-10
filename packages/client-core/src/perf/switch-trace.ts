@@ -16,7 +16,7 @@
 import type { IssueId, SessionId } from '@podium/model'
 import { type ClientSwitchTrace, SWITCH_TRACE_MARKS, type SwitchMark } from '@podium/protocol'
 
-type MarkMeta = Record<string, number | string | boolean>
+type MarkMeta = NonNullable<SwitchMark['meta']>
 
 interface ActiveTrace {
   switchId: string
@@ -35,6 +35,12 @@ const RING_MAX = 50
 const MARKS_MAX = 200
 /** A trace that never quiesces finalizes with timedOut after this long. */
 const QUIESCE_TIMEOUT_MS = 10_000
+/** Per-mark metadata bounds mirror switchMarkMetaSchema in the protocol. */
+const MARK_META_MAX_ENTRIES = 16
+const MARK_META_MAX_KEY_LENGTH = 64
+const MARK_META_MAX_STRING_LENGTH = 256
+/** Diagnostic mark emitted for browser main-thread long tasks. */
+const MAIN_THREAD_LONGTASK_MARK = 'main:longtask'
 
 /** Marks that must be recorded at most once — quiesce sentinels. */
 const ONCE_MARKS: ReadonlySet<string> = new Set(Object.values(SWITCH_TRACE_MARKS))
@@ -62,6 +68,7 @@ let active: ActiveTrace | null = null
 const recent: ClientSwitchTrace[] = []
 let reporter: ((trace: ClientSwitchTrace) => void) | null = null
 let termTapInstalled = false
+let longTaskObserver: PerformanceObserver | null = null
 
 const now = (): number =>
   typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -81,24 +88,26 @@ function newSwitchId(): string {
 
 /**
  * Optional principal-scoped ui-state reader bound by the composition root.
- * Until bound, only the URL query `?switchTrace=1` enables the console trace —
- * feature code must not reach localStorage directly (POD-329).
+ * The URL query `?switchTrace=1` or the principal-scoped device-local UI state
+ * opts into long-task observation and console output; feature code never reaches localStorage
+ * directly (POD-329).
  */
 let switchTraceUi: { get(key: string): string | null } | null = null
 
-/** Bind the ui-state collection so the debug flag is principal-scoped. */
+/** Bind the ui-state source that controls optional diagnostics. */
 export function bindSwitchTraceUi(ui: { get(key: string): string | null } | null): void {
   switchTraceUi = ui
 }
 
-function consoleEnabled(): boolean {
+function switchTraceEnabled(): boolean {
   try {
     if (typeof location !== 'undefined') {
       const value = new URLSearchParams(location.search).get('switchTrace')
       if (value === '1' || value === 'true') return true
     }
     // Key spelling lives only in ui-state.ts (SWITCH_TRACE_KEY).
-    return switchTraceUi?.get('podium.' + 'switchTrace') === '1'
+    const value = switchTraceUi?.get('podium.' + 'switchTrace')
+    return value === '1' || value === 'true'
   } catch {
     return false
   }
@@ -109,6 +118,51 @@ function consoleEnabled(): boolean {
  *  terminal stack (xterm) just to correlate lifecycle events. */
 interface TerminalDiagnosticsTap {
   onTrace(listener: (entry: { sessionId: SessionId; event: string }) => void): () => void
+}
+
+function boundedMarkMeta(meta: MarkMeta): MarkMeta | undefined {
+  const bounded: MarkMeta = {}
+  let count = 0
+  for (const [key, value] of Object.entries(meta)) {
+    if (count >= MARK_META_MAX_ENTRIES) break
+    const boundedKey = key.slice(0, MARK_META_MAX_KEY_LENGTH)
+    bounded[boundedKey] =
+      typeof value === 'string' ? value.slice(0, MARK_META_MAX_STRING_LENGTH) : value
+    count += 1
+  }
+  return count > 0 ? bounded : undefined
+}
+
+function stopLongTaskObserver(): void {
+  longTaskObserver?.disconnect()
+  longTaskObserver = null
+}
+
+function startLongTaskObserver(t: ActiveTrace): void {
+  if (typeof PerformanceObserver === 'undefined') return
+  const supported = PerformanceObserver.supportedEntryTypes
+  if (Array.isArray(supported) && !supported.includes('longtask')) return
+
+  let observer: PerformanceObserver | null = null
+  try {
+    observer = new PerformanceObserver((list) => {
+      if (active !== t) return
+      for (const entry of list.getEntries()) {
+        const startMs = entry.startTime - t.t0
+        const endMs = startMs + entry.duration
+        if (endMs <= 0) continue
+        markSwitch(t.sessionId, MAIN_THREAD_LONGTASK_MARK, {
+          startMs,
+          endMs,
+          durationMs: entry.duration,
+        })
+      }
+    })
+    observer.observe({ type: 'longtask', buffered: true })
+    longTaskObserver = observer
+  } catch {
+    observer?.disconnect()
+  }
 }
 
 /** Lazily tap the terminal-diagnostics stream (once) so the traced session's
@@ -156,6 +210,7 @@ function quiesced(marks: readonly SwitchMark[]): boolean {
 function finalize(t: ActiveTrace, timedOut: boolean): void {
   if (active === t) active = null
   clearTimeout(t.timer)
+  stopLongTaskObserver()
   const chatPainted = t.marks.some((m) => m.name === SWITCH_TRACE_MARKS.chatFirstPaint)
   const chatInteractable = t.marks.some((m) => m.name === SWITCH_TRACE_MARKS.chatInteractable)
   const termReady = t.marks.some((m) => m.name === SWITCH_TRACE_MARKS.termReady)
@@ -186,13 +241,19 @@ function finalize(t: ActiveTrace, timedOut: boolean): void {
       // the reporter is fire-and-forget; never throw into the UI
     }
   }
-  if (consoleEnabled()) {
+  if (switchTraceEnabled()) {
     console.debug(
       `[podium switch] ${trace.mode}${trace.cold ? ' cold' : ''}${trace.timedOut ? ' TIMEOUT' : ''} ` +
         `${Math.round(trace.totalMs)}ms session=${trace.sessionId} marks=${trace.marks.length}`,
       trace.meta ?? {},
     )
-    console.table(trace.marks.map((m) => ({ name: m.name, atMs: Math.round(m.atMs * 10) / 10 })))
+    console.table(
+      trace.marks.map((m) => ({
+        name: m.name,
+        atMs: Math.round(m.atMs * 10) / 10,
+        meta: m.meta ?? {},
+      })),
+    )
   }
 }
 
@@ -217,6 +278,7 @@ export function beginSwitch(input: { sessionId: SessionId; issueId?: IssueId | n
     }, QUIESCE_TIMEOUT_MS),
   }
   active = t
+  if (switchTraceEnabled()) startLongTaskObserver(t)
 }
 
 /**
@@ -229,8 +291,15 @@ export function markSwitch(sessionId: SessionId, name: string, meta?: MarkMeta):
   const t = active
   if (!t || t.sessionId !== sessionId) return
   if (ONCE_MARKS.has(name) && t.marks.some((m) => m.name === name)) return
-  if (t.marks.length < MARKS_MAX) t.marks.push({ name, atMs: now() - t.t0 })
-  if (meta) Object.assign(t.meta, meta)
+  const bounded = meta ? boundedMarkMeta(meta) : undefined
+  if (t.marks.length < MARKS_MAX) {
+    t.marks.push({
+      name,
+      atMs: now() - t.t0,
+      ...(bounded ? { meta: bounded } : {}),
+    })
+  }
+  if (bounded) Object.assign(t.meta, bounded)
   if (quiesced(t.marks)) finalize(t, false)
 }
 
@@ -253,6 +322,7 @@ export function setSwitchTraceReporter(fn: ((trace: ClientSwitchTrace) => void) 
 /** Test seam: drop the active trace (without reporting) and clear the ring. */
 export function resetSwitchTraces(): void {
   if (active) clearTimeout(active.timer)
+  stopLongTaskObserver()
   active = null
   recent.length = 0
 }

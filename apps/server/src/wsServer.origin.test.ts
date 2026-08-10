@@ -1,9 +1,13 @@
-import { createServer, type Server } from 'node:http'
-import type { AddressInfo } from 'node:net'
 import { FIRST_ADMIN_USER_ID } from '@podium/model'
 import { afterEach, describe, expect, test } from 'vitest'
 import { WebSocket } from 'ws'
-import { attachWebSockets, isAllowedWsOrigin, type WsHandle } from './gateway/ws-server'
+import {
+  attachWebSockets,
+  isAllowedWsOrigin,
+  type NativeServer,
+  serveNative,
+  type WsHandle,
+} from './gateway/ws-server'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
 
@@ -65,20 +69,14 @@ describe('isAllowedWsOrigin', () => {
  * on our server while the guard sees the direct-exposure shape it gates on.
  */
 describe('the CSWSH guard on the real upgrade path', () => {
-  let server: Server | undefined
+  let server: Pick<NativeServer<never>, 'port' | 'stop'> | undefined
   let handle: WsHandle | undefined
   let store: SessionStore | undefined
   let registry: SessionRegistry | undefined
 
   afterEach(async () => {
     await handle?.close()
-    await new Promise<void>((res) => {
-      if (!server) return res()
-      // Bun's node:http keeps upgraded sockets tracked after terminate(), so
-      // close() would never call back. Force them shut (a no-op under Node).
-      server.closeAllConnections?.()
-      server.close(() => res())
-    })
+    void server?.stop(true)
     registry?.dispose()
     store?.close()
     server = handle = store = registry = undefined
@@ -87,13 +85,20 @@ describe('the CSWSH guard on the real upgrade path', () => {
   async function start(): Promise<string> {
     store = new SessionStore(':memory:')
     registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
-    server = createServer()
-    handle = attachWebSockets(server as Server, registry, {
+    handle = attachWebSockets(registry, {
       userForClient: () => FIRST_ADMIN_USER_ID,
       roleForClient: () => 'admin',
     })
-    await new Promise<void>((res) => (server as Server).listen(0, res))
-    return `ws://127.0.0.1:${(server?.address() as AddressInfo).port}`
+    server = serveNative({
+      port: 0,
+      hostname: '127.0.0.1',
+      websocket: handle.websocket,
+      fetch(request, nativeServer) {
+        const result = handle?.handleRequest(request, nativeServer)
+        return result === null ? new Response('not found', { status: 404 }) : result
+      },
+    })
+    return `ws://127.0.0.1:${server.port}`
   }
 
   /** Resolve 'open' or 'rejected', with `Host` forged to a real network name. */

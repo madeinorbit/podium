@@ -4,7 +4,7 @@ import { join, sep } from 'node:path'
 import { brotliCompressSync, brotliDecompressSync, gunzipSync } from 'node:zlib'
 import { Hono } from 'hono'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { registerMobileRouting, registerWebStatic } from './static-web'
+import { registerDesktopWebStatic, registerMobileRouting, registerWebStatic } from './static-web'
 
 /** Big and highly compressible, like a real JS chunk. */
 const BIG_JS = 'export const x = "podium";\n'.repeat(400)
@@ -299,6 +299,24 @@ describe('registerWebStatic', () => {
     const empty = mkdtempSync(join(tmpdir(), 'podium-empty-'))
     expect(registerWebStatic(new Hono(), empty)).toBe(false)
     rmSync(empty, { recursive: true, force: true })
+  })
+  it('starts serving the root when a lazy desktop build appears after boot', async () => {
+    const web = mkdtempSync(join(tmpdir(), 'podium-lazy-web-'))
+    rmSync(web, { recursive: true, force: true })
+    try {
+      const app = new Hono()
+      expect(registerDesktopWebStatic(app, web)).toBe(true)
+      expect((await app.request('/')).status).toBe(404)
+
+      mkdirSync(web, { recursive: true })
+      writeFileSync(join(web, 'index.html'), '<!doctype html><title>Podium Web</title>')
+
+      const root = await app.request('/')
+      expect(root.status).toBe(200)
+      expect(await root.text()).toContain('Podium Web')
+    } finally {
+      rmSync(web, { recursive: true, force: true })
+    }
   })
   it('deny-prefix guard returns notFound for backend routes without an explicit handler', async () => {
     const app2 = new Hono()

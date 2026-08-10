@@ -6,12 +6,21 @@ import { useEffect, useState } from 'react'
 
 /**
  * Hidden diagnostics readout for the remote-typing-latency work (#11):
- * keystroke→echo percentiles (SessionConnection.echoLatency) next to the hub's
- * ping RTT, so the network share vs the server/agent share of typing lag is
- * readable at a glance from any client — no devtools needed. Off by default;
- * enable via the principal-scoped ui-state key `ECHO_HUD_KEY` (`'1'`).
+ * input-event→paint percentiles (SessionConnection.echoLatency) next to the
+ * pre-frame and browser-paint legs plus ping RTT. Off by default; enable via
+ * `?echoHud=1` for a one-off run or the principal-scoped ui-state key
+ * `ECHO_HUD_KEY` (`'1'`) until explicitly cleared.
  */
 export function echoHudEnabled(ui: Pick<UiState, 'get'>): boolean {
+  try {
+    if (typeof location !== 'undefined') {
+      const value = new URLSearchParams(location.search).get('echoHud')
+      if (value === '1' || value === 'true') return true
+      if (value === '0' || value === 'false') return false
+    }
+  } catch {
+    // Fall through to the principal-scoped setting.
+  }
   return debugFlagEnabled(ui, ECHO_HUD_KEY)
 }
 
@@ -29,9 +38,11 @@ export function EchoHud({
       const ping = rtt !== null ? `${Math.max(1, Math.round(rtt))}ms` : '—'
       const stats = mountedRef.current?.connection.echoLatency()
       setLine(
-        stats && stats.count > 0
-          ? `echo ${Math.round(stats.p50 ?? 0)}/${Math.round(stats.p90 ?? 0)}ms (n=${stats.count}) · ping ${ping}`
-          : `echo — · ping ${ping}`,
+        stats?.enabled && stats.count > 0
+          ? `echo ${Math.round(stats.p50 ?? 0)}/${Math.round(stats.p90 ?? 0)}ms (n=${stats.count}) · to-frame ${Math.round(stats.toFrame.p50 ?? 0)}ms · paint ${Math.round(stats.frameToPaint.p50 ?? 0)}ms · ping ${ping}`
+          : stats?.enabled
+            ? `echo measuring… · ping ${ping}`
+            : `echo off · ping ${ping}`,
       )
     }
     tick()

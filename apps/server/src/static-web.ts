@@ -543,3 +543,12 @@ export function registerWebStatic(
   app.get(routePattern(basePath), handler)
   return true
 }
+
+/**
+ * A desktop bundle can be absent while Vite replaces dist during a redeploy.
+ * Register its route eagerly and probe the files per request so the completed
+ * build appears without another server restart.
+ */
+export function registerDesktopWebStatic(app: Hono, webDir: string): boolean {
+  return registerWebStatic(app, webDir, { lazy: true, stampCheck: true })
+}

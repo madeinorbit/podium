@@ -1,0 +1,316 @@
+{
+  "measuredAt": "2026-08-10T08:12:25.746Z",
+  "url": "http://127.0.0.1:55557",
+  "browser": "firefox",
+  "sessionId": "fdfaa341-a9ca-4f21-b28e-2faadd9b0301",
+  "samples": 40,
+  "stats": {
+    "enabled": true,
+    "count": 40,
+    "p50": 37,
+    "p90": 51,
+    "max": 853,
+    "lastMs": 33,
+    "toFrame": {
+      "count": 40,
+      "p50": 10,
+      "p90": 23,
+      "max": 822,
+      "lastMs": 6
+    },
+    "frameToPaint": {
+      "count": 40,
+      "p50": 28,
+      "p90": 32,
+      "max": 56,
+      "lastMs": 27
+    },
+    "last": {
+      "toFrameMs": 6,
+      "frameToPaintMs": 27,
+      "totalMs": 33
+    }
+  },
+  "observations": [
+    {
+      "key": "x",
+      "observedMs": 110.5916500000003,
+      "totalMs": 93,
+      "toFrameMs": 37,
+      "frameToPaintMs": 56
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 51.739496000000145,
+      "totalMs": 26,
+      "toFrameMs": 7,
+      "frameToPaintMs": 19
+    },
+    {
+      "key": "x",
+      "observedMs": 41.31937799999832,
+      "totalMs": 36,
+      "toFrameMs": 5,
+      "frameToPaintMs": 31
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 56.68230699999913,
+      "totalMs": 35,
+      "toFrameMs": 5,
+      "frameToPaintMs": 30
+    },
+    {
+      "key": "x",
+      "observedMs": 65.44288500000039,
+      "totalMs": 39,
+      "toFrameMs": 9,
+      "frameToPaintMs": 30
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 43.18846200000007,
+      "totalMs": 28,
+      "toFrameMs": 6,
+      "frameToPaintMs": 22
+    },
+    {
+      "key": "x",
+      "observedMs": 71.03557899999942,
+      "totalMs": 43,
+      "toFrameMs": 9,
+      "frameToPaintMs": 34
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 55.750356999998985,
+      "totalMs": 30,
+      "toFrameMs": 7,
+      "frameToPaintMs": 23
+    },
+    {
+      "key": "x",
+      "observedMs": 50.92006700000093,
+      "totalMs": 25,
+      "toFrameMs": 9,
+      "frameToPaintMs": 16
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 53.1564240000007,
+      "totalMs": 26,
+      "toFrameMs": 7,
+      "frameToPaintMs": 19
+    },
+    {
+      "key": "x",
+      "observedMs": 106.46637799999917,
+      "totalMs": 34,
+      "toFrameMs": 15,
+      "frameToPaintMs": 19
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 49.626736000000164,
+      "totalMs": 35,
+      "toFrameMs": 7,
+      "frameToPaintMs": 28
+    },
+    {
+      "key": "x",
+      "observedMs": 67.16460999999981,
+      "totalMs": 43,
+      "toFrameMs": 14,
+      "frameToPaintMs": 29
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 60.52774899999895,
+      "totalMs": 37,
+      "toFrameMs": 5,
+      "frameToPaintMs": 32
+    },
+    {
+      "key": "x",
+      "observedMs": 56.28216600000087,
+      "totalMs": 33,
+      "toFrameMs": 11,
+      "frameToPaintMs": 22
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 58.097639999999956,
+      "totalMs": 36,
+      "toFrameMs": 8,
+      "frameToPaintMs": 28
+    },
+    {
+      "key": "x",
+      "observedMs": 40.71167499999865,
+      "totalMs": 31,
+      "toFrameMs": 8,
+      "frameToPaintMs": 23
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 41.69596300000012,
+      "totalMs": 34,
+      "toFrameMs": 5,
+      "frameToPaintMs": 29
+    },
+    {
+      "key": "x",
+      "observedMs": 67.29973299999983,
+      "totalMs": 34,
+      "toFrameMs": 6,
+      "frameToPaintMs": 28
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 51.231926000000385,
+      "totalMs": 42,
+      "toFrameMs": 10,
+      "frameToPaintMs": 32
+    },
+    {
+      "key": "x",
+      "observedMs": 46.015816999999515,
+      "totalMs": 38,
+      "toFrameMs": 6,
+      "frameToPaintMs": 32
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 49.51756199999909,
+      "totalMs": 32,
+      "toFrameMs": 10,
+      "frameToPaintMs": 22
+    },
+    {
+      "key": "x",
+      "observedMs": 69.59235399999852,
+      "totalMs": 42,
+      "toFrameMs": 13,
+      "frameToPaintMs": 29
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 59.617331999999806,
+      "totalMs": 46,
+      "toFrameMs": 16,
+      "frameToPaintMs": 30
+    },
+    {
+      "key": "x",
+      "observedMs": 68.55830199999946,
+      "totalMs": 38,
+      "toFrameMs": 9,
+      "frameToPaintMs": 29
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 48.867465999999695,
+      "totalMs": 39,
+      "toFrameMs": 13,
+      "frameToPaintMs": 26
+    },
+    {
+      "key": "x",
+      "observedMs": 74.13246699999945,
+      "totalMs": 52,
+      "toFrameMs": 26,
+      "frameToPaintMs": 26
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 71.18549499999972,
+      "totalMs": 47,
+      "toFrameMs": 16,
+      "frameToPaintMs": 31
+    },
+    {
+      "key": "x",
+      "observedMs": 61.502581000000646,
+      "totalMs": 43,
+      "toFrameMs": 13,
+      "frameToPaintMs": 30
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 41.85166600000048,
+      "totalMs": 30,
+      "toFrameMs": 10,
+      "frameToPaintMs": 20
+    },
+    {
+      "key": "x",
+      "observedMs": 54.59494199999972,
+      "totalMs": 25,
+      "toFrameMs": 10,
+      "frameToPaintMs": 15
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 51.17252600000029,
+      "totalMs": 41,
+      "toFrameMs": 7,
+      "frameToPaintMs": 34
+    },
+    {
+      "key": "x",
+      "observedMs": 95.31527099999948,
+      "totalMs": 46,
+      "toFrameMs": 23,
+      "frameToPaintMs": 23
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 875.9730959999997,
+      "totalMs": 853,
+      "toFrameMs": 822,
+      "frameToPaintMs": 31
+    },
+    {
+      "key": "x",
+      "observedMs": 104.29259499999898,
+      "totalMs": 79,
+      "toFrameMs": 58,
+      "frameToPaintMs": 21
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 67.21484400000008,
+      "totalMs": 51,
+      "toFrameMs": 20,
+      "frameToPaintMs": 31
+    },
+    {
+      "key": "x",
+      "observedMs": 46.87019899999905,
+      "totalMs": 32,
+      "toFrameMs": 11,
+      "frameToPaintMs": 21
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 47.047184999999445,
+      "totalMs": 40,
+      "toFrameMs": 10,
+      "frameToPaintMs": 30
+    },
+    {
+      "key": "x",
+      "observedMs": 66.15100899999925,
+      "totalMs": 40,
+      "toFrameMs": 15,
+      "frameToPaintMs": 25
+    },
+    {
+      "key": "Backspace",
+      "observedMs": 57.909788999999364,
+      "totalMs": 33,
+      "toFrameMs": 6,
+      "frameToPaintMs": 27
+    }
+  ]
+}

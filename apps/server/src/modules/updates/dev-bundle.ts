@@ -311,7 +311,7 @@ export function developmentPlatformTarget(
 
 export function devTarget(
   built: BuiltDevBundle,
-  opts: { artifactUrl?: string; platform?: string } = {},
+  opts: { artifactUrl?: string; platform?: string; sourceRoot?: string } = {},
 ): UpdateTarget {
   const platform = opts.platform ?? developmentPlatformTarget()
   const url = opts.artifactUrl ?? DEV_ARTIFACT_ROUTE + '/' + encodeURIComponent(built.version)
@@ -329,6 +329,13 @@ export function devTarget(
           },
         },
       },
+      headlessAlternatives: [
+        {
+          delivery: 'git',
+          repo: opts.sourceRoot ?? DEVELOPMENT_SOURCE_ROOT,
+          sha: built.version.replace(/^dev\+/, ''),
+        },
+      ],
     },
   }
 }
@@ -392,7 +399,11 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
         typeof deps.artifactUrl === 'function'
           ? deps.artifactUrl(current.version)
           : deps.artifactUrl
-      return devTarget(current, { artifactUrl, platform: deps.platform })
+      return devTarget(current, {
+        artifactUrl,
+        platform: deps.platform,
+        sourceRoot: deps.root,
+      })
     },
   }
 }

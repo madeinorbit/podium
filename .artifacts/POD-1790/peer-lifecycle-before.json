@@ -1,0 +1,3387 @@
+{
+  "measuredAt": "2026-08-10T10:11:39.531Z",
+  "baseUrl": "http://localhost:18787",
+  "durationMs": 60000,
+  "events": [
+    {
+      "at": "2026-08-10T10:09:50.009Z",
+      "elapsedMs": 2813.405266,
+      "event": "socket-open",
+      "url": "ws://localhost:18787/client?v=2"
+    },
+    {
+      "at": "2026-08-10T10:09:50.077Z",
+      "elapsedMs": 2880.93383,
+      "event": "frame-received",
+      "type": "welcome",
+      "clientId": "c337",
+      "bytes": 36
+    },
+    {
+      "at": "2026-08-10T10:09:50.077Z",
+      "elapsedMs": 2880.990124,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 154
+    },
+    {
+      "at": "2026-08-10T10:09:50.077Z",
+      "elapsedMs": 2881.010545,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 177
+    },
+    {
+      "at": "2026-08-10T10:09:50.077Z",
+      "elapsedMs": 2881.023094,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 230
+    },
+    {
+      "at": "2026-08-10T10:09:50.077Z",
+      "elapsedMs": 2881.0333490000003,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 204
+    },
+    {
+      "at": "2026-08-10T10:09:50.077Z",
+      "elapsedMs": 2881.061231,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 198
+    },
+    {
+      "at": "2026-08-10T10:09:50.077Z",
+      "elapsedMs": 2881.098507,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 156
+    },
+    {
+      "at": "2026-08-10T10:09:50.077Z",
+      "elapsedMs": 2881.1100340000003,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 204
+    },
+    {
+      "at": "2026-08-10T10:09:50.077Z",
+      "elapsedMs": 2881.155853,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 849
+    },
+    {
+      "at": "2026-08-10T10:09:50.077Z",
+      "elapsedMs": 2881.1879910000002,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 214
+    },
+    {
+      "at": "2026-08-10T10:09:50.077Z",
+      "elapsedMs": 2881.228893,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 158
+    },
+    {
+      "at": "2026-08-10T10:09:50.077Z",
+      "elapsedMs": 2881.243044,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 180
+    },
+    {
+      "at": "2026-08-10T10:09:50.077Z",
+      "elapsedMs": 2881.255563,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 204
+    },
+    {
+      "at": "2026-08-10T10:09:50.077Z",
+      "elapsedMs": 2881.268462,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 159
+    },
+    {
+      "at": "2026-08-10T10:09:50.077Z",
+      "elapsedMs": 2881.277616,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 235
+    },
+    {
+      "at": "2026-08-10T10:09:50.077Z",
+      "elapsedMs": 2881.286469,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 257
+    },
+    {
+      "at": "2026-08-10T10:09:50.077Z",
+      "elapsedMs": 2881.300891,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 236
+    },
+    {
+      "at": "2026-08-10T10:09:50.077Z",
+      "elapsedMs": 2881.315783,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 250
+    },
+    {
+      "at": "2026-08-10T10:09:50.077Z",
+      "elapsedMs": 2881.331587,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 174
+    },
+    {
+      "at": "2026-08-10T10:09:50.077Z",
+      "elapsedMs": 2881.341552,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 191
+    },
+    {
+      "at": "2026-08-10T10:09:50.077Z",
+      "elapsedMs": 2881.351607,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 238
+    },
+    {
+      "at": "2026-08-10T10:09:50.077Z",
+      "elapsedMs": 2881.360871,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 243
+    },
+    {
+      "at": "2026-08-10T10:09:50.077Z",
+      "elapsedMs": 2881.370014,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 243
+    },
+    {
+      "at": "2026-08-10T10:09:50.077Z",
+      "elapsedMs": 2881.379328,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 157
+    },
+    {
+      "at": "2026-08-10T10:09:50.077Z",
+      "elapsedMs": 2881.391897,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 244
+    },
+    {
+      "at": "2026-08-10T10:09:50.081Z",
+      "elapsedMs": 2884.745141,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 1669
+    },
+    {
+      "at": "2026-08-10T10:09:50.081Z",
+      "elapsedMs": 2884.909808,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 158
+    },
+    {
+      "at": "2026-08-10T10:09:50.081Z",
+      "elapsedMs": 2884.9381710000002,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 237
+    },
+    {
+      "at": "2026-08-10T10:09:50.081Z",
+      "elapsedMs": 2884.952372,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 273
+    },
+    {
+      "at": "2026-08-10T10:09:50.081Z",
+      "elapsedMs": 2884.96387,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 307
+    },
+    {
+      "at": "2026-08-10T10:09:50.081Z",
+      "elapsedMs": 2884.976919,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 269
+    },
+    {
+      "at": "2026-08-10T10:09:50.081Z",
+      "elapsedMs": 2885.022137,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 268
+    },
+    {
+      "at": "2026-08-10T10:09:50.081Z",
+      "elapsedMs": 2885.05724,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 816
+    },
+    {
+      "at": "2026-08-10T10:09:50.081Z",
+      "elapsedMs": 2885.09753,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 338
+    },
+    {
+      "at": "2026-08-10T10:09:50.081Z",
+      "elapsedMs": 2885.1243600000003,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 642
+    },
+    {
+      "at": "2026-08-10T10:09:50.081Z",
+      "elapsedMs": 2885.1479560000002,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 1857
+    },
+    {
+      "at": "2026-08-10T10:09:50.081Z",
+      "elapsedMs": 2885.1720920000002,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 2244
+    },
+    {
+      "at": "2026-08-10T10:09:50.081Z",
+      "elapsedMs": 2885.183319,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 644
+    },
+    {
+      "at": "2026-08-10T10:09:50.081Z",
+      "elapsedMs": 2885.1945960000003,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 502
+    },
+    {
+      "at": "2026-08-10T10:09:50.081Z",
+      "elapsedMs": 2885.232273,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 515
+    },
+    {
+      "at": "2026-08-10T10:09:50.081Z",
+      "elapsedMs": 2885.297822,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 488
+    },
+    {
+      "at": "2026-08-10T10:09:50.081Z",
+      "elapsedMs": 2885.330992,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 501
+    },
+    {
+      "at": "2026-08-10T10:09:50.081Z",
+      "elapsedMs": 2885.370481,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 1910
+    },
+    {
+      "at": "2026-08-10T10:09:50.081Z",
+      "elapsedMs": 2885.387576,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 1913
+    },
+    {
+      "at": "2026-08-10T10:09:50.081Z",
+      "elapsedMs": 2885.3994040000002,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 472
+    },
+    {
+      "at": "2026-08-10T10:09:50.081Z",
+      "elapsedMs": 2885.411312,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 470
+    },
+    {
+      "at": "2026-08-10T10:09:50.081Z",
+      "elapsedMs": 2885.425393,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 463
+    },
+    {
+      "at": "2026-08-10T10:09:50.081Z",
+      "elapsedMs": 2885.444672,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 1857
+    },
+    {
+      "at": "2026-08-10T10:09:50.081Z",
+      "elapsedMs": 2885.461197,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 299
+    },
+    {
+      "at": "2026-08-10T10:09:50.082Z",
+      "elapsedMs": 2885.488798,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 692
+    },
+    {
+      "at": "2026-08-10T10:09:50.082Z",
+      "elapsedMs": 2885.671052,
+      "event": "frame-received",
+      "type": "machinesChanged",
+      "bytes": 5084
+    },
+    {
+      "at": "2026-08-10T10:09:50.082Z",
+      "elapsedMs": 2885.688438,
+      "event": "frame-received",
+      "type": "approvalsChanged",
+      "bytes": 40
+    },
+    {
+      "at": "2026-08-10T10:09:50.082Z",
+      "elapsedMs": 2885.715348,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 544
+    },
+    {
+      "at": "2026-08-10T10:09:50.086Z",
+      "elapsedMs": 2889.576284,
+      "event": "frame-sent",
+      "type": "ping",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T10:09:50.086Z",
+      "elapsedMs": 2889.696315,
+      "event": "frame-sent",
+      "type": "hello",
+      "wireVersion": 2,
+      "bytes": 87
+    },
+    {
+      "at": "2026-08-10T10:09:50.086Z",
+      "elapsedMs": 2889.721092,
+      "event": "frame-sent",
+      "type": "viewState",
+      "bytes": 59
+    },
+    {
+      "at": "2026-08-10T10:09:50.386Z",
+      "elapsedMs": 3189.567845,
+      "event": "frame-received",
+      "type": "pong",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T10:09:50.860Z",
+      "elapsedMs": 3664.0707829999997,
+      "event": "frame-received",
+      "type": "feedBootstrap",
+      "bytes": 14058992
+    },
+    {
+      "at": "2026-08-10T10:09:50.876Z",
+      "elapsedMs": 3679.7915040000003,
+      "event": "socket-open",
+      "url": "ws://localhost:18787/client?v=2"
+    },
+    {
+      "at": "2026-08-10T10:09:50.876Z",
+      "elapsedMs": 3680.1666870000004,
+      "event": "socket-close",
+      "url": "ws://localhost:18787/client?v=2"
+    },
+    {
+      "at": "2026-08-10T10:09:50.876Z",
+      "elapsedMs": 3680.2499620000003,
+      "event": "frame-received",
+      "type": "welcome",
+      "clientId": "c338",
+      "bytes": 36
+    },
+    {
+      "at": "2026-08-10T10:09:50.876Z",
+      "elapsedMs": 3680.267899,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 154
+    },
+    {
+      "at": "2026-08-10T10:09:50.876Z",
+      "elapsedMs": 3680.2954400000003,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 177
+    },
+    {
+      "at": "2026-08-10T10:09:50.876Z",
+      "elapsedMs": 3680.316141,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 230
+    },
+    {
+      "at": "2026-08-10T10:09:50.876Z",
+      "elapsedMs": 3680.326136,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 204
+    },
+    {
+      "at": "2026-08-10T10:09:50.876Z",
+      "elapsedMs": 3680.3360610000004,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 198
+    },
+    {
+      "at": "2026-08-10T10:09:50.876Z",
+      "elapsedMs": 3680.3447840000003,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 156
+    },
+    {
+      "at": "2026-08-10T10:09:50.876Z",
+      "elapsedMs": 3680.353197,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 204
+    },
+    {
+      "at": "2026-08-10T10:09:50.876Z",
+      "elapsedMs": 3680.36185,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 849
+    },
+    {
+      "at": "2026-08-10T10:09:50.876Z",
+      "elapsedMs": 3680.373808,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 214
+    },
+    {
+      "at": "2026-08-10T10:09:50.876Z",
+      "elapsedMs": 3680.3804780000005,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 158
+    },
+    {
+      "at": "2026-08-10T10:09:50.876Z",
+      "elapsedMs": 3680.3936070000004,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 180
+    },
+    {
+      "at": "2026-08-10T10:09:50.876Z",
+      "elapsedMs": 3680.4020800000003,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 204
+    },
+    {
+      "at": "2026-08-10T10:09:50.876Z",
+      "elapsedMs": 3680.4092109999997,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 159
+    },
+    {
+      "at": "2026-08-10T10:09:50.876Z",
+      "elapsedMs": 3680.417543,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 235
+    },
+    {
+      "at": "2026-08-10T10:09:50.876Z",
+      "elapsedMs": 3680.424834,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 257
+    },
+    {
+      "at": "2026-08-10T10:09:50.876Z",
+      "elapsedMs": 3680.4330459999996,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 236
+    },
+    {
+      "at": "2026-08-10T10:09:50.876Z",
+      "elapsedMs": 3680.44202,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 250
+    },
+    {
+      "at": "2026-08-10T10:09:50.876Z",
+      "elapsedMs": 3680.460958,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 174
+    },
+    {
+      "at": "2026-08-10T10:09:50.876Z",
+      "elapsedMs": 3680.4707329999997,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 191
+    },
+    {
+      "at": "2026-08-10T10:09:50.877Z",
+      "elapsedMs": 3680.478144,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 238
+    },
+    {
+      "at": "2026-08-10T10:09:50.877Z",
+      "elapsedMs": 3680.484444,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 243
+    },
+    {
+      "at": "2026-08-10T10:09:50.877Z",
+      "elapsedMs": 3680.492235,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 243
+    },
+    {
+      "at": "2026-08-10T10:09:50.877Z",
+      "elapsedMs": 3680.5005779999997,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 157
+    },
+    {
+      "at": "2026-08-10T10:09:50.877Z",
+      "elapsedMs": 3680.516822,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 244
+    },
+    {
+      "at": "2026-08-10T10:09:50.877Z",
+      "elapsedMs": 3680.565005,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 1669
+    },
+    {
+      "at": "2026-08-10T10:09:50.877Z",
+      "elapsedMs": 3680.5723860000003,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 158
+    },
+    {
+      "at": "2026-08-10T10:09:50.877Z",
+      "elapsedMs": 3680.579066,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 237
+    },
+    {
+      "at": "2026-08-10T10:09:50.877Z",
+      "elapsedMs": 3680.6023310000005,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 273
+    },
+    {
+      "at": "2026-08-10T10:09:50.877Z",
+      "elapsedMs": 3680.6085900000003,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 307
+    },
+    {
+      "at": "2026-08-10T10:09:50.877Z",
+      "elapsedMs": 3680.614679,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 269
+    },
+    {
+      "at": "2026-08-10T10:09:50.877Z",
+      "elapsedMs": 3680.6209890000005,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 268
+    },
+    {
+      "at": "2026-08-10T10:09:50.877Z",
+      "elapsedMs": 3680.637093,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 816
+    },
+    {
+      "at": "2026-08-10T10:09:50.877Z",
+      "elapsedMs": 3680.6459259999997,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 338
+    },
+    {
+      "at": "2026-08-10T10:09:50.877Z",
+      "elapsedMs": 3680.6611390000003,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 642
+    },
+    {
+      "at": "2026-08-10T10:09:50.877Z",
+      "elapsedMs": 3680.669622,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 1857
+    },
+    {
+      "at": "2026-08-10T10:09:50.877Z",
+      "elapsedMs": 3680.6829620000003,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 2244
+    },
+    {
+      "at": "2026-08-10T10:09:50.877Z",
+      "elapsedMs": 3680.691765,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 644
+    },
+    {
+      "at": "2026-08-10T10:09:50.877Z",
+      "elapsedMs": 3680.699086,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 502
+    },
+    {
+      "at": "2026-08-10T10:09:50.877Z",
+      "elapsedMs": 3680.7093609999997,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 515
+    },
+    {
+      "at": "2026-08-10T10:09:50.877Z",
+      "elapsedMs": 3680.7297320000002,
+      "event": "frame-sent",
+      "type": "ping",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T10:09:50.877Z",
+      "elapsedMs": 3680.7513139999996,
+      "event": "frame-sent",
+      "type": "hello",
+      "wireVersion": 2,
+      "bytes": 87
+    },
+    {
+      "at": "2026-08-10T10:09:50.877Z",
+      "elapsedMs": 3680.773197,
+      "event": "frame-sent",
+      "type": "viewState",
+      "bytes": 59
+    },
+    {
+      "at": "2026-08-10T10:09:50.877Z",
+      "elapsedMs": 3680.779787,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 488
+    },
+    {
+      "at": "2026-08-10T10:09:50.877Z",
+      "elapsedMs": 3680.78883,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 501
+    },
+    {
+      "at": "2026-08-10T10:09:50.877Z",
+      "elapsedMs": 3680.7980540000003,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 1910
+    },
+    {
+      "at": "2026-08-10T10:09:50.877Z",
+      "elapsedMs": 3680.806988,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 1913
+    },
+    {
+      "at": "2026-08-10T10:09:50.877Z",
+      "elapsedMs": 3680.813227,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 472
+    },
+    {
+      "at": "2026-08-10T10:09:50.877Z",
+      "elapsedMs": 3680.822721,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 470
+    },
+    {
+      "at": "2026-08-10T10:09:50.877Z",
+      "elapsedMs": 3680.8363219999997,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 463
+    },
+    {
+      "at": "2026-08-10T10:09:50.877Z",
+      "elapsedMs": 3680.851905,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 1857
+    },
+    {
+      "at": "2026-08-10T10:09:50.877Z",
+      "elapsedMs": 3680.858315,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 299
+    },
+    {
+      "at": "2026-08-10T10:09:50.877Z",
+      "elapsedMs": 3680.870453,
+      "event": "frame-received",
+      "type": "sessionDraftChanged",
+      "bytes": 692
+    },
+    {
+      "at": "2026-08-10T10:09:50.877Z",
+      "elapsedMs": 3680.959837,
+      "event": "frame-received",
+      "type": "machinesChanged",
+      "bytes": 5084
+    },
+    {
+      "at": "2026-08-10T10:09:50.877Z",
+      "elapsedMs": 3680.979927,
+      "event": "frame-received",
+      "type": "approvalsChanged",
+      "bytes": 40
+    },
+    {
+      "at": "2026-08-10T10:09:50.877Z",
+      "elapsedMs": 3681.000799,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 544
+    },
+    {
+      "at": "2026-08-10T10:09:51.023Z",
+      "elapsedMs": 3827.539424,
+      "event": "frame-received",
+      "type": "pong",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T10:09:51.587Z",
+      "elapsedMs": 4390.943211,
+      "event": "frame-received",
+      "type": "feedBootstrap",
+      "bytes": 14058992
+    },
+    {
+      "at": "2026-08-10T10:10:38.219Z",
+      "elapsedMs": 51022.795880000005,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 1480206
+    },
+    {
+      "at": "2026-08-10T10:10:38.365Z",
+      "elapsedMs": 51168.567851,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 1480206
+    },
+    {
+      "at": "2026-08-10T10:10:39.049Z",
+      "elapsedMs": 51853.360656000004,
+      "event": "console",
+      "level": "warning",
+      "text": "[JavaScript Warning: \"Failed to create WebGL context: WebGL creation failed: \n* AllowWebgl2:false restricts context creation on this system. ()\" {file: \"http://localhost:18787/assets/index-BSDCSKst.js\" line: 167}]"
+    },
+    {
+      "at": "2026-08-10T10:10:39.099Z",
+      "elapsedMs": 51903.110079000005,
+      "event": "app-ready"
+    },
+    {
+      "at": "2026-08-10T10:10:39.100Z",
+      "elapsedMs": 51904.205824000004,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1853
+    },
+    {
+      "at": "2026-08-10T10:10:39.323Z",
+      "elapsedMs": 52126.780170000005,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 280
+    },
+    {
+      "at": "2026-08-10T10:10:39.323Z",
+      "elapsedMs": 52126.887151,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1818
+    },
+    {
+      "at": "2026-08-10T10:10:39.704Z",
+      "elapsedMs": 52507.994325,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 280
+    },
+    {
+      "at": "2026-08-10T10:10:39.704Z",
+      "elapsedMs": 52508.176619000005,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1818
+    },
+    {
+      "at": "2026-08-10T10:10:40.195Z",
+      "elapsedMs": 52999.063062,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 280
+    },
+    {
+      "at": "2026-08-10T10:10:40.196Z",
+      "elapsedMs": 53000.379929,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1915
+    },
+    {
+      "at": "2026-08-10T10:10:40.575Z",
+      "elapsedMs": 53379.22004,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 280
+    },
+    {
+      "at": "2026-08-10T10:10:40.575Z",
+      "elapsedMs": 53379.344507,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1915
+    },
+    {
+      "at": "2026-08-10T10:10:40.905Z",
+      "elapsedMs": 53708.792120000006,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1920
+    },
+    {
+      "at": "2026-08-10T10:10:40.905Z",
+      "elapsedMs": 53709.277188,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1120
+    },
+    {
+      "at": "2026-08-10T10:10:40.906Z",
+      "elapsedMs": 53709.888926,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 286
+    },
+    {
+      "at": "2026-08-10T10:10:40.908Z",
+      "elapsedMs": 53711.833576000005,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 2514
+    },
+    {
+      "at": "2026-08-10T10:10:41.255Z",
+      "elapsedMs": 54059.426658000004,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 286
+    },
+    {
+      "at": "2026-08-10T10:10:41.256Z",
+      "elapsedMs": 54059.631626,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1808
+    },
+    {
+      "at": "2026-08-10T10:10:41.592Z",
+      "elapsedMs": 54395.69061400001,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 286
+    },
+    {
+      "at": "2026-08-10T10:10:41.592Z",
+      "elapsedMs": 54396.341361000006,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1808
+    },
+    {
+      "at": "2026-08-10T10:10:41.940Z",
+      "elapsedMs": 54743.979552000004,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 4674
+    },
+    {
+      "at": "2026-08-10T10:10:42.287Z",
+      "elapsedMs": 55090.676579000006,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 544
+    },
+    {
+      "at": "2026-08-10T10:10:42.315Z",
+      "elapsedMs": 55118.816062000005,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 286
+    },
+    {
+      "at": "2026-08-10T10:10:42.315Z",
+      "elapsedMs": 55118.971535000004,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1934
+    },
+    {
+      "at": "2026-08-10T10:10:42.634Z",
+      "elapsedMs": 55437.845936000005,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 286
+    },
+    {
+      "at": "2026-08-10T10:10:42.635Z",
+      "elapsedMs": 55438.799367,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1934
+    },
+    {
+      "at": "2026-08-10T10:10:43.041Z",
+      "elapsedMs": 55845.060882000005,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 1479277
+    },
+    {
+      "at": "2026-08-10T10:10:43.088Z",
+      "elapsedMs": 55891.883692,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1927
+    },
+    {
+      "at": "2026-08-10T10:10:43.091Z",
+      "elapsedMs": 55894.973000000005,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 280
+    },
+    {
+      "at": "2026-08-10T10:10:43.092Z",
+      "elapsedMs": 55895.938760000005,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1840
+    },
+    {
+      "at": "2026-08-10T10:10:43.460Z",
+      "elapsedMs": 56264.248922000006,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 280
+    },
+    {
+      "at": "2026-08-10T10:10:43.460Z",
+      "elapsedMs": 56264.389683,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1840
+    },
+    {
+      "at": "2026-08-10T10:10:43.858Z",
+      "elapsedMs": 56661.961263000005,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 1479277
+    },
+    {
+      "at": "2026-08-10T10:10:43.909Z",
+      "elapsedMs": 56712.494674,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 544
+    },
+    {
+      "at": "2026-08-10T10:10:43.909Z",
+      "elapsedMs": 56713.183017,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 286
+    },
+    {
+      "at": "2026-08-10T10:10:43.911Z",
+      "elapsedMs": 56714.682278,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1931
+    },
+    {
+      "at": "2026-08-10T10:10:44.217Z",
+      "elapsedMs": 57020.591875000006,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 286
+    },
+    {
+      "at": "2026-08-10T10:10:44.217Z",
+      "elapsedMs": 57020.778705000004,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1931
+    },
+    {
+      "at": "2026-08-10T10:10:44.591Z",
+      "elapsedMs": 57395.305671,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1120
+    },
+    {
+      "at": "2026-08-10T10:10:44.594Z",
+      "elapsedMs": 57397.99600000001,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1929
+    },
+    {
+      "at": "2026-08-10T10:10:44.596Z",
+      "elapsedMs": 57400.110074000004,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 280
+    },
+    {
+      "at": "2026-08-10T10:10:44.597Z",
+      "elapsedMs": 57401.115653,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1812
+    },
+    {
+      "at": "2026-08-10T10:10:44.925Z",
+      "elapsedMs": 57729.066699,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 280
+    },
+    {
+      "at": "2026-08-10T10:10:44.927Z",
+      "elapsedMs": 57730.721614,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1812
+    },
+    {
+      "at": "2026-08-10T10:10:45.281Z",
+      "elapsedMs": 58085.092220000006,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1016
+    },
+    {
+      "at": "2026-08-10T10:10:45.284Z",
+      "elapsedMs": 58087.95674,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 286
+    },
+    {
+      "at": "2026-08-10T10:10:45.285Z",
+      "elapsedMs": 58088.678383000006,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1877
+    },
+    {
+      "at": "2026-08-10T10:10:45.613Z",
+      "elapsedMs": 58417.436622,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 286
+    },
+    {
+      "at": "2026-08-10T10:10:45.616Z",
+      "elapsedMs": 58420.106659000005,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1877
+    },
+    {
+      "at": "2026-08-10T10:10:45.956Z",
+      "elapsedMs": 58759.676677,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1909
+    },
+    {
+      "at": "2026-08-10T10:10:45.966Z",
+      "elapsedMs": 58770.437321000005,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 544
+    },
+    {
+      "at": "2026-08-10T10:10:45.969Z",
+      "elapsedMs": 58772.547089,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 280
+    },
+    {
+      "at": "2026-08-10T10:10:45.971Z",
+      "elapsedMs": 58775.448354,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1840
+    },
+    {
+      "at": "2026-08-10T10:10:46.389Z",
+      "elapsedMs": 59192.798074000006,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 1479277
+    },
+    {
+      "at": "2026-08-10T10:10:46.447Z",
+      "elapsedMs": 59251.105664,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1009
+    },
+    {
+      "at": "2026-08-10T10:10:46.450Z",
+      "elapsedMs": 59253.511236000006,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 544
+    },
+    {
+      "at": "2026-08-10T10:10:46.486Z",
+      "elapsedMs": 59289.661033000004,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 1479277
+    },
+    {
+      "at": "2026-08-10T10:10:46.533Z",
+      "elapsedMs": 59336.637154000004,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1107
+    },
+    {
+      "at": "2026-08-10T10:10:46.535Z",
+      "elapsedMs": 59339.054191,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1936
+    },
+    {
+      "at": "2026-08-10T10:10:46.538Z",
+      "elapsedMs": 59342.062948000006,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 286
+    },
+    {
+      "at": "2026-08-10T10:10:46.541Z",
+      "elapsedMs": 59344.634199,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1808
+    },
+    {
+      "at": "2026-08-10T10:10:46.856Z",
+      "elapsedMs": 59659.848855000004,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 286
+    },
+    {
+      "at": "2026-08-10T10:10:46.858Z",
+      "elapsedMs": 59661.580033000006,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1808
+    },
+    {
+      "at": "2026-08-10T10:10:47.252Z",
+      "elapsedMs": 60056.204519000006,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1129
+    },
+    {
+      "at": "2026-08-10T10:10:47.255Z",
+      "elapsedMs": 60058.947506000004,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 544
+    },
+    {
+      "at": "2026-08-10T10:10:47.257Z",
+      "elapsedMs": 60061.358085,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 13931
+    },
+    {
+      "at": "2026-08-10T10:10:47.591Z",
+      "elapsedMs": 60394.887294,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1809
+    },
+    {
+      "at": "2026-08-10T10:10:47.940Z",
+      "elapsedMs": 60743.726036,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 1479278
+    },
+    {
+      "at": "2026-08-10T10:10:47.984Z",
+      "elapsedMs": 60787.951707,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 544
+    },
+    {
+      "at": "2026-08-10T10:10:47.986Z",
+      "elapsedMs": 60789.667664,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 3669
+    },
+    {
+      "at": "2026-08-10T10:10:47.991Z",
+      "elapsedMs": 60795.3876,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 286
+    },
+    {
+      "at": "2026-08-10T10:10:47.993Z",
+      "elapsedMs": 60796.553781,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1934
+    },
+    {
+      "at": "2026-08-10T10:10:48.290Z",
+      "elapsedMs": 61094.373003,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 286
+    },
+    {
+      "at": "2026-08-10T10:10:48.291Z",
+      "elapsedMs": 61094.541486,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1934
+    },
+    {
+      "at": "2026-08-10T10:10:48.619Z",
+      "elapsedMs": 61422.962818,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 286
+    },
+    {
+      "at": "2026-08-10T10:10:48.620Z",
+      "elapsedMs": 61423.933094,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1877
+    },
+    {
+      "at": "2026-08-10T10:10:48.962Z",
+      "elapsedMs": 61766.102954,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 286
+    },
+    {
+      "at": "2026-08-10T10:10:48.963Z",
+      "elapsedMs": 61767.390127000006,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1877
+    },
+    {
+      "at": "2026-08-10T10:10:49.309Z",
+      "elapsedMs": 62113.104549,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 2848
+    },
+    {
+      "at": "2026-08-10T10:10:49.321Z",
+      "elapsedMs": 62124.679856,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 544
+    },
+    {
+      "at": "2026-08-10T10:10:49.322Z",
+      "elapsedMs": 62126.429592,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 286
+    },
+    {
+      "at": "2026-08-10T10:10:49.323Z",
+      "elapsedMs": 62127.246738,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1931
+    },
+    {
+      "at": "2026-08-10T10:10:49.668Z",
+      "elapsedMs": 62472.29805500001,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 13931
+    },
+    {
+      "at": "2026-08-10T10:10:49.994Z",
+      "elapsedMs": 62798.131651,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 286
+    },
+    {
+      "at": "2026-08-10T10:10:49.996Z",
+      "elapsedMs": 62799.887057,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1931
+    },
+    {
+      "at": "2026-08-10T10:10:50.286Z",
+      "elapsedMs": 63089.816905,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1105
+    },
+    {
+      "at": "2026-08-10T10:10:50.288Z",
+      "elapsedMs": 63091.664288,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 544
+    },
+    {
+      "at": "2026-08-10T10:10:50.321Z",
+      "elapsedMs": 63125.277368,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 1479278
+    },
+    {
+      "at": "2026-08-10T10:10:50.378Z",
+      "elapsedMs": 63182.083945000006,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 280
+    },
+    {
+      "at": "2026-08-10T10:10:50.378Z",
+      "elapsedMs": 63182.181361,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1812
+    },
+    {
+      "at": "2026-08-10T10:10:50.751Z",
+      "elapsedMs": 63555.192801000005,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 280
+    },
+    {
+      "at": "2026-08-10T10:10:50.753Z",
+      "elapsedMs": 63556.641636,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1812
+    },
+    {
+      "at": "2026-08-10T10:10:51.074Z",
+      "elapsedMs": 63878.195818,
+      "event": "frame-received",
+      "type": "machinesChanged",
+      "bytes": 5084
+    },
+    {
+      "at": "2026-08-10T10:10:51.247Z",
+      "elapsedMs": 64050.949584,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 1479278
+    },
+    {
+      "at": "2026-08-10T10:10:51.293Z",
+      "elapsedMs": 64096.606283,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 280
+    },
+    {
+      "at": "2026-08-10T10:10:51.294Z",
+      "elapsedMs": 64098.042809000006,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1840
+    },
+    {
+      "at": "2026-08-10T10:10:51.628Z",
+      "elapsedMs": 64432.442424,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 3666
+    },
+    {
+      "at": "2026-08-10T10:10:51.630Z",
+      "elapsedMs": 64434.181345000005,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 280
+    },
+    {
+      "at": "2026-08-10T10:10:51.635Z",
+      "elapsedMs": 64438.492117,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1840
+    },
+    {
+      "at": "2026-08-10T10:10:51.956Z",
+      "elapsedMs": 64759.751607000006,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1108
+    },
+    {
+      "at": "2026-08-10T10:10:51.956Z",
+      "elapsedMs": 64759.818357000004,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 544
+    },
+    {
+      "at": "2026-08-10T10:10:51.958Z",
+      "elapsedMs": 64761.777097000006,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 280
+    },
+    {
+      "at": "2026-08-10T10:10:51.959Z",
+      "elapsedMs": 64763.026843,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1915
+    },
+    {
+      "at": "2026-08-10T10:10:52.302Z",
+      "elapsedMs": 65105.63076400001,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1120
+    },
+    {
+      "at": "2026-08-10T10:10:52.302Z",
+      "elapsedMs": 65105.69580200001,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 2064
+    },
+    {
+      "at": "2026-08-10T10:10:52.304Z",
+      "elapsedMs": 65108.266371,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1009
+    },
+    {
+      "at": "2026-08-10T10:10:52.306Z",
+      "elapsedMs": 65109.743759,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 544
+    },
+    {
+      "at": "2026-08-10T10:10:52.310Z",
+      "elapsedMs": 65113.875611,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 286
+    },
+    {
+      "at": "2026-08-10T10:10:52.310Z",
+      "elapsedMs": 65114.32866200001,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1877
+    },
+    {
+      "at": "2026-08-10T10:10:52.660Z",
+      "elapsedMs": 65464.09225200001,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 286
+    },
+    {
+      "at": "2026-08-10T10:10:52.661Z",
+      "elapsedMs": 65465.34682500001,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1934
+    },
+    {
+      "at": "2026-08-10T10:10:53.001Z",
+      "elapsedMs": 65804.74064799999,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 286
+    },
+    {
+      "at": "2026-08-10T10:10:53.002Z",
+      "elapsedMs": 65806.01824599999,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1808
+    },
+    {
+      "at": "2026-08-10T10:10:53.329Z",
+      "elapsedMs": 66132.820607,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 3662
+    },
+    {
+      "at": "2026-08-10T10:10:53.333Z",
+      "elapsedMs": 66137.377557,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 280
+    },
+    {
+      "at": "2026-08-10T10:10:53.335Z",
+      "elapsedMs": 66138.76967699999,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1818
+    },
+    {
+      "at": "2026-08-10T10:10:53.661Z",
+      "elapsedMs": 66465.43639399999,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1942
+    },
+    {
+      "at": "2026-08-10T10:10:53.665Z",
+      "elapsedMs": 66468.933654,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 280
+    },
+    {
+      "at": "2026-08-10T10:10:53.666Z",
+      "elapsedMs": 66469.656449,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1915
+    },
+    {
+      "at": "2026-08-10T10:10:54.051Z",
+      "elapsedMs": 66855.43130899999,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 544
+    },
+    {
+      "at": "2026-08-10T10:10:54.053Z",
+      "elapsedMs": 66857.299873,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 286
+    },
+    {
+      "at": "2026-08-10T10:10:54.054Z",
+      "elapsedMs": 66858.451412,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1877
+    },
+    {
+      "at": "2026-08-10T10:10:54.469Z",
+      "elapsedMs": 67272.746495,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 286
+    },
+    {
+      "at": "2026-08-10T10:10:54.469Z",
+      "elapsedMs": 67272.81861399999,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1808
+    },
+    {
+      "at": "2026-08-10T10:10:54.802Z",
+      "elapsedMs": 67606.012689,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 286
+    },
+    {
+      "at": "2026-08-10T10:10:54.803Z",
+      "elapsedMs": 67607.393411,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1934
+    },
+    {
+      "at": "2026-08-10T10:10:55.197Z",
+      "elapsedMs": 68000.939566,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 280
+    },
+    {
+      "at": "2026-08-10T10:10:55.198Z",
+      "elapsedMs": 68001.926939,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1818
+    },
+    {
+      "at": "2026-08-10T10:10:55.654Z",
+      "elapsedMs": 68458.04823,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 1479277
+    },
+    {
+      "at": "2026-08-10T10:10:55.715Z",
+      "elapsedMs": 68519.19677499999,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 543
+    },
+    {
+      "at": "2026-08-10T10:10:55.715Z",
+      "elapsedMs": 68519.22005999999,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 286
+    },
+    {
+      "at": "2026-08-10T10:10:55.715Z",
+      "elapsedMs": 68519.28013,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 2514
+    },
+    {
+      "at": "2026-08-10T10:10:56.047Z",
+      "elapsedMs": 68851.43693899999,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 286
+    },
+    {
+      "at": "2026-08-10T10:10:56.048Z",
+      "elapsedMs": 68852.182518,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 2514
+    },
+    {
+      "at": "2026-08-10T10:10:56.386Z",
+      "elapsedMs": 69189.746694,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1945
+    },
+    {
+      "at": "2026-08-10T10:10:56.390Z",
+      "elapsedMs": 69194.088622,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 280
+    },
+    {
+      "at": "2026-08-10T10:10:56.391Z",
+      "elapsedMs": 69195.256005,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1818
+    },
+    {
+      "at": "2026-08-10T10:10:56.702Z",
+      "elapsedMs": 69505.88236199999,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 280
+    },
+    {
+      "at": "2026-08-10T10:10:56.703Z",
+      "elapsedMs": 69507.135984,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1818
+    },
+    {
+      "at": "2026-08-10T10:10:57.038Z",
+      "elapsedMs": 69842.07261399999,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1120
+    },
+    {
+      "at": "2026-08-10T10:10:57.038Z",
+      "elapsedMs": 69842.20284,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 286
+    },
+    {
+      "at": "2026-08-10T10:10:57.038Z",
+      "elapsedMs": 69842.257442,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1931
+    },
+    {
+      "at": "2026-08-10T10:10:57.378Z",
+      "elapsedMs": 70182.23045399999,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 286
+    },
+    {
+      "at": "2026-08-10T10:10:57.378Z",
+      "elapsedMs": 70182.45596199999,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1931
+    },
+    {
+      "at": "2026-08-10T10:10:57.716Z",
+      "elapsedMs": 70519.738014,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 8432
+    },
+    {
+      "at": "2026-08-10T10:10:58.160Z",
+      "elapsedMs": 70963.71046799999,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1105
+    },
+    {
+      "at": "2026-08-10T10:10:58.163Z",
+      "elapsedMs": 70967.30884,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 12768
+    },
+    {
+      "at": "2026-08-10T10:10:58.519Z",
+      "elapsedMs": 71322.6555,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 543
+    },
+    {
+      "at": "2026-08-10T10:10:58.521Z",
+      "elapsedMs": 71325.360821,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 7600
+    },
+    {
+      "at": "2026-08-10T10:10:58.887Z",
+      "elapsedMs": 71690.91808,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 543
+    },
+    {
+      "at": "2026-08-10T10:10:58.888Z",
+      "elapsedMs": 71692.465963,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 280
+    },
+    {
+      "at": "2026-08-10T10:10:58.889Z",
+      "elapsedMs": 71693.294837,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1812
+    },
+    {
+      "at": "2026-08-10T10:10:59.247Z",
+      "elapsedMs": 72051.410544,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 280
+    },
+    {
+      "at": "2026-08-10T10:10:59.248Z",
+      "elapsedMs": 72052.330194,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1812
+    },
+    {
+      "at": "2026-08-10T10:10:59.586Z",
+      "elapsedMs": 72390.087009,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1016
+    },
+    {
+      "at": "2026-08-10T10:10:59.592Z",
+      "elapsedMs": 72396.111273,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 13931
+    },
+    {
+      "at": "2026-08-10T10:10:59.959Z",
+      "elapsedMs": 72763.180581,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 9620
+    },
+    {
+      "at": "2026-08-10T10:11:00.375Z",
+      "elapsedMs": 73178.847623,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 1479300
+    },
+    {
+      "at": "2026-08-10T10:11:00.421Z",
+      "elapsedMs": 73225.298904,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1809
+    },
+    {
+      "at": "2026-08-10T10:11:00.792Z",
+      "elapsedMs": 73595.503329,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 1479301
+    },
+    {
+      "at": "2026-08-10T10:11:00.863Z",
+      "elapsedMs": 73666.826768,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 2847
+    },
+    {
+      "at": "2026-08-10T10:11:00.868Z",
+      "elapsedMs": 73671.95771,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 543
+    },
+    {
+      "at": "2026-08-10T10:11:00.897Z",
+      "elapsedMs": 73700.81131399999,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 1479301
+    },
+    {
+      "at": "2026-08-10T10:11:00.958Z",
+      "elapsedMs": 73761.80252299999,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 280
+    },
+    {
+      "at": "2026-08-10T10:11:00.960Z",
+      "elapsedMs": 73764.363138,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1840
+    },
+    {
+      "at": "2026-08-10T10:11:01.288Z",
+      "elapsedMs": 74091.976084,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 280
+    },
+    {
+      "at": "2026-08-10T10:11:01.291Z",
+      "elapsedMs": 74094.884641,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1840
+    },
+    {
+      "at": "2026-08-10T10:11:01.653Z",
+      "elapsedMs": 74456.576315,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 543
+    },
+    {
+      "at": "2026-08-10T10:11:01.653Z",
+      "elapsedMs": 74456.623255,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1846
+    },
+    {
+      "at": "2026-08-10T10:11:01.653Z",
+      "elapsedMs": 74457.01998099999,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 280
+    },
+    {
+      "at": "2026-08-10T10:11:01.657Z",
+      "elapsedMs": 74461.17646,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1915
+    },
+    {
+      "at": "2026-08-10T10:11:02.339Z",
+      "elapsedMs": 75143.117688,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 280
+    },
+    {
+      "at": "2026-08-10T10:11:02.341Z",
+      "elapsedMs": 75145.37456699999,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1915
+    },
+    {
+      "at": "2026-08-10T10:11:02.766Z",
+      "elapsedMs": 75569.706876,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1120
+    },
+    {
+      "at": "2026-08-10T10:11:02.774Z",
+      "elapsedMs": 75577.64104599999,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 543
+    },
+    {
+      "at": "2026-08-10T10:11:02.774Z",
+      "elapsedMs": 75577.676469,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 2064
+    },
+    {
+      "at": "2026-08-10T10:11:02.774Z",
+      "elapsedMs": 75577.813365,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 2182
+    },
+    {
+      "at": "2026-08-10T10:11:03.167Z",
+      "elapsedMs": 75971.24055,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 1479278
+    },
+    {
+      "at": "2026-08-10T10:11:03.254Z",
+      "elapsedMs": 76057.777518,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 1479278
+    },
+    {
+      "at": "2026-08-10T10:11:03.298Z",
+      "elapsedMs": 76102.129288,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1916
+    },
+    {
+      "at": "2026-08-10T10:11:03.660Z",
+      "elapsedMs": 76463.746931,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 544
+    },
+    {
+      "at": "2026-08-10T10:11:03.703Z",
+      "elapsedMs": 76507.405271,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 1479354
+    },
+    {
+      "at": "2026-08-10T10:11:03.771Z",
+      "elapsedMs": 76575.42202499999,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 286
+    },
+    {
+      "at": "2026-08-10T10:11:03.774Z",
+      "elapsedMs": 76578.422139,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1931
+    },
+    {
+      "at": "2026-08-10T10:11:04.113Z",
+      "elapsedMs": 76917.004443,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 280
+    },
+    {
+      "at": "2026-08-10T10:11:04.116Z",
+      "elapsedMs": 76919.539077,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1818
+    },
+    {
+      "at": "2026-08-10T10:11:04.464Z",
+      "elapsedMs": 77268.30087199999,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 4501
+    },
+    {
+      "at": "2026-08-10T10:11:04.474Z",
+      "elapsedMs": 77277.64936499999,
+      "event": "frame-sent",
+      "type": "viewState",
+      "bytes": 178
+    },
+    {
+      "at": "2026-08-10T10:11:04.474Z",
+      "elapsedMs": 77277.731909,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 280
+    },
+    {
+      "at": "2026-08-10T10:11:04.474Z",
+      "elapsedMs": 77277.81934,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1818
+    },
+    {
+      "at": "2026-08-10T10:11:04.791Z",
+      "elapsedMs": 77595.045915,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 286
+    },
+    {
+      "at": "2026-08-10T10:11:04.792Z",
+      "elapsedMs": 77596.008711,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1931
+    },
+    {
+      "at": "2026-08-10T10:11:05.106Z",
+      "elapsedMs": 77910.015591,
+      "event": "frame-sent",
+      "type": "presenceSubscribe",
+      "bytes": 98
+    },
+    {
+      "at": "2026-08-10T10:11:05.106Z",
+      "elapsedMs": 77910.118015,
+      "event": "frame-sent",
+      "type": "presenceUpdate",
+      "bytes": 138
+    },
+    {
+      "at": "2026-08-10T10:11:05.106Z",
+      "elapsedMs": 77910.137945,
+      "event": "frame-received",
+      "type": "presenceRoomState",
+      "bytes": 158
+    },
+    {
+      "at": "2026-08-10T10:11:05.107Z",
+      "elapsedMs": 77911.04622799999,
+      "event": "frame-received",
+      "type": "presenceRoomDelta",
+      "bytes": 173
+    },
+    {
+      "at": "2026-08-10T10:11:05.107Z",
+      "elapsedMs": 77911.188201,
+      "event": "frame-received",
+      "type": "presenceRoomDelta",
+      "bytes": 217
+    },
+    {
+      "at": "2026-08-10T10:11:05.108Z",
+      "elapsedMs": 77912.17287,
+      "event": "frame-sent",
+      "type": "attach",
+      "bytes": 68
+    },
+    {
+      "at": "2026-08-10T10:11:05.108Z",
+      "elapsedMs": 77912.23415199999,
+      "event": "frame-sent",
+      "type": "requestControl",
+      "bytes": 76
+    },
+    {
+      "at": "2026-08-10T10:11:05.108Z",
+      "elapsedMs": 77912.267572,
+      "event": "frame-received",
+      "type": "attached",
+      "bytes": 225
+    },
+    {
+      "at": "2026-08-10T10:11:05.110Z",
+      "elapsedMs": 77913.822997,
+      "event": "frame-received",
+      "type": "outputFrame",
+      "bytes": 413
+    },
+    {
+      "at": "2026-08-10T10:11:05.110Z",
+      "elapsedMs": 77914.44798499999,
+      "event": "frame-received",
+      "type": "outputFrame",
+      "bytes": 257
+    },
+    {
+      "at": "2026-08-10T10:11:05.111Z",
+      "elapsedMs": 77914.710469,
+      "event": "frame-received",
+      "type": "outputFrame",
+      "bytes": 257
+    },
+    {
+      "at": "2026-08-10T10:11:05.111Z",
+      "elapsedMs": 77914.72710399999,
+      "event": "frame-received",
+      "type": "presenceRoomState",
+      "bytes": 201
+    },
+    {
+      "at": "2026-08-10T10:11:05.126Z",
+      "elapsedMs": 77929.89775799999,
+      "event": "frame-sent",
+      "type": "resize",
+      "bytes": 88
+    },
+    {
+      "at": "2026-08-10T10:11:05.126Z",
+      "elapsedMs": 77929.94084299999,
+      "event": "frame-sent",
+      "type": "transcriptSubscribe",
+      "bytes": 81
+    },
+    {
+      "at": "2026-08-10T10:11:05.126Z",
+      "elapsedMs": 77930.015004,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 949
+    },
+    {
+      "at": "2026-08-10T10:11:05.478Z",
+      "elapsedMs": 78281.926367,
+      "event": "frame-received",
+      "type": "geometry",
+      "bytes": 90
+    },
+    {
+      "at": "2026-08-10T10:11:05.478Z",
+      "elapsedMs": 78281.998455,
+      "event": "frame-received",
+      "type": "outputFrame",
+      "bytes": 413
+    },
+    {
+      "at": "2026-08-10T10:11:05.478Z",
+      "elapsedMs": 78282.01469899999,
+      "event": "frame-received",
+      "type": "outputFrame",
+      "bytes": 257
+    },
+    {
+      "at": "2026-08-10T10:11:05.531Z",
+      "elapsedMs": 78334.68861099999,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 1479356
+    },
+    {
+      "at": "2026-08-10T10:11:05.564Z",
+      "elapsedMs": 78367.720949,
+      "event": "frame-received",
+      "type": "machinesChanged",
+      "bytes": 5084
+    },
+    {
+      "at": "2026-08-10T10:11:05.994Z",
+      "elapsedMs": 78797.750451,
+      "event": "frame-sent",
+      "type": "ping",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T10:11:05.994Z",
+      "elapsedMs": 78797.785013,
+      "event": "frame-sent",
+      "type": "resize",
+      "bytes": 88
+    },
+    {
+      "at": "2026-08-10T10:11:05.994Z",
+      "elapsedMs": 78797.92661499999,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 2182
+    },
+    {
+      "at": "2026-08-10T10:11:06.532Z",
+      "elapsedMs": 79335.886499,
+      "event": "frame-received",
+      "type": "pong",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T10:11:06.532Z",
+      "elapsedMs": 79335.918617,
+      "event": "frame-received",
+      "type": "geometry",
+      "bytes": 90
+    },
+    {
+      "at": "2026-08-10T10:11:06.639Z",
+      "elapsedMs": 79442.81637999999,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 1479356
+    },
+    {
+      "at": "2026-08-10T10:11:06.776Z",
+      "elapsedMs": 79580.01867599999,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 287
+    },
+    {
+      "at": "2026-08-10T10:11:06.779Z",
+      "elapsedMs": 79583.05396199999,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1746
+    },
+    {
+      "at": "2026-08-10T10:11:07.268Z",
+      "elapsedMs": 80071.69286699999,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 544
+    },
+    {
+      "at": "2026-08-10T10:11:07.642Z",
+      "elapsedMs": 80445.748521,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 286
+    },
+    {
+      "at": "2026-08-10T10:11:07.642Z",
+      "elapsedMs": 80445.83442,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1808
+    },
+    {
+      "at": "2026-08-10T10:11:08.160Z",
+      "elapsedMs": 80964.095152,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 286
+    },
+    {
+      "at": "2026-08-10T10:11:08.160Z",
+      "elapsedMs": 80964.221202,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1808
+    },
+    {
+      "at": "2026-08-10T10:11:08.592Z",
+      "elapsedMs": 81395.644336,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 286
+    },
+    {
+      "at": "2026-08-10T10:11:08.592Z",
+      "elapsedMs": 81395.79173699999,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1934
+    },
+    {
+      "at": "2026-08-10T10:11:08.905Z",
+      "elapsedMs": 81709.272116,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 287
+    },
+    {
+      "at": "2026-08-10T10:11:08.906Z",
+      "elapsedMs": 81710.02741,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1746
+    },
+    {
+      "at": "2026-08-10T10:11:09.425Z",
+      "elapsedMs": 82229.180211,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 286
+    },
+    {
+      "at": "2026-08-10T10:11:09.425Z",
+      "elapsedMs": 82229.260041,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1934
+    },
+    {
+      "at": "2026-08-10T10:11:09.845Z",
+      "elapsedMs": 82648.777151,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 544
+    },
+    {
+      "at": "2026-08-10T10:11:09.848Z",
+      "elapsedMs": 82652.151767,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 2748
+    },
+    {
+      "at": "2026-08-10T10:11:09.917Z",
+      "elapsedMs": 82720.91846799999,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 1478919
+    },
+    {
+      "at": "2026-08-10T10:11:09.969Z",
+      "elapsedMs": 82773.047022,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1808
+    },
+    {
+      "at": "2026-08-10T10:11:10.443Z",
+      "elapsedMs": 83246.918789,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 1478919
+    },
+    {
+      "at": "2026-08-10T10:11:10.495Z",
+      "elapsedMs": 83299.260092,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 544
+    },
+    {
+      "at": "2026-08-10T10:11:10.501Z",
+      "elapsedMs": 83305.20753,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 544
+    },
+    {
+      "at": "2026-08-10T10:11:10.507Z",
+      "elapsedMs": 83311.095649,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 13931
+    },
+    {
+      "at": "2026-08-10T10:11:10.880Z",
+      "elapsedMs": 83684.03009999999,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1809
+    },
+    {
+      "at": "2026-08-10T10:11:11.258Z",
+      "elapsedMs": 84062.458849,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 1478920
+    },
+    {
+      "at": "2026-08-10T10:11:11.325Z",
+      "elapsedMs": 84128.79766499999,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 544
+    },
+    {
+      "at": "2026-08-10T10:11:11.328Z",
+      "elapsedMs": 84131.753573,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 280
+    },
+    {
+      "at": "2026-08-10T10:11:11.329Z",
+      "elapsedMs": 84133.316228,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1915
+    },
+    {
+      "at": "2026-08-10T10:11:11.727Z",
+      "elapsedMs": 84531.217689,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 280
+    },
+    {
+      "at": "2026-08-10T10:11:11.728Z",
+      "elapsedMs": 84532.032933,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1915
+    },
+    {
+      "at": "2026-08-10T10:11:12.062Z",
+      "elapsedMs": 84866.392847,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 544
+    },
+    {
+      "at": "2026-08-10T10:11:12.097Z",
+      "elapsedMs": 84901.376152,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 1478920
+    },
+    {
+      "at": "2026-08-10T10:11:12.150Z",
+      "elapsedMs": 84954.025198,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1120
+    },
+    {
+      "at": "2026-08-10T10:11:12.181Z",
+      "elapsedMs": 84985.422501,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 1478920
+    },
+    {
+      "at": "2026-08-10T10:11:12.242Z",
+      "elapsedMs": 85045.615892,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 1478920
+    },
+    {
+      "at": "2026-08-10T10:11:12.286Z",
+      "elapsedMs": 85090.465899,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 544
+    },
+    {
+      "at": "2026-08-10T10:11:12.289Z",
+      "elapsedMs": 85093.28122599999,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1120
+    },
+    {
+      "at": "2026-08-10T10:11:12.291Z",
+      "elapsedMs": 85094.90918999999,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 544
+    },
+    {
+      "at": "2026-08-10T10:11:12.293Z",
+      "elapsedMs": 85097.41767499999,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1809
+    },
+    {
+      "at": "2026-08-10T10:11:12.594Z",
+      "elapsedMs": 85397.89119899999,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1129
+    },
+    {
+      "at": "2026-08-10T10:11:12.623Z",
+      "elapsedMs": 85426.90138899999,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 1478920
+    },
+    {
+      "at": "2026-08-10T10:11:12.725Z",
+      "elapsedMs": 85529.069451,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 1478920
+    },
+    {
+      "at": "2026-08-10T10:11:12.756Z",
+      "elapsedMs": 85559.600484,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 544
+    },
+    {
+      "at": "2026-08-10T10:11:12.757Z",
+      "elapsedMs": 85561.227667,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 544
+    },
+    {
+      "at": "2026-08-10T10:11:12.791Z",
+      "elapsedMs": 85595.29625,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 1478920
+    },
+    {
+      "at": "2026-08-10T10:11:12.845Z",
+      "elapsedMs": 85648.703343,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 280
+    },
+    {
+      "at": "2026-08-10T10:11:12.845Z",
+      "elapsedMs": 85649.219478,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1853
+    },
+    {
+      "at": "2026-08-10T10:11:13.160Z",
+      "elapsedMs": 85963.846639,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 280
+    },
+    {
+      "at": "2026-08-10T10:11:13.161Z",
+      "elapsedMs": 85964.96765199999,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1853
+    },
+    {
+      "at": "2026-08-10T10:11:13.507Z",
+      "elapsedMs": 86310.832727,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 544
+    },
+    {
+      "at": "2026-08-10T10:11:13.510Z",
+      "elapsedMs": 86314.147552,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1129
+    },
+    {
+      "at": "2026-08-10T10:11:13.513Z",
+      "elapsedMs": 86316.97531699999,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 544
+    },
+    {
+      "at": "2026-08-10T10:11:13.515Z",
+      "elapsedMs": 86319.01260599999,
+      "event": "frame-sent",
+      "type": "ping",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T10:11:13.515Z",
+      "elapsedMs": 86319.046928,
+      "event": "frame-received",
+      "type": "pong",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T10:11:13.522Z",
+      "elapsedMs": 86326.366425,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1120
+    },
+    {
+      "at": "2026-08-10T10:11:13.526Z",
+      "elapsedMs": 86329.960981,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 280
+    },
+    {
+      "at": "2026-08-10T10:11:13.526Z",
+      "elapsedMs": 86330.04224299999,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1915
+    },
+    {
+      "at": "2026-08-10T10:11:13.887Z",
+      "elapsedMs": 86690.758432,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 280
+    },
+    {
+      "at": "2026-08-10T10:11:13.887Z",
+      "elapsedMs": 86690.848828,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1915
+    },
+    {
+      "at": "2026-08-10T10:11:14.260Z",
+      "elapsedMs": 87064.342878,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1809
+    },
+    {
+      "at": "2026-08-10T10:11:14.641Z",
+      "elapsedMs": 87445.05914099999,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 1478920
+    },
+    {
+      "at": "2026-08-10T10:11:14.687Z",
+      "elapsedMs": 87490.618924,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1120
+    },
+    {
+      "at": "2026-08-10T10:11:14.688Z",
+      "elapsedMs": 87492.442782,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 544
+    },
+    {
+      "at": "2026-08-10T10:11:14.721Z",
+      "elapsedMs": 87524.89229399999,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 1478920
+    },
+    {
+      "at": "2026-08-10T10:11:14.776Z",
+      "elapsedMs": 87579.942755,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 544
+    },
+    {
+      "at": "2026-08-10T10:11:14.780Z",
+      "elapsedMs": 87584.170231,
+      "event": "frame-received",
+      "type": "machinesChanged",
+      "bytes": 5084
+    },
+    {
+      "at": "2026-08-10T10:11:14.954Z",
+      "elapsedMs": 87757.867852,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1129
+    },
+    {
+      "at": "2026-08-10T10:11:14.993Z",
+      "elapsedMs": 87796.64393199999,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 1478920
+    },
+    {
+      "at": "2026-08-10T10:11:15.053Z",
+      "elapsedMs": 87857.31174399999,
+      "event": "frame-sent",
+      "type": "ping",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T10:11:15.053Z",
+      "elapsedMs": 87857.364143,
+      "event": "frame-received",
+      "type": "pong",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T10:11:15.053Z",
+      "elapsedMs": 87857.40768799999,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 544
+    },
+    {
+      "at": "2026-08-10T10:11:15.708Z",
+      "elapsedMs": 88512.266897,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 1478920
+    },
+    {
+      "at": "2026-08-10T10:11:15.773Z",
+      "elapsedMs": 88577.222377,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 544
+    },
+    {
+      "at": "2026-08-10T10:11:16.777Z",
+      "elapsedMs": 89580.672593,
+      "event": "frame-sent",
+      "type": "ping",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T10:11:16.787Z",
+      "elapsedMs": 89590.604412,
+      "event": "frame-received",
+      "type": "pong",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T10:11:17.195Z",
+      "elapsedMs": 89999.10657599999,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 8293
+    },
+    {
+      "at": "2026-08-10T10:11:18.753Z",
+      "elapsedMs": 91556.74225,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 8781
+    },
+    {
+      "at": "2026-08-10T10:11:19.290Z",
+      "elapsedMs": 92094.47366799999,
+      "event": "frame-sent",
+      "type": "ping",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T10:11:19.291Z",
+      "elapsedMs": 92094.59521099999,
+      "event": "frame-received",
+      "type": "pong",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T10:11:19.465Z",
+      "elapsedMs": 92269.401525,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 544
+    },
+    {
+      "at": "2026-08-10T10:11:20.663Z",
+      "elapsedMs": 93467.38907399999,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 544
+    },
+    {
+      "at": "2026-08-10T10:11:21.342Z",
+      "elapsedMs": 94145.66552499999,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1129
+    },
+    {
+      "at": "2026-08-10T10:11:21.451Z",
+      "elapsedMs": 94255.238633,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 280
+    },
+    {
+      "at": "2026-08-10T10:11:21.458Z",
+      "elapsedMs": 94261.53629799999,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1853
+    },
+    {
+      "at": "2026-08-10T10:11:21.929Z",
+      "elapsedMs": 94732.803761,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 280
+    },
+    {
+      "at": "2026-08-10T10:11:21.931Z",
+      "elapsedMs": 94735.25222699999,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1853
+    },
+    {
+      "at": "2026-08-10T10:11:22.309Z",
+      "elapsedMs": 95113.196076,
+      "event": "frame-sent",
+      "type": "ping",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T10:11:22.309Z",
+      "elapsedMs": 95113.219421,
+      "event": "frame-received",
+      "type": "pong",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T10:11:22.738Z",
+      "elapsedMs": 95542.31549899999,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 1478920
+    },
+    {
+      "at": "2026-08-10T10:11:22.816Z",
+      "elapsedMs": 95620.21079299999,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 8779
+    },
+    {
+      "at": "2026-08-10T10:11:23.889Z",
+      "elapsedMs": 96693.41592,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1129
+    },
+    {
+      "at": "2026-08-10T10:11:24.426Z",
+      "elapsedMs": 97230.167007,
+      "event": "frame-sent",
+      "type": "ping",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T10:11:24.482Z",
+      "elapsedMs": 97285.988264,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 544
+    },
+    {
+      "at": "2026-08-10T10:11:24.489Z",
+      "elapsedMs": 97292.692669,
+      "event": "frame-received",
+      "type": "pong",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T10:11:24.950Z",
+      "elapsedMs": 97754.236616,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 280
+    },
+    {
+      "at": "2026-08-10T10:11:24.951Z",
+      "elapsedMs": 97755.47340199999,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1915
+    },
+    {
+      "at": "2026-08-10T10:11:25.328Z",
+      "elapsedMs": 98131.68164499999,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 280
+    },
+    {
+      "at": "2026-08-10T10:11:25.328Z",
+      "elapsedMs": 98131.795497,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1915
+    },
+    {
+      "at": "2026-08-10T10:11:25.699Z",
+      "elapsedMs": 98502.951666,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 544
+    },
+    {
+      "at": "2026-08-10T10:11:25.985Z",
+      "elapsedMs": 98789.354156,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1120
+    },
+    {
+      "at": "2026-08-10T10:11:26.617Z",
+      "elapsedMs": 99420.793765,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 8777
+    },
+    {
+      "at": "2026-08-10T10:11:27.071Z",
+      "elapsedMs": 99874.96849,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 1478920
+    },
+    {
+      "at": "2026-08-10T10:11:27.131Z",
+      "elapsedMs": 99934.934709,
+      "event": "frame-sent",
+      "type": "ping",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T10:11:27.131Z",
+      "elapsedMs": 99934.94837,
+      "event": "frame-received",
+      "type": "pong",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T10:11:27.131Z",
+      "elapsedMs": 99934.999476,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 280
+    },
+    {
+      "at": "2026-08-10T10:11:27.133Z",
+      "elapsedMs": 99937.200281,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1853
+    },
+    {
+      "at": "2026-08-10T10:11:27.523Z",
+      "elapsedMs": 100327.041679,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 280
+    },
+    {
+      "at": "2026-08-10T10:11:27.524Z",
+      "elapsedMs": 100328.271946,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1853
+    },
+    {
+      "at": "2026-08-10T10:11:27.989Z",
+      "elapsedMs": 100793.190188,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1920
+    },
+    {
+      "at": "2026-08-10T10:11:28.085Z",
+      "elapsedMs": 100889.409019,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1129
+    },
+    {
+      "at": "2026-08-10T10:11:28.316Z",
+      "elapsedMs": 101120.398384,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 12997
+    },
+    {
+      "at": "2026-08-10T10:11:28.820Z",
+      "elapsedMs": 101624.23121299999,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 1478920
+    },
+    {
+      "at": "2026-08-10T10:11:29.486Z",
+      "elapsedMs": 102289.98968099999,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 544
+    },
+    {
+      "at": "2026-08-10T10:11:29.587Z",
+      "elapsedMs": 102390.652623,
+      "event": "frame-sent",
+      "type": "ping",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T10:11:29.587Z",
+      "elapsedMs": 102390.694395,
+      "event": "frame-received",
+      "type": "pong",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T10:11:29.931Z",
+      "elapsedMs": 102735.275501,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 12997
+    },
+    {
+      "at": "2026-08-10T10:11:30.668Z",
+      "elapsedMs": 103472.30583,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 544
+    },
+    {
+      "at": "2026-08-10T10:11:31.501Z",
+      "elapsedMs": 104305.05779199999,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1942
+    },
+    {
+      "at": "2026-08-10T10:11:31.879Z",
+      "elapsedMs": 104683.015781,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 280
+    },
+    {
+      "at": "2026-08-10T10:11:31.879Z",
+      "elapsedMs": 104683.35253599999,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1812
+    },
+    {
+      "at": "2026-08-10T10:11:32.293Z",
+      "elapsedMs": 105097.442887,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 280
+    },
+    {
+      "at": "2026-08-10T10:11:32.295Z",
+      "elapsedMs": 105099.346345,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1812
+    },
+    {
+      "at": "2026-08-10T10:11:32.634Z",
+      "elapsedMs": 105438.03833899999,
+      "event": "frame-sent",
+      "type": "ping",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T10:11:32.634Z",
+      "elapsedMs": 105438.05202999999,
+      "event": "frame-received",
+      "type": "pong",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T10:11:32.892Z",
+      "elapsedMs": 105695.516838,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1016
+    },
+    {
+      "at": "2026-08-10T10:11:33.690Z",
+      "elapsedMs": 106493.745795,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1120
+    },
+    {
+      "at": "2026-08-10T10:11:34.477Z",
+      "elapsedMs": 107281.42369299999,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 544
+    },
+    {
+      "at": "2026-08-10T10:11:34.676Z",
+      "elapsedMs": 107479.924296,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 287
+    },
+    {
+      "at": "2026-08-10T10:11:34.676Z",
+      "elapsedMs": 107480.015743,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1746
+    },
+    {
+      "at": "2026-08-10T10:11:35.130Z",
+      "elapsedMs": 107934.061143,
+      "event": "frame-sent",
+      "type": "ping",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T10:11:35.130Z",
+      "elapsedMs": 107934.07545399999,
+      "event": "frame-received",
+      "type": "pong",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T10:11:35.391Z",
+      "elapsedMs": 108195.430712,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 1478920
+    },
+    {
+      "at": "2026-08-10T10:11:35.672Z",
+      "elapsedMs": 108475.927935,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 544
+    },
+    {
+      "at": "2026-08-10T10:11:35.691Z",
+      "elapsedMs": 108495.471404,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1006
+    },
+    {
+      "at": "2026-08-10T10:11:36.778Z",
+      "elapsedMs": 109582.44030799999,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 1478920
+    },
+    {
+      "at": "2026-08-10T10:11:36.893Z",
+      "elapsedMs": 109697.26320599999,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1129
+    },
+    {
+      "at": "2026-08-10T10:11:36.902Z",
+      "elapsedMs": 109706.36143399999,
+      "event": "frame-received",
+      "type": "machinesChanged",
+      "bytes": 5084
+    },
+    {
+      "at": "2026-08-10T10:11:37.284Z",
+      "elapsedMs": 110087.674399,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 1478920
+    },
+    {
+      "at": "2026-08-10T10:11:37.622Z",
+      "elapsedMs": 110425.773854,
+      "event": "frame-sent",
+      "type": "ping",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T10:11:37.622Z",
+      "elapsedMs": 110425.796638,
+      "event": "frame-received",
+      "type": "pong",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T10:11:37.812Z",
+      "elapsedMs": 110616.388368,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1108
+    },
+    {
+      "at": "2026-08-10T10:11:38.195Z",
+      "elapsedMs": 110999.281945,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 286
+    },
+    {
+      "at": "2026-08-10T10:11:38.198Z",
+      "elapsedMs": 111002.091453,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1877
+    },
+    {
+      "at": "2026-08-10T10:11:38.539Z",
+      "elapsedMs": 111342.67258299999,
+      "event": "frame-received",
+      "type": "sessionAgentStateChanged",
+      "bytes": 286
+    },
+    {
+      "at": "2026-08-10T10:11:38.552Z",
+      "elapsedMs": 111356.26811199999,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1877
+    },
+    {
+      "at": "2026-08-10T10:11:38.917Z",
+      "elapsedMs": 111720.886545,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 1478920
+    },
+    {
+      "at": "2026-08-10T10:11:38.963Z",
+      "elapsedMs": 111766.68416599999,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 2740
+    }
+  ]
+}

@@ -1,89 +1,119 @@
-// Keystroke→echo latency tracker (#11): pending inputs are closed by the first
-// subsequent output frame, stale inputs are discarded, stats are a sliding window.
 import { describe, expect, it } from 'vitest'
 import { EchoLatencyTracker } from './echo-latency'
 
+function enabledTracker(): EchoLatencyTracker {
+  const tracker = new EchoLatencyTracker()
+  tracker.setEnabled(true)
+  return tracker
+}
+
 describe('EchoLatencyTracker', () => {
-  it('starts empty', () => {
-    const t = new EchoLatencyTracker()
-    expect(t.stats(1000)).toEqual({ count: 0, p50: null, p90: null, max: null, lastMs: null })
+  it('is inert and empty until explicitly enabled', () => {
+    const tracker = new EchoLatencyTracker()
+    tracker.onInput(1_000)
+    tracker.onOutput(1_010)
+    tracker.onPaint(1_020)
+
+    expect(tracker.stats(1_030)).toEqual({
+      enabled: false,
+      count: 0,
+      p50: null,
+      p90: null,
+      max: null,
+      lastMs: null,
+      toFrame: { count: 0, p50: null, p90: null, max: null, lastMs: null },
+      frameToPaint: { count: 0, p50: null, p90: null, max: null, lastMs: null },
+      last: null,
+    })
   })
 
-  it('closes a single input with the next output frame', () => {
-    const t = new EchoLatencyTracker()
-    t.onInput(1000)
-    t.onOutput(1042)
-    const s = t.stats(1050)
-    expect(s.count).toBe(1)
-    expect(s.p50).toBe(42)
-    expect(s.p90).toBe(42)
-    expect(s.max).toBe(42)
-    expect(s.lastMs).toBe(42)
+  it('closes only after output arrival and browser paint', () => {
+    const tracker = enabledTracker()
+    tracker.onInput(1_000)
+    tracker.onOutput(1_042)
+    expect(tracker.awaitingPaint()).toBe(true)
+    expect(tracker.stats(1_050).count).toBe(0)
+
+    tracker.onPaint(1_058)
+    expect(tracker.stats(1_060)).toMatchObject({
+      enabled: true,
+      count: 1,
+      p50: 58,
+      lastMs: 58,
+      toFrame: { p50: 42, lastMs: 42 },
+      frameToPaint: { p50: 16, lastMs: 16 },
+      last: { toFrameMs: 42, frameToPaintMs: 16, totalMs: 58 },
+    })
   })
 
-  it('one frame closes a whole typed burst, each with its own latency', () => {
-    const t = new EchoLatencyTracker()
-    t.onInput(1000)
-    t.onInput(1010)
-    t.onInput(1020)
-    t.onOutput(1050)
-    const s = t.stats(1060)
-    expect(s.count).toBe(3)
-    expect(s.max).toBe(50)
-    expect(s.p50).toBe(40) // sorted [30, 40, 50]
+  it('does not mistake a render before output for the echo', () => {
+    const tracker = enabledTracker()
+    tracker.onInput(1_000)
+    expect(tracker.awaitingPaint()).toBe(false)
+    tracker.onPaint(1_010)
+    expect(tracker.stats(1_020).count).toBe(0)
   })
 
-  it('output with nothing pending records no sample', () => {
-    const t = new EchoLatencyTracker()
-    t.onOutput(1000)
-    t.onOutput(1016)
-    expect(t.stats(1020).count).toBe(0)
+  it('one rendered frame closes a whole typed burst with per-input timings', () => {
+    const tracker = enabledTracker()
+    tracker.onInput(1_000)
+    tracker.onInput(1_010)
+    tracker.onInput(1_020)
+    tracker.onOutput(1_050)
+    tracker.onPaint(1_066)
+
+    const stats = tracker.stats(1_070)
+    expect(stats.count).toBe(3)
+    expect(stats.p50).toBe(56) // totals [66, 56, 46]
+    expect(stats.toFrame.p50).toBe(40)
+    expect(stats.frameToPaint.p50).toBe(16)
   })
 
-  it('an input never echoed within the timeout is discarded, not sampled', () => {
-    const t = new EchoLatencyTracker()
-    t.onInput(1000)
-    t.onOutput(4000) // 3s later — beyond PENDING_TIMEOUT_MS
-    expect(t.stats(4010).count).toBe(0)
+  it('keeps input after a frame pending for a later frame', () => {
+    const tracker = enabledTracker()
+    tracker.onInput(1_000)
+    tracker.onOutput(1_020)
+    tracker.onInput(1_025)
+    tracker.onPaint(1_036)
+    expect(tracker.stats(1_040).count).toBe(1)
+
+    tracker.onOutput(1_050)
+    tracker.onPaint(1_066)
+    expect(tracker.stats(1_070).count).toBe(2)
+    expect(tracker.stats(1_070).last).toEqual({
+      toFrameMs: 25,
+      frameToPaintMs: 16,
+      totalMs: 41,
+    })
   })
 
-  it('a stale input does not leak into the next fresh measurement', () => {
-    const t = new EchoLatencyTracker()
-    t.onInput(1000) // swallowed key, never echoed
-    t.onInput(10_000)
-    t.onOutput(10_040)
-    const s = t.stats(10_050)
-    expect(s.count).toBe(1)
-    expect(s.lastMs).toBe(40)
+  it('discards stale unpainted input', () => {
+    const tracker = enabledTracker()
+    tracker.onInput(1_000)
+    tracker.onOutput(4_000)
+    tracker.onPaint(4_016)
+    expect(tracker.stats(4_020).count).toBe(0)
   })
 
-  it('samples age out of the 30s window', () => {
-    const t = new EchoLatencyTracker()
-    t.onInput(1000)
-    t.onOutput(1050)
-    expect(t.stats(2000).count).toBe(1)
-    expect(t.stats(1050 + 30_001).count).toBe(0)
+  it('ages samples out of the 30 second window', () => {
+    const tracker = enabledTracker()
+    tracker.onInput(1_000)
+    tracker.onOutput(1_040)
+    tracker.onPaint(1_050)
+    expect(tracker.stats(2_000).count).toBe(1)
+    expect(tracker.stats(31_051).count).toBe(0)
   })
 
-  it('percentiles use nearest-rank over the sorted window', () => {
-    const t = new EchoLatencyTracker()
-    // 10 samples: 10, 20, …, 100 (each input closed by its own frame)
-    for (let i = 1; i <= 10; i++) {
-      const base = 1000 + i * 200
-      t.onInput(base)
-      t.onOutput(base + i * 10)
-    }
-    const s = t.stats(1000 + 10 * 200 + 200)
-    expect(s.count).toBe(10)
-    expect(s.p50).toBe(50)
-    expect(s.p90).toBe(90)
-    expect(s.max).toBe(100)
-  })
-
-  it('caps the pending queue instead of growing unboundedly', () => {
-    const t = new EchoLatencyTracker()
-    for (let i = 0; i < 200; i++) t.onInput(1000 + i)
-    t.onOutput(1300)
-    expect(t.stats(1310).count).toBe(64) // PENDING_CAP
+  it('clears retained and pending timings when disabled', () => {
+    const tracker = enabledTracker()
+    tracker.onInput(1_000)
+    tracker.onOutput(1_020)
+    tracker.onPaint(1_030)
+    tracker.onInput(1_040)
+    tracker.setEnabled(false)
+    tracker.setEnabled(true)
+    tracker.onOutput(1_050)
+    tracker.onPaint(1_060)
+    expect(tracker.stats(1_070).count).toBe(0)
   })
 })

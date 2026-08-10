@@ -3199,12 +3199,16 @@ describe('hibernation', () => {
     expect(spawn && 'resume' in spawn ? spawn.resume : undefined).toBeUndefined()
   })
 
-  it('refuses to resurrect a live session', async () => {
+  it('treats resurrecting a live session as an idempotent no-op', async () => {
     const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const sessionId = liveSession(reg, daemon)
-    expect((await reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })).ok).toBe(false)
+    const daemonFrames = daemon.length
+    expect(await reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })).toEqual({
+      ok: true,
+    })
+    expect(daemon).toHaveLength(daemonFrames)
   })
 
   it('does not auto-hibernate a legacy unfenced idle session', () => {

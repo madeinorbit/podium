@@ -92,8 +92,9 @@ shows the cost is not the query — it is the candidate count, exactly as the
 1343-scans-per-tick figure predicts. `quota.summary`'s 16 s max with a 38 ms p50 is a
 request queued behind a freeze, not a slow handler.
 
-`discovery.refreshRepos` at a **4.6 s p50** is a separate main-thread hog not visible in
-the SQL attribution — filed separately.
+`discovery.refreshRepos` at a **4.6 s p50** is not visible in the SQL attribution — filed
+separately as POD-1717. See "POD-1717 resolved" below: it is a **timeout, not slow work**,
+and it never blocks the event loop.
 
 ### The navigate-back stall is server-side, in the feed bootstrap
 
@@ -232,9 +233,9 @@ rather than a regression, but it is not evidence of improvement and should be
 attributed before anyone claims this path is done.
 
 `discovery.refreshRepos` measured **p50 952 ms before, 10 066 ms after** (n=2 and
-n=4). It is now the single largest stall on the server, larger than anything
-fixed here. It is POD-1717 and it was never started — this is not a regression
-caused by the fixes so much as the thing that was always next.
+n=4). This report originally called it "the single largest stall on the server".
+**That was wrong** — see "POD-1717 resolved" below. The 10 066 ms is a client-side
+timeout constant, not work, and nothing a user waits on awaits it.
 
 ## What could NOT be demonstrated
 
@@ -418,3 +419,28 @@ was blocked for 11 s" is thrown away before it reaches the server.
 
 That gap is now POD-1759, which also adds main-thread block detection — all of it
 off by default and runtime-toggleable.
+
+## POD-1717 resolved: the repo scan is a timeout, not a stall
+
+The `discovery.refreshRepos` p95 of 10 017 ms sits exactly on `SCAN_TIMEOUT_MS =
+10000` (`apps/server/src/modules/machines/rpc.ts:56`). It is the timeout firing,
+not ten seconds of work. Two independent lines of evidence retract the original
+"synchronous filesystem or git work on the main thread" framing:
+
+- **No blocking frame exists.** No scan or FS frame appears in the server
+  `SIGUSR2` totals, and no matching 8–10 s loop tick shows on either the server
+  or the daemon process. All seven `ludovico` roots scan read-only in
+  **13–137 ms**.
+- **Nothing a user waits on awaits it.** `packages/client-core/src/engine/runtime.ts:557`
+  runs `refreshRepos` inside `void Promise.all([...]).catch()`, and `:550` sets
+  `booted = true` *before* that fan-out. It is not on the switch path, the typing
+  path, or boot.
+
+**Who times out:** `Michaels-MacBook-Pro.local`. Its roots are the ones that fail
+to answer inside the budget, while every local root answers in well under a
+tenth of a second.
+
+**What is still unknown, and why it stopped here:** the server sends all five Mac
+roots in a *single* RPC, so no individual root can be named without per-root
+timing in the protocol. That is a structural change, deliberately out of scope
+for a low-priority non-blocking path. No code was changed for POD-1717.

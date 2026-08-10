@@ -21,7 +21,7 @@
 import type { ServerMessage } from '@podium/protocol'
 import { MIN_SUPPORTED_VERSION, WIRE_VERSION } from '@podium/protocol'
 import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { feedTestPlumbing } from './feed-test-plumbing'
 import type { EdgePeer } from './wire-feed-edge'
 
@@ -70,6 +70,7 @@ describe('durable visibility changes revalidate ephemeral subscribers', () => {
       changed.push(ids.map((id) => String(id)))
 
     const rescoped = feedTestPlumbing({ onVisibilityChanged: notify })
+    const rescopeBootstrap = vi.spyOn(rescoped.authority, 'bootstrap')
     const rescopePeer = new Peer('rescope-peer', WIRE_VERSION, true)
     rescoped.serving.attach(
       rescopePeer,
@@ -81,6 +82,13 @@ describe('durable visibility changes revalidate ephemeral subscribers', () => {
       throughSeq: 1,
       reason: 'rights-changed',
     })
+    const afterRescope = new Peer('after-rescope', WIRE_VERSION, true)
+    rescoped.serving.attach(
+      afterRescope,
+      DEVICE_GRADE_PRINCIPAL,
+      rescoped.routingPrincipal(afterRescope.id),
+    )
+    expect(rescopeBootstrap).toHaveBeenCalledTimes(2)
 
     const evicted = feedTestPlumbing({ onVisibilityChanged: notify })
     const evictPeer = new Peer('evict-peer', WIRE_VERSION, true)
@@ -235,6 +243,82 @@ describe('the current wire is canonical — the same feed, two shapes', () => {
     expect(ancient.received).toEqual([])
     expect(future.received).toEqual([])
     expect(p.serving.connectionCount()).toBe(0)
+  })
+  describe('bootstrap cadence across connections', () => {
+    it('reuses and incrementally advances one principal world across reconnecting peers', () => {
+      const p = feedTestPlumbing()
+      commit(p, 'session', 's1', { sessionId: 's1' })
+      const bootstrap = vi.spyOn(p.authority, 'bootstrap')
+
+      const first = new Peer('first', WIRE_VERSION, true)
+      p.serving.attach(first, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(first.id))
+      expect(bootstrap).toHaveBeenCalledTimes(1)
+
+      const sameHead = new Peer('same-head', WIRE_VERSION, true)
+      p.serving.attach(sameHead, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(sameHead.id))
+      expect(bootstrap).toHaveBeenCalledTimes(1)
+
+      // The Authority subscription advances the retained world synchronously,
+      // before the queued delivery flush. A peer arriving in that window must see
+      // the new row without forcing a second latest-state fold.
+      commit(p, 'session', 's2', { sessionId: 's2' })
+      const advanced = new Peer('advanced', WIRE_VERSION, true)
+      p.serving.attach(advanced, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(advanced.id))
+      expect(bootstrap).toHaveBeenCalledTimes(1)
+      const advancedWorld = advanced.last('feedBootstrap') as {
+        seq: number
+        changes: { entityId: string }[]
+      }
+      expect(advancedWorld.seq).toBe(p.authority.cursor())
+      expect(advancedWorld.changes.map((change) => change.entityId)).toEqual(['s1', 's2'])
+
+      p.ledger.commit({
+        write: () => {},
+        changes: () => [{ entity: 'session', id: 's1', op: 'remove' }],
+      })
+      const afterRemove = new Peer('after-remove', WIRE_VERSION, true)
+      p.serving.attach(afterRemove, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(afterRemove.id))
+      const removedWorld = afterRemove.last('feedBootstrap') as {
+        changes: { entityId: string }[]
+      }
+      expect(removedWorld.changes.map((change) => change.entityId)).toEqual(['s2'])
+      expect(bootstrap).toHaveBeenCalledTimes(1)
+
+      // A reconnect gap with no writes still reuses the last authoritative world.
+      p.serving.detach(first.id)
+      p.serving.detach(sameHead.id)
+      p.serving.detach(advanced.id)
+      p.serving.detach(afterRemove.id)
+      const reconnected = new Peer('reconnected', WIRE_VERSION, true)
+      p.serving.attach(reconnected, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(reconnected.id))
+      expect(bootstrap).toHaveBeenCalledTimes(1)
+      expect(reconnected.types()).toContain('feedBootstrap')
+
+      // Once no subscriber is present, a head movement cannot be reconstructed
+      // from missed deliveries. The next peer falls back to one authoritative
+      // fold rather than serving the retained world as if it were current.
+      p.serving.detach(reconnected.id)
+      commit(p, 'session', 's3', { sessionId: 's3' })
+      const afterGap = new Peer('after-gap', WIRE_VERSION, true)
+      p.serving.attach(afterGap, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(afterGap.id))
+      expect(bootstrap).toHaveBeenCalledTimes(2)
+      const afterGapWorld = afterGap.last('feedBootstrap') as { changes: { entityId: string }[] }
+      expect(afterGapWorld.changes.map((change) => change.entityId)).toEqual(['s2', 's3'])
+    })
+
+    it('the existing-peer guard sends no second world for a repeated attach', () => {
+      const p = feedTestPlumbing()
+      commit(p, 'session', 's1', { sessionId: 's1' })
+      const bootstrap = vi.spyOn(p.authority, 'bootstrap')
+      const peer = new Peer('stable', WIRE_VERSION, true)
+
+      p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))
+      const received = peer.received.length
+      p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))
+
+      expect(peer.received).toHaveLength(received)
+      expect(bootstrap).toHaveBeenCalledTimes(1)
+    })
   })
 
   it('reports the window and the connected versions', () => {

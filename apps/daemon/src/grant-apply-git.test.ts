@@ -10,10 +10,22 @@ const grant: UpdateGrantMessage = {
     critical: false,
     artifacts: {
       headless: {
-        delivery: 'git',
-        repo: '/repo/podium',
-        sha: '0123456789abcdef',
+        delivery: 'bundle',
+        platforms: {
+          'linux-x86_64': {
+            url: 'https://server.test/bundle',
+            digest: 'digest',
+            signature: 'sig',
+          },
+        },
       },
+      headlessAlternatives: [
+        {
+          delivery: 'git',
+          repo: '/repo/podium',
+          sha: '0123456789abcdef',
+        },
+      ],
     },
   },
 }
@@ -36,7 +48,10 @@ describe('applyGrant git delivery', () => {
 
     await applyGrant(grant, deps)
 
-    expect(fetchArtifact).toHaveBeenCalledWith(grant.target.artifacts.headless, 'git')
+    expect(fetchArtifact).toHaveBeenCalledWith(
+      grant.target.artifacts.headlessAlternatives?.[0],
+      'git',
+    )
     expect(deps.swap).not.toHaveBeenCalled()
     expect(order).toEqual(['write', 'restart'])
     expect(deps.report).toHaveBeenLastCalledWith(

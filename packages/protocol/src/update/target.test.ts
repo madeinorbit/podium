@@ -57,11 +57,30 @@ describe('UpdateTarget', () => {
     })
   })
 
+  it('parses ordered headless delivery alternatives without changing the primary', () => {
+    const t = UpdateTarget.parse({
+      ...feedTarget,
+      artifacts: {
+        ...feedTarget.artifacts,
+        headlessAlternatives: [{ delivery: 'git', repo: '/home/u/src/podium', sha: '9f3a1c2' }],
+      },
+    })
+    expect(t.artifacts.headless?.delivery).toBe('feed')
+    expect(t.artifacts.headlessAlternatives).toEqual([
+      { delivery: 'git', repo: '/home/u/src/podium', sha: '9f3a1c2' },
+    ])
+  })
+
   it('rejects a feed artifact with no url', () => {
     expect(() =>
       UpdateTarget.parse({
         version: '0.4.2',
-        artifacts: { headless: { delivery: 'feed', platforms: { 'linux-x86_64': { digest: 'd', signature: 's' } } } },
+        artifacts: {
+          headless: {
+            delivery: 'feed',
+            platforms: { 'linux-x86_64': { digest: 'd', signature: 's' } },
+          },
+        },
       }),
     ).toThrow()
   })
@@ -112,10 +131,7 @@ describe('UpdateTarget', () => {
     })
     expect(t.artifacts.headless?.delivery).toBe('feed')
     if (t.artifacts.headless?.delivery !== 'feed') throw new Error('expected feed artifact')
-    expect(Object.keys(t.artifacts.headless.platforms)).toEqual([
-      'linux-x86_64',
-      'linux-aarch64',
-    ])
+    expect(Object.keys(t.artifacts.headless.platforms)).toEqual(['linux-x86_64', 'linux-aarch64'])
     expect(t.artifacts.headless.platforms['linux-aarch64']?.digest).toBe('sha256-arm')
   })
 

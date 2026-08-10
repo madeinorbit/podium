@@ -14,8 +14,19 @@ const bundle = {
     'linux-x86_64': { url: 'https://hub.test/a-x64.tgz', digest: 'd3', signature: 's3' },
   },
 } as const
+const git = {
+  delivery: 'git',
+  repo: '/repo/podium',
+  sha: 'abc1234',
+} as const
 const target = (version: string, artifact: unknown = feed) =>
   ({ version, critical: false, artifacts: { headless: artifact } }) as never
+const targetWithAlternatives = (alternatives: readonly unknown[]) =>
+  ({
+    version: 'dev+abc1234',
+    critical: false,
+    artifacts: { headless: bundle, headlessAlternatives: alternatives },
+  }) as never
 
 const HOST = 'linux-x86_64'
 const ALL_CAPS = ['update.delivery.feed', 'update.delivery.bundle', 'update.delivery.git']
@@ -23,7 +34,12 @@ const ALL_CAPS = ['update.delivery.feed', 'update.delivery.bundle', 'update.deli
 describe('planConvergence', () => {
   it('is already-current on an exact match', () => {
     expect(
-      planConvergence({ current: '0.4.2', target: target('0.4.2'), caps: ALL_CAPS, platform: HOST }),
+      planConvergence({
+        current: '0.4.2',
+        target: target('0.4.2'),
+        caps: ALL_CAPS,
+        platform: HOST,
+      }),
     ).toEqual({ action: 'already-current' })
   })
 
@@ -67,6 +83,46 @@ describe('planConvergence', () => {
     expect(p).toEqual({ action: 'cannot', reason: 'unsupported-delivery' })
   })
 
+  it('selects a git alternative for a source daemon', () => {
+    const p = planConvergence({
+      current: 'dev+old',
+      target: targetWithAlternatives([git]),
+      caps: ['update.delivery.git'],
+      platform: HOST,
+    })
+    expect(p).toEqual({ action: 'converge', delivery: 'git', artifact: git })
+  })
+
+  it('keeps the primary bundle for an installed daemon', () => {
+    const p = planConvergence({
+      current: '0.4.1',
+      target: targetWithAlternatives([git]),
+      caps: ['update.delivery.feed', 'update.delivery.bundle'],
+      platform: HOST,
+    })
+    expect(p).toEqual({ action: 'converge', delivery: 'bundle', asset: bundle.platforms[HOST] })
+  })
+
+  it('still refuses when no offered alternative matches the daemon capabilities', () => {
+    const p = planConvergence({
+      current: '0.4.1',
+      target: targetWithAlternatives([feed]),
+      caps: ['update.delivery.unknown'],
+      platform: HOST,
+    })
+    expect(p).toEqual({ action: 'cannot', reason: 'unsupported-delivery' })
+  })
+
+  it('refuses the platform when supported deliveries offer no matching bytes', () => {
+    const p = planConvergence({
+      current: '0.4.1',
+      target: targetWithAlternatives([feed]),
+      caps: ['update.delivery.feed', 'update.delivery.bundle'],
+      platform: 'darwin-aarch64',
+    })
+    expect(p).toEqual({ action: 'cannot', reason: 'unsupported-platform' })
+  })
+
   it('refuses when the target names no headless artifact at all', () => {
     const p = planConvergence({
       current: '0.4.1',
@@ -104,7 +160,11 @@ describe('planConvergence', () => {
       caps: ALL_CAPS,
       platform: HOST,
     })
-    expect(p).toMatchObject({ action: 'converge', delivery: 'bundle', asset: bundle.platforms[HOST] })
+    expect(p).toMatchObject({
+      action: 'converge',
+      delivery: 'bundle',
+      asset: bundle.platforms[HOST],
+    })
   })
 
   it('is already-current BEFORE checking delivery', () => {

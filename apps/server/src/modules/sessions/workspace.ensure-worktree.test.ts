@@ -22,9 +22,16 @@ type EnsureWorktreeResult = Awaited<ReturnType<SessionIssueWorkflowPort['ensureW
  * before it returns. Only the branch that was already async widened.
  */
 
-const issueMeta = (over: { worktreePath?: string | null; branch?: string | null }) => ({
+const issueMeta = (over: {
+  worktreePath?: string | null
+  branch?: string | null
+  machineId?: string
+  repoPath?: string
+}) => ({
   worktreePath: over.worktreePath ?? null,
   branch: over.branch ?? null,
+  ...(over.machineId ? { machineId: over.machineId } : {}),
+  ...(over.repoPath ? { repoPath: over.repoPath } : {}),
 })
 
 function harness(meta: ReturnType<typeof issueMeta>) {
@@ -44,7 +51,12 @@ function harness(meta: ReturnType<typeof issueMeta>) {
 }
 
 const session = (over: Partial<Session>) =>
-  ({ issueId: 'iss_7', cwd: '/repo/.worktrees/issue-7', ...over }) as Session
+  ({
+    issueId: 'iss_7',
+    cwd: '/repo/.worktrees/issue-7',
+    machineId: 'machine-b',
+    ...over,
+  }) as Session
 
 describe('ensureSessionWorktree rebuilds regardless of how the process died', () => {
   // A crash leaves no stopReason. This is the case the old gate dropped.
@@ -109,5 +121,21 @@ describe('ensureSessionWorktree rebuilds regardless of how the process died', ()
     expect(result).not.toBeInstanceOf(Promise)
     expect(result).toEqual({ ok: true, cwd: '/repo/.worktrees/issue-7' })
     expect(ensureWorktree).not.toHaveBeenCalled()
+  })
+
+  it('reconciles a recorded worktree when the session moved to another machine', async () => {
+    const { workspace, issues, ensureWorktree } = harness(
+      issueMeta({
+        worktreePath: '/repo-a/.worktrees/issue-7',
+        branch: 'issue/7-thing',
+        machineId: 'machine-a',
+        repoPath: '/repo-a',
+      }),
+    )
+
+    const result = await workspace.ensureSessionWorktree(session({}), issues)
+
+    expect(result).toEqual({ ok: true, cwd: '/repo/.worktrees/issue-7' })
+    expect(ensureWorktree).toHaveBeenCalledWith('iss_7', 'machine-b')
   })
 })

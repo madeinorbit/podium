@@ -34,6 +34,8 @@ export interface UseTerminalSessionOptions {
   focusWhenReady?: boolean
   /** Expose the browser-test hook (`globalThis.__podium`) — see mountSession. */
   test?: boolean
+  /** Opt-in input-event→paint diagnostics. Toggle changes do not remount. */
+  echoLatencyEnabled?: boolean
   /**
    * Rendering appearance (font size/family, line height, theme). Applied at
    * mount, and re-applied to the LIVE terminal when the object identity changes
@@ -133,6 +135,8 @@ export function useTerminalSession(opts: UseTerminalSessionOptions): UseTerminal
   appearanceRef.current = opts.appearance
   const gridModeRef = useRef(opts.gridMode)
   gridModeRef.current = opts.gridMode
+  const echoLatencyEnabledRef = useRef(opts.echoLatencyEnabled)
+  echoLatencyEnabledRef.current = opts.echoLatencyEnabled
 
   useEffect(() => {
     if (!hub || !enabled) return
@@ -152,6 +156,7 @@ export function useTerminalSession(opts: UseTerminalSessionOptions): UseTerminal
       ...(viewportRef.current ? { viewportEl: viewportRef.current } : {}),
       ...(toolbarRef.current ? { toolbarEl: toolbarRef.current } : {}),
       ...(testRef.current ? { test: true } : {}),
+      ...(echoLatencyEnabledRef.current ? { echoLatencyEnabled: true } : {}),
       ...(focusOnMountRef.current !== undefined ? { focusOnMount: focusOnMountRef.current } : {}),
       ...(readyTimeoutMsRef.current !== undefined
         ? { readyTimeoutMs: readyTimeoutMsRef.current }
@@ -178,6 +183,14 @@ export function useTerminalSession(opts: UseTerminalSessionOptions): UseTerminal
   useEffect(() => {
     mountedRef.current?.setActive(active && enabled)
   }, [active, enabled])
+
+  const { echoLatencyEnabled = false } = opts
+  useEffect(() => {
+    // Optional CALL, not just an optional ref: a MountedSession that predates
+    // the echo probe (or any test double) has no such method, and `?.` on the ref
+    // alone still throws. session-mount.ts guards it the same way at :468/:564.
+    mountedRef.current?.setEchoLatencyEnabled?.(echoLatencyEnabled)
+  }, [echoLatencyEnabled])
 
   // Appearance changes apply to the live instance — never a remount. The mount
   // effect already passed the current value, so the redundant first run is a

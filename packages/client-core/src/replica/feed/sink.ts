@@ -43,9 +43,13 @@ export class FeedSink implements FeedSinkPort {
    * ladder from outside the state machine that owns it.
    */
   connected(): void {
+    // Every admitted socket is served one initial world. Tell the push/pull seam
+    // before the Replica starts its ladder so a cold walk waits for this socket's
+    // already-promised world instead of replacing the socket to request another.
+    this.deps.bootstraps.expectWorld()
     // NOT WHILE A WALK IS WAITING. A re-bootstrap asks the transport for a fresh
-    // world, and the transport delivers one by reconnecting — so this fires in
-    // the middle of the very walk that requested it. `Replica.connect()` from
+    // world, and the transport delivers one by reconnecting — so this fires in the
+    // middle of the very walk that requested it. `Replica.connect()` from
     // `bootstrapping` restarts the ladder, which abandons that walk and asks
     // again: the loop a live run produced as "the ladder is not resolving
     // downward". The walk is already waiting and the world is already on its way;

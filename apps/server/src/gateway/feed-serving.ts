@@ -73,7 +73,6 @@
  * {@link renegotiate}.
  */
 
-import { principalRoutingId } from '@podium/protocol'
 import type { ConversationDiagnosticWire } from '@podium/model'
 import {
   asSubscriberId,
@@ -83,6 +82,7 @@ import {
   type FeedRescopeMessage,
   type FeedResyncRequiredMessage,
   type Principal,
+  principalRoutingId,
   principalRoutingKeyFromId,
   type RoutingKey,
   type SubscriberId,
@@ -101,6 +101,7 @@ import type {
 import { FeedPublisher } from '@podium/sync'
 import { perfPrincipal } from '../modules/perf/principal'
 import { perf } from '../modules/perf/registry'
+import { traceFeedPeer } from './feed-peer-trace'
 import {
   type EdgePeer,
   type FeedFrame,
@@ -118,6 +119,17 @@ import {
  * process with a hundred connections.
  */
 export const FEED_SEND_QUEUE_MAX_BYTES = 8 * 1024 * 1024
+
+/** Bound retained principal worlds: reuse is a latency optimisation, never authority. */
+const FEED_WORLD_CACHE_MAX_PRINCIPALS = 8
+
+type BootstrapCause = 'attach' | 'hello' | 'version-change'
+
+interface CachedWorld {
+  throughSeq: number
+  readonly changesByRef: Map<string, ScopedChange>
+  materialized: readonly ScopedChange[] | undefined
+}
 
 /** One admitted client, as this module needs it. */
 export interface FeedPeer extends EdgePeer {}
@@ -158,6 +170,7 @@ export class FeedServing {
     string,
     { principal: Principal; deliveries: ScopedDelivery[] }
   >()
+  private readonly latestWorldByPrincipal = new Map<string, CachedWorld>()
   private flushScheduled = false
 
   constructor(private readonly deps: FeedServingDeps) {
@@ -195,29 +208,29 @@ export class FeedServing {
     if (refusal !== null) return refusal
     this.peers.set(peer.id, peer)
     if (this.connections.has(peer.id)) return null
-    this.serveWorld(peer, principal, routingPrincipal)
+    this.serveWorld(peer, principal, routingPrincipal, 'attach')
     return null
   }
 
   /** Read the world, send it, and start framing from the position it was read
    *  at. The one place a connection acquires a position. */
-  private serveWorld(peer: FeedPeer, principal: Principal, routingPrincipal: Principal): void {
+  private serveWorld(
+    peer: FeedPeer,
+    principal: Principal,
+    routingPrincipal: Principal,
+    cause: BootstrapCause,
+  ): void {
     // ONE synchronous pass: the world, and the position it was read at.
     const t0 = performance.now()
-    this.deps.onBootstrapReadStart?.()
-    let world: ReturnType<AuthorityPort['bootstrap']>
-    try {
-      world = this.deps.authority.bootstrap(principal)
-    } finally {
-      this.deps.onBootstrapReadEnd?.(principal, performance.now() - t0)
-    }
     const perfKey = perfPrincipal(principal)
+    const { world, reused, readMs } = this.worldFor(principal)
     // THE SLICE SIZE, measured at the ONE point the whole visible world is
     // enumerated [POD-736]. A delta batch's `changes.length` is churn and would
     // read as a shrinking working set on a quiet server; a bootstrap is the
     // principal's world, which is the number an A/B has to control for.
     perf.observeSliceSize(perfKey, world.changes.length)
-    perf.record('phase', 'feedBootstrap.read', performance.now() - t0, perfKey)
+    perf.record('phase', reused ? 'feedBootstrap.reuse' : 'feedBootstrap.read', readMs, perfKey)
+    perf.record('phase', `feedBootstrap.cause.${cause}`, 0, perfKey)
     const identity = this.deps.identity.current()
     const bootstrap: FeedBootstrapMessage = {
       type: 'feedBootstrap',
@@ -248,14 +261,96 @@ export class FeedServing {
       existing.rearm(world.throughSeq)
     }
     this.retainPrincipal(peer.id, principal, routingPrincipal)
-    perf.record('phase', 'feedBootstrap.total', performance.now() - t0, perfKey)
+    const durationMs = performance.now() - t0
+    perf.record('phase', 'feedBootstrap.total', durationMs, perfKey)
+    traceFeedPeer({
+      event: 'bootstrap',
+      peerId: peer.id,
+      cause,
+      wireVersion: peer.wireVersion,
+      reused,
+      throughSeq: world.throughSeq,
+      rows: world.changes.length,
+      durationMs,
+    })
   }
 
-  private retainPrincipal(
-    peerId: string,
-    principal: Principal,
-    routingPrincipal: Principal,
-  ): void {
+  /**
+   * Latest installed world for one principal.
+   *
+   * The first connection performs the Authority fold. While any connection for
+   * that principal is subscribed, {@link queue} advances this cache from the
+   * same scoped deliveries sent to replicas. A reconnect at the same head can
+   * therefore reuse the exact authoritative world instead of parsing and
+   * re-scoping every retained row again. If the cache missed any head movement,
+   * it is discarded and rebuilt; reuse never guesses across a gap.
+   */
+  private worldFor(principal: Principal): {
+    world: ReturnType<AuthorityPort['bootstrap']>
+    reused: boolean
+    readMs: number
+  } {
+    const key = principalRoutingId(principal)
+    const cached = this.latestWorldByPrincipal.get(key)
+    const startedAt = performance.now()
+    if (cached !== undefined && cached.throughSeq === this.deps.authority.cursor()) {
+      if (cached.materialized === undefined) {
+        cached.materialized = [...cached.changesByRef.values()]
+      }
+      return {
+        world: { throughSeq: cached.throughSeq, changes: cached.materialized },
+        reused: true,
+        readMs: performance.now() - startedAt,
+      }
+    }
+
+    this.deps.onBootstrapReadStart?.()
+    let world: ReturnType<AuthorityPort['bootstrap']>
+    try {
+      world = this.deps.authority.bootstrap(principal)
+    } finally {
+      this.deps.onBootstrapReadEnd?.(principal, performance.now() - startedAt)
+    }
+    const changesByRef = new Map<string, ScopedChange>()
+    for (const change of world.changes) changesByRef.set(changeRef(change), change)
+    this.latestWorldByPrincipal.delete(key)
+    this.latestWorldByPrincipal.set(key, {
+      throughSeq: world.throughSeq,
+      changesByRef,
+      materialized: world.changes,
+    })
+    while (this.latestWorldByPrincipal.size > FEED_WORLD_CACHE_MAX_PRINCIPALS) {
+      const oldest = this.latestWorldByPrincipal.keys().next().value
+      if (oldest === undefined) break
+      this.latestWorldByPrincipal.delete(oldest)
+    }
+    return { world, reused: false, readMs: performance.now() - startedAt }
+  }
+
+  /** Advance a cached positive-state world from the Authority's scoped delivery. */
+  private advanceCachedWorld(principal: Principal, delivery: ScopedDelivery): void {
+    const key = principalRoutingId(principal)
+    if (delivery.kind === 'rescope') {
+      this.latestWorldByPrincipal.delete(key)
+      return
+    }
+    const cached = this.latestWorldByPrincipal.get(key)
+    if (cached === undefined || delivery.throughSeq <= cached.throughSeq) return
+    let changed = false
+    for (const change of delivery.changes) {
+      if (change.seq <= cached.throughSeq) continue
+      const ref = changeRef(change)
+      changed = cached.changesByRef.delete(ref) || changed
+      if (change.op === 'upsert') {
+        cached.changesByRef.set(ref, change)
+        changed = true
+      }
+    }
+    cached.throughSeq = delivery.throughSeq
+    if (changed) cached.materialized = undefined
+  }
+
+  private retainPrincipal(peerId: string, principal: Principal, routingPrincipal: Principal): void {
     const key = principalRoutingKeyFromId(principalRoutingId(principal))
     if (this.feedKeyByPeer.get(peerId) === key) return
     this.releasePrincipal(peerId)
@@ -302,7 +397,7 @@ export class FeedServing {
     if (refusal !== null) return refusal
     this.peers.set(peer.id, peer)
     if (!this.connections.has(peer.id)) {
-      this.serveWorld(peer, principal, routingPrincipal)
+      this.serveWorld(peer, principal, routingPrincipal, 'hello')
       return null
     }
     // THE VERSION IT ACTUALLY SPEAKS, OR NOTHING. A connection is admitted at
@@ -333,7 +428,7 @@ export class FeedServing {
     // be done instead is bootstrapping only at `hello`, which withholds the
     // world from every peer that never sends one — the pre-cutover bug.
     if (this.servedVersion.get(peer.id) === peer.wireVersion) return null
-    this.serveWorld(peer, principal, routingPrincipal)
+    this.serveWorld(peer, principal, routingPrincipal, 'version-change')
     return null
   }
 
@@ -347,6 +442,7 @@ export class FeedServing {
   }
 
   private queue(principal: Principal, delivery: ScopedDelivery): void {
+    this.advanceCachedWorld(principal, delivery)
     const key = principalRoutingId(principal)
     const pending = this.pendingByPrincipal.get(key) ?? { principal, deliveries: [] }
     pending.deliveries.push(delivery)
@@ -374,6 +470,7 @@ export class FeedServing {
    * about, and there is no other tick in this server that would come back for it.
    */
   publish(principal: Principal, delivery: ScopedDelivery): void {
+    this.advanceCachedWorld(principal, delivery)
     const totalStartedAt = performance.now()
     const perfKey = perfPrincipal(principal)
     // Scoping has already been evaluated by Authority for this principal. Record
@@ -477,6 +574,10 @@ export class FeedServing {
       }
     }
   }
+}
+
+function changeRef(change: Pick<ScopedChange, 'entity' | 'entityId'>): string {
+  return `${change.entity}\0${change.entityId}`
 }
 
 function coalesceScopedDeliveries(deliveries: readonly ScopedDelivery[]): ScopedDelivery[] {

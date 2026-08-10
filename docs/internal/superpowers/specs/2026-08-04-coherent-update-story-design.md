@@ -327,6 +327,20 @@ The machine running the checkout keeps the existing git-based redeploy
 download. It is expressed as a `git` delivery target so it shares the authority, staging and
 reporting model rather than being a parallel mechanism.
 
+One target must serve machines whose delivery capability differs, so the target offers delivery
+alternatives and the daemon resolves them. `artifacts.headless` remains the primary descriptor
+for compatibility, while ordered `artifacts.headlessAlternatives` are additive fallbacks. The
+daemon chooses the first artifact compatible with both its authenticated delivery capabilities
+and its platform; if no offered delivery matches, it still refuses with `unsupported-delivery`,
+and if a supported delivery has no matching platform asset, it refuses with
+`unsupported-platform`. It never substitutes another platform's bytes.
+
+This keeps `/version` and grants on the same global target and mirrors the existing daemon-side
+platform selection. Resolving targets on the server per machine was rejected: it would require a
+second, machine-scoped target channel on grants, make `/version` describe a different artifact
+than a daemon receives, and add per-machine authority state when the daemon already has the facts
+needed to make the safe choice.
+
 ### 9.3 Development is not a channel
 
 `stable` and `edge` are channels. Development is a different **identity** with no semver.
