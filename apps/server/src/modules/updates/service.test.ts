@@ -55,6 +55,17 @@ describe('UpdatesService', () => {
     expect(send.mock.calls.length).toBeGreaterThan(1)
   })
 
+  it('carries one authorization from the canary into the wider wave', () => {
+    const { svc, send } = make([m('a'), m('b'), m('c')])
+    svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
+
+    expect(svc.authorize()).toEqual(['a'])
+    expect(send).toHaveBeenCalledTimes(1)
+
+    svc.onStatus('a', { type: 'updateStatus', state: 'current', version: '0.4.2' })
+    expect(send).toHaveBeenCalledTimes(3)
+  })
+
   it('a rejected canary halts the wave entirely', () => {
     const { svc, send } = make([m('a'), m('b'), m('c')])
     svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)

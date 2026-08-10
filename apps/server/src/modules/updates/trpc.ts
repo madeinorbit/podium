@@ -49,11 +49,11 @@ export function updateFleet(ctx: Context): UpdateFleetSnapshot {
 }
 
 /**
- * Human-authorized entry point for the server's own target. The wave service
- * remains the authority for what gets granted; this procedure only moves that
- * authority from the dialog into the already-landed convergence tick.
+ * Human-authorized entry point for every place behind the server's target. The
+ * wave service remains the authority for what gets granted; this procedure
+ * records the operator's one decision and starts its planner-controlled wave.
  */
-export function convergeThisServer(
+export function startUpdate(
   updates: UpdatesService,
   currentVersion = serverBuildVersion(),
 ): {
@@ -71,22 +71,25 @@ export function convergeThisServer(
       message: 'No update target is configured.',
     })
   }
-  if (currentVersion === target.version) {
+  const initialFleet = fleetSnapshot(updates)
+  const serverBehind = currentVersion !== target.version
+  if (!serverBehind && initialFleet.behind === 0 && initialFleet.converging === 0) {
     throw new TRPCError({
       code: 'PRECONDITION_FAILED',
-      message: 'The server is already at this version.',
+      message: 'Podium is already at this version everywhere.',
     })
   }
 
-  const grantedMachineIds = updates.tick()
+  const grantedMachineIds = updates.authorize()
   const fleet = fleetSnapshot(updates)
-  // The server is the human-authorized place and is behind by definition here.
-  // Attached machines are the remaining places in the automatic wave.
   return {
     state: 'in-progress',
     version: target.version,
     done: 0,
-    total: Math.max(1, 1 + fleet.behind),
+    total: Math.max(
+      1,
+      (serverBehind ? 1 : 0) + Math.max(initialFleet.behind, initialFleet.converging),
+    ),
     fleet,
     grantedMachineIds,
   }
@@ -95,8 +98,6 @@ export function convergeThisServer(
 export function updateProcedures() {
   return {
     fleet: t.procedure.query(({ ctx }) => updateFleet(ctx)),
-    converge: t.procedure.mutation(({ ctx }) =>
-      convergeThisServer(familyState(ctx).modules.updates),
-    ),
+    converge: t.procedure.mutation(({ ctx }) => startUpdate(familyState(ctx).modules.updates)),
   }
 }

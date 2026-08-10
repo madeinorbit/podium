@@ -45,15 +45,59 @@ describe('updates tRPC', () => {
     registry.dispose()
   })
 
-  it('refuses a convergence request when the server is already on its target', async () => {
+  it('refuses a convergence request when every place is already on target', async () => {
     process.env.PODIUM_APP_VERSION = '0.4.2'
     const { registry, caller } = harness()
+    registry.modules.machines.setMachineBuild(
+      registry.sessionStore.hostMachineId,
+      { appVersion: '0.4.2' },
+      [],
+      '2026-08-10T00:00:00.000Z',
+    )
     registry.modules.updates.setTarget(target())
 
     await expect(caller.updates.converge()).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',
-      message: 'The server is already at this version.',
+      message: 'Podium is already at this version everywhere.',
     })
+    registry.dispose()
+  })
+
+  it('starts a machine-only wave while the coordinating server is current', async () => {
+    process.env.PODIUM_APP_VERSION = '0.4.2'
+    const { registry, caller } = harness()
+    const grants: unknown[] = []
+
+    registry.modules.machines.setMachineBuild(
+      registry.sessionStore.hostMachineId,
+      { appVersion: '0.4.2' },
+      [],
+      '2026-08-10T00:00:00.000Z',
+    )
+    registry.sessionStore.machines.upsertMachine({
+      id: 'flatblock',
+      name: 'Flatblock',
+      hostname: 'flatblock',
+      tokenHash: 'flatblock-token',
+      ownerUserId: FIRST_ADMIN_USER_ID,
+    })
+    registry.modules.machines.setMachineBuild(
+      'flatblock',
+      { appVersion: '0.4.1' },
+      [],
+      '2026-08-10T00:00:00.000Z',
+    )
+    registry.gateway.attachDaemon('flatblock', (message) => grants.push(message))
+    registry.modules.updates.setTarget(target())
+
+    const result = await caller.updates.converge()
+    expect(result).toMatchObject({
+      state: 'in-progress',
+      version: '0.4.2',
+      total: 1,
+      grantedMachineIds: ['flatblock'],
+    })
+    expect(grants).toEqual([expect.objectContaining({ type: 'updateGrant' })])
     registry.dispose()
   })
 

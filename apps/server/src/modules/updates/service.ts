@@ -27,6 +27,7 @@ interface MachineConvergenceState {
  */
 export class UpdatesService {
   private targetValue: UpdateTarget | undefined
+  private authorized = false
   private canaryHealthy = false
   private halted = false
   private readonly machineStates = new Map<string, MachineConvergenceState>()
@@ -51,6 +52,7 @@ export class UpdatesService {
       return
     }
     this.targetValue = target
+    this.authorized = false
     this.canaryHealthy = false
     this.halted = false
     this.machineStates.clear()
@@ -84,6 +86,7 @@ export class UpdatesService {
         this.canaryHealthy = true
         this.pendingGrants.delete(machineId)
       }
+      if (this.authorized) this.tick()
       return
     }
 
@@ -91,6 +94,12 @@ export class UpdatesService {
       this.pendingGrants.delete(machineId)
       if (!this.canaryHealthy) this.halted = true
     }
+  }
+
+  /** Record the operator's one decision and start the planner-controlled wave. */
+  authorize(): string[] {
+    this.authorized = true
+    return this.tick()
   }
 
   tick(): string[] {

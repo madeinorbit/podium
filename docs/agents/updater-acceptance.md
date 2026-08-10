@@ -74,7 +74,7 @@ instance. Follow `docs/multi-instance.md` for identity selection.
 In the UI, verify this sequence with real clicks:
 
 1. The panel names the target version and the affected places in user language.
-2. Clicking **Update server** changes the same non-modal panel to applying.
+2. Clicking **Update Podium** changes the same non-modal panel to applying.
 3. The source daemon selects git delivery; an installed daemon must not select git merely
    because it is offered.
 4. Sessions remain usable while the server/daemon reconnect.

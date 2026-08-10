@@ -46,7 +46,7 @@ export interface UseUpdateStateOptions {
   surface?: UpdateInput['surface']
   serverName?: string
   fleet?: UpdateFleetState
-  updateServer?: UpdateActions['updateServer']
+  startUpdate?: UpdateActions['startUpdate']
 }
 
 interface LocalBuild {
@@ -54,9 +54,15 @@ interface LocalBuild {
   appDigest?: string
 }
 
-type ServerActionState =
+type UpdateActionState =
   | { state: 'idle' }
-  | { state: 'in-progress'; version: string; done: number; total: number }
+  | {
+      state: 'in-progress'
+      version: string
+      done: number
+      total: number
+      includesServer: boolean
+    }
   | { state: 'failed'; detail: string }
 
 const EMPTY_FLEET: UpdateFleetState = {
@@ -124,7 +130,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   const [server, setServer] = useState<ServerVersion>({})
   const [localBuild, setLocalBuild] = useState<LocalBuild>({ appVersion: 'dev' })
   const [fleetState, setFleetState] = useState<UpdateFleetState>(options.fleet ?? EMPTY_FLEET)
-  const [serverAction, setServerAction] = useState<ServerActionState>({ state: 'idle' })
+  const [updateAction, setUpdateAction] = useState<UpdateActionState>({ state: 'idle' })
   const [desktopUpdate, setDesktopUpdate] = useState<DesktopUpdateInfo | undefined>()
   const trpc = useMemo(() => makeTrpc(options.httpOrigin), [options.httpOrigin])
   useEffect(() => {
@@ -169,7 +175,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   useEffect(() => {
     if (options.fleet !== undefined) return
 
-    const active = serverAction.state === 'in-progress' || fleetState.converging > 0
+    const active = updateAction.state === 'in-progress' || fleetState.converging > 0
     let cancelled = false
     let inFlight = false
     const load = async (): Promise<void> => {
@@ -186,7 +192,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
         if (active) {
           const nextServer = parseServerVersion(serverRaw)
           if (serverRaw !== undefined) setServer(nextServer)
-          setServerAction((current) => {
+          setUpdateAction((current) => {
             if (current.state !== 'in-progress') return current
             if (next.failed > 0) {
               const failure = next.machines?.find(
@@ -200,16 +206,18 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
                     ' could not finish this update.',
               }
             }
-            if (next.converging === 0) return { state: 'idle' }
             const serverDone =
               next.targetVersion !== null && nextServer.appVersion === next.targetVersion
-            const total = Math.max(current.total, 1 + next.total)
-            const done = Math.max(0, total - next.behind - next.converging - (serverDone ? 0 : 1))
+            const serverRemaining = current.includesServer && !serverDone ? 1 : 0
+            const remaining = serverRemaining + next.behind
+            if (next.converging === 0 && remaining === 0) return { state: 'idle' }
+            const done = Math.max(0, Math.min(current.total, current.total - remaining))
             return {
               state: 'in-progress',
               version: next.targetVersion ?? current.version,
               done,
-              total,
+              total: current.total,
+              includesServer: current.includesServer,
             }
           })
         }
@@ -227,7 +235,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
       cancelled = true
       window.clearInterval(interval)
     }
-  }, [fleetState.converging, options.fleet, options.httpOrigin, serverAction.state, trpc])
+  }, [fleetState.converging, options.fleet, options.httpOrigin, updateAction.state, trpc])
 
   const fleet = options.fleet ?? fleetState
   const localVersion = localBuild.appVersion
@@ -263,39 +271,45 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   const baseView = describeUpdate(input)
 
   useEffect(() => {
-    setServerAction({ state: 'idle' })
+    setUpdateAction({ state: 'idle' })
   }, [target?.version])
 
-  const retryableServerFailure = serverAction.state === 'failed'
-  const updateServer = useMemo<UpdateActions['updateServer']>(() => {
-    if (!options.updateServer && !retryableServerFailure && (!target || !serverBehind))
+  const retryableUpdateFailure = updateAction.state === 'failed'
+  const startUpdate = useMemo<UpdateActions['startUpdate']>(() => {
+    if (
+      !options.startUpdate &&
+      !retryableUpdateFailure &&
+      (!target || (!serverBehind && fleet.behind === 0))
+    )
       return undefined
     const version = target?.version ?? localVersion
-    const total = Math.max(1, 1 + fleet.behind)
+    const includesServer = serverBehind
+    const total = Math.max(1, (includesServer ? 1 : 0) + fleet.behind)
     return async () => {
-      setServerAction({ state: 'in-progress', version, done: 0, total })
+      setUpdateAction({ state: 'in-progress', version, done: 0, total, includesServer })
       try {
-        if (options.updateServer) {
-          await options.updateServer()
+        if (options.startUpdate) {
+          await options.startUpdate()
           return
         }
         const result = await trpc.updates.converge.mutate()
         setFleetState(result.fleet)
-        setServerAction({
+        setUpdateAction({
           state: 'in-progress',
           version: result.version,
           done: result.done,
           total: result.total,
+          includesServer,
         })
       } catch (error) {
-        setServerAction({ state: 'failed', detail: updateErrorDetail(error) })
+        setUpdateAction({ state: 'failed', detail: updateErrorDetail(error) })
       }
     }
   }, [
     fleet.behind,
     localVersion,
-    options.updateServer,
-    retryableServerFailure,
+    options.startUpdate,
+    retryableUpdateFailure,
     serverBehind,
     target,
     trpc,
@@ -309,20 +323,20 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     return {
       ...(options.reload && touched.app ? { reload: options.reload } : {}),
       ...(installApp ? { installApp } : {}),
-      ...(updateServer ? { updateServer } : {}),
+      ...(startUpdate ? { startUpdate } : {}),
     }
-  }, [desktopTargeted, desktopUpdate, options.reload, touched.app, updateServer])
+  }, [desktopTargeted, desktopUpdate, options.reload, touched.app, startUpdate])
 
   const view: UpdateView =
-    serverAction.state === 'in-progress'
+    updateAction.state === 'in-progress'
       ? {
           state: 'in-progress',
-          version: serverAction.version,
-          done: serverAction.done,
-          total: serverAction.total,
+          version: updateAction.version,
+          done: updateAction.done,
+          total: updateAction.total,
         }
-      : serverAction.state === 'failed'
-        ? describeUpdateFailure(serverAction.detail)
+      : updateAction.state === 'failed'
+        ? describeUpdateFailure(updateAction.detail)
         : baseView
 
   return { view, actions, server, fleet }

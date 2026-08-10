@@ -108,10 +108,10 @@ describe('UpdateDialog', () => {
   })
 
   it('runs the action it does offer', async () => {
-    const updateServer = vi.fn()
-    render(<UpdateDialog view={available} actions={{ updateServer }} />)
-    screen.getByRole('button', { name: /update/i }).click()
-    expect(updateServer).toHaveBeenCalled()
+    const startUpdate = vi.fn()
+    render(<UpdateDialog view={available} actions={{ startUpdate }} />)
+    screen.getByRole('button', { name: 'Update Podium' }).click()
+    expect(startUpdate).toHaveBeenCalled()
   })
 
   it('shows wave progress in the in-progress state', () => {
@@ -162,8 +162,8 @@ describe('UpdateDialog', () => {
     expect(screen.queryByTestId('update-dialog')).toBeNull()
   })
 
-  it('retries through the existing server update action while keeping dismiss available', () => {
-    const updateServer = vi.fn(() => new Promise<void>(() => {}))
+  it('retries through the existing update action while keeping dismiss available', () => {
+    const startUpdate = vi.fn(() => new Promise<void>(() => {}))
 
     render(
       <UpdateDialog
@@ -172,7 +172,7 @@ describe('UpdateDialog', () => {
           message: 'Podium could not reach the update source.',
           guidance: "Check this server's internet connection, then try the update again.",
         }}
-        actions={{ updateServer }}
+        actions={{ startUpdate }}
       />,
     )
 
@@ -180,7 +180,7 @@ describe('UpdateDialog', () => {
 
     const retry = screen.getByRole('button', { name: 'Trying again…' })
     const dismiss = screen.getByRole('button', { name: 'Dismiss' })
-    expect(updateServer).toHaveBeenCalledOnce()
+    expect(startUpdate).toHaveBeenCalledOnce()
     expect(retry.getAttribute('aria-busy')).toBe('true')
     expect((retry as HTMLButtonElement).disabled).toBe(true)
     expect((dismiss as HTMLButtonElement).disabled).toBe(false)

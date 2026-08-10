@@ -12,7 +12,7 @@ function fleet(data: { total: number; behind: number }) {
     targetVersion: VERSION,
     machines:
       data.behind > 0
-        ? [{ id: 'machine-a', version: VERSION, state: 'current', online: true, busy: false }]
+        ? [{ id: 'machine-a', version: '0.4.1', state: 'current', online: true, busy: false }]
         : [],
   }
 }
@@ -54,7 +54,7 @@ async function capture(
   } else {
     await expect(dialog).toContainText('No restart needed. Your sessions keep running.')
     await expect(dialog).not.toContainText('Your server')
-    await expect(dialog.getByRole('button', { name: /update server/i })).toHaveCount(0)
+    await expect(dialog.getByRole('button', { name: /update Podium/i })).toBeVisible()
   }
   await page.screenshot({
     path: new URL(`../../../docs/design/update-dialog/${screenshotName}`, import.meta.url).pathname,
@@ -65,8 +65,51 @@ test('server-only update does not offer reload', async ({ page }) => {
   await capture(page, '0.4.1', fleet({ total: 0, behind: 0 }), 'available-server-only.png', true)
 })
 
-test('machine-only update does not offer reload', async ({ page }) => {
+test('machine-only update starts from the shared action', async ({ page }) => {
   await capture(page, VERSION, fleet({ total: 1, behind: 1 }), 'no-restart-needed.png', false)
+
+  let convergeCalls = 0
+  await page.route('**/trpc/updates.converge*', async (route) => {
+    convergeCalls += 1
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify([
+        {
+          result: {
+            data: {
+              state: 'in-progress',
+              version: VERSION,
+              done: 0,
+              total: 1,
+              fleet: {
+                total: 1,
+                behind: 1,
+                converging: 1,
+                failed: 0,
+                targetVersion: VERSION,
+                machines: [
+                  {
+                    id: 'machine-a',
+                    version: '0.4.1',
+                    state: 'granted',
+                    online: true,
+                    busy: false,
+                  },
+                ],
+              },
+              grantedMachineIds: ['machine-a'],
+            },
+          },
+        },
+      ]),
+    })
+  })
+
+  const dialog = page.getByTestId('update-dialog')
+  await dialog.getByRole('button', { name: 'Update Podium' }).click()
+  await expect(dialog).toContainText(`Podium ${VERSION} is being applied`)
+  await expect(dialog).toContainText('0 of 1 places are ready.')
+  expect(convergeCalls).toBe(1)
 })
 
 test('failed update explains recovery, dismisses, and retries', async ({ page }) => {
@@ -136,7 +179,7 @@ test('failed update explains recovery, dismisses, and retries', async ({ page })
 
   const dialog = page.getByTestId('update-dialog')
   await expect(dialog).toBeVisible({ timeout: 30_000 })
-  await dialog.getByRole('button', { name: 'Update server' }).click()
+  await dialog.getByRole('button', { name: 'Update Podium' }).click()
   await expect(dialog).toContainText('Podium could not reach the update source.')
   await expect(dialog).toContainText("Check this server's internet connection")
   await expect(dialog).not.toContainText('Failed to fetch')
@@ -155,7 +198,7 @@ test('failed update explains recovery, dismisses, and retries', async ({ page })
     timeout: 45_000,
   })
   await expect(dialog).toBeVisible({ timeout: 30_000 })
-  await dialog.getByRole('button', { name: 'Update server' }).click()
+  await dialog.getByRole('button', { name: 'Update Podium' }).click()
   await expect(dialog.getByRole('button', { name: 'Try again' })).toBeVisible()
   await dialog.getByRole('button', { name: 'Try again' }).click()
   await expect(dialog).toContainText(`Podium ${VERSION} is being applied`)
