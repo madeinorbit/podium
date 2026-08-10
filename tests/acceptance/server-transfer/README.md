@@ -15,5 +15,3 @@ The lane runs three fresh Compose projects:
 3. a promoted target whose commit reply is dropped by the acceptance-only daemon WebSocket proxy, proving the source records `commit-uncertain` and remains write-fenced.
 
 The source and target supervisors publish process/config/journal summaries into the coordination volume so assertions do not cross-mount either machine's state. No real agent CLI or LLM is installed or invoked. The command exits successfully with an explicit `SKIP` when opt-in is absent or Docker is unavailable.
-
-The approved design requires the transfer command to receive an exact string confirmation token. The current public contract accepts only literal `true`, so this lane uses that public shape until the coordinator and UI replace the boolean with their shared phrase; the mismatch is tracked with those owners rather than patched in acceptance code.

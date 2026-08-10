@@ -172,7 +172,7 @@ async function successCase(
   const outcome = await source.machines.transferServer.mutate({
     targetMachineId: targetMachine.id,
     publicUrl: edgeUrl,
-    confirmation: true,
+    confirmation: 'TRANSFER SERVER',
   })
   assert(
     outcome.ok && outcome.state === 'committed',
@@ -260,7 +260,7 @@ async function precommitAbortCase(
     await source.machines.transferServer.mutate({
       targetMachineId: targetMachine.id,
       publicUrl: edgeUrl,
-      confirmation: true,
+      confirmation: 'TRANSFER SERVER',
     })
   } catch (error) {
     rejected = true
@@ -302,7 +302,7 @@ async function lostReplyCase(
   const outcome = await source.machines.transferServer.mutate({
     targetMachineId: targetMachine.id,
     publicUrl: edgeUrl,
-    confirmation: true,
+    confirmation: 'TRANSFER SERVER',
   })
   assert(existsSync('/coord/promote-reply-dropped'), 'commit reply fault was not injected')
   assert(
