@@ -152,6 +152,8 @@ export {
   machinePairingCodeInput,
   machineRenameContract,
   machineRenameInput,
+  machineSetUpdateChannelContract,
+  machineSetUpdateChannelInput,
   machineRevokeContract,
   machineRevokeInput,
   machineShareContract,

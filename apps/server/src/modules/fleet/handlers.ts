@@ -16,6 +16,7 @@
  * dependency does not drag the whole fleet module into the hub role.
  */
 
+import type { UpdateChannel } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { attributionOf, onBehalfOfUser } from '../../command-principal'
 import type { Context } from '../../trpc'
@@ -69,6 +70,18 @@ const badRequest = (e: unknown): never => {
 export const machineRenameHandler = ({ ctx, input }: FleetArgs<{ id: string; name: string }>) => {
   mods(ctx).machines.renameMachine(input.id, input.name)
   return mods(ctx).machines.listMachines()
+}
+
+export const machineSetUpdateChannelHandler = ({
+  ctx,
+  input,
+}: FleetArgs<{ id: string; channel: UpdateChannel }>) => {
+  const modules = mods(ctx)
+  modules.machines.setUpdateChannel(input.id, input.channel)
+  // The mutation is the human authorization. An unavailable target grants nothing;
+  // the persisted selection remains visible as intent rather than false success.
+  modules.updates.authorizeMachine(input.id)
+  return modules.machines.listMachines()
 }
 
 export const machineShareHandler = ({

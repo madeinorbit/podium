@@ -1,7 +1,9 @@
+import type { UpdateChannel } from '@podium/model'
 import type { ConvergenceState } from '@podium/protocol'
 
 export interface WaveMachine {
   id: string
+  channel?: UpdateChannel
   version: string
   state: ConvergenceState
   online: boolean

@@ -66,9 +66,7 @@ describe('startServer with the hub role disabled (node shape)', () => {
     expect(await trpc.sessions.list.query()).toEqual([])
     // Reading the fleet is core (a node lists its own host machine)…
     const machines = await trpc.machines.list.query()
-    expect(machines.some((m) => m.id === handle.registry.modules.machines.hostMachineId)).toBe(
-      true,
-    )
+    expect(machines.some((m) => m.id === handle.registry.modules.machines.hostMachineId)).toBe(true)
   })
 
   it('pairing/fleet procs are ABSENT: 404 NOT_FOUND, not permission-denied', async () => {
@@ -136,6 +134,7 @@ describe('startServer with the hub role disabled (node shape)', () => {
       'machines.adopt',
       'machines.pairingCode',
       'machines.rename',
+      'machines.setUpdateChannel',
       'machines.revoke',
       'machines.share',
       'machines.transferOwnership',

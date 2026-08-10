@@ -95,6 +95,7 @@ const named = (machineId: string | undefined): FleetTarget =>
  */
 export const FLEET_TARGETS = {
   'machines.rename': (input: unknown) => named((input as { id: string }).id),
+  'machines.setUpdateChannel': (input: unknown) => named((input as { id: string }).id),
   'machines.share': (input: unknown) => named((input as { id: string }).id),
   'machines.unshare': (input: unknown) => named((input as { id: string }).id),
   // The TARGET is the machine being given away, not the recipient. Reading

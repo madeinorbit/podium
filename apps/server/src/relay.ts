@@ -340,7 +340,7 @@ export class SessionRegistry {
       ...(options.targetVersion ? { targetVersion: options.targetVersion } : {}),
       ...(options.updatePubkey ? { updatePubkey: options.updatePubkey } : {}),
       store: this.store,
-      targetVersion: () => updates?.targetVersion() ?? options.targetVersion?.(),
+      targetVersion: (machineId) => updates?.targetVersion(machineId) ?? options.targetVersion?.(),
       // ONE READER of `<stateDir>/machine.id`: the composition root passes the id to
       // the store, and every consumer takes the store's copy. A second `readOrCreate*`
       // call anywhere in the process would be a second opinion about who this host is.
@@ -370,6 +370,7 @@ export class SessionRegistry {
       machines: () =>
         machines.listMachines().map((machine) => ({
           id: machine.id,
+          channel: machine.updateChannel ?? 'stable',
           version: machine.appVersion ?? 'unreported',
           state: 'current',
           online: machine.online,

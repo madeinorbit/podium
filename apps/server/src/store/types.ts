@@ -13,6 +13,7 @@ import type {
   PinKind as ModelPinKind,
   RepoId,
   SessionId,
+  UpdateChannel,
   ThreadId,
   UserId,
   VisibilityClass,
@@ -237,6 +238,7 @@ export interface MachineRecord {
    * "unowned", and the two must not look alike at the type level.
    */
   ownerUserId: string | null
+  updateChannel: UpdateChannel
   appVersion: string | null
   wireSchemaDigest: string | null
   installKind: string | null

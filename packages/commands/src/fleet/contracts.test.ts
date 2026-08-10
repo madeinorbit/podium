@@ -26,6 +26,7 @@ import {
 
 const FOURTEEN: readonly FleetContractName[] = [
   'machines.rename',
+  'machines.setUpdateChannel',
   'machines.share',
   'machines.unshare',
   'machines.transferOwnership',
@@ -123,6 +124,7 @@ describe('the thirteen fleet contracts', () => {
     // the ones whose class was the hard call.
     const writesInto: Record<FleetContractName, string> = {
       'machines.rename': 'machine',
+      'machines.setUpdateChannel': 'machine',
       'machines.share': 'machine',
       'machines.transferOwnership': 'machine',
       'machines.adopt': 'machine',
@@ -172,6 +174,7 @@ describe('the thirteen fleet contracts', () => {
     )
     expect(byVerb).toEqual({
       'machines.rename': 'manage',
+      'machines.setUpdateChannel': 'manage',
       'machines.share': 'manage',
       'machines.transferOwnership': 'manage',
       'machines.transferServer': 'manage',
@@ -234,6 +237,7 @@ describe('the thirteen fleet contracts', () => {
     )
     expect(byRole).toEqual({
       'machines.rename': 'hub',
+      'machines.setUpdateChannel': 'hub',
       'machines.share': 'hub',
       'machines.transferOwnership': 'hub',
       'machines.transferServer': 'hub',

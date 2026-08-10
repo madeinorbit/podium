@@ -105,7 +105,7 @@
  * is that a transport is served because a contract NAMES it.
  */
 
-import { UserIdField } from '@podium/model'
+import { UpdateChannel, UserIdField } from '@podium/model'
 import { z } from 'zod'
 import type {
   AttributionPolicy,
@@ -163,6 +163,10 @@ export const machineRenameInput = z.object({
   name: z.string().min(1).max(80),
 })
 
+export const machineSetUpdateChannelInput = z.object({
+  id: z.string(),
+  channel: UpdateChannel,
+})
 export const machineShareInput = z.object({
   id: z.string(),
   grantee: z.string().min(1),
@@ -407,6 +411,46 @@ export const machineRenameContract = {
   conflictRule:
     'Owner-or-admin edit of the name field alone; no precondition, and two concurrent renames resolve to the later Authority commit',
 } as const satisfies FleetCommandContract<typeof machineRenameInput>
+
+/** Select the centrally controlled update authority for one managed machine. */
+export const machineSetUpdateChannelContract = {
+  name: 'machines.setUpdateChannel',
+  version: 1,
+  visibility: 'owned-compute',
+  input: machineSetUpdateChannelInput,
+  policy: {
+    action: 'manage',
+    roleFloor: 'member',
+    resource: 'machine',
+    machineVerb: 'manage',
+    confirmation: 'none',
+    rationale:
+      'The selected authority controls which signed target may be granted to this machine. The ' +
+      'machine owner or an administrator with manage authority may change it; the daemon cannot ' +
+      'choose its own source and changing the value runs no arbitrary machine command.',
+  },
+  exposure: SERVED_ON,
+  delivery: FLEET_DELIVERY,
+  redaction: PUBLIC_REDACTION,
+  ownership: {
+    creates: [],
+    note: 'Creates nothing; it updates the authority field on the existing machine row.',
+  },
+  attribution: FLEET_ATTRIBUTION,
+  errorConsistency: {
+    callerSuppliedTargetId: true,
+    invisibleFailsAs: 'nonexistent',
+    distinguishesUnauthorizedFromUnreachable: false,
+    note:
+      'An invisible machine and an unknown id share one refusal. The selection is durable while ' +
+      'offline; target availability and convergence are reported separately.',
+  },
+  serverRole: 'hub',
+  cli: { summary: 'Select a managed machine update authority' },
+  conflict: 'cmd',
+  conflictRule:
+    'Last Authority commit wins for this field; an old grant remains scoped to the authority under which it was issued',
+} as const satisfies FleetCommandContract<typeof machineSetUpdateChannelInput>
 
 /**
  * Share one machine verb. The target row gate requires `manage`, then the
@@ -1134,6 +1178,7 @@ export const discoveryScanMachineContract = {
  */
 export const FLEET_CONTRACTS = {
   'machines.rename': machineRenameContract,
+  'machines.setUpdateChannel': machineSetUpdateChannelContract,
   'machines.share': machineShareContract,
   'machines.unshare': machineUnshareContract,
   'machines.transferOwnership': machineTransferOwnershipContract,

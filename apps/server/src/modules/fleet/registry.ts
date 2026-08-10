@@ -27,6 +27,7 @@ import {
   machineAdoptHandler,
   machinePairingCodeHandler,
   machineRenameHandler,
+  machineSetUpdateChannelHandler,
   machineRevokeHandler,
   machineShareHandler,
   machineTransferOwnershipHandler,
@@ -58,6 +59,10 @@ export const FLEET_COMMANDS = {
   'machines.rename': {
     contract: FLEET_CONTRACTS['machines.rename'],
     handler: machineRenameHandler,
+  },
+  'machines.setUpdateChannel': {
+    contract: FLEET_CONTRACTS['machines.setUpdateChannel'],
+    handler: machineSetUpdateChannelHandler,
   },
   'machines.share': {
     contract: FLEET_CONTRACTS['machines.share'],

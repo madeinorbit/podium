@@ -527,6 +527,8 @@ export const machines = sqliteTable('machines', {
   )
     .default(1)
     .notNull(),
+  /** Durable authority choice for this machine's next target. */
+  updateChannel: text('update_channel').default('stable').notNull(),
   // MACHINE OWNERSHIP (POD-1079, ADR 9 D6 M1/M3). The person a paired machine
   // belongs to. NULLABLE and null is MEANINGFUL: `machineUseAllowed` refuses
   // `use` on an owner-less machine to EVERYONE, which is the default-closed

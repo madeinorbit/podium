@@ -12,6 +12,7 @@ import {
   type MachineId,
   type MachineUseDecision,
   type MachineWire,
+  type UpdateChannel,
 } from '@podium/model'
 import type {
   ControlMessage,
@@ -123,7 +124,7 @@ export interface MachinesDeps {
    * The version in the server's injected update target. Absent means this
    * deployment has no target descriptor yet, so every machine is unreported.
    */
-  targetVersion?: () => string | undefined
+  targetVersion?: (machineId: string) => string | undefined
   store: SessionStore
   /**
    * THIS HOST'S machine id — the UUID in `<stateDir>/machine.id`, read once by the
@@ -556,31 +557,35 @@ export class MachinesService {
    * supplying it here is what turns the whole placement surface on.
    */
   listMachines(use?: MachineUseResolver, owned?: MachineOwnedResolver): MachineListing[] {
-    let target: string | undefined
-    try {
-      target = this.deps.targetVersion?.()
-    } catch {
-      target = undefined
-    }
-    return this.machineRecords().map((m) => ({
-      ...(use ? { use: use(m.id) } : {}),
-      // POD-1495: same contract as `use` one line up — supplied means evaluated,
-      // omitted means NOT evaluated, and never "yes" by default.
-      ...(owned ? { owned: owned(m.id) } : {}),
-      id: m.id,
-      name: m.name,
-      hostname: m.hostname,
-      online: this.daemons.has(m.id),
-      lastSeenAt: m.lastSeenAt,
-      appVersion: m.appVersion,
-      wireSchemaDigest: m.wireSchemaDigest,
-      installKind: m.installKind,
-      deliveryCaps: m.deliveryCaps,
-      buildReportedAt: m.buildReportedAt,
-      versionState: deriveVersionState(m.appVersion, target),
-      ...(m.podiumManaged === false ? { podiumManaged: false } : {}),
-      ...(m.inventory ? { inventory: m.inventory } : {}),
-    }))
+    return this.machineRecords().map((m) => {
+      let target: string | undefined
+      try {
+        target = this.deps.targetVersion?.(m.id)
+      } catch {
+        target = undefined
+      }
+      return {
+        ...(use ? { use: use(m.id) } : {}),
+        // POD-1495: same contract as `use` one line up — supplied means evaluated,
+        // omitted means NOT evaluated, and never "yes" by default.
+        ...(owned ? { owned: owned(m.id) } : {}),
+        id: m.id,
+        name: m.name,
+        hostname: m.hostname,
+        online: this.daemons.has(m.id),
+        lastSeenAt: m.lastSeenAt,
+        updateChannel: m.updateChannel,
+        targetVersion: target ?? null,
+        appVersion: m.appVersion,
+        wireSchemaDigest: m.wireSchemaDigest,
+        installKind: m.installKind,
+        deliveryCaps: m.deliveryCaps,
+        buildReportedAt: m.buildReportedAt,
+        versionState: deriveVersionState(m.appVersion, target),
+        ...(m.podiumManaged === false ? { podiumManaged: false } : {}),
+        ...(m.inventory ? { inventory: m.inventory } : {}),
+      }
+    })
   }
 
   /** Current login condition for a session's machine and harness. */
@@ -648,6 +653,20 @@ export class MachinesService {
 
   renameMachine(id: string, name: string): void {
     this.deps.store.machines.renameMachine(id, name)
+    this.invalidateMachineCache()
+    if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId: id })
+    else this.deps.sessionsChangedForMachine?.(id)
+    this.broadcastMachines()
+  }
+
+  /** Persist the selected source independently for every Podium-managed machine. */
+  setUpdateChannel(id: string, channel: UpdateChannel): void {
+    const machine = this.deps.store.machines.getMachine(id)
+    if (!machine) throw new Error(`unknown machine '${id}'`)
+    if (!machine.podiumManaged) {
+      throw new Error(`machine '${machine.name}' is shared and does not accept managed updates`)
+    }
+    this.deps.store.machines.setUpdateChannel(id, channel)
     this.invalidateMachineCache()
     if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId: id })
     else this.deps.sessionsChangedForMachine?.(id)
