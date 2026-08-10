@@ -13,8 +13,14 @@ describe('buildReport', () => {
     expect(r.installKind).toBe('source')
   })
 
-  it('reports dev when no version was baked in', () => {
-    expect(buildReport({}, undefined).appVersion).toBe('dev')
+  it('reports the checkout identity for a source run with no baked version', () => {
+    expect(buildReport({}, undefined, 'dev+abc1234').appVersion).toBe('dev+abc1234')
+  })
+
+  it('keeps an explicit development version authoritative', () => {
+    expect(
+      buildReport({ PODIUM_APP_VERSION: 'dev+explicit' }, undefined, 'dev+abc1234').appVersion,
+    ).toBe('dev+explicit')
   })
 
   it('always carries this build wire schema digest', () => {
@@ -24,10 +30,7 @@ describe('buildReport', () => {
 
 describe('deliveryCaps', () => {
   it('offers feed and bundle for an installed build', () => {
-    expect(deliveryCaps('installed')).toEqual([
-      'update.delivery.feed',
-      'update.delivery.bundle',
-    ])
+    expect(deliveryCaps('installed')).toEqual(['update.delivery.feed', 'update.delivery.bundle'])
   })
 
   it('offers only git for a source run, which cannot swap a bundle', () => {

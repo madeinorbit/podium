@@ -25,7 +25,8 @@
     "./sd-notify": "./src/sd-notify.ts",
     "./boot": "./src/boot.ts",
     "./update-delivery": "./src/update-delivery.ts",
-    "./update-delivery-git": "./src/update-delivery-git.ts"
+    "./update-delivery-git": "./src/update-delivery-git.ts",
+    "./source-version": "./src/source-version.ts"
   },
   "scripts": {
     "typecheck": "bun ../../scripts/validation-admission.ts typecheck --label @podium/runtime:typecheck -- tsgo --noEmit",

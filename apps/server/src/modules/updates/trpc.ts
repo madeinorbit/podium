@@ -1,6 +1,7 @@
 import type { ConvergenceState } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
 import { type Context, t } from '../../trpc'
+import { serverBuildVersion } from '../../build-version'
 import { familyState } from '../derived-family'
 import type { UpdatesService } from './service'
 
@@ -54,7 +55,7 @@ export function updateFleet(ctx: Context): UpdateFleetSnapshot {
  */
 export function convergeThisServer(
   updates: UpdatesService,
-  currentVersion = process.env.PODIUM_APP_VERSION ?? 'dev',
+  currentVersion = serverBuildVersion(),
 ): {
   state: 'in-progress'
   version: string

@@ -32,6 +32,7 @@ import { prepareLedgerBoot } from '@podium/sync'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { clientAuthGuard, registerAuthRoute, requestUserId } from './auth-route'
+import { captureServerBuildVersion } from './build-version'
 import { createCloudRuntimeProviderFromEnv } from './cloud-runtime'
 import { userCommandPrincipal } from './command-principal'
 import { openEnrollmentLedger } from './enrollment-ledger'
@@ -160,6 +161,7 @@ export function registerVersionRoute(
      */
     visibilityGrade?: () => string
     updateTarget?: () => UpdateTarget | undefined
+    appVersion?: () => string
   },
 ): void {
   app.get('/version', (c) => {
@@ -178,7 +180,7 @@ export function registerVersionRoute(
        * a hard compatibility decision.
        */
       wireSchemaDigest: wireSchemaDigest(),
-      appVersion: process.env.PODIUM_APP_VERSION ?? 'dev',
+      appVersion: deps.appVersion?.() ?? process.env.PODIUM_APP_VERSION ?? 'dev',
       instanceId: deps.instanceId,
       feedScoping: deps.visibilityGrade?.() ?? 'device-unscoped',
       ...(target ? { target } : {}),
@@ -203,6 +205,7 @@ export async function startServer(
     }
   } = {},
 ): Promise<ServerHandle> {
+  const appVersion = captureServerBuildVersion()
   const instanceId = resolveInstanceId()
   ensureInstanceStateIdentity({ instanceId })
   // Role composition (roles.ts): which optional module groups this process
@@ -257,7 +260,7 @@ export async function startServer(
     instanceId,
     // The server's baked product label is the Phase 1 target identity. The richer
     // release-manifest descriptor remains an optional /version publication seam.
-    targetVersion: () => process.env.PODIUM_APP_VERSION ?? 'dev',
+    targetVersion: () => appVersion,
     mirrorLakeDir: join(stateDir(), 'transcripts'),
     // Rollout diagnostic only: compare legacy/new semantics while continuing
     // to deliver the worker publication [spec:SP-c29e].
@@ -404,6 +407,7 @@ export async function startServer(
   devPublisher.registerRoute(app)
   registerVersionRoute(app, {
     instanceId,
+    appVersion: () => appVersion,
     // Straight through to the Authority, which delegates to the policy object it
     // was constructed with. No copy on the path (POD-376).
     visibilityGrade: () => registry.modules.funnel.visibilityGrade(),

@@ -47,11 +47,11 @@ describe('daemon update grant over the live server socket', () => {
     const priorPodiumHome = process.env.PODIUM_HOME
     let server: Awaited<ReturnType<typeof startServer>> | undefined
     let daemon: Awaited<ReturnType<typeof startDaemon>> | undefined
+    let restartedDaemon: Awaited<ReturnType<typeof startDaemon>> | undefined
     let markerAtRestart: ReturnType<typeof readPendingGrant> = null
 
     try {
       process.env.PODIUM_STATE_DIR = stateDir
-      process.env.PODIUM_APP_VERSION = 'dev'
       delete process.env.PODIUM_HOME
 
       git(undefined, ['init', '--bare', origin])
@@ -64,6 +64,7 @@ describe('daemon update grant over the live server socket', () => {
       git(producer, ['branch', '-M', 'main'])
       git(producer, ['push', '-u', 'origin', 'main'])
       const firstSha = git(producer, ['rev-parse', 'HEAD'])
+      process.env.PODIUM_APP_VERSION = `dev+${firstSha.slice(0, 7)}`
 
       git(undefined, ['clone', origin, checkout])
       writeFileSync(join(producer, 'version.txt'), 'target\n')
@@ -95,7 +96,10 @@ describe('daemon update grant over the live server socket', () => {
         server?.registry.modules.machines
           .listMachines()
           .some(
-            (machine) => machine.id === machineId && machine.online && machine.appVersion === 'dev',
+            (machine) =>
+              machine.id === machineId &&
+              machine.online &&
+              machine.appVersion === `dev+${firstSha.slice(0, 7)}`,
           )
           ? true
           : false,
@@ -130,15 +134,41 @@ describe('daemon update grant over the live server socket', () => {
 
       expect(markerAtRestart).toMatchObject({
         targetVersion: 'dev+target',
-        previousVersion: 'dev',
+        previousVersion: `dev+${firstSha.slice(0, 7)}`,
         attempts: 1,
       })
       expect(readFileSync(join(checkout, 'version.txt'), 'utf8')).toBe('target\n')
       expect(updates.fleet().find((machine) => machine.id === machineId)).toMatchObject({
         state: 'restarting',
-        version: 'dev',
+        version: `dev+${firstSha.slice(0, 7)}`,
+      })
+
+      await daemon.close()
+      daemon = undefined
+      process.env.PODIUM_APP_VERSION = 'dev+target'
+      restartedDaemon = await startDaemon({
+        serverUrl: `ws://127.0.0.1:${server.port}`,
+        bootstrapToken: server.bootstrapToken,
+        machineId,
+        identityDir,
+        hooks: { port: 0, settingsDir: runtimeDir },
+        agentRelay: { port: 0 },
+        tmux: false,
+        discovery: { background: false, cachePath: ':memory:' },
+        metrics: { background: false },
+        restartAfterUpdate: () => {},
+      })
+
+      await waitFor(
+        () => updates.fleet().find((machine) => machine.id === machineId)?.state === 'current',
+      )
+      expect(readPendingGrant(runtimeDir)).toBeNull()
+      expect(updates.fleet().find((machine) => machine.id === machineId)).toMatchObject({
+        state: 'current',
+        version: 'dev+target',
       })
     } finally {
+      await restartedDaemon?.close()
       await daemon?.close()
       await server?.close()
       if (priorStateDir === undefined) delete process.env.PODIUM_STATE_DIR

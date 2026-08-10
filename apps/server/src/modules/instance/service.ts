@@ -39,6 +39,7 @@ import {
   shouldAskForConsent,
 } from '@podium/telemetry'
 import { TRPCError } from '@trpc/server'
+import { serverBuildVersion } from '../../build-version'
 
 /** The one optional dependency that is genuinely per-request rather than
  *  process-wide: the telemetry emitter, present only when the server was
@@ -81,7 +82,7 @@ export class InstanceService {
       // Must stay the literal `process.env.PODIUM_APP_VERSION` read (build-bun
       // --define); the Machines panel compares each daemon's reported version
       // against this. [POD-838]
-      appVersion: process.env.PODIUM_APP_VERSION ?? 'dev',
+      appVersion: serverBuildVersion(),
     }
   }
 
