@@ -888,6 +888,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tauri::ipc::RuntimeCapability;
 
     fn command_env(command: &Command, key: &str) -> Option<String> {
         command
@@ -937,6 +938,23 @@ mod tests {
                 "process:allow-restart",
             ]
         );
+
+        let capability = native_window_capability(
+            "transfer-window-controls-test",
+            Some("https://new.example:55555/*".to_string()),
+        )
+        .build();
+        let capability = serde_json::to_value(capability).expect("capability should serialize");
+        assert_eq!(capability["windows"], serde_json::json!(["main"]));
+        assert_eq!(
+            capability["remote"]["urls"],
+            serde_json::json!(["https://new.example:55555/*"])
+        );
+        assert!(capability["permissions"]
+            .as_array()
+            .expect("permissions should be an array")
+            .iter()
+            .any(|permission| permission == "core:window:allow-internal-toggle-maximize"));
     }
 
     #[test]
