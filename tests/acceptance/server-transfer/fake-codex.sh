@@ -6,4 +6,4 @@ if [ "${1:-}" = "--version" ]; then
   exit 0
 fi
 
-exec /workspace/node_modules/.bin/tsx /workspace/tests/keyecho/src/cli.tsx --mode raw --lock
+exec /usr/local/bin/bun /workspace/tests/keyecho/src/cli.tsx --mode raw --lock

@@ -7,6 +7,8 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { join } from 'node:path'
+import { applyMode } from '@podium/runtime/setup'
+import { Database } from 'bun:sqlite'
 
 type Role = 'source' | 'target'
 
@@ -20,6 +22,7 @@ interface ProcessEvidence {
   sourceJournal: Record<string, unknown> | null
   transferStages: Array<Record<string, unknown>>
   machineId: string | null
+  issueTitles: string[]
   health: boolean
   sentinels: {
     artifact: boolean
@@ -46,6 +49,7 @@ mkdirSync(process.env.PODIUM_AGENT_HOME ?? '/agent-home', { recursive: true })
 mkdirSync(coordRoot, { recursive: true })
 mkdirSync(repoRoot, { recursive: true })
 mkdirSync('/fixture-web', { recursive: true })
+if (role === 'source') applyMode({ mode: 'all-in-one' })
 if (!existsSync(join(repoRoot, '.git'))) {
   const init = Bun.spawnSync(['git', 'init', '-q', repoRoot])
   if (init.exitCode !== 0) throw new Error(`git init failed: ${init.stderr.toString()}`)
@@ -57,6 +61,20 @@ function readJson(path: string): Record<string, unknown> | null {
     return JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>
   } catch {
     return null
+  }
+}
+
+function issueTitles(): string[] {
+  if (!existsSync(join(stateRoot, 'podium.db'))) return []
+  const db = new Database(join(stateRoot, 'podium.db'), { readonly: true })
+  try {
+    return (
+      db.query('SELECT title FROM issues ORDER BY created_at').all() as Array<{ title: string }>
+    ).map((row) => row.title)
+  } catch {
+    return []
+  } finally {
+    db.close()
   }
 }
 
@@ -107,6 +125,7 @@ async function writeEvidence(): Promise<void> {
     connectivity: readJson(join(stateRoot, 'connectivity.json')),
     sourceJournal: readJson(join(stateRoot, '.server-transfer', 'journal.json')),
     transferStages: transferStages(),
+    issueTitles: issueTitles(),
     machineId: existsSync(join(stateRoot, 'machine.id'))
       ? readFileSync(join(stateRoot, 'machine.id'), 'utf8').trim()
       : null,
@@ -182,5 +201,36 @@ process.on('SIGTERM', terminate)
 const exitCode = await primary.exited
 primaryExited = true
 await writeEvidence()
-console.log(`[transfer-fixture:${role}] primary exited ${exitCode}; supervisor retaining container`)
+console.log(`[transfer-fixture:${role}] primary exited ${exitCode}`)
+
+if (role === 'source' || role === 'target') {
+  const config = readJson(join(stateRoot, 'config.json'))
+  const serverUrl =
+    (role === 'source' && config?.mode === 'daemon') ||
+    (role === 'target' && config?.mode === 'server')
+      ? config.serverUrl
+      : undefined
+  if (typeof serverUrl === 'string' && serverUrl.length > 0) {
+    primary = Bun.spawn(
+      [
+        process.execPath,
+        '--conditions=@podium/source',
+        cli,
+        'daemon',
+        '--server',
+        serverUrl,
+        '--takeover',
+      ],
+      { cwd: repoRoot, env: process.env, stdin: 'ignore', stdout: 'inherit', stderr: 'inherit' },
+    )
+    await writeEvidence()
+    console.log(`[transfer-fixture:${role}] relaunched daemon → ${serverUrl}`)
+    const daemonExitCode = await primary.exited
+    primaryExited = true
+    await writeEvidence()
+    console.log(`[transfer-fixture:${role}] replacement daemon exited ${daemonExitCode}`)
+  }
+}
+
+console.log(`[transfer-fixture:${role}] supervisor retaining container`)
 await new Promise(() => {})

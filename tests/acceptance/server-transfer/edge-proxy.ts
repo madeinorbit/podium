@@ -55,10 +55,12 @@ function connect(
   })
   upstream.addEventListener('message', (event) => peer.send(textOf(event.data as WireData)))
   upstream.addEventListener('error', () => {
+    if (peer.data.upstream !== upstream) return
     if (!opened && !peer.data.targetAttempted) connect(peer, 'target')
     else peer.close()
   })
   upstream.addEventListener('close', () => {
+    if (peer.data.upstream !== upstream) return
     if (!opened && !peer.data.targetAttempted) connect(peer, 'target')
     else peer.close()
   })

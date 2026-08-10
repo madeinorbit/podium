@@ -8,6 +8,7 @@ import { applySetup } from './setup'
 import {
   applySourceDemotion,
   applyTargetServerPromotion,
+  finalizeTargetServerPromotion,
   hostConfigBackupPath,
   planRoleTransition,
   promoteTargetServer,
@@ -99,6 +100,10 @@ describe('server transfer lifecycle', () => {
       persistence: 'systemd',
       updateChannel: 'edge',
     })
+    expect(JSON.parse(readFileSync(join(root, 'daemon.json'), 'utf8'))).toEqual({
+      machineId: readFileSync(join(root, 'machine.id'), 'utf8').trim(),
+      token: readFileSync(join(root, 'daemon.secret'), 'utf8').trim(),
+    })
     expect(JSON.parse(readFileSync(hostConfigBackupPath(TRANSFER_ONE), 'utf8'))).toEqual(before)
     expect(readdirSync(root).some((name) => name.startsWith('.config-transfer-'))).toBe(false)
 
@@ -142,6 +147,7 @@ describe('server transfer lifecycle', () => {
       configVersion: before.configVersion,
       mode: 'server',
       publicUrl: 'https://target.example',
+      serverUrl: 'wss://source.example',
       persistence: 'detached',
       updateChannel: 'edge',
       port: 20001,
@@ -185,6 +191,7 @@ describe('server transfer lifecycle', () => {
       configVersion: before.configVersion,
       mode: 'server',
       publicUrl: 'https://target.example',
+      serverUrl: 'wss://source.example',
       persistence: 'systemd',
       updateChannel: 'edge',
       port: 20004,
@@ -243,7 +250,7 @@ describe('server transfer lifecycle', () => {
     expect(result.roleTransition).toEqual({
       stopped: [],
       started: ['server', 'janitor'],
-      disarmed: ['daemon'],
+      disarmed: [],
       serverUp: true,
     })
     expect(fixture.live.has('daemon')).toBe(true)
@@ -259,7 +266,13 @@ describe('server transfer lifecycle', () => {
     )
 
     expect(result.proven).toBe(false)
-    expect(loadConfig()).toMatchObject({ mode: 'server', publicUrl: 'https://target.example' })
+    expect(loadConfig()).toMatchObject({
+      mode: 'server',
+      publicUrl: 'https://target.example',
+      serverUrl: 'wss://source.example',
+    })
+    finalizeTargetServerPromotion()
+    expect(loadConfig()).not.toHaveProperty('serverUrl')
     expect(result.promotion.previousConfig).toMatchObject({
       mode: 'daemon',
       serverUrl: 'wss://source.example',

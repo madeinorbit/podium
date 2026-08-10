@@ -14,6 +14,7 @@ interface MachineEvidence {
   sourceJournal: Record<string, unknown> | null
   transferStages: Array<Record<string, unknown>>
   machineId: string | null
+  issueTitles: string[]
   health: boolean
   sentinels: {
     artifact: boolean
@@ -202,7 +203,9 @@ async function successCase(
       value.health &&
       value.config?.mode === 'server' &&
       value.sentinels.artifact &&
-      value.sentinels.transcript,
+      value.sentinels.transcript &&
+      value.issueTitles.some((title) => title.startsWith('Docker transfer sentinel ')) &&
+      value.issueTitles.includes(preCopyIssueTitle),
     'target promotion and imported portable files',
   )
   const sourceEvidence = await eventually(
@@ -224,15 +227,6 @@ async function successCase(
       (session) => session.sessionId === agentSessionId && session.agentKind === 'codex',
     ),
     'target did not import the active agent row',
-  )
-  const importedIssues = await targetApi.issues.list.query({ repoPath })
-  assert(
-    importedIssues.some((issue) => issue.title === `Docker transfer sentinel ${scenario}`),
-    'target did not import the issue sentinel',
-  )
-  assert(
-    importedIssues.some((issue) => issue.title === preCopyIssueTitle),
-    'target did not import the concurrent pre-copy write',
   )
   await eventually(
     () => targetApi.machines.list.query(),

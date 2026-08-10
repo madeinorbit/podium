@@ -7,6 +7,9 @@ x-fixture: &fixture
     - transfer
   environment: &fixture-environment
     PODIUM_TRANSFER_SCENARIO: ${PODIUM_TRANSFER_SCENARIO:?set PODIUM_TRANSFER_SCENARIO}
+    # This fixture runs copied source as an installed tree. Disabling the source-only
+    # update publisher avoids trying to resolve a Docker-excluded .git directory.
+    PODIUM_HOME: /workspace
 
 services:
   source:
@@ -26,9 +29,6 @@ services:
       PODIUM_PORT: "18787"
       PODIUM_HOOK_PORT: "45777"
       PODIUM_AGENT_RELAY_PORT: "45778"
-      PODIUM_PTY_BACKEND: abduco
-      PODIUM_ABDUCO: /usr/bin/abduco
-      ABDUCO_SOCKET_DIR: /state/runtime/abduco
       PODIUM_NO_SCOPE: "1"
       PODIUM_NO_RELAY: "1"
       PODIUM_APP_VERSION: docker-transfer-acceptance
@@ -55,9 +55,6 @@ services:
       PODIUM_PORT: "18787"
       PODIUM_HOOK_PORT: "45777"
       PODIUM_AGENT_RELAY_PORT: "45778"
-      PODIUM_PTY_BACKEND: abduco
-      PODIUM_ABDUCO: /usr/bin/abduco
-      ABDUCO_SOCKET_DIR: /state/runtime/abduco
       PODIUM_NO_SCOPE: "1"
       PODIUM_NO_RELAY: "1"
       PODIUM_APP_VERSION: docker-transfer-acceptance

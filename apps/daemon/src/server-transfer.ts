@@ -31,6 +31,7 @@ import {
 import { configPath, stateDir } from '@podium/runtime/config'
 import { applySetup, validatePublicUrl } from '@podium/runtime/setup'
 import { openDatabase } from '@podium/runtime/sqlite'
+import { finalizeTargetServerPromotion } from '@podium/runtime/transfer-lifecycle'
 import type { ControlHandlers, DaemonContext } from './control/context'
 
 const TRANSFER_DIR = '.server-transfer'
@@ -1025,6 +1026,7 @@ async function acknowledge(
 
     const idempotent = meta.acknowledged === true
     if (!idempotent) {
+      finalizeTargetServerPromotion()
       meta.acknowledged = true
       await writeJson(metaPath(msg.transferId), meta)
     }

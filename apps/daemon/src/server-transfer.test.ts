@@ -20,6 +20,7 @@ import type {
 } from '@podium/protocol'
 import { canonicalServerTransferManifest } from '@podium/protocol'
 import { openDatabase } from '@podium/runtime/sqlite'
+import { loadConfig, saveConfig } from '@podium/runtime/config'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DaemonContext } from './control/context'
 
@@ -745,6 +746,7 @@ describe('server transfer target daemon', () => {
   })
 
   it('acknowledges promoted proof durably and retires only after each idempotent reply', async () => {
+    saveConfig({ mode: 'daemon', serverUrl: 'wss://source.example', persistence: 'systemd' })
     const { transferId, manifestDigest, promoteInput } = await prepareAndValidateCandidate()
     const acknowledgeInput = {
       type: 'serverTransferAcknowledgeRequest',
@@ -767,6 +769,10 @@ describe('server transfer target daemon', () => {
     expect(
       await invoke('serverTransferPromoteRequest', promoteInput, async (expected) => expected),
     ).toMatchObject({ ok: true, state: 'promoted', servingProof: { health: 'serving' } })
+    expect(loadConfig()).toMatchObject({
+      mode: 'server',
+      serverUrl: 'wss://source.example',
+    })
 
     const wrongDigest = await invoke(
       'serverTransferAcknowledgeRequest',
@@ -810,6 +816,7 @@ describe('server transfer target daemon', () => {
       servingProof: { transferId, manifestDigest, health: 'serving' },
     })
     expect(events).toEqual(['reply'])
+    expect(loadConfig()).not.toHaveProperty('serverUrl')
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(events).toEqual(['reply', 'retire'])
 

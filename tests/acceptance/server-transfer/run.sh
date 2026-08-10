@@ -21,9 +21,10 @@ COMPOSE="$ROOT/tests/acceptance/server-transfer/compose.yml"
 PROJECT_BASE="podium-transfer-${PPID}-$$"
 
 cleanup_project=""
+cleanup_scenario="success"
 cleanup() {
   if [[ -n "$cleanup_project" ]]; then
-    docker compose -f "$COMPOSE" -p "$cleanup_project" down --volumes --remove-orphans >/dev/null 2>&1 || true
+    PODIUM_TRANSFER_SCENARIO="$cleanup_scenario" docker compose -f "$COMPOSE" -p "$cleanup_project" down --volumes --remove-orphans >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT INT TERM
@@ -33,12 +34,13 @@ PODIUM_TRANSFER_SCENARIO=success docker compose -f "$COMPOSE" -p "${PROJECT_BASE
 
 for scenario in success precommit-abort lost-commit-reply; do
   cleanup_project="${PROJECT_BASE}-${scenario}"
+  cleanup_scenario="$scenario"
   echo "== server-transfer scenario: $scenario =="
   PODIUM_TRANSFER_SCENARIO="$scenario" docker compose -f "$COMPOSE" -p "$cleanup_project" up \
     --abort-on-container-exit \
     --exit-code-from scenario
-  docker compose -f "$COMPOSE" -p "$cleanup_project" logs --no-color source target control-proxy scenario
-  docker compose -f "$COMPOSE" -p "$cleanup_project" down --volumes --remove-orphans
+  PODIUM_TRANSFER_SCENARIO="$scenario" docker compose -f "$COMPOSE" -p "$cleanup_project" logs --no-color source target control-proxy scenario
+  PODIUM_TRANSFER_SCENARIO="$scenario" docker compose -f "$COMPOSE" -p "$cleanup_project" down --volumes --remove-orphans
   cleanup_project=""
 done
 

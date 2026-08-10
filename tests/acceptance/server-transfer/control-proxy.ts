@@ -71,8 +71,6 @@ const server = Bun.serve<ProxyPeer>({
         frame.operation === 'promote'
       ) {
         writeFileSync('/coord/promote-reply-dropped', `${Date.now()}\n`)
-        downstream.data.upstream?.close()
-        downstream.close()
         return
       }
       const upstream = downstream.data.upstream

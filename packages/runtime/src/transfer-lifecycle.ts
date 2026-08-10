@@ -29,9 +29,18 @@ import {
   openSync,
   renameSync,
   unlinkSync,
+  writeFileSync,
 } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { configPath, loadConfig, type PodiumConfig, resolvePort, saveConfig } from './config'
+import {
+  configPath,
+  loadConfig,
+  type PodiumConfig,
+  resolvePort,
+  saveConfig,
+  stateDir,
+} from './config'
+import { readOrCreateDaemonSecret, readOrCreateLocalMachineId } from './local-machine'
 import type { RunRole } from './run-registry'
 import { assertConfigWritable, ephemeralTunnelWarning, validatePublicUrl, wssFrom } from './setup'
 
@@ -123,6 +132,29 @@ function saveTransferConfig(config: PodiumConfig): void {
   }
 }
 
+function saveSourceDaemonIdentity(): void {
+  const path = join(stateDir(), 'daemon.json')
+  const tempPath = join(
+    dirname(path),
+    '.daemon-transfer-' + process.pid + '-' + randomUUID() + '.tmp',
+  )
+  const identity = {
+    machineId: readOrCreateLocalMachineId(),
+    token: readOrCreateDaemonSecret(),
+  }
+  try {
+    writeFileSync(tempPath, JSON.stringify(identity, null, 2) + '\n', {
+      mode: 0o600,
+      flag: 'wx',
+    })
+    syncPath(tempPath)
+    renameSync(tempPath, path)
+    syncParent(path)
+  } finally {
+    removeTemp(tempPath)
+  }
+}
+
 /** Create the rollback copy once, without a crash-visible partial backup. */
 function preserveSourceConfig(path: string, backupPath: string): void {
   if (existsSync(backupPath)) return
@@ -197,6 +229,7 @@ export function applySourceDemotion(input: SourceDemotionInput): SourceDemotionR
   if (prev.mode !== 'daemon') {
     // Keep a copy of the exact pre-cutover config for rollback before the destructive write.
     preserveSourceConfig(configPath(), backupPath)
+    saveSourceDaemonIdentity()
   }
   const {
     publicUrl: _hostOnly,
@@ -293,7 +326,6 @@ export function applyTargetServerPromotion(input: TargetPromotionInput): TargetP
     prev.mode === 'server' &&
     prev.publicUrl === v.normalized &&
     (port === undefined || prev.port === port) &&
-    prev.serverUrl === undefined &&
     prev.pairCode === undefined
   ) {
     return {
@@ -303,13 +335,7 @@ export function applyTargetServerPromotion(input: TargetPromotionInput): TargetP
       ...(backupExists ? { backupPath } : {}),
     }
   }
-  const {
-    serverUrl: _oldServerUrl,
-    pairCode: _consumedPairCode,
-    mode: _oldMode,
-    publicUrl: _oldPublicUrl,
-    ...rest
-  } = prev
+  const { pairCode: _consumedPairCode, mode: _oldMode, publicUrl: _oldPublicUrl, ...rest } = prev
   const cfg: PodiumConfig = {
     ...rest,
     mode: 'server',
@@ -328,6 +354,15 @@ export function applyTargetServerPromotion(input: TargetPromotionInput): TargetP
     previousConfig,
     ...(existsSync(backupPath) ? { backupPath } : {}),
   }
+}
+
+/** Remove the temporary recovery endpoint only after the source durably commits and acknowledges. */
+export function finalizeTargetServerPromotion(): void {
+  assertConfigWritable()
+  const prev = loadConfig()
+  if (prev.mode !== 'server' || prev.serverUrl === undefined) return
+  const { serverUrl: _recoveryEndpoint, ...finalConfig } = prev
+  saveTransferConfig(finalConfig)
 }
 
 export function targetConfigBackupPath(transferId: string): string {
@@ -357,6 +392,7 @@ export function planRoleTransition(opts: {
   managed?: RunRole[]
   /** Roles that must NOT be stopped even when the desired mode drops them. */
   keep?: RunRole[]
+  disarmKept?: boolean
 }): RoleTransitionPlan {
   const desired = rolesForMode(opts.mode)
   const kept = new Set(opts.keep ?? [])
@@ -367,9 +403,12 @@ export function planRoleTransition(opts: {
     desired,
     toStop: [...present].filter((role) => !desired.includes(role) && !kept.has(role)),
     toStart: desired.filter((role) => !live.has(role)),
-    toDisarm: [...present].filter(
-      (role) => !desired.includes(role) && kept.has(role) && managed.has(role),
-    ),
+    toDisarm:
+      opts.disarmKept === false
+        ? []
+        : [...present].filter(
+            (role) => !desired.includes(role) && kept.has(role) && managed.has(role),
+          ),
   }
 }
 
@@ -386,8 +425,7 @@ export interface RoleSupervisor {
   /** Stop the role for good: kill the holder AND make sure its managed unit cannot restore
    *  itself (disable the unit, then reclaim the detached/foreground holder). */
   stopRole(role: RunRole): Promise<void>
-  /** Prevent a managed role from being resurrected without stopping its current process.
-   *  Used by target promotion so the daemon can carry lost-reply retries until explicit ack. */
+  /** Prevent a managed role from being resurrected without stopping its current process. */
   disarmRole?(role: RunRole): Promise<void>
   /** Start one role from scratch (spawn detached, or install+enable+start its unit). */
   startRole(role: RunRole, ctx: { port: number; serverUrl?: string }): Promise<void>
@@ -413,16 +451,17 @@ export async function runRoleTransition(
     mode: PodiumConfig['mode']
     port: number
     keep?: RunRole[]
+    disarmKept?: boolean
     supervisor: RoleSupervisor
   },
   serverUrl?: string,
 ): Promise<RoleTransitionResult> {
-  const { mode, port, keep, supervisor } = opts
+  const { mode, port, keep, disarmKept, supervisor } = opts
   const live = MACHINE_ROLES.filter((role) => supervisor.roleLive(role))
   const managed = MACHINE_ROLES.filter((role) =>
     supervisor.roleManaged ? supervisor.roleManaged(role) : supervisor.roleLive(role),
   )
-  const plan = planRoleTransition({ mode, live, managed, keep })
+  const plan = planRoleTransition({ mode, live, managed, keep, disarmKept })
 
   const stopped: RunRole[] = []
   for (const role of plan.toStop) {
@@ -453,9 +492,9 @@ export interface TargetServerRuntimeOutcome {
 
 /**
  * Promote a staged target's machine role after portable state validation. The calling daemon is
- * retained after the proof so a lost promote reply can be retried through the same daemon. Managed
- * resurrection is disarmed during promotion; only an explicit post-ack seam may retire the live
- * daemon. A failed start leaves durable server mode in place, so retrying this function resumes the
+ * retained and restartable after the proof so a lost promote reply can be reconciled. Only an
+ * explicit post-ack seam may remove its recovery endpoint and retire the daemon. A failed start
+ * leaves durable server mode in place, so retrying this function resumes the
  * missing roles instead of restoring stale daemon authority.
  */
 export async function promoteTargetServer(
@@ -468,6 +507,7 @@ export async function promoteTargetServer(
     mode: 'server',
     port,
     keep: ['daemon'],
+    disarmKept: false,
     supervisor,
   })
   return { promotion, roleTransition, proven: roleTransition.serverUp }

@@ -73,7 +73,7 @@ export function serverTransferRpcAdapter(wire: WireOwnedRpc): ServerTransferRpc 
       )
       if (
         !reply.ok ||
-        reply.state !== 'prepared' ||
+        reply.state !== 'staging' ||
         reply.transferId !== input.transferId ||
         reply.manifestDigest !== digest ||
         reply.targetCapability !== 'server-only' ||

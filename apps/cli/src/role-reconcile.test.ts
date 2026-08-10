@@ -119,7 +119,7 @@ describe('server transfer role reconciliation', () => {
     expect(outcome.proven).toBe(true)
     expect(written).toEqual(['janitor'])
     expect(enabled).toEqual(['podium-janitor.service'])
-    expect(disarmed).toEqual(['podium-daemon.service'])
+    expect(disarmed).toEqual([])
     expect(outcome.roleTransition.stopped).toEqual([])
   })
 

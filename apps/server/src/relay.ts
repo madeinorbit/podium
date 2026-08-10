@@ -593,11 +593,8 @@ export class SessionRegistry {
       sourceInstanceId: options.instanceId,
       sourceMachineId: this.store.hostMachineId,
       sourceFeedIdentity: () => {
-        const identity = this.store.sync.readFeedIdentity()
-        return {
-          feedId: identity?.feedId ?? 'uninitialized',
-          feedEpoch: identity?.epoch ?? 'uninitialized',
-        }
+        const identity = feedServing.identity()
+        return { feedId: identity.feedId, feedEpoch: identity.epoch }
       },
       sourceApplicationVersion: options.targetVersion?.() ?? 'dev',
       sourceSchemaVersion: () => this.store.schemaVersionForTransfer(),
