@@ -341,7 +341,8 @@ export class SessionRegistry {
       ...(options.targetVersion ? { targetVersion: options.targetVersion } : {}),
       ...(options.updatePubkey ? { updatePubkey: options.updatePubkey } : {}),
       store: this.store,
-      targetVersion: (machineId) => updates?.targetVersion(machineId) ?? options.targetVersion?.(),
+      targetVersion: (machineId) =>
+        updates ? updates.targetVersion(machineId) : options.targetVersion?.(),
       targetUnavailableReason: (machineId) => updates?.targetUnavailableReasonFor(machineId),
       // ONE READER of `<stateDir>/machine.id`: the composition root passes the id to
       // the store, and every consumer takes the store's copy. A second `readOrCreate*`
