@@ -119,6 +119,19 @@ advanced. Do not diagnose a strand from a stale expiry: a renew-on-refuse lease 
 taken while being dead. Whether the shared permits are held is the honest signal, and the
 owner pid in the note is the direct one.
 
+The two halves of this protocol ship from different places, which is worth knowing before it
+surprises you: the lease client is `podium`, which runs from the host checkout, so a change
+there reaches every session the moment it lands on main. The wrapper above it runs from
+whichever worktree invoked it, so a worktree keeps its old admission behaviour until it
+rebases. A rebase changing how your leases behave is that, not a bug.
+
+That split is also how you read a stuck gate. `podium lock status` prints the note, so a
+stamped holder (`… [pid 1234]`) is a worktree carrying the reclaim, and a stale one will be
+cleaned up by whoever validates next. An UNSTAMPED holder is a worktree that has not rebased:
+nothing will reclaim it — deliberately, since that is also what an outer manual hold looks
+like — so if it died holding the gate, the TTL really is the only exit and waiting is the
+answer. A 30-minute stall you can name beats one you cannot.
+
 Root wrappers export `PODIUM_VALIDATION_RESOURCE_HELD`; Turbo passes it to package children
 through `globalPassThroughEnv`, so direct package scripts self-guard without nested
 acquisition or changing cache keys. An outer manually-held `test:heavy` remains caller-owned.
