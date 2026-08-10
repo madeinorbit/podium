@@ -72,6 +72,11 @@ describe('refStageAccent', () => {
     expect(refStageAccent(null)).toContain('--primary')
     expect(refStageAccent(undefined)).toContain('--primary')
   })
+
+  it('keeps in-progress on the shared blue channel, not obligation amber', () => {
+    expect(refStageAccent('in_progress')).toBe('rgb(59, 130, 246)')
+    expect(refStageAccent('in_progress')).not.toContain('245, 158, 11')
+  })
 })
 
 // Fake buffer over rows of plain strings, including translateToString so the

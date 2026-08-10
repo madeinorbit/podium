@@ -27,7 +27,11 @@ export const REF_STAGE_ACCENT: Readonly<Record<IssueStage, string>> = {
   proposed: 'rgb(217, 70, 239)',
   backlog: 'color-mix(in srgb, var(--muted-foreground, #94a3b8) 70%, transparent)',
   planning: 'var(--muted-foreground, #94a3b8)',
-  in_progress: 'rgb(245, 158, 11)',
+  // Blue, not amber: POD-583 reserved amber for operator attention and moved
+  // every in-progress stage signal onto this channel. Terminals were the third
+  // surface and were missed then — a ref underlined here must read the same as
+  // the React StageGlyph and the markdown `.ref-link` chip.
+  in_progress: 'rgb(59, 130, 246)',
   review: 'rgb(14, 165, 233)',
   done: 'var(--success, #22c55e)',
 }
