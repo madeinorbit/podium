@@ -106,6 +106,12 @@ describe('updates tRPC', () => {
     process.env.PODIUM_APP_VERSION = '0.4.1'
     const requestCoordinatorRestart = vi.fn()
     const { registry, caller } = harness(requestCoordinatorRestart)
+    registry.modules.machines.setMachineBuild(
+      registry.sessionStore.hostMachineId,
+      { appVersion: '0.4.2' },
+      [],
+      '2026-08-10T00:00:00.000Z',
+    )
     registry.modules.updates.setTarget(target())
 
     const result = await caller.updates.converge()
@@ -118,6 +124,30 @@ describe('updates tRPC', () => {
     expect(result.fleet.targetVersion).toBe('0.4.2')
     expect(result.fleet.machines.length).toBeGreaterThanOrEqual(1)
     expect(requestCoordinatorRestart).toHaveBeenCalledOnce()
+    registry.dispose()
+  })
+
+  it('does not count or grant a machine selected onto another channel', async () => {
+    process.env.PODIUM_APP_VERSION = '0.4.2'
+    const { registry, caller } = harness()
+    registry.sessionStore.machines.upsertMachine({
+      id: 'stable-machine',
+      name: 'Stable machine',
+      hostname: 'stable-machine',
+      tokenHash: 'stable-token',
+      ownerUserId: FIRST_ADMIN_USER_ID,
+      updateChannel: 'stable',
+    })
+    registry.modules.machines.setMachineBuild(
+      'stable-machine',
+      { appVersion: '0.4.1' },
+      [],
+      '2026-08-10T00:00:00.000Z',
+    )
+    registry.modules.updates.setTarget(target())
+
+    const fleet = await caller.updates.fleet()
+    expect(fleet.machines.map((machine) => machine.id)).not.toContain('stable-machine')
     registry.dispose()
   })
 

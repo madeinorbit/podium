@@ -22,6 +22,7 @@ describe('source coordinator redeploy', () => {
     })
 
     request?.()
+    request?.()
     expect(startUnit).not.toHaveBeenCalled()
     await vi.advanceTimersByTimeAsync(750)
     expect(startUnit).toHaveBeenCalledWith('podium-blue-redeploy.service')

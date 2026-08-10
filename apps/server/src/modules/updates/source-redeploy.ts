@@ -35,7 +35,10 @@ export function createSourceRedeployRequest(deps: {
       })
       child.unref()
     })
+  let requested = false
   return () => {
+    if (requested) return
+    requested = true
     const timer = setTimeout(() => startUnit(unit), deps.delayMs ?? DEFAULT_RESTART_DELAY_MS)
     timer.unref?.()
   }

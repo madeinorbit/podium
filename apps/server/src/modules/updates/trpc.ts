@@ -7,6 +7,11 @@ import type { UpdatesService } from './service'
 
 const IN_FLIGHT: ReadonlySet<ConvergenceState> = new Set(['granted', 'downloading', 'restarting'])
 const FAILED: ReadonlySet<ConvergenceState> = new Set(['rejected', 'stuck'])
+const COORDINATOR_RESTART_POLL_MS = 250
+
+function isDevelopmentMachine(machine: { channel?: string }): boolean {
+  return (machine.channel ?? 'dev') === 'dev'
+}
 
 export interface UpdateFleetMachine {
   id: string
@@ -28,7 +33,14 @@ export interface UpdateFleetSnapshot {
 
 function fleetSnapshot(updates: UpdatesService): UpdateFleetSnapshot {
   const targetVersion = updates.targetVersion()
-  const machines = updates.fleet().map((machine) => ({ ...machine }))
+  // The global dialog is the coordinating source server's dev-authority wave.
+  // Edge/stable machines have their own explicit per-row targets and actions;
+  // comparing them with the dev target invents behind places this mutation
+  // cannot and must not grant.
+  const machines = updates
+    .fleet()
+    .filter((machine) => isDevelopmentMachine(machine))
+    .map((machine) => ({ ...machine }))
   const behind = targetVersion
     ? machines.filter((machine) => machine.version !== targetVersion).length
     : 0
@@ -41,6 +53,31 @@ function fleetSnapshot(updates: UpdatesService): UpdateFleetSnapshot {
     failed: machines.filter((machine) => FAILED.has(machine.state)).length,
     machines,
   }
+}
+
+export function restartCoordinatorAfterDevelopmentFleet(
+  updates: UpdatesService,
+  targetVersion: string,
+  requestCoordinatorRestart: () => void,
+  pollMs = COORDINATOR_RESTART_POLL_MS,
+): void {
+  const check = (): void => {
+    const developmentStillApplying = updates
+      .fleet()
+      .some(
+        (machine) =>
+          isDevelopmentMachine(machine) &&
+          machine.online &&
+          machine.version !== targetVersion,
+      )
+    if (!developmentStillApplying) {
+      requestCoordinatorRestart()
+      return
+    }
+    const timer = setTimeout(check, pollMs)
+    timer.unref?.()
+  }
+  check()
 }
 
 /** The fleet read model used by the dialog and Settings. */
@@ -83,7 +120,9 @@ export function startUpdate(
 
   const grantedMachineIds = updates.authorize()
   const fleet = fleetSnapshot(updates)
-  if (serverBehind) requestCoordinatorRestart?.()
+  if (serverBehind && requestCoordinatorRestart) {
+    restartCoordinatorAfterDevelopmentFleet(updates, target.version, requestCoordinatorRestart)
+  }
   return {
     state: 'in-progress',
     version: target.version,
