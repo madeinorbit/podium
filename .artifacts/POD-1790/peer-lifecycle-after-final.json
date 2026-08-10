@@ -1,0 +1,342 @@
+{
+  "measuredAt": "2026-08-10T11:01:22.255Z",
+  "baseUrl": "http://localhost:8890",
+  "durationMs": 20000,
+  "events": [
+    {
+      "at": "2026-08-10T11:01:01.052Z",
+      "elapsedMs": 2905.9328689999998,
+      "event": "socket-open",
+      "url": "ws://localhost:8890/client?v=2"
+    },
+    {
+      "at": "2026-08-10T11:01:01.094Z",
+      "elapsedMs": 2948.319862,
+      "event": "frame-received",
+      "type": "welcome",
+      "clientId": "c1",
+      "bytes": 34
+    },
+    {
+      "at": "2026-08-10T11:01:01.094Z",
+      "elapsedMs": 2948.449827,
+      "event": "frame-received",
+      "type": "machinesChanged",
+      "bytes": 1823
+    },
+    {
+      "at": "2026-08-10T11:01:01.094Z",
+      "elapsedMs": 2948.4645889999997,
+      "event": "frame-received",
+      "type": "approvalsChanged",
+      "bytes": 40
+    },
+    {
+      "at": "2026-08-10T11:01:01.096Z",
+      "elapsedMs": 2951.93639,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 290
+    },
+    {
+      "at": "2026-08-10T11:01:01.098Z",
+      "elapsedMs": 2952.101037,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 898
+    },
+    {
+      "at": "2026-08-10T11:01:01.098Z",
+      "elapsedMs": 2952.323,
+      "event": "frame-sent",
+      "type": "ping",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T11:01:01.098Z",
+      "elapsedMs": 2952.446086,
+      "event": "frame-sent",
+      "type": "hello",
+      "wireVersion": 2,
+      "bytes": 87
+    },
+    {
+      "at": "2026-08-10T11:01:01.098Z",
+      "elapsedMs": 2952.465926,
+      "event": "frame-sent",
+      "type": "viewState",
+      "bytes": 59
+    },
+    {
+      "at": "2026-08-10T11:01:01.116Z",
+      "elapsedMs": 2970.372002,
+      "event": "frame-received",
+      "type": "pong",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T11:01:01.120Z",
+      "elapsedMs": 2974.255271,
+      "event": "frame-received",
+      "type": "feedBootstrap",
+      "bytes": 1603
+    },
+    {
+      "at": "2026-08-10T11:01:01.531Z",
+      "elapsedMs": 3385.383731,
+      "event": "app-ready"
+    },
+    {
+      "at": "2026-08-10T11:01:01.599Z",
+      "elapsedMs": 3453.3770889999996,
+      "event": "frame-sent",
+      "type": "viewState",
+      "bytes": 178
+    },
+    {
+      "at": "2026-08-10T11:01:01.599Z",
+      "elapsedMs": 3453.4026269999995,
+      "event": "frame-sent",
+      "type": "presenceSubscribe",
+      "bytes": 98
+    },
+    {
+      "at": "2026-08-10T11:01:01.599Z",
+      "elapsedMs": 3453.414084,
+      "event": "frame-sent",
+      "type": "presenceUpdate",
+      "bytes": 138
+    },
+    {
+      "at": "2026-08-10T11:01:01.599Z",
+      "elapsedMs": 3453.4250809999994,
+      "event": "frame-sent",
+      "type": "transcriptSubscribe",
+      "bytes": 81
+    },
+    {
+      "at": "2026-08-10T11:01:01.599Z",
+      "elapsedMs": 3453.440694,
+      "event": "frame-received",
+      "type": "presenceRoomState",
+      "bytes": 158
+    },
+    {
+      "at": "2026-08-10T11:01:01.599Z",
+      "elapsedMs": 3453.452061,
+      "event": "frame-received",
+      "type": "presenceRoomDelta",
+      "bytes": 173
+    },
+    {
+      "at": "2026-08-10T11:01:01.599Z",
+      "elapsedMs": 3453.4608849999995,
+      "event": "frame-received",
+      "type": "presenceRoomDelta",
+      "bytes": 217
+    },
+    {
+      "at": "2026-08-10T11:01:01.599Z",
+      "elapsedMs": 3453.4899079999996,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 898
+    },
+    {
+      "at": "2026-08-10T11:01:01.599Z",
+      "elapsedMs": 3453.529818,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 290
+    },
+    {
+      "at": "2026-08-10T11:01:03.566Z",
+      "elapsedMs": 5420.359162,
+      "event": "frame-sent",
+      "type": "ping",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T11:01:04.348Z",
+      "elapsedMs": 6202.117104,
+      "event": "frame-received",
+      "type": "pong",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T11:01:05.105Z",
+      "elapsedMs": 6959.552087,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 174
+    },
+    {
+      "at": "2026-08-10T11:01:06.072Z",
+      "elapsedMs": 7925.866426,
+      "event": "frame-sent",
+      "type": "ping",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T11:01:06.072Z",
+      "elapsedMs": 7926.241198000001,
+      "event": "frame-received",
+      "type": "pong",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T11:01:06.539Z",
+      "elapsedMs": 8393.394431,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 291
+    },
+    {
+      "at": "2026-08-10T11:01:08.585Z",
+      "elapsedMs": 10439.281700000001,
+      "event": "frame-sent",
+      "type": "ping",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T11:01:08.593Z",
+      "elapsedMs": 10447.673566000001,
+      "event": "frame-received",
+      "type": "pong",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T11:01:09.028Z",
+      "elapsedMs": 10882.144463,
+      "event": "frame-received",
+      "type": "machinesChanged",
+      "bytes": 1823
+    },
+    {
+      "at": "2026-08-10T11:01:09.040Z",
+      "elapsedMs": 10894.439128,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 1136
+    },
+    {
+      "at": "2026-08-10T11:01:09.059Z",
+      "elapsedMs": 10912.885866,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 898
+    },
+    {
+      "at": "2026-08-10T11:01:11.082Z",
+      "elapsedMs": 12935.893644000002,
+      "event": "frame-sent",
+      "type": "ping",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T11:01:11.083Z",
+      "elapsedMs": 12937.018252,
+      "event": "frame-received",
+      "type": "pong",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T11:01:11.485Z",
+      "elapsedMs": 13339.356237,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 291
+    },
+    {
+      "at": "2026-08-10T11:01:13.650Z",
+      "elapsedMs": 15504.236563,
+      "event": "frame-sent",
+      "type": "ping",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T11:01:13.650Z",
+      "elapsedMs": 15504.298816,
+      "event": "frame-received",
+      "type": "pong",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T11:01:16.246Z",
+      "elapsedMs": 18100.066411,
+      "event": "frame-sent",
+      "type": "ping",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T11:01:16.246Z",
+      "elapsedMs": 18100.153121,
+      "event": "frame-received",
+      "type": "pong",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T11:01:16.520Z",
+      "elapsedMs": 18373.903247,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 291
+    },
+    {
+      "at": "2026-08-10T11:01:18.070Z",
+      "elapsedMs": 19923.821249999997,
+      "event": "frame-received",
+      "type": "machinesChanged",
+      "bytes": 1823
+    },
+    {
+      "at": "2026-08-10T11:01:18.090Z",
+      "elapsedMs": 19944.262893,
+      "event": "frame-received",
+      "type": "sessionsChanged",
+      "bytes": 898
+    },
+    {
+      "at": "2026-08-10T11:01:18.744Z",
+      "elapsedMs": 20598.68109,
+      "event": "frame-sent",
+      "type": "ping",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T11:01:18.745Z",
+      "elapsedMs": 20598.743973999997,
+      "event": "frame-received",
+      "type": "pong",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T11:01:20.321Z",
+      "elapsedMs": 22174.842453999998,
+      "event": "frame-received",
+      "type": "feedDelta",
+      "bytes": 174
+    },
+    {
+      "at": "2026-08-10T11:01:21.377Z",
+      "elapsedMs": 23231.603552999997,
+      "event": "frame-sent",
+      "type": "ping",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T11:01:21.377Z",
+      "elapsedMs": 23231.667459,
+      "event": "frame-received",
+      "type": "pong",
+      "bytes": 15
+    },
+    {
+      "at": "2026-08-10T11:01:21.496Z",
+      "elapsedMs": 23350.286255,
+      "event": "frame-received",
+      "type": "hostMetricsChanged",
+      "bytes": 291
+    }
+  ]
+}

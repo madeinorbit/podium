@@ -74,7 +74,7 @@ export interface BootstrapSourceDeps {
 
 export class PushedBootstrapSource {
   /** The most recent world, and when it was offered. Superseded, never queued. */
-  private slot: { chunk: BootstrapChunk; offeredAt: number } | undefined
+  private slot: { chunk: BootstrapChunk; offeredAt: number; expected: boolean } | undefined
   private waiter: ((chunk: BootstrapChunk) => void) | undefined
   private failWaiter: ((error: Error) => void) | undefined
   /**
@@ -92,6 +92,15 @@ export class PushedBootstrapSource {
    * what tells a self-inflicted socket close apart from a real drop.
    */
   private requesting = false
+  /**
+   * A newly opened feed socket is REQUIRED to push one initial world. Marking
+   * that promise here lets a cold/bootstrap-required walk wait for the world
+   * already in flight instead of closing the socket to ask for the same world
+   * again. This is distinct from `requesting`: a real close while an expected
+   * world is pending still abandons the walk, while a close caused by
+   * `requestFreshWorld` must keep it alive.
+   */
+  private expected = false
 
   constructor(private readonly deps: BootstrapSourceDeps) {}
 
@@ -99,6 +108,8 @@ export class PushedBootstrapSource {
   offer(chunk: BootstrapChunk): void {
     this.tick += 1
     this.requesting = false
+    const expected = this.expected
+    this.expected = false
     const waiter = this.waiter
     if (waiter !== undefined) {
       // Handed straight to the walk that is waiting — never parked in the slot
@@ -109,7 +120,12 @@ export class PushedBootstrapSource {
       waiter(chunk)
       return
     }
-    this.slot = { chunk, offeredAt: this.tick }
+    this.slot = { chunk, offeredAt: this.tick, expected }
+  }
+
+  /** The current socket has opened and owes its mandatory initial world. */
+  expectWorld(): void {
+    this.expected = true
   }
 
   /**
@@ -120,7 +136,8 @@ export class PushedBootstrapSource {
    * mid-walk would start a second one.
    */
   async *bootstrap(): AsyncGenerator<BootstrapChunk> {
-    const startedAt = (this.tick += 1)
+    this.tick += 1
+    const startedAt = this.tick
     let first = true
     for (;;) {
       const chunk = await this.take(first ? startedAt : undefined)
@@ -148,6 +165,7 @@ export class PushedBootstrapSource {
    */
   reset(reason: string): boolean {
     this.slot = undefined
+    this.expected = false
     if (this.requesting) {
       this.requesting = false
       return true
@@ -155,7 +173,7 @@ export class PushedBootstrapSource {
     const fail = this.failWaiter
     this.waiter = undefined
     this.failWaiter = undefined
-    fail?.(new Error('bootstrap abandoned: ' + reason))
+    fail?.(new Error(`bootstrap abandoned: ${reason}`))
     return false
   }
 
@@ -170,10 +188,13 @@ export class PushedBootstrapSource {
     if (freshAfter !== undefined) {
       const held = this.slot
       this.slot = undefined
-      if (held !== undefined && held.offeredAt > freshAfter) return Promise.resolve(held.chunk)
+      if (held !== undefined && (held.expected || held.offeredAt > freshAfter)) {
+        return Promise.resolve(held.chunk)
+      }
       // Either nothing was pushed, or what was pushed predates this walk and has
       // just been dropped. Both mean: ask — but NOT yet. See below.
-      ask = true
+      ask = !this.expected
+      this.expected = false
     }
     const pending = new Promise<BootstrapChunk>((resolve, reject) => {
       const setTimer = this.deps.setTimer ?? ((fn, ms) => setTimeout(fn, ms))
