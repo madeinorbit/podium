@@ -49,7 +49,7 @@ import { createReattachGates } from './reattach-gates'
 import { SessionBinding } from './session-binding'
 import { createSessionObservers } from './session-observers'
 import { sweepUploads, UPLOADS_GC_INTERVAL_MS } from './session-uploads'
-import { restartAsServer } from './transfer-lifecycle'
+import { restartAsServer, retireAfterServerTransfer } from './transfer-lifecycle'
 import { swapHeadlessBundle } from './update-install'
 import { DiscoveryWorkerClient } from './worker-client'
 import { createCwdResolver, createSessionCwdTracker } from './worktree-resolve'
@@ -356,6 +356,7 @@ export async function createDaemonHostRuntime(args: {
     quotaFetcher: makeQuotaFetcher({ ...(homeDir ? { homeDir } : {}) }),
     usageMemo: {},
     restartAfterTransfer: opts.restartAfterTransfer ?? restartAsServer,
+    retireAfterTransfer: opts.retireAfterTransfer ?? retireAfterServerTransfer,
     applyUpdateGrant,
   }
   const frameGuard = createFrameGuard(ctx)

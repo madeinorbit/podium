@@ -39,9 +39,11 @@ import { AgentRelayResultMessage } from './issues'
 import { AgentObservationAckMessage, AgentObservationRebindAckMessage } from './runtime-state'
 import {
   ServerTransferAbortRequestMessage,
+  ServerTransferAcknowledgeRequestMessage,
   ServerTransferChunkRequestMessage,
   ServerTransferPrepareRequestMessage,
   ServerTransferPromoteRequestMessage,
+  ServerTransferStatusRequestMessage,
   ServerTransferValidateRequestMessage,
 } from './server-transfer'
 import {
@@ -121,5 +123,7 @@ export const ControlMessage = z.discriminatedUnion('type', [
   ServerTransferValidateRequestMessage,
   ServerTransferPromoteRequestMessage,
   ServerTransferAbortRequestMessage,
+  ServerTransferAcknowledgeRequestMessage,
+  ServerTransferStatusRequestMessage,
 ])
 export type ControlMessage = z.infer<typeof ControlMessage>

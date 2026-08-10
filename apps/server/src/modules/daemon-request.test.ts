@@ -12,8 +12,10 @@
  * would pass against a broker that settles nothing.
  */
 
+import { SERVER_TRANSFER_MAX_CHUNK_BYTES } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { DaemonRpcService } from './machines/rpc'
 import { DaemonRequestBroker, daemonRequestKind } from './daemon-request'
 
 const PROBE = daemonRequestKind<{ answer: string }>('p')
@@ -201,5 +203,104 @@ describe('the answering machine is checked (POD-1175)', () => {
 
     await expect(toM1).resolves.toEqual({ answer: 'from m1' })
     await expect(toM2).resolves.toEqual({ answer: 'from m2' })
+  })
+})
+describe('server transfer RPC', () => {
+  it('subdivides source reads into bounded digest-bound chunks on the authenticated target', async () => {
+    const sent: { machineId: string; msg: ControlMessage }[] = []
+    let rpc!: DaemonRpcService
+    rpc = new DaemonRpcService({
+      toMachine: (machineId: string, msg: ControlMessage) => {
+        sent.push({ machineId, msg })
+        const operation =
+          msg.type === 'serverTransferPrepareRequest'
+            ? 'prepare'
+            : msg.type === 'serverTransferChunkRequest'
+              ? 'chunk'
+              : msg.type === 'serverTransferAcknowledgeRequest'
+                ? 'acknowledge'
+                : 'status'
+        queueMicrotask(() =>
+          rpc.settleDaemonReply(machineId, {
+            type: 'serverTransferResult',
+            requestId: 'requestId' in msg ? msg.requestId : 'missing',
+            transferId: 'transfer-1',
+            operation,
+            ok: true,
+            state: 'staging',
+            manifestDigest: 'a'.repeat(64),
+          }),
+        )
+      },
+      defaultMachine: () => 'source-machine',
+    } as never)
+
+    await rpc.serverTransferPrepare(
+      {
+        transferId: 'transfer-1',
+        manifest: {
+          formatVersion: 1,
+          transferId: 'transfer-1',
+          sourceInstanceId: 'source-instance',
+          sourceMachineId: 'source-machine',
+          targetMachineId: 'target-machine',
+          sourceFeedId: 'feed-1',
+          sourceFeedEpoch: 'epoch-1',
+          appVersion: 'test',
+          schemaVersion: 'schema-1',
+          packageBytes: 0,
+          files: [],
+        },
+        manifestDigest: 'a'.repeat(64),
+      },
+      'target-machine',
+    )
+    const data = Buffer.alloc(SERVER_TRANSFER_MAX_CHUNK_BYTES * 2 + 3)
+    await expect(
+      rpc.serverTransferChunk(
+        { transferId: 'transfer-1', path: 'podium.db', offset: 9, data },
+        'target-machine',
+      ),
+    ).resolves.toMatchObject({ ok: true })
+
+    const prepare = sent[0]?.msg
+    expect(prepare).toMatchObject({
+      type: 'serverTransferPrepareRequest',
+      manifest: {
+        transferId: 'transfer-1',
+        sourceMachineId: 'source-machine',
+        targetMachineId: 'target-machine',
+        sourceFeedId: 'feed-1',
+        sourceFeedEpoch: 'epoch-1',
+        schemaVersion: 'schema-1',
+      },
+    })
+    const chunks = sent
+      .map(({ msg }) => msg)
+      .filter(
+        (msg): msg is Extract<ControlMessage, { type: 'serverTransferChunkRequest' }> =>
+          msg.type === 'serverTransferChunkRequest',
+      )
+    expect(chunks).toHaveLength(3)
+    expect(chunks.map((chunk) => chunk.expectedLength)).toEqual([
+      SERVER_TRANSFER_MAX_CHUNK_BYTES,
+      SERVER_TRANSFER_MAX_CHUNK_BYTES,
+      3,
+    ])
+    expect(chunks.map((chunk) => chunk.offset)).toEqual([
+      9,
+      9 + SERVER_TRANSFER_MAX_CHUNK_BYTES,
+      9 + SERVER_TRANSFER_MAX_CHUNK_BYTES * 2,
+    ])
+    expect(chunks.every((chunk) => chunk.manifestDigest === 'a'.repeat(64))).toBe(true)
+    await expect(
+      rpc.serverTransferAcknowledge('transfer-1', 'a'.repeat(64), 'target-machine'),
+    ).resolves.toMatchObject({ ok: true })
+    expect(sent.at(-1)?.msg).toMatchObject({
+      type: 'serverTransferAcknowledgeRequest',
+      transferId: 'transfer-1',
+      manifestDigest: 'a'.repeat(64),
+    })
+    expect(sent.every(({ machineId }) => machineId === 'target-machine')).toBe(true)
   })
 })

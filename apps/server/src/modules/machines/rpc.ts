@@ -37,12 +37,14 @@ import type {
   PortableCredentialBundle,
   PortableCredentialKind,
   RepoOp,
+  ServerTransferManifest,
   ServerTransferManifestEntry,
   ServerTransferResultMessage,
   WorkspaceCleanResultMessage,
   WorkspaceExportResultMessage,
   WorkspaceImportResultMessage,
 } from '@podium/protocol'
+import { SERVER_TRANSFER_MAX_CHUNK_BYTES } from '@podium/protocol'
 import { knownPathsFor } from '../../file-relay-policy'
 import type { RpcDaemonFrame, RpcDaemonFrameType } from '../../gateway/daemon-frame-routing'
 import {
@@ -277,6 +279,7 @@ const RPC_REPLY_SETTLERS: { [K in RpcDaemonFrameType]: ReplySettler<K> } = {
  */
 export class DaemonRpcService {
   private readonly broker: DaemonRequestPort
+  private readonly serverTransferDigests = new Map<string, string>()
 
   constructor(private readonly deps: DaemonRpcDeps) {
     this.broker =
@@ -975,14 +978,43 @@ export class DaemonRpcService {
 
   /** Stage a portable server snapshot on a named target daemon. */
   serverTransferPrepare(
-    input: {
-      transferId: string
-      manifest: ServerTransferManifestEntry[]
-      manifestDigest: string
-      totalBytes: number
-    },
+    input:
+      | { transferId: string; manifest: ServerTransferManifest; manifestDigest: string }
+      | {
+          transferId: string
+          sourceMachineId?: string
+          manifest: ServerTransferManifestEntry[]
+          manifestDigest: string
+          totalBytes: number
+        },
     machineId: string,
   ): Promise<Payload<ServerTransferResultMessage>> {
+    if (Array.isArray(input.manifest))
+      return Promise.resolve({
+        transferId: input.transferId,
+        operation: 'prepare',
+        ok: false,
+        state: 'aborted',
+        error: 'full identity-bound transfer manifest is required',
+        errorCode: 'invalid-request',
+      })
+    const manifest = input.manifest as ServerTransferManifest
+    const sourceMachineId = this.deps.defaultMachine()
+    if (
+      manifest.transferId !== input.transferId ||
+      manifest.sourceMachineId !== sourceMachineId ||
+      manifest.targetMachineId !== machineId ||
+      manifest.sourceMachineId === manifest.targetMachineId
+    )
+      return Promise.resolve({
+        transferId: input.transferId,
+        operation: 'prepare',
+        ok: false,
+        state: 'aborted',
+        error: 'transfer/source/target manifest binding does not match RPC routing',
+        errorCode: 'identity-mismatch',
+      })
+    this.serverTransferDigests.set(machineId + ':' + input.transferId, input.manifestDigest)
     return this.request(
       SERVER_TRANSFER,
       120_000,
@@ -992,36 +1024,78 @@ export class DaemonRpcService {
         ok: false,
         state: 'aborted',
         error: 'target prepare timed out',
+        errorCode: 'timeout',
       }),
-      (requestId) => ({ type: 'serverTransferPrepareRequest', requestId, ...input }),
+      (requestId) => ({
+        type: 'serverTransferPrepareRequest',
+        requestId,
+        transferId: input.transferId,
+        manifest,
+        manifestDigest: input.manifestDigest,
+      }),
       machineId,
     )
   }
 
-  /** Send one contiguous, retry-safe transfer chunk to a target daemon. */
-  serverTransferChunk(
-    input: { transferId: string; path: string; offset: number; data: Buffer },
+  /** Split source reads into bounded, contiguous, retry-safe wire chunks. */
+  async serverTransferChunk(
+    input: {
+      transferId: string
+      path: string
+      offset: number
+      data: Buffer
+      manifestDigest?: string
+    },
     machineId: string,
   ): Promise<Payload<ServerTransferResultMessage>> {
-    return this.request(
-      SERVER_TRANSFER,
-      30_000,
-      () => ({
+    const manifestDigest =
+      input.manifestDigest ?? this.serverTransferDigests.get(machineId + ':' + input.transferId)
+    if (!manifestDigest)
+      return {
         transferId: input.transferId,
         operation: 'chunk',
         ok: false,
         state: 'staging',
-        error: 'target chunk timed out',
-      }),
-      (requestId) => ({
-        type: 'serverTransferChunkRequest',
-        requestId,
+        error: 'transfer manifest digest is unavailable',
+        errorCode: 'invalid-request',
+      }
+    let response: Payload<ServerTransferResultMessage> | undefined
+    for (let start = 0; start < input.data.length; start += SERVER_TRANSFER_MAX_CHUNK_BYTES) {
+      const data = input.data.subarray(start, start + SERVER_TRANSFER_MAX_CHUNK_BYTES)
+      response = await this.request(
+        SERVER_TRANSFER,
+        30_000,
+        () => ({
+          transferId: input.transferId,
+          operation: 'chunk',
+          ok: false,
+          state: 'staging',
+          error: 'target chunk timed out',
+          errorCode: 'timeout',
+        }),
+        (requestId) => ({
+          type: 'serverTransferChunkRequest',
+          requestId,
+          transferId: input.transferId,
+          manifestDigest,
+          path: input.path,
+          offset: input.offset + start,
+          data: data.toString('base64'),
+          expectedLength: data.length,
+        }),
+        machineId,
+      )
+      if (!response.ok) return response
+    }
+    return (
+      response ?? {
         transferId: input.transferId,
-        path: input.path,
-        offset: input.offset,
-        data: input.data.toString('base64'),
-      }),
-      machineId,
+        operation: 'chunk',
+        ok: false,
+        state: 'staging',
+        error: 'empty transfer chunk',
+        errorCode: 'invalid-request',
+      }
     )
   }
 
@@ -1031,6 +1105,7 @@ export class DaemonRpcService {
     manifestDigest: string,
     machineId: string,
   ): Promise<Payload<ServerTransferResultMessage>> {
+    this.serverTransferDigests.set(machineId + ':' + transferId, manifestDigest)
     return this.request(
       SERVER_TRANSFER,
       120_000,
@@ -1040,6 +1115,7 @@ export class DaemonRpcService {
         ok: false,
         state: 'staging',
         error: 'target validation timed out',
+        errorCode: 'timeout',
       }),
       (requestId) => ({
         type: 'serverTransferValidateRequest',
@@ -1058,6 +1134,7 @@ export class DaemonRpcService {
     publicUrl: string,
     machineId: string,
   ): Promise<Payload<ServerTransferResultMessage>> {
+    this.serverTransferDigests.set(machineId + ':' + transferId, manifestDigest)
     return this.request(
       SERVER_TRANSFER,
       120_000,
@@ -1067,6 +1144,7 @@ export class DaemonRpcService {
         ok: false,
         state: 'uncertain',
         error: 'target promotion timed out; inspect the target before retrying',
+        errorCode: 'uncertain-commit',
       }),
       (requestId) => ({
         type: 'serverTransferPromoteRequest',
@@ -1074,6 +1152,8 @@ export class DaemonRpcService {
         transferId,
         manifestDigest,
         publicUrl,
+        targetMode: 'server',
+        idempotencyKey: transferId,
       }),
       machineId,
     )
@@ -1085,6 +1165,17 @@ export class DaemonRpcService {
     reason: string | undefined,
     machineId: string,
   ): Promise<Payload<ServerTransferResultMessage>> {
+    const manifestDigest = this.serverTransferDigests.get(machineId + ':' + transferId)
+    if (!manifestDigest)
+      return Promise.resolve({
+        transferId,
+        operation: 'abort',
+        ok: false,
+        state: 'aborted',
+        error: 'transfer manifest digest is unavailable',
+        errorCode: 'invalid-request',
+      })
+
     return this.request(
       SERVER_TRANSFER,
       30_000,
@@ -1094,16 +1185,76 @@ export class DaemonRpcService {
         ok: false,
         state: 'aborted',
         error: 'target abort timed out',
+        errorCode: 'timeout',
       }),
       (requestId) => ({
         type: 'serverTransferAbortRequest',
         requestId,
         transferId,
         ...(reason ? { reason } : {}),
+        manifestDigest,
       }),
       machineId,
     )
   }
+
+  /** Acknowledge durable promoted proof so the retained target daemon may retire. */
+  serverTransferAcknowledge(
+    transferId: string,
+    manifestDigest: string,
+    machineId: string,
+  ): Promise<Payload<ServerTransferResultMessage>> {
+    this.serverTransferDigests.set(machineId + ':' + transferId, manifestDigest)
+    return this.request(
+      SERVER_TRANSFER,
+      10_000,
+      () => ({
+        transferId,
+        operation: 'acknowledge',
+        manifestDigest,
+        ok: false,
+        state: 'promoted',
+        errorCode: 'timeout',
+        error: 'target acknowledgement timed out after serving proof was durable',
+      }),
+      (requestId) => ({
+        type: 'serverTransferAcknowledgeRequest',
+        requestId,
+        transferId,
+        manifestDigest,
+      }),
+      machineId,
+    )
+  }
+
+  /** Read target-side recovery state through the same authenticated machine broker. */
+  serverTransferStatus(
+    transferId: string | undefined,
+    machineId: string,
+    manifestDigest?: string,
+  ): Promise<Payload<ServerTransferResultMessage>> {
+    return this.request(
+      SERVER_TRANSFER,
+      10_000,
+      () => ({
+        ...(transferId ? { transferId } : {}),
+        operation: 'status',
+        ...(manifestDigest ? { manifestDigest } : {}),
+        ok: false,
+        state: 'idle',
+        errorCode: 'timeout',
+        error: 'target status timed out',
+      }),
+      (requestId) => ({
+        type: 'serverTransferStatusRequest',
+        requestId,
+        ...(transferId ? { transferId } : {}),
+        ...(manifestDigest ? { manifestDigest } : {}),
+      }),
+      machineId,
+    )
+  }
+
   /**
    * THE ONE FAN-IN — every request-correlated daemon reply this module owns.
    *

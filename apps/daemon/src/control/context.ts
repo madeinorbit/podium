@@ -1,6 +1,6 @@
 import type { agentLaunchCommand } from '@podium/harness'
 import type { SessionId, UsageBucketWire } from '@podium/model'
-import type { ControlMessage, DaemonMessage } from '@podium/protocol'
+import type { ControlMessage, DaemonMessage, ServerTransferServingProof } from '@podium/protocol'
 import type { AgentSession } from '@podium/pty'
 import type { ConversationDeltaWire } from '../active-refresh'
 import type { AgentRelayHub } from '../agent-relay'
@@ -89,8 +89,16 @@ export interface DaemonContext {
   /** Usage-scan memo (mutable box — handlers replace the value). */
   usageMemo: { value?: { atMs: number; sinceMs: number; buckets: UsageBucketWire[] } }
 
-  /** Starts the promoted server and waits for its local readiness proof before replying. */
-  restartAfterTransfer?: () => Promise<void> | void
+  /** Starts the promoted server and returns only after the expected state is serving. */
+  restartAfterTransfer?: (
+    expected: ServerTransferServingProof,
+  ) => Promise<ServerTransferServingProof> | ServerTransferServingProof
+  /** Retires the target daemon only after promoted proof is acknowledged. */
+  retireAfterTransfer?: () => void | Promise<void>
+  /** Test-only injected process-death boundary; production leaves this absent. */
+  serverTransferCrashPoint?: (
+    point: import('../server-transfer').ServerTransferCrashPoint,
+  ) => void | Promise<void>
 
   /** Server-granted convergence is wired by the production composition root. */
   applyUpdateGrant: (

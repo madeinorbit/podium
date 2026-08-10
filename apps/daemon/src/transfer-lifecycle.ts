@@ -1,5 +1,10 @@
 import { type ChildProcess, spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+<<<<<<< HEAD
+=======
+import type { ServerTransferServingProof } from '@podium/protocol'
+import { loadConfig, localServerUrl, resolvePort } from '@podium/runtime/config'
+>>>>>>> 0f1757dde (feat(protocol): add durable server transfer wire)
 
 async function waitForWorker(child: ChildProcess): Promise<void> {
   await new Promise<void>((resolve, reject) => {
@@ -49,15 +54,32 @@ function lifecycleInvocation(
  * result is lost.
  */
 export async function restartAsServer(
+<<<<<<< HEAD
   input: { transferId: string },
   deps: TargetLifecycleDeps = {},
 ): Promise<void> {
   const spawnProcess = deps.spawnProcess ?? spawn
   const promote = lifecycleInvocation('server-transfer-promote', [input.transferId])
   const child = spawnProcess(promote.cmd, promote.args, {
+=======
+  expected: ServerTransferServingProof,
+): Promise<ServerTransferServingProof> {
+  const compiled = import.meta.url.includes('/$bunfs/')
+  const args = compiled
+    ? ['server', '--takeover']
+    : [
+        '--conditions=@podium/source',
+        fileURLToPath(new URL('../../../scripts/cli.ts', import.meta.url)),
+        'server',
+        '--takeover',
+      ]
+  const child = spawn(process.execPath, args, {
+    detached: true,
+>>>>>>> 0f1757dde (feat(protocol): add durable server transfer wire)
     stdio: 'ignore',
     env: { ...process.env },
   })
+<<<<<<< HEAD
   await waitForWorker(child)
   // Deliberately retain this daemon after local serving proof. A timer cannot prove that the
   // promote reply reached the source; retaining the control channel makes a lost reply retryable.
@@ -83,4 +105,18 @@ export function retireTargetDaemonAfterAcknowledgement(deps: TargetRetirementDep
     worker.unref()
     worker.once('error', () => {})
   }, deps.flushDelayMs ?? 50)
+=======
+  try {
+    await waitForHealth(resolvePort(loadConfig()), child)
+  } catch (error) {
+    child.kill('SIGTERM')
+    throw error
+  }
+  child.unref()
+  return expected
+}
+
+export function retireAfterServerTransfer(): void {
+  setTimeout(() => process.exit(0), 250)
+>>>>>>> 0f1757dde (feat(protocol): add durable server transfer wire)
 }
