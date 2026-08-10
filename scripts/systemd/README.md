@@ -7,7 +7,7 @@ These files are generated copies of the source-based dev-host profile in
 bun --conditions=@podium/source scripts/render-systemd.ts --profile dev
 cp scripts/systemd/podium-*.{service,timer,path} ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now podium-server.service podium-daemon.service podium-web.service podium-redeploy.path podium-health.timer
+systemctl --user enable --now podium-server.service podium-daemon.service podium-web.service podium-health.timer
 # verify the watchdog took: both should read "active (running)" with a Watchdog line
 systemctl --user status podium-server podium-daemon | grep -iE 'active|watchdog'
 ```
@@ -18,8 +18,11 @@ proxies `/trpc` + WebSockets to the **split backend** on :18787: `podium-server`
 transcript / discovery / metrics work), which connects to the server over
 `ws://localhost:18787/daemon` and reconnects with backoff. Splitting them is what stops
 a misbehaving agent or a reattach storm from starving the relay loop. Both run from
-source via `--conditions=@podium/source`. `podium-redeploy.path` watches `.git/logs/HEAD`
-and restarts **all three** services when main moves.
+source via `--conditions=@podium/source`. Moving the checkout publishes a signed
+development target; the visible **Update Podium** action runs the guarded
+`podium-redeploy.service` only after development-channel machines converge. The
+legacy `podium-redeploy.path` unit remains available for recovery, but is intentionally
+disabled so a checkout move cannot restart the coordinating server without approval.
 
 Both backend units are `Type=notify` with `WatchdogSec=30`: they pet the systemd
 watchdog from their event loop (`packages/runtime/src/sd-notify.ts`), so a **wedged-but-alive**
