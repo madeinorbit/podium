@@ -13,7 +13,7 @@ const target = (version = '0.4.2'): UpdateTarget =>
 
 const priorAppVersion = process.env.PODIUM_APP_VERSION
 
-function harness() {
+function harness(requestCoordinatorRestart?: () => void) {
   const registry = new SessionRegistry(undefined, undefined, { instanceId: 'updates-test' })
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
@@ -24,6 +24,7 @@ function harness() {
     superagent,
     capability: OPERATOR,
     principal: userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin'),
+    ...(requestCoordinatorRestart ? { requestCoordinatorRestart } : {}),
   })
   return { registry, caller }
 }
@@ -103,7 +104,8 @@ describe('updates tRPC', () => {
 
   it('returns an in-progress wave after the human authorizes convergence', async () => {
     process.env.PODIUM_APP_VERSION = '0.4.1'
-    const { registry, caller } = harness()
+    const requestCoordinatorRestart = vi.fn()
+    const { registry, caller } = harness(requestCoordinatorRestart)
     registry.modules.updates.setTarget(target())
 
     const result = await caller.updates.converge()
@@ -115,6 +117,7 @@ describe('updates tRPC', () => {
     expect(result.total).toBeGreaterThanOrEqual(1)
     expect(result.fleet.targetVersion).toBe('0.4.2')
     expect(result.fleet.machines.length).toBeGreaterThanOrEqual(1)
+    expect(requestCoordinatorRestart).toHaveBeenCalledOnce()
     registry.dispose()
   })
 

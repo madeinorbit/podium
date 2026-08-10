@@ -57,6 +57,9 @@ export interface Context {
   users?: UsersRepository
   /** Is login required on this instance — `credentialsRequired()` from server.ts. */
   loginRequired?: () => boolean
+  /** Source-host only: schedule the verified redeploy unit after an operator
+   * authorizes a target newer than this server's boot identity. */
+  requestCoordinatorRestart?: () => void
 }
 
 /** The typed module seam router procs reach services through (ctx.modules when

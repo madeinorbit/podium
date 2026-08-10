@@ -56,6 +56,7 @@ import { SuperagentService } from './modules/superagent'
 import { DEVELOPMENT_SOURCE_ROOT } from './modules/updates/dev-bundle'
 import { wireDevBundlePublisher } from './modules/updates/dev-publisher-wiring'
 import { readOrCreateUpdateSigningKey } from './modules/updates/signing-key'
+import { createSourceRedeployRequest } from './modules/updates/source-redeploy'
 import type { PodiumPlugin } from './plugins'
 import { SessionRegistry } from './relay'
 import { MachineRepoDiscovery } from './repo-discovery'
@@ -392,6 +393,9 @@ export async function startServer(
   const devArtifactToken = randomUUID()
   let boundPort = opts.port ?? 0
   const developmentSourceRoot = process.env.PODIUM_HOME ? undefined : DEVELOPMENT_SOURCE_ROOT
+  const requestCoordinatorRestart = developmentSourceRoot
+    ? createSourceRedeployRequest({ instanceId })
+    : undefined
   const devPublisher = wireDevBundlePublisher({
     sourceRoot: developmentSourceRoot,
     artifactOrigin: developmentSourceRoot ? resolveDevArtifactOrigin(config) : undefined,
@@ -543,6 +547,7 @@ export async function startServer(
           // Hub-only procs (machines fleet admin + pairing) 404 when the hub
           // role is off — see the hubProc guard in router.ts.
           role,
+          ...(requestCoordinatorRestart ? { requestCoordinatorRestart } : {}),
         }
       },
     }),

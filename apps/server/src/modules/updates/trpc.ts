@@ -56,6 +56,7 @@ export function updateFleet(ctx: Context): UpdateFleetSnapshot {
 export function startUpdate(
   updates: UpdatesService,
   currentVersion = serverBuildVersion(),
+  requestCoordinatorRestart?: () => void,
 ): {
   state: 'in-progress'
   version: string
@@ -82,6 +83,7 @@ export function startUpdate(
 
   const grantedMachineIds = updates.authorize()
   const fleet = fleetSnapshot(updates)
+  if (serverBehind) requestCoordinatorRestart?.()
   return {
     state: 'in-progress',
     version: target.version,
@@ -98,6 +100,12 @@ export function startUpdate(
 export function updateProcedures() {
   return {
     fleet: t.procedure.query(({ ctx }) => updateFleet(ctx)),
-    converge: t.procedure.mutation(({ ctx }) => startUpdate(familyState(ctx).modules.updates)),
+    converge: t.procedure.mutation(({ ctx }) =>
+      startUpdate(
+        familyState(ctx).modules.updates,
+        serverBuildVersion(),
+        ctx.requestCoordinatorRestart,
+      ),
+    ),
   }
 }
