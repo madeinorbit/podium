@@ -63,17 +63,27 @@ export interface ChangeStorePort {
    *  whether the cursor is still inside the retained range. */
   changesSince(cursor: number): readonly SequencedChange[]
   /**
-   * Latest retained row per (entity, id) — the boot seed for the dedup baseline,
-   * and the ONLY honest source for a bootstrap ({@link AuthorityPort.bootstrap}).
+   * THE INSTALLED WORLD — the latest live state per (entity, id): the boot seed
+   * for the dedup baseline, and the ONLY honest source for a bootstrap
+   * ({@link AuthorityPort.bootstrap}).
    *
-   * `seq` is that row's position in the one global sequence, and it is here
+   * `seq` is that state's position in the one global sequence, and it is here
    * because a bootstrap is a set of feed rows and a feed row has a position.
    * Reading the current state out of `changesSince(0)` instead would look
    * equivalent and would be wrong the moment anything is pruned: head-pruning
    * drops old rows, so an entity whose last change fell below the retention floor
-   * would simply be MISSING from the installed world — silently, and only on
-   * long-lived servers. This read is defined per (entity, id) over the whole
-   * table precisely so it survives that.
+   * would simply be MISSING from the installed world.
+   *
+   * SO THIS READ MUST NOT BE A FOLD OVER THE RETAINED LOG, which is what it was
+   * until POD-678 and is the whole bug: "per (entity, id) over the whole table" is
+   * no protection when the whole table is what retention deletes from. On the live
+   * install it returned 66 of 631 issues after ~27 hours, and every client that
+   * attached then rendered the other 565 as unknown references. An adapter answers
+   * this from state it never prunes; the row budget bounds what `changesSince` can
+   * serve and nothing else.
+   *
+   * ONLY `upsert` ROWS. A removed entity is absent from the world rather than
+   * present as a tombstone — every caller skipped non-upsert rows already.
    *
    * Shape is {@link ChangeLogReadRow} — the composed store-read form, not a
    * hand-restated field list.

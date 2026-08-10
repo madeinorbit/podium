@@ -20,7 +20,7 @@
 
 import { getTableConfig } from 'drizzle-orm/sqlite-core'
 import { describe, expect, it } from 'vitest'
-import { appliedMutations, changes, feedIdentity } from './schema'
+import { appliedMutations, changeLatest, changes, feedIdentity } from './schema'
 import { FeedIdentityRegistry } from '../../feed'
 import { SyncRepository } from './sync-repository'
 import { createTestSyncDatabase, createTestSyncRepository } from './test-support'
@@ -45,6 +45,10 @@ describe('the test fixture mirrors the adapter-owned schema', () => {
     // table, and without this the fixture would have kept creating the old shape
     // while every test using it passed.
     expect(fixtureColumns('changes')).toEqual(declaredColumns(changes))
+  })
+
+  it('agrees on the installed world’s columns', () => {
+    expect(fixtureColumns('change_latest')).toEqual(declaredColumns(changeLatest))
   })
 
   it('agrees on the receipt table’s columns', () => {

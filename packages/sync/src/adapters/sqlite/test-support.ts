@@ -2,9 +2,9 @@ import { openDatabase, type SqlDatabase, transaction } from '@podium/runtime/sql
 import { SyncRepository } from './sync-repository'
 
 /**
- * A `SyncRepository` over a fresh in-memory SQLite DB carrying the four tables it
- * reads: `changes`, `applied_mutations` and `feed_identity` (owned by THIS adapter's
- * `./schema.ts` since POD-305) plus `queued_messages` and `upstream_outbox`
+ * A `SyncRepository` over a fresh in-memory SQLite DB carrying the tables it
+ * reads: `changes`, `change_latest`, `applied_mutations` and `feed_identity` (owned
+ * by THIS adapter's `./schema.ts` since POD-305) plus `queued_messages` and `upstream_outbox`
  * (feature-owned, declared in apps/server's schema — this adapter reads them,
  * and reading a table is not owning it).
  *
@@ -44,6 +44,18 @@ export function createTestSyncDatabase(): SqlDatabase {
   )
   db.exec('CREATE INDEX changes_entity ON changes(entity, entity_id, seq)')
   db.exec('CREATE INDEX changes_event_time ON changes(event_time)')
+  db.exec(
+    // POD-678's installed world: the latest LIVE state per (entity, id), written
+    // by the same append that writes `changes` and never pruned with it.
+    `CREATE TABLE change_latest (
+       entity    TEXT NOT NULL,
+       entity_id TEXT NOT NULL,
+       seq       INTEGER NOT NULL,
+       payload   TEXT NOT NULL,
+       PRIMARY KEY (entity, entity_id)
+     )`,
+  )
+  db.exec('CREATE INDEX change_latest_seq ON change_latest(seq)')
   db.exec(
     `CREATE TABLE applied_mutations (
        mutation_id TEXT PRIMARY KEY,

@@ -71,6 +71,7 @@ export class SyncRepository {
         const last = Number(result.lastInsertRowid)
         const first = last - chunk.length + 1
         for (let i = 0; i < chunk.length; i++) seqs.push(first + i)
+        this.applyLatestChangeStates(chunk, first)
       }
     })
     this.invalidateLatestChangeStatesCache()
@@ -78,10 +79,48 @@ export class SyncRepository {
   }
 
   /**
-   * Monotonic generation for the retained latest-state view. It changes after
-   * every append or prune that can alter latestChangeStates; callers use it to
-   * bound a larger per-pass index without caching authorization data across a
-   * durable change.
+   * Advance the installed world (`change_latest`) for one appended chunk, INSIDE
+   * the append's transaction — so the world can never describe a change the log
+   * does not hold, or miss one it does.
+   *
+   * ROW BY ROW, IN ORDER, and that is not a missed batching opportunity: a batch
+   * may legitimately carry `upsert` then `remove` for one entity (a first-sight
+   * row that is gone by the end of the same reconcile), and grouping the two ops
+   * into bulk statements would apply them in op order rather than log order —
+   * leaving the removed entity installed. Sequenced statements inside one
+   * transaction are what make "last write in the batch wins" true here for the
+   * same reason it is true in the log.
+   */
+  private applyLatestChangeStates(rows: readonly ChangeLogWriteRow[], firstSeq: number): void {
+    const upsert = this.db.prepare(
+      `INSERT INTO change_latest (entity, entity_id, seq, payload) VALUES (?, ?, ?, ?)
+       ON CONFLICT(entity, entity_id) DO UPDATE SET seq = excluded.seq, payload = excluded.payload`,
+    )
+    const remove = this.db.prepare('DELETE FROM change_latest WHERE entity = ? AND entity_id = ?')
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i] as ChangeLogWriteRow
+      // A payload-less upsert is the corrupt row every reader of the fold already
+      // skips, so the world it describes is "this entity is not installed" — which
+      // is what the delete arm writes. Storing it instead would put a NULL where
+      // the column says NOT NULL; keeping the PREVIOUS state would be worse still,
+      // since the folded log never showed it once a corrupt row landed on top.
+      if (row.op === 'upsert' && row.payload !== null) {
+        upsert.run(row.entity, row.entityId, firstSeq + i, row.payload)
+      } else {
+        remove.run(row.entity, row.entityId)
+      }
+    }
+  }
+
+  /**
+   * Monotonic generation for the installed-world view. It changes after every
+   * append; callers use it to bound a larger per-pass index without caching
+   * authorization data across a durable change.
+   *
+   * A PRUNE NO LONGER BUMPS IT (POD-678), because a prune no longer alters what
+   * `latestChangeStates` returns — retention deletes from `changes`, and the world
+   * lives in `change_latest`. Invalidating on prune would only throw away a valid
+   * read cache on a timer.
    */
   latestChangeStatesGeneration(): number {
     return this.latestChangeStatesGenerationValue
@@ -137,7 +176,13 @@ export class SyncRepository {
     return { thresholdSeq: Math.max(rowCapSeq, aged.seq ?? 0) }
   }
 
-  /** [spec:SP-c29e] One bounded DELETE using the indexed seq primary key. */
+  /**
+   * [spec:SP-c29e] One bounded DELETE using the indexed seq primary key.
+   *
+   * Touches `changes` ONLY. The installed world is not retained data — see
+   * {@link latestChangeStates} — so a prune that also swept it would be deleting
+   * the answer to "what is there?" in order to bound the answer to "what changed?".
+   */
   pruneChangeBatch(plan: ChangePrunePlan, batchSize = 500): number {
     if (!Number.isInteger(batchSize) || batchSize <= 0) {
       throw new RangeError('batchSize must be a positive integer')
@@ -151,27 +196,33 @@ export class SyncRepository {
          )`,
       )
       .run(plan.thresholdSeq, batchSize)
-    const deleted = Number(result.changes)
-    if (deleted > 0) this.invalidateLatestChangeStatesCache()
-    return deleted
+    return Number(result.changes)
   }
 
   /**
-   * Fold the retained log to the latest state per (entity, id) — the boot seed for
-   * the Ledger's dedup baseline, so a restart emits deltas for anything that
-   * changed while the server was down instead of silently rebasing.
+   * THE INSTALLED WORLD — the latest state per (entity, id): the boot seed for the
+   * Ledger's dedup baseline (so a restart emits deltas for anything that changed
+   * while the server was down instead of silently rebasing) and the bootstrap read
+   * a client's whole world is built from.
+   *
+   * Read from `change_latest`, NOT folded from `changes` (POD-678). The fold over
+   * the log was only ever as complete as retention left it, and retention is a
+   * WINDOW: on the live install the 20k row budget bit after ~27 hours, so this
+   * returned 66 of 631 issues and every client that attached afterwards resolved
+   * the other 565 as unknown references. The projection is maintained by the one
+   * writer that appends the log and is never pruned, so "what is there?" stops
+   * depending on how recently it was written.
+   *
+   * ONLY LIVE UPSERTS come back, where the fold used to also return `remove`
+   * tombstones. No consumer read them: the bootstrap, the baseline seed and the
+   * visibility read cache all skip non-upsert rows before doing anything.
    */
   latestChangeStates(): ChangeLogReadRow[] {
     if (this.latestChangeStatesCache !== undefined) return this.latestChangeStatesCache
     const rows = this.db
-      .prepare(
-        `SELECT c.seq, c.entity, c.entity_id, c.op, c.payload FROM changes c
-         JOIN (SELECT entity, entity_id, MAX(seq) AS seq FROM changes GROUP BY entity, entity_id) m
-           ON m.entity = c.entity AND m.entity_id = c.entity_id AND m.seq = c.seq
-         ORDER BY c.seq`,
-      )
+      .prepare('SELECT seq, entity, entity_id, payload FROM change_latest ORDER BY seq')
       .all() as Record<string, unknown>[]
-    this.latestChangeStatesCache = rows.map((r) => mapChangeLogReadRow(r))
+    this.latestChangeStatesCache = rows.map((r) => mapChangeLogReadRow({ ...r, op: 'upsert' }))
     return this.latestChangeStatesCache
   }
 

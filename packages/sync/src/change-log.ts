@@ -36,8 +36,11 @@ export interface ChangeLogStore {
   planChangePrune(opts: { keepRows: number; maxAgeMs: number; now: number }): ChangePrunePlan
   /** Delete one bounded, indexed head batch from a fixed plan. */
   pruneChangeBatch(plan: ChangePrunePlan, batchSize: number): number
-  /** Latest retained row per (entity, id) — the boot seed for the baseline, and
-   *  the bootstrap read (see `ChangeStorePort.latestChangeStates`). */
+  /** THE INSTALLED WORLD — the latest live state per (entity, id): the boot seed
+   *  for the baseline, and the bootstrap read (see
+   *  `ChangeStorePort.latestChangeStates`). Independent of retention (POD-678):
+   *  the row budget bounds what `changesSince` can serve, never what exists. Only
+   *  `upsert` rows come back — a removed entity is not in the world. */
   latestChangeStates(): readonly ChangeLogReadRow[]
 }
 
