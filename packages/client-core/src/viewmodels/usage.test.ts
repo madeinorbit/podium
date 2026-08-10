@@ -84,6 +84,9 @@ describe('bucketCostUsd', () => {
     // [model id, $ for 1 MTok of input]
     ['claude-opus-4-5', 15],
     ['claude-sonnet-4-5', 3],
+    // POD-670: fable's id names no family the other rows match, so it used to
+    // land on the Sonnet-priced fallback at a third of its real rate.
+    ['claude-fable-5', 10],
     // Codex ids must reach the gpt-5 family rather than the 3/15 fallback,
     // which would have overstated every Codex bucket by 2.4x.
     ['gpt-5', 1.25],
@@ -104,6 +107,13 @@ describe('bucketCostUsd', () => {
     const cached = { inputTokens: 0, cacheReadTokens: 1_000_000 }
     expect(bucketCostUsd(bucket('gpt-5', cached))).toBeCloseTo(0.125, 6)
     expect(bucketCostUsd(bucket('claude-sonnet-4-5', cached))).toBeCloseTo(0.3, 6)
+  })
+
+  // The fallback understated fable's output rate by more than its input rate,
+  // and output is where the dollars are — so the output side gets its own case.
+  it('bills fable output at its own rate, not the fallback', () => {
+    const out = { inputTokens: 0, outputTokens: 1_000_000 }
+    expect(bucketCostUsd(bucket('claude-fable-5', out))).toBeCloseTo(50, 6)
   })
 
   it('falls back for an unrecognized model instead of charging nothing', () => {
@@ -298,6 +308,13 @@ describe('usageSummary', () => {
     expect(s.providers[1]).toMatchObject({ totalTokens: 12_000_000, messages: 5 })
     expect(s.providers[1]?.estCostUsd).toBeCloseTo(15, 6)
     expect(s.unpricedModels).toEqual(['future-vendor'])
+  })
+
+  // The sheet flags unpriced models so an approximate figure says so. Fable was
+  // being flagged AND charged the fallback rate; now it is neither.
+  it('no longer lists fable as unpriced', () => {
+    const s = usageSummary([bucket({ model: 'claude-fable-5', inputTokens: 1_000_000 })], now)
+    expect(s.unpricedModels).toEqual([])
   })
 })
 

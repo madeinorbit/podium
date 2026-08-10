@@ -116,6 +116,11 @@ export interface UsageSummaryView {
 // on the gpt-5 row. ORDER IS SIGNIFICANT — first match wins, so a narrower id
 // has to precede the family it belongs to, or `gpt-5-mini` bills as `gpt-5`.
 const PRICING: { match: string; inPerM: number; outPerM: number }[] = [
+  // Fable's id carries no family name the rows below would catch, so it fell
+  // through to the Sonnet-priced fallback — 3.3x under its real rate, on a
+  // model that gets reached for precisely on the expensive work. First,
+  // because its price is the highest here and nothing narrower can exist.
+  { match: 'fable', inPerM: 10, outPerM: 50 },
   { match: 'opus', inPerM: 15, outPerM: 75 },
   { match: 'sonnet', inPerM: 3, outPerM: 15 },
   { match: 'haiku', inPerM: 1, outPerM: 5 },
