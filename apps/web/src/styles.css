@@ -1762,6 +1762,8 @@ html[data-density="balanced"] .header-quota-pools {
   color: var(--text-strong, var(--foreground));
 }
 .transcript-answer-label {
+  display: flex;
+  align-items: baseline;
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: var(--shell-type-micro);
   line-height: var(--shell-leading-micro);
@@ -1770,6 +1772,61 @@ html[data-density="balanced"] .header-quota-pools {
   text-transform: uppercase;
   color: color-mix(in oklab, var(--muted-foreground) 78%, transparent);
   margin-bottom: 5px;
+}
+
+/* WHEN (POD-701). A transcript that never says when anything happened cannot
+   answer the question a reader most often brings to it — "is this from just now
+   or from before lunch?". The clock rides the right end of a row's own label,
+   inside the 52px lane the hover actions already reserve, so it costs no height
+   and never collides. Machine voice at DESIGN.md's timer spec: Geist Mono 9px,
+   tabular so the digits do not shift width as the minute turns, Dim ink. */
+.chat-clk {
+  margin-left: auto;
+  padding-left: 10px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+  text-transform: none;
+  color: color-mix(in oklab, var(--text-dim, var(--muted-foreground)) 82%, transparent);
+}
+.transcript-row:hover .chat-clk {
+  color: var(--text-dim, var(--muted-foreground));
+}
+
+/* THE DAY MARK. Clocks alone are ambiguous the moment a session outlives a
+   day — 09:14 above 23:51 reads as going backwards. One divider at each date
+   boundary resolves every clock beneath it, and it borrows the "Churned for"
+   shape already in the feed rather than introducing a second kind of seam. */
+.transcript-daymark {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  max-width: 960px;
+  margin: 26px auto 6px;
+}
+.transcript-daymark::before,
+.transcript-daymark::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: color-mix(in oklab, var(--border) 62%, transparent);
+}
+.transcript-daymark-label {
+  flex: none;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: color-mix(in oklab, var(--muted-foreground) 72%, transparent);
+}
+/* The first mark sits at the top of the mounted window, where the air above it
+   would only pad the scrollport. */
+.transcript-daymark:first-child {
+  margin-top: 2px;
 }
 
 /* Muted one-line tool rows: mono machine voice, verdict glyph, right-aligned
@@ -2874,6 +2931,125 @@ html[data-density="balanced"] .header-quota-pools {
   color: var(--text-dim, var(--muted-foreground));
   font-size: 10.5px;
 }
+/* ── STANDBY: the transcript that has not started (POD-701) ────────────────
+   The empty chat used to be the same 420px grey strip as "loading" — one line
+   of copy that said only what was ABSENT. It is in fact the first thing a
+   reader sees on every freshly spawned agent, and the moment they most need
+   the pane to say which agent this is, where it is running, and what to do
+   next. So it states the session's coordinates and points at the composer,
+   and it holds still: a live agent that has not been asked anything yet is
+   waiting on YOU, and stillness is how this system says that. */
+.transcript-standby {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: min(430px, 100%);
+  margin: 0 auto;
+  padding: 20px 22px 18px;
+  border: 1px solid
+    color-mix(
+      in srgb,
+      var(--issue, transparent) calc(30 * var(--issue-line-scale, 1%)),
+      var(--border)
+    );
+  border-radius: 10px;
+  /* The PANEL surface, tinted by the issue channel — not `background` darkened
+     toward black, which is what the operator's engraved prompt does and which
+     on a light ground turns into a grey slab rather than a panel. */
+  background: color-mix(
+    in srgb,
+    var(--issue, transparent) calc(5 * var(--issue-tint-scale, 1%)),
+    var(--card)
+  );
+  box-shadow:
+    inset 0 3px 8px -3px var(--carve-engraved),
+    inset 0 -1px 0 color-mix(in oklab, var(--border) 40%, transparent);
+}
+.transcript-standby-mark {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  margin-bottom: 13px;
+  border: 1px solid color-mix(in oklab, var(--border) 85%, transparent);
+  border-radius: 8px;
+  color: var(--muted-foreground);
+  background: color-mix(in oklab, var(--foreground) 4%, transparent);
+}
+.transcript-standby-title {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  color: var(--text-strong, var(--foreground));
+}
+.transcript-standby-lede {
+  margin-top: 5px;
+  max-width: 46ch;
+  font-size: 12.5px;
+  line-height: 1.55;
+  text-wrap: pretty;
+  color: var(--muted-foreground);
+}
+/* The session's coordinates, as a machine-voice key/value pair per line. Two
+   columns on one baseline grid — not chips, not a card grid: this is the same
+   readout grammar the instrument well uses, at the feed's scale. */
+.transcript-standby-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  /* The key sits a size below its value, so align the two on their baselines
+     rather than on their line boxes — stretched grid items put the smaller cap
+     height visibly high. */
+  align-items: baseline;
+  gap: 5px 14px;
+  width: 100%;
+  margin-top: 15px;
+  padding-top: 13px;
+  border-top: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+.transcript-standby-facts dt {
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-size: 9px;
+  line-height: 1.75;
+  color: color-mix(in oklab, var(--muted-foreground) 68%, transparent);
+}
+.transcript-standby-facts dd {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.transcript-standby-hint {
+  margin-top: 14px;
+  padding-top: 11px;
+  width: 100%;
+  border-top: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-dim, var(--muted-foreground));
+}
+.transcript-standby-hint kbd {
+  padding: 1px 4px;
+  border: 1px solid color-mix(in oklab, var(--border) 90%, transparent);
+  border-radius: 4px;
+  background: color-mix(in oklab, var(--foreground) 5%, transparent);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 9.5px;
+  color: var(--muted-foreground);
+}
+/* The narrow dock (§2.5) runs the same object with its own air. */
+.chat-compact .transcript-standby {
+  padding: 15px 15px 13px;
+}
+.chat-compact .transcript-standby-facts {
+  display: none;
+}
+
 .transcript-pager {
   display: inline-flex;
   align-items: center;
@@ -2949,6 +3125,7 @@ html[data-density="balanced"] .header-quota-pools {
   right: 1px;
   z-index: 2;
   display: flex;
+  align-items: center;
   gap: 1px;
   padding: 2px;
   border: 1px solid transparent;
@@ -2983,6 +3160,13 @@ html[data-density="balanced"] .header-quota-pools {
 .msg-action:hover {
   background: var(--muted);
   color: var(--text-strong, var(--foreground));
+}
+/* Agent narration has no label row of its own, so its clock rides the hover
+   chip. Inside a chip it is one item among three, not a right-aligned tail —
+   the auto margin the label rows want would strand it against the buttons. */
+.msg-actions .chat-clk {
+  margin-left: 0;
+  padding: 0 6px 0 4px;
 }
 /* The label rows keep a lane clear on the right so the overlay never lands on
    "Read more" or on an attribution mark. */
@@ -3307,6 +3491,28 @@ html[data-density="balanced"] .header-quota-pools {
   line-height: var(--shell-leading-reading);
   color: var(--foreground);
   overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+/* THE MEASURE (POD-701). The reading column is capped at 960px, which at the
+   feed's 15px answer type measures 96 characters a line — well past the 65–75
+   a reader tracks across without losing the return sweep, and on a widescreen
+   with the side columns folded that is what every paragraph ran to. 62ch of
+   Geist measures ~72 characters, inside the band.
+
+   The cap goes on the PROSE children rather than on the row, because the things
+   that genuinely want the full width — a code block, a table, a diff — are the
+   same things a narrow measure would force into a horizontal scroll. It is
+   inert below ~62ch of available width, which is the narrow dock and most
+   panes at most widths. */
+.chat-md > :is(p, ul, ol, dl, blockquote, h1, h2, h3, h4, h5, h6) {
+  max-width: 62ch;
+}
+/* …except inside the operator's panel, which is the one BOXED surface in the
+   feed. Prose that stops two-thirds of the way across an unboxed column reads
+   as a measure; the same rag inside a bordered, tinted panel reads as a layout
+   fault, and a prompt is one to three lines in the overwhelming case anyway. */
+.transcript-you .chat-md > * {
+  max-width: none;
 }
 .chat-md > :first-child {
   margin-top: 0;
@@ -3314,15 +3520,25 @@ html[data-density="balanced"] .header-quota-pools {
 .chat-md > :last-child {
   margin-bottom: 0;
 }
+/* A turn is paragraphs, not a wall. 0.55em put barely half a line between two
+   thoughts, so a four-paragraph answer read as one block of text; 0.85em is
+   about two thirds of a line — enough that the eye finds the next paragraph's
+   first word without the feed growing visibly longer (POD-701). */
 .chat-md p {
-  margin: 0.55em 0;
+  margin: 0.85em 0;
 }
 .chat-md h1,
 .chat-md h2,
-.chat-md h3 {
+.chat-md h3,
+.chat-md h4,
+.chat-md h5,
+.chat-md h6 {
   color: var(--foreground);
-  margin: 16px 0 6px;
+  /* More air above a heading than below it: a heading belongs to what follows. */
+  margin: 1.5em 0 0.45em;
   font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: -0.008em;
 }
 .chat-md h1 {
   font-size: 1.2em;
@@ -3333,13 +3549,85 @@ html[data-density="balanced"] .header-quota-pools {
 .chat-md h3 {
   font-size: 1em;
 }
+/* Below h3 the ladder runs out of size, so it steps on the other axis — weight
+   and ink — rather than inventing sub-1em headings that read as small print. */
+.chat-md h4 {
+  font-size: 1em;
+  font-weight: 640;
+}
+.chat-md h5,
+.chat-md h6 {
+  font-size: 0.95em;
+  font-weight: 600;
+  color: var(--muted-foreground);
+  letter-spacing: 0.01em;
+}
 .chat-md ul,
 .chat-md ol {
-  padding-left: 1.4em;
-  margin: 0.5em 0;
+  padding-left: 1.5em;
+  margin: 0.75em 0;
 }
+/* Tailwind's preflight strips list markers globally, and nothing put them back
+   here — so every list an agent wrote arrived as unmarked indented lines and an
+   ordered plan lost its numbers (POD-701). The markers are the structure. */
+.chat-md ul {
+  list-style: disc outside;
+}
+.chat-md ol {
+  list-style: decimal outside;
+}
+.chat-md ul ul {
+  list-style-type: circle;
+}
+.chat-md ul ul ul {
+  list-style-type: square;
+}
+.chat-md li::marker {
+  color: var(--text-dim, var(--muted-foreground));
+}
+/* A list is one unit: tight inside, paragraph-sized air around it. */
 .chat-md li {
-  margin: 0.2em 0;
+  margin: 0.3em 0;
+}
+.chat-md li > :is(ul, ol) {
+  margin: 0.3em 0 0.15em;
+}
+.chat-md li > p {
+  margin: 0 0 0.45em;
+}
+.chat-md li > :last-child {
+  margin-bottom: 0;
+}
+/* A task item's checkbox IS its marker — hang it in the marker slot so checked
+   and bulleted items share one text edge. */
+.chat-md li:has(> input[type="checkbox"]) {
+  list-style: none;
+  margin-left: -1.5em;
+}
+.chat-md li > input[type="checkbox"] {
+  width: 0.85em;
+  height: 0.85em;
+  margin-right: 0.55em;
+  vertical-align: -0.06em;
+  accent-color: var(--info);
+}
+.chat-md dl {
+  margin: 0.75em 0;
+}
+.chat-md dt {
+  font-weight: 600;
+}
+.chat-md dd {
+  margin: 0 0 0.4em 1.5em;
+  color: var(--muted-foreground);
+}
+/* A rule is a section break in prose, so it takes section-sized air and stays a
+   hairline — never a 2px slab across the reading column. */
+.chat-md hr {
+  height: 0;
+  margin: 1.6em 0;
+  border: 0;
+  border-top: 1px solid color-mix(in oklab, var(--border) 75%, transparent);
 }
 /* Code blocks: window-bar chrome + subtle background */
 .chat-md pre {
@@ -3537,25 +3825,43 @@ a.ref-link--session::before {
   --ref-icon-mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%20fill='none'%20stroke='black'%20stroke-width='2.5'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Cpolyline%20points='4%2017%2010%2011%204%205'/%3E%3Cline%20x1='12'%20x2='20'%20y1='19'%20y2='19'/%3E%3C/svg%3E");
 }
 .chat-md blockquote {
-  border-left: 2px solid var(--border);
-  margin: 8px 0;
-  padding-left: 12px;
+  border-left: 2px solid color-mix(in oklab, var(--border) 85%, var(--foreground));
+  margin: 1em 0;
+  padding-left: 13px;
   color: var(--muted-foreground);
   font-style: italic;
 }
+.chat-md blockquote > :is(p, ul, ol):first-child {
+  margin-top: 0;
+}
+.chat-md blockquote > :is(p, ul, ol):last-child {
+  margin-bottom: 0;
+}
+/* A markdown table can be wider than the reading column, and a table that
+   overflows its pane pushes the whole feed sideways. It scrolls inside itself
+   instead — the one place in the chat body licensed to have its own scrollport,
+   for the same reason a code block has one. */
 .chat-md table {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
   border-collapse: collapse;
   font-size: 12px;
-  margin: 8px 0;
+  font-variant-numeric: tabular-nums;
+  margin: 1em 0;
 }
 .chat-md th,
 .chat-md td {
   border: 1px solid var(--border);
-  padding: 4px 9px;
+  padding: 5px 10px;
+  text-align: left;
+  vertical-align: top;
 }
 .chat-md th {
   background: var(--muted);
   font-weight: 600;
+  white-space: nowrap;
 }
 
 /* Firefox-snoozed-tab look: hibernated panels read as parked, not dead. Keyed on

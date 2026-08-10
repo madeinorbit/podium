@@ -193,7 +193,7 @@ describe('an invisible referent', () => {
     })
     await flush()
     expect(container.textContent).not.toContain('Loading transcript')
-    expect(container.textContent).toContain('No transcript yet')
+    expect(container.querySelector('[data-testid="transcript-empty-state"]')).not.toBeNull()
   })
 })
 

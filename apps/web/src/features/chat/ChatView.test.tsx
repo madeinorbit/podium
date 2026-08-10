@@ -1,4 +1,10 @@
-import { asSessionId, type SessionId, type SessionMeta, type SessionMetaInput, type TranscriptItem } from '@podium/model'
+import {
+  asSessionId,
+  type SessionId,
+  type SessionMeta,
+  type SessionMetaInput,
+  type TranscriptItem,
+} from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -244,7 +250,7 @@ describe('ChatView read-then-subscribe', () => {
     expect(container.textContent).toContain('fresh content')
   })
 
-  it('shows "No transcript yet" when the read resolves empty', async () => {
+  it('shows the standby state when the read resolves empty', async () => {
     act(() => {
       root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
@@ -252,7 +258,7 @@ describe('ChatView read-then-subscribe', () => {
       reads[0]?.resolve({ items: [], hasMore: false })
     })
     await flush()
-    expect(container.textContent).toContain('No transcript yet')
+    expect(container.querySelector('[data-testid="transcript-empty-state"]')).not.toBeNull()
   })
 
   it('does a read-then-subscribe for a PARKED (hibernated) session too — no parked gate', async () => {

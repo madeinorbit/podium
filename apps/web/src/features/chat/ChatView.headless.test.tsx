@@ -1,4 +1,10 @@
-import { asSessionId, type SessionId, type SessionMeta, type SessionMetaInput, type TranscriptItem } from '@podium/model'
+import {
+  asSessionId,
+  type SessionId,
+  type SessionMeta,
+  type SessionMetaInput,
+  type TranscriptItem,
+} from '@podium/model'
 import type { HeadlessActivityEvent } from '@podium/protocol'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -225,7 +231,7 @@ describe('ChatView headless mode', () => {
     await flush()
     expect(container.textContent).toContain('Plan the release')
     expect(container.querySelector('[data-tail="working"]')?.textContent).toContain('Working')
-    expect(container.textContent).not.toContain('No transcript yet')
+    expect(container.querySelector('[data-testid="transcript-empty-state"]')).toBeNull()
   })
 
   it('shows a Stop control while a turn runs, wired to interruptTurn', async () => {

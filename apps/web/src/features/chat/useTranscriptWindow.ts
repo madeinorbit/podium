@@ -13,6 +13,7 @@ import {
   mergeByCursor,
   pairToolResults,
   reconcileReset,
+  sameItems,
 } from './chat'
 
 // Windowing: a marathon session can hold tens of thousands of items, and
@@ -43,6 +44,13 @@ const PAGE_LIMIT = 400
 // silently narrow recall; deepening to the depth every open used to load eagerly
 // keeps recall identical to before POD-1631 while only searchers pay for it.
 const SEARCH_DEPTH = 1000
+// The floor under a live foreground chat [POD-701]: how often it reconciles its
+// window against disk when nothing on the session row has moved. Long enough
+// that an idle pane is not polling in any meaningful sense (one 200-item read,
+// p50 21ms server-side, and no re-render unless the transcript actually grew),
+// short enough that a reader never sits in front of a silent feed wondering
+// whether the agent is alive.
+const LIVE_HEARTBEAT_MS = 6_000
 
 export interface UseTranscriptWindowOptions {
   sessionId: SessionId
@@ -181,6 +189,14 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
   const sessionIdRef = useRef(sessionId)
   sessionIdRef.current = sessionId
 
+  // The session row's activity fingerprint [POD-701], mirrored at render time so
+  // `readNewest` can stamp "the window is current as of this" without taking it
+  // as a dependency (which would re-bind the callback on every agent tick and
+  // tear down the read-then-subscribe effect with it). See the liveness
+  // reconcile below for what reads them.
+  const activitySignalRef = useRef('')
+  const reconciledSignalRef = useRef<string | null>(null)
+
   // Read the newest window off disk and reconcile it into the held window — never a
   // blind replace. `reconcileReset` keeps any live-tailed in-flight record the disk
   // re-read dropped, and refuses to wipe a populated view on an empty/failed read,
@@ -200,8 +216,19 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     })
     markSwitch(sid, 'transcript:read-end', { items: r.items.length })
     if (sessionIdRef.current !== sid) return r // session switched mid-read — drop it
-    setItems((prev) => reconcileReset(prev, r.items, r.tail))
-    setOlder([])
+    // This read IS the window being brought current, whatever the session row
+    // says right now — so the liveness reconcile has nothing left to chase.
+    reconciledSignalRef.current = activitySignalRef.current
+    // Keep the OLD array when the re-read changed nothing (POD-701): a refresh
+    // that returns the same transcript must cost nothing, or the liveness
+    // reconcile below would re-derive and re-render the whole feed on a timer.
+    setItems((prev) => {
+      const next = reconcileReset(prev, r.items, r.tail)
+      return sameItems(prev, next) ? prev : next
+    })
+    // Identity-preserving when there is nothing to clear, for the same reason:
+    // a fresh `[]` re-runs the `effectiveItems` memo on every refresh.
+    setOlder((prev) => (prev.length === 0 ? prev : []))
     setHeadCursor(r.head)
     setHasMoreOlder(r.hasMore)
     setInitialLoaded(true)
@@ -326,10 +353,83 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     if (becameActive && !wokeToLive && windowHealthy.current) {
       if (isSwitchTraced(sessionId))
         markSwitch(sessionId, 'chat:cache-hit', { items: windowLenRef.current })
+      // A healthy window IS current — the subscription kept it so while the pane
+      // was in the background. Stamping here is what stops the liveness
+      // reconcile from turning this deliberate skip into a delayed read.
+      reconciledSignalRef.current = activitySignalRef.current
       return
     }
     if (wokeToLive || becameActive) void readNewest().catch(() => {}) // keep the held window
   }, [session?.status, active, initialLoaded, readNewest, sessionId])
+
+  // -------------------------------------------------------------------------
+  // THE FEED MUST NOT GO QUIET [POD-701]
+  // -------------------------------------------------------------------------
+  // Everything above assumes the live subscription delivers every item. When it
+  // does not — a delta dropped on a reconnect, a tailer that re-seeded without
+  // announcing a reset, a harness whose observer only emits on hook boundaries —
+  // the chat sits there showing nothing while the SIDEBAR, driven by the same
+  // session rows, visibly ticks over. The reader's only recourse was to leave
+  // the view and come back, because unmounting the panel is what forces a fresh
+  // read; that is a bug report we should never have needed.
+  //
+  // So the window reconciles against two signals it already receives for free:
+  //
+  //   the SESSION ROW  `lastActiveAt` / phase / busy advance on exactly the
+  //                    activity a transcript is supposed to be recording. When
+  //                    they move and the feed did not, the feed is behind.
+  //   a HEARTBEAT      a slow floor under the foreground pane while the session
+  //                    is live, for activity that moves nothing on the row.
+  //
+  // Both go through `readNewest`, which RECONCILES rather than replaces, and
+  // whose `sameItems` guard makes a no-op refresh keep the previous array — so
+  // a reconcile that finds nothing new costs one query and zero renders. Only
+  // the ACTIVE pane pays anything; a backgrounded chat keeps its subscription
+  // and re-reads on activation as before.
+  //
+  // ONE THING IT MUST NOT DO: run while the reader has paged HISTORY in.
+  // `readNewest` drops `older` — correct on a switch or a file roll, ruinous on
+  // a timer, because it would throw away the pages someone just scrolled up to
+  // read and take their scroll position with it. Someone reading history is by
+  // definition not watching the tail, so the reconcile simply waits; the next
+  // activation re-reads as it always did.
+  const readNewestRef = useRef(readNewest)
+  readNewestRef.current = readNewest
+  const live = session?.status === 'live' || session?.status === 'starting'
+  const pagedBack = older.length > 0
+  // One string, so the effect re-runs on any of the four moving parts without
+  // four dependencies that each re-run it on the others' changes.
+  const activitySignal = `${session?.lastActiveAt ?? ''}|${session?.agentState?.phase ?? ''}|${session?.agentState?.since ?? ''}|${session?.busy ?? ''}`
+  activitySignalRef.current = activitySignal
+  useEffect(() => {
+    if (!active || !initialLoaded || pagedBack) return
+    // The signal as of the last moment the window was KNOWN current — stamped by
+    // every completed read and by the warm-activation cache hit. Comparing
+    // against it rather than against the previous render is what keeps POD-725's
+    // skipped re-read skipped: a warm switch that reused a healthy window has
+    // not fallen behind, so it must not turn into a read 400ms later.
+    if (reconciledSignalRef.current === activitySignal) return
+    // Trailing debounce: a working agent moves these fields several times a
+    // second, and the point is to be current, not to re-read once per tick.
+    const t = setTimeout(() => void readNewestRef.current().catch(() => {}), 400)
+    return () => clearTimeout(t)
+  }, [active, initialLoaded, pagedBack, activitySignal])
+  useEffect(() => {
+    if (!active || !initialLoaded || !live || pagedBack) return
+    if (typeof document === 'undefined') return
+    const refresh = (): void => void readNewestRef.current().catch(() => {})
+    const beat = setInterval(refresh, LIVE_HEARTBEAT_MS)
+    // A tab that was hidden may have had its timers throttled to nothing and
+    // its socket dropped; coming back is the moment to be sure.
+    const onVisible = (): void => {
+      if (document.visibilityState === 'visible') refresh()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      clearInterval(beat)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [active, initialLoaded, live, pagedBack])
 
   // The full loaded list: older pages prepended to the held window. A small
   // cursor-dedupe at the seam guards a one-item paging/live overlap.

@@ -95,6 +95,30 @@ function sameItemContent(a: TranscriptItem, b: TranscriptItem): boolean {
 }
 
 /**
+ * Whether two held windows are the same transcript, item for item — the guard
+ * that makes a REFRESH free (POD-701).
+ *
+ * `reconcileReset` returns a fresh array on every disk re-read even when the
+ * bytes are identical, and a fresh array re-derives blocks, re-derives rows and
+ * re-renders every mounted block view. That was affordable while re-reads only
+ * happened on session switch; it is not affordable now that the window also
+ * refreshes on a liveness signal, so the caller compares first and keeps the
+ * old array when nothing moved. Same identity key + same mutable content is
+ * exactly the equality `mergeByCursor` already treats as "no change".
+ */
+export function sameItems(a: readonly TranscriptItem[], b: readonly TranscriptItem[]): boolean {
+  if (a === b) return true
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i]
+    const y = b[i]
+    if (!x || !y) return false
+    if (itemKey(x) !== itemKey(y) || !sameItemContent(x, y)) return false
+  }
+  return true
+}
+
+/**
  * Accumulate the file paths a transcript references (for the terminal file-link
  * provider) across the hub's per-frame DELTAS. Each non-reset frame folds its
  * items' `toolPaths` into the growing set; a `reset` frame (file roll / reattach

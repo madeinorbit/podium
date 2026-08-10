@@ -9,15 +9,17 @@ import type {
 } from '@podium/client-core/viewmodels'
 import { attributionForRole, blockMatches, isInteractiveTool } from '@podium/client-core/viewmodels'
 import type { SessionId, SessionMeta } from '@podium/model'
-import { ArrowUp, FileClock, FileText, Image as ImageIcon } from 'lucide-react'
+import { ArrowUp, FileClock, Image as ImageIcon } from 'lucide-react'
 import type { JSX, RefObject } from 'react'
-import { useMemo } from 'react'
+import { Fragment, useMemo } from 'react'
 import { type IssueReferenceLookup, renderMarkdown } from '@/lib/markdown'
 import { cn } from '@/lib/utils'
 import { ChatBlockView, type TurnPosition } from './ChatBlockView'
 import type { PendingItem, QueuedChatMessage } from './chat'
 import { ToolBatchView } from './ToolBatchView'
+import { TranscriptStandby } from './TranscriptStandby'
 import { TranscriptTail, transcriptTailState } from './TranscriptTail'
+import { dayKey, dayLabel, rowTimestamp } from './transcript-time'
 import { rowIdentity, useFeedArrivals } from './use-feed-arrivals'
 import type { HeadlessOverlay } from './use-headless-turn'
 
@@ -44,6 +46,36 @@ const EMPTY_ISSUE_REFERENCES: IssueReferenceLookup = new Map()
  * the space comes back out of the middle of exchanges and is spent on their
  * edges, which is the trade the teardown asked for.
  */
+/**
+ * WHERE THE DATE CHANGES (POD-701) — mount position → the label to draw above
+ * that row. Position-keyed rather than row-keyed because the mounted window is
+ * the trailing slice of a much longer list and a row's identity says nothing
+ * about which of its neighbours are on screen.
+ *
+ * The leading mark (`pos 0`) is emitted only when the window does not open on
+ * today: "Today" above a transcript entirely from today is a line that tells
+ * the reader nothing, while "Tue 5 Aug" above one from last week is the whole
+ * point. Rows with no parseable timestamp are transparent — they neither draw a
+ * mark nor reset the running day, so an older transcript that predates the
+ * field degrades to no marks at all rather than to a mark on every row.
+ */
+export function dayMarksByPosition(rows: readonly RenderableRow[], now: Date): Map<number, string> {
+  const marks = new Map<number, string>()
+  let running: string | undefined
+  for (const [pos, { row }] of rows.entries()) {
+    const at = rowTimestamp(row)
+    if (!at) continue
+    const key = dayKey(at)
+    if (running === undefined) {
+      if (key !== dayKey(now)) marks.set(pos, dayLabel(at, now))
+    } else if (key !== running) {
+      marks.set(pos, dayLabel(at, now))
+    }
+    running = key
+  }
+  return marks
+}
+
 export function turnPosition(row: ChatRow): TurnPosition | undefined {
   if (row.kind === 'tools') return 'bind'
   const { item } = row.block
@@ -153,6 +185,9 @@ export function TranscriptFeed({
   // use-feed-arrivals. Identity is per row and index-free, so paging older
   // messages in above does not read as the whole feed arriving at once.
   const arriving = useFeedArrivals(useMemo(() => rows.map(({ row }) => rowIdentity(row)), [rows]))
+  // Recomputed with the rows rather than on a clock: "Today" only goes stale at
+  // midnight, and by the time it does the next row to land refreshes it.
+  const dayMarks = useMemo(() => dayMarksByPosition(rows, new Date()), [rows])
   const lastRow = rows[rows.length - 1]?.row
   const tailState = transcriptTailState(activity, session, lastRow)
   // A live question is already the attention surface. Repeating the same
@@ -186,21 +221,7 @@ export function TranscriptFeed({
           </span>
         </div>
       )}
-      {phase === 'empty' && (
-        <div className="transcript-placeholder" data-testid="transcript-empty-state">
-          <span className="transcript-placeholder-mark" aria-hidden="true">
-            <FileText size={14} strokeWidth={1.6} />
-          </span>
-          <span className="transcript-placeholder-copy">
-            <strong>No transcript yet</strong>
-            <span>
-              {session?.agentKind === 'shell'
-                ? 'Shell work stays in Native view.'
-                : 'The first prompt will open this transcript.'}
-            </span>
-          </span>
-        </div>
-      )}
+      {phase === 'empty' && <TranscriptStandby session={session} cwd={cwd} />}
       {/* Top sentinel: only the bounded tail of ROWS is mounted; more exist
           above (windowed-out locally or still on disk). Scrolling here autoloads
           them (onScroll → loadOlder); this is also a manual fallback if the
@@ -237,65 +258,81 @@ export function TranscriptFeed({
         const turn: TurnPosition | undefined =
           pos > 0 && isOperatorPromptRow(row) ? 'open' : turnPosition(row)
         const arrived = arriving.has(rowIdentity(row))
+        // THE DAY MARK (POD-701). A per-row clock is ambiguous the moment a
+        // session outlives a day, so each date boundary states itself once and
+        // resolves every clock beneath it. The leading mark is emitted only when
+        // the window does NOT open on today: "Today" over a transcript that is
+        // entirely from today is a line that tells the reader nothing.
+        const dayMark = dayMarks.get(pos)
         // Absolute row index into `rows` keeps minimap/search and
         // [data-block] aligned even for the one-row sticky continuation.
-        return row.kind === 'tools' ? (
-          <ToolBatchView
-            // A tools row always folds ≥1 block, so [0] and blocks[bi] exist.
-            key={`${idx}-${row.blocks[0]!.item.id}`}
-            row={row}
-            index={idx}
-            highlighted={idx === search.activeRow}
-            forceOpen={expandRuns || idx === search.activeRow}
-            dimmed={
-              search.filtering && !row.blockIndices.some((bi) => blockMatches(blocks[bi]!, query))
-            }
-            // The work line reads as LIVE only for the trailing run of a turn
-            // the agent is still working: the spinner and counting timer are the
-            // motion grammar's "an agent is computing", and a run that has
-            // already been overtaken by prose is finished whatever the session
-            // is doing now. MOUNT POSITION, not `idx`: `rows` is the bounded
-            // trailing window and `idx` is the ABSOLUTE index into the full row
-            // list, so the last mounted row is `pos === rows.length - 1`.
-            live={activity?.tone === 'working' && pos === rows.length - 1}
-            waiting={
-              pos === rows.length - 1 && tailState?.mode === 'wait'
-                ? { label: tailState.label, detail: tailState.detail }
-                : undefined
-            }
-            arrived={arrived}
-            turn={turn}
-            sessionId={sessionId}
-            cwd={cwd}
-            openFile={openFile}
-          />
-        ) : (
-          <ChatBlockView
-            key={`${idx}-${row.block.item.id}`}
-            block={row.block}
-            index={idx}
-            highlighted={idx === search.activeRow}
-            dimmed={search.filtering && !blockMatches(row.block, query)}
-            sessionId={sessionId}
-            cwd={cwd}
-            openFile={openFile}
-            httpOrigin={httpOrigin}
-            onOpenImage={onOpenImage}
-            // AskUserQuestion is its own block-row; light up the one that is the
-            // latest unanswered question on a live session (livePendingAskIndex
-            // indexes into `blocks`, matched here against the row's blockIndex).
-            askLivePending={row.blockIndex === livePendingAskIndex}
-            onAnswerAsk={onAnswerAsk}
-            collapseContext={collapseContext}
-            compact={compact}
-            ctxSeq={compact && row.blockIndex === lastAnswerBlockIndex ? ctxSeq : null}
-            stickyOperator={stickyEnabled && isOperatorPromptRow(row)}
-            attribution={attributionForRole(attribution, row.block.item.role)}
-            turn={turn}
-            arrived={arrived}
-            onQuote={onQuote}
-            issueReferences={issueReferences}
-          />
+        const rowNode =
+          row.kind === 'tools' ? (
+            <ToolBatchView
+              // A tools row always folds ≥1 block, so [0] and blocks[bi] exist.
+              key={`${idx}-${row.blocks[0]!.item.id}`}
+              row={row}
+              index={idx}
+              highlighted={idx === search.activeRow}
+              forceOpen={expandRuns || idx === search.activeRow}
+              dimmed={
+                search.filtering && !row.blockIndices.some((bi) => blockMatches(blocks[bi]!, query))
+              }
+              // The work line reads as LIVE only for the trailing run of a turn
+              // the agent is still working: the spinner and counting timer are the
+              // motion grammar's "an agent is computing", and a run that has
+              // already been overtaken by prose is finished whatever the session
+              // is doing now. MOUNT POSITION, not `idx`: `rows` is the bounded
+              // trailing window and `idx` is the ABSOLUTE index into the full row
+              // list, so the last mounted row is `pos === rows.length - 1`.
+              live={activity?.tone === 'working' && pos === rows.length - 1}
+              waiting={
+                pos === rows.length - 1 && tailState?.mode === 'wait'
+                  ? { label: tailState.label, detail: tailState.detail }
+                  : undefined
+              }
+              arrived={arrived}
+              turn={turn}
+              sessionId={sessionId}
+              cwd={cwd}
+              openFile={openFile}
+            />
+          ) : (
+            <ChatBlockView
+              key={`${idx}-${row.block.item.id}`}
+              block={row.block}
+              index={idx}
+              highlighted={idx === search.activeRow}
+              dimmed={search.filtering && !blockMatches(row.block, query)}
+              sessionId={sessionId}
+              cwd={cwd}
+              openFile={openFile}
+              httpOrigin={httpOrigin}
+              onOpenImage={onOpenImage}
+              // AskUserQuestion is its own block-row; light up the one that is the
+              // latest unanswered question on a live session (livePendingAskIndex
+              // indexes into `blocks`, matched here against the row's blockIndex).
+              askLivePending={row.blockIndex === livePendingAskIndex}
+              onAnswerAsk={onAnswerAsk}
+              collapseContext={collapseContext}
+              compact={compact}
+              ctxSeq={compact && row.blockIndex === lastAnswerBlockIndex ? ctxSeq : null}
+              stickyOperator={stickyEnabled && isOperatorPromptRow(row)}
+              attribution={attributionForRole(attribution, row.block.item.role)}
+              turn={turn}
+              arrived={arrived}
+              onQuote={onQuote}
+              issueReferences={issueReferences}
+            />
+          )
+        if (!dayMark) return rowNode
+        return (
+          <Fragment key={`day-${idx}`}>
+            <div className="transcript-daymark" data-testid="transcript-daymark">
+              <span className="transcript-daymark-label">{dayMark}</span>
+            </div>
+            {rowNode}
+          </Fragment>
         )
       })}
       {pending.map((p) => (

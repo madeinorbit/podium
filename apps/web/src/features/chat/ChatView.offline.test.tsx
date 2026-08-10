@@ -1,4 +1,10 @@
-import { asSessionId, type SessionId, type SessionMeta, type SessionMetaInput, type TranscriptItem } from '@podium/model'
+import {
+  asSessionId,
+  type SessionId,
+  type SessionMeta,
+  type SessionMetaInput,
+  type TranscriptItem,
+} from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -172,7 +178,7 @@ describe('ChatView offline transcript copy', () => {
     })
     await flush()
     expect(container.querySelector('[data-notice="offline"]')).toBeNull()
-    expect(container.textContent).toContain('No transcript yet')
+    expect(container.querySelector('[data-testid="transcript-empty-state"]')).not.toBeNull()
   })
 
   it('writes a successful read through into the replica and shows no notice', async () => {

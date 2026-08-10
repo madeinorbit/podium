@@ -34,6 +34,7 @@ import type { ChatBlock } from './chat'
 import { MachineContextRow } from './MachineContextRow'
 import { SendUserFileBlock, SentImageThumb } from './SendUserFileBlock'
 import { ToolBlock } from './ToolBlock'
+import { clockLabel, fullTimeLabel, parseTs } from './transcript-time'
 
 const EMPTY_ISSUE_REFERENCES: IssueReferenceLookup = new Map()
 
@@ -99,9 +100,15 @@ const COPY_ACK_MS = 1400
 function MessageActions({
   text,
   onQuote,
+  ts,
 }: {
   text: string
   onQuote?: ((markdown: string) => void) | undefined
+  /** Present only on rows that carry NO label of their own — intermediate agent
+   *  narration — which would otherwise be the one voice in the feed with no time
+   *  attached to it. It rides the hover chip rather than taking a permanent line,
+   *  because a clock over every paragraph of a single turn is noise, not data. */
+  ts?: string | undefined
 }): JSX.Element | null {
   const [copied, setCopied] = useState(false)
   const ack = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -120,6 +127,7 @@ function MessageActions({
   if (!text.trim()) return null
   return (
     <div className="msg-actions" data-testid="message-actions">
+      {ts && <BlockClock ts={ts} />}
       <button
         data-pressable
         type="button"
@@ -258,15 +266,25 @@ function MessageEnvelopeRow({
   )
 }
 
-/** Right-aligned mono clock on compact role labels (mock S1). Absent ts → no row. */
+/**
+ * WHEN (POD-701). A right-aligned mono clock at the end of a row's own label.
+ * It used to render only in the narrow superagent dock (`compact`), so the chat
+ * a reader actually lives in never said when anything happened — the one
+ * question a transcript is most often re-opened to answer. It is now on every
+ * labelled row at both widths.
+ *
+ * A real `<time>` with the ISO instant, and the full local date-and-seconds in
+ * the tooltip: the visible figure is deliberately only hours and minutes, and a
+ * reader who needs more should not have to leave the row to get it. Absent or
+ * unparseable ts → nothing, never a fabricated time.
+ */
 function BlockClock({ ts }: { ts?: string | undefined }): JSX.Element | null {
-  if (!ts) return null
-  const d = new Date(ts)
-  if (Number.isNaN(d.getTime())) return null
+  const d = parseTs(ts)
+  if (!d || !ts) return null
   return (
-    <span className="chat-clk">
-      {String(d.getHours()).padStart(2, '0')}:{String(d.getMinutes()).padStart(2, '0')}
-    </span>
+    <time className="chat-clk" dateTime={ts} title={fullTimeLabel(d)}>
+      {clockLabel(d)}
+    </time>
   )
 }
 
@@ -513,6 +531,7 @@ export const ChatBlockView = memo(function ChatBlockView({
         <div className="transcript-body">
           <div className="transcript-header">
             <span className="transcript-role transcript-role--answer">Recap</span>
+            <BlockClock ts={item.ts} />
           </div>
           <div
             className="chat-md"
@@ -734,18 +753,24 @@ export const ChatBlockView = memo(function ChatBlockView({
           {/* Copy / quote, on every row that carries a message a reader might
               want to take with them. Machine activity is excluded — a work line
               is a summary of rows that each have their own affordances. */}
-          <MessageActions text={displayText} onQuote={onQuote} />
+          <MessageActions
+            text={displayText}
+            onQuote={onQuote}
+            // Only where no label row already carries one — see the prop's note.
+            ts={isUser || isAnswer || item.role === 'system' ? undefined : item.ts}
+          />
           {isUser && !stickyOperator && (
             <div className="transcript-you-label">
               You
               {attribution && <AttributionMark attribution={attribution} />}
-              {compact && <BlockClock ts={item.ts} />}
+              <BlockClock ts={item.ts} />
             </div>
           )}
           {item.role === 'system' && (
             <div className="transcript-header">
               <span className="transcript-role transcript-role--system">System</span>
               {attribution && <AttributionMark attribution={attribution} />}
+              <BlockClock ts={item.ts} />
             </div>
           )}
           {isAnswer && (
@@ -755,7 +780,7 @@ export const ChatBlockView = memo(function ChatBlockView({
               {compact && ctxSeq !== null && (
                 <span className="chat-ctx">· POD-{ctxSeq} context</span>
               )}
-              {compact && <BlockClock ts={item.ts} />}
+              <BlockClock ts={item.ts} />
             </div>
           )}
           {isUser && stickyOperator ? (
@@ -768,7 +793,7 @@ export const ChatBlockView = memo(function ChatBlockView({
                       clamp (POD-1368) only changes WHERE the label renders, so
                       the attribution mark (doc §3.1.3 A3) rides along. */}
                   {attribution && <AttributionMark attribution={attribution} />}
-                  {compact && <BlockClock ts={item.ts} />}
+                  <BlockClock ts={item.ts} />
                 </>
               }
             >

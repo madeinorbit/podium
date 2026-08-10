@@ -153,7 +153,7 @@ describe('TranscriptFeed — boundary states', () => {
 
     render([], null, { phase: 'empty' })
     expect(host.querySelector('[data-testid="transcript-empty-state"]')).not.toBeNull()
-    expect(host.textContent).toContain('No transcript yet')
+    expect(host.querySelector('.transcript-standby-title')).not.toBeNull()
     expect(host.querySelector('.spb')).toBeNull()
   })
 
