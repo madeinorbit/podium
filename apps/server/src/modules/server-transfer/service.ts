@@ -316,7 +316,7 @@ export class ServerTransferService {
         sourceInstanceId: this.deps.sourceInstanceId,
         packageDir: initialPackageDir,
         manifest: null,
-        idempotencyKey: this.uuid(),
+        idempotencyKey: probeTransferId,
         targetProof: false,
         sourceConnected: false,
       }
@@ -388,6 +388,7 @@ export class ServerTransferService {
             bytesCopied: 0,
             totalBytes: finalManifest.packageBytes,
             transferId: finalTransferId,
+            idempotencyKey: finalTransferId,
             packageDir: finalPackageDir,
             manifest: finalManifest,
             probe: {
