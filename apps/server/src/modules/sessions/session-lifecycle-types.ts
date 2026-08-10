@@ -15,10 +15,7 @@ import type {
   WorkState,
 } from '@podium/model'
 import type { AgentKind, UserId } from '@podium/model'
-import type {
-  MetadataChange,
-  SubscriptionRegistry,
-} from '@podium/protocol'
+import type { MetadataChange, SubscriptionRegistry } from '@podium/protocol'
 import type { EntityChangeSpec, MutationLedgerPort } from '@podium/sync'
 import type { ClientRegistry } from '../../gateway/client-registry'
 import type { ClientConn } from '../../gateway/client-registry'
@@ -29,8 +26,7 @@ import type { DaemonRpcService } from '../machines/rpc'
 import type { MachinesService } from '../machines/service'
 import type { MemoryService } from '../memory/service'
 import type { SessionStore } from '../../store'
-import type { PublishWorkerClient } from './publish-worker-client'
-import type { SnapshotTail } from './publication/coordinator'
+import type { SyncChangesSinceResult } from '@podium/protocol'
 import type { PreparedSessionInstructions } from './instructions'
 import type { Session } from './session'
 
@@ -50,6 +46,12 @@ export interface SessionLedger {
   capture(specs: EntityChangeSpec[]): MetadataChange[]
   reconcile(entity: 'session', rows: { id: string; value: unknown }[]): MetadataChange[]
 }
+
+/** Non-session fields retained by the expiring wire-v1 catch-up snapshot. */
+export type SnapshotTail = Omit<
+  Extract<SyncChangesSinceResult, { kind: 'snapshot' }>,
+  'kind' | 'sessions' | 'cursor' | 'feedId' | 'epoch' | 'minAvailableSeq'
+>
 
 /** Prepared half of a cross-aggregate issue/session deletion transaction. */
 export interface SessionDeletePlan {
@@ -112,18 +114,10 @@ export interface SessionLifecycleDeps {
   /** Shared live-session registry, constructed before every reader. Lifecycle
    * remains its sole mutation owner. */
   sessions?: Map<SessionId, Session>
-  /** Test/fault-injection seam; production owns the default daemon client. */
-  publicationWorker?: PublishWorkerClient
-  /** Rollout-only old/new semantic comparison; never changes delivered bytes. */
-  publicationShadowCompare?: boolean
   machines: MachinesService
   rpc: DaemonRpcService
   /** Start-path notification; the propagation service decides whether login is needed. */
-  onSpawnTargetLogin?(input: {
-    machineId: string
-    agentKind: AgentKind
-    ownerUserId: UserId
-  }): void
+  onSpawnTargetLogin?(input: { machineId: string; agentKind: AgentKind; ownerUserId: UserId }): void
   memory: MemoryService
   /** Live repository-backed issue access; re-read on every apply and replay. */
   issueAccess: DurableIssueAccessIndex

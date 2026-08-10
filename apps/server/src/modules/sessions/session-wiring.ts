@@ -40,8 +40,6 @@ type QueuedMessageRow = ReturnType<SyncRepository['listQueuedMessages']>[number]
 import { SessionMachineReconciler } from './machine-reconciler'
 import { SessionNaming } from './naming'
 import { SessionBroadcastCoordinator } from './publication/broadcast'
-import { SessionPublicationCoordinator } from './publication/coordinator'
-import { PublishWorkerClient } from './publish-worker-client'
 import { SessionRepository } from './repository'
 import { SessionBindingReceipts } from './session-binding'
 import { SessionRevival } from './session-revival'
@@ -113,25 +111,12 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       bag.repository.markVolatileSessionDirty(sessionId, fields),
     broadcastSessions: () => bag.broadcastSessions(),
   })
-  const publicationWorker = deps.publicationWorker ?? new PublishWorkerClient()
-  bag.publication = new SessionPublicationCoordinator({
-    clients: bag.clients,
-    worker: publicationWorker,
-    funnel: bag.funnel,
-    shadowCompare: deps.publicationShadowCompare ?? false,
-    generation: () => bag.repository.sessionsGeneration(),
-    sessions: () => bag.sessions,
-    listSessions: () => bag.listSessions(),
-    snapshotTail: deps.snapshotTail,
-  })
   bag.broadcasts = new SessionBroadcastCoordinator({
     hasPendingVolatile: () => bag.repository.hasPendingVolatile(),
     scheduleVolatileCapture: () => bag.repository.scheduleVolatileSessionCapture(),
     flushVolatileCaptures: () => {
       bag.repository.flushVolatileSessionCaptures()
     },
-    generation: () => bag.repository.sessionsGeneration(),
-    schedulePublication: (options) => bag.publication.schedule(options),
     flushDeltas: () => bag.funnel.flushDeltas(),
   })
   bag.browserOpen = new BrowserOpenGateway({
@@ -218,7 +203,6 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     store: bag.store,
     memory: bag.deps.memory,
     ledger: bag.deps.ledger,
-    publication: bag.publication,
     funnel: bag.funnel,
     view: bag.view,
     state: bag.state,
@@ -374,7 +358,6 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   bag.draftRevision = (sessionId: SessionId) => bag.state.draftRevision(sessionId)
   bag.clientControl = new SessionClientControl({
     sessions: bag.sessions,
-    publication: bag.publication,
     state: bag.state,
     inbox: bag.inbox,
     machinesForPrincipal: (principal) =>
@@ -508,7 +491,6 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     headless: bag.headless,
     machineReconciler: bag.machineReconciler,
     machines: bag.machines,
-    publication: bag.publication,
     repository: bag.repository,
     rpc: bag.rpc,
     state: bag.state,

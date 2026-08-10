@@ -20,8 +20,8 @@
  *
  * So the ratchet is not "the two method names are gone" (a rename defeats that).
  * It is: the five pre-cutover full-list MESSAGE SHAPES may be constructed only by
- * the expiring v1 translation and the prepared-publication worker, both named
- * below with the reason they are exempt.
+ * the expiring v1 translation; its only construction site is named
+ * below.
  *
  * ---------------------------------------------------------------------------
  * THIS IS THE SOURCE-TEXT HALF ONLY, AND THAT IS DELIBERATE
@@ -55,12 +55,6 @@ const ADAPTER_FILE = 'apps/server/src/gateway/legacy-wire-v1-adapter.ts'
  *
  *  - the v1 translation, which is where they are supposed to be built and which
  *    EXPIRES (`scripts/audit-wire-adapters.ts` owns that condition);
- *  - the prepared-publication worker and the service method that drives it. That
- *    path serves a SCOPED connection its own filtered session view, it predates
- *    the feed, and POD-1203 deliberately did not rewrite it — the cutover
- *    preserved its entanglement rather than absorbing it. It is exempt because
- *    it is a different mechanism, not because it is grandfathered: when the
- *    scoped feed replaces it, these two entries go and this list is one line.
  */
 const FULL_LIST_MESSAGES = [
   'sessionsChanged',
@@ -70,11 +64,7 @@ const FULL_LIST_MESSAGES = [
   'automationRunsChanged',
 ] as const
 
-const FULL_LIST_ALLOWED = [
-  ADAPTER_FILE,
-  'apps/server/src/modules/sessions/publish-worker-actor.ts',
-  'apps/server/src/modules/sessions/publication/coordinator.ts',
-]
+const FULL_LIST_ALLOWED = [ADAPTER_FILE]
 
 /**
  * The two method names the deleted path had, matched AS CODE.
@@ -154,7 +144,7 @@ export function runChecks(input: AuditInput): Finding[] {
         where: path,
         detail:
           `constructs a '${message}' message. The pre-cutover full-list shapes are produced ONLY ` +
-          `by the expiring v1 translation (${ADAPTER_FILE}) and the prepared-publication worker. ` +
+          `by the expiring v1 translation (${ADAPTER_FILE}). ` +
           'Building one anywhere else re-creates the dual read path POD-1203 deleted — it will ' +
           'work, and it will disagree with the feed the first time the two are computed from ' +
           'different state.',
@@ -301,14 +291,14 @@ export const PROBES: { name: string; input: AuditInput; expect: string }[] = (()
     {
       // The exemption must be NARROW: the worker's own file is allowed, a file
       // that merely sits beside it is not.
-      name: 'a NEW file beside the allowed worker builds a session list',
+      name: 'a NEW server file builds a session list',
       expect: 'full-list-messages-allowlisted',
       input: overlay(
         {
-          'apps/server/src/modules/sessions/publish-worker-helper.ts':
+          'apps/server/src/modules/sessions/session-list-helper.ts':
             "return { type: 'sessionsChanged', sessions }\n",
         },
-        ['apps/server/src/modules/sessions/publish-worker-helper.ts'],
+        ['apps/server/src/modules/sessions/session-list-helper.ts'],
       ),
     },
     {
@@ -392,7 +382,7 @@ if (import.meta.main) {
   if (!args.includes('--json')) {
     console.log(
       'serving-path audit OK — one serving path, the five legacy list shapes confined to the ' +
-        'expiring translation and the publication worker, and the edge is wired (the running-object ' +
+        'expiring translation, and the edge is wired (the running-object ' +
         'half is scripts/audit-serving-path.test.ts)',
     )
   }

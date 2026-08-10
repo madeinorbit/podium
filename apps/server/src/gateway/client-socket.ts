@@ -22,8 +22,7 @@
  */
 
 import type { UserId, UserRole } from '@podium/model'
-import { parseClientMessage, WIRE_VERSION } from '@podium/protocol'
-import type { PublicationAuthority } from '../modules/sessions/session'
+import { parseClientMessage } from '@podium/protocol'
 import type { SessionRegistry } from '../relay'
 import { CLIENT_PLANE_LIVENESS } from './plane-liveness'
 import { type GatewaySocket, warnDroppedFrame } from './ws-send'
@@ -33,9 +32,6 @@ export interface ClientAuthorityOptions {
   /** Account resolved from the authenticated upgrade cookie. */
   userId?: UserId
   userRole?: UserRole
-  /** Revocable, request-specific publication world resolved at the upgrade gate. */
-  publicationAuthority?: PublicationAuthority
-  serverRole?: string
 }
 
 /**
@@ -53,34 +49,12 @@ export interface ClientAuthorityOptions {
  */
 export function wireClientSocket(
   ws: GatewaySocket,
-  requestUrl: string,
+  _requestUrl: string,
   registry: SessionRegistry,
   auth: ClientAuthorityOptions = {},
 ): string | undefined {
   if (auth.userId === undefined || auth.userRole === undefined) {
     console.warn('[podium] rejected client with incomplete authenticated account')
-    ws.terminate()
-    return undefined
-  }
-  const url = new URL(requestUrl)
-  const rawVersion = url.searchParams.get('v') ?? url.searchParams.get('pv')
-  const protocolVersion = rawVersion === null ? WIRE_VERSION : Number(rawVersion)
-  let authority: PublicationAuthority
-  try {
-    authority = auth.publicationAuthority ?? {
-      principal: 'user:' + auth.userId,
-      scope: 'principal:user:' + auth.userId,
-      serverRole: auth.serverRole ?? 'standalone',
-      protocolVersion,
-      global: true,
-      snapshot: () => ({
-        revision: 0,
-        allowedSignature: 'global',
-        allowedSessionIds: [],
-      }),
-    }
-  } catch (error) {
-    console.warn('[podium] rejected client with invalid publication authority', error)
     ws.terminate()
     return undefined
   }
@@ -92,7 +66,6 @@ export function wireClientSocket(
     sendStream: sink.sendLossy,
     userId: auth.userId,
     userRole: auth.userRole,
-    publication: { ...authority, sendPrepared: sink.sendPrepared },
   })
   ws.on('message', (raw) => {
     try {

@@ -31,7 +31,7 @@ export type SessionWirePrincipal = SessionStatePrincipal
 import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
 import { computePriorities, FIRST_ADMIN_USER_ID } from '@podium/model'
-import type { MachinePrincipal } from '@podium/protocol'
+import type { MachinePrincipal, Principal } from '@podium/protocol'
 import {
   type AgentInstruction,
   AUTO_ARCHIVE_READ_WINDOW_MS,
@@ -50,7 +50,12 @@ import {
   type SyncChangesSinceResult,
 } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
-import { type EntityChangeSpec, type MutationLedger, type MutationLedgerPort } from '@podium/sync'
+import {
+  DEVICE_GRADE_PRINCIPAL,
+  type EntityChangeSpec,
+  type MutationLedger,
+  type MutationLedgerPort,
+} from '@podium/sync'
 import type { AutoContinueController } from '../../auto-continue'
 import {
   type CommandPrincipal,
@@ -131,15 +136,8 @@ import { normalizeAgentName } from './naming'
 import type { SessionNaming } from './naming'
 import { SessionObservationLeases } from './observation-leases'
 import type { SessionBroadcastCoordinator } from './publication/broadcast'
-import type {
-  SessionPublicationCoordinator,
-  SessionPublicationMetrics,
-  SnapshotTail,
-} from './publication/coordinator'
-import type { SessionProjectionEvent } from './publish-worker-actor'
-import type { PublishWorkerClient } from './publish-worker-client'
-import type { SessionRepository } from './repository'
-import type { PublicationAuthority, Session } from './session'
+import type { SessionRepository, SessionProjectionEvent } from './repository'
+import type { Session } from './session'
 import { assertMayCommandSession, resolveSessionTarget } from './session-access'
 import type { SessionBindingReceipts } from './session-binding'
 import type { SessionStart } from './session-start'
@@ -226,7 +224,6 @@ export class SessionLifecycle {
    *  session, so it must outlive one call — see `handoffs()`. */
   /** The write funnel — owns the durable metadata oplog (docs/spec/oplog-read-path.md). */
   private readonly funnel!: WriteFunnel
-  readonly publication!: SessionPublicationCoordinator
   readonly clientControl!: SessionClientControl
   readonly daemonProjection!: SessionDaemonProjection
   private readonly daemonLifecycle!: SessionDaemonLifecycle
@@ -247,7 +244,7 @@ export class SessionLifecycle {
     wireSessionLifecycle(this, deps)
   }
   private prepareInboxSend(...args: any[]): void {
-    (this.sessionMetaOps as any).prepareInboxSend(...args)
+    ;(this.sessionMetaOps as any).prepareInboxSend(...args)
   }
   authorizeQueuedInputAtApply(...args: any[]): any {
     return (this.sessionAuthz as any).authorizeQueuedInputAtApply(...args)
@@ -264,7 +261,6 @@ export class SessionLifecycle {
     // change log is already complete (commits happen at persist time, #256);
     // this just drains the in-flight fan-out tail deterministically.
     this.flushBroadcasts()
-    this.publication.stop()
   }
   sessionsGeneration(): number {
     return this.repository.sessionsGeneration()
@@ -282,19 +278,19 @@ export class SessionLifecycle {
     this.repository.loadFromStore()
   }
   sessionsChangedForMachine(...args: any[]): void {
-    (this.sessionClientPlane as any).sessionsChangedForMachine(...args)
+    ;(this.sessionClientPlane as any).sessionsChangedForMachine(...args)
   }
   onMachineAttached(...args: any[]): void {
-    (this.sessionClientPlane as any).onMachineAttached(...args)
+    ;(this.sessionClientPlane as any).onMachineAttached(...args)
   }
   onMachineDetached(...args: any[]): void {
-    (this.sessionClientPlane as any).onMachineDetached(...args)
+    ;(this.sessionClientPlane as any).onMachineDetached(...args)
   }
   private reattachMessageFor(...args: any[]): any {
     return (this.sessionClientPlane as any).reattachMessageFor(...args)
   }
   private rebindHeadless(...args: any[]): void {
-    (this.sessionClientPlane as any).rebindHeadless(...args)
+    ;(this.sessionClientPlane as any).rebindHeadless(...args)
   }
   private pushPriorities(): void {
     this.state.pushPriorities()
@@ -337,10 +333,10 @@ export class SessionLifecycle {
   // origin/causation/mutation identity (packages/model/src/provenance), and the
   // reserved node-peer capabilities (packages/protocol/src/handshake).
   setSnooze(...args: any[]): void {
-    (this.sessionMetaOps as any).setSnooze(...args)
+    ;(this.sessionMetaOps as any).setSnooze(...args)
   }
   clearSnooze(...args: any[]): void {
-    (this.sessionMetaOps as any).clearSnooze(...args)
+    ;(this.sessionMetaOps as any).clearSnooze(...args)
   }
   primeOwnerMemo(...args: any[]): any {
     return (this.sessionAuthz as any).primeOwnerMemo(...args)
@@ -356,10 +352,10 @@ export class SessionLifecycle {
     return (this.sessionAuthz as any).authorizeClientDrive(...args)
   }
   setOffer(...args: any[]): void {
-    (this.sessionMetaOps as any).setOffer(...args)
+    ;(this.sessionMetaOps as any).setOffer(...args)
   }
   clearOffer(...args: any[]): void {
-    (this.sessionMetaOps as any).clearOffer(...args)
+    ;(this.sessionMetaOps as any).clearOffer(...args)
   }
   createSession(input: Parameters<SessionStart['create']>[0]): SessionSpawnResult {
     return this.sessionStart.create(input)
@@ -410,7 +406,7 @@ export class SessionLifecycle {
   /** Idempotency is MutationLedger's (POD-382); not re-exposed here. */
   /** The write funnel's session-metadata face: apply the field write, persist the */
   private mutateSessionMeta(...args: any[]): void {
-    (this.sessionMetaOps as any).mutateSessionMeta(...args)
+    ;(this.sessionMetaOps as any).mutateSessionMeta(...args)
   }
   renameSession(input: { sessionId: SessionId; name: string }): void {
     this.naming.rename(input)
@@ -424,7 +420,7 @@ export class SessionLifecycle {
     return this.naming.setAgentName(input)
   }
   setArchived(...args: any[]): void {
-    (this.sessionMetaOps as any).setArchived(...args)
+    ;(this.sessionMetaOps as any).setArchived(...args)
   }
   private parkArchivedSession(sessionId: SessionId): void {
     this.sessionTeardown.parkArchivedSession(sessionId)
@@ -433,22 +429,22 @@ export class SessionLifecycle {
     return (this.sessionMetaOps as any).tryAutoArchiveStoppedObserved(...args)
   }
   markSessionRead(...args: any[]): void {
-    (this.sessionMetaOps as any).markSessionRead(...args)
+    ;(this.sessionMetaOps as any).markSessionRead(...args)
   }
   markSessionUnread(...args: any[]): void {
-    (this.sessionMetaOps as any).markSessionUnread(...args)
+    ;(this.sessionMetaOps as any).markSessionUnread(...args)
   }
   private rearmUnread(sessionId: SessionId): void {
     this.state.rearmUnreadForAll(sessionId)
   }
   setSessionIssueId(...args: any[]): void {
-    (this.sessionMetaOps as any).setSessionIssueId(...args)
+    ;(this.sessionMetaOps as any).setSessionIssueId(...args)
   }
   getSessionIssueId(...args: any[]): any {
     return (this.sessionMetaOps as any).getSessionIssueId(...args)
   }
   setWorkState(...args: any[]): void {
-    (this.sessionMetaOps as any).setWorkState(...args)
+    ;(this.sessionMetaOps as any).setWorkState(...args)
   }
   async stopSession(
     input: {
@@ -494,10 +490,10 @@ export class SessionLifecycle {
     return this.terminalProof.proofMissing(sessionId)
   }
   /** Park a live session: kill process, keep row/transcript/resume ref. */
-  hibernateSession(input: {
-    sessionId: SessionId
-    requireTerminalProof?: boolean
-  }): { ok: boolean; reason?: string } {
+  hibernateSession(input: { sessionId: SessionId; requireTerminalProof?: boolean }): {
+    ok: boolean
+    reason?: string
+  } {
     return this.sessionTeardown.hibernateSession(input)
   }
 
@@ -576,28 +572,22 @@ export class SessionLifecycle {
     return (this.sessionAuthz as any).settingsViewer(...args)
   }
   onClientAttached(...args: any[]): void {
-    (this.sessionClientPlane as any).onClientAttached(...args)
+    ;(this.sessionClientPlane as any).onClientAttached(...args)
   }
   onRoomJoined(...args: any[]): void {
-    (this.sessionClientPlane as any).onRoomJoined(...args)
-  }
-  refreshClientPublication(id: string): void {
-    this.publication.refreshClient(id)
-  }
-  publicationMetrics(): SessionPublicationMetrics {
-    return this.publication.metrics()
+    ;(this.sessionClientPlane as any).onRoomJoined(...args)
   }
   onClientReclaim(...args: any[]): void {
-    (this.sessionClientPlane as any).onClientReclaim(...args)
+    ;(this.sessionClientPlane as any).onClientReclaim(...args)
   }
   onClientDetached(...args: any[]): void {
-    (this.sessionClientPlane as any).onClientDetached(...args)
+    ;(this.sessionClientPlane as any).onClientDetached(...args)
   }
   onOpenUrl(...args: any[]): void {
-    (this.sessionClientPlane as any).onOpenUrl(...args)
+    ;(this.sessionClientPlane as any).onOpenUrl(...args)
   }
   onSessionClientFrame(...args: any[]): void {
-    (this.sessionClientPlane as any).onSessionClientFrame(...args)
+    ;(this.sessionClientPlane as any).onSessionClientFrame(...args)
   }
   onSessionDaemonFrame(principal: MachinePrincipal, msg: SessionsDaemonFrame): void {
     this.daemonLifecycle.handle(principal, msg)
@@ -614,16 +604,34 @@ export class SessionLifecycle {
   flushBroadcasts(): void {
     this.broadcasts.flush()
   }
-  onFeedPublished(seq: number): void {
-    this.publication.onFeedPublished(seq)
-  }
-  deliverEntityMessage(...args: any[]): void {
-    (this.sessionClientPlane as any).deliverEntityMessage(...args)
-  }
   syncChangesSince(
     cursor: number | null,
-    authority?: PublicationAuthority,
+    principal: Principal = DEVICE_GRADE_PRINCIPAL,
   ): SyncChangesSinceResult {
-    return this.publication.syncChangesSince(cursor, authority)
+    const sourceCursor = this.funnel.cursor()
+    const { feedId, epoch } = this.funnel.feedIdentity()
+    const identity = { feedId, epoch, minAvailableSeq: this.funnel.minAvailableSeq() }
+    const changes = this.funnel.changesSince(cursor, principal)
+    if (changes) return { kind: 'delta', changes, cursor: sourceCursor, ...identity }
+
+    const snapshot = this.funnel.snapshot(principal)
+    const values = <T>(entity: MetadataChange['entity']): T[] =>
+      snapshot
+        .filter((change) => change.entity === entity && change.op === 'upsert')
+        .map((change) => change.value as T)
+    return {
+      kind: 'snapshot',
+      sessions: values('session'),
+      issues: values('issue'),
+      issueProjections: values('issueProjection'),
+      issueDeps: values('issueDep'),
+      repos: values('repo'),
+      conversations: values('conversation'),
+      automations: values('automation'),
+      automationRuns: values('automationRun'),
+      diagnostics: principal === DEVICE_GRADE_PRINCIPAL ? this.deps.snapshotTail().diagnostics : [],
+      cursor: sourceCursor,
+      ...identity,
+    }
   }
 }

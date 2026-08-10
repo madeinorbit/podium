@@ -335,7 +335,6 @@ describe('POD-1081 two-principal identity (not "the only connection")', () => {
     )
     const ctl = new SessionClientControl({
       sessions: new Map([[SESSION, session]]),
-      publication: { schedule: vi.fn(), prioritize: vi.fn() } as never,
       state: { replayDrafts: vi.fn(), handleDraftEdit: vi.fn() } as never,
       inbox: {
         handleControllerInput,
@@ -423,7 +422,6 @@ describe('POD-1081 agent control drops at next apply (no reaper)', () => {
 
     const ctl = new SessionClientControl({
       sessions: new Map([[SESSION, session]]),
-      publication: { schedule: vi.fn(), prioritize: vi.fn() } as never,
       state: { replayDrafts: vi.fn(), handleDraftEdit: vi.fn() } as never,
       inbox,
       machinesForPrincipal: () => [],

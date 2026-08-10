@@ -52,7 +52,6 @@ import { registerMaintenanceRoute } from './modules/maintenance/route'
 import { MaintenanceService } from './modules/maintenance/service'
 import { MessagingService } from './modules/messaging'
 import { DEPLOYMENT, perf } from './modules/perf/registry'
-import type { PublicationAuthority } from './modules/sessions/session'
 import { SuperagentService } from './modules/superagent'
 import { DEVELOPMENT_SOURCE_ROOT } from './modules/updates/dev-bundle'
 import { wireDevBundlePublisher } from './modules/updates/dev-publisher-wiring'
@@ -197,12 +196,6 @@ export async function startServer(
     plugins?: PodiumPlugin[]
     /** Keep `/` on the web shell while still serving Expo at `/mobile` (browser harness). */
     redirectPhoneRootToMobile?: boolean
-    /** Request-scoped publication worlds. Both transports must resolve through
-     *  the same authority source so catch-up and live publication cannot drift. */
-    resolvePublicationAuthority?: {
-      http(request: Request): PublicationAuthority
-      websocket(request: Request): PublicationAuthority
-    }
   } = {},
 ): Promise<ServerHandle> {
   const appVersion = captureServerBuildVersion()
@@ -262,9 +255,6 @@ export async function startServer(
     // release-manifest descriptor remains an optional /version publication seam.
     targetVersion: () => appVersion,
     mirrorLakeDir: join(stateDir(), 'transcripts'),
-    // Rollout diagnostic only: compare legacy/new semantics while continuing
-    // to deliver the worker publication [spec:SP-c29e].
-    publicationShadowCompare: process.env.PODIUM_PUBLISH_SHADOW_COMPARE === '1',
     // Enrollment ledger (POD-1114, D19.4): pairing root + append-only enrollment,
     // owner and revocation at the state-root tier, outside podium.db. Opened
     // before service construction so pair/hello/revoke share one durability domain.
@@ -522,7 +512,6 @@ export async function startServer(
       // separate tracker credential. Constrained agents don't come through here; they are
       // relayed via their daemon and carry their own capability (agent integration).
       createContext: (_request, hono) => {
-        const publicationAuthority = opts.resolvePublicationAuthority?.http(hono.req.raw)
         const principal = requestPrincipal(hono.req.header('cookie'))
         if (principal === undefined) throw new Error('authenticated account is unavailable')
         return {
@@ -534,7 +523,6 @@ export async function startServer(
           principal,
           capability: principal.capability,
           modules: registry.modules,
-          ...(publicationAuthority ? { publicationAuthority } : {}),
           // Only so telemetry.preview can show the REAL report [spec:SP-f933];
           // consent lives in config.json and is never read through the context.
           telemetry,
@@ -636,9 +624,6 @@ export async function startServer(
         const principal = requestPrincipal(request.headers.get('cookie') ?? undefined)
         return principal ? store.users.roleOf(principal.user) : undefined
       },
-      ...(opts.resolvePublicationAuthority
-        ? { resolvePublicationAuthority: opts.resolvePublicationAuthority.websocket }
-        : {}),
     })
 
     let server: Pick<NativeServer<never>, 'port' | 'stop'>

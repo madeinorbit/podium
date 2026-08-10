@@ -82,8 +82,7 @@ import { ReadPositionService } from './modules/read-position/service'
 import { machinesForPrincipal } from './modules/sessions/command-ctx'
 import { SessionInstructionRegistry } from './modules/sessions/instructions'
 import { SessionLifecycle } from './modules/sessions/lifecycle'
-import type { SnapshotTail } from './modules/sessions/publication/coordinator'
-import type { PublishWorkerClient } from './modules/sessions/publish-worker-client'
+import type { SnapshotTail } from './modules/sessions/session-lifecycle-types'
 import { SessionReadToolkit } from './modules/sessions/read-toolkit'
 import type { Session } from './modules/sessions/session'
 import { SettingsService, type TelegramSetupClient } from './modules/settings/service'
@@ -135,10 +134,6 @@ interface SessionRegistryOptions {
    * exercise pairing durability.
    */
   enrollment?: import('./enrollment-ledger').EnrollmentLedger
-  /** Deterministic publication-worker fault injection for service-level tests. */
-  publicationWorker?: PublishWorkerClient
-  /** Rollout-only semantic comparison of legacy and worker publications. */
-  publicationShadowCompare?: boolean
   /** Reaction contracts to publish on the module seam. Defaults to the registry;
    *  injected only so the runtime refusal of an invalid principal is observable
    *  (POD-1470). Whatever is passed goes through the same totality check the
@@ -681,10 +676,6 @@ export class SessionRegistry {
       subscriptions,
       // Session writes commit through the write-seam ledger at persist() (#256).
       ledger,
-      ...(options.publicationWorker ? { publicationWorker: options.publicationWorker } : {}),
-      ...(options.publicationShadowCompare !== undefined
-        ? { publicationShadowCompare: options.publicationShadowCompare }
-        : {}),
       machines,
       rpc,
       onSpawnTargetLogin: ({ machineId, agentKind, ownerUserId }) =>
@@ -774,9 +765,6 @@ export class SessionRegistry {
       this.bus,
     )
     const headless = sessionsSvc.headless
-    this.bus.on('feed.published', ({ seq }) => {
-      sessionsSvc.onFeedPublished(seq)
-    })
     this.bus.on('session.openUrl', (request) => sessionsSvc.onOpenUrl(request))
     this.bus.on('machine.metadataChanged', ({ machineId }) => {
       sessionsSvc.sessionsChangedForMachine(machineId)
@@ -1703,10 +1691,8 @@ export class SessionRegistry {
       feed: feedServing,
       presence,
       bootstrap: (client) => {
-        if (!client.publication || client.publication.global) {
-          client.send({ type: 'approvalsChanged', pending: approvals.listPending() })
-          hosts.snapshotFor(client.send)
-        }
+        client.send({ type: 'approvalsChanged', pending: approvals.listPending() })
+        hosts.snapshotFor(client.send)
       },
     })
     this.gateway = new DaemonMux({

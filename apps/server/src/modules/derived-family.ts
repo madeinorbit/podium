@@ -175,9 +175,6 @@ export interface FamilyState {
      *  anything. */
     readonly actorSessionId: Capability['actorSessionId']
   }
-  /** Request-scoped world used by websocket publication and sync catch-up; the
-   *  one read (`sync.changesSince`) passes it straight through to the service. */
-  readonly publicationAuthority?: Context['publicationAuthority']
   readonly feedPrincipal?: import('@podium/protocol').Principal
   /** Tiered per-machine repo discovery (POD-787) [spec:SP-3701]. Optional, so
    *  callers that do not exercise discovery need not construct one — which is
@@ -408,7 +405,6 @@ export const familyState = (ctx: Context): FamilyState => ({
     sessionState: sessionStatePrincipalFor(ctx.principal),
     actorSessionId: ctx.capability.actorSessionId,
   },
-  publicationAuthority: ctx.publicationAuthority,
   ...(ctx.principal?.kind === 'user'
     ? {
         feedPrincipal: {

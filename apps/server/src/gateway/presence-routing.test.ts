@@ -34,10 +34,6 @@ function connection(
       sent.push(message)
       return stream(message)
     },
-    publicationBootstrapped: false,
-    publicationPending: false,
-    publicationRequestVersion: 0,
-    publicationBufferedChanges: [],
     viewports: new Map(),
     attached: new Set(),
     caps: new Set(),

@@ -4,14 +4,12 @@
  * Dispose: none.
  */
 
-
 import type { SessionId } from '@podium/model'
 import type {
   ControlMessage,
   LiveServerMessage,
   MachinePrincipal,
   RoomRef,
-  ServerMessage,
   SessionOpenUrlMessage,
 } from '@podium/protocol'
 import { systemPrincipal } from '../../command-principal'
@@ -28,7 +26,6 @@ export interface SessionClientPlanePorts {
   headless: any
   machineReconciler: any
   machines: any
-  publication: any
   repository: any
   rpc: any
   state: any
@@ -46,7 +43,6 @@ export class SessionClientPlane {
   onMachineAttached(principal: MachinePrincipal): void {
     this.ports.machineReconciler.onAttached(principal)
   }
-
 
   onMachineDetached(principal: MachinePrincipal): void {
     this.ports.machineReconciler.onDetached(principal)
@@ -174,14 +170,10 @@ export class SessionClientPlane {
   /**
    * A client connection was admitted: send it the world it is owed.
    *
-   * This used to be the tail of `attachClient`, which also minted the id,
-   * registered the socket and sent `welcome`. Those are the gateway's now
-   * (POD-390) and this is what remains: the session/issue/conversation/machine
-   * bootstrap, byte-for-byte and in the same order.
-   *
-   * The `principal` is carried, not consulted — the bootstrap is NOT scoped by it
-   * today (the publication AUTHORITY is what narrows a scoped socket, exactly as
-   * before). POD-1077 is where a principal starts deciding content.
+   * This used to be the tail of attachClient, which also minted the id,
+   * registered the socket and sent welcome. Those are the gateway now
+   * (POD-390). Entity bootstrap belongs exclusively to FeedServing; this hook
+   * replays only session draft state and the machine list.
    */
   onClientAttached(principal: ClientPrincipal, client: ClientConn): void {
     this.ports.clientControl.onAttached(principal, client)
@@ -307,9 +299,4 @@ export class SessionClientPlane {
    * for a session id now hosted elsewhere), and every write they make is a
    * daemon-class observation attributed to `principal`.
    */
-
-  deliverEntityMessage(client: ClientConn, message: ServerMessage): void {
-    this.ports.publication.deliver(client, message)
-  }
-
 }

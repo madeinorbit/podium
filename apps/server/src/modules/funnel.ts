@@ -1,13 +1,17 @@
-import { type Principal } from '@podium/protocol'
-import type { FeedChangesSinceReply, FeedCursorField, MetadataChange } from '@podium/protocol'
-import { toFeedChange } from '../gateway/feed-serving'
+import type {
+  FeedChangesSinceReply,
+  FeedCursorField,
+  MetadataChange,
+  Principal,
+} from '@podium/protocol'
 import {
-  DEVICE_GRADE_PRINCIPAL,
   type AuthorityPort,
+  DEVICE_GRADE_PRINCIPAL,
   type FeedScopingGrade,
   type ScopedChange,
   type ScopedDelivery,
 } from '@podium/sync'
+import { toFeedChange } from '../gateway/feed-serving'
 import type { EventBus } from './bus'
 import { perfPrincipal } from './perf/principal'
 import { perf } from './perf/registry'
@@ -35,15 +39,7 @@ export interface WriteFunnelDeps {
    * their own ordered queue.
    */
   authority: AuthorityPort
-  /**
-   * A coalesced batch has been handed to the serving edge, certified through
-   * `seq`.
-   *
-   * The prepared-publication worker (`modules/sessions`) keeps its own cursor
-   * over the same log, and it has to advance ONCE per batch rather than once per
-   * recipient. That is why this is a separate call and not something a per-peer
-   * sink could do: it is a fact about the FEED's position, not about a delivery.
-   */
+  /** A coalesced batch has reached the serving edge; reactions may observe its head. */
   onPublished(seq: number): void
 }
 
@@ -170,10 +166,17 @@ export class WriteFunnel {
   }
 
   /** Cursor catch-up read (sync.changesSince) — null when compacted/future. */
-  changesSince(cursor: number | null): MetadataChange[] | null {
-    const delivery = this.deps.authority.changesSince(cursor, DEVICE_GRADE_PRINCIPAL)
+  changesSince(
+    cursor: number | null,
+    principal: Principal = DEVICE_GRADE_PRINCIPAL,
+  ): MetadataChange[] | null {
+    const delivery = this.deps.authority.changesSince(cursor, principal)
     if (delivery === null || delivery.kind !== 'batch') return null
     return delivery.changes.flatMap(toBusChange)
+  }
+
+  snapshot(principal: Principal = DEVICE_GRADE_PRINCIPAL): MetadataChange[] {
+    return this.deps.authority.bootstrap(principal).changes.flatMap(toBusChange)
   }
 
   cursor(): number {
@@ -337,12 +340,6 @@ export class WriteFunnel {
     // to time on this side is the coalescing that merges the evaluated ranges.
     perf.record('phase', 'feedPublish.scope', performance.now() - t0, perfKey)
     for (const delivery of deliveries) {
-      // POSITION FIRST, DELIVERY SECOND, and the order is transcribed from the
-      // deleted `sendMetadataDelta`: it advanced the prepared-publication
-      // worker's cursor and scheduled a rebuild BEFORE walking the connections.
-      // A connection whose view is being rebuilt BUFFERS the batch instead of
-      // receiving it, so delivering first would hand a global-publication client
-      // a batch the worker is about to supersede.
       this.deps.onPublished(delivery.throughSeq)
       this.deps.serving.publish(DEVICE_GRADE_PRINCIPAL, delivery)
     }

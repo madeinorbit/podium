@@ -10,7 +10,6 @@ import type { MachineListing } from '../machines/service'
 import { perfPrincipal } from '../perf/principal'
 import { perf } from '../perf/registry'
 import type { SessionInbox } from './inbox'
-import type { SessionPublicationCoordinator } from './publication/coordinator'
 import type { Session } from './session'
 import {
   contextFromOwnership,
@@ -24,7 +23,6 @@ import type { SessionStateService } from './session-state/service'
 
 export interface SessionClientControlPorts {
   sessions: ReadonlyMap<SessionId, Session>
-  publication: SessionPublicationCoordinator
   state: SessionStateService
   inbox: SessionInbox
   machinesForPrincipal(principal: ClientPrincipal): MachineListing[]
@@ -74,21 +72,17 @@ export class SessionClientControl {
   constructor(private readonly ports: SessionClientControlPorts) {}
 
   onAttached(principal: ClientPrincipal, client: ClientConn): void {
-    const publication = client.publication
-    if (publication) this.ports.publication.schedule()
-    if (!publication || publication.global) {
-      this.ports.state.replayDrafts(
-        sessionStatePrincipalFor(
-          userCommandPrincipal(asUserId(client.principal.user), client.principal.role),
-          client.id,
-        ),
-        client.send,
-      )
-      client.send({
-        type: 'machinesChanged',
-        machines: this.ports.machinesForPrincipal(principal),
-      })
-    }
+    this.ports.state.replayDrafts(
+      sessionStatePrincipalFor(
+        userCommandPrincipal(asUserId(client.principal.user), client.principal.role),
+        client.id,
+      ),
+      client.send,
+    )
+    client.send({
+      type: 'machinesChanged',
+      machines: this.ports.machinesForPrincipal(principal),
+    })
   }
 
   onDetached(_principal: ClientPrincipal, client: ClientConn): void {
@@ -108,9 +102,6 @@ export class SessionClientControl {
     switch (message.type) {
       case 'hello':
         if (message.caps) client.caps = new Set(message.caps)
-        if (client.publication && !client.publicationBootstrapped) {
-          this.ports.publication.schedule()
-        }
         break
       case 'attach': {
         const startedAt = performance.now()
@@ -205,7 +196,6 @@ export class SessionClientControl {
           )
         }
         this.ports.pushPriorities()
-        this.ports.publication.prioritize()
         break
       case 'setSessionDraft':
         this.ports.setDraft(principal, id, message.sessionId, message.text)

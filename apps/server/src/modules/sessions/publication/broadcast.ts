@@ -22,8 +22,6 @@ export interface SessionBroadcastPorts {
   hasPendingVolatile(): boolean
   scheduleVolatileCapture(): void
   flushVolatileCaptures(): void
-  generation(): number
-  schedulePublication(options: { includeDeltaCapable: boolean }): void
   flushDeltas(): void
 }
 
@@ -31,7 +29,6 @@ export interface SessionBroadcastPorts {
 export class SessionBroadcastCoordinator {
   private cooldown: ReturnType<typeof setTimeout> | null = null
   private pending = false
-  private lastGeneration = -1
   private runningGeneration = -1
 
   constructor(private readonly ports: SessionBroadcastPorts) {}
@@ -82,17 +79,6 @@ export class SessionBroadcastCoordinator {
     this.runningGeneration = -2
     try {
       this.ports.flushVolatileCaptures()
-      const generation = this.ports.generation()
-      if (generation === this.lastGeneration) {
-        perf.record('phase', 'sessionsBroadcast.total', performance.now() - startedAt, DEPLOYMENT)
-        return
-      }
-      this.runningGeneration = generation
-      const listedAt = performance.now()
-      perf.record('phase', 'sessionsBroadcast.list', listedAt - startedAt, DEPLOYMENT)
-      perf.record('phase', 'sessionsBroadcast.stringify', 0, DEPLOYMENT, 0)
-      this.ports.schedulePublication({ includeDeltaCapable: false })
-      this.lastGeneration = generation
     } finally {
       this.runningGeneration = -1
     }

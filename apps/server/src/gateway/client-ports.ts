@@ -14,10 +14,10 @@
  * whose signature never had it.
  */
 
-import type { RoomRef, ServerMessage } from '@podium/protocol'
+import type { RoomRef } from '@podium/protocol'
 import type { SessionsClientFrame } from './client-frame-routing'
-import type { ClientConn } from './client-registry'
 import type { ClientPrincipal } from './client-principal'
+import type { ClientConn } from './client-registry'
 
 /**
  * SESSIONS. The client-facing session world: the bootstrap a fresh connection is
@@ -43,24 +43,6 @@ export interface SessionsClientPort {
    * when this runs — see `client-mux.ts` for why that ordering is safe.
    */
   onClientDetached(principal: ClientPrincipal, conn: ClientConn): void
-  /**
-   * ONE entity message to ONE connection, obeying that connection's publication
-   * rules (POD-1203).
-   *
-   * The serving edge decides WHAT a connection is owed and in which wire
-   * version's shape; this decides HOW it reaches that connection — prepared
-   * bytes for a global publication, buffered while a view is rebuilding, dropped
-   * for a scoped one whose worker owns the answer. The two questions were
-   * entangled in the deleted `fanOutSnapshot`/`sendMetadataDelta` pair and this
-   * is the half that is genuinely the feature's.
-   */
-  deliverEntityMessage(conn: ClientConn, msg: ServerMessage): void
-  /**
-   * The feed advanced to `seq` — once per coalesced batch, before delivery. The
-   * prepared-publication worker's cursor is a fact about the FEED, not about any
-   * one recipient, so it cannot ride the per-connection call above.
-   */
-  onFeedPublished(seq: number): void
   /** A stream room join succeeded; apply feature-owned join consequences. */
   onRoomJoined(conn: ClientConn, room: RoomRef): void
   /** One session-owned frame, attributed to the connection it arrived on. */

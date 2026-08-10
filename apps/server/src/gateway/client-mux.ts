@@ -43,7 +43,6 @@ import {
   type ClientMessage,
   type PresenceRoomClientMessage,
 } from '@podium/protocol'
-import type { ClientPublicationAuthority } from '../modules/sessions/session'
 import {
   type ClientPortId,
   clientPlaneClassFor,
@@ -116,9 +115,6 @@ export interface ClientTransport {
   send: ClientConn['send']
   /** Lower-budget lossy sink for stream.live room fan-out. */
   sendStream?: ClientConn['sendStream']
-  /** Prepared-bytes sink + the main authority's publication world, when one was
-   *  resolved for this request. Absent = the unscoped legacy path. */
-  publication?: ClientPublicationAuthority
 }
 
 /**
@@ -129,11 +125,8 @@ export interface ClientTransport {
  */
 export type ClientPeer = ClientTransport | ClientConn['send']
 
-const transportOf = (
-  peer: ClientPeer,
-  publication?: ClientPublicationAuthority,
-): ClientTransport =>
-  typeof peer === 'function' ? { send: peer, ...(publication ? { publication } : {}) } : peer
+const transportOf = (peer: ClientPeer): ClientTransport =>
+  typeof peer === 'function' ? { send: peer } : peer
 
 export interface ClientMuxDeps {
   readonly ports: ClientFeaturePorts
@@ -143,8 +136,8 @@ export interface ClientMuxDeps {
    *
    * A gateway object and not a feature port: it owns the connection's WIRE
    * VERSION, which is a transport fact, and it is the mux that knows when a
-   * connection appears, announces itself, and goes away. What the sessions port
-   * still owns is how a message reaches one connection (`deliverEntityMessage`).
+   * connection appears, announces itself, and goes away. Entity frames leave through
+   * the gateway registry`s single per-connection sink.
    */
   readonly feed: FeedServing
   readonly presence: PresenceRouting
@@ -171,15 +164,15 @@ export class ClientMux {
 
   /**
    * A client socket connected. Mint its id and principal, register it, tell it
-   * its id, then hand it to the sessions port for the bootstrap it is owed.
+   * its id, then hand it to the feature ports for their non-entity bootstrap.
    *
    * The ORDER is the pre-extraction order exactly: the connection is in the
-   * registry BEFORE `welcome` and before the bootstrap sends, because the
-   * bootstrap path re-enters the service (`schedulePreparedSessionPublications`
-   * walks the connection set and must see this one).
+   * registry BEFORE welcome and before bootstrap sends, so every feature sees
+   * the same admitted connection. The scoped feed attaches last and owns all
+   * entity bootstrap and subsequent publication.
    */
-  attachClient(peer: ClientPeer, publication?: ClientPublicationAuthority): string {
-    const transport = transportOf(peer, publication)
+  attachClient(peer: ClientPeer): string {
+    const transport = transportOf(peer)
     const id = this.deps.registry.nextId()
     if (transport.userId === undefined || transport.userRole === undefined) {
       throw new Error('authenticated client identity is unavailable')
@@ -197,11 +190,6 @@ export class ClientMux {
           transport.send(message)
           return true
         }),
-      ...(transport.publication ? { publication: transport.publication } : {}),
-      publicationBootstrapped: false,
-      publicationPending: false,
-      publicationRequestVersion: 0,
-      publicationBufferedChanges: [],
       viewports: new Map(),
       attached: new Set(),
       // No caps until hello — the feature's bootstrap snapshots go to everyone
@@ -243,12 +231,7 @@ export class ClientMux {
     // client is treated as legacy"). `hello` moves it (see `routeClientFrame`).
     // AFTER the port call, so the bootstrap lands after the non-feed world in the
     // same order a client saw before the cutover.
-    // A scoped prepared-publication connection has its own filtered entity
-    // authority. Enrolling it in the kernel feed as well would create two worlds
-    // and, at wire v2, attempt to hand it an unprepared bootstrap.
-    if (conn.publication?.global !== false) {
-      this.deps.feed.attach(this.peerOf(conn), feedPrincipalOf(conn.principal), conn.principal)
-    }
+    this.deps.feed.attach(this.peerOf(conn), feedPrincipalOf(conn.principal), conn.principal)
     return id
   }
 
@@ -322,7 +305,7 @@ export class ClientMux {
     // renegotiate against the previous state. This is the ONLY frame the gateway
     // acts on for itself beyond the routing table, and it acts on the two
     // transport facts `hello` carries: the wire version and the delta capability.
-    if (msg.type === 'hello' && conn.publication?.global !== false) {
+    if (msg.type === 'hello') {
       this.renegotiate(conn, msg.wireVersion)
     }
   }
@@ -355,11 +338,6 @@ export class ClientMux {
     // connection nothing can translate for, and the first adapter that DID cover
     // its version would start mid-stream.
     this.deps.feed.detach(conn.id)
-    // The prepared-publication worker is a SEPARATE delivery path (it serves a
-    // scoped connection its own filtered session view) and the edge cannot reach
-    // it. Without this flag a refused peer keeps receiving the worker's v1
-    // `sessionsChanged` — measured, as a flake in the wire-window test that
-    // passed or failed on scheduling order alone.
     conn.entityServingRefused = true
     console.warn('[podium] client outside the supported wire window; not serving the feed', {
       client: conn.id,
@@ -400,9 +378,8 @@ export class ClientMux {
       id: conn.id,
       wireVersion: conn.wireVersion,
       acceptsDelta: conn.caps.has(CAP_METADATA_DELTA),
-      send: (msg: Parameters<typeof this.deps.ports.sessions.deliverEntityMessage>[1]) => {
-        this.deps.ports.sessions.deliverEntityMessage(conn, msg)
-      },
+      send: (msg: Parameters<ClientRegistry['deliver']>[1]) =>
+        this.deps.registry.deliver(conn, msg),
     }
   }
 

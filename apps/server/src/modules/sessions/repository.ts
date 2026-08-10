@@ -27,8 +27,12 @@ import type { WriteFunnel } from '../funnel'
 import type { MemoryService } from '../memory/service'
 import type { SessionLedger } from './lifecycle'
 import type { SessionObservationLeases } from './observation-leases'
-import type { SessionPublicationCoordinator } from './publication/coordinator'
-import type { SessionProjectionEvent } from './publish-worker-actor'
+export interface SessionProjectionEvent {
+  generation: number
+  changes: MetadataChange[]
+  ledgerCursor: number
+}
+
 import { Session, type SessionDurableState, type SessionVolatileField } from './session'
 import type { SessionStatePrincipal, SessionStateService } from './session-state/service'
 import type { SessionView } from './view'
@@ -38,7 +42,6 @@ export interface SessionRepositoryPorts {
   store: SessionStore
   memory: Pick<MemoryService, 'conversationPodiumId'>
   ledger: SessionLedger
-  publication: SessionPublicationCoordinator
   funnel: WriteFunnel
   view: SessionView
   state: SessionStateService
@@ -71,9 +74,6 @@ export class SessionRepository {
   }
   private get store(): SessionStore {
     return this.ports.store
-  }
-  private get publication(): SessionPublicationCoordinator {
-    return this.ports.publication
   }
   private get funnel(): WriteFunnel {
     return this.ports.funnel
@@ -113,7 +113,7 @@ export class SessionRepository {
   publishSessionProjection(
     changes: MetadataChange[],
     ledgerCursor: number | undefined = changes.at(-1)?.seq,
-    issueRelevant = true,
+    _issueRelevant = true,
   ): void {
     const sessionChanges = changes.filter((change) => change.entity === 'session')
     if (sessionChanges.length === 0 || ledgerCursor === undefined) return
@@ -122,7 +122,6 @@ export class SessionRepository {
       changes: sessionChanges,
       ledgerCursor,
     }
-    this.publication.applyProjection(event)
     for (const listener of this.sessionProjectionListeners) {
       try {
         listener(event)
@@ -196,11 +195,6 @@ export class SessionRepository {
       // projection event: patch consumers need only the captured final truth.
       if (!changes.some((change) => change.entity === 'session')) {
         this.sessionsGeneration_++
-        this.publication.replaceProjection({
-          generation: this.sessionsGeneration_,
-          ledgerCursor: this.funnel.cursor(),
-          sessions: this.listSessions(),
-        })
       }
       for (const [sessionId, pendingState] of pending) {
         const session = this.sessions.get(sessionId)
@@ -493,13 +487,6 @@ export class SessionRepository {
       this.listSessions().map((s) => ({ id: s.sessionId, value: s })),
     )
     this.publishSessionProjection(recovered)
-    // A fully deduped boot reconcile emits no patch. Reset explicitly so a new
-    // worker (or one recovering from a crash) still begins from restored truth.
-    this.publication.replaceProjection({
-      generation: this.sessionsGeneration_,
-      ledgerCursor: this.funnel.cursor(),
-      sessions: this.listSessions(),
-    })
   }
 
   forget(sessionId: SessionId): void {

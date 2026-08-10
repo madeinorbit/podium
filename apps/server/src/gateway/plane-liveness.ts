@@ -41,7 +41,7 @@
  *
  *   CLIENT PLANE — 1:many, and the socket is one recipient of a fan-out the
  *   subscription registry chose (POD-390: every byte to a client socket goes
- *   through `deliver` / `deliverPrepared` / `broadcast`). Terminating one client
+ *   through `deliver` / `broadcast`). Terminating one client
  *   costs that client a reconnect and a replay off the bounded 256 KB ring, and
  *   costs the other recipients nothing. So the cap here exists to stop ONE slow
  *   recipient from consuming the shared process's memory on behalf of everybody —
@@ -66,7 +66,7 @@
  */
 
 import type { encode as encodeFn } from '@podium/protocol'
-import { type SendSocket, safeSend, safeSendEncoded, safeSendLossy } from './ws-send'
+import { type SendSocket, safeSend, safeSendLossy } from './ws-send'
 
 /** Minimal slice of a `ws` socket the heartbeat sweep needs (kept tiny for tests). */
 export interface HeartbeatSocket {
@@ -80,17 +80,10 @@ export interface HeartbeatSocket {
  * budget already applied. There is no un-capped variant and no overload taking a
  * limit: obtaining a sink is how a caller gets the cap.
  *
- * Both planes get both methods because the mechanism is shared, but only the
- * CLIENT plane uses `sendPrepared` — it is the publication worker's pre-encoded
- * bytes path (`client-socket.ts`), and it exists because re-encoding a
- * per-principal publication per recipient is the 1:many plane's cost, not the
- * 1:1 plane's. The daemon plane has one frame, one peer, one encode.
  */
 export interface PlaneSink {
   /** Encode and send one frame, capped. */
   send(msg: Parameters<typeof encodeFn>[0]): void
-  /** Send already-encoded bytes, capped. Client plane only, today. */
-  sendPrepared(bytes: string): void
   /** Lower-budget stream send: false means dropped; it never terminates. */
   sendLossy(msg: Parameters<typeof encodeFn>[0]): boolean
 }
@@ -171,7 +164,6 @@ export function definePlaneLiveness(spec: {
       // binds is demonstrably THIS policy's, at send time.
       return {
         send: (msg) => safeSend(ws, msg, policy.sendBufferLimitBytes),
-        sendPrepared: (bytes) => safeSendEncoded(ws, bytes, policy.sendBufferLimitBytes),
         sendLossy: (msg) => safeSendLossy(ws, msg, policy.lossySendBufferLimitBytes),
       }
     },

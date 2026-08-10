@@ -21,8 +21,8 @@
  * it is the one a scoped feed wants:
  *
  *   - the gateway owns the connection set, its identity, its lifecycle, and
- *     `deliver` / `deliverPrepared` / `broadcast` — every write to a client
- *     socket goes through one of the three;
+ *     `deliver` / `broadcast` — every write to a client
+ *     socket goes through one of the two;
  *   - the feature decides WHICH connections a given message is for, and says so
  *     by calling those methods.
  *
@@ -32,8 +32,8 @@
  */
 
 import type { Geometry, SessionId } from '@podium/model'
-import type { MetadataChange, ServerMessage } from '@podium/protocol'
-import type { ClientPublicationAuthority, Send } from '../modules/sessions/session'
+import type { ServerMessage } from '@podium/protocol'
+import type { Send } from '../modules/sessions/session'
 import type { ClientPrincipal } from './client-principal'
 
 /**
@@ -42,9 +42,6 @@ import type { ClientPrincipal } from './client-principal'
  *
  * Moved verbatim from `modules/sessions/session.ts` (POD-390) except for
  * `principal`, which is new and is the whole point — see `client-principal.ts`.
- * The publication AUTHORITY type stays in the sessions module: it is a policy
- * artifact that feature owns, and the gateway only carries it (POD-389 already
- * imports `PublicationAuthority` the same way in `ws-server.ts`).
  */
 export interface ClientConn {
   id: string
@@ -57,24 +54,6 @@ export interface ClientConn {
   send: Send<ServerMessage>
   /** Lossy stream sink. False means the frame was dropped under pressure. */
   sendStream?: (message: ServerMessage) => boolean
-  publication?: ClientPublicationAuthority
-  /** A current worker publication has reached this socket. */
-  publicationBootstrapped?: boolean
-  publicationPending?: boolean
-  publicationRequestVersion?: number
-  publicationAccepted?: {
-    viewKey: string
-    viewRevision: number
-    allowedSignature: string
-    cursor: number
-    allowedSessionIds: readonly string[]
-  }
-  /** A revocation frame was emitted and must be followed by a replacement. */
-  publicationReplacementRequired?: boolean
-  /** Previously-visible ids already removed while a replacement is pending. */
-  publicationRevokedSessionIds?: Set<string>
-  /** Global-only funnel frames held behind an in-flight bootstrap/replacement. */
-  publicationBufferedChanges?: MetadataChange[][]
   /** Last grid this client measured for each terminal it mounted. Geometry is
    * session-specific: split panes can have different widths, and the 80x24
    * viewport in `hello` is only a transport bootstrap default. Sharing one
@@ -175,15 +154,6 @@ export class ClientRegistry {
     if (!conn) return false
     if (conn.sendStream) return conn.sendStream(msg)
     conn.send(msg)
-    return true
-  }
-
-  /** Pre-encoded bytes to one connection (the publication worker's output).
-   *  Returns false when the connection has no prepared sink — the caller's
-   *  existing `if (client.publication)` guards are unchanged by this. */
-  deliverPrepared(conn: ClientConn, bytes: string): boolean {
-    if (!conn.publication) return false
-    conn.publication.sendPrepared(bytes)
     return true
   }
 

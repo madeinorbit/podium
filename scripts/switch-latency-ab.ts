@@ -38,10 +38,10 @@
  * Env: BENCH_SESSIONS (588), BENCH_ISSUES (800), BENCH_CYCLES (250).
  */
 
-import { asIssueId } from '@podium/model'
 import type { SessionId } from '@podium/model'
-import type { IssueRow } from '../apps/server/src/store'
+import { asIssueId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import type { PerfPrincipalSlice, PerfSnapshot } from '@podium/protocol'
+import type { IssueRow } from '../apps/server/src/store'
 
 // The server is imported DYNAMICALLY, inside `runArm`, and that is load-bearing
 // rather than tidy: `--compare` reads two JSON reports and must run against ANY
@@ -203,14 +203,14 @@ async function runArm(label: string): Promise<ArmReport> {
     registry.modules.sessions.flushBroadcasts()
 
     const publications: string[] = []
-    const clientId = registry.clientGateway.attachClient(() => {}, {
-      sendPrepared: (bytes) => publications.push(bytes),
-      principal: 'bench-operator',
-      scope: 'principal:bench-operator',
-      serverRole: 'standalone',
-      protocolVersion: 1,
-      global: true,
-      snapshot: () => ({ revision: 1, allowedSignature: 'all', allowedSessionIds: sessionIds }),
+    const clientId = registry.clientGateway.attachClient({
+      send: (message) => {
+        if (message.type === 'feedBootstrap' || message.type === 'feedDelta') {
+          publications.push(JSON.stringify(message))
+        }
+      },
+      userId: FIRST_ADMIN_USER_ID,
+      userRole: 'admin',
     })
     registry.clientGateway.routeClientFrame(clientId, {
       type: 'hello',
@@ -219,7 +219,6 @@ async function runArm(label: string): Promise<ArmReport> {
       caps: ['metadataDelta'],
     })
     await until(() => publications.length > 0)
-    await until(() => registry.modules.sessions.publicationMetrics().queueDepth === 0)
     await new Promise((resolve) => setTimeout(resolve, 250))
 
     // MEASURE FROM HERE. Everything above is fixture construction, and letting it
@@ -230,7 +229,11 @@ async function runArm(label: string): Promise<ArmReport> {
     // back in the window. Without this the report would carry `samples: 0` and
     // the comparison would have nothing to control for — which the report format
     // would show honestly, and which would make the run useless.
-    const observer = registry.clientGateway.attachClient(() => {})
+    const observer = registry.clientGateway.attachClient({
+      send: () => {},
+      userId: FIRST_ADMIN_USER_ID,
+      userRole: 'admin',
+    })
     registry.clientGateway.routeClientFrame(observer, {
       type: 'hello',
       clientId: '',
@@ -252,7 +255,6 @@ async function runArm(label: string): Promise<ArmReport> {
       }
       await new Promise((resolve) => setTimeout(resolve, 5))
     }
-    await until(() => registry.modules.sessions.publicationMetrics().queueDepth === 0)
 
     const snapshot = registry.modules.perf.snapshot()
     return {
@@ -373,7 +375,9 @@ for (const p of report.principals) {
     `principal ${p.digest} (${p.kind}) slice=${p.sliceSize.last} rows (samples=${p.sliceSize.samples})`,
   )
   for (const [name, s] of Object.entries(p.phases)) {
-    console.log(`  ${name.padEnd(40)} n=${String(s.count).padEnd(6)} p50 ${s.p50Ms}ms p90 ${s.p90Ms}ms`)
+    console.log(
+      `  ${name.padEnd(40)} n=${String(s.count).padEnd(6)} p50 ${s.p50Ms}ms p90 ${s.p90Ms}ms`,
+    )
   }
 }
 console.log(
