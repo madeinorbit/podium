@@ -1,5 +1,11 @@
 import { execFileSync, spawn } from 'node:child_process'
-import { createHash, sign as cryptoSign } from 'node:crypto'
+import {
+  createHash,
+  createPrivateKey,
+  createPublicKey,
+  sign as cryptoSign,
+  verify as cryptoVerify,
+} from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { readFile as readFileAsync } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -171,6 +177,8 @@ export function createPodiumDevBundleLock(
         'lock',
         'acquire',
         DEV_BUNDLE_LOCK_NAME,
+        '--repoPath',
+        root,
         '--ttl',
         DEV_BUNDLE_LOCK_TTL,
         '--wait',
@@ -179,8 +187,17 @@ export function createPodiumDevBundleLock(
       ])
       return true
     },
-    renew: () => command(['lock', 'renew', DEV_BUNDLE_LOCK_NAME, '--ttl', DEV_BUNDLE_LOCK_TTL]),
-    release: () => command(['lock', 'release', DEV_BUNDLE_LOCK_NAME]),
+    renew: () =>
+      command([
+        'lock',
+        'renew',
+        DEV_BUNDLE_LOCK_NAME,
+        '--repoPath',
+        root,
+        '--ttl',
+        DEV_BUNDLE_LOCK_TTL,
+      ]),
+    release: () => command(['lock', 'release', DEV_BUNDLE_LOCK_NAME, '--repoPath', root]),
   }
 }
 
@@ -208,6 +225,10 @@ function sha256Digest(bytes: Uint8Array): string {
   return 'sha256-' + createHash('sha256').update(bytes).digest('base64')
 }
 
+function devBundlePath(root: string, version: string): string {
+  return join(root, 'dist-bun', 'podium-headless-' + version + '.tar.gz')
+}
+
 async function readOptional(
   path: string,
   readFile: (path: string) => Promise<Uint8Array>,
@@ -217,6 +238,47 @@ async function readOptional(
   } catch {
     return undefined
   }
+}
+
+/**
+ * Recover the signed bundle already produced for this checkout's HEAD.
+ *
+ * The publisher itself is process-local, while the tarball is intentionally
+ * durable across source-server restarts. Validate it against this server's
+ * persisted signing identity before restoring it as the current target; a
+ * partial, stale-key, or corrupt artifact is treated as absent and rebuilt.
+ */
+async function readExistingDevBundle(
+  deps: Pick<DevBundleBuildDeps, 'root' | 'readFile' | 'signingKey'> & { headSha: string },
+): Promise<BuiltDevBundle | null> {
+  const root = deps.root ?? SOURCE_ROOT
+  const version = 'dev+' + shortSha(deps.headSha)
+  const path = devBundlePath(root, version)
+  const readFile = deps.readFile ?? defaultReadFile
+  if (!deps.readFile && (!existsSync(path) || !existsSync(path + '.sig'))) return null
+  const bytes = await readOptional(path, readFile)
+  const signatureBytes = await readOptional(path + '.sig', readFile)
+  if (!bytes || !signatureBytes) return null
+
+  const signature = Buffer.from(signatureBytes).toString('utf8').trim()
+  if (!signature) return null
+  if (deps.signingKey) {
+    try {
+      const privateKey = createPrivateKey({
+        key: Buffer.from(deps.signingKey, 'base64'),
+        format: 'der',
+        type: 'pkcs8',
+      })
+      const publicKey = createPublicKey(privateKey)
+      if (!cryptoVerify(null, Buffer.from(bytes), publicKey, Buffer.from(signature, 'base64'))) {
+        return null
+      }
+    } catch {
+      return null
+    }
+  }
+
+  return { version, path, digest: sha256Digest(bytes), signature }
 }
 
 /**
@@ -262,8 +324,7 @@ export async function buildDevBundle(deps: DevBundleBuildDeps = {}): Promise<Bui
 
     const resultObject = typeof result === 'object' && result !== null ? result : undefined
     const artifactPath =
-      (typeof result === 'string' ? result : resultObject?.path) ??
-      join(root, 'dist-bun', 'podium-headless-' + version + '.tar.gz')
+      (typeof result === 'string' ? result : resultObject?.path) ?? devBundlePath(root, version)
     const readFile = deps.readFile ?? defaultReadFile
     const bytes = resultObject?.bytes ?? (await readFile(artifactPath))
     let signature = resultObject?.signature
@@ -362,35 +423,49 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
 
   return {
     requestBuild(explicit = false) {
-      const headSha = shortSha(deps.headSha())
-      const decision = decideDevBuild({
-        isSourceRun: typeof deps.isSourceRun === 'function' ? deps.isSourceRun() : deps.isSourceRun,
-        headSha,
-        builtSha,
-        lastAttemptAt,
-        now: now(),
-        inFlight: inFlight !== null,
-        debounceMs,
-        explicit,
-      })
-      if (!decision.build) return inFlight ?? Promise.resolve(current)
+      try {
+        const headSha = shortSha(deps.headSha())
+        const decision = decideDevBuild({
+          isSourceRun:
+            typeof deps.isSourceRun === 'function' ? deps.isSourceRun() : deps.isSourceRun,
+          headSha,
+          builtSha,
+          lastAttemptAt,
+          now: now(),
+          inFlight: inFlight !== null,
+          debounceMs,
+          explicit,
+        })
+        if (!decision.build) return inFlight ?? Promise.resolve(current)
 
-      lastAttemptAt = now()
-      const build = buildDevBundle({ ...deps, headSha }).then((built) => {
-        current = built
-        builtSha = headSha
-        return built
-      })
-      inFlight = build
-      void build.then(
-        () => {
-          inFlight = null
-        },
-        () => {
-          inFlight = null
-        },
-      )
-      return build
+        lastAttemptAt = now()
+        // A restart loses only the in-memory descriptor, not the signed bytes.
+        // Restore an exact-HEAD artifact first; compile only when it is absent
+        // or no longer verifies under this server's persisted update key.
+        const requested = (
+          current === null
+            ? readExistingDevBundle({ ...deps, headSha }).then(
+                (existing) => existing ?? buildDevBundle({ ...deps, headSha }),
+              )
+            : buildDevBundle({ ...deps, headSha })
+        ).then((built) => {
+          current = built
+          builtSha = headSha
+          return built
+        })
+        inFlight = requested
+        void requested.then(
+          () => {
+            inFlight = null
+          },
+          () => {
+            inFlight = null
+          },
+        )
+        return requested
+      } catch (error) {
+        return Promise.reject(error)
+      }
     },
     current: () => current,
     target: () => {

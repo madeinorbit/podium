@@ -3,9 +3,10 @@ import { describe, expect, it } from 'vitest'
 import {
   buildDevBundle,
   createDevBundlePublisher,
+  createPodiumDevBundleLock,
+  type DevBundleLock,
   decideDevBuild,
   devTarget,
-  type DevBundleLock,
 } from './dev-bundle'
 
 const base = {
@@ -86,9 +87,41 @@ describe('decideDevBuild', () => {
 function signedFixture() {
   const bytes = new Uint8Array([1, 2, 3, 4])
   const { privateKey } = generateKeyPairSync('ed25519')
+  const signingKey = privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64')
   const signature = sign(null, bytes, privateKey).toString('base64')
-  return { bytes, signature }
+  return { bytes, signature, signingKey }
 }
+
+describe('createPodiumDevBundleLock', () => {
+  it('scopes every CLI operation to the source repository', async () => {
+    const calls: string[][] = []
+    const lock = createPodiumDevBundleLock('/repo/podium', async (args) => {
+      calls.push(args)
+      return { status: 0, stdout: '', stderr: '' }
+    })
+
+    await lock.acquire()
+    await lock.renew()
+    await lock.release()
+
+    expect(calls).toEqual([
+      [
+        'lock',
+        'acquire',
+        'podium:dev-bundle',
+        '--repoPath',
+        '/repo/podium',
+        '--ttl',
+        '15m',
+        '--wait',
+        '--timeout',
+        '15m',
+      ],
+      ['lock', 'renew', 'podium:dev-bundle', '--repoPath', '/repo/podium', '--ttl', '15m'],
+      ['lock', 'release', 'podium:dev-bundle', '--repoPath', '/repo/podium'],
+    ])
+  })
+})
 
 function lockFixture(events: string[]): DevBundleLock {
   return {
@@ -155,6 +188,38 @@ describe('buildDevBundle', () => {
       }),
     ).rejects.toThrow('compile failed')
     expect(events).toEqual(['acquire', 'build', 'release'])
+  })
+
+  it('restores the signed HEAD artifact after a publisher restart without rebuilding', async () => {
+    const { bytes, signature, signingKey } = signedFixture()
+    let builds = 0
+    const publisher = createDevBundlePublisher({
+      isSourceRun: true,
+      root: '/repo/podium',
+      headSha: () => 'aaaaaaa',
+      signingKey,
+      readFile: async (path) => {
+        if (path.endsWith('.sig')) return Buffer.from(signature + '\n')
+        if (path.endsWith('podium-headless-dev+aaaaaaa.tar.gz')) return bytes
+        throw new Error('not found')
+      },
+      lock: lockFixture([]),
+      spawnBuild: async () => {
+        builds++
+        return { bytes, signature }
+      },
+    })
+
+    const restored = await publisher.requestBuild(true)
+
+    expect(builds).toBe(0)
+    expect(restored).toMatchObject({
+      version: 'dev+aaaaaaa',
+      path: '/repo/podium/dist-bun/podium-headless-dev+aaaaaaa.tar.gz',
+      signature,
+    })
+    expect(restored?.digest).toBe('sha256-' + createHash('sha256').update(bytes).digest('base64'))
+    expect(publisher.target()?.version).toBe('dev+aaaaaaa')
   })
 
   it('keeps the previous target after a later build fails', async () => {
