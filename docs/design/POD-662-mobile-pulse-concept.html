@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Podium mobile Pulse concept</title>
+    <style>
+      @font-face {
+        font-family: Geist;
+        src: url("../../apps/mobile/assets/fonts/Geist-Regular.ttf") format("truetype");
+        font-weight: 400;
+      }
+      @font-face {
+        font-family: Geist;
+        src: url("../../apps/mobile/assets/fonts/Geist-SemiBold.ttf") format("truetype");
+        font-weight: 600;
+      }
+      @font-face {
+        font-family: Geist Mono;
+        src: url("../../apps/mobile/assets/fonts/GeistMono-Regular.ttf") format("truetype");
+        font-weight: 400;
+      }
+      @font-face {
+        font-family: Geist Mono;
+        src: url("../../apps/mobile/assets/fonts/GeistMono-SemiBold.ttf") format("truetype");
+        font-weight: 600;
+      }
+      :root {
+        --bg: #0a0f1c;
+        --sunken: #070b16;
+        --bar: #050912;
+        --surface: #121b30;
+        --surface-high: #16223c;
+        --border: #243356;
+        --border-strong: #364a78;
+        --hairline: #1e2a4c;
+        --text: #f3f3f8;
+        --body: #d7d7e0;
+        --dim: #9a9aa8;
+        --faint: #6c7690;
+        --micro: #525c78;
+        --label: #7a84a0;
+        --yellow: #f5c518;
+        --blue: #2f6bff;
+        --red: #e5303f;
+        --claude: #d97757;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background:
+          radial-gradient(circle at 50% -20%, #1a2747 0, transparent 44%),
+          #050812;
+        color: var(--text);
+        font-family: Geist, system-ui, sans-serif;
+      }
+      .page {
+        width: min(1100px, 100%);
+        margin: 0 auto;
+        padding: 42px 28px 60px;
+      }
+      .eyebrow, .label, .tab, .section-title, .metric-name, .nav-label, .annotation-num {
+        font-family: "Geist Mono", monospace;
+        text-transform: uppercase;
+        letter-spacing: .1em;
+      }
+      .intro { max-width: 720px; margin-bottom: 30px; }
+      .eyebrow { color: var(--label); font-size: 11px; }
+      h1 { margin: 8px 0 10px; font-size: 30px; letter-spacing: -.035em; }
+      .intro p { margin: 0; color: var(--dim); font-size: 16px; line-height: 1.55; }
+      .stage { display: grid; grid-template-columns: 393px 393px 1fr; gap: 28px; align-items: start; }
+      .phone {
+        position: relative;
+        width: 393px;
+        height: 852px;
+        border: 1px solid #2b385a;
+        border-radius: 42px;
+        overflow: hidden;
+        background: var(--bg);
+        box-shadow: 0 28px 80px rgba(0,0,0,.55), inset 0 0 0 6px #080d19;
+      }
+      .statusbar {
+        height: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 27px 0;
+        font: 600 13px "Geist Mono", monospace;
+      }
+      .island { width: 104px; height: 27px; background: #000; border-radius: 18px; }
+      .status-icons { letter-spacing: 1px; font-size: 11px; color: var(--body); }
+      .screen { height: calc(100% - 48px); overflow: hidden; }
+      .scroll { height: 100%; overflow: hidden; padding-bottom: 104px; }
+      .top {
+        display: flex; align-items: end; justify-content: space-between;
+        padding: 17px 20px 13px; border-bottom: 1px solid var(--hairline);
+      }
+      .top h2 { margin: 0; font-size: 28px; line-height: 1; letter-spacing: -.04em; }
+      .sync { color: var(--faint); font: 10px "Geist Mono", monospace; text-transform: uppercase; letter-spacing: .08em; }
+      .switcher {
+        margin: 14px 20px 0; padding: 3px; display: grid; grid-template-columns: 1fr 1fr;
+        background: var(--bar); border: 1px solid var(--hairline); border-radius: 9px;
+      }
+      .tab { border: 0; background: transparent; color: var(--faint); font-size: 10px; padding: 9px; border-radius: 6px; }
+      .tab.active { background: var(--surface-high); color: var(--body); box-shadow: inset 0 0 0 1px var(--border); }
+      .hero { padding: 25px 20px 21px; border-bottom: 1px solid var(--hairline); }
+      .hero-state { display: flex; align-items: center; gap: 8px; }
+      .live-dot { width: 7px; height: 7px; background: var(--blue); border-radius: 50%; box-shadow: 0 0 13px rgba(47,107,255,.7); }
+      .label { color: var(--label); font-size: 10px; }
+      .hero h3 { margin: 9px 0 6px; font-size: 27px; line-height: 1.04; letter-spacing: -.04em; font-weight: 600; }
+      .hero p { margin: 0; max-width: 315px; color: var(--dim); font-size: 14px; line-height: 1.45; }
+      .hero p strong { color: var(--body); font-weight: 500; }
+      .paired { padding: 0 20px; border-bottom: 1px solid var(--hairline); }
+      .metric { padding: 15px 0 14px; }
+      .metric + .metric { border-top: 1px solid var(--hairline); }
+      .metric-head, .section-head, .provider-row, .composition-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+      .metric-name { color: var(--label); font-size: 10px; }
+      .metric-value { color: var(--body); font: 600 12px "Geist Mono", monospace; }
+      .rail { position: relative; height: 4px; margin-top: 9px; border-radius: 3px; background: var(--surface-high); overflow: hidden; }
+      .rail > span { display: block; height: 100%; border-radius: inherit; background: var(--blue); }
+      .rail .threshold { position: absolute; left: 75%; top: -2px; width: 1px; height: 8px; background: var(--faint); }
+      .metric-sub { display: flex; justify-content: space-between; margin-top: 7px; color: var(--faint); font: 10px "Geist Mono", monospace; }
+      .section { padding: 18px 20px 0; }
+      .section + .section { margin-top: 13px; border-top: 1px solid var(--hairline); }
+      .section-title { margin: 0; color: var(--label); font-size: 10px; font-weight: 500; }
+      .section-link { color: var(--faint); font: 10px "Geist Mono", monospace; }
+      .quota-row { display: grid; grid-template-columns: 31px 1fr auto; gap: 10px; align-items: center; padding: 14px 0; }
+      .quota-row + .quota-row { border-top: 1px solid var(--hairline); }
+      .provider-mark { width: 29px; height: 29px; display: grid; place-items: center; border-radius: 7px; background: var(--surface); border: 1px solid var(--border); color: var(--body); font: 600 12px "Geist Mono", monospace; }
+      .quota-name { color: var(--body); font-size: 14px; }
+      .quota-detail { margin-top: 4px; color: var(--faint); font: 10px "Geist Mono", monospace; }
+      .quota-pct { text-align: right; font: 600 14px "Geist Mono", monospace; color: var(--text); }
+      .quota-pct small { display: block; margin-top: 4px; color: var(--faint); font-size: 9px; font-weight: 400; text-transform: uppercase; letter-spacing: .08em; }
+      .week-glance { padding: 15px 0 0; display: grid; grid-template-columns: 104px 1fr; gap: 16px; }
+      .week-number { font: 600 25px "Geist Mono", monospace; letter-spacing: -.05em; }
+      .week-caption { margin-top: 4px; color: var(--faint); font-size: 11px; line-height: 1.4; }
+      .mini-chart { height: 56px; display: flex; align-items: end; gap: 3px; border-bottom: 1px solid var(--border); }
+      .mini-chart i { flex: 1; min-height: 3px; background: var(--blue); opacity: .85; border-radius: 1px 1px 0 0; }
+      .bottom-nav {
+        position: absolute; z-index: 5; left: 12px; right: 12px; bottom: 12px; height: 75px;
+        display: grid; grid-template-columns: repeat(4, 1fr); align-items: stretch; padding: 5px;
+        background: rgba(5,9,18,.88); border: 1px solid var(--border); border-radius: 28px;
+        box-shadow: 0 8px 25px rgba(0,0,0,.5); backdrop-filter: blur(14px);
+      }
+      .nav { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; color: var(--faint); border-radius: 20px; }
+      .nav.active { color: var(--yellow); background: rgba(245,197,24,.13); }
+      .nav-icon { width: 20px; height: 20px; display: grid; place-items: center; font: 16px "Geist Mono", monospace; }
+      .nav-label { font-size: 9px; font-weight: 600; letter-spacing: 0; text-transform: none; }
+      .analytics-readout { padding: 24px 20px 19px; border-bottom: 1px solid var(--hairline); }
+      .date-window { color: var(--faint); font: 10px "Geist Mono", monospace; text-transform: uppercase; letter-spacing: .06em; }
+      .money { margin: 10px 0 3px; font: 600 35px "Geist Mono", monospace; letter-spacing: -.06em; }
+      .money sup { color: var(--faint); font-size: 12px; vertical-align: top; position: relative; top: 4px; }
+      .rate { color: var(--dim); font-size: 13px; line-height: 1.5; }
+      .caveat { margin-top: 9px; color: var(--micro); font-size: 10px; line-height: 1.35; }
+      .trace { padding: 18px 20px 17px; border-bottom: 1px solid var(--hairline); }
+      .chart-head { display: flex; align-items: baseline; justify-content: space-between; }
+      .peak { color: var(--faint); font: 9px "Geist Mono", monospace; }
+      .bars { position: relative; height: 115px; display: flex; align-items: end; gap: 2px; margin-top: 15px; border-bottom: 1px solid var(--border); }
+      .bars:before, .bars:after { content:""; position:absolute; left:0; right:0; border-top:1px solid rgba(36,51,86,.65); }
+      .bars:before { top: 33%; } .bars:after { top: 66%; }
+      .bars i { position: relative; z-index: 1; flex: 1; min-height: 2px; background: var(--blue); border-radius: 1px 1px 0 0; }
+      .days { display: grid; grid-template-columns: repeat(7,1fr); margin-top: 7px; color: var(--micro); font: 9px "Geist Mono", monospace; text-align: center; }
+      .provider-list { padding-top: 8px; }
+      .provider-row { padding: 11px 0; }
+      .provider-row + .provider-row { border-top: 1px solid var(--hairline); }
+      .provider-name { color: var(--body); font-size: 13px; }
+      .provider-sub { margin-top: 3px; color: var(--faint); font: 9px "Geist Mono", monospace; }
+      .provider-cost { text-align: right; font: 600 12px "Geist Mono", monospace; }
+      .provider-cost small { display: block; color: var(--faint); font-size: 9px; font-weight: 400; margin-top: 3px; }
+      .annotations { padding-top: 72px; }
+      .annotation { position: relative; margin-bottom: 28px; padding-left: 36px; color: var(--dim); font-size: 13px; line-height: 1.5; }
+      .annotation-num { position: absolute; left: 0; top: -1px; width: 23px; height: 23px; display: grid; place-items: center; color: var(--yellow); border: 1px solid rgba(245,197,24,.35); border-radius: 50%; font-size: 9px; }
+      .annotation strong { display: block; color: var(--body); font-weight: 600; margin-bottom: 2px; }
+      .legend { margin-top: 42px; color: var(--micro); font: 10px/1.6 "Geist Mono", monospace; }
+      @media (max-width: 980px) {
+        .stage { grid-template-columns: 393px 393px; }
+        .annotations { grid-column: 1 / -1; padding-top: 0; display: grid; grid-template-columns: repeat(2,1fr); gap: 0 30px; }
+      }
+      @media (max-width: 850px) {
+        .page { padding: 26px 14px 48px; }
+        .stage { display: flex; flex-direction: column; align-items: center; }
+        .intro { width: min(393px, 100%); }
+        .phone { width: min(393px, 100%); }
+        .annotations { width: min(393px, 100%); display: block; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <header class="intro">
+        <div class="eyebrow">POD-662 · direction A</div>
+        <h1>Pulse: capacity now, usage in context</h1>
+        <p>A fourth mobile tab answers the pocket question first—can I safely start more work?—then connects live quota and host pressure to the seven-day analytics behind them.</p>
+      </header>
+      <div class="stage">
+        <section class="phone" aria-label="Pulse now concept">
+          <div class="statusbar"><span>9:41</span><span class="island"></span><span class="status-icons">▮▮▮ ◒</span></div>
+          <div class="screen">
+            <div class="scroll">
+              <header class="top"><h2>Pulse</h2><span class="sync">Live · 4 hosts</span></header>
+              <div class="switcher"><button class="tab active">Now</button><button class="tab">7 days</button></div>
+              <section class="hero">
+                <div class="hero-state"><span class="live-dot"></span><span class="label">Capacity</span></div>
+                <h3>Room to run</h3>
+                <p><strong>Quota is the tighter limit.</strong> Codex has 62% left until its five-hour window resets at 13:00.</p>
+              </section>
+              <section class="paired">
+                <div class="metric">
+                  <div class="metric-head"><span class="metric-name">Tightest quota</span><span class="metric-value">62% left</span></div>
+                  <div class="rail"><span style="width:62%"></span></div>
+                  <div class="metric-sub"><span>Codex · 5 hour</span><span>resets in 3h 19m</span></div>
+                </div>
+                <div class="metric">
+                  <div class="metric-head"><span class="metric-name">Host pressure</span><span class="metric-value">4.8 / 12.0</span></div>
+                  <div class="rail"><span style="width:40%"></span><b class="threshold"></b></div>
+                  <div class="metric-sub"><span>studio · 9 resident</span><span>below park line</span></div>
+                </div>
+              </section>
+              <section class="section">
+                <div class="section-head"><h4 class="section-title">Quota windows</h4><span class="section-link">live from providers</span></div>
+                <div class="quota-row">
+                  <span class="provider-mark">C</span><div><div class="quota-name">Codex</div><div class="quota-detail">5 hour · resets 13:00</div></div><div class="quota-pct">62%<small>left</small></div>
+                </div>
+                <div class="quota-row">
+                  <span class="provider-mark" style="color:var(--claude)">A</span><div><div class="quota-name">Claude</div><div class="quota-detail">weekly · resets Monday</div></div><div class="quota-pct">81%<small>left</small></div>
+                </div>
+              </section>
+              <section class="section">
+                <div class="section-head"><h4 class="section-title">This week</h4><span class="section-link">6 active days</span></div>
+                <div class="week-glance">
+                  <div><div class="week-number">$184*</div><div class="week-caption">API-equivalent<br/>$31 / active day</div></div>
+                  <div class="mini-chart" aria-hidden="true">
+                    <i style="height:22%"></i><i style="height:38%"></i><i style="height:18%"></i><i style="height:54%"></i><i style="height:42%"></i><i style="height:79%"></i><i style="height:64%"></i><i style="height:28%"></i><i style="height:44%"></i><i style="height:82%"></i><i style="height:61%"></i><i style="height:48%"></i><i style="height:91%"></i><i style="height:69%"></i>
+                  </div>
+                </div>
+              </section>
+            </div>
+            <nav class="bottom-nav"><div class="nav"><span class="nav-icon">≡</span><span class="nav-label">Work</span></div><div class="nav"><span class="nav-icon">▦</span><span class="nav-label">Tasks</span></div><div class="nav"><span class="nav-icon">◫</span><span class="nav-label">Super</span></div><div class="nav active"><span class="nav-icon">⌁</span><span class="nav-label">Pulse</span></div></nav>
+          </div>
+        </section>
+
+        <section class="phone" aria-label="Pulse seven day analytics concept">
+          <div class="statusbar"><span>9:41</span><span class="island"></span><span class="status-icons">▮▮▮ ◒</span></div>
+          <div class="screen">
+            <div class="scroll">
+              <header class="top"><h2>Pulse</h2><span class="sync">Read 09:41</span></header>
+              <div class="switcher"><button class="tab">Now</button><button class="tab active">7 days</button></div>
+              <section class="analytics-readout">
+                <div class="date-window">Aug 03 – Aug 09 · rolling</div>
+                <div class="money">$184<sup>*</sup></div>
+                <div class="rate">$31 per active day · 6 of 7 days ran<br/>$22 in the last five hours</div>
+                <div class="caveat">* API list price for the same tokens—not what you were billed.</div>
+              </section>
+              <section class="trace">
+                <div class="chart-head"><h4 class="section-title">Cost per hour</h4><span class="peak">peak $18 · Fri 02:00</span></div>
+                <div class="bars" aria-hidden="true">
+                  <i style="height:8%"></i><i style="height:24%"></i><i style="height:5%"></i><i style="height:42%"></i><i style="height:18%"></i><i style="height:4%"></i><i style="height:57%"></i><i style="height:84%"></i><i style="height:31%"></i><i style="height:12%"></i><i style="height:65%"></i><i style="height:94%"></i><i style="height:55%"></i><i style="height:18%"></i><i style="height:7%"></i><i style="height:48%"></i><i style="height:71%"></i><i style="height:29%"></i><i style="height:81%"></i><i style="height:52%"></i><i style="height:16%"></i><i style="height:9%"></i><i style="height:63%"></i><i style="height:39%"></i><i style="height:76%"></i><i style="height:46%"></i><i style="height:26%"></i><i style="height:60%"></i>
+                </div>
+                <div class="days"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span></div>
+              </section>
+              <section class="section">
+                <div class="section-head"><h4 class="section-title">Where it went</h4><span class="section-link">cost · tokens</span></div>
+                <div class="provider-list">
+                  <div class="provider-row"><div><div class="provider-name">Claude</div><div class="provider-sub">68% of cost · 291M tokens</div></div><div class="provider-cost">$125<small>1,840 replies</small></div></div>
+                  <div class="provider-row"><div><div class="provider-name">Codex</div><div class="provider-sub">32% of cost · 555M tokens</div></div><div class="provider-cost">$59<small>2,614 replies</small></div></div>
+                </div>
+              </section>
+              <section class="section">
+                <div class="section-head"><h4 class="section-title">Cost composition</h4><span class="section-link">846M tokens</span></div>
+                <div class="metric">
+                  <div class="metric-head"><span class="metric-name">Output</span><span class="metric-value">41% · 18× its weight</span></div><div class="rail"><span style="width:41%; background:var(--claude)"></span></div>
+                </div>
+                <div class="metric">
+                  <div class="metric-head"><span class="metric-name">Cache reads</span><span class="metric-value">19% · 0.7×</span></div><div class="rail"><span style="width:19%"></span></div>
+                </div>
+              </section>
+            </div>
+            <nav class="bottom-nav"><div class="nav"><span class="nav-icon">≡</span><span class="nav-label">Work</span></div><div class="nav"><span class="nav-icon">▦</span><span class="nav-label">Tasks</span></div><div class="nav"><span class="nav-icon">◫</span><span class="nav-label">Super</span></div><div class="nav active"><span class="nav-icon">⌁</span><span class="nav-label">Pulse</span></div></nav>
+          </div>
+        </section>
+
+        <aside class="annotations">
+          <div class="annotation"><span class="annotation-num">1</span><strong>Lead with a decision, not telemetry.</strong> “Room to run” interprets both feeds. The sentence names whichever constraint is tighter.</div>
+          <div class="annotation"><span class="annotation-num">2</span><strong>One destination, two time scales.</strong> “Now” is capacity; “7 days” is analytics. The switch is faster than nesting sheets and preserves a single mental model.</div>
+          <div class="annotation"><span class="annotation-num">3</span><strong>Remaining quota reads naturally.</strong> Mobile answers “how much runway is left?” while still showing the reset clock and source window.</div>
+          <div class="annotation"><span class="annotation-num">4</span><strong>Load is measured against intervention.</strong> The marker is the auto-park threshold, not an arbitrary 100%, so the rail predicts behavior.</div>
+          <div class="annotation"><span class="annotation-num">5</span><strong>Analytics stays honest.</strong> Cost remains API-equivalent and the billing caveat sits on the number, where it cannot be missed.</div>
+          <div class="annotation"><span class="annotation-num">6</span><strong>No dashboard-card grid.</strong> Hairlines, readouts, and rails use Podium’s instrument grammar and keep four-tab navigation calm.</div>
+          <div class="legend">STATIC CONCEPT · SAMPLE DATA<br/>393 × 852 PT · DARK THEME</div>
+        </aside>
+      </div>
+    </main>
+  </body>
+</html>

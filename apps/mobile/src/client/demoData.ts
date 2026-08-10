@@ -1,12 +1,17 @@
 import type { SessionId } from '@podium/model'
 import {
   asIssueId,
+  asMachineId,
   asSessionId,
+  type HostMetricsWire,
   type IssueWire,
   type IssueWireInput,
+  type MachineQuotaWire,
+  type QuotaWindowWire,
   type SessionMeta,
   type SessionMetaInput,
   type TranscriptItem,
+  type UsageBucketWire,
 } from '@podium/model'
 
 /**
@@ -630,3 +635,122 @@ DEMO_TRANSCRIPTS[DEMO_SUPER_SESSION] = [
     ts: min(64),
   },
 ]
+
+// ---------------------------------------------------------------------------
+// Pulse fixtures [POD-662]
+// ---------------------------------------------------------------------------
+
+/**
+ * The three feeds the Pulse tab reads, as fixtures.
+ *
+ * Host metrics are here rather than on the replica because they are STREAM
+ * plane: they arrive over the socket, and demo mode has no socket at all. The
+ * other two are polled tRPC reads, stubbed alongside the rest of the demo
+ * network in MobileClientProvider.
+ */
+export const DEMO_HOST_METRICS: HostMetricsWire[] = [
+  {
+    hostname: 'studio',
+    machineId: asMachineId('demo-machine'),
+    sampledAt: min(0),
+    memory: {
+      totalBytes: 64 * 1024 ** 3,
+      availableBytes: 28 * 1024 ** 3,
+      swapTotalBytes: 8 * 1024 ** 3,
+      swapFreeBytes: 7 * 1024 ** 3,
+    },
+    load: { one: 4.8, five: 4.1, fifteen: 3.6, cpuCount: 8 },
+  },
+]
+
+const quotaWindow = (
+  key: string,
+  label: string,
+  usedPercent: number,
+  resetsInMinutes: number,
+  windowMinutes: number,
+): QuotaWindowWire => ({
+  key,
+  label,
+  usedPercent,
+  resetsAt: new Date(Date.now() + resetsInMinutes * 60_000).toISOString(),
+  windowMinutes,
+})
+
+export const DEMO_QUOTA: MachineQuotaWire[] = [
+  {
+    machineId: asMachineId('demo-machine'),
+    machineName: 'studio',
+    hostname: 'studio',
+    agents: [
+      {
+        agent: 'codex',
+        status: 'ok',
+        account: { email: 'dev@example.com', plan: 'Pro' },
+        windows: [quotaWindow('5h', '5-hour', 38, 199, 300)],
+        fetchedAt: min(0),
+      },
+      {
+        agent: 'claude-code',
+        status: 'ok',
+        account: { email: 'dev@example.com', plan: 'Max' },
+        windows: [quotaWindow('weekly', 'Weekly', 19, 3_100, 10_080)],
+        fetchedAt: min(0),
+      },
+    ],
+  },
+]
+
+/**
+ * A week of hourly buckets with a plausible working rhythm — heavier on
+ * weekdays, a late-night Friday spike, one idle day — so the trace chart and
+ * the per-day bars have a shape to read rather than a flat wall.
+ */
+const startOfDay = (d: Date): number => {
+  const copy = new Date(d)
+  copy.setHours(0, 0, 0, 0)
+  return copy.getTime()
+}
+
+export const DEMO_USAGE_BUCKETS: UsageBucketWire[] = (() => {
+  const out: UsageBucketWire[] = []
+  const hourMs = 3_600_000
+  const top = Math.floor(Date.now() / hourMs) * hourMs
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  for (let h = 0; h < 7 * 24; h++) {
+    const at = top - h * hourMs
+    const d = new Date(at)
+    // Idle for one whole LOCAL day — counting back in 24h chunks from "now"
+    // straddles two calendar days and leaves both of them partly active, which
+    // makes the fixture's own "N active days" line disagree with its chart.
+    const daysBack = Math.round((today.getTime() - startOfDay(d)) / (24 * hourMs))
+    if (daysBack === 3) continue
+    const hour = d.getHours()
+    const active = hour >= 8 && hour <= 23 ? 1 : hour >= 0 && hour <= 2 ? 0.35 : 0
+    if (active === 0) continue
+    // A deterministic wobble — a fixture must render the same chart twice.
+    const wobble = 0.55 + ((h * 37) % 90) / 100
+    const scale = active * wobble
+    const claude = Math.round(1_400 * scale)
+    out.push({
+      hour: new Date(at).toISOString(),
+      model: 'claude-opus-4-6',
+      inputTokens: claude,
+      outputTokens: Math.round(claude * 0.9),
+      cacheReadTokens: Math.round(claude * 46),
+      cacheCreationTokens: Math.round(claude * 3.1),
+      messages: Math.max(1, Math.round(9 * scale)),
+    })
+    out.push({
+      hour: new Date(at).toISOString(),
+      model: 'gpt-5.6-sol',
+      inputTokens: Math.round(claude * 1.8),
+      outputTokens: Math.round(claude * 1.1),
+      cacheReadTokens: Math.round(claude * 61),
+      cacheCreationTokens: 0,
+      messages: Math.max(1, Math.round(13 * scale)),
+    })
+  }
+  return out
+})()

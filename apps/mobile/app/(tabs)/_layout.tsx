@@ -4,7 +4,8 @@ import { TabBar } from '../../src/components/TabBar'
 import { MOBILE_TABS } from '../../src/lib/navigation'
 
 /** Work is home and mirrors the desktop sidebar's issue-first navigation;
- * Tasks is the full status board; Super Agent is chat-only. */
+ * Tasks is the full status board; Super Agent is chat-only; Pulse answers
+ * whether there is room to start more work [POD-662]. */
 export default function TabsLayout() {
   return (
     <Tabs
@@ -19,6 +20,13 @@ export default function TabsLayout() {
       <Tabs.Screen
         name={MOBILE_TABS[2].name}
         options={{ title: MOBILE_TABS[2].title, tabBarAccessibilityLabel: 'Super agent' }}
+      />
+      <Tabs.Screen
+        name={MOBILE_TABS[3].name}
+        options={{
+          title: MOBILE_TABS[3].title,
+          tabBarAccessibilityLabel: 'Pulse — capacity and usage',
+        }}
       />
     </Tabs>
   )

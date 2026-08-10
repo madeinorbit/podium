@@ -33,8 +33,12 @@ export type RefreshAccessibilityProps = Pick<
  * Shared refresh semantics for root lists and transcript lists. The socket is
  * the data source: a disconnected pull cancels backoff and connects now; an
  * already-connected pull confirms that the live replica is current.
+ *
+ * `onPull` is for the screens that ALSO read something the socket doesn't
+ * carry — Pulse polls quota and usage over tRPC — so a pull refreshes what is
+ * actually on screen rather than only the transport under it.
  */
-export function useRefreshableList() {
+export function useRefreshableList(onPull?: () => void) {
   const hub = useHub()
   const connected = useConnected()
   const refreshingRef = useRef(false)
@@ -53,11 +57,12 @@ export function useRefreshableList() {
     refreshingRef.current = true
     setRefreshing(true)
     if (!connected) hub.connect()
+    onPull?.()
     confirmationTimer.current = setTimeout(() => {
       refreshingRef.current = false
       setRefreshing(false)
     }, MIN_REFRESH_CONFIRMATION_MS)
-  }, [connected, hub])
+  }, [connected, hub, onPull])
 
   const onAccessibilityAction = useCallback(
     (event: AccessibilityActionEvent) => {
@@ -108,8 +113,8 @@ export function useRefreshableList() {
  * want when the header says "reconnecting…". When the socket is already up the
  * data is current by construction, and the control simply confirms that.
  */
-export function useRefreshableTab(routeName: string) {
-  const refresh = useRefreshableList()
+export function useRefreshableTab(routeName: string, onPull?: () => void) {
+  const refresh = useRefreshableList(onPull)
   const listRef = useRef<Scrollable | null>(null)
 
   useEffect(
