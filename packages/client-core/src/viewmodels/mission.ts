@@ -226,15 +226,30 @@ function sessionsForIssue(
  * from the rendered rows made `Active` (which hides done work) report `0 / N`,
  * which is the one number the operator is most likely to read as truth.
  *
- * Four segments, from the artifact's `progress()`: done / run / block / wait.
- * The root counts as a task — it is one, with its own stage — matching the
- * artifact, whose `issues` array includes it.
+ * ---------------------------------------------------------------------------
+ * ONE UNIT OF WORK IS ONE TASK IN THE MISSION (POD-710)
+ * ---------------------------------------------------------------------------
  *
- * The artifact's arithmetic (`done` by stage, `run` by stage, `block` by state,
- * `wait` = the remainder) lets one issue land in two buckets, which would push
- * the bar past 100%. Classification here is EXCLUSIVE in the order
- * done → block → run → wait: blocked work is not running, and that is the
- * segment the operator needs to see.
+ * THE RULE: when the mission root has real members besides itself, the root is
+ * the CONTAINER BEING MEASURED and is not also a segment; when it stands alone,
+ * it is the single unit. So a root with one child is `total = 1`, not 2.
+ *
+ * This used to count the root as one more task — "it is one, with its own
+ * stage" — which is true of the issue and false of the meter. A mission of one
+ * sub-issue reported two units and lit two different segments (the root running
+ * and the child not started), which is the whole of the operator's complaint:
+ * "if there is only one task, it still shows two points of information … that is
+ * just confusing." A container's own stage is a roll-up OF its members, so
+ * counting it beside them double-counts the same work and puts the bar's
+ * denominator one above the number of things anyone can point at.
+ *
+ * Archived and deleted issues are not units either, at any level.
+ *
+ * Four segments: done / run / block / wait. The artifact's arithmetic (`done` by
+ * stage, `run` by stage, `block` by state, `wait` = the remainder) lets one
+ * issue land in two buckets, which would push the bar past 100%. Classification
+ * here is EXCLUSIVE in the order done → block → run → wait: blocked work is not
+ * running, and that is the segment the operator needs to see.
  */
 export function missionProgress(
   issues: readonly IssueNavigationModel[],
@@ -245,15 +260,20 @@ export function missionProgress(
   if (!rootId) return empty
   const ids = missionIssueIds(issues, rootId, sessions)
   const scope = issues.filter((issue) => ids.has(issue.id) && !issue.archived && !issue.deletedAt)
+  // The units are the members; the root only becomes one when it has no members
+  // to be the container of. A root that is itself archived is already out of
+  // `scope`, so `members` and `scope` agree and the fallback never resurrects it.
+  const members = scope.filter((issue) => issue.id !== rootId)
+  const units = members.length > 0 ? members : scope
   let done = 0
   let run = 0
   let block = 0
-  for (const issue of scope) {
+  for (const issue of units) {
     if (issue.stage === 'done' || issue.closedReason) done += 1
     else if (issue.blocked) block += 1
     else if (issue.stage === 'in_progress' || issue.stage === 'review') run += 1
   }
-  const total = scope.length
+  const total = units.length
   return { total, done, run, block, wait: Math.max(0, total - done - run - block) }
 }
 

@@ -1,0 +1,948 @@
+<!doctype html>
+<html lang="en" data-theme="superade" class="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>POD-710 · Mission gauge — three options</title>
+    <style>
+      /* ── Superade dark, lifted verbatim from apps/web/src/index.css ───────── */
+      :root {
+        --background: #0a0f1c;
+        --foreground: #d7d7e0;
+        --panel: #121b30;
+        --tabstrip: #0c1322;
+        --engraved: #070b16;
+        --bar: #050912;
+        --chip: #16223c;
+        --secondary: #223564;
+        --border: #243356;
+        --hairline-soft: #1e2a4c;
+        --hairline-bar: #283a66;
+        --border-strong: #364a78;
+        --text-strong: #f3f3f8;
+        --text-dim: #818ba5;
+        --text-faint: #737e9a;
+        --label: #8b94ac;
+        --success: #2f6bff; /* Accent Blue — done. Superade has no green. */
+        --live: #6f9dff; /* the working blue the spinner already wears */
+        --motion-working-bright: #9dbcff;
+        --attention: #f5c518; /* == --warning. Never spent on a meter. */
+        --carve-drop: rgb(0 0 0 / 0.9);
+        --issue: #94a3b8; /* Flow Slate: the uncoloured mission */
+        --ground: color-mix(in srgb, var(--issue) 18%, var(--tabstrip));
+
+        --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+        --font-mono: "Geist Mono Variable", ui-monospace, "SF Mono", Menlo, monospace;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 28px 28px 96px;
+        background: var(--background);
+        color: var(--foreground);
+        font: 400 12px/1.5 var(--font-sans);
+        -webkit-font-smoothing: antialiased;
+      }
+      h1 {
+        font: 600 18px/1.3 var(--font-sans);
+        letter-spacing: -0.012em;
+        color: var(--text-strong);
+        margin: 0 0 6px;
+      }
+      h2 {
+        font: 600 15px/1.3 var(--font-sans);
+        color: var(--text-strong);
+        margin: 0;
+      }
+      p {
+        margin: 0;
+        max-width: 78ch;
+      }
+      code {
+        font: 400 11px/1.5 var(--font-mono);
+        color: var(--text-strong);
+        background: color-mix(in srgb, var(--foreground) 7%, transparent);
+        padding: 0 4px;
+        border-radius: 3px;
+      }
+      .lede {
+        color: var(--text-dim);
+        margin-bottom: 18px;
+      }
+      .rules {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 8px 18px;
+        margin: 14px 0 0;
+        padding: 12px 14px;
+        border: 1px solid var(--hairline-soft);
+        border-radius: 8px;
+        background: var(--panel);
+        color: var(--text-dim);
+        list-style: none;
+      }
+      .rules li {
+        position: relative;
+        padding-left: 14px;
+      }
+      .rules li::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 7px;
+        width: 5px;
+        height: 5px;
+        border-radius: 1px;
+        background: var(--border-strong);
+      }
+      .rules b {
+        color: var(--foreground);
+        font-weight: 500;
+      }
+
+      /* ── the mono label tier (DESIGN.md §3) ──────────────────────────────── */
+      .label {
+        font: 500 8.5px/1 var(--font-mono);
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--label);
+      }
+
+      /* ── controls ────────────────────────────────────────────────────────── */
+      .controls {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        margin: 18px 0 10px;
+        padding: 10px 12px;
+        background: color-mix(in srgb, var(--bar) 92%, transparent);
+        backdrop-filter: blur(8px);
+        border: 1px solid var(--hairline-soft);
+        border-radius: 8px;
+      }
+      .toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        height: 28px;
+        padding: 0 10px;
+        border: 1px solid var(--border-strong);
+        border-radius: 6px;
+        background: var(--chip);
+        color: var(--foreground);
+        font: 500 11px/1 var(--font-sans);
+        cursor: pointer;
+        user-select: none;
+      }
+      .toggle input {
+        accent-color: var(--success);
+        margin: 0;
+      }
+      .toggle select {
+        border: 1px solid var(--border-strong);
+        border-radius: 4px;
+        background: var(--engraved);
+        color: var(--foreground);
+        font: 400 10.5px/1 var(--font-mono);
+        padding: 3px 4px;
+      }
+      .controls .label {
+        margin-right: 4px;
+      }
+
+      /* ── option scaffolding ──────────────────────────────────────────────── */
+      section {
+        margin-top: 34px;
+        border-top: 1px solid var(--hairline-soft);
+        padding-top: 18px;
+      }
+      .head {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+        margin-bottom: 6px;
+      }
+      .head .tag {
+        font: 700 9px/1 var(--font-mono);
+        letter-spacing: 0.12em;
+        color: var(--background);
+        background: var(--text-dim);
+        padding: 4px 6px;
+        border-radius: 3px;
+      }
+      .head .pick .tag,
+      .pick.tag {
+        background: var(--attention);
+      }
+      .rationale {
+        color: var(--text-dim);
+        margin-bottom: 16px;
+      }
+      .states {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(392px, 1fr));
+        gap: 14px;
+      }
+      .state {
+        border: 1px solid var(--hairline-soft);
+        border-radius: 8px;
+        overflow: hidden;
+        background: var(--panel);
+      }
+      .state > .cap {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 8px 10px;
+        border-bottom: 1px solid var(--hairline-soft);
+        background: var(--bar);
+      }
+      .state > .cap .n {
+        font: 400 9px/1 var(--font-mono);
+        color: var(--text-faint);
+      }
+      /* The real ground the gauge lands on: issue tint 18% over the tabstrip
+         tier, exactly as the mission header renders it. */
+      .stage {
+        /* The deck column is resizable 300–620px (AppShell, default 360), so the
+           narrow reading is routine and the simulator drives this width. */
+        max-width: var(--col, none);
+        padding: 12px 14px 14px;
+        background: var(--ground);
+      }
+      .stage .ref {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font: 400 9px/1 var(--font-mono);
+        letter-spacing: 0.04em;
+        color: var(--text-faint);
+      }
+      .stage .title {
+        font: 600 13.5px/1.35 var(--font-sans);
+        letter-spacing: -0.01em;
+        color: var(--text-strong);
+        margin: 6px 0 0;
+      }
+      .notes {
+        margin: 14px 0 0;
+        padding: 0 0 0 16px;
+        color: var(--text-faint);
+      }
+      .notes li {
+        margin-top: 4px;
+      }
+      .notes b {
+        color: var(--text-dim);
+        font-weight: 500;
+      }
+
+      /* ══ SHARED GAUGE MATERIAL ═══════════════════════════════════════════════
+         Everything below is the vocabulary the three options share: the groove,
+         the four states, the hatch, the sweep. The options differ in how they
+         SLICE it, not in what it is made of. */
+
+      .gauge {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 12px;
+      }
+
+      /* The carved groove. Nothing floats: the floor sits below the ground and
+         the lip catches the light (DESIGN.md §4). */
+      .groove {
+        position: relative;
+        flex: 1 1 auto;
+        min-width: 0;
+        border-radius: 4px;
+        background: color-mix(in srgb, var(--foreground) 6%, transparent);
+        box-shadow:
+          inset 0 1px 2px var(--carve-drop),
+          inset 0 -1px 0 color-mix(in srgb, var(--foreground) 6%, transparent);
+      }
+
+      /* Live/agent presence NEVER enters the track — it is not a segment of the
+         work (MissionGauge.test.tsx pins this). */
+      .livechip {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        flex: none;
+        height: 22px;
+        padding: 0 7px;
+        border: 1px solid var(--hairline-bar);
+        border-radius: 5px;
+        background: var(--chip);
+        font: 400 10px/1 var(--font-mono);
+        font-variant-numeric: tabular-nums;
+        color: var(--text-dim);
+      }
+      .livechip svg {
+        color: var(--text-faint);
+      }
+
+      /* The reading. Mono, tabular, machine voice (DESIGN.md §3). */
+      .readout {
+        flex: none;
+        font: 600 11.5px/1 var(--font-mono);
+        font-variant-numeric: tabular-nums;
+        color: var(--text-strong);
+        letter-spacing: -0.01em;
+      }
+      .readout .of {
+        font-weight: 400;
+        color: var(--text-faint);
+      }
+      .readout.zero {
+        color: var(--text-dim);
+      }
+
+      /* BLOCKED IS HUELESS. `--warning` IS `--attention` in Superade, so a
+         warning-toned segment spends the one signal colour on work that is
+         asking nothing. It wears the deck's own hatch instead — the same 135°
+         4/8px rhythm as `.deck-hatch`, one step denser so it survives at meter
+         scale. */
+      .hatched {
+        background-color: color-mix(in srgb, var(--foreground) 7%, transparent);
+        background-image: repeating-linear-gradient(
+          135deg,
+          transparent 0 3px,
+          color-mix(in srgb, var(--foreground) 13%, transparent) 3px 6px
+        );
+      }
+
+      /* The sweep, verbatim from motion.css. Gated by its caller on the SAME
+         predicate the spinner gates on: an agent is computing RIGHT NOW. */
+      @keyframes podium-run-sweep {
+        from {
+          transform: translateX(-100%);
+        }
+        to {
+          transform: translateX(100%);
+        }
+      }
+      .row-progress-sweep {
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(
+          90deg,
+          transparent,
+          var(--motion-working-bright) 50%,
+          transparent
+        );
+        animation: podium-run-sweep 1.6s ease-in-out infinite;
+      }
+      /* Both the real media query and the page toggle, so this can be judged
+         without changing an OS setting. */
+      @media (prefers-reduced-motion: reduce) {
+        .row-progress-sweep {
+          animation: none;
+          opacity: 0;
+        }
+      }
+      body.reduce .row-progress-sweep {
+        animation: none;
+        opacity: 0;
+      }
+
+      /* ══ OPTION A — THE CELL BAR ═════════════════════════════════════════════ */
+      .cells {
+        display: flex;
+        gap: 3px;
+        height: 14px;
+        padding: 2px;
+      }
+      .cells > i {
+        position: relative;
+        flex: 1 1 0;
+        min-width: 0;
+        border-radius: 1.5px;
+        overflow: hidden;
+        transition: background-color 0.3s ease-out;
+      }
+      .cells > i[data-s="wait"] {
+        background: color-mix(in srgb, var(--foreground) 9%, transparent);
+      }
+      .cells > i[data-s="done"] {
+        background: var(--success);
+      }
+      /* Running is NOT a second solid blue — two near-identical blues are what
+         the row meter warns about, and a solid cell would read as finished. It
+         is the region-plus-floor-rule the gauge already owns: a 28% tint with a
+         saturated 2px rule along its floor. Filled → tinted → hatched → empty
+         is a ladder the eye reads without a legend, in any theme, with the
+         sweep off. */
+      .cells > i[data-s="run"] {
+        background: color-mix(in srgb, var(--live) 28%, transparent);
+        box-shadow: inset 0 -2px 0 var(--live);
+      }
+      /* Above the counting ceiling the cells stop being countable, so they
+         become one proportional band per state — same four materials, no gaps. */
+      .cells.dense {
+        gap: 0;
+      }
+      .cells.dense > i {
+        border-radius: 0;
+        flex-grow: var(--w);
+      }
+      .cells.dense > i + i {
+        border-left: 1px solid color-mix(in srgb, var(--engraved) 70%, transparent);
+      }
+      .cells.dense > i:first-child {
+        border-radius: 1.5px 0 0 1.5px;
+      }
+      .cells.dense > i:last-child {
+        border-radius: 0 1.5px 1.5px 0;
+      }
+
+      /* ══ OPTION B — THE ETCHED RULE ══════════════════════════════════════════ */
+      .etched {
+        height: 20px;
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+      }
+      .etched .fills {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        border-radius: 4px;
+        overflow: hidden;
+      }
+      .etched .fills > i {
+        position: relative;
+        overflow: hidden;
+        transition: width 0.3s ease-out;
+      }
+      .etched .fills > i[data-s="done"] {
+        background: color-mix(in srgb, var(--success) 30%, transparent);
+        box-shadow: inset 0 -2px 0 var(--success);
+      }
+      .etched .fills > i[data-s="run"] {
+        background: color-mix(in srgb, var(--live) 30%, transparent);
+        box-shadow: inset 0 -2px 0 var(--live);
+      }
+      /* The task seams: one 1px etch at every task boundary, drawn by a
+         repeating gradient, so 3 tasks and 30 tasks cost the same DOM and a
+         mission of ONE has no interior seam at all. */
+      .etched .seams {
+        position: absolute;
+        inset: 0;
+        border-radius: 4px;
+        pointer-events: none;
+      }
+      .etched .reading {
+        position: relative;
+        margin-left: auto;
+        padding: 0 8px;
+        font: 600 11px/1 var(--font-mono);
+        font-variant-numeric: tabular-nums;
+        color: var(--text-strong);
+      }
+      .etched .reading .of {
+        font-weight: 400;
+        color: color-mix(in srgb, var(--text-strong) 62%, transparent);
+      }
+
+      /* ══ OPTION C — THE SPLIT READOUT — *** SHIPPED *** ══════════════════════
+         Everything from `.gauge-band` down is the block that went into
+         styles.css, verbatim, so this page is the implementation rather than a
+         picture of it. `.bands` is the part `MissionGauge.tsx` writes inline
+         with Tailwind (the track's flex host inside the carved groove). */
+      .bands {
+        display: flex;
+        gap: 2px;
+        height: 22px;
+        padding: 2px;
+      }
+
+      .gauge-band {
+        position: relative;
+        container: gauge-band / inline-size;
+        display: flex;
+        flex: 0 1 0;
+        align-items: center;
+        justify-content: center;
+        min-width: 0;
+        height: 100%;
+        padding: 0 3px;
+        overflow: hidden;
+        border-radius: 2px;
+        font-family: var(--font-mono);
+        font-size: 9px;
+        font-weight: 500;
+        line-height: 1;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        white-space: nowrap;
+        transition: flex-grow 0.3s ease-out;
+      }
+      .gauge-band[data-s="done"] {
+        background-color: color-mix(in srgb, var(--success) 26%, transparent);
+        box-shadow: inset 0 -2px 0 var(--success);
+        color: var(--text-strong);
+      }
+      .gauge-band[data-s="run"] {
+        background-color: color-mix(in srgb, var(--live) 26%, transparent);
+        box-shadow: inset 0 -2px 0 var(--live);
+        color: var(--text-strong);
+      }
+      .gauge-band[data-s="block"] {
+        box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--foreground) 34%, transparent);
+        color: var(--text-dim);
+      }
+      .gauge-band[data-s="wait"] {
+        background-color: color-mix(in srgb, var(--foreground) 8%, transparent);
+        color: var(--text-faint);
+      }
+      .gauge-band-text {
+        position: relative;
+      }
+      .gauge-band-count {
+        font-weight: 700;
+      }
+      .gauge-band-count,
+      .gauge-band-word {
+        display: none;
+      }
+      @container gauge-band (min-width: 8px) {
+        .gauge-band-count[data-w="1"] {
+          display: inline;
+        }
+      }
+      @container gauge-band (min-width: 14px) {
+        .gauge-band-count[data-w="2"] {
+          display: inline;
+        }
+      }
+      @container gauge-band (min-width: 20px) {
+        .gauge-band-count[data-w="3"] {
+          display: inline;
+        }
+      }
+      @container gauge-band (min-width: 46px) {
+        .gauge-band[data-s="done"] .gauge-band-word {
+          display: inline;
+        }
+      }
+      @container gauge-band (min-width: 52px) {
+        .gauge-band[data-s="wait"] .gauge-band-word {
+          display: inline;
+        }
+      }
+      @container gauge-band (min-width: 64px) {
+        .gauge-band[data-s="run"] .gauge-band-word,
+        .gauge-band[data-s="block"] .gauge-band-word {
+          display: inline;
+        }
+      }
+      .gauge-hatch {
+        background-color: color-mix(in srgb, var(--foreground) 7%, transparent);
+        background-image: repeating-linear-gradient(
+          135deg,
+          transparent 0 3px,
+          color-mix(in srgb, var(--foreground) 13%, transparent) 3px 6px
+        );
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .gauge-band {
+          transition: none;
+        }
+      }
+      body.reduce .gauge-band {
+        transition: none;
+      }
+
+      /* ── the CSS-block appendix ──────────────────────────────────────────── */
+      pre {
+        margin: 10px 0 0;
+        padding: 12px 14px;
+        border: 1px solid var(--hairline-soft);
+        border-radius: 8px;
+        background: var(--engraved);
+        color: var(--foreground);
+        font: 400 11px/1.6 var(--font-mono);
+        overflow-x: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Mission gauge — three options</h1>
+    <p class="lede">
+      POD-710 · GAUGE stream. The bar in the flight deck's mission header. Rendered on the header's
+      real ground (issue tint 18% over the tabstrip tier), at the column's real width, in Superade
+      dark.
+    </p>
+
+    <ul class="rules">
+      <li>
+        <b>One unit of work = one task.</b> The root is the container being measured, never a
+        segment. A mission of one task shows one thing, once.
+      </li>
+      <li>
+        <b>Motion is licensed by the predicate, not the device.</b> The sweep runs only while an
+        agent is actually computing — a parked <code>in_progress</code> task leaves it still.
+      </li>
+      <li>
+        <b>Blocked is hueless.</b> <code>--warning</code> IS <code>--attention</code> here; blocked
+        work asks nothing, so it wears the deck's own hatch, not the signal colour.
+      </li>
+      <li>
+        <b>No green.</b> Done takes <code>--success</code> (Accent Blue), running takes
+        <code>--live</code>. Separated by material, not only by hue.
+      </li>
+      <li>
+        <b>Presence stays outside the track.</b> <code>N live</code> is not a segment of the work.
+      </li>
+      <li><b>It is a meter.</b> Data, not decoration — and it never spends a pixel on itself.</li>
+    </ul>
+
+    <div class="controls">
+      <span class="label">Simulate</span>
+      <label class="toggle"
+        ><input type="checkbox" id="t-working" checked /> An agent is computing</label
+      >
+      <label class="toggle"><input type="checkbox" id="t-reduce" /> prefers-reduced-motion</label>
+      <label class="toggle"
+        >Deck column
+        <select id="t-width">
+          <option value="300px">300px (minimum)</option>
+          <option value="360px" selected>360px (default)</option>
+          <option value="460px">460px</option>
+          <option value="620px">620px (maximum)</option>
+        </select>
+      </label>
+      <span class="label" style="margin-left: auto">
+        Turn "computing" off: every option must go completely still.
+      </span>
+    </div>
+
+    <div id="options"></div>
+
+    <section>
+      <div class="head"><h2>Shipped</h2><span class="tag pick">C</span></div>
+      <p class="rationale">
+        The operator picked <b>C, the split readout</b>. Option C above is now the implementation —
+        its CSS in this page's <code>&lt;style&gt;</code> is the block that went into
+        <code>styles.css</code>, and its markup matches <code>MissionGauge.tsx</code> element for
+        element, so what you judge here is what runs.
+      </p>
+      <p class="rationale">
+        <b>C's one weakness was crowding, and that is what the build had to answer.</b> The deck
+        column is resizable from 300px (<code>AppShell</code>, default 360, max 620), so a band
+        running out of room is routine rather than an edge case. It sheds the way the command bar
+        sheds — <b>words before data, data before material, nothing ever clipped</b>:
+      </p>
+      <ul class="notes">
+        <li><b>Rung 1 —</b> the band fits <code>4 DONE</code>: count and noun.</li>
+        <li>
+          <b>Rung 2 —</b> the band fits <code>4</code>: the noun is dropped <em>whole</em>. There is
+          no <code>4 DON…</code>; a meter that truncates a four-letter word has stopped being data.
+        </li>
+        <li>
+          <b>Rung 3 —</b> narrower than that: bare material. The colour, the hatch and the floor rule
+          still say which state the band is and how much of the mission it holds, by being there.
+        </li>
+        <li>
+          <b>A zero-count band is never drawn at all</b> — not a 1px sliver. That is C's whole
+          premise, and it is decided in the component, not in CSS.
+        </li>
+        <li>
+          <b>The rung is the BAND's width, not the column's.</b> Each band is its own
+          <code>inline-size</code> container, so a wide <code>6 DONE</code> keeps its noun while the
+          one-task band beside it is already a numeral — the honest reading of who has the room.
+        </li>
+        <li>
+          <b>The full sentence is on the gauge's <code>aria-label</code> and <code>title</code> at
+          every rung</b>, including bare material. The reading never degrades; only its typography
+          does.
+        </li>
+      </ul>
+      <p class="rationale" style="margin-top: 14px">
+        Thresholds are the text's own measure — Geist Mono advances 0.6em, so a character at 9px with
+        0.06em tracking costs ~6px — plus ten of slack, with the count's rung keyed on how many
+        digits it actually has so <code>128</code> never lands in a box sized for <code>4</code>.
+        They are <code>min-width</code> rungs only, so a browser without container queries lands on
+        bare material rather than on clipped text. Try the <b>Deck column</b> control at the top of
+        the page: at 300px the eight-task mission is down to numerals, and at 620px every band has
+        its noun back.
+      </p>
+      <p class="rationale">
+        One correction the build also carried: <b>the sweep now gates on <code>working</code></b>, not
+        on <code>run</code>. The shipped gauge animated on a task-stage fact, so a mission parked in
+        <code>in_progress</code> overnight swept all night — motion outliving the computing it
+        depicts, which DESIGN.md §5 forbids. It is now the same predicate
+        <code>RowProgressMeter</code> uses.
+      </p>
+      <pre>
+apps/web/src/styles.css — one block, appended near .deck-hatch (~line 5341).
+Verbatim in this page's &lt;style&gt;, under "OPTION C".
+
+.gauge-band              the band: its own inline-size container, 9px mono,
+                         flex-grow = its count, 0.3s grow transition
+.gauge-band[data-s=…]    done → --success 26% + 2px floor rule
+                         run  → --live 26% + 2px floor rule
+                         block→ hueless foreground floor rule (ground = .gauge-hatch)
+                         wait → --foreground 8%, no rule
+.gauge-band-count/-word  the narrow ladder: three min-width @container rungs
+.gauge-hatch             the blocked ground — .deck-hatch's 135° rhythm, one
+                         step denser, because a 4/8px 5% hatch resolves to
+                         nothing inside a 22px band. Still no warning tone:
+                         blocked work asks the operator for nothing, and amber
+                         is what asking looks like.</pre
+      >
+    </section>
+
+    <script>
+      // ── fixtures ───────────────────────────────────────────────────────────
+      // Every option renders from the same MissionProgress shape the viewmodel
+      // returns, so the states are literally comparable.
+      const STATES = [
+        {
+          cap: "One task, running",
+          n: "the complaint: this used to read “1 not done · 1 processing”",
+          p: { total: 1, done: 0, run: 1, block: 0, wait: 0 },
+          live: 1,
+        },
+        {
+          cap: "Three tasks — 1 done, 1 running, 1 blocked",
+          n: "every state at once, at the size a real mission usually is",
+          p: { total: 3, done: 1, run: 1, block: 1, wait: 0 },
+          live: 2,
+        },
+        {
+          cap: "Eight tasks, mixed",
+          n: "3 done · 2 running · 1 blocked · 2 not started",
+          p: { total: 8, done: 3, run: 2, block: 1, wait: 2 },
+          live: 5,
+        },
+        {
+          cap: "All done",
+          n: "the mission is finished and the fleet has gone home",
+          p: { total: 6, done: 6, run: 0, block: 0, wait: 0 },
+          live: 0,
+        },
+        {
+          cap: "Nothing started",
+          n: "the length IS the information — “this mission is five tasks”",
+          p: { total: 5, done: 0, run: 0, block: 0, wait: 5 },
+          live: 0,
+        },
+        {
+          cap: "Twenty-eight tasks (scale)",
+          n: "past the counting ceiling: cells give way to proportional bands",
+          p: { total: 28, done: 11, run: 3, block: 2, wait: 12 },
+          live: 9,
+        },
+      ];
+
+      const OPTIONS = [
+        {
+          tag: "A",
+          name: "The Cell Bar",
+          rationale:
+            "One cell per task, in a carved groove — an LED bar, not a percentage. The eye counts units instead of estimating a fraction, which is exactly what a mission of three to eight tasks is. Cells are grouped done → running → blocked → to-go so the bar fills from the left as work lands and never reshuffles when a task changes state. The reading sits OUTSIDE the groove as a tabular fraction, so the track carries no text at all and stays pure data. Past 24 tasks the cells stop being countable and collapse to proportional bands of the same four materials.",
+          render: renderA,
+          notes: [
+            "<b>One task = one cell.</b> Nothing to misread as two facts.",
+            "<b>Running is the only thing that moves</b>, and only while an agent computes; with the fleet parked it keeps its blue and its lit top edge and goes still.",
+            "<b>Blocked</b> is the deck's hatch — hueless, obviously stopped, and already learned three rows below.",
+            "<b>Costs one line</b>, the same 22px the gauge occupies today.",
+          ],
+        },
+        {
+          tag: "B",
+          name: "The Etched Rule",
+          rationale:
+            "Today's well, disciplined. The track stays one continuous carved rule with the region tint and the saturated 2px floor rule, but a 1px etch is cut at every task boundary — one repeating gradient, so 3 tasks and 300 cost the same DOM, and a mission of ONE has no interior seam at all. The three-word legend inside the well is replaced by a single right-aligned fraction. Closest to what ships today, smallest diff, and the least new to learn.",
+          render: renderB,
+          notes: [
+            "<b>Scale-free.</b> The unit seams come from a gradient, not from N elements.",
+            "<b>Quieter than A</b> — the tint regions read as area, and area is harder to count than cells.",
+            "The reading rides inside the well, which means it sits over the fill at 100%.",
+          ],
+        },
+        {
+          tag: "C",
+          name: "The Split Readout — SHIPPED",
+          rationale:
+            "The most literal answer to “what does each slice represent”: each band carries its own count, inside itself, and bands with no work simply do not exist. A mission of one running task is one band that says <code>1 running</code> — one fact, one place. The cost is words inside a meter, which is why the build's main design job was the narrow ladder: each band is its own inline-size container and sheds its noun, then its numeral, on its OWN width. Set the deck column to 300px above and watch it work.",
+          render: renderC,
+          notes: [
+            "<b>Self-legending</b> — no separate word list under or beside the bar, and no reading outside the track to keep in sync with it.",
+            "<b>Bands vanish when empty</b>, so nothing ever reports a state the mission is not in — and nothing is drawn as a sliver either.",
+            "<b>The ladder is per band, not per column</b>: <code>6 DONE</code> keeps its noun while the one-task band beside it is already <code>1</code>.",
+            "<b>Nothing is ever clipped and nothing is ever truncated.</b> A noun is dropped whole or not at all; the full sentence stays in <code>aria-label</code> / <code>title</code> at every rung.",
+          ],
+        },
+      ];
+
+      const SEGS = [
+        ["done", (p) => p.done],
+        ["run", (p) => p.run],
+        ["block", (p) => p.block],
+        ["wait", (p) => p.wait],
+      ];
+      const WORD = { done: "done", run: "running", block: "blocked", wait: "to go" };
+      const CELL_CEILING = 24;
+
+      const el = (tag, cls, html) => {
+        const node = document.createElement(tag);
+        if (cls) node.className = cls;
+        if (html != null) node.innerHTML = html;
+        return node;
+      };
+
+      const reading = (p, live) =>
+        `${p.done} of ${p.total} task${p.total === 1 ? "" : "s"} done, ${p.run} running` +
+        `${p.block > 0 ? `, ${p.block} blocked` : ""} · ${live} agent${live === 1 ? "" : "s"} live`;
+
+      // The sweep is rendered by the CALLER, gated on `working` — never on
+      // "this task is in_progress". Same predicate as the braille spinner.
+      const sweep = (working, index = 0) => {
+        if (!working) return "";
+        return `<span class="row-progress-sweep" style="animation-delay:${(index * 0.16).toFixed(2)}s"></span>`;
+      };
+
+      function livechip(live) {
+        return `<span class="livechip"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>${live} live</span>`;
+      }
+
+      // ── A ──────────────────────────────────────────────────────────────────
+      function renderA(p, live, working) {
+        const dense = p.total > CELL_CEILING;
+        const cells = [];
+        let runIndex = 0;
+        for (const [state, count] of SEGS) {
+          const n = count(p);
+          if (dense) {
+            if (n === 0) continue;
+            cells.push(
+              `<i data-s="${state}" class="${state === "block" ? "hatched" : ""}" style="--w:${n}">${
+                state === "run" ? sweep(working) : ""
+              }</i>`,
+            );
+          } else {
+            for (let i = 0; i < n; i += 1)
+              cells.push(
+                `<i data-s="${state}" class="${state === "block" ? "hatched" : ""}">${
+                  state === "run" ? sweep(working, runIndex++) : ""
+                }</i>`,
+              );
+          }
+        }
+        return `
+          <div class="gauge" role="img" aria-label="${reading(p, live)}" title="${reading(p, live)}">
+            <span class="readout${p.done === 0 ? " zero" : ""}">${p.done}<span class="of">/${p.total}</span></span>
+            <span class="groove"><span class="cells${dense ? " dense" : ""}">${cells.join("")}</span></span>
+            ${livechip(live)}
+          </div>`;
+      }
+
+      // ── B ──────────────────────────────────────────────────────────────────
+      function renderB(p, live, working) {
+        const pct = (n) => `${p.total === 0 ? 0 : (n / p.total) * 100}%`;
+        const seam = "color-mix(in srgb, #000 55%, transparent)";
+        const step = `calc(100% / ${Math.max(1, p.total)})`;
+        const seams =
+          p.total > 1
+            ? `background-image: repeating-linear-gradient(90deg, transparent 0 calc(${step} - 1px), ${seam} calc(${step} - 1px) ${step});`
+            : "";
+        return `
+          <div class="gauge" role="img" aria-label="${reading(p, live)}" title="${reading(p, live)}">
+            <span class="groove etched">
+              <span class="fills">
+                <i data-s="done" style="width:${pct(p.done)}"></i>
+                <i data-s="run" style="width:${pct(p.run)}">${sweep(working)}</i>
+                <i data-s="block" class="hatched" style="width:${pct(p.block)}"></i>
+              </span>
+              <span class="seams" style="${seams}"></span>
+              <span class="reading">${p.done}<span class="of">/${p.total}</span></span>
+            </span>
+            ${livechip(live)}
+          </div>`;
+      }
+
+      // ── C ──────────────────────────────────────────────────────────────────
+      // The shipped markup, matching MissionGauge.tsx element for element. The
+      // label ladder is NOT decided here — the CSS decides it from each band's
+      // own width, which is why the width simulator above is the real test.
+      function renderC(p, live, working) {
+        const bands = SEGS.filter(([, count]) => count(p) > 0).map(([state, count]) => {
+          const n = count(p);
+          const digits = Math.min(3, String(n).length);
+          return (
+            `<span class="gauge-band${state === "block" ? " gauge-hatch" : ""}" data-s="${state}" style="flex-grow:${n}">` +
+            `${state === "run" ? sweep(working) : ""}` +
+            `<span class="gauge-band-text"><b class="gauge-band-count" data-w="${digits}">${n}</b>` +
+            `<span class="gauge-band-word">&nbsp;${WORD[state]}</span></span></span>`
+          );
+        });
+        return `
+          <div class="gauge" role="img" aria-label="${reading(p, live)}" title="${reading(p, live)}">
+            <span class="groove"><span class="bands">${bands.join("")}</span></span>
+            ${livechip(live)}
+          </div>`;
+      }
+
+      // ── page ───────────────────────────────────────────────────────────────
+      const host = document.getElementById("options");
+      const working = () => document.getElementById("t-working").checked;
+
+      function paint() {
+        host.textContent = "";
+        for (const option of OPTIONS) {
+          const section = el("section");
+          const head = el("div", "head");
+          head.append(
+            el("span", option.tag === "C" ? "tag pick" : "tag", option.tag),
+            el("h2", null, option.name),
+          );
+          section.append(head, el("p", "rationale", option.rationale));
+          const states = el("div", "states");
+          for (const state of STATES) {
+            const card = el("div", "state");
+            card.append(
+              el(
+                "div",
+                "cap",
+                `<span class="label">${state.cap}</span><span class="n">${state.n}</span>`,
+              ),
+            );
+            const stage = el("div", "stage");
+            stage.innerHTML =
+              `<div class="ref"><span>POD-710</span><span style="color:var(--text-dim)">in progress</span></div>` +
+              `<h3 class="title">Editor-style task workspaces</h3>` +
+              option.render(state.p, state.live, working());
+            card.append(stage);
+            states.append(card);
+          }
+          section.append(states);
+          const notes = el("ul", "notes");
+          for (const note of option.notes) notes.append(el("li", null, note));
+          section.append(notes);
+          host.append(section);
+        }
+      }
+
+      document.getElementById("t-working").addEventListener("change", paint);
+      document.getElementById("t-reduce").addEventListener("change", (event) => {
+        document.body.classList.toggle("reduce", event.target.checked);
+      });
+      const width = document.getElementById("t-width");
+      const applyWidth = () => document.body.style.setProperty("--col", width.value);
+      width.addEventListener("change", applyWidth);
+      applyWidth();
+      paint();
+    </script>
+  </body>
+</html>

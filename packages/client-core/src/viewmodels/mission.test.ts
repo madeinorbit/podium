@@ -614,8 +614,9 @@ describe('buildFlightDeckRows', () => {
     ]
     const rows = buildFlightDeckRows(issues, [sess('s-root', { issueId: 'root' })], 'root')
     expect(shape(rows)).toEqual(['root@0', 'c1@1'])
-    // …and therefore it cannot move the mission's progress either. (root + c1)
-    expect(missionProgress(issues, [sess('s-root', { issueId: 'root' })], 'root').total).toBe(2)
+    // …and therefore it cannot move the mission's progress either: the mission
+    // is one unit of work, c1, with the root as its container.
+    expect(missionProgress(issues, [sess('s-root', { issueId: 'root' })], 'root').total).toBe(1)
   })
 
   describe('mode filters', () => {
@@ -678,9 +679,38 @@ describe('missionProgress', () => {
   const cases: Array<[string, IssueNavigationModel[], MissionProgress]> = [
     ['no mission at all', [], { total: 0, done: 0, run: 0, block: 0, wait: 0 }],
     [
-      'a lone root, which counts as a task like any other',
+      'a lone root, which IS the single unit because it contains nothing',
       [issue('root')],
       { total: 1, done: 0, run: 1, block: 0, wait: 0 },
+    ],
+    [
+      // POD-710, the whole complaint: one sub-issue is ONE unit of work. The
+      // root is what the meter is measuring, so it cannot also be a segment of
+      // it — this used to report `total: 2` with the root running beside its
+      // untouched child.
+      'a root with one child, as one unit and one only',
+      [issue('root', { stage: 'in_progress' }), issue('a', { parentId: 'root', stage: 'backlog' })],
+      { total: 1, done: 0, run: 0, block: 0, wait: 1 },
+    ],
+    [
+      'a root with N children, every one of them a unit and the root none',
+      [
+        issue('root', { stage: 'in_progress' }),
+        issue('a', { parentId: 'root', stage: 'done' }),
+        issue('b', { parentId: 'root', stage: 'in_progress' }),
+        issue('c', { parentId: 'root', stage: 'backlog' }),
+      ],
+      { total: 3, done: 1, run: 1, block: 0, wait: 1 },
+    ],
+    [
+      'grandchildren, which are units at any depth',
+      [
+        issue('root'),
+        issue('a', { parentId: 'root', stage: 'done' }),
+        issue('a1', { parentId: 'a', stage: 'done' }),
+        issue('a2', { parentId: 'a', stage: 'backlog' }),
+      ],
+      { total: 3, done: 2, run: 0, block: 0, wait: 1 },
     ],
     [
       'all four segments at once',
@@ -691,7 +721,7 @@ describe('missionProgress', () => {
         issue('c', { parentId: 'root', blocked: true }),
         issue('d', { parentId: 'root', stage: 'backlog' }),
       ],
-      { total: 5, done: 1, run: 1, block: 1, wait: 2 },
+      { total: 4, done: 1, run: 1, block: 1, wait: 1 },
     ],
     [
       'a child closed for another reason than stage=done',
@@ -699,12 +729,12 @@ describe('missionProgress', () => {
         issue('root', { stage: 'backlog' }),
         issue('a', { parentId: 'root', closedReason: 'duplicate' }),
       ],
-      { total: 2, done: 1, run: 0, block: 0, wait: 1 },
+      { total: 1, done: 1, run: 0, block: 0, wait: 0 },
     ],
     [
       'blocked in-progress work, counted once and as blocked',
       [issue('root', { stage: 'backlog' }), issue('a', { parentId: 'root', blocked: true })],
-      { total: 2, done: 0, run: 0, block: 1, wait: 1 },
+      { total: 1, done: 0, run: 0, block: 1, wait: 0 },
     ],
     [
       'done work that is also flagged blocked, counted once as done',
@@ -712,7 +742,7 @@ describe('missionProgress', () => {
         issue('root', { stage: 'backlog' }),
         issue('a', { parentId: 'root', stage: 'done', blocked: true }),
       ],
-      { total: 2, done: 1, run: 0, block: 0, wait: 1 },
+      { total: 1, done: 1, run: 0, block: 0, wait: 0 },
     ],
   ]
 
@@ -741,7 +771,7 @@ describe('missionProgress', () => {
       issue('b', { parentId: 'root', seq: 2, stage: 'done' }),
       issue('c', { parentId: 'root', seq: 3 }),
     ]
-    const expected = { total: 4, done: 2, run: 2, block: 0, wait: 0 }
+    const expected = { total: 3, done: 2, run: 1, block: 0, wait: 0 }
     for (const mode of ['full', 'active', 'needs-you'] as const) {
       // The spine really does shrink in the filtered modes…
       const rows = buildFlightDeckRows(issues, [], 'root', mode)
@@ -762,6 +792,20 @@ describe('missionProgress', () => {
     })
   })
 
+  it('measures the root as a container, not as one more segment beside it', () => {
+    // The same root, in two missions. Alone it is the unit and reads as running;
+    // the moment it has a member it is only the thing being measured, and the
+    // member's own state is the whole reading.
+    const alone = missionProgress([issue('root', { stage: 'in_progress' })], [], 'root')
+    const container = missionProgress(
+      [issue('root', { stage: 'in_progress' }), issue('a', { parentId: 'root', stage: 'done' })],
+      [],
+      'root',
+    )
+    expect(alone).toEqual({ total: 1, done: 0, run: 1, block: 0, wait: 0 })
+    expect(container).toEqual({ total: 1, done: 1, run: 0, block: 0, wait: 0 })
+  })
+
   it('is empty rather than throwing when there is no mission root', () => {
     expect(missionProgress([issue('root')], [], null)).toEqual({
       total: 0,
@@ -776,8 +820,33 @@ describe('missionProgress', () => {
     const issues = [
       issue('root', { stage: 'backlog' }),
       issue('a', { parentId: 'root', archived: true }),
+      issue('b', { parentId: 'root', deletedAt: '2026-07-01T00:00:00.000Z' }),
+      issue('c', { parentId: 'root', stage: 'done' }),
     ]
-    expect(missionProgress(issues, [], 'root').total).toBe(1)
+    // Three members on paper, one unit of work: retired work is not work.
+    expect(missionProgress(issues, [], 'root')).toEqual({
+      total: 1,
+      done: 1,
+      run: 0,
+      block: 0,
+      wait: 0,
+    })
+  })
+
+  it('falls back to the root when every member has been retired', () => {
+    // Nothing left to be the container OF, so the root is the unit again —
+    // never `total: 0`, which would render as a mission that does not exist.
+    const issues = [
+      issue('root', { stage: 'backlog' }),
+      issue('a', { parentId: 'root', archived: true }),
+    ]
+    expect(missionProgress(issues, [], 'root')).toEqual({
+      total: 1,
+      done: 0,
+      run: 0,
+      block: 0,
+      wait: 1,
+    })
   })
 })
 

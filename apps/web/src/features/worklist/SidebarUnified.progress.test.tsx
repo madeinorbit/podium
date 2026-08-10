@@ -212,32 +212,44 @@ describe('per-entry progress in the worklist (POD-516 round 3)', () => {
     setUp([sess('lead', 'root')])
     const view = render(<SidebarUnified />)
     const meter = meterOf(view.container, 'root') as HTMLElement
-    expect(meter.getAttribute('data-total')).toBe('5')
-    // Two lit segments — done, then running — over the trough: two children
-    // done and the in-progress root running. The blocked child and the backlog
-    // child are both NOT MOVING and stay in the trough, where the tooltip still
-    // accounts for them.
-    expect(widthsOf(meter)).toEqual([(2 / 5) * 100, (1 / 5) * 100])
+    // FOUR tasks, not five: POD-710 stopped counting the mission root beside
+    // its own members. The root is the container being measured — its stage is
+    // a roll-up OF a, b, c and d, so counting it as a fifth unit double-counted
+    // exactly the work the bar is drawing.
+    expect(meter.getAttribute('data-total')).toBe('4')
+    // One lit segment now — done — over the trough. The in-progress ROOT was
+    // the only thing that had been running, and it is no longer a unit. The
+    // blocked child and the backlog child are both NOT MOVING and stay in the
+    // trough, where the tooltip still accounts for them.
+    expect(widthsOf(meter)).toEqual([(2 / 4) * 100, 0])
     expect(widthsOf(meter).reduce((sum, width) => sum + width, 0)).toBeLessThanOrEqual(100)
     expect(meter.getAttribute('aria-label')).toBe(
-      '5 tasks · 2 done · 1 running · 1 blocked · 1 waiting',
+      '4 tasks · 2 done · 0 running · 1 blocked · 1 waiting',
     )
   })
 
   it('sweeps the running segment only while an agent is actually computing', () => {
     // The task is `in_progress` and its agent has stopped: the run segment keeps
     // its colour (the task IS running) but nothing moves — stillness is signal.
-    setUp([
-      sess('lead', 'root', { agentState: { phase: 'idle', since: '2026-07-06T12:00:00.000Z' } }),
-    ])
+    //
+    // The running task has to be a MEMBER now, not the root: since POD-710 the
+    // root is the container being measured rather than a unit inside itself, so
+    // a mission whose only `in_progress` issue was the root draws no run segment
+    // at all — and this test would have been asserting stillness against an
+    // empty segment, which passes for the wrong reason.
+    const running = MISSION.map((i) => (i.id === 'd' ? { ...i, stage: 'in_progress' } : i))
+    setUp(
+      [sess('lead', 'root', { agentState: { phase: 'idle', since: '2026-07-06T12:00:00.000Z' } })],
+      running,
+    )
     const idle = render(<SidebarUnified />)
     const parked = meterOf(idle.container, 'root') as HTMLElement
     expect(parked.getAttribute('data-working')).toBe('false')
     expect(parked.querySelector('.row-progress-sweep')).toBeNull()
-    expect(widthsOf(parked)[1]).toBe((1 / 5) * 100)
+    expect(widthsOf(parked)[1]).toBe((1 / 4) * 100)
     cleanup()
 
-    setUp([sess('lead', 'root')])
+    setUp([sess('lead', 'root')], running)
     const live = render(<SidebarUnified />)
     const moving = meterOf(live.container, 'root') as HTMLElement
     expect(moving.getAttribute('data-working')).toBe('true')

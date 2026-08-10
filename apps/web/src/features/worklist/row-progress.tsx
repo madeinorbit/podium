@@ -42,6 +42,8 @@
  * A row that is one issue with one agent has no fraction — it is 0% until the
  * moment it is 100% — and a bar that can only ever show those two states says
  * nothing the status word ("Running", "Done") has not already said in a word.
+ * A row that is an epic with a single sub-issue is the same row wearing a
+ * hierarchy, and since POD-710 it counts as the one task it is.
  * The operator qualified the ask with "if it makes sense", and this is the
  * qualification: the meter appears exactly when there is a real done/total,
  * i.e. when the row is speaking for a subtree that the flat column gives no
@@ -101,9 +103,14 @@ import { cn } from '@/lib/utils'
 /**
  * The smallest mission that gets a meter.
  *
- * `missionProgress` counts the root as a task, so `2` means "the row speaks for
- * at least one task besides itself" — the exact condition under which a
- * done/total is a real fraction rather than a boolean wearing a bar.
+ * `missionProgress` counts UNITS OF WORK, and one unit is one task in the
+ * mission — the root is the container being measured, not a segment of it
+ * (POD-710). So `2` now means literally two tasks, which is the exact condition
+ * under which a done/total is a real fraction rather than a boolean wearing a
+ * bar. The number did not move; what it counts did, and it moved in the
+ * direction that makes the threshold honest. A row whose whole mission is one
+ * task used to arrive here as `total: 2` — the root plus its only child — and
+ * drew a two-segment meter over what was always one thing.
  */
 export const ROW_PROGRESS_MIN_TASKS = 2
 
