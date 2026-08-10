@@ -101,6 +101,7 @@ import type {
 import { FeedPublisher } from '@podium/sync'
 import { perfPrincipal } from '../modules/perf/principal'
 import { perf } from '../modules/perf/registry'
+import { traceFeedPeer } from './feed-peer-trace'
 import {
   type EdgePeer,
   type FeedFrame,
@@ -260,7 +261,18 @@ export class FeedServing {
       existing.rearm(world.throughSeq)
     }
     this.retainPrincipal(peer.id, principal, routingPrincipal)
-    perf.record('phase', 'feedBootstrap.total', performance.now() - t0, perfKey)
+    const durationMs = performance.now() - t0
+    perf.record('phase', 'feedBootstrap.total', durationMs, perfKey)
+    traceFeedPeer({
+      event: 'bootstrap',
+      peerId: peer.id,
+      cause,
+      wireVersion: peer.wireVersion,
+      reused,
+      throughSeq: world.throughSeq,
+      rows: world.changes.length,
+      durationMs,
+    })
   }
 
   /**

@@ -54,6 +54,7 @@ import type { ClientFeaturePorts } from './client-ports'
 import type { ClientPrincipal } from './client-principal'
 import { feedPrincipalOf, userClientPrincipal } from './client-principal'
 import type { ClientConn, ClientRegistry } from './client-registry'
+import { traceFeedPeer } from './feed-peer-trace'
 import type { FeedServing } from './feed-serving'
 import type { PresenceRouting } from './presence-routing'
 
@@ -152,6 +153,8 @@ export interface ClientMuxDeps {
 }
 
 export class ClientMux {
+  private readonly attachedAtByPeer = new Map<string, number>()
+
   constructor(private readonly deps: ClientMuxDeps) {}
 
   get ports(): ClientFeaturePorts {
@@ -222,6 +225,12 @@ export class ClientMux {
       viewModes: {},
     }
     this.deps.registry.add(conn)
+    this.attachedAtByPeer.set(id, performance.now())
+    traceFeedPeer({
+      event: 'attach',
+      peerId: id,
+      wireVersion: conn.wireVersion,
+    })
     // `welcome` is the gateway's frame: it carries the id THIS module minted, and
     // it is what makes the reconnect reclaim's `hello.clientId` a server-issued
     // value rather than a client-chosen one.
@@ -254,11 +263,19 @@ export class ClientMux {
    * runs inside the port call. Deleting first means no re-entrant fan-out can
    * reach a socket that is already gone.
    */
-  detachClient(id: string): void {
+  detachClient(id: string, cause: 'socket-close' | 'reclaim' = 'socket-close'): void {
     const conn = this.deps.registry.get(id)
     if (!conn) return
     this.deps.presence.disconnect(conn)
     this.deps.registry.delete(id)
+    const attachedAt = this.attachedAtByPeer.get(id)
+    this.attachedAtByPeer.delete(id)
+    traceFeedPeer({
+      event: 'detach',
+      peerId: id,
+      cause,
+      ageMs: attachedAt === undefined ? null : performance.now() - attachedAt,
+    })
     this.deps.feed.detach(id)
     this.deps.ports.sessions.onClientDetached(conn.principal, conn)
   }
@@ -286,6 +303,17 @@ export class ClientMux {
       msg: ClientMessage,
     ) => void
     dispatch(this, conn, msg)
+    if (msg.type === 'hello') {
+      const attachedAt = this.attachedAtByPeer.get(id)
+      traceFeedPeer({
+        event: 'hello',
+        peerId: id,
+        ...(msg.clientId ? { claimedPeerId: msg.clientId } : {}),
+        wireVersion: msg.wireVersion ?? 1,
+        acceptsDelta: conn.caps.has(CAP_METADATA_DELTA),
+        ageMs: attachedAt === undefined ? 0 : performance.now() - attachedAt,
+      })
+    }
     if (msg.type === 'hello' && msg.clientId && msg.clientId !== conn.id) {
       this.reclaim(msg.clientId, conn)
     }
@@ -349,7 +377,14 @@ export class ClientMux {
       return
     }
     this.deps.ports.sessions.onClientReclaim(prior, next)
-    this.detachClient(prior.id)
+    const priorAttachedAt = this.attachedAtByPeer.get(prior.id)
+    traceFeedPeer({
+      event: 'reclaim',
+      peerId: next.id,
+      priorPeerId: prior.id,
+      priorAgeMs: priorAttachedAt === undefined ? null : performance.now() - priorAttachedAt,
+    })
+    this.detachClient(prior.id, 'reclaim')
   }
 
   /**
