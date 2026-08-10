@@ -378,6 +378,7 @@ export class SessionRegistry {
           online: machine.online,
           busy: false,
         })),
+      channelFor: (machineId) => machines.updateChannel(machineId),
       send: (machineId, message) => machines.toMachine(machineId, message),
       now: this.now,
       nextGrantId: () => randomUUID(),

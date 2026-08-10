@@ -9,6 +9,7 @@ import { planWave, type WaveMachine } from './wave'
 
 export interface UpdatesDeps {
   machines(): readonly WaveMachine[]
+  channelFor?(machineId: string): UpdateChannel | undefined
   send(machineId: string, message: UpdateGrantMessage): void
   now(): number
   nextGrantId(): string
@@ -68,15 +69,14 @@ export class UpdatesService {
 
   /** Resolve a machine through its durable channel choice. */
   targetFor(machineId: string): UpdateTarget | undefined {
-    const machine = this.deps.machines().find((candidate) => candidate.id === machineId)
-    return machine ? this.target(this.channelOf(machine)) : undefined
+    const channel = this.channelForMachine(machineId)
+    return channel ? this.target(channel) : undefined
   }
 
   /** Explain why a machine's selected authority cannot currently advertise a target. */
   targetUnavailableReasonFor(machineId: string): string | undefined {
-    const machine = this.deps.machines().find((candidate) => candidate.id === machineId)
-    if (!machine) return 'Machine is no longer registered.'
-    const channel = this.channelOf(machine)
+    const channel = this.channelForMachine(machineId)
+    if (!channel) return 'Machine is no longer registered.'
     if (this.target(channel)) return undefined
     return (
       this.unavailableReasons.get(channel) ??
@@ -267,6 +267,14 @@ export class UpdatesService {
     }
     return issued
   }
+
+  private channelForMachine(machineId: string): UpdateChannel | undefined {
+    return (
+      this.deps.channelFor?.(machineId) ??
+      this.deps.machines().find((candidate) => candidate.id === machineId)?.channel
+    )
+  }
+
   private channelOf(machine: WaveMachine): UpdateChannel {
     return machine.channel ?? 'dev'
   }

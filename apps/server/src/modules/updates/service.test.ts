@@ -24,6 +24,27 @@ const m = (id: string, over: Record<string, unknown> = {}) => ({
 })
 
 describe('UpdatesService', () => {
+  it('resolves a machine target without re-entering the enriched machine projection', () => {
+    const machines = vi.fn(() => {
+      throw new Error('wire projection re-entered')
+    })
+    const target = { version: '0.4.2', critical: false, artifacts: {} } as never
+    const svc = new UpdatesService({
+      machines,
+      channelFor: (machineId) => (machineId === 'a' ? 'edge' : undefined),
+      send: vi.fn(),
+      now: () => 1_000,
+      nextGrantId: () => 'g1',
+      concurrency: 3,
+    })
+
+    svc.setTarget('edge', target)
+
+    expect(svc.targetFor('a')).toBe(target)
+    expect(svc.targetUnavailableReasonFor('a')).toBeUndefined()
+    expect(machines).not.toHaveBeenCalled()
+  })
+
   it('issues no grants until a target is set', () => {
     const { svc, send } = make([m('a')])
     svc.tick()

@@ -558,6 +558,11 @@ export class MachinesService {
    * reads the field and already denies FIRST when it says `'denied'`, so
    * supplying it here is what turns the whole placement surface on.
    */
+  /** Raw persisted update authority, kept separate from the wire projection. */
+  updateChannel(machineId: string): UpdateChannel | undefined {
+    return this.machineRecords().find((machine) => machine.id === machineId)?.updateChannel
+  }
+
   listMachines(use?: MachineUseResolver, owned?: MachineOwnedResolver): MachineListing[] {
     return this.machineRecords().map((m) => {
       let target: string | undefined
