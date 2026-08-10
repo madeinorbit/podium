@@ -84,7 +84,9 @@ In the UI, verify this sequence with real clicks:
    in user language; edge/stable-selected machines are not counted against the dev target.
 3. Clicking **Update Podium** changes the same non-modal panel to applying.
 4. Every selected development machine reaches the exact target and reconnects as
-   `current` before the coordinating server requests its guarded restart.
+   `current` before the coordinating server requests its guarded restart. Prove this
+   from the server's raw post-reconnect machine identity, not an optimistic update status
+   emitted before the old daemon exits.
 5. The source daemon selects git delivery; an installed daemon must not select git merely
    because it is offered.
 6. Sessions remain usable while the server/daemon reconnect.
