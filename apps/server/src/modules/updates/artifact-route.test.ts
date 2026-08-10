@@ -43,7 +43,7 @@ describe('development artifact route', () => {
     expect(url.searchParams.get('token')).toBe('random token/?')
   })
   it('keeps a source publisher enabled for same-host fallback', () => {
-    const base = {
+    const base: Parameters<typeof wireDevBundlePublisher>[0] = {
       sourceRoot: '/repo/podium',
       artifactOrigin: 'https://podium.example.test',
       localArtifactOrigin: () => 'http://127.0.0.1:18787',
@@ -51,6 +51,12 @@ describe('development artifact route', () => {
       artifactToken: 'random-token',
       signingKey: 'unused-until-build',
       setTarget: () => {},
+      locks: {
+        acquire: () => ({ granted: true, alreadyHeld: false, lock: {} as never }),
+        cancel: () => {},
+        renew: () => {},
+        release: () => {},
+      },
     }
     expect(wireDevBundlePublisher(base).enabled).toBe(true)
     expect(
