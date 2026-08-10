@@ -8,3 +8,4 @@ commands.allow = ["claim_update_ownership"]
 [[permission]]
 identifier = "deny-claim-update-ownership"
 description = "Denies the claim_update_ownership command without any pre-configured scope."
+commands.deny = ["claim_update_ownership"]

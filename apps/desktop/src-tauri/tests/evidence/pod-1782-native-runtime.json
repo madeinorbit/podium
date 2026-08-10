@@ -1,0 +1,44 @@
+{
+  "issue": "POD-1782",
+  "date": "2026-08-10",
+  "platform": "Linux native Tauri WebView under isolated Xvfb",
+  "stateIsolation": "PODIUM_STATE_DIR pointed to a new /tmp directory; no live user state was read or written",
+  "transition": {
+    "initialMode": "all-in-one",
+    "journal": {
+      "formatVersion": 1,
+      "state": "committed",
+      "recordShape": ["transferId", "publicUrl"]
+    },
+    "existingWindowRetargeted": true,
+    "applicationRestarted": false
+  },
+  "supervision": {
+    "localHost": {
+      "args": ["--takeover"],
+      "PODIUM_DESKTOP_SUPERVISED": "1"
+    },
+    "replacementDaemon": {
+      "argsShape": ["daemon", "--server", "<remote-http-origin>", "--takeover"],
+      "PODIUM_DESKTOP_SUPERVISED": null
+    }
+  },
+  "session": {
+    "sourceCookie": "HttpOnly podium_session on source origin 127.0.0.1",
+    "targetHost": "127.0.0.2 (distinct loopback IP; port redacted)",
+    "ipDomainCookieStoredAndSent": true,
+    "targetAuthenticatedStatus": 200,
+    "cookieValueRedacted": true
+  },
+  "remoteBridge": {
+    "launchMode": "daemon",
+    "internalToggleMaximize": "ok",
+    "toggleMaximize": "ok",
+    "startDragging": "ok"
+  },
+  "observedDesktopLog": [
+    "transfer runtime-transfer committed; retargeting shell to <remote-http-origin>",
+    "copied podium_session in memory for transferred origin",
+    "existing window retargeted to transferred origin"
+  ]
+}

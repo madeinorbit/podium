@@ -3,40 +3,140 @@
 mod bootstrap;
 mod updater;
 
+use std::path::Path;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use updater::{check_update, claim_update_ownership, install_update};
 use tauri::menu::{Menu, MenuItem};
 #[cfg(target_os = "macos")]
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
-use tauri::tray::TrayIconBuilder;
-use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri::path::BaseDirectory;
+use tauri::tray::TrayIconBuilder;
+use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindowBuilder};
+use updater::{check_update, claim_update_ownership, install_update};
 
-/// FIX 2 (generalized): supervision monitor thread. Waits on the current child; if it exits
-/// while the app is NOT shutting down, respawns it via `spawn_fn` with bounded backoff
-/// (500ms → cap 5s). Works for both the all-in-one server and the daemon child.
-fn spawn_respawn_monitor<F>(
+const DESKTOP_SUPERVISED_ENV: &str = "PODIUM_DESKTOP_SUPERVISED";
+const NATIVE_WINDOW_PERMISSIONS: &[&str] = &[
+    "core:window:allow-start-dragging",
+    "core:window:allow-internal-toggle-maximize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-minimize",
+    "core:window:allow-close",
+    "allow-claim-update-ownership",
+    "allow-check-update",
+    "allow-install-update",
+    "process:allow-restart",
+];
+
+fn local_host_sidecar_command(
+    runnable: &Path,
+    sidecar_args: &[String],
+    port: u16,
+    web_dir: &Path,
+) -> Command {
+    let mut command = Command::new(runnable);
+    command
+        .args(sidecar_args)
+        .env("PODIUM_PORT", port.to_string())
+        .env("PODIUM_WEB_DIR", web_dir.to_string_lossy().to_string())
+        .env(DESKTOP_SUPERVISED_ENV, "1");
+    command
+}
+
+fn replacement_daemon_command(runnable: &Path, server_url: &str) -> Command {
+    let mut command = Command::new(runnable);
+    command.args(["daemon", "--server", server_url, "--takeover"]);
+    command
+}
+
+fn native_window_capability(
+    identifier: &str,
+    remote_pattern: Option<String>,
+) -> tauri::ipc::CapabilityBuilder {
+    let mut capability = tauri::ipc::CapabilityBuilder::new(identifier).window("main");
+    for permission in NATIVE_WINDOW_PERMISSIONS {
+        capability = capability.permission(*permission);
+    }
+    if let Some(pattern) = remote_pattern {
+        capability = capability.remote(pattern);
+    }
+    capability
+}
+
+fn retarget_session_cookie(
+    app: &AppHandle,
+    source_url: &Url,
+    server_url: &str,
+) -> Result<bool, String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "main window is unavailable".to_string())?;
+    let cookies = window
+        .cookies_for_url(source_url.clone())
+        .map_err(|error| format!("cannot read local session cookie: {error}"))?;
+    let Some(source_cookie) = cookies
+        .into_iter()
+        .find(|cookie| cookie.name() == "podium_session")
+    else {
+        return Ok(false);
+    };
+    let target_cookie = bootstrap::session_cookie_for_target(source_cookie.value(), server_url)?;
+    window
+        .set_cookie(target_cookie)
+        .map_err(|error| format!("cannot set transferred session cookie: {error}"))?;
+    Ok(true)
+}
+
+fn retarget_existing_window(
+    app: &AppHandle,
+    source_url: &Url,
+    server_url: &str,
+) -> Result<(), String> {
+    match retarget_session_cookie(app, source_url, server_url)? {
+        true => {
+            eprintln!("[podium-desktop] copied podium_session in memory for transferred origin")
+        }
+        false => eprintln!("[podium-desktop] no local podium_session cookie to transfer"),
+    }
+    grant_transfer_remote_capabilities(app, server_url)?;
+    let target = Url::parse(&bootstrap::webview_http_url(server_url))
+        .map_err(|error| format!("invalid transfer target: {error}"))?;
+    app.get_webview_window("main")
+        .ok_or_else(|| "main window is unavailable".to_string())?
+        .navigate(target)
+        .map_err(|error| format!("cannot navigate transferred window: {error}"))?;
+    eprintln!("[podium-desktop] existing window retargeted to transferred origin");
+    Ok(())
+}
+
+/// Supervise the backend child. Ordinary exits retain the existing bounded-backoff respawn;
+/// only a durable, matching server-transfer transition retargets the existing webview and
+/// switches supervision to an explicit daemon child.
+fn spawn_respawn_monitor<F, S, D>(
     child_state: Arc<Mutex<Option<std::process::Child>>>,
     shutting_down: Arc<AtomicBool>,
+    app_handle: AppHandle,
+    source_cookie_url: Option<Url>,
     spawn_fn: F,
+    spawn_daemon_fn: S,
+    exit_decision: D,
     label: String,
 ) where
     F: Fn() -> std::io::Result<std::process::Child> + Send + 'static,
+    S: Fn(&str) -> std::io::Result<std::process::Child> + Send + 'static,
+    D: Fn() -> bootstrap::BackendExitDecision + Send + 'static,
 {
     std::thread::spawn(move || {
         let mut backoff_ms: u64 = 500;
+        let mut transferred_server_url: Option<String> = None;
         const BACKOFF_CAP_MS: u64 = 5_000;
 
         loop {
-            // Wait for the current child to exit.
             let exited = {
                 let mut guard = child_state.lock().unwrap();
                 if let Some(ref mut child) = *guard {
                     child.wait().ok()
                 } else {
-                    // Child was already reaped by the exit handler — stop monitoring.
                     break;
                 }
             };
@@ -45,25 +145,66 @@ fn spawn_respawn_monitor<F>(
                 break;
             }
 
-            eprintln!(
-                "[podium-desktop] backend exited ({exited:?}); \
-                 respawning in {backoff_ms}ms {label}"
-            );
-            std::thread::sleep(std::time::Duration::from_millis(backoff_ms));
-            backoff_ms = (backoff_ms * 2).min(BACKOFF_CAP_MS);
+            let decision = if transferred_server_url.is_some() {
+                bootstrap::BackendExitDecision::Respawn
+            } else {
+                exit_decision()
+            };
+            let intentional_transfer = match decision {
+                bootstrap::BackendExitDecision::Respawn => false,
+                bootstrap::BackendExitDecision::Retarget {
+                    transfer_id,
+                    server_url,
+                } => {
+                    eprintln!(
+                        "[podium-desktop] transfer {transfer_id} committed; retargeting shell to {server_url}"
+                    );
+                    let result = source_cookie_url
+                        .as_ref()
+                        .ok_or_else(|| "source cookie origin is unavailable".to_string())
+                        .and_then(|source_url| {
+                            retarget_existing_window(&app_handle, source_url, &server_url)
+                        });
+                    if let Err(error) = result {
+                        eprintln!("[podium-desktop] committed transfer retarget failed: {error}");
+                        let _ = child_state.lock().map(|mut child| child.take());
+                        break;
+                    }
+                    transferred_server_url = Some(server_url);
+                    true
+                }
+                bootstrap::BackendExitDecision::Hold { reason } => {
+                    eprintln!(
+                        "[podium-desktop] backend exited during an unproven role transition; not respawning: {reason}"
+                    );
+                    let _ = child_state.lock().map(|mut child| child.take());
+                    break;
+                }
+            };
+
+            if !intentional_transfer {
+                eprintln!(
+                    "[podium-desktop] backend exited ({exited:?}); \
+                     respawning in {backoff_ms}ms {label}"
+                );
+                std::thread::sleep(std::time::Duration::from_millis(backoff_ms));
+                backoff_ms = (backoff_ms * 2).min(BACKOFF_CAP_MS);
+            }
 
             if shutting_down.load(Ordering::Acquire) {
                 break;
             }
 
-            match spawn_fn() {
+            let spawned = match transferred_server_url.as_deref() {
+                Some(server_url) => spawn_daemon_fn(server_url),
+                None => spawn_fn(),
+            };
+            match spawned {
                 Ok(new_child) => {
                     *child_state.lock().unwrap() = Some(new_child);
-                    backoff_ms = 500; // reset on successful spawn
+                    backoff_ms = 500;
                 }
-                Err(e) => {
-                    eprintln!("[podium-desktop] respawn failed: {e}");
-                }
+                Err(e) => eprintln!("[podium-desktop] respawn failed: {e}"),
             }
         }
     });
@@ -129,10 +270,19 @@ fn native_desktop_hook(launch_mode: &str, machine_id: Option<&str>) -> String {
         .and_then(|id| serde_json::to_string(id).ok())
         .map(|lit| format!(",\n            machineId: {lit}"))
         .unwrap_or_default();
+    let launch_mode_literal =
+        serde_json::to_string(launch_mode).unwrap_or_else(|_| "\"all-in-one\"".to_string());
+    let launch_mode_expression = if matches!(launch_mode, "all-in-one" | "server") {
+        format!(
+            "((window.location.protocol === 'tauri:' || window.location.hostname === 'tauri.localhost') ? {launch_mode_literal} : 'daemon')"
+        )
+    } else {
+        launch_mode_literal
+    };
     format!(
         r#"window.__PODIUM_DESKTOP__ = Object.freeze({{
             platform: "{DESKTOP_PLATFORM}",
-            launchMode: "{launch_mode}"{machine_id},
+            launchMode: {launch_mode_expression}{machine_id},
             minimize: () => window.__TAURI_INTERNALS__.invoke('plugin:window|minimize', {{ label: 'main' }}),
             toggleMaximize: () => window.__TAURI_INTERNALS__.invoke('plugin:window|toggle_maximize', {{ label: 'main' }}),
             close: () => window.__TAURI_INTERNALS__.invoke('plugin:window|close', {{ label: 'main' }}){update_commands}{open_external}{enable_hosting}
@@ -158,6 +308,31 @@ fn remote_capability_pattern(server_url: &str) -> Result<String, String> {
     let url = tauri::Url::parse(&bootstrap::webview_http_url(server_url))
         .map_err(|error| error.to_string())?;
     Ok(format!("{}/*", url.origin().ascii_serialization()))
+}
+
+fn grant_transfer_remote_capabilities(app: &AppHandle, server_url: &str) -> Result<(), String> {
+    let pattern = remote_capability_pattern(server_url)?;
+    let window = native_window_capability("transfer-window-controls", Some(pattern.clone()));
+    let opener = tauri::ipc::CapabilityBuilder::new("transfer-external-link-opener")
+        .window("main")
+        .remote(pattern.clone())
+        .permission("opener:default");
+    let sqlite = tauri::ipc::CapabilityBuilder::new("transfer-replica-sqlite")
+        .window("main")
+        .remote(pattern.clone())
+        .permission("sql:default")
+        .permission("sql:allow-execute");
+    let updates = tauri::ipc::CapabilityBuilder::new("transfer-update-bridge")
+        .window("main")
+        .remote(pattern)
+        .permission("allow-claim-update-ownership")
+        .permission("allow-check-update")
+        .permission("allow-install-update");
+    for capability in [window, opener, sqlite, updates] {
+        app.add_capability(capability)
+            .map_err(|error| format!("cannot grant transferred origin capability: {error}"))?;
+    }
+    Ok(())
 }
 
 fn main() {
@@ -251,7 +426,7 @@ fn main() {
             // to the local relay. Remote modes load the relay's own URL directly so the page is
             // same-origin with it — WKWebView's WebSocket from a tauri://localhost page to a remote
             // TLS relay fails (1006), but a same-origin load connects, exactly like a browser tab.
-            let webview_url: WebviewUrl;
+            let mut webview_url: WebviewUrl;
             let remote_window_server_url: Option<String>;
 
             // mode=server (#176): the sidecar gets the explicit `server` subcommand so it runs
@@ -259,6 +434,7 @@ fn main() {
             // persistence-managed dispatch (which would start systemd units and exit, leaving
             // nothing on our picked port to supervise).
             let server_only = action == bootstrap::LaunchAction::LocalServerOnly;
+            let initial_action = action.clone();
 
             match action {
                 bootstrap::LaunchAction::LocalAllInOne
@@ -295,10 +471,12 @@ fn main() {
                     );
 
                     // Spawn the initial sidecar child process.
-                    let child = Command::new(&runnable)
-                        .args(&sidecar_args)
-                        .env("PODIUM_PORT", port.to_string())
-                        .env("PODIUM_WEB_DIR", web_dir.to_string_lossy().to_string())
+                    let child = local_host_sidecar_command(
+                        &runnable,
+                        &sidecar_args,
+                        port,
+                        &web_dir,
+                    )
                         .spawn()
                         .map_err(|e| {
                             eprintln!("[podium-desktop] spawn failed: {e}");
@@ -310,18 +488,31 @@ fn main() {
                     // while the app is NOT shutting down, respawns it on the same port with
                     // bounded backoff (500ms → cap 5s). The web client auto-reconnects over WS.
                     let runnable2 = runnable.clone();
+                    let runnable_daemon = runnable.clone();
                     let web_dir2 = web_dir.clone();
                     let sidecar_args2 = sidecar_args.clone();
+                    let transition_action = initial_action.clone();
+                    let monitor_app = app.handle().clone();
+                    let source_cookie_url = Url::parse(&format!("http://127.0.0.1:{port}"))
+                        .expect("loopback desktop URL is valid");
                     spawn_respawn_monitor(
                         child_state.clone(),
                         shutting_down.clone(),
+                        monitor_app,
+                        Some(source_cookie_url),
                         move || {
-                            Command::new(&runnable2)
-                                .args(&sidecar_args2)
-                                .env("PODIUM_PORT", port.to_string())
-                                .env("PODIUM_WEB_DIR", web_dir2.to_string_lossy().to_string())
+                            local_host_sidecar_command(
+                                &runnable2,
+                                &sidecar_args2,
+                                port,
+                                &web_dir2,
+                            )
                                 .spawn()
                         },
+                        move |server_url| {
+                            replacement_daemon_command(&runnable_daemon, server_url).spawn()
+                        },
+                        move || bootstrap::backend_exit_decision(&transition_action),
                         format!("on port {port}"),
                     );
 
@@ -344,17 +535,27 @@ fn main() {
                     })?;
 
                     eprintln!("[podium-desktop] spawning daemon {runnable:?} → {server_url}");
-                    let child = Command::new(&runnable).spawn().map_err(|e| {
+                    let child = replacement_daemon_command(&runnable, &server_url)
+                        .spawn()
+                        .map_err(|e| {
                         eprintln!("[podium-desktop] daemon spawn failed: {e}");
                         e
                     })?;
                     *child_state.lock().unwrap() = Some(child);
 
                     let runnable2 = runnable.clone();
+                    let runnable_daemon = runnable.clone();
+                    let respawn_server_url = server_url.clone();
                     spawn_respawn_monitor(
                         child_state.clone(),
                         shutting_down.clone(),
-                        move || Command::new(&runnable2).spawn(),
+                        app.handle().clone(),
+                        None,
+                        move || replacement_daemon_command(&runnable2, &respawn_server_url).spawn(),
+                        move |server_url| {
+                            replacement_daemon_command(&runnable_daemon, server_url).spawn()
+                        },
+                        || bootstrap::BackendExitDecision::Respawn,
                         "(daemon)".to_string(),
                     );
 
@@ -372,24 +573,28 @@ fn main() {
                 }
             }
 
+            // Native runtime proof seam: debug builds may load the scratch host origin directly
+            // so a tiny test server can set an HttpOnly cookie before the committed transition.
+            // Production builds cannot enter this path, and the state/sidecar remain isolated by
+            // PODIUM_STATE_DIR and the staged scratch resource.
+            if cfg!(debug_assertions)
+                && std::env::var("PODIUM_DESKTOP_RUNTIME_PROBE").as_deref() == Ok("1")
+            {
+                if let Some(port) = wait_local_port {
+                    webview_url = WebviewUrl::External(
+                        Url::parse(&format!("http://127.0.0.1:{port}"))
+                            .expect("runtime probe loopback URL is valid"),
+                    );
+                    eprintln!(
+                        "[podium-desktop] runtime probe loading scratch host origin on port {port}"
+                    );
+                }
+            }
+
+            // One canonical list backs both startup and post-transfer remote grants so the
+            // custom titlebar cannot lose drag/maximize permissions during retarget.
             let mut window_capability =
-                tauri::ipc::CapabilityBuilder::new("native-window-controls")
-                    .window("main")
-                    .permission("core:window:allow-start-dragging")
-                    .permission("core:window:allow-internal-toggle-maximize")
-                    .permission("core:window:allow-toggle-maximize")
-                    .permission("core:window:allow-minimize")
-                    .permission("core:window:allow-close")
-                    // __PODIUM_RESTART__ must also work from remote-loaded (client/daemon)
-                    // windows — the static capability file only covers local URLs, so without
-                    // this a mode change from a remote page (SetupGate, the hosting toggle
-                    // [spec:SP-3701]) throws "process.restart not allowed".
-                    // Update commands are available in every launch mode. Keeping them on this
-                    // capability also lets the remote() grant below cover the loaded origin.
-                    .permission("allow-claim-update-ownership")
-                    .permission("allow-check-update")
-                    .permission("allow-install-update")
-                    .permission("process:allow-restart");
+                native_window_capability("native-window-controls", None);
             // External-link opener for the injected shim (see bootstrap::opener_shim_script).
             // Runtime-granted next to the window-controls capability so remote-mode windows
             // (which load the relay origin directly) get it too.
@@ -498,22 +703,27 @@ fn main() {
             }
 
             // Build the tray icon with Open / Quit menu items.
-            let open = MenuItem::with_id(app, "open", "Open Podium", true, None::<&str>)?;
-            let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&open, &quit])?;
-            let _tray = TrayIconBuilder::new()
-                .menu(&menu)
-                .on_menu_event(|app, event| match event.id.as_ref() {
-                    "open" => {
-                        if let Some(w) = app.get_webview_window("main") {
-                            let _ = w.show();
-                            let _ = w.set_focus();
+            // The debug-only runtime proof uses a minimal scratch X server with no icon theme.
+            if !(cfg!(debug_assertions)
+                && std::env::var("PODIUM_DESKTOP_RUNTIME_PROBE").as_deref() == Ok("1"))
+            {
+                let open = MenuItem::with_id(app, "open", "Open Podium", true, None::<&str>)?;
+                let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+                let menu = Menu::with_items(app, &[&open, &quit])?;
+                let _tray = TrayIconBuilder::new()
+                    .menu(&menu)
+                    .on_menu_event(|app, event| match event.id.as_ref() {
+                        "open" => {
+                            if let Some(w) = app.get_webview_window("main") {
+                                let _ = w.show();
+                                let _ = w.set_focus();
+                            }
                         }
-                    }
-                    "quit" => app.exit(0),
-                    _ => {}
-                })
-                .build(app)?;
+                        "quit" => app.exit(0),
+                        _ => {}
+                    })
+                    .build(app)?;
+            }
 
             // Wait for the local backend (if any) to accept connections, then open the window.
             // Remote modes (daemon/client) skip the wait — the web client handles connect/retry.
@@ -679,11 +889,61 @@ fn main() {
 mod tests {
     use super::*;
 
+    fn command_env(command: &Command, key: &str) -> Option<String> {
+        command
+            .get_envs()
+            .find(|(name, _)| *name == key)
+            .and_then(|(_, value)| value)
+            .map(|value| value.to_string_lossy().into_owned())
+    }
+
+    #[test]
+    fn local_host_sidecars_are_marked_but_replacement_daemons_are_not() {
+        let host = local_host_sidecar_command(
+            Path::new("podium"),
+            &["--takeover".to_string()],
+            18787,
+            Path::new("web"),
+        );
+        assert_eq!(
+            command_env(&host, DESKTOP_SUPERVISED_ENV).as_deref(),
+            Some("1")
+        );
+
+        let daemon = replacement_daemon_command(Path::new("podium"), "wss://new.example");
+        assert_eq!(command_env(&daemon, DESKTOP_SUPERVISED_ENV), None);
+        assert_eq!(
+            daemon
+                .get_args()
+                .map(|arg| arg.to_string_lossy().into_owned())
+                .collect::<Vec<_>>(),
+            ["daemon", "--server", "wss://new.example", "--takeover"]
+        );
+    }
+
+    #[test]
+    fn transferred_window_uses_the_full_canonical_permission_set() {
+        assert_eq!(
+            NATIVE_WINDOW_PERMISSIONS,
+            [
+                "core:window:allow-start-dragging",
+                "core:window:allow-internal-toggle-maximize",
+                "core:window:allow-toggle-maximize",
+                "core:window:allow-minimize",
+                "core:window:allow-close",
+                "allow-claim-update-ownership",
+                "allow-check-update",
+                "allow-install-update",
+                "process:allow-restart",
+            ]
+        );
+    }
+
     #[test]
     fn native_hook_exposes_only_window_actions() {
         let hook = native_desktop_hook("all-in-one", None);
         assert!(hook.contains(&format!("platform: \"{DESKTOP_PLATFORM}\"")));
-        assert!(hook.contains("launchMode: \"all-in-one\""));
+        assert!(hook.contains("? \"all-in-one\" : 'daemon'"));
         assert!(hook.contains("plugin:window|minimize"));
         assert!(hook.contains("plugin:window|toggle_maximize"));
         assert!(hook.contains("plugin:window|close"));
@@ -726,6 +986,16 @@ mod tests {
         for mode in ["daemon", "server", "all-in-one"] {
             assert!(!native_desktop_hook(mode, None).contains("enableHosting"));
         }
+    }
+
+    #[test]
+    fn local_native_hook_reports_daemon_after_remote_retarget() {
+        for mode in ["all-in-one", "server"] {
+            let hook = native_desktop_hook(mode, None);
+            assert!(hook.contains("window.location.protocol === 'tauri:'"));
+            assert!(hook.contains(": 'daemon'"));
+        }
+        assert!(native_desktop_hook("daemon", None).contains("launchMode: \"daemon\""));
     }
 
     #[test]

@@ -1,6 +1,9 @@
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
+use tauri::webview::cookie::{Cookie, SameSite};
 use tauri::{Url, WebviewUrl};
+
+const SERVER_TRANSFER_JOURNAL: &str = ".server-transfer/journal.json";
 
 /// Bind an ephemeral loopback port and return it (best-effort; falls back to 18787).
 ///
@@ -58,6 +61,63 @@ pub enum LaunchAction {
     ClientOnly { server_url: String },
 }
 
+/// What a desktop supervisor should do when its locally-hosted backend exits.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BackendExitDecision {
+    Respawn,
+    Retarget {
+        transfer_id: String,
+        server_url: String,
+    },
+    Hold {
+        reason: String,
+    },
+}
+
+struct TransferMarker {
+    version: u64,
+    transfer_id: String,
+    public_url: String,
+    state: String,
+}
+
+fn parse_transfer_marker(raw: &str) -> Result<TransferMarker, String> {
+    let value: serde_json::Value = serde_json::from_str(raw).map_err(|error| error.to_string())?;
+    let version = value
+        .get("formatVersion")
+        .or_else(|| value.get("version"))
+        .and_then(serde_json::Value::as_u64)
+        .ok_or_else(|| "server-transfer marker has no format version".to_string())?;
+    let state = value
+        .get("state")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "server-transfer marker has no state".to_string())?;
+    // POD-1749's stable journal nests transfer identity under `record`. Accept the earlier
+    // flat prototype during integration so desktop continuity does not depend on landing order.
+    let record = value.get("record").unwrap_or(&value);
+    let transfer_id = record
+        .get("transferId")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "server-transfer marker has no transfer id".to_string())?;
+    let public_url = record
+        .get("publicUrl")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "server-transfer marker has no public URL".to_string())?;
+    Ok(TransferMarker {
+        version,
+        transfer_id: transfer_id.to_string(),
+        public_url: public_url.to_string(),
+        state: state.to_string(),
+    })
+}
+
+fn is_local_host(action: &LaunchAction) -> bool {
+    matches!(
+        action,
+        LaunchAction::LocalAllInOne | LaunchAction::LocalServerOnly
+    )
+}
+
 /// Read `$PODIUM_STATE_DIR/config.json` else `~/.podium/config.json`, extracting `mode`,
 /// `serverUrl`, and `updateChannel`. A missing or corrupt file yields an empty config
 /// (→ all-in-one behavior on the stable update channel).
@@ -76,7 +136,10 @@ pub fn read_config() -> DesktopConfig {
         Err(_) => return DesktopConfig::default(),
     };
     DesktopConfig {
-        mode: json.get("mode").and_then(|v| v.as_str()).map(str::to_string),
+        mode: json
+            .get("mode")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
         server_url: json
             .get("serverUrl")
             .and_then(|v| v.as_str())
@@ -99,6 +162,116 @@ fn state_dir() -> PathBuf {
     PathBuf::from(base)
 }
 
+fn remote_http_url(server_url: &str) -> Result<Url, String> {
+    let url = Url::parse(&webview_http_url(server_url)).map_err(|error| error.to_string())?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err(format!("unsupported remote URL scheme: {}", url.scheme()));
+    }
+    Ok(url)
+}
+
+/// Build the one session cookie copied across a committed desktop origin transition. The value
+/// stays in memory; omitting expiry/max-age keeps it a session cookie, while the validated target
+/// host, root path, and transport flags prevent it from escaping to an unrelated origin.
+pub fn session_cookie_for_target(value: &str, server_url: &str) -> Result<Cookie<'static>, String> {
+    let target = remote_http_url(server_url)?;
+    let host = target
+        .host_str()
+        .filter(|host| !host.is_empty())
+        .ok_or_else(|| "remote server URL has no host".to_string())?;
+    Ok(
+        Cookie::build(("podium_session".to_string(), value.to_string()))
+            .domain(host.to_string())
+            .path("/")
+            .secure(target.scheme() == "https")
+            .http_only(true)
+            .same_site(SameSite::Lax)
+            .build(),
+    )
+}
+
+/// Pure classifier for a supervised local-backend exit. A role-preserving crash respawns with
+/// the existing backoff. A host-to-daemon change retargets the shell only when the source's
+/// durable committed journal names the same endpoint; every incomplete or mismatched transition
+/// holds instead of looping or guessing.
+pub fn classify_backend_exit(
+    initial_action: &LaunchAction,
+    current_config: &DesktopConfig,
+    journal_json: Option<&str>,
+) -> BackendExitDecision {
+    if !is_local_host(initial_action) {
+        return BackendExitDecision::Respawn;
+    }
+
+    let current_action = resolve_launch(
+        current_config.mode.as_deref(),
+        current_config.server_url.as_deref(),
+    );
+    let same_host_role = matches!(
+        (initial_action, &current_action),
+        (LaunchAction::LocalAllInOne, LaunchAction::LocalAllInOne)
+            | (LaunchAction::LocalServerOnly, LaunchAction::LocalServerOnly)
+    );
+    if same_host_role {
+        return BackendExitDecision::Respawn;
+    }
+
+    let LaunchAction::LocalDaemon { server_url } = current_action else {
+        return BackendExitDecision::Hold {
+            reason: format!(
+                "desktop backend role changed without a daemon target: {current_action:?}"
+            ),
+        };
+    };
+    let Some(journal_json) = journal_json else {
+        return BackendExitDecision::Hold {
+            reason: "daemon config has no durable server-transfer marker".to_string(),
+        };
+    };
+    let marker = match parse_transfer_marker(journal_json) {
+        Ok(marker) => marker,
+        Err(error) => {
+            return BackendExitDecision::Hold {
+                reason: format!("server-transfer marker is unreadable: {error}"),
+            }
+        }
+    };
+    if marker.version != 1 || marker.state != "committed" || marker.transfer_id.is_empty() {
+        return BackendExitDecision::Hold {
+            reason: format!(
+                "server-transfer marker is not a committed v1 transfer ({})",
+                marker.state
+            ),
+        };
+    }
+    let config_url = match remote_http_url(&server_url) {
+        Ok(url) => url,
+        Err(reason) => return BackendExitDecision::Hold { reason },
+    };
+    let journal_url = match remote_http_url(&marker.public_url) {
+        Ok(url) => url,
+        Err(reason) => return BackendExitDecision::Hold { reason },
+    };
+    if config_url != journal_url {
+        return BackendExitDecision::Hold {
+            reason: format!(
+                "server-transfer marker endpoint mismatch (config {config_url}, marker {journal_url})"
+            ),
+        };
+    }
+    BackendExitDecision::Retarget {
+        transfer_id: marker.transfer_id,
+        server_url,
+    }
+}
+
+pub fn backend_exit_decision(initial_action: &LaunchAction) -> BackendExitDecision {
+    let config = read_config();
+    let journal_path = state_dir().join(SERVER_TRANSFER_JOURNAL);
+    let journal = std::fs::read_to_string(&journal_path).ok();
+    classify_backend_exit(initial_action, &config, journal.as_deref())
+}
+
 /// [spec:SP-3701] This device's machine identity from a previous pairing
 /// (`~/.podium/daemon.json`), if any — lets the web UI mark "this machine" in the
 /// machines list and skip the standalone hosting card for already-paired devices.
@@ -114,7 +287,12 @@ pub fn read_daemon_machine_id() -> Option<String> {
 /// transition allowed is client → daemon against the serverUrl the user already configured
 /// (never a parameter), and every other config field is preserved verbatim.
 pub fn write_hosting_config(pair_code: &str) -> Result<(), String> {
-    if pair_code.is_empty() || pair_code.len() > 32 || !pair_code.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+    if pair_code.is_empty()
+        || pair_code.len() > 32
+        || !pair_code
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-')
+    {
         return Err("invalid pairing code".to_string());
     }
     let path = state_dir().join("config.json");
@@ -139,7 +317,10 @@ pub fn write_hosting_config(pair_code: &str) -> Result<(), String> {
     if !has_server_url {
         return Err("config has no serverUrl to pair against".to_string());
     }
-    obj.insert("mode".to_string(), serde_json::Value::String("daemon".to_string()));
+    obj.insert(
+        "mode".to_string(),
+        serde_json::Value::String("daemon".to_string()),
+    );
     obj.insert(
         "pairCode".to_string(),
         serde_json::Value::String(pair_code.to_string()),
@@ -176,7 +357,13 @@ pub fn resolve_launch(mode: Option<&str>, server_url: Option<&str>) -> LaunchAct
 /// The script injected before page load so the bundled web UI talks to the local backend
 /// (Phase 2 serverConfig reads window.__PODIUM_SERVER__ first).
 pub fn injection_script(port: u16) -> String {
-    server_injection_script(&format!("ws://127.0.0.1:{port}"))
+    // The script stays installed when the existing WebView moves to the transferred remote
+    // origin. Apply the loopback endpoint only on Tauri's bundled origin so it cannot override
+    // the remote page's same-origin server discovery after navigation.
+    format!(
+        "if (window.location.protocol === 'tauri:' || window.location.hostname === 'tauri.localhost') {{ {} }}",
+        server_injection_script(&format!("ws://127.0.0.1:{port}"))
+    )
 }
 
 /// Like `injection_script` but for an arbitrary (remote) server URL — used in client/daemon modes.
@@ -327,11 +514,10 @@ fn ensure_executable_into(src: &Path, cache_dir: &Path) -> std::io::Result<PathB
 /// Cache location: `$PODIUM_STATE_DIR/bin/podium-sidecar` if set,
 /// otherwise `~/.podium/bin/podium-sidecar`.
 pub fn ensure_executable(path: &Path) -> std::io::Result<PathBuf> {
-    let base = std::env::var("PODIUM_STATE_DIR")
-        .unwrap_or_else(|_| {
-            let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-            format!("{home}/.podium")
-        });
+    let base = std::env::var("PODIUM_STATE_DIR").unwrap_or_else(|_| {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+        format!("{home}/.podium")
+    });
     ensure_executable_into(path, &std::path::Path::new(&base).join("bin"))
 }
 
@@ -353,6 +539,7 @@ mod tests {
         let s = injection_script(18799);
         assert!(s.contains("ws://127.0.0.1:18799"));
         assert!(s.contains("__PODIUM_SERVER__"));
+        assert!(s.contains("window.location.protocol === 'tauri:'"));
     }
 
     #[test]
@@ -392,7 +579,9 @@ mod tests {
     fn remote_window_target_loads_the_relay_url_directly() {
         let (url, injection) = remote_window_target("https://relay.example:55555");
         // Same-origin load: an external relay URL, and NO injected server global.
-        assert!(matches!(url, WebviewUrl::External(u) if u.as_str() == "https://relay.example:55555/"));
+        assert!(
+            matches!(url, WebviewUrl::External(u) if u.as_str() == "https://relay.example:55555/")
+        );
         assert_eq!(injection, "");
     }
 
@@ -453,10 +642,166 @@ mod tests {
     #[test]
     fn resolve_launch_client_without_url_falls_back_to_local() {
         // No serverUrl → can't connect remotely; behave as all-in-one rather than break.
-        assert_eq!(resolve_launch(Some("client"), None), LaunchAction::LocalAllInOne);
+        assert_eq!(
+            resolve_launch(Some("client"), None),
+            LaunchAction::LocalAllInOne
+        );
         assert_eq!(
             resolve_launch(Some("daemon"), Some("")),
             LaunchAction::LocalAllInOne
+        );
+    }
+
+    #[test]
+    fn transferred_session_cookie_is_scoped_and_keeps_security_flags() {
+        let cookie = session_cookie_for_target("secret-test-value", "wss://new.example:55555")
+            .expect("cookie target should be valid");
+        assert_eq!(cookie.name(), "podium_session");
+        assert_eq!(cookie.value(), "secret-test-value");
+        assert_eq!(cookie.domain(), Some("new.example"));
+        assert_eq!(cookie.path(), Some("/"));
+        assert_eq!(cookie.secure(), Some(true));
+        assert_eq!(cookie.http_only(), Some(true));
+        assert_eq!(cookie.same_site(), Some(SameSite::Lax));
+        assert!(cookie.expires().is_none());
+        assert!(cookie.max_age().is_none());
+
+        let local = session_cookie_for_target("secret-test-value", "ws://127.0.0.1:9123")
+            .expect("http target should be valid");
+        assert_eq!(local.domain(), Some("127.0.0.1"));
+        assert_eq!(local.secure(), Some(false));
+    }
+
+    #[test]
+    fn transferred_session_cookie_rejects_non_http_targets() {
+        assert!(session_cookie_for_target("secret-test-value", "file:///tmp/server").is_err());
+        assert!(session_cookie_for_target("secret-test-value", "not a URL").is_err());
+    }
+
+    fn transfer_marker(state: &str, public_url: &str) -> String {
+        serde_json::json!({
+            "formatVersion": 1,
+            "state": state,
+            "record": {
+                "transferId": "transfer-1",
+                "targetMachineId": "machine-2",
+                "publicUrl": public_url
+            }
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn transfer_marker_parser_accepts_the_coordinator_journal_shape() {
+        let marker = parse_transfer_marker(&transfer_marker("committed", "https://new.example"))
+            .expect("stable coordinator journal should parse");
+        assert_eq!(marker.version, 1);
+        assert_eq!(marker.state, "committed");
+        assert_eq!(marker.transfer_id, "transfer-1");
+        assert_eq!(marker.public_url, "https://new.example");
+    }
+
+    #[test]
+    fn backend_exit_reader_observes_a_durable_scratch_transition() {
+        with_state_dir(
+            "server-transfer",
+            Some(r#"{"mode":"daemon","serverUrl":"wss://new.example:55555"}"#),
+            || {
+                let state_dir = PathBuf::from(std::env::var("PODIUM_STATE_DIR").unwrap());
+                let journal_dir = state_dir.join(".server-transfer");
+                std::fs::create_dir_all(&journal_dir).unwrap();
+                std::fs::write(
+                    journal_dir.join("journal.json"),
+                    transfer_marker("committed", "https://new.example:55555"),
+                )
+                .unwrap();
+                assert_eq!(
+                    backend_exit_decision(&LaunchAction::LocalAllInOne),
+                    BackendExitDecision::Retarget {
+                        transfer_id: "transfer-1".to_string(),
+                        server_url: "wss://new.example:55555".to_string(),
+                    }
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn unchanged_local_role_respawns_after_an_ordinary_crash() {
+        for (initial, config) in [
+            (LaunchAction::LocalAllInOne, DesktopConfig::default()),
+            (
+                LaunchAction::LocalServerOnly,
+                DesktopConfig {
+                    mode: Some("server".to_string()),
+                    ..DesktopConfig::default()
+                },
+            ),
+        ] {
+            assert_eq!(
+                classify_backend_exit(&initial, &config, None),
+                BackendExitDecision::Respawn
+            );
+        }
+    }
+
+    #[test]
+    fn committed_host_to_daemon_transition_retargets_the_app() {
+        let config = DesktopConfig {
+            mode: Some("daemon".to_string()),
+            server_url: Some("wss://new.example:55555".to_string()),
+            ..DesktopConfig::default()
+        };
+        assert_eq!(
+            classify_backend_exit(
+                &LaunchAction::LocalAllInOne,
+                &config,
+                Some(&transfer_marker("committed", "https://new.example:55555")),
+            ),
+            BackendExitDecision::Retarget {
+                transfer_id: "transfer-1".to_string(),
+                server_url: "wss://new.example:55555".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn incomplete_or_mismatched_transition_holds_without_a_restart_loop() {
+        let config = DesktopConfig {
+            mode: Some("daemon".to_string()),
+            server_url: Some("wss://new.example".to_string()),
+            ..DesktopConfig::default()
+        };
+        for marker in [
+            None,
+            Some(transfer_marker("committing", "https://new.example")),
+            Some(transfer_marker("committed", "https://other.example")),
+            Some(transfer_marker("committed", "file:///not-http")),
+        ] {
+            assert!(matches!(
+                classify_backend_exit(&LaunchAction::LocalAllInOne, &config, marker.as_deref(),),
+                BackendExitDecision::Hold { .. }
+            ));
+        }
+    }
+
+    #[test]
+    fn restarted_daemon_crash_only_respawns_and_cannot_restart_again() {
+        let initial = LaunchAction::LocalDaemon {
+            server_url: "wss://new.example".to_string(),
+        };
+        let config = DesktopConfig {
+            mode: Some("daemon".to_string()),
+            server_url: Some("wss://new.example".to_string()),
+            ..DesktopConfig::default()
+        };
+        assert_eq!(
+            classify_backend_exit(
+                &initial,
+                &config,
+                Some(&transfer_marker("committed", "https://new.example")),
+            ),
+            BackendExitDecision::Respawn
         );
     }
 
@@ -621,8 +966,8 @@ mod tests {
         use std::io::Write;
 
         // Separate temp dirs for source and cache (no env mutation).
-        let tmp = std::env::temp_dir()
-            .join(format!("podium-ensure-exe-test-{}", std::process::id()));
+        let tmp =
+            std::env::temp_dir().join(format!("podium-ensure-exe-test-{}", std::process::id()));
         let src_dir = tmp.join("src");
         let cache_dir = tmp.join("cache");
         fs::create_dir_all(&src_dir).unwrap();
@@ -633,8 +978,8 @@ mod tests {
             .write_all(b"#!/bin/sh\necho hello\n")
             .unwrap();
 
-        let result = ensure_executable_into(&src, &cache_dir)
-            .expect("ensure_executable_into failed");
+        let result =
+            ensure_executable_into(&src, &cache_dir).expect("ensure_executable_into failed");
 
         assert!(result.exists(), "result path does not exist: {result:?}");
         #[cfg(unix)]
@@ -652,8 +997,8 @@ mod tests {
         use std::fs;
         use std::io::Write;
 
-        let tmp = std::env::temp_dir()
-            .join(format!("podium-freshness-test-{}", std::process::id()));
+        let tmp =
+            std::env::temp_dir().join(format!("podium-freshness-test-{}", std::process::id()));
         let src_dir = tmp.join("src");
         let cache_dir = tmp.join("cache");
         fs::create_dir_all(&src_dir).unwrap();
@@ -665,8 +1010,7 @@ mod tests {
             .unwrap()
             .write_all(b"version-1")
             .unwrap();
-        let result = ensure_executable_into(&src, &cache_dir)
-            .expect("first copy failed");
+        let result = ensure_executable_into(&src, &cache_dir).expect("first copy failed");
         assert_eq!(fs::read(&result).unwrap(), b"version-1");
 
         // Second copy: different size → must re-copy regardless of mtime.
@@ -675,8 +1019,7 @@ mod tests {
             .write_all(b"version-2-longer")
             .unwrap();
 
-        let result2 = ensure_executable_into(&src, &cache_dir)
-            .expect("second copy failed");
+        let result2 = ensure_executable_into(&src, &cache_dir).expect("second copy failed");
         assert_eq!(
             fs::read(&result2).unwrap(),
             b"version-2-longer",
@@ -684,8 +1027,7 @@ mod tests {
         );
 
         // Third copy: same content again — should NOT re-copy (idempotent).
-        let result3 = ensure_executable_into(&src, &cache_dir)
-            .expect("third copy failed");
+        let result3 = ensure_executable_into(&src, &cache_dir).expect("third copy failed");
         assert_eq!(
             fs::read(&result3).unwrap(),
             b"version-2-longer",

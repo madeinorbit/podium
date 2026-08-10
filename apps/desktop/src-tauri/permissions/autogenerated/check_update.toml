@@ -8,3 +8,4 @@ commands.allow = ["check_update"]
 [[permission]]
 identifier = "deny-check-update"
 description = "Denies the check_update command without any pre-configured scope."
+commands.deny = ["check_update"]
