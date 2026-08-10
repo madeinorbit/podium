@@ -186,7 +186,10 @@ export function useTerminalSession(opts: UseTerminalSessionOptions): UseTerminal
 
   const { echoLatencyEnabled = false } = opts
   useEffect(() => {
-    mountedRef.current?.setEchoLatencyEnabled(echoLatencyEnabled)
+    // Optional CALL, not just an optional ref: a MountedSession that predates
+    // the echo probe (or any test double) has no such method, and `?.` on the ref
+    // alone still throws. session-mount.ts guards it the same way at :468/:564.
+    mountedRef.current?.setEchoLatencyEnabled?.(echoLatencyEnabled)
   }, [echoLatencyEnabled])
 
   // Appearance changes apply to the live instance — never a remount. The mount
