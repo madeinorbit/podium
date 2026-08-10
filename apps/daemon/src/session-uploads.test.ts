@@ -28,7 +28,7 @@ describe('transfer-fenced upload cleanup', () => {
     await fence.pauseAndDrain()
 
     removeSessionUploads(sessionId, fence, root)
-    await expect(access(upload)).resolves.toBeUndefined()
+    await access(upload)
 
     fence.resume()
     removeSessionUploads(sessionId, fence, root)
@@ -45,7 +45,7 @@ describe('transfer-fenced upload cleanup', () => {
     await fence.pauseAndDrain()
 
     await sweepUploads(fence, root)
-    await expect(access(upload)).resolves.toBeUndefined()
+    await access(upload)
 
     fence.resume()
     await sweepUploads(fence, root)
