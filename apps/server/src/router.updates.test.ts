@@ -136,8 +136,8 @@ describe('updates tRPC', () => {
       hostname: 'stable-machine',
       tokenHash: 'stable-token',
       ownerUserId: FIRST_ADMIN_USER_ID,
-      updateChannel: 'stable',
     })
+    registry.modules.machines.setUpdateChannel('stable-machine', 'stable')
     registry.modules.machines.setMachineBuild(
       'stable-machine',
       { appVersion: '0.4.1' },
