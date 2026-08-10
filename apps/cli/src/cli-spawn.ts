@@ -9,6 +9,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { localServerUrl, type PodiumConfig } from '@podium/runtime/config'
 import { liveRecord, logDir, type RunRole } from '@podium/runtime/run-registry'
+import { rolesForMode } from '@podium/runtime/transfer-lifecycle'
 
 /** True when running inside a `bun build --compile` binary (execPath IS `podium`). */
 const COMPILED = import.meta.url.includes('/$bunfs/')
@@ -84,13 +85,8 @@ export async function waitForHealth(
   return false
 }
 
-/** Roles that should be running for a given host mode. */
-export function rolesForMode(mode: PodiumConfig['mode']): RunRole[] {
-  if (mode === 'all-in-one') return ['server', 'janitor', 'daemon']
-  if (mode === 'server') return ['server', 'janitor']
-  if (mode === 'daemon') return ['daemon']
-  return []
-}
+// Roles that should be running for a given host mode.
+export { rolesForMode } from '@podium/runtime/transfer-lifecycle'
 
 /**
  * Start the detached split for a host box: server first (wait for /health), then the janitor and

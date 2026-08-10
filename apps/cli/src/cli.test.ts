@@ -481,6 +481,37 @@ describe('resolvePlan — utility subcommands', () => {
     expect(plan({}, ['set-server', 'wss://x'])).toEqual({ kind: 'set-server', target: 'wss://x' })
     expect(plan({}, ['set-server'])).toMatchObject({ kind: 'usage-error' })
   })
+  it('routes internal server-transfer lifecycle workers without entering launch mode', () => {
+    expect(plan({}, ['server-transfer-promote', '11111111-1111-4111-8111-111111111111'])).toEqual({
+      kind: 'server-transfer-promote',
+      transferId: '11111111-1111-4111-8111-111111111111',
+    })
+    expect(plan({}, ['server-transfer-promote'])).toMatchObject({ kind: 'usage-error' })
+    expect(plan({}, ['server-transfer-retire-daemon'])).toEqual({
+      kind: 'server-transfer-retire-daemon',
+    })
+  })
+  it('fences stale host roles after source demotion unless recovery is explicit', () => {
+    const config = { mode: 'daemon' as const, serverUrl: 'wss://target.example' }
+    expect(plan(config, ['server'])).toMatchObject({
+      kind: 'usage-error',
+      message: expect.stringContaining('fenced'),
+    })
+    expect(plan(config, ['all'])).toMatchObject({
+      kind: 'usage-error',
+      message: expect.stringContaining('fenced'),
+    })
+    expect(plan(config, ['all-in-one'])).toMatchObject({ kind: 'usage-error' })
+    expect(plan(config, ['server', '--takeover'])).toMatchObject({
+      kind: 'in-process',
+      claimRole: 'server',
+      takeover: true,
+    })
+    expect(plan(config, ['all', '--takeover'])).toMatchObject({
+      kind: 'usage-error',
+    })
+  })
+
   it('setup --repair wins over the interactive flow', () => {
     expect(plan({}, ['setup', '--repair'], {}, true)).toEqual({ kind: 'repair-config' })
   })

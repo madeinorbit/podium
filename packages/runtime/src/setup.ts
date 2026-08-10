@@ -144,9 +144,10 @@ export function consumePairCode(code: string): void {
 /**
  * Refuse a destructive write over an EXISTING-but-invalid config.json (issue #21): what
  * looks like a fresh box to loadConfig may be an operator's broken-but-recoverable config;
- * every setup mutation goes through here so it can't be silently clobbered.
+ * every setup mutation goes through here so it can't be silently clobbered. Exported for
+ * the server-transfer lifecycle, which performs the same guarded writes.
  */
-function assertConfigWritable(): void {
+export function assertConfigWritable(): void {
   const res = inspectConfig()
   if (res.state === 'corrupt') {
     throw new Error(
