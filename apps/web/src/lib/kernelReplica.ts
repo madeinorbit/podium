@@ -116,17 +116,21 @@ export interface KernelBroadcastChannel {
   close(): void
 }
 
+type CrossTabFeedFrame = Extract<FeedServerFrame, { type: 'feedDelta' | 'feedRescope' }>
+
 interface CrossTabFeedMessage {
   readonly kind: 'podium-kernel-feed'
   readonly version: 1
   readonly principal: string
-  readonly frame: Extract<FeedServerFrame, { type: 'feedDelta' }>
+  readonly frame: CrossTabFeedFrame
 }
 
 const CROSS_TAB_SEEN_LIMIT = 512
 
-function crossTabFrameKey(frame: Extract<FeedServerFrame, { type: 'feedDelta' }>): string {
-  return `${frame.feedId}\0${frame.epoch}\0${frame.fromSeq}\0${frame.seq}`
+function crossTabFrameKey(frame: CrossTabFeedFrame): string {
+  return frame.type === 'feedDelta'
+    ? `${frame.type}\0${frame.feedId}\0${frame.epoch}\0${frame.fromSeq}\0${frame.seq}`
+    : `${frame.type}\0${frame.feedId}\0${frame.epoch}\0${frame.seq}`
 }
 
 function isCrossTabFeedMessage(value: unknown, principal: string): value is CrossTabFeedMessage {
@@ -141,7 +145,7 @@ function isCrossTabFeedMessage(value: unknown, principal: string): value is Cros
   ) {
     return false
   }
-  return message.frame.type === 'feedDelta'
+  return message.frame.type === 'feedDelta' || message.frame.type === 'feedRescope'
 }
 
 /** What the app is owed about a migration that ran — see `summarizeMigrations`. */
@@ -454,9 +458,11 @@ export async function openKernelAssembly(
     return true
   }
   const relayFrame = (frame: FeedServerFrame, fromSocket: boolean): void => {
-    // Bootstrap and control frames belong to this exact socket's state-machine
-    // walk. Only ordered deltas are the shared client-install convergence path.
-    if (frame.type !== 'feedDelta') {
+    // Bootstrap and resync frames belong to this exact socket's state-machine
+    // walk. Ordered deltas and rescopes are the shared client-install
+    // convergence path: either can advance the durable cursor before another
+    // tab's socket delivery reaches its in-memory replica.
+    if (frame.type !== 'feedDelta' && frame.type !== 'feedRescope') {
       if (fromSocket) sink.frame(frame)
       return
     }
