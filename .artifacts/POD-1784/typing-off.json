@@ -1,0 +1,32 @@
+{
+  "measuredAt": "2026-08-10T08:14:45.883Z",
+  "url": "http://127.0.0.1:55557",
+  "browser": "firefox",
+  "mode": "verify-off",
+  "sessionId": "d8f2ad94-675e-4716-9cca-7d2d9249ea90",
+  "samples": 0,
+  "stats": {
+    "enabled": false,
+    "count": 0,
+    "p50": null,
+    "p90": null,
+    "max": null,
+    "lastMs": null,
+    "toFrame": {
+      "count": 0,
+      "p50": null,
+      "p90": null,
+      "max": null,
+      "lastMs": null
+    },
+    "frameToPaint": {
+      "count": 0,
+      "p50": null,
+      "p90": null,
+      "max": null,
+      "lastMs": null
+    },
+    "last": null
+  },
+  "observations": []
+}

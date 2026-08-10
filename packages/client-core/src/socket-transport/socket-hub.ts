@@ -43,6 +43,11 @@ import { type EchoLatencyStats, EchoLatencyTracker } from './echo-latency'
 import type { LegacyFeedSinkPort, LegacyMetadataProjection } from './legacy-feed-port'
 import { type ClientSubscription, ClientSubscriptionRegistry } from './subscriptions'
 
+const interactionNow = (): number =>
+  typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now()
+    : Date.now()
+
 export interface WebSocketLike {
   send(data: string): void
   close(): void
@@ -1610,14 +1615,29 @@ export class SessionConnection {
     return this.lastSeq
   }
 
-  sendInput(bytes: string): void {
-    this.echo.onInput(Date.now())
+  sendInput(bytes: string, inputEventAt?: number): void {
+    if (this.echo.enabled()) this.echo.onInput(inputEventAt ?? interactionNow())
     this.hub._sendInput({ type: 'input', sessionId: this.sessionId, data: utf8ToBase64(bytes) })
   }
 
-  /** Keystroke→echo latency over the last 30s — see {@link EchoLatencyTracker}. */
+  /** Enable/disable and reset the opt-in input→paint collector. */
+  setEchoLatencyEnabled(enabled: boolean): void {
+    this.echo.setEnabled(enabled)
+  }
+
+  /** Whether the next xterm render needs a browser-paint confirmation. */
+  echoPaintPending(): boolean {
+    return this.echo.awaitingPaint()
+  }
+
+  /** Close pending samples after xterm rendered and the browser crossed paint. */
+  markEchoPaint(): void {
+    this.echo.onPaint(interactionNow())
+  }
+
+  /** Input-event→paint latency over the last 30s — see {@link EchoLatencyTracker}. */
   echoLatency(): EchoLatencyStats {
-    return this.echo.stats(Date.now())
+    return this.echo.stats(interactionNow())
   }
 
   sendResize(cols: number, rows: number): void {
@@ -1688,7 +1708,7 @@ export class SessionConnection {
     outputFrame: (msg) => {
       this.lastSeq = msg.seq
       this.epoch = msg.epoch
-      this.echo.onOutput(Date.now())
+      if (this.echo.enabled()) this.echo.onOutput(interactionNow())
       const text = fromBase64Utf8(msg.data)
       // Latch before emit so the state this frame publishes already says the
       // PTY has spoken — a subscriber that clears a waiting affordance on the

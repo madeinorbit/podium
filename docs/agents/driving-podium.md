@@ -41,6 +41,43 @@ epoch clears. Add `?terminalDebug=1` (or set `localStorage['podium.terminalDebug
 to mirror non-anomalous events to the console; anomalies warn automatically. Under
 `?e2e=1`, `window.__podium.diagnostics()` returns the current session's history.
 
+### Measure real typing latency
+
+The native terminal has an opt-in input-event→visible-echo collector. It starts at the
+browser keyboard event (so browser-main-thread input delay counts), marks the first PTY
+output frame that follows, and closes only after xterm renders it and the browser crosses
+a paint boundary. The result separates the full delay into:
+
+- `toFrame`: browser input event → output frame received (WebSocket, server, daemon, PTY,
+  and agent/shell repaint);
+- `frameToPaint`: output frame received → xterm render + browser paint confirmation;
+- top-level `p50`/`p90`/`max`: the end-to-end sum a person feels.
+
+It is off by default and disabling it clears retained samples. Enable one browser with
+`?echoHud=1`; `?echoHud=0` explicitly overrides a stored setting. For a persistent
+device-local toggle, set the routed UI-state key `podium.echoHud` to `1`. The HUD shows
+the stage percentiles and ping RTT, while `?e2e=1` exposes the full object as
+`window.__podium.echoLatency()`.
+
+The repeatable live benchmark creates its own idle shell through the real UI, types and
+erases through xterm's keyboard path, writes a JSON report, then exits the shell even on
+failure:
+
+```sh
+bun run perf:typing -- --samples=60 --out=.artifacts/typing-latency.json
+bun run perf:typing -- --verify-off --out=.artifacts/typing-off.json
+```
+
+It targets `http://localhost:18787` and mints a short-lived browser session by default;
+override with `PODIUM_URL` or `PODIUM_BROWSER_TOKEN`. On Linux it keeps Playwright's
+temporary browser profile in `/dev/shm`. Run it at an idle prompt: during streaming,
+an unrelated next output frame can make `toFrame` under-report the key's true round trip.
+
+For attribution beyond the browser, pair the JSON timestamps with
+`PODIUM_LOOP_PROFILE=1` server/daemon journals. That environment probe is independent and
+can be turned off at service startup; `PODIUM_LOOP_PROFILE_STACKS=1` adds the more
+expensive SQLite caller stacks only when needed.
+
 ## Setup gotchas
 
 - **Force the native terminal**: `await page.addInitScript(() => localStorage.setItem('podium.panelMode','native'))` **before** `goto` — else you land in chat view and `__podium`/the xterm isn't mounted.

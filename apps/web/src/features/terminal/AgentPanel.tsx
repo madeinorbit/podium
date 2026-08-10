@@ -427,6 +427,7 @@ export function AgentPanel({
   const canFitInitialAppearance =
     gates.ptySizingAllowed &&
     (typeof document === 'undefined' || document.visibilityState === 'visible')
+  const echoLatencyEnabled = echoHudEnabled(uiState)
 
   const {
     containerRef: termRef,
@@ -455,6 +456,7 @@ export function AgentPanel({
     focusOnMount: false,
     focusWhenReady: true,
     test: E2E,
+    echoLatencyEnabled,
     // Applied synchronously in onMounted below. Passing it here would make
     // useTerminalSession apply it a second time in its initial appearance
     // effect, which also schedules a redundant fit.
@@ -972,7 +974,7 @@ export function AgentPanel({
                 <ArrowDownToLine size={13} aria-hidden="true" /> Jump to bottom
               </Button>
             )}
-            {echoHudEnabled(uiState) && <EchoHud hub={hub} mountedRef={mountedRef} />}
+            {echoLatencyEnabled && <EchoHud hub={hub} mountedRef={mountedRef} />}
           </div>
           {/* Prompt-area chrome (§2.6, Q1 default): a tinted rule + mono hint
               row hugging the PTY's bottom edge — the composer itself is the
