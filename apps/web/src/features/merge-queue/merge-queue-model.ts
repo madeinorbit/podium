@@ -1,37 +1,37 @@
 import { issuePendingDecision } from '@podium/client-core/viewmodels'
 import type { IssueViewModel } from '@/app/store'
 
-/** Identity carried by the advisory merge-lock projection. */
-export interface MergeQueuePrincipal {
+/** Identity carried by an advisory lock projection. */
+export interface QueuePrincipal {
   sessionId: string | null
   issueId: string | null
   label: string
 }
 
-export interface ActiveMergeLease extends MergeQueuePrincipal {
+export interface ActiveQueueLease extends QueuePrincipal {
   acquiredAt: string
   expiresAt: string
   secondsLeft: number
   note: string | null
 }
 
-export interface MergeQueueWaiter extends MergeQueuePrincipal {
+export interface QueueWaiter extends QueuePrincipal {
   position: number
   enqueuedAt: string
 }
 
-export interface MergeQueueLock {
-  holder: ActiveMergeLease
-  queue: MergeQueueWaiter[]
+export interface QueueLock {
+  holder: ActiveQueueLease
+  queue: QueueWaiter[]
 }
 
 /** The panel's deliberately small data seam. Transport adapts to this union. */
-export type MergeQueuePanelState =
+export type QueuePanelState =
   | { status: 'loading' }
   | { status: 'error'; message: string }
   | {
       status: 'ready'
-      lock: MergeQueueLock | null
+      lock: QueueLock | null
       refreshing?: boolean
       /** A failed refresh with a last-good reading still on screen. */
       warning?: string
@@ -56,7 +56,7 @@ function belongsToRepo(issue: IssueViewModel, scope: MergeQueueRepoScope): boole
 export function readyMergeCandidates(
   issues: readonly IssueViewModel[],
   scope: MergeQueueRepoScope,
-  lock: MergeQueueLock | null,
+  lock: QueueLock | null,
 ): IssueViewModel[] {
   const occupied = new Set(
     [lock?.holder.issueId, ...(lock?.queue.map((waiter) => waiter.issueId) ?? [])].filter(

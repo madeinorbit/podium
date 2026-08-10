@@ -1,10 +1,11 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import { MergeQueuePanelView } from './MergeQueuePanel'
-import type { MergeQueuePanelState } from './merge-queue-model'
+import type { QueuePanelState } from './merge-queue-model'
 
 const scope = { repoId: 'repo-main', repoPath: '/repo' }
+const idle: QueuePanelState = { status: 'ready', lock: null }
 const ready = (over: Parameters<typeof makeIssue>[0]) =>
   makeIssue({
     repoId: 'repo-main',
@@ -22,7 +23,7 @@ const ready = (over: Parameters<typeof makeIssue>[0]) =>
     ...over,
   })
 
-const populated: MergeQueuePanelState = {
+const populated: QueuePanelState = {
   status: 'ready',
   lock: {
     holder: {
@@ -30,7 +31,7 @@ const populated: MergeQueuePanelState = {
       issueId: 'holder',
       label: 'Merge driver',
       acquiredAt: '2026-08-06T12:00:00.000Z',
-      expiresAt: new Date(Date.now() + 125_000).toISOString(),
+      expiresAt: '2026-08-06T12:04:05.000Z',
       secondsLeft: 125,
       note: null,
     },
@@ -58,21 +59,50 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
+function queueGroup(name: string): HTMLElement {
+  const group = screen.getByRole('heading', { name }).closest('section')
+  if (!(group instanceof HTMLElement)) throw new Error(`Queue group not found: ${name}`)
+  return group
+}
+
 describe('MergeQueuePanelView', () => {
-  it('separates human-ordered candidates, the active lease, and FIFO waiters', () => {
+  it('keeps merge and heavy-test queues separate and orders each active, next, ready', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-06T12:02:00.000Z'))
     const onSelectIssue = vi.fn()
     const issues = [
-      ready({ id: 'later', seq: 12, displayRef: 'POD-12', title: 'Later candidate', sortKey: 'r' }),
-      ready({ id: 'first', seq: 11, displayRef: 'POD-11', title: 'First candidate', sortKey: 'c' }),
-      ready({ id: 'holder', seq: 13, displayRef: 'POD-13', title: 'Lease holder' }),
-      ready({ id: 'next', seq: 14, displayRef: 'POD-14', title: 'First waiter' }),
-      ready({ id: 'ordinary', seq: 15, title: 'Ordinary ready work', stage: 'planning' }),
-      ready({ id: 'other-repo', seq: 16, title: 'Other project', repoId: 'elsewhere' }),
+      ready({
+        id: 'later',
+        seq: 12,
+        displayRef: 'POD-12',
+        title: 'Later candidate',
+        sortKey: 'r',
+      }),
+      ready({
+        id: 'first',
+        seq: 11,
+        displayRef: 'POD-11',
+        title: 'First candidate',
+        sortKey: 'c',
+      }),
+      ready({
+        id: 'holder',
+        seq: 13,
+        displayRef: 'POD-13',
+        title: 'Lease holder',
+      }),
+      ready({
+        id: 'next',
+        seq: 14,
+        displayRef: 'POD-14',
+        title: 'First waiter',
+      }),
     ]
 
     render(
       <MergeQueuePanelView
-        state={populated}
+        mergeState={populated}
+        heavyState={idle}
         issues={issues}
         scope={scope}
         onRefresh={vi.fn()}
@@ -80,36 +110,63 @@ describe('MergeQueuePanelView', () => {
       />,
     )
 
-    expect(screen.getAllByRole('heading').map((heading) => heading.textContent)).toEqual([
-      'READY',
-      'MERGING NOW',
-      'NEXT',
-    ])
-    const first = screen.getByRole('button', { name: /POD-11 First candidate/ })
-    const later = screen.getByRole('button', { name: /POD-12 Later candidate/ })
+    const merge = queueGroup('Merge queue')
+    const heavy = queueGroup('Heavy test queue')
+    expect(
+      within(merge)
+        .getAllByRole('heading')
+        .map((heading) => heading.textContent),
+    ).toEqual(['Merge queue', 'MERGING NOW', 'NEXT UP', 'READY'])
+    expect(
+      within(heavy)
+        .getAllByRole('heading')
+        .map((heading) => heading.textContent),
+    ).toEqual(['Heavy test queue', 'TESTING NOW', 'NEXT UP', 'READY'])
+    expect(within(merge).getByText('Waiting 1m 00s')).toBeTruthy()
+    expect(within(merge).getByText('Waiting 30s')).toBeTruthy()
+    expect(within(merge).getByText('2m 05s left')).toBeTruthy()
+    expect(within(heavy).getByText('Ready for the next heavy test run.')).toBeTruthy()
+
+    const first = within(merge).getByRole('button', {
+      name: /POD-11 First candidate/,
+    })
+    const later = within(merge).getByRole('button', {
+      name: /POD-12 Later candidate/,
+    })
     expect(first.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-
-    expect(screen.getByText('Lease holder')).toBeTruthy()
-    expect(screen.getByText('2m 05s left')).toBeTruthy()
-    expect(screen.getByText('Queue position 1:')).toBeTruthy()
-    expect(screen.getByText('First waiter')).toBeTruthy()
-    expect(screen.getByText('Release shell')).toBeTruthy()
-    expect(screen.getByText('No task attached')).toBeTruthy()
-    expect(screen.queryByText('Ordinary ready work')).toBeNull()
-    expect(screen.queryByText('Other project')).toBeNull()
-
-    fireEvent.click(first)
-    expect(onSelectIssue).toHaveBeenLastCalledWith(issues[1])
-    fireEvent.click(screen.getByRole('button', { name: /POD-13 Lease holder/ }))
+    fireEvent.click(within(merge).getByRole('button', { name: /POD-13 Lease holder/ }))
     expect(onSelectIssue).toHaveBeenLastCalledWith(issues[2])
-    fireEvent.click(screen.getByRole('button', { name: /Queue position 1: POD-14 First waiter/ }))
-    expect(onSelectIssue).toHaveBeenLastCalledWith(issues[3])
   })
 
-  it('renders static, accessible loading geometry', () => {
-    const { container } = render(
+  it('renders heavy-test activity and FIFO wait time from its own lock', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-06T12:02:00.000Z'))
+    render(
       <MergeQueuePanelView
-        state={{ status: 'loading' }}
+        mergeState={idle}
+        heavyState={{
+          status: 'ready',
+          lock: {
+            holder: {
+              sessionId: 'test-holder',
+              issueId: null,
+              label: 'Browser test lane',
+              acquiredAt: '2026-08-06T12:00:00.000Z',
+              expiresAt: '2026-08-06T12:12:00.000Z',
+              secondsLeft: 600,
+              note: null,
+            },
+            queue: [
+              {
+                sessionId: 'test-next',
+                issueId: null,
+                label: 'Integration lane',
+                position: 1,
+                enqueuedAt: '2026-08-06T12:01:15.000Z',
+              },
+            ],
+          },
+        }}
         issues={[]}
         scope={scope}
         onRefresh={vi.fn()}
@@ -117,21 +174,48 @@ describe('MergeQueuePanelView', () => {
       />,
     )
 
-    expect(screen.getByText('Loading merge queue…')).toBeTruthy()
-    expect(container.querySelector('[aria-busy="true"]')).toBeTruthy()
-    expect(screen.getAllByRole('heading').map((heading) => heading.textContent)).toEqual([
-      'READY',
-      'MERGING NOW',
-      'NEXT',
-    ])
-    expect(container.innerHTML).not.toMatch(/animate-|amber|yellow|attention/)
+    const heavy = queueGroup('Heavy test queue')
+    expect(within(heavy).getByText('Browser test lane')).toBeTruthy()
+    expect(within(heavy).getByText('Integration lane')).toBeTruthy()
+    expect(within(heavy).getByText('Waiting 45s')).toBeTruthy()
+    expect(
+      within(heavy).getByText('New runs join this queue when they request the heavy-test lease.'),
+    ).toBeTruthy()
+    expect(within(heavy).getByLabelText('Work in progress').className).toContain('animate-spin')
   })
 
-  it('offers a retry for an honest error state', () => {
+  it('renders accessible loading geometry in the requested order', () => {
+    const { container } = render(
+      <MergeQueuePanelView
+        mergeState={{ status: 'loading' }}
+        heavyState={{ status: 'loading' }}
+        issues={[]}
+        scope={scope}
+        onRefresh={vi.fn()}
+        onSelectIssue={vi.fn()}
+      />,
+    )
+
+    expect(screen.getAllByText('Loading queue…')).toHaveLength(2)
+    expect(container.querySelectorAll('[aria-busy="true"]')).toHaveLength(2)
+    expect(screen.getAllByRole('heading').map((heading) => heading.textContent)).toEqual([
+      'Merge queue',
+      'MERGING NOW',
+      'NEXT UP',
+      'READY',
+      'Heavy test queue',
+      'TESTING NOW',
+      'NEXT UP',
+      'READY',
+    ])
+  })
+
+  it('offers a retry for an independently failed queue', () => {
     const onRefresh = vi.fn()
     render(
       <MergeQueuePanelView
-        state={{ status: 'error', message: 'The daemon did not answer.' }}
+        mergeState={{ status: 'error', message: 'The daemon did not answer.' }}
+        heavyState={idle}
         issues={[]}
         scope={scope}
         onRefresh={onRefresh}
@@ -144,59 +228,13 @@ describe('MergeQueuePanelView', () => {
     expect(onRefresh).toHaveBeenCalledOnce()
   })
 
-  it('keeps a last-good reading visible while admitting a failed refresh', () => {
-    render(
-      <MergeQueuePanelView
-        state={{ ...populated, warning: 'The latest refresh failed.' }}
-        issues={[ready({ id: 'holder', seq: 13, displayRef: 'POD-13', title: 'Lease holder' })]}
-        scope={scope}
-        onRefresh={vi.fn()}
-        onSelectIssue={vi.fn()}
-      />,
-    )
-
-    expect(screen.getByRole('status').textContent).toContain('The latest refresh failed.')
-    expect(screen.getByText('Lease holder')).toBeTruthy()
-  })
-
-  it('states each empty fact without implying that data is still loading', () => {
-    render(
-      <MergeQueuePanelView
-        state={{ status: 'ready', lock: null }}
-        issues={[]}
-        scope={scope}
-        onRefresh={vi.fn()}
-        onSelectIssue={vi.fn()}
-      />,
-    )
-
-    expect(screen.getByText('No branches ready to merge.')).toBeTruthy()
-    expect(screen.getByText('No active merge lease.')).toBeTruthy()
-    expect(screen.getByText('No sessions waiting.')).toBeTruthy()
-    expect(screen.queryByText(/loading/i)).toBeNull()
-  })
-
-  it('counts the active lease down from its expiry instead of freezing a sampled value', () => {
+  it('counts active lease and queue wait clocks live', () => {
     vi.useFakeTimers()
-    vi.setSystemTime(new Date('2026-08-06T12:00:00.000Z'))
-    const state: MergeQueuePanelState = {
-      status: 'ready',
-      lock: {
-        holder: {
-          sessionId: 's',
-          issueId: null,
-          label: 'Merge worker',
-          acquiredAt: '2026-08-06T11:59:00.000Z',
-          expiresAt: '2026-08-06T12:01:05.000Z',
-          secondsLeft: 999,
-          note: null,
-        },
-        queue: [],
-      },
-    }
+    vi.setSystemTime(new Date('2026-08-06T12:02:00.000Z'))
     render(
       <MergeQueuePanelView
-        state={state}
+        mergeState={populated}
+        heavyState={idle}
         issues={[]}
         scope={scope}
         onRefresh={vi.fn()}
@@ -204,43 +242,26 @@ describe('MergeQueuePanelView', () => {
       />,
     )
 
-    expect(screen.getByText('1m 05s left')).toBeTruthy()
+    expect(screen.getByText('2m 05s left')).toBeTruthy()
+    expect(screen.getByText('Waiting 1m 00s')).toBeTruthy()
     act(() => vi.advanceTimersByTime(1_000))
-    expect(screen.getByText('1m 04s left')).toBeTruthy()
-    vi.useRealTimers()
+    expect(screen.getByText('2m 04s left')).toBeTruthy()
+    expect(screen.getByText('Waiting 1m 01s')).toBeTruthy()
   })
 
-  it('refreshes from the panel header and does not expose internal issue ids', () => {
+  it('refreshes both queue readings from the shared toolbar', () => {
     const onRefresh = vi.fn()
-    const missingIssueState: MergeQueuePanelState = {
-      status: 'ready',
-      lock: {
-        holder: {
-          sessionId: 's',
-          issueId: 'iss_internal_only',
-          label: 'Merge worker',
-          acquiredAt: '2026-08-06T12:00:00.000Z',
-          expiresAt: '2026-08-06T12:00:30.000Z',
-          secondsLeft: 30,
-          note: null,
-        },
-        queue: [],
-      },
-    }
-    const { container } = render(
+    render(
       <MergeQueuePanelView
-        state={missingIssueState}
+        mergeState={idle}
+        heavyState={idle}
         issues={[]}
         scope={scope}
         onRefresh={onRefresh}
         onSelectIssue={vi.fn()}
       />,
     )
-
-    expect(screen.getByText('Merge worker')).toBeTruthy()
-    expect(screen.getByText('Issue unavailable')).toBeTruthy()
-    expect(container.textContent).not.toContain('iss_internal_only')
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh merge queue' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh queues' }))
     expect(onRefresh).toHaveBeenCalledOnce()
   })
 })

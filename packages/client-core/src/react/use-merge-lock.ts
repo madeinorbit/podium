@@ -1,5 +1,5 @@
 /**
- * Live read binding for the conventional `merge:main` advisory lease.
+ * Live read binding for one named advisory lease.
  *
  * Lock rows do not belong in the replicated entity feed: `lock.status` is a
  * small authoritative query whose read also performs lazy lease expiry. This
@@ -12,11 +12,13 @@ import type { LockWire } from '@podium/protocol'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useStoreSelector } from './provider'
 
+/** The two conventional leases the workspace serializes on. */
 export const MERGE_LOCK_NAME = 'merge:main'
-export const MERGE_LOCK_POLL_MS = 5_000
+export const HEAVY_TEST_LOCK_NAME = 'test:heavy'
+export const LOCK_POLL_MS = 5_000
 
-export interface MergeLockState {
-  /** `null` means the authority reports `merge:main` free. */
+export interface LockState {
+  /** `null` means the authority reports this named lock free. */
   readonly lock: LockWire | null
   /** True only until this repository has produced its first answer or error. */
   readonly loading: boolean
@@ -30,12 +32,14 @@ export interface MergeLockState {
   refresh(): void
 }
 
-interface Snapshot extends Omit<MergeLockState, 'refresh'> {
+interface Snapshot extends Omit<LockState, 'refresh'> {
   repoPath: string | null
+  lockName: string | null
 }
 
 const EMPTY: Snapshot = {
   repoPath: null,
+  lockName: null,
   lock: null,
   loading: false,
   refreshing: false,
@@ -49,7 +53,7 @@ const visible = (): boolean =>
 const messageFor = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause)
 
-export function useMergeLockState(repoPath: string | null): MergeLockState {
+export function useLockState(repoPath: string | null, lockName: string): LockState {
   const trpc = useStoreSelector((state) => state.trpc)
   const [snapshot, setSnapshot] = useState<Snapshot>(EMPTY)
   const loadRef = useRef<() => void>(() => {})
@@ -72,10 +76,11 @@ export function useMergeLockState(repoPath: string | null): MergeLockState {
     }
 
     setSnapshot((current) =>
-      current.repoPath === repoPath
+      current.repoPath === repoPath && current.lockName === lockName
         ? current
         : {
             repoPath,
+            lockName,
             lock: null,
             loading: true,
             refreshing: false,
@@ -86,7 +91,7 @@ export function useMergeLockState(repoPath: string | null): MergeLockState {
 
     const schedule = (): void => {
       clearTimer()
-      if (!disposed && visible()) timer = setTimeout(load, MERGE_LOCK_POLL_MS)
+      if (!disposed && visible()) timer = setTimeout(load, LOCK_POLL_MS)
     }
 
     const load = async (): Promise<void> => {
@@ -94,13 +99,16 @@ export function useMergeLockState(repoPath: string | null): MergeLockState {
       running = true
       clearTimer()
       setSnapshot((current) =>
-        current.repoPath === repoPath ? { ...current, refreshing: true, error: null } : current,
+        current.repoPath === repoPath && current.lockName === lockName
+          ? { ...current, refreshing: true, error: null }
+          : current,
       )
       try {
-        const rows = await trpc.lock.status.query({ repoPath, name: MERGE_LOCK_NAME })
+        const rows = await trpc.lock.status.query({ repoPath, name: lockName })
         if (!disposed) {
           setSnapshot({
             repoPath,
+            lockName,
             lock: rows[0] ?? null,
             loading: false,
             refreshing: false,
@@ -111,7 +119,7 @@ export function useMergeLockState(repoPath: string | null): MergeLockState {
       } catch (cause) {
         if (!disposed) {
           setSnapshot((current) =>
-            current.repoPath === repoPath
+            current.repoPath === repoPath && current.lockName === lockName
               ? {
                   ...current,
                   loading: false,
@@ -150,9 +158,9 @@ export function useMergeLockState(repoPath: string | null): MergeLockState {
         document.removeEventListener('visibilitychange', onVisibilityChange)
       }
     }
-  }, [repoPath, trpc])
+  }, [lockName, repoPath, trpc])
 
-  if (snapshot.repoPath !== repoPath) {
+  if (snapshot.repoPath !== repoPath || snapshot.lockName !== lockName) {
     return {
       lock: null,
       loading: repoPath !== null,

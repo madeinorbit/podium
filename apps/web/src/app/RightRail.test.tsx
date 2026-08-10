@@ -103,7 +103,7 @@ describe('RightRail', () => {
 
     expect(screen.queryByRole('button', { name: 'Git' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Messages' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Merge queue' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Queues' })).toBeNull()
   })
 
   it('toggles the active panel closed', () => {
@@ -113,10 +113,10 @@ describe('RightRail', () => {
     expect(onPanelChange).toHaveBeenCalledWith(null)
   })
 
-  it('opens the opt-in merge queue panel when its feature is enabled', () => {
+  it('opens the opt-in queues panel when its feature is enabled', () => {
     const onPanelChange = vi.fn()
     render(<RightRail rightPanel={null} onPanelChange={onPanelChange} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Merge queue' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Queues' }))
     expect(onPanelChange).toHaveBeenCalledWith('merge-queue')
   })
 

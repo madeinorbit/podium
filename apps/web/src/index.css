@@ -612,7 +612,7 @@
    Two surfaces are deliberately OUTSIDE this channel. The Superagent pane stays
    a flat --engraved surface in both modes. And the RIGHT DOCK, with its icon
    rail, is a dark default (POD-516 item 9, styles.css `.right-dock-shell`): the
-   dock hosts Superagent, Git, Files, Shell, Messages and the merge queue as
+   dock hosts Superagent, Git, Files, Shell, Messages and the queues panel as
    often as it hosts the task, so a tint drawn from the selected issue claimed a
    relationship that usually is not there — a tint only carries meaning when the
    surface IS that issue. The dock's ID square keeps its own colour; it names one

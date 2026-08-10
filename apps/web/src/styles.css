@@ -1446,7 +1446,7 @@ html[data-density="balanced"] .header-quota-pools {
 /* The right dock is a DARK DEFAULT surface (POD-516 item 9), not an
    issue-tinted one. It used to wear `issue-base-card issue-fade`, but a tint
    only means something when the surface IS that issue — and this dock also
-   hosts Superagent, Git, Files, Shell, Messages and the merge queue, so the
+   hosts Superagent, Git, Files, Shell, Messages and the queues panel, so the
    selected issue's colour asserted a relationship that is usually untrue.
    Deliberately narrows §2's issue-colour channel on this one surface; the ID
    square in the rail keeps its own colour, because it identifies one issue.

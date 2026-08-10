@@ -46,8 +46,9 @@ const state = {
 }
 
 const mergeLock = vi.hoisted(() => ({
-  repoPath: vi.fn(),
+  query: vi.fn(),
   refresh: vi.fn(),
+  heavyRefresh: vi.fn(),
   state: {
     lock: null,
     loading: false,
@@ -76,9 +77,18 @@ vi.mock('@podium/client-core/react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@podium/client-core/react')>()
   return {
     ...actual,
-    useMergeLockState: (repoPath: string | null) => {
-      mergeLock.repoPath(repoPath)
-      return { ...mergeLock.state, refresh: mergeLock.refresh }
+    useLockState: (repoPath: string | null, lockName: string) => {
+      mergeLock.query(repoPath, lockName)
+      return lockName === 'merge:main'
+        ? { ...mergeLock.state, refresh: mergeLock.refresh }
+        : {
+            lock: null,
+            loading: false,
+            refreshing: false,
+            error: null,
+            refreshedAt: Date.now(),
+            refresh: mergeLock.heavyRefresh,
+          }
     },
   }
 })
@@ -102,8 +112,9 @@ vi.mock('@/features/issues/IssuePanelView', () => ({
 afterEach(() => {
   cleanup()
   state.setSelectedIssueId.mockClear()
-  mergeLock.repoPath.mockClear()
+  mergeLock.query.mockClear()
   mergeLock.refresh.mockClear()
+  mergeLock.heavyRefresh.mockClear()
   mergeLock.state = {
     lock: null,
     loading: false,
@@ -171,7 +182,8 @@ describe('RightDock task selection', () => {
 
     render(<RightDock tab="merge-queue" onClose={vi.fn()} />)
 
-    expect(mergeLock.repoPath).toHaveBeenLastCalledWith('/other')
+    expect(mergeLock.query).toHaveBeenCalledWith('/other', 'merge:main')
+    expect(mergeLock.query).toHaveBeenCalledWith('/other', 'test:heavy')
     expect(screen.getByRole('heading', { name: 'MERGING NOW' })).toBeTruthy()
     const holder = screen.getByRole('button', { name: /Other live issue/ })
     expect(holder).toBeTruthy()
@@ -194,5 +206,6 @@ describe('RightDock task selection', () => {
     expect(screen.getByRole('alert').textContent).toContain('Lock authority unavailable.')
     screen.getByRole('button', { name: 'Try again' }).click()
     expect(mergeLock.refresh).toHaveBeenCalledOnce()
+    expect(mergeLock.heavyRefresh).toHaveBeenCalledOnce()
   })
 })

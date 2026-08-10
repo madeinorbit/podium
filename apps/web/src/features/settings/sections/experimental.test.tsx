@@ -10,8 +10,8 @@ vi.mock('@/lib/use-feature', () => ({
     flags: [
       {
         id: 'merge-queue',
-        name: 'Merge queue',
-        description: 'Show the merge queue tool in the right sidebar.',
+        name: 'Queues',
+        description: 'Show merge and heavy-test queues in the right sidebar.',
         visibility: 'edge',
         listed: true,
         enabled: false,
@@ -25,12 +25,12 @@ vi.mock('@/lib/use-feature', () => ({
 afterEach(cleanup)
 
 describe('ExperimentalSection', () => {
-  it('presents the merge queue control and patches its durable feature key', () => {
+  it('presents the queue control and patches its durable feature key', () => {
     const patch = vi.fn()
     render(<ExperimentalSection settings={DEFAULT_SETTINGS} patch={patch} onReset={vi.fn()} />)
 
-    expect(screen.getByText('Merge queue')).toBeTruthy()
-    expect(screen.getByText('Show the merge queue tool in the right sidebar.')).toBeTruthy()
+    expect(screen.getByText('Queues')).toBeTruthy()
+    expect(screen.getByText('Show merge and heavy-test queues in the right sidebar.')).toBeTruthy()
 
     const toggle = screen.getByRole('switch')
     expect(toggle.getAttribute('aria-checked')).toBe('false')

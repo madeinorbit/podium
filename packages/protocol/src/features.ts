@@ -63,8 +63,8 @@ export const FEATURES = [
   },
   {
     id: 'merge-queue',
-    name: 'Merge queue',
-    description: 'Show the merge queue tool in the right sidebar.',
+    name: 'Queues',
+    description: 'Show merge and heavy-test queues in the right sidebar.',
     visibility: 'edge',
   },
   {
