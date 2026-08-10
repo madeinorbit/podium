@@ -66,7 +66,7 @@ import { resolveServerRole, type ServerRoleConfig } from './roles'
 import { appRouter } from './router'
 import { registerSetupRoute } from './setup-route'
 import { closeServerFast } from './shutdown'
-import { registerMobileRouting, registerWebStatic } from './static-web'
+import { registerDesktopWebStatic, registerMobileRouting, registerWebStatic } from './static-web'
 import { SessionStore } from './store'
 import { wireTelemetry } from './telemetry'
 import { reportParkedUpstreamMutations } from './upstream-retirement'
@@ -591,7 +591,7 @@ export async function startServer(
     }
   }
   if (webDir) {
-    registerWebStatic(app, webDir, { stampCheck: true })
+    registerDesktopWebStatic(app, webDir)
     // Say it at boot as well as in the page. The person who redeploys is looking
     // at a terminal, not at the app — POD-1610 survived a night of rebuilding
     // because nothing on the build path ever mentioned the web dist at all.
