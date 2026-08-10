@@ -176,10 +176,7 @@ function useServerTransferStatus(trpc: Store['trpc']): {
       const next = await refresh()
       if (cancelled) return
       const nextFailures = next ? 0 : failures + 1
-      timer = setTimeout(
-        () => void poll(nextFailures),
-        serverTransferPollDelay(next, nextFailures),
-      )
+      timer = setTimeout(() => void poll(nextFailures), serverTransferPollDelay(next, nextFailures))
     }
     void poll(0)
 
@@ -204,6 +201,12 @@ function transferDisplayState(
     return transfer.targetProof && transfer.sourceConnected ? 'connected' : 'switching'
   }
   return transfer.phase
+}
+
+function transferErrorMessage(
+  transfer: ServerTransferStatusSnapshot['transfer'],
+): string | undefined {
+  return transfer && 'error' in transfer ? transfer.error?.message : undefined
 }
 
 /**
@@ -398,7 +401,7 @@ export function MachinesPanel(): JSX.Element {
           <ServerTransferProgress
             state={transferDisplayState(transferStatus.snapshot?.transfer ?? null) ?? 'preparing'}
             targetName={activeTransferMachine.name}
-            detail={transferStatus.snapshot?.transfer?.error?.message}
+            detail={transferErrorMessage(transferStatus.snapshot?.transfer ?? null)}
           />
           <Button
             type="button"
@@ -700,7 +703,6 @@ function ServerTransferDialog({
   const [transferError, setTransferError] = useState<string | null>(null)
   const isOpen = open ?? internalOpen
   const transfer = status?.transfer?.targetMachineId === machine.id ? status.transfer : null
-  const transferId = transfer?.transferId
   const transferState = transfer?.state
   const displayState = transferDisplayState(transfer)
   const showProgress = (displayState !== null && displayState !== 'aborted') || awaitingStatus
@@ -712,7 +714,7 @@ function ServerTransferDialog({
     setAwaitingStatus(false)
     setTransferError(null)
     setCheckingTarget(false)
-  }, [isOpen, transferId, transferState])
+  }, [isOpen, transferState])
 
   const setDialogOpen = (next: boolean): void => {
     if (onOpenChange) onOpenChange(next)
@@ -790,7 +792,7 @@ function ServerTransferDialog({
           <ServerTransferProgress
             state={displayState ?? 'preparing'}
             targetName={machine.name}
-            detail={transfer?.error?.message}
+            detail={transferErrorMessage(transfer)}
           />
         ) : (
           <div className="flex flex-col gap-3 text-[13px]">
@@ -826,9 +828,9 @@ function ServerTransferDialog({
                 Enter a complete HTTP or HTTPS public URL.
               </p>
             )}
-            {(transferError || statusError || transfer?.error?.message) && (
+            {(transferError || statusError || transferErrorMessage(transfer)) && (
               <p className="settings-prose text-destructive" role="alert">
-                {transferError ?? statusError ?? transfer?.error?.message}
+                {transferError ?? statusError ?? transferErrorMessage(transfer)}
               </p>
             )}
           </div>

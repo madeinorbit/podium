@@ -410,7 +410,7 @@ describe('MachinesPanel server transfer', () => {
       publicUrl: 'https://new-podium.example.com',
       sourceConnected: false,
       ...overrides,
-    }
+    } as NonNullable<ServerTransferStatusSnapshot['transfer']>
   }
 
   function setServerTransferTrpc(
@@ -566,7 +566,9 @@ describe('MachinesPanel server transfer', () => {
 
     rejectCheck?.(new Error('target inspection unavailable'))
 
-    await waitFor(() => expect(statusQuery.mock.calls.length).toBeGreaterThan(statusCallsBeforeCheck))
+    await waitFor(() =>
+      expect(statusQuery.mock.calls.length).toBeGreaterThan(statusCallsBeforeCheck),
+    )
     expect(await screen.findByRole('button', { name: 'Check target' })).toHaveProperty(
       'disabled',
       false,

@@ -35,7 +35,7 @@ describe('retireSourceAfterTransfer', () => {
   it('starts a lifecycle-aware takeover for a headless source after reply flush', () => {
     const harness = scheduleHarness()
     const child = { unref: vi.fn(), once: vi.fn() }
-    const spawnMock = vi.fn(() => child)
+    const spawnMock = vi.fn((_command: string, _args: readonly string[]) => child)
     const spawnProcess = spawnMock as unknown as Spawn
     const exit = vi.fn()
 

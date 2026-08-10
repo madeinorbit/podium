@@ -46,11 +46,11 @@ function fakeRpc(
       manifests.set(input.transferId, input.manifest)
       chunks.set(input.transferId, new Map())
       return {
-        ok: true,
-        state: 'prepared',
+        ok: true as const,
+        state: 'prepared' as const,
         manifestDigest: input.manifest.digest,
         targetMachineId,
-        targetCapability: 'server-only',
+        targetCapability: 'server-only' as const,
         buildVersion: 'test',
         wireSchemaDigest: 'wire-1',
         space: { availableBytes: 2_000_000_000, requiredBytes: 1, sufficient: true },
@@ -68,8 +68,8 @@ function fakeRpc(
         await options.onFirstChunk()
       }
       return {
-        ok: true,
-        state: 'staging',
+        ok: true as const,
+        state: 'staging' as const,
         manifestDigest: input.manifestDigest,
         path: manifests.get(input.transferId)?.files[input.fileIndex]?.path ?? 'missing',
         offset: input.offset,
@@ -81,14 +81,14 @@ function fakeRpc(
       const manifest = manifests.get(input.transferId)
       if (!manifest || options.validateOk === false) {
         return {
-          ok: false,
-          state: 'staging',
+          ok: false as const,
+          state: 'staging' as const,
           error: { code: 'digest-mismatch', detail: 'candidate validation failed' },
         }
       }
       return {
-        ok: true,
-        state: 'validated',
+        ok: true as const,
+        state: 'validated' as const,
         proof: {
           transferId: input.transferId,
           manifestDigest: input.manifestDigest,
@@ -111,8 +111,8 @@ function fakeRpc(
         throw new Error('promotion reply lost')
       }
       return {
-        ok: true,
-        state: 'promoted',
+        ok: true as const,
+        state: 'promoted' as const,
         proof: {
           transferId: input.transferId,
           manifestDigest: input.manifestDigest,
@@ -121,45 +121,45 @@ function fakeRpc(
           feedEpoch: manifest.sourceFeedEpoch,
           schemaVersion: manifest.schemaVersion,
           buildVersion: 'test',
-          health: 'serving',
+          health: 'serving' as const,
           publicUrl: input.publicUrl,
         },
       }
     }),
     serverTransferAcknowledge: vi.fn(async (input) => {
-      operations.push('acknowledge:' + input.transferId)
+      operations.push(`acknowledge:${input.transferId}`)
       await options.onAcknowledge?.()
       if (options.acknowledge === 'throw') throw new Error('acknowledgement reply lost')
       return {
-        ok: true,
-        state: 'promoted',
+        ok: true as const,
+        state: 'promoted' as const,
         transferId: input.transferId,
         manifestDigest: input.manifestDigest,
-        acknowledged: true,
+        acknowledged: true as const,
       }
     }),
     serverTransferAbort: vi.fn(async (input) => {
       operations.push(`abort:${input.transferId}`)
       return {
-        ok: true,
-        state: 'aborted',
+        ok: true as const,
+        state: 'aborted' as const,
         transferId: input.transferId,
         manifestDigest: input.manifestDigest,
-        cleanup: 'cleaned',
+        cleanup: 'cleaned' as const,
       }
     }),
     serverTransferStatus: vi.fn(async (statusInput) => {
       const manifest = statusInput.transferId ? manifests.get(statusInput.transferId) : undefined
       if (!manifest || !promotion || promotion.transferId !== statusInput.transferId) {
         return {
-          ok: false,
-          state: 'uncertain',
+          ok: false as const,
+          state: 'uncertain' as const,
           error: { code: 'unknown', detail: 'no proof' },
         }
       }
       return {
-        ok: true,
-        state: 'promoted',
+        ok: true as const,
+        state: 'promoted' as const,
         transferId: promotion.transferId,
         manifestDigest: manifest.digest,
         proof: {
@@ -170,7 +170,7 @@ function fakeRpc(
           feedEpoch: manifest.sourceFeedEpoch,
           schemaVersion: manifest.schemaVersion,
           buildVersion: 'test',
-          health: 'serving',
+          health: 'serving' as const,
           publicUrl: promotion.publicUrl,
         },
         sourceConnected: true,
@@ -223,10 +223,12 @@ describe('ServerTransferService final-fence flow', () => {
       },
     })
     const order: string[] = []
-    const fence = vi.fn(() => order.push('fence'))
-    const checkpoint = vi.fn(() =>
-      order.push(fence.mock.calls.length === 0 ? 'checkpoint:writable' : 'checkpoint:fenced'),
-    )
+    const fence = vi.fn(() => {
+      order.push('fence')
+    })
+    const checkpoint = vi.fn(() => {
+      order.push(fence.mock.calls.length === 0 ? 'checkpoint:writable' : 'checkpoint:fenced')
+    })
     const service = makeService(fake.rpc, { fence, checkpoint })
 
     const result = await service.transfer(input, allow)
@@ -405,7 +407,10 @@ describe('ServerTransferService final-fence flow', () => {
       targetProof: true,
       sourceConnected: false,
     })
-    expect(status.transfer?.bytesCopied).toBe(status.transfer?.totalBytes)
+    expect(status.transfer).toHaveProperty('bytesCopied')
+    if (!status.transfer || !('bytesCopied' in status.transfer))
+      throw new Error('missing transfer progress')
+    expect(status.transfer.bytesCopied).toBe(status.transfer.totalBytes)
     expect(fake.rpc.serverTransferStatus).not.toHaveBeenCalled()
   })
 
