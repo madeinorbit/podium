@@ -1,8 +1,9 @@
-import type {
-  LockAcquireResultWire,
-  LockHolderWire,
-  LockQueueEntryWire,
-  LockWire,
+import {
+  type LockAcquireResultWire,
+  type LockHolderWire,
+  lockNameProblem,
+  type LockQueueEntryWire,
+  type LockWire,
 } from '@podium/protocol'
 import { z } from 'zod'
 import type { IssueCommand, IssueCommandResult } from './commands.js'
@@ -84,7 +85,17 @@ function renderStatus(l: LockWire): string {
   return `'${l.name}' ${holderLine(l)} (acquired ${l.acquiredAt})${queue}`
 }
 
-const nameArg = { name: z.string().min(1) }
+/**
+ * Same rules the server enforces (`lockNameProblem` in @podium/protocol), applied
+ * here so a reserved-namespace mistake — the bare `merge` that split the merge
+ * mutex in POD-672 — is refused before the round trip, with the identical message.
+ */
+const nameArg = {
+  name: z.string().superRefine((name, ctx) => {
+    const problem = lockNameProblem(name)
+    if (problem != null) ctx.addIssue({ code: z.ZodIssueCode.custom, message: problem })
+  }),
+}
 const repoArg = { repoPath: z.string() }
 const ttlArg = { ttl: z.string().optional() }
 

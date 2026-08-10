@@ -110,6 +110,33 @@ describe('lock registry', () => {
     expect(ok.granted).toBe(true)
   })
 
+  /**
+   * POD-672: `merge` and `merge:main` were accepted as two independent leases,
+   * so two sessions each held "the merge lock" and the second reset away the
+   * first's landing. The dispatcher is the enforcement point every caller shares
+   * (tRPC router and daemon relay both parse through these defs), so the refusal
+   * has to bite here rather than only in the CLI.
+   */
+  it('refuses near-misses of the merge mutex, naming the canonical lock', async () => {
+    for (const name of ['merge', 'merge:', 'merge-main', 'MERGE', 'merge:origin/main']) {
+      await expect(
+        dispatch({ capability: OPERATOR }, 'acquire', { repoPath: '/repo', name }),
+      ).rejects.toThrow(/merge:main|merge:<branch>|names no branch/)
+    }
+  })
+
+  it('leaves the free-form lock namespace open', async () => {
+    // The reservation is scoped to `merge` — general-purpose leases are the
+    // feature, not collateral.
+    for (const name of ['test:heavy', 'podium:dev-bundle', 'deploy']) {
+      const r = (await dispatch({ capability: OPERATOR }, 'acquire', {
+        repoPath: '/repo',
+        name,
+      })) as { granted: boolean }
+      expect(r.granted).toBe(true)
+    }
+  })
+
   it('cancel round-trips: a queued caller can leave the queue', async () => {
     const holder = {
       capability: {

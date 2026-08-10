@@ -23,6 +23,15 @@
  * origin first, merge into it, then push). `origin/main` alone is not a
  * substitute for that path.
  *
+ * Two clauses here are paid for in lost commits rather than reasoning [POD-672].
+ * `reset --hard origin/main` is banned outright because local main legitimately
+ * runs ahead of origin between landings, so a reset is indistinguishable from
+ * "discard whoever landed last" — and unlike `--ff-only` it SUCCEEDS, which is
+ * what makes it silent. The untracked-file clause is the same shape one level
+ * quieter: the merge abort is git being correct, and every quick way past it
+ * (`merge -f`, `checkout --force`, `rm`) destroys content that has no reflog to
+ * recover it from.
+ *
  * Done criterion is the git fact the UI proxies for [POD-576]: the issue tip
  * is an ancestor of the landing base. `gitState.ahead === 0` is only a proxy
  * measured against `parentBranch` (where the branch was cut from); for a
@@ -36,8 +45,9 @@ export const MERGE_LANDING_RULE =
   'Landing an issue on a shared branch (e.g. main) — HARD procedure, not a preference: ' +
   '(1) `podium merge-lock acquire --wait` (you alone may move main while you hold it). ' +
   '(2) Refresh LOCAL `main` from origin (`git fetch` then `git merge --ff-only origin/main` on the main checkout — use `git -C <main-checkout>` from an issue worktree; never `cd` into it). ' +
+  'NEVER `git reset --hard origin/main` (or any reset on main) — not as this step, not as a repair: local main legitimately carries landings origin does not, and a reset discards them SILENTLY, whereas `--ff-only` refuses and shows you the divergence. ' +
   '(3) On the ISSUE branch, `git rebase` onto that local `main`. Diverged history is NOT an alternate land path — if rebase fails or foreign commits appear, STOP and ask; do not invent another route. ' +
-  '(4) On LOCAL `main`, `git merge --ff-only <issue-branch>` so the issue tip becomes an ancestor of main. ' +
+  '(4) On LOCAL `main`, `git merge --ff-only <issue-branch>` so the issue tip becomes an ancestor of main. If it aborts because untracked files in the main checkout would be overwritten, do NOT `merge -f`/`checkout --force`/`rm` your way past it — an untracked file has no reflog. Compare bytes first (`git hash-object <path>` vs `git rev-parse HEAD:<path>`); identical means it is a duplicate of committed content and is safe to back up and remove, different means uncommitted work — STOP and ask. ' +
   '(5) `git push origin main`, then `podium merge-lock release` IMMEDIATELY. ' +
   'NEVER cherry-pick the issue commit onto main. NEVER push a temp branch tip to main. NEVER "land the unique content under a new SHA" and leave the issue branch behind. ' +
   'Done when `git -C <main-checkout> merge-base --is-ancestor <issue-tip> origin/main` (or `gitState.merged` is true) — not merely when `gitState.ahead` is 0: ahead is measured against parentBranch, which for a stacked issue can be a landed sibling that never moves again, and closed + wrong ahead keeps "ready to merge" in the sidebar forever. merge-base reads the LOCAL origin/main ref (current right after your push; fetch first if checking later). Full guide: docs/agents/podium-issues.md#landing-on-main.'
@@ -52,6 +62,7 @@ export const MERGE_LANDING_RULE =
 export const LOCK_RULE =
   'Locks are not just for merging: `podium lock acquire <name> [--ttl 10m] [--wait]` takes an advisory lease on ANY name ' +
   '(`release`/`renew`/`cancel`/`status`/`steal`; `podium merge-lock` is only sugar for the lock named `merge:<branch>`). ' +
+  'The `merge` namespace is RESERVED to exactly that canonical name — `podium lock acquire merge` and other near-misses are REFUSED, because leases key on the exact name and a second spelling serialises against nothing. Take the merge mutex through `podium merge-lock`. ' +
   'Use one whenever two sessions could touch the same thing — shared files, a migration number, a dev server, a deploy. ' +
   'Leases are ADVISORY: nothing enforces them, they expire (default 2m — pass `--ttl` or `renew`), and they only work if BOTH sides agree to take them. ' +
   '`acquire` REFUSES when a sibling — another session on your issue, or any session sharing your worktree — already holds or is queued for that lock: coordinate with the session it names, or pass `--allow-sibling` when serialised multi-session access is what you actually want. Re-acquiring a lock you already hold renews it.'

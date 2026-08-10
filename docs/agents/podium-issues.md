@@ -161,6 +161,10 @@ preference. The prime injects the same text as `MERGE_LANDING_RULE` in `@podium/
    It refuses if a sibling (another session on your issue, or one sharing your worktree)
    already holds or is queued for it; coordinate with the session it names rather than
    reaching for `--allow-sibling`, which is for deliberate serialised multi-session access.
+   Use the `merge-lock` sugar, not `podium lock acquire <name>`. The mutex is
+   `merge:<branch>` and nothing else — the bare name `merge` is now refused, because for a
+   while it was accepted as a *separate* lease and two sessions each believed they held the
+   merge lock [POD-672].
 2. **Refresh local `main`** from origin on the main checkout:
    `git -C <main-checkout> fetch origin` then
    `git -C <main-checkout> merge --ff-only origin/main`.
@@ -175,11 +179,43 @@ the start and publish to at the end — it is not a shortcut around local main.
 
 ### Never
 
+- **`git reset --hard origin/main` (or any `reset` on main).** Never step 2, never a repair,
+  never a "let me get to a clean base first". Local `main` legitimately carries commits
+  `origin/main` does not — every landing puts one there, and it stays ahead until someone
+  pushes. A reset throws those away and *succeeds*, so it can only ever discard another
+  session's landing silently. `merge --ff-only` is the whole point: it **refuses** and shows
+  you the divergence instead of resolving it by deletion. This is not hypothetical — it
+  happened on 2026-08-10 and cost three commits [POD-672]. If you already ran it, the
+  landing is recoverable: `git -C <main-checkout> reflog main` still lists the pre-reset
+  tip, and `git merge --ff-only <issue-branch>` replays it.
 - Cherry-pick the issue commit onto main (or onto a temp branch you then push as main).
 - Push a temp branch tip to `origin/main`.
 - “Land the unique content under a new SHA” and leave the issue branch behind.
 - Treat diverged history as permission to invent an alternate land path. If rebase fails or
   foreign commits appear on the issue branch, **stop and ask**.
+
+### When the fast-forward is blocked by untracked files
+
+Step 4 can abort with *“untracked working tree files would be overwritten by merge”*: the
+shared main checkout has loose files at paths your branch is about to introduce as tracked
+content. **The abort is git protecting you — it is the safe outcome.** The danger is the
+recovery, because `git merge -f`, `git checkout --force`, and a bare `rm` all get past the
+block and none of them can be undone: an untracked file has no reflog, no object in the
+store, nothing.
+
+Compare the bytes first, and only then remove:
+
+```bash
+# For each blocked path: does the loose file already match what the branch will install?
+git -C <main-checkout> hash-object <path>
+git -C <issue-worktree> rev-parse HEAD:<path>
+```
+
+Identical hashes mean the file is a duplicate of committed content and removing it loses
+nothing — back it up anyway, remove it, and merge; it returns as tracked content with the
+same bytes. **Different** hashes mean the loose file holds work nobody committed: stop and
+ask before touching it. This is the quietest of the three landing hazards — a reset at
+least leaves `main@{n}`, an overwritten untracked file leaves nothing.
 
 ### Why ancestry matters
 

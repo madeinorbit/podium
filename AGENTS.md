@@ -28,8 +28,11 @@ work as issues, not markdown TODO lists. Full guide: **[docs/agents/podium-issue
 
 ### Landing on main
 
-Hard procedure — not a preference. Under the merge lock, refresh **local `main`**, rebase the
-**issue branch** onto it, `git merge --ff-only` the issue tip into local main, push, release.
+Hard procedure — not a preference. Take the mutex with `podium merge-lock` (its one canonical
+name is `merge:<branch>`; near-misses like a bare `merge` are refused), refresh **local `main`**,
+rebase the **issue branch** onto it, `git merge --ff-only` the issue tip into local main, push,
+release. **Never** `git reset --hard origin/main` — local main legitimately runs ahead of origin
+between landings, and a reset discards those commits silently where `--ff-only` would refuse.
 **Never** cherry-pick onto main or push a temp tip: that leaves a closed issue “ready to merge”
 in the sidebar forever. Done when the issue tip is an ancestor of `origin/main`
 (`git merge-base --is-ancestor <issue-tip> origin/main`, or `gitState.merged`) — not merely

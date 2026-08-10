@@ -4,6 +4,7 @@ import {
   makeRelayIssueClient,
   parseDurationSeconds,
 } from '@podium/issue-client'
+import { DEFAULT_MERGE_LOCK_BRANCH, mergeLockName } from '@podium/protocol'
 import { localServerUrl, resolveAgentRelay, resolvePort } from '@podium/runtime/config'
 import { makeOperatorIssueClient } from './operator-client'
 
@@ -170,7 +171,7 @@ function helpText(group: 'lock' | 'merge-lock'): string {
 export function mergeLockArgv(argv: string[]): string[] {
   const [verb, ...rest] = argv
   if (!verb || verb === 'help') return argv
-  let branch = 'main'
+  let branch: string = DEFAULT_MERGE_LOCK_BRANCH
   const passthrough: string[] = []
   for (let i = 0; i < rest.length; i++) {
     const t = rest[i]
@@ -189,7 +190,9 @@ export function mergeLockArgv(argv: string[]): string[] {
     }
     passthrough.push(t)
   }
-  return [verb, `merge:${branch}`, ...passthrough]
+  // Through the shared builder, so `--branch refs/heads/main` and `--branch main`
+  // reach the SAME lease rather than two independent ones (POD-672).
+  return [verb, mergeLockName(branch), ...passthrough]
 }
 
 export interface LockCliOutcome {

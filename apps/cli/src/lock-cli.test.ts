@@ -144,6 +144,29 @@ describe('mergeLockArgv', () => {
     expect(mergeLockArgv(['help'])).toEqual(['help'])
     expect(() => mergeLockArgv(['acquire', '--branch'])).toThrow(/--branch needs a value/)
   })
+
+  it('collapses the refs/heads spelling onto the same lease (POD-672)', () => {
+    // Two spellings of one branch must not become two mutexes.
+    expect(mergeLockArgv(['acquire', '--branch', 'refs/heads/main'])).toEqual([
+      'acquire',
+      'merge:main',
+    ])
+  })
+})
+
+describe('lock name validation reaches the CLI', () => {
+  it('refuses the bare `merge` before the round trip, naming the canonical lock', async () => {
+    // POD-672: this name used to be accepted as an independent lease, so an
+    // agent taking `merge` serialised against nobody holding `merge:main`.
+    const mutate = vi.fn()
+    const client = { lock: { acquire: { mutate } } } as never
+    // The error carries the canonical name, so an agent reading it does not
+    // have to go hunting for the right spelling.
+    await expect(runLockCli(['acquire', 'merge', '--repoPath', '/r'], client)).rejects.toThrow(
+      /merge:main/,
+    )
+    expect(mutate).not.toHaveBeenCalled()
+  })
 })
 
 describe('runLockCli', () => {

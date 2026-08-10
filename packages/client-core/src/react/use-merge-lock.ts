@@ -8,12 +8,19 @@
  * the last good projection on screen and exposes the error beside it.
  */
 
-import type { LockWire } from '@podium/protocol'
+import { type LockWire, mergeLockName } from '@podium/protocol'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useStoreSelector } from './provider'
 
-/** The two conventional leases the workspace serializes on. */
-export const MERGE_LOCK_NAME = 'merge:main'
+/**
+ * The two conventional leases the workspace serializes on.
+ *
+ * The merge name is BUILT, not spelled: a literal here would be a third
+ * independent spelling of the one mutex, which is how POD-672 happened.
+ * `test:heavy` stays a literal — it is an ordinary free-form lease, not the
+ * reserved `merge` namespace.
+ */
+export const MERGE_LOCK_NAME = mergeLockName()
 export const HEAVY_TEST_LOCK_NAME = 'test:heavy'
 export const LOCK_POLL_MS = 5_000
 
