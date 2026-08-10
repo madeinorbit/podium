@@ -213,7 +213,34 @@ pub fn classify_backend_exit(
             | (LaunchAction::LocalServerOnly, LaunchAction::LocalServerOnly)
     );
     if same_host_role {
-        return BackendExitDecision::Respawn;
+        let Some(journal_json) = journal_json else {
+            return BackendExitDecision::Respawn;
+        };
+        let marker = match parse_transfer_marker(journal_json) {
+            Ok(marker) => marker,
+            Err(error) => {
+                return BackendExitDecision::Hold {
+                    reason: format!("server-transfer marker is unreadable: {error}"),
+                }
+            }
+        };
+        return match marker.state.as_str() {
+            "preparing" | "staged" | "validated" | "aborted" => BackendExitDecision::Respawn,
+            "source-fenced" | "committing" | "commit-uncertain" | "committed" => {
+                BackendExitDecision::Hold {
+                    reason: format!(
+                        "server-transfer marker blocks writable local restart ({})",
+                        marker.state
+                    ),
+                }
+            }
+            _ => BackendExitDecision::Hold {
+                reason: format!(
+                    "server-transfer marker has an unknown state ({})",
+                    marker.state
+                ),
+            },
+        };
     }
 
     let LaunchAction::LocalDaemon { server_url } = current_action else {
@@ -740,6 +767,41 @@ mod tests {
         ] {
             assert_eq!(
                 classify_backend_exit(&initial, &config, None),
+                BackendExitDecision::Respawn
+            );
+        }
+    }
+
+    #[test]
+    fn unchanged_local_role_holds_when_a_durable_transfer_fence_blocks_server_boot() {
+        let config = DesktopConfig::default();
+        for state in [
+            "source-fenced",
+            "committing",
+            "commit-uncertain",
+            "committed",
+        ] {
+            assert!(matches!(
+                classify_backend_exit(
+                    &LaunchAction::LocalAllInOne,
+                    &config,
+                    Some(&transfer_marker(state, "https://new.example")),
+                ),
+                BackendExitDecision::Hold { .. }
+            ));
+        }
+    }
+
+    #[test]
+    fn unchanged_local_role_respawns_for_safe_transfer_markers() {
+        let config = DesktopConfig::default();
+        for state in ["preparing", "staged", "validated", "aborted"] {
+            assert_eq!(
+                classify_backend_exit(
+                    &LaunchAction::LocalAllInOne,
+                    &config,
+                    Some(&transfer_marker(state, "https://new.example")),
+                ),
                 BackendExitDecision::Respawn
             );
         }
