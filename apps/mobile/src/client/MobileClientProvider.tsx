@@ -487,6 +487,13 @@ function LiveProvider({ children }: { children: ReactNode }) {
   const [openedReplica, setOpenedReplica] = useState<MobileReplica | null>(null)
   useEffect(() => {
     let alive = true
+    let replicaForCleanup: MobileReplica | null = null
+    const closeReplica = () => {
+      alive = false
+      replicaForCleanup?.store.close()
+      replicaForCleanup = null
+    }
+    if (typeof window !== 'undefined') window.addEventListener('pagehide', closeReplica)
     void (async () => {
       const [bridge, status] = await Promise.all([
         createAsyncStorageReplicaStorage(AsyncStorage, LEGACY_HYDRATE_PREFIXES),
@@ -507,6 +514,16 @@ function LiveProvider({ children }: { children: ReactNode }) {
         // times out under Chromium even with COOP/COEP + correct wasm MIME, so
         // the replica degraded to memory-only and offline deep links lost the
         // task. Native keeps SQLite.
+        //
+        // POD-1746 reached the OPFS timeout from the other side and found two
+        // upstream bugs behind it (see patches/expo-sqlite@57.0.1.patch): the
+        // worker was constructed from an unresolved URL, and the sync bridge
+        // wrote its length prefix through a misaligned Uint32Array. That patch
+        // and the async open/delete plumbing in SqliteSyncStore are merged but
+        // NOT wired here — ADR 6 D2's reversal condition asks for a spike that
+        // passes, and this one has not been run against the current tree.
+        // Flipping web back to SQLite is the `Platform.OS === 'web'` branch
+        // below plus openDatabaseAsync/deleteDatabaseAsync; nothing else.
         openStore: async () => {
           if (Platform.OS === 'web') {
             return IndexedDbSyncStore.open({
@@ -534,7 +551,11 @@ function LiveProvider({ children }: { children: ReactNode }) {
         fetchChangesSince: async (cursor) => syncV2.feedChangesSince.query({ cursor }),
         onDegraded: setNotice,
       })
-      if (!alive) return
+      if (!alive) {
+        opened.store.close()
+        return
+      }
+      replicaForCleanup = opened
       // ADR 6 D4.4 — never silent, in order of how much it costs the user.
       //
       // PARKED and REJECTED are both work that will never be sent, and both are
@@ -557,7 +578,8 @@ function LiveProvider({ children }: { children: ReactNode }) {
       setOpenedReplica(opened)
     })()
     return () => {
-      alive = false
+      closeReplica()
+      if (typeof window !== 'undefined') window.removeEventListener('pagehide', closeReplica)
     }
   }, [config.httpOrigin, trpc, inheritedAuthStatus])
   const routerWindow = useMemo(() => createMemoryRouterWindow(), [])

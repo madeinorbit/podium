@@ -133,6 +133,7 @@
     "vitest": "5.0.0-beta.6"
   },
   "patchedDependencies": {
-    "@xterm/addon-web-links@0.11.0": "patches/@xterm%2Faddon-web-links@0.11.0.patch"
+    "@xterm/addon-web-links@0.11.0": "patches/@xterm%2Faddon-web-links@0.11.0.patch",
+    "expo-sqlite@57.0.1": "patches/expo-sqlite@57.0.1.patch"
   }
 }

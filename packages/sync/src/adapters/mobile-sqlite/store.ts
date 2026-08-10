@@ -143,6 +143,11 @@ export interface SqliteStoreOptions {
   /** Open (or create) the replica database file. Called again after a poison clear. */
   readonly openDatabase: () => SqlDatabaseLike
   /**
+   * Async open used by browser SQLite implementations whose worker and OPFS VFS
+   * need asynchronous initialization before synchronous transactions are safe.
+   */
+  readonly openDatabaseAsync?: () => Promise<SqlDatabaseLike>
+  /**
    * Remove the underlying file, so a poisoned or newer-version store can be
    * recreated (D4.5 / D6).
    *
@@ -152,6 +157,8 @@ export interface SqliteStoreOptions {
    * and the failure would appear on a user's device rather than at this call site.
    */
   readonly deleteDatabase: () => void
+  /** Async counterpart used for browser SQLite recovery. */
+  readonly deleteDatabaseAsync?: () => Promise<void>
   /** REQUIRED — see {@link DurabilityDegradation}. */
   readonly onDegraded: (degradation: DurabilityDegradation) => void
   /** Called after every open with what the secret scrub found (POD-419).
@@ -293,10 +300,10 @@ export class SqliteSyncStore {
   static async open(options: SqliteStoreOptions): Promise<SqliteSyncStore> {
     let db: SqlDatabaseLike
     try {
-      db = options.openDatabase()
+      db = options.openDatabaseAsync ? await options.openDatabaseAsync() : options.openDatabase()
     } catch (error) {
       // The file exists and is not a database this driver will open at all.
-      const recovered = recoverFile(options, error)
+      const recovered = await recoverFile(options, error)
       if (recovered.kind === 'unavailable') {
         const store = new SqliteSyncStore(unavailableDatabase(), options)
         store.degrade('unavailable', 'unavailable', recovered.error)
@@ -338,7 +345,7 @@ export class SqliteSyncStore {
       try {
         store.clearAll()
       } catch {
-        const recovered = recoverFile(options, error)
+        const recovered = await recoverFile(options, error)
         if (recovered.kind === 'unavailable') {
           const unavailable = new SqliteSyncStore(unavailableDatabase(), options)
           unavailable.degrade('unavailable', 'unavailable', recovered.error)
@@ -1176,13 +1183,17 @@ const upsertEntityOp = (principal: string, row: EntityRecord): SqlOp => ({
 })
 
 /** Delete the file and open a fresh one; report whether that was possible at all. */
-function recoverFile(
+async function recoverFile(
   options: SqliteStoreOptions,
   cause: unknown,
-): { kind: 'db'; db: SqlDatabaseLike } | { kind: 'unavailable'; error: unknown } {
+): Promise<{ kind: 'db'; db: SqlDatabaseLike } | { kind: 'unavailable'; error: unknown }> {
   try {
-    options.deleteDatabase()
-    return { kind: 'db', db: options.openDatabase() }
+    if (options.deleteDatabaseAsync) await options.deleteDatabaseAsync()
+    else options.deleteDatabase()
+    const db = options.openDatabaseAsync
+      ? await options.openDatabaseAsync()
+      : options.openDatabase()
+    return { kind: 'db', db }
   } catch (fatal) {
     return { kind: 'unavailable', error: fatal ?? cause }
   }
