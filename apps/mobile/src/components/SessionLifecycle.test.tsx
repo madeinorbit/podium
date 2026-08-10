@@ -1,11 +1,17 @@
 import type { SessionMeta } from '@podium/model'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { act } from 'react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+// This lane does not run testing-library's auto-cleanup, so an earlier render
+// would otherwise still be in the document when the next test queries it.
+afterEach(cleanup)
 
 vi.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'light' },
-  impactAsync: vi.fn(),
+  // Must RESOLVE: PressableScale calls `impactAsync(...).catch(...)`, so a mock
+  // returning undefined throws inside the press handler before onPress runs.
+  impactAsync: vi.fn(async () => {}),
 }))
 vi.mock('lucide-react-native', () => ({
   Moon: () => null,
