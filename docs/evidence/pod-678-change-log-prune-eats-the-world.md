@@ -50,6 +50,25 @@ list, and neither is anything below `POD-559` except a handful. The client's
 `useReplicaIssues()` is fed from this frame, so `resolveIssueReference` finds no
 row and returns `availability: 'unavailable'` — the unknown-reference paint.
 
+## 3b. Confirmed from the other end, in the live client
+
+POD-684's operator relay reported the same thing from the outside on
+2026-08-10T11:55Z: a chat message full of `POD-N` refs spanning Aug 3–10
+rendered yellow, and clicking one said *reference not found*. It sampled 16 of
+those refs against `changes.entity_id`, and **the split falls exactly on the
+retention boundary with no exceptions**:
+
+| | refs | last written |
+| --- | --- | --- |
+| 0 rows, unresolved | POD-362, 364, 374, 376, 402, 444, 497, 516, 526, 591 | 2026-08-05…08 |
+| retained, resolves | POD-592, 596, 624, 630, 662, 674 | 2026-08-09 21:26 onward |
+
+Its independent re-measure of the log — 20 031 rows over a 25.4h window — agrees
+with §1. Two things worth carrying forward from that report: the symptom is
+observed in the real client rather than derived from code, and the blast radius
+is wider than a chat cosmetic — **any prose an agent writes referencing work
+older than a day renders to the operator as broken links.**
+
 ## 4. Why: the world was a fold over the pruned table
 
 `Authority.bootstrap` → `store.latestChangeStates()`, which was
