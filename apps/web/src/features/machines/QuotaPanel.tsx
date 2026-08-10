@@ -1,7 +1,3 @@
-import type { QuotaWindowWire } from '@podium/model'
-import type { JSX } from 'react'
-import { cn } from '@/lib/utils'
-import { HealthPopoverFooter } from './HealthPopover'
 import {
   type AccountQuotaGroup,
   agentLabel,
@@ -17,7 +13,11 @@ import {
   windowPace,
   windowScopeModel,
   windowShortLabel,
-} from './quota'
+} from '@podium/client-core/viewmodels'
+import type { QuotaWindowWire } from '@podium/model'
+import type { JSX } from 'react'
+import { cn } from '@/lib/utils'
+import { HealthPopoverFooter } from './HealthPopover'
 
 /**
  * The agent-quota popover body. Hover tier: verdict header + one aligned

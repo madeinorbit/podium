@@ -1,3 +1,15 @@
+/**
+ * PLAN QUOTA — grouping, pace, and the "can I still work?" verdicts.
+ *
+ * SHARED, NOT WEB-LOCAL (POD-662), for the reason `usage.ts` beside it moved:
+ * the phone needs the same answers, and a package may not import an app. These
+ * are the rules nobody re-derives by eye — which window is tightest, whether
+ * usage is outrunning the clock, and the gating-vs-model-scoped distinction
+ * (POD-271) that keeps a spent model from reporting a stop that is not
+ * happening. The web's Tailwind class map stayed behind with its only caller.
+ *
+ * Platform-neutral: no DOM, no storage, no styling vocabulary.
+ */
 import type { AgentKind, AgentQuotaWire, MachineQuotaWire, QuotaWindowWire } from '@podium/model'
 
 /** "resets in 40m" / "resets in 2h 14m" / "resets in 1d 4h". */
@@ -20,9 +32,6 @@ export function percentTone(p: number): QuotaTone {
   if (p > 90) return 'crit'
   if (p >= 75) return 'warn'
   return 'ok'
-}
-export function toneBarClass(t: QuotaTone): string {
-  return t === 'crit' ? 'bg-destructive' : t === 'warn' ? 'bg-warning' : 'bg-success'
 }
 
 /** "5-hour" → "5h", "Weekly" → "wk" — the compact mono window label. */

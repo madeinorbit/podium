@@ -4,6 +4,18 @@ import type { UsageBucketWire } from '@podium/model'
  * Window math + API-cost-equivalent over the daemon's hour×model usage buckets.
  * Windows are rolling ("last 5h" / "last 7d") — Podium can't see the provider's
  * true quota anchor, so it shows consumption honestly instead of guessing limits.
+ *
+ * SHARED, NOT WEB-LOCAL (POD-662). The phone's Pulse tab asks this module the
+ * same questions the desktop sheet does, and a package may not import an app —
+ * so the alternative to moving it was a second copy. The price table is the one
+ * thing in here nobody can reconstruct from the wire, and two copies would quote
+ * different dollar figures for the same tokens the first time a model id landed
+ * on a different row. The interpretation layer (POD-614) has the same property:
+ * `costWeightRatio`, the cache-savings multiple and the provider rollup are
+ * judgements about what the numbers MEAN, and two platforms must not each make
+ * their own.
+ *
+ * Platform-neutral: no DOM, no storage, no styling vocabulary.
  */
 
 export interface UsageWindow {

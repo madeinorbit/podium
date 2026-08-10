@@ -1,3 +1,21 @@
+import {
+  type AccountQuotaGroup,
+  agentLabel,
+  agentShortLabel,
+  formatReset,
+  groupQuotaByAccount,
+  modelLimitNote,
+  paceHint,
+  paceLabel,
+  percentTone,
+  type QuotaPace,
+  type QuotaTone,
+  splitQuotaWindows,
+  statusNote,
+  windowElapsedPercent,
+  windowPace,
+  windowScopeModel,
+} from '@podium/client-core/viewmodels'
 import type { AgentQuotaWire, MachineQuotaWire } from '@podium/model'
 import { Gauge } from 'lucide-react'
 import type { JSX } from 'react'
@@ -15,25 +33,6 @@ import {
 import { cn } from '@/lib/utils'
 import { HealthPopover } from './HealthPopover'
 import { QuotaPanel } from './QuotaPanel'
-import {
-  type AccountQuotaGroup,
-  agentLabel,
-  agentShortLabel,
-  formatReset,
-  groupQuotaByAccount,
-  modelLimitNote,
-  paceHint,
-  paceLabel,
-  percentTone,
-  type QuotaPace,
-  type QuotaTone,
-  splitQuotaWindows,
-  statusNote,
-  toneBarClass,
-  windowElapsedPercent,
-  windowPace,
-  windowScopeModel,
-} from './quota'
 
 // Severity → status-strip colors, matching the host memory glyph's contract
 // (HostIndicators): the bar fill is always tinted; the icon stays neutral while
@@ -213,11 +212,7 @@ export function QuotaIndicator({
                   </span>
                 )
                 return (
-                  <span
-                    key={group.key}
-                    className="header-quota-pool"
-                    data-harness={group.agent}
-                  >
+                  <span key={group.key} className="header-quota-pool" data-harness={group.agent}>
                     <QuotaHarnessIcon agent={group.agent} />
                     <span className="header-mark">{agentShortLabel(group.agent)}</span>
                     {/* The fallback rail exists only for a pool that reports
@@ -421,7 +416,7 @@ function QuotaWindowRow({
       </div>
       <div className="relative h-2 w-full overflow-hidden rounded-full bg-secondary">
         <div
-          className={cn('h-full rounded-full', toneBarClass(percentTone(w.usedPercent)))}
+          className={cn('h-full rounded-full', TONE[percentTone(w.usedPercent)].fill)}
           style={{ width: `${Math.min(100, Math.max(0, w.usedPercent))}%` }}
         />
         {elapsed !== null ? (
