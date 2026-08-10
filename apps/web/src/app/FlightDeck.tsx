@@ -21,6 +21,7 @@ import {
   type PresenceNote,
   presenceNote,
   reposToViews,
+  rootRoster,
   type SessionRole,
   sessionNeedsHuman,
   sessionRole,
@@ -1190,30 +1191,18 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
    * "fold every branch" control below excludes it for the same reason, and the
    * root's sessions consequently always show — which is what §4 asks for.
    *
-   * But "always show" cannot mean "always show ALL". Every session the mission
-   * has ever had hangs off this header, and on a long-running mission that is
-   * sixteen rows — most of them finished — between the operator and the first
-   * actual task. So the FINISHED ones fold away behind their own count, and
-   * what is left standing is what is still happening. The live roster is never
-   * hidden, whatever its size; only the settled part is.
+   * But "always show" cannot mean "always show ALL" — see `rootRoster`, which
+   * owns the trim and the two exemptions it must respect (the full-spine mode,
+   * and the session you currently have open).
    */
   const rootRow = rows[0]
   const rootNote = root ? issueNote(root, byId) : null
   const rootSessions = useMemo(() => (rootRow ? deckSessions(rootRow, mode) : []), [rootRow, mode])
   const [rosterOpen, setRosterOpen] = useState(false)
-  const rootLive = useMemo(
-    () =>
-      rootSessions.filter((session) => {
-        const retired = session.archived || session.status === 'exited'
-        return !retired && motionPhase(session) !== 'done'
-      }),
-    [rootSessions],
+  const roster = useMemo(
+    () => rootRoster(rootSessions, { mode, activeSessionId, open: rosterOpen }),
+    [rootSessions, mode, activeSessionId, rosterOpen],
   )
-  const rootFinished = rootSessions.length - rootLive.length
-  // Below this the fold costs a row to save fewer, which is the fold that hides
-  // nothing — the same rule the collapsed payload follows.
-  const rosterFoldable = rootFinished > 2
-  const rootShown = !rosterFoldable || rosterOpen ? rootSessions : rootLive
   // Search keeps a match's ANCESTORS as context, the same rule the mode filters
   // follow — an exception that loses its path is an exception you cannot place.
   const visibleRows = useMemo(() => {
@@ -1511,11 +1500,11 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
             {rootRow && (
               <HungRows
                 issue={rootRow.issue}
-                sessions={rootShown}
+                sessions={roster.shown}
                 fold={
-                  rosterFoldable
+                  roster.foldable
                     ? {
-                        hidden: rootFinished,
+                        hidden: roster.hidden,
                         open: rosterOpen,
                         onToggle: () => setRosterOpen((open) => !open),
                       }

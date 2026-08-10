@@ -31,6 +31,7 @@ import {
   portfolioActionableCount,
   presenceNote,
   relationNote,
+  rootRoster,
   sessionNeedsHuman,
   waitingNote,
 } from './mission'
@@ -1423,5 +1424,102 @@ describe('portfolioActionableCount', () => {
         sess('s', { issueId: 'a', archived: true, agentState: needsUserState }),
       ]),
     ).toBe(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+
+describe('rootRoster', () => {
+  const settled = (id: string): SessionMeta =>
+    sess(id, { issueId: 'root', agentState: finishedState })
+  const live = (id: string): SessionMeta => sess(id, { issueId: 'root', agentState: workingState })
+  const ids = (sessions: readonly SessionMeta[]): string[] => sessions.map((s) => s.sessionId)
+
+  it('folds the settled agents away in a narrowing mode', () => {
+    const roster = rootRoster([live('s-live'), settled('a'), settled('b'), settled('c')], {
+      mode: 'active',
+      activeSessionId: null,
+      open: false,
+    })
+    expect(roster.foldable).toBe(true)
+    expect(roster.hidden).toBe(3)
+    expect(ids(roster.shown)).toEqual(['s-live'])
+  })
+
+  // FULL SPINE IS THE MODE THAT SHOWS EVERYTHING. A trim here makes the mode a
+  // lie and buries finished agents behind a second control inside the view that
+  // was meant to already be showing them.
+  it('shows every finished agent in the full spine, with no fold at all', () => {
+    const roster = rootRoster([live('s-live'), settled('a'), settled('b'), settled('c')], {
+      mode: 'full',
+      activeSessionId: null,
+      open: false,
+    })
+    expect(roster.foldable).toBe(false)
+    expect(roster.hidden).toBe(0)
+    expect(ids(roster.shown)).toEqual(['s-live', 'a', 'b', 'c'])
+  })
+
+  // A hibernated agent reads as `done`, but it is the transcript on screen: a
+  // navigator that hides your own position is not a navigator.
+  it('never folds away the session you have open, hibernated or not', () => {
+    const open = sess('s-open', {
+      issueId: 'root',
+      status: 'hibernated',
+      agentState: finishedState,
+    })
+    const roster = rootRoster([live('s-live'), open, settled('a'), settled('b'), settled('c')], {
+      mode: 'active',
+      activeSessionId: 's-open',
+      open: false,
+    })
+    expect(ids(roster.shown)).toEqual(['s-live', 's-open'])
+    // Shown, so not counted among the hidden — a fold that overstates what it
+    // holds sends the operator looking for a row that is already on screen.
+    expect(roster.hidden).toBe(3)
+  })
+
+  it('leaves an exited session visible while it is the open one', () => {
+    const open = sess('s-open', { issueId: 'root', status: 'exited' })
+    const roster = rootRoster([open, settled('a'), settled('b'), settled('c')], {
+      mode: 'needs-you',
+      activeSessionId: 's-open',
+      open: false,
+    })
+    expect(ids(roster.shown)).toContain('s-open')
+  })
+
+  // The disclosure must keep standing, and keep its count, while unfolded —
+  // otherwise the control that opened it vanishes and there is no way back down.
+  it('keeps the fold and its count once opened', () => {
+    const sessions = [live('s-live'), settled('a'), settled('b'), settled('c')]
+    const roster = rootRoster(sessions, { mode: 'active', activeSessionId: null, open: true })
+    expect(roster.foldable).toBe(true)
+    expect(roster.hidden).toBe(3)
+    expect(ids(roster.shown)).toEqual(['s-live', 'a', 'b', 'c'])
+  })
+
+  it('does not fold when it would cost a row to save fewer', () => {
+    const roster = rootRoster([live('s-live'), settled('a'), settled('b')], {
+      mode: 'active',
+      activeSessionId: null,
+      open: false,
+    })
+    expect(roster.foldable).toBe(false)
+    expect(ids(roster.shown)).toEqual(['s-live', 'a', 'b'])
+  })
+
+  it('counts a retired session as settled even when its last state read working', () => {
+    const roster = rootRoster(
+      [
+        sess('s-gone', { issueId: 'root', status: 'exited', agentState: workingState }),
+        sess('s-away', { issueId: 'root', archived: true, agentState: workingState }),
+        settled('c'),
+        live('s-live'),
+      ],
+      { mode: 'active', activeSessionId: null, open: false },
+    )
+    expect(roster.hidden).toBe(3)
+    expect(ids(roster.shown)).toEqual(['s-live'])
   })
 })

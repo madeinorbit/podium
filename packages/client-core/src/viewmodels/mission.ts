@@ -569,6 +569,62 @@ export function deckSessions(
   return asking.length > 0 ? asking : row.sessions
 }
 
+/** Below this a fold costs a row to save fewer, which is the fold that hides
+ *  nothing — the same rule the collapsed payload follows. */
+const ROSTER_FOLD_FLOOR = 2
+
+export interface RootRoster {
+  /** The sessions the root block prints, in the order it was given them. */
+  shown: SessionMeta[]
+  /** What the fold is holding back. Stays truthful while the fold is OPEN — the
+   *  disclosure has to keep standing, and keep its count, or there is no way
+   *  back down. */
+  hidden: number
+  /** Whether the disclosure line is drawn at all. */
+  foldable: boolean
+}
+
+/**
+ * The mission header's own roster, trimmed.
+ *
+ * Every session the mission has ever had hangs off the header, and on a
+ * long-running mission that is sixteen rows — most of them finished — between
+ * the operator and the first actual task. So the settled ones fold away behind
+ * their own count and what stands is what is still happening. Two things the
+ * trim must never eat:
+ *
+ * FULL SPINE IS THE MODE THAT SHOWS EVERYTHING. Asking for the full spine and
+ * getting a trimmed roster makes the mode a lie, and leaves the finished agents
+ * reachable only through a second control inside the view that was supposed to
+ * already be showing them. Trimming belongs to the modes that narrow.
+ *
+ * THE SESSION YOU HAVE OPEN IS NEVER FOLDED AWAY, whatever its phase. A
+ * hibernated agent reads as `done` here, but it is still the transcript on
+ * screen; a navigator that hides your own position is not a navigator.
+ */
+export function rootRoster(
+  sessions: readonly SessionMeta[],
+  opts: { mode: FlightDeckMode; activeSessionId?: string | null; open: boolean },
+): RootRoster {
+  const settled = new Set<string>()
+  if (opts.mode !== 'full') {
+    for (const session of sessions) {
+      if (session.sessionId === opts.activeSessionId) continue
+      const retired = session.archived || session.status === 'exited'
+      if (retired || motionPhase(session) === 'done') settled.add(session.sessionId)
+    }
+  }
+  const foldable = settled.size > ROSTER_FOLD_FLOOR
+  return {
+    shown:
+      !foldable || opts.open
+        ? [...sessions]
+        : sessions.filter((session) => !settled.has(session.sessionId)),
+    hidden: foldable ? settled.size : 0,
+    foldable,
+  }
+}
+
 /**
  * What a session IS on this task — the dim mono word after its name.
  *
