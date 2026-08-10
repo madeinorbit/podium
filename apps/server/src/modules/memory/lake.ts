@@ -115,6 +115,24 @@ export class TranscriptLake {
     return this.outstandingReads.size
   }
 
+  /**
+   * Fence transcript-lake writes and wait for every current mirror drain to
+   * settle. Queued and newly dirtied segments remain armed for an abort path.
+   */
+  async pauseMirroring(): Promise<void> {
+    if (this.stopped) return
+    await this.mirror?.pause()
+  }
+
+  /**
+   * Lift the transfer-snapshot fence and restart all mirror work accumulated
+   * while paused. Safe as a no-op when mirroring is disabled or disposed.
+   */
+  resumeMirroring(): void {
+    if (this.stopped) return
+    this.mirror?.resume()
+  }
+
   triggerSweep(machineId: string): void {
     if (this.stopped) return
     if (!this.mirror) return

@@ -329,6 +329,7 @@
         "src/modules/machines/service.ts",
         "src/modules/maintenance/service.test.ts",
         "src/modules/maintenance/service.ts",
+        "src/modules/memory/lake.test.ts",
         "src/modules/memory/lake.ts",
         "src/modules/memory/search.ts",
         "src/modules/memory/service.ts",
