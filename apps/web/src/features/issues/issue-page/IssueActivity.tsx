@@ -57,7 +57,7 @@ import type {
 } from '../issue-events'
 import { eventClock, eventStamp, groupActivityFeed } from '../issue-events'
 import type { IssueMailMessage, IssuePageCommands } from '../issue-page-commands'
-import { SectionHeading } from './chrome'
+import { MACHINE_LABEL, SectionHeading } from './chrome'
 
 /** Agent mail addressed to this issue (issue #103) — durable messages other
  *  agents sent to whoever works it. Read-only operator view; listing here never
@@ -66,7 +66,7 @@ export function MailSection({ mail }: { mail: IssueMailMessage[] }): JSX.Element
   if (mail.length === 0) return null
   const now = Date.now()
   return (
-    <section className="mb-7 flex flex-col gap-1.5" data-testid="issue-mail">
+    <section className="mb-9 flex flex-col gap-2" data-testid="issue-mail">
       <SectionHeading count={String(mail.length)}>Mail</SectionHeading>
       {mail.map((m) => (
         <div
@@ -102,7 +102,7 @@ export function MailSection({ mail }: { mail: IssueMailMessage[] }): JSX.Element
               {relativeTime(m.createdAt, now)}
             </span>
           </div>
-          <p className="whitespace-pre-wrap break-words text-[12.5px] text-foreground/85 leading-relaxed">
+          <p className="whitespace-pre-wrap break-words text-[13.5px] text-foreground/90 leading-[1.6]">
             {m.body}
           </p>
         </div>
@@ -139,7 +139,7 @@ function ActivityEvent({ line, ts }: { line: IssueEventLine; ts: string }): JSX.
   return (
     <div
       className={cn(
-        'relative flex items-center gap-2 border-border/60 border-l py-[3px] pl-4 text-[11.5px]',
+        'relative flex items-center gap-2 border-border/45 border-l py-1 pl-4 text-[12px]',
         minor ? 'text-text-faint' : 'text-muted-foreground',
       )}
       data-testid="activity-event"
@@ -178,7 +178,7 @@ function ActivityRollupRow({
   return (
     <>
       <div
-        className="relative flex items-center gap-2 border-border/60 border-l py-[3px] pl-4 text-[11.5px] text-text-faint"
+        className="relative flex items-center gap-2 border-border/45 border-l py-1 pl-4 text-[12px] text-text-faint"
         data-testid="activity-rollup"
       >
         <span
@@ -253,7 +253,7 @@ function ActivityComment({
           {eventClock(ts)}
         </span>
       </div>
-      <p className="whitespace-pre-wrap break-words text-[12.5px] text-muted-foreground leading-relaxed">
+      <p className="whitespace-pre-wrap break-words text-[13.5px] text-muted-foreground leading-[1.6]">
         {body}
       </p>
     </div>
@@ -282,7 +282,7 @@ function ActivityEntryRow({ entry }: { entry: ActivityEntry }): JSX.Element | nu
 function DayDivider({ label }: { label: string }): JSX.Element {
   return (
     <div className="mt-4 mb-2 flex items-center gap-2.5 first:mt-0">
-      <span className="label-mono">{label}</span>
+      <span className={MACHINE_LABEL}>{label}</span>
       <span className="h-px flex-1 bg-border/60" aria-hidden="true" />
     </div>
   )
@@ -327,7 +327,7 @@ export function IssueActivitySection({
       {issue.activityNotes && (
         <div className="flex flex-col gap-1 rounded-lg border border-border border-dashed bg-muted/20 px-3 py-2">
           <div className="flex items-baseline justify-between gap-2">
-            <span className="label-mono">Assistant</span>
+            <span className={MACHINE_LABEL}>Assistant</span>
             {issue.notesUpdatedAt && (
               <span
                 className="font-mono text-[9px] text-text-faint tabular-nums"
@@ -337,7 +337,7 @@ export function IssueActivitySection({
               </span>
             )}
           </div>
-          <p className="whitespace-pre-wrap break-words text-[12.5px] text-muted-foreground leading-relaxed">
+          <p className="whitespace-pre-wrap break-words text-[13.5px] text-muted-foreground leading-[1.6]">
             {issue.activityNotes}
           </p>
         </div>
@@ -390,15 +390,15 @@ export function CommentComposer({
   useEffect(() => setFocused(false), [issueId])
   const active = focused || value.trim().length > 0
   return (
-    <div className="flex-none border-border border-t bg-card/40 px-6 py-2.5 md:px-8">
-      <div className="mx-auto flex w-full max-w-3xl items-end gap-2">
+    <div className="flex-none border-border/50 border-t bg-card/20 px-6 py-2.5 md:px-10">
+      <div className="mx-auto flex w-full max-w-[54rem] items-end gap-2">
         <Textarea
           value={value}
           placeholder="Comment, or @mention an agent on this task…"
           aria-label="Add a comment"
           disabled={busy}
           className={cn(
-            'resize-none rounded-[9px] text-[12.5px] transition-[min-height] duration-150',
+            'resize-none rounded-[9px] text-[13.5px] transition-[min-height] duration-150',
             active ? 'min-h-[76px]' : 'min-h-[34px]',
           )}
           onFocus={() => setFocused(true)}

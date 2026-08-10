@@ -1,14 +1,23 @@
 /**
  * The issue page's shared chrome — a section heading and a status pill.
  *
- * POD-591 moved the heading onto the documented machine-voice label style
- * (`label-mono`: 8.5px Geist Mono, 0.12em, Label Grey) instead of the 11px sans
- * it used to invent. Section labels are the system talking about itself, which
- * DESIGN.md's Machine Voice Rule assigns to the mono face, and the page now has
- * eight of them — at 11px sans they competed with the 13px prose they label.
+ * Utility headings use the documented machine voice. Narrative headings are a
+ * deliberate second tier for human-authored fields: Design, Acceptance, and
+ * Notes should read as part of the document rather than diagnostic chrome.
  */
 import type { JSX, ReactNode } from 'react'
 import { cn } from '@/lib/utils'
+
+/**
+ * The machine voice on this page, one definition.
+ *
+ * The global `label-mono` utility sets 8.5px, which is tuned for the denser
+ * shells (the panel, the handover pane) and reads as a footnote against this
+ * page's larger prose. This page steps it to 10px — so it must be a token
+ * rather than a string copied per call site, or the labels drift apart the
+ * next time one of them is touched.
+ */
+export const MACHINE_LABEL = 'font-mono text-[10px] text-text-dim uppercase tracking-[0.1em]'
 
 /** Uniform section label; `count` renders as a quiet tabular badge, `action` as
  *  a trailing control that only surfaces on section hover (`group-hover`). */
@@ -16,16 +25,26 @@ export function SectionHeading({
   children,
   count,
   action,
+  tone = 'utility',
 }: {
   children: ReactNode
   count?: string
   action?: ReactNode
+  tone?: 'utility' | 'narrative'
 }): JSX.Element {
   return (
     <div className="flex items-center gap-2">
-      <h3 className="label-mono">{children}</h3>
+      <h3
+        className={cn(
+          tone === 'narrative'
+            ? 'font-semibold text-[14.5px] text-foreground/90 tracking-[-0.006em]'
+            : MACHINE_LABEL,
+        )}
+      >
+        {children}
+      </h3>
       {count !== undefined && (
-        <span className="font-mono text-[9px] text-text-faint tabular-nums">{count}</span>
+        <span className="font-mono text-[10px] text-text-faint tabular-nums">{count}</span>
       )}
       {action && (
         <div className="ml-auto opacity-0 transition-opacity focus-within:opacity-100 group-hover/section:opacity-100">
@@ -63,7 +82,7 @@ export function StatusChip({
     <span
       title={title}
       className={cn(
-        'inline-flex items-center gap-1 rounded-[4px] px-1.5 py-px font-mono text-[9px] uppercase tracking-[0.04em]',
+        'inline-flex items-center gap-1 rounded-[4px] px-1.5 py-px font-mono text-[10px] uppercase tracking-[0.04em]',
         tones[tone],
       )}
     >

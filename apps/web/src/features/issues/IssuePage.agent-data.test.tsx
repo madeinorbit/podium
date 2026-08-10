@@ -187,4 +187,31 @@ describe('IssuePage agent-saved data', () => {
       worktreePath: '/repo',
     })
   })
+
+  it('keeps ordinary editable properties out of the title dossier', () => {
+    const ordinary = makeIssue({
+      id: 'i-ordinary',
+      stage: 'in_progress',
+      type: 'feature',
+      priority: 1,
+      assignee: 'agent:codex',
+      createdAt: '2026-07-14T10:00:00.000Z',
+      updatedAt: '2026-07-14T12:00:00.000Z',
+    })
+    render(
+      <IssuePage
+        issue={ordinary}
+        orderedIds={[ordinary.id]}
+        onBack={vi.fn()}
+        onNavigate={vi.fn()}
+      />,
+    )
+
+    const status = within(screen.getByTestId('status-strip'))
+    for (const duplicated of ['In Progress', 'feature', 'P1', 'agent:codex']) {
+      expect(status.queryByText(duplicated)).toBeNull()
+    }
+    expect(status.getByText(/created/)).toBeTruthy()
+    expect(status.getByText(/updated/)).toBeTruthy()
+  })
 })

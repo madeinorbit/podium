@@ -112,7 +112,7 @@ export function IssueAgentActivity({
       <AgentActivityAttribution issue={issue} />
 
       {todos.length > 0 && (
-        <section className="mb-7 flex flex-col gap-2">
+        <section className="mb-9 flex flex-col gap-2.5">
           <SectionHeading count={`${doneCount}/${todos.length}`}>Todo</SectionHeading>
           <div className="flex items-center gap-2.5">
             <div className="h-[3px] flex-1 overflow-hidden rounded-full bg-muted">
@@ -168,7 +168,7 @@ export function IssueAgentActivity({
       )}
 
       {artifacts.length > 0 && (
-        <section className="mb-7 flex flex-col gap-2" data-testid="issue-artifacts">
+        <section className="mb-9 flex flex-col gap-2.5" data-testid="issue-artifacts">
           <SectionHeading count={String(artifacts.length)}>Artifacts</SectionHeading>
           <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
             {artifacts.map((a) => {
@@ -252,7 +252,7 @@ export function IssueAgentActivity({
       )}
 
       {deferred.length > 0 && (
-        <section className="mb-7 flex flex-col gap-1" data-testid="issue-deferred">
+        <section className="mb-9 flex flex-col gap-1.5" data-testid="issue-deferred">
           <SectionHeading count={String(deferred.length)}>Deferred</SectionHeading>
           {deferred.map((d) => (
             <div
@@ -289,7 +289,7 @@ function TodoRow({
 }): JSX.Element {
   return (
     // biome-ignore lint/a11y/noLabelWithoutControl: the Checkbox inside renders a Base UI role=checkbox button, which biome can't see as a control
-    <label className="-mx-1.5 flex cursor-pointer items-start gap-2 rounded-[4.8px] px-1.5 py-1 text-[12.5px] transition-colors hover:bg-accent">
+    <label className="-mx-1.5 flex cursor-pointer items-start gap-2 rounded-[4.8px] px-1.5 py-1.5 text-[13.5px] leading-[1.45] transition-colors hover:bg-accent/60">
       <Checkbox
         checked={todo.done}
         disabled={busy}

@@ -83,7 +83,7 @@ function SessionRosterRow({
       data-pressable
       type="button"
       className={cn(
-        '-mx-1.5 flex h-[26px] items-center gap-2 rounded-[4.8px] px-1.5 text-left transition-colors hover:bg-accent',
+        '-mx-1.5 flex h-[30px] items-center gap-2 rounded-[4.8px] px-1.5 text-left transition-colors hover:bg-accent/60',
         muted && 'opacity-70',
       )}
       title={title ?? `Open ${sessionDisplayName(session)}`}
@@ -97,7 +97,7 @@ function SessionRosterRow({
       >
         {AgentIcon ? <AgentIcon size={11} strokeWidth={1.8} aria-hidden="true" /> : '✳'}
       </span>
-      <span className="min-w-0 flex-1 truncate text-[11.5px] text-foreground">
+      <span className="min-w-0 flex-1 truncate text-[12.5px] text-foreground/90">
         {sessionDisplayName(session)}
       </span>
       {trailing ?? (

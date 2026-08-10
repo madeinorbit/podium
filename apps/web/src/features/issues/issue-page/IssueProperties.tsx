@@ -52,6 +52,7 @@ import {
   UNASSIGNED,
   useMergeStyle,
 } from '../issue-page-model'
+import { MACHINE_LABEL } from './chrome'
 import { DateProperty, EstimateProperty } from './DateProperty'
 import { IssueAbout } from './IssueAbout'
 import { IssueGitBlock } from './IssueGitBlock'
@@ -142,7 +143,7 @@ export function IssueProperties({
 
   return (
     <div className="flex flex-col">
-      <div className="flex flex-col px-3.5 py-3">
+      <div className="flex flex-col px-5 pt-5 pb-3">
         <PropertyRow label="Status">
           <PropertyMenu
             selectedValue={`stage:${issue.stage}`}
@@ -198,7 +199,7 @@ export function IssueProperties({
             {issue.labels.map((label) => (
               <span
                 key={label}
-                className="inline-flex items-center gap-1 rounded-[4px] bg-primary/10 py-px pr-1 pl-1.5 text-[10.5px] text-primary"
+                className="inline-flex items-center gap-1 rounded-[4px] bg-primary/10 py-px pr-1 pl-1.5 text-[11px] text-primary"
               >
                 {label}
                 <button
@@ -274,7 +275,7 @@ export function IssueProperties({
               aria-hidden="true"
               className="flex-none text-text-faint transition-transform group-open/more:rotate-90"
             />
-            <span className="label-mono">More fields</span>
+            <span className={MACHINE_LABEL}>More fields</span>
             {!hasLongTail && (
               <span className="ml-auto font-mono text-[9px] text-text-faint">none set</span>
             )}
@@ -358,13 +359,10 @@ export function IssueProperties({
   )
 }
 
-/** One hairline-separated band of the rail.
- *
- *  The rail separates by LINE, not by card: DESIGN.md's Carved Rule forbids
- *  floating a panel per section, and six bordered boxes stacked in a 272px
- *  column is the SaaS-dashboard look the anti-references name. */
+/** A quiet, whitespace-separated band of the rail. Repeated dividers made the
+ *  secondary column feel like a settings table instead of supporting context. */
 function RailSection({ children }: { children: ReactNode }): JSX.Element {
-  return <div className="border-hairline-soft border-t px-3.5 py-3">{children}</div>
+  return <div className="px-5 py-4">{children}</div>
 }
 
 /** Re-exported for the call sites that used to import it from the properties
