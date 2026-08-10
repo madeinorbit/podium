@@ -1,0 +1,236 @@
+{
+  "busy": {
+    "header": {
+      "gitStamp": true,
+      "text": "WorkTasks186vmi3431366MEM40%LOAD2.0×AGT25IDLE16/8quotaClaude CodeCC72%OpenAICX100%GrokGR100%"
+    },
+    "aside": {
+      "width": 296,
+      "fontSize": "16px",
+      "lineHeight": "24px",
+      "background": "oklab(0.20126 -0.00397716 -0.0342375 / 0.55)"
+    },
+    "now": {
+      "width": 784,
+      "fontSize": "16px",
+      "lineHeight": "24px",
+      "background": "oklab(0.151399 -0.00124639 -0.0248095 / 0.45)"
+    },
+    "nowRows": 2,
+    "status": "created 2d ago·updated 9m ago",
+    "composer": {
+      "width": 845,
+      "fontSize": "14px",
+      "lineHeight": "20px",
+      "background": "oklab(0.415075 -0.00671919 -0.0810128 / 0.3)"
+    },
+    "machineLabels": [
+      {
+        "text": "quota",
+        "size": "0px"
+      },
+      {
+        "text": "podium",
+        "size": "10.5px"
+      },
+      {
+        "text": "",
+        "size": "10.5px"
+      },
+      {
+        "text": "Now",
+        "size": "10px"
+      },
+      {
+        "text": "Brief",
+        "size": "10px"
+      },
+      {
+        "text": "Sub-tasks",
+        "size": "10px"
+      },
+      {
+        "text": "Sessions",
+        "size": "10px"
+      },
+      {
+        "text": "Branch",
+        "size": "10px"
+      },
+      {
+        "text": "Relations",
+        "size": "10px"
+      },
+      {
+        "text": "More fields",
+        "size": "10px"
+      },
+      {
+        "text": "Activity",
+        "size": "10px"
+      },
+      {
+        "text": "Yesterday",
+        "size": "10px"
+      },
+      {
+        "text": "Today",
+        "size": "10px"
+      },
+      {
+        "text": "Sessions",
+        "size": "10px"
+      },
+      {
+        "text": "Branch",
+        "size": "10px"
+      },
+      {
+        "text": "Relations",
+        "size": "10px"
+      },
+      {
+        "text": "More fields",
+        "size": "10px"
+      },
+      {
+        "text": "12h",
+        "size": "8px"
+      },
+      {
+        "text": "peak 16",
+        "size": "8px"
+      }
+    ],
+    "voices": {
+      "rgb(129, 139, 165)": 38,
+      "rgb(115, 126, 154)": 38,
+      "rgb(245, 197, 24)": 1,
+      "rgb(111, 157, 255)": 5,
+      "oklab(0.690719 0.00558341 -0.0195339 / 0.7)": 3,
+      "rgb(217, 119, 87)": 9,
+      "oklab(0.881811 0.00344691 -0.0117497 / 0.9)": 7,
+      "rgb(245, 158, 11)": 3,
+      "oklab(0.690719 0.00558341 -0.0195339 / 0.8)": 14
+    },
+    "docScrollWidth": 1976
+  },
+  "quiet": {
+    "header": {
+      "gitStamp": false,
+      "text": "WorkTasks186vmi3431366MEM39%LOAD1.9×AGT25IDLE16/8quotaClaude CodeCC72%OpenAICX100%GrokGR100%"
+    },
+    "aside": {
+      "width": 296,
+      "fontSize": "16px",
+      "lineHeight": "24px",
+      "background": "oklab(0.20126 -0.00397716 -0.0342375 / 0.55)"
+    },
+    "now": {
+      "width": 784,
+      "fontSize": "16px",
+      "lineHeight": "24px",
+      "background": "oklab(0.151399 -0.00124639 -0.0248095 / 0.45)"
+    },
+    "nowRows": 1,
+    "status": "created 2d ago·updated 1d ago",
+    "composer": {
+      "width": 845,
+      "fontSize": "14px",
+      "lineHeight": "20px",
+      "background": "oklab(0.415075 -0.00671919 -0.0810128 / 0.3)"
+    },
+    "machineLabels": [
+      {
+        "text": "quota",
+        "size": "0px"
+      },
+      {
+        "text": "podium",
+        "size": "10.5px"
+      },
+      {
+        "text": "",
+        "size": "10.5px"
+      },
+      {
+        "text": "Now",
+        "size": "10px"
+      },
+      {
+        "text": "Brief",
+        "size": "10px"
+      },
+      {
+        "text": "Artifacts",
+        "size": "10px"
+      },
+      {
+        "text": "Sub-tasks",
+        "size": "10px"
+      },
+      {
+        "text": "Sessions",
+        "size": "10px"
+      },
+      {
+        "text": "Relations",
+        "size": "10px"
+      },
+      {
+        "text": "Spin-offs",
+        "size": "10px"
+      },
+      {
+        "text": "More fields",
+        "size": "10px"
+      },
+      {
+        "text": "Activity",
+        "size": "10px"
+      },
+      {
+        "text": "Yesterday",
+        "size": "10px"
+      },
+      {
+        "text": "Today",
+        "size": "10px"
+      },
+      {
+        "text": "Sessions",
+        "size": "10px"
+      },
+      {
+        "text": "Relations",
+        "size": "10px"
+      },
+      {
+        "text": "Spin-offs",
+        "size": "10px"
+      },
+      {
+        "text": "More fields",
+        "size": "10px"
+      },
+      {
+        "text": "12h",
+        "size": "8px"
+      },
+      {
+        "text": "peak 16",
+        "size": "8px"
+      }
+    ],
+    "voices": {
+      "rgb(129, 139, 165)": 39,
+      "rgb(115, 126, 154)": 36,
+      "rgb(245, 197, 24)": 7,
+      "oklab(0.881811 0.00344691 -0.0117497 / 0.9)": 4,
+      "rgb(245, 158, 11)": 3,
+      "oklab(0.690719 0.00558341 -0.0195339 / 0.6)": 2,
+      "oklab(0.690719 0.00558341 -0.0195339 / 0.8)": 14
+    },
+    "docScrollWidth": 1976
+  }
+}

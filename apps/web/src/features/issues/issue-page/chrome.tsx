@@ -36,8 +36,11 @@ export function SectionHeading({
     <div className="flex items-center gap-2">
       <h3
         className={cn(
+          // Two axes, per DESIGN.md's Reading-Tier constraint: this sat at the
+          // body's own 14.5px in the body's own ink, so a Design heading and the
+          // Design text under it were separated by weight alone.
           tone === 'narrative'
-            ? 'font-semibold text-[14.5px] text-foreground/90 tracking-[-0.006em]'
+            ? 'font-semibold text-[15px] text-foreground tracking-[-0.008em]'
             : MACHINE_LABEL,
         )}
       >

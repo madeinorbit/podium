@@ -6,17 +6,17 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import { IssueNow } from './IssueNow'
 
-const session = (id: string): SessionMeta =>
+const session = (id: string, phase = 'working'): SessionMeta =>
   ({
     sessionId: id,
     issueId: 'issue',
     agentKind: 'codex',
     name: `Agent ${id}`,
-    status: 'live',
+    status: phase === 'working' ? 'live' : 'exited',
     archived: false,
     lastActiveAt: '2026-08-08T12:00:00.000Z',
     agentState: {
-      phase: 'working',
+      phase,
       since: '2026-08-08T12:00:00.000Z',
       nativeSubagentCount: 0,
     },
@@ -54,6 +54,22 @@ describe('IssueNow', () => {
 
     fireEvent.click(screen.getByText('Agent one'))
     expect(open).toHaveBeenCalledWith('one')
+  })
+
+  it('drops the frame when nothing is live, and keeps the fact to one line', () => {
+    const issue = makeIssue({ id: 'issue' })
+    const { container } = render(
+      <IssueNow
+        issue={issue}
+        sessions={[session('one', 'done'), session('two', 'done')]}
+        onOpenSession={vi.fn()}
+      />,
+    )
+
+    // One quiet line, not a panel: no header label, no rows, nothing to open.
+    expect(screen.getByTestId('issue-now').textContent).toBe('2 sessions · none working')
+    expect(screen.queryByText('Now')).toBeNull()
+    expect(container.querySelectorAll('button')).toHaveLength(0)
   })
 
   it('does not create a duplicate branch-only block', () => {

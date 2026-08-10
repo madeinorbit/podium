@@ -15,7 +15,6 @@ import { issueDisplayRef } from '@podium/protocol'
 import { ArrowLeft, ChevronDown, ChevronUp, MoreHorizontal } from 'lucide-react'
 import { Fragment, type JSX } from 'react'
 import { type IssueViewModel, useReplicaIssues } from '@/app/store'
-import { GitStamp } from '@/components/GitStamp'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -102,10 +101,17 @@ export function IssueDetailHeader({
         {issueDisplayRef(issue)}
       </button>
 
-      {/* LIVE STATE, on the one band that is always on screen. Everything here
-          was previously only reachable by scrolling the aside — or, for the git
-          counters, not on this page at all. */}
-      {(needsYou || working > 0 || issue.gitState) && (
+      {/* TRANSIENT URGENCY ONLY (POD-635). This band is always on screen, so it
+          carries the two facts that decide whether this task is your next move:
+          is it waiting on you, and is anything computing.
+
+          It used to carry the git chip too — branch, merge axis, dirty count —
+          while the rail's Branch section carried the same three, three hundred
+          pixels to the right and always visible beside it. DESIGN.md's git rule
+          is that one git fact is never restated in two places, and the band
+          repeating what the rail already said is what made the top of the page
+          read as an instrument cluster rather than the start of a document. */}
+      {(needsYou || working > 0) && (
         <div className="ml-1 flex min-w-0 items-center gap-2.5 border-hairline-bar border-l pl-2.5">
           {needsYou && (
             <span className="flex flex-none items-center gap-1.5 text-[10.5px] text-attention">
@@ -119,7 +125,6 @@ export function IssueDetailHeader({
               {working} working
             </span>
           )}
-          <GitStamp issueBranch={issue.branch} git={issue.gitState} density="chip" />
         </div>
       )}
 

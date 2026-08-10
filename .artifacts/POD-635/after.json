@@ -1,0 +1,631 @@
+{
+  "busy": {
+    "header": {
+      "gitStamp": false,
+      "text": "WorkTasks187Slow connection. 11219 ms ping — typing into agents will feel laggy.vmi3431366MEM59%LOAD4.0×AGT30IDLE18/8quotaClaude CodeCC73%OpenAICX100%GrokGR100%"
+    },
+    "aside": {
+      "width": 296,
+      "fontSize": "16px",
+      "lineHeight": "24px",
+      "background": "oklab(0.20126 -0.00397716 -0.0342375 / 0.55)"
+    },
+    "now": {
+      "width": 784,
+      "fontSize": "16px",
+      "lineHeight": "24px",
+      "background": "oklab(0.151399 -0.00124639 -0.0248095 / 0.45)"
+    },
+    "nowRows": 2,
+    "status": "created 2d ago·updated 38m ago",
+    "composer": {
+      "width": 845,
+      "fontSize": "14px",
+      "lineHeight": "20px",
+      "background": "oklab(0.415075 -0.00671919 -0.0810128 / 0.2)"
+    },
+    "machineLabels": [
+      {
+        "text": "quota",
+        "size": "0px"
+      },
+      {
+        "text": "podium",
+        "size": "10.5px"
+      },
+      {
+        "text": "",
+        "size": "10.5px"
+      },
+      {
+        "text": "Now",
+        "size": "10px"
+      },
+      {
+        "text": "Brief",
+        "size": "10px"
+      },
+      {
+        "text": "Sub-tasks",
+        "size": "10px"
+      },
+      {
+        "text": "Mail",
+        "size": "10px"
+      },
+      {
+        "text": "unread",
+        "size": "9px"
+      },
+      {
+        "text": "Sessions",
+        "size": "10px"
+      },
+      {
+        "text": "Branch",
+        "size": "10px"
+      },
+      {
+        "text": "Relations",
+        "size": "10px"
+      },
+      {
+        "text": "More fields",
+        "size": "10px"
+      },
+      {
+        "text": "Activity",
+        "size": "10px"
+      },
+      {
+        "text": "Yesterday",
+        "size": "10px"
+      },
+      {
+        "text": "Today",
+        "size": "10px"
+      },
+      {
+        "text": "Sessions",
+        "size": "10px"
+      },
+      {
+        "text": "Branch",
+        "size": "10px"
+      },
+      {
+        "text": "Relations",
+        "size": "10px"
+      },
+      {
+        "text": "More fields",
+        "size": "10px"
+      },
+      {
+        "text": "12h",
+        "size": "8px"
+      },
+      {
+        "text": "peak 16",
+        "size": "8px"
+      }
+    ],
+    "voices": {
+      "rgb(129, 139, 165)": 39,
+      "rgb(115, 126, 154)": 39,
+      "rgb(245, 197, 24)": 2,
+      "rgb(111, 157, 255)": 5,
+      "rgb(217, 119, 87)": 9,
+      "oklab(0.881811 0.00344691 -0.0117497 / 0.9)": 8,
+      "rgb(245, 158, 11)": 3,
+      "oklab(0.690719 0.00558341 -0.0195339 / 0.7)": 2,
+      "oklab(0.690719 0.00558341 -0.0195339 / 0.8)": 14
+    },
+    "docScrollWidth": 1976
+  },
+  "quiet": {
+    "header": {
+      "gitStamp": false,
+      "text": "WorkTasks187vmi3431366MEM67%LOAD4.8×AGT30IDLE18/8quotaClaude CodeCC73%OpenAICX100%GrokGR100%"
+    },
+    "aside": {
+      "width": 296,
+      "fontSize": "16px",
+      "lineHeight": "24px",
+      "background": "oklab(0.20126 -0.00397716 -0.0342375 / 0.55)"
+    },
+    "now": {
+      "width": 784,
+      "fontSize": "16px",
+      "lineHeight": "24px",
+      "background": "oklab(0.151399 -0.00124639 -0.0248095 / 0.45)"
+    },
+    "nowRows": 1,
+    "status": "created 2d ago·updated 1d ago",
+    "composer": {
+      "width": 845,
+      "fontSize": "14px",
+      "lineHeight": "20px",
+      "background": "oklab(0.415075 -0.00671919 -0.0810128 / 0.2)"
+    },
+    "machineLabels": [
+      {
+        "text": "quota",
+        "size": "0px"
+      },
+      {
+        "text": "podium",
+        "size": "10.5px"
+      },
+      {
+        "text": "",
+        "size": "10.5px"
+      },
+      {
+        "text": "Now",
+        "size": "10px"
+      },
+      {
+        "text": "Brief",
+        "size": "10px"
+      },
+      {
+        "text": "Artifacts",
+        "size": "10px"
+      },
+      {
+        "text": "Sub-tasks",
+        "size": "10px"
+      },
+      {
+        "text": "Sessions",
+        "size": "10px"
+      },
+      {
+        "text": "Relations",
+        "size": "10px"
+      },
+      {
+        "text": "Spin-offs",
+        "size": "10px"
+      },
+      {
+        "text": "More fields",
+        "size": "10px"
+      },
+      {
+        "text": "Activity",
+        "size": "10px"
+      },
+      {
+        "text": "Yesterday",
+        "size": "10px"
+      },
+      {
+        "text": "Today",
+        "size": "10px"
+      },
+      {
+        "text": "Sessions",
+        "size": "10px"
+      },
+      {
+        "text": "Relations",
+        "size": "10px"
+      },
+      {
+        "text": "Spin-offs",
+        "size": "10px"
+      },
+      {
+        "text": "More fields",
+        "size": "10px"
+      },
+      {
+        "text": "12h",
+        "size": "8px"
+      },
+      {
+        "text": "peak 16",
+        "size": "8px"
+      }
+    ],
+    "voices": {
+      "rgb(129, 139, 165)": 39,
+      "rgb(115, 126, 154)": 35,
+      "rgb(245, 197, 24)": 2,
+      "oklab(0.881811 0.00344691 -0.0117497 / 0.9)": 10,
+      "rgb(245, 158, 11)": 3,
+      "oklab(0.690719 0.00558341 -0.0195339 / 0.6)": 2,
+      "oklab(0.690719 0.00558341 -0.0195339 / 0.8)": 14
+    },
+    "docScrollWidth": 1976
+  },
+  "settled": {
+    "header": {
+      "gitStamp": false,
+      "text": "WorkTasks187vmi3431366MEM61%LOAD4.5×AGT30IDLE18/8quotaClaude CodeCC73%OpenAICX100%GrokGR100%"
+    },
+    "aside": {
+      "width": 296,
+      "fontSize": "16px",
+      "lineHeight": "24px",
+      "background": "oklab(0.20126 -0.00397716 -0.0342375 / 0.55)"
+    },
+    "now": {
+      "width": 784,
+      "fontSize": "10px",
+      "lineHeight": "15px",
+      "background": "rgba(0, 0, 0, 0)"
+    },
+    "nowRows": 0,
+    "status": "Closed · done·created 2d ago·updated 4h agoarchivedagent-created",
+    "composer": {
+      "width": 845,
+      "fontSize": "14px",
+      "lineHeight": "20px",
+      "background": "oklab(0.415075 -0.00671919 -0.0810128 / 0.2)"
+    },
+    "machineLabels": [
+      {
+        "text": "quota",
+        "size": "0px"
+      },
+      {
+        "text": "podium",
+        "size": "10.5px"
+      },
+      {
+        "text": "",
+        "size": "10.5px"
+      },
+      {
+        "text": "archived",
+        "size": "10px"
+      },
+      {
+        "text": "agent-created",
+        "size": "10px"
+      },
+      {
+        "text": "Brief",
+        "size": "10px"
+      },
+      {
+        "text": "Todo",
+        "size": "10px"
+      },
+      {
+        "text": "Artifacts",
+        "size": "10px"
+      },
+      {
+        "text": "Deferred",
+        "size": "10px"
+      },
+      {
+        "text": "Sub-tasks",
+        "size": "10px"
+      },
+      {
+        "text": "Mail",
+        "size": "10px"
+      },
+      {
+        "text": "Sessions",
+        "size": "10px"
+      },
+      {
+        "text": "Relations",
+        "size": "10px"
+      },
+      {
+        "text": "Spun off from",
+        "size": "10px"
+      },
+      {
+        "text": "More fields",
+        "size": "10px"
+      },
+      {
+        "text": "Activity",
+        "size": "10px"
+      },
+      {
+        "text": "Assistant",
+        "size": "10px"
+      },
+      {
+        "text": "Yesterday",
+        "size": "10px"
+      },
+      {
+        "text": "Today",
+        "size": "10px"
+      },
+      {
+        "text": "Sessions",
+        "size": "10px"
+      },
+      {
+        "text": "Relations",
+        "size": "10px"
+      },
+      {
+        "text": "Spun off from",
+        "size": "10px"
+      },
+      {
+        "text": "More fields",
+        "size": "10px"
+      },
+      {
+        "text": "12h",
+        "size": "8px"
+      },
+      {
+        "text": "peak 16",
+        "size": "8px"
+      }
+    ],
+    "voices": {
+      "rgb(129, 139, 165)": 45,
+      "rgb(115, 126, 154)": 61,
+      "oklch(0.811 0.111 293.571)": 1,
+      "oklab(0.881811 0.00344691 -0.0117497 / 0.9)": 13,
+      "oklab(0.690719 0.00558341 -0.0195339 / 0.6)": 5,
+      "oklab(0.881811 0.00344691 -0.0117497 / 0.8)": 2,
+      "rgb(217, 119, 87)": 6,
+      "oklab(0.690719 0.00558341 -0.0195339 / 0.8)": 14
+    },
+    "docScrollWidth": 1976
+  },
+  "authored": {
+    "header": {
+      "gitStamp": false,
+      "text": "WorkTasks187vmi3431366MEM57%LOAD4.6×AGT30IDLE18/8quotaClaude CodeCC73%OpenAICX100%GrokGR100%"
+    },
+    "aside": {
+      "width": 296,
+      "fontSize": "16px",
+      "lineHeight": "24px",
+      "background": "oklab(0.20126 -0.00397716 -0.0342375 / 0.55)"
+    },
+    "now": {
+      "width": 784,
+      "fontSize": "10px",
+      "lineHeight": "15px",
+      "background": "rgba(0, 0, 0, 0)"
+    },
+    "nowRows": 0,
+    "status": "Closed · done·created 4d ago·updated 3d agoarchived",
+    "composer": {
+      "width": 845,
+      "fontSize": "14px",
+      "lineHeight": "20px",
+      "background": "oklab(0.415075 -0.00671919 -0.0810128 / 0.2)"
+    },
+    "machineLabels": [
+      {
+        "text": "quota",
+        "size": "0px"
+      },
+      {
+        "text": "podium",
+        "size": "10.5px"
+      },
+      {
+        "text": "",
+        "size": "10.5px"
+      },
+      {
+        "text": "archived",
+        "size": "10px"
+      },
+      {
+        "text": "Brief",
+        "size": "10px"
+      },
+      {
+        "text": "Artifacts",
+        "size": "10px"
+      },
+      {
+        "text": "Sub-tasks",
+        "size": "10px"
+      },
+      {
+        "text": "Sessions",
+        "size": "10px"
+      },
+      {
+        "text": "Relations",
+        "size": "10px"
+      },
+      {
+        "text": "Spin-offs",
+        "size": "10px"
+      },
+      {
+        "text": "More fields",
+        "size": "10px"
+      },
+      {
+        "text": "Activity",
+        "size": "10px"
+      },
+      {
+        "text": "Assistant",
+        "size": "10px"
+      },
+      {
+        "text": "Aug 6",
+        "size": "10px"
+      },
+      {
+        "text": "Aug 7",
+        "size": "10px"
+      },
+      {
+        "text": "Today",
+        "size": "10px"
+      },
+      {
+        "text": "Sessions",
+        "size": "10px"
+      },
+      {
+        "text": "Relations",
+        "size": "10px"
+      },
+      {
+        "text": "Spin-offs",
+        "size": "10px"
+      },
+      {
+        "text": "More fields",
+        "size": "10px"
+      },
+      {
+        "text": "12h",
+        "size": "8px"
+      },
+      {
+        "text": "peak 16",
+        "size": "8px"
+      }
+    ],
+    "voices": {
+      "rgb(129, 139, 165)": 42,
+      "rgb(115, 126, 154)": 50,
+      "oklab(0.881811 0.00344691 -0.0117497 / 0.9)": 18,
+      "oklab(0.690719 0.00558341 -0.0195339 / 0.6)": 4,
+      "oklab(0.690719 0.00558341 -0.0195339 / 0.8)": 14
+    },
+    "docScrollWidth": 1976
+  },
+  "narrow": {
+    "header": {
+      "gitStamp": false,
+      "text": "WorkTasks187Slow connection. 1645 ms ping — typing into agents will feel laggy.vmi3431366MEM59%LOAD4.5×AGT30IDLE18/8quotaClaude CodeCC73%OpenAICX100%GrokGR100%"
+    },
+    "aside": {
+      "width": 272,
+      "fontSize": "16px",
+      "lineHeight": "24px",
+      "background": "oklab(0.20126 -0.00397716 -0.0342375 / 0.55)"
+    },
+    "now": {
+      "width": 176,
+      "fontSize": "16px",
+      "lineHeight": "24px",
+      "background": "oklab(0.151399 -0.00124639 -0.0248095 / 0.45)"
+    },
+    "nowRows": 2,
+    "status": "created 2d ago·updated 41m ago",
+    "composer": {
+      "width": 157,
+      "fontSize": "14px",
+      "lineHeight": "20px",
+      "background": "oklab(0.415075 -0.00671919 -0.0810128 / 0.2)"
+    },
+    "machineLabels": [
+      {
+        "text": "quota",
+        "size": "0px"
+      },
+      {
+        "text": "podium",
+        "size": "10.5px"
+      },
+      {
+        "text": "",
+        "size": "10.5px"
+      },
+      {
+        "text": "Now",
+        "size": "10px"
+      },
+      {
+        "text": "Brief",
+        "size": "10px"
+      },
+      {
+        "text": "Sub-tasks",
+        "size": "10px"
+      },
+      {
+        "text": "Mail",
+        "size": "10px"
+      },
+      {
+        "text": "unread",
+        "size": "9px"
+      },
+      {
+        "text": "Sessions",
+        "size": "10px"
+      },
+      {
+        "text": "Branch",
+        "size": "10px"
+      },
+      {
+        "text": "Relations",
+        "size": "10px"
+      },
+      {
+        "text": "More fields",
+        "size": "10px"
+      },
+      {
+        "text": "Activity",
+        "size": "10px"
+      },
+      {
+        "text": "Yesterday",
+        "size": "10px"
+      },
+      {
+        "text": "Today",
+        "size": "10px"
+      },
+      {
+        "text": "Sessions",
+        "size": "10px"
+      },
+      {
+        "text": "Branch",
+        "size": "10px"
+      },
+      {
+        "text": "Relations",
+        "size": "10px"
+      },
+      {
+        "text": "More fields",
+        "size": "10px"
+      },
+      {
+        "text": "12h",
+        "size": "8px"
+      },
+      {
+        "text": "peak 16",
+        "size": "8px"
+      }
+    ],
+    "voices": {
+      "rgb(129, 139, 165)": 39,
+      "rgb(115, 126, 154)": 39,
+      "rgb(245, 197, 24)": 2,
+      "rgb(111, 157, 255)": 5,
+      "rgb(217, 119, 87)": 9,
+      "oklab(0.881811 0.00344691 -0.0117497 / 0.9)": 8,
+      "rgb(245, 158, 11)": 3,
+      "oklab(0.690719 0.00558341 -0.0195339 / 0.7)": 2,
+      "oklab(0.690719 0.00558341 -0.0195339 / 0.8)": 14
+    },
+    "docScrollWidth": 820
+  }
+}

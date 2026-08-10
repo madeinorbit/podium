@@ -390,7 +390,12 @@ export function CommentComposer({
   useEffect(() => setFocused(false), [issueId])
   const active = focused || value.trim().length > 0
   return (
-    <div className="flex-none border-border/50 border-t bg-card/20 px-6 py-2.5 md:px-10">
+    // RECEDES UNTIL USED (POD-635). Pinned chrome that is always on screen and
+    // asks for nothing should not draw a full-contrast field: at rest this is a
+    // flat well with no edge of its own, and the enclosure — border, ring, the
+    // taller box — arrives on focus. The band keeps a hairline and a whisper of
+    // fill because the document scrolls UNDER it and needs somewhere to stop.
+    <div className="flex-none border-border/35 border-t bg-card/15 px-6 py-2.5 md:px-10">
       <div className="mx-auto flex w-full max-w-[54rem] items-end gap-2">
         <Textarea
           value={value}
@@ -398,8 +403,11 @@ export function CommentComposer({
           aria-label="Add a comment"
           disabled={busy}
           className={cn(
-            'resize-none rounded-[9px] text-[13.5px] transition-[min-height] duration-150',
-            active ? 'min-h-[76px]' : 'min-h-[34px]',
+            'resize-none rounded-[9px] text-[13.5px]',
+            'transition-[min-height,border-color,background-color] duration-150',
+            active
+              ? 'min-h-[76px]'
+              : 'min-h-[34px] border-transparent bg-input/20 hover:border-border/60 dark:bg-input/20',
           )}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}

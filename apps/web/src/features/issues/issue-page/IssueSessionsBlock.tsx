@@ -118,18 +118,27 @@ export function IssueAgentAction({
   mode,
   defaultAgent,
   busy,
+  spent = false,
   onDefault,
   onAgent,
 }: {
   mode: 'start' | 'session'
   defaultAgent: string
   busy: boolean
+  /** The task is finished, so starting work is offered but not asked for — see
+   *  the variant note below. */
+  spent?: boolean
   onDefault: () => void
   onAgent: (agentKind: IssueAgentKind) => void
 }): JSX.Element {
   const primaryLabel = mode === 'start' ? 'Start work' : '+ Session'
   const chooseTitle = mode === 'start' ? 'Choose start agent' : 'Choose session agent'
-  const variant = mode === 'start' ? undefined : 'secondary'
+  // THE SIGNAL RULE, APPLIED AGAIN (POD-635). IssueGitBlock already stopped
+  // spending Superade Yellow on a merge with nothing to land; the same slab was
+  // still the loudest pixel on every CLOSED task, offering to start work that
+  // has already finished. Yellow marks what is being asked of the operator —
+  // a closed task asks nothing, so the control stays, in outline.
+  const variant = mode === 'start' ? (spent ? ('outline' as const) : undefined) : 'secondary'
   const defaultKind = issueDefaultAgentKind(defaultAgent)
   const defaultLabel = issueAgentDefaultLabel(defaultAgent)
   return (
@@ -303,6 +312,7 @@ export function IssueSessionsBlock({
           mode="start"
           defaultAgent={issue.defaultAgent}
           busy={busy}
+          spent={issue.closedReason != null || issue.stage === 'done' || issue.archived}
           onDefault={() => commands.startWork()}
           onAgent={(agentKind) => commands.startWork(agentKind)}
         />
