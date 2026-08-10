@@ -49,7 +49,10 @@ import { createReattachGates } from './reattach-gates'
 import { SessionBinding } from './session-binding'
 import { createSessionObservers } from './session-observers'
 import { sweepUploads, UPLOADS_GC_INTERVAL_MS } from './session-uploads'
-import { restartAsServer, retireAfterServerTransfer } from './transfer-lifecycle'
+import {
+  restartAsServer,
+  retireTargetDaemonAfterAcknowledgement,
+} from './transfer-lifecycle'
 import { swapHeadlessBundle } from './update-install'
 import { DiscoveryWorkerClient } from './worker-client'
 import { createCwdResolver, createSessionCwdTracker } from './worktree-resolve'
@@ -355,8 +358,13 @@ export async function createDaemonHostRuntime(args: {
     refreshAndPublishConversations: (full) => discoveryLoop.refreshAndPublishConversations(full),
     quotaFetcher: makeQuotaFetcher({ ...(homeDir ? { homeDir } : {}) }),
     usageMemo: {},
-    restartAfterTransfer: opts.restartAfterTransfer ?? restartAsServer,
-    retireAfterTransfer: opts.retireAfterTransfer ?? retireAfterServerTransfer,
+    restartAfterTransfer:
+      opts.restartAfterTransfer ??
+      (async (expected) => {
+        await restartAsServer({ transferId: expected.transferId })
+        return expected
+      }),
+    retireAfterTransfer: opts.retireAfterTransfer ?? retireTargetDaemonAfterAcknowledgement,
     applyUpdateGrant,
   }
   const frameGuard = createFrameGuard(ctx)
