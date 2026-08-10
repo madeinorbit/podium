@@ -26,10 +26,11 @@ The root process lanes remain explicit so a green unit cache cannot imply a gree
 browser, multi-instance, or real-agent run.
 `test:bun:unit` remains a compatibility probe for the runtime file; normal agents should use
 `bun run test` so that file is not run twice.
-Files named `*.bench.test.ts` are excluded from package-owned and root unit collection. A
-benchmark may intentionally amplify a known cost curve and is not merge-gate evidence merely
-because Vitest can collect it; give each benchmark an explicit performance lane with the host
-budget appropriate to its measured peak.
+Files named `*.bench.test.ts` are excluded from generic package-owned and root node-unit
+collection. A dedicated project may explicitly re-add a bounded guard such as the server's
+normalized-wire benchmark. A benchmark that intentionally amplifies a known cost curve is not
+merge-gate evidence merely because Vitest can collect it; give it an explicit performance lane
+with the host budget appropriate to its measured peak.
 The agent-smoke reporter prints ran-versus-skipped totals for each CLI. A CLI's
 viability case starts a real turn and resumes it with retained context; an
 installed but unauthenticated or broken binary runs and fails rather than being
