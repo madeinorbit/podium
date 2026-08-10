@@ -698,9 +698,11 @@ function MachineRow({
     }
   }
 
-  // POD-838: surface protocol skew — see machineNeedsUpdate for the rules.
+  // POD-838/POD-1873: surface skew against this machine's selected channel target.
   const daemonVersion = machine.inventory?.podiumVersion
   const needsUpdate = machineNeedsUpdate(machine, serverAppVersion)
+  const updateTargetVersion =
+    machine.targetVersion !== undefined ? machine.targetVersion : serverAppVersion
 
   const revoke = async () => {
     setRevoking(true)
@@ -827,7 +829,7 @@ function MachineRow({
       {needsUpdate && (
         <span
           className="flex-none rounded bg-warning/15 px-1.5 py-0.5 text-[11px] text-warning uppercase tracking-wide"
-          title={`This machine runs Podium ${daemonVersion}; the server is on ${serverAppVersion}. Update the daemon (podium update).`}
+          title={`This machine runs Podium ${daemonVersion}; its selected update target is ${updateTargetVersion}.`}
         >
           update available
         </span>

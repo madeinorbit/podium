@@ -156,8 +156,8 @@ describe('MachinesPanel hosting affordances', () => {
   })
 })
 
-// POD-838: each row shows the daemon's reported build version; a version that trails the
-// server's gets an "update available" badge. 'dev' builds never badge (no comparable number).
+// POD-838/POD-1873: each row shows the daemon's reported build version and compares it
+// with that machine's selected channel target. Legacy projections fall back to the server.
 describe('MachinesPanel version skew', () => {
   function setTrpcWithVersion(appVersion: string) {
     storeState.trpc = {
@@ -189,6 +189,51 @@ describe('MachinesPanel version skew', () => {
 
     expect(await screen.findByText('0.5.0')).toBeTruthy()
     expect(screen.queryByText(/update available/i)).toBeNull()
+  })
+
+  it('does not badge a machine current on its selected channel when the server differs', async () => {
+    storeState.machines = [
+      machine({
+        inventory: {
+          os: 'linux',
+          arch: 'x64',
+          podiumVersion: '0.1.3-edge.1',
+          agents: [],
+          tools: [],
+        },
+        appVersion: '0.1.3-edge.1',
+        updateChannel: 'edge',
+        targetVersion: '0.1.3-edge.1',
+        versionState: 'current',
+      }),
+    ]
+    setTrpcWithVersion('dev+7de565e')
+    render(<MachinesPanel />)
+
+    expect(await screen.findByText('0.1.3-edge.1')).toBeTruthy()
+    expect(screen.queryByText(/update available/i)).toBeNull()
+  })
+
+  it('badges a machine behind its selected channel even when the server build differs', async () => {
+    storeState.machines = [
+      machine({
+        inventory: {
+          os: 'linux',
+          arch: 'x64',
+          podiumVersion: '0.4.1',
+          agents: [],
+          tools: [],
+        },
+        appVersion: '0.4.1',
+        updateChannel: 'stable',
+        targetVersion: '0.5.0',
+        versionState: 'behind',
+      }),
+    ]
+    setTrpcWithVersion('dev+7de565e')
+    render(<MachinesPanel />)
+
+    expect(await screen.findByText(/update available/i)).toBeTruthy()
   })
 
   it('never badges dev builds or machines with no reported version', async () => {
