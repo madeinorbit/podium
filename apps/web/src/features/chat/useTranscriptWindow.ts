@@ -275,6 +275,29 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     // Fresh session → no trustworthy window yet; the read below restores health.
     windowHealthy.current = false
 
+    // CACHE-FIRST [POD-700]. Every successful read above already writes its window
+    // through to the replica, and the catch path below already serves that copy
+    // when the server is unreachable — but a REACHABLE server left this pane with
+    // nothing to paint for the whole duration of the read, measured on the live
+    // instance at p50 545ms and up to 8.7s on a cold panel open. Seeding the cached
+    // window synchronously, before the await, makes reopening a session real
+    // content on the FIRST frame and turns the read into a refresh that
+    // `reconcileReset` folds in: an unmoved tail keeps the snapshot unchanged, a
+    // moved one adopts it verbatim. For a hibernated session the cache is not even
+    // approximate — the process is stopped, so nothing can have been appended.
+    //
+    // Three things this deliberately does NOT set, each of which would be a
+    // different claim than "here is what we read last time":
+    //   `initialLoaded` — the READ owns that answer. A conversation that is
+    //     genuinely empty must still resolve to "No transcript yet", and a cache
+    //     cannot settle a question it was never asked.
+    //   `offlineAsOf`   — that notice means the server could not be reached. It is
+    //     the offline path's signal and stays there; we are online and early.
+    //   `windowHealthy` — a cached window has no live subscription behind it, so a
+    //     later warm re-activation must still re-read rather than skip.
+    const cachedSeed = replica?.transcriptWindow(sessionId)
+    if (cachedSeed !== undefined && cachedSeed.items.length > 0) setItems(cachedSeed.items)
+
     ;(async () => {
       const r = await readNewest()
       if (cancelled) return
@@ -486,7 +509,14 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
   // More rows exist above the current window: either already loaded locally
   // (just reveal them) or still on disk (autoload + prepend). Drives the top
   // sentinel + the scroll trigger.
-  const moreAbove = renderStart > 0 || hasMoreOlder
+  //
+  // "On disk" requires the ANCHOR to reach them, and `headCursor` only arrives
+  // with the read. Before POD-700 that was academic — the pager renders only over
+  // loaded blocks, and no blocks could exist before the read resolved. A
+  // cache-first window can, so without this the seeded pane offers "Earlier
+  // transcript · click to retry" for a page `loadOlder` would refuse for want of
+  // an anchor. Rows held locally are still revealable; only the disk half waits.
+  const moreAbove = renderStart > 0 || (hasMoreOlder && headCursor !== undefined)
 
   // Reveal more above the current window: first grow the render window over rows
   // we already hold locally; once those run out, fetch the next older page off disk

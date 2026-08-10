@@ -2891,6 +2891,176 @@ html[data-density="balanced"] .header-quota-pools {
   padding-bottom: 2px;
 }
 
+/* ---------------------------------------------------------------------------
+   THE COLD TRANSCRIPT (POD-700) — the feed while its first read is in flight.
+
+   See TranscriptCold.tsx for the three rules. What this file owns is that the
+   slots are the FEED'S OWN geometry, not a generic skeleton: every metric below
+   is read off the real rows a few hundred lines up (`.transcript-you`,
+   `.transcript-you-label`, `.transcript-answer-label`, `.transcript-turn-open`),
+   so the layout the cold pass holds is the layout that lands in it.
+
+   Each run takes the INK OF THE THING IT STANDS FOR, mixed from an inherited
+   `color` rather than named: the answer's prose is Foreground so its slots carry
+   the page's weight, its label is Muted so that slot recedes. POD-394 recorded
+   why — one flat value for every slot reads as a single texture and inverts the
+   hierarchy the filled surface has. Inheriting also means Daylight needs no
+   second palette and a future ink change moves both feeds together.
+
+   The 2.5px run radius is the tab square's documented sub-component value, not
+   the component scale: 4.8px on a 7px bar is a pill. */
+.transcript-cold {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  /* Bottom-anchored by TranscriptFeed's auto-margin spacer, and never taller
+     than the scrollport: the extra exchanges are CLIPPED at the top, so the cold
+     pass fills the pane without inventing a scrollbar over content that does not
+     exist yet. */
+  max-height: 100%;
+  overflow: hidden;
+  /* The one thing unknowable before the read is how much sits ABOVE. The fade
+     says so and claims no count — the oldest exchange leaves rather than stopping
+     at a hard edge, which would read as the top of the conversation. */
+  /* Prefixed alongside the standard property, as `.code-copy` and `.ref-icon`
+     already do — the Tauri wrapper renders on WebKitGTK. */
+  -webkit-mask-image: linear-gradient(to bottom, transparent, black 18%);
+  mask-image: linear-gradient(to bottom, transparent, black 18%);
+  /* Resolve in at 180ms. `both` holds opacity 0 through the delay, so a read that
+     beats it — the warm-miss p50 is 188ms — never blinks anything on screen, and
+     no JS timer or extra state exists to get out of step with the read. */
+  animation: transcript-cold-in 160ms ease-out 180ms both;
+}
+@keyframes transcript-cold-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+/* The exchanges are pinned to the BOTTOM of the clipped block, so what falls off
+   is the oldest, under the fade — the same end the real feed loses first. */
+.transcript-cold-stack {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+.transcript-cold-turn + .transcript-cold-turn {
+  margin-top: 22px; /* `.transcript-turn-open`'s own seam. */
+}
+/* The mono label above each half of the exchange, at the real label's box and
+   its Muted ink. */
+.transcript-cold-label {
+  /* Block, not the span default: an inline box drops width/height and the label
+     collapses, taking the air between the prompt and its answer with it. */
+  display: block;
+  height: 9px;
+  width: 84px;
+  margin-bottom: 6px;
+  border-radius: 2.5px;
+  color: var(--muted-foreground);
+  background: color-mix(in oklab, currentColor 34%, transparent);
+}
+.transcript-cold-label--answer {
+  width: 62px;
+  margin-top: 16px;
+  margin-bottom: 7px;
+}
+/* The operator's prompt is a CARVED BOX in this feed, not a run of text, so the
+   cold pass carves it too — same radius, padding, border and inset as
+   `.transcript-you`. Reproducing the container is what stops the read landing
+   with a jump. */
+.transcript-cold-prompt {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 13px 15px;
+  border: 1px solid
+    color-mix(in srgb, var(--issue, transparent) calc(32 * var(--issue-line-scale, 1%)), var(--border));
+  border-radius: 9px;
+  background: color-mix(in oklab, var(--background) 82%, black);
+  box-shadow:
+    inset 0 3px 7px -2px var(--carve-engraved),
+    inset 0 -1px 0 color-mix(in oklab, var(--border) 45%, transparent);
+  color: var(--foreground);
+}
+/* The answer's prose, at the feed's reading ink. */
+.transcript-cold-answer {
+  color: var(--text-strong, var(--foreground));
+}
+/* A prose run. Height is the reading leading's INK, not the whole line box, so a
+   stack of them has the rhythm of text rather than of a table. */
+.transcript-cold-line {
+  display: block;
+  height: 7px;
+  border-radius: 2.5px;
+  background: color-mix(in oklab, currentColor 26%, transparent);
+}
+.transcript-cold-answer .transcript-cold-line + .transcript-cold-line {
+  margin-top: calc(var(--shell-leading-reading) - 7px);
+}
+/* Deterministic, uneven widths. A conversation does not wrap at one measure, and
+   equal bars are the tell that turns a cold pass into a loading graphic. Keyed by
+   position so the four exchanges never repeat one silhouette. */
+.transcript-cold-prompt .transcript-cold-line:nth-child(1) {
+  width: 84%;
+}
+.transcript-cold-prompt .transcript-cold-line:nth-child(2) {
+  width: 41%;
+}
+.transcript-cold-turn:nth-child(even) .transcript-cold-prompt .transcript-cold-line:nth-child(1) {
+  width: 62%;
+}
+.transcript-cold-answer .transcript-cold-line:nth-child(1) {
+  width: 96%;
+}
+.transcript-cold-answer .transcript-cold-line:nth-child(2) {
+  width: 88%;
+}
+.transcript-cold-answer .transcript-cold-line:nth-child(3) {
+  width: 93%;
+}
+.transcript-cold-answer .transcript-cold-line:nth-child(4) {
+  width: 71%;
+}
+.transcript-cold-answer .transcript-cold-line:nth-child(5) {
+  width: 46%;
+}
+.transcript-cold-turn:nth-child(even) .transcript-cold-answer .transcript-cold-line:nth-child(1) {
+  width: 89%;
+}
+.transcript-cold-turn:nth-child(even) .transcript-cold-answer .transcript-cold-line:nth-child(3) {
+  width: 54%;
+}
+/* The admission, and only once the read has earned it. Under 1.2s the shape has
+   already answered "something is coming", and a line that blinks in and out reads
+   as a fault; past it, the read is slow enough to name. Machine voice, Dim ink. */
+.transcript-cold-note {
+  flex: none;
+  margin-top: 18px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--shell-type-micro);
+  line-height: var(--shell-leading-micro);
+  color: var(--text-dim, var(--muted-foreground));
+  animation: transcript-cold-in 200ms ease-out 1200ms both;
+}
+.transcript-cold-note.is-compact {
+  margin-top: 14px;
+}
+.chat-compact .transcript-cold-prompt {
+  padding: 10px 12px;
+}
+@media (prefers-reduced-motion: reduce) {
+  /* The DELAYS are the state machine and stay; only the fades go. */
+  .transcript-cold,
+  .transcript-cold-note {
+    animation-duration: 1ms;
+  }
+}
+
 /* Loading, empty and paging share one quiet machine-voice object. They occupy
    the reading column without looking like chat bubbles or generic web spinners. */
 .transcript-placeholder {

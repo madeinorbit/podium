@@ -9,7 +9,7 @@ import type {
 } from '@podium/client-core/viewmodels'
 import { attributionForRole, blockMatches, isInteractiveTool } from '@podium/client-core/viewmodels'
 import type { SessionId, SessionMeta } from '@podium/model'
-import { ArrowUp, FileClock, Image as ImageIcon } from 'lucide-react'
+import { ArrowUp, Image as ImageIcon } from 'lucide-react'
 import type { JSX, RefObject } from 'react'
 import { Fragment, useMemo } from 'react'
 import { type IssueReferenceLookup, renderMarkdown } from '@/lib/markdown'
@@ -17,6 +17,7 @@ import { cn } from '@/lib/utils'
 import { ChatBlockView, type TurnPosition } from './ChatBlockView'
 import type { PendingItem, QueuedChatMessage } from './chat'
 import { ToolBatchView } from './ToolBatchView'
+import { TranscriptCold } from './TranscriptCold'
 import { TranscriptStandby } from './TranscriptStandby'
 import { TranscriptTail, transcriptTailState } from './TranscriptTail'
 import { dayKey, dayLabel, rowTimestamp } from './transcript-time'
@@ -199,7 +200,10 @@ export function TranscriptFeed({
         'flex min-w-0 flex-1 flex-col gap-0 overflow-x-clip overflow-y-auto',
         // §2.5 feed geometry: 12px/14px padding in the narrow column.
         compact ? 'px-3.5 pt-3 pb-4' : 'px-5 pt-5 pb-6',
-        phase !== 'ready' && 'justify-center',
+        // Only the terminal empty state centres itself. `loading` is bottom-anchored
+        // like the conversation it is standing in for (POD-700) — a state that
+        // resolves into content must occupy where that content will be.
+        phase === 'empty' && 'justify-center',
       )}
       ref={scrollerRef}
       onScroll={onScroll}
@@ -209,18 +213,8 @@ export function TranscriptFeed({
           `justify-end`, which makes overflow past the START edge unreachable in
           some engines: this collapses to zero the moment the feed overflows, so
           the scroll math never sees it. */}
-      {phase === 'ready' && <div className="mt-auto" aria-hidden="true" />}
-      {phase === 'loading' && (
-        <div className="transcript-placeholder" role="status" aria-live="polite">
-          <span className="transcript-placeholder-mark" aria-hidden="true">
-            <FileClock size={14} strokeWidth={1.6} />
-          </span>
-          <span className="transcript-placeholder-copy">
-            <strong>Loading transcript</strong>
-            <span>Restoring the latest turn and reading position…</span>
-          </span>
-        </div>
-      )}
+      {(phase === 'ready' || phase === 'loading') && <div className="mt-auto" aria-hidden="true" />}
+      {phase === 'loading' && <TranscriptCold compact={compact} />}
       {phase === 'empty' && <TranscriptStandby session={session} cwd={cwd} />}
       {/* Top sentinel: only the bounded tail of ROWS is mounted; more exist
           above (windowed-out locally or still on disk). Scrolling here autoloads
