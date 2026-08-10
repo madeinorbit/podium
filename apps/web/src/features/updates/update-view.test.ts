@@ -159,7 +159,7 @@ describe('describeUpdate', () => {
     expect(v).toMatchObject({ state: 'in-progress', done: 0, total: 3 })
   })
 
-  it('reports failure when a machine gave up', () => {
+  it('translates an unsupported delivery failure into actionable language', () => {
     const v = describeUpdate({
       ...base,
       fleet: {
@@ -171,6 +171,58 @@ describe('describeUpdate', () => {
       },
       touched: { app: false, server: false, machines: false },
     } as never)
-    expect(v).toEqual({ state: 'failed', detail: 'cannot converge: unsupported-delivery' })
+    expect(v).toEqual({
+      state: 'failed',
+      message: 'One or more machines cannot use this update.',
+      guidance:
+        'Ask the server operator to check the release package for those machines, then try again.',
+      diagnostic: "The machines do not support this update's delivery method.",
+    })
+    expect(JSON.stringify(v)).not.toContain('unsupported-delivery')
+  })
+
+  it('translates connection failures without exposing raw transport copy', () => {
+    const v = describeUpdate({
+      ...base,
+      fleet: {
+        total: 1,
+        behind: 0,
+        converging: 0,
+        failed: 1,
+        machines: [
+          {
+            state: 'stuck',
+            detail: 'Unable to connect. Is the computer able to access the url?',
+          },
+        ],
+      },
+    } as never)
+
+    expect(v).toEqual({
+      state: 'failed',
+      message: 'Podium could not reach the update source.',
+      guidance: "Check this server's internet connection, then try the update again.",
+      diagnostic: 'The update could not be downloaded.',
+    })
+    expect(JSON.stringify(v)).not.toMatch(/unable to connect|access the url/i)
+  })
+
+  it('keeps an unknown failure as support detail', () => {
+    const v = describeUpdate({
+      ...base,
+      fleet: {
+        total: 1,
+        behind: 0,
+        converging: 0,
+        failed: 1,
+        machines: [{ state: 'stuck', detail: 'ludovico did not come back' }],
+      },
+    } as never)
+
+    expect(v).toMatchObject({
+      state: 'failed',
+      message: 'Podium could not finish the update.',
+      diagnostic: 'ludovico did not come back',
+    })
   })
 })

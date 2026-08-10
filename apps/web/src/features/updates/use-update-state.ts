@@ -12,6 +12,7 @@ import type { UpdateActions } from './UpdateDialog'
 import { computeTouched } from './touched'
 import {
   describeUpdate,
+  describeUpdateFailure,
   type DesktopUpdateInfo,
   type UpdateInput,
   type UpdateView,
@@ -311,7 +312,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
           total: serverAction.total,
         }
       : serverAction.state === 'failed'
-        ? { state: 'failed', detail: serverAction.detail }
+        ? describeUpdateFailure(serverAction.detail)
         : baseView
 
   return { view, actions, server, fleet }

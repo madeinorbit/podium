@@ -45,7 +45,7 @@ function Probe({
       )}
       <output data-testid="view-state">
         {result.view.state === 'failed'
-          ? result.view.detail
+          ? [result.view.message, result.view.guidance, result.view.diagnostic].join('|')
           : result.view.state === 'in-progress'
             ? `${result.view.state}:${result.view.version}:${result.view.done}:${result.view.total}`
             : result.view.state}
@@ -129,36 +129,58 @@ describe('useUpdateState server action', () => {
       fleet: { total: 3, behind: 3, converging: 3, failed: 0, targetVersion: '0.4.2' },
     })
 
-    render(<Probe onResult={() => {}} liveFleet />)
+    const results: UpdateStateResult[] = []
+    render(<Probe onResult={(result) => results.push(result)} liveFleet />)
     await waitFor(() => expect(screen.getByRole('button', { name: /update server/i })).toBeTruthy())
     screen.getByRole('button', { name: /update server/i }).click()
 
-    await waitFor(
-      () => expect(screen.getByTestId('view-state').textContent).toContain('in-progress:0.4.2:1:4'),
-      { timeout: 4_000 },
-    )
+    await waitFor(() => {
+      expect(
+        results.some(
+          (result) =>
+            result.view.state === 'in-progress' &&
+            result.view.version === '0.4.2' &&
+            result.view.done === 1 &&
+            result.view.total === 4,
+        ),
+      ).toBe(true)
+    })
     expect(calls).toBeGreaterThanOrEqual(3)
   })
 
-  it('moves the shared dialog to failed with the server detail', async () => {
+  it('moves the shared dialog to a translated, actionable server failure', async () => {
     setupTransport()
-    mocks.mutate.mockRejectedValue(new Error('The update transport is unavailable.'))
+    mocks.mutate.mockRejectedValueOnce(
+      new Error('Unable to connect. Is the computer able to access the url?'),
+    )
+    mocks.mutate.mockResolvedValueOnce({
+      state: 'in-progress',
+      version: '0.4.2',
+      done: 0,
+      total: 2,
+      fleet: { total: 1, behind: 1, converging: 1, failed: 0, targetVersion: '0.4.2' },
+    })
     const results: UpdateStateResult[] = []
 
     render(<Probe onResult={(result) => results.push(result)} />)
     await waitFor(() => expect(screen.getByRole('button', { name: /update server/i })).toBeTruthy())
 
     screen.getByRole('button', { name: /update server/i }).click()
-    await waitFor(() =>
-      expect(screen.getByTestId('view-state').textContent).toContain(
-        'The update transport is unavailable.',
-      ),
-    )
+    await waitFor(() => expect(screen.getByTestId('view-state').textContent).toContain('try'))
 
     expect(results.at(-1)?.view).toEqual({
       state: 'failed',
-      detail: 'The update transport is unavailable.',
+      message: 'Podium could not reach the update source.',
+      guidance: "Check this server's internet connection, then try the update again.",
+      diagnostic: 'The update could not be downloaded.',
     })
+    expect(screen.getByTestId('view-state').textContent).not.toMatch(/unable to connect|url/i)
+
+    screen.getByRole('button', { name: /update server/i }).click()
+    await waitFor(() =>
+      expect(screen.getByTestId('view-state').textContent).toContain('in-progress'),
+    )
+    expect(mocks.mutate).toHaveBeenCalledTimes(2)
   })
 
   it('does not expose an install action without the desktop bridge', async () => {

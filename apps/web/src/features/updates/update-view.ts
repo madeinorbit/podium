@@ -27,7 +27,12 @@ export type UpdateView =
       reason?: string
     }
   | { state: 'in-progress'; version: string; done: number; total: number }
-  | { state: 'failed'; detail: string }
+  | {
+      state: 'failed'
+      message: string
+      guidance: string
+      diagnostic?: string
+    }
 
 export interface DesktopUpdateInfo {
   version: string
@@ -116,6 +121,57 @@ function skewReason(skew: SkewVerdict): string | undefined {
   }
 }
 
+type FailedUpdateView = Extract<UpdateView, { state: 'failed' }>
+
+/** Keep transport and delivery vocabulary out of the primary failure message.
+ * A short, sanitized diagnostic remains available for support and operators. */
+export function describeUpdateFailure(detail?: string): FailedUpdateView {
+  const normalized = detail?.trim()
+
+  if (normalized && /unsupported[-_\s]delivery/i.test(normalized)) {
+    return {
+      state: 'failed',
+      message: 'One or more machines cannot use this update.',
+      guidance:
+        'Ask the server operator to check the release package for those machines, then try again.',
+      diagnostic: "The machines do not support this update's delivery method.",
+    }
+  }
+
+  if (normalized && /(?:no[-_\s]artifact|unsupported[-_\s]platform)/i.test(normalized)) {
+    return {
+      state: 'failed',
+      message: 'One or more machines cannot use this update.',
+      guidance:
+        'Ask the server operator to check the release package for those machines, then try again.',
+      diagnostic: /unsupported[-_\s]platform/i.test(normalized)
+        ? "The release does not support the machines' platform."
+        : 'The release does not include an update package for the machines.',
+    }
+  }
+
+  if (
+    normalized &&
+    /(?:unable to connect|access the url|failed to fetch|fetch failed|network(?:error| request failed)|econn(?:refused|reset)|etimedout|enotfound)/i.test(
+      normalized,
+    )
+  ) {
+    return {
+      state: 'failed',
+      message: 'Podium could not reach the update source.',
+      guidance: "Check this server's internet connection, then try the update again.",
+      diagnostic: 'The update could not be downloaded.',
+    }
+  }
+
+  return {
+    state: 'failed',
+    message: 'Podium could not finish the update.',
+    guidance: 'Try again. If it still fails, share the details below with the server operator.',
+    ...(normalized ? { diagnostic: normalized } : {}),
+  }
+}
+
 export function describeUpdate(input: UpdateInput): UpdateView {
   const target = input.server.target
   const version =
@@ -125,10 +181,9 @@ export function describeUpdate(input: UpdateInput): UpdateView {
     const failure = input.fleet.machines?.find(
       (machine) => machine.state === 'rejected' || machine.state === 'stuck',
     )
-    return {
-      state: 'failed',
-      detail: failure?.detail ?? machineLabel(input.fleet.failed) + ' could not update.',
-    }
+    return describeUpdateFailure(
+      failure?.detail ?? machineLabel(input.fleet.failed) + ' could not update.',
+    )
   }
 
   if (input.fleet.converging > 0) {

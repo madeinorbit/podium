@@ -124,13 +124,61 @@ describe('UpdateDialog', () => {
     expect(screen.getByText(/1 of 3/)).toBeTruthy()
   })
 
-  it('shows the detail in the failed state', () => {
+  it('explains a failed update and exposes its diagnostic on demand', () => {
     render(
       <UpdateDialog
-        view={{ state: 'failed', detail: 'ludovico did not come back' }}
+        view={{
+          state: 'failed',
+          message: 'Podium could not finish the update.',
+          guidance: 'Try again, then ask the server operator for help.',
+          diagnostic: 'ludovico did not come back',
+        }}
         actions={{}}
       />,
     )
+    expect(screen.getByText(/could not finish/i)).toBeTruthy()
+    expect(screen.getByText(/try again/i)).toBeTruthy()
+    expect(screen.getByText(/technical details/i)).toBeTruthy()
     expect(screen.getByText(/ludovico did not come back/)).toBeTruthy()
+  })
+
+  it('is dismissible after an update fails', () => {
+    const onDismiss = vi.fn()
+    render(
+      <UpdateDialog
+        view={{
+          state: 'failed',
+          message: 'Podium could not reach the update source.',
+          guidance: "Check this server's internet connection, then try again.",
+        }}
+        actions={{}}
+        onDismiss={onDismiss}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
+    expect(onDismiss).toHaveBeenCalledOnce()
+    expect(screen.queryByTestId('update-dialog')).toBeNull()
+  })
+
+  it('retries through the existing server update action while keeping dismiss available', () => {
+    const updateServer = vi.fn(() => new Promise<void>(() => {}))
+
+    render(
+      <UpdateDialog
+        view={{
+          state: 'failed',
+          message: 'Podium could not reach the update source.',
+          guidance: "Check this server's internet connection, then try the update again.",
+        }}
+        actions={{ updateServer }}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+
+    expect(updateServer).toHaveBeenCalledOnce()
+    expect(screen.getByRole('button', { name: 'Trying again…' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Dismiss' })).toBeTruthy()
   })
 })
