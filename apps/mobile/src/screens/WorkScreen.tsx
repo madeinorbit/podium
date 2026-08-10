@@ -8,6 +8,7 @@ import {
   type MotionPhase,
   pendingDecisionLabel,
   rowAwaitsTuck,
+  rowHasWorkingSession,
   rowMotionPhase,
   rowMotionTiming,
   rowPendingDecision,
@@ -408,6 +409,10 @@ function WorkRow({
   const hex = issue ? issueColorHex(issue.color) : undefined
   const accent = hex ?? FLOW_SLATE
   const phase = rowMotionPhase(row)
+  // An ask outranks work in the phase, so the phase alone cannot answer "is an
+  // agent computing" — and on a one-row-per-mission list that left a running
+  // fleet reading as stopped (POD-703). The spinner gates on this instead.
+  const working = rowHasWorkingSession(row)
   const waiting = rowWaitingCount(row)
   const decision = row.kind === 'issue' ? rowPendingDecision(row) : null
   const unread = rowUnreadEmphasized(row)
@@ -488,7 +493,7 @@ function WorkRow({
               ) : null}
             </View>
             <View style={styles.rowStatusLine}>
-              {phase === 'working' ? <BrailleSpinner size={9} /> : null}
+              {working ? <BrailleSpinner size={9} /> : null}
               <Text
                 style={[
                   styles.status,

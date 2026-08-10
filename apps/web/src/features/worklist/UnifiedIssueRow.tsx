@@ -5,6 +5,7 @@ import {
   missionProgress,
   pendingDecisionLabel,
   pendingDecisionTitle,
+  rowHasWorkingSession,
   rowMotionPhase,
   rowMotionTiming,
   rowPendingDecision,
@@ -25,7 +26,7 @@ import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { agentFleetTileTint, agentIconFor } from '@/lib/agent-tone'
 import { issueIdTitle } from '@/lib/issue-labels'
 import { issueColorHex } from '@/lib/issueColors'
-import { PhaseTimer } from '@/lib/motion'
+import { BrailleSpinner, PhaseTimer } from '@/lib/motion'
 import type { ContextMenuAnchor } from '@/lib/SessionContextMenu'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor } from '@/lib/WorkerLabel'
@@ -225,6 +226,11 @@ export function UnifiedIssueRow({
   // here, so the fleet stack reads the bubbled aggregate.
   const fleetSessions = row.aggregateSessions ?? mine
   const phase = rowMotionPhase(row)
+  // Is an agent on this mission computing right now? NOT the same question as
+  // the phase, which an ask outranks — and the row is the mission's only line
+  // here, so the phase alone left a running fleet reading as stillness
+  // (POD-703). This is the predicate every working texture below gates on.
+  const working = rowHasWorkingSession(row)
   // What this row is asking of the human, if anything (POD-279).
   const decision = rowPendingDecision(row)
   const waitingCount = rowWaitingCount(row)
@@ -294,28 +300,43 @@ export function UnifiedIssueRow({
         label={label}
         onTuck={onTuck}
         statusLine={
-          decision !== null ? (
-            // The one word that answers "what is being asked of me here" — a
-            // merge states its commit count so the row is a fact, not a mood
-            // (POD-279). It is the row's single amber voice (POD-293): plain
-            // weighted text, no box, no icon — the boxed chip made every review
-            // row shout. The git stamp's own "N commits ahead" is suppressed
-            // below: one voice per region (DESIGN.md, The Signal Rule).
-            <span
-              data-testid={decision === 'merge' ? 'awaiting-merge-status' : 'needs-review-status'}
-              data-decision={decision}
-              title={pendingDecisionTitle(issue, decision)}
-              className="flex-none font-semibold text-attention"
-            >
-              {pendingDecisionLabel(issue, decision)}
-            </span>
-          ) : (
-            // Nothing below this row renders (the mission's tree is the Flight
-            // Deck's), so the status line reports at visible depth 0: an ask
-            // buried three levels down names its source instead of a bare
-            // "needs you" with no visible row to explain it.
-            rowStatusLine(row, now, 0)
-          )
+          <>
+            {/* THE ONE WORKING MARK ON A ROW THAT IS ALSO ASKING (POD-703). The
+                square's corner belongs to the ask (The Signal Rule), so when
+                both are true the spinner comes back to line 2 — the place
+                POD-293 moved it away from precisely because the square already
+                carried it. There is no duplication here: the square is amber,
+                so this is the row's only "an agent is computing" mark, in the
+                motion grammar's own device and its calm blue. */}
+            {working && phase !== 'working' && (
+              // `.spb` already paints itself `--motion-working`, so the glyph
+              // stays calm blue inside a dim waiting lockup without a prop.
+              <BrailleSpinner size={9} className="mr-1" />
+            )}
+            {decision !== null ? (
+              // The one word that answers "what is being asked of me here" — a
+              // merge states its commit count so the row is a fact, not a mood
+              // (POD-279). It is the row's single amber voice (POD-293): plain
+              // weighted text, no box, no icon — the boxed chip made every
+              // review row shout. The git stamp's own "N commits ahead" is
+              // suppressed below: one voice per region (DESIGN.md, The Signal
+              // Rule).
+              <span
+                data-testid={decision === 'merge' ? 'awaiting-merge-status' : 'needs-review-status'}
+                data-decision={decision}
+                title={pendingDecisionTitle(issue, decision)}
+                className="flex-none font-semibold text-attention"
+              >
+                {pendingDecisionLabel(issue, decision)}
+              </span>
+            ) : (
+              // Nothing below this row renders (the mission's tree is the Flight
+              // Deck's), so the status line reports at visible depth 0: an ask
+              // buried three levels down names its source instead of a bare
+              // "needs you" with no visible row to explain it.
+              rowStatusLine(row, now, 0)
+            )}
+          </>
         }
         hex={hex}
         phase={phase}
@@ -339,9 +360,12 @@ export function UnifiedIssueRow({
         }
         // The row's baseline progress rule (POD-516 round 3). Renders only where
         // there is a real done/total — a mission of two tasks or more — and the
-        // running segment sweeps only while `phase` says an agent on this row is
-        // genuinely computing, which is the same gate as the square's spinner.
-        meter={<RowProgressMeter progress={progress} working={phase === 'working'} />}
+        // running segment sweeps only while an agent on this row is genuinely
+        // computing. That predicate is `rowHasWorkingSession`, which is what
+        // DESIGN.md §Motion sanctions this sweep on; gating it on the row's
+        // PHASE instead meant a concurrent ask froze the meter of a mission that
+        // was still running (POD-703).
+        meter={<RowProgressMeter progress={progress} working={working} />}
         active={draftAgentOnly ? active && paneA === first?.sessionId : active}
         gitStamp={
           issue.gitState && (

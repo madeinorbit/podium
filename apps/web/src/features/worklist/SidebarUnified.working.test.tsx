@@ -214,6 +214,35 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
     expect(waitingRow.querySelector('[aria-label="1 waiting on you"]')).toBeTruthy()
   })
 
+  // POD-703: the ask owns the phase and the square's amber corner, but the row
+  // is the only place this mission appears — so an agent still computing under
+  // it must be visible, in the motion grammar's own device. A mission with a
+  // live agent used to render as total stillness the moment anything on it
+  // asked, which reads as "the fleet stopped".
+  it('keeps the working spinner on a waiting row that still has an agent computing', () => {
+    render(<SidebarUnified />)
+    const waitingRow = screen
+      .getByText('Partly working issue')
+      .closest('[data-testid="unified-issue-row"]') as HTMLElement
+    // Amber keeps the square (The Signal Rule) …
+    expect(
+      waitingRow.querySelector('[data-testid="issue-id-square"][data-badge="dot"]'),
+    ).toBeTruthy()
+    // … and the spinner returns to line 2, where it is the row's only
+    // "an agent is computing" mark rather than a second one.
+    expect(waitingRow.querySelector('.spb')).toBeTruthy()
+    const status = waitingRow.querySelector('[data-testid="row-lifecycle-status"]')
+    // Both facts, and no head-count eating the width they need.
+    expect(status?.textContent).toContain('working · needs answer')
+    expect(status?.textContent).not.toContain('agents')
+    // A waiting row with nothing running stays perfectly still.
+    const merge = screen
+      .getByText('Reviewable issue')
+      .closest('[data-testid="unified-issue-row"]') as HTMLElement
+    expect(merge.querySelector('[data-phase="waiting"]')).toBeTruthy()
+    expect(merge.querySelector('.spb')).toBeNull()
+  })
+
   // POD-516 §1.1: agents are a fleet stack and nothing else in this column.
   // There is no roster band and no disclosure to reveal one — the operator saw
   // the old chevron as the sidebar growing a second navigation tree.

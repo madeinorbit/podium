@@ -62,6 +62,25 @@ export function aggregateMotionPhase(
   return 'queued'
 }
 
+/**
+ * Is an agent on this row computing RIGHT NOW?
+ *
+ * Separate from {@link rowMotionPhase} on purpose. The phase is one value and
+ * `waiting` outranks `working` in it — correctly: an unanswered ask must not be
+ * hidden by a sibling agent grinding on. But since the worklist flattened to one
+ * row per mission (POD-516 §1.1) that row is the ONLY place a running agent can
+ * appear, so letting the ask swallow the phase left a mission with a live agent
+ * reading as pure stillness — no spinner, no sweeping meter, nothing (POD-703).
+ *
+ * This is the predicate DESIGN.md §Motion licenses perpetual motion on: "an
+ * agent is computing right now", read over the row's whole bubbled session set.
+ * Surfaces gate their working texture on THIS, and the amber ask keeps the
+ * phase — so a row can honestly say both things at once.
+ */
+export function rowHasWorkingSession(row: UnifiedWorkRow): boolean {
+  return rowSessions(row).some(isSessionWorking)
+}
+
 /** How many member sessions are waiting on the human — drives the amber count
  *  pill on wide rows and the numbered corner badge on rail squares (#41).
  *  Issue rows count their `aggregateSessions` (via {@link rowSessions}), so the
@@ -175,16 +194,30 @@ export function rowStatusLine(
   ) {
     return 'awaiting first prompt'
   }
-  const head = sessions.length > 1 ? `${sessions.length} agents · ` : ''
+  let head = sessions.length > 1 ? `${sessions.length} agents · ` : ''
   // Child progress speaks of subtasks, not a bare "N/M done" — appended to the
   // phase word that used to read "done · 0/1 done" (POD-85).
   const children = row.kind === 'issue' && row.issue.childCount > 0 ? row.issue : null
   const progress = children ? ` · ${children.childDoneCount}/${children.childCount} subtasks` : ''
   if (phase === 'waiting') {
+    // A waiting row can still have an agent computing on it, and since the row
+    // is the mission's only line in this column, silence about that is a lie
+    // (POD-703). The ask keeps the row's phase and its amber; the work says so
+    // in the words, in the same `working · ` grammar the deep-attention whisper
+    // below has always used.
+    //
+    // AND IT SPENDS THE HEAD-COUNT TO DO IT. Line 2 is ~22 mono characters wide
+    // in the sidebar, so "2 agents · working · waiting on decision" ellipsized
+    // away the very ask it was supposed to keep. The head-count is the cheapest
+    // of the three: the fleet stack on line 1 already shows the tiles AND the
+    // number, and it is the only one of the three that is stated twice.
+    const working = rowHasWorkingSession(row)
+    const own = working ? 'working · ' : ''
+    if (working) head = ''
     if (row.kind === 'issue') {
       const decision = rowPendingDecision(row)
       if (decision !== null) {
-        return `${head}${pendingDecisionLabel(row.issue, decision)}${progress}`
+        return `${head}${own}${pendingDecisionLabel(row.issue, decision)}${progress}`
       }
     }
     // Branch attention whisper (POD-100 L3): the yellow comes from a descendant
@@ -193,7 +226,6 @@ export function rowStatusLine(
     if (row.kind === 'issue') {
       const deep = deepAttentionSource(row)
       if (deep && deep.depth > visibleDepth && !waitingWithinDepth(row, visibleDepth)) {
-        const own = row.sessions.some(isSessionWorking) ? 'working · ' : ''
         const request =
           deep.kind === 'session' ? 'needs you' : pendingDecisionLabel(deep.issue, deep.kind)
         return `${head}${own}deep: ${issueDisplayRef(deep.issue)} ${request}${progress}`
@@ -205,7 +237,7 @@ export function rowStatusLine(
       now,
     )
     const label = urgent ? (agentBadge(urgent, issue)?.label ?? 'needs you') : 'needs you'
-    return head + label + progress
+    return head + own + label + progress
   }
   if (phase === 'working') return head + 'working' + progress
   if (phase === 'done') {
