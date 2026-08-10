@@ -46,36 +46,42 @@ test('clicks Make server and follows proof-backed status through Connected', asy
   const transferStates = [
     {
       state: 'preparing',
+      phase: 'preparing',
       sourceFenced: false,
       targetProof: false,
       sourceConnected: false,
     },
     {
       state: 'staged',
+      phase: 'copying',
       sourceFenced: false,
       targetProof: false,
       sourceConnected: false,
     },
     {
       state: 'validated',
+      phase: 'validating',
       sourceFenced: false,
       targetProof: false,
       sourceConnected: false,
     },
     {
       state: 'source-fenced',
+      phase: 'switching',
       sourceFenced: true,
       targetProof: false,
       sourceConnected: false,
     },
     {
       state: 'committed',
+      phase: 'switching',
       sourceFenced: true,
       targetProof: true,
       sourceConnected: false,
     },
     {
       state: 'committed',
+      phase: 'connected',
       sourceFenced: true,
       targetProof: true,
       sourceConnected: true,

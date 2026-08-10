@@ -124,65 +124,28 @@ export function ServerTransferProgress({
 
 export const SERVER_TRANSFER_CONFIRMATION = 'TRANSFER SERVER'
 
-type ServerTransferJournalState =
-  | 'preparing'
-  | 'staged'
-  | 'validated'
-  | 'source-fenced'
-  | 'committing'
-  | 'committed'
-  | 'aborted'
-  | 'commit-uncertain'
+export type ServerTransferStatusSnapshot = Awaited<
+  ReturnType<Store['trpc']['machines']['serverTransferStatus']['query']>
+>
 
-export interface ServerTransferStatusSnapshot {
-  sourceMachineId: string
-  targetEligibility: Array<{
-    targetMachineId: string
-    eligible: boolean
-    reason?: string
-  }>
-  transfer: {
-    targetMachineId: string
-    state: ServerTransferJournalState
-    transferId: string
-    publicUrl: string
-    sourceFenced: boolean
-    targetProof: boolean
-    sourceConnected: boolean
-    error?: { code: string; message: string }
-    cleanup?: { result: 'cleaned' | 'pending'; detail?: string }
-  } | null
-}
+const SERVER_TRANSFER_POLL_MIN_MS = 1_000
+const SERVER_TRANSFER_POLL_MAX_MS = 5_000
 
-interface ServerTransferStatusProcedure {
-  query(): Promise<ServerTransferStatusSnapshot>
-}
-
-/**
- * Temporary single lookup seam for the coordinator-owned procedure. Keeping the
- * placeholder here means POD-1749 can replace it with direct generated access
- * without changing the polling or rendering logic.
- */
-function serverTransferStatusProcedure(trpc: Store['trpc']): ServerTransferStatusProcedure {
-  const procedure: ServerTransferStatusProcedure = Reflect.get(
-    trpc.machines,
-    'serverTransferStatus',
-  )
-  return procedure
-}
-
-interface ServerTransferMutationProcedure {
-  mutate(input: {
-    targetMachineId: string
-    publicUrl: string
-    confirmation: typeof SERVER_TRANSFER_CONFIRMATION
-  }): Promise<unknown>
-}
-
-function serverTransferMutationProcedure(trpc: Store['trpc']): ServerTransferMutationProcedure {
-  const procedureName: string = 'transferServer'
-  const procedure: ServerTransferMutationProcedure = Reflect.get(trpc.machines, procedureName)
-  return procedure
+function serverTransferPollDelay(
+  snapshot: ServerTransferStatusSnapshot | null,
+  failures: number,
+): number {
+  if (failures > 0) {
+    return Math.min(
+      SERVER_TRANSFER_POLL_MAX_MS,
+      SERVER_TRANSFER_POLL_MIN_MS * 2 ** Math.min(failures, 3),
+    )
+  }
+  if (!snapshot?.transfer) return SERVER_TRANSFER_POLL_MAX_MS
+  const state = transferDisplayState(snapshot.transfer)
+  return state === 'connected' || state === 'aborted'
+    ? SERVER_TRANSFER_POLL_MAX_MS
+    : SERVER_TRANSFER_POLL_MIN_MS
 }
 
 function useServerTransferStatus(trpc: Store['trpc']): {
@@ -195,7 +158,7 @@ function useServerTransferStatus(trpc: Store['trpc']): {
 
   const refresh = useCallback(async (): Promise<ServerTransferStatusSnapshot | null> => {
     try {
-      const next = await serverTransferStatusProcedure(trpc).query()
+      const next = await trpc.machines.serverTransferStatus.query()
       setSnapshot(next)
       setError(null)
       return next
@@ -209,11 +172,16 @@ function useServerTransferStatus(trpc: Store['trpc']): {
     let cancelled = false
     let timer: ReturnType<typeof setTimeout> | undefined
 
-    const poll = async (): Promise<void> => {
-      await refresh()
-      if (!cancelled) timer = setTimeout(() => void poll(), 1_000)
+    const poll = async (failures: number): Promise<void> => {
+      const next = await refresh()
+      if (cancelled) return
+      const nextFailures = next ? 0 : failures + 1
+      timer = setTimeout(
+        () => void poll(nextFailures),
+        serverTransferPollDelay(next, nextFailures),
+      )
     }
-    void poll()
+    void poll(0)
 
     return () => {
       cancelled = true
@@ -228,23 +196,14 @@ function transferDisplayState(
   transfer: ServerTransferStatusSnapshot['transfer'],
 ): ServerTransferDisplayState | null {
   if (!transfer) return null
-  switch (transfer.state) {
-    case 'preparing':
-      return 'preparing'
-    case 'staged':
-      return 'copying'
-    case 'validated':
-      return 'validating'
-    case 'source-fenced':
-    case 'committing':
-      return 'switching'
-    case 'committed':
-      return transfer.targetProof && transfer.sourceConnected ? 'connected' : 'switching'
-    case 'aborted':
-      return 'aborted'
-    case 'commit-uncertain':
-      return 'commit-uncertain'
+  if (transfer.state === 'commit-uncertain' || transfer.phase === 'commit-uncertain') {
+    return 'commit-uncertain'
   }
+  if (transfer.state === 'aborted' || transfer.phase === 'aborted') return 'aborted'
+  if (transfer.state === 'committed' || transfer.phase === 'connected') {
+    return transfer.targetProof && transfer.sourceConnected ? 'connected' : 'switching'
+  }
+  return transfer.phase
 }
 
 /**
@@ -383,7 +342,7 @@ export function MachinesPanel(): JSX.Element {
                 onChangeUrl={goChangeUrl}
                 podiumManaged={podiumManaged}
                 onManagedChange={(managed) => void mintCode(managed)}
-                recommendServer={machines.length === 1}
+                recommendServer={pairingBaselineIds.size === 1}
                 makeServerAfterPair={makeServerAfterPair}
                 onMakeServerAfterPairChange={setMakeServerAfterPair}
                 pairedMachine={newlyPairedMachine}
@@ -737,6 +696,7 @@ function ServerTransferDialog({
   const [publicUrl, setPublicUrl] = useState('')
   const [confirmation, setConfirmation] = useState('')
   const [awaitingStatus, setAwaitingStatus] = useState(false)
+  const [checkingTarget, setCheckingTarget] = useState(false)
   const [transferError, setTransferError] = useState<string | null>(null)
   const isOpen = open ?? internalOpen
   const transfer = status?.transfer?.targetMachineId === machine.id ? status.transfer : null
@@ -748,6 +708,7 @@ function ServerTransferDialog({
     setConfirmation('')
     setAwaitingStatus(false)
     setTransferError(null)
+    setCheckingTarget(false)
   }, [isOpen, transfer])
 
   const setDialogOpen = (next: boolean): void => {
@@ -770,7 +731,7 @@ function ServerTransferDialog({
     setAwaitingStatus(true)
     setTransferError(null)
     try {
-      await serverTransferMutationProcedure(trpc).mutate({
+      await trpc.machines.transferServer.mutate({
         targetMachineId: machine.id,
         publicUrl: url,
         confirmation: SERVER_TRANSFER_CONFIRMATION,
@@ -785,6 +746,26 @@ function ServerTransferDialog({
         setAwaitingStatus(false)
         setTransferError(cause instanceof Error ? cause.message : String(cause))
       }
+    }
+  }
+
+  const checkTarget = async (): Promise<void> => {
+    if (!transfer || displayState !== 'commit-uncertain' || checkingTarget) return
+    setCheckingTarget(true)
+    setTransferError(null)
+    try {
+      await trpc.machines.transferServer.mutate({
+        targetMachineId: machine.id,
+        publicUrl: transfer.publicUrl,
+        confirmation: SERVER_TRANSFER_CONFIRMATION,
+      })
+    } catch (cause) {
+      // Keep rendering the durable uncertain state. A failed inspection is not
+      // evidence that promotion aborted or that retrying the transfer is safe.
+      setTransferError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      await refreshStatus()
+      setCheckingTarget(false)
     }
   }
 
@@ -849,6 +830,11 @@ function ServerTransferDialog({
             )}
           </div>
         )}
+        {(displayState || awaitingStatus) && (transferError || statusError) && (
+          <p className="settings-prose text-destructive" role="alert">
+            {transferError ?? statusError}
+          </p>
+        )}
 
         <DialogFooter showCloseButton>
           {!displayState && !awaitingStatus && (
@@ -863,8 +849,14 @@ function ServerTransferDialog({
             </Button>
           )}
           {displayState === 'commit-uncertain' && (
-            <Button type="button" variant="outline" size="sm" onClick={() => void refreshStatus()}>
-              Check target
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={checkingTarget}
+              onClick={() => void checkTarget()}
+            >
+              {checkingTarget ? 'Checking…' : 'Check target'}
             </Button>
           )}
         </DialogFooter>

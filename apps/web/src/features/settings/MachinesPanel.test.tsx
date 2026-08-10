@@ -383,6 +383,19 @@ describe('MachinesPanel server transfer', () => {
     }
   }
 
+  const phaseByState: Record<
+    NonNullable<ServerTransferStatusSnapshot['transfer']>['state'],
+    NonNullable<ServerTransferStatusSnapshot['transfer']>['phase']
+  > = {
+    preparing: 'preparing',
+    staged: 'copying',
+    validated: 'validating',
+    'source-fenced': 'switching',
+    committing: 'switching',
+    committed: 'switching',
+    aborted: 'aborted',
+    'commit-uncertain': 'commit-uncertain',
+  }
   function transferStatus(
     state: NonNullable<ServerTransferStatusSnapshot['transfer']>['state'],
     overrides: Partial<NonNullable<ServerTransferStatusSnapshot['transfer']>> = {},
@@ -390,6 +403,7 @@ describe('MachinesPanel server transfer', () => {
     return {
       targetMachineId: 'target',
       state,
+      phase: phaseByState[state],
       sourceFenced: false,
       targetProof: false,
       transferId: 'transfer-1',
@@ -427,7 +441,7 @@ describe('MachinesPanel server transfer', () => {
         status({
           targetEligibility: [
             { targetMachineId: 'target', eligible: true },
-            { targetMachineId: 'other', eligible: false, reason: 'current server' },
+            { targetMachineId: 'other', eligible: false, reason: 'current-server' },
           ],
         }),
       ),
@@ -502,6 +516,7 @@ describe('MachinesPanel server transfer', () => {
       vi.fn().mockResolvedValue(
         status({
           transfer: transferStatus('committed', {
+            phase: 'connected',
             sourceFenced: true,
             targetProof: true,
             sourceConnected: true,
@@ -517,8 +532,15 @@ describe('MachinesPanel server transfer', () => {
 
   it('keeps commit-uncertain in recovery and offers Check target', async () => {
     storeState.machines = [machine({ id: asMachineId('target'), name: 'vps', online: true })]
-    setServerTransferTrpc(
-      vi.fn(),
+    let rejectCheck: ((reason?: unknown) => void) | undefined
+    const transferMutate = vi.fn(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectCheck = reject
+        }),
+    )
+    const statusQuery = setServerTransferTrpc(
+      transferMutate,
       vi.fn().mockResolvedValue(
         status({
           transfer: transferStatus('commit-uncertain', {
@@ -532,7 +554,25 @@ describe('MachinesPanel server transfer', () => {
 
     expect((await screen.findByRole('alert')).textContent).toMatch(/promotion reply was lost/i)
     fireEvent.click(screen.getByRole('button', { name: 'View transfer' }))
-    expect(await screen.findByRole('button', { name: 'Check target' })).toBeTruthy()
+    const statusCallsBeforeCheck = statusQuery.mock.calls.length
+    fireEvent.click(await screen.findByRole('button', { name: 'Check target' }))
+
+    expect(screen.getByRole('button', { name: 'Checking…' })).toHaveProperty('disabled', true)
+    expect(transferMutate).toHaveBeenCalledWith({
+      targetMachineId: 'target',
+      publicUrl: 'https://new-podium.example.com',
+      confirmation: SERVER_TRANSFER_CONFIRMATION,
+    })
+
+    rejectCheck?.(new Error('target inspection unavailable'))
+
+    await waitFor(() => expect(statusQuery.mock.calls.length).toBeGreaterThan(statusCallsBeforeCheck))
+    expect(await screen.findByRole('button', { name: 'Check target' })).toHaveProperty(
+      'disabled',
+      false,
+    )
+    expect(screen.getAllByRole('alert')[0]?.textContent).toMatch(/promotion reply was lost/i)
+    expect(screen.getByText(/target inspection unavailable/i)).toBeTruthy()
     expect(screen.queryByText(/transfer stopped safely/i)).toBeNull()
   })
 
