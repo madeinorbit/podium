@@ -54,7 +54,6 @@ export function decideDevBuild(ctx: DevBuildDecisionContext): BuildDecision {
 }
 
 export const DEV_BUNDLE_LOCK_NAME = 'podium:dev-bundle'
-export const DEV_BUNDLE_LOCK_TTL = '15m'
 export const DEV_ARTIFACT_ROUTE = '/updates/dev-bundle'
 
 export interface BuiltDevBundle {
@@ -86,11 +85,11 @@ export type DevBuildSpawnResult =
     }
 
 export interface DevBundleBuildDeps {
+  lock: DevBundleLock
   root?: string
   headSha?: string
   spawnBuild?: (ctx: DevBuildSpawnContext) => Promise<DevBuildSpawnResult> | DevBuildSpawnResult
   build?: (ctx: DevBuildSpawnContext) => Promise<DevBuildSpawnResult> | DevBuildSpawnResult
-  lock?: DevBundleLock
   readFile?: (path: string) => Promise<Uint8Array>
   signingKey?: string
   renewIntervalMs?: number
@@ -123,82 +122,6 @@ function developmentSigningKey(root: string): string {
     if (key) return key
   }
   throw new Error('development signing key missing at ' + path)
-}
-
-export interface PodiumCommandResult {
-  status: number | null
-  stdout: string
-  stderr: string
-}
-
-export type PodiumCommand = (args: string[], root: string) => Promise<PodiumCommandResult>
-
-function spawnPodiumCommand(args: string[], root: string): Promise<PodiumCommandResult> {
-  const command = process.env.PODIUM_BIN ?? 'podium'
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      cwd: root,
-      env: process.env,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
-    let stdout = ''
-    let stderr = ''
-    child.stdout?.setEncoding('utf8')
-    child.stderr?.setEncoding('utf8')
-    child.stdout?.on('data', (chunk: string) => {
-      stdout += chunk
-    })
-    child.stderr?.on('data', (chunk: string) => {
-      stderr += chunk
-    })
-    child.once('error', reject)
-    child.once('close', (status) => resolve({ status, stdout, stderr }))
-  })
-}
-
-export function createPodiumDevBundleLock(
-  root: string = SOURCE_ROOT,
-  run: PodiumCommand = spawnPodiumCommand,
-): DevBundleLock {
-  const command = async (args: string[]): Promise<void> => {
-    const result = await run(args, root)
-    if (result.status !== 0) {
-      const detail = (result.stderr || result.stdout).trim()
-      throw new Error('podium lock command failed' + (detail ? ': ' + detail : ''))
-    }
-  }
-  return {
-    async acquire() {
-      // Bounded on purpose: a bare `--wait` blocks until granted, and this one
-      // is awaited in-process by a build request. One full lease is the longest
-      // an honest holder can keep it; past that the CLI leaves the queue and
-      // this fails loudly instead of stalling the rebuild forever.
-      await command([
-        'lock',
-        'acquire',
-        DEV_BUNDLE_LOCK_NAME,
-        '--repoPath',
-        root,
-        '--ttl',
-        DEV_BUNDLE_LOCK_TTL,
-        '--wait',
-        '--timeout',
-        DEV_BUNDLE_LOCK_TTL,
-      ])
-      return true
-    },
-    renew: () =>
-      command([
-        'lock',
-        'renew',
-        DEV_BUNDLE_LOCK_NAME,
-        '--repoPath',
-        root,
-        '--ttl',
-        DEV_BUNDLE_LOCK_TTL,
-      ]),
-    release: () => command(['lock', 'release', DEV_BUNDLE_LOCK_NAME, '--repoPath', root]),
-  }
 }
 
 async function defaultSpawnBuild(ctx: DevBuildSpawnContext): Promise<void> {
@@ -286,7 +209,7 @@ async function readExistingDevBundle(
  * The advisory lease covers the complete operation and is renewed while the
  * asynchronous compile runs.
  */
-export async function buildDevBundle(deps: DevBundleBuildDeps = {}): Promise<BuiltDevBundle> {
+export async function buildDevBundle(deps: DevBundleBuildDeps): Promise<BuiltDevBundle> {
   const root = deps.root ?? SOURCE_ROOT
   const sha = shortSha(
     deps.headSha ??
@@ -296,7 +219,7 @@ export async function buildDevBundle(deps: DevBundleBuildDeps = {}): Promise<Bui
       }),
   )
   const version = 'dev+' + sha
-  const lock = deps.lock ?? createPodiumDevBundleLock(root)
+  const lock = deps.lock
   const acquired = await lock.acquire()
   if (acquired === false) throw new Error('could not acquire the development bundle lock')
 

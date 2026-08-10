@@ -997,9 +997,9 @@ export class SessionRegistry {
       now: () => this.now(),
       resolveRepoId: (repoPath) => this.store.repos.resolveRepoIdForPath(repoPath),
       sessionAlive: (sessionId) => {
-        // `sessionId` is a LockSessionKey: it may be one of the two lock sentinels,
-        // which are NOT session ids. The lookup is expected to MISS for those —
-        // that miss is how the unknown-relay sentinel gets pruned from a queue
+        // `sessionId` is a LockSessionKey: it may be a documented non-session
+        // identity. System identities are handled before this callback; a lookup
+        // miss here is how the unknown-relay sentinel gets pruned from a queue
         // (see LockSessionKey's note). So the map is probed as a plain key.
         const s = (liveSessions as ReadonlyMap<string, { status: string }>).get(sessionId)
         return !!s && s.status !== 'exited'

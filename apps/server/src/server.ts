@@ -396,6 +396,7 @@ export async function startServer(
     artifactToken: devArtifactToken,
     setTarget: (target) => registry.modules.updates.setTarget(target),
     signingKey: updateSigningKey.privateKey,
+    locks: registry.modules.locks,
   })
 
   const app = new Hono()

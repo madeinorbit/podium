@@ -1,7 +1,7 @@
 import type { IssueId, SessionId } from '@podium/model'
 import type { LockAcquireResultWire, LockHolderWire, LockWire } from '@podium/protocol'
 import type { LockRow, LockSessionKey, LocksRepository, LockWaiterRow } from '../../store/locks'
-import { OPERATOR_LOCK_SESSION } from '../../store/locks'
+import { isSystemLockSession, OPERATOR_LOCK_SESSION } from '../../store/locks'
 import type { WriteFunnel } from '../funnel'
 
 /**
@@ -97,16 +97,27 @@ export class LockService {
     return Math.max(0, Math.ceil((Date.parse(expiresAt) - this.deps.now()) / 1000))
   }
 
-  /** Liveness for a holder/waiter key: operator is always live; unknown-relay
-   *  and missing sessions are dead (same rule advanceQueue uses for pruning). */
+  /** Liveness for a holder/waiter key: operator and in-process system jobs are
+   *  live for their lease; unknown-relay and missing sessions are dead (same
+   *  rule advanceQueue uses for pruning). */
   private isAlive(sessionId: LockHolderId | null): boolean {
-    if (sessionId == null || sessionId === OPERATOR_LOCK_SESSION) return true
+    if (
+      sessionId == null ||
+      sessionId === OPERATOR_LOCK_SESSION ||
+      isSystemLockSession(sessionId)
+    )
+      return true
     if (sessionId === 'unknown-session') return false
     return this.deps.sessionAlive(sessionId)
   }
 
   private workspaceOf(sessionId: LockHolderId | null): string | null {
-    if (sessionId == null || sessionId === OPERATOR_LOCK_SESSION || sessionId === 'unknown-session') {
+    if (
+      sessionId == null ||
+      sessionId === OPERATOR_LOCK_SESSION ||
+      sessionId === 'unknown-session' ||
+      isSystemLockSession(sessionId)
+    ) {
       return null
     }
     return normalizeWorkspace(this.deps.sessionWorkspace(sessionId))
@@ -174,7 +185,11 @@ export class LockService {
       if (otherSessionId === caller.sessionId) return null
       // Operator (null session) is never a "sibling" of an agent.
       if (caller.sessionId == null || otherSessionId == null) return null
-      if (otherSessionId === OPERATOR_LOCK_SESSION || otherSessionId === 'unknown-session') {
+      if (
+        otherSessionId === OPERATOR_LOCK_SESSION ||
+        otherSessionId === 'unknown-session' ||
+        isSystemLockSession(otherSessionId)
+      ) {
         return null
       }
       if (
@@ -272,9 +287,14 @@ export class LockService {
    */
   private advanceQueue(repoId: string, name: string): LockRow | null {
     for (const w of this.deps.locks.listWaiters(repoId, name)) {
-      // Skip/prune waiters whose sessions are gone. The operator sentinel has
-      // no session and is never pruned — it discovers grants via polling.
-      if (w.sessionId !== OPERATOR_LOCK_SESSION && !this.deps.sessionAlive(w.sessionId)) {
+      // Skip/prune waiters whose sessions are gone. Operator and in-process
+      // system identities have no session and are never pruned — they discover
+      // grants via polling.
+      if (
+        w.sessionId !== OPERATOR_LOCK_SESSION &&
+        !isSystemLockSession(w.sessionId) &&
+        !this.deps.sessionAlive(w.sessionId)
+      ) {
         this.deps.locks.removeWaiter(w.id)
         continue
       }

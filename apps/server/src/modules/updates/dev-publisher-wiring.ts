@@ -21,6 +21,7 @@ import type { Hono } from 'hono'
 import type { UpdateTarget } from '@podium/protocol'
 import { registerDevArtifactRoute } from './artifact-route'
 import { createDevBundlePublisher, developmentHeadSha } from './dev-bundle'
+import { createServerDevBundleLock, type DevBundleLockService } from './dev-bundle-lock'
 
 export interface DevPublisherWiring {
   /** Publish the current development target, if there is one. */
@@ -72,6 +73,7 @@ export function wireDevBundlePublisher(deps: {
   readonly artifactToken: string
   readonly signingKey: string
   readonly setTarget: (target: UpdateTarget) => void
+  readonly locks: DevBundleLockService
 }): DevPublisherWiring {
   const sourceRoot = deps.sourceRoot
   const artifactOrigin = deps.artifactOrigin
@@ -81,6 +83,7 @@ export function wireDevBundlePublisher(deps: {
         root: sourceRoot,
         headSha: () => developmentHeadSha(sourceRoot),
         signingKey: deps.signingKey,
+        lock: createServerDevBundleLock(sourceRoot, deps.locks),
         artifactUrl: (version) =>
           developmentArtifactUrl(
             selectDevelopmentArtifactOrigin({

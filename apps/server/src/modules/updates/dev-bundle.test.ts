@@ -3,11 +3,11 @@ import { describe, expect, it } from 'vitest'
 import {
   buildDevBundle,
   createDevBundlePublisher,
-  createPodiumDevBundleLock,
   type DevBundleLock,
   decideDevBuild,
   devTarget,
 } from './dev-bundle'
+import { createServerDevBundleLock } from './dev-bundle-lock'
 
 const base = {
   isSourceRun: true,
@@ -92,33 +92,71 @@ function signedFixture() {
   return { bytes, signature, signingKey }
 }
 
-describe('createPodiumDevBundleLock', () => {
-  it('scopes every CLI operation to the source repository', async () => {
-    const calls: string[][] = []
-    const lock = createPodiumDevBundleLock('/repo/podium', async (args) => {
-      calls.push(args)
-      return { status: 0, stdout: '', stderr: '' }
+describe('createServerDevBundleLock', () => {
+  it('uses one in-process system identity scoped to the bundle lock', async () => {
+    const calls: Array<{
+      operation: string
+      caller: { sessionId: string | null; label: string }
+      input: unknown
+    }> = []
+    const lock = createServerDevBundleLock('/repo/podium', {
+      acquire(caller, input) {
+        calls.push({ operation: 'acquire', caller, input })
+        return { granted: true, alreadyHeld: false, lock: {} as never }
+      },
+      cancel(caller, input) {
+        calls.push({ operation: 'cancel', caller, input })
+        return { cancelled: true }
+      },
+      renew(caller, input) {
+        calls.push({ operation: 'renew', caller, input })
+        return {} as never
+      },
+      release(caller, input) {
+        calls.push({ operation: 'release', caller, input })
+        return { released: true, next: null }
+      },
     })
 
     await lock.acquire()
     await lock.renew()
     await lock.release()
 
-    expect(calls).toEqual([
-      [
-        'lock',
-        'acquire',
-        'podium:dev-bundle',
-        '--repoPath',
-        '/repo/podium',
-        '--ttl',
-        '15m',
-        '--wait',
-        '--timeout',
-        '15m',
-      ],
-      ['lock', 'renew', 'podium:dev-bundle', '--repoPath', '/repo/podium', '--ttl', '15m'],
-      ['lock', 'release', 'podium:dev-bundle', '--repoPath', '/repo/podium'],
+    expect(
+      calls.map(({ operation, caller, input }) => ({
+        operation,
+        sessionId: caller.sessionId,
+        label: caller.label,
+        input,
+      })),
+    ).toEqual([
+      {
+        operation: 'acquire',
+        sessionId: 'system:dev-bundle',
+        label: 'system:dev-bundle',
+        input: {
+          repoPath: '/repo/podium',
+          name: 'podium:dev-bundle',
+          ttlSeconds: 900,
+          note: 'server-owned development bundle build',
+        },
+      },
+      {
+        operation: 'renew',
+        sessionId: 'system:dev-bundle',
+        label: 'system:dev-bundle',
+        input: {
+          repoPath: '/repo/podium',
+          name: 'podium:dev-bundle',
+          ttlSeconds: 900,
+        },
+      },
+      {
+        operation: 'release',
+        sessionId: 'system:dev-bundle',
+        label: 'system:dev-bundle',
+        input: { repoPath: '/repo/podium', name: 'podium:dev-bundle' },
+      },
     ])
   })
 })
