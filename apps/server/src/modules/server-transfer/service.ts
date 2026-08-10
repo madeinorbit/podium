@@ -455,13 +455,7 @@ export class ServerTransferService {
         this.journal.commit(record, acknowledgementCleanup)
         fenceHeld = false
         this.deps.afterCommitted?.({ serverUrl: publicUrl })
-        return this.outcome(
-          record,
-          true,
-          'committed',
-          undefined,
-          acknowledgementCleanup,
-        )
+        return this.outcome(record, true, 'committed', undefined, acknowledgementCleanup)
       } catch (error) {
         const current = this.journal.read()
         const detail = classified(error)
@@ -701,13 +695,7 @@ export class ServerTransferService {
           }
           this.journal.resolveCommitted(committed, acknowledgementCleanup)
           this.deps.afterCommitted?.({ serverUrl: record.publicUrl })
-          return this.outcome(
-            committed,
-            true,
-            'committed',
-            undefined,
-            acknowledgementCleanup,
-          )
+          return this.outcome(committed, true, 'committed', undefined, acknowledgementCleanup)
         }
       } catch {
         // A missing/mismatched proof or failed source cutover stays uncertain.

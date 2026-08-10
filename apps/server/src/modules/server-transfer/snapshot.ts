@@ -1,14 +1,13 @@
 import { createHash } from 'node:crypto'
-import { canonicalServerTransferManifest } from '@podium/protocol'
 import { constants, createReadStream } from 'node:fs'
 import { copyFile, lstat, mkdir, open, readdir, rename, rm, statfs } from 'node:fs/promises'
 import { dirname, join, posix, relative, sep } from 'node:path'
 import {
+  canonicalServerTransferManifest,
   SERVER_TRANSFER_FORMAT_VERSION,
   type ServerTransferManifest,
-  type ServerTransferManifestBody,
   type ServerTransferManifestEntry,
-} from './types'
+} from '@podium/protocol'
 
 const ROOT_FILES = ['podium.db', 'enrollment.ledger'] as const
 const ROOT_DIRECTORIES = ['transcripts', 'artifacts', 'uploads'] as const
@@ -151,16 +150,8 @@ async function snapshotEntry(
   }
 }
 
-export function canonicalManifestBody(body: ServerTransferManifestBody): string {
-  return canonicalServerTransferManifest(body)
-}
-
-export function manifestWithDigest(body: ServerTransferManifestBody): ServerTransferManifest {
-  return {
-    ...body,
-    files: [...body.files].sort((left, right) => left.path.localeCompare(right.path)),
-    digest: createHash('sha256').update(canonicalManifestBody(body)).digest('hex'),
-  }
+export function serverTransferManifestDigest(manifest: ServerTransferManifest): string {
+  return createHash('sha256').update(canonicalServerTransferManifest(manifest)).digest('hex')
 }
 
 export async function estimatePortableBytes(stateRoot: string): Promise<number> {
@@ -209,7 +200,7 @@ export async function createPortableSnapshot(input: {
   if (packageBytes > MAX_TRANSFER_BYTES)
     throw new Error('portable state exceeds the transfer limit')
   await syncDirectory(input.packageDir)
-  return manifestWithDigest({
+  return {
     formatVersion: SERVER_TRANSFER_FORMAT_VERSION,
     transferId: input.transferId,
     sourceInstanceId: input.sourceInstanceId,
@@ -220,7 +211,6 @@ export async function createPortableSnapshot(input: {
     appVersion: input.sourceApplicationVersion,
     schemaVersion: input.sourceSchemaVersion,
     packageBytes,
-    files,
-  })
+    files: files.sort((left, right) => left.path.localeCompare(right.path)),
+  }
 }
-

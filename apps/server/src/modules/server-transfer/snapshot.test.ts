@@ -2,12 +2,12 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { canonicalServerTransferManifest, type ServerTransferManifest } from '@podium/protocol'
 import {
-  canonicalManifestBody,
   createPortableSnapshot,
   isSafeRelativePath,
-  manifestWithDigest,
-} from './manifest'
+  serverTransferManifestDigest,
+} from './snapshot'
 
 const roots: string[] = []
 
@@ -17,9 +17,9 @@ afterEach(async () => {
 
 describe('portable server snapshot', () => {
   it('canonicalizes sorted entries and excludes the digest from its own hash', () => {
-    const body = {
+    const body: ServerTransferManifest = {
       formatVersion: 1 as const,
-      transferId: 'transfer-1',
+      transferId: '00000000-0000-4000-8000-000000000001',
       sourceInstanceId: 'instance-1',
       sourceMachineId: 'source-1',
       targetMachineId: 'target-1',
@@ -33,12 +33,11 @@ describe('portable server snapshot', () => {
         { path: 'podium.db', size: 1, mode: 0o600, sha256: 'a'.repeat(64) },
       ],
     }
-    const first = manifestWithDigest(body)
-    const second = manifestWithDigest({ ...body, files: [...body.files].reverse() })
+    const first = serverTransferManifestDigest(body)
+    const second = serverTransferManifestDigest({ ...body, files: [...body.files].reverse() })
 
-    expect(first.digest).toBe(second.digest)
-    expect(first.files.map((entry) => entry.path)).toEqual(['podium.db', 'transcripts/z'])
-    expect(canonicalManifestBody(body)).not.toContain(first.digest)
+    expect(first).toBe(second)
+    expect(canonicalServerTransferManifest(body)).not.toContain(first)
   })
 
   it.each([

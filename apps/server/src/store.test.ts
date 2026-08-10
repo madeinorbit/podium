@@ -94,7 +94,10 @@ async function tmpDbPath(): Promise<string> {
 describe('SessionStore repos', () => {
   it('reports the newest migration recorded by a real migrated store', () => {
     const store = new SessionStore(':memory:')
-    const expected = [...DRIZZLE_MIGRATIONS].map(({ name }) => name).sort().at(-1)
+    const expected = [...DRIZZLE_MIGRATIONS]
+      .map(({ name }) => name)
+      .sort()
+      .at(-1)
     expect(store.schemaVersionForTransfer()).toBe(expected)
     store.close()
   })

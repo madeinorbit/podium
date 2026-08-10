@@ -25,11 +25,7 @@ interface WireOwnedRpc {
     publicUrl: string,
     machineId: string,
   ): Promise<WireReply>
-  serverTransferAbort(
-    id: string,
-    reason: string | undefined,
-    machineId: string,
-  ): Promise<WireReply>
+  serverTransferAbort(id: string, reason: string | undefined, machineId: string): Promise<WireReply>
   serverTransferAcknowledge(id: string, digest: string, machineId: string): Promise<WireReply>
   serverTransferStatus(
     id: string | undefined,

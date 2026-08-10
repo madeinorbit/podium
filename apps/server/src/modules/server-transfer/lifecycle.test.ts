@@ -49,12 +49,7 @@ describe('retireSourceAfterTransfer', () => {
     harness.work[0]?.callback()
     expect(spawnMock).toHaveBeenCalledOnce()
     expect(spawnMock.mock.calls[0]?.[1]).toEqual(
-      expect.arrayContaining([
-        'daemon',
-        '--server',
-        'wss://podium.example.com',
-        '--takeover',
-      ]),
+      expect.arrayContaining(['daemon', '--server', 'wss://podium.example.com', '--takeover']),
     )
     expect(child.unref).toHaveBeenCalledOnce()
     expect(harness.work[1]?.delayMs).toBe(50)

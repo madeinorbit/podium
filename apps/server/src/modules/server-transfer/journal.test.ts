@@ -85,25 +85,26 @@ describe('TransferJournal', () => {
     expect(() => assertWritableServerBoot(root)).toThrow(/commit-uncertain/)
   })
 
-  it.each(['preparing', 'staged', 'validated'] as const)(
-    'durably aborts stale pre-fence %s state and permits writable boot',
-    async (state) => {
-      const { root, journal, record } = await fixture()
-      journal.begin(record)
-      if (state === 'staged' || state === 'validated') journal.transition('staged')
-      if (state === 'validated') journal.transition('validated')
+  it.each([
+    'preparing',
+    'staged',
+    'validated',
+  ] as const)('durably aborts stale pre-fence %s state and permits writable boot', async (state) => {
+    const { root, journal, record } = await fixture()
+    journal.begin(record)
+    if (state === 'staged' || state === 'validated') journal.transition('staged')
+    if (state === 'validated') journal.transition('validated')
 
-      const recovered = reconcileSafeServerTransferBoot(root)
+    const recovered = reconcileSafeServerTransferBoot(root)
 
-      expect(recovered).toMatchObject({
-        state: 'aborted',
-        error: { code: 'boot-recovery' },
-        cleanup: { result: 'pending' },
-      })
-      expect(serverTransferBootMode(root)).toBe('writable')
-      expect(() => assertWritableServerBoot(root)).not.toThrow()
-    },
-  )
+    expect(recovered).toMatchObject({
+      state: 'aborted',
+      error: { code: 'boot-recovery' },
+      cleanup: { result: 'pending' },
+    })
+    expect(serverTransferBootMode(root)).toBe('writable')
+    expect(() => assertWritableServerBoot(root)).not.toThrow()
+  })
 
   it.each([
     ['source-fenced', 'recovery-only'],

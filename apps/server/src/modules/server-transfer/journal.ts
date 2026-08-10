@@ -10,6 +10,7 @@ import {
   writeSync,
 } from 'node:fs'
 import { join } from 'node:path'
+import { z } from 'zod'
 import {
   SERVER_TRANSFER_FORMAT_VERSION,
   type TransferJournalEntry,
@@ -181,7 +182,10 @@ export class TransferJournal {
     return next
   }
 
-  commit(record: TransferRecord, cleanup?: { result: 'cleaned' | 'pending'; detail?: string }): TransferJournalEntry {
+  commit(
+    record: TransferRecord,
+    cleanup?: { result: 'cleaned' | 'pending'; detail?: string },
+  ): TransferJournalEntry {
     const current = this.required()
     if (current.state === 'committed') return current
     if (current.state !== 'committing') {
