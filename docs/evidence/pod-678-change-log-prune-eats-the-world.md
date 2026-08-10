@@ -69,6 +69,36 @@ observed in the real client rather than derived from code, and the blast radius
 is wider than a chat cosmetic — **any prose an agent writes referencing work
 older than a day renders to the operator as broken links.**
 
+## 3c. What this does NOT explain — a second, client-side gap
+
+POD-676's session measured the pixels of the screenshot that started all of this
+(2026-08-10T09:38Z) rather than eyeballing the hue, and the result is the exact
+inverse of the story above. The chip fill is 12% accent over the terminal
+background: measured `rgb(63,42,48)`, where `#f5c518` (`--primary`, the
+unresolved fallback) predicts G=42.1 and `#f59e0b` (amber `in_progress`)
+predicts G=37.4; the 65% border measured G=144 against 135 predicted for yellow
+and 110 for amber. Both channels say **unresolved**, not amber. The stage data
+agrees — POD-619 closed 2026-08-08T23:08 and never left `done`, so a resolving
+client had to paint it blue.
+
+And the prune does not account for it either. At screenshot time:
+
+| ref | retained rows | rendered |
+| --- | --- | --- |
+| POD-561, POD-612, POD-623 | **0** | blue |
+| POD-619 | **26** | yellow |
+
+That client was long-connected: it still held the pruned rows from old deltas, so
+the row budget had taken nothing away from *it*. Only POD-619 was missing from
+its replica. **So there is a second gap this fix does not close** — a row absent
+from one live client's replica while pruned rows survive in the same client. It
+self-healed when POD-619 was re-upserted at 09:46Z, so there is no repro; filed
+separately rather than folded in here.
+
+The distinction to keep: this document is about the **bootstrap** world a
+*connecting* client is handed. A gap in an *already-connected* client's replica
+is a different mechanism with a different fix.
+
 ## 4. Why: the world was a fold over the pruned table
 
 `Authority.bootstrap` → `store.latestChangeStates()`, which was
