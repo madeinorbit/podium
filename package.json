@@ -61,6 +61,7 @@
     "test:integration": "bun scripts/test-heavy.ts -- bun --bun node_modules/vitest/vitest.mjs run --passWithNoTests --config vitest.integration.config.ts && bun run test:acceptance",
     "test:acceptance": "bun scripts/test-heavy.ts -- bun --bun node_modules/vitest/vitest.mjs run --config vitest.acceptance.config.ts",
     "test:acceptance:process": "bun scripts/test-heavy.ts -- bun test --conditions=@podium/source scripts/loop-split-process.acceptance.bun.test.ts",
+    "test:acceptance:server-transfer": "bun scripts/test-heavy.ts -- bash tests/acceptance/server-transfer/run.sh",
     "test:smoke:agents": "PODIUM_REAL_CLI=1 bun scripts/test-heavy.ts -- bun --bun node_modules/vitest/vitest.mjs run --passWithNoTests --config vitest.agent-smoke.config.ts",
     "test:e2e": "NODE_OPTIONS=--conditions=@podium/source bun scripts/test-heavy.ts -- bun --bun node_modules/vitest/vitest.mjs run --config vitest.integration.config.ts tests/e2e",
     "test:multi-instance": "bun scripts/test-heavy.ts -- bash -c \"bun test --conditions=@podium/source ./scripts/multi-instance-runtime.integration.bun.test.ts && bun --bun node_modules/vitest/vitest.mjs run scripts/managed-account-spawn.integration.test.ts && bash scripts/install-sh.test.sh\"",

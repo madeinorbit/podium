@@ -1,0 +1,106 @@
+x-fixture: &fixture
+  build:
+    context: ../../..
+    dockerfile: tests/acceptance/server-transfer/Dockerfile
+  image: podium-server-transfer-acceptance:local
+  networks:
+    - transfer
+  environment: &fixture-environment
+    PODIUM_TRANSFER_SCENARIO: ${PODIUM_TRANSFER_SCENARIO:?set PODIUM_TRANSFER_SCENARIO}
+
+services:
+  source:
+    <<: *fixture
+    hostname: source
+    command:
+      - bun
+      - --conditions=@podium/source
+      - tests/acceptance/server-transfer/machine-supervisor.ts
+      - source
+    environment:
+      <<: *fixture-environment
+      PODIUM_STATE_DIR: /state
+      PODIUM_AGENT_HOME: /agent-home
+      HOME: /agent-home
+      PODIUM_HOST: 0.0.0.0
+      PODIUM_PORT: "18787"
+      PODIUM_HOOK_PORT: "45777"
+      PODIUM_AGENT_RELAY_PORT: "45778"
+      PODIUM_PTY_BACKEND: abduco
+      PODIUM_ABDUCO: /usr/bin/abduco
+      ABDUCO_SOCKET_DIR: /state/runtime/abduco
+      PODIUM_NO_SCOPE: "1"
+      PODIUM_NO_RELAY: "1"
+      PODIUM_APP_VERSION: docker-transfer-acceptance
+      PODIUM_WEB_DIR: /fixture-web
+    volumes:
+      - source-state:/state
+      - source-agent-home:/agent-home
+      - coordination:/coord
+
+  target:
+    <<: *fixture
+    hostname: target
+    command:
+      - bun
+      - --conditions=@podium/source
+      - tests/acceptance/server-transfer/machine-supervisor.ts
+      - target
+    environment:
+      <<: *fixture-environment
+      PODIUM_STATE_DIR: /state
+      PODIUM_AGENT_HOME: /agent-home
+      HOME: /agent-home
+      PODIUM_HOST: 0.0.0.0
+      PODIUM_PORT: "18787"
+      PODIUM_HOOK_PORT: "45777"
+      PODIUM_AGENT_RELAY_PORT: "45778"
+      PODIUM_PTY_BACKEND: abduco
+      PODIUM_ABDUCO: /usr/bin/abduco
+      ABDUCO_SOCKET_DIR: /state/runtime/abduco
+      PODIUM_NO_SCOPE: "1"
+      PODIUM_NO_RELAY: "1"
+      PODIUM_APP_VERSION: docker-transfer-acceptance
+      PODIUM_WEB_DIR: /fixture-web
+    volumes:
+      - target-state:/state
+      - target-agent-home:/agent-home
+      - coordination:/coord
+
+  control-proxy:
+    <<: *fixture
+    hostname: control-proxy
+    command: [bun, tests/acceptance/server-transfer/control-proxy.ts]
+    volumes:
+      - coordination:/coord
+
+  edge:
+    <<: *fixture
+    hostname: edge
+    command: [bun, tests/acceptance/server-transfer/edge-proxy.ts]
+
+  scenario:
+    <<: *fixture
+    hostname: scenario
+    command:
+      - bun
+      - --conditions=@podium/source
+      - tests/acceptance/server-transfer/scenario.ts
+    depends_on:
+      - source
+      - target
+      - control-proxy
+      - edge
+    volumes:
+      - coordination:/coord
+
+networks:
+  transfer:
+    internal: true
+
+volumes:
+  source-state:
+  target-state:
+  source-agent-home:
+  target-agent-home:
+  coordination:
