@@ -82,7 +82,7 @@ function LifecycleButton({
       onClick={() =>
         run(action, async () => {
           if (action.run === 'kill') return killSession(sessionId)
-          return resurrectSession(sessionId)
+          await resurrectSession(sessionId)
         })
       }
     >

@@ -276,7 +276,15 @@ export class SessionRevival {
     // externally) are the same situation here: no process, but the row and the
     // resume ref are intact — both come back with one spawn.
     if (session.status !== 'hibernated' && session.status !== 'exited') {
-      return Promise.resolve({ ok: false, reason: 'process still running' })
+      // The banner may be based on an older client snapshot than this
+      // authoritative row. A previous click can already have moved the row to
+      // `starting`, or a daemon reattach can have made it `live`; in either
+      // case there is nothing else to spawn. Resurrection is intentionally
+      // idempotent so a stale banner does not turn a successful wake into a
+      // misleading "process still running" error. Republish the current row so
+      // the client converges immediately.
+      this.ports.broadcastSessions()
+      return Promise.resolve({ ok: true })
     }
     // A shell has no conversation to lose — a fresh spawn in the same cwd IS
     // full recovery, so it never needs a resume ref. Agents do: respawning one

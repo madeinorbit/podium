@@ -2,6 +2,8 @@ import { groupSessions, withoutShells } from '@podium/client-core/focus'
 import {
   agentBadge,
   chatActivity,
+  composerState,
+  defaultChatCapable,
   mergeTranscriptItems,
   panelLabel,
   prependTranscriptItems,
@@ -38,6 +40,7 @@ import { PressableScale } from '../components/PressableScale'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
 import { HeaderButton, Screen } from '../components/Screen'
 import { SessionActionCard } from '../components/SessionActionCard'
+import { SessionLifecycle } from '../components/SessionLifecycle'
 import { TaskPeekSheet } from '../components/TaskPeekSheet'
 import { type PendingTurn, TranscriptList } from '../components/TranscriptList'
 import { EmptyState } from '../components/ui'
@@ -322,6 +325,12 @@ export function SessionScreen() {
     )
   }
   const activity = chatActivity(session, false)
+  // A parked or ended session is present but has no process. It gets the
+  // recovery banner; when there is also no conversation to show, the banner is
+  // the WHOLE screen rather than a header over an empty transcript [POD-1758].
+  const hasTranscript = session.transcriptAvailable ?? defaultChatCapable(session.agentKind)
+  const composer = composerState({ session, headless: false, turnRunning: false, compact: false })
+  const readOnly = session.status === 'hibernated' || session.status === 'exited'
   const issueTodos = issue?.panel?.todos ?? []
   const todoProgress = issueTodos.length
     ? { done: issueTodos.filter((todo) => todo.done).length, total: issueTodos.length }
@@ -377,6 +386,13 @@ export function SessionScreen() {
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
+        <SessionLifecycle
+          session={session}
+          hasTranscript={hasTranscript}
+          onResume={store.resurrectSession}
+          onRemove={store.killSession}
+        />
+        {readOnly && !hasTranscript ? null : (
         <BootstrapCrossfade
           resolved={loaded || items.length > 0}
           placeholder={<TranscriptSkeleton />}
@@ -452,20 +468,24 @@ export function SessionScreen() {
             />
           </PullToRefreshBoundary>
         </BootstrapCrossfade>
+        )}
         {/* The composer floats OVER the feed rather than ending it [POD-502]:
             messages run under the capsule and dissolve into the scrim above
             it, which is what makes it read as lifted off the page rather than
             welded to the bottom edge. The feed pays for it with the composer's
             own resting height. */}
-        <View style={styles.composerLayer} pointerEvents="box-none">
-          <Composer
-            placeholder="Message the agent…"
-            onSend={send}
-            draftInsertion={draftInsertion}
-            scrimColor={accent ? flow.paneBg(accent) : color.bg}
-            onRestingHeight={setComposerHeight}
-          />
-        </View>
+        {readOnly && !hasTranscript ? null : (
+          <View style={styles.composerLayer} pointerEvents="box-none">
+            <Composer
+              placeholder={composer.placeholder}
+              onSend={send}
+              disabled={!composer.enabled}
+              draftInsertion={draftInsertion}
+              scrimColor={accent ? flow.paneBg(accent) : color.bg}
+              onRestingHeight={setComposerHeight}
+            />
+          </View>
+        )}
       </KeyboardAvoidingView>
       <TaskPeekSheet
         issue={livePeekIssue}

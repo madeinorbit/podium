@@ -51,6 +51,12 @@ export interface StoreNotices {
 
 export const NOOP_NOTICES: StoreNotices = { error: () => {}, info: () => {} }
 
+/** Result returned by a session wake/resurrection command. */
+export interface SessionResurrectionResult {
+  ok: boolean
+  reason?: string
+}
+
 export function defaultFormatError(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message.trim()) return error.message
   if (typeof error === 'string' && error.trim()) return error
@@ -275,7 +281,7 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   navigateToSession: (sessionIdOrRef: string) => void
   renameSession: (sessionId: SessionId, name: string) => Promise<void>
   hibernateSession: (sessionId: SessionId) => Promise<void>
-  resurrectSession: (sessionId: SessionId) => Promise<void>
+  resurrectSession: (sessionId: SessionId) => Promise<SessionResurrectionResult>
   /** Send a chat message to a parked (hibernated/exited) session, waking it
    *  first and delivering the text once it's ready. Falls back to a plain send
    *  when the session is already live. */

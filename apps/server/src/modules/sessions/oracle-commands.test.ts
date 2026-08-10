@@ -239,15 +239,14 @@ describe('oracle: resurrect', () => {
     )
   })
 
-  it(`${MUST_NOT_CHANGE}: resurrect refuses a still-running session with a reason`, async () => {
+  it('resurrect is idempotent for a still-running session', async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     goLive(o, sessionId)
+    const daemonFrames = o.daemon.length
 
-    expect(await o.call.sessions.resurrect({ sessionId })).toEqual({
-      ok: false,
-      reason: 'process still running',
-    })
+    expect(await o.call.sessions.resurrect({ sessionId })).toEqual({ ok: true })
+    expect(o.daemon).toHaveLength(daemonFrames)
   })
 
   it(`${MUST_NOT_CHANGE}: an exited AGENT with no resume ref cannot be resurrected; a shell can (a fresh spawn IS its recovery)`, async () => {

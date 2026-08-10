@@ -456,10 +456,11 @@ export function createEngineActions<TApi extends PodiumClientApi>(
         const result = await api.sessions.resurrect.mutate({ sessionId })
         if (!result.ok)
           rt.notices.error(`Couldn't resume the session — ${result.reason ?? 'unknown error'}`)
+        return result
       } catch (error) {
-        rt.notices.error(
-          `Couldn't resume the session — ${error instanceof Error ? error.message : 'unknown error'}`,
-        )
+        const reason = error instanceof Error ? error.message : 'unknown error'
+        rt.notices.error(`Couldn't resume the session — ${reason}`)
+        return { ok: false, reason }
       }
     },
     resumeAndSend: async (sessionId, text) => {
