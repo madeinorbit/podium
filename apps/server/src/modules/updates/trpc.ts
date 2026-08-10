@@ -68,7 +68,7 @@ export function restartCoordinatorAfterDevelopmentFleet(
         (machine) =>
           isDevelopmentMachine(machine) &&
           machine.online &&
-          machine.version !== targetVersion,
+          (machine.version !== targetVersion || machine.state !== 'current'),
       )
     if (!developmentStillApplying) {
       requestCoordinatorRestart()
