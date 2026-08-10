@@ -9,6 +9,7 @@ import type { BrowserOpenManager } from '../browser-open'
 import type { ComposerSyncEngine } from '../composer-sync'
 import type { HeadlessTurnHandle } from '../headless-drivers.js'
 import type { OutputScheduler } from '../output-scheduler'
+import type { PortableStateFence } from '../portable-state-fence'
 import type { SessionBinding } from '../session-binding'
 import type { SessionObservers } from '../session-observers'
 import type { DiscoveryWorkerClient } from '../worker-client'
@@ -87,7 +88,12 @@ export interface DaemonContext {
     getAgentQuota(refresh?: boolean): Promise<import('@podium/model').AgentQuotaWire[]>
   }
   /** Usage-scan memo (mutable box — handlers replace the value). */
-  usageMemo: { value?: { atMs: number; sinceMs: number; buckets: UsageBucketWire[] } }
+  usageMemo: {
+    value?: { atMs: number; sinceMs: number; buckets: UsageBucketWire[] }
+  }
+
+  /** Process-wide admission/drain fence for daemon-owned portable-state mutations. */
+  portableStateFence: PortableStateFence
 
   /** Starts the promoted server and returns only after the expected state is serving. */
   restartAfterTransfer?: (

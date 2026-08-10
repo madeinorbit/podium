@@ -5,6 +5,7 @@ import { createDaemonConnection, type DaemonConnection } from './connection-stat
 import type { DaemonOptions } from './daemon-options'
 import { createDaemonHostRuntime } from './host-runtime'
 import { bootstrapDaemonInstance } from './instance-bootstrap'
+import type { PortableStateControl } from './portable-state-fence'
 
 export type { DurableBackend } from './control/context'
 export { sessionRelayEnv } from './control/session'
@@ -27,6 +28,8 @@ export interface DaemonHandle {
   readonly hookPort: number
   readonly hookSocketPath?: string
   readonly agentRelayPort: number
+  /** Source-transfer seam for daemon-owned portable state in all-in-one composition. */
+  readonly portableState: PortableStateControl
   /**
    * Whether the server link is ACTUALLY established right now (POD-1585).
    *
@@ -89,6 +92,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     hookPort: host.hookPort,
     ...(host.hookSocketPath ? { hookSocketPath: host.hookSocketPath } : {}),
     agentRelayPort: host.agentRelayPort,
+    portableState: host.portableState,
     // A getter, not a snapshot: the link goes up and down over the process's
     // life, so a boolean captured here would be the same lie in a new place.
     get connected() {
