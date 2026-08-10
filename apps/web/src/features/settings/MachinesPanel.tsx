@@ -1,6 +1,6 @@
 import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
-import type { MachineWire } from '@podium/model'
+import type { MachineWire, UpdateChannel } from '@podium/model'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { type Store, useStoreSelector } from '@/app/store'
@@ -15,6 +15,13 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { RepoScanFlow } from '@/features/setup/RepoScanFlow'
 import { NetworkStep } from '@/features/setup/SetupView'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
@@ -746,7 +753,7 @@ function MachineRow({
   }
 
   return (
-    <div className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-[13.5px]">
+    <div className="flex flex-wrap items-center gap-2 rounded-md border border-border px-3 py-2 text-[13.5px]">
       {/* Online/offline dot */}
       <span
         role="img"
@@ -1005,6 +1012,169 @@ function MachineRow({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {machine.podiumManaged !== false && <MachineUpdateControls machine={machine} trpc={trpc} />}
+    </div>
+  )
+}
+
+const UPDATE_CHANNEL_LABELS: Record<UpdateChannel, string> = {
+  dev: 'Development',
+  edge: 'Edge',
+  stable: 'Stable',
+}
+
+/**
+ * A channel choice changes only this machine's durable update authority. Applying
+ * is deliberately separate: it issues one convergence grant after the selected
+ * authority has resolved a concrete trusted target.
+ */
+function MachineUpdateControls({
+  machine,
+  trpc,
+}: {
+  machine: MachineWire
+  trpc: Store['trpc']
+}): JSX.Element {
+  const [channel, setChannel] = useState<UpdateChannel>(machine.updateChannel ?? 'stable')
+  const [targetVersion, setTargetVersion] = useState<string | null>(machine.targetVersion ?? null)
+  const [unavailableReason, setUnavailableReason] = useState<string | null>(
+    machine.targetUnavailableReason ?? null,
+  )
+  const [changingChannel, setChangingChannel] = useState(false)
+  const [applying, setApplying] = useState(false)
+  const [updateError, setUpdateError] = useState<string | null>(null)
+  const [updateStatus, setUpdateStatus] = useState<string | null>(null)
+
+  useEffect(() => {
+    setChannel(machine.updateChannel ?? 'stable')
+    setTargetVersion(machine.targetVersion ?? null)
+    setUnavailableReason(machine.targetUnavailableReason ?? null)
+  }, [machine.updateChannel, machine.targetVersion, machine.targetUnavailableReason])
+
+  const adoptMachine = (machines: readonly MachineWire[]): boolean => {
+    const updated = machines.find((candidate) => candidate.id === machine.id)
+    if (!updated) return false
+    setChannel(updated.updateChannel ?? 'stable')
+    setTargetVersion(updated.targetVersion ?? null)
+    setUnavailableReason(updated.targetUnavailableReason ?? null)
+    return true
+  }
+
+  const chooseChannel = async (nextChannel: UpdateChannel): Promise<void> => {
+    if (nextChannel === channel || changingChannel || applying) return
+    setChangingChannel(true)
+    setUpdateError(null)
+    setUpdateStatus(null)
+    try {
+      const machines = await trpc.machines.setUpdateChannel.mutate({
+        id: machine.id,
+        channel: nextChannel,
+      })
+      if (!adoptMachine(machines)) {
+        setUpdateError('The machine disappeared while its update source was changing.')
+      }
+    } catch (error) {
+      setUpdateError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setChangingChannel(false)
+    }
+  }
+
+  const applyUpdate = async (): Promise<void> => {
+    if (applying || changingChannel || !machine.online || !targetVersion) return
+    setApplying(true)
+    setUpdateError(null)
+    setUpdateStatus(null)
+    try {
+      const result = await trpc.machines.applyUpdate.mutate({ id: machine.id })
+      adoptMachine(result.machines)
+      if (result.grantedMachineIds.includes(machine.id)) {
+        setUpdateStatus(`Update authorized for ${machine.name}.`)
+      } else {
+        setUpdateError('The coordinator did not issue a new update grant for this machine.')
+      }
+    } catch (error) {
+      setUpdateError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setApplying(false)
+    }
+  }
+
+  const alreadyCurrent =
+    targetVersion !== null && machine.appVersion !== null && machine.appVersion === targetVersion
+  const targetLabel = targetVersion ? `Target ${targetVersion}` : 'Target unavailable'
+
+  return (
+    <div
+      className="flex basis-full flex-wrap items-center gap-2 border-t border-border/60 pt-2"
+      data-machine-update-controls={machine.id}
+    >
+      <span className="settings-micro flex-none uppercase tracking-wide">Update source</span>
+      <Select
+        value={channel}
+        disabled={changingChannel || applying}
+        onValueChange={(value) => void chooseChannel(value as UpdateChannel)}
+      >
+        <SelectTrigger
+          size="sm"
+          className="w-[132px] flex-none"
+          aria-label={`Update channel for ${machine.name}`}
+        >
+          <SelectValue>{UPDATE_CHANNEL_LABELS[channel]}</SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="dev">Development</SelectItem>
+          <SelectItem value="edge">Edge</SelectItem>
+          <SelectItem value="stable">Stable</SelectItem>
+        </SelectContent>
+      </Select>
+
+      <span
+        className={cn(
+          'flex-none rounded px-1.5 py-0.5 text-[11px]',
+          targetVersion ? 'bg-muted text-muted-foreground' : 'bg-warning/15 text-warning',
+        )}
+      >
+        {targetLabel}
+      </span>
+      {unavailableReason && (
+        <span
+          className="min-w-0 max-w-[48ch] flex-1 truncate settings-micro text-warning"
+          title={unavailableReason}
+        >
+          {unavailableReason}
+        </span>
+      )}
+      {updateError && (
+        <span className="min-w-0 flex-1 settings-micro text-destructive" role="alert">
+          {updateError}
+        </span>
+      )}
+      {updateStatus && (
+        <span className="min-w-0 flex-1 settings-micro text-success" role="status">
+          {updateStatus}
+        </span>
+      )}
+
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="flex-none"
+        disabled={
+          applying || changingChannel || !machine.online || !targetVersion || alreadyCurrent
+        }
+        aria-label={`Apply update to ${machine.name}`}
+        title={
+          !machine.online
+            ? 'This machine must be online to apply its selected target.'
+            : (unavailableReason ?? undefined)
+        }
+        onClick={() => void applyUpdate()}
+      >
+        {applying ? 'Applying…' : alreadyCurrent ? 'Current' : 'Apply'}
+      </Button>
     </div>
   )
 }
