@@ -102,31 +102,42 @@ async function createLiveFixture(source: ReturnType<typeof api>) {
   const machines = await source.machines.list.query()
   const sourceMachine = machines.find((machine) => machine.name !== 'transfer-target')
   if (!sourceMachine) throw new Error('source host machine is missing')
-  const created = await source.sessions.create.mutate({
+  const agent = await source.sessions.create.mutate({
+    agentKind: 'codex',
+    cwd: repoPath,
+    machineId: sourceMachine.id,
+  })
+  const agentSessionId = asSessionId(agent.sessionId)
+  const shell = await source.sessions.create.mutate({
     agentKind: 'shell',
     cwd: repoPath,
     machineId: sourceMachine.id,
   })
-  const sessionId = asSessionId(created.sessionId)
+  const sessionId = asSessionId(shell.sessionId)
   await eventually(
     () => source.sessions.list.query(),
     (sessions) =>
-      sessions.some((session) => session.sessionId === sessionId && session.status === 'live'),
-    'live durable shell session',
+      sessions.some(
+        (session) =>
+          session.sessionId === agentSessionId &&
+          session.agentKind === 'codex' &&
+          session.status === 'live',
+      ) && sessions.some((session) => session.sessionId === sessionId && session.status === 'live'),
+    'live deterministic agent and durable shell sessions',
   )
   await source.issues.create.mutate({
     repoPath,
     title: `Docker transfer sentinel ${scenario}`,
     startNow: false,
   })
-  return { sessionId, sourceMachine }
+  return { agentSessionId, sessionId, sourceMachine }
 }
 
 async function successCase(
   source: ReturnType<typeof api>,
   targetMachine: Awaited<ReturnType<typeof pairTarget>>,
 ): Promise<Record<string, unknown>> {
-  const { sessionId, sourceMachine } = await createLiveFixture(source)
+  const { agentSessionId, sessionId, sourceMachine } = await createLiveFixture(source)
   let output = ''
   let attaches = 0
   const hub = new SocketHub({
@@ -208,6 +219,12 @@ async function successCase(
     importedSessions.some((session) => session.sessionId === sessionId),
     'target did not import the durable session row',
   )
+  assert(
+    importedSessions.some(
+      (session) => session.sessionId === agentSessionId && session.agentKind === 'codex',
+    ),
+    'target did not import the active agent row',
+  )
   const importedIssues = await targetApi.issues.list.query({ repoPath })
   assert(
     importedIssues.some((issue) => issue.title === `Docker transfer sentinel ${scenario}`),
@@ -225,8 +242,10 @@ async function successCase(
   await eventually(
     () => targetApi.sessions.list.query(),
     (sessions) =>
-      sessions.some((session) => session.sessionId === sessionId && session.status === 'live'),
-    'durable shell live after source daemon reconnect',
+      sessions.some(
+        (session) => session.sessionId === agentSessionId && session.status === 'live',
+      ) && sessions.some((session) => session.sessionId === sessionId && session.status === 'live'),
+    'deterministic agent and durable shell live after source daemon reconnect',
   )
   await eventually(
     () => attaches,
@@ -246,6 +265,7 @@ async function successCase(
   hub.dispose()
   return {
     outcome,
+    agentSessionId,
     sessionId,
     nativeClientAttaches: attaches,
     sourceMachineId: sourceMachine.id,
@@ -260,7 +280,7 @@ async function precommitAbortCase(
   source: ReturnType<typeof api>,
   targetMachine: Awaited<ReturnType<typeof pairTarget>>,
 ): Promise<Record<string, unknown>> {
-  const { sessionId } = await createLiveFixture(source)
+  const { agentSessionId, sessionId } = await createLiveFixture(source)
   const outcome = await source.machines.transferServer.mutate({
     targetMachineId: targetMachine.id,
     publicUrl: edgeUrl,
@@ -302,12 +322,22 @@ async function precommitAbortCase(
     },
   })
   hub.connect()
-  await eventually(() => attaches, (count) => count >= 1, 'shell reattach after safe abort')
+  await eventually(
+    () => attaches,
+    (count) => count >= 1,
+    'shell reattach after safe abort',
+  )
   connection.sendInput(`printf abort-live > "$PODIUM_STATE_DIR/agent-after-transfer.txt"\n`)
   await eventually(
     () => evidence('source'),
     (value) => value.sentinels.agentAfterTransfer,
     'active shell writable after safe abort',
+  )
+  await eventually(
+    () => source.sessions.list.query(),
+    (sessions) =>
+      sessions.some((session) => session.sessionId === agentSessionId && session.status === 'live'),
+    'deterministic agent live after safe abort',
   )
   hub.dispose()
   return {
@@ -323,7 +353,7 @@ async function lostReplyCase(
   source: ReturnType<typeof api>,
   targetMachine: Awaited<ReturnType<typeof pairTarget>>,
 ): Promise<Record<string, unknown>> {
-  const { sessionId } = await createLiveFixture(source)
+  const { agentSessionId, sessionId } = await createLiveFixture(source)
   const outcome = await source.machines.transferServer.mutate({
     targetMachineId: targetMachine.id,
     publicUrl: edgeUrl,
@@ -348,6 +378,12 @@ async function lostReplyCase(
   assert(
     (await targetApi.sessions.list.query()).some((session) => session.sessionId === sessionId),
     'promoted target lost the durable session during commit uncertainty',
+  )
+  assert(
+    (await targetApi.sessions.list.query()).some(
+      (session) => session.sessionId === agentSessionId && session.agentKind === 'codex',
+    ),
+    'promoted target lost the active agent row during commit uncertainty',
   )
   let sourceWriteRejected = false
   try {
@@ -389,8 +425,10 @@ async function lostReplyCase(
   await eventually(
     () => targetApi.sessions.list.query(),
     (sessions) =>
-      sessions.some((session) => session.sessionId === sessionId && session.status === 'live'),
-    'durable session live after lost-reply recovery',
+      sessions.some(
+        (session) => session.sessionId === agentSessionId && session.status === 'live',
+      ) && sessions.some((session) => session.sessionId === sessionId && session.status === 'live'),
+    'deterministic agent and durable shell live after lost-reply recovery',
   )
   return {
     outcome,

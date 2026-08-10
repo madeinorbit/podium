@@ -6,6 +6,8 @@ RUN apt-get update \
 
 WORKDIR /workspace
 COPY . .
+RUN chmod 0755 tests/acceptance/server-transfer/fake-codex.sh \
+  && ln -s /workspace/tests/acceptance/server-transfer/fake-codex.sh /usr/local/bin/codex
 RUN bun install --frozen-lockfile
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
