@@ -7,36 +7,40 @@ import {
   useSensors,
 } from '@dnd-kit/core'
 import { restrictToHorizontalAxis, restrictToParentElement } from '@dnd-kit/modifiers'
-import {
-  arrayMove,
-  horizontalListSortingStrategy,
-  SortableContext,
-  useSortable,
-} from '@dnd-kit/sortable'
+import { horizontalListSortingStrategy, SortableContext, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { beginSwitch } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
 import type { WorktreeView } from '@podium/client-core/viewmodels'
 import {
-  archivedSessionsForIssue,
-  archivedSessionsForWorktreePath,
+  allTabIds,
+  emptyWorkspace,
+  focusedPane as focusedPaneOf,
   isCoordinatorSession,
   missionIssueIds,
   missionRootFor,
-  orderTabs,
   orphanSessionFor,
   reposToViews,
-  sessionsForIssueNav,
-  sessionsForWorktree,
+  type SplitAxis,
+  workspaceKeyFor,
 } from '@podium/client-core/viewmodels'
-import { asSessionId, type SessionId } from '@podium/model'
-import { Archive, Columns2, FileText, Lock, Plus, X } from 'lucide-react'
+import { asSessionId, type SessionId, type SessionMeta } from '@podium/model'
+import {
+  Columns2,
+  FileText,
+  Plus,
+  SquareSplitHorizontal,
+  SquareSplitVertical,
+  X,
+} from 'lucide-react'
 import { type JSX, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Button } from '@/components/ui/button'
 import { AgentPanel } from '@/features/terminal/AgentPanel'
 import { useWarmSet } from '@/features/terminal/use-warm-set'
+import { MENU_ITEM, MENU_ITEM_DISABLED, MENU_PANEL, MENU_RULE } from '@/lib/menu-surface'
 import { AgentStatusGlyph } from '@/lib/motion'
-import { type ContextMenuAnchor, SessionContextMenu } from '@/lib/SessionContextMenu'
+import type { ContextMenuAnchor } from '@/lib/SessionContextMenu'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
@@ -44,14 +48,14 @@ import { NewPanelMenu } from './NewPanelMenu'
 import { useOperatorFocus } from './operator-focus'
 import { PanelDeck } from './PanelDeck'
 import { composeDeck, type DeckTab } from './panel-deck'
-import { useReplicaIssues, useStoreSelector } from './store'
-import { closeWorkspaceTab } from './workspace-close'
-import { fileTabsForWorkspace } from './workspace-tabs'
+import { type FileTab, useReplicaIssues, useStoreSelector } from './store'
+import { closeActiveWorkspaceTab } from './workspace-close'
 
-// A tab in the strip is either an agent/shell session or an open file editor. Both are
-// first-class: same strip, same drag/select/close behaviour. paneA/paneB hold a tab id
-// (sessionId for sessions, the FileTab.id `file:…` for files). The deck of mounted
-// panels (PanelDeck) spans issue switches; the tab STRIP still shows only these.
+// A tab in the strip is either an agent/shell session or an open file editor. Both
+// are first-class VIEWS (POD-710): the strip renders the current workspace's
+// focused pane, not "every session in the mission". A running session with no tab
+// is not in the strip — it lives in the flight deck, which is where sessions
+// actually live. Closing a tab closes the view and never touches the session.
 type WTab = DeckTab
 
 const tabName = (t: WTab): string =>
@@ -60,8 +64,6 @@ const tabName = (t: WTab): string =>
 export function Workspace(): JSX.Element {
   const {
     sessions,
-    tabOrders,
-    setTabOrder,
     selectedWorktree,
     paneA,
     paneB,
@@ -74,11 +76,16 @@ export function Workspace(): JSX.Element {
     repos,
     selectedIssueId,
     dockShells,
+    workspaces,
+    openSessionTab,
+    promoteWorkspaceTab,
+    activateWorkspaceTab,
+    closeWorkspaceTab,
+    moveWorkspaceTab,
+    splitWorkspacePane,
   } = useStoreSelector(
     (s) => ({
       sessions: s.sessions,
-      tabOrders: s.tabOrders,
-      setTabOrder: s.setTabOrder,
       selectedWorktree: s.selectedWorktree,
       paneA: s.paneA,
       paneB: s.paneB,
@@ -91,6 +98,13 @@ export function Workspace(): JSX.Element {
       repos: s.repos,
       selectedIssueId: s.selectedIssueId,
       dockShells: s.dockShells,
+      workspaces: s.workspaces,
+      openSessionTab: s.openSessionTab,
+      promoteWorkspaceTab: s.promoteWorkspaceTab,
+      activateWorkspaceTab: s.activateWorkspaceTab,
+      closeWorkspaceTab: s.closeWorkspaceTab,
+      moveWorkspaceTab: s.moveWorkspaceTab,
+      splitWorkspacePane: s.splitWorkspacePane,
     }),
     shallowEqual,
   )
@@ -98,36 +112,22 @@ export function Workspace(): JSX.Element {
   const { focusedIssueId, setFocusedIssueId } = useOperatorFocus()
   const tabSplittingEnabled = useFeature('tab-splitting')
   const visibleSplit = tabSplittingEnabled && split
-  // A session created via the "+" menu (or restored from localStorage on reload)
-  // lands in `paneA` before the server's broadcast adds it to the tab list. Without
-  // this, the keep-pane-valid effect sees an unknown paneA and bounces it to tab 0.
-  const justOpened = useRef<string | null>(paneA)
-  // Same hold for a restored/just-opened pane B (the split's second pane): don't
-  // clear it before the store knows the session, or a reload with split=true would
-  // wipe pane B back to the picker before sessions arrive.
-  const justOpenedB = useRef<string | null>(paneB)
-  // A small drag threshold keeps plain clicks (select/pin/close) working — the
-  // drag only starts once the pointer has actually moved.
+  // A small drag threshold keeps plain clicks (select/close) working — the drag
+  // only starts once the pointer has actually moved.
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
-  // Archived member sessions are hidden from the strip until the user reveals them
-  // (the "N archived" control at the end of the strip reopens them as tabs).
-  const [showArchived, setShowArchived] = useState(false)
 
   const allWorktrees = reposToViews(repos).flatMap((r) => r.worktrees)
-  const allWorktreePaths = allWorktrees.map((w) => w.path)
   const worktree: WorktreeView | undefined = allWorktrees.find((w) => w.path === selectedWorktree)
 
   // Issue-keyed workspace (issue-as-workspace, unified layout only): when an
-  // issue row is selected, the tab strip shows the issue's sessions (explicit
-  // issueId first-class + cwd-contained legacy) instead of a worktree's.
+  // issue row is selected, the tab strip shows that task's workspace instead of
+  // a worktree's. The mission scan survives only to answer "which issue is in
+  // view" (the + menu's spawn target, the file-tab scope, the coordinator
+  // badge) — it no longer decides tab MEMBERSHIP.
   const missionIssue = selectedIssueId
     ? issues.find((i) => i.id === selectedIssueId && !i.archived && !i.deletedAt)
     : undefined
   const missionRoot = missionIssue ? missionRootFor(issues, missionIssue.id) : undefined
-  // `sessions` is required, not optional: it is what pulls agent-started
-  // children into the mission. Omitting it would give the tab strip a smaller
-  // mission than the Flight Deck shows, so a task visible in the deck would
-  // have no tab.
   const missionIds = missionRoot
     ? missionIssueIds(issues, missionRoot.id, sessions)
     : new Set<string>()
@@ -152,62 +152,41 @@ export function Workspace(): JSX.Element {
       })
     : worktree
 
-  // Unified, ordered tab list (sessions + open files). Default order is pin-aware
-  // sessions then files; a manual drag order (persisted per worktree — or per
-  // issue under an `issue:<id>` key — may include file ids) is applied on top.
-  // File ids that no longer exist (after reload) are dropped.
+  // The workspace layout is the source of truth for what has a tab (POD-710).
+  // The key must be the one `workspaceKeyForState` computes engine-side — the
+  // mission root wins over the selected sub-issue, because a mission shares ONE
+  // tab strip. A view that spelled the key differently would read a workspace
+  // nobody writes.
+  const workspaceKey = workspaceKeyFor({
+    missionRootId: missionRoot?.id ?? null,
+    issueId: selectedIssueId,
+    worktreePath: selectedWorktree,
+  })
+  const layout = workspaces[workspaceKey] ?? emptyWorkspace(workspaceKey)
+  const pane = focusedPaneOf(layout)
+  const previewTabId = layout.previewTabId
+
   // Dock-owned shells (#23) live in the right dock's Shell panel, never as tabs.
-  const dockShellIds = new Set(Object.values(dockShells))
-  const uniqueSessions = (list: typeof sessions): typeof sessions => [
-    ...new Map(list.map((session) => [session.sessionId, session])).values(),
-  ]
-  const liveSessionList = uniqueSessions(
-    issue
-      ? missionIssues.flatMap((missionIssue) =>
-          sessionsForIssueNav(missionIssue, sessions, allWorktreePaths, { includeShells: true }),
-        )
-      : worktree
-        ? sessionsForWorktree(sessions, worktree.path, allWorktreePaths)
-        : [],
-  ).filter((s) => !dockShellIds.has(s.sessionId))
-  // Archived members of the viewed issue/worktree — kept out of the strip until
-  // revealed, then appended so they reopen as (readable) tabs.
-  const archivedMembers = uniqueSessions(
-    issue
-      ? missionIssues.flatMap((missionIssue) =>
-          archivedSessionsForIssue(missionIssue, sessions, allWorktreePaths),
-        )
-      : worktree
-        ? archivedSessionsForWorktreePath(sessions, worktree.path, allWorktreePaths)
-        : [],
-  ).filter((s) => !dockShellIds.has(s.sessionId))
-  const sessionList = showArchived ? [...liveSessionList, ...archivedMembers] : liveSessionList
-  const fileList = fileTabsForWorkspace(fileTabs, { issue, worktreePath: panelTarget?.path })
-  const orderKey = missionRoot
-    ? `mission:${missionRoot.id}`
-    : issue
-      ? `issue:${issue.id}`
-      : worktree?.path
-  const byId = new Map<string, WTab>()
-  for (const s of sessionList)
-    byId.set(s.sessionId, { id: s.sessionId, kind: 'session', session: s })
-  for (const f of fileList) byId.set(f.id, { id: f.id, kind: 'file', file: f })
-  const baseIds = [
-    ...orderTabs(sessionList, undefined, issue?.coordinatorSessionId).map((s) => s.sessionId),
-    ...fileList.map((f) => f.id),
-  ]
-  const manual = orderKey ? tabOrders[orderKey] : undefined
-  let orderedIds =
-    manual && manual.length
-      ? [...manual.filter((id) => byId.has(id)), ...baseIds.filter((id) => !manual.includes(id))]
-      : baseIds
-  // M6: keep the designated coordinator first even under a saved drag order so
-  // "who is driving" stays unambiguous in the strip.
-  const coordId = missionRoot?.coordinatorSessionId ?? issue?.coordinatorSessionId
-  if (coordId && orderedIds.includes(coordId)) {
-    orderedIds = [coordId, ...orderedIds.filter((id) => id !== coordId)]
+  const dockShellIds = new Set<string>(Object.values(dockShells))
+  const sessionById = new Map<string, SessionMeta>(sessions.map((s) => [s.sessionId, s]))
+  const fileById = new Map<string, FileTab>(fileTabs.map((f) => [f.id, f]))
+  const resolveTab = (id: string): WTab | undefined => {
+    const session = sessionById.get(id)
+    if (session) {
+      return dockShellIds.has(id) ? undefined : { id, kind: 'session', session }
+    }
+    const file = fileById.get(id)
+    return file ? { id, kind: 'file', file } : undefined
   }
-  const allTabs: WTab[] = orderedIds.map((id) => byId.get(id)).filter((t): t is WTab => !!t)
+  const resolveAll = (ids: readonly string[]): WTab[] =>
+    ids.map(resolveTab).filter((t): t is WTab => !!t)
+
+  // The strip is the FOCUSED pane; the deck mounts every pane's tabs so a split's
+  // second pane keeps its panels alive.
+  const stripTabs = resolveAll(pane.tabs)
+  const deckTabs = resolveAll(allTabIds(layout))
+  const byId = new Map(deckTabs.map((t) => [t.id, t]))
+  const activeTabId = pane.activeTabId
 
   // Warm panels span issue switches [POD-782] [spec:SP-0b2e]: issues are the MAIN
   // way to own sessions, so the deck of mounted panels is the current workspace's
@@ -227,68 +206,25 @@ export function Workspace(): JSX.Element {
   const activeIds = [paneA, visibleSplit ? paneB : null].filter((x): x is SessionId => x != null)
   const warm = useWarmSet(warmUniverse, activeIds)
 
-  // Keep pane A pointed at a valid tab.
-  useEffect(() => {
-    if (paneA && paneA !== justOpened.current && !sessions.some((s) => s.sessionId === paneA)) {
-      justOpened.current = paneA
-    }
-    if (paneA && allTabs.some((t) => t.id === paneA)) {
-      justOpened.current = null
-      return
-    }
-    // Don't bounce away from a just-opened/restored pane that hasn't reached the store
-    // yet; fall back only once it's known to be gone.
-    if (paneA && justOpened.current === paneA && !sessions.some((s) => s.sessionId === paneA)) {
-      return
-    }
-    // An orphaned session — paneA names a real, non-archived session whose
-    // worktree was removed out from under it (so `worktree` is undefined and the
-    // session is absent from allTabs, there being no worktree to list it under) —
-    // is still a valid pane that the orphan branch below renders. Keep it instead
-    // of bouncing to null. Scoped to `!worktree` so the archive-active-session
-    // flow (worktree present) still falls through and re-points pane A.
-    if (
-      !worktree &&
-      paneA &&
-      sessions.some((s) => s.sessionId === paneA && s.cwd === selectedWorktree && !s.archived)
-    ) {
-      return
-    }
-    setPane('A', allTabs[0] ? asSessionId(allTabs[0].id) : null)
-  }, [allTabs, paneA, setPane, sessions, selectedWorktree, worktree])
-
-  // Keep pane B (the split's second pane) pointed at something valid. Unlike pane
-  // A there's no fall-back target — a B that goes stale just clears to the picker —
-  // but it gets the same just-opened/restored hold so a reload doesn't wipe it
-  // before the session it names has reached the store.
-  useEffect(() => {
-    if (!paneB) return
-    if (paneB !== justOpenedB.current && !sessions.some((s) => s.sessionId === paneB)) {
-      justOpenedB.current = paneB
-    }
-    if (allTabs.some((t) => t.id === paneB)) {
-      justOpenedB.current = null
-      return
-    }
-    // Still holding a restored/just-opened pane the store hasn't broadcast yet.
-    if (justOpenedB.current === paneB && !sessions.some((s) => s.sessionId === paneB)) return
-    // Genuinely gone (or moved out of this worktree) — drop it back to the picker.
-    setPane('B', null)
-  }, [allTabs, paneB, setPane, sessions])
+  // Closing a tab closes the VIEW. A session tab's session is never killed,
+  // archived or otherwise touched — that lives in the flight deck now. A file
+  // tab goes through `closeFileTab`, which drops the `fileTabs` record AND the
+  // layout entry: leaving the record behind would keep the file listed as open
+  // with nothing rendering it.
+  const closeTab = (tabId: string): void => {
+    if (fileById.has(tabId)) closeFileTab(tabId)
+    else closeWorkspaceTab(tabId)
+  }
 
   // Cmd+W in the desktop shell [POD-93]: the native menu owns the accelerator (the
   // webview never sees the keypress), so the shell's "Close Tab" item evals this
-  // hook instead. File tabs close immediately. Session tabs are locked task
-  // members [POD-293], so consume the command without killing the session or
-  // falling through to the shell's window-level close (hide). Returning false
-  // is reserved for no tab / an unmounted Workspace. Re-registered every render
-  // so it always sees the current pane; no deps array on purpose.
+  // hook instead. Returning false is reserved for no tab / an unmounted Workspace.
+  // Re-registered every render so it always sees the current pane; no deps array
+  // on purpose.
   useEffect(() => {
     const g = globalThis as { __PODIUM_CLOSE_TAB__?: () => boolean }
-    g.__PODIUM_CLOSE_TAB__ = () => {
-      const active = paneA ? byId.get(paneA) : undefined
-      return closeWorkspaceTab(active, closeFileTab)
-    }
+    g.__PODIUM_CLOSE_TAB__ = () =>
+      closeActiveWorkspaceTab(activeTabId && byId.has(activeTabId) ? activeTabId : null, closeTab)
     return () => {
       delete g.__PODIUM_CLOSE_TAB__
     }
@@ -319,10 +255,11 @@ export function Workspace(): JSX.Element {
   const onDragEnd = (event: DragEndEvent) => {
     const { active, over } = event
     if (!over || active.id === over.id) return
-    const ids = allTabs.map((t) => t.id)
-    const next = arrayMove(ids, ids.indexOf(String(active.id)), ids.indexOf(String(over.id)))
-    // Tab order is a SESSION order; file tabs are filtered out upstream.
-    if (orderKey) void setTabOrder(orderKey, next.map(asSessionId))
+    const toIndex = stripTabs.findIndex((t) => t.id === String(over.id))
+    if (toIndex < 0) return
+    // Pane order IS the tab order now (POD-710) — the server-side `tabOrders`
+    // overlay no longer has a job in the strip.
+    moveWorkspaceTab(String(active.id), pane.id, toIndex)
   }
 
   return (
@@ -343,15 +280,17 @@ export function Workspace(): JSX.Element {
           onDragEnd={onDragEnd}
         >
           <SortableContext
-            items={allTabs.map((t) => t.id)}
+            items={stripTabs.map((t) => t.id)}
             strategy={horizontalListSortingStrategy}
           >
             <div className="flex min-w-0 flex-1 items-stretch gap-[2px] overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              {allTabs.map((t) => (
+              {stripTabs.map((t) => (
                 <SortableTab
                   key={t.id}
                   tab={t}
-                  active={t.id === paneA}
+                  active={t.id === activeTabId}
+                  preview={t.id === previewTabId}
+                  splitting={tabSplittingEnabled}
                   coordinator={
                     t.kind === 'session' &&
                     missionIssues.some((missionIssue) =>
@@ -362,7 +301,7 @@ export function Workspace(): JSX.Element {
                     // Switch-latency trace [POD-701]: a tab click that changes the
                     // focused session starts a trace at the gesture (no-op switches
                     // — clicking the already-active tab — are skipped).
-                    if (t.kind === 'session' && t.id !== paneA) {
+                    if (t.kind === 'session' && t.id !== activeTabId) {
                       beginSwitch({
                         sessionId: asSessionId(t.id),
                         issueId: t.session.issueId ?? issue?.id ?? null,
@@ -373,38 +312,30 @@ export function Workspace(): JSX.Element {
                     if (t.kind === 'session') void markSessionRead(asSessionId(t.id))
                     // Selection contract: a session tab click highlights its
                     // OWNING issue. A session with no issue belongs to the
-                    // mission itself, so focus falls back to the root — the
-                    // fallbacks used to sit inside a guard that made them
-                    // unreachable, leaving the deck pointed at the task you
-                    // opened before this one. A file tab is not a session
-                    // identity and only moves focus when it names an issue.
+                    // mission itself, so focus falls back to the root. A file tab
+                    // is not a session identity and only moves focus when it
+                    // names an issue.
                     if (t.kind === 'session') {
                       setFocusedIssueId(t.session.issueId ?? missionRoot?.id ?? null)
                     } else if (t.kind === 'file' && t.file.issueId) {
                       setFocusedIssueId(t.file.issueId)
                     }
-                    setPane('A', asSessionId(t.id))
+                    // Selecting a tab is a reading gesture — it activates, it
+                    // never promotes. Promotion is input into the session
+                    // (usePreviewPromotion) or a double-click in the flight deck.
+                    activateWorkspaceTab(t.id)
                   }}
-                  onClose={() => {
-                    if (t.kind === 'file') closeFileTab(t.id)
+                  onClose={() => closeTab(t.id)}
+                  onCloseOthers={() => {
+                    for (const other of stripTabs) if (other.id !== t.id) closeTab(other.id)
                   }}
+                  onCloseAll={() => {
+                    for (const other of stripTabs) closeTab(other.id)
+                  }}
+                  onKeepOpen={() => promoteWorkspaceTab(t.id)}
+                  onSplit={(axis: SplitAxis) => splitWorkspacePane(pane.id, axis, { tabId: t.id })}
                 />
               ))}
-              {/* Reveal/hide archived member sessions as tabs — only shown when the
-                  viewed issue/worktree actually has any. */}
-              {archivedMembers.length > 0 && (
-                <button
-                  data-pressable
-                  type="button"
-                  className="flex flex-none cursor-pointer items-center gap-1 self-center rounded px-2 py-0.5 text-[10.5px] text-text-dim hover:text-(--issue-muted-bright)"
-                  aria-pressed={showArchived}
-                  title={showArchived ? 'Hide archived sessions' : 'Show archived sessions'}
-                  onClick={() => setShowArchived((v) => !v)}
-                >
-                  <Archive size={11} aria-hidden="true" />
-                  {showArchived ? 'Hide archived' : `${archivedMembers.length} archived`}
-                </button>
-              )}
             </div>
           </SortableContext>
         </DndContext>
@@ -416,10 +347,9 @@ export function Workspace(): JSX.Element {
             // biome-ignore lint/style/noNonNullAssertion: the early return above guarantees worktree or issue (which makes panelTarget defined)
             worktree={panelTarget!}
             issueId={issue?.id}
-            onOpened={(sid) => {
-              justOpened.current = sid
-              setPane('A', sid)
-            }}
+            // A session the operator deliberately started is not a peek —
+            // it opens permanent.
+            onOpened={(sid) => openSessionTab(sid, { permanent: true })}
             trigger={
               <button
                 data-pressable
@@ -456,7 +386,7 @@ export function Workspace(): JSX.Element {
       <div className="flex min-h-0 flex-1">
         <PanelDeck
           items={composeDeck({
-            tabs: allTabs,
+            tabs: deckTabs,
             warm,
             knownSessionIds,
             paneA,
@@ -464,7 +394,9 @@ export function Workspace(): JSX.Element {
             split: visibleSplit,
           })}
           split={visibleSplit}
-          onCloseFile={closeFileTab}
+          onCloseFile={closeTab}
+          previewTabId={previewTabId}
+          onPromote={promoteWorkspaceTab}
         />
         {!paneA && (
           <div className="flex min-w-0 flex-1" style={{ order: 0 }}>
@@ -474,7 +406,7 @@ export function Workspace(): JSX.Element {
         {visibleSplit && !paneB && (
           <div className="flex min-w-0 flex-1 border-l border-border" style={{ order: 1 }}>
             <PanePicker
-              tabs={allTabs}
+              tabs={deckTabs}
               onPick={(id) => {
                 // Opening a session into the split pane marks it read too (#126).
                 if (byId.get(id)?.kind === 'session') void markSessionRead(asSessionId(id))
@@ -491,16 +423,30 @@ export function Workspace(): JSX.Element {
 function SortableTab({
   tab,
   active,
+  preview,
+  splitting,
   coordinator = false,
   onSelect,
   onClose,
+  onCloseOthers,
+  onCloseAll,
+  onKeepOpen,
+  onSplit,
 }: {
   tab: WTab
   active: boolean
+  /** The workspace's ONE temporary tab — italic, replaced by the next preview. */
+  preview: boolean
+  /** `tab-splitting` is on, so the menu offers Split Right / Split Down. */
+  splitting: boolean
   /** M6: issue's designated coordinator session — elevated marker on the tab. */
   coordinator?: boolean
   onSelect: () => void
   onClose: () => void
+  onCloseOthers: () => void
+  onCloseAll: () => void
+  onKeepOpen: () => void
+  onSplit?: (axis: SplitAxis) => void
 }): JSX.Element {
   const renameSession = useStoreSelector((s) => s.renameSession)
   const [editing, setEditing] = useState(false)
@@ -535,7 +481,7 @@ function SortableTab({
       }}
       // Chrome-like tab sizing: tabs share the strip evenly, shrink as more open, stop at
       // a minimum (then the strip scrolls), and never balloon when alone. `group` drives
-      // the hover-reveal of the pin/close controls. Active tab (spec §2.2): tinted fill,
+      // the hover-reveal of the close control. Active tab (spec §2.2): tinted fill,
       // tinted hairline (no bottom edge), the 2px issue-colour inset top line.
       className={cn(
         'group relative flex max-w-[200px] min-w-[110px] flex-[1_1_180px] items-center rounded-t-[3px] border border-b-0 border-transparent px-0.5',
@@ -547,6 +493,7 @@ function SortableTab({
             : 'hover:issue-mix-14',
       )}
       data-session={tab.id}
+      data-preview={preview ? 'true' : undefined}
       title={tab.kind === 'file' ? tab.file.path : undefined}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       {...attributes}
@@ -571,17 +518,17 @@ function SortableTab({
           className={cn(
             'inline-flex min-w-0 flex-1 cursor-[inherit] items-center gap-1.5 rounded-none px-2 py-1 text-[10.5px] whitespace-nowrap',
             active ? 'font-semibold text-(--issue-text)' : 'text-(--issue-muted-bright)',
+            // A temporary tab reads italic and nothing else — no badge, no second
+            // colour. It is the same tab, held lightly.
+            preview && 'italic',
           )}
           onClick={onSelect}
+          // Renaming a session is view-adjacent and already muscle memory.
           onDoubleClick={tab.kind === 'session' ? () => setEditing(true) : undefined}
-          onContextMenu={
-            tab.kind === 'session'
-              ? (e) => {
-                  e.preventDefault()
-                  setMenuAnchor({ x: e.clientX, y: e.clientY })
-                }
-              : undefined
-          }
+          onContextMenu={(e) => {
+            e.preventDefault()
+            setMenuAnchor({ x: e.clientX, y: e.clientY })
+          }}
         >
           {tab.kind === 'session' ? (
             <>
@@ -612,53 +559,188 @@ function SortableTab({
           )}
         </button>
       )}
-      {tab.kind === 'session' ? (
-        // Workers stay with the task (POD-293): a session tab is a member of the
-        // task, not a disposable view — so no one-click close. A dim lock stands
-        // where the ✕ was; killing an agent lives on the tab's right-click menu.
-        <span
-          className={cn(
-            'h-5 w-5 flex-none items-center justify-center rounded text-(--issue-muted)',
-            active ? 'inline-flex' : 'hidden group-hover:inline-flex',
-          )}
-          title="Workers stay with the task — kill from the right-click menu"
-          aria-hidden="true"
-        >
-          <Lock size={10} />
-        </span>
-      ) : (
-        <button
-          data-pressable
-          type="button"
-          className={cn(
-            'h-5 w-5 flex-none cursor-pointer items-center justify-center rounded text-(--issue-muted) hover:text-destructive',
-            active ? 'inline-flex' : 'hidden group-hover:inline-flex',
-          )}
-          title="Close file"
-          onClick={onClose}
-        >
-          <X size={11} aria-hidden="true" />
-        </button>
-      )}
-      {tab.kind === 'session' && menuAnchor && (
-        <SessionContextMenu
-          session={tab.session}
+      {/* Every tab closes (POD-710) — a tab is a view, and closing it never
+          touches the session behind it. */}
+      <button
+        data-pressable
+        type="button"
+        className={cn(
+          'h-5 w-5 flex-none cursor-pointer items-center justify-center rounded text-(--issue-muted) hover:text-destructive',
+          active ? 'inline-flex' : 'hidden group-hover:inline-flex',
+        )}
+        title="Close tab"
+        aria-label="Close tab"
+        onClick={(e) => {
+          e.stopPropagation()
+          onClose()
+        }}
+      >
+        <X size={11} aria-hidden="true" />
+      </button>
+      {menuAnchor && (
+        <TabContextMenu
           anchor={menuAnchor}
+          preview={preview}
+          splitting={splitting}
           onClose={() => setMenuAnchor(null)}
-          onRename={() => {
-            setMenuAnchor(null)
-            setEditing(true)
-          }}
+          onCloseTab={onClose}
+          onCloseOthers={onCloseOthers}
+          onCloseAll={onCloseAll}
+          onKeepOpen={onKeepOpen}
+          onSplit={onSplit}
         />
       )}
     </div>
   )
 }
 
+/**
+ * The tab's own right-click menu — VIEW-scoped only (POD-710). Session lifecycle
+ * (kill / archive / snooze / hibernate / handoff) moved to the flight deck, where
+ * sessions actually live; a menu on the tab that could kill an agent is exactly
+ * the tab/session conflation this work undoes.
+ */
+function TabContextMenu({
+  anchor,
+  preview,
+  splitting,
+  onClose,
+  onCloseTab,
+  onCloseOthers,
+  onCloseAll,
+  onKeepOpen,
+  onSplit,
+}: {
+  anchor: ContextMenuAnchor
+  preview: boolean
+  splitting: boolean
+  onClose: () => void
+  onCloseTab: () => void
+  onCloseOthers: () => void
+  onCloseAll: () => void
+  onKeepOpen: () => void
+  onSplit?: (axis: SplitAxis) => void
+}): JSX.Element {
+  const ref = useRef<HTMLDivElement | null>(null)
+  const [pos, setPos] = useState<ContextMenuAnchor>(anchor)
+
+  // Clamp into the viewport once the menu has measured its real size, so a
+  // right-click near the bottom/right edge doesn't open a clipped menu.
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    setPos({
+      x: Math.max(8, Math.min(anchor.x, window.innerWidth - r.width - 8)),
+      y: Math.max(8, Math.min(anchor.y, window.innerHeight - r.height - 8)),
+    })
+  }, [anchor])
+
+  useEffect(() => {
+    const onDown = (e: MouseEvent): void => {
+      if (!ref.current?.contains(e.target as Node)) onClose()
+    }
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('mousedown', onDown, true)
+    window.addEventListener('keydown', onKey, true)
+    window.addEventListener('scroll', onClose, true)
+    window.addEventListener('resize', onClose)
+    return () => {
+      window.removeEventListener('mousedown', onDown, true)
+      window.removeEventListener('keydown', onKey, true)
+      window.removeEventListener('scroll', onClose, true)
+      window.removeEventListener('resize', onClose)
+    }
+  }, [onClose])
+
+  const run = (fn: () => void): void => {
+    fn()
+    onClose()
+  }
+
+  return createPortal(
+    <div
+      ref={ref}
+      role="menu"
+      aria-label="Tab actions"
+      className={`fixed z-[60] min-w-[168px] ${MENU_PANEL}`}
+      style={{ left: pos.x, top: pos.y }}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      <button
+        data-pressable
+        type="button"
+        role="menuitem"
+        className={MENU_ITEM}
+        onClick={() => run(onCloseTab)}
+      >
+        <X size={14} aria-hidden="true" /> Close
+      </button>
+      <button
+        data-pressable
+        type="button"
+        role="menuitem"
+        className={MENU_ITEM}
+        onClick={() => run(onCloseOthers)}
+      >
+        Close Others
+      </button>
+      <button
+        data-pressable
+        type="button"
+        role="menuitem"
+        className={MENU_ITEM}
+        onClick={() => run(onCloseAll)}
+      >
+        Close All
+      </button>
+      {/* "Keep Open" states what it does to a temporary tab; on a tab that is
+          already permanent it is inert rather than absent, so the menu doesn't
+          change shape under the cursor. */}
+      <button
+        data-pressable
+        type="button"
+        role="menuitem"
+        disabled={!preview}
+        className={preview ? MENU_ITEM : MENU_ITEM_DISABLED}
+        onClick={() => run(onKeepOpen)}
+      >
+        Keep Open
+      </button>
+      {splitting && onSplit && (
+        <>
+          <hr className={MENU_RULE} />
+          <button
+            data-pressable
+            type="button"
+            role="menuitem"
+            className={MENU_ITEM}
+            onClick={() => run(() => onSplit('row'))}
+          >
+            <SquareSplitHorizontal size={14} aria-hidden="true" /> Split Right
+          </button>
+          <button
+            data-pressable
+            type="button"
+            role="menuitem"
+            className={MENU_ITEM}
+            onClick={() => run(() => onSplit('column'))}
+          >
+            <SquareSplitVertical size={14} aria-hidden="true" /> Split Down
+          </button>
+        </>
+      )}
+    </div>,
+    document.body,
+  )
+}
+
 function Empty(): JSX.Element {
   return (
     <div className="m-auto text-[13px] text-muted-foreground/70">
-      No panel — use + to start one.
+      No tab open — pick a session in the flight deck, or use + to start one.
     </div>
   )
 }

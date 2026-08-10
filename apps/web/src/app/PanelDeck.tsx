@@ -1,5 +1,13 @@
 import { asSessionId } from '@podium/model'
-import { type JSX, lazy, Suspense } from 'react'
+import {
+  type ClipboardEventHandler,
+  type FormEventHandler,
+  type JSX,
+  type KeyboardEventHandler,
+  lazy,
+  Suspense,
+  useCallback,
+} from 'react'
 import { AgentPanel } from '@/features/terminal/AgentPanel'
 import { cn } from '@/lib/utils'
 import type { DeckItem } from './panel-deck'
@@ -7,6 +15,68 @@ import type { DeckItem } from './panel-deck'
 const FilePanel = lazy(() =>
   import('@/features/files/FilePanel').then((m) => ({ default: m.FilePanel })),
 )
+
+/** Keys that are only ever a modifier being held — pressing one alone is not input. */
+const BARE_MODIFIER_KEYS: ReadonlySet<string> = new Set([
+  'Alt',
+  'AltGraph',
+  'CapsLock',
+  'Control',
+  'Fn',
+  'FnLock',
+  'Hyper',
+  'Meta',
+  'NumLock',
+  'ScrollLock',
+  'Shift',
+  'Super',
+  'Symbol',
+  'SymbolLock',
+])
+
+/** Does this keydown count as "the operator put input into the session"? */
+export function isPromotingKey(key: string): boolean {
+  return !BARE_MODIFIER_KEYS.has(key)
+}
+
+/** Handlers that promote a preview tab, spread onto a panel's wrapper. */
+export interface PromotionHandlers {
+  onKeyDownCapture: KeyboardEventHandler
+  onPasteCapture: ClipboardEventHandler
+  onSubmitCapture: FormEventHandler
+}
+
+/**
+ * The ONE place that decides what promotes a preview tab (POD-710).
+ *
+ * A preview tab becomes permanent when the operator puts input INTO the session:
+ * any keydown that is not a bare modifier, a paste, or a composer submit inside
+ * the panel's own subtree. Reading gestures deliberately do not count —
+ * scrolling, clicking and taking focus leave the tab temporary, which is what
+ * makes cycling through sessions in the flight deck cheap.
+ *
+ * Capture phase on purpose: the terminal and the composer handle (and often stop)
+ * these events themselves, so a bubble-phase listener would never see them.
+ */
+export function usePreviewPromotion(
+  previewTabId: string | null | undefined,
+  onPromote: ((tabId: string) => void) | undefined,
+): (tabId: string) => PromotionHandlers | undefined {
+  return useCallback(
+    (tabId: string) => {
+      if (!onPromote || !previewTabId || tabId !== previewTabId) return undefined
+      const promote = (): void => onPromote(tabId)
+      return {
+        onKeyDownCapture: (e) => {
+          if (isPromotingKey(e.key)) promote()
+        },
+        onPasteCapture: promote,
+        onSubmitCapture: promote,
+      }
+    },
+    [previewTabId, onPromote],
+  )
+}
 
 /**
  * Renders the panel deck [POD-782] [spec:SP-0b2e] as ONE flat keyed list so a
@@ -25,11 +95,18 @@ export function PanelDeck({
   items,
   split,
   onCloseFile,
+  previewTabId,
+  onPromote,
 }: {
   items: DeckItem[]
   split: boolean
   onCloseFile: (id: string) => void
+  /** The workspace's one temporary tab, if any — the only panel that can promote. */
+  previewTabId?: string | null
+  /** Make a preview tab permanent (the operator typed into it). */
+  onPromote?: (tabId: string) => void
 }): JSX.Element {
+  const promotionFor = usePreviewPromotion(previewTabId, onPromote)
   return (
     <>
       {items.map((item) => {
@@ -51,6 +128,7 @@ export function PanelDeck({
             )}
             data-session={item.id}
             style={visible ? { order: item.inA ? 0 : 1 } : undefined}
+            {...(visible ? promotionFor(item.id) : undefined)}
           >
             {item.kind === 'session' ? (
               <AgentPanel sessionId={asSessionId(item.id)} active={visible} />
