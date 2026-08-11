@@ -27,10 +27,54 @@ describe('serializeError', () => {
     expect(serialized.message).toBe('just a string')
     expect(serialized.stack).toBeUndefined()
   })
+
+  it('passes an ALREADY-SERIALIZED error through instead of re-wrapping it', () => {
+    // The shape a forwarded browser crash arrives in: it crossed a JSON
+    // boundary, so it is a plain object and not an Error. Treated as a
+    // NonError, it became `{name:'NonError', message:'{"name":"TypeError",…}'}`
+    // — the stack stops being a stack, and a server relogging a client's `err`
+    // double-wraps it.
+    const forwarded = { name: 'TypeError', message: 'x is not a function', stack: 'at foo:1:1' }
+    const serialized = serializeError(forwarded)
+    expect(serialized).toEqual(forwarded)
+  })
+
+  it('recurses into the cause of an already-serialized error', () => {
+    const serialized = serializeError({
+      name: 'FetchError',
+      message: 'upload failed',
+      cause: { name: 'TypeError', message: 'body is null' },
+    })
+    expect(serialized.cause).toEqual({ name: 'TypeError', message: 'body is null' })
+  })
+
+  it('still calls a look-alike without a string name and message a NonError', () => {
+    const serialized = serializeError({ name: 404, message: 'not found' })
+    expect(serialized.name).toBe('NonError')
+  })
 })
 
 describe('buildRecord', () => {
   const base = { level: 'warn' as const, ns: 'daemon:pty', msg: 'resize dropped' }
+
+  it('will not let the process context forge ns, ts, level or msg', () => {
+    // ProcessContext has an index signature, so the type system does not stop
+    // this. It is worse than the same trick from a call site: the context is
+    // set once at boot, so a forged `ns` would silently misattribute EVERY
+    // record the process goes on to emit, and `ns` is the column every query
+    // groups by.
+    const record = buildRecord({
+      ...base,
+      fields: {},
+      context: { ns: 'SPOOFED', ts: 'bogus', level: 'trace', msg: 'hijacked', role: 'daemon' },
+    })
+    expect(record.ns).toBe('daemon:pty')
+    expect(record.msg).toBe('resize dropped')
+    expect(record.level).toBe('warn')
+    expect(record.ts).not.toBe('bogus')
+    // role and v are the context's own to set — that is what it is for.
+    expect(record.role).toBe('daemon')
+  })
 
   it('stamps an ISO-8601 timestamp with millisecond precision', () => {
     const record = buildRecord({ ...base, fields: {}, context: {} })

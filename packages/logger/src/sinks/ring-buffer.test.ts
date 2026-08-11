@@ -37,12 +37,25 @@ describe('ring buffer sink', () => {
     expect(sink.snapshot()[9]?.msg).toBe('m999')
   })
 
-  it('hands out a copy, so a crash payload cannot be mutated by later logging', () => {
+  it('hands out an array copy, so later logging cannot change a taken snapshot', () => {
     const sink = createRingBufferSink({ capacity: 3 })
     sink.write(record('a'))
     const snapshot = sink.snapshot()
     sink.write(record('b'))
     expect(snapshot).toHaveLength(1)
+    expect(snapshot.map((r) => r.msg)).toEqual(['a'])
+  })
+
+  it('shares the record OBJECTS rather than deep-copying them', () => {
+    // Pinned deliberately, because the docstring used to claim a snapshot was
+    // simply "safe to ship" — which is only true given the contract that a sink
+    // must not mutate a record. This test states the actual semantics, so
+    // switching to a deep copy later is a decision someone makes on purpose
+    // rather than a silent change of meaning.
+    const sink = createRingBufferSink({ capacity: 3 })
+    const written = record('a')
+    sink.write(written)
+    expect(sink.snapshot()[0]).toBe(written)
   })
 
   it('empties on clear', () => {

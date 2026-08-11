@@ -18,8 +18,13 @@ export interface Logger {
   /** Bind context onto every record this logger's descendants emit. */
   child(fields: Fields): Logger
   /**
-   * Would a record at this level reach ANY sink? Guard genuinely expensive
-   * field construction with it — not ordinary logging, which is already gated.
+   * Would a record at this level reach ANY REGISTERED sink? Guard genuinely
+   * expensive field construction with it — not ordinary logging, which is
+   * already gated.
+   *
+   * Answers `false` when nothing is registered, and `false` when every sink is
+   * pinned stricter than this level. Both are the same statement: nothing would
+   * consume the record, so nothing should build it.
    *
    * CAREFUL in a hot path: a ring buffer pinned at `trace` makes this `true`
    * for every level, forever, because the flight recorder genuinely does want
@@ -75,10 +80,10 @@ function makeLogger(ns: string, bound: Fields): Logger {
   // both of which move at runtime. Caching it against the config version keeps
   // a `trace` call in a hot loop from re-deriving the answer every time,
   // without the staleness a plain cache would have.
-  let cached: { gate: LogLevel; nsLevel: LogLevel } | null = null
+  let cached: { gate: LogLevel | null; nsLevel: LogLevel } | null = null
   let cachedEpoch = -1
 
-  function resolved(): { gate: LogLevel; nsLevel: LogLevel } {
+  function resolved(): { gate: LogLevel | null; nsLevel: LogLevel } {
     const epoch = loggingEpoch()
     if (cached === null || epoch !== cachedEpoch) {
       const nsLevel = resolveLevel(ns)
@@ -90,7 +95,10 @@ function makeLogger(ns: string, bound: Fields): Logger {
 
   function emit(level: LogLevel, msg: string, fields?: Fields): void {
     const { gate, nsLevel } = resolved()
-    if (!meetsThreshold(level, gate)) return
+    // A closed gate means no registered sink would take this record, so it is
+    // never built. This is the common case in a process that has not configured
+    // logging yet, and it is the cheapest path through the package.
+    if (gate === null || !meetsThreshold(level, gate)) return
     const record = buildRecord({
       level,
       ns,
@@ -109,7 +117,10 @@ function makeLogger(ns: string, bound: Fields): Logger {
     debug: (msg, fields) => emit('debug', msg, fields),
     trace: (msg, fields) => emit('trace', msg, fields),
     child: (fields) => makeLogger(ns, { ...bound, ...fields }),
-    isLevelEnabled: (level) => meetsThreshold(level, resolved().gate),
+    isLevelEnabled: (level) => {
+      const { gate } = resolved()
+      return gate !== null && meetsThreshold(level, gate)
+    },
     isLevelRequested: (level) => meetsThreshold(level, resolved().nsLevel),
   }
 }

@@ -6,7 +6,18 @@ export const DEFAULT_RING_CAPACITY = 500
 
 export interface RingBufferSink extends Sink {
   readonly capacity: number
-  /** A COPY of the buffer, oldest first. Safe to ship in a crash payload. */
+  /**
+   * A new ARRAY holding the buffered records, oldest first. Later writes do not
+   * change what a snapshot already handed out, which is what makes it usable as
+   * a crash payload while logging continues around the crash handler.
+   *
+   * The records themselves are the SAME OBJECTS the other sinks were given —
+   * this is deliberately not a deep copy, so a crash path does not pay to clone
+   * 500 records, and so a snapshot cannot fail on a field that resists cloning.
+   * It is safe because {@link Sink.write} forbids mutating a record; a sink that
+   * breaks that contract corrupts this history, and the shallow copy is what
+   * makes that a contract question rather than a hidden cost.
+   */
   snapshot(): LogRecord[]
   clear(): void
 }

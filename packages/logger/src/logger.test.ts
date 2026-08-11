@@ -183,7 +183,36 @@ describe('level gating, continued', () => {
     expect(ring.snapshot().map((r) => r.msg)).toEqual(['flight recorder detail'])
   })
 
-  it('does nothing at all when no sink is registered', () => {
-    expect(() => createLogger('daemon:pty').error('nowhere to go')).not.toThrow()
+  it('does nothing at all when no sink is registered — and reports the gate CLOSED', () => {
+    // The not-throw half was vacuous: it passed identically whether the gate
+    // was open or shut, while sitting directly over the bug where an unsunk
+    // logger built records and answered `true` for a fan-out to nobody. The
+    // predicate is the falsifiable half.
+    const log = createLogger('daemon:pty')
+    setLogLevel('trace')
+    expect(() => log.error('nowhere to go')).not.toThrow()
+    expect(log.isLevelEnabled('error')).toBe(false)
+    expect(log.isLevelEnabled('trace')).toBe(false)
+  })
+
+  it('answers isLevelEnabled false when every sink is stricter than the level', () => {
+    collector('error')
+    setLogLevel('trace')
+    const log = createLogger('daemon:pty')
+    // Configuration asked for trace; no registered sink would take it. The two
+    // predicates disagree here on purpose, and that disagreement is the whole
+    // reason both exist.
+    expect(log.isLevelRequested('trace')).toBe(true)
+    expect(log.isLevelEnabled('trace')).toBe(false)
+    expect(log.isLevelEnabled('error')).toBe(true)
+  })
+
+  it('opens the gate as soon as a sink registers, mid-life', () => {
+    const log = createLogger('daemon:pty')
+    expect(log.isLevelEnabled('error')).toBe(false)
+    const seen = collector('trace')
+    expect(log.isLevelEnabled('error')).toBe(true)
+    log.error('now it lands')
+    expect(seen.map((r) => r.msg)).toEqual(['now it lands'])
   })
 })

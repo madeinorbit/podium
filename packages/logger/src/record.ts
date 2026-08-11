@@ -63,11 +63,44 @@ export const RESERVED_KEYS: ReadonlySet<string> = new Set([
   'err',
 ])
 
+/**
+ * Keys the CONTEXT is allowed to write even though the record shape owns them.
+ * `role` and `v` are the process context's whole purpose — they are reserved
+ * against caller fields precisely so that boot, not a call site, decides them.
+ */
+const CONTEXT_OWNED_KEYS: ReadonlySet<string> = new Set(['role', 'v'])
+
 const MAX_CAUSE_DEPTH = 5
+
+/**
+ * Is this already a serialized error rather than a thrown one?
+ *
+ * A crash forwarded from a browser client arrives as a plain `{name, message,
+ * stack}` object, not an `Error` — it crossed a JSON boundary to get here
+ * (spec: serialized crashes). Without this check it is a `NonError` whose
+ * `message` is the whole thing JSON-stringified, so a server that relogs a
+ * client's `err` field double-wraps it and the stack stops being a stack.
+ */
+function isSerializedError(value: unknown): value is SerializedError {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const candidate = value as { name?: unknown; message?: unknown }
+  return typeof candidate.name === 'string' && typeof candidate.message === 'string'
+}
 
 /** Flatten anything that was thrown. Never throws itself. */
 export function serializeError(value: unknown, depth = 0): SerializedError {
   if (!(value instanceof Error)) {
+    if (isSerializedError(value)) {
+      // Pass through, rebuilt field by field rather than returned as-is: the
+      // object came from outside and may carry anything else besides.
+      const passed: SerializedError = { name: value.name, message: value.message }
+      if (typeof value.stack === 'string') passed.stack = value.stack
+      const nested: unknown = (value as { cause?: unknown }).cause
+      if (nested !== undefined && nested !== null && depth < MAX_CAUSE_DEPTH) {
+        passed.cause = serializeError(nested, depth + 1)
+      }
+      return passed
+    }
     return { name: 'NonError', message: safeString(value) }
   }
   const serialized: SerializedError = { name: value.name, message: value.message }
@@ -116,7 +149,14 @@ export function buildRecord(input: BuildRecordInput): LogRecord {
     record[key] = value
   }
   for (const [key, value] of Object.entries(input.context)) {
-    if (value !== undefined) record[key] = value
+    if (value === undefined) continue
+    // The context is filtered exactly like caller fields, and for the same
+    // reason. `ProcessContext` has an index signature, so nothing in the type
+    // system stops `setProcessContext({ ns: 'SPOOFED', ts: 'bogus' })` — and a
+    // forged `ns` is worse from here than from a call site, because it is set
+    // once at boot and then silently forges EVERY record the process emits.
+    if (RESERVED_KEYS.has(key) && !CONTEXT_OWNED_KEYS.has(key)) continue
+    record[key] = value
   }
   if (input.fields.err !== undefined) record.err = serializeError(input.fields.err)
   return record
