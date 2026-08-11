@@ -130,9 +130,27 @@ sinks and never quieten the flight recorder. They are verbosity controls,
 not a global mute.
 
 Cost follows from this: call sites materialise a record whenever the buffer
-is registered. Hot paths (daemon PTY frames, feed rebuilds) must therefore
-guard `trace`/`debug` calls with the logger's level predicate rather than
-assume the level check is free.
+is registered — roughly 1 µs, against ~60–110 ns when no sink would take it
+(measured under load during chunk 1; order of magnitude, not a benchmark).
+At a few hundred records a second that is nothing; at PTY-frame or
+feed-rebuild rates it is real.
+
+The logger therefore carries **two** predicates, and hot paths must use the
+second one:
+
+- `isLevelEnabled(level)` — will *any* sink consume this, flight recorder
+  included. Once the ring buffer is pinned at `trace` this is permanently
+  true for every level, so **guarding a hot path on it pays the full record
+  cost anyway**. It is the predicate that looks right and does nothing.
+- `isLevelRequested(level)` — did *configuration* ask for this level in this
+  namespace, ignoring sinks that pin their own threshold. Defaults to false,
+  so cost is paid only when an operator turns the namespace up. This is the
+  hot-path guard: ~1300 ns becomes ~39 ns.
+
+The trade belongs to the call site: guarding also keeps those records **out**
+of the flight recorder, so a crash on that path arrives without per-frame
+context. Guard where volume is genuinely high; prefer unguarded `trace`
+everywhere else so the buffer stays worth shipping.
 
 ### Browser entrypoint constraint (addendum, ratified during chunk 1)
 
