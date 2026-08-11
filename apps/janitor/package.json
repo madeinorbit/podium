@@ -8,6 +8,7 @@
     ".": "./src/janitor.ts"
   },
   "dependencies": {
+    "@podium/logger": "workspace:*",
     "@podium/model": "workspace:*",
     "@podium/protocol": "workspace:*",
     "@podium/runtime": "workspace:*"

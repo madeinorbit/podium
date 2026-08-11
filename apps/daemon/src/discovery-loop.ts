@@ -2,6 +2,9 @@ import type { DaemonMessage } from '@podium/protocol'
 import { type ConversationDeltaWire, createActiveRefresh } from './active-refresh'
 import { countWorker, timeTask } from './loop-attribution'
 import type { DiscoveryWorkerClient } from './worker-client'
+import { createLogger } from '@podium/logger'
+
+const log = createLogger('daemon:discovery')
 
 export const DEFAULT_DISCOVERY_SCAN_INTERVAL_MS = 15_000
 
@@ -69,9 +72,7 @@ export function createDiscoveryLoop(opts: {
       }) as Promise<ConversationDeltaWire>,
     publish: publishConversations,
     onError: (err) =>
-      console.warn(
-        `[podium:daemon] active index refresh failed: ${err instanceof Error ? err.message : String(err)}`,
-      ),
+      log.warn('active index refresh failed', { err }),
   })
 
   // Run the discovery scan on the worker thread (off the interactive loop) and

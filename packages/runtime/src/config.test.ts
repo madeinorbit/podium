@@ -1,6 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { addSink, type LogRecord } from '@podium/logger'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   CONFIG_MIGRATIONS,
@@ -66,13 +67,17 @@ describe('podium config', () => {
     saveConfig({ mode: 'server' })
     const { writeFileSync } = require('node:fs')
     writeFileSync(configPath(), '{not json')
-    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    // Observed through a SINK, not a console spy: the warning goes through the
+    // logger now, so the console is no longer where it can be seen.
+    const records: LogRecord[] = []
+    const dispose = addSink({ name: 'test', write: (r) => records.push(r) })
     try {
       expect(loadConfig()).toEqual({})
-      expect(err).toHaveBeenCalledTimes(1)
-      expect(String(err.mock.calls[0]?.[0])).toContain('--repair')
+      expect(records).toHaveLength(1)
+      expect(records[0]?.level).toBe('error')
+      expect(records[0]?.msg).toContain('--repair')
     } finally {
-      err.mockRestore()
+      dispose()
     }
   })
   it('inspectConfig distinguishes missing / ok / corrupt (#21)', () => {

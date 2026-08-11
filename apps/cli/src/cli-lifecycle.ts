@@ -217,29 +217,123 @@ export async function stopBackend(): Promise<void> {
   }
 }
 
-/** `podium logs [-f]` — tails detached component logs; systemd mode points at journalctl. */
+/** The components `podium logs` knows how to tail, in the order it shows them. */
+const LOG_COMPONENTS = ['server', 'janitor', 'daemon', 'all-in-one', 'cli'] as const
+
+export interface LogsOptions {
+  follow: boolean
+  /** Render NDJSON as one human line instead of streaming the raw bytes. */
+  pretty: boolean
+  /** Empty means every component. */
+  components: string[]
+}
+
+/** PURE: `podium logs [component…] [-f] [--pretty]`. */
+export function parseLogsArgs(argv: string[]): LogsOptions {
+  const flags = new Set(argv.filter((a) => a.startsWith('-')))
+  return {
+    follow: flags.has('-f') || flags.has('--follow'),
+    pretty: flags.has('--pretty'),
+    components: argv.filter((a) => !a.startsWith('-')),
+  }
+}
+
+/**
+ * PURE: the files to tail, newest-format first.
+ *
+ * BOTH extensions, deliberately. `<role>.ndjson` is what the logger writes;
+ * `<role>.log` is where the detached spawner still points the process's raw
+ * stdout/stderr, so it is the only place a bun panic or a library's own printf
+ * ends up. Showing one without the other means the two most interesting
+ * failures — the structured one and the one that escaped structure entirely —
+ * are in different places and a reader only knows about one of them.
+ *
+ * Rotated archives (`.1` … `.4`) are history and are not tailed; they are plain
+ * NDJSON files in the same directory for anyone who wants them.
+ */
+export function logFilesFor(components: string[], dir: string = logDir()): string[] {
+  const wanted = components.length > 0 ? components : [...LOG_COMPONENTS]
+  return wanted
+    .flatMap((role) => [join(dir, `${role}.ndjson`), join(dir, `${role}.log`)])
+    .filter((f) => existsSync(f))
+}
+
+/**
+ * PURE: one NDJSON record as a human line, in the same shape the console sink
+ * uses — `12:34:56.789 WARN  daemon:pty resize dropped sessionId=s1`.
+ *
+ * A line that is not a log record is passed through UNCHANGED rather than
+ * dropped or flagged. `<role>.log` is full of them by design (see above), and a
+ * reader who asked for readable output is worse off if the one raw stack trace
+ * in the file is the thing that goes missing.
+ */
+export function renderLogLine(line: string): string {
+  if (!line.startsWith('{')) return line
+  let record: Record<string, unknown>
+  try {
+    record = JSON.parse(line) as Record<string, unknown>
+  } catch {
+    return line
+  }
+  const { ts, level, ns, msg } = record
+  if (typeof ts !== 'string' || typeof level !== 'string' || typeof ns !== 'string') return line
+  const parts = [ts.slice(11, 23), level.toUpperCase().padEnd(5), ns, String(msg ?? '')]
+  for (const [key, value] of Object.entries(record)) {
+    if (key === 'ts' || key === 'level' || key === 'ns' || key === 'msg' || key === 'err') continue
+    parts.push(`${key}=${typeof value === 'string' ? value : JSON.stringify(value)}`)
+  }
+  const err = record.err as { name?: string; message?: string; stack?: string } | undefined
+  if (err) parts.push(`\n${err.stack ?? `${err.name}: ${err.message}`}`)
+  return parts.join(' ')
+}
+
+/**
+ * `podium logs [component…] [-f] [--pretty]` — tails the component logs;
+ * systemd mode points at journalctl, which owns the records there.
+ */
 export function logsCommand(argv: string[]): void {
   const config = loadConfig()
+  const { follow, pretty, components } = parseLogsArgs(argv)
   if (config.persistence === 'systemd') {
     const [daemonUnit, janitorUnit, serverUnit] = selectedUnits()
     console.log(
       'Under systemd — view logs with:\n' +
-        `  journalctl --user -u ${serverUnit} -u ${janitorUnit} -u ${daemonUnit} -f`,
+        `  journalctl --user -u ${serverUnit} -u ${janitorUnit} -u ${daemonUnit} -f\n` +
+        '\nRecords are NDJSON, one object per line. To read them as a table:\n' +
+        `  journalctl --user -u ${serverUnit} -o cat | jq -r '"\\(.ts) \\(.level) \\(.ns) \\(.msg)"'`,
     )
     return
   }
-  const follow = argv.includes('-f') || argv.includes('--follow')
-  const files = ['server', 'janitor', 'daemon', 'all-in-one']
-    .map((r) => join(logDir(), `${r}.log`))
-    .filter((f) => existsSync(f))
+  const files = logFilesFor(components)
   if (files.length === 0) {
-    console.log(`No logs yet in ${logDir()}.`)
+    const which = components.length > 0 ? ` for ${components.join(', ')}` : ''
+    console.log(`No logs yet${which} in ${logDir()}.`)
     return
   }
-  // Delegate to `tail` for correct follow semantics; inherit stdio so it streams to the terminal.
+  // Delegate to `tail` for correct follow semantics, including `-F` across a
+  // rotation — which now happens in-process, so the live file really is
+  // replaced underneath a follower.
   const args = [follow ? '-F' : '-n', follow ? undefined : '200', ...files].filter(
     (a): a is string => a !== undefined,
   )
-  const child = spawn('tail', args, { stdio: 'inherit' })
-  child.on('exit', (code) => process.exit(code ?? 0))
+  if (!pretty) {
+    // Inherit stdio: the exact bytes, no decode/encode round trip.
+    const child = spawn('tail', args, { stdio: 'inherit' })
+    child.on('exit', (code) => process.exit(code ?? 0))
+    return
+  }
+  const child = spawn('tail', args, { stdio: ['ignore', 'pipe', 'inherit'] })
+  let pending = ''
+  child.stdout?.on('data', (chunk: Buffer) => {
+    // Chunks split mid-line; the tail of a chunk is held until its newline
+    // arrives so a record is never parsed in halves.
+    pending += chunk.toString('utf8')
+    const lines = pending.split('\n')
+    pending = lines.pop() ?? ''
+    for (const line of lines) console.log(renderLogLine(line))
+  })
+  child.on('exit', (code) => {
+    if (pending.length > 0) console.log(renderLogLine(pending))
+    process.exit(code ?? 0)
+  })
 }

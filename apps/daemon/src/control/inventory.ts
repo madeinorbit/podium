@@ -5,6 +5,9 @@ import {
 } from '@podium/harness'
 import type { ControlMessage } from '@podium/protocol'
 import type { ControlHandlers, DaemonContext } from './context'
+import { createLogger } from '@podium/logger'
+
+const log = createLogger('daemon:inventory')
 
 /**
  * Machine inventory reporting (#222): build os/arch + per-harness
@@ -64,9 +67,7 @@ export async function reportInventory(
     // Evict only OUR failed build — a concurrent rebuild may have already stored
     // a fresh pending under this key; don't discard it.
     if (inventoryCache.get(key) === pending) inventoryCache.delete(key)
-    console.warn(
-      `[podium:daemon] inventory report failed: ${err instanceof Error ? err.message : String(err)}`,
-    )
+    log.warn('inventory report failed', { err })
   }
 }
 
@@ -119,9 +120,7 @@ async function runModelProbe(
       },
     })
   } catch (err) {
-    console.warn(
-      `[podium:daemon] model probe failed: ${err instanceof Error ? err.message : String(err)}`,
-    )
+    log.warn('model probe failed', { err, requestId: msg.requestId })
   }
   ctx.send({ type: 'modelProbeResult', requestId: msg.requestId, byAgent })
 }

@@ -42,6 +42,9 @@ import { hookString } from './hook-payload'
 import { countTail, timeTask } from './loop-attribution'
 import type { SessionBinding } from './session-binding'
 import type { SessionCwdTracker } from './worktree-resolve'
+import { createLogger } from '@podium/logger'
+
+const log = createLogger('daemon:session')
 
 export type SpawnControl = Extract<ControlMessage, { type: 'spawn' }>
 export type ReattachControl = Extract<ControlMessage, { type: 'reattach' }>
@@ -1154,7 +1157,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         void deps
           .onExactCodexBinding(sessionId, value)
           .catch((err) =>
-            console.warn(`[podium] codex identity receipt failed for ${sessionId}:`, err),
+            log.warn('codex identity receipt failed', { err, sessionId }),
           )
         return
       }
@@ -1454,7 +1457,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
           observedAt: new Date().toISOString(),
         })
         .catch((error) =>
-          console.warn(`[podium] hook repin transition failed for ${sessionId}:`, error),
+          log.warn('hook repin transition failed', { err: error, sessionId }),
         )
     }
     const changedCausalBinding = Boolean(
@@ -1544,7 +1547,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     void tracker.provider
       .translate(payload)
       .then((events) => applyAgentStateEvents(sessionId, events))
-      .catch((err) => console.warn(`[podium] hook translate failed for ${sessionId}:`, err))
+      .catch((err) => log.warn('hook translate failed', { err, sessionId }))
   }
 
   /** Current tracked agent state, if the session has a live tracker. */

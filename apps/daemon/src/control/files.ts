@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
+import { createLogger } from '@podium/logger'
 import type { ControlMessage } from '@podium/protocol'
 import { stateDir } from '@podium/runtime/config'
 import {
@@ -11,6 +12,8 @@ import {
 } from '../file-access'
 import { uploadFilePath } from '../upload'
 import type { ControlHandlers, DaemonContext } from './context'
+
+const log = createLogger('daemon:files')
 
 async function handleImageUpload(
   ctx: DaemonContext,
@@ -36,7 +39,7 @@ async function handleImageUpload(
   } catch (err) {
     // Return an empty path + error so the router can throw INTERNAL_SERVER_ERROR
     // (a write failure, not a timeout).
-    console.warn('[podium] image upload failed:', err)
+    log.warn('image upload failed', { err, requestId: msg.requestId })
     ctx.send({
       type: 'imageUploadResult',
       requestId: msg.requestId,

@@ -7,7 +7,10 @@
  * instead of throwing "cannot start a transaction within a transaction".
  */
 
+import { createLogger } from '@podium/logger'
 import type { SqlDatabase } from './types'
+
+const log = createLogger('runtime:sqlite')
 
 /**
  * Nesting depth per database handle. Podium opens ONE shared connection per
@@ -67,10 +70,11 @@ export function transaction<T>(db: SqlDatabase, fn: () => T): T {
         db.exec('ROLLBACK')
       }
     } catch (rollbackErr) {
-      console.error(
-        'transaction(): cleanup failed after error (fn managed the transaction itself?)',
-        rollbackErr,
-      )
+      log.error('transaction cleanup failed after an error', {
+        err: rollbackErr,
+        // The likely cause, and the one thing that tells them apart.
+        hint: 'the callback may have managed the transaction itself',
+      })
     }
     throw err
   } finally {

@@ -1,8 +1,11 @@
 // apps/daemon/src/worker-client.ts
 import { randomUUID } from 'node:crypto'
 import { Worker } from 'node:worker_threads'
+import { createLogger } from '@podium/logger'
 import type { WorkerJob, WorkerResult } from './discovery-worker'
 import { discoveryWorkerEmbeddedTarget, isCompiledBunfsUrl } from './discovery-worker-embed.js'
+
+const workerLog = createLogger('daemon:worker')
 
 export interface WorkerLike {
   postMessage(m: unknown): void
@@ -54,7 +57,7 @@ export class DiscoveryWorkerClient {
   ) {
     this.spawn = opts.spawn ?? defaultSpawn
     this.timeoutMs = opts.timeoutMs ?? 30_000
-    this.log = opts.log ?? ((m) => console.warn(m))
+    this.log = opts.log ?? ((m) => workerLog.warn(m))
   }
 
   private ensureWorker(): WorkerLike {

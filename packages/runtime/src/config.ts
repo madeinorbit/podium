@@ -64,6 +64,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { createLogger } from '@podium/logger'
 import { z } from 'zod'
 import {
   assertInstanceStateIdentity,
@@ -74,6 +75,8 @@ import {
 } from './instance'
 
 export { resolveInstanceId, selectInstance } from './instance'
+
+const log = createLogger('runtime:config')
 
 /** Deployment mode chosen at setup. Unset = not yet configured. */
 export const PodiumMode = z.enum(['all-in-one', 'daemon', 'client', 'server'])
@@ -390,9 +393,9 @@ export function inspectConfig(path = configPath()): ConfigInspection {
 export function loadConfig(path = configPath()): PodiumConfig {
   const res = inspectConfig(path)
   if (res.state === 'corrupt') {
-    console.error(
-      `[podium] ${path} exists but is invalid — treating this box as unconfigured. ` +
-        `Fix the file or run \`podium setup --repair\`. (${res.error})`,
+    log.error(
+      'config file exists but is invalid — treating this box as unconfigured; fix the file or run `podium setup --repair`',
+      { path, reason: res.error },
     )
   }
   return res.config

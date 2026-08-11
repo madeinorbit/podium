@@ -7,6 +7,7 @@ import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { finished } from 'node:stream/promises'
 import { promisify } from 'node:util'
+import { addSink, type LogRecord } from '@podium/logger'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import {
   type CodexVersionProbe,
@@ -132,7 +133,10 @@ describe('ensurePodiumCodexHooks', () => {
     await writeFile(join(dir, '.codex', 'hooks.json'), hooks)
     await writeFile(join(dir, '.codex', 'config.toml'), config)
     const onDegraded = vi.fn()
-    const banner = vi.spyOn(console, 'error').mockImplementation(() => {})
+    // Observed through a SINK: the operator-facing banner goes through the
+    // logger now, so a console spy would see nothing.
+    const records: LogRecord[] = []
+    const dispose = addSink({ name: 'test', write: (r) => records.push(r) })
 
     const res = await ensureHooks({
       homeDir: dir,
@@ -149,8 +153,15 @@ describe('ensurePodiumCodexHooks', () => {
         observedVersion: 'codex-cli 0.147.0',
       }),
     )
-    expect(banner).toHaveBeenCalledWith(expect.stringContaining('CODEX HOOKS NEED REVIEW'))
-    banner.mockRestore()
+    expect(records).toContainEqual(
+      expect.objectContaining({
+        level: 'error',
+        msg: 'Codex hooks need review',
+        code: 'codex-version-unsupported',
+        observedVersion: 'codex-cli 0.147.0',
+      }),
+    )
+    dispose()
   })
 })
 

@@ -46,6 +46,7 @@
         "@anthropic-ai/claude-agent-sdk": "^0.3.201",
         "@podium/composer": "workspace:*",
         "@podium/harness": "workspace:*",
+        "@podium/logger": "workspace:*",
         "@podium/model": "workspace:*",
         "@podium/protocol": "workspace:*",
         "@podium/pty": "workspace:*",
@@ -72,6 +73,7 @@
       "name": "@podium/janitor",
       "version": "0.0.0",
       "dependencies": {
+        "@podium/logger": "workspace:*",
         "@podium/model": "workspace:*",
         "@podium/protocol": "workspace:*",
         "@podium/runtime": "workspace:*",
@@ -133,6 +135,7 @@
         "@podium/commands": "workspace:*",
         "@podium/harness": "workspace:*",
         "@podium/issue-client": "workspace:*",
+        "@podium/logger": "workspace:*",
         "@podium/model": "workspace:*",
         "@podium/protocol": "workspace:*",
         "@podium/runtime": "workspace:*",
@@ -347,6 +350,7 @@
       "name": "@podium/runtime",
       "version": "0.0.0",
       "dependencies": {
+        "@podium/logger": "workspace:*",
         "@podium/model": "workspace:*",
         "@podium/protocol": "workspace:*",
         "zod": "^3.24.0",

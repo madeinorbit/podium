@@ -5,6 +5,9 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { PODIUM_CODEX_HOOK_SOCKET_ENV, PODIUM_CODEX_HOOK_URL_ENV } from '@podium/harness'
+import { createLogger } from '@podium/logger'
+
+const log = createLogger('daemon:codex-hooks')
 
 /**
  * Install Podium's Codex native-hook instrumentation (Orca-style).
@@ -189,7 +192,11 @@ export async function ensurePodiumCodexHooks(opts?: {
     // The local banner covers an operator watching the daemon journal. The
     // callback crosses the authenticated machine transport so the server can
     // issue-mail only this machine's owner and admins, never every client.
-    console.error(`[podium:daemon] ${diagnostic.title.toUpperCase()}: ${diagnostic.body}`)
+    log.error(diagnostic.title, {
+      code: diagnostic.code,
+      observedVersion,
+      detail: diagnostic.body,
+    })
     opts?.onDegraded?.(diagnostic)
     return {
       installed: false,

@@ -1,9 +1,12 @@
 import { monitorEventLoopDelay } from 'node:perf_hooks'
+import { createLogger } from '@podium/logger'
 import {
   createStallClassifier,
   formatStallClassification,
   type StallClassification,
 } from './loop-stall'
+
+const loopLog = createLogger('runtime:loop')
 
 // Re-exported so callers wiring an onLongTick reporter (daemon loop-attribution,
 // server) can name the classification without a second subpath import.
@@ -46,7 +49,7 @@ export function startLoopMetrics(opts: {
 }): LoopMetricsHandle {
   const longTickMs = opts.longTickMs ?? 100
   const sampleMs = opts.sampleMs ?? 1000
-  const log = opts.log ?? ((m: string) => console.warn(m))
+  const log = opts.log ?? ((m: string) => loopLog.warn(m))
   const now = opts.now ?? (() => Date.now())
 
   const h = monitorEventLoopDelay({ resolution: 10 })

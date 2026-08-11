@@ -12,6 +12,9 @@ import type { ControlMessage } from '@podium/protocol'
 import { sampleHostMemory } from '../host-metrics'
 import type { MemoryAttribution } from '../memory-breakdown'
 import type { ControlHandlers, DaemonContext } from './context'
+import { createLogger } from '@podium/logger'
+
+const log = createLogger('daemon:discovery')
 
 function repoToWire(r: GitRepositorySummary): GitRepositoryWire {
   return {
@@ -256,9 +259,7 @@ async function memoryBreakdown(
       agents = result.agents
       projects = result.projects
     } catch (err) {
-      console.warn(
-        `[podium:daemon] memoryBreakdown job failed: ${err instanceof Error ? err.message : String(err)}`,
-      )
+      log.warn('memoryBreakdown job failed', { err })
     }
   }
   const attributed =

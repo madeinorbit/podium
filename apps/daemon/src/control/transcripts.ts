@@ -1,10 +1,13 @@
 import { open } from 'node:fs/promises'
 import { homedir } from 'node:os'
+import { createLogger } from '@podium/logger'
 import { discoveryRoots, harnessKindForResumeKind, resolveWithinRoots, transcriptSourceFor } from '@podium/harness'
 import type { ControlMessage } from '@podium/protocol'
 import type { AgentKind } from '@podium/model'
 import type { SliceResult, TranscriptSource } from '@podium/transcript'
 import type { ControlHandlers, DaemonContext } from './context'
+
+const log = createLogger('daemon:transcripts')
 
 /**
  * Resolve a session's TRUE harness for the transcript-source layer, which routes
@@ -71,7 +74,7 @@ async function readTranscript(
   } catch (err) {
     // A read failure (missing file/DB, decode error) must still answer the
     // server's pending request — reply with an empty page rather than hang it.
-    console.warn(`[podium] transcript read failed for ${msg.sessionId}:`, err)
+    log.warn('transcript read failed', { err, sessionId: msg.sessionId })
   }
   ctx.send({
     type: 'transcriptReadResult',

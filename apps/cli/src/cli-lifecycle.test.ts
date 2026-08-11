@@ -1,6 +1,16 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { RunRecord } from '@podium/runtime/run-registry'
 import { describe, expect, it } from 'vitest'
-import { humanUptime, renderStatus, selectedUnits } from './cli-lifecycle'
+import {
+  humanUptime,
+  logFilesFor,
+  parseLogsArgs,
+  renderLogLine,
+  renderStatus,
+  selectedUnits,
+} from './cli-lifecycle'
 
 const T0 = Date.parse('2026-07-06T12:00:00.000Z')
 
@@ -158,5 +168,83 @@ describe('renderStatus', () => {
       nowMs: T0,
     })
     expect(out).toContain('● daemon  up')
+  })
+})
+
+describe('podium logs', () => {
+  describe('parseLogsArgs', () => {
+    it('reads the follow and pretty flags in either spelling', () => {
+      expect(parseLogsArgs(['-f'])).toMatchObject({ follow: true, pretty: false })
+      expect(parseLogsArgs(['--follow'])).toMatchObject({ follow: true })
+      expect(parseLogsArgs(['--pretty'])).toMatchObject({ pretty: true, follow: false })
+      expect(parseLogsArgs([])).toMatchObject({ follow: false, pretty: false, components: [] })
+    })
+
+    it('treats bare words as a component filter, in any order with the flags', () => {
+      expect(parseLogsArgs(['server', '-f']).components).toEqual(['server'])
+      expect(parseLogsArgs(['--pretty', 'daemon', 'janitor']).components).toEqual([
+        'daemon',
+        'janitor',
+      ])
+    })
+  })
+
+  describe('logFilesFor', () => {
+    it('tails the structured file AND the stray-output file, and skips what is absent', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'podium-logs-'))
+      try {
+        writeFileSync(join(dir, 'server.ndjson'), '')
+        // Raw stdout/stderr from the detached spawn: a bun panic lands here and
+        // nowhere else, so it must not be filtered out.
+        writeFileSync(join(dir, 'server.log'), '')
+        writeFileSync(join(dir, 'daemon.ndjson'), '')
+        expect(logFilesFor([], dir)).toEqual([
+          join(dir, 'server.ndjson'),
+          join(dir, 'server.log'),
+          join(dir, 'daemon.ndjson'),
+        ])
+        expect(logFilesFor(['daemon'], dir)).toEqual([join(dir, 'daemon.ndjson')])
+        expect(logFilesFor(['janitor'], dir)).toEqual([])
+      } finally {
+        rmSync(dir, { recursive: true, force: true })
+      }
+    })
+  })
+
+  describe('renderLogLine', () => {
+    const record = {
+      ts: '2026-08-11T14:03:22.847Z',
+      level: 'warn',
+      ns: 'daemon:pty',
+      msg: 'resize dropped',
+      sessionId: 's1',
+      role: 'daemon',
+    }
+
+    it('renders a record as one readable line', () => {
+      const out = renderLogLine(JSON.stringify(record))
+      expect(out).toContain('14:03:22.847')
+      expect(out).toContain('WARN ')
+      expect(out).toContain('daemon:pty')
+      expect(out).toContain('resize dropped')
+      expect(out).toContain('sessionId=s1')
+    })
+
+    it('puts a serialized error stack on its own line', () => {
+      const out = renderLogLine(
+        JSON.stringify({ ...record, err: { name: 'TypeError', message: 'x', stack: 'TypeError: x\n  at f' } }),
+      )
+      expect(out).toContain('\nTypeError: x\n  at f')
+    })
+
+    it('passes a non-record line through unchanged', () => {
+      // `<role>.log` is full of these by design. A reader who asked for readable
+      // output is worse off if the one raw stack trace goes missing.
+      expect(renderLogLine('panic: something bun printed')).toBe('panic: something bun printed')
+      expect(renderLogLine('')).toBe('')
+      expect(renderLogLine('{not json')).toBe('{not json')
+      // JSON, but not a log record — no ts/level/ns to render.
+      expect(renderLogLine('{"hello":"world"}')).toBe('{"hello":"world"}')
+    })
   })
 })

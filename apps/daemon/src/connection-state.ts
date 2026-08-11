@@ -17,6 +17,9 @@ import { deliveryCaps } from './build-report'
 import type { DaemonOptions, ReconnectTimers } from './daemon-options'
 import { savePairingToken, savePinnedUpdatePubkey } from './identity'
 import { decideOnProtocolMismatch, decidePostUpdate } from './self-update'
+import { createLogger } from '@podium/logger'
+
+const log = createLogger('daemon:connection')
 
 const RECONNECT_MIN_MS = 500
 const RECONNECT_MAX_MS = 5_000
@@ -122,7 +125,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     try {
       writeConnectivity({ serverUrl: options.serverUrl, ...patch }, connectivityDir)
     } catch (error) {
-      console.warn('[podium:daemon] could not write connectivity status:', error)
+      log.warn('could not write the connectivity status file', { err: error, connectivityDir })
     }
   }
 
@@ -163,7 +166,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       kind === 'unauthorized'
         ? 'Authorization will not be retried; ask the machine owner or an admin to re-pair it.'
         : 'Not reconnecting; update the daemon or repair its configuration.'
-    console.error(`[podium:daemon] server rejected this daemon (${type}): ${reason}. ${guidance}`)
+    log.error('the server rejected this daemon', { rejection: type, reason, kind, guidance })
     report(
       kind === 'unauthorized'
         ? { state: 'unauthorized', authorizationReason: `${type}: ${reason}` }
@@ -188,7 +191,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     try {
       consumePairCode(options.pairCode)
     } catch (error) {
-      console.warn('[podium:daemon] could not clear consumed pair code:', error)
+      log.warn('could not clear the consumed pair code', { err: error })
     }
   }
 
@@ -252,11 +255,11 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       attached: Boolean(options.serverUrl),
     })
     if (action === 'backoff') {
-      console.error('[podium:daemon] protocol mismatch; update the daemon to match the server.')
+      log.error('protocol mismatch — update the daemon to match the server', { source })
       active.close()
       return
     }
-    console.error('[podium:daemon] protocol mismatch; running `podium update`.')
+    log.error('protocol mismatch — running `podium update`', { source })
     const result = spawnSync(process.execPath, ['update'], { stdio: 'inherit' })
     if (decidePostUpdate(result.status) === 'restart') {
       ;(deps.restartAfterUpdate ?? (() => process.exit(0)))()
@@ -303,9 +306,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     ) {
       pairFallbackTried = true
       identity.token = undefined
-      console.warn(
-        '[podium:daemon] stored token rejected; retrying once with the supplied pair code.',
-      )
+      log.warn('stored token rejected — retrying once with the supplied pair code')
       active?.close()
       return
     }

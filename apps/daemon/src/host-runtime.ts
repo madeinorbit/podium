@@ -59,6 +59,9 @@ import { restartAsServer, retireTargetDaemonAfterAcknowledgement } from './trans
 import { swapHeadlessBundle } from './update-install'
 import { DiscoveryWorkerClient } from './worker-client'
 import { createCwdResolver, createSessionCwdTracker } from './worktree-resolve'
+import { createLogger } from '@podium/logger'
+
+const log = createLogger('daemon:host')
 
 const DEFAULT_HOST_METRICS_INTERVAL_MS = 5_000
 
@@ -122,7 +125,7 @@ export async function createDaemonHostRuntime(args: {
       writePty: (sessionId, bytes) =>
         bridges.get(sessionId)?.write(Buffer.from(bytes, 'utf8').toString('base64')),
       onDemote: (sessionId) =>
-        console.warn(`[podium] draft-sync self-demoted to read-only for ${sessionId}`),
+        log.warn('draft-sync self-demoted to read-only', { sessionId }),
     },
   )
 
@@ -249,16 +252,16 @@ export async function createDaemonHostRuntime(args: {
       onDegraded: (diagnostic) => send({ type: 'machineDiagnostic', ...diagnostic }),
     })
       .then((result) => {
-        if (result.changed) console.log('[podium] codex hooks installed/refreshed')
+        if (result.changed) log.info('codex hooks installed or refreshed')
       })
-      .catch((error) => console.warn('[podium] codex hooks install failed:', error))
+      .catch((error) => log.warn('codex hooks install failed', { err: error }))
   }
   if (opts.installGrokHooks) {
     void ensurePodiumGrokHooks({ ...(homeDir ? { homeDir } : {}) })
       .then((result) => {
-        if (result.changed) console.log('[podium] grok hooks installed/refreshed')
+        if (result.changed) log.info('grok hooks installed or refreshed')
       })
-      .catch((error) => console.warn('[podium] grok hooks install failed:', error))
+      .catch((error) => log.warn('grok hooks install failed', { err: error }))
   }
 
   const agentRelay = await startAgentRelayServer({
@@ -469,7 +472,7 @@ export async function createDaemonHostRuntime(args: {
     reconcilePendingUpdate()
     void reportInventory(ctx)
     void replayPendingBindingReceipts().catch((error) =>
-      console.warn('[podium] Codex identity receipt replay failed:', error),
+      log.warn('Codex identity receipt replay failed', { err: error }),
     )
     browserOpen.replay()
   }

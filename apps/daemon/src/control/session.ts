@@ -30,6 +30,9 @@ import type { ReattachControl, SpawnControl } from '../session-observers'
 import { removeSessionUploads } from '../session-uploads'
 import type { ControlHandlers, DaemonContext } from './context'
 import { sourceForRead } from './transcripts'
+import { createLogger } from '@podium/logger'
+
+const log = createLogger('daemon:session')
 
 const DRAFT_SYNC_HARNESS_ENV: Partial<Record<AgentKind, Record<string, string>>> = {
   codex: { CODEX_TUI_DISABLE_KEYBOARD_ENHANCEMENT: '1' },
@@ -426,11 +429,13 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     // here is what let 70 running agents sit unreachable behind a Resume button
     // that could not work (POD-1647).
     if (outcome.status === 'denied' || outcome.status === 'rejected') {
-      console.warn(
-        `[podium] reattach binding refused for ${msg.sessionId}: ${outcome.status}/${outcome.reason}`,
-      )
+      log.warn('reattach binding refused', {
+        sessionId: msg.sessionId,
+        status: outcome.status,
+        reason: outcome.reason,
+      })
     } else if (outcome.status === 'applied' && outcome.binding.transitionHistory.length === 1) {
-      console.info(`[podium] adopted pre-existing session ${msg.sessionId} into a binding`)
+      log.info('adopted a pre-existing session into a binding', { sessionId: msg.sessionId })
     }
     const failure = bindingFailureMessage(outcome)
     if (failure) {
@@ -512,7 +517,7 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
           })
         }
       } catch (err) {
-        console.warn(`[podium] reattach re-seed failed for ${msg.sessionId}:`, err)
+        log.warn('reattach re-seed failed', { err, sessionId: msg.sessionId })
       }
     }, ctx.outputScheduler.priorityOf(msg.sessionId))
     return
@@ -663,12 +668,12 @@ export const sessionHandlers: Pick<
       .then((outcome) => {
         const failure = bindingFailureMessage(outcome)
         if (failure) {
-          console.warn(`[podium] could not retire binding ${msg.sessionId}: ${failure}`)
+          log.warn('could not retire the binding', { sessionId: msg.sessionId, reason: failure })
         }
         stopSessionProcess(ctx, msg)
       })
       .catch((err) => {
-        console.warn(`[podium] could not retire binding ${msg.sessionId}:`, err)
+        log.warn('could not retire the binding', { err, sessionId: msg.sessionId })
         stopSessionProcess(ctx, msg)
       })
   },
@@ -681,7 +686,7 @@ export const sessionHandlers: Pick<
         conflictingSessionIds: msg.conflictingSessionIds,
         observedAt: msg.observedAt,
       })
-      .catch((err) => console.warn('[podium] could not record native identity conflict:', err))
+      .catch((err) => log.warn('could not record the native identity conflict', { err }))
   },
   input: (ctx, msg) => {
     const input = Buffer.from(msg.data, 'base64').toString('utf8')
@@ -713,7 +718,7 @@ export const sessionHandlers: Pick<
   sessionResumeRefAck: (ctx, msg) => {
     void ctx.sessionBinding
       .acknowledgeReceipt(msg.ownerId, msg.sessionId, msg.resume)
-      .catch((err) => console.warn('[podium] could not acknowledge Codex identity receipt:', err))
+      .catch((err) => log.warn('could not acknowledge the Codex identity receipt', { err }))
   },
   sessionPriority: (ctx, msg) => {
     ctx.outputScheduler.setPriority(msg.sessionId, msg.priority as Tier)

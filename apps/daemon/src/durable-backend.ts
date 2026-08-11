@@ -1,11 +1,14 @@
+import { createLogger } from '@podium/logger'
 import { isAbducoAvailable, isTmuxAvailable } from '@podium/pty'
 import type { DurableBackend } from './control/context'
 import type { DaemonOptions } from './daemon-options'
 
+const log = createLogger('daemon:durable')
+
 export function noDurableBackendWarning(platform: NodeJS.Platform = process.platform): string {
   return platform === 'win32'
-    ? '[podium] windows: sessions run on ConPTY without a durable host — they will not survive a daemon restart'
-    : '[podium] neither abduco nor tmux found — sessions will not survive a daemon restart'
+    ? 'windows: sessions run on ConPTY without a durable host — they will not survive a daemon restart'
+    : 'neither abduco nor tmux found — sessions will not survive a daemon restart'
 }
 
 export function resolveDurableBackend(
@@ -27,7 +30,7 @@ export function selectDurableBackend(
     tmux: isTmuxAvailable(),
   })
   if (opts.backend === undefined && opts.tmux === undefined && backend === 'none') {
-    console.warn(noDurableBackendWarning())
+    log.warn(noDurableBackendWarning(), { platform: process.platform })
   }
   return backend
 }

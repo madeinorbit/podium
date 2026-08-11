@@ -9,7 +9,10 @@
  *
  * Everything here is a no-op unless `PODIUM_LOOP_PROFILE` is set.
  */
+import { createLogger } from '@podium/logger'
 import { formatStallClassification, type StallClassification } from '@podium/runtime/loop-metrics'
+
+const log = createLogger('daemon:loop')
 
 const ENABLED = !!process.env.PODIUM_LOOP_PROFILE
 export const loopProfileEnabled = ENABLED
@@ -61,7 +64,9 @@ export function timeTask<T>(label: string, fn: () => T, thresholdMs = 50): T {
     return fn()
   } finally {
     const ms = performance.now() - t
-    if (ms > thresholdMs) console.warn(`[podium:loop] daemon task ${label} ${ms.toFixed(0)}ms`)
+    // `durationMs` from a monotonic clock, never a timestamp subtraction —
+    // and as a NUMBER, so a query can threshold on it.
+    if (ms > thresholdMs) log.warn('daemon task exceeded its budget', { task: label, durationMs: ms })
   }
 }
 
@@ -72,13 +77,22 @@ export function timeTask<T>(label: string, fn: () => T, thresholdMs = 50): T {
 export function reportLongTick(ms: number, classification?: StallClassification): void {
   if (!ENABLED) return
   const mu = process.memoryUsage()
-  const mb = (b: number) => (b / 1048576).toFixed(0)
-  const cls = classification ? ` | ${formatStallClassification(classification)}` : ''
   const controlDetail = formatControlCosts(controlCosts)
-  const controlSummary = controlDetail ? ' types=' + controlDetail : ''
-  console.warn(
-    `[podium:loop] daemon stall ${ms.toFixed(0)}ms | frames=${ctr.frames} bytes=${(ctr.frameBytes / 1024).toFixed(0)}KB control=${ctr.control}${controlSummary} tails=${ctr.tails} worker=${ctr.worker} | heap=${mb(mu.heapUsed)}MB rss=${mb(mu.rss)}MB${cls}`,
-  )
+  // Every number stays a NUMBER and every count its own field: this record
+  // exists to be compared across stalls, and the old single formatted string
+  // could only be read by eye, one occurrence at a time.
+  log.warn('daemon event-loop stall', {
+    durationMs: ms,
+    frames: ctr.frames,
+    frameBytes: ctr.frameBytes,
+    control: ctr.control,
+    tails: ctr.tails,
+    worker: ctr.worker,
+    heapUsedBytes: mu.heapUsed,
+    rssBytes: mu.rss,
+    ...(controlDetail ? { controlTypes: controlDetail } : {}),
+    ...(classification ? { stall: formatStallClassification(classification) } : {}),
+  })
 }
 
 export function formatControlCosts(costs: ReadonlyMap<string, ControlCost>): string {

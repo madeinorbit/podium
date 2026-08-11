@@ -1,9 +1,12 @@
+import { createLogger } from '@podium/logger'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol'
 import { encode, parseControlMessage } from '@podium/protocol'
 import type { RawData, WebSocket } from 'ws'
 import type { DaemonContext } from './control/context'
 import { dispatchControlMessage } from './control/registry'
 import { beginControlTurn, timeTask } from './loop-attribution'
+
+const log = createLogger('daemon:frames')
 
 /** A real control payload is far smaller; this bounds synchronous parse cost. */
 export const MAX_CONTROL_FRAME_BYTES = 64 * 1024 * 1024
@@ -73,17 +76,17 @@ export function createFrameGuard(
   ctx: DaemonContext,
   deps: {
     now?: () => number
-    warn?: (...args: unknown[]) => void
+    warn?: (msg: string, fields?: Record<string, unknown>) => void
   } = {},
 ): FrameGuard {
   const now = deps.now ?? Date.now
-  const warn = deps.warn ?? console.warn
+  const warn = deps.warn ?? ((msg: string, fields?: Record<string, unknown>) => log.warn(msg, fields))
   let lastWarnAt = Number.NEGATIVE_INFINITY
   const warnDropped = (err: unknown, direction: 'inbound' | 'outbound'): void => {
     const at = now()
     if (at - lastWarnAt < WARN_THROTTLE_MS) return
     lastWarnAt = at
-    warn(`[podium:daemon] dropped malformed ${direction} control frame:`, err)
+    warn('dropped a malformed control frame', { direction, err })
   }
 
   return {
@@ -91,7 +94,10 @@ export function createFrameGuard(
       const finish = beginControlTurn()
       if (controlFrameByteLength(raw) > MAX_CONTROL_FRAME_BYTES) {
         finish('<oversized>')
-        warn('[podium:daemon] dropping oversized control frame')
+        warn('dropping an oversized control frame', {
+          bytes: controlFrameByteLength(raw),
+          maxBytes: MAX_CONTROL_FRAME_BYTES,
+        })
         return
       }
       const text = raw.toString()

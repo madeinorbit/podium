@@ -1,4 +1,5 @@
 import { resolveCursorBin, resolveOpencodeBin } from '@podium/harness'
+import { createLogger } from '@podium/logger'
 import type { ControlMessage, HeadlessTurnEvent } from '@podium/protocol'
 import { acknowledgeDurableHeadlessTurn, runDurableHeadlessTurn } from '../durable-headless.js'
 import {
@@ -9,6 +10,8 @@ import {
 } from '../headless-drivers.js'
 import type { ControlHandlers, DaemonContext } from './context'
 import { sessionRelayEnv } from './session'
+
+const log = createLogger('daemon:headless')
 
 // ---- Headless harness sessions (concierge unification, Phase A) ----
 function recordHeadlessAllocation(
@@ -28,7 +31,7 @@ function recordHeadlessAllocation(
       ...input,
     })
     .catch((error) =>
-      console.warn(`[podium] headless allocation transition failed for ${input.sessionId}:`, error),
+      log.warn('headless allocation transition failed', { err: error, sessionId: input.sessionId }),
     )
 }
 

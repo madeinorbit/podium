@@ -19,7 +19,10 @@ describe('daemon frame guards', () => {
     const warn = vi.fn()
     const guard = createFrameGuard(context(), { warn })
     guard.receive(Buffer.alloc(MAX_CONTROL_FRAME_BYTES + 1))
-    expect(warn).toHaveBeenCalledWith('[podium:daemon] dropping oversized control frame')
+    expect(warn).toHaveBeenCalledWith(
+      'dropping an oversized control frame',
+      expect.objectContaining({ maxBytes: MAX_CONTROL_FRAME_BYTES }),
+    )
   })
 
   it('tolerates the benign malformed reattach frame and keeps dispatching', () => {
@@ -57,8 +60,8 @@ describe('daemon frame guards', () => {
       inventory: { os: 'linux', arch: 'x64', agents: [], tools: [] },
     })
     expect(warn).toHaveBeenCalledWith(
-      '[podium:daemon] dropped malformed outbound control frame:',
-      expect.any(Error),
+      'dropped a malformed control frame',
+      expect.objectContaining({ direction: 'outbound', err: expect.any(Error) }),
     )
   })
 })

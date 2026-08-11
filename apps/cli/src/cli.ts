@@ -648,7 +648,8 @@ export function helpText(enabledFeatures: ReadonlySet<FeatureId> = new Set()): s
     'Lifecycle:',
     '  status                Show what is running (run registry + systemd)',
     '  stop                  Stop managed podium processes',
-    '  logs [component]      Show logs for managed processes',
+    '  logs [component] [-f] [--pretty]',
+    '                        Show logs for managed processes (NDJSON; --pretty renders them)',
     '',
     'Access:',
     '  auth mint-session     Mint this host’s operator session (password-protected instances)',
@@ -864,6 +865,16 @@ async function runInProcess(
   const { port, roles, modePlan } = plan
   ensureInstanceStateIdentity({ instanceId: resolveInstanceId() }) // [spec:SP-15aa] claim before run-registry writes
 
+  // Long-lived component: re-configure logging under the role it claims, so its
+  // records land in <role>.ndjson (or journald) instead of the console the `cli`
+  // role picked in main(). `claimRole` is exactly the run-registry role, which
+  // is exactly what names the log file. Without a claim this is a foreground dev
+  // run and the console the CLI already chose is the right answer.
+  const { configureProcessLogging } = await import('@podium/runtime/logging')
+  const componentLogging = plan.claimRole
+    ? configureProcessLogging({ role: plan.claimRole, mode: plan.runRecordMode })
+    : undefined
+
   // Claim this component's role in the run registry BEFORE binding: reclaim() SIGKILLs a
   // stale holder (a force-killed desktop orphan, a crashed detached process) so we don't
   // collide on the port or run two daemons over the same ~/.podium, then write our pidfile
@@ -989,7 +1000,10 @@ async function runInProcess(
   const stopWatchdog = startWatchdog()
   const shutdown = (): void => {
     stopWatchdog?.()
-    process.exit(0)
+    // Drain the log sink before exiting; best-effort, never a reason to hang.
+    void (componentLogging?.close() ?? Promise.resolve())
+      .catch(() => {})
+      .finally(() => process.exit(0))
   }
   process.on('SIGINT', shutdown)
   process.on('SIGTERM', shutdown)
@@ -1028,7 +1042,16 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
 
   const config = loadConfig()
 
-  // Crash net BEFORE anything else (mirror scripts/daemon.ts, audit P0-1).
+  // Logging sinks, then the crash net BEFORE anything else (mirror
+  // packages/runtime/src/boot.ts, audit P0-1). The crash net reports through the
+  // logger, so a sink has to exist first or a survived crash goes nowhere.
+  //
+  // Role `cli` and `warn` by default: most invocations of this binary are a
+  // human running one command, and their output is the command's own, not the
+  // logger's. A long-lived component re-configures below once the plan says
+  // which one it is — configureProcessLogging replaces rather than stacks.
+  const { configureProcessLogging } = await import('@podium/runtime/logging')
+  configureProcessLogging({ role: 'cli', defaultLevel: 'warn' })
   const { installProcessSafetyNet } = await import('@podium/runtime/process-safety')
   installProcessSafetyNet('podium')
 
@@ -1149,6 +1172,10 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
     }
     case 'janitor': {
       ensureInstanceStateIdentity({ instanceId: resolveInstanceId() })
+      // This is a long-lived component, not a CLI command: re-configure logging
+      // under its own role so its records go to janitor.ndjson (or journald)
+      // rather than the console the `cli` role picked.
+      const janitorLogging = configureProcessLogging({ role: 'janitor' })
       const { liveRecord, registerProcess } = await import('@podium/runtime/run-registry')
       if (!plan.takeover) {
         const holder = liveRecord('janitor')
@@ -1189,7 +1216,13 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
       const shutdown = (): void => {
         stopWatchdog?.()
         handle.close()
-        process.exit(0)
+        // Drain before exiting so the last records of a clean shutdown are
+        // durable. Best-effort: a sink that cannot be closed must not be the
+        // reason a SIGTERM'd janitor fails to exit.
+        void janitorLogging
+          .close()
+          .catch(() => {})
+          .finally(() => process.exit(0))
       }
       process.on('SIGINT', shutdown)
       process.on('SIGTERM', shutdown)

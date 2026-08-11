@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
+import { createLogger } from '@podium/logger'
 // A ROW OUT OF SQLITE IS A TRUE SERIALIZATION EDGE: the column is TEXT and the
 // value was minted by this system and written by it, so the brand is asserted
 // here rather than re-validated. This is the one place these casts belong.
@@ -51,6 +52,8 @@ import {
 import { stateDir } from '@podium/runtime/config'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { runTimeBudgetedJob } from '@podium/runtime/time-budget'
+
+const log = createLogger('janitor')
 
 const CANDIDATE_LIMIT = 100
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -1227,16 +1230,16 @@ export async function startJanitor(options: {
       db.close()
       throw error
     }
-    console.warn('[podium:janitor] initial tick delayed:', error)
+    log.warn('initial tick delayed', { err: error })
   }
   const timer = setInterval(() => {
     void service.tick().catch((error) => {
       if (error instanceof MaintenanceCompatibilityError) {
-        console.error(`[podium:janitor] ${error.message}`)
+        log.error('maintenance compatibility check failed — exiting', { err: error })
         process.exit(78)
         return
       }
-      console.warn('[podium:janitor] tick delayed:', error)
+      log.warn('tick delayed', { err: error })
     })
   }, options.tickMs ?? DEFAULT_TICK_MS)
   return {
