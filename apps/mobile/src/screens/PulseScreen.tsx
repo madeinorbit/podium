@@ -498,7 +498,7 @@ function WeekPanel({ summary, cold }: { summary: ReturnType<typeof usageSummary>
               <View key={part.key} style={[styles.metric, i > 0 && styles.metricDivided]}>
                 <Readout
                   label={part.label}
-                  value={`${formatShare(part.estCostUsd, totalCost)} · ${formatCostWeightRatio(part.costWeightRatio)} its weight`}
+                  value={`${formatShare(part.estCostUsd, totalCost)} · ${formatCostWeightRatio(part.costWeightRatio)} average cost per token`}
                 />
                 <Meter pct={pct(part.estCostUsd, totalCost)} tone="ok" />
                 <SubReadout

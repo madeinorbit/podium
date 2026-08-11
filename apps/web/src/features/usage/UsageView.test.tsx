@@ -79,7 +79,9 @@ describe('UsageView loading', () => {
     expect(
       screen.getByTestId('usage-sheet').querySelector('.usage-window-span .usage-unfilled'),
     ).toBeTruthy()
-    expect(body().querySelector('.usage-window-sub .usage-unfilled')).toBeTruthy()
+    // All three supporting rates hold their own slot in the masthead — they are
+    // cells beside the figure now, not a sentence under it.
+    expect(body().querySelectorAll('.usage-reading-value .usage-unfilled')).toHaveLength(3)
     expect(body().querySelector('.usage-cache-saving .usage-unfilled')).toBeTruthy()
     expect(body().querySelectorAll('.usage-provider-row')).toHaveLength(2)
     expect(body().querySelectorAll('.usage-provider-row .usage-unfilled').length).toBeGreaterThan(0)

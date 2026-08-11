@@ -26,12 +26,19 @@ export interface UsageWindow {
 }
 
 /**
- * The four ways a token can be billed, cheapest first. The order is the ramp the
- * composition rails are drawn on, so it is data, not presentation: a class's
- * position IS its price tier, which is the whole point of showing token share
- * and cost share as two rails of the same four segments.
+ * The four ways a token can be billed, CHEAPEST FIRST — the list-price ramp, so
+ * the order is data rather than presentation: a class's position is its price
+ * tier, which is the whole point of showing token share and cost share as two
+ * rails of the same four segments.
+ *
+ * `cacheWrite` sat second here and did not belong there (POD-755): every row in
+ * `PRICING` bills a cache write at 1.25x input or not at all, so a written cache
+ * token is the second most expensive kind, never the second cheapest. The order
+ * claimed to be the ramp while stating the opposite of it, and the sheet's
+ * cost-per-token column — which reads as a ramp or as noise, nothing in
+ * between — printed 0.7x / 9.1x / 6.8x / 38x down the page.
  */
-export const TOKEN_CLASSES = ['cacheRead', 'cacheWrite', 'input', 'output'] as const
+export const TOKEN_CLASSES = ['cacheRead', 'input', 'cacheWrite', 'output'] as const
 export type TokenClass = (typeof TOKEN_CLASSES)[number]
 
 export interface UsageClassShare {
@@ -254,7 +261,14 @@ export function bucketProvider(model: string): UsageProvider {
   return 'other'
 }
 
-/** Cost share divided by token share, guarded against an absent denominator. */
+/**
+ * Cost share divided by token share, guarded against an absent denominator.
+ *
+ * Read it as WHAT A TOKEN OF THIS CLASS COSTS AGAINST THE AVERAGE TOKEN in the
+ * window: the two shares are over the same set, so the quotient is the class's
+ * effective per-token price over the window's blended one. That is the referent
+ * the label has to name — a bare multiple leaves the reader asking "x what".
+ */
 export function costWeightRatio(
   tokens: number,
   totalTokens: number,

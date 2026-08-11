@@ -4891,24 +4891,156 @@ a.ref-link--session::before {
    its type sits one step above the shell's 12px: 13.5px/500 section titles,
    12px body, 11.5px sub-lines, 9.5px mono labels. The sheet's own chrome stays
    at 12px, which is what keeps the utility reading as part of the app. */
+/* ONE RULE TONE FOR THE SHEET (POD-755) — and it is mixed from the theme's ink,
+   not a hairline token. Every inner rule here was `--hairline-soft` (#24272d) on
+   the sheet's own `--card` (#23262d): one point of red, one of green, none of
+   blue. Nothing drawn in it could be seen. The trace's three gridlines — the
+   scale its axis labels are pinned to — the composition's share tracks and the
+   model table's row rules were all on screen and all invisible, which is why the
+   axis read as three numbers floating beside a chart.
+
+   The token is not wrong, its GROUND is: `--hairline-soft` is a step UP, and it
+   reads on `--engraved`, `--bar` and the app background (the footer's dividers
+   below are on `--bar` and stay on it). A sheet is `--card`, the lightest tier in
+   the window, so a rule on it has to be mixed from the ink instead — which also
+   costs nothing on Paper, where the same mix lands as an ordinary light hairline
+   over white rather than needing a second per-theme value.
+
+   TWO TONES, BECAUSE THEY DO TWO JOBS. `--usage-rule` divides things: a table
+   row from the next, one reading in the masthead group from its neighbour. It
+   lands about where `--border-strong` does, which is what a 1px division needs to
+   be seen at all. `--usage-scale` is what data is measured AGAINST — the trace's
+   gridlines and the share tracks under the rails — and it is deliberately the
+   quieter of the two: a grid the eye has to look past is a grid drawn too
+   strongly, and a 5px track running the width of the sheet at division strength
+   would out-ink the bar lying on it. */
 .usage-body {
+  --usage-rule: color-mix(in srgb, var(--foreground) 11%, transparent);
+  --usage-scale: color-mix(in srgb, var(--foreground) 7%, transparent);
   position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+/* THE ONE SCROLLER ON THE SURFACE (POD-755). The sheet is `app-sheet-fit`: it
+   ends where the figures end, and caps at the window. Past that cap it was
+   simply CLIPPED — `.app-sheet-body` hides its overflow and nothing inside it
+   scrolled, so on a shorter display the model ranking was not below the fold, it
+   was unreachable. The scroller holds the content regions only; the provenance
+   bar below it is the frame's bottom edge and does not travel, the same way the
+   sheet's own header does not. Native scrollbar, as on `.settings-pane-scroll`:
+   the sheet tier does not hide the one affordance that says there is more. */
+.usage-scroll {
   display: flex;
   flex: 1;
   flex-direction: column;
   gap: 20px;
   min-height: 0;
   padding: 18px 20px;
+  overflow-y: auto;
+  /* THE FADE IS EXACTLY THE PADDING, WHICH IS WHY IT NEEDS NO STATE. Both edges
+     ramp over 18px — the scroller's own top and bottom padding — so at either end
+     of the travel the band holds nothing but that padding and no reading is ever
+     dimmed, while anything passing THROUGH it leaves rather than being sliced.
+     Which matters here because the scrollbar is an overlay on both platforms
+     Podium ships (macOS WebKit, WebKitGTK): it fades out at rest, so without this
+     the only sign of more figures below was a row of type cut in half against the
+     header seam, which reads as a paint bug rather than as an invitation. No
+     scroll listener, no shadow, no custom scrollbar — the affordance is that the
+     content leaves the frame.
+
+     Prefixed alongside the standard property, as `.transcript-cold` and
+     `.code-copy` already are: the Tauri wrapper renders on WebKitGTK. */
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 18px,
+    #000 calc(100% - 18px),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 18px,
+    #000 calc(100% - 18px),
+    transparent 100%
+  );
 }
 
 /* ── The window readout ──────────────────────────────────────────────────────
    One answer at the rationed 24px step. The rates and counterfactual below it
-   interpret that answer without turning the surface into a metric-card row. */
+   interpret that answer without turning the surface into a metric-card row.
+
+   THE BAND IS ONE ROW OF LABEL-OVER-VALUE READOUTS (POD-755), of which the
+   leftmost happens to be 24px. The three rates were a dot-separated sentence
+   under the figure with two thirds of the band empty beside them; as a divided
+   group at the right edge they use that width for the readings it was missing,
+   and they mirror the figure's own structure rather than sitting beside it as a
+   second kind of thing. Nothing is boxed and nothing else takes the 24px step,
+   which is what keeps this off the metric-card grid the system opens by
+   rejecting: one answer, three readings that size it, in one row. */
 .usage-summary {
   display: flex;
   flex: none;
   flex-direction: column;
   align-items: flex-start;
+  align-self: stretch;
+}
+.usage-masthead {
+  display: flex;
+  /* The figure's block and the reading group's last line share a bottom edge, so
+     the 24px answer and the 13px readings sit on one optical line. */
+  align-items: flex-end;
+  gap: 24px;
+  align-self: stretch;
+}
+.usage-answer {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+/* A DIVIDED OBJECT, NOT THREE LOOSE NUMBERS — the reason the command bar puts
+   host and quota in one well (DESIGN.md, The Wells). Evenly spaced figures on a
+   surface read as an account row; the same figures divided by hairlines read as
+   an instrument with internal structure. No ring around the group: an outline
+   around a set of readings is one big button. */
+.usage-readings {
+  display: flex;
+  align-items: stretch;
+  margin-left: auto;
+}
+.usage-reading {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 0 16px;
+  border-left: 1px solid var(--usage-rule);
+  text-align: right;
+}
+/* The last cell's figures right-align with the provider costs, the share
+   percentages and the ratio column below them: one right edge for the sheet,
+   not one per region. */
+.usage-reading:last-child {
+  padding-right: 0;
+}
+.usage-reading-label {
+  color: var(--label);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.usage-reading-value {
+  color: var(--text-strong);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .usage-window-label {
   color: var(--label);
@@ -4923,7 +5055,10 @@ a.ref-link--session::before {
    steps everywhere steps nowhere — every other number here stays in the reading
    tier, which is what leaves this one room to be loud without a card under it. */
 .usage-window-value {
-  margin: 6px 0 3px;
+  /* No bottom margin: the band bottom-aligns its two blocks, so a margin under
+     the figure would drop the readings beside it off its optical line. The gap
+     to the caveat is the caveat's. */
+  margin: 5px 0 0;
   color: var(--text-strong);
   font-family: var(--font-mono);
   font-size: 24px;
@@ -4932,28 +5067,20 @@ a.ref-link--session::before {
   letter-spacing: -0.015em;
   line-height: 1.05;
 }
-.usage-window-star {
-  margin-left: 1px;
-  color: var(--text-dim);
-  font-size: 14px;
-  font-weight: 500;
-  vertical-align: super;
-}
 .usage-window-caveat {
-  margin-bottom: 6px;
+  margin: 5px 0 0;
   color: var(--text-dim);
   font-size: 11.5px;
 }
-.usage-window-sub {
-  color: var(--muted-foreground);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
+/* The counterfactual closes the band. It sat under a hairline that could not be
+   seen (see `--usage-rule`), so the 24px it added read as a hole between two
+   lines of type rather than as a division — and once the rule is visible it is
+   the wrong instrument anyway: this sentence interprets the figure above it, and
+   a rule would cut it away from what it is about. Proximity does the work, at one
+   step wider than the lines inside the readout. */
 .usage-cache-saving {
   align-self: stretch;
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--hairline-soft);
+  margin-top: 14px;
   color: var(--foreground);
   font-size: 12.5px;
   font-variant-numeric: tabular-nums;
@@ -5111,7 +5238,7 @@ a.ref-link--session::before {
   right: 0;
   left: 0;
   height: 1px;
-  background: var(--hairline-soft);
+  background: var(--usage-scale);
 }
 .usage-trace-day {
   position: relative;
@@ -5245,15 +5372,23 @@ a.ref-link--session::before {
   flex: 1;
   height: 5px;
   border-radius: 2.5px;
-  background: var(--hairline-soft);
+  background: var(--usage-scale);
 }
+/* A SLIVER IS A TICK, NOT A BEAD (POD-755). Sub-1% shares are real readings on
+   this surface — output is 0.3% of the tokens and a tenth of the bill — and at
+   the track's own 2.5px radius a 3px mark renders as a circle, so the token
+   column of a cache-heavy week came out as one bar and three specks of dirt. The
+   floor is 2px of width here rather than a percentage in the markup, so a sliver
+   keeps its true length wherever it has one, and the radius tightens to a value a
+   2px mark can still show. */
 .usage-comp-fill,
 .usage-share-fill {
   position: absolute;
   top: 0;
   bottom: 0;
   left: 0;
-  border-radius: 2.5px;
+  min-width: 2px;
+  border-radius: 1.5px;
   background: color-mix(in srgb, var(--live) 82%, transparent);
   transition:
     width 360ms cubic-bezier(0.22, 1, 0.36, 1),
@@ -5281,18 +5416,29 @@ a.ref-link--session::before {
 .usage-comp-ratio > span {
   color: var(--text-faint);
 }
+/* Dearer than the window's average token: an ink step, not the attention hue.
+   Yellow marks what is asking something of the operator (The Signal Rule), and
+   three of four rows in gold made a per-token price read as a decision waiting
+   on someone. The deviation from average is the reading, so the ink carries
+   it. */
 .usage-comp-ratio[data-heavy] {
-  color: var(--attention);
+  color: var(--text-strong);
 }
 
 /* ── The model ranking ───────────────────────────────────────────────────────
    Ranked by cost, and the rail measures cost, because the sheet leads with cost:
    a rail measuring one thing under a column ordered by another is two answers to
    one question. */
+/* The table scrolls SIDEWAYS only. It capped itself at 40vh and scrolled its own
+   overflow, which is a second scroll region inside a surface that now has one —
+   the pointer's wheel picks whichever it happens to be over, and the trap is
+   worse than a long table. Vertically it simply grows and the sheet's scroller
+   carries it; horizontally it still needs to run rather than crush six columns
+   when the sheet is narrower than the model ids inside it. */
 .usage-table-scroll {
   flex: none;
-  max-height: 40vh;
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 .usage-table {
   width: 100%;
@@ -5300,7 +5446,7 @@ a.ref-link--session::before {
 }
 .usage-table th {
   padding: 0 0 7px;
-  border-bottom: 1px solid var(--hairline-soft);
+  border-bottom: 1px solid var(--usage-rule);
   color: var(--label);
   font-family: var(--font-mono);
   font-size: 9.5px;
@@ -5312,7 +5458,7 @@ a.ref-link--session::before {
 }
 .usage-table td {
   padding: 8px 0;
-  border-bottom: 1px solid var(--hairline-soft);
+  border-bottom: 1px solid var(--usage-rule);
   color: var(--foreground);
   font-size: 12px;
 }
@@ -5388,9 +5534,9 @@ a.ref-link--session::before {
      height is its own cell's content makes three rules of three different
      lengths out of what is meant to be one row of dividers. */
   align-items: stretch;
-  /* Out of the body's 18px/20px padding, so the bar meets the sheet's own
-     edges. The gap above it is the body's; the bar owns the space below. */
-  margin: 0 -20px -18px;
+  /* A sibling of the scroller rather than its last child (POD-755), so it meets
+     the sheet's own edges without reaching back out of anyone's padding — and so
+     the figures travel under it instead of taking it with them. */
   padding: 11px 20px 12px;
   border-top: 1px solid var(--border);
   background: var(--bar);
@@ -5494,7 +5640,7 @@ a.ref-link--session::before {
    itself. Fires once, on the pass that fills a cold sheet, and never again: a
    sheet opened from cache is already readable and gets no entrance at all. */
 .usage-body[data-arrive] .usage-window-value,
-.usage-body[data-arrive] .usage-window-sub,
+.usage-body[data-arrive] .usage-reading-value,
 .usage-body[data-arrive] .usage-cache-saving,
 .usage-body[data-arrive] .usage-provider-cost,
 .usage-body[data-arrive] .usage-provider-sub,
@@ -5538,7 +5684,7 @@ a.ref-link--session::before {
     transition: none;
   }
   .usage-body[data-arrive] .usage-window-value,
-  .usage-body[data-arrive] .usage-window-sub,
+  .usage-body[data-arrive] .usage-reading-value,
   .usage-body[data-arrive] .usage-cache-saving,
   .usage-body[data-arrive] .usage-provider-cost,
   .usage-body[data-arrive] .usage-provider-sub,
@@ -5641,7 +5787,7 @@ a.ref-link--session::before {
 @media (prefers-reduced-motion: reduce) {
   .usage-bar,
   .usage-body[data-arrive] .usage-window-value,
-  .usage-body[data-arrive] .usage-window-sub,
+  .usage-body[data-arrive] .usage-reading-value,
   .usage-body[data-arrive] .usage-axis-tick,
   .usage-body[data-arrive] .usage-bar-value,
   .usage-body[data-arrive] .usage-table-scroll tbody tr {
@@ -6143,6 +6289,69 @@ a.ref-link--session::before {
     transparent 0 4px,
     color-mix(in srgb, var(--foreground) 5%, transparent) 4px 8px
   );
+}
+
+/* ── THE LEAD RAIL — who is running this, said by the line (POD-758) ─────────
+   A branch whose owner has a live coordinator draws its guide in the mission's
+   own accent instead of a hairline, at two tiers: the mission's lead owns the
+   spine's main rail, a task's lead owns its own sub-branch. Deliberately QUIET
+   — enough to trace from the header to the row, not enough to read as a
+   highlight — because the line is a name, not a selection. Un-led branches keep
+   the hairline, which is what stops the colour from being decoration.
+
+   `--issue` falls back to `--flow` on an uncoloured mission, so the worst case
+   is a rail one step warmer than the hairline rather than a broken one. */
+.deck-rail-mission {
+  background: color-mix(in oklab, var(--issue) 45%, transparent);
+}
+.deck-rail-task {
+  background: color-mix(in oklab, var(--issue) 22%, transparent);
+}
+
+/* THE ONE AGENT ROW WITH A FILL. The mission's coordinator owns the whole
+   mission, so it is allowed to be the loudest thing in the roster — and being
+   the only filled agent row anywhere in the spine, the fill says exactly that
+   and nothing else. Square and full-width: it is still an agent row, not a
+   card. Over `--bar` rather than `--card` so it reads as a tint on the column's
+   own paper in both themes. */
+.deck-lead-fill {
+  background: color-mix(in oklab, var(--issue) 8%, var(--bar));
+}
+
+/* ── THE DROP ORDER — how a strip gives way (POD-758) ────────────────────────
+   The title outranks everything else in the row: it has a 150px floor and it is
+   the only shrinker, because a half-rendered clock (`28:`) is a WRONG number
+   where `Mission progress…` is still a readable title. Past that floor whole
+   elements drop, never mid-string, in the order the design fixes: the relation
+   chip, then the collapsed payload chip, then the census icons past the first.
+   Everything dropped survives on the row's own tooltip.
+
+   Keyed off each STRIP's width rather than the column's, so a deeply nested
+   strip — which is genuinely narrower — gives way before a shallow one. The
+   numbers are the arithmetic of the rule: 125px of rigid furniture (chevron,
+   glyph, the 70px state column, gaps) plus the 150px floor is 275, and each
+   threshold adds the width of the thing it is deciding about. */
+.deck-strip {
+  container-type: inline-size;
+  container-name: deck-strip;
+}
+
+@container deck-strip (max-width: 400px) {
+  .deck-drop-relation {
+    display: none;
+  }
+}
+
+@container deck-strip (max-width: 350px) {
+  .deck-drop-payload {
+    display: none;
+  }
+}
+
+@container deck-strip (max-width: 296px) {
+  .deck-drop-crew {
+    display: none;
+  }
 }
 
 /* ── THE MISSION GAUGE — "the split readout" (POD-710) ───────────────────────

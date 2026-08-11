@@ -272,8 +272,11 @@ describe('usageSummary', () => {
     expect(byKey.output?.tokens).toBe(1_000_000)
     expect(byKey.output?.estCostUsd).toBeCloseTo(15, 6)
     expect(byKey.output?.costWeightRatio).toBeCloseTo(55 / 6, 6)
-    // Every class is present even at zero, so the block holds its four rows.
-    expect(s.composition.map((c) => c.key)).toEqual(['cacheRead', 'cacheWrite', 'input', 'output'])
+    // Every class is present even at zero, so the block holds its four rows —
+    // in list-price order, cheapest token first. A cache write bills at 1.25x
+    // input or not at all, so it is the second DEAREST kind, never the second
+    // cheapest (POD-755).
+    expect(s.composition.map((c) => c.key)).toEqual(['cacheRead', 'input', 'cacheWrite', 'output'])
   })
 
   it.each([
