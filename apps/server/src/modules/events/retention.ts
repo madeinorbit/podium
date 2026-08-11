@@ -1,5 +1,8 @@
+import { createLogger } from '@podium/logger'
 import { runTimeBudgetedJob, type TimeBudgetedJobMetrics } from '@podium/runtime/time-budget'
 import type { EventsRepository } from '../../store/events'
+
+const log = createLogger('server:events')
 
 // podium_events retention (issue #61): pruned on a sparse timer — first run
 // shortly after boot, then every 6h. Hardcoded (no settings knob yet); revisit
@@ -115,17 +118,16 @@ export class EventLogRetention {
       },
     )
     if (deleted > 0) {
-      console.log(
-        `[podium:events] pruned ${deleted} event log rows ` +
-          `(total=${metrics.totalDurationMs.toFixed(1)}ms, ` +
-          `maxSlice=${metrics.maxUninterruptedSliceMs.toFixed(1)}ms)`,
-      )
+      log.info('pruned event log rows', {
+        deleted,
+        durationMs: metrics.totalDurationMs,
+        maxSliceMs: metrics.maxUninterruptedSliceMs,
+      })
     }
     if (metrics.exceededPlacementThreshold) {
-      console.warn(
-        `[podium:events] retention job took ${metrics.totalDurationMs.toFixed(1)}ms; ` +
-          'candidate for janitor placement',
-      )
+      log.warn('retention job exceeded the placement threshold — candidate for janitor placement', {
+        durationMs: metrics.totalDurationMs,
+      })
     }
     return { deleted, metrics }
   }
@@ -133,7 +135,7 @@ export class EventLogRetention {
   /** Timer failures are logged, never thrown into the process. */
   private schedulePrune(): void {
     void this.pruneNow().catch((err) => {
-      console.warn('[podium:events] event log prune failed:', err)
+      log.warn('event log prune failed', { err })
     })
   }
 }

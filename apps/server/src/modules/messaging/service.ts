@@ -1,3 +1,4 @@
+import { createLogger } from '@podium/logger'
 import type {
   AgentRuntimeState,
   IssueId,
@@ -30,6 +31,8 @@ import type {
   SendOptions,
   TelegramNoticePort,
 } from './types'
+
+const log = createLogger('server:messaging')
 
 /** How a superagent turn is dispatched — the slice of SuperagentService the
  *  bridge needs (kept narrow for tests). */
@@ -270,12 +273,9 @@ export class MessagingService implements TelegramNoticePort {
     this.adapter.start((msg) => this.onInbound(msg))
     const register = this.deps.registerTelegramCommands ?? registerTelegramCommands
     void register(botToken).catch((err) => {
-      console.warn(
-        '[podium:messaging] command menu registration failed:',
-        err instanceof Error ? err.message : err,
-      )
+      log.warn('command menu registration failed', { err })
     })
-    console.log('[podium:messaging] telegram bridge polling for bound user routes', chatIds)
+    log.info('telegram bridge polling for bound user routes', { chatIds })
   }
 
   stop(): void {
@@ -310,7 +310,7 @@ export class MessagingService implements TelegramNoticePort {
         ...(threadRef ? { threadRef } : {}),
       }
       void this.adapter.send(target, input.text).catch((err) => {
-        console.warn('[podium] Telegram push failed:', err instanceof Error ? err.message : err)
+        log.warn('Telegram push failed', { err })
       })
       return
     }
@@ -330,7 +330,7 @@ export class MessagingService implements TelegramNoticePort {
         ...(threadRef ? { threadRef } : {}),
       }
       void this.adapter.send(target, text).catch((err) => {
-        console.warn('[podium] Telegram push failed:', err instanceof Error ? err.message : err)
+        log.warn('Telegram push failed', { err })
       })
       return
     }
@@ -480,10 +480,7 @@ export class MessagingService implements TelegramNoticePort {
       })
       return formatTopicRecap(items)
     } catch (err) {
-      console.warn(
-        '[podium:messaging] topic recap failed:',
-        err instanceof Error ? err.message : err,
-      )
+      log.warn('topic recap failed', { err })
       return undefined
     }
   }
@@ -646,7 +643,7 @@ export class MessagingService implements TelegramNoticePort {
           return
       }
     } catch (err) {
-      console.warn('[podium:messaging] slash command failed:', err)
+      log.warn('slash command failed', { err })
       await this.reply(source, '⚠️ Command failed — try again or use /help.')
     }
   }
@@ -711,7 +708,7 @@ export class MessagingService implements TelegramNoticePort {
       // [spec:SP-62c3] Topic create + issue-button re-tap both post a recap.
       await this.postTopicRecap(topicRef, opened.superagentThreadId, ownerUserId)
     } catch (err) {
-      console.warn('[podium:messaging] callback failed:', err)
+      log.warn('callback failed', { err })
       try {
         // Bot API 9.3: bots may only create topics in a private chat after the
         // USER enables topic mode for it — surface the one-time setup step
@@ -788,10 +785,7 @@ export class MessagingService implements TelegramNoticePort {
       await this.adapter?.send(target, text, opts)
       this.touchTopicActivity(target)
     } catch (err) {
-      console.warn(
-        '[podium:messaging] reply send failed:',
-        err instanceof Error ? err.message : err,
-      )
+      log.warn('reply send failed', { err })
     }
   }
 }

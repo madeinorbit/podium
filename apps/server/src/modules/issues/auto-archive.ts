@@ -1,5 +1,8 @@
-import { systemPrincipal, type SystemCommandPrincipal } from '../../command-principal'
+import { createLogger } from '@podium/logger'
+import { type SystemCommandPrincipal, systemPrincipal } from '../../command-principal'
 import type { IssueService } from './service'
+
+const log = createLogger('server:issues')
 
 // Read-gated auto-archive sweep (issue #127): first pass shortly after boot (so a
 // restart promptly clears issues that crossed the 7-day read window while down),
@@ -38,10 +41,10 @@ export class IssueAutoArchive {
     try {
       const archived = this.issues.sweepAutoArchive(undefined, systemPrincipal('expiry'))
       if (archived.length > 0) {
-        console.log(`[podium:issues] auto-archived ${archived.length} read+done issue(s)`)
+        log.info('auto-archived read+done issues', { archived: archived.length })
       }
     } catch (err) {
-      console.warn('[podium:issues] auto-archive sweep failed:', err)
+      log.warn('auto-archive sweep failed', { err })
     }
   }
 }

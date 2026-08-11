@@ -1,8 +1,8 @@
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { connect } from 'node:net'
-import { describe, expect, it, vi } from 'vitest'
 import { type BootProc, bootProcess } from '@podium/runtime/boot'
+import { describe, expect, it, vi } from 'vitest'
 import { closeServerFast } from './shutdown'
 
 /** Minimal server double: close() resolves immediately, records force-close. */
@@ -170,6 +170,8 @@ describe('closeServerFast', () => {
       onSignal: (signal, handler) => {
         handlers.set(signal, handler)
       },
+      // undefined: this test must not register a sink under ~/.podium/logs.
+      configureLogging: vi.fn(() => undefined),
       installSafetyNet: vi.fn(),
       startWatchdog: vi.fn(() => () => {}),
       log: vi.fn(),

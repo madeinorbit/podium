@@ -49,7 +49,10 @@
  * refused and logged rather than resolving the wrong caller's promise.
  */
 
+import { createLogger } from '@podium/logger'
 import type { ControlMessage } from '@podium/protocol'
+
+const log = createLogger('server:daemon-request')
 
 /**
  * One request FAMILY: the id prefix its requests are minted under, plus the
@@ -171,18 +174,22 @@ export class DaemonRequestBroker implements DaemonRequestPort {
     // settled, or belongs to a correlator this broker does not own.
     if (!entry) return false
     if (entry.prefix !== kind.prefix) {
-      console.warn(
-        `[podium] dropped daemon reply '${requestId}': settled through request family '${kind.prefix}' but it was sent as '${entry.prefix}'`,
-      )
+      log.warn('dropped a daemon reply — it settled through the wrong request family', {
+        requestId,
+        settledAs: kind.prefix,
+        sentAs: entry.prefix,
+      })
       return false
     }
     if (entry.targetMachineId !== answeringMachineId) {
       // LOUD, and the request stays pending (POD-1175). A machine answering for
       // a request it was never sent is either a routing bug or an attempt to
       // serve another machine's data under this caller's correlation id.
-      console.error(
-        `[podium] dropped daemon reply '${requestId}': answered by machine '${answeringMachineId}' but sent to '${entry.targetMachineId}'`,
-      )
+      log.error('dropped a daemon reply — it was answered by a machine it was not sent to', {
+        requestId,
+        answeredBy: answeringMachineId,
+        sentTo: entry.targetMachineId,
+      })
       return false
     }
     this.pending.delete(requestId)

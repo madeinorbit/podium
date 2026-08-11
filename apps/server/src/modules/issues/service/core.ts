@@ -1,3 +1,4 @@
+import { createLogger } from '@podium/logger'
 import {
   asIssueId,
   FIRST_ADMIN_USER_ID,
@@ -34,6 +35,8 @@ import {
 } from '../projection'
 import type { PublishSpec } from '../publish'
 import type { IssueDeps } from './types'
+
+const log = createLogger('server:issues')
 
 interface IssueWireBatch {
   /** Computed ONCE per multi-issue serialize and shared — per-issue
@@ -759,7 +762,7 @@ export class IssueStore {
     try {
       this.deps.ledger.reconcile('repo', repos)
     } catch (err) {
-      console.warn('[podium:issues] repo projection publish failed', err)
+      log.warn('repo projection publish failed', { err })
     }
   }
 

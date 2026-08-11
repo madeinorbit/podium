@@ -1,4 +1,7 @@
+import { createLogger } from '@podium/logger'
 import { DEPLOYMENT, perf } from '../../perf/registry'
+
+const log = createLogger('server:sessions')
 
 /**
  * THE ISSUE-REPUBLISH PORTS ARE GONE (POD-1574), and their absence is the point.
@@ -51,7 +54,7 @@ export class SessionBroadcastCoordinator {
       try {
         this.broadcast()
       } catch (error) {
-        console.warn('[podium] coalesced session broadcast failed', error)
+        log.warn('coalesced session broadcast failed', { err: error })
       }
     }, 0)
     this.cooldown.unref?.()

@@ -24,7 +24,6 @@
  * forges another session's id in the body still lands on ITS OWN partition.
  */
 
-import { type Principal } from '@podium/protocol'
 import {
   type AnyCommandContract,
   PERF_CONTRACT_NAMES,
@@ -33,9 +32,13 @@ import {
   registryClassificationErrors,
   type TransportTag,
 } from '@podium/commands'
+import { createLogger } from '@podium/logger'
+import type { Principal } from '@podium/protocol'
 import type { z } from 'zod'
-import type { PerfRegistry } from './registry'
 import { perfPrincipal } from './principal'
+import type { PerfRegistry } from './registry'
+
+const log = createLogger('server:perf')
 
 /**
  * Exactly what the perf family reaches. `feedPrincipal` is the transport-
@@ -87,11 +90,14 @@ export const PERF_COMMANDS_TRPC = {
         .slice(0, 3)
         .map((g) => `${g.name}+${Math.round(g.ms)}ms`)
         .join(' ')
-      console.log(
-        `[perf] switch ${input.sessionId.slice(0, 8)} mode=${input.mode} cold=${input.cold} ` +
-          `total=${Math.round(input.totalMs)}ms${input.timedOut ? ' TIMEOUT' : ''}` +
-          (slowest ? ` slowest: ${slowest}` : ''),
-      )
+      log.info('client switch', {
+        sessionId: input.sessionId,
+        mode: input.mode,
+        cold: input.cold,
+        durationMs: input.totalMs,
+        timedOut: input.timedOut,
+        ...(slowest ? { slowest } : {}),
+      })
       return { ok: true as const }
     }) satisfies PerfHandler<z.infer<(typeof PERF_CONTRACTS)['report']['input']>, unknown>,
   },

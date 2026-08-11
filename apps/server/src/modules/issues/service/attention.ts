@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto'
+import { createLogger } from '@podium/logger'
 import type { IssueId, IssueWire, SessionId, SessionMeta, UserId } from '@podium/model'
 import {
   attributionOf,
-  onBehalfOfUser,
-  systemPrincipal,
   type CommandPrincipal,
+  onBehalfOfUser,
   type SystemCommandPrincipal,
+  systemPrincipal,
 } from '../../../command-principal'
 import { sessionsForIssue } from '../../../issue-util'
 import type { IssueRow, Subscription } from '../../../store'
@@ -13,6 +14,8 @@ import type { IssueStore } from './core'
 import type { IssueCrudModule } from './crud'
 import type { IssueReportsModule } from './reads'
 import { AUTO_ARCHIVE_READ_WINDOW_MS } from './types'
+
+const log = createLogger('server:issues')
 
 /**
  * The reads a draft SWEEP does once and shares across every draft it visits
@@ -525,7 +528,7 @@ export class IssueAttentionModule {
     void this.gitWorkflow()
       .releaseWorktreeIfIdle(row.id, systemPrincipal('archive'))
       .catch((err: unknown) => {
-        console.warn(`[podium:issues] archive could not free worktree for ${row.id}:`, err)
+        log.warn('archive could not free the worktree', { err, issueId: row.id })
       })
   }
 

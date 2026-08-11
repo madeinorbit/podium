@@ -1,3 +1,4 @@
+import { createLogger } from '@podium/logger'
 import {
   actorAgent,
   actorSystem,
@@ -14,8 +15,10 @@ import {
   repoToWire,
   toWire,
 } from '@podium/model'
-import { fromStorage } from '../../store/issue-storage'
 import type { IssueRow } from '../../store'
+import { fromStorage } from '../../store/issue-storage'
+
+const log = createLogger('server:issues')
 
 /**
  * `IssueRow` → `IssueProjection` — the server's one adapter onto THE model
@@ -187,10 +190,9 @@ export function issueProjectionRows(
     try {
       out.push({ id: row.id, value: issueRowToProjection(row, labelsOf(row.id)) })
     } catch (err) {
-      console.warn(
-        `[podium:issues] issue ${row.id} could not be projected — skipping the whole ` +
-          'issueProjection publish so reconcile cannot mistake a partial list for a delete',
-        err,
+      log.warn(
+        'an issue could not be projected — skipping the whole issueProjection publish so reconcile cannot mistake a partial list for a delete',
+        { err, issueId: row.id },
       )
       return undefined
     }
@@ -257,11 +259,9 @@ export function issueDepProjectionRows(
       const value = issueDepToProjection(dep)
       out.push({ id: value.id, value })
     } catch (err) {
-      console.warn(
-        `[podium:issues] dep ${dep.fromId} -> ${dep.toId} (${dep.type}) could not be projected — ` +
-          'skipping the whole issueDep publish so reconcile cannot mistake a partial list for ' +
-          'deleted dependencies',
-        err,
+      log.warn(
+        'a dependency could not be projected — skipping the whole issueDep publish so reconcile cannot mistake a partial list for deleted dependencies',
+        { err, fromId: dep.fromId, toId: dep.toId, depType: dep.type },
       )
       return undefined
     }

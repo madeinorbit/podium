@@ -70,11 +70,6 @@ import { LoginPropagationService } from './modules/machines/login-propagation'
 import { DaemonRpcService } from './modules/machines/rpc'
 import { MachinesService, type PairingCodes } from './modules/machines/service'
 import { MemoryService } from './modules/memory/service'
-import { retireSourceAfterTransfer } from './modules/server-transfer/lifecycle'
-import { PortableStateFence } from './modules/server-transfer/portable-fence'
-import { serverTransferRpcAdapter } from './modules/server-transfer/rpc-adapter'
-import { readPromotedTargetMetadata } from './modules/server-transfer/target-status'
-import { ServerTransferService } from './modules/server-transfer/service'
 import { MessageGate } from './modules/messages/gate'
 import { principalMailPolicy } from './modules/messages/handlers/context'
 import { QueuedMessageApply } from './modules/messages/queued-apply'
@@ -89,12 +84,17 @@ import {
 } from './modules/notify/service'
 import { DEPLOYMENT, type PerfRegistry, perf } from './modules/perf/registry'
 import { ReadPositionService } from './modules/read-position/service'
+import { retireSourceAfterTransfer } from './modules/server-transfer/lifecycle'
+import { PortableStateFence } from './modules/server-transfer/portable-fence'
+import { serverTransferRpcAdapter } from './modules/server-transfer/rpc-adapter'
+import { ServerTransferService } from './modules/server-transfer/service'
+import { readPromotedTargetMetadata } from './modules/server-transfer/target-status'
 import { machinesForPrincipal } from './modules/sessions/command-ctx'
 import { SessionInstructionRegistry } from './modules/sessions/instructions'
 import { SessionLifecycle } from './modules/sessions/lifecycle'
-import type { SnapshotTail } from './modules/sessions/session-lifecycle-types'
 import { SessionReadToolkit } from './modules/sessions/read-toolkit'
 import type { Session } from './modules/sessions/session'
+import type { SnapshotTail } from './modules/sessions/session-lifecycle-types'
 import { SettingsService, type TelegramSetupClient } from './modules/settings/service'
 import { SpecsService } from './modules/specs/service'
 import { deliverAnswerToSession } from './modules/superagent/answer-delivery'
@@ -113,6 +113,11 @@ export type {
   ScanReposResult,
   ScanResult,
 } from './modules/machines/rpc'
+
+import { createLogger } from '@podium/logger'
+
+const log = createLogger('server:relay')
+
 export type { MemoryBreakdown }
 
 interface SessionRegistryOptions {
@@ -1045,19 +1050,19 @@ export class SessionRegistry {
       // and nothing anywhere records why. A refused wake looked identical to a
       // broken one for as long as it took to read this line (POD-1650).
       if (!authorized.ok) {
-        console.warn(
-          `[podium] wake refused for ${sessionId}: ${authorized.reason ?? 'not authorized'} — input stays queued for an explicit resume`,
-        )
+        log.warn('wake refused — input stays queued for an explicit resume', {
+          sessionId,
+          reason: authorized.reason ?? 'not authorized',
+        })
         return
       }
       void issueSessionLifecycle
         .resurrectSession({ sessionId })
         .then((result) => {
-          if (!result.ok)
-            console.warn('[podium] wake-on-queue failed for ' + sessionId + ': ' + result.reason)
+          if (!result.ok) log.warn('wake-on-queue failed', { sessionId, reason: result.reason })
         })
         .catch((err) => {
-          console.warn('[podium] wake-on-queue failed for ' + sessionId + ':', err)
+          log.warn('wake-on-queue failed', { sessionId, err })
         })
     })
     // The `session.listChanged` republish tail is GONE (POD-1574). It re-derived
@@ -1570,7 +1575,7 @@ export class SessionRegistry {
         createIssue: (input) => void issues.create(input),
         sendMail: (issueId, body) => void issues.sendMail(issueId, 'machine-diagnostic', body),
         notify: (ownerUserId, notice) => notify.notifyExternal(notice, ownerUserId),
-        warn: (message) => console.warn(message),
+        warn: (message) => log.warn(message),
       })
     })
     this.issueCommands = issueCommands
@@ -1665,10 +1670,9 @@ export class SessionRegistry {
     try {
       messagesSvc.reconcileQueued()
     } catch (error) {
-      console.warn(
-        '[podium] queued message startup recovery failed; retry backstop remains active',
-        error,
-      )
+      log.warn('queued message startup recovery failed — the retry backstop remains active', {
+        err: error,
+      })
     }
     this.steward = new StewardService({
       principal: systemPrincipal('steward'),

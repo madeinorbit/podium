@@ -10,8 +10,11 @@
  * testing.
  */
 
+import { createLogger } from '@podium/logger'
 import type { encode as encodeFn } from '@podium/protocol'
 import { encode } from '@podium/protocol'
+
+const log = createLogger('server:gateway')
 
 /** Minimal slice of a gateway socket {@link safeSend} needs (kept tiny for tests). */
 export interface SendSocket {
@@ -107,5 +110,5 @@ export function warnDroppedFrame(kind: 'client' | 'daemon', err: unknown): void 
   const now = Date.now()
   if (now - lastFrameWarnAt[kind] < FRAME_WARN_THROTTLE_MS) return
   lastFrameWarnAt[kind] = now
-  console.warn(`[podium] dropped malformed ${kind} frame:`, err)
+  log.warn('dropped a malformed frame', { kind, err })
 }

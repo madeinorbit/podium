@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { createLogger } from '@podium/logger'
 import type { DaemonHandshake } from '@podium/protocol'
 import {
   mintPairingToken,
@@ -8,6 +9,8 @@ import {
   verifyPairingToken,
 } from '../../enrollment-ledger'
 import type { MachinesDeps, PairingGrant } from './service'
+
+const log = createLogger('server:machines')
 
 /**
  * MACHINE CREDENTIAL LIFECYCLE — the second job MachinesService was doing.
@@ -180,7 +183,9 @@ function isTokenRevoked(host: EnrollmentHost, machineId: string, token: string):
 function helloMissingRow(
   host: EnrollmentHost,
   frame: Extract<DaemonHandshake, { type: 'hello' }>,
-): { ok: true; machineId: string; name: string; updatePubkey?: string } | { ok: false; reason: string } {
+):
+  | { ok: true; machineId: string; name: string; updatePubkey?: string }
+  | { ok: false; reason: string } {
   const ledger = host.deps.enrollment
   if (!ledger) return { ok: false, reason: HELLO_DENIED_REASON }
   const result = verdictForMissingRow(ledger, frame.token)
@@ -256,9 +261,12 @@ function logVerdict(
   // Diagnostics follow the decision (D19.4): log the verdict + instance id +
   // state root the check ran against. Client-facing reason stays opaque.
   const root = host.deps.enrollment?.path ?? '(no-ledger)'
-  console.info(
-    `[podium] machine hello verdict=${verdict} machineId=${machineId} instanceId=${host.deps.instanceId} ledger=${root}`,
-  )
+  log.info('machine hello', {
+    verdict,
+    machineId,
+    instanceId: host.deps.instanceId,
+    ledger: root,
+  })
 }
 
 /**

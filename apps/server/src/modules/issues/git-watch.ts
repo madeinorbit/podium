@@ -1,4 +1,7 @@
+import { createLogger } from '@podium/logger'
 import type { IssueService } from './service'
+
+const log = createLogger('server:issues')
 
 // POD-384: a first pass shortly after boot (so a restart re-learns every parent
 // tip before the first merge lands against it), then every 30s — the janitor's
@@ -52,7 +55,7 @@ export class IssueGitWatch {
     try {
       await this.issues.sweepParentBranchMovement()
     } catch (err) {
-      console.warn('[podium:issues] parent-branch watch failed:', err)
+      log.warn('parent-branch watch failed', { err })
     } finally {
       this.sweeping = false
     }

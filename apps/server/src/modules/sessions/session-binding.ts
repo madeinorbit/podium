@@ -1,9 +1,12 @@
+import { createLogger } from '@podium/logger'
 import type { SessionId, UserId } from '@podium/model'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol'
 import { harnessRequiresExclusiveInteractiveResume } from '../../harness-manifest'
 import type { SessionStore } from '../../store'
 import type { MemoryService } from '../memory/service'
 import type { Session } from './session'
+
+const log = createLogger('server:sessions')
 
 type ResumeObservation = Extract<DaemonMessage, { type: 'sessionResumeRef' }>
 
@@ -43,9 +46,10 @@ export class SessionBindingReceipts {
     if (!session) return
     // A daemon may bind only sessions owned by its authenticated machine.
     if (session.machineId !== machineId) {
-      console.warn(
-        `[podium] ignored resume binding for ${message.sessionId} from non-owner machine ${machineId}`,
-      )
+      log.warn('ignored a resume binding from a non-owner machine', {
+        sessionId: message.sessionId,
+        machineId,
+      })
       return
     }
     const confidence = message.confidence ?? 'heuristic'
@@ -63,9 +67,10 @@ export class SessionBindingReceipts {
         : []
     if (conflicts.length > 0) {
       if (confidence !== 'exact') {
-        console.warn(
-          `[podium] ignored heuristic native identity collision ${message.resume.value} for ${session.sessionId}`,
-        )
+        log.warn('ignored a heuristic native identity collision', {
+          sessionId: session.sessionId,
+          resume: message.resume.value,
+        })
         return
       }
       // Missing provenance means a durable projection survived a server restart;
@@ -90,9 +95,10 @@ export class SessionBindingReceipts {
             observedAt,
           })
         }
-        console.warn(
-          `[podium] exact native identity conflict ${message.resume.value} across ${participantIds.join(', ')}`,
-        )
+        log.warn('exact native identity conflict across sessions', {
+          resume: message.resume.value,
+          participants: participantIds,
+        })
         return
       }
       for (const conflict of conflicts) {

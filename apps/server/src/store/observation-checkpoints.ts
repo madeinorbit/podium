@@ -1,3 +1,4 @@
+import { createLogger } from '@podium/logger'
 import type { SessionId } from '@podium/model'
 import { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/protocol'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
@@ -6,6 +7,8 @@ import type {
   TerminalCandidateFacts,
   TerminalCandidateRecord,
 } from './types'
+
+const log = createLogger('server:store')
 
 function sameFacts(a: TerminalCandidateFacts, b: TerminalCandidateFacts): boolean {
   return JSON.stringify(a) === JSON.stringify(b)
@@ -54,9 +57,10 @@ export class ObservationCheckpointsRepository {
   private mapRow(r: Record<string, unknown>): ObservationLeaseRecord | null {
     const provider = ObservationProvider.safeParse(r.provider)
     if (!provider.success) {
-      console.warn(
-        `[podium] ignoring observation lease for ${String(r.session_id)}: invalid provider`,
-      )
+      log.warn('ignoring an observation lease with an invalid provider', {
+        sessionId: String(r.session_id),
+        provider: r.provider,
+      })
       return null
     }
     let checkpoint: ObservationLeaseRecord['checkpoint'] = null
@@ -68,10 +72,10 @@ export class ObservationCheckpointsRepository {
         if (!parsed.success) throw new Error(parsed.error.message)
         checkpoint = parsed.data
       } catch (err) {
-        console.warn(
-          `[podium] ignoring corrupt observation checkpoint for ${String(r.session_id)}:`,
+        log.warn('ignoring a corrupt observation checkpoint', {
           err,
-        )
+          sessionId: String(r.session_id),
+        })
       }
     }
     return {

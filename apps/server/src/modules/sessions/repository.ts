@@ -33,9 +33,12 @@ export interface SessionProjectionEvent {
   ledgerCursor: number
 }
 
+import { createLogger } from '@podium/logger'
 import { Session, type SessionDurableState, type SessionVolatileField } from './session'
 import type { SessionStatePrincipal, SessionStateService } from './session-state/service'
 import type { SessionView } from './view'
+
+const log = createLogger('server:sessions')
 
 export interface SessionRepositoryPorts {
   sessions: Map<SessionId, Session>
@@ -126,7 +129,7 @@ export class SessionRepository {
       try {
         listener(event)
       } catch (err) {
-        console.error('[sessions] projection listener threw', err)
+        log.error('projection listener threw', { err })
       }
     }
   }
@@ -160,7 +163,7 @@ export class SessionRepository {
       try {
         this.ports.flushBroadcasts()
       } catch (err) {
-        console.warn('[podium] volatile session capture failed', err)
+        log.warn('volatile session capture failed', { err })
       }
     }, delayMs)
     this.volatileSessionCaptureTimer.unref?.()
@@ -306,9 +309,10 @@ export class SessionRepository {
   sessionFromStoredRow(r: SessionRow, mode: 'boot' | 'restore'): Session | null {
     const kind = AgentKind.safeParse(r.agentKind)
     if (!kind.success) {
-      console.warn(
-        `[podium] skipping persisted session ${r.id}: invalid agentKind ${JSON.stringify(r.agentKind)}`,
-      )
+      log.warn('skipping a persisted session with an invalid agentKind', {
+        sessionId: r.id,
+        agentKind: r.agentKind,
+      })
       return null
     }
     const reloadStatus =
@@ -321,7 +325,7 @@ export class SessionRepository {
             : r.status
     const exitCode = mode === 'restore' || r.status !== 'exited' ? null : r.exitCode
     if (r.originKind === 'resume' && !r.conversationId) {
-      console.warn(`[podium] persisted resume session ${r.id} has no conversationId`)
+      log.warn('a persisted resume session has no conversationId', { sessionId: r.id })
     }
     const machineId = r.machineId
     let session!: Session

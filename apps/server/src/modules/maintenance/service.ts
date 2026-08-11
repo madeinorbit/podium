@@ -1,3 +1,4 @@
+import { createLogger } from '@podium/logger'
 import {
   AUTO_ARCHIVE_READ_WINDOW_MS,
   automationFireRunKey,
@@ -20,23 +21,25 @@ import {
   type MaintenanceHandshake,
   type MaintenanceHandshakeReply,
   type MaintenanceStaleReason,
-  maintenanceCommandsPruneRunKey,
   MESSAGE_WAIT_TTL_MS,
+  maintenanceCommandsPruneRunKey,
   messageExpiryRunKey,
   sessionAutoArchiveRunKey,
   stewardPollRunKey,
   worktreeGcRunKey,
 } from '@podium/protocol'
+import {
+  attributionOf,
+  type SystemCommandPrincipal,
+  systemPrincipal,
+} from '../../command-principal'
 import type { SessionStore } from '../../store'
 import type { MessageRow } from '../../store/types'
 import type { AutomationsService } from '../automations/service'
 import type { WriteFunnel } from '../funnel'
 import type { IssueService } from '../issues/service'
-import {
-  attributionOf,
-  systemPrincipal,
-  type SystemCommandPrincipal,
-} from '../../command-principal'
+
+const log = createLogger('server:maintenance')
 
 const LEASE_NAME = 'janitor'
 const DEFAULT_LEASE_TTL_MS = 90_000
@@ -553,7 +556,7 @@ export class MaintenanceService {
     if (!this.connectScan) return this.stale(command, 'precondition')
     // Kick the shallow scan; do not await deep work — orchestration only.
     void Promise.resolve(this.connectScan(observed.machineId)).catch((err) => {
-      console.warn('[podium:maintenance] connect-scan failed:', err)
+      log.warn('connect-scan failed', { err, machineId: observed.machineId })
     })
     return this.recordIfStillFenced(command, {
       status: 'applied',

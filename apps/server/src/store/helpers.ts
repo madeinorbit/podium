@@ -7,15 +7,19 @@
  * issues table, crash-loop the server at boot). Quarantine the bad value to `[]`
  * and warn so it stays observable.
  */
+import { createLogger } from '@podium/logger'
+
+const log = createLogger('server:store')
+
 export function parseStringArray(raw: unknown, label: string): string[] {
   if (raw == null) return []
   try {
     const v = JSON.parse(raw as string)
     if (Array.isArray(v) && v.every((x) => typeof x === 'string')) return v
-    console.warn(`[podium] ${label}: expected string[], got ${typeof v} — quarantined to []`)
+    log.warn('column was not a string array — quarantined to []', { label, got: typeof v })
     return []
   } catch (err) {
-    console.warn(`[podium] ${label}: unparseable JSON — quarantined to [] (${String(err)})`)
+    log.warn('column held unparseable JSON — quarantined to []', { label, err })
     return []
   }
 }
@@ -30,7 +34,7 @@ export function parseJsonColumn<T>(raw: unknown, label: string): T | undefined {
   try {
     return JSON.parse(raw as string) as T
   } catch (err) {
-    console.warn(`[podium] ${label}: unparseable JSON — quarantined (${String(err)})`)
+    log.warn('column held unparseable JSON — quarantined', { label, err })
     return undefined
   }
 }

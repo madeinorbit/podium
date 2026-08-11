@@ -1,6 +1,9 @@
+import { createLogger } from '@podium/logger'
 import type { IssueWire } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import type { IssuePublishSpecs } from './service/types'
+
+const log = createLogger('server:issues')
 
 /** One publishable issue state change: the wire rows the ledger reconciles
  *  (the durable change append) plus the legacy snapshot message that carries
@@ -66,7 +69,7 @@ export class IssuePublisher implements IssuePublishSpecs {
       this.currentLocalIssues = issues
       return issues
     } catch (err) {
-      console.warn('[podium] issues payload build failed — broadcasting empty issues list', err)
+      log.warn('issues payload build failed — broadcasting an empty issues list', { err })
       return []
     }
   }

@@ -4,6 +4,7 @@ import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { trpcServer } from '@hono/trpc-server'
+import { createLogger } from '@podium/logger'
 import { FIRST_ADMIN_USER_ID } from '@podium/model'
 import {
   type ControlMessage,
@@ -44,11 +45,6 @@ import {
   recordHelloBuild,
 } from './gateway/peer-handshake'
 import { attachWebSockets, type NativeServer, serveNative } from './gateway/ws-server'
-import {
-  assertWritableServerBoot,
-  reconcileSafeServerTransferBoot,
-} from './modules/server-transfer/journal'
-import { PortableStateFence } from './modules/server-transfer/portable-fence'
 import { PairingManager } from './hub/pairing'
 import { applyEnvFirstAdminPassword, retireInstancePassword } from './instance-password-migration'
 import { IssueToolProvider } from './issue-mcp'
@@ -57,6 +53,11 @@ import { registerMaintenanceRoute } from './modules/maintenance/route'
 import { MaintenanceService } from './modules/maintenance/service'
 import { MessagingService } from './modules/messaging'
 import { DEPLOYMENT, perf } from './modules/perf/registry'
+import {
+  assertWritableServerBoot,
+  reconcileSafeServerTransferBoot,
+} from './modules/server-transfer/journal'
+import { PortableStateFence } from './modules/server-transfer/portable-fence'
 import { SuperagentService } from './modules/superagent'
 import { DEVELOPMENT_SOURCE_ROOT } from './modules/updates/dev-bundle'
 import { wireDevBundlePublisher } from './modules/updates/dev-publisher-wiring'
@@ -76,6 +77,12 @@ import { SessionStore } from './store'
 import { wireTelemetry } from './telemetry'
 import { reportParkedUpstreamMutations } from './upstream-retirement'
 import { describeBundle, gradeWebBundle } from './web-bundle-stamp'
+
+const log = createLogger('server:http')
+// Separate namespaces so an operator can turn the loop profiler up
+// (PODIUM_LOG='server:loop=debug') without also turning up request logging.
+const loopLog = createLogger('server:loop')
+const repoDiscoveryLog = createLogger('server:repo-discovery')
 
 /**
  * Thrown (as a rejection) by {@link startServer} when the chosen port is already
@@ -250,10 +257,9 @@ export async function startServer(
     },
   })
   if (bootPrune.metrics.exceededPlacementThreshold) {
-    console.warn(
-      `[ledger] boot retention took ${bootPrune.metrics.totalDurationMs.toFixed(1)}ms; ` +
-        'candidate for janitor placement',
-    )
+    log.warn('boot retention exceeded the placement threshold — candidate for janitor placement', {
+      durationMs: bootPrune.metrics.totalDurationMs,
+    })
   }
   // The transcript lake lives in the state dir next to podium.db (transcript-mirror
   // spec §2.1). Passing the dir opts the registry into mirroring; tests that construct
@@ -360,7 +366,7 @@ export async function startServer(
     scanRepos: (roots, opts, machineId) => registry.modules.rpc.scanRepos(roots, opts, machineId),
     machineName: (id) => registry.modules.machines.machineName(id),
     localMachineId: hostMachineId,
-    log: (message) => console.log(`[podium:repo-discovery] ${message}`),
+    log: (message) => repoDiscoveryLog.info(message),
   })
   // Automatic connect-scan orchestration RETIRED from the bus path [POD-925]:
   // janitor issues connect-scan commands; deep scans stay interactive via API.
@@ -531,9 +537,12 @@ export async function startServer(
       // code + message — no payloads). Without this, 500s (INTERNAL_SERVER_ERROR)
       // were completely invisible in the server log.
       onError: ({ error, path, type }) => {
-        console.warn(
-          `[trpc] ${type} ${path ?? '<unknown>'} failed: ${error.code} — ${error.message}`,
-        )
+        log.warn('tRPC procedure failed', {
+          callType: type,
+          path: path ?? '<unknown>',
+          code: error.code,
+          reason: error.message,
+        })
       },
       // Everyone who reaches /trpc is the OPERATOR: the login session (clientAuthGuard
       // above) already authenticated the human, so the tracker grants full authority — no
@@ -616,17 +625,16 @@ export async function startServer(
     // at a terminal, not at the app — POD-1610 survived a night of rebuilding
     // because nothing on the build path ever mentioned the web dist at all.
     const bundle = describeBundle(gradeWebBundle(webDir))
-    if (bundle) console.warn(`[podium] ${bundle}`)
+    if (bundle) log.warn(bundle, { webDir })
   }
 
   const host = resolveBindHost(opts)
   // If we're reachable off-box but no login password is set, the data plane is wide open
   // to anyone who can route to this host. Surface that loudly rather than failing silently.
   if (!isLoopbackHost(host) && !credentialsRequired()) {
-    console.warn(
-      `[podium] server bound to ${host} (network-reachable) with NO login required — ` +
-        'anyone who can reach this host can control your agents and shell. ' +
-        'Set a password in setup, or bind to 127.0.0.1.',
+    log.warn(
+      'server is network-reachable with NO login required — anyone who can reach this host can control your agents and shell; set a password in setup, or bind to 127.0.0.1',
+      { host },
     )
   }
 
@@ -721,14 +729,12 @@ export async function startServer(
           .sort((a, b) => b[1].count - a[1].count)
           .slice(0, 15)
           .map(([sql, c]) => `${c.count}x/${c.wallMs.toFixed(0)}ms/${c.rows}rows ${sql}`)
-        console.warn(`[podium:loop] TOTALS\n${out.join('\n')}`)
+        loopLog.warn('query totals', { totals: out })
         for (const [key, samples] of queryCallerStacks()) {
-          console.warn(
-            `[podium:loop] STACKS ${key}\n${samples
-              .slice(0, 3)
-              .map((s) => `  ${s.count}x\n${s.stack}`)
-              .join('\n')}`,
-          )
+          loopLog.warn('query caller stacks', {
+            query: key,
+            samples: samples.slice(0, 3).map((s) => ({ count: s.count, stack: s.stack })),
+          })
         }
       })
       startLoopMetrics({
@@ -741,9 +747,13 @@ export async function startServer(
           // tRPC and phase counters could not fill the gap because the work
           // is not on either path. The top statements are that missing name.
           const sql = formatTopQueries()
-          console.warn(
-            `[podium:loop] server stall ${ms.toFixed(0)}ms${cls} | heap=${mb(mu.heapUsed)}MB rss=${mb(mu.rss)}MB${sql ? ` | sql=${sql}` : ''}`,
-          )
+          loopLog.warn('server event-loop stall', {
+            durationMs: ms,
+            heapUsedBytes: mu.heapUsed,
+            rssBytes: mu.rss,
+            ...(cls ? { stall: cls } : {}),
+            ...(sql ? { sql } : {}),
+          })
         },
       })
     }

@@ -10,7 +10,10 @@ import { existsSync, readFileSync } from 'node:fs'
 import { readFile as readFileAsync } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createLogger } from '@podium/logger'
 import type { UpdateTarget } from '@podium/protocol'
+
+const log = createLogger('server:updates')
 
 /**
  * WHETHER TO BUILD A DEVELOPMENT BUNDLE.
@@ -568,7 +571,7 @@ export async function buildDevBundle(deps: DevBundleBuildDeps): Promise<BuiltDev
       await lock.release()
     } catch (releaseError) {
       if (!buildError) throw releaseError
-      console.warn('[podium] development bundle lock release failed:', releaseError)
+      log.warn('development bundle lock release failed', { err: releaseError })
     }
   }
 }

@@ -1,4 +1,7 @@
+import { createLogger } from '@podium/logger'
 import type { AgentRuntimeState } from '@podium/model'
+
+const log = createLogger('server:notify')
 
 /**
  * Notification triage for agent-state transitions. High-signal by design: only
@@ -68,7 +71,7 @@ export function pushNtfy(topic: string, notice: AttentionNotice): void {
       tags: ['robot'],
     }),
   }).catch((err) => {
-    console.warn('[podium] ntfy push failed:', err instanceof Error ? err.message : err)
+    log.warn('ntfy push failed', { err })
   })
 }
 
@@ -123,13 +126,13 @@ export function pushTelegramText(
     .then(async (res) => {
       if (res.ok) return
       const description = await telegramDescription(res)
-      console.warn(
-        '[podium] Telegram push failed:',
-        description ? `${res.status} ${description}` : `HTTP ${res.status}`,
-      )
+      log.warn('Telegram push failed', {
+        status: res.status,
+        ...(description ? { description } : {}),
+      })
     })
     .catch((err) => {
-      console.warn('[podium] Telegram push failed:', err instanceof Error ? err.message : err)
+      log.warn('Telegram push failed', { err })
     })
 }
 

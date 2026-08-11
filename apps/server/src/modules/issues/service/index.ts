@@ -289,16 +289,16 @@ class IssueServiceRoot implements IssueTrackerCapabilities {
         totalized += 1
       }
       if (totalized > 0) {
-        console.warn(`[podium:issues] boot attached ${totalized} legacy cwd-only session(s)`)
+        log.warn('boot attached legacy cwd-only sessions', { attached: totalized })
       }
     }
     try {
       const reaped = this.attention.reapLeakedDrafts()
       if (reaped > 0) {
-        console.warn(`[podium:issues] boot sweep reaped ${reaped} leaked draft issue(s)`)
+        log.warn('boot sweep reaped leaked draft issues', { reaped })
       }
     } catch (err) {
-      console.warn('[podium:issues] boot draft sweep failed:', err)
+      log.warn('boot draft sweep failed', { err })
     }
     try {
       // The catch-up publish, and the one boot step whose cost scales with the
@@ -314,10 +314,10 @@ class IssueServiceRoot implements IssueTrackerCapabilities {
       )
       const reconcileMs = performance.now() - reconcileStart
       if (reconcileMs > 2000) {
-        console.warn(
-          `[podium:issues] boot catch-up published ${wire.length} issue(s) in ` +
-            `${(reconcileMs / 1000).toFixed(1)}s`,
-        )
+        log.warn('boot catch-up publish was slow', {
+          issues: wire.length,
+          durationMs: reconcileMs,
+        })
       }
       const projections = store.allProjections()
       if (projections) store.deps.ledger.reconcile('issueProjection', projections)
@@ -326,7 +326,7 @@ class IssueServiceRoot implements IssueTrackerCapabilities {
       store.publishRepos()
       store.emitEvent('issue.boot_reconciled', 'system', { attribution: attributionOf(principal) })
     } catch (err) {
-      console.warn('[podium:issues] boot reconciliation record failed:', err)
+      log.warn('boot reconciliation record failed', { err })
     }
     return this
   }
@@ -345,6 +345,10 @@ export {
   type IssueTreeSession,
   UNSNOOZE_BACKDATE_MS,
 } from './types'
+
+import { createLogger } from '@podium/logger'
+
+const log = createLogger('server:issues')
 
 /**
  * Typed compatibility value for legacy callers while command handlers consume

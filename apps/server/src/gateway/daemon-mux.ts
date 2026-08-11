@@ -48,6 +48,7 @@
  * `attributionOf(machinePrincipal).onBehalfOf` is `null` by construction.
  */
 
+import { createLogger } from '@podium/logger'
 import { asMachineId } from '@podium/model'
 import type { DaemonMessage, MachinePrincipal } from '@podium/protocol'
 import { asCapabilityRef, asDeviceId } from '@podium/protocol'
@@ -59,6 +60,8 @@ import {
   type SessionsDaemonFrame,
 } from './daemon-frame-routing'
 import type { ControlSend, DaemonFeaturePorts, DaemonFrame } from './daemon-ports'
+
+const log = createLogger('server:gateway')
 
 /**
  * Either a resolved transport principal (the socket path) or a bare machine id
@@ -255,7 +258,7 @@ export class DaemonMux {
     // `online` dot reads (a live socket in this mux), so the log and the dot now
     // have one shared cause; logging here rather than at the socket also covers
     // the in-process link, and keeps the superseded-socket guard below authoritative.
-    console.log(`[podium:server] daemon attached: machine ${machineId} is now online`)
+    log.info('daemon attached — the machine is now online', { machineId })
     machines.flushQueued(machineId)
     sessions.onMachineAttached(principal)
     machines.broadcastMachines()
@@ -279,7 +282,7 @@ export class DaemonMux {
     // machine going offline, and logging it as one would recreate the confusion
     // the attach line above exists to end.
     if (!machines.detach(machineId, send)) return
-    console.log(`[podium:server] daemon detached: machine ${machineId} is now offline`)
+    log.info('daemon detached — the machine is now offline', { machineId })
     this.deps.bus.emit('machine.disconnected', { machineId })
     sessions.onMachineDetached(principal)
     machines.broadcastMachines()
@@ -297,7 +300,7 @@ export class DaemonMux {
   routeDaemonFrame(peer: DaemonPeer, msg: DaemonMessage): void {
     const principal = principalOf(peer)
     if (daemonPlaneClassFor(msg.type) === null || daemonPortsFor(msg.type) === null) {
-      console.warn(`[podium] refused unclassified daemon frame '${msg.type}'`)
+      log.warn('refused an unclassified daemon frame', { frameType: msg.type })
       return
     }
     const dispatch = DISPATCH[msg.type] as (

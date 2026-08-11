@@ -18,11 +18,14 @@
  * `requestBuild` unconditionally without an installed server ever doing work.
  */
 
+import { createLogger } from '@podium/logger'
 import type { UpdateTarget } from '@podium/protocol'
 import type { Hono } from 'hono'
 import { registerDevArtifactRoute } from './artifact-route'
 import { createDevBundlePublisher, developmentHeadSha } from './dev-bundle'
 import { createServerDevBundleLock, type DevBundleLockService } from './dev-bundle-lock'
+
+const log = createLogger('server:updates')
 
 export interface DevPublisherWiring {
   /** Publish the current development target, if there is one. */
@@ -148,7 +151,7 @@ export function wireDevBundlePublisher(deps: {
     } catch (error) {
       const diagnostic = error instanceof Error ? error.message : String(error)
       if (diagnostic !== unavailableDiagnostic) {
-        console.warn('[podium] development bundle target unavailable:', diagnostic)
+        log.warn('development bundle target unavailable', { diagnostic })
         unavailableDiagnostic = diagnostic
       }
       return undefined
@@ -180,7 +183,7 @@ export function wireDevBundlePublisher(deps: {
             publisher.unavailable() ?? (error instanceof Error ? error.message : String(error))
           if (diagnostic === unavailableDiagnostic) return
           unavailableDiagnostic = diagnostic
-          console.warn('[podium] development bundle unavailable:', diagnostic)
+          log.warn('development bundle unavailable', { diagnostic })
         })
     },
     registerRoute: (app) => {

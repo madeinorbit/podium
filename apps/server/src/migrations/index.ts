@@ -17,12 +17,15 @@
  * open it — that transition is complete for the founders' databases.)
  */
 
+import { createLogger } from '@podium/logger'
 import { bunSqliteClient, isBunRuntime, type SqlDatabase } from '@podium/runtime/sqlite'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator'
 import { backupDatabase } from './backup'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
 import { applySchemaRepairs, repairReason } from './repair'
+
+const log = createLogger('server:migrations')
 
 /**
  * The `client` slot of drizzle's bun-sqlite config — bun:sqlite's real `Database`
@@ -198,12 +201,9 @@ export function runDrizzleMigrations(
     pending.map((m) => m.name),
   )
   if (outOfOrder.length > 0) {
-    console.warn(
-      `[podium:server] out-of-order migrations: ${outOfOrder.join(', ')} sort BEFORE ` +
-        `migrations this database has already applied. They will be applied now. ` +
-        `If any of them REBUILDS a table (CREATE __new_x / INSERT SELECT / DROP / RENAME), ` +
-        `it can silently drop columns added by the other lineage — the ledger will still ` +
-        `read as complete. Verify the schema of any table they rebuild [POD-1621].`,
+    log.warn(
+      'out-of-order migrations sort BEFORE migrations this database has already applied and will be applied now. If any of them REBUILDS a table (CREATE __new_x / INSERT SELECT / DROP / RENAME) it can silently drop columns added by the other lineage — the ledger will still read as complete. Verify the schema of any table they rebuild [POD-1621]',
+      { migrations: outOfOrder },
     )
   }
 
@@ -261,7 +261,7 @@ export function runDrizzleMigrations(
 /** Repairs known schema drift and says so — loudly, and only when it acted. */
 function reportRepairs(db: SqlDatabase): void {
   for (const id of applySchemaRepairs(db)) {
-    console.warn(`[podium:server] repaired missing column ${id} — ${repairReason(id)}`)
+    log.warn('repaired a missing column', { column: id, reason: repairReason(id) })
   }
 }
 

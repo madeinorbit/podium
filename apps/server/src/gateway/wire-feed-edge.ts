@@ -42,6 +42,7 @@
  * only by the Authority's feed.
  */
 
+import { createLogger } from '@podium/logger'
 import type { ConversationDiagnosticWire } from '@podium/model'
 import type {
   FeedBootstrapMessage,
@@ -51,18 +52,20 @@ import type {
   ServerMessage,
 } from '@podium/protocol'
 import {
+  isUpgradeRequired,
   MIN_SUPPORTED_VERSION,
   PeerVersionTelemetry,
   type UpgradeRequired,
+  upgradeRequired,
+  upgradeRequiredForScoping,
   WIRE_VERSION,
   type WireVersionAdapter,
   WireVersionAdapterRegistry,
-  isUpgradeRequired,
-  upgradeRequired,
-  upgradeRequiredForScoping,
 } from '@podium/protocol'
 import type { FeedScopingGrade } from '@podium/sync'
 import { LegacyWireV1Adapter } from './legacy-wire-v1-adapter'
+
+const log = createLogger('server:gateway')
 
 /** The canonical frame. v2 IS the canonical shape — the current wire is never a
  *  translation of something else, or there would be two definitions of "now". */
@@ -108,8 +111,7 @@ export interface LegacyPeer {
  * about itself. A wire that forgot to state it would default to the permissive
  * answer, which is exactly the fails-OPEN gate this run keeps paying for.
  */
-export interface FeedWireAdapter
-  extends WireVersionAdapter<FeedFrame, ServerMessage, LegacyPeer> {
+export interface FeedWireAdapter extends WireVersionAdapter<FeedFrame, ServerMessage, LegacyPeer> {
   /**
    * Can this version say "gone from YOUR view" as something OTHER than "deleted"
    * (ADR 2 Am1 D14.5)? If it cannot, a principal-scoped authority must not serve
@@ -260,10 +262,10 @@ export class WireFeedEdge {
       // must not take the process or the other peers down with it, and it must
       // not be swallowed either: the peer's view is now knowingly incomplete, so
       // it is dropped rather than left silently stale.
-      console.error('[wire-edge] adapter refused a frame; dropping the peer', {
+      log.error('adapter refused a frame — dropping the peer', {
         peer: peer.id,
         wireVersion: peer.wireVersion,
-        error,
+        err: error,
       })
       this.detach(peer.id)
       return

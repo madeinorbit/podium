@@ -9,6 +9,10 @@
  * Disabled by default. Set `PODIUM_TRACE_FEED_PEERS=1` for a diagnostic run.
  * No cookie, user id, request URL, payload, or row data is recorded.
  */
+import { createLogger } from '@podium/logger'
+
+const log = createLogger('server:gateway')
+
 export type FeedPeerTraceEvent =
   | {
       readonly event: 'attach'
@@ -48,5 +52,7 @@ export type FeedPeerTraceEvent =
 
 export function traceFeedPeer(event: FeedPeerTraceEvent): void {
   if (process.env.PODIUM_TRACE_FEED_PEERS !== '1') return
-  console.info('[podium:feed-peer]', JSON.stringify({ at: new Date().toISOString(), ...event }))
+  // The record's own `ts` is the timestamp now, and each field is its own
+  // column rather than a JSON string inside a message.
+  log.info('feed peer event', { ...event })
 }

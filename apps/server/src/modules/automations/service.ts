@@ -11,29 +11,32 @@
  * dispatcher changes.
  */
 
-import { spawnedByTag } from '@podium/model'
-import type { IssueId, SessionId } from '@podium/model'
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
+import { assertScheduleFloor, nextAfter, nextRunAfter, parseCron } from '@podium/commands'
+import { createLogger } from '@podium/logger'
+import type { IssueId, SessionId } from '@podium/model'
 import {
-  asAutomationId,
-  asSessionId,
   type AgentKind,
   type AutomationScheduleKind,
   type AutomationSessionMode,
+  asAutomationId,
+  asSessionId,
+  spawnedByTag,
   type UserId,
 } from '@podium/model'
-import { assertScheduleFloor, nextAfter, nextRunAfter, parseCron } from '@podium/commands'
 import { automationOccurrenceRunId } from '@podium/protocol'
 import type { Ledger } from '@podium/sync'
+import { attributionOf, type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
 import type {
   AutomationRow,
   AutomationRunOutcome,
   AutomationRunRow,
   AutomationsRepository,
 } from '../../store/automations'
-import { attributionOf, onBehalfOfUser, type CommandPrincipal } from '../../command-principal'
 import { type AutomationDecision, decideTick, type Schedulable } from './decide'
+
+const log = createLogger('server:automations')
 
 export interface AutomationsDeps {
   store: AutomationsRepository
@@ -480,7 +483,7 @@ export class AutomationsService {
       outcome = 'error'
       if (err instanceof AutomationSpawnError) sessionId = err.sessionId
       detail = err instanceof Error ? err.message : String(err)
-      console.warn(`[podium:automations] ${automation.name} failed to spawn:`, err)
+      log.warn('automation failed to spawn', { err, automation: automation.name })
     }
 
     // Finalize run + re-arm only after the side-effect attempt (success or terminal error).

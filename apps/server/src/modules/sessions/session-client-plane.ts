@@ -4,6 +4,7 @@
  * Dispose: none.
  */
 
+import { createLogger } from '@podium/logger'
 import type { SessionId } from '@podium/model'
 import type {
   ControlMessage,
@@ -18,6 +19,8 @@ import type { ClientPrincipal } from '../../gateway/client-principal'
 import type { ClientConn } from '../../gateway/client-registry'
 import { machineUseDecision, ownershipFromMachines } from '../../machine-access'
 import type { Session } from './session'
+
+const log = createLogger('server:sessions')
 
 export interface SessionClientPlanePorts {
   browserOpen: any
@@ -134,9 +137,10 @@ export class SessionClientPlane {
       })
       .then((r: { ok: boolean; error?: string }) => {
         if (!r.ok) {
-          console.warn(
-            `[podium] headless bind failed for ${session.sessionId}: ${r.error ?? 'unknown'}`,
-          )
+          log.warn('headless bind failed', {
+            sessionId: session.sessionId,
+            reason: r.error ?? 'unknown',
+          })
         }
       })
   }

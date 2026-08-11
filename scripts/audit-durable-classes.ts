@@ -453,6 +453,11 @@ export const NON_CLASS_WRITE_SITES: readonly { readonly file: string; readonly r
         'Pidfiles under `<stateDir>/run` and the detached-component logs under `<stateDir>/logs`. Process supervision: a pidfile describes a RUNNING PROCESS, is meaningless after a reboot, and names nothing anybody owns.',
     },
     {
+      file: 'packages/logger/src/node/file-sink.ts',
+      reason:
+        'Appends NDJSON log records to `<stateDir>/logs/<role>.ndjson` and rotates them 10 MB x 5 (POD-1901). Logs are a DESCRIPTION of what a process did, not a store of anything the product owns: nothing reads them back to reconstruct state, every record is derived from something already durable elsewhere, and the rotation policy exists precisely because the oldest ones are meant to be destroyed on a schedule. The sink names no entity and has no schema — it is handed a path by packages/runtime/src/logging.ts and writes whatever record it is given.',
+    },
+    {
       file: 'packages/runtime/src/transfer-lifecycle.ts',
       reason:
         'Atomically rewrites the already-classified host config and daemon identity during a server-role transfer, plus a transfer-scoped rollback copy that is deleted after the operation. It introduces no independently owned durable entity.',

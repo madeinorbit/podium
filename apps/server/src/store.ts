@@ -35,6 +35,7 @@
 import { randomUUID } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { createLogger } from '@podium/logger'
 import { asMachineId, type MachineId } from '@podium/model'
 import { stateDir } from '@podium/runtime/config'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
@@ -51,8 +52,6 @@ import { GrantsRepository } from './store/grants'
 import { IssuesRepository } from './store/issues'
 import { LocksRepository } from './store/locks'
 import { MachinesRepository } from './store/machines'
-import { UserReadPositionRepository } from './store/user-read-position'
-import { UserLayoutRepository } from './store/user-layout'
 import { MaintenanceRepository } from './store/maintenance'
 import { MessagesRepository } from './store/messages'
 import { MessagingTopicsRepository } from './store/messaging-topics'
@@ -66,9 +65,13 @@ import { SettingsRepository } from './store/settings'
 import { SettingsAuditRepository } from './store/settings-audit'
 import { SuperagentRepository } from './store/superagent'
 import { TelegramBindingsRepository } from './store/telegram-bindings'
+import { UserLayoutRepository } from './store/user-layout'
+import { UserReadPositionRepository } from './store/user-read-position'
 import { UsersRepository } from './store/users'
 import { WorkflowsRepository } from './store/workflows'
 import { openStoreDatabase } from './store-database'
+
+const log = createLogger('server:store')
 
 export type { MessagePrincipalRef } from './store/messages'
 export * from './store/types'
@@ -186,7 +189,7 @@ export class SessionStore {
     // Say what the schema actually did — a silently-skipped migration (#472)
     // survived for so long precisely because it was invisible.
     if (applied.length > 0) {
-      console.log(`[podium:server] applied migrations: ${applied.join(', ')}`)
+      log.info('applied migrations', { applied })
     }
     // Foreign-key enforcement is per-connection in SQLite; restored now that the
     // migrator (which runs table rebuilds with enforcement off) is done.

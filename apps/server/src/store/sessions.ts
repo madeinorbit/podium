@@ -4,12 +4,13 @@
  * deletion preserves them; explicit internal purge removes them.
  */
 
+import { createLogger } from '@podium/logger'
 import {
   type AccountId,
   type ActorKind,
+  AgentKind,
   actorColumns,
   actorFromColumns,
-  AgentKind,
   asSessionId,
   type IssueId,
   type MachineId,
@@ -17,6 +18,7 @@ import {
   type UserId,
 } from '@podium/model'
 import type { SqlDatabase, SqlParam } from '@podium/runtime/sqlite'
+import { requireUserId } from './helpers'
 import type {
   OfferMap,
   OfferRecord,
@@ -27,7 +29,8 @@ import type {
   SessionStatusPersisted,
   SnoozeMap,
 } from './types'
-import { requireUserId } from './helpers'
+
+const log = createLogger('server:store')
 
 const PIN_KINDS = new Set<PinKind>(['panel', 'worktree', 'repo'])
 
@@ -794,10 +797,8 @@ export class SessionsRepository {
       if (!this.hasVersionedDraftCols) {
         // Surface the silent degradation once: the versioned-draft columns are
         // missing, so Draft Sync v2's versioned persistence is inert on this DB.
-        console.warn(
-          '[podium] session_drafts is missing the versioned-draft columns ' +
-            '(rev/origin/history) — the session-drafts-versioned migration has not applied; ' +
-            'Draft Sync v2 falls back to legacy drafts.',
+        log.warn(
+          'session_drafts is missing the versioned-draft columns (rev/origin/history) — the session-drafts-versioned migration has not applied; Draft Sync v2 falls back to legacy drafts',
         )
       }
     }

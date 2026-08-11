@@ -30,7 +30,7 @@
  * WHAT "REPORTED" MEANS, AND WHY IT IS TWO CHANNELS
  * ---------------------------------------------------------------------------
  *
- * A `console.warn` alone is a log line in a systemd journal that rotates. A durable
+ * A log line alone is a line in a journal that rotates. A durable
  * event alone is invisible to an operator running `podium` in a terminal. Pending work
  * that nothing will ever drain deserves both, so this emits:
  *
@@ -44,7 +44,10 @@
  * feature that has been retired.
  */
 
+import { createLogger } from '@podium/logger'
 import type { SyncRepository } from '@podium/sync'
+
+const log = createLogger('server:upstream-retirement')
 
 /** The durable-event sink this needs — narrowed so a test supplies a function. */
 export interface RetirementEventSink {
@@ -81,19 +84,19 @@ export function reportParkedUpstreamMutations(
   }
   if (parked.length === 0) return 0
   const ts = new Date(now()).toISOString()
-  console.warn(
-    `[podium:upstream] ${parked.length} issue mutation(s) are PARKED in the retired ` +
-      'node→hub outbox and will never be delivered — hub/node federation is deferred ' +
-      '(POD-353) and the forwarder that drained this queue was removed in POD-309. ' +
-      'They are preserved in the `upstream_outbox` table; re-apply anything you still ' +
-      'need by hand, then delete the rows.',
+  log.warn(
+    'issue mutations are PARKED in the retired node→hub outbox and will never be delivered — hub/node federation is deferred (POD-353) and the forwarder that drained this queue was removed in POD-309; they are preserved in the `upstream_outbox` table, so re-apply anything you still need by hand, then delete the rows',
+    {
+      parked: parked.length,
+      // The full list in ONE record rather than one line per row: a reader
+      // wants the set, and N separate warnings interleave with everything else.
+      mutations: parked.map((row) => ({
+        mutationId: row.mutationId,
+        proc: `issues.${row.proc}`,
+        queuedAt: new Date(row.queuedAt).toISOString(),
+      })),
+    },
   )
-  for (const row of parked) {
-    console.warn(
-      `[podium:upstream]   ${row.mutationId} issues.${row.proc} ` +
-        `(queued ${new Date(row.queuedAt).toISOString()})`,
-    )
-  }
   try {
     events.appendEvent({
       ts,

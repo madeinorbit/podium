@@ -1,3 +1,4 @@
+import { createLogger } from '@podium/logger'
 import type {
   FeedChangesSinceReply,
   FeedCursorField,
@@ -15,6 +16,8 @@ import { toFeedChange } from '../gateway/feed-serving'
 import type { EventBus } from './bus'
 import { perfPrincipal } from './perf/principal'
 import { perf } from './perf/registry'
+
+const log = createLogger('server:funnel')
 
 export interface WriteFunnelDeps {
   bus: EventBus
@@ -312,7 +315,7 @@ export class WriteFunnel {
       try {
         this.flushDeltas()
       } catch (err) {
-        console.warn('[funnel] coalesced feed publication failed', err)
+        log.warn('coalesced feed publication failed', { err })
       }
     })
   }

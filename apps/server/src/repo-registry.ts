@@ -1,10 +1,13 @@
-import { type GitRepositoryWire } from '@podium/model'
 import { readdir, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
+import { createLogger } from '@podium/logger'
+import type { GitRepositoryWire } from '@podium/model'
 import type { ScanReposResult, SessionRegistry } from './relay'
 import { readLocalOriginUrl } from './repo-id'
 import { normalizeRepoPath, type SessionStore } from './store'
+
+const log = createLogger('server:repo-registry')
 
 export type DirectoryBrowserEntry = {
   name: string
@@ -146,7 +149,7 @@ export class RepoRegistry {
     try {
       this.sessionReg.modules.issues.publishRepos()
     } catch (err) {
-      console.warn('[podium:repos] repo projection publish failed', err)
+      log.warn('repo projection publish failed', { err })
     }
   }
 

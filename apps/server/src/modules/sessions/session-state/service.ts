@@ -29,19 +29,22 @@
  * not reach protected state and this module does not reach theirs.
  */
 
+import { createLogger } from '@podium/logger'
 import {
-  computePriorities,
   type Capability,
+  computePriorities,
   type SessionId,
   type SessionUserOverlay,
   type UserId,
   type WorkState,
 } from '@podium/model'
 import type { ControlMessage, DraftEditMessage, LiveServerMessage } from '@podium/protocol'
-import type { PinState, SessionStore, SnoozeMap } from '../../../store'
 import type { ClientConn } from '../../../gateway/client-registry'
+import type { PinState, SessionStore, SnoozeMap } from '../../../store'
 import { applyDraftEdit, DEFAULT_LEASE_MS, type DraftDoc, emptyDraftDoc } from '../draft-doc'
 import type { Session } from '../session'
+
+const log = createLogger('server:sessions')
 
 export interface SessionStatePrincipal {
   /** The human row owner. For an agent this is its on-behalf-of human. */
@@ -566,7 +569,7 @@ export class SessionStateService {
       if (updatedAt === undefined) this.draftTimes.delete(sessionId)
       else this.draftTimes.set(sessionId, updatedAt)
     } catch (error) {
-      console.warn(`[podium] failed to persist draft for ${sessionId}:`, error)
+      log.warn('failed to persist the draft', { err: error, sessionId })
     }
   }
 
@@ -597,7 +600,7 @@ export class SessionStateService {
       try {
         this.ports.persistSession(sessionId)
       } catch (error) {
-        console.warn(`[podium] failed to persist DRAFT tag for ${sessionId}:`, error)
+        log.warn('failed to persist the DRAFT tag', { err: error, sessionId })
       }
     }
     this.ports.broadcastToClients(
@@ -647,7 +650,7 @@ export class SessionStateService {
         history: doc.history,
       })
     } catch (error) {
-      console.warn(`[podium] failed to persist versioned draft for ${doc.sessionId}:`, error)
+      log.warn('failed to persist the versioned draft', { err: error, sessionId: doc.sessionId })
     }
   }
 

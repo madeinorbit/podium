@@ -1,3 +1,4 @@
+import { createLogger } from '@podium/logger'
 import type { TelemetryEmitter } from '@podium/telemetry'
 import { initTRPC } from '@trpc/server'
 import type { CloudRuntimeProvider } from './cloud-runtime'
@@ -12,6 +13,8 @@ import type { MachineRepoDiscovery } from './repo-discovery'
 import type { RepoRegistry } from './repo-registry'
 import type { ServerRoleConfig } from './roles'
 import type { UsersRepository } from './store/users'
+
+const log = createLogger('server:trpc')
 
 /**
  * The tRPC core shared by the hand-written routers (router.ts) and the derived
@@ -93,7 +96,7 @@ const core = initTRPC.context<Context>().create({
   },
 })
 
-/** Slow-call visibility [POD-701]: one console.warn when a procedure exceeds
+/** Slow-call visibility [POD-701]: one warning when a procedure exceeds
  *  this, throttled per path so a storm can't flood the logs. */
 const SLOW_RPC_WARN_MS = 500
 const SLOW_RPC_WARN_THROTTLE_MS = 10_000
@@ -119,7 +122,7 @@ const rpcTiming = core.middleware(async ({ path, next }) => {
       const last = lastSlowWarnAt.get(path) ?? 0
       if (now - last >= SLOW_RPC_WARN_THROTTLE_MS) {
         lastSlowWarnAt.set(path, now)
-        console.warn(`[perf] slow rpc ${path} took ${Math.round(ms)}ms`)
+        log.warn('slow rpc', { path, durationMs: ms })
       }
     }
   }

@@ -1,4 +1,5 @@
 import { acceptAgentObservation } from '@podium/harness/metadata'
+import { createLogger } from '@podium/logger'
 import { type AgentRuntimeState, idleVerdictNeedsHuman, type SessionId } from '@podium/model'
 import type {
   ControlMessage,
@@ -18,6 +19,8 @@ import type { SessionInbox } from './inbox'
 import type { SessionObservationLeases } from './observation-leases'
 import type { Session } from './session'
 import type { SessionStateService } from './session-state/service'
+
+const log = createLogger('server:sessions')
 
 export interface SessionDaemonLifecyclePorts {
   sessions: Map<SessionId, Session>
@@ -570,7 +573,7 @@ export class SessionDaemonLifecycle {
         // Mixed deployment: legacy remains visible until the first v1
         // checkpoint. It can never downgrade or overwrite causal truth.
         if (this.observationLeases.hasCheckpoint(msg.sessionId)) {
-          console.warn(`[podium] rejected legacy unfenced observation for ${msg.sessionId}`)
+          log.warn('rejected a legacy unfenced observation', { sessionId: msg.sessionId })
           break
         }
         const prev = session.agentState

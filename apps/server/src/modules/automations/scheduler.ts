@@ -1,4 +1,7 @@
+import { createLogger } from '@podium/logger'
 import type { AutomationsService } from './service'
+
+const log = createLogger('server:automations')
 
 // Cron has minute granularity, so a 30s tick bounds lateness at ~30s. The boot
 // one-shot (like the retention/auto-archive pair) runs a first pass shortly after
@@ -43,7 +46,7 @@ export class AutomationScheduler {
     try {
       this.automations.tick()
     } catch (err) {
-      console.warn('[podium:automations] scheduler tick failed:', err)
+      log.warn('scheduler tick failed', { err })
     }
   }
 }

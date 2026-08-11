@@ -27,12 +27,15 @@
  * `scripts/audit-ambient-principals.ts` BASELINE.
  */
 
+import { createLogger } from '@podium/logger'
 import { FIRST_ADMIN_USER_ID } from '@podium/model'
 import {
   deleteLegacyInstancePasswordFile,
   hashPassword,
   readLegacyInstancePasswordHash,
 } from '@podium/runtime/auth-store'
+
+const log = createLogger('server:migrations')
 
 /** The slice of `UsersRepository` this file needs — narrow so a test can pass a fake and so
  *  nothing here can reach a repository method that mints accounts. */
@@ -69,7 +72,7 @@ export async function retireInstancePassword(
   opts: RetireInstancePasswordOptions,
 ): Promise<RetireInstancePasswordResult> {
   const { users, authDir } = opts
-  const warn = opts.warn ?? ((m: string) => console.warn(m))
+  const warn = opts.warn ?? ((m: string) => log.warn(m))
 
   const legacyHash = readLegacyInstancePasswordHash(authDir)
   if (!legacyHash) return { outcome: 'nothing-to-migrate' }

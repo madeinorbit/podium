@@ -26,6 +26,7 @@
  * finite snapshot and takes back which rows were consumed.
  */
 
+import { createLogger } from '@podium/logger'
 import type { SessionMeta } from '@podium/model'
 import type { MessageRow } from '../../store'
 import type { MessagePageCursor, MessagesRepository } from '../../store/messages'
@@ -36,6 +37,8 @@ import {
   type DeliveryTarget,
   deliveryTargetKey,
 } from './targets'
+
+const log = createLogger('server:messages')
 
 /** The low-frequency sweep remains a bounded safety net while event coverage is
  * proven. One pass never revisits an unbounded historical queue. [spec:SP-c29e] */
@@ -389,7 +392,7 @@ export class DeliveryScheduler {
    *  reports here, which is the reason they are one owner. */
   recordTriggerFailure(context: string, error: unknown): void {
     this.triggerFailures += 1
-    console.warn(`[podium] message delivery trigger failed (${context})`, error)
+    log.warn('message delivery trigger failed', { err: error, context })
   }
 
   deliveryStats(): MessageDeliveryStats {

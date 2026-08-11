@@ -1,25 +1,29 @@
+import { createLogger } from '@podium/logger'
 import {
   type AccountId,
   type AgentKind,
   type AgentRuntimeState,
   type Attribution,
   type ConversationId,
+  FIRST_ADMIN_USER_ID,
   type Geometry,
   type IssueId,
   type MachineId,
-  type SessionId,
-  type UserId,
   type ResumeRef,
+  type SessionId,
   type SessionMeta,
-  type SessionUserOverlay,
   type SessionOffer,
   type SessionOrigin,
+  type SessionUserOverlay,
+  type UserId,
   type WorkState,
+  WorkState as WorkStateSchema,
 } from '@podium/model'
-import { FIRST_ADMIN_USER_ID, WorkState as WorkStateSchema } from '@podium/model'
 import type { ControlMessage, SessionObservationCheckpointV1 } from '@podium/protocol'
 import type { SessionRow } from '../../store'
 import { SessionTerminal, type SessionTerminalState } from './terminal'
+
+const log = createLogger('server:sessions')
 
 export type Send<T> = (msg: T) => void
 
@@ -363,7 +367,7 @@ export class Session {
     this.stopReason ??= 'exited'
     // Re-arm unread for every reader (POD-1076): the registry owns the rows.
     this.onUnreadRearm?.()
-    console.warn(`[podium] spawn failed for ${this.sessionId}: ${message}`)
+    log.warn('spawn failed', { sessionId: this.sessionId, reason: message })
     this.terminal.broadcast({ type: 'agentExit', sessionId: this.sessionId, code: -1 })
   }
 

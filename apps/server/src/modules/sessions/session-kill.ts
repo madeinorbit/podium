@@ -18,6 +18,7 @@
  * Dispose: none.
  */
 
+import { createLogger } from '@podium/logger'
 import type { SessionId } from '@podium/model'
 import type { ControlMessage, MetadataChange } from '@podium/protocol'
 import type { EntityChangeSpec } from '@podium/sync'
@@ -30,6 +31,8 @@ import type { SessionDaemonProjection } from './daemon-projection'
 import type { SessionRepository } from './repository'
 import type { Session } from './session'
 import type { SessionStateService } from './session-state/service'
+
+const log = createLogger('server:sessions')
 
 export type KillLedger = {
   commit<T>(op: { write: () => T; changes: (result: T) => EntityChangeSpec[] }): {
@@ -67,7 +70,7 @@ export class SessionKill {
     try {
       this.ports.bus.emit('issue.sessionDerived', { kind: 'reapDraft', issueId })
     } catch (err) {
-      console.warn(`[podium:issues] draft-issue reap failed for ${issueId}:`, err)
+      log.warn('draft-issue reap failed', { err, issueId })
     }
   }
 
@@ -89,10 +92,7 @@ export class SessionKill {
   /** Runtime half of a durable session removal. Issue-owned tombstones can be
    * restored and therefore use generic process kill; standalone deletion is
    * terminal and emits the distinct binding-retirement instruction. */
-  removeSessionRuntime(
-    sessionId: SessionId,
-    terminalRetirement?: { retiredAt: string },
-  ): void {
+  removeSessionRuntime(sessionId: SessionId, terminalRetirement?: { retiredAt: string }): void {
     const session = this.ports.sessions.get(sessionId)
     // The issues service owns the per-session Git attribution ledger. Notify it
     // while membership/cwd are still resolvable, before this removal.
@@ -127,7 +127,6 @@ export class SessionKill {
     for (const c of this.ports.clients.values()) c.attached.delete(sessionId)
     this.ports.repository.forget(sessionId)
   }
-
 
   killSession(input: { sessionId: SessionId }): void {
     const session = this.ports.sessions.get(input.sessionId)

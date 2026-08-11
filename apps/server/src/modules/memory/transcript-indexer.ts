@@ -1,8 +1,11 @@
 import { open } from 'node:fs/promises'
+import { createLogger } from '@podium/logger'
 import { machineScopedKey } from '@podium/model'
 import { claudeRecordToItems } from '@podium/transcript'
 import type { TranscriptMirrorRepository } from '../../store/conversations/mirror'
 import type { TranscriptIndexRepository } from '../../store/conversations/transcript-index'
+
+const log = createLogger('server:memory')
 
 /** Pacing knobs, mirroring MirrorServiceOptions (transcript-mirror spec §2.3
  *  "Pacing"). Defaults are the production posture; tests inject 0-delay /
@@ -65,7 +68,7 @@ export class TranscriptIndexer {
   /**
    * Set by {@link dispose}. The index loop is paced, so a shutdown almost always
    * lands mid-window: without this the next turn resumed, appended to a SQLite
-   * handle its owner had already closed, and console.warn'd the failure after
+   * handle its owner had already closed, and warned about the failure after
    * the server reported a clean stop (POD-1101 / POD-1390).
    */
   private stopped = false
@@ -217,7 +220,7 @@ export class TranscriptIndexer {
           if (this.stopped) return
           // Unreadable lake file / SQLite error: cursor untouched, the next
           // mirrored chunk or backfill sweep retries the same window.
-          console.warn(`[podium] transcript index failed for ${nativeId}:`, err)
+          log.warn('transcript index failed', { err, nativeId })
           return
         }
         if (pass) pass.remainingBytes -= consumed

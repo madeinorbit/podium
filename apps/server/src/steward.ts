@@ -1,3 +1,4 @@
+import { createLogger } from '@podium/logger'
 import type { IssueComment, IssueWire, SessionId, SessionMeta, UserId } from '@podium/model'
 import { asSessionId, spawnedByParentSessionId } from '@podium/model'
 import type { PodiumSettings } from '@podium/runtime'
@@ -7,6 +8,8 @@ import type { IssueService } from './modules/issues/service'
 import { findSessionById } from './modules/sessions/session-by-id'
 import type { SessionStore, Subscription } from './store'
 import { NotificationArbiter } from './store/notification-facts'
+
+const log = createLogger('server:steward')
 
 /** One row read back from the durable event log (`podium_events`). */
 export interface StewardEvent {
@@ -442,7 +445,7 @@ export class StewardService {
     if (raw !== undefined) {
       const cursor = Number(raw)
       if (Number.isFinite(cursor)) return cursor
-      console.warn(`[podium:steward] corrupt cursor ${JSON.stringify(raw)} — re-seeding to now`)
+      log.warn('corrupt cursor — re-seeding to now', { cursor: raw })
     }
     const seeded = this.deps.store.maxEventId()
     this.deps.store.setStewardState(CURSOR_KEY, String(seeded))
@@ -495,7 +498,7 @@ export class StewardService {
         }
       } catch (err) {
         deliveryFailed = true
-        console.warn(`[podium:steward] handler for ${key} failed:`, err)
+        log.warn('event handler failed', { err, handler: key })
       }
     }
     // Second pass: the durable subscription model over the SAME polled events. The
@@ -506,7 +509,7 @@ export class StewardService {
       this.dispatchSubscriptions(events)
     } catch (err) {
       deliveryFailed = true
-      console.warn('[podium:steward] subscription dispatch failed:', err)
+      log.warn('subscription dispatch failed', { err })
     }
     // Retire after dispatch so the close transition itself can be announced, but
     // no recipient-scoped fact for the closed issue survives the tick.
@@ -519,7 +522,7 @@ export class StewardService {
     // re-fires — without shortening the 24h cross-producer TTL ceiling.
     this.retireClearedConditions(events)
     if (deliveryFailed) {
-      console.warn('[podium:steward] holding cursor — delivery failed; will retry the same window')
+      log.warn('holding the cursor — delivery failed; will retry the same window')
       return
     }
     this.deps.store.setStewardState(CURSOR_KEY, String(events[events.length - 1]!.id))
@@ -635,7 +638,7 @@ export class StewardService {
             this.deliverSubscription(sub, e, sessions)
           }
         } catch (err) {
-          console.warn(`[podium:steward] subscription ${sub.id} failed:`, err)
+          log.warn('subscription failed', { err, subscriptionId: sub.id })
         }
       }
     }
@@ -761,7 +764,7 @@ export class StewardService {
             : this.deps.issues.getMeta(sub.subscriberId)?.ownerUserId
         if (ownerUserId) this.deps.notify?.(ownerUserId, subscriptionNotice(sub, e))
       } catch (err) {
-        console.warn(`[podium:steward] notify for subscription ${sub.id} failed:`, err)
+        log.warn('subscription notify failed', { err, subscriptionId: sub.id })
       }
     }
   }

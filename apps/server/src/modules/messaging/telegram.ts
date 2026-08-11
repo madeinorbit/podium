@@ -1,3 +1,4 @@
+import { createLogger } from '@podium/logger'
 import type { TelegramConfig } from '../../notify'
 import {
   escapeChunkCounterSuffix,
@@ -5,12 +6,9 @@ import {
   isTelegramMarkdownParseError,
   stripTelegramMarkdownV2,
 } from './telegram-markdown'
-import type {
-  ChannelAdapter,
-  ConversationRef,
-  InboundChatMessage,
-  SendOptions,
-} from './types'
+import type { ChannelAdapter, ConversationRef, InboundChatMessage, SendOptions } from './types'
+
+const log = createLogger('server:messaging')
 
 /** Telegram caps sendMessage at 4096 UTF-16 code units; split below it so the
  *  " (n/m)" counter never overflows a chunk. JS string.length IS UTF-16 code
@@ -148,7 +146,12 @@ export function chunkTelegramText(text: string, limit = SPLIT_THRESHOLD): string
   return chunks
 }
 
-type TelegramApiBody = { ok?: boolean; description?: string; result?: unknown; parameters?: unknown }
+type TelegramApiBody = {
+  ok?: boolean
+  description?: string
+  result?: unknown
+  parameters?: unknown
+}
 
 /**
  * Telegram transport [spec:SP-5d81]: long-polls getUpdates on the notification
@@ -180,8 +183,11 @@ export class TelegramChannel implements ChannelAdapter {
     return this.acceptChat?.(chatId) ?? chatId === this.config.chatId.trim()
   }
 
-
-  private async call(method: string, body?: unknown, signal?: AbortSignal): Promise<TelegramApiBody> {
+  private async call(
+    method: string,
+    body?: unknown,
+    signal?: AbortSignal,
+  ): Promise<TelegramApiBody> {
     const res = await fetch(this.api(method), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -204,7 +210,7 @@ export class TelegramChannel implements ChannelAdapter {
     this.stopped = false
     this.abort = new AbortController()
     this.loop = this.pollLoop(onMessage).catch((err) => {
-      console.warn('[podium:messaging] telegram poll loop died:', err)
+      log.warn('telegram poll loop died', { err })
     })
   }
 
@@ -222,7 +228,7 @@ export class TelegramChannel implements ChannelAdapter {
       if (lastUpdateId !== undefined) this.offset = lastUpdateId + 1
     } catch (err) {
       if (this.stopped) return
-      console.warn('[podium:messaging] telegram initial offset fetch failed:', err)
+      log.warn('telegram initial offset fetch failed', { err })
     }
     while (!this.stopped) {
       if (this.paused()) {
@@ -306,7 +312,8 @@ export class TelegramChannel implements ChannelAdapter {
       name: name.slice(0, 128),
     })
     const threadId = (body.result as { message_thread_id?: unknown } | undefined)?.message_thread_id
-    if (typeof threadId !== 'number') throw new Error('createForumTopic returned no message_thread_id')
+    if (typeof threadId !== 'number')
+      throw new Error('createForumTopic returned no message_thread_id')
     return { threadRef: String(threadId) }
   }
 

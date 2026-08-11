@@ -7,11 +7,12 @@
  * resolved by the repos aggregate; the resolver is injected.
  */
 
+import { createLogger } from '@podium/logger'
 import {
-  isIssueClosed,
-  isIssueColorSlot,
   type IssueId,
   IssueStage,
+  isIssueClosed,
+  isIssueColorSlot,
   type MachineId,
   type RepoId,
   type SessionId,
@@ -21,6 +22,8 @@ import { letterForIndex } from '@podium/protocol'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import { parseStringArray, requireUserId } from './helpers'
 import type { IssueCommentRow, IssueMessageRow, IssueRow, StoredIssueUserState } from './types'
+
+const log = createLogger('server:store')
 
 export class IssuesRepository {
   /** Rows skipped by the last {@link listIssueRows} because they were
@@ -409,9 +412,7 @@ export class IssuesRepository {
           if (typeof r.id !== 'string') continue
           out.set(r.id, this.mapIssueRow(r))
         } catch (err) {
-          console.error(
-            `[podium] issues: quarantined corrupt row ${JSON.stringify(r.id ?? null)} — skipped (${String(err)})`,
-          )
+          log.error('quarantined a corrupt issue row — skipped', { issueId: r.id ?? null, err })
         }
       }
     }
@@ -461,9 +462,7 @@ export class IssuesRepository {
         out.push(this.mapIssueRow(r))
       } catch (err) {
         this.quarantinedRowCount += 1
-        console.error(
-          `[podium] issues: quarantined corrupt row ${JSON.stringify(r.id ?? null)} — skipped (${String(err)})`,
-        )
+        log.error('quarantined a corrupt issue row — skipped', { issueId: r.id ?? null, err })
       }
     }
     return out
@@ -582,9 +581,14 @@ export class IssuesRepository {
         while (taken.get(repoId, next)) next += 1
         seq = next
         next += 1
-        console.warn(
-          `[podium] issues: repo-id upgrade merged buckets — seq #${r.seq} already taken in ` +
-            `${repoId}; reassigning issue ${r.id} to seq ${seq} (issue ids are unchanged)`,
+        log.warn(
+          'repo-id upgrade merged buckets — reassigning a taken seq (issue ids are unchanged)',
+          {
+            repoId,
+            issueId: r.id,
+            takenSeq: r.seq,
+            reassignedTo: seq,
+          },
         )
       }
       upd.run(repoId, seq, r.id)
@@ -779,7 +783,7 @@ export class IssuesRepository {
   ): { issueId: string; body: string; createdAt: string }[] {
     const q = query.trim()
     if (!q) return []
-    const escaped = '%' + q.replace(/[\%_]/g, (c) => '\\' + c) + '%'
+    const escaped = '%' + q.replace(/[%_]/g, (c) => '\\' + c) + '%'
     const base = `SELECT issue_id, body, created_at FROM issue_comments
       WHERE body LIKE ? ESCAPE '\\' ORDER BY created_at DESC`
     const rows = (

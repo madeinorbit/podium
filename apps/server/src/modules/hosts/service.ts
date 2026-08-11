@@ -1,8 +1,11 @@
+import { createLogger } from '@podium/logger'
 import type { AgentRuntimeState, HostMetricsWire, MachineId, SessionId } from '@podium/model'
 import type { DaemonMessage, LiveServerMessage, ServerMessage } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
 import type { EventBus } from '../bus'
 import { type DaemonRequestPort, daemonRequestKind } from '../daemon-request'
+
+const log = createLogger('server:hosts')
 
 /** The daemon's memoryBreakdownResult, minus wire plumbing (type/requestId). */
 export type MemoryBreakdown = Omit<
@@ -198,9 +201,12 @@ export class HostsService {
         if (!target) break
         if (!this.tryHibernateCandidate(target, failed)) continue
         this.lastAutoHibernateMsByMachine.set(machineId, now)
-        console.info(
-          `[podium] memory ${usedPct.toFixed(0)}% on ${sample.hostname} ≥ ${cfg.memoryPct}% — hibernating idle session ${target.sessionId}`,
-        )
+        log.info('memory pressure — hibernating an idle session', {
+          hostname: sample.hostname,
+          usedPct,
+          thresholdPct: cfg.memoryPct,
+          sessionId: target.sessionId,
+        })
         break
       }
     }
@@ -209,8 +215,7 @@ export class HostsService {
     // the fleet drains and would over-park during recovery. loadPerCore null = off.
     // Re-read the shared cooldown after the memory branch so dual pressure parks once.
     const load = sample.load
-    const loadPerCore =
-      load && load.cpuCount > 0 ? load.one / load.cpuCount : undefined
+    const loadPerCore = load && load.cpuCount > 0 ? load.one / load.cpuCount : undefined
     const loadReady =
       cfg.loadPerCore !== null &&
       loadPerCore !== undefined &&
@@ -229,9 +234,12 @@ export class HostsService {
         if (!target) break
         if (!this.tryHibernateCandidate(target, failed)) continue
         this.lastAutoHibernateMsByMachine.set(machineId, now)
-        console.info(
-          `[podium] load ${loadPerCore.toFixed(2)}×/core on ${sample.hostname} ≥ ${cfg.loadPerCore}× — hibernating idle session ${target.sessionId}`,
-        )
+        log.info('load pressure — hibernating an idle session', {
+          hostname: sample.hostname,
+          loadPerCore,
+          thresholdPerCore: cfg.loadPerCore,
+          sessionId: target.sessionId,
+        })
         break
       }
     }
@@ -327,9 +335,11 @@ export class HostsService {
       if (!target) return undefined
       if (!this.tryHibernateCandidate(target, failed)) continue
       budget.tokens -= 1
-      console.info(
-        `[podium] idle-session target ${targetCount} on ${this.deps.machineName(machineId)} — hibernating idle session ${target.sessionId}`,
-      )
+      log.info('idle-session target exceeded — hibernating an idle session', {
+        machine: this.deps.machineName(machineId),
+        targetCount,
+        sessionId: target.sessionId,
+      })
     }
   }
 
@@ -358,21 +368,45 @@ export class HostsService {
       failed.add(target.sessionId)
       return
     }
-    console.info(
-      `[podium] idle-shell ${idleShellMinutes}m on ${this.deps.machineName(machineId)} — parking shell session ${target.sessionId}`,
-    )
+    log.info('idle-shell threshold reached — parking a shell session', {
+      machine: this.deps.machineName(machineId),
+      idleShellMinutes,
+      sessionId: target.sessionId,
+    })
   }
 
   /** Last-resort process bound: complete quiet authorizes parking without terminal proof. */
-  private applyIdleBackstop(machineId: string, backstopMinutes: number, now: number, failed: Set<string>): void {
+  private applyIdleBackstop(
+    machineId: string,
+    backstopMinutes: number,
+    now: number,
+    failed: Set<string>,
+  ): void {
     const cutoff = now - backstopMinutes * 60_000
     const target = [...this.deps.sessions()]
-      .filter((session) => session.machineId === machineId && session.status === 'live' && !failed.has(session.sessionId) && this.fullyQuietSinceMs(session) <= cutoff && !this.deps.hasScheduledWakeup(session.sessionId, now))
+      .filter(
+        (session) =>
+          session.machineId === machineId &&
+          session.status === 'live' &&
+          !failed.has(session.sessionId) &&
+          this.fullyQuietSinceMs(session) <= cutoff &&
+          !this.deps.hasScheduledWakeup(session.sessionId, now),
+      )
       .sort((a, b) => this.fullyQuietSinceMs(a) - this.fullyQuietSinceMs(b))[0]
     if (!target) return
-    const result = target.agentKind === 'shell' ? this.deps.parkShellSession({ sessionId: target.sessionId }) : this.deps.parkStaleSession({ sessionId: target.sessionId })
-    if (!result.ok) { failed.add(target.sessionId); return }
-    console.info(`[podium] idle backstop ${backstopMinutes}m on ${this.deps.machineName(machineId)} — parking session ${target.sessionId}`)
+    const result =
+      target.agentKind === 'shell'
+        ? this.deps.parkShellSession({ sessionId: target.sessionId })
+        : this.deps.parkStaleSession({ sessionId: target.sessionId })
+    if (!result.ok) {
+      failed.add(target.sessionId)
+      return
+    }
+    log.info('idle backstop reached — parking a session', {
+      machine: this.deps.machineName(machineId),
+      backstopMinutes,
+      sessionId: target.sessionId,
+    })
   }
 
   /**
@@ -424,10 +458,7 @@ export class HostsService {
   }
 
   /** Whether some policy that is currently ON could park this unobserved session. */
-  private unobservedIsParkable(
-    session: HostSessionView,
-    idleShellMinutes: number | null,
-  ): boolean {
+  private unobservedIsParkable(session: HostSessionView, idleShellMinutes: number | null): boolean {
     if (session.agentKind === 'shell') return idleShellMinutes !== null
     return session.resume !== undefined
   }
@@ -466,10 +497,9 @@ export class HostsService {
             !this.missingProofLogged.has(session.sessionId)
           ) {
             this.missingProofLogged.add(session.sessionId)
-            console.warn(
-              '[podium] auto-hibernate skipped terminal candidate ' +
-                session.sessionId +
-                ': missing durable terminal proof (possible mixed-version observer)',
+            log.warn(
+              'auto-hibernate skipped a terminal candidate — missing durable terminal proof (possible mixed-version observer)',
+              { sessionId: session.sessionId },
             )
           }
           return false
@@ -477,10 +507,7 @@ export class HostsService {
 
         // Unobserved harness agent with a resume ref: long quiet substitutes for
         // terminal proof — no observer ever ran.
-        if (
-          this.isUnobservedPhase(session) &&
-          this.isFullyQuietFor(session, unknownQuietMs, now)
-        ) {
+        if (this.isUnobservedPhase(session) && this.isFullyQuietFor(session, unknownQuietMs, now)) {
           return true
         }
         return false
@@ -554,9 +581,11 @@ export class HostsService {
     const signature = `${targetCount}:${overage}`
     if (this.lastCapUnmetByMachine.get(machineId) === signature) return
     this.lastCapUnmetByMachine.set(machineId, signature)
-    console.info(
-      `[podium] idle-session cap unmet: ${overage} protected/ineligible on ${this.deps.machineName(machineId)} (target ${targetCount})`,
-    )
+    log.info('idle-session cap unmet — protected or ineligible sessions remain', {
+      machine: this.deps.machineName(machineId),
+      overage,
+      targetCount,
+    })
   }
 
   /**
@@ -600,9 +629,13 @@ export class HostsService {
       unparkable > 0
         ? ` — ${unparkable} of them cannot be parked by any policy that is on (shells need idleShellMinutes; agents need a resume ref), so they are NOT in the cap`
         : ''
-    console.info(
-      `[podium] idle-session cap counting ${counted} of ${quiet.length} unobserved quiet session(s) on ${this.deps.machineName(machineId)} (≥${quietHours}h quiet, phase unknown)${tail}`,
-    )
+    log.info('idle-session cap is counting unobserved quiet sessions (phase unknown)', {
+      machine: this.deps.machineName(machineId),
+      counted,
+      quiet: quiet.length,
+      quietHours,
+      ...(unparkable ? { unparkable } : {}),
+    })
   }
 
   private isUnobservedPhase(session: HostSessionView): boolean {

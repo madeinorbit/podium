@@ -43,6 +43,7 @@
  * assertion in the same commit that makes it.
  */
 
+import { createLogger } from '@podium/logger'
 import { asMachineId } from '@podium/model'
 import { transferHandoffPackage } from '../handoff-transfer'
 import { recordHandoff } from './attribution'
@@ -55,6 +56,8 @@ import type {
   HandoffResult,
 } from './ports'
 import type { HandoffPreflightResult } from './preflight'
+
+const log = createLogger('server:sessions')
 
 /** How long the source daemon is given to release the terminal after the kill.
  *  Unchanged value, named and injected so a test does not have to wait it out. */
@@ -358,9 +361,10 @@ export class HandoffTransfer {
           },
         })
         if (!rollback.ok)
-          console.warn(
-            `[podium] handoff rollback failed for ${session.sessionId}: ${rollback.reason}`,
-          )
+          log.warn('handoff rollback failed', {
+            sessionId: session.sessionId,
+            reason: rollback.reason,
+          })
       }
       throw error
     }

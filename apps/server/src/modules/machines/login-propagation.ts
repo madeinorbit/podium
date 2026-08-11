@@ -2,12 +2,15 @@ import {
   harnessPortableCredential,
   harnessSupportsCredentialPropagation,
 } from '@podium/harness/metadata'
+import { createLogger } from '@podium/logger'
 import type { AgentKind, HarnessAgent } from '@podium/model'
 import type { PortableCredentialBundle } from '@podium/protocol'
 import { buildLoginCatalog, catalogEntriesForHarness } from '../../login-catalog'
 import type { SessionStore } from '../../store'
 import type { DaemonRpcService } from './rpc'
 import type { MachinesService } from './service'
+
+const log = createLogger('server:machines')
 
 export const LOGIN_PROPAGATION_MAX_ATTEMPTS = 3
 export const LOGIN_PROPAGATION_INITIAL_BACKOFF_MS = 1_000
@@ -61,10 +64,11 @@ export class LoginPropagationService {
   /** Fire-and-forget trigger used by spawn, harness failure, and enrollment. */
   trigger(input: LoginPropagationTrigger): void {
     void this.propagate(input).catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error)
-      console.warn(
-        `[podium] login propagation failed for ${input.targetMachineId}/${input.agentKind}: ${message}`,
-      )
+      log.warn('login propagation failed', {
+        err: error,
+        targetMachineId: input.targetMachineId,
+        agentKind: input.agentKind,
+      })
     })
   }
 

@@ -37,6 +37,7 @@
  * delivery share its routing keys; the plane ports own their differing policy.
  */
 
+import { createLogger } from '@podium/logger'
 import type { UserId, UserRole } from '@podium/model'
 import {
   CAP_METADATA_DELTA,
@@ -56,6 +57,8 @@ import type { ClientConn, ClientRegistry } from './client-registry'
 import { traceFeedPeer } from './feed-peer-trace'
 import type { FeedServing } from './feed-serving'
 import type { PresenceRouting } from './presence-routing'
+
+const log = createLogger('server:gateway')
 
 /**
  * Per-frame dispatch, TOTAL over `ClientMessage` by construction: the value is a
@@ -277,7 +280,7 @@ export class ClientMux {
     const conn = this.deps.registry.get(id)
     if (!conn) return
     if (clientPlaneClassFor(msg.type) === null || clientPortsFor(msg.type) === null) {
-      console.warn(`[podium] refused unclassified client frame '${msg.type}'`)
+      log.warn('refused an unclassified client frame', { frameType: msg.type })
       return
     }
     const dispatch = DISPATCH[msg.type] as (
@@ -339,7 +342,7 @@ export class ClientMux {
     // its version would start mid-stream.
     this.deps.feed.detach(conn.id)
     conn.entityServingRefused = true
-    console.warn('[podium] client outside the supported wire window; not serving the feed', {
+    log.warn('client is outside the supported wire window — not serving the feed', {
       client: conn.id,
       refusal,
     })
@@ -348,7 +351,7 @@ export class ClientMux {
     const prior = this.deps.registry.get(priorId)
     if (!prior || prior.id === next.id) return
     if (prior.principal.user !== next.principal.user) {
-      console.warn('[podium] refused cross-user client reconnect reclaim', {
+      log.warn('refused a cross-user client reconnect reclaim', {
         prior: prior.id,
         next: next.id,
       })

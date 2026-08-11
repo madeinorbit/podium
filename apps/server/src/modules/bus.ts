@@ -1,12 +1,13 @@
+import { createLogger } from '@podium/logger'
 import type {
   AgentKind,
   AgentRuntimeState,
   ConversationSummaryWire,
+  HarnessAgent,
   HostMetricsWire,
   IssueWire,
   SessionId,
   SessionMeta,
-  HarnessAgent,
   TranscriptItem,
   UserId,
 } from '@podium/model'
@@ -18,6 +19,8 @@ import type {
 } from '@podium/protocol'
 import type { InboxPrincipalReference } from './sessions/inbox'
 import type { HarnessErrorKind } from './superagent/harness-error'
+
+const log = createLogger('server:bus')
 
 /**
  * The typed in-process event map (architecture redesign, issue #13 Phase 2).
@@ -174,7 +177,7 @@ export class EventBus {
       try {
         listener(payload)
       } catch (err) {
-        console.warn(`[podium:bus] listener for '${event}' threw:`, err)
+        log.warn('event listener threw', { err, event })
       }
     }
   }

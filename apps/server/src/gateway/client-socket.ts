@@ -21,11 +21,14 @@
  * is no path here through which a payload value could become a routing identity.
  */
 
+import { createLogger } from '@podium/logger'
 import type { UserId, UserRole } from '@podium/model'
 import { parseClientMessage } from '@podium/protocol'
 import type { SessionRegistry } from '../relay'
 import { CLIENT_PLANE_LIVENESS } from './plane-liveness'
 import { type GatewaySocket, warnDroppedFrame } from './ws-send'
+
+const log = createLogger('server:gateway')
 
 /** How the main authority is resolved for one upgrade, plus its fallbacks. */
 export interface ClientAuthorityOptions {
@@ -54,7 +57,7 @@ export function wireClientSocket(
   auth: ClientAuthorityOptions = {},
 ): string | undefined {
   if (auth.userId === undefined || auth.userRole === undefined) {
-    console.warn('[podium] rejected client with incomplete authenticated account')
+    log.warn('rejected a client with an incomplete authenticated account')
     ws.terminate()
     return undefined
   }

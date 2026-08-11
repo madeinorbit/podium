@@ -23,6 +23,9 @@
  *     alone hangs tests and same-port restarts that `await server.close()`.
  */
 import type { Server } from 'node:http'
+import { createLogger } from '@podium/logger'
+
+const log = createLogger('server:shutdown')
 
 /** Named persistence step; the name is only used in failure logs. */
 export type PersistStep = readonly [name: string, run: () => void]
@@ -54,7 +57,7 @@ export interface CloseServerDeps {
 }
 
 export async function closeServerFast(deps: CloseServerDeps): Promise<void> {
-  const logError = deps.logError ?? ((msg) => console.error(msg))
+  const logError = deps.logError ?? ((msg: string) => log.error(msg))
   const grace = deps.wsCloseGraceMs ?? 250
   const httpGrace = deps.httpCloseGraceMs ?? 250
 
