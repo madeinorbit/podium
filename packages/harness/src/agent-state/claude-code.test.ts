@@ -242,8 +242,10 @@ describe('translateClaudeHookPayload', () => {
   })
 
   it('PermissionRequest / Notification → needs_user permission', async () => {
+    // A bare PermissionRequest still names its tool: `ask` marks the structured
+    // channel, and the subject degrades to the tool name when there is no input.
     expect(await t({ hook_event_name: 'PermissionRequest', tool_name: 'Bash' })).toEqual([
-      { kind: 'needs_user', need: 'permission', summary: 'Bash' },
+      { kind: 'needs_user', need: 'permission', summary: 'Bash', ask: { toolName: 'Bash' } },
     ])
     expect(
       await t({
@@ -257,6 +259,81 @@ describe('translateClaudeHookPayload', () => {
         summary: 'Claude needs your permission to use Bash',
       },
     ])
+  })
+
+  it('PermissionRequest carries the ask subject off tool_input', async () => {
+    expect(
+      await t({
+        hook_event_name: 'PermissionRequest',
+        tool_name: 'Bash',
+        tool_input: { command: 'git worktree add ../wt', description: 'Create a worktree' },
+      }),
+    ).toEqual([
+      {
+        kind: 'needs_user',
+        need: 'permission',
+        summary: 'Bash',
+        // `command`, not `description`: the command is what is being consented to.
+        ask: { toolName: 'Bash', detail: 'git worktree add ../wt' },
+      },
+    ])
+  })
+
+  it('flags an always-allow offer without naming which rule', async () => {
+    const [event] = await t({
+      hook_event_name: 'PermissionRequest',
+      tool_name: 'Bash',
+      tool_input: { command: 'ls' },
+      permission_suggestions: [
+        { type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'ls:*' }], behavior: 'allow' },
+      ],
+    })
+    expect(event).toMatchObject({ ask: { canAlwaysAllow: true } })
+    // The rules themselves never cross the boundary — only that one exists.
+    expect(JSON.stringify(event)).not.toContain('ruleContent')
+  })
+
+  it('collapses a multi-line command and bounds a long one', async () => {
+    const [multi] = await t({
+      hook_event_name: 'PermissionRequest',
+      tool_name: 'Bash',
+      tool_input: { command: 'cat <<EOF\nline one\nline two\nEOF' },
+    })
+    expect(multi).toMatchObject({ ask: { detail: 'cat <<EOF line one line two EOF' } })
+
+    const [long] = await t({
+      hook_event_name: 'PermissionRequest',
+      tool_name: 'Write',
+      tool_input: { file_path: `/tmp/${'a'.repeat(400)}` },
+    })
+    const detail = (long as { ask?: { detail?: string } }).ask?.detail ?? ''
+    expect(detail).toHaveLength(300)
+    expect(detail.endsWith('…')).toBe(true)
+  })
+
+  it('omits the subject when the input matches no known field, rather than guessing', async () => {
+    expect(
+      await t({
+        hook_event_name: 'PermissionRequest',
+        tool_name: 'mcp__linear__create_issue',
+        tool_input: { teamId: 'abc', priority: 2 },
+      }),
+    ).toEqual([
+      {
+        kind: 'needs_user',
+        need: 'permission',
+        summary: 'mcp__linear__create_issue',
+        ask: { toolName: 'mcp__linear__create_issue' },
+      },
+    ])
+  })
+
+  it('the Notification fallback reports no subject — it never carries the tool call', async () => {
+    const [event] = await t({
+      hook_event_name: 'Notification',
+      message: 'Claude needs your permission to use Bash',
+    })
+    expect(event).not.toHaveProperty('ask')
   })
 
   it('StopFailure → turn_failed; retryable only for transient classes', async () => {

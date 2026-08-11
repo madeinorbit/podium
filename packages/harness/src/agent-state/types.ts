@@ -1,4 +1,4 @@
-import type { AgentRuntimeState } from '@podium/model'
+import type { AgentPermissionAsk, AgentRuntimeState } from '@podium/model'
 
 /** State-channel provenance. Confidence orders competing observations; source never names a person. */
 export type AgentStateEventSource = 'hook' | 'poll' | 'classifier'
@@ -20,7 +20,15 @@ export type AgentStateEvent = (
   | { kind: 'prompt_submitted' }
   /** Liveness heartbeat (tool use etc.) — anything that proves the agent is computing. */
   | { kind: 'activity' }
-  | { kind: 'needs_user'; need: 'question' | 'permission'; summary?: string }
+  /** `ask` is the permission subject (tool + what it would do), carried only by a
+   *  provider whose permission channel reports it — Claude Code's
+   *  `PermissionRequest` hook does; its `Notification` fallback does not. */
+  | {
+      kind: 'needs_user'
+      need: 'question' | 'permission'
+      summary?: string
+      ask?: AgentPermissionAsk
+    }
   /** Turn ended cleanly. The verdict is the PROVIDER's — only an adapter that
    *  actually observed the agent's task list may report 'open_todos' (Claude
    *  Code's classifier does, off TaskCreate/TaskUpdate and legacy TodoWrite;

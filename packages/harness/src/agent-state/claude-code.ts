@@ -144,6 +144,57 @@ function str(v: unknown): string | undefined {
   return typeof v === 'string' && v.length > 0 ? v : undefined
 }
 
+/** A permission card is one line wide, and a tool input can be a whole file. */
+const PERMISSION_DETAIL_MAX = 300
+
+/**
+ * The field of a tool's input that says what the tool would DO.
+ *
+ * Ordered, not merged: `Bash` carries both `command` and `description`, and the
+ * command is the thing being consented to. A tool whose input matches nothing
+ * here yields no detail rather than a guess — an approval line that describes
+ * the wrong field is worse than one that describes none, so the card falls back
+ * to the tool name alone.
+ */
+const PERMISSION_DETAIL_KEYS = [
+  'command',
+  'file_path',
+  'path',
+  'url',
+  'pattern',
+  'query',
+  'notebook_path',
+  'prompt',
+]
+
+/** Collapse the newlines out of a heredoc/multi-line command so one ask stays one line. */
+function oneLine(value: string): string {
+  const flat = value.replace(/\s+/g, ' ').trim()
+  return flat.length > PERMISSION_DETAIL_MAX ? `${flat.slice(0, PERMISSION_DETAIL_MAX - 1)}…` : flat
+}
+
+function permissionDetail(toolInput: unknown): string | undefined {
+  if (typeof toolInput !== 'object' || toolInput === null) return undefined
+  const input = toolInput as Record<string, unknown>
+  for (const key of PERMISSION_DETAIL_KEYS) {
+    const value = str(input[key])
+    if (value) return oneLine(value)
+  }
+  return undefined
+}
+
+/**
+ * Did the harness offer an "always allow" alongside this ask?
+ *
+ * `permission_suggestions` is a list of RULE MUTATIONS (addRules / replaceRules /
+ * setMode / addDirectories …), which is what the native menu's "yes, and don't
+ * ask again" rows commit. Only their EXISTENCE is reported — see
+ * {@link AgentPermissionAsk} for why their key positions are not usable.
+ */
+function offersAlwaysAllow(suggestions: unknown): boolean {
+  return Array.isArray(suggestions) && suggestions.length > 0
+}
+
 export async function translateClaudeHookPayload(payload: unknown): Promise<AgentStateEvent[]> {
   if (typeof payload !== 'object' || payload === null) return []
   const p = payload as Record<string, unknown>
@@ -163,11 +214,33 @@ export async function translateClaudeHookPayload(payload: unknown): Promise<Agen
     case 'PostToolUse':
       return [{ kind: 'activity' }]
     case 'PermissionRequest': {
+      // The ONE channel that says what is being asked. `tool_input` and
+      // `permission_suggestions` are on the payload (bundle 2.1.226 pins the
+      // schema: hook_event_name / tool_name / tool_input /
+      // permission_suggestions?) and used to be dropped here, which is why the
+      // web chat could only ever render "needs permission" with no subject.
       const summary = str(p.tool_name)
-      return [{ kind: 'needs_user', need: 'permission', ...(summary ? { summary } : {}) }]
+      const detail = permissionDetail(p.tool_input)
+      const ask = summary
+        ? {
+            toolName: summary,
+            ...(detail ? { detail } : {}),
+            ...(offersAlwaysAllow(p.permission_suggestions) ? { canAlwaysAllow: true } : {}),
+          }
+        : undefined
+      return [
+        {
+          kind: 'needs_user',
+          need: 'permission',
+          ...(summary ? { summary } : {}),
+          ...(ask ? { ask } : {}),
+        },
+      ]
     }
     case 'Notification': {
       // Settings subscribe matcher=permission_prompt only, so anything arriving is one.
+      // No `ask`: this channel carries a rendered message, not the tool call, so
+      // there is nothing here to build a faithful subject from.
       const summary = str(p.message)
       return [{ kind: 'needs_user', need: 'permission', ...(summary ? { summary } : {}) }]
     }

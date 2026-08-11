@@ -161,6 +161,7 @@ export function reduceAgentState(
         need: {
           kind: event.need,
           ...(event.summary !== undefined ? { summary: event.summary } : {}),
+          ...(event.ask !== undefined ? { ask: event.ask } : {}),
         },
       }
     case 'turn_completed': {

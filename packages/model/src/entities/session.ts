@@ -109,9 +109,40 @@ export const IdleVerdict = z.object({
 })
 export type IdleVerdict = z.infer<typeof IdleVerdict>
 
+/**
+ * WHAT A PERMISSION ASK IS ABOUT — the half of the ask Podium used to throw away.
+ *
+ * Claude Code's `PermissionRequest` hook carries `tool_name`, the full
+ * `tool_input`, and a `permission_suggestions` list of rule mutations; the
+ * translator kept only the tool name, as {@link AgentNeed.summary}. A card that
+ * says "Bash wants permission" and nothing else is not something a person can
+ * decide on, so the ask now carries its subject too.
+ *
+ * `detail` is DERIVED AND BOUNDED, not the raw input: tool inputs are unbounded
+ * and routinely carry whole file contents, so shipping `tool_input` verbatim
+ * would put arbitrary payload on the wire — and into every client's memory — to
+ * fill one line of a card. The harness renders the single field that identifies
+ * the act (the command, the path, the URL) and truncates it.
+ *
+ * `canAlwaysAllow` records only WHETHER the harness offered "don't ask again"
+ * rules, never which one. The native menu's always-allow rows are conditional
+ * and ordered differently per tool, so their KEY POSITION cannot be predicted;
+ * this flag exists so the UI can say that option lives in the terminal — not so
+ * it can press it. See `docs/agents/evidence/pod-707-permission-menu.md`.
+ */
+export const AgentPermissionAsk = z.object({
+  toolName: z.string(),
+  detail: z.string().optional(),
+  canAlwaysAllow: z.boolean().optional(),
+})
+export type AgentPermissionAsk = z.infer<typeof AgentPermissionAsk>
+
 export const AgentNeed = z.object({
   kind: z.enum(['question', 'permission']),
   summary: z.string().optional(),
+  /** Present only for `kind: 'permission'`, and only from a harness that reports
+   *  the subject. Optional: an older daemon emits the bare kind + summary. */
+  ask: AgentPermissionAsk.optional(),
 })
 export type AgentNeed = z.infer<typeof AgentNeed>
 
