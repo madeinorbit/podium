@@ -14,6 +14,12 @@ import {
 
 beforeEach(() => {
   resetLevels()
+  // Explicitly empty, not merely reset: `resetLevels` clears the cached env and
+  // the NEXT resolve re-reads the ambient one. Verified to matter — with
+  // PODIUM_LOG="*=error" exported, 'sets and clears a single namespace
+  // override' fails without this line. The env-reading behaviour has its own
+  // block below, which passes env in explicitly.
+  configureLevelsFromEnv({})
 })
 
 describe('parseNamespaceSpec', () => {
