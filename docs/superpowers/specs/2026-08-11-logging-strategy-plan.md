@@ -75,9 +75,10 @@ unchanged; `podium logs` works in both modes.
 
 ## Chunk 3 — Client log ingestion and crash events
 
-**Blockers:** chunk 1 (not 2 — ingestion writes via the same node sinks but
-can land in parallel once 1 is in; if 2 is unmerged, coordinate on the
-subpath). **Server-side only; no client changes.**
+**Blockers:** chunks 1 and 2. Chunk 3 needs chunk 2's `@podium/logger/node`
+file sink for its per-origin rotating files, and both would otherwise edit
+`logsCommand`; chunk 2 owns that file. **Server-side only; no client
+changes.**
 
 - Authenticated tRPC endpoints: `logs.forward` (batch of records, bounded
   size, tagged with client role/version/machine) and `logs.crash` (error +

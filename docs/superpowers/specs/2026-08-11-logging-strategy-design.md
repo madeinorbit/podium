@@ -250,9 +250,38 @@ scrubbing is unchanged, and there remains exactly one scrubbing path.
 - Afterward, a lint boundary forbids raw `console.*` outside the CLI output
   paths and the logger package itself, so it cannot creep back.
 
+### Sink async contract and lifecycle (addendum, ratified after the chunk-1 review)
+
+`write(record)` is synchronous and returns void, and it **must never
+reject**. Fail-open dispatch can only catch synchronous throws, so a sink
+that rejects asynchronously would escape isolation entirely, surface as an
+`unhandledRejection`, and not be disabled — the precise failure the
+"logging never breaks the app" rule exists to prevent. **A sink owns its own
+async errors**, including its own retry, disable and degrade behaviour.
+
+`Sink` therefore also carries two optional lifecycle members:
+
+- `flush?(): Promise<void>` — drain buffered writes. Needed for shutdown
+  drain (chunk 2) and flush-before-crash-ship (chunks 3 and 4).
+- `close?()` — release the sink's resources.
+
+Concretely: the file sink's ENOSPC degrade is swallowed inside the sink and
+falls back to console; the forwarding sink's network failures never leave
+its own boundary.
+
+### Console sink default (addendum, ratified after the chunk-1 review)
+
+The sink table above says the console sink defaults to `warn` in prod and
+`debug` in dev. In the implementation the console sink **follows config**
+rather than baking in a threshold. The browser's `warn` default is therefore
+a boot-time `setLogLevel` call in the client, not a property of the sink —
+chunk 4 must set it explicitly rather than assume it.
+
 ## Error handling
 
 - Sinks fail open and independently; one broken sink never affects others.
+  Asynchronous failures are the sink's own responsibility (see the sink
+  async contract addendum) — dispatch cannot see them.
 - The forwarding sink degrades to drop-oldest under backpressure and retries
   with jittered backoff; it must not create log-about-logging loops (its own
   failures log at most once per interval, locally only).
@@ -271,17 +300,19 @@ scrubbing is unchanged, and there remains exactly one scrubbing path.
 
 ## Decomposition (implementation sub-issues)
 
-1. `@podium/logger` core + console/ring-buffer sinks + level/env control.
-2. File sink with rotation + stdout/systemd mode + server/daemon/janitor/CLI
-   adoption of the logger at boot.
-3. Server ingestion: forwarding endpoint, per-origin client log files, crash
-   event storage + retention + export command.
-4. Web + desktop webview wiring: global handlers, forwarding sink,
-   ErrorBoundary component-stack fix.
-5. Mobile + Tauri Rust wiring: `ErrorUtils`, panic hook, Rust log bridge.
-6. Crash-tier wiring: safety net → logger → `recordCrash`; scrubber
-   round-trip test.
-7. Console sweep + lint boundary (last, after the API is proven).
+**Superseded — the plan is authoritative.** This section originally listed
+seven items; the crash-tier wiring became part of chunk 3 rather than a
+chunk of its own, and chunks 2 and 3 turned out to be strictly sequential.
+See the sequencing table in
+`2026-08-11-logging-strategy-plan.md`, which carries the live decomposition
+and blocker lineage:
 
-Each is independently shippable in that order; 1 blocks all, 3 blocks 4–6's
-delivery paths (handlers can land before ingestion with buffer-only mode).
+| # | Chunk | Issue |
+|---|---|---|
+| 1 | Logger core package | POD-1900 |
+| 2 | Server log sinks and rotation | POD-1901 |
+| 3 | Crash events and log ingestion (incl. the `recordCrash` wiring) | POD-1902 |
+| 4 | Web crash and log capture | POD-1903 |
+| 5 | Mobile and Tauri log capture | POD-1904 |
+| — | Epic review fixes | POD-1906 |
+| 6 | Console sweep and lint gate | POD-1905 |
