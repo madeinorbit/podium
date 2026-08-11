@@ -377,16 +377,14 @@ describe('test lane configuration', () => {
     expect(root.scripts['test:perf:sync']).toBe(
       'bun run --cwd packages/sync test:perf:apply-scaling',
     )
-    expect(sync.scripts['test:perf:apply-scaling']).toContain(
-      'validation-admission.ts heavy',
-    )
+    expect(sync.scripts['test:perf:apply-scaling']).toContain('validation-admission.ts heavy')
   })
 
   it('routes the default unit lane through cached package tasks', () => {
     const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
       scripts: Record<string, string>
     }
-    expect(pkg.scripts.test).toBe('bun scripts/test.ts')
+    expect(pkg.scripts.test).toBe('bun run typecheck && bun scripts/test.ts')
     expect(pkg.scripts['test:unit']).toBe('bun scripts/test.ts')
     expect(pkg.scripts.test).not.toContain('vitest.unit.config.ts')
     expect(pkg.scripts.test).not.toContain('test:web')
@@ -412,6 +410,7 @@ describe('test lane configuration', () => {
     }
     expect(pkg.scripts['test:perf:frontend']).toBe('bun run --cwd apps/web test:perf:large-state')
     expect(pkg.scripts['test:e2e']).toContain('NODE_OPTIONS=--conditions=@podium/source')
+    expect(pkg.scripts['test:agent']).toContain('bun run typecheck &&')
     expect(pkg.scripts['test:smoke:agents']).toContain('PODIUM_REAL_CLI=1')
     expect(pkg.scripts['test:agent']).toContain('--maxWorkers=1')
     expect(pkg.scripts['test:agent']).not.toContain('validation-admission.ts')
@@ -459,6 +458,13 @@ describe('test lane configuration', () => {
       }
       for (const [name, script] of Object.entries(pkg.scripts ?? {})) {
         if (!/^(test|typecheck)(?::|$)/.test(name)) continue
+        if (/^typecheck(?::|$)/.test(name)) {
+          expect(
+            script,
+            `${pkg.name ?? file.pathname}#${name} must stay admission-free`,
+          ).not.toContain('validation-admission.ts')
+          continue
+        }
         expect(
           script,
           `${pkg.name ?? file.pathname}#${name} bypasses validation admission`,
@@ -545,12 +551,10 @@ describe('test lane configuration', () => {
       await runWithHeavyTestLease(['bash', '-c', 'exit 0'], { cwd: fileURLToPath(repoRoot) }),
     ).toBe(0)
 
-    // …and that either selected admission path is awaited inside process.exit(), rather
-    // than having its result computed and dropped.
+    // Both the lock-free focused child and heavy full-graph path must propagate red.
     const source = readFileSync(new URL('./test.ts', import.meta.url), 'utf8')
-    expect(source).toMatch(
-      /process\.exit\(\s*admission\.shared\s*\?\s*await runWithValidationAdmission\([\s\S]*?:\s*await runWithHeavyTestLease\(/,
-    )
+    expect(source).toContain('process.exit(await proc.exited)')
+    expect(source).toMatch(/process\.exit\(\s*await runWithHeavyTestLease\(/)
   })
 
   it('reports every lane without running anything on a failed dependency [POD-520]', () => {
@@ -616,7 +620,6 @@ describe('test lane configuration', () => {
     expect(lane).toMatch(/resolveSelectedSuites|suiteSelectors/)
   })
 
-
   it('keeps webServer budget for harness boot only [POD-535]', () => {
     // Builds left this command; serve-harness answers /health in ~5s. A multi-
     // minute floor would re-invite stuffing builds back into webServer.
@@ -624,9 +627,10 @@ describe('test lane configuration', () => {
       const { timeout, command } = webServerEntry(playwright)
       expect(command).toContain('serve-harness.ts')
       expect(timeout, 'webServer timeout missing').toBeTypeOf('number')
-      expect(timeout!, 'harness-only boot should not need a multi-minute budget').toBeLessThanOrEqual(
-        180_000,
-      )
+      expect(
+        timeout!,
+        'harness-only boot should not need a multi-minute budget',
+      ).toBeLessThanOrEqual(180_000)
       expect(timeout!, 'harness-only boot still needs some headroom').toBeGreaterThanOrEqual(60_000)
     }
   })

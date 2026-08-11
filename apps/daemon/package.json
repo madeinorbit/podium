@@ -17,8 +17,8 @@
     "ws": "^8.18.0"
   },
   "scripts": {
-    "typecheck": "bun ../../scripts/validation-admission.ts typecheck --label @podium/daemon:typecheck -- tsgo --noEmit",
-    "typecheck:tsc": "bun ../../scripts/validation-admission.ts typecheck --label @podium/daemon:typecheck:tsc -- tsc --noEmit",
+    "typecheck": "tsgo --noEmit",
+    "typecheck:tsc": "tsc --noEmit",
     "test": "bun ../../scripts/validation-admission.ts focused --label @podium/daemon:test -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests"
   },
   "devDependencies": {

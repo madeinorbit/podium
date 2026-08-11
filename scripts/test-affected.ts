@@ -30,8 +30,8 @@
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { runWithHeavyTestLease } from './test-heavy'
-import { fingerprint, readCensus } from './typecheck'
+
+import { readCensus, turboEnv } from './typecheck'
 
 /** Runs a git command, returning trimmed stdout, or null if git exited non-zero. */
 export type Git = (args: string[]) => string | null
@@ -290,7 +290,7 @@ async function main() {
   const turboBin = join(root, 'node_modules', '.bin', 'turbo')
   const dry = Bun.spawnSync([turboBin, 'run', 'test', '--concurrency=1', '--dry=json'], {
     cwd: root,
-    env: { ...process.env, PODIUM_CHECK_ENV_HASH: fingerprint(census) },
+    env: turboEnv(root, census),
   })
   if (dry.exitCode !== 0) {
     console.error(
@@ -329,15 +329,15 @@ async function main() {
     process.exit(1)
   }
 
-  process.exit(
-    await runWithHeavyTestLease(
-      [turboBin, 'run', 'test', '--concurrency=1', `--filter=...[${decision.base}]`, ...forward],
-      {
-        cwd: root,
-        env: { ...process.env, PODIUM_CHECK_ENV_HASH: fingerprint(census) },
-      },
-    ),
+  const proc = Bun.spawn(
+    [turboBin, 'run', 'test', '--concurrency=1', `--filter=...[${decision.base}]`, ...forward],
+    {
+      cwd: root,
+      stdio: ['inherit', 'inherit', 'inherit'],
+      env: turboEnv(root, census),
+    },
   )
+  process.exit(await proc.exited)
 }
 
 if (import.meta.main) await main()

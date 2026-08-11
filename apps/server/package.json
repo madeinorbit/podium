@@ -27,8 +27,8 @@
     "zod": "^3.24.0"
   },
   "scripts": {
-    "typecheck": "bun ../../scripts/validation-admission.ts typecheck --label @podium/server:typecheck -- tsgo --noEmit",
-    "typecheck:tsc": "bun ../../scripts/validation-admission.ts typecheck --label @podium/server:typecheck:tsc -- tsc --noEmit",
+    "typecheck": "tsgo --noEmit",
+    "typecheck:tsc": "tsc --noEmit",
     "test": "bun ../../scripts/validation-admission.ts focused --label @podium/server:test -- bun ../../scripts/server-test-shards.ts",
     "test:contracts": "bun ../../scripts/validation-admission.ts focused --label @podium/server:test:contracts -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.contracts.config.ts",
     "test:store": "bun ../../scripts/validation-admission.ts focused --label @podium/server:test:store -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.store.config.ts",

@@ -7,7 +7,7 @@
   "type": "module",
   "main": "./src/index.ts",
   "scripts": {
-    "typecheck": "bun ../../scripts/validation-admission.ts typecheck --label @podium/telemetry-relay:typecheck -- tsc --noEmit",
+    "typecheck": "tsc --noEmit",
     "test": "bun ../../scripts/validation-admission.ts focused --label @podium/telemetry-relay:test -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests",
     "deploy": "wrangler deploy"
   },

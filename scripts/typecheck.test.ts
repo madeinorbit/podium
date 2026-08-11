@@ -43,15 +43,36 @@ describe('decideForce', () => {
 })
 
 describe('fingerprint', () => {
-  const base = { bunfig: 'linker = "hoisted"\n', links: ['cli', 'model'] }
+  const base = {
+    bunfig: 'linker = "hoisted"\n',
+    links: ['cli:packages/cli', 'model:packages/model'],
+    runtime: { bun: '1.3.14', platform: 'linux', arch: 'x64' },
+  }
 
   it('moves when bunfig.toml changes (the POD-1343 linker blind spot)', () => {
     expect(fingerprint({ ...base, bunfig: 'linker = "isolated"\n' })).not.toBe(fingerprint(base))
   })
 
   it('moves when a workspace link dangles or disappears', () => {
-    expect(fingerprint({ ...base, links: ['cli', 'model!DANGLING'] })).not.toBe(fingerprint(base))
-    expect(fingerprint({ ...base, links: ['cli'] })).not.toBe(fingerprint(base))
+    expect(fingerprint({ ...base, links: ['cli:packages/cli', 'model!DANGLING'] })).not.toBe(
+      fingerprint(base),
+    )
+    expect(fingerprint({ ...base, links: ['cli:packages/cli'] })).not.toBe(fingerprint(base))
+  })
+
+  it('moves when runtime identity changes', () => {
+    expect(fingerprint({ ...base, runtime: { ...base.runtime, bun: '1.3.15' } })).not.toBe(
+      fingerprint(base),
+    )
+    expect(fingerprint({ ...base, runtime: { ...base.runtime, arch: 'arm64' } })).not.toBe(
+      fingerprint(base),
+    )
+  })
+
+  it('moves when a workspace link points outside the checkout', () => {
+    expect(fingerprint({ ...base, links: ['cli:packages/cli', 'model!EXTERNAL'] })).not.toBe(
+      fingerprint(base),
+    )
   })
 
   it('is stable for identical environments', () => {
