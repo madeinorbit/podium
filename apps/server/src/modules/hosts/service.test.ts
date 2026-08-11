@@ -583,8 +583,8 @@ describe('idle-session cap', () => {
         unobserved(asSessionId('still-noisy'), {
           resume: undefined,
           lastActiveAt: new Date(NOW - HOUR).toISOString(),
-           60_000,
-           60_000,
+          lastInputAtMs: NOW - HOUR,
+          lastOutputAtMs: NOW - HOUR,
         }),
       ]
       const { service, parked } = harness({ sessions, maxIdleSessions: 1 })
