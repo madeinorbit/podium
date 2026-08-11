@@ -66,6 +66,29 @@ Two rules learned in chunk 1:
   queue.
 - A queued lane is **not** a stuck lane. Never force it, never
   `--uncached-because` your way past it without a concrete reason.
+- **Stay in-session while the lane runs.** Going idle silently drops your
+  queue position — an idle agent is not waiting for a lease, it has left the
+  queue.
+- **Release the lease when your lane finishes.** It is not released when the
+  command that acquired it exits. An agent that finishes its run and sits on
+  a live TTL blocks the queue exactly as effectively as one still running,
+  and `lock status` cannot tell the difference from outside.
+- **Never pipe a gate through `tail`, `head`, or any filter.** You get the
+  exit status of the pipe, not of the gate. This manufactured a green during
+  chunk 1 and nearly caused a false landing. Read the output, not the exit
+  code.
+
+## Known-red baseline
+
+`packages/protocol` wire-golden fails on three families (host, model,
+feature-state): the committed golden lacks the `machines`
+`updateChannelOverride` field the model schema emits. It is broken on `main`
+itself — the golden and model blobs are byte-identical on `origin/main` and
+on this integration branch — so it is not epic damage and not yours. Tracked
+as POD-1911.
+
+When you run the full lane, **exactly those three** are expected. Anything
+beyond them is yours. Do not regenerate the golden: it belongs to POD-1911.
 
 ## After landing
 
