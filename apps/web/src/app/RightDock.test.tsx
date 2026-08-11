@@ -88,15 +88,13 @@ vi.mock('./store', () => ({
   useReplicaIssues: () => state.issues,
 }))
 
-vi.mock('@/features/issues/IssuePanelView', () => ({
-  IssuePanelView: (props: { cwd: string; machineId?: string; issueId?: string }) => (
-    <div
-      data-testid="issue-panel"
-      data-cwd={props.cwd}
-      data-machine-id={props.machineId}
-      data-issue-id={props.issueId}
-    />
+// The explorer owns which task is showing and what the trail says (POD-743);
+// the dock's job here is to mount it and give it the header.
+vi.mock('@/features/issues/explorer/IssueExplorer', () => ({
+  IssueExplorer: (props: { cwd: string; machineId?: string }) => (
+    <div data-testid="issue-explorer" data-cwd={props.cwd} data-machine-id={props.machineId} />
   ),
+  IssueExplorerCrumbs: () => <nav data-testid="explorer-crumbs">Tasks</nav>,
 }))
 
 afterEach(() => {
@@ -113,29 +111,26 @@ afterEach(() => {
   }
 })
 
-describe('RightDock task selection', () => {
-  it('shows the selected issue when it has no active sessions', () => {
+describe('RightDock task panel', () => {
+  // The dock no longer resolves a task for itself: it hands the explorer the
+  // active worktree — which is only where a task with no checkout of its own
+  // has its artifacts served from — and the explorer decides what is showing.
+  it('mounts the explorer on the active worktree', () => {
     render(<RightDock tab="issue" onClose={vi.fn()} />)
 
-    const panel = screen.getByTestId('issue-panel')
-    expect(panel.getAttribute('data-issue-id')).toBe(selectedIssue.id)
-    expect(panel.getAttribute('data-cwd')).toBe(selectedIssue.repoPath)
-    expect(panel.getAttribute('data-machine-id')).toBe(selectedIssue.machineId)
+    const panel = screen.getByTestId('issue-explorer')
+    expect(panel.getAttribute('data-cwd')).toBe(otherSession.cwd)
+    expect(screen.queryByTestId('dock-title')).toBeNull()
   })
 
-  // POD-516 r3 #7: the dock title bar is every panel's ONE header, so on the
-  // Task tab it names the task rather than repeating the generic word while the
-  // panel below spends a line of its fixed head on the same title.
-  it('names the inspected task in the title bar, with the full title one hover away', () => {
+  // POD-743: the Task tab is the one panel whose header is not a name. What
+  // belongs up there is where you are and how to get back; the task's own title
+  // is the head of the panel below.
+  it('gives the Task tab header to the explorer trail', () => {
     render(<RightDock tab="issue" onClose={vi.fn()} />)
 
-    const title = screen.getByText('Selected closed issue')
-    expect(title.dataset.dockTitle).toBe('issue')
-    expect(title.getAttribute('title')).toBe('Selected closed issue')
-    expect(title.className).toContain('truncate')
-    // The stage rides with it, in place of the panel's generic glyph.
-    expect(screen.getByRole('img', { name: 'Review' })).toBeTruthy()
-    expect(screen.queryByText('Task')).toBeNull()
+    expect(screen.getByTestId('explorer-crumbs')).toBeTruthy()
+    expect(screen.queryByText('Selected closed issue')).toBeNull()
   })
 
   it('leaves every other panel wearing its own label', () => {
@@ -143,8 +138,7 @@ describe('RightDock task selection', () => {
 
     const title = screen.getByText('Git')
     expect(title.dataset.dockTitle).toBe('panel')
-    expect(title.getAttribute('title')).toBeNull()
-    expect(screen.queryByText('Selected closed issue')).toBeNull()
+    expect(screen.queryByTestId('explorer-crumbs')).toBeNull()
   })
 
   it('renders the active repository merge queue from the live lock projection', () => {

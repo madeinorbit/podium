@@ -1584,6 +1584,145 @@ html[data-density="balanced"] .header-quota-pools {
      tints mix over the dock's own surface, not the --card default. */
   --issue-base: var(--engraved);
 }
+
+/* ── The issue explorer (POD-743) ──────────────────────────────────────────
+   The dock's task surface is a navigation stack now, so it needs a viewport
+   that clips: going deeper slides a level in from the right and going back
+   slides it off again. This is STRUCTURAL motion — one shot, ~260ms, latched
+   to an actual move — not a status signal, so it spends none of the stillness
+   budget the agent-state grammar guards. */
+.explorer-stack {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+}
+.explorer-level {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  /* Opaque, because two levels are mounted at once mid-move and the outgoing
+     one must not read through the incoming one. */
+  background: var(--engraved);
+}
+.explorer-level[data-move="push-in"] {
+  animation: explorer-push-in 260ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+.explorer-level[data-move="push-out"] {
+  animation: explorer-push-out 260ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+.explorer-level[data-move="pop-in"] {
+  animation: explorer-pop-in 260ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+.explorer-level[data-move="pop-out"] {
+  animation: explorer-pop-out 260ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  /* The level being left behind sits UNDER the one arriving. */
+  z-index: 0;
+}
+.explorer-level[data-move="push-in"],
+.explorer-level[data-move="pop-in"] {
+  z-index: 1;
+}
+@keyframes explorer-push-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@keyframes explorer-push-out {
+  /* The level you came from recedes rather than leaving: it is still where you
+     will land when you walk the trail back. */
+  from {
+    transform: translateX(0);
+    filter: brightness(1);
+  }
+  to {
+    transform: translateX(-24%);
+    filter: brightness(0.62);
+  }
+}
+@keyframes explorer-pop-in {
+  from {
+    transform: translateX(-24%);
+    filter: brightness(0.62);
+  }
+  to {
+    transform: translateX(0);
+    filter: brightness(1);
+  }
+}
+@keyframes explorer-pop-out {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* Seven stage buckets do not fit a 316px dock, so the strip scrolls and snaps.
+   It fades where it runs on instead of clipping flat — a half-visible tab has
+   to read as more to scroll, not as a layout that ran out of room. */
+.explorer-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 10px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  border-bottom: 1px solid var(--hairline-soft, var(--border));
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 34px), transparent 100%);
+  mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 34px), transparent 100%);
+}
+.explorer-tabs::-webkit-scrollbar {
+  display: none;
+}
+.explorer-tab {
+  position: relative;
+  display: flex;
+  height: 28px;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  color: var(--text-dim);
+  font-size: 11.5px;
+  white-space: nowrap;
+  scroll-snap-align: center;
+  transition: color 140ms ease;
+}
+.explorer-tab:hover {
+  color: var(--foreground);
+}
+.explorer-tab[aria-selected="true"] {
+  color: var(--text-strong, var(--foreground));
+  font-weight: 500;
+}
+/* No yellow on the selected tab: the strip already answers "you are here", and
+   a permanently-lit brand hairline in chrome is the exact spend The Signal Rule
+   guards. The attention COUNT keeps its amber — that one is asking. */
+.explorer-tab[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  right: 6px;
+  bottom: -1px;
+  left: 6px;
+  height: 1.5px;
+  border-radius: 1px;
+  background: var(--text-strong, var(--foreground));
+}
+@media (prefers-reduced-motion: reduce) {
+  .explorer-level[data-move] {
+    animation-duration: 1ms;
+  }
+}
 .right-rail {
   display: flex;
   flex: 0 0 46px;

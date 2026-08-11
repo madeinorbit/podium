@@ -38,6 +38,7 @@ import { type IssueViewModel, useReplicaIssues, useStoreSelector } from '@/app/s
 import { MediaLightbox } from '@/components/MediaLightbox'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Textarea } from '@/components/ui/textarea'
 import { copyToClipboard } from '@/lib/clipboard'
 import { cn } from '@/lib/utils'
 import { KindIcon, sessionDisplayName } from '@/lib/WorkerLabel'
@@ -55,11 +56,12 @@ import {
 import { issueIdTitle } from './issue-card'
 import { StageGlyph } from './issue-glyphs'
 
-// Where the task's identity lives, since POD-516 r3: the DOCK TITLE BAR carries
-// the stage glyph and the title (RightDock.tsx), because the title bar is every
-// panel's one header. So the head below it keeps only what the bar cannot say —
-// the ref, and the one control strip — and the stage survives exactly twice, in
-// the bar and as the stage dropdown's own label.
+// Where the task's identity lives, since POD-743: the HEAD of this panel. The
+// dock title bar carried it between POD-516 and here, on the reasoning that the
+// bar is every panel's one header; the bar now carries the issue explorer's
+// trail — a position, not a name — so the name sits with the task again. The
+// stage still survives exactly twice: the trail's glyph-free ref, and the stage
+// dropdown's own label.
 
 function Hint({ children }: { children: string }): JSX.Element {
   return <div className={cn(DOCK_BODY, 'py-0.5 text-text-faint italic')}>{children}</div>
@@ -410,18 +412,29 @@ function RecentActivity({ issue }: { issue: IssueViewModel }): JSX.Element {
  * The task head: the ref and the one control strip. Fixed above the scroll —
  * the artifact's `inspect-head`.
  *
- * **Nothing in here is text that varies in LENGTH any more** (POD-516 r3 #1/#2/
- * #7). This box is laid out before the single scroll and never shrinks, so its
+ * This box is laid out before the single scroll and never shrinks, so its
  * height is the scroll's budget — and every clamp that used to defend that
- * budget was itself a complaint: a two-line title cut, a three-line description
- * cut. So the title moved up into the dock title bar (one header per panel) and
- * the description moved DOWN into the scroll, where length is free. What is
- * left is two fixed rows, ~62px, and it cannot grow at all.
+ * budget was itself a complaint. The description still lives DOWN in the
+ * scroll, where length is free; the TITLE is bounded here at two lines.
  *
- * The word "Task" is gone from the ref line for the same reason: the title bar
- * above already says which panel this is.
+ * The title came BACK here in POD-743. It moved to the dock title bar under
+ * POD-516 because the bar was the panel's one header and had nothing else to
+ * say; the bar now carries the explorer's trail, which is a position rather
+ * than a name, so the name returns to the surface it names. It takes the dock's
+ * own step up (`shell-type-reading`), not the task page's 18px subject step —
+ * this is a column you live in, not a sheet you visit.
  */
-function InspectHead({ issue }: { issue: IssueViewModel }): JSX.Element {
+function InspectHead({
+  issue,
+  onShowInDeck,
+}: {
+  issue: IssueViewModel
+  /** Point the rest of the shell at this task. The ONE control on this surface
+   *  that moves the app: the explorer syncs INWARD, so browsing a stranger's
+   *  task must never drag the deck along with it, and the operator who does
+   *  want to go there needs one obvious way to say so. */
+  onShowInDeck?: () => void
+}): JSX.Element {
   return (
     <header className="flex-none px-3.5 pt-2.5 pb-3" data-testid="dock-inspect-head">
       <div className="flex items-center gap-2 font-mono text-[11px] leading-none text-text-dim">
@@ -436,9 +449,100 @@ function InspectHead({ issue }: { issue: IssueViewModel }): JSX.Element {
         >
           {issueDisplayRef(issue)}
         </button>
+        {onShowInDeck && (
+          <button
+            data-pressable
+            type="button"
+            onClick={onShowInDeck}
+            data-testid="dock-show-in-deck"
+            title="Point the Flight Deck and workspace at this task"
+            className="ml-auto rounded px-1 py-0.5 hover:bg-accent/60 hover:text-foreground"
+          >
+            Show in deck
+          </button>
+        )}
       </div>
+      <h2
+        className="shell-type-reading mt-1.5 line-clamp-2 font-semibold text-secondary-foreground"
+        title={issue.title}
+        data-testid="dock-title"
+      >
+        {issue.title}
+      </h2>
       <IssueCompactControls issue={issue} />
     </header>
+  )
+}
+
+/**
+ * Post an update without leaving the panel (POD-743).
+ *
+ * Pinned to the foot rather than placed in the scroll, for the same reason the
+ * task page pins its own: commenting is something you decide to do, not
+ * something you scroll to find. Pinning it is also what freed the sections
+ * above to be ordered by how fast their facts move, instead of by how badly the
+ * composer needed to be near the top.
+ *
+ * RECEDES UNTIL USED (POD-635), like the page's composer: at rest a flat
+ * one-line well with no edge of its own; the enclosure arrives on focus.
+ */
+function DockCommentComposer({ issue }: { issue: IssueViewModel }): JSX.Element {
+  const trpc = useStoreSelector((s) => s.trpc)
+  const [body, setBody] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [focused, setFocused] = useState(false)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset only on issue switch
+  useEffect(() => {
+    setBody('')
+    setFocused(false)
+  }, [issue.id])
+  const active = focused || body.trim().length > 0
+  const post = (): void => {
+    const text = body.trim()
+    if (!text || busy) return
+    setBusy(true)
+    void trpc.issues.addComment
+      .mutate({ id: issue.id, author: 'me', body: text })
+      .then(() => setBody(''))
+      .catch(() => {
+        // Keep what they typed: a dropped mutation must not eat the words.
+      })
+      .finally(() => setBusy(false))
+  }
+  return (
+    <div className="flex-none border-border/35 border-t bg-card/15 px-3 py-2">
+      <Textarea
+        value={body}
+        disabled={busy}
+        placeholder={`Comment on ${issueDisplayRef(issue)}…`}
+        aria-label={`Comment on ${issueDisplayRef(issue)}`}
+        data-testid="dock-comment"
+        className={cn(
+          'resize-none rounded-[9px] text-[12px]',
+          'transition-[min-height,border-color,background-color] duration-150',
+          active
+            ? 'min-h-[58px]'
+            : 'min-h-[30px] border-transparent bg-input/20 hover:border-border/60 dark:bg-input/20',
+        )}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        onChange={(e) => setBody(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault()
+            post()
+          }
+        }}
+      />
+      {active && (
+        <div className="mt-1.5 flex items-center justify-end gap-2">
+          <span className="font-mono text-[9px] text-text-faint">⌘↵</span>
+          <Button type="button" size="sm" disabled={busy || !body.trim()} onClick={post}>
+            {busy ? 'Posting…' : 'Post'}
+          </Button>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -764,6 +868,7 @@ export function IssuePanelView({
   machineId,
   sessionId,
   issueId,
+  onNavigate,
 }: {
   cwd: string
   machineId?: string
@@ -771,6 +876,16 @@ export function IssuePanelView({
   /** Explicit issue (artifact file tabs, [spec:SP-0fc9] #441) — wins over the
    *  session attachment and cwd containment. */
   issueId?: string
+  /**
+   * Where a linked task goes when it is clicked (POD-743).
+   *
+   * Inside the explorer this PUSHES a level — the operator is browsing, and a
+   * relation row that silently re-pointed the workspace at another task would
+   * be a navigation the trail cannot show or undo. Without it (the peek
+   * overlay) a linked row keeps the old behaviour and moves the shell, because
+   * there is no trail there to walk back along.
+   */
+  onNavigate?: (issueId: string) => void
 }): JSX.Element {
   const { sessions, setPane, setView, setOpenIssueId, markIssueRead, markSessionRead } =
     useStoreSelector(
@@ -807,7 +922,10 @@ export function IssuePanelView({
   const [showAllActive, setShowAllActive] = useState(false)
   const [showRetired, setShowRetired] = useState(false)
 
-  const focusIssue = (target: IssueViewModel): void => {
+  /** Move the SHELL to a task: focus it, open its lead session, show the
+   *  workspace. What every linked row used to do, and what "Show in deck" does
+   *  now that browsing is a separate gesture. */
+  const showInDeck = (target: IssueViewModel): void => {
     setFocusedIssueId(target.id)
     void markIssueRead(target.id)
     const targetSessions = issueSessions(target, sessions)
@@ -821,6 +939,17 @@ export function IssuePanelView({
       void markSessionRead(targetSession.sessionId)
     }
     setView('workspace')
+  }
+
+  /** What a linked task row does: browse deeper in the explorer, or — with no
+   *  trail to browse in — move the shell as it always did. */
+  const openLinked = (target: IssueViewModel): void => {
+    if (onNavigate) {
+      void markIssueRead(target.id)
+      onNavigate(target.id)
+      return
+    }
+    showInDeck(target)
   }
 
   if (!issue) {
@@ -868,7 +997,10 @@ export function IssuePanelView({
           became unscrollable the moment something data-sized (a stack of offer
           cards) was allowed into the fixed region — see the scroll test. */}
       <div className="flex-none border-b border-border/60" data-testid="dock-fixed">
-        <InspectHead issue={issue} />
+        <InspectHead
+          issue={issue}
+          onShowInDeck={onNavigate ? () => showInDeck(issue) : undefined}
+        />
         <IssueDecisionBand issue={issue} />
       </div>
       <div
@@ -920,6 +1052,30 @@ export function IssuePanelView({
           </button>
         </DockPart>
 
+        {/* WHAT THE WORK PRODUCED, high (POD-743). The scroll used to be
+            ordered by how fast each fact moves, which put the evidence below two
+            sections of roster. That order was right when this panel was the only
+            place a task's shape was visible; the Flight Deck shows the shape now,
+            and what is left for the dock to be good at is judging a task and
+            acting on it. So the things you came to look at — the artifacts, then
+            what happened — come first, and the structure the deck already draws
+            (subtasks, relations, the roster) sits underneath.
+
+            Evidence renders nothing at all when the task has none, so a task
+            that produced no artifacts opens on its timeline rather than on an
+            empty heading. */}
+        <EvidenceAndChecks issue={issue} machineId={machineId} />
+
+        {/* History, immediately under the evidence it explains — the two
+            questions "what came out of this" and "what has been happening" are
+            asked together, and they were three sections apart. */}
+        <RecentActivity issue={issue} />
+
+        {/* ── Below here is STRUCTURE, not action ──────────────────────
+            The deck draws this tree in the column to the left. It stays in the
+            panel because the explorer can reach tasks the deck is not showing,
+            and because relations are how you walk between them — but it is
+            reference, and reference goes under. */}
         {children.length > 0 && (
           <DockPart title="Subtasks" count={children.length} testId="dock-subissues">
             <ProgressMeter
@@ -936,7 +1092,7 @@ export function IssuePanelView({
                   sub={sub}
                   meta={state.label}
                   needs={state.state === 'needs-you'}
-                  onOpen={() => focusIssue(sub)}
+                  onOpen={() => openLinked(sub)}
                 />
               )
             })}
@@ -949,12 +1105,46 @@ export function IssuePanelView({
                 />
                 {showCompleted &&
                   doneChildren.map((sub) => (
-                    <UnifiedRow key={sub.id} sub={sub} meta="Done" onOpen={() => focusIssue(sub)} />
+                    <UnifiedRow key={sub.id} sub={sub} meta="Done" onOpen={() => openLinked(sub)} />
                   ))}
               </>
             )}
           </DockPart>
         )}
+
+        <DockPart
+          title="Relations"
+          count={relations.reduce((n, g) => n + g.entries.length, 0)}
+          testId="dock-relations"
+        >
+          {relations.length === 0 ? (
+            <Hint>No linked work.</Hint>
+          ) : (
+            relations.map((group) => (
+              <div key={group.section} className="mb-1.5">
+                <div className="label-mono mb-0.5">{group.section}</div>
+                {group.entries.map((entry) => {
+                  const target = issueById.get(entry.id)
+                  return target ? (
+                    <UnifiedRow
+                      key={`${group.section}-${entry.direction}-${entry.id}`}
+                      sub={target}
+                      meta={entry.type}
+                      onOpen={() => openLinked(target)}
+                    />
+                  ) : (
+                    <div
+                      key={`${group.section}-${entry.direction}-${entry.id}`}
+                      className="shell-type-micro px-1 py-1 font-mono text-text-faint"
+                    >
+                      {entry.id}
+                    </div>
+                  )
+                })}
+              </div>
+            ))
+          )}
+        </DockPart>
 
         <DockPart title="Agents & sessions" count={activeSessions.length} testId="dock-sessions">
           {activeSessions.length > 0
@@ -1002,53 +1192,10 @@ export function IssuePanelView({
           )}
         </DockPart>
 
-        <DockPart
-          title="Relations"
-          count={relations.reduce((n, g) => n + g.entries.length, 0)}
-          testId="dock-relations"
-        >
-          {relations.length === 0 ? (
-            <Hint>No linked work.</Hint>
-          ) : (
-            relations.map((group) => (
-              <div key={group.section} className="mb-1.5">
-                <div className="label-mono mb-0.5">{group.section}</div>
-                {group.entries.map((entry) => {
-                  const target = issueById.get(entry.id)
-                  return target ? (
-                    <UnifiedRow
-                      key={`${group.section}-${entry.direction}-${entry.id}`}
-                      sub={target}
-                      meta={entry.type}
-                      onOpen={() => focusIssue(target)}
-                    />
-                  ) : (
-                    <div
-                      key={`${group.section}-${entry.direction}-${entry.id}`}
-                      className="shell-type-micro px-1 py-1 font-mono text-text-faint"
-                    >
-                      {entry.id}
-                    </div>
-                  )
-                })}
-              </div>
-            ))
-          )}
-        </DockPart>
-
-        <EvidenceAndChecks issue={issue} machineId={machineId} />
-
         {/* Where the work happens — an address, not a check. */}
         <CheckoutPart issue={issue} />
-
-        {/* Activity sits LAST, as it does on the issue page and in the approved
-            reference: it is history. Above it belongs the live work — update,
-            subtasks, sessions, relations, evidence — and then the address.
-            The footnote that used to close this scroll ("the current update is
-            this task's live state…") is gone: it explained two section headings
-            to an operator who reads them every day. */}
-        <RecentActivity issue={issue} />
       </div>
+      <DockCommentComposer issue={issue} />
     </div>
   )
 }

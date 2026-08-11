@@ -1153,14 +1153,30 @@ export function portfolioActionableCount(
     const owner = session.issueId ?? memberOf.get(session.sessionId)
     if (owner) add(owner, session)
   }
-  return issues.filter(
-    (issue) =>
-      !issue.archived &&
-      !issue.deletedAt &&
-      issue.stage !== 'done' &&
-      !issue.closedReason &&
-      issueNeedsHuman(issue, byIssue.get(issue.id) ?? []),
-  ).length
+  return issues.filter((issue) => issueIsActionable(issue, byIssue.get(issue.id) ?? [])).length
+}
+
+/**
+ * One task, asking something of the operator right now — the predicate behind
+ * every attention count in the product.
+ *
+ * Exported because the number has to be the same number wherever it appears:
+ * the rail badge counts it over the portfolio, the issue explorer's "Needs you"
+ * tab lists exactly the tasks it returns true for. Two surfaces re-deriving
+ * "needs me" independently is how a badge reading 3 comes to sit above a list
+ * of 5.
+ */
+export function issueIsActionable(
+  issue: IssueNavigationModel,
+  sessions: readonly SessionMeta[],
+): boolean {
+  return (
+    !issue.archived &&
+    !issue.deletedAt &&
+    issue.stage !== 'done' &&
+    !issue.closedReason &&
+    issueNeedsHuman(issue, sessions)
+  )
 }
 
 /** How many distinct sessions are leading something in this mission. One agent
