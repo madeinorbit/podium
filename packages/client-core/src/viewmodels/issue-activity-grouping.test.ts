@@ -7,7 +7,7 @@
  * collapse, and a row's stamp is a clock time rather than an ISO string.
  */
 import { describe, expect, it } from 'vitest'
-import { type ActivityItem, eventClock, groupActivityFeed, ROLLUP_MIN } from './issue-events'
+import { type ActivityItem, eventClock, groupActivityFeed, ROLLUP_MIN } from './issue-activity'
 
 /** Local noon on a given day — so a test never straddles a UTC day boundary. */
 const at = (day: number, hour: number, minute = 0): string =>

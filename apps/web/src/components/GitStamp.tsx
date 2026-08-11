@@ -1,14 +1,14 @@
+import { deriveGitStamp } from '@podium/client-core/viewmodels'
 import type { IssueGitState } from '@podium/model'
 import { GitBranch } from 'lucide-react'
 import type { JSX } from 'react'
-import { deriveGitStamp } from './git-stamp'
 
 /**
  * The git stamp [POD-98]: has this task committed, and on which branch?
  * One grammar in four densities — `chip` (pane header), `stamp` (sidebar
  * line-2), `footer` (tray card), `panel` (Git dock header [POD-114]: larger
  * type, full branch name — never truncated). Pure state logic lives in
- * git-stamp.ts.
+ * @podium/client-core/viewmodels' git-stamp (shared with the phone).
  */
 export function GitStamp({
   issueBranch,

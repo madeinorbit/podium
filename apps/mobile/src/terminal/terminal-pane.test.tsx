@@ -34,12 +34,19 @@
  * against the defect.
  */
 import { useStore } from '@podium/client-core/react'
-import { asSessionId, type SessionId, type SessionMeta } from '@podium/model'
+import {
+  asIssueId,
+  asSessionId,
+  type IssueWire,
+  type SessionId,
+  type SessionMeta,
+} from '@podium/model'
 import { cleanup } from '@testing-library/react'
 import { act, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { renderWithMobileStore } from '../client/test-support'
 import type { MobileTrpc } from '../client/trpc'
+import type { TerminalControlState } from './terminal-control'
 
 /**
  * The mount's callbacks, kept from the last `mountSession` call so a test can
@@ -48,19 +55,38 @@ import type { MobileTrpc } from '../client/trpc'
  * [POD-385]. Nothing else here can produce them — the socket in this lane never
  * connects, by design (see test-support).
  */
+type MountRole = 'controller' | 'spectator'
 type MountCallbacks = {
   onReady?: () => void
-  onState?: (state: { outputSeen: boolean }) => void
+  onState?: (state: { outputSeen: boolean; role: MountRole }) => void
+  onMounted?: (mounted: unknown) => void
   gridMode?: string
 }
 let lastMountOpts: MountCallbacks | null = null
+
+/** The ref-link config the pane hands the terminal — see the POD-724 cases. */
+type RefLinks = {
+  isKnownPrefix: (prefix: string) => boolean
+  onActivate: (ref: string) => void
+  resolveStage: (ref: string) => string | null
+}
+
+// Module-level so a case can assert on the mount's OWN imperative surface: the
+// explicit takeover the header requests, and the ref-link config the pane arms.
+const takeControlMock = vi.fn()
+const setRefLinksMock = vi.fn()
+const refLinks = (): RefLinks => {
+  const cfg = setRefLinksMock.mock.calls.at(-1)?.[0] as RefLinks | undefined
+  if (!cfg) throw new Error('the pane never configured ref links')
+  return cfg
+}
 
 // The terminal itself is not under test — only WHETHER it is mounted, and when.
 // A call to `mountSession` IS the attach: it is what constructs the hub
 // connection that emits the one-shot `attach` frame.
 const mountSessionMock = vi.fn((_el: unknown, opts: unknown) => {
   lastMountOpts = opts as MountCallbacks
-  return {
+  const mounted = {
     connection: {
       state: () => ({ role: 'controller' }),
       sendInput: vi.fn(),
@@ -68,7 +94,7 @@ const mountSessionMock = vi.fn((_el: unknown, opts: unknown) => {
     },
     view: {
       setFileLinks: vi.fn(),
-      setRefLinks: vi.fn(),
+      setRefLinks: setRefLinksMock,
       onScroll: () => () => {},
       atBottom: () => true,
       focus: vi.fn(),
@@ -76,10 +102,14 @@ const mountSessionMock = vi.fn((_el: unknown, opts: unknown) => {
       scrollToBottom: vi.fn(),
       requestPaste: vi.fn(),
     },
+    takeControl: takeControlMock,
     setActive: vi.fn(),
     setAppearance: vi.fn(),
     dispose: vi.fn(),
   }
+  // `onMounted` is invoked by the REAL useTerminalSession (only mountSession is
+  // faked here), so the pane's mount-time wiring runs through the shipped path.
+  return mounted
 })
 
 vi.mock('@podium/terminal-client', async (orig) => {
@@ -136,8 +166,27 @@ function confirmedRow(sessionId: SessionId): SessionMeta {
   } as unknown as SessionMeta
 }
 
+/** A visible task row, as the replica holds one. */
+function issueRow(
+  overrides: Omit<Partial<IssueWire>, 'id'> & { id: string; seq: number },
+): IssueWire {
+  return {
+    title: 'Some work',
+    stage: 'in_progress',
+    prefix: 'POD',
+    displayRef: `POD-${overrides.seq}`,
+    archived: false,
+    createdAt: new Date(0).toISOString(),
+    updatedAt: new Date(0).toISOString(),
+    ...overrides,
+    id: asIssueId(overrides.id),
+  } as unknown as IssueWire
+}
+
 beforeEach(() => {
   mountSessionMock.mockClear()
+  takeControlMock.mockClear()
+  setRefLinksMock.mockClear()
   lastMountOpts = null
 })
 
@@ -206,7 +255,7 @@ describe('TerminalPane startup status (POD-393)', () => {
     const opts = lastMountOpts
     if (!opts) throw new Error('the pane never mounted a session')
     await act(async () => {
-      opts.onState?.({ outputSeen })
+      opts.onState?.({ outputSeen, role: 'spectator' })
       opts.onReady?.()
       await Promise.resolve()
     })
@@ -229,7 +278,7 @@ describe('TerminalPane startup status (POD-393)', () => {
 
     // First output: the terminal itself is the affordance from here on.
     await act(async () => {
-      lastMountOpts?.onState?.({ outputSeen: true })
+      lastMountOpts?.onState?.({ outputSeen: true, role: 'spectator' })
       await Promise.resolve()
     })
     expect(view.queryByText(SILENT)).toBeNull()
@@ -243,5 +292,126 @@ describe('TerminalPane startup status (POD-393)', () => {
     await attach(true)
     expect(view.queryByText(SILENT)).toBeNull()
     expect(view.queryByText('Attaching terminal…')).toBeNull()
+  })
+})
+
+/**
+ * READING A DESK-SIZED TUI ON A PHONE WITHOUT TYPING INTO IT (POD-724).
+ *
+ * The pane attaches in `server-grid`, so it is a spectator on the desk's grid
+ * and pans the rest. Until now the ONLY way to be sized for this screen was the
+ * implicit takeover inside `sendInput` — you had to send a keystroke into a
+ * running agent's session in order to READ it. The screen header now offers the
+ * takeover explicitly, which makes two things testable: that the pane publishes
+ * WHICH side of that line it is on (a blind "Take control" button that lies
+ * while already in control is the defect), and that the takeover goes through
+ * the mount's `takeControl` — not a bare `connection.requestControl()`, which
+ * would hand over without reporting this phone's viewport first and leave the
+ * PTY on the desk's geometry until the next debounced observer tick.
+ */
+describe('TerminalPane take control (POD-724)', () => {
+  async function mountPane(sessionId: SessionId) {
+    const published: TerminalControlState[] = []
+    const view = await renderWithMobileStore(
+      <TerminalPane sessionId={sessionId} active onControlState={(s) => published.push(s)} />,
+      { sessions: [confirmedRow(sessionId)] },
+    )
+    return { view, published, latest: () => published.at(-1) }
+  }
+
+  async function report(role: MountRole, ready = true): Promise<void> {
+    await act(async () => {
+      lastMountOpts?.onState?.({ outputSeen: true, role })
+      if (ready) lastMountOpts?.onReady?.()
+      await Promise.resolve()
+    })
+  }
+
+  it('publishes spectator until the server says controller, and takes control through the mount', async () => {
+    const sessionId = asSessionId('sess-control')
+    const pane = await mountPane(sessionId)
+
+    // Attaching claims nothing: a phone that is merely looking must not resize
+    // a desktop-driven PTY, so the honest published state is "spectator".
+    await report('spectator')
+    expect(pane.latest()?.role).toBe('spectator')
+    expect(pane.latest()?.ready).toBe(true)
+
+    // The header's action. `takeControl` on the MOUNT is what carries this
+    // phone's viewport across with the control request.
+    act(() => pane.latest()?.takeControl())
+    expect(takeControlMock).toHaveBeenCalledTimes(1)
+
+    // The server transfers control; the action must stop offering what already
+    // happened.
+    await report('controller')
+    expect(pane.latest()?.role).toBe('controller')
+  })
+
+  it('says which grid is on screen, and swaps the line rather than dropping it on takeover', async () => {
+    const sessionId = asSessionId('sess-caption')
+    const pane = await mountPane(sessionId)
+    const SPECTATING = 'Cropped to the desk grid — take control to resize it to this phone.'
+    const CONTROLLING = 'In control — this phone drives the shared grid size.'
+
+    await report('spectator')
+    expect(pane.view.queryByText(SPECTATING)).not.toBeNull()
+
+    // A line that VANISHED here would shorten this flex column at the exact
+    // moment the takeover resizes the PTY — a second SIGWINCH chasing the first.
+    await report('controller')
+    expect(pane.view.queryByText(SPECTATING)).toBeNull()
+    expect(pane.view.queryByText(CONTROLLING)).not.toBeNull()
+  })
+})
+
+/**
+ * REF UNDERLINES ON THE PHONE (POD-724).
+ *
+ * `POD-N` in agent output is painted with a live stage-coloured underline on the
+ * desktop and with NOTHING here, because the mobile pane never configured the
+ * terminal's ref links. The desktop learns its prefixes from a repo registry the
+ * phone does not have; deriving them from the live issue projection instead is
+ * the stricter answer — the phone marks only what it can actually open — and
+ * these cases pin both halves of that: the projection decides, and a token that
+ * resolves to nothing navigates nowhere.
+ */
+describe('TerminalPane ref underlines (POD-724)', () => {
+  const SESSION = asSessionId('sess-refs')
+
+  it('marks only prefixes the live projection knows, colours them by live stage, and opens the task', async () => {
+    const opened: string[] = []
+    const { replica } = await renderWithMobileStore(
+      <TerminalPane sessionId={SESSION} active onOpenIssue={(id) => opened.push(id)} />,
+      {
+        sessions: [confirmedRow(SESSION)],
+        issues: [issueRow({ id: 'iss-7', seq: 7, stage: 'in_progress' })],
+      },
+    )
+
+    // Armed at mount time, so the first replayed frame is already marked.
+    expect(setRefLinksMock).toHaveBeenCalled()
+    expect(refLinks().isKnownPrefix('POD')).toBe(true)
+    // The defect this guards: `UTF-8` is a real hyphen, not a task.
+    expect(refLinks().isKnownPrefix('UTF')).toBe(false)
+    expect(refLinks().resolveStage('POD-7')).toBe('in_progress')
+
+    refLinks().onActivate('POD-7')
+    expect(opened).toEqual(['iss-7'])
+
+    // A parseable token with no visible row is late, hidden, or removed — the
+    // pane must not render any of those as a destination.
+    refLinks().onActivate('POD-404')
+    expect(opened).toEqual(['iss-7'])
+
+    // The stage is read LIVE, but nothing schedules a repaint on its own: a task
+    // moving to review must re-arm the overlay, or it keeps yesterday's colour.
+    setRefLinksMock.mockClear()
+    await act(async () => {
+      replica.applySnapshot('issues', [issueRow({ id: 'iss-7', seq: 7, stage: 'review' })])
+      await Promise.resolve()
+    })
+    expect(setRefLinksMock).toHaveBeenCalled()
+    expect(refLinks().resolveStage('POD-7')).toBe('review')
   })
 })

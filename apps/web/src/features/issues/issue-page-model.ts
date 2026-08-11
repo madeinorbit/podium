@@ -6,19 +6,19 @@
  */
 
 import { shallowEqual } from '@podium/client-core'
-import { subIssuesOf } from '@podium/client-core/viewmodels'
+import {
+  type ActivityComment,
+  type ActivityItem,
+  buildActivityFeed,
+  type IssueEvent,
+  subIssuesOf,
+} from '@podium/client-core/viewmodels'
 import type { IssueId, SessionId, SessionMeta, UserId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { useEffect, useState } from 'react'
 import { type IssueViewModel, useReplicaIssues, useStoreSelector } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
 import type { PropertyOption } from '@/lib/PropertyMenu'
-import {
-  type ActivityComment,
-  type ActivityItem,
-  buildActivityFeed,
-  type IssueEvent,
-} from './issue-events'
 import { issueNeighbors } from './issue-page'
 import {
   type IssueMailMessage,

@@ -1,24 +1,85 @@
-import { relativeTime, withoutShells } from '@podium/client-core/focus'
-import { sessionCardModel } from '@podium/client-core/viewmodels'
-import { ISSUE_STAGES, type IssueWire } from '@podium/model'
+import { withoutShells } from '@podium/client-core/focus'
+import { ISSUE_STAGE_LABELS, subIssuesOf } from '@podium/client-core/viewmodels'
+import { ISSUE_STAGES, IssueType, type IssueWire, type SessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { Plus } from 'lucide-react-native'
+import { ChevronDown, ChevronUp, MoreHorizontal } from 'lucide-react-native'
 import { useCallback, useMemo, useState } from 'react'
-import { ScrollView, StyleSheet, Text, View } from 'react-native'
-import { useBooting, useConnected, useIssue, useMobileStore, useSessions } from '../client/hooks'
-import { ActionSheet } from '../components/ActionSheet'
+import { ScrollView, StyleSheet, View } from 'react-native'
+import {
+  useBooting,
+  useConnected,
+  useIssue,
+  useIssues,
+  useMobileStore,
+  useSessions,
+} from '../client/hooks'
+import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { Composer } from '../components/Composer'
 import { Icon } from '../components/Icon'
+import { IdSquare } from '../components/IdSquare'
+import { IssueColorSheet } from '../components/IssueColorSheet'
 import { IssueQuestionCard } from '../components/IssueQuestionCard'
 import { BootstrapCrossfade, DetailSkeleton } from '../components/LaunchPlaceholders'
 import { PressableScale } from '../components/PressableScale'
 import { HeaderButton, Screen } from '../components/Screen'
-import { SessionCard } from '../components/SessionCard'
-import { EmptyState, Pill, SectionHeader } from '../components/ui'
+import { PriorityGlyph, StageGlyph } from '../components/StageGlyph'
+import { ErrorNote } from '../components/task-detail/chrome'
+import { IssueActivitySection, MailSection } from '../components/task-detail/IssueActivity'
+import { IssueAgentPanel } from '../components/task-detail/IssueAgentPanel'
+import { IssueBanners } from '../components/task-detail/IssueBanners'
+import {
+  IssueBrief,
+  IssueDescription,
+  IssueTitle,
+  LongFormFields,
+  StatusStrip,
+} from '../components/task-detail/IssueBody'
+import { IssueNow } from '../components/task-detail/IssueNow'
+import { IssueProperties, PropertyBar } from '../components/task-detail/IssueProperties'
+import { IssueSubIssues } from '../components/task-detail/IssueSubIssues'
+import { PromptSheet } from '../components/task-detail/PromptSheet'
+import { EmptyState } from '../components/ui'
+import { useCollapsed } from '../hooks/useCollapsed'
+import { TASK_DETAILS_FOLD_KEY } from '../lib/fold-keys'
+import { issueCommands, type RunMutation } from '../lib/issue-detail'
 import { sessionHref } from '../lib/session-route'
-import { color, font, leading, radius, sans, space } from '../theme/theme'
+import { taskBoardOrder, taskNeighbours } from '../lib/task-board'
+import { useIssueActivity } from '../lib/use-issue-detail'
+import { issueColorHex } from '../theme/issueColors'
+import { color, space } from '../theme/theme'
 
+/**
+ * THE TASK PAGE, WITH THE DESKTOP'S POWER [POD-724].
+ *
+ * What this replaced was a thin page: a chip row, the description, a list of
+ * sessions and a comment list. Everything else a task carries — its banners, its
+ * agent-published todos and artifacts, its sub-tasks, its mail, its relations,
+ * its branch, its event history — was desk-only, which meant the phone could show
+ * you that something needed you and then could not show you what it was.
+ *
+ * The section order is the desktop's, re-expressed for a 390pt one-handed screen:
+ *
+ *   banners → title → status strip → the four editable properties →
+ *   NOW (live agents + branch) → description → brief → long-form spec fields →
+ *   the agent-published panel → sub-tasks → mail → Details (folded) → activity,
+ *   with the comment composer PINNED below the scroll.
+ *
+ * -------------------------------------------------------------------------
+ * THIS FILE IS COMPOSITION AND PAGE-LEVEL STATE. NOTHING ELSE.
+ * -------------------------------------------------------------------------
+ *
+ * Each section is its own module under `../components/task-detail/`, chosen by
+ * the question it answers; every mutation is a named command in
+ * `../lib/issue-detail.ts`; the three lazy reads are one hook. What is LEFT here
+ * is the state that genuinely spans sections — which sheet is open, the busy /
+ * error pair, and the neighbour navigation — because pushing any of those down
+ * would duplicate them.
+ *
+ * THE COMPOSER IS PINNED, NOT APPENDED. A task with twenty artifacts and a day of
+ * events puts the reply box thousands of pixels down the scroll, so replying
+ * would mean first travelling past everything you were replying to.
+ */
 export function IssueScreen() {
   const params = useLocalSearchParams<{ issueId: string | string[] }>()
   const issueId = decodeURIComponent(
@@ -36,21 +97,12 @@ export function IssueScreen() {
    * when you did not — reload the app on a task URL, or open one from a
    * notification, and there is no history behind this screen. The chevron then
    * did nothing at all, which on a standalone PWA (no browser back, no browser
-   * chrome) leaves the task view with no exit. SessionScreen already resolved
-   * this the same way; this is the other half.
+   * chrome) leaves the task view with no exit.
    */
   const goBack = useCallback(() => {
     if (router.canGoBack()) router.back()
-    else router.replace('/work')
+    else router.replace('/issues')
   }, [router])
-
-  const addAgent = useCallback(() => {
-    if (!issue) return
-    const cwd = issue.worktreePath ?? issue.repoPath
-    router.push(
-      `/new-session?issueId=${encodeURIComponent(issue.id)}&cwd=${encodeURIComponent(cwd)}&backTo=${encodeURIComponent(`/issue/${encodeURIComponent(issue.id)}`)}`,
-    )
-  }, [issue, router])
 
   // POD-541: "Task not found" is a claim about existence. Offline, a missing
   // row more often means "the cache does not have it" than "it does not exist"
@@ -60,288 +112,525 @@ export function IssueScreen() {
   const resolved = issue !== undefined || certainAbsence
 
   return (
-    <Screen
-      title={issue ? `${issueDisplayRef(issue)} ${issue.title}` : 'Task'}
-      onBack={goBack}
-      right={
-        issue ? (
-          <HeaderButton label="Add agent" onPress={addAgent}>
-            <Icon as={Plus} size={17} color={color.text} />
-          </HeaderButton>
-        ) : undefined
-      }
-    >
-      <BootstrapCrossfade resolved={resolved} placeholder={<DetailSkeleton />}>
-        {issue ? (
-          <IssueContent issue={issue} />
-        ) : certainAbsence ? (
-          <EmptyState title="Task not found." />
-        ) : (
-          <DetailSkeleton />
-        )}
-      </BootstrapCrossfade>
-    </Screen>
+    <BootstrapCrossfade resolved={resolved} placeholder={<DetailSkeleton />}>
+      {issue ? (
+        <IssueContent issue={issue} onBack={goBack} />
+      ) : (
+        <Screen title="Task" onBack={goBack}>
+          {certainAbsence ? <EmptyState title="Task not found." fill /> : <DetailSkeleton />}
+        </Screen>
+      )}
+    </BootstrapCrossfade>
   )
 }
 
-function IssueContent({ issue }: { issue: IssueWire }) {
+/** Which single-level sheet the page is showing. One at a time, by construction
+ *  — a sheet raised over a sheet is the nested-modal case react-native-web does
+ *  not handle, and this union makes it unrepresentable. */
+type OpenSheet =
+  | null
+  | { kind: 'stage' }
+  | { kind: 'priority' }
+  | { kind: 'type' }
+  | { kind: 'assignee' }
+  | { kind: 'parent' }
+  | { kind: 'relation-type' }
+  | { kind: 'relation-target'; type: string }
+  | { kind: 'supersede' }
+  | { kind: 'menu' }
+  | { kind: 'confirm-delete' }
+  | { kind: 'confirm-archive' }
+  | { kind: 'flag' }
+  | { kind: 'colour' }
+
+/** The relation kinds the phone offers. `parent-child` and `supersedes` are
+ *  deliberately absent: parentage has its own row and supersede/duplicate are
+ *  lifecycle acts on the overflow menu, so offering them here would let the same
+ *  fact be stated two ways. */
+const RELATION_TYPES = ['blocks', 'related', 'discovered-from'] as const
+
+function IssueContent({ issue, onBack }: { issue: IssueWire; onBack: () => void }) {
   const router = useRouter()
   const store = useMobileStore()
-  const trpc = store.trpc
+  const issues = useIssues()
   const allSessions = useSessions()
-  const now = Date.now()
-  const [stageMenuOpen, setStageMenuOpen] = useState(false)
+
+  const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [starting, setStarting] = useState(false)
-  const sessions = useMemo(
-    () => withoutShells(allSessions).filter((s) => s.issueId === issue.id && !s.archived),
-    [allSessions, issue.id],
-  )
+  const [sheet, setSheet] = useState<OpenSheet>(null)
+  const [detailsOpen, detailsCollapsed] = useDetailsFold()
 
-  const setStage = async (stage: (typeof ISSUE_STAGES)[number]) => {
+  /** Run a mutation, surfacing any thrown error verbatim as an inline note. */
+  const run: RunMutation = async (fn) => {
+    setBusy(true)
     setError(null)
     try {
-      await trpc.issues.update.mutate({ id: issue.id, patch: { stage } })
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    }
-  }
-
-  // The recovery path for a task with nobody on it (POD-346): filed without
-  // "start now", or started once and since finished. Without it the phone can
-  // create work it cannot then get an agent onto.
-  const startAgent = async () => {
-    setError(null)
-    setStarting(true)
-    try {
-      await trpc.issues.start.mutate({ id: issue.id })
+      await fn()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
-      setStarting(false)
+      setBusy(false)
     }
   }
+  const commands = issueCommands({ trpc: store.trpc, issue, run })
+  const { feed, mail, appendLocalComment } = useIssueActivity(issue)
 
-  const addComment = async (body: string) => {
-    setError(null)
-    try {
-      await trpc.issues.addComment.mutate({ id: issue.id, author: 'mobile', body })
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    }
-  }
+  const sessions = useMemo(
+    () => allSessions.filter((s) => s.issueId === issue.id && !s.archived),
+    [allSessions, issue.id],
+  )
+  // The Now block is about AGENTS. A shell is a terminal the operator opened on
+  // the task's checkout, not something computing on its behalf, so it belongs in
+  // the roster and not in "who is working".
+  const agents = useMemo(() => withoutShells(sessions), [sessions])
+  const children = useMemo(() => subIssuesOf(issues, issue.id), [issues, issue.id])
+  const parent = useMemo(
+    () => (issue.parentId ? issues.find((i) => i.id === issue.parentId) : undefined),
+    [issues, issue.parentId],
+  )
+  /**
+   * Repo-mates: sibling tasks in the same repo excluding self — the pool for
+   * parent, relations and supersede targets.
+   *
+   * NEWEST FIRST, where the desktop's `repoMatesOf` sorts ascending. The desktop
+   * pairs that list with a type-to-filter menu, so where a task sits in it barely
+   * matters; a phone sheet is a scroll with no filter, and the task you are
+   * relating this one to is overwhelmingly one you filed recently. Nothing is
+   * truncated — a silently capped picker is a picker that cannot reach the row
+   * you want and does not say so.
+   */
+  const mates = useMemo(
+    () =>
+      issues
+        .filter((i) => i.repoPath === issue.repoPath && i.id !== issue.id && !i.deletedAt)
+        .sort((a, b) => b.seq - a.seq),
+    [issues, issue.repoPath, issue.id],
+  )
+  const assignees = useMemo(
+    () => [...new Set(issues.map((i) => i.assignee).filter((a) => !!a))].sort() as string[],
+    [issues],
+  )
+  const { prev, next } = useMemo(
+    () => taskNeighbours(taskBoardOrder(issues), issue.id),
+    [issues, issue.id],
+  )
 
+  const openIssue = (id: string) => router.replace(`/issue/${encodeURIComponent(id)}`)
+  const openSession = (id: SessionId) =>
+    router.push(sessionHref(id, `/issue/${encodeURIComponent(issue.id)}`))
   const askingSession =
-    sessions.find((session) => session.sessionId === issue.humanQuestionAskedBy) ?? sessions[0]
+    sessions.find((s) => s.sessionId === issue.humanQuestionAskedBy) ?? sessions[0]
+
+  /**
+   * Dismiss THIS sheet, and only if it is still the one showing.
+   *
+   * Not `() => setSheet(null)`. The sheet primitive fires `onClose` when its
+   * close ANIMATION finishes, not when the dismissal starts, and two of these
+   * flows open a second sheet from the first one's action (pick a relation type
+   * then a target; choose Archive then confirm). A blanket clear therefore
+   * arrives ~250ms late and closes the sheet that just opened. Keying the clear
+   * on the kind makes the stale callback a no-op.
+   */
+  const closeIf = (kind: NonNullable<OpenSheet>['kind']) => () =>
+    setSheet((cur) => (cur?.kind === kind ? null : cur))
+  const mateActions = (onPick: (id: string) => void): SheetAction[] =>
+    mates.map((m) => ({
+      label: m.title,
+      meta: issueDisplayRef(m),
+      onPress: () => onPick(m.id),
+    }))
+
+  const repoName = issue.repoPath.split('/').filter(Boolean).pop() ?? issue.repoPath
+  const breadcrumb = parent ? `${repoName} › ${issueDisplayRef(parent)}` : repoName
+  const hex = issueColorHex(issue.color)
 
   return (
-    <>
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <View style={styles.metaRow}>
-          <PressableScale
-            accessibilityRole="button"
-            accessibilityLabel={`Stage ${issue.stage} — change`}
-            onPress={() => setStageMenuOpen(true)}
-          >
-            <Pill
-              label={`${issue.stage.replace('_', ' ')} ▾`}
-              toneKey={issue.stage === 'in_progress' ? 'working' : undefined}
-            />
-          </PressableScale>
-          <Pill label={issue.type} />
-          <Pill label={`P${issue.priority}`} />
-          {issue.needsHuman ? <Pill label="needs human" toneKey="needsYou" /> : null}
-          {issue.assignee ? <Pill label={issue.assignee} /> : null}
-        </View>
-        {error ? <Text style={styles.error}>{error}</Text> : null}
-        {issue.needsHuman ? (
-          <IssueQuestionCard
+    <Screen
+      title={issueDisplayRef(issue)}
+      // The desktop header's breadcrumb, at phone width: repo, then the parent's
+      // ref when there is one. A nested task whose only mention of its parent
+      // was inside a collapsed fold read as top-level work — the same confusion
+      // the board's nesting exists to remove.
+      subtitle={breadcrumb}
+      onBack={onBack}
+      {...(hex ? { accent: hex } : {})}
+      leading={
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel="Change task colour"
+          onPress={() => setSheet({ kind: 'colour' })}
+          hitSlop={8}
+        >
+          <IdSquare
             issue={issue}
-            onAnswer={
-              askingSession
-                ? (answer) => store.resumeAndSend(askingSession.sessionId, answer)
-                : undefined
+            size={22}
+            state={
+              issue.stage === 'done'
+                ? 'done'
+                : issue.needsHuman
+                  ? 'waiting'
+                  : agents.length > 0
+                    ? 'working'
+                    : 'queued'
             }
-            onOpenSession={
-              askingSession
-                ? () =>
-                    router.push(
-                      sessionHref(
-                        askingSession.sessionId,
-                        `/issue/${encodeURIComponent(issue.id)}`,
-                      ),
-                    )
-                : undefined
-            }
-            onResolve={async () => {
-              await trpc.issues.clearNeedsHuman.mutate({ id: issue.id })
-            }}
           />
-        ) : null}
-        {issue.description.trim() ? (
-          <Text style={styles.description} selectable>
-            {issue.description.trim()}
-          </Text>
-        ) : null}
-        {issue.blockedByNotes.length > 0 ? (
-          <Text style={styles.blocked}>
-            Blocked by {issue.blockedByNotes.length} issue
-            {issue.blockedByNotes.length > 1 ? 's' : ''}
-            {issue.dependencyNote ? ` — ${issue.dependencyNote}` : ''}
-          </Text>
-        ) : null}
-        {issue.activityNotes?.trim() ? (
-          <>
-            <SectionHeader label="Notes" />
-            <Text style={styles.notes} selectable>
-              {issue.activityNotes.trim()}
-            </Text>
-          </>
-        ) : null}
-
-        <SectionHeader label={`Sessions (${sessions.length})`} />
-        {sessions.length === 0 ? (
-          <>
-            <Text style={styles.noSessions}>No agent is on this task.</Text>
-            <PressableScale
-              accessibilityRole="button"
-              accessibilityLabel="Start an agent on this task"
-              disabled={starting}
-              onPress={() => void startAgent()}
-              style={({ pressed }) => [
-                styles.startBtn,
-                (starting || pressed) && styles.startBtnMuted,
-              ]}
+        </PressableScale>
+      }
+      right={
+        <>
+          {/* An end-of-list neighbour renders as an INERT glyph rather than
+              vanishing: three controls that become two shift everything beside
+              them, and the first and last task on the board are exactly where an
+              operator is most likely to be aiming at the button that moved. */}
+          {prev ? (
+            <HeaderButton label="Previous task" onPress={() => openIssue(prev)}>
+              <Icon as={ChevronUp} size={17} color={color.text} />
+            </HeaderButton>
+          ) : (
+            <View
+              style={styles.headerInert}
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
             >
-              <Text style={styles.startText}>{starting ? 'Starting…' : 'Start an agent'}</Text>
-            </PressableScale>
-          </>
-        ) : (
-          sessions.map((session) => (
-            <SessionCard
-              key={session.sessionId}
-              model={sessionCardModel(session, issue, now)}
-              issue={issue}
-              onPress={() =>
-                router.push(
-                  sessionHref(session.sessionId, `/issue/${encodeURIComponent(issue.id)}`),
-                )
-              }
-            />
-          ))
-        )}
-
-        <SectionHeader label={`Comments (${(issue.comments ?? []).length})`} />
-        {(issue.comments ?? []).map((comment) => (
-          <View key={comment.id} style={styles.comment}>
-            <View style={styles.commentHead}>
-              <Text style={styles.commentAuthor}>{comment.author}</Text>
-              <Text style={styles.commentTime}>{relativeTime(comment.createdAt, now)}</Text>
+              <Icon as={ChevronUp} size={17} color={color.textMicro} />
             </View>
-            <Text style={styles.commentBody} selectable>
-              {comment.body}
-            </Text>
+          )}
+          {next ? (
+            <HeaderButton label="Next task" onPress={() => openIssue(next)}>
+              <Icon as={ChevronDown} size={17} color={color.text} />
+            </HeaderButton>
+          ) : (
+            <View
+              style={styles.headerInert}
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+            >
+              <Icon as={ChevronDown} size={17} color={color.textMicro} />
+            </View>
+          )}
+          <HeaderButton label="More actions" onPress={() => setSheet({ kind: 'menu' })}>
+            <Icon as={MoreHorizontal} size={17} color={color.text} />
+          </HeaderButton>
+        </>
+      }
+    >
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+      >
+        <IssueBanners issue={issue} busy={busy} commands={commands} onRestored={onBack} />
+
+        {issue.needsHuman ? (
+          <View style={styles.question}>
+            <IssueQuestionCard
+              issue={issue}
+              onAnswer={
+                askingSession
+                  ? (answer) => store.resumeAndSend(askingSession.sessionId, answer)
+                  : undefined
+              }
+              onOpenSession={askingSession ? () => openSession(askingSession.sessionId) : undefined}
+              // The card awaits its resolver; the command is fire-and-forget
+              // through the page's runner, which already owns the busy/error pair.
+              onResolve={async () => commands.resolveNeedsHuman()}
+            />
           </View>
-        ))}
+        ) : null}
+
+        <IssueTitle issue={issue} busy={busy} commands={commands} />
+        <StatusStrip issue={issue} />
+        <PropertyBar
+          issue={issue}
+          onStage={() => setSheet({ kind: 'stage' })}
+          onPriority={() => setSheet({ kind: 'priority' })}
+          onType={() => setSheet({ kind: 'type' })}
+          onAssignee={() => setSheet({ kind: 'assignee' })}
+        />
+
+        <IssueNow issue={issue} sessions={agents} onOpenSession={openSession} />
+        <IssueDescription issue={issue} busy={busy} commands={commands} />
+        <IssueBrief issue={issue} />
+        <LongFormFields issue={issue} busy={busy} commands={commands} />
+        <IssueAgentPanel issue={issue} busy={busy} commands={commands} />
+        <IssueSubIssues
+          issue={issue}
+          subIssues={children}
+          busy={busy}
+          commands={commands}
+          onOpen={openIssue}
+        />
+        <MailSection mail={mail} />
+        <IssueProperties
+          issue={issue}
+          sessions={sessions}
+          parent={parent}
+          busy={busy}
+          commands={commands}
+          open={detailsOpen}
+          onToggle={detailsCollapsed}
+          onOpenSession={openSession}
+          onOpenIssue={openIssue}
+          onPickParent={() => setSheet({ kind: 'parent' })}
+          onAddRelation={() => setSheet({ kind: 'relation-type' })}
+        />
+        <IssueActivitySection issue={issue} busy={busy} commands={commands} feed={feed} />
       </ScrollView>
-      <Composer placeholder="Comment on this task…" onSend={(text) => void addComment(text)} />
-      <ActionSheet
-        visible={stageMenuOpen}
-        title="Stage"
-        actions={ISSUE_STAGES.map((stage) => ({
-          label: stage.replace('_', ' '),
-          onPress: () => void setStage(stage),
-        }))}
-        onClose={() => setStageMenuOpen(false)}
+
+      {/* Pinned with the composer, not placed where the failing control was. A
+          rebase fired from the Details fold at the bottom of a long page would
+          otherwise report its error a full screen above the thumb that asked
+          for it. */}
+      {error ? (
+        <View style={styles.errorBand}>
+          <ErrorNote message={error} />
+        </View>
+      ) : null}
+
+      <Composer
+        placeholder="Comment, or @mention an agent on this task…"
+        onSend={(text) => commands.postComment(text, appendLocalComment)}
       />
-    </>
+
+      <ActionSheet
+        visible={sheet?.kind === 'stage'}
+        title="Status"
+        actions={[
+          // The glyph rides the row, exactly as it does in the desktop's status
+          // menu: the six stages are a shape language before they are six words,
+          // and a picker that drops the shape teaches a different vocabulary from
+          // the board the operator just came from.
+          ...ISSUE_STAGES.map((stage) => ({
+            label: ISSUE_STAGE_LABELS[stage],
+            icon: <StageGlyph stage={stage} size={15} ground={color.surface} />,
+            selected: issue.stage === stage && !issue.closedReason,
+            onPress: () => commands.selectStatus(`stage:${stage}`),
+          })),
+          {
+            label: 'Close: done',
+            hint: 'Records the closure reason as well as the stage.',
+            onPress: () => commands.selectStatus('close:done'),
+          },
+          {
+            label: 'Close: wontfix',
+            hint: 'Closed without the work being done.',
+            onPress: () => commands.selectStatus('close:wontfix'),
+          },
+        ]}
+        onClose={closeIf('stage')}
+      />
+
+      <ActionSheet
+        visible={sheet?.kind === 'priority'}
+        title="Priority"
+        actions={[0, 1, 2, 3, 4].map((p) => ({
+          label: `P${p}`,
+          icon: <PriorityGlyph priority={p} size={15} />,
+          selected: issue.priority === p,
+          onPress: () => commands.update({ priority: p }),
+        }))}
+        onClose={closeIf('priority')}
+      />
+
+      <ActionSheet
+        visible={sheet?.kind === 'type'}
+        title="Type"
+        actions={IssueType.options.map((t) => ({
+          label: t,
+          selected: issue.type === t,
+          onPress: () => commands.update({ type: t }),
+        }))}
+        onClose={closeIf('type')}
+      />
+
+      <ActionSheet
+        visible={sheet?.kind === 'assignee'}
+        title="Assignee"
+        subtitle={assignees.length === 0 ? 'Nobody has been assigned anything yet.' : undefined}
+        actions={[
+          {
+            label: 'Unassigned',
+            selected: !issue.assignee,
+            onPress: () => commands.update({ assignee: '' }),
+          },
+          ...assignees.map((a) => ({
+            label: a,
+            selected: issue.assignee === a,
+            onPress: () => commands.update({ assignee: a }),
+          })),
+        ]}
+        onClose={closeIf('assignee')}
+      />
+
+      <ActionSheet
+        visible={sheet?.kind === 'parent'}
+        title="Parent"
+        subtitle={mates.length === 0 ? 'No other task in this repo to nest under.' : undefined}
+        actions={mateActions((id) => commands.setParent(id))}
+        onClose={closeIf('parent')}
+      />
+
+      <ActionSheet
+        visible={sheet?.kind === 'relation-type'}
+        title="Add relation"
+        actions={RELATION_TYPES.map((type) => ({
+          label: type,
+          onPress: () => setSheet({ kind: 'relation-target', type }),
+        }))}
+        onClose={closeIf('relation-type')}
+      />
+
+      <ActionSheet
+        visible={sheet?.kind === 'relation-target'}
+        title={sheet?.kind === 'relation-target' ? sheet.type : ''}
+        actions={mateActions((id) => {
+          if (sheet?.kind === 'relation-target') commands.addRelation(sheet.type, id)
+        })}
+        onClose={closeIf('relation-target')}
+      />
+
+      <ActionSheet
+        visible={sheet?.kind === 'supersede'}
+        title="Supersede with"
+        subtitle="This task is closed as replaced by the one you pick."
+        actions={mateActions((id) => commands.supersedeWith(id))}
+        onClose={closeIf('supersede')}
+      />
+
+      <ActionSheet
+        visible={sheet?.kind === 'menu'}
+        title={issueDisplayRef(issue)}
+        actions={menuActions()}
+        onClose={closeIf('menu')}
+      />
+
+      <ActionSheet
+        visible={sheet?.kind === 'confirm-delete'}
+        title="Delete this task?"
+        subtitle={`The task and its ${sessions.length} session${sessions.length === 1 ? '' : 's'} can be restored; running processes will be stopped.`}
+        actions={[
+          {
+            label: 'Delete',
+            destructive: true,
+            onPress: () => commands.deleteIssue(onBack),
+          },
+        ]}
+        onClose={closeIf('confirm-delete')}
+      />
+
+      <ActionSheet
+        visible={sheet?.kind === 'confirm-archive'}
+        title="Archive this open task?"
+        subtitle="It leaves active views, but it is not closed and its sessions are not retired."
+        actions={[{ label: 'Archive', onPress: commands.toggleArchived }]}
+        onClose={closeIf('confirm-archive')}
+      />
+
+      <PromptSheet
+        visible={sheet?.kind === 'flag'}
+        title="Flag for human"
+        hint="What should the operator decide? Optional."
+        placeholder="Question…"
+        confirmLabel="Flag"
+        onConfirm={(q) => commands.flagForHuman(q || undefined)}
+        onClose={closeIf('flag')}
+      />
+
+      <IssueColorSheet
+        issue={sheet?.kind === 'colour' ? issue : null}
+        onClose={closeIf('colour')}
+      />
+    </Screen>
   )
+
+  /**
+   * The overflow menu. Every entry is gated on DATA PRESENCE or on the task's own
+   * lifecycle, exactly as the desktop's declarative menu config gates them; the
+   * two acts that cannot be undone by a second tap raise a confirm sheet first.
+   * This is UX gating only — the Authority re-authorizes at apply, and a denied
+   * write surfaces through the same error note every command uses.
+   */
+  function menuActions(): SheetAction[] {
+    const live = !issue.deletedAt
+    const actions: SheetAction[] = []
+    if (agents.length === 0 && live) {
+      actions.push({
+        label: 'Start an agent',
+        hint: 'Spawns this task’s default agent on its own checkout.',
+        onPress: commands.startWork,
+      })
+    } else if (live) {
+      actions.push({ label: 'Add an agent', onPress: commands.addSession })
+    }
+    if (live) actions.push({ label: 'Add a shell', onPress: commands.addShell })
+    if (live) {
+      actions.push({
+        label: issue.pinned ? 'Unpin' : 'Pin',
+        onPress: commands.togglePinned,
+      })
+      actions.push({
+        label: issue.archived ? 'Unarchive task' : 'Archive task',
+        onPress: () => {
+          // Archiving something still OPEN is the case that surprises people.
+          if (!issue.archived && !issue.closedReason && issue.stage !== 'done') {
+            setSheet({ kind: 'confirm-archive' })
+            return
+          }
+          commands.toggleArchived()
+        },
+      })
+      actions.push({ label: 'Flag for human…', onPress: () => setSheet({ kind: 'flag' }) })
+    }
+    if (live && mates.length > 0) {
+      actions.push({
+        label: 'Supersede with…',
+        onPress: () => setSheet({ kind: 'supersede' }),
+        hint: 'Pick the task that replaces this one.',
+      })
+    }
+    if (issue.deletedAt) {
+      actions.push({ label: 'Restore task', onPress: () => commands.restoreIssue(onBack) })
+    } else {
+      actions.push({
+        label: 'Delete',
+        destructive: true,
+        onPress: () => setSheet({ kind: 'confirm-delete' }),
+      })
+    }
+    return actions
+  }
+}
+
+/** The Details fold, remembered per principal in the replica's ui-state — the
+ *  same store and key namespace the sidebar's folds use, so the phone and the
+ *  desktop read as one product. Closed by default: it is the reference half of
+ *  the page, and the activity feed should not start below a screenful of it. */
+function useDetailsFold(): [boolean, () => void] {
+  const [collapsed, toggle] = useCollapsed(TASK_DETAILS_FOLD_KEY, true)
+  return [!collapsed, toggle]
 }
 
 const styles = StyleSheet.create({
   content: {
-    paddingVertical: space.md,
+    paddingHorizontal: space.lg,
+    paddingTop: space.lg,
     paddingBottom: space.xxl,
   },
-  metaRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: space.sm,
+  question: {
+    paddingBottom: space.md,
+  },
+  errorBand: {
     paddingHorizontal: space.lg,
+    paddingVertical: space.sm,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: color.border,
+    backgroundColor: color.dangerSoft,
   },
-  description: {
-    color: color.textDim,
-    fontSize: font.body,
-    lineHeight: leading(font.body, 'prose'),
-    paddingHorizontal: space.lg,
-    paddingTop: space.md,
-  },
-  blocked: {
-    color: color.danger,
-    fontSize: font.small,
-    paddingHorizontal: space.lg,
-    paddingTop: space.md,
-  },
-  notes: {
-    color: color.textDim,
-    fontSize: font.small,
-    lineHeight: leading(font.small, 'prose'),
-    paddingHorizontal: space.lg,
-  },
-  noSessions: {
-    color: color.textFaint,
-    fontSize: font.small,
-    paddingHorizontal: space.lg,
-  },
-  startBtn: {
-    alignSelf: 'flex-start',
-    marginHorizontal: space.lg,
-    marginTop: space.sm,
-    paddingHorizontal: space.lg,
-    paddingVertical: space.sm + 2,
-    borderRadius: radius.sm,
-    backgroundColor: color.accent,
-  },
-  startBtnMuted: {
-    opacity: 0.55,
-  },
-  startText: {
-    color: color.accentText,
-    fontSize: font.small,
-    ...sans(700),
-  },
-  error: {
-    color: color.danger,
-    fontSize: font.small,
-    paddingHorizontal: space.lg,
-    paddingTop: space.sm,
-  },
-  comment: {
-    marginHorizontal: space.lg,
-    marginBottom: space.sm,
-    backgroundColor: color.card,
-    borderColor: color.border,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.sm,
-    padding: space.md,
-    gap: 4,
-  },
-  commentHead: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  commentAuthor: {
-    color: color.accent,
-    fontSize: font.tiny,
-    ...sans(700),
-  },
-  commentTime: {
-    color: color.textFaint,
-    fontSize: font.tiny,
-  },
-  commentBody: {
-    color: color.text,
-    fontSize: font.small,
-    lineHeight: leading(font.small, 'prose'),
+  headerInert: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    opacity: 0.45,
   },
 })

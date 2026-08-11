@@ -5,7 +5,6 @@ import {
   computeEpicProgressMap,
   DEFAULT_DISPLAY,
   filterBoardScope,
-  orderIssues,
   readIssuesDisplay,
   writeIssuesDisplay,
 } from './issues-display'
@@ -32,34 +31,6 @@ describe('readIssuesDisplay', () => {
   })
   it('keeps an explicitly persisted ordering over the default', () => {
     expect(readIssuesDisplay(JSON.stringify({ ordering: 'updated' })).ordering).toBe('updated')
-  })
-})
-
-describe('orderIssues', () => {
-  it('priority: ascending priority, then seq', () => {
-    const a = issue({ id: 'a', seq: 2, priority: 2 })
-    const b = issue({ id: 'b', seq: 1, priority: 0 })
-    const c = issue({ id: 'c', seq: 3, priority: 2 })
-    expect(orderIssues([a, c, b], 'priority').map((i) => i.id)).toEqual(['b', 'a', 'c'])
-  })
-  it('updated: most recently updated first; created likewise', () => {
-    const old = issue({
-      id: 'old',
-      updatedAt: '2026-01-01T00:00:00Z',
-      createdAt: '2026-01-02T00:00:00Z',
-    })
-    const fresh = issue({
-      id: 'new',
-      updatedAt: '2026-06-01T00:00:00Z',
-      createdAt: '2026-01-01T00:00:00Z',
-    })
-    expect(orderIssues([old, fresh], 'updated')[0]?.id).toBe('new')
-    expect(orderIssues([old, fresh], 'created')[0]?.id).toBe('old')
-  })
-  it('does not mutate its input', () => {
-    const list = [issue({ id: 'a', priority: 3 }), issue({ id: 'b', priority: 0 })]
-    orderIssues(list, 'priority')
-    expect(list[0]?.id).toBe('a')
   })
 })
 

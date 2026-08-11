@@ -13,7 +13,7 @@
  * `item.ts` — the raw ISO-8601 string straight off the event row — beside a
  * line produced by de-prefixing the event KIND, so a live task rendered thirty
  * consecutive rows reading `read  2026-08-07T20:21:24.588Z`. Three changes fix
- * it, and all three live in `../issue-events.ts` so they stay pure:
+ * it, and all three live in `@podium/client-core/viewmodels`'s issue-activity.ts so they stay pure:
  *   · days carry the date, rows carry a clock time (`eventClock`), and the ISO
  *     precision moves to `title`;
  *   · runs of minor events collapse into one line the operator can open;
@@ -25,6 +25,16 @@
  */
 
 import { relativeTime } from '@podium/client-core/focus'
+import {
+  type ActivityDay,
+  type ActivityEntry,
+  type ActivityItem,
+  eventClock,
+  eventStamp,
+  groupActivityFeed,
+  type IssueEventIcon,
+  type IssueEventLine,
+} from '@podium/client-core/viewmodels'
 import {
   ArrowRight,
   CheckCircle2,
@@ -48,14 +58,6 @@ import type { IssueViewModel } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
-import type {
-  ActivityDay,
-  ActivityEntry,
-  ActivityItem,
-  IssueEventIcon,
-  IssueEventLine,
-} from '../issue-events'
-import { eventClock, eventStamp, groupActivityFeed } from '../issue-events'
 import type { IssueMailMessage, IssuePageCommands } from '../issue-page-commands'
 import { MACHINE_LABEL, SectionHeading } from './chrome'
 

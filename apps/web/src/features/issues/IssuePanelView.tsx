@@ -4,7 +4,9 @@ import {
   artifactKind,
   artifactUrl,
   basename,
+  buildActivityFeed,
   groupRelations,
+  type IssueEvent,
   issueForPanel,
   operationalState,
   type PresenceKind,
@@ -48,7 +50,6 @@ import {
   issueSessions,
 } from './IssueCompactControls'
 import { issueIdTitle } from './issue-card'
-import { buildActivityFeed, type IssueEvent } from './issue-events'
 import { StageGlyph } from './issue-glyphs'
 
 // Where the task's identity lives, since POD-516 r3: the DOCK TITLE BAR carries

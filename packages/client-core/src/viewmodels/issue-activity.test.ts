@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildActivityFeed, formatIssueEvent, type IssueEvent } from './issue-events'
+import { buildActivityFeed, formatIssueEvent, type IssueEvent } from './issue-activity'
 
 const ev = (over: Partial<IssueEvent>): IssueEvent => ({
   id: 1,

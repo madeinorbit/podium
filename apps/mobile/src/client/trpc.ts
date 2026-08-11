@@ -5,7 +5,14 @@ import {
   type ServerConfig,
 } from '@podium/client-core/transport'
 import type { AskAnswerChoice } from '@podium/client-core/viewmodels'
-import type { IssueStage, IssueType, IssueWire, SessionId, TranscriptItem } from '@podium/model'
+import type {
+  IssueColorSlot,
+  IssueStage,
+  IssueType,
+  IssueWire,
+  SessionId,
+  TranscriptItem,
+} from '@podium/model'
 import { WIRE_VERSION } from '@podium/protocol'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 
@@ -73,6 +80,16 @@ interface MobileTrpcExtras {
     >
     /** Spawn the issue's default agent on it (issue-as-workspace). */
     start: MutationProcedure<{ id: string; agentKind?: string }, IssueWire>
+    /**
+     * Put ANOTHER agent into an already-started issue's worktree [POD-724].
+     *
+     * Not the same call as `start`, and the split is not cosmetic: `start` is
+     * what creates the branch and the checkout, so sending it at an issue that
+     * already has one is how you get a second worktree for one task. The phone
+     * needs both because the mission screen can now launch an agent from inside
+     * the conversation, where the task is usually already running.
+     */
+    addSession: MutationProcedure<{ id: string; agentKind?: string }, IssueWire>
     /** Operator-only: accept an agent proposal into the backlog [spec:SP-6144]. */
     promote: MutationProcedure<{ id: string }, IssueWire>
     /** Close an issue — the server writes stage `done` + the closure reason. */
@@ -91,6 +108,11 @@ interface MobileTrpcExtras {
         pinned?: boolean
         /** Manual order key (POD-168); lexicographic ASC within a band. */
         sortKey?: string
+        /** The issue's palette slot, or `null` to clear it back to the neutral
+         *  slate flow [POD-724]. The colour channel carries a task's identity
+         *  through every row, header and pane on both platforms, and it used to
+         *  be settable only at the desk. */
+        color?: IssueColorSlot | null
       }
       mutationId?: string
     }>

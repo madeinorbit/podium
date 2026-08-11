@@ -1,5 +1,19 @@
 import type { IssueStage } from '@podium/model'
-import { STAGE_LABELS } from './issue-card'
+import { ISSUE_STAGE_LABELS } from './issue-reference'
+
+/**
+ * THE ACTIVITY FEED, DERIVED ONCE [POD-724].
+ *
+ * Moved verbatim from `apps/web/src/features/issues/issue-events.ts` when the
+ * phone grew a real task page: merging comments with the event log, naming an
+ * event in human words, rolling up runs of churn and cutting the result into
+ * days is 300 lines of decisions about what an operator should be shown, and a
+ * second copy on the phone would drift the moment either side gained an event
+ * kind. Nothing about it is DOM-shaped — the formatter deliberately returns a
+ * stable `icon` KEY rather than a glyph, precisely so both renderers can map it
+ * to their own icon set. The only edit is the label import, which now reads
+ * client-core's own `ISSUE_STAGE_LABELS` instead of the web's re-export of it.
+ */
 
 /**
  * One row from the server's issue event log — the shape returned by the
@@ -75,7 +89,9 @@ export function formatIssueEvent(event: IssueEvent): IssueEventLine | null {
     case 'issue.stage_changed': {
       const to = typeof p.to === 'string' ? p.to : undefined
       const label =
-        to && to in STAGE_LABELS ? STAGE_LABELS[to as IssueStage] : (to ?? 'a new stage')
+        to && to in ISSUE_STAGE_LABELS
+          ? ISSUE_STAGE_LABELS[to as IssueStage]
+          : (to ?? 'a new stage')
       return { icon: 'moved', text: `moved to ${label}` }
     }
     case 'issue.closed': {

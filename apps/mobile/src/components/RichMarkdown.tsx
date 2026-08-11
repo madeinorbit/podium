@@ -18,6 +18,7 @@ import {
 } from '../lib/markdown'
 import { selectableProps } from '../lib/selectable'
 import { color, font, leading, mono, radius, sans, space } from '../theme/theme'
+import { RefChip } from './RefChip'
 
 interface RichMarkdownProps {
   text: string
@@ -42,16 +43,17 @@ function openExternal(href: string | undefined): void {
 
 function renderText(text: string, ctx: RenderContext, key: string): ReactNode[] {
   return splitPodiumRefs(text).map((part) =>
-    part.kind === 'ref' && ctx.onRefPress ? (
-      <Text
+    part.kind === 'ref' ? (
+      <RefChip
         key={`${key}:ref:${part.offset}`}
-        accessibilityRole="link"
-        style={styles.refLink}
-        onPress={() => ctx.onRefPress?.(part.ref)}
-        suppressHighlighting
-      >
-        {part.text}
-      </Text>
+        token={part.ref}
+        refKind={part.refKind}
+        prefix={part.prefix}
+        // Only issue refs peek: the handler resolves a task, and a session ref
+        // that opened nothing would be a tap that looks answered and is not
+        // (POD-724). It still reads as a ref — muted, glyph-less, underlined.
+        onPress={part.refKind === 'issue' ? ctx.onRefPress : undefined}
+      />
     ) : (
       part.text
     ),
@@ -385,12 +387,6 @@ const styles = StyleSheet.create({
   em: { fontStyle: 'italic' },
   del: { textDecorationLine: 'line-through', color: color.textDim },
   link: { color: color.info, textDecorationLine: 'underline' },
-  refLink: {
-    ...mono(500),
-    color: color.accentTint,
-    backgroundColor: color.accentSoft,
-    textDecorationLine: 'none',
-  },
   inlineCode: {
     ...mono(400),
     color: color.text,

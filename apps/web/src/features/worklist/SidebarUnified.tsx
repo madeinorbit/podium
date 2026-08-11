@@ -1,5 +1,6 @@
 import {
   groupUnifiedWorkRows,
+  planReorderKeys,
   rowAwaitsTuck,
   splitPinnedWork,
   type UnifiedIssueRow as UnifiedIssueRowView,
@@ -12,7 +13,6 @@ import { issueColorHex } from '@/lib/issueColors'
 import { type RowTransitionTarget, useRowTransitions } from '@/lib/motion'
 import { cn } from '@/lib/utils'
 import { type SidebarDerivation, useSidebarDerivation } from './derivation'
-import { planReorderKeys } from './reorder'
 import { AppToolsRow, NewWorkRow } from './spawn-row'
 import { UnifiedIssueRow } from './UnifiedIssueRow'
 import { UnifiedWorktreeRow } from './UnifiedWorktreeRow'

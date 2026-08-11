@@ -42,6 +42,23 @@ function withFittableAddon(): void {
   })
 }
 
+/** Like withFittableAddon, but the proposed grid MOVES: a phone that rotates (or
+ *  opens its keyboard) between one report and the next. */
+function withResizableAddon(): { set: (cols: number, rows: number) => void } {
+  const proto = FitAddon.prototype as unknown as { proposeDimensions: () => unknown }
+  const original = proto.proposeDimensions
+  let grid = { cols: 150, rows: 50 }
+  proto.proposeDimensions = () => grid
+  protoPatchRestorers.push(() => {
+    proto.proposeDimensions = original
+  })
+  return {
+    set: (cols: number, rows: number) => {
+      grid = { cols, rows }
+    },
+  }
+}
+
 /** Like withFittableAddon, but measurability is toggled by the test — undefined
  *  until `measurable = true`, then 150×50 (a pane hidden / mid-layout, revealed later). */
 function withToggleableAddon(): { setMeasurable: (m: boolean) => void } {
@@ -247,6 +264,51 @@ describe('mountSession eligibility-gated sizing', () => {
     mounted.dispose()
   })
 
+  /**
+   * READING A WIDE TUI ON A PHONE WITHOUT TYPING INTO IT (POD-724).
+   *
+   * The implicit takeover above is the only one there was: to be sized for your
+   * own screen you had to send a byte into a running agent's session. The mobile
+   * header now offers the takeover as an action, and this is the contract behind
+   * it — the SAME two ordered frames, no keystroke, and the PTY ends up on this
+   * client's grid rather than on whatever the desk was driving.
+   */
+  it('takes control explicitly, carrying this client viewport, and refits when the server transfers', () => {
+    withResizeObserver()
+    const proposed = withResizableAddon() // phone container proposes 150×50
+    const { hub, calls, role, state } = fakeHub()
+    role('spectator')
+    const mounted = mountSession(fittableHost(), {
+      hub,
+      sessionId: asSessionId('s1'),
+      active: true,
+      gridMode: 'server-grid',
+    })
+    state(183, 55, 'spectator') // desktop-owned PTY geometry
+
+    // The phone rotates. The ResizeObserver report is DEBOUNCED, so at this
+    // instant the server still has the portrait viewport on record — a takeover
+    // that trusted it would hand the PTY the wrong size.
+    proposed.set(90, 70)
+    calls.resize.length = 0
+
+    mounted.takeControl()
+
+    expect(calls.requestControl).toBe(1)
+    expect(calls.input, 'nothing is typed into the agent to earn a readable size').toEqual([])
+    expect(
+      calls.resize.at(-1),
+      'the viewport is sampled synchronously and handed over with the request',
+    ).toEqual([90, 70])
+
+    // The server transfers control: the role change is what re-fits the PTY to
+    // THIS client, which is the whole point of the action.
+    calls.resize.length = 0
+    state(183, 55, 'controller')
+    expect(calls.resize.at(-1)).toEqual([90, 70])
+    mounted.dispose()
+  })
+
   it('fits a server-grid client that the server made controller', () => {
     withResizeObserver()
     withFittableAddon()
@@ -263,7 +325,10 @@ describe('mountSession eligibility-gated sizing', () => {
 
     expect(calls.requestControl, 'already-controller phone needs no takeover').toBe(0)
     expect(calls.resize.at(-1)).toEqual([150, 50])
-    expect(calls.redraw, 'soft-nudge so alt-screen TUIs fully repaint after phone fit').toBeGreaterThanOrEqual(1)
+    expect(
+      calls.redraw,
+      'soft-nudge so alt-screen TUIs fully repaint after phone fit',
+    ).toBeGreaterThanOrEqual(1)
     // Local xterm stays on the server grid until geometry acks — optimistic
     // phone-grid resize would reflow attach-replay frames into shredded TUI
     // fragments (mobile Grok/Claude). Crop-and-pan holds until the PTY moves.

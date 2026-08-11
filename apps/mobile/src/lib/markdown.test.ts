@@ -28,10 +28,50 @@ describe('splitPodiumRefs', () => {
   it('keeps issue references tappable inside ordinary text', () => {
     expect(splitPodiumRefs('See POD-1197 and POD-144.')).toEqual([
       { kind: 'text', text: 'See ' },
-      { kind: 'ref', text: 'POD-1197', ref: 'POD-1197', offset: 4 },
+      {
+        kind: 'ref',
+        text: 'POD-1197',
+        ref: 'POD-1197',
+        refKind: 'issue',
+        prefix: 'POD',
+        offset: 4,
+      },
       { kind: 'text', text: ' and ' },
-      { kind: 'ref', text: 'POD-144', ref: 'POD-144', offset: 17 },
+      { kind: 'ref', text: 'POD-144', ref: 'POD-144', refKind: 'issue', prefix: 'POD', offset: 17 },
       { kind: 'text', text: '.' },
+    ])
+  })
+
+  it('reads the whole ref grammar, not one repo and no sessions [POD-724]', () => {
+    // A session ref is one token, and it is NOT an issue: painting `POD-13-A`
+    // with a workflow stage would claim a state for a task that has none.
+    expect(splitPodiumRefs('POD-13-A and ACME-14 and POD-DRAFT-3')).toEqual([
+      {
+        kind: 'ref',
+        text: 'POD-13-A',
+        ref: 'POD-13-A',
+        refKind: 'session',
+        prefix: 'POD',
+        offset: 0,
+      },
+      { kind: 'text', text: ' and ' },
+      {
+        kind: 'ref',
+        text: 'ACME-14',
+        ref: 'ACME-14',
+        refKind: 'issue',
+        prefix: 'ACME',
+        offset: 13,
+      },
+      { kind: 'text', text: ' and ' },
+      {
+        kind: 'ref',
+        text: 'POD-DRAFT-3',
+        ref: 'POD-DRAFT-3',
+        refKind: 'session',
+        prefix: 'POD',
+        offset: 25,
+      },
     ])
   })
 })

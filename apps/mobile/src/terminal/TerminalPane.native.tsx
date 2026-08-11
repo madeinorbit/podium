@@ -1,7 +1,21 @@
 import type { SessionId } from '@podium/model'
 import { StyleSheet, Text, View } from 'react-native'
+import type { TerminalControlState } from './terminal-control'
 
-export function TerminalPane({ sessionId }: { sessionId: SessionId; active: boolean }) {
+/**
+ * Prop parity with the web pane on purpose: the route renders ONE
+ * `<TerminalPane>` and metro picks the platform file, so a prop the native stub
+ * did not accept would only fail on a device. Neither is honoured here — there
+ * is no mount, so there is no control to take and no ref to underline.
+ */
+export function TerminalPane({
+  sessionId,
+}: {
+  sessionId: SessionId
+  active: boolean
+  onOpenIssue?: (issueId: string) => void
+  onControlState?: (state: TerminalControlState) => void
+}) {
   return (
     <View style={styles.box}>
       <Text style={styles.title}>Terminal</Text>

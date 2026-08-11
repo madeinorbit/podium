@@ -1,8 +1,8 @@
+import type { IssueEvent } from '@podium/client-core/viewmodels'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import { IssuePage } from './IssuePage'
-import type { IssueEvent } from './issue-events'
 
 const ROWS: IssueEvent[] = [
   {
@@ -103,7 +103,7 @@ afterEach(() => {
 
 describe('IssuePage activity feed', () => {
   it('scopes the feed to this issue and fetches events + comments from the log start', async () => {
-    // (Event/comment label formatting is covered by issue-events.test.ts; here we
+    // (Event/comment label formatting is covered by client-core's issue-activity.test.ts; here we
     // only assert the page-level scoping + fetch wiring.)
     const issue = makeIssue({ id: 'i-1', repoPath: '/r' })
     render(

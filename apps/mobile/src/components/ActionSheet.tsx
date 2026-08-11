@@ -1,268 +1,222 @@
-import { useEffect, useRef, useState } from 'react'
-import { Animated, Modal, Pressable, StyleSheet, Text, View } from 'react-native'
-import { GestureDetector, usePanGesture } from 'react-native-gesture-handler'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import {
-  color,
-  elevation,
-  font,
-  leading,
-  monoLabel,
-  radius,
-  sans,
-  space,
-  spring,
-} from '../theme/theme'
+import type { ReactNode } from 'react'
+import { StyleSheet, Text, View } from 'react-native'
+import { alpha } from '../theme/mix'
+import { color, font, leading, mono, radius, sans, space } from '../theme/theme'
+import { BottomSheet } from './BottomSheet'
 import { PressableScale } from './PressableScale'
-
-/** How far the sheet travels when opening — and the drag distance that dismisses it. */
-const SHEET_TRAVEL = 320
-/** PanResponder reports px/ms; gesture-handler reports px/s. */
-const DISMISS_VELOCITY = 800
 
 export interface SheetAction {
   label: string
   /** One line under the label, for a choice the label alone can't settle
    *  (e.g. task vs bare session — where the work ends up differs). */
   hint?: string
+  /** Right-aligned metadata: a count, a machine name, a last-used stamp. */
+  meta?: string
+  /** Leading glyph slot — a harness mark, a repo tile, a stage glyph. */
+  icon?: ReactNode
+  /** Marks the current value; renders the checkmark and holds the row lit. */
+  selected?: boolean
   destructive?: boolean
   disabled?: boolean
   onPress: () => void
 }
 
 /**
- * Bottom sheet with the manners of the native platform sheet: slide-up spring,
- * dimmed backdrop, drag handle, grouped actions. Pure RN (works on web too).
+ * The app's menu sheet: a grouped, inset action list on the one shared
+ * {@link BottomSheet} — same drag, same dismissal, same physics as the task
+ * inspector and the new-work picker.
+ *
+ * Rows are LEFT-ALIGNED, not centred [POD-724]. A centred stack of labels is the
+ * iOS 6 action sheet, and it stops being legible the moment a row carries a hint
+ * or a trailing count: the eye has no column to run down. Left alignment with a
+ * leading glyph slot is what every modern iOS menu does, and it is what lets the
+ * new-work picker put a harness mark and a "last used" stamp on the same row
+ * without inventing a second list style.
  */
 export function ActionSheet({
   visible,
   title,
+  subtitle,
   actions,
   onClose,
 }: {
   visible: boolean
   title?: string
+  /** One sentence under the title, where the choice needs framing. */
+  subtitle?: string
   actions: SheetAction[]
   onClose: () => void
 }) {
-  const insets = useSafeAreaInsets()
-  const slide = useRef(new Animated.Value(0)).current
-  const [mounted, setMounted] = useState(visible)
-
-  useEffect(() => {
-    slide.stopAnimation()
-    if (visible) {
-      setMounted(true)
-      const opening = Animated.spring(slide, {
-        toValue: 1,
-        // JS driver on purpose: the drag below feeds the same transform via
-        // Animated.Value.setValue, which a native-driven node rejects.
-        useNativeDriver: false,
-        ...spring.smooth,
-      })
-      opening.start()
-      return () => opening.stop()
-    }
-
-    const closing = Animated.spring(slide, {
-      toValue: 0,
-      useNativeDriver: false,
-      ...spring.snappy,
-    })
-    closing.start(({ finished }) => {
-      if (finished) setMounted(false)
-    })
-    return () => closing.stop()
-  }, [visible, slide])
-
-  // The sheet drew the 36×4 grab pill that means "drag me down" on every native
-  // sheet, and ignored the gesture [POD-366]. Now it tracks the finger: past a
-  // third of its travel, or on a fast flick, it dismisses; otherwise it springs
-  // back. Downward drags only — an upward pull must not lift it off the edge.
-  const drag = useRef(new Animated.Value(0)).current
-  const pan = usePanGesture({
-    // Gesture Handler owns the browser pointer stream. RN's responder system
-    // does not receive it when this view is inside a Modal on react-native-web.
-    activeOffsetY: 4,
-    failOffsetX: [-4, 4],
-    runOnJS: true,
-    onActivate: () => drag.stopAnimation(),
-    onUpdate: ({ translationY }) => {
-      if (translationY > 0) drag.setValue(translationY)
-    },
-    onDeactivate: ({ canceled, translationY, velocityY }) => {
-      if (!canceled && (translationY > SHEET_TRAVEL / 3 || velocityY > DISMISS_VELOCITY)) {
-        onClose()
-        return
-      }
-      Animated.spring(drag, {
-        toValue: 0,
-        useNativeDriver: false,
-        ...spring.snappy,
-      }).start()
-    },
-  })
-
-  useEffect(() => {
-    if (visible) drag.setValue(0)
-  }, [visible, drag])
-
-  if (!mounted) return null
-
-  const translateY = Animated.add(
-    slide.interpolate({ inputRange: [0, 1], outputRange: [SHEET_TRAVEL, 0] }),
-    drag,
-  )
-
   return (
-    <Modal visible transparent animationType="none" onRequestClose={onClose}>
-      <Animated.View style={[styles.backdrop, { opacity: slide }]}>
-        <Pressable
-          accessibilityLabel="Close menu"
-          style={StyleSheet.absoluteFill}
-          onPress={onClose}
-        />
-      </Animated.View>
-      <Animated.View
-        style={[
-          styles.sheet,
-          elevation.raised,
-          { paddingBottom: insets.bottom + space.lg, transform: [{ translateY }] },
-        ]}
-      >
-        <GestureDetector gesture={pan} touchAction="none" userSelect="none">
-          <View style={styles.handleZone}>
-            <View style={styles.handle} />
-          </View>
-        </GestureDetector>
-        {title ? (
-          <Text style={styles.title} numberOfLines={1}>
-            {title}
-          </Text>
-        ) : null}
-        <View style={styles.group}>
-          {actions.map((action, i) => (
-            <PressableScale
-              key={action.label}
-              accessibilityRole="button"
-              accessibilityLabel={action.label}
-              {...(action.hint ? { accessibilityHint: action.hint } : {})}
-              accessibilityState={{ disabled: action.disabled }}
-              disabled={action.disabled}
-              onPress={() => {
-                onClose()
-                action.onPress()
-              }}
-              style={({ pressed }) => [
-                styles.action,
-                i > 0 && styles.actionDivider,
-                action.disabled && styles.actionDisabled,
-                pressed && styles.actionPressed,
-              ]}
-            >
-              <Text style={[styles.actionText, action.destructive && styles.destructive]}>
-                {action.label}
+    <BottomSheet
+      visible={visible}
+      onClose={onClose}
+      mode="fit"
+      scrollable={actions.length > 7}
+      contentStyle={styles.content}
+      head={
+        title ? (
+          <View style={styles.titles}>
+            <Text style={styles.title} numberOfLines={2}>
+              {title}
+            </Text>
+            {subtitle ? (
+              <Text style={styles.subtitle} numberOfLines={2}>
+                {subtitle}
               </Text>
-              {action.hint ? <Text style={styles.actionHint}>{action.hint}</Text> : null}
-            </PressableScale>
-          ))}
-        </View>
+            ) : null}
+          </View>
+        ) : null
+      }
+      footerRule={false}
+      footer={
         <PressableScale
           accessibilityRole="button"
           accessibilityLabel="Cancel"
           onPress={onClose}
-          style={({ pressed }) => [styles.cancel, pressed && styles.actionPressed]}
+          style={({ pressed }) => [styles.cancel, pressed && styles.rowPressed]}
         >
           <Text style={styles.cancelText}>Cancel</Text>
         </PressableScale>
-      </Animated.View>
-    </Modal>
+      }
+    >
+      <View style={styles.group}>
+        {actions.map((action, i) => (
+          <PressableScale
+            key={action.label}
+            accessibilityRole="button"
+            accessibilityLabel={action.label}
+            {...(action.hint ? { accessibilityHint: action.hint } : {})}
+            accessibilityState={{ disabled: action.disabled, selected: action.selected }}
+            disabled={action.disabled}
+            scaleTo={0.99}
+            onPress={() => {
+              onClose()
+              action.onPress()
+            }}
+            style={({ pressed }) => [
+              styles.row,
+              i > 0 && styles.divider,
+              action.disabled && styles.rowDisabled,
+              pressed && styles.rowPressed,
+            ]}
+          >
+            {action.icon ? <View style={styles.icon}>{action.icon}</View> : null}
+            <View style={styles.rowText}>
+              <Text
+                style={[styles.label, action.destructive && styles.destructive]}
+                numberOfLines={1}
+              >
+                {action.label}
+              </Text>
+              {action.hint ? (
+                <Text style={styles.hint} numberOfLines={2}>
+                  {action.hint}
+                </Text>
+              ) : null}
+            </View>
+            {action.meta ? <Text style={styles.meta}>{action.meta}</Text> : null}
+            {action.selected ? <Text style={styles.check}>✓</Text> : null}
+          </PressableScale>
+        ))}
+      </View>
+    </BottomSheet>
   )
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(4,5,8,0.6)',
-  },
-  sheet: {
-    position: 'absolute',
-    left: space.sm,
-    right: space.sm,
-    bottom: 0,
-    backgroundColor: color.surfaceHigh,
-    borderRadius: radius.xl,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.borderStrong,
-    paddingTop: space.sm,
-    paddingHorizontal: space.md,
-  },
-  // The grab target is the whole strip above the actions, not the 4px pill.
-  handleZone: {
-    alignSelf: 'stretch',
-    alignItems: 'center',
-    paddingTop: 2,
-    paddingBottom: space.sm,
-  },
-  handle: {
-    width: 36,
-    height: 4,
-    borderRadius: radius.full,
-    backgroundColor: color.borderStrong,
-  },
-  title: {
-    ...monoLabel(),
-    color: color.textMicro,
-    textAlign: 'center',
-    marginBottom: space.sm,
-  },
-  group: {
-    backgroundColor: color.surface,
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.border,
-    overflow: 'hidden',
-  },
-  action: {
-    paddingVertical: 14,
+  titles: {
     paddingHorizontal: space.lg,
-    alignItems: 'center',
+    paddingBottom: space.md,
     gap: 3,
   },
-  actionDivider: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: color.hairline,
-  },
-  actionPressed: {
-    backgroundColor: color.surfacePressed,
-  },
-  actionDisabled: {
-    opacity: 0.38,
-  },
-  actionText: {
+  // The sheet's subject, not a section label: an issue ref and its title read as
+  // shouting in the uppercase mono the old sheet used, and a task title is the
+  // most common thing that lands here.
+  title: {
     ...sans(600),
-    color: color.text,
-    fontSize: font.body,
+    color: color.body,
+    fontSize: font.small,
+    textAlign: 'center',
   },
-  actionHint: {
+  subtitle: {
     ...sans(400),
     color: color.textFaint,
     fontSize: font.tiny,
     lineHeight: leading(font.tiny),
     textAlign: 'center',
   },
+  content: {
+    paddingHorizontal: space.md,
+    paddingBottom: space.sm,
+  },
+  group: {
+    backgroundColor: color.surface,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: color.border,
+    overflow: 'hidden',
+  },
+  row: {
+    minHeight: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    paddingVertical: 11,
+    paddingHorizontal: space.lg - 2,
+  },
+  divider: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: alpha(color.hairline, 0.8),
+  },
+  rowPressed: {
+    backgroundColor: color.surfacePressed,
+  },
+  rowDisabled: {
+    opacity: 0.38,
+  },
+  icon: {
+    width: 26,
+    alignItems: 'center',
+  },
+  rowText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  label: {
+    ...sans(500),
+    color: color.text,
+    fontSize: font.small,
+  },
+  hint: {
+    ...sans(400),
+    color: color.textFaint,
+    fontSize: font.tiny,
+    lineHeight: leading(font.tiny),
+  },
+  meta: {
+    ...mono(400),
+    color: color.textMicro,
+    fontSize: font.micro,
+  },
+  check: {
+    ...mono(600),
+    color: color.accent,
+    fontSize: font.small,
+  },
   destructive: {
     color: color.danger,
   },
   cancel: {
+    paddingVertical: 15,
+    marginHorizontal: space.md,
     marginTop: space.sm,
-    paddingVertical: 13,
     alignItems: 'center',
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
+    backgroundColor: color.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: color.border,
   },
   cancelText: {
     ...sans(600),
