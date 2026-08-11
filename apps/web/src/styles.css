@@ -1397,7 +1397,6 @@ html[data-density="balanced"] .header-quota-pools {
 .sidebar-collapse-control:hover,
 .collapsed-sidebar-expand:hover,
 .folded-superagent-control:hover,
-.folded-superagent-cell:hover,
 .right-rail-cell:hover {
   background: var(--accent);
   color: var(--text-strong);
@@ -1474,51 +1473,119 @@ html[data-density="balanced"] .header-quota-pools {
     0 1px 2px color-mix(in srgb, var(--carve-drop) 50%, transparent);
 }
 /* Folding must not change the column's MATERIAL (POD-725) — only its width. The
-   open deck is the card tone under an issue fade with a 3px issue inset; the
-   folded bar was still flat --engraved, so collapsing it swapped one surface for
-   another and read as a different object appearing rather than the same one
-   narrowing. Same gradient, same inset, 46px of it. */
+   open deck is the card tone under an issue fade; the folded bar was still flat
+   --engraved, so collapsing it swapped one surface for another and read as a
+   different object appearing rather than the same one narrowing. Same gradient,
+   44px of it.
+   WHAT THE FOLD KEEPS IS THE SPINE, NOT THE LID (POD-738). The 3px issue inset
+   along the top edge is gone, and so is the issue-tinted right border: the top
+   edge belongs to the OPEN column, where it continues the selected work row's
+   line into a column wide enough to carry a mission, and drawn across 44px it
+   read as a cap on the rail rather than a continuation of anything. In its
+   place the spine runs DOWN the rail's left edge as a 2px gradient — full
+   strength beside the ID chip, gone by the end of the gauge — so the closed
+   column still says "this is POD-nnn" without a hard colour edge, and the right
+   edge goes back to being a tone step like every other seam in the shell. */
 .folded-superagent {
   display: flex;
   flex: 0 0 44px;
   min-height: 0;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
-  padding: 10px 0;
-  border-right: 1px solid color-mix(in srgb, var(--issue) 35%, transparent);
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--issue) calc(16 * var(--issue-tint-scale, 1%)), var(--card)),
-    var(--card) 240px
-  );
-  box-shadow:
-    inset 0 3px 0 var(--issue),
-    0 1px 2px color-mix(in srgb, var(--carve-drop) 50%, transparent);
+  gap: 8px;
+  padding: 8px 0 14px;
+  background:
+    linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--issue) calc(75 * var(--issue-line-scale, 1%)), transparent),
+        color-mix(in srgb, var(--issue) calc(14 * var(--issue-line-scale, 1%)), transparent) 190px,
+        transparent 340px
+      )
+      left top / 2px 100% no-repeat,
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--issue) calc(16 * var(--issue-tint-scale, 1%)), var(--card)),
+      var(--card) 240px
+    );
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--carve-drop) 50%, transparent);
+}
+/* The no-colour flow runs the same mechanics quieter (handoff 1b), exactly as
+   the open column's `.engraved-column` does. */
+[data-issue-colored='false'] .folded-superagent {
+  background:
+    linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--issue) calc(55 * var(--issue-line-scale, 1%)), transparent),
+        color-mix(in srgb, var(--issue) calc(10 * var(--issue-line-scale, 1%)), transparent) 190px,
+        transparent 340px
+      )
+      left top / 2px 100% no-repeat,
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--issue) calc(13 * var(--issue-tint-scale, 1%)), var(--card)),
+      var(--card) 240px
+    );
+}
+/* THE GAUGE SPINE (POD-738): one 4px tick per task, running top-down in the open
+   gauge's own state order. The states take the open gauge's tokens so the two
+   readings can never disagree — done in Accent Blue, running in the working blue
+   the spinner wears, and BLOCKED WITH NO HUE AT ALL (`--warning` IS `--attention`
+   in Superade, so a warning-toned tick would spend the one signal colour on work
+   that is asking nothing). At 4px there is no room for the open gauge's tint +
+   floor-rule pair, so each state is one saturation instead: full for done, the
+   design's 60% for running, and two neutral weights for stopped and not-started. */
+.deck-tick {
+  width: 4px;
+  flex: 0 1 26px;
+  min-height: 3px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--foreground) 10%, transparent);
+}
+.deck-tick[data-s='done'] {
+  background: var(--success);
+}
+.deck-tick[data-s='run'] {
+  background: color-mix(in srgb, var(--live) 60%, transparent);
+}
+.deck-tick[data-s='block'] {
+  background: color-mix(in srgb, var(--foreground) 34%, transparent);
+}
+/* The foot's stacks: glyph in its cell, count under it, the whole stack the
+   control. */
+.folded-superagent-stat {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 .folded-superagent-cell {
   position: relative;
   display: flex;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   flex: none;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--hairline-bar);
-  border-radius: var(--radius-row);
-  background: var(--card);
+  border-radius: 9px;
+  background: var(--muted);
   color: var(--muted-foreground);
 }
-.folded-superagent-label {
-  display: flex;
-  flex: 1;
-  align-items: center;
-  color: var(--text-faint);
-  font-family: var(--font-mono);
-  font-size: var(--shell-type-micro);
-  line-height: var(--shell-leading-micro);
-  letter-spacing: 0.18em;
-  writing-mode: vertical-rl;
+.folded-superagent-stat:hover .folded-superagent-cell {
+  background: var(--accent);
+  color: var(--text-strong);
+}
+/* AMBER ONLY WHEN TRUE. The cell is drawn at all only while something is
+   actually asking (the component does not render a zero), and when it is, the
+   tint and the ring are how it says so from across the desk. */
+.folded-superagent-cell[data-attention='true'] {
+  background: color-mix(in srgb, var(--attention) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--attention) 50%, transparent);
+  color: var(--attention);
+}
+.folded-superagent-stat:hover .folded-superagent-cell[data-attention='true'] {
+  background: color-mix(in srgb, var(--attention) 22%, transparent);
+  color: var(--attention);
 }
 .native-agents-pane {
   /* The workspace is the elastic centre of the shell. Keep 360px as its
