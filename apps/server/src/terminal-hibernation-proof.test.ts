@@ -1,5 +1,4 @@
-import type { SessionId } from '@podium/model'
-import type { AgentRuntimeState } from '@podium/model'
+import type { AgentRuntimeState, SessionId } from '@podium/model'
 import type { AgentObservation, ControlMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
@@ -33,7 +32,9 @@ function harness({
   terminalPhase = 'idle',
   closing = false,
   terminalRetryable = false,
+  instanceId = 'default',
 }: {
+  instanceId?: string
   terminalProvenance?: 'live' | 'bootstrap'
   resumable?: boolean
   terminalTransitionKind?: AgentObservation['transitionKind']
@@ -43,9 +44,11 @@ function harness({
 } = {}) {
   const store = new SessionStore(':memory:')
   const daemon: ControlMessage[] = []
-  const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+  const registry = new SessionRegistry(store, undefined, { instanceId })
   registries.push(registry)
-  registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) => daemon.push(message))
+  registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+    daemon.push(message),
+  )
   const { sessionId } = registry.modules.sessions.createSession({
     agentKind: 'codex',
     cwd: '/proj',
@@ -214,6 +217,84 @@ describe('durable terminal hibernation proof', () => {
     ).toBe(false)
   })
 
+  it.each([
+    'daemon',
+    'server',
+  ] as const)('renews an exact terminal proof after %s reattachment and replay output', (restartKind) => {
+    const h = harness()
+    h.confirm(1)
+    expect(h.registry.modules.sessions.hasValidTerminalProof(h.sessionId)).toBe(true)
+
+    let registry = h.registry
+    const controls: ControlMessage[] = []
+    if (restartKind === 'daemon') {
+      registry.gateway.detachDaemon(registry.sessionStore.hostMachineId)
+    } else {
+      registry.dispose()
+      registry = new SessionRegistry(h.store, undefined, { instanceId: 'default' })
+      registries.push(registry)
+    }
+    registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+      controls.push(message),
+    )
+    const reattach = controls.find(
+      (message): message is Extract<ControlMessage, { type: 'reattach' }> =>
+        message.type === 'reattach' && message.sessionId === h.sessionId,
+    )
+    expect(reattach?.observationGeneration).toBe(2)
+
+    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+      type: 'bind',
+      sessionId: h.sessionId,
+      cmd: 'codex',
+      cwd: '/proj',
+      agentKind: 'codex',
+      geometry: { cols: 80, rows: 24 },
+    })
+    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+      type: 'agentFrameBatch',
+      sessionId: h.sessionId,
+      frames: [
+        Buffer.from('reattach shrink repaint').toString('base64'),
+        Buffer.from('reattach restore repaint').toString('base64'),
+      ],
+    })
+    expect(registry.modules.sessions.hasValidTerminalProof(h.sessionId)).toBe(false)
+
+    // A legacy frame remains effect-free and cannot renew the fenced proof.
+    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+      type: 'agentState',
+      sessionId: h.sessionId,
+      state: runtime('working', 50),
+    })
+    expect(registry.modules.sessions.hasValidTerminalProof(h.sessionId)).toBe(false)
+
+    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+      type: 'agentObservation',
+      observation: {
+        ...h.terminal,
+        observerGeneration: 2,
+        provenance: 'bootstrap',
+        transitionKind: 'snapshot',
+        receivedAt: at(51),
+      },
+    })
+    const renewed = h.store.observationCheckpoints.getTerminalCandidate(h.sessionId)
+    expect(renewed?.facts).toMatchObject({ observerGeneration: 2, outputCount: 2 })
+    expect(renewed?.confirmedAt).toBeTruthy()
+    expect(registry.modules.sessions.hasValidTerminalProof(h.sessionId)).toBe(true)
+
+    // Renewal is one generation transition, not an output amnesty. Any later
+    // terminal activity invalidates the translated proof again.
+    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+      type: 'agentFrame',
+      sessionId: h.sessionId,
+      seq: 3,
+      data: Buffer.from('real later output').toString('base64'),
+    })
+    expect(registry.modules.sessions.hasValidTerminalProof(h.sessionId)).toBe(false)
+  })
+
   it('cannot use a stale proof after a real new prompt', () => {
     const { registry, sessionId, base, observe, confirm } = harness()
     confirm(1)
@@ -327,7 +408,9 @@ describe('durable terminal hibernation proof', () => {
     const controls: ControlMessage[] = []
     const restarted = new SessionRegistry(h.store, undefined, { instanceId: 'default' })
     registries.push(restarted)
-    restarted.gateway.attachDaemon(restarted.sessionStore.hostMachineId, (message) => controls.push(message))
+    restarted.gateway.attachDaemon(restarted.sessionStore.hostMachineId, (message) =>
+      controls.push(message),
+    )
     const continues = () =>
       controls.filter(
         (message) =>
@@ -365,7 +448,9 @@ describe('durable terminal hibernation proof', () => {
     const controls: ControlMessage[] = []
     const restarted = new SessionRegistry(h.store, undefined, { instanceId: 'default' })
     registries.push(restarted)
-    restarted.gateway.attachDaemon(restarted.sessionStore.hostMachineId, (message) => controls.push(message))
+    restarted.gateway.attachDaemon(restarted.sessionStore.hostMachineId, (message) =>
+      controls.push(message),
+    )
     restarted.gateway.routeDaemonFrame(restarted.sessionStore.hostMachineId, {
       type: 'bind',
       sessionId: h.sessionId,
@@ -563,6 +648,188 @@ describe('durable terminal hibernation proof', () => {
     expect(
       h.store.messages.pendingForSessionProof(h.sessionId, at(30)).map((row) => row.id),
     ).toEqual(['read-request'])
+  })
+
+  it('parks a session holding a draft and a posted offer', () => {
+    const h = harness()
+    const session = (
+      h.registry.modules.sessions as unknown as {
+        sessions: Map<SessionId, { draftUpdatedAt: string | undefined }>
+      }
+    ).sessions.get(h.sessionId)
+    expect(session).toBeDefined()
+    if (session) session.draftUpdatedAt = at(15)
+    h.registry.modules.sessions.setOffer({
+      sessionId: h.sessionId,
+      message: 'Ready to merge',
+      actions: [{ label: 'Merge', prompt: 'merge it' }],
+    })
+    h.confirm(1)
+
+    // Neither a draft nor an offer is work that hibernation would lose, so
+    // neither invalidates the proof nor blocks the reap (POD-1879).
+    expect(h.registry.modules.sessions.terminalProofStatus(h.sessionId)).toEqual({ reason: 'ok' })
+    expect(
+      h.registry.modules.sessions.hibernateSession({
+        sessionId: h.sessionId,
+        requireTerminalProof: true,
+      }),
+    ).toEqual({ ok: true })
+  })
+
+  it('reports one reason per unusable proof', () => {
+    const missing = harness({ terminalProvenance: 'bootstrap' })
+    expect(missing.registry.modules.sessions.terminalProofStatus(missing.sessionId)).toEqual({
+      reason: 'proof_missing',
+    })
+
+    const unconfirmed = harness()
+    expect(unconfirmed.registry.modules.sessions.terminalProofStatus(unconfirmed.sessionId)).toEqual(
+      { reason: 'proof_unconfirmed' },
+    )
+
+    const stale = harness()
+    stale.confirm(1)
+    stale.store.observationCheckpoints.advanceGeneration(stale.sessionId, 'codex', 'thread-1')
+    expect(stale.registry.modules.sessions.terminalProofStatus(stale.sessionId)).toEqual({
+      reason: 'proof_stale_generation',
+    })
+
+    const changed = harness()
+    changed.confirm(1)
+    changed.registry.gateway.routeDaemonFrame(changed.registry.sessionStore.hostMachineId, {
+      type: 'agentFrame',
+      sessionId: changed.sessionId,
+      seq: 1,
+      data: Buffer.from('late output').toString('base64'),
+    })
+    expect(changed.registry.modules.sessions.terminalProofStatus(changed.sessionId)).toEqual({
+      reason: 'proof_facts_changed',
+    })
+
+    const working = harness({ closing: true })
+    expect(working.registry.modules.sessions.terminalProofStatus(working.sessionId)).toEqual({
+      reason: 'no_terminal_fence',
+    })
+
+    const unresumable = harness({ resumable: false })
+    unresumable.confirm(1)
+    expect(unresumable.registry.modules.sessions.terminalProofStatus(unresumable.sessionId)).toEqual(
+      { reason: 'active_work', blocker: 'not_resumable' },
+    )
+  })
+
+  it('rehabilitates a consumed proof after revival without a new user turn', async () => {
+    const h = harness()
+    h.confirm(1)
+    expect(
+      h.registry.modules.sessions.hibernateSession({
+        sessionId: h.sessionId,
+        requireTerminalProof: true,
+      }),
+    ).toEqual({ ok: true })
+    expect(h.store.observationCheckpoints.getTerminalCandidate(h.sessionId)?.consumedAt).toBeTruthy()
+
+    await h.registry.modules.sessions.resurrectSession({ sessionId: h.sessionId }, {
+      onSessionResurrected: () => {},
+    } as never)
+    // The spent proof does not survive the new fence — otherwise every later
+    // receipt is inert and the session can never be parked again.
+    expect(h.store.observationCheckpoints.getTerminalCandidate(h.sessionId)).toBeNull()
+
+    // The relaunched process binds; from here nothing but observer receipts
+    // touch the session — no user turn is available to re-arm the proof.
+    h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
+      type: 'bind',
+      sessionId: h.sessionId,
+      cmd: 'codex',
+      cwd: '/proj',
+      agentKind: 'codex',
+      geometry: { cols: 80, rows: 24 },
+    })
+    const generation = h.store.observationCheckpoints.get(h.sessionId)?.observationGeneration ?? 0
+    expect(generation).toBe(2)
+    const confirmAt = (livePollSequence: number) =>
+      h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
+        type: 'agentObserverLiveConfirmation',
+        sessionId: h.sessionId,
+        provider: 'codex',
+        providerSessionId: 'thread-1',
+        bindingVersion: 1,
+        observerGeneration: generation,
+        providerCursor: h.terminal.providerCursor,
+        livePollSequence,
+        confirmedAt: at(40 + livePollSequence),
+      })
+    confirmAt(1)
+    expect(h.registry.modules.sessions.hasValidTerminalProof(h.sessionId)).toBe(false)
+    confirmAt(2)
+    expect(h.registry.modules.sessions.hasValidTerminalProof(h.sessionId)).toBe(true)
+  })
+
+  it('re-arms pass one when the observer poll counter restarts', () => {
+    const h = harness({ terminalProvenance: 'bootstrap' })
+    h.confirm(3)
+    expect(
+      h.store.observationCheckpoints.getTerminalCandidate(h.sessionId)?.lastLivePollSequence,
+    ).toBe(3)
+    // A restarted observer counts from one again; the stored high-water mark
+    // would otherwise make every one of its receipts inert forever.
+    h.confirm(1)
+    const rearmed = h.store.observationCheckpoints.getTerminalCandidate(h.sessionId)
+    expect(rearmed).toMatchObject({ firstLivePollSequence: 1, lastLivePollSequence: 1 })
+    expect(rearmed?.confirmedAt).toBeNull()
+    expect(h.registry.modules.sessions.hasValidTerminalProof(h.sessionId)).toBe(false)
+    h.confirm(2)
+    expect(h.registry.modules.sessions.hasValidTerminalProof(h.sessionId)).toBe(true)
+  })
+
+  it('refuses to rehabilitate a proof consumed under the current generation', () => {
+    const h = harness()
+    h.confirm(1)
+    h.registry.modules.sessions.hibernateSession({
+      sessionId: h.sessionId,
+      requireTerminalProof: true,
+    })
+    const facts = h.store.observationCheckpoints.getTerminalCandidate(h.sessionId)?.facts
+    expect(facts).toBeDefined()
+    if (!facts) return
+    expect(h.store.observationCheckpoints.confirmTerminalCandidate(facts, 9, at(50))).toBe(
+      'unchanged',
+    )
+    expect(
+      h.store.observationCheckpoints.confirmTerminalCandidate(
+        { ...facts, observerGeneration: facts.observerGeneration + 1 },
+        9,
+        at(51),
+      ),
+    ).toBe('rehabilitated')
+    expect(h.store.observationCheckpoints.getTerminalCandidate(h.sessionId)).toMatchObject({
+      confirmedAt: null,
+      consumedAt: null,
+    })
+  })
+
+  it('rehabilitates each runtime against its own state root', () => {
+    const blue = harness({ instanceId: 'blue' })
+    const green = harness({ instanceId: 'green' })
+    blue.confirm(1)
+    blue.registry.modules.sessions.hibernateSession({
+      sessionId: blue.sessionId,
+      requireTerminalProof: true,
+    })
+
+    // Separate instances are separate state roots (docs/multi-instance.md): a
+    // consumed-and-rehabilitated proof in one never touches the other's row.
+    expect(green.store.observationCheckpoints.getTerminalCandidate(blue.sessionId)).toBeNull()
+    expect(green.registry.modules.sessions.terminalProofStatus(green.sessionId)).toEqual({
+      reason: 'proof_unconfirmed',
+    })
+    green.confirm(1)
+    expect(green.registry.modules.sessions.hasValidTerminalProof(green.sessionId)).toBe(true)
+    expect(blue.registry.modules.sessions.terminalProofStatus(blue.sessionId)).toEqual({
+      reason: 'not_running',
+    })
   })
 
   it('keeps consumed proof inert under late causal, confirmation, and legacy frames', () => {

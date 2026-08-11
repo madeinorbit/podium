@@ -55,28 +55,23 @@ export const BREAK_GLASS_LABEL = 'break-glass'
 /**
  * POD-1402 decision instrument (ADR 3 D14).
  *
- * Single-operator host: mint from state-dir write access is ACCEPT — agent relay scope is
- * accident prevention, not adversarial containment of a co-resident process.
- *
- * Multi-user (POD-1067+) MUST flip this before a second human principal exists:
- *   1. set `assumesSingleOperator: false`
- *   2. set `mintBoundToIdentity: true` and actually bind mint to an identity (password
- *      step-up, OS keyring, user principal) — not file mode alone
- * The tripwire tests that import this object fail if (1) happens without (2), or if
- * `client_sessions` gains a per-user column while (1) is still true.
+ * The accepted interim multi-user mitigation is narrower: the helper refuses before
+ * writing whenever more than one account exists. Full identity binding requires an
+ * OS/process boundary that prevents agents from writing the database directly.
  */
 export const HOST_LOCAL_MINT_TRUST = {
   decision: 'ACCEPT',
   issue: 'POD-1402',
-  /** While true, FS write access to podium.db is a sufficient mint root. */
+  /** True only for this helper; enforced by refusing instances with multiple accounts. */
   assumesSingleOperator: true,
   /**
    * Must become true in the same change that sets assumesSingleOperator false.
    * False today because there is no second human and mint stays FS-bound.
    */
   mintBoundToIdentity: false,
-  reopenWhen:
-    'A second human principal exists on one instance (multi-user / POD-1067)',
+  /** Enforced before the mint writes any session row. */
+  refusesMultiAccountMint: true,
+  reopenWhen: 'A second human principal exists on one instance (multi-user / POD-1067)',
   reopenIssue: 'POD-1067',
 } as const
 
@@ -157,11 +152,10 @@ function userAccountCount(db: {
  * process, including a member-grade account holder's agent sessions. Refusing it once a
  * second account exists reverses exactly the delta D14 named.
  *
- * This does NOT make `mintBoundToIdentity` true and must not be recorded as doing so. The
- * raw-INSERT root survives — anything that can call this can equally write the row by hand —
- * so the POD-1402 tripwire stays red, correctly. What goes away is the discoverable path,
- * which is the only thing mint ever added. The actual binding is Part 2, an architecture
- * call (separate OS users / privileged issuance boundary / per-user datastore).
+ * This does NOT make `mintBoundToIdentity` true. The raw-INSERT root survives — anything
+ * that can call this can equally write the row by hand. The operator accepted removal of
+ * the discoverable path as the interim boundary on 2026-08-11. Actual containment still
+ * requires separate OS users, a privileged issuance boundary, or per-user storage.
  */
 export function mintBreakGlassSession(opts: MintOptions = {}): MintedSession {
   const root = opts.stateDir ?? stateDir()

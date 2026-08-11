@@ -1,4 +1,4 @@
-import type { AgentRuntimeState } from '@podium/model'
+import { isAgentComputing } from '@podium/model'
 import type { EventsRepository, PodiumEventRecord } from '../../store/events'
 import type { EventBus } from '../bus'
 import type { Session } from './session'
@@ -25,13 +25,18 @@ interface ConcurrencyChange {
   count: number
 }
 
-function isComputing(state: AgentRuntimeState | undefined): boolean {
-  return state?.phase === 'working' || state?.phase === 'compacting'
-}
-
-export function workingAgentCount(sessions: Iterable<Pick<Session, 'agentState'>>): number {
+/**
+ * The registry holds every session it has ever seen, including the exited and
+ * the parked, and their last observed phase is deliberately preserved. So the
+ * count must ask liveness too — see `isAgentComputing`. Without it the skyline
+ * had a floor that only ratcheted upward: every agent that ever died mid-turn
+ * kept counting, and the strip read "13 agents working" for hours (POD-730).
+ */
+export function workingAgentCount(
+  sessions: Iterable<Pick<Session, 'agentState' | 'status' | 'archived'>>,
+): number {
   let count = 0
-  for (const session of sessions) if (isComputing(session.agentState)) count += 1
+  for (const session of sessions) if (isAgentComputing(session)) count += 1
   return count
 }
 
@@ -98,15 +103,24 @@ export class AgentConcurrencyHistory {
 
   constructor(
     private readonly deps: {
-      sessions: () => Iterable<Pick<Session, 'agentState'>>
+      sessions: () => Iterable<Pick<Session, 'agentState' | 'status' | 'archived'>>
       events: Pick<EventsRepository, 'appendEvent' | 'listKindSinceWithPrior'>
       bus: EventBus
       now: () => number
     },
   ) {
-    // Agent state is the count's only input. Same-phase refreshes are common;
+    // Phase and liveness are both inputs (see workingAgentCount), so a death is
+    // as much a change to the count as a phase flip — a process that dies
+    // mid-turn never emits a closing state event. Parking (hibernate/archive)
+    // has no bus event of its own; it lands on the next capture, which the
+    // 5-minute history() read guarantees. Same-value refreshes are common;
     // capture() deduplicates them before they touch the durable event log.
-    this.unsubscribe = deps.bus.on('session.stateChanged', () => this.capture())
+    const offState = deps.bus.on('session.stateChanged', () => this.capture())
+    const offExit = deps.bus.on('session.exited', () => this.capture())
+    this.unsubscribe = () => {
+      offState()
+      offExit()
+    }
   }
 
   dispose(): void {

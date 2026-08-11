@@ -146,9 +146,6 @@ export class SessionTerminalProof {
       awaitingSubagents: checkpoint.turnState.awaitingSubagents === true,
       childSessions: activeChildren,
       queueDrainActive: this.ports.isDraining(session.sessionId),
-      draftPending: session.draftUpdatedAt !== undefined,
-      draftVersion: session.draftUpdatedAt ?? null,
-      offerPending: session.offer !== undefined,
     }
     return {
       schemaVersion: 1,
@@ -178,40 +175,68 @@ export class SessionTerminalProof {
     }
   }
 
-  /** Whether gathered facts describe a session that may actually be parked. */
+  /**
+   * Whether gathered facts describe a session that may actually be parked.
+   *
+   * Every gate here names work that would be LOST or corrupted by killing the
+   * process. A composer draft and a posted offer are durable rows that outlive
+   * hibernation, so neither appears — see {@link TerminalCandidateFacts}.
+   */
   consumable(facts: TerminalCandidateFacts): boolean {
-    if (
-      !facts.resumable ||
-      facts.queuedInputCount !== 0 ||
-      facts.pendingMessages.length !== 0 ||
-      facts.autoContinueActive
-    )
-      return false
+    return this.consumableReason(facts) === null
+  }
+
+  /** The FIRST unmet consumability gate, for diagnostics. Null when consumable. */
+  private consumableReason(facts: TerminalCandidateFacts): TerminalProofBlocker | null {
+    if (!facts.resumable) return 'not_resumable'
+    if (facts.queuedInputCount !== 0) return 'queued_input'
+    if (facts.pendingMessages.length !== 0) return 'pending_messages'
+    if (facts.autoContinueActive) return 'auto_continue_active'
     const active = facts.activeWork
-    return (
-      active.nativeSubagentCount === 0 &&
-      !active.awaitingSubagents &&
-      active.childSessions.length === 0 &&
-      !active.queueDrainActive &&
-      !active.draftPending &&
-      !active.offerPending
-    )
+    if (active.nativeSubagentCount !== 0 || active.awaitingSubagents) return 'native_subagents'
+    if (active.childSessions.length !== 0) return 'child_sessions'
+    if (active.queueDrainActive) return 'queue_drain_active'
+    return null
   }
 
   hasValidProof(sessionId: SessionId): boolean {
+    return this.proofStatus(sessionId).reason === 'ok'
+  }
+
+  /**
+   * The one place that says WHY a session is not currently reapable. Callers
+   * that only need the verdict use {@link hasValidProof}; the reaper and its
+   * diagnostics use the reason, because "no proof" and "proof spent by a
+   * previous hibernation" are different failures with different remedies.
+   */
+  proofStatus(sessionId: SessionId): TerminalProofStatus {
     const session = this.ports.session(sessionId)
+    if (!session) return { reason: 'unknown_session' }
+    if (session.status !== 'live' && session.status !== 'reconnecting')
+      return { reason: 'not_running' }
     const lease = this.ports.checkpoints.get(sessionId)
-    if (!session || !lease || (session.status !== 'live' && session.status !== 'reconnecting'))
-      return false
+    if (!lease) return { reason: 'no_lease' }
+    const fence = lease.checkpoint?.terminalFence
+    if (!fence || fence.closing) return { reason: 'no_terminal_fence' }
     const facts = this.facts(session, lease)
+    if (!facts) return { reason: 'not_terminal' }
     const proof = this.ports.checkpoints.getTerminalCandidate(sessionId)
-    return Boolean(
-      facts &&
-        proof?.confirmedAt &&
-        !proof.consumedAt &&
-        JSON.stringify(proof.facts) === JSON.stringify(facts) &&
-        this.consumable(facts),
-    )
+    if (!proof) return { reason: 'proof_missing' }
+    if (proof.consumedAt) return { reason: 'proof_consumed' }
+    if (JSON.stringify(proof.facts) !== JSON.stringify(facts)) {
+      // A stale generation is a REATTACHMENT artefact that the observer
+      // handshake can repair on its own; any other divergence means the
+      // session actually did something since the proof was taken.
+      return {
+        reason:
+          proof.facts.observerGeneration !== facts.observerGeneration
+            ? 'proof_stale_generation'
+            : 'proof_facts_changed',
+      }
+    }
+    if (!proof.confirmedAt) return { reason: 'proof_unconfirmed' }
+    const blocker = this.consumableReason(facts)
+    return blocker ? { reason: 'active_work', blocker } : { reason: 'ok' }
   }
 
   proofMissing(sessionId: SessionId): boolean {
@@ -221,4 +246,35 @@ export class SessionTerminalProof {
       this.ports.checkpoints.getTerminalCandidate(sessionId) == null
     )
   }
+}
+
+/** Why a terminal proof is not currently usable. `ok` means it is. */
+export type TerminalProofReason =
+  | 'ok'
+  | 'unknown_session'
+  | 'not_running'
+  | 'no_lease'
+  | 'no_terminal_fence'
+  | 'not_terminal'
+  | 'proof_missing'
+  | 'proof_consumed'
+  | 'proof_stale_generation'
+  | 'proof_facts_changed'
+  | 'proof_unconfirmed'
+  | 'active_work'
+
+/** Which consumability gate is holding a terminal session open. */
+export type TerminalProofBlocker =
+  | 'not_resumable'
+  | 'queued_input'
+  | 'pending_messages'
+  | 'auto_continue_active'
+  | 'native_subagents'
+  | 'child_sessions'
+  | 'queue_drain_active'
+
+export interface TerminalProofStatus {
+  reason: TerminalProofReason
+  /** Set only when `reason` is `active_work`. */
+  blocker?: TerminalProofBlocker
 }

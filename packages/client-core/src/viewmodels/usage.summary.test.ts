@@ -62,7 +62,7 @@ describe('bucketCostUsd', () => {
         cacheCreationTokens: 0,
       }),
     )
-    expect(opus).toBeCloseTo(75)
+    expect(opus).toBeCloseTo(25)
     const cacheRead = bucketCostUsd(
       bucket('2026-06-12T11:00:00.000Z', {
         inputTokens: 0,

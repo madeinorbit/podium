@@ -13,6 +13,7 @@ import type {
   PinKind as ModelPinKind,
   RepoId,
   SessionId,
+  UpdateChannel,
   ThreadId,
   UserId,
   VisibilityClass,
@@ -87,15 +88,20 @@ export interface TerminalCandidateFacts {
     ackedBy: string | null
   }>
   autoContinueActive: boolean
+  /**
+   * Work that would genuinely be LOST if the process were parked. A composer
+   * draft and a posted offer are neither: both are durable session rows that
+   * survive hibernation and are restored on revival, and an offer is what an
+   * agent posts at the END of a turn — treating either as active work made
+   * every offering session permanently unhibernatable, and made every
+   * keystroke in the composer invalidate the proof (POD-1879).
+   */
   activeWork: {
     nativeSubagentCount: number
     nativeSubagentIds: string[]
     awaitingSubagents: boolean
     childSessions: Array<{ sessionId: SessionId; status: string; activityCount: number }>
     queueDrainActive: boolean
-    draftPending: boolean
-    draftVersion: string | null
-    offerPending: boolean
   }
   resumable: boolean
   machineId: string
@@ -237,6 +243,12 @@ export interface MachineRecord {
    * "unowned", and the two must not look alike at the type level.
    */
   ownerUserId: string | null
+  /**
+   * PER-MACHINE PIN, or `null` for "follow the fleet default" (POD-1882).
+   * PRESENT-AND-NULL rather than optional, for the same reason as `ownerUserId`
+   * above: absent must not be able to masquerade as answered.
+   */
+  updateChannelOverride: UpdateChannel | null
   appVersion: string | null
   wireSchemaDigest: string | null
   installKind: string | null

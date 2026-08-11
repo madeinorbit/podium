@@ -183,7 +183,11 @@ describe('oracle: hibernate', () => {
   it(`${MUST_NOT_CHANGE}: hibernate REFUSES with a reason (never a throw) when the session is not running`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, { type: 'agentExit', sessionId, code: 0 })
+    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+      type: 'agentExit',
+      sessionId,
+      code: 0,
+    })
 
     expect(await o.call.sessions.hibernate({ sessionId })).toEqual({
       ok: false,
@@ -401,7 +405,7 @@ describe('oracle: answerAskUserQuestion', () => {
     expect(inputs(o.daemon).map((m) => m.inputOrigin)).toEqual(['human'])
   })
 
-  it('two single-select questions each advance on their digit, and the pair ends on the confirm CR', async () => {
+  it(`${MUST_NOT_CHANGE}: two single-select questions each advance on their digit, and the pair ends on the confirm CR`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     goLive(o, sessionId)
@@ -469,7 +473,7 @@ describe('oracle: answerAskUserQuestion', () => {
     ])
   })
 
-  it('several picks alone mark a multi-select, so a client that cannot say so still lands', async () => {
+  it(`${MUST_NOT_CHANGE}: several picks alone mark a multi-select, so a client that cannot say so still lands`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     goLive(o, sessionId)
@@ -486,7 +490,7 @@ describe('oracle: answerAskUserQuestion', () => {
     ])
   })
 
-  it('a lone multi-select still gets its Tab and CR when only one option is picked', async () => {
+  it(`${MUST_NOT_CHANGE}: a lone multi-select still gets its Tab and CR when only one option is picked`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     goLive(o, sessionId)
@@ -518,7 +522,7 @@ describe('oracle: answerAskUserQuestion', () => {
     expect(inputs(o.daemon)).toEqual([])
   })
 
-  it('free-text via Other types otherIndex, then text, then CR (after settle)', async () => {
+  it(`${MUST_NOT_CHANGE}: free-text via Other types otherIndex, then text, then CR (after settle)`, async () => {
     vi.useFakeTimers()
     try {
       const o = makeOracle()
@@ -556,7 +560,7 @@ describe('oracle: answerAskUserQuestion', () => {
     }
   })
 
-  it('skip types a bare Esc and nothing else', async () => {
+  it(`${MUST_NOT_CHANGE}: skip types a bare Esc and nothing else`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     goLive(o, sessionId)

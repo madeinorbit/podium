@@ -11,6 +11,9 @@
 
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
+import type { Context } from '../../trpc'
+import { mods } from '../../trpc'
+import { visibleMachinesFor } from '../sessions/command-ctx'
 import type { FamilyState } from '../derived-family'
 import { defineQuery } from '../query-table'
 import { browseDirectories } from '../../repo-registry'
@@ -68,10 +71,14 @@ export const REPO_QUERIES = {
   ),
 } as const
 
+export const serverTransferStatusQuery = (ctx: Context) =>
+  mods(ctx).serverTransfer.publicStatus(visibleMachinesFor(mods(ctx), ctx.capability))
+
 export const DISCOVERY_QUERIES = {
   /** Most recent finished discovery for a machine (e.g. the automatic connect
    *  scan), so the picker can show results without re-scanning. */
-  lastMachineScan: q(z.object({ machineId: z.string() }), (s, input) =>
-    s.discovery?.lastResult(input.machineId) ?? null,
+  lastMachineScan: q(
+    z.object({ machineId: z.string() }),
+    (s, input) => s.discovery?.lastResult(input.machineId) ?? null,
   ),
 } as const

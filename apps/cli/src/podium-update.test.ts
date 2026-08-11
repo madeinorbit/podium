@@ -114,7 +114,7 @@ describe('podium update swap crash-safety', () => {
 
   beforeEach(() => {
     work = mkdtempSync(join(tmpdir(), 'podium-update-test-'))
-    process.exitCode = undefined
+    process.exitCode = 0
   })
   afterEach(() => {
     server?.close()

@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { constants, gunzipSync, gzipSync, inflateRawSync } from 'node:zlib'
 import { asSessionId } from '@podium/model'
-import { CAP_METADATA_DELTA, WIRE_VERSION } from '@podium/protocol'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { ServerHandle } from './server'
 import { startServer } from './server'
@@ -404,9 +403,11 @@ describe('transport compression on real Bun wires', () => {
       type: 'serverTransferChunkRequest',
       requestId: 'text-proof',
       transferId: randomUUID(),
+      manifestDigest: '0'.repeat(64),
       path: 'transport-proof.txt',
       offset: 0,
       data: LARGE_TEXT,
+      expectedLength: Buffer.byteLength(LARGE_TEXT),
     })
     const sendCpu = process.cpuUsage(sendCpuStart)
     const text = await frameOfType(daemon, 'serverTransferChunkRequest')
@@ -419,57 +420,4 @@ describe('transport compression on real Bun wires', () => {
     daemon.socket.destroy()
   })
 
-  it('compresses large human-client publications but leaves tiny realtime control identity', async () => {
-    const machineId = server.registry.modules.machines.hostMachineId
-    const discardDaemonControl = (): void => {}
-    server.registry.gateway.attachDaemon(machineId, discardDaemonControl)
-
-    const bootstrapClient = await openRawWebSocket(server.port, '/client')
-    bootstrapClient.socket.write(
-      maskedTextFrame(
-        JSON.stringify({
-          type: 'hello',
-          clientId: '',
-          viewport: { cols: 80, rows: 24, dpr: 1 },
-          caps: [CAP_METADATA_DELTA],
-          wireVersion: WIRE_VERSION,
-        }),
-      ),
-    )
-    const bootstrap = await frameOfType(bootstrapClient, 'feedBootstrap')
-    expect(bootstrap.frame.rsv1).toBe(false)
-    bootstrapClient.socket.destroy()
-
-    const client = await openRawWebSocket(server.port, '/client')
-    expect(client.responseHeaders.get('sec-websocket-extensions')).toContain('permessage-deflate')
-    const initial = await frameOfType(client, 'sessionsChanged')
-    const initialCount = (JSON.parse(initial.text) as { sessions: unknown[] }).sessions.length
-
-    for (let i = 0; i < 12; i++) {
-      server.registry.modules.sessions.createSession({
-        agentKind: 'shell',
-        cwd: `/transport-proof/${i}/${'repeated-path/'.repeat(60)}`,
-        machineId,
-      })
-    }
-    server.registry.modules.sessions.flushBroadcasts()
-
-    const publication = await frameOfType(client, 'sessionsChanged')
-    expect(publication.frame.rsv1).toBe(true)
-    expect((JSON.parse(publication.text) as { sessions: unknown[] }).sessions).toHaveLength(
-      initialCount + 12,
-    )
-    expect(publication.frame.payload.length).toBeLessThan(
-      (Buffer.byteLength(publication.text) * 3) / 4,
-    )
-    console.info(
-      `[transport-wire] client-frame=${publication.frame.payload.length}/${Buffer.byteLength(publication.text)}`,
-    )
-
-    client.socket.write(maskedTextFrame(JSON.stringify({ type: 'ping' })))
-    const pong = await frameOfType(client, 'pong')
-    expect(pong.frame.rsv1).toBe(false)
-    server.registry.gateway.detachDaemon(machineId, discardDaemonControl)
-    client.socket.destroy()
-  })
 })

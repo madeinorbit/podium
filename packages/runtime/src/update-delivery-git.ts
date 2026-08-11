@@ -9,9 +9,45 @@
 export type GitRun = (
   cmd: string,
   args: string[],
+  /** Milliseconds this step may take. Runners that ignore it are unbounded. */
+  timeoutMs?: number,
 ) => {
   status: number | null
   stdout: string
+}
+
+/** Conventional timeout exit code, used here to name a step the budget killed. */
+export const GIT_TIMED_OUT_STATUS = 124
+
+/**
+ * Whole-convergence budget for git delivery.
+ *
+ * Git delivery is SYNCHRONOUS and runs three steps. Bounding each step
+ * separately does not bound the sequence: three four-minute steps are twelve
+ * minutes, which outlives the server's ten-minute silence deadline — the server
+ * would mark the machine stuck and could re-grant while the daemon was still
+ * blocked and unable to observe any cancellation. One shared budget for the
+ * whole convergence is what keeps the daemon's failure earlier than the
+ * server's.
+ */
+export const GIT_CONVERGENCE_BUDGET_MS = 8 * 60_000
+
+/**
+ * Wrap a runner so every step of ONE convergence draws from a single budget.
+ * Once it is spent, further steps fail immediately instead of starting.
+ */
+export function withGitBudget(
+  run: GitRun,
+  opts: { totalMs?: number; now?: () => number } = {},
+): GitRun {
+  const totalMs = opts.totalMs ?? GIT_CONVERGENCE_BUDGET_MS
+  const now = opts.now ?? Date.now
+  const startedAt = now()
+  return (cmd, args) => {
+    const remaining = totalMs - (now() - startedAt)
+    if (remaining <= 0) return { status: GIT_TIMED_OUT_STATUS, stdout: '' }
+    return run(cmd, args, remaining)
+  }
 }
 
 export type GitConvergenceResult = { ok: true } | { ok: false; reason: string }
@@ -45,13 +81,16 @@ export function convergeViaGit(
     '--porcelain',
     '--untracked-files=all',
   ])
+  if (clean.status === GIT_TIMED_OUT_STATUS) return failed('timed-out')
   if (clean.status !== 0) return failed('status-failed')
   if (clean.stdout.length > 0) return failed('dirty-working-tree')
 
   const fetched = deps.run('git', ['-C', artifact.repo, 'fetch', '--all', '--prune'])
+  if (fetched.status === GIT_TIMED_OUT_STATUS) return failed('timed-out')
   if (fetched.status !== 0) return failed('fetch-failed')
 
   const checkedOut = deps.run('git', ['-C', artifact.repo, 'checkout', '--detach', artifact.sha])
+  if (checkedOut.status === GIT_TIMED_OUT_STATUS) return failed('timed-out')
   if (checkedOut.status !== 0) return failed('checkout-failed')
 
   return { ok: true }

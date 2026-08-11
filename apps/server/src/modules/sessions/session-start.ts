@@ -343,10 +343,11 @@ export class SessionStart {
     }
     const sessionId = input.sessionId ?? asSessionId(randomUUID())
     const machineId = input.machineId ? asMachineId(input.machineId) : this.ports.defaultMachine()
+    const ownerUserId = input.ownerUserId ?? FIRST_ADMIN_USER_ID
     this.ports.onSpawnTargetLogin?.({
       machineId,
       agentKind: input.agentKind,
-      ownerUserId: input.ownerUserId ?? FIRST_ADMIN_USER_ID,
+      ownerUserId,
     })
     const launch = this.ports.launchConfig.modelDefaults(
       input.agentKind,
@@ -369,7 +370,7 @@ export class SessionStart {
     const session = new Session({
       sessionId,
       durableLabel: this.ports.durableLabelFor(sessionId),
-      ownerUserId: input.ownerUserId ?? FIRST_ADMIN_USER_ID,
+      ownerUserId,
       agentKind: input.agentKind,
       cwd: input.cwd,
       title: input.title || basename(input.cwd) || input.cwd,

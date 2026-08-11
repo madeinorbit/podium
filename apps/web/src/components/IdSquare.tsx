@@ -3,6 +3,7 @@ import type { CSSProperties, JSX } from 'react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
+import { FLOW_CSS } from '@/lib/issueColors'
 import { MENU_HEADER, MENU_HEADER_REF, MENU_PICKER_PANEL } from '@/lib/menu-surface'
 import { StatusBadge, type StatusBadgeKind } from '@/lib/motion'
 import { IssueColorSwatches, issueColorName } from './IssueColorSwatches'
@@ -180,37 +181,62 @@ export function IdSquare({
 
   const hex = displayColor ? ISSUE_COLOR_HEX[displayColor] : undefined
   const resting = state === 'queued' || state === 'idle'
-  // Neutral (uncoloured) square wears the chassis' own identity tones (POD-293):
-  // the recessed/raised surface tiers, the strong seam and light ink read richer
-  // than a flat grey, and let the coloured squares stay the exception. Written as
-  // longhands, not a `border` shorthand: a `var()` inside a shorthand is only
-  // resolved at computed-value time, so the shorthand can't be read back.
+  // THE SQUARE IS A TINT, NOT A FILL (POD-725, the Paper shell).
+  //
+  // It used to be a saturated slab of the issue colour with near-black type. On
+  // deep navy that read as one bright chip per row; on warm paper it read as ten
+  // stickers, and it made the identity mark — a thing you scan past — the single
+  // loudest object in the column. The Paper design keeps the square recessed
+  // (`--muted`) and spends the colour as a low tint plus a 1px rim, which is the
+  // same `--issue` grammar every other tinted surface in the shell already uses.
+  // The ink carries the hue instead of the ground, so the ref stays readable and
+  // the colour still names the issue at a glance.
+  //
+  // The mix percentages ride --issue-tint-scale / --issue-line-scale (index.css)
+  // so paper takes half of what navy needs, exactly as the issue-mix-* utilities
+  // do. They are written out rather than applied as those utilities because this
+  // is one inline style object that must also carry geometry and state.
+  const accent = hex ?? FLOW_CSS
+  // An uncoloured square only borrows the flow accent while it is the selected
+  // one — the mock's selected row tints its square and rims it in `--issue`.
+  const tinted = hex !== undefined || selected
+  // The number is what you cite, so it sets the square's type size; the prefix
+  // recedes to roughly two thirds of it. 30px desktop rows land on the design's
+  // 10px/6.5px pair, and the smaller rail/mobile squares stay proportional.
+  const numberSize = size >= 30 ? 10 : Math.round((size / 30) * 100) / 10
+  const prefixSize = Math.round(numberSize * 6.5) / 10
+  // Written as longhands, not a `border` shorthand: a `var()` inside a shorthand
+  // is only resolved at computed-value time, so the shorthand can't be read back.
   const squareStyle: CSSProperties = {
     width: size,
     height: size,
-    borderRadius: Math.round((size / 26) * 7),
-    // A 30px desktop row square carries useful identity, not decorative type.
-    // Keep smaller rail/mobile variants proportional, but never shrink the
-    // ordinary desktop label below the shell's 10.5px micro role.
-    fontSize: size >= 30 ? 10.5 : Math.round((size / 26) * 7 * 10) / 10,
+    // 7px is a constant from 26px up — the design draws the same corner on the
+    // 26px rail square and the 30px row square, and a proportional radius made
+    // the bigger one read as an 8px pill. Smaller (mobile) squares scale down.
+    borderRadius: size >= 26 ? 7 : Math.round((size / 26) * 7),
+    fontSize: numberSize,
     borderWidth: 1,
     borderStyle: !hex && resting ? 'dashed' : 'solid',
-    borderColor: hex ? 'transparent' : selected ? 'var(--foreground)' : 'var(--border-strong)',
-    background: hex ?? (resting ? 'var(--muted)' : 'var(--chip)'),
+    borderColor: tinted
+      ? `color-mix(in srgb, ${accent} calc(35 * var(--issue-line-scale, 1%)), transparent)`
+      : 'var(--border-strong)',
+    background: tinted
+      ? `color-mix(in srgb, ${accent} calc(24 * var(--issue-tint-scale, 1%)), var(--muted))`
+      : 'var(--muted)',
     color: hex
-      ? `color-mix(in srgb, ${hex} 30%, #000)`
+      ? `color-mix(in srgb, ${hex} 72%, var(--text-strong))`
       : selected
         ? 'var(--text-strong)'
-        : resting
-          ? 'var(--label)'
-          : 'var(--foreground)',
-    boxShadow: open
-      ? '0 0 0 2px var(--text-strong)'
-      : selected
-        ? `0 0 0 2px ${hex ? `color-mix(in srgb, ${hex} 35%, transparent)` : 'color-mix(in srgb, var(--flow) 30%, transparent)'}`
-        : undefined,
+        : 'var(--muted-foreground)',
+    // Only the OPEN picker keeps an outer ring. Selection is now said by the
+    // row's own band and 3px spine, so a second halo here was the same fact
+    // twice — and it was the one thing that made a selected square grow.
+    boxShadow: open ? '0 0 0 2px var(--text-strong)' : undefined,
     opacity: resting && !selected ? 0.65 : 1,
   }
+  const prefixColor = hex
+    ? `color-mix(in srgb, ${hex} 45%, var(--text-dim))`
+    : 'var(--text-faint)'
 
   return (
     <>
@@ -225,7 +251,7 @@ export function IdSquare({
         data-badge={badge?.kind ?? 'none'}
         data-prefix={label.prefix}
         data-number={label.number}
-        className="phase-surface relative flex flex-none cursor-pointer flex-col items-center justify-center rounded-[7px] font-mono text-[7px] leading-[1.15] font-semibold outline-none focus-visible:ring-2 focus-visible:ring-text-strong"
+        className="phase-surface relative flex flex-none cursor-pointer flex-col items-center justify-center rounded-[7px] font-mono leading-[1.15] font-semibold outline-none focus-visible:ring-2 focus-visible:ring-text-strong"
         style={squareStyle}
         aria-label={
           onPrimary && (primaryOnly || !selected)
@@ -248,8 +274,13 @@ export function IdSquare({
           setOpen((value) => !value)
         }}
       >
-        {/* The prefix recedes so the number — the part you cite — reads first. */}
-        <span className="opacity-[.72]">{label.prefix}</span>
+        {/* The prefix recedes so the number — the part you cite — reads first.
+            It carries its own size and ink rather than a blanket opacity: on a
+            tinted ground an opacity fade greys the hue out, and the design wants
+            a MUTED tint of the colour over the number's strong one. */}
+        <span style={{ fontSize: prefixSize, lineHeight: 1, color: prefixColor }}>
+          {label.prefix}
+        </span>
         <span className="tracking-[.02em]">{label.number}</span>
         {badge && <StatusBadge kind={badge.kind} count={badge.count} ringColor={ringColor} />}
       </button>

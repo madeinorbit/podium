@@ -29,7 +29,18 @@ export interface DeliveryDeps {
   verifyDigest?: boolean
   /** Runner for the development checkout delivery path. */
   git?: { run: GitRun }
+  /**
+   * Hard deadline for the artifact download. Without one a stalled connection
+   * left the daemon in `downloading` forever and the operator watching a row
+   * that could never fail.
+   */
+  downloadTimeoutMs?: number
+  /** Raised when a newer grant supersedes the one being delivered. */
+  signal?: AbortSignal
 }
+
+/** Long enough for a slow link, short enough that a hung socket still fails. */
+export const DEFAULT_DOWNLOAD_TIMEOUT_MS = 5 * 60_000
 
 function matchesDigest(bytes: Uint8Array, expected: string): boolean {
   // Release manifests encode digests as `sha256-<base64>`.
@@ -90,9 +101,29 @@ export async function fetchArtifact(
   }
   if (!('url' in asset)) throw new Error('platform delivery requires an artifact URL')
 
-  const res = await deps.fetch(asset.url)
-  if (!res.ok) throw new Error(`artifact download returned ${res.status}`)
-  const bytes = new Uint8Array(await res.arrayBuffer())
+  const timeoutMs = deps.downloadTimeoutMs ?? DEFAULT_DOWNLOAD_TIMEOUT_MS
+  const abort = new AbortController()
+  // Either bound ends the download: the deadline, or a superseding grant.
+  const onCallerAbort = (): void => abort.abort()
+  deps.signal?.addEventListener('abort', onCallerAbort, { once: true })
+  if (deps.signal?.aborted) abort.abort()
+  const timer = setTimeout(() => abort.abort(), timeoutMs)
+  ;(timer as { unref?: () => void }).unref?.()
+  let bytes: Uint8Array
+  try {
+    const res = await deps.fetch(asset.url, { signal: abort.signal })
+    if (!res.ok) throw new Error(`artifact download returned ${res.status}`)
+    bytes = new Uint8Array(await res.arrayBuffer())
+  } catch (error) {
+    if (deps.signal?.aborted) throw new Error('artifact download was superseded by a newer grant')
+    if (abort.signal.aborted) {
+      throw new Error(`artifact download timed out after ${Math.round(timeoutMs / 1000)}s`)
+    }
+    throw error
+  } finally {
+    clearTimeout(timer)
+    deps.signal?.removeEventListener('abort', onCallerAbort)
+  }
 
   if (deps.verifyDigest !== false && !matchesDigest(bytes, asset.digest)) {
     throw new Error('digest verification FAILED — refusing to install the artifact')

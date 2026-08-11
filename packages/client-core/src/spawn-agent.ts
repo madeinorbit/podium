@@ -39,13 +39,15 @@ export class SpawnPlacementError extends Error {
   }
 }
 
+const ARGV_PROMPT_HARNESSES: ReadonlySet<AgentKind> = new Set(['claude-code', 'codex', 'grok'])
+
 /**
  * Harnesses whose first prompt is a launch argv token. Mirrors
  * `packages/harness` `capabilities.argvPrompt` without pulling that package into
  * client-core.
  */
 export function agentAcceptsArgvPrompt(kind: AgentKind): boolean {
-  return kind === 'claude-code' || kind === 'codex' || kind === 'grok'
+  return ARGV_PROMPT_HARNESSES.has(kind)
 }
 
 /**

@@ -1,6 +1,0 @@
-[
-  {
-    "anchor": "    if (declared === null) return { visible: false, reason: 'unclassified' }\n",
-    "replace": "    if (declared === null) return { visible: true, reason: 'unclassified' }\n"
-  }
-]

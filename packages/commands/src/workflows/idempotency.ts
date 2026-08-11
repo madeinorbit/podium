@@ -45,7 +45,7 @@
  * ONE IDEMPOTENCY MECHANISM, NOT A SECOND
  * ---------------------------------------------------------------------------
  *
- * The mutation id is the product's existing one — `MutationEnvelope.mutationId`
+ * The mutation id is the product's existing one — `OutboxRecord.mutationId`
  * and the authority-side `applied_mutations` ledger, whose contract is already
  * "a replay of an already-applied mutation returns its recorded result instead
  * of re-running". {@link AdvanceIdempotencyPort} is that ledger as a port, so

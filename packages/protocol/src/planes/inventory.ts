@@ -87,7 +87,7 @@ export const NON_WS_SURFACE_INVENTORY = [
   {
     surface: 'tRPC mutations across the namespace set',
     planeClass: 'control.command',
-    note: 'Offline-class per ADR 3 D4; MutationEnvelope/MutationResult are this class.',
+    note: 'Offline-class per ADR 3 D4; durable writes use OutboxCommand.',
   },
   {
     surface: 'tRPC features.state',

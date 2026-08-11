@@ -2,6 +2,7 @@ import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
 import { FLIGHT_DECK_FOLDS_KEY, FLIGHT_DECK_MODE_KEY } from '@podium/client-core/ui-state'
 import {
+  archivedSessionsForIssue,
   buildFlightDeckRows,
   type CollapsedSummary,
   type DeckIssueState,
@@ -32,6 +33,7 @@ import {
 import type { AgentKind, SessionMeta } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import {
+  Archive,
   ArrowDown,
   ArrowRight,
   ArrowUpRight,
@@ -43,21 +45,23 @@ import {
   ChevronsDownUp,
   ChevronsUpDown,
   CornerDownRight,
+  Ellipsis,
   Hourglass,
   Search,
-  Users,
   X,
 } from 'lucide-react'
 import { motion, useReducedMotion } from 'motion/react'
 import type { JSX, ReactNode } from 'react'
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { STAGE_LABELS } from '@/features/issues/issue-card'
 import { StageGlyph } from '@/features/issues/issue-glyphs'
 import { BrailleSpinner, PhaseTimer, useArrivals } from '@/lib/motion'
+import { type ContextMenuAnchor, SessionContextMenu } from '@/lib/SessionContextMenu'
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 import { cn } from '@/lib/utils'
-import { KindIcon, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
+import { KindIcon, SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
+import { MissionGauge } from './MissionGauge'
 import { resolveFocus, useOperatorFocus } from './operator-focus'
 import { useReplicaIssues, useStoreSelector } from './store'
 
@@ -127,115 +131,145 @@ const readMode = (raw: string | null): FlightDeckMode =>
   raw === 'active' || raw === 'needs-you' ? raw : 'full'
 const writeMode = (mode: FlightDeckMode): string | null => (mode === 'full' ? null : mode)
 
-const EMPTY_FOLDS: ReadonlySet<string> = new Set<string>()
-const readFolds = (raw: string | null): ReadonlySet<string> => {
+/**
+ * THE FOLD IS THREE-VALUED (POD-710).
+ *
+ * A single `collapsed` set could only say "the operator folded this"; everything
+ * else was open, which is the wrong default for the commonest strip in the
+ * column — a task carrying exactly one agent and nothing else. Its fold buys the
+ * operator nothing (the strip already names the one session under it) and costs
+ * a row of the spine, so it wants to arrive closed. A task with real structure
+ * under it wants to arrive open.
+ *
+ * Neither of those is a decision the operator made, so neither may be stored as
+ * one: the map holds only EXPLICIT folds, and a task the operator never touched
+ * falls through to {@link defaultFolded}. That is what lets the rule change later
+ * without rewriting everyone's saved state, and what stops "fold everything" and
+ * "I closed this one" from being the same fact.
+ */
+export type FoldState = 'open' | 'closed'
+export type FoldMap = ReadonlyMap<string, FoldState>
+
+const EMPTY_FOLDS: FoldMap = new Map<string, FoldState>()
+
+const idsIn = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : []
+
+/** Total, like every persisted reader here: a malformed or older blob falls back
+ *  to "nothing explicit" rather than throwing. The v1 format was a bare array of
+ *  collapsed ids — every one of those WAS an explicit fold, so it migrates to
+ *  `closed` rather than being dropped. */
+export const readFolds = (raw: string | null): FoldMap => {
   if (!raw) return EMPTY_FOLDS
+  let parsed: unknown
   try {
-    const parsed: unknown = JSON.parse(raw)
-    return Array.isArray(parsed)
-      ? new Set(parsed.filter((id): id is string => typeof id === 'string'))
-      : EMPTY_FOLDS
+    parsed = JSON.parse(raw)
   } catch {
     return EMPTY_FOLDS
   }
+  if (Array.isArray(parsed)) {
+    const legacy = idsIn(parsed)
+    return legacy.length === 0
+      ? EMPTY_FOLDS
+      : new Map(legacy.map((id): [string, FoldState] => [id, 'closed']))
+  }
+  if (!parsed || typeof parsed !== 'object') return EMPTY_FOLDS
+  const blob = parsed as { open?: unknown; closed?: unknown }
+  const folds = new Map<string, FoldState>()
+  for (const id of idsIn(blob.open)) folds.set(id, 'open')
+  for (const id of idsIn(blob.closed)) folds.set(id, 'closed')
+  return folds.size === 0 ? EMPTY_FOLDS : folds
 }
-const writeFolds = (folds: ReadonlySet<string>): string | null =>
-  folds.size === 0 ? null : JSON.stringify([...folds])
+
+export const writeFolds = (folds: FoldMap): string | null => {
+  if (folds.size === 0) return null
+  const open: string[] = []
+  const closed: string[] = []
+  for (const [id, state] of folds) (state === 'open' ? open : closed).push(id)
+  return JSON.stringify({ v: 2, open, closed })
+}
+
+type FoldableRow = Pick<FlightDeckRow, 'issue' | 'descendantIds' | 'sessions'>
+
+/** Whether a task has anything to fold at all. A payload-less strip draws no
+ *  chevron and never enters the fold map. */
+export function hasPayload(row: Pick<FlightDeckRow, 'descendantIds' | 'sessions'>): boolean {
+  return row.descendantIds.length > 0 || row.sessions.length > 0
+}
 
 /**
- * THE MISSION GAUGE — progress and fleet as adjacent instruments (round 3 §3, §11).
- *
- * The reading used to sit BESIDE the track, and the fleet ("21 live / 0 coords")
- * a line below it as a pair of mono footnotes. Three facts, three places, none
- * of them composed. The progress facts now share one carved well: the extent is
- * the well's own ground and the reading sits inside it. Fleet presence is a
- * separate chip beside the well, so `N live` cannot be mistaken for one more
- * progress segment.
- *
- * The extent is drawn twice on purpose, the way a real gauge is — a soft tinted
- * REGION says roughly how far, and a saturated 2px rule along the floor says
- * exactly where it ends. That is also what buys the contrast: the words sit over
- * a 22% tint rather than over a solid fill, so they stay full-strength ink.
- *
- * COLOUR. Meters are data (DESIGN.md §5). Done takes Accent Blue, running takes
- * the working blue the spinner already uses, and BLOCKED TAKES NO HUE AT ALL:
- * `--warning` IS `--attention` in Superade, so the old warning-toned segment was
- * spending the one signal colour on work that is asking nothing. It reads as the
- * same diagonal hatch a blocked strip wears instead — one idea, both places.
- *
- * MOTION. The running segment carries the same slow sweep as the sidebar's
- * progress rule whenever the mission has running issues. This is task progress,
- * not an agent-presence meter: it keeps moving while work is between model
- * turns. The live chip stays neutral and still, because presence asks nothing
- * of the operator.
+ * The default when the operator has said nothing: a task whose ENTIRE payload is
+ * one session and no sub-tasks arrives closed, everything else with a payload
+ * arrives open. Folding the one-session task hides a row that only restates the
+ * strip; folding a branch hides work.
  */
-export function MissionGauge({
-  progress,
-  live,
-  working,
-}: {
-  progress: ReturnType<typeof missionProgress>
-  live: number
-  working: number
-}): JSX.Element {
-  const { total, done, run, block } = progress
-  const pct = (n: number): string => `${total === 0 ? 0 : (n / total) * 100}%`
-  const words = [`${done} done`, `${run} running`, block > 0 ? `${block} blocked` : null]
-    .filter(Boolean)
-    .join(' · ')
-  const reading =
-    `${done} of ${total} task${total === 1 ? '' : 's'} done, ${run} running` +
-    `${block > 0 ? `, ${block} blocked` : ''} · ${live} agent${live === 1 ? '' : 's'} live` +
-    `${working > 0 ? `, ${working} working` : ''}`
-  const segment = (width: string, tone: string, hatch = false, animated = false): JSX.Element => (
-    <span
-      className={cn(
-        'relative h-full overflow-hidden transition-[width] duration-300 motion-reduce:transition-none',
-        tone,
-        hatch && 'deck-hatch',
-      )}
-      style={{ width }}
-    >
-      {animated && <span className="row-progress-sweep" />}
-    </span>
-  )
+export function defaultFolded(row: Pick<FlightDeckRow, 'descendantIds' | 'sessions'>): boolean {
+  return row.descendantIds.length === 0 && row.sessions.length === 1
+}
+
+/** The effective fold: an explicit value wins, else the default rule. */
+export function isFolded(row: FoldableRow, folds: FoldMap): boolean {
+  const explicit = folds.get(row.issue.id)
+  return explicit === undefined ? defaultFolded(row) : explicit === 'closed'
+}
+
+/** What the mission search matches on a row: its title, its ref, its agents. */
+function matchesQuery(row: FlightDeckRow, needle: string): boolean {
   return (
-    <div
-      className="mt-3 flex items-center gap-2"
-      data-testid="mission-gauge"
-      data-running={run > 0 ? 'true' : 'false'}
-      role="img"
-      aria-label={reading}
-      title={reading}
-    >
-      <span
-        className="relative flex h-[22px] min-w-0 flex-1 items-center overflow-hidden rounded-lg bg-secondary/70 shadow-[inset_0_1px_2px_var(--carve-drop)]"
-        data-testid="mission-gauge-track"
-      >
-        {/* The region: the well's ground, tinted as far as the work has come. */}
-        <span aria-hidden className="absolute inset-0 flex">
-          {segment(pct(done), 'bg-success/22')}
-          {segment(pct(run), 'bg-live/22', false, run > 0)}
-          {segment(pct(block), 'bg-transparent', true)}
-        </span>
-        {/* The floor rule: the same datum, said exactly. */}
-        <span aria-hidden className="absolute inset-x-0 bottom-0 flex h-[2px]">
-          {segment(pct(done), 'bg-success')}
-          {segment(pct(run), 'bg-live')}
-          {segment(pct(block), 'bg-text-faint')}
-        </span>
-        <span className="shell-type-micro relative min-w-0 flex-1 truncate px-2.5 font-mono tabular-nums text-foreground">
-          {words}
-        </span>
-      </span>
-      <span
-        className="shell-type-micro flex h-[22px] flex-none items-center gap-1.5 rounded-md border border-hairline-bar bg-chip px-2 font-mono tabular-nums text-text-dim"
-        data-testid="mission-live-chip"
-      >
-        <Users size={10} aria-hidden="true" className="text-text-faint" />
-        {live} live
-      </span>
-    </div>
+    row.issue.title.toLowerCase().includes(needle) ||
+    issueDisplayRef(row.issue).toLowerCase().includes(needle) ||
+    row.sessions.some((session) => sessionDisplayName(session).toLowerCase().includes(needle))
+  )
+}
+
+/**
+ * SINGLE CLICK AND DOUBLE CLICK ON ONE TARGET, resolved without a race.
+ *
+ * A preview open and a permanent open are the same gesture repeated, so the
+ * first click cannot act immediately — it would leave a stray fold toggle (and a
+ * second navigation) behind every double click. The first click schedules; a
+ * second click inside the window cancels the schedule and promotes instead,
+ * which is the "promote on the second click" arm the contract allows and the one
+ * that needs no `dblclick` event to be delivered.
+ *
+ * One instance per row, so a fast click on one row followed by another row is
+ * two singles rather than a double.
+ */
+const DOUBLE_CLICK_MS = 260
+
+interface ClickIntent {
+  press: (single: () => void, double: () => void) => void
+  /** Enter is the keyboard's double click; it also drops anything pending. */
+  commit: (double: () => void) => void
+}
+
+function useClickIntent(): ClickIntent {
+  const pending = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const cancel = useCallback((): boolean => {
+    if (pending.current === null) return false
+    clearTimeout(pending.current)
+    pending.current = null
+    return true
+  }, [])
+  useEffect(() => () => void cancel(), [cancel])
+  return useMemo(
+    () => ({
+      press: (single, double) => {
+        if (cancel()) {
+          double()
+          return
+        }
+        pending.current = setTimeout(() => {
+          pending.current = null
+          single()
+        }, DOUBLE_CLICK_MS)
+      },
+      commit: (double) => {
+        cancel()
+        double()
+      },
+    }),
+    [cancel],
   )
 }
 
@@ -485,8 +519,11 @@ function ReservedSlot({ note, last }: { note: PresenceNote; last: boolean }): JS
         <span
           aria-hidden
           className={cn(
+            // The rim takes the CHIP tier, not the bar's: a dashed line is half
+            // a line to begin with, and the seat hangs on the card column now,
+            // where a hairline meant for the bar tier dashes away to nothing.
             'size-5 flex-none rounded-[6px] border border-dashed',
-            note.attention ? 'border-attention/60' : 'border-hairline-bar',
+            note.attention ? 'border-attention/60' : 'border-border-strong',
           )}
         />
         {note.kind === 'moved' && <ArrowRight size={11} aria-hidden className="flex-none" />}
@@ -614,24 +651,37 @@ function CoordinatorBadge(): JSX.Element {
  */
 function SessionRow({
   session,
-  role,
-  label,
+  role = null,
+  label = null,
   active,
   last,
   now,
+  flat = false,
   onOpen,
   onOpenNative,
 }: {
   session: SessionMeta
-  role: SessionRole | null
+  role?: SessionRole | null
   /** The role as a word, already resolved (a spawn parent needs a name). */
-  label: string | null
+  label?: string | null
   active: boolean
   last: boolean
   now: number
-  onOpen: () => void
+  /** Outside the tree (the archived reveal) — no rail, no elbow, no indent. */
+  flat?: boolean
+  /** `permanent` is the double click / Enter: it opens the session as a real
+   *  tab rather than as the workspace's one preview. */
+  onOpen: (permanent: boolean) => void
   onOpenNative: () => void
 }): JSX.Element {
+  // SESSION LIFECYCLE LIVES HERE NOW (POD-710 §4). The tab is a view and stops
+  // owning the session, so rename / snooze / hibernate / handoff / archive /
+  // kill move to the row that IS the session. Imported, never forked: the
+  // sidebar and this column must offer one menu, not two that drift.
+  const renameSession = useStoreSelector((store) => store.renameSession)
+  const [menuAnchor, setMenuAnchor] = useState<ContextMenuAnchor | null>(null)
+  const [editing, setEditing] = useState(false)
+  const intent = useClickIntent()
   const retired = session.archived || session.status === 'exited'
   const starting = session.status === 'starting' || session.status === 'reconnecting'
   const needs = !retired && sessionNeedsHuman(session)
@@ -639,20 +689,30 @@ function SessionRow({
   const since = Date.parse(session.agentState?.since ?? session.lastActiveAt)
   const stamp = relativeTime(session.lastActiveAt, now)
   const total = session.agentState?.workingMsTotal
-  return (
-    <Hung
-      railX={AGENT_RAIL}
-      indent={AGENT_INDENT}
-      mid={HUNG_MID}
-      last={last}
-      tone={needs ? 'bg-attention/80' : active ? 'bg-info/80' : 'bg-hairline-bar'}
+  const name = sessionDisplayName(session)
+  const body = (
+    <div
+      className={cn(
+        'group/srow relative rounded-r-md',
+        needs || active ? 'bg-muted' : 'bg-bar',
+        flat && 'rounded-md',
+      )}
+      style={{ marginLeft: flat ? 0 : AGENT_INDENT }}
+      data-flight-session={session.sessionId}
+      data-needs-you={needs ? 'true' : undefined}
     >
-      <div
-        className={cn('rounded-r-md', needs || active ? 'bg-muted' : 'bg-bar')}
-        style={{ marginLeft: AGENT_INDENT }}
-        data-flight-session={session.sessionId}
-        data-needs-you={needs ? 'true' : undefined}
-      >
+      {editing ? (
+        <div className="flex min-h-6 items-center px-2 py-1">
+          <SessionNameEditor
+            value={name}
+            onCommit={(next) => {
+              void renameSession(session.sessionId, next)
+              setEditing(false)
+            }}
+            onCancel={() => setEditing(false)}
+          />
+        </div>
+      ) : (
         <button
           data-pressable
           type="button"
@@ -660,11 +720,30 @@ function SessionRow({
             // One tier quieter than a task strip, and recessed rather than
             // raised: the strips are the spine, the agents working them are the
             // roster (sidebar-common's row idiom).
-            'group/session shell-type-secondary flex min-h-6 w-full items-center gap-2 rounded-r-md px-2 py-1 text-left text-text-dim hover:text-foreground',
+            'group/session shell-type-secondary flex min-h-6 w-full items-center gap-2 rounded-r-md px-2 py-1 text-left text-muted-foreground hover:text-foreground',
             active && 'text-foreground',
             retired && 'opacity-60',
           )}
-          onClick={onOpen}
+          // One click previews, two promote (see `useClickIntent`). Enter is the
+          // keyboard's double click and must not go through the click path, so
+          // it cancels the browser's synthesised click first.
+          onClick={() =>
+            intent.press(
+              () => onOpen(false),
+              () => onOpen(true),
+            )
+          }
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter') return
+            event.preventDefault()
+            intent.commit(() => onOpen(true))
+          }}
+          // Right-click is the fast path into session lifecycle, exactly as it
+          // is on the sidebar's rows — same menu, same gesture, one vocabulary.
+          onContextMenu={(event) => {
+            event.preventDefault()
+            setMenuAnchor({ x: event.clientX, y: event.clientY })
+          }}
         >
           {/* WorkerLabel already says "Handing over → <target>" mid-move, in the
               same words the sidebar and the pane header use, so the row never
@@ -725,8 +804,56 @@ function SessionRow({
             )}
           </span>
         </button>
-        <NativeRows session={session} onOpen={onOpenNative} />
-      </div>
+      )}
+      {/* The hover affordance for the same menu. Right-click is the fast path
+          and the one the sidebar already teaches; the ⋯ is how an operator who
+          has never right-clicked a row finds out these actions exist at all. It
+          floats over the row's right edge so revealing it never reflows. */}
+      {!editing && (
+        <div
+          data-hover-reveal
+          className="absolute top-0.5 right-1 hidden items-center rounded-md bg-chip group-hover/srow:flex"
+        >
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="size-5 text-text-dim"
+            aria-label={`Session actions for ${name}`}
+            title="Session actions"
+            onClick={(event) => {
+              event.stopPropagation()
+              setMenuAnchor({ x: event.clientX, y: event.clientY })
+            }}
+          >
+            <Ellipsis size={12} aria-hidden="true" />
+          </Button>
+        </div>
+      )}
+      <NativeRows session={session} onOpen={onOpenNative} />
+      {menuAnchor && (
+        <SessionContextMenu
+          session={session}
+          anchor={menuAnchor}
+          onClose={() => setMenuAnchor(null)}
+          onRename={() => {
+            setMenuAnchor(null)
+            setEditing(true)
+          }}
+        />
+      )}
+    </div>
+  )
+  return flat ? (
+    body
+  ) : (
+    <Hung
+      railX={AGENT_RAIL}
+      indent={AGENT_INDENT}
+      mid={HUNG_MID}
+      last={last}
+      tone={needs ? 'bg-attention/80' : active ? 'bg-info/80' : 'bg-hairline-bar'}
+    >
+      {body}
     </Hung>
   )
 }
@@ -766,7 +893,7 @@ interface HungContext {
    * that says what was trimmed and takes the click.
    */
   fold?: { hidden: number; open: boolean; onToggle: () => void }
-  onSelectSession: (session: SessionMeta) => void
+  onSelectSession: (session: SessionMeta, permanent: boolean) => void
   onSelectNative: (session: SessionMeta) => void
 }
 
@@ -804,7 +931,7 @@ function HungRows(ctx: HungContext): JSX.Element | null {
             active={ctx.activeSessionId === session.sessionId}
             last={isLast()}
             now={ctx.now}
-            onOpen={() => ctx.onSelectSession(session)}
+            onOpen={(permanent) => ctx.onSelectSession(session, permanent)}
             onOpenNative={() => ctx.onSelectNative(session)}
           />
         )
@@ -891,6 +1018,7 @@ function TaskRow({
   arrivals,
   settle,
   collapsed,
+  flat = false,
   now,
   onToggle,
   onSelectIssue,
@@ -910,14 +1038,21 @@ function TaskRow({
   arrivals: ReadonlySet<string>
   settle: (key: string) => void
   collapsed: boolean
+  /** Rendered OUTSIDE the tree (the proposed-actions section, POD-710 §4.4):
+   *  no ancestor rails, no elbow, no depth indent — there is no tree here for a
+   *  guide to belong to, and a line drawn into this section would claim one. */
+  flat?: boolean
   now: number
   onToggle: () => void
-  onSelectIssue: () => void
-  onSelectSession: (session: SessionMeta) => void
+  /** Single click previews the task's lead session (and toggles the fold);
+   *  double click / Enter opens it permanently. */
+  onSelectIssue: (permanent: boolean) => void
+  onSelectSession: (session: SessionMeta, permanent: boolean) => void
   onSelectNative: (session: SessionMeta) => void
 }): JSX.Element {
-  const hasPayload = row.descendantIds.length > 0 || row.sessions.length > 0
-  const bandLeft = SPINE_PAD + row.depth * DEPTH_STEP
+  const intent = useClickIntent()
+  const payload = hasPayload(row)
+  const bandLeft = flat ? 0 : SPINE_PAD + row.depth * DEPTH_STEP
   const state = deckIssueState(row.issue, row.sessions, byId)
   const sessions = deckSessions(row, mode)
   // A PROPOSAL IS A DIFFERENT KIND OF ROW (round 3 §7b): nobody has accepted it,
@@ -932,14 +1067,26 @@ function TaskRow({
       ? null
       : rawPresence
   return (
-    <div className="relative pb-1.5" data-flight-issue={row.issue.id} data-depth={row.depth}>
-      <BranchGuides carries={carries} mid={proposed ? PROPOSED_MID : BAND_MID} />
-      {/* The strip is a BAND: a tonal step up from the engraved column plus a
-          hairline, never a lift — DESIGN.md's carved rule. Selection is the
-          issue tint over that same engraved base (with its slate pair, so an
-          uncoloured mission still reads) and a 2px inset edge in the issue's own
-          colour, which is this app's focus language rather than the artifact's
-          borrowed blue.
+    <div
+      className="relative pb-1.5"
+      data-flight-issue={row.issue.id}
+      data-depth={flat ? undefined : row.depth}
+    >
+      {!flat && <BranchGuides carries={carries} mid={proposed ? PROPOSED_MID : BAND_MID} />}
+      {/* The strip is a BAND: a tonal step off the column plus a hairline, never
+          a lift — DESIGN.md's carved rule. The direction of that step follows
+          the column, which is now card rather than engraved (POD-725): a quiet
+          strip sits one tier BELOW the card on `--tabstrip`, and the selected
+          one comes back up to the card.
+          WHAT SAYS "SELECTED" IS THE LINE, NOT THE FILL. The strip carries the
+          issue in three places and only the two thin ones are saturated: a 2px
+          inset edge (the same edge the column wears along its top and the view
+          bar wears under its active label) and the hairline ring, over a ground
+          tint dosed at the tab strip's 18 rather than the sidebar row's 28. The
+          artifact gives the active row no ground tint at all; a mission colour
+          mixed into warm paper reads about twice as loud as it did into cool
+          grey, and a column of strips is the surface that compounds it. Each
+          tint keeps its slate pair, so an uncoloured mission still reads.
           BLOCKED WEARS A HATCH (round 3 §8) — a shallow diagonal rule over
           whatever ground the band already has. No border, no hue: blocked is a
           stopped state, and `--warning` IS `--attention` in this theme, so any
@@ -948,21 +1095,25 @@ function TaskRow({
           into its full strip rather than snapping (§7c). */}
       <div
         className={cn(
-          'group/task relative flex items-center gap-1 rounded-md border pr-1.5 transition-[background-color,border-color,min-height] duration-200 ease-out motion-reduce:transition-none',
+          'group/task relative flex items-center gap-1 rounded-row border pr-1.5 transition-[background-color,border-color,min-height] duration-200 ease-out motion-reduce:transition-none',
           state.state === 'blocked' && 'deck-hatch',
           selected
-            ? 'issue-mix-28 issue-mix-slate-22 issue-base-engraved issue-hairline-50 issue-hairline-slate-40 shadow-[inset_2px_0_0_var(--issue)]'
-            : 'border-hairline-soft bg-rail hover:border-hairline-bar hover:bg-chip',
+            ? 'issue-mix-18 issue-mix-slate-14 issue-base-card issue-hairline-50 issue-hairline-slate-40 shadow-[inset_2px_0_0_var(--issue)]'
+            : 'border-hairline-soft bg-tabstrip hover:border-hairline-bar hover:bg-chip',
         )}
         style={{ marginLeft: bandLeft, minHeight: proposed ? PROPOSED_BAND : BAND_HEIGHT }}
       >
-        {hasPayload ? (
+        {payload ? (
           <button
             data-pressable
             type="button"
             className="flex size-5 flex-none items-center justify-center text-text-dim hover:text-text-strong"
             aria-label={collapsed ? `Expand ${row.issue.title}` : `Collapse ${row.issue.title}`}
             aria-expanded={!collapsed}
+            // The chevron is the ONE control that folds without navigating, and
+            // it acts immediately — the row's own click is deferred by the
+            // double-click window, so an operator folding a long spine has an
+            // affordance that never waits.
             onClick={onToggle}
           >
             {collapsed ? <ChevronRight size={11} /> : <ChevronDown size={11} />}
@@ -977,20 +1128,30 @@ function TaskRow({
             'flex min-w-0 flex-1 items-center gap-2 text-left',
             proposed ? 'py-0.5' : 'py-1',
           )}
-          onClick={onSelectIssue}
+          onClick={() =>
+            intent.press(
+              () => onSelectIssue(false),
+              () => onSelectIssue(true),
+            )
+          }
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter') return
+            event.preventDefault()
+            intent.commit(() => onSelectIssue(true))
+          }}
         >
           <StageGlyph stage={row.issue.stage} size={13} />
           {/* Ref THEN title, in one truncating label: the ref is how the
               operator addresses the task everywhere else in Podium, and a
               right-aligned ref made the column read right-to-left. */}
-          <span className="shell-type-secondary min-w-0 flex-1 truncate font-medium">
+          <span className="shell-type-secondary min-w-0 flex-1 truncate font-semibold text-text-strong">
             <span className="shell-type-micro mr-1.5 font-mono font-normal text-text-faint">
               {issueDisplayRef(row.issue)}
             </span>
             {row.issue.title}
           </span>
           {note && !collapsed && <IssueNoteChip note={note} />}
-          {collapsed && hasPayload ? (
+          {collapsed && payload ? (
             <CollapsedPayload summary={row.collapsedSummary} />
           ) : (
             <StateLabel value={state} />
@@ -1024,6 +1185,38 @@ function TaskRow({
         </div>
       </div>
     </div>
+  )
+}
+
+/**
+ * A NAMED REGION BELOW THE TREE (POD-710 §4.4).
+ *
+ * The spine is one thing — the mission's shape — and anything that is not part
+ * of that shape has to leave it rather than hang off it with a guide rail
+ * borrowed from a parent it does not really have. Proposals are the first
+ * tenant; departure ticks (POD-679) are the next, and they are SIBLINGS of this
+ * section, not children of it.
+ *
+ * The heading is DESIGN.md §3's Label: 8.5px Geist Mono, 0.12em, uppercase,
+ * Label Grey — the same voice as WORK and TRAY, because it is the system naming
+ * a region of itself.
+ */
+function DeckSection({
+  label,
+  testId,
+  children,
+}: {
+  label: string
+  testId: string
+  children: ReactNode
+}): JSX.Element {
+  return (
+    <section className="mt-2 border-t border-hairline-soft px-2 pt-2" data-testid={testId}>
+      <h3 className="font-mono text-[8.5px] font-medium tracking-[0.12em] text-label uppercase">
+        {label}
+      </h3>
+      <div className="mt-1.5">{children}</div>
+    </section>
   )
 }
 
@@ -1117,10 +1310,13 @@ function IntakeCanvas({
         <KindIcon kind={kind} chip />
         {session ? sessionDisplayName(session) : 'New session'}
       </div>
-      <h2 className="shell-type-reading mt-2.5 font-semibold tracking-[-0.01em] text-text-strong">
+      {/* The deck's title slot, at the deck's title size — an empty column and a
+          loaded one are the same column, so its one heading does not shrink
+          because there is no mission in it yet. */}
+      <h2 className="mt-2.5 shell-type-column-title font-semibold text-text-strong">
         Ready when you are
       </h2>
-      <p className="shell-type-secondary mt-1.5 leading-[1.5] text-text-dim">
+      <p className="shell-type-secondary mt-[7px] leading-[1.6] text-muted-foreground">
         The agent will organize this workspace as you talk
         {repoName ? ` in ${repoName}` : ''}.
       </p>
@@ -1163,7 +1359,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
     split,
     setSelectedWorktree,
     setSelectedIssueId,
-    setPane,
+    openSessionTab,
     setPanelMode,
     setView,
     markIssueRead,
@@ -1179,8 +1375,15 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
       paneB: store.paneB,
       split: store.split,
       setSelectedWorktree: store.setSelectedWorktree,
+      // POD-679's departure ticks RE-ROOT the deck: a departed spin-off is not a
+      // member of this mission any more, so focusing it would resolve to nothing.
       setSelectedIssueId: store.setSelectedIssueId,
-      setPane: store.setPane,
+      // The deck OPENS TABS now (POD-710 §2) rather than assigning pane A: a
+      // preview open and a permanent open are different things, and only the
+      // workspace layout can tell them apart. `paneA`/`paneB` below stay as the
+      // derived mirrors they now are — this column still reads them to know
+      // which session the operator is actually in.
+      openSessionTab: store.openSessionTab,
       setPanelMode: store.setPanelMode,
       setView: store.setView,
       markIssueRead: store.markIssueRead,
@@ -1207,13 +1410,14 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
     readMode,
     writeMode,
   )
-  const [collapsed, setCollapsed] = usePersistedUiState<ReadonlySet<string>>(
+  const [folds, setFolds] = usePersistedUiState<FoldMap>(
     FLIGHT_DECK_FOLDS_KEY,
     readFolds,
     writeFolds,
   )
   const [query, setQuery] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
+  const headerIntent = useClickIntent()
   const root = missionRootFor(issues, selectedIssueId)
   const rows = useMemo(
     () => (root ? buildFlightDeckRows(issues, sessions, root.id, mode, allWorktreePaths) : []),
@@ -1294,34 +1498,86 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
     [rootSessions, mode, activeSessionId, rosterOpen],
   )
   const rootPresence = rootRow ? presenceNote(rootRow.issue, rootRow.sessions, byId) : null
+  /**
+   * PROPOSALS LEAVE THE TREE (POD-710 §4.4).
+   *
+   * A proposal is not part of the mission's shape — it is a thing being offered
+   * to the operator — so it is partitioned out here and rendered in its own
+   * section, with no rail, no elbow and no indent. Partitioned in this file on
+   * purpose: `mission.ts` still owns the mission's shape, and this is a display
+   * decision about it.
+   *
+   * A proposal that has somehow acquired sub-tasks stays IN the tree: pulling it
+   * out would leave its children hanging off a parent that is no longer there,
+   * which is worse than a proposal in the spine.
+   */
+  const proposalIds = useMemo(
+    () =>
+      new Set(
+        rows
+          .filter(
+            (row) =>
+              row.depth > 0 && row.issue.stage === 'proposed' && row.descendantIds.length === 0,
+          )
+          .map((row) => row.issue.id),
+      ),
+    [rows],
+  )
   // Search keeps a match's ANCESTORS as context, the same rule the mode filters
   // follow — an exception that loses its path is an exception you cannot place.
   const visibleRows = useMemo(() => {
+    const tree = rows.filter((row) => !proposalIds.has(row.issue.id))
     const hiddenByAncestor = new Set<string>()
-    for (const row of rows) {
-      if (row.depth === 0 || !collapsed.has(row.issue.id)) continue
+    for (const row of tree) {
+      if (row.depth === 0 || !isFolded(row, folds)) continue
       for (const id of row.descendantIds) hiddenByAncestor.add(id)
     }
-    const unfolded = rows.filter((row) => row.depth > 0 && !hiddenByAncestor.has(row.issue.id))
+    const unfolded = tree.filter((row) => row.depth > 0 && !hiddenByAncestor.has(row.issue.id))
     const needle = query.trim().toLowerCase()
     if (!needle) return unfolded
-    const matches = (row: FlightDeckRow): boolean =>
-      row.issue.title.toLowerCase().includes(needle) ||
-      issueDisplayRef(row.issue).toLowerCase().includes(needle) ||
-      row.sessions.some((session) => sessionDisplayName(session).toLowerCase().includes(needle))
     const keep = new Set<string>()
     const trail: FlightDeckRow[] = []
     for (const row of unfolded) {
       trail.length = row.depth
       trail[row.depth] = row
-      if (matches(row)) for (const ancestor of trail) if (ancestor) keep.add(ancestor.issue.id)
+      if (matchesQuery(row, needle))
+        for (const ancestor of trail) if (ancestor) keep.add(ancestor.issue.id)
     }
     return unfolded.filter((row) => keep.has(row.issue.id))
-  }, [rows, collapsed, query])
+  }, [rows, proposalIds, folds, query])
+  /** The proposals themselves. The tree's folds do not govern them — they are
+   *  not in the tree — so only the search narrows them. */
+  const proposedRows = useMemo(() => {
+    const proposals = rows.filter((row) => proposalIds.has(row.issue.id))
+    const needle = query.trim().toLowerCase()
+    return needle ? proposals.filter((row) => matchesQuery(row, needle)) : proposals
+  }, [rows, proposalIds, query])
   // Computed over the rows that ACTUALLY render: a fold or a filter changes which
   // strip is the last child of its branch, and a rail that outlives its last
   // child is the tell that the tree was drawn from data rather than from layout.
   const guides = useMemo(() => treeGuides(visibleRows), [visibleRows])
+  /**
+   * THE ARCHIVED SESSIONS OF THIS MISSION (POD-710 §4.3).
+   *
+   * The tab strip used to hold this reveal, because tabs were where sessions
+   * lived; they are views now, so it comes here with the rest of session
+   * lifecycle. Archived sessions are absent from `rows` by construction
+   * (`sessionsForIssueNav` drops them), so they are gathered per mission issue
+   * and de-duplicated — one session may be a member of two.
+   */
+  const archivedSessions = useMemo(() => {
+    const seen = new Set<string>()
+    const found: SessionMeta[] = []
+    for (const row of rows) {
+      for (const session of archivedSessionsForIssue(row.issue, sessions, allWorktreePaths)) {
+        if (seen.has(session.sessionId)) continue
+        seen.add(session.sessionId)
+        found.push(session)
+      }
+    }
+    return found
+  }, [rows, sessions, allWorktreePaths])
+  const [archivedOpen, setArchivedOpen] = useState(false)
   const missionSessionIds = useMemo(() => {
     const ids = new Set<string>()
     for (const row of rows) for (const session of row.sessions) ids.add(session.sessionId)
@@ -1330,16 +1586,14 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
   const rootSession = root ? rows[0]?.sessions[0] : focusedSession
   const draftFilling = Boolean(root?.draft && rootSession)
   const repoName = useMemo(() => reposToViews(repos)[0]?.name ?? null, [repos])
-  // The root is never in the fold set — see `rootRow`.
+  // The root is never in the fold set — see `rootRow`. Neither are proposals:
+  // they left the tree, and "fold every branch" is about the tree.
   const foldable = useMemo(
-    () =>
-      rows.filter(
-        (row) => row.depth > 0 && (row.descendantIds.length > 0 || row.sessions.length > 0),
-      ),
-    [rows],
+    () => rows.filter((row) => row.depth > 0 && !proposalIds.has(row.issue.id) && hasPayload(row)),
+    [rows, proposalIds],
   )
   const anyFoldable = foldable.length > 0
-  const allFolded = anyFoldable && foldable.every((row) => collapsed.has(row.issue.id))
+  const allFolded = anyFoldable && foldable.every((row) => isFolded(row, folds))
   /**
    * Session ids that appeared since the deck settled (round 3 §7c).
    *
@@ -1354,17 +1608,23 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
   )
   const { arrivals, settle } = useArrivals(sessionKeys)
 
-  const toggleFold = useCallback(
-    (id: string): void => {
-      const next = new Set(collapsed)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      setCollapsed(next)
+  /** A fold the operator performed is always written EXPLICITLY, whichever way
+   *  it went — that is what stops the default rule from re-closing a branch the
+   *  operator just opened. */
+  const setFold = useCallback(
+    (id: string, closed: boolean): void => {
+      const next = new Map(folds)
+      next.set(id, closed ? 'closed' : 'open')
+      setFolds(next)
     },
-    [collapsed, setCollapsed],
+    [folds, setFolds],
+  )
+  const toggleFold = useCallback(
+    (row: FoldableRow): void => setFold(row.issue.id, !isFolded(row, folds)),
+    [folds, setFold],
   )
 
-  const selectIssue = (row: FlightDeckRow): void => {
+  const selectIssue = (row: FlightDeckRow, permanent: boolean): void => {
     setFocusedIssueId(row.issue.id)
     void markIssueRead(row.issue.id)
     if (row.issue.worktreePath) setSelectedWorktree(row.issue.worktreePath)
@@ -1381,7 +1641,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
     // A sessionless task updates the inspector but leaves the current chat
     // intact. Task creation is never a navigation side effect.
     if (target) {
-      setPane('A', target.sessionId)
+      openSessionTab(target.sessionId, { permanent })
       void markSessionRead(target.sessionId)
     }
     setView('workspace')
@@ -1391,6 +1651,10 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
    * rather than focusing something this mission no longer contains. Selecting
    * an issue outside `missionMembers` would leave the focus resolver with
    * nothing to resolve and the column showing the same spine.
+   *
+   * Its tab opens PERMANENT, not as a preview (POD-710): re-rooting the whole
+   * deck onto another mission is a deliberate departure from this one, not the
+   * glance a preview tab exists to serve.
    */
   const openDeparture = (issue: IssueNavigationModel): void => {
     setSelectedIssueId(issue.id)
@@ -1404,17 +1668,21 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
       )
       .sort((a, b) => b.lastActiveAt.localeCompare(a.lastActiveAt))[0]
     if (live) {
-      setPane('A', live.sessionId)
+      openSessionTab(live.sessionId, { permanent: true })
       void markSessionRead(live.sessionId)
     }
     setView('workspace')
   }
-  const selectSession = (row: FlightDeckRow, session: SessionMeta, native = false): void => {
-    setFocusedIssueId(row.issue.id)
+  const selectSession = (
+    issueId: string | null,
+    session: SessionMeta,
+    opts: { permanent: boolean; native?: boolean },
+  ): void => {
+    if (issueId) setFocusedIssueId(issueId)
     if (session.cwd) setSelectedWorktree(session.cwd)
-    setPane('A', session.sessionId)
-    if (native) setPanelMode(session.sessionId, 'native')
-    void markIssueRead(row.issue.id)
+    openSessionTab(session.sessionId, { permanent: opts.permanent })
+    if (opts.native) setPanelMode(session.sessionId, 'native')
+    if (issueId) void markIssueRead(issueId)
     void markSessionRead(session.sessionId)
     setView('workspace')
   }
@@ -1424,31 +1692,35 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
       <Button
         variant="ghost"
         size="icon-sm"
-        className="absolute top-2 right-2 z-20 size-6 text-text-dim"
+        // Centred in the 32px eyebrow row below, which is the row the artifact
+        // puts it in: the chevron is part of the header's line, not a control
+        // floating over the corner of the column.
+        className="absolute top-1 right-2 z-20 size-6 text-text-faint"
         aria-label="Collapse Flight Deck"
         title="Collapse Flight Deck"
         onClick={onCollapse}
       >
-        <ChevronLeft size={12} aria-hidden="true" />
+        <ChevronLeft size={14} aria-hidden="true" />
       </Button>
 
       {root ? (
         <>
           {/* THE MISSION HEADER IS THE ROOT OF THE TREE (round 3 §2, §4, §10).
-              Roomy because it is read once where the strips below are scanned,
-              and now carrying the mission's OWN colour: the issue tint over the
-              tabstrip tier, which is one tonal step up from the engraved column,
-              so the head of the spine reads as the head of the spine. `--issue`
-              is scoped once on `.desktop-shell` and IS the mission's colour, and
-              every tint here is paired with its slate value so an uncoloured
-              mission still reads.
+              Roomy because it is read once where the strips below are scanned.
+              It carries NO fill of its own any more (POD-725): the column ITSELF
+              now runs the mission's colour, from the 3px inset along its top
+              edge down through a tint that flattens into the card tone over
+              240px, so a tinted slab here would only tint the tint. What is left
+              is the geometry the artifact measures — a 32px eyebrow row, then
+              the title block — and the seam under it belongs to the view bar's
+              own top rule rather than to a border here.
               The `1 / 16` that used to sit after the title is gone (§10) — the
               gauge below says it in words. */}
-          <div className="relative flex-none border-b issue-hairline-50 issue-hairline-slate-45 issue-mix-18 issue-mix-slate-14 issue-base-tabstrip px-4 pt-4 pr-11 pb-4">
-            <div className="shell-type-micro flex items-center gap-1.5 font-mono text-text-faint">
+          <div className="relative flex-none">
+            <div className="shell-type-micro flex h-8 items-center gap-1.5 px-4 pr-11 font-mono text-text-dim">
               <StageGlyph stage={root.stage} size={12} />
               <span>{issueDisplayRef(root)}</span>
-              <span className="text-text-dim">{STAGE_LABELS[root.stage].toLowerCase()}</span>
+              <span>{STAGE_LABELS[root.stage].toLowerCase()}</span>
               {/* The mission's own dependency or provenance, in the same chip a
                   strip wears — the header is a node, so it says what a node says. */}
               {rootNote && (
@@ -1457,27 +1729,46 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                 </span>
               )}
             </div>
-            <button
-              data-pressable
-              type="button"
-              className="mt-1.5 block w-full min-w-0 text-left"
-              onClick={() => rootRow && selectIssue(rootRow)}
-              title={`Focus ${issueDisplayRef(root)}`}
-            >
-              <h2 className="shell-type-reading font-semibold tracking-[-0.01em] text-text-strong">
-                {draftFilling ? sessionDisplayName(rootSession as SessionMeta) : root.title}
-              </h2>
-            </button>
-            <p className="shell-type-secondary mt-2 line-clamp-4 leading-[1.5] text-text-dim">
-              {draftFilling
-                ? drafts[rootSession?.sessionId ?? '']
-                  ? 'Your first prompt is taking shape. This mission will fill in as the conversation develops.'
-                  : 'Start with a message. The mission, plan, and team will fill in here as the agent learns what you need.'
-                : root.description?.trim() ||
-                  root.activityNotes?.trim() ||
-                  'Mission work, agents, and dependencies in one live execution view.'}
-            </p>
-            <MissionGauge progress={progress} live={liveCount} working={workingCount} />
+            <div className="px-4 pt-1 pb-3">
+              <button
+                data-pressable
+                type="button"
+                className="block w-full min-w-0 text-left"
+                // The header IS the root's strip (round 3 §4), so it takes the
+                // strips' gesture: preview once, promote twice.
+                onClick={() =>
+                  rootRow &&
+                  headerIntent.press(
+                    () => selectIssue(rootRow, false),
+                    () => selectIssue(rootRow, true),
+                  )
+                }
+                onKeyDown={(event) => {
+                  if (event.key !== 'Enter' || !rootRow) return
+                  event.preventDefault()
+                  headerIntent.commit(() => selectIssue(rootRow, true))
+                }}
+                title={`Focus ${issueDisplayRef(root)}`}
+              >
+                {/* The one title in the column, and the only place in the shell
+                    that outgrows the `reading` role: everything under it is a
+                    scanned list, so the mission's name is allowed to be read
+                    from across the desk. 17px is the artifact's own measure. */}
+                <h2 className="shell-type-column-title font-semibold text-text-strong">
+                  {draftFilling ? sessionDisplayName(rootSession as SessionMeta) : root.title}
+                </h2>
+              </button>
+              <p className="shell-type-secondary mt-[7px] line-clamp-4 leading-[1.6] text-muted-foreground">
+                {draftFilling
+                  ? drafts[rootSession?.sessionId ?? '']
+                    ? 'Your first prompt is taking shape. This mission will fill in as the conversation develops.'
+                    : 'Start with a message. The mission, plan, and team will fill in here as the agent learns what you need.'
+                  : root.description?.trim() ||
+                    root.activityNotes?.trim() ||
+                    'Mission work, agents, and dependencies in one live execution view.'}
+              </p>
+              <MissionGauge progress={progress} live={liveCount} working={workingCount} />
+            </div>
             {/* THE DESCENT. The spine leaves the header on the mission's own
                 rail and is picked up, unbroken, by the view bar and then by the
                 root's agents — whose rail IS this one (see ROOT_BLOCK_INSET). */}
@@ -1487,8 +1778,11 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
               style={{ left: ROOT_RAIL }}
             />
           </div>
+          {/* Rules TOP AND BOTTOM, both in the soft tier: the bar is a band cut
+              through the column, and its top rule is the seam the header no
+              longer draws for itself. */}
           <div
-            className="relative flex h-10 flex-none items-center gap-1 border-b border-hairline-bar pr-3"
+            className="relative flex h-8 flex-none items-center gap-1 border-y border-hairline-soft pr-3"
             style={{ paddingLeft: GUTTER }}
           >
             {/* The view bar sits in the spine's gutter rather than across it: its
@@ -1505,9 +1799,15 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                 type="button"
                 key={option.id}
                 aria-pressed={mode === option.id}
+                // THE ACTIVE VIEW IS UNDERLINED IN THE MISSION'S OWN COLOUR, and
+                // the underline runs the bar's full height rather than a pill's.
+                // A filled pill here read as one more raised object competing
+                // with the strips below it; an inset floor rule is the same
+                // device the selected strip wears on its left edge, turned
+                // through ninety degrees, so both say "this one" in one voice.
                 className={cn(
-                  'shell-type-micro inline-flex h-6 items-center gap-1 rounded-md px-2 text-text-dim hover:bg-muted hover:text-text-strong',
-                  mode === option.id && 'bg-muted font-semibold text-text-strong',
+                  'shell-type-micro inline-flex items-center gap-1 self-stretch px-2 font-medium text-text-faint hover:text-text-strong',
+                  mode === option.id && 'text-text-strong shadow-[inset_0_-2px_0_var(--issue)]',
                 )}
                 onClick={() => setMode(option.id)}
               >
@@ -1521,7 +1821,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
               <Button
                 variant="ghost"
                 size="icon-sm"
-                className="size-6 text-text-dim"
+                className="size-6 text-text-faint"
                 aria-pressed={searchOpen}
                 title="Search this mission"
                 onClick={() => {
@@ -1529,27 +1829,36 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                   if (searchOpen) setQuery('')
                 }}
               >
-                <Search size={11} aria-hidden="true" />
+                <Search size={13} aria-hidden="true" />
               </Button>
               <Button
                 variant="ghost"
                 size="icon-sm"
-                className="size-6 text-text-dim"
+                className="size-6 text-text-faint"
                 title={allFolded ? 'Expand every branch' : 'Fold every branch'}
                 disabled={!anyFoldable}
+                // Both directions write EXPLICIT values for every foldable
+                // branch: "expand everything" that merely cleared the map would
+                // leave the one-session tasks closed by the default rule, which
+                // is not what the control says.
                 onClick={() =>
-                  setCollapsed(
-                    allFolded ? new Set<string>() : new Set(foldable.map((row) => row.issue.id)),
+                  setFolds(
+                    new Map(
+                      foldable.map((row): [string, FoldState] => [
+                        row.issue.id,
+                        allFolded ? 'open' : 'closed',
+                      ]),
+                    ),
                   )
                 }
               >
-                {allFolded ? <ChevronsUpDown size={11} /> : <ChevronsDownUp size={11} />}
+                {allFolded ? <ChevronsUpDown size={13} /> : <ChevronsDownUp size={13} />}
               </Button>
             </div>
           </div>
           {searchOpen && (
             <div
-              className="relative flex h-9 flex-none items-center gap-2 border-b border-hairline-bar pr-3"
+              className="relative flex h-8 flex-none items-center gap-2 border-b border-hairline-soft pr-3"
               style={{ paddingLeft: GUTTER }}
             >
               <span
@@ -1557,7 +1866,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                 className="pointer-events-none absolute inset-y-0 w-px bg-hairline-soft"
                 style={{ left: ROOT_RAIL }}
               />
-              <Search size={11} aria-hidden="true" className="flex-none text-text-faint" />
+              <Search size={13} aria-hidden="true" className="flex-none text-text-faint" />
               <input
                 // biome-ignore lint/a11y/noAutofocus: the field exists only while searching
                 autoFocus
@@ -1630,8 +1939,12 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                   now={coarseNow}
                   inset={ROOT_BLOCK_INSET}
                   tail={visibleRows.length > 0}
-                  onSelectSession={(session) => selectSession(rootRow, session)}
-                  onSelectNative={(session) => selectSession(rootRow, session, true)}
+                  onSelectSession={(session, permanent) =>
+                    selectSession(rootRow.issue.id, session, { permanent })
+                  }
+                  onSelectNative={(session) =>
+                    selectSession(rootRow.issue.id, session, { permanent: false, native: true })
+                  }
                 />
                 {(roster.shown.length > 0 || rootPresence || roster.foldable) &&
                   visibleRows.length > 0 && (
@@ -1643,7 +1956,6 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                     </div>
                   )}
               </>
-
             )}
             {visibleRows.map((row, index) => (
               <TaskRow
@@ -1659,15 +1971,25 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                 activeSessionId={activeSessionId}
                 arrivals={arrivals}
                 settle={settle}
-                collapsed={collapsed.has(row.issue.id)}
+                collapsed={isFolded(row, folds)}
                 now={coarseNow}
-                onToggle={() => toggleFold(row.issue.id)}
-                onSelectIssue={() => selectIssue(row)}
-                onSelectSession={(session) => selectSession(row, session)}
-                onSelectNative={(session) => selectSession(row, session, true)}
+                onToggle={() => toggleFold(row)}
+                // A single click on a task BOTH folds it and previews its lead
+                // session; the double click promotes and leaves the fold where
+                // it was, so promoting never costs you the branch you opened.
+                onSelectIssue={(permanent) => {
+                  if (!permanent && hasPayload(row)) toggleFold(row)
+                  selectIssue(row, permanent)
+                }}
+                onSelectSession={(session, permanent) =>
+                  selectSession(row.issue.id, session, { permanent })
+                }
+                onSelectNative={(session) =>
+                  selectSession(row.issue.id, session, { permanent: false, native: true })
+                }
               />
             ))}
-            {visibleRows.length === 0 && (
+            {visibleRows.length === 0 && proposedRows.length === 0 && (
               <p className="shell-type-secondary px-4 py-6 text-text-dim">
                 {query
                   ? 'Nothing in this mission matches that.'
@@ -1676,9 +1998,91 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                     : 'Nothing here in this view.'}
               </p>
             )}
-            {/* Not filtered by the mode or the search: a departure is a fact
-                about this mission, not a task in it, and the view controls
-                narrow the spine. */}
+            {/* THE SECTIONS BELOW THE TREE. Siblings, in a flat stack, so the
+                next one (POD-679's departure ticks) sits here beside these two
+                rather than being threaded through the spine. */}
+            {proposedRows.length > 0 && (
+              <DeckSection label="PROPOSED ACTIONS" testId="flight-proposed">
+                {proposedRows.map((row) => (
+                  <TaskRow
+                    key={row.issue.id}
+                    row={row}
+                    byId={byId}
+                    carries={[]}
+                    flat
+                    mode={mode}
+                    rootId={root.id}
+                    inMission={missionSessionIds}
+                    nameOf={nameOf}
+                    selected={focused === row.issue.id}
+                    activeSessionId={activeSessionId}
+                    arrivals={arrivals}
+                    settle={settle}
+                    collapsed={isFolded(row, folds)}
+                    now={coarseNow}
+                    onToggle={() => toggleFold(row)}
+                    onSelectIssue={(permanent) => selectIssue(row, permanent)}
+                    onSelectSession={(session, permanent) =>
+                      selectSession(row.issue.id, session, { permanent })
+                    }
+                    onSelectNative={(session) =>
+                      selectSession(row.issue.id, session, { permanent: false, native: true })
+                    }
+                  />
+                ))}
+              </DeckSection>
+            )}
+            {archivedSessions.length > 0 && (
+              <DeckSection label="ARCHIVED SESSIONS" testId="flight-archived">
+                <button
+                  data-pressable
+                  type="button"
+                  data-testid="flight-archived-toggle"
+                  aria-expanded={archivedOpen}
+                  className="shell-type-micro flex min-h-6 w-full items-center gap-1.5 rounded-md text-left font-mono text-text-faint hover:text-text-dim"
+                  onClick={() => setArchivedOpen((open) => !open)}
+                >
+                  <Archive size={11} aria-hidden className="flex-none" />
+                  <span className="truncate">
+                    {archivedOpen
+                      ? 'Hide archived'
+                      : `${archivedSessions.length} archived session${
+                          archivedSessions.length === 1 ? '' : 's'
+                        }`}
+                  </span>
+                </button>
+                {archivedOpen && (
+                  <div className="mt-1 flex flex-col gap-0.5">
+                    {archivedSessions.map((session) => (
+                      <SessionRow
+                        key={session.sessionId}
+                        session={session}
+                        active={activeSessionId === session.sessionId}
+                        last
+                        flat
+                        now={coarseNow}
+                        onOpen={(permanent) =>
+                          selectSession(session.issueId ?? null, session, { permanent })
+                        }
+                        onOpenNative={() =>
+                          selectSession(session.issueId ?? null, session, {
+                            permanent: false,
+                            native: true,
+                          })
+                        }
+                      />
+                    ))}
+                  </div>
+                )}
+              </DeckSection>
+            )}
+            {/* POD-679's departures, the third sibling section — and deliberately
+                NOT folded into PROPOSED ACTIONS above. A proposal is work nobody
+                has triaged yet; a departure is work that is already gone. Same
+                place on the screen, opposite meanings, so they stay two lists.
+                Not filtered by the mode or the search either: a departure is a
+                fact about this mission rather than a task in it, and the view
+                controls narrow the spine. */}
             <DepartureTicks departures={departures} onOpen={openDeparture} />
           </div>
         </>

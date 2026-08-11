@@ -434,6 +434,7 @@ describe.each(
 
   async function online(client: Client): Promise<void> {
     client.sink.connected()
+    client.pushWorld()
     await client.replica.settled()
   }
 

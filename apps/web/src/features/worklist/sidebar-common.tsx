@@ -35,12 +35,15 @@ import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/Worker
 /** The one aside shell the sidebar renders into. The aside itself never scrolls —
  *  only the work list inside it — so the footer stays pinned. */
 export const SIDEBAR_ASIDE_CLASS =
-  'flex w-full min-h-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground'
+  // No right seam (POD-725): the work list is separated from the flight deck by
+  // a tone step, as the design draws it. A border here plus the deck's own edge
+  // put two lines in the same 1px of screen.
+  'flex w-full min-h-0 flex-col bg-sidebar text-sidebar-foreground'
 
 export const SIDEBAR_WIDTH_KEY = 'podium:sidebar:width'
 export const SIDEBAR_WIDTH_MIN = 200
 export const SIDEBAR_WIDTH_MAX = 520
-export const SIDEBAR_WIDTH_DEFAULT = 292
+export const SIDEBAR_WIDTH_DEFAULT = 306
 
 /**
  * A fixed-width column with a drag-to-resize edge (`handleSide`, default right —

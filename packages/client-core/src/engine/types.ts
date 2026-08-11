@@ -6,7 +6,6 @@
  * client).
  */
 
-import type { SuperThreadView } from '../viewmodels/slices/superagent'
 import type {
   AgentKind,
   ArtifactId,
@@ -28,13 +27,26 @@ import type { Sidebar as SidebarSettings } from '@podium/runtime'
 import type { RetrySatisfaction } from '@podium/sync/outbox'
 import type { PodiumClientApi } from '../api'
 import type { OutboxDeadLetterEntry } from '../outbox'
+import type { ReadPositionPort } from '../read-position'
 import type { IssueProjectionRow } from '../replica/contract'
 import type { Replica } from '../replica/replica'
 import type { SocketHub } from '../socket-transport'
 import type { SpawnTarget } from '../spawn-agent'
 import type { MainView, RoutedUiState } from '../ui-state'
-import type { DockTab, FileScope, FileTab, PinKind, PinState, RecentFileEntry } from '../viewmodels'
-import type { ReadPositionPort } from '../read-position'
+import type {
+  DockTab,
+  FileScope,
+  FileTab,
+  PaneId,
+  PinKind,
+  PinState,
+  RecentFileEntry,
+  SplitAxis,
+  TabId,
+  WorkspaceKey,
+  WorkspaceMap,
+} from '../viewmodels'
+import type { SuperThreadView } from '../viewmodels/slices/superagent'
 import type { ReplicatedLayoutPort } from './replicated-layout'
 
 /** The two endpoints the shared store needs to reach a Podium server. */
@@ -178,14 +190,72 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  Classic sidebar never sets it; unified worktree rows clear it. */
   selectedIssueId: IssueId | null
   setSelectedIssueId: (id: IssueId | null) => void
+  /**
+   * EDITOR-STYLE TAB WORKSPACES (POD-710): what each task in the left sidebar
+   * has open — its tabs, its active tab, its ONE preview tab and its split
+   * layout — restored exactly across task switches and reloads. Keyed by
+   * `workspaceKeyForState`; the model and its reducers live in
+   * `viewmodels/workspace-layout.ts`.
+   *
+   * This is the truth. `paneA` / `paneB` / `split` / `focusedPane` below are
+   * derived mirrors kept in sync on every write, for the consumers that still
+   * speak in panes (the `?pane=` route, PTY-relay priority, the warm set).
+   */
+  workspaces: WorkspaceMap
+  /**
+   * WHICH WORKSPACE IS ON SCREEN — the key `workspaces` should be read at.
+   *
+   * The one resolver, exposed so a view never spells it a second time. It walks
+   * the engine's own issue collection (mission root wins over the selected
+   * sub-issue), and a view that recomputed it from a DIFFERENT collection —
+   * say, only the issues with a normalized projection — would disagree with the
+   * engine for exactly as long as the two collections disagreed, and read a
+   * workspace nobody writes: an empty strip over a panel rendering normally.
+   */
+  workspaceKey: () => WorkspaceKey
+  /** Open a SESSION as a tab in the current workspace. `permanent: false` is the
+   *  flight deck's single click: a preview tab, rendered italic, reused by the
+   *  next single click. Defaults to a permanent tab — a caller that has not
+   *  thought about it wants a tab that stays. */
+  openSessionTab: (sessionId: SessionId, opts?: { permanent?: boolean; paneId?: PaneId }) => void
+  /** The same, for any tab id (a session, or a `file:…` editor tab). */
+  openTabInWorkspace: (tabId: TabId, opts?: { permanent?: boolean; paneId?: PaneId }) => void
+  /** Preview → permanent, with no reorder (typing into the panel, or a
+   *  double-click in the flight deck). */
+  promoteWorkspaceTab: (tabId: TabId) => void
+  activateWorkspaceTab: (tabId: TabId) => void
+  /** Close a VIEW. Never touches the session — that lives in the flight deck. */
+  closeWorkspaceTab: (tabId: TabId) => void
+  moveWorkspaceTab: (tabId: TabId, toPaneId: PaneId, toIndex: number) => void
+  /** `row` = Split Right, `column` = Split Down. Behind `tab-splitting`. */
+  splitWorkspacePane: (paneId: PaneId, axis: SplitAxis, opts?: { tabId?: TabId }) => void
+  closeWorkspacePane: (paneId: PaneId) => void
+  focusWorkspacePane: (paneId: PaneId) => void
+  /** Drag a pane divider. `path` routes from the layout root to the split node
+   *  being resized (`[]` is the root); `sizes` is normalized to sum to 1, so a
+   *  resizer may hand over fractions or pixels. Sizes live in the layout, which
+   *  is already persisted per task — a split's proportions are part of how the
+   *  operator arranged that task, not a separate screen preference. */
+  resizeWorkspaceSplit: (path: readonly number[], sizes: readonly number[]) => void
   paneA: SessionId | null // sessionId in pane A
   paneB: SessionId | null // sessionId in pane B (null = no split)
+  /** Pane-shaped adapter over the workspace actions, kept for the call sites
+   *  that navigate by pane (command palette, issue pages, spawn rows). */
   setPane: (pane: 'A' | 'B', sessionId: SessionId | null) => void
   /** Which split pane currently holds input focus — drives the `focused` field of
    *  the view-state the client reports so the server prioritizes that session's PTY
    *  relay. Only meaningful when `split` is on; clamps to 'A' otherwise. */
   focusedPane: 'A' | 'B'
   setFocusedPane: (pane: 'A' | 'B') => void
+  /**
+   * TELL THE ENGINE WHAT IS ON SCREEN.
+   *
+   * A layout keeps its panes when `tab-splitting` is off, and the web renders
+   * its first leaf only. The engine must not read a feature flag, and must not
+   * report a pane nobody can see — so the surface that owns the flag says so
+   * here, once, and every "what is visible" derivation consults it.
+   */
+  setSplitEnabled: (enabled: boolean) => void
   /** One modeled per-session rendered mode. AgentPanel resolves defaults and capability, then records the effective value here; the same value persists and is reported to the server. */
   panelMode: Record<string, 'chat' | 'native'>
   setPanelMode: (sessionId: SessionId, mode: 'chat' | 'native') => void
@@ -256,6 +326,10 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
     path: string
   }) => Promise<Awaited<ReturnType<TApi['git']['diffFile']['query']>>>
   split: boolean
+  /** Split the focused pane in two, or — when the layout is already split —
+   *  collapse it back to one pane, merging every pane's tabs into the first.
+   *  A derived-mirror-safe adapter over `splitWorkspacePane`/`closeWorkspacePane`;
+   *  `split` itself is read-only state derived from the layout's leaf count. */
   toggleSplit: () => void
   /** Enrich the registered repos with branch/worktree metadata (fast — no
    *  filesystem walk). Discovery scanning happens explicitly via the scan flow. */

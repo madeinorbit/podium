@@ -440,16 +440,27 @@ function migrateDraftSyncFlag(raw: Record<string, unknown>): Record<string, bool
   return { ...exp, 'draft-sync': true }
 }
 
+/** Preserve an explicit legacy hour value while changing the public field to minutes. */
+function migrateIdleShellMinutes(raw: Record<string, unknown>): Record<string, unknown> | undefined {
+  const hibernation = raw.hibernation
+  if (!hibernation || typeof hibernation !== 'object') return undefined
+  const policy = hibernation as Record<string, unknown>
+  if (policy.idleShellMinutes !== undefined || typeof policy.idleShellHours !== 'number') return undefined
+  return { ...policy, idleShellMinutes: policy.idleShellHours * 60 }
+}
+
 /** Parse a stored/transmitted blob, migrating the legacy backend fields onto
  *  `roles` and filling anything missing with defaults. */
 export function normalizeSettings(raw: unknown): PodiumSettings {
   const obj = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
   const roles = migrateRoles(obj)
   const experimental = migrateDraftSyncFlag(obj)
+  const hibernation = migrateIdleShellMinutes(obj)
   return PodiumSettings.parse({
     ...obj,
     ...(roles ? { roles } : {}),
     ...(experimental ? { experimental } : {}),
+    ...(hibernation ? { hibernation } : {}),
   })
 }
 

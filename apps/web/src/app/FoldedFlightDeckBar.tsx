@@ -54,7 +54,7 @@ export function FoldedFlightDeckBar({ onExpand }: { onExpand: () => void }): JSX
         {working > 0 ? <BrailleSpinner size={11} /> : <Users size={13} aria-hidden="true" />}
         {live > 0 && (
           <span
-            className="absolute -right-[5px] -bottom-[5px] flex h-[13px] min-w-[13px] items-center justify-center rounded-full border border-engraved bg-chip px-[3px] font-mono text-[9px] leading-none font-bold text-text-strong"
+            className="absolute -right-[5px] -bottom-[5px] flex h-[13px] min-w-[13px] items-center justify-center rounded-full border border-card bg-chip px-[3px] font-mono text-[9px] leading-none font-bold text-text-strong"
             role="img"
             aria-label={`${live} agents live`}
           >
@@ -72,7 +72,7 @@ export function FoldedFlightDeckBar({ onExpand }: { onExpand: () => void }): JSX
         onClick={onExpand}
       >
         <MessageCircleQuestion size={13} aria-hidden="true" />
-        <StatusBadge kind="count" count={needs} ringColor="var(--engraved)" />
+        <StatusBadge kind="count" count={needs} ringColor="var(--card)" />
       </button>
       <span className="folded-superagent-label">FLIGHT DECK</span>
     </aside>

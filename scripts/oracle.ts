@@ -17,7 +17,7 @@
 /** Lanes constituting the oracle. `heavy` ones spawn real processes/PTYs/servers. */
 export const ORACLE_LANES = [
   { name: 'typecheck', script: 'typecheck', heavy: false },
-  { name: 'unit', script: 'test', heavy: false },
+  { name: 'unit', script: 'test:full', heavy: false },
   { name: 'integration', script: 'test:integration', heavy: true },
   { name: 'e2e', script: 'test:e2e', heavy: true },
   { name: 'multi-instance', script: 'test:multi-instance', heavy: true },

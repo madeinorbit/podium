@@ -1,6 +1,6 @@
 import type { UpdateGrantMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
-import { applyGrant } from './grant-apply'
+import { applyGrant, createGrantRunner } from './grant-apply'
 
 const target = {
   version: '0.4.2',
@@ -81,7 +81,8 @@ describe('applyGrant', () => {
       caps: ['update.delivery.feed', 'update.delivery.bundle'],
     })
     await applyGrant({ type: 'updateGrant', grantId: 'g-installed', target: developmentTarget }, d)
-    expect(d.fetchArtifact).toHaveBeenCalledWith(developmentBundleAsset, 'bundle')
+    // The third argument is the supersede signal, absent for a direct apply.
+    expect(d.fetchArtifact).toHaveBeenCalledWith(developmentBundleAsset, 'bundle', undefined)
     expect(d.swap).toHaveBeenCalledOnce()
     expect(d.restart).toHaveBeenCalledOnce()
   })
@@ -122,5 +123,94 @@ describe('applyGrant', () => {
       (c: unknown[]) => (c[0] as { state: string }).state,
     )
     expect(states).toEqual(['downloading', 'restarting'])
+  })
+})
+
+/**
+ * A retry after the server aged a grant out must not race the apply it replaced.
+ * These cover the guarantee the deadline policy depends on: at most one grant
+ * ever reaches the binary swap or the rollback marker.
+ */
+describe('createGrantRunner', () => {
+  const grant = (grantId: string): UpdateGrantMessage => ({
+    type: 'updateGrant',
+    grantId,
+    target,
+  })
+
+  it('ignores a repeat of the grant it is already applying', async () => {
+    let release = (): void => {}
+    const d = deps({
+      fetchArtifact: vi.fn(
+        async () =>
+          await new Promise<{ bytes: Uint8Array }>((resolve) => {
+            release = () => resolve({ bytes: new Uint8Array([1]) })
+          }),
+      ),
+    })
+    const runner = createGrantRunner(d)
+
+    const first = runner.apply(grant('g1'))
+    const second = runner.apply(grant('g1'))
+    release()
+    await Promise.all([first, second])
+
+    expect(d.fetchArtifact).toHaveBeenCalledTimes(1)
+    expect(d.swap).toHaveBeenCalledTimes(1)
+    expect(d.writePending).toHaveBeenCalledTimes(1)
+  })
+
+  it('a superseded grant never swaps a binary or writes a rollback marker', async () => {
+    let release = (): void => {}
+    let seenSignal: AbortSignal | undefined
+    const d = deps({
+      fetchArtifact: vi.fn(async (_asset: unknown, _delivery: unknown, signal?: AbortSignal) => {
+        if (seenSignal === undefined) {
+          seenSignal = signal
+          return await new Promise<{ bytes: Uint8Array }>((resolve) => {
+            release = () => resolve({ bytes: new Uint8Array([1]) })
+          })
+        }
+        return { bytes: new Uint8Array([2]) }
+      }),
+    })
+    const runner = createGrantRunner(d)
+
+    const first = runner.apply(grant('g1'))
+    const second = runner.apply(grant('g2'))
+    // The superseded delivery finishing late must change nothing.
+    release()
+    await Promise.all([first, second])
+
+    expect(seenSignal?.aborted).toBe(true)
+    expect(d.swap).toHaveBeenCalledTimes(1)
+    expect(d.writePending).toHaveBeenCalledTimes(1)
+    expect(d.writePending).toHaveBeenCalledWith(expect.objectContaining({ grantId: 'g2' }))
+  })
+
+  it('does not report a failure for a run that was merely superseded', async () => {
+    let call = 0
+    const d = deps({
+      // Only the FIRST delivery is superseded; it fails the way an aborted
+      // fetch does, and that failure must stay silent.
+      fetchArtifact: vi.fn(async () => {
+        call += 1
+        if (call === 1) {
+          await new Promise((resolve) => setTimeout(resolve, 0))
+          throw new Error('aborted')
+        }
+        return { bytes: new Uint8Array([1]) }
+      }),
+    })
+    const runner = createGrantRunner(d)
+
+    const first = runner.apply(grant('g1'))
+    const second = runner.apply(grant('g2'))
+    await Promise.all([first, second])
+
+    const states = (d.report as ReturnType<typeof vi.fn>).mock.calls.map(
+      (c: unknown[]) => (c[0] as { state: string }).state,
+    )
+    expect(states).not.toContain('rejected')
   })
 })

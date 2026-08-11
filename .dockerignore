@@ -1,0 +1,15 @@
+.git
+.worktrees
+node_modules
+**/node_modules
+.turbo
+**/.turbo
+dist
+**/dist
+coverage
+test-results
+tests/e2e/test-results
+tests/e2e/playwright-report
+verify-artifacts
+*.log
+*.tsbuildinfo

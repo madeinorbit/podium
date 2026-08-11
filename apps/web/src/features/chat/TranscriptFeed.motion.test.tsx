@@ -145,16 +145,46 @@ describe('TranscriptFeed — the streaming caret', () => {
 })
 
 describe('TranscriptFeed — boundary states', () => {
-  it('uses the shared calm machine-voice object for loading and empty', () => {
+  // A state that RESOLVES into content and one that never will must not be the
+  // same object (POD-700). Loading is the feed's own geometry, unfilled and
+  // bottom-anchored; empty is POD-701's centred standby card.
+  it('shows the cold transcript while loading and the standby card only when empty', () => {
     render([], null, { phase: 'loading' })
-    expect(host.textContent).toContain('Loading transcript')
-    expect(host.querySelector('.transcript-placeholder-mark')).not.toBeNull()
+    const cold = host.querySelector('[data-testid="transcript-cold"]')
+    expect(cold).not.toBeNull()
+    // The prompt's carved container is reproduced, so the read lands into the
+    // layout already on screen rather than displacing it.
+    expect(cold?.querySelectorAll('.transcript-cold-prompt').length).toBe(4)
+    expect(cold?.querySelectorAll('.transcript-cold-line').length).toBeGreaterThan(4)
+    // Never the empty state's object, and never a spinner.
+    expect(host.querySelector('[data-testid="transcript-empty-state"]')).toBeNull()
+    expect(host.querySelector('.transcript-standby-title')).toBeNull()
     expect(host.querySelector('.spb')).toBeNull()
+    // Bottom-anchored like the conversation it stands in for: the scrollport
+    // takes the same auto-margin spacer `ready` uses, and does not centre.
+    expect(host.querySelector('.mt-auto')).not.toBeNull()
+    expect(host.querySelector('.justify-center')).toBeNull()
 
     render([], null, { phase: 'empty' })
     expect(host.querySelector('[data-testid="transcript-empty-state"]')).not.toBeNull()
     expect(host.querySelector('.transcript-standby-title')).not.toBeNull()
+    expect(host.querySelector('[data-testid="transcript-cold"]')).toBeNull()
+    expect(host.querySelector('.justify-center')).not.toBeNull()
     expect(host.querySelector('.spb')).toBeNull()
+  })
+
+  // The shape carries the state visually; assistive tech is told in words, and
+  // is not made to wait out the 180ms/1.2s reveal delays the sighted path uses.
+  it('announces the cold read immediately, without waiting for its reveal', () => {
+    render([], null, { phase: 'loading' })
+    const cold = host.querySelector('[data-testid="transcript-cold"]')
+    expect(cold?.getAttribute('role')).toBe('status')
+    expect(cold?.getAttribute('aria-busy')).toBe('true')
+    expect(cold?.querySelector('.sr-only')?.textContent).toBe('Loading transcript')
+    // The slots themselves are decoration for a screen reader — the words above
+    // already said it, and a reader walking eleven empty runs learns nothing.
+    for (const turn of cold?.querySelectorAll('.transcript-cold-turn') ?? [])
+      expect(turn.getAttribute('aria-hidden')).toBe('true')
   })
 
   it('names scroll-back paging and keeps the loading affordance in place', () => {

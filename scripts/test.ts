@@ -25,8 +25,7 @@
  */
 import { join } from 'node:path'
 import { runWithHeavyTestLease } from './test-heavy'
-import { decideForce, fingerprint, readCensus } from './typecheck'
-import { runWithValidationAdmission } from './validation-admission'
+import { assessWorkspaceLinks, decideForce, readCensus, turboEnv } from './typecheck'
 
 const REFUSAL = `\
 uncached test run refused.
@@ -92,12 +91,11 @@ export function decideTestAdmission(argv: string[]): {
 async function main() {
   const root = join(import.meta.dir, '..')
   const census = readCensus(root)
-  const healthy = census.links.filter((l) => !l.endsWith('!DANGLING'))
-  if (healthy.length === 0) {
+  const links = assessWorkspaceLinks(census.links)
+  if (links.error) {
     console.error(
-      'test refused: node_modules/@podium has no usable workspace links — this ' +
-        'checkout is not installed, and a cached green here would not be evidence ' +
-        '(POD-1343). Run `bun install` first.',
+      `test refused: ${links.error}; a cached green there would be unsafe (POD-1343). ` +
+        'Run `bun install` first.',
     )
     process.exit(1)
   }
@@ -134,15 +132,20 @@ async function main() {
     '--continue=dependencies-successful',
     ...decision.forwardArgs,
   ]
-  const options = {
-    cwd: root,
-    label: admission.shared ? 'focused package tests' : 'full package tests',
-    env: { ...process.env, PODIUM_CHECK_ENV_HASH: fingerprint(census), TURBO_FORCE: undefined },
+  if (admission.shared) {
+    const proc = Bun.spawn(command, {
+      cwd: root,
+      env: turboEnv(root, census),
+      stdio: ['inherit', 'inherit', 'inherit'],
+    })
+    process.exit(await proc.exited)
   }
   process.exit(
-    admission.shared
-      ? await runWithValidationAdmission('focused', command, options)
-      : await runWithHeavyTestLease(command, options),
+    await runWithHeavyTestLease(command, {
+      cwd: root,
+      label: 'full package tests',
+      env: turboEnv(root, census),
+    }),
   )
 }
 

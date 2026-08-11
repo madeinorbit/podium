@@ -18,6 +18,11 @@ describe('machine build report over a live daemon socket', () => {
     process.env.PODIUM_STATE_DIR = stateDir
     process.env.PODIUM_APP_VERSION = '0.4.2'
     server = await startServer({ port: 0 })
+    server.registry.modules.updates.setTarget('stable', {
+      version: '0.4.2',
+      critical: false,
+      artifacts: {},
+    } as never)
   })
 
   afterAll(async () => {

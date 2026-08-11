@@ -6,7 +6,8 @@
     "useIgnoreFile": true
   },
   "files": {
-    "ignoreUnknown": true
+    "ignoreUnknown": true,
+    "includes": ["**", "!.artifacts", "!.design", "!artifacts", "!.github/skills"]
   },
   "formatter": {
     "enabled": true,

@@ -16,6 +16,7 @@ import {
   resolveAgentHomeDir,
   resolveAgentRelay,
   resolveAgentRelayPort,
+  resolveDevArtifactOrigin,
   resolveFeatureOverrides,
   resolveHookPort,
   resolveInstallDir,
@@ -247,6 +248,35 @@ describe('layered resolvers (#251): env → config.json → default', () => {
     ).toBe('http://env')
     expect(resolveUpdateFeed({ updateFeed: 'http://cfg' }, {})).toBe('http://cfg')
     expect(resolveUpdateFeed({}, {})).toBeUndefined()
+  })
+  it('resolveDevArtifactOrigin: env > publicUrl > disabled', () => {
+    expect(
+      resolveDevArtifactOrigin(
+        { publicUrl: 'https://configured.example.test/' },
+        { PODIUM_DEV_ARTIFACT_BASE_URL: 'https://override.example.test:8443/' },
+      ),
+    ).toBe('https://override.example.test:8443')
+    expect(resolveDevArtifactOrigin({ publicUrl: 'https://configured.example.test/' }, {})).toBe(
+      'https://configured.example.test',
+    )
+    expect(resolveDevArtifactOrigin({}, {})).toBeUndefined()
+  })
+  it.each([
+    'http://127.0.0.1:18787',
+    'http://127.9.8.7',
+    'http://localhost:18787',
+    'http://dev.localhost',
+    'http://0.0.0.0:18787',
+    'http://[::1]:18787',
+    'https://podium.example.test/proxy',
+    'https://podium.example.test?source=dev',
+    'https://user:secret@podium.example.test',
+    'file:///tmp/podium',
+    'not a URL',
+  ])('resolveDevArtifactOrigin rejects a non-origin or local-only value: %s', (value) => {
+    expect(() => resolveDevArtifactOrigin({}, { PODIUM_DEV_ARTIFACT_BASE_URL: value })).toThrow(
+      /development artifact origin/,
+    )
   })
   it('resolveUpdateTarget: env > linux-x86_64', () => {
     expect(resolveUpdateTarget({ PODIUM_UPDATE_TARGET: 'darwin-arm64' })).toBe('darwin-arm64')

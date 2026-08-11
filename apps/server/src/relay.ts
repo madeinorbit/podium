@@ -4,10 +4,16 @@ import { join } from 'node:path'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness/metadata'
 import type { AgentKind, SessionId, SessionMeta } from '@podium/model'
 import { asSessionId, asUserId, FIRST_ADMIN_USER_ID, spawnedByParentSessionId } from '@podium/model'
-import type { LiveServerMessage, VisibilityResolver } from '@podium/protocol'
-import { formatIssueRef, SubscriptionRegistry } from '@podium/protocol'
+import type {
+  LiveServerMessage,
+  LocalPortableStateControl,
+  VisibilityResolver,
+} from '@podium/protocol'
+import { formatIssueRef, SubscriptionRegistry, wireSchemaDigest } from '@podium/protocol'
+import { resolveUpdateChannel } from '@podium/runtime/config'
 import { durableSessionLabel } from '@podium/runtime/instance'
 import { stateDir } from '@podium/runtime/local-machine'
+import { prepareSourceDaemonCutover } from '@podium/runtime/transfer-lifecycle'
 import {
   DEVICE_GRADE_PRINCIPAL,
   FeedIdentityRegistry,
@@ -47,6 +53,7 @@ import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
 import { IssueSessionLifecycle } from './modules/issue-session-lifecycle'
 import { DurableIssueAccessIndex } from './modules/issues/access-index'
 import { IssueArtifactStore } from './modules/issues/artifact-store'
+import { IssueAuthorityArbitration } from './modules/issues/authority-arbitration'
 import { IssueAutoArchive } from './modules/issues/auto-archive'
 import { IssueCommandDispatcher } from './modules/issues/dispatcher'
 import { IssueGitWatch } from './modules/issues/git-watch'
@@ -63,7 +70,10 @@ import { LoginPropagationService } from './modules/machines/login-propagation'
 import { DaemonRpcService } from './modules/machines/rpc'
 import { MachinesService, type PairingCodes } from './modules/machines/service'
 import { MemoryService } from './modules/memory/service'
-import { restartAsDaemon } from './modules/server-transfer/lifecycle'
+import { retireSourceAfterTransfer } from './modules/server-transfer/lifecycle'
+import { PortableStateFence } from './modules/server-transfer/portable-fence'
+import { serverTransferRpcAdapter } from './modules/server-transfer/rpc-adapter'
+import { readPromotedTargetMetadata } from './modules/server-transfer/target-status'
 import { ServerTransferService } from './modules/server-transfer/service'
 import { MessageGate } from './modules/messages/gate'
 import { principalMailPolicy } from './modules/messages/handlers/context'
@@ -82,14 +92,14 @@ import { ReadPositionService } from './modules/read-position/service'
 import { machinesForPrincipal } from './modules/sessions/command-ctx'
 import { SessionInstructionRegistry } from './modules/sessions/instructions'
 import { SessionLifecycle } from './modules/sessions/lifecycle'
-import type { SnapshotTail } from './modules/sessions/publication/coordinator'
-import type { PublishWorkerClient } from './modules/sessions/publish-worker-client'
+import type { SnapshotTail } from './modules/sessions/session-lifecycle-types'
 import { SessionReadToolkit } from './modules/sessions/read-toolkit'
 import type { Session } from './modules/sessions/session'
 import { SettingsService, type TelegramSetupClient } from './modules/settings/service'
 import { SpecsService } from './modules/specs/service'
 import { deliverAnswerToSession } from './modules/superagent/answer-delivery'
 import type { HeadlessService } from './modules/superagent/headless'
+import { resolveReleaseTarget } from './modules/updates/release-target'
 import { UpdatesService } from './modules/updates/service'
 import { WorkflowService } from './modules/workflows/service'
 import { inferRepoFromRoots } from './repo-registry'
@@ -121,6 +131,7 @@ interface SessionRegistryOptions {
   /** Root of the transcript lake ($PODIUM_STATE_DIR/transcripts). Opt-in: when unset
    *  (the default — every existing test), NO mirror traffic is produced. */
   mirrorLakeDir?: string
+  portableStateFence?: PortableStateFence
   /** Live model-list probe (grok/cursor/opencode `models`). Injected in tests so the
    *  catalog never shells out; defaults to the real CLI probe. */
   modelProbe?: ModelProbe
@@ -135,10 +146,6 @@ interface SessionRegistryOptions {
    * exercise pairing durability.
    */
   enrollment?: import('./enrollment-ledger').EnrollmentLedger
-  /** Deterministic publication-worker fault injection for service-level tests. */
-  publicationWorker?: PublishWorkerClient
-  /** Rollout-only semantic comparison of legacy and worker publications. */
-  publicationShadowCompare?: boolean
   /** Reaction contracts to publish on the module seam. Defaults to the registry;
    *  injected only so the runtime refusal of an invalid principal is observable
    *  (POD-1470). Whatever is passed goes through the same totality check the
@@ -263,6 +270,7 @@ export class SessionRegistry {
   private readonly automationScheduler: AutomationScheduler
   private readonly store: SessionStore
   private readonly now: () => number
+  private localDaemonPortableState: LocalPortableStateControl | undefined
 
   constructor(
     store: SessionStore | undefined,
@@ -277,6 +285,7 @@ export class SessionRegistry {
     notificationPushers ??= DEFAULT_NOTIFICATION_PUSHERS
     const { instanceId } = options
     this.now = options.now ?? Date.now
+    const portableStateFence = options.portableStateFence ?? new PortableStateFence()
     // Resolve feature state once, then keep it atomic with settings changes. This also
     // avoids reading persistence during instruction preparation after async recovery.
     let currentSettings = this.store.settings.getSettings()
@@ -345,7 +354,13 @@ export class SessionRegistry {
       ...(options.targetVersion ? { targetVersion: options.targetVersion } : {}),
       ...(options.updatePubkey ? { updatePubkey: options.updatePubkey } : {}),
       store: this.store,
-      targetVersion: () => updates?.targetVersion() ?? options.targetVersion?.(),
+      targetVersion: (machineId) =>
+        updates ? updates.targetVersion(machineId) : options.targetVersion?.(),
+      targetUnavailableReason: (machineId) => updates?.targetUnavailableReasonFor(machineId),
+      // POD-1882: read per call, not captured — Settings → Updates writes the fleet
+      // default into config.json, and an unpinned machine must follow the CURRENT
+      // value rather than whatever it was when this server booted.
+      fleetUpdateChannel: () => resolveUpdateChannel(),
       // ONE READER of `<stateDir>/machine.id`: the composition root passes the id to
       // the store, and every consumer takes the store's copy. A second `readOrCreate*`
       // call anywhere in the process would be a second opinion about who this host is.
@@ -375,14 +390,20 @@ export class SessionRegistry {
       machines: () =>
         machines.listMachines().map((machine) => ({
           id: machine.id,
+          name: machine.name,
+          // Already the RESOLVED channel (pin, else fleet default) — see
+          // MachinesService.listMachines.
+          channel: machine.updateChannel ?? 'stable',
           version: machine.appVersion ?? 'unreported',
           state: 'current',
           online: machine.online,
           busy: false,
         })),
+      channelFor: (machineId) => machines.updateChannel(machineId),
       send: (machineId, message) => machines.toMachine(machineId, message),
       now: this.now,
       nextGrantId: () => randomUUID(),
+      resolveTarget: resolveReleaseTarget,
       concurrency: 3,
     })
     updates = updatesService
@@ -427,6 +448,7 @@ export class SessionRegistry {
       },
     })
     this.ledger = ledger
+    const issueArbitration = new IssueAuthorityArbitration(ledger)
     // THE write funnel (modules/funnel): authorize → repo write → change append →
     // broadcast. Bridges ledger appends onto the bus and runs THE ordered
     // metadataDelta pipe (#256) — sendDelta is the one seam deltas reach
@@ -465,6 +487,7 @@ export class SessionRegistry {
       authority: ledger.authority,
       onBootstrapReadStart: feedVisibility.beginBootstrapRead,
       onBootstrapReadEnd: (principal) => feedVisibility.finishBootstrapRead(principal),
+      authorizationRevision: feedVisibility.authorizationRevision,
       identity: new FeedIdentityRegistry(
         {
           readIdentity: () => this.store.sync.readFeedIdentity(),
@@ -558,6 +581,7 @@ export class SessionRegistry {
       hasDaemon: (machineId) => machines.hasDaemon(machineId),
       machineName: (id) => machines.machineName(id),
       onlineMachineIds: () => machines.onlineMachineIds(),
+      portableStateFence,
       getSession: (sessionId) => {
         const session = liveSessions.get(sessionId)
         return session
@@ -574,13 +598,57 @@ export class SessionRegistry {
     })
     const serverTransfer = new ServerTransferService({
       stateRoot: stateDir(),
+      sourceInstanceId: options.instanceId,
       sourceMachineId: this.store.hostMachineId,
-      rpc,
-      online: (machineId) => machines.hasDaemon(machineId),
+      sourceFeedIdentity: () => {
+        const identity = feedServing.identity()
+        return { feedId: identity.feedId, feedEpoch: identity.epoch }
+      },
+      sourceApplicationVersion: options.targetVersion?.() ?? 'dev',
+      sourceSchemaVersion: () => this.store.schemaVersionForTransfer(),
+      sourceWireSchemaDigest: wireSchemaDigest(),
+      rpc: serverTransferRpcAdapter(rpc),
+      localPromotedTransfer: () => readPromotedTargetMetadata(stateDir()),
+      targetState: (machineId) => {
+        const machine = machines.listMachines().find((candidate) => candidate.id === machineId)
+        return {
+          exists: machine !== undefined,
+          online: machines.hasDaemon(machineId),
+          capable: machine?.wireSchemaDigest === wireSchemaDigest(),
+        }
+      },
+      sourceHealthy: () => this.store.checkpointForTransfer(),
       checkpoint: () => this.store.checkpointForTransfer(),
-      fence: () => this.store.beginTransferFence(),
-      releaseFence: () => this.store.endTransferFence(),
-      restartAsDaemon,
+      fence: async () => {
+        const daemonPortableState = this.localDaemonPortableState
+        await daemonPortableState?.pauseAndDrain()
+        let portableFenceHeld = false
+        let mirroringPaused = false
+        try {
+          await portableStateFence.acquire()
+          portableFenceHeld = true
+          await memory.pauseMirroringForTransfer()
+          mirroringPaused = true
+          this.store.beginTransferFence()
+        } catch (error) {
+          if (mirroringPaused) memory.resumeMirroringAfterTransfer()
+          if (portableFenceHeld) portableStateFence.release()
+          daemonPortableState?.resume()
+          throw error
+        }
+      },
+      releaseFence: () => {
+        this.store.endTransferFence()
+        memory.resumeMirroringAfterTransfer()
+        portableStateFence.release()
+        this.localDaemonPortableState?.resume()
+      },
+      demoteSource: ({ transferId, publicUrl }) => {
+        prepareSourceDaemonCutover({ transferId, serverUrl: publicUrl })
+      },
+      // The service fsyncs committed before this callback. Desktop continuity
+      // therefore sees matching daemon config + committed journal before exit.
+      afterCommitted: ({ serverUrl }) => retireSourceAfterTransfer(serverUrl),
     })
     const loginPropagation = new LoginPropagationService({
       store: this.store,
@@ -680,10 +748,6 @@ export class SessionRegistry {
       subscriptions,
       // Session writes commit through the write-seam ledger at persist() (#256).
       ledger,
-      ...(options.publicationWorker ? { publicationWorker: options.publicationWorker } : {}),
-      ...(options.publicationShadowCompare !== undefined
-        ? { publicationShadowCompare: options.publicationShadowCompare }
-        : {}),
       machines,
       rpc,
       onSpawnTargetLogin: ({ machineId, agentKind, ownerUserId }) =>
@@ -766,6 +830,15 @@ export class SessionRegistry {
         },
         hibernateSession: (input) => sessionsSvc.hibernateSession(input),
         parkShellSession: (input) => sessionsSvc.parkShellSession(input),
+        parkStaleSession: (input) => sessionsSvc.parkStaleSession(input),
+        hasScheduledWakeup: (sessionId, now) => {
+          const lastSpawned = this.store.automations.lastSpawnedSessions()
+          return this.store.automations.list().some((automation) => {
+            if (!automation.enabled || automation.nextRunAt === null) return false
+            const target = automation.targetSessionId ?? lastSpawned.get(automation.id)
+            return target === sessionId && Date.parse(automation.nextRunAt) > now
+          })
+        },
         hasValidTerminalProof: (sessionId) => sessionsSvc.hasValidTerminalProof(sessionId),
         terminalProofMissing: (sessionId) => sessionsSvc.terminalProofMissing(sessionId),
         daemonRequest: requestBroker,
@@ -773,9 +846,6 @@ export class SessionRegistry {
       this.bus,
     )
     const headless = sessionsSvc.headless
-    this.bus.on('feed.published', ({ seq }) => {
-      sessionsSvc.onFeedPublished(seq)
-    })
     this.bus.on('session.openUrl', (request) => sessionsSvc.onOpenUrl(request))
     this.bus.on('machine.metadataChanged', ({ machineId }) => {
       sessionsSvc.sessionsChangedForMachine(machineId)
@@ -830,10 +900,14 @@ export class SessionRegistry {
     // Permanent artifact snapshots ([spec:SP-0fc9] #441): the server pulls bytes
     // from the owning daemon at artifact-add time into <state-dir>/artifacts and
     // serves them locally via /files/artifact (registered in server.ts).
-    const issueArtifacts = new IssueArtifactStore(join(stateDir(), 'artifacts'), {
-      readAsset: (i) => rpc.readAsset(i),
-      listDir: (i) => rpc.listDir(i),
-    })
+    const issueArtifacts = new IssueArtifactStore(
+      join(stateDir(), 'artifacts'),
+      {
+        readAsset: (i) => rpc.readAsset(i),
+        listDir: (i) => rpc.listDir(i),
+      },
+      portableStateFence,
+    )
     const issues = new IssueService({
       store: this.store,
       artifacts: issueArtifacts,
@@ -900,7 +974,7 @@ export class SessionRegistry {
       // the issue tracker anymore, and since POD-1203 no snapshot path either:
       // the appended rows ARE what a client is served.
       funnel,
-      ledger,
+      ledger: issueArbitration.ledger,
       publishSpecs: publisher,
       // Agent mail send-time nudge (issue #103): the sessions module subscribes
       // and picks the live member session to poke — see modules/sessions.
@@ -956,7 +1030,7 @@ export class SessionRegistry {
     const issueSessionLifecycle = new IssueSessionLifecycle({
       issues,
       sessions: sessionsSvc,
-      ledger,
+      ledger: issueArbitration.ledger,
     })
     this.bus.on('session.wakeRequested', ({ sessionId, principal }) => {
       const authorized = sessionsSvc.authorizeQueuedInputAtApply({
@@ -1008,9 +1082,9 @@ export class SessionRegistry {
       now: () => this.now(),
       resolveRepoId: (repoPath) => this.store.repos.resolveRepoIdForPath(repoPath),
       sessionAlive: (sessionId) => {
-        // `sessionId` is a LockSessionKey: it may be one of the two lock sentinels,
-        // which are NOT session ids. The lookup is expected to MISS for those —
-        // that miss is how the unknown-relay sentinel gets pruned from a queue
+        // `sessionId` is a LockSessionKey: it may be a documented non-session
+        // identity. System identities are handled before this callback; a lookup
+        // miss here is how the unknown-relay sentinel gets pruned from a queue
         // (see LockSessionKey's note). So the map is probed as a plain key.
         const s = (liveSessions as ReadonlyMap<string, { status: string }>).get(sessionId)
         return !!s && s.status !== 'exited'
@@ -1439,6 +1513,7 @@ export class SessionRegistry {
       },
     })
     const issueCommands = new IssueCommandDispatcher({
+      arbitration: issueArbitration,
       attachSession: (caller, input) => issueAttach.execute(caller, input),
       issues,
       deleteIssue: (id) => issueSessionLifecycle.deleteIssue(id),
@@ -1702,10 +1777,8 @@ export class SessionRegistry {
       feed: feedServing,
       presence,
       bootstrap: (client) => {
-        if (!client.publication || client.publication.global) {
-          client.send({ type: 'approvalsChanged', pending: approvals.listPending() })
-          hosts.snapshotFor(client.send)
-        }
+        client.send({ type: 'approvalsChanged', pending: approvals.listPending() })
+        hosts.snapshotFor(client.send)
       },
     })
     this.gateway = new DaemonMux({
@@ -1732,6 +1805,11 @@ export class SessionRegistry {
   /** Write-seam ledger — layout (and other non-session modules) capture entity rows here. */
   get changeLedger(): Ledger {
     return this.ledger
+  }
+
+  /** Register the daemon-local upload fence for the all-in-one process. */
+  attachLocalDaemonPortableState(control: LocalPortableStateControl): void {
+    this.localDaemonPortableState = control
   }
 
   dispose(): void {

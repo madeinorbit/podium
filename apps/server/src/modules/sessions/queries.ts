@@ -106,7 +106,13 @@ export const SYNC_QUERIES = {
    *  compacted/future cursor falls back to snapshot. The client heals every WS
    *  (re)connect through this. */
   changesSince: q(z.object({ cursor: z.number().int().nonnegative().nullable() }), (s, input) =>
-    s.modules.sessions.syncChangesSince(input.cursor, s.publicationAuthority),
+    s.modules.sessions.syncChangesSince(
+      input.cursor,
+      s.feedPrincipal ??
+        (() => {
+          throw new Error('authenticated feed principal required')
+        })(),
+    ),
   ),
   /**
    * WIRE v2 CATCH-UP (POD-376) — rung 1 of the kernel Replica's D7 ladder.

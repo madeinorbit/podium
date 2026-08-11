@@ -58,6 +58,29 @@ function isAttentionPhase(state: AgentRuntimeState | undefined): boolean {
   return false
 }
 
+function isExactFencedCheckpointReplay(
+  observation: Extract<SessionsDaemonFrame, { type: 'agentObservation' }>['observation'],
+  lease: ObservationLeaseRecord,
+): boolean {
+  const checkpoint = lease.checkpoint
+  return Boolean(
+    checkpoint?.terminalFence &&
+      observation.provenance === 'bootstrap' &&
+      observation.provider === lease.provider &&
+      observation.providerSessionId === lease.providerSessionId &&
+      observation.bindingVersion === lease.bindingVersion &&
+      observation.observerGeneration === lease.observationGeneration &&
+      observation.transitionId === checkpoint.lastTransitionId &&
+      observation.turnEpoch === checkpoint.turnEpoch &&
+      observation.providerTurnId === checkpoint.providerTurnId &&
+      observation.providerPromptId === checkpoint.providerPromptId &&
+      observation.providerAt === checkpoint.providerAt &&
+      observation.state.phase === checkpoint.turnState.phase &&
+      JSON.stringify(observation.state) === JSON.stringify(checkpoint.turnState) &&
+      JSON.stringify(observation.providerCursor) === JSON.stringify(checkpoint.providerCursor),
+  )
+}
+
 export class SessionDaemonLifecycle {
   constructor(private readonly ports: SessionDaemonLifecyclePorts) {}
 
@@ -391,6 +414,23 @@ export class SessionDaemonLifecycle {
               )
 
         if (outcome.kind === 'rejected') {
+          // A replacement observer replays the exact durable checkpoint under
+          // its freshly fenced generation. The causal gate still rejects that
+          // duplicate for effects, but it proves the old terminal fence survived
+          // reattachment. Renew only the generation/repaint counters; the
+          // repository refuses any changed work, input, binding, or cursor fact.
+          if (lease && isExactFencedCheckpointReplay(observation, lease)) {
+            const checkpoint = lease.checkpoint
+            if (checkpoint) {
+              const facts = this.terminalCandidateFacts(session, lease, checkpoint)
+              if (facts) {
+                this.store.observationCheckpoints.renewTerminalCandidate(
+                  facts,
+                  new Date(this.now()).toISOString(),
+                )
+              }
+            }
+          }
           this.toMachine(session.machineId, {
             type: 'agentObservationAck',
             sessionId: session.sessionId,

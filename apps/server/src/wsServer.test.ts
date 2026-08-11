@@ -286,18 +286,6 @@ describe('plane liveness policy', () => {
       expect(ws.terminate).toHaveBeenCalledOnce()
     })
 
-    it('caps the prepared-bytes path too (the client plane s second outbound door)', () => {
-      // POD-390 routed every byte to a client socket through deliver /
-      // deliverPrepared / broadcast. `deliverPrepared` reaches the socket by a
-      // DIFFERENT function, so a cap applied only to `send` would leave the
-      // publication worker's output — the highest-volume path on the plane —
-      // uncapped. That is the fan-out this budget exists to bound.
-      const ws = fakeSendSocket({ bufferedAmount: 101 })
-      tiny.sink(ws).sendPrepared('{"type":"sessionsChanged","sessions":[]}')
-      expect(ws.send).not.toHaveBeenCalled()
-      expect(ws.terminate).toHaveBeenCalledOnce()
-    })
-
     it('drops stream frames over the lower budget without terminating control', () => {
       const ws = fakeSendSocket({ bufferedAmount: 11 })
       const sink = tiny.sink(ws)

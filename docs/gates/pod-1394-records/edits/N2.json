@@ -1,6 +1,0 @@
-[
-  {
-    "anchor": "  const root: SessionId = chain[chain.length - 1] ?? actorSessionId\n",
-    "replace": "  const root: SessionId = actorSessionId\n"
-  }
-]

@@ -198,7 +198,8 @@ describe('machine scope and the writer class', () => {
 
   it('hands EVERY rpc-owned reply to the one correlator, answerer first', () => {
     // Twenty-three `onXResult(msg)` methods collapsed into one
-    // `settleDaemonReply` (POD-318), plus `modelProbeResult` (POD-1466). This
+    // `settleDaemonReply` (POD-318), plus `modelProbeResult` (POD-1466) and
+    // `serverTransferStatusResult`. This
     // pins that the collapse is total: no reply frame keeps a private door into
     // the rpc port, and none of them arrives anonymously. The count is the
     // ratchet — a new rpc reply must be added here DELIBERATELY, which is how
@@ -206,7 +207,7 @@ describe('machine scope and the writer class', () => {
     const rpcFrames = (Object.keys(DAEMON_FRAME_PORTS) as DaemonMessage['type'][]).filter((t) =>
       (DAEMON_FRAME_PORTS[t] as readonly DaemonPortId[]).includes('rpc'),
     )
-    expect(rpcFrames.length).toBe(24)
+    expect(rpcFrames.length).toBe(25)
     for (const type of rpcFrames) {
       const { ports, calls } = fakePorts()
       muxWith(ports).routeDaemonFrame(PRINCIPAL, sampleFrame(type))

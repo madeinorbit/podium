@@ -18,7 +18,11 @@ const fixture = vi.hoisted(() => {
   }))
   return {
     issue: null as ReturnType<typeof makeIssue> | null,
-    sessions: [] as Array<{ agentState?: { phase: string } }>,
+    sessions: [] as Array<{
+      status?: string
+      archived?: boolean
+      agentState?: { phase: string }
+    }>,
     query,
     store: {
       paletteOpen: false,
@@ -90,8 +94,8 @@ describe('StatusStrip agent concurrency history', () => {
 
   it('keeps the existing spinner and count while adding the capped pixel history', async () => {
     fixture.sessions.push(
-      { agentState: { phase: 'working' } },
-      { agentState: { phase: 'compacting' } },
+      { status: 'live', agentState: { phase: 'working' } },
+      { status: 'live', agentState: { phase: 'compacting' } },
     )
     const { container } = render(<StatusStrip />)
 
@@ -103,5 +107,29 @@ describe('StatusStrip agent concurrency history', () => {
     expect(screen.getByTestId('agent-concurrency-history').getAttribute('aria-label')).toContain(
       '2 agents working now. Peak 16.',
     )
+  })
+
+  /** POD-730: the phase outlives the process on purpose (exit keeps the final
+   *  turn diagnosis, hibernation keeps "needs input" amber), so a raw phase
+   *  count only ever ratchets up. */
+  it('does not count agents whose process is gone or parked', () => {
+    fixture.sessions.push(
+      { status: 'live', agentState: { phase: 'working' } },
+      { status: 'exited', agentState: { phase: 'working' } },
+      { status: 'hibernated', agentState: { phase: 'working' } },
+      { status: 'live', archived: true, agentState: { phase: 'compacting' } },
+    )
+
+    render(<StatusStrip />)
+
+    expect(screen.getByTestId('status-strip-working').textContent).toContain('1 agent working')
+  })
+
+  it('still counts a reconnecting agent: the link dropped, not the agent', () => {
+    fixture.sessions.push({ status: 'reconnecting', agentState: { phase: 'working' } })
+
+    render(<StatusStrip />)
+
+    expect(screen.getByTestId('status-strip-working').textContent).toContain('1 agent working')
   })
 })

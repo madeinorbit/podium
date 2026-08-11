@@ -265,7 +265,7 @@ export const setupConnectContract = {
     'One-shot pairing of this instance to its upstream; a concurrent connect is refused rather than merged, since two upstreams is not a mergeable state',
 } as const satisfies CommandContract<typeof setupConnectInput>
 
-export const setupSetChannelInput = z.object({ channel: z.enum(['stable', 'edge']) })
+export const setupSetChannelInput = z.object({ channel: z.enum(['stable', 'edge', 'dev']) })
 
 export const setupSetChannelContract = {
   name: 'setup.setChannel',
@@ -279,8 +279,9 @@ export const setupSetChannelContract = {
     confirmation: 'none',
     rationale:
       'The update channel is a property of the deployment and decides which BUILDS this instance ' +
-      'and its daemons will install — an `edge` switch changes what code runs on every machine ' +
-      'joined to it, which is why this is `manage`/`admin` and not an ordinary preference write ' +
+      'and its daemons will install — an `edge` or `dev` switch changes what code runs on every ' +
+      'machine joined to it that has not pinned an override of its own (POD-1882), which is why ' +
+      'this is `manage`/`admin` and not an ordinary preference write ' +
       'despite looking like a toggle. No confirmation: it is reversible by switching back, and the ' +
       'change takes effect at the next update rather than immediately.',
   },

@@ -217,6 +217,7 @@ function makeEngine(
     hub?: FakeHub
     storage?: StorageApi
     spawnConfirmGraceMs?: number
+    workspacePruneGraceMs?: number
     principal?: string
   } = {},
 ) {
@@ -235,6 +236,9 @@ function makeEngine(
     createHub: () => hub as unknown as SocketHub,
     ...(opts.spawnConfirmGraceMs !== undefined
       ? { spawnConfirmGraceMs: opts.spawnConfirmGraceMs }
+      : {}),
+    ...(opts.workspacePruneGraceMs !== undefined
+      ? { workspacePruneGraceMs: opts.workspacePruneGraceMs }
       : {}),
   })
   return { engine, hub, rw, fatals, errors }
@@ -338,7 +342,7 @@ describe('engine lifecycle', () => {
     engine.dispose()
   })
 
-  it('publishes the signed-in user\'s superagent threads at boot (POD-330)', async () => {
+  it("publishes the signed-in user's superagent threads at boot (POD-330)", async () => {
     // The view used to fetch this list itself and hold it in useState. It is
     // store state now, so boot must actually load it — a store field nobody
     // fills is the same bug as the mirror, one layer down.
@@ -476,6 +480,61 @@ describe('single URL writer (React #185 regression, engine-level)', () => {
     await settle(40)
     expect(engine.getSnapshot().view).toBe('workspace')
     expect(fatals).toEqual([])
+    engine.dispose()
+  })
+})
+
+/**
+ * The tab that names nothing (POD-710 review, item 1).
+ *
+ * `pruneWorkspace` shipped with no production caller, so a workspace could hold
+ * an id no session or file answered to — a stale `?pane=` bookmark, a session
+ * killed elsewhere — and nothing ever removed it: the strip filtered it out, the
+ * pane rendered nothing, and it was persisted and restored on every reload with
+ * no gesture that could clear it.
+ */
+describe('stale workspace tabs (POD-710)', () => {
+  const openTabIds = (engine: ReturnType<typeof makeEngine>['engine']): string[] =>
+    Object.values(engine.getSnapshot().workspaces).flatMap((ws) =>
+      Object.values(ws.panes).flatMap((pane) => pane.tabs),
+    )
+
+  it('retires a tab that never resolves, once its grace period is up', async () => {
+    const { engine, rw } = makeEngine({
+      url: '/workspace?wt=%2Ftmp%2Fknown-repo',
+      workspacePruneGraceMs: 150,
+    })
+    engine.start()
+    await settle(40)
+
+    rw.popTo('/workspace?wt=%2Ftmp%2Fknown-repo&pane=ghost')
+    await settle(30)
+    // ADOPTED FIRST. An id that has not arrived yet is early, not gone — an
+    // eager prune here is what would break optimistic spawns and deep links.
+    expect(openTabIds(engine)).toContain('ghost')
+    expect(engine.getSnapshot().paneA).toBe('ghost')
+
+    await settle(200)
+    expect(openTabIds(engine)).not.toContain('ghost')
+    expect(engine.getSnapshot().paneA).toBeNull()
+    engine.dispose()
+  })
+
+  it('keeps a tab whose session arrives inside the grace window', async () => {
+    const { engine, rw } = makeEngine({
+      url: '/workspace?wt=%2Ftmp%2Fknown-repo',
+      workspacePruneGraceMs: 150,
+    })
+    engine.start()
+    await settle(40)
+
+    rw.popTo('/workspace?wt=%2Ftmp%2Fknown-repo&pane=late')
+    await settle(30)
+    engine.replica.applyChanges('sessions', [session('late', '/tmp/known-repo')], [])
+
+    await settle(200)
+    expect(openTabIds(engine)).toContain('late')
+    expect(engine.getSnapshot().paneA).toBe('late')
     engine.dispose()
   })
 })
@@ -1126,7 +1185,9 @@ describe('spawn transport failure (#263 review finding 4)', () => {
 describe('resumeAndSend holds for optimistic spawn (POD-546)', () => {
   const spawnSendApi = () => {
     const api = makeApi()
-    api.sessions.resumeAndSend = { mutate: vi.fn(async () => ({ ok: true, disposition: 'accepted' })) }
+    api.sessions.resumeAndSend = {
+      mutate: vi.fn(async () => ({ ok: true, disposition: 'accepted' })),
+    }
     return api
   }
 

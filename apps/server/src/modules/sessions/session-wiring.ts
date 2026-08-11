@@ -1,9 +1,14 @@
 /**
  * SESSION LIFECYCLE WIRING (POD-1396).
  *
- * Constructor body, moved verbatim — ORDER UNCHANGED. server-construction-order.ts
- * walks only the RELAY root (POD-1411); a green construction-order doc does NOT
- * prove this interior was preserved. Trust the diff.
+ * Constructor body, moved verbatim — ORDER UNCHANGED.
+ *
+ * This function is an ENROLLED composition site in
+ * scripts/server-construction-order.ts (POD-1411). Because the write surface is
+ * an any-cast, TypeScript's definite-assignment analysis does NOT cover this
+ * body; that audit is what checks its order instead. It fails when a value read
+ * eagerly here — a direct `bag.x` argument — is assigned further down. Reads
+ * inside a closure are deferred and stay legal.
  *
  * Private fields written through a single any-cast. Dispose: none here
  * (activityFlushTimer stays a field initializer on SessionLifecycle).
@@ -40,8 +45,6 @@ type QueuedMessageRow = ReturnType<SyncRepository['listQueuedMessages']>[number]
 import { SessionMachineReconciler } from './machine-reconciler'
 import { SessionNaming } from './naming'
 import { SessionBroadcastCoordinator } from './publication/broadcast'
-import { SessionPublicationCoordinator } from './publication/coordinator'
-import { PublishWorkerClient } from './publish-worker-client'
 import { SessionRepository } from './repository'
 import { SessionBindingReceipts } from './session-binding'
 import { SessionRevival } from './session-revival'
@@ -113,25 +116,12 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       bag.repository.markVolatileSessionDirty(sessionId, fields),
     broadcastSessions: () => bag.broadcastSessions(),
   })
-  const publicationWorker = deps.publicationWorker ?? new PublishWorkerClient()
-  bag.publication = new SessionPublicationCoordinator({
-    clients: bag.clients,
-    worker: publicationWorker,
-    funnel: bag.funnel,
-    shadowCompare: deps.publicationShadowCompare ?? false,
-    generation: () => bag.repository.sessionsGeneration(),
-    sessions: () => bag.sessions,
-    listSessions: () => bag.listSessions(),
-    snapshotTail: deps.snapshotTail,
-  })
   bag.broadcasts = new SessionBroadcastCoordinator({
     hasPendingVolatile: () => bag.repository.hasPendingVolatile(),
     scheduleVolatileCapture: () => bag.repository.scheduleVolatileSessionCapture(),
     flushVolatileCaptures: () => {
       bag.repository.flushVolatileSessionCaptures()
     },
-    generation: () => bag.repository.sessionsGeneration(),
-    schedulePublication: (options) => bag.publication.schedule(options),
     flushDeltas: () => bag.funnel.flushDeltas(),
   })
   bag.browserOpen = new BrowserOpenGateway({
@@ -218,7 +208,6 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     store: bag.store,
     memory: bag.deps.memory,
     ledger: bag.deps.ledger,
-    publication: bag.publication,
     funnel: bag.funnel,
     view: bag.view,
     state: bag.state,
@@ -235,9 +224,10 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   // SessionStart takes view, repository and state as direct references, so it
   // must be built after all three exist. The compiler caught this when it was
   // placed with the other POD-1396 modules near the top of the constructor
-  // ("Property 'view' is used before being assigned") — worth recording
-  // because scripts/server-construction-order.ts walks only the RELAY root and
-  // would NOT have caught a reordering in here (POD-1411).
+  // ("Property 'view' is used before being assigned"). That compiler check no
+  // longer runs here — the any-cast write surface disabled it — so the
+  // construction-order audit now enforces the same rule (POD-1411). Moving this
+  // block above `bag.view` fails `bun scripts/server-construction-order.ts`.
   bag.sessionStart = new SessionStart({
     store: bag.store,
     view: bag.view,
@@ -374,7 +364,6 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   bag.draftRevision = (sessionId: SessionId) => bag.state.draftRevision(sessionId)
   bag.clientControl = new SessionClientControl({
     sessions: bag.sessions,
-    publication: bag.publication,
     state: bag.state,
     inbox: bag.inbox,
     machinesForPrincipal: (principal) =>
@@ -508,7 +497,6 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     headless: bag.headless,
     machineReconciler: bag.machineReconciler,
     machines: bag.machines,
-    publication: bag.publication,
     repository: bag.repository,
     rpc: bag.rpc,
     state: bag.state,

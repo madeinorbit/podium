@@ -16,11 +16,12 @@
  * dependency does not drag the whole fleet module into the hub role.
  */
 
+import type { UpdateChannel } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { attributionOf, onBehalfOfUser } from '../../command-principal'
 import type { Context } from '../../trpc'
 import { mods } from '../../trpc'
-import { fleetAuthzDeps, fleetUsePredicate } from './authz'
+import { fleetAuthzDeps, fleetAuthzFailure, fleetUsePredicate } from './authz'
 
 /** What the composition root supplies that core may not import for itself. */
 export interface FleetPorts {
@@ -69,6 +70,29 @@ const badRequest = (e: unknown): never => {
 export const machineRenameHandler = ({ ctx, input }: FleetArgs<{ id: string; name: string }>) => {
   mods(ctx).machines.renameMachine(input.id, input.name)
   return mods(ctx).machines.listMachines()
+}
+
+export const machineSetUpdateChannelHandler = async ({
+  ctx,
+  input,
+}: FleetArgs<{ id: string; channel: UpdateChannel | null }>) => {
+  const modules = mods(ctx)
+  modules.machines.setUpdateChannel(input.id, input.channel)
+  // Refresh the channel the machine ACTUALLY lands on, which after a `null` clear
+  // is the fleet default rather than anything in the input (POD-1882).
+  await modules.updates.refreshTarget(modules.machines.updateChannel(input.id) ?? 'stable')
+  return modules.machines.listMachines()
+}
+
+export const machineApplyUpdateHandler = async ({ ctx, input }: FleetArgs<{ id: string }>) => {
+  const modules = mods(ctx)
+  const machine = modules.machines.listMachines().find((candidate) => candidate.id === input.id)
+  if (!machine) throw new TRPCError({ code: 'NOT_FOUND', message: 'machine not found' })
+  await modules.updates.refreshTarget(machine.updateChannel ?? 'stable')
+  // The outcome is what this machine's row will say. Callers must not infer
+  // success from a granted-id list: an empty list has five different meanings.
+  const outcome = modules.updates.authorizeMachine(input.id)
+  return { machines: modules.machines.listMachines(), outcome }
 }
 
 export const machineShareHandler = ({
@@ -164,8 +188,18 @@ export const machineRevokeHandler = ({ ctx, input }: FleetArgs<{ id: string }>) 
 export const machineTransferServerHandler = ({
   ctx,
   input,
-}: FleetArgs<{ targetMachineId: string; publicUrl: string; confirmation: true }>) =>
-  mods(ctx).serverTransfer.transfer(input)
+}: FleetArgs<{
+  targetMachineId: string
+  publicUrl: string
+  port?: number
+  confirmation: 'TRANSFER SERVER'
+}>) =>
+  mods(ctx).serverTransfer.transfer(input, {
+    reauthorize: () => {
+      const refusal = fleetAuthzFailure('machines.transferServer', input, fleetAuthzDeps(ctx))
+      if (refusal) throw refusal
+    },
+  })
 
 export const machinePairingCodeHandler = ({
   ctx,

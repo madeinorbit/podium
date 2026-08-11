@@ -130,7 +130,7 @@ function LifecycleButton({
   )
 }
 
-export function SessionLifecycle({
+export function MobileSessionLifecycle({
   session,
   hasTranscript,
   onResume,

@@ -51,8 +51,6 @@ function harness() {
       onSessionClientFrame: vi.fn(),
       // The no-publication branch of the real sink, which is what these
       // fixtures' connections are.
-      deliverEntityMessage: (conn, msg) => registry.deliver(conn, msg),
-      onFeedPublished: vi.fn(),
     },
   }
   const bootstrap = vi.fn()
@@ -295,8 +293,6 @@ describe('the fan-out mechanism — delivery SHAPE, preserved', () => {
           onClientDetached: vi.fn(),
           onRoomJoined: vi.fn(),
           onSessionClientFrame: vi.fn(),
-          deliverEntityMessage: (conn, msg) => registry.deliver(conn, msg),
-          onFeedPublished: vi.fn(),
         },
       },
       feed: feedTestPlumbing().serving,
@@ -352,50 +348,5 @@ describe('the fan-out mechanism — delivery SHAPE, preserved', () => {
     expect(new Set(devices).size).toBe(3)
     f.registry.broadcast(NOTE)
     expect([...f.inboxes.values()].every((inbox) => inbox.length === 1)).toBe(true)
-  })
-
-  it('refuses to deliver prepared bytes to a connection with no prepared sink', () => {
-    // The in-process form carries no publication authority; the caller's existing
-    // `if (client.publication)` guards keep the same meaning.
-    const f = fanout()
-    const conn = f.registry.get(f.ids[0] as string)
-    expect(conn && f.registry.deliverPrepared(conn, '{"type":"pong"}')).toBe(false)
-  })
-
-  it('delivers prepared bytes through the authority when there IS one', () => {
-    const registry = new ClientRegistry()
-    const mux = new ClientMux({
-      registry,
-      ports: {
-        sessions: {
-          onClientAttached: vi.fn(),
-          onClientReclaim: vi.fn(),
-          onClientDetached: vi.fn(),
-          onRoomJoined: vi.fn(),
-          onSessionClientFrame: vi.fn(),
-          deliverEntityMessage: (conn, msg) => registry.deliver(conn, msg),
-          onFeedPublished: vi.fn(),
-        },
-      },
-      feed: feedTestPlumbing().serving,
-      presence: presenceStub(),
-      bootstrap: vi.fn(),
-    })
-    const prepared: string[] = []
-    const id = attachTestClient(mux, {
-      send: () => {},
-      publication: {
-        principal: 'operator',
-        scope: 'all',
-        serverRole: 'standalone',
-        protocolVersion: 1,
-        global: true,
-        snapshot: () => ({ revision: 0, allowedSignature: 'global', allowedSessionIds: [] }),
-        sendPrepared: (bytes) => prepared.push(bytes),
-      },
-    })
-    const conn = registry.get(id)
-    expect(conn && registry.deliverPrepared(conn, '{"type":"pong"}')).toBe(true)
-    expect(prepared).toEqual(['{"type":"pong"}'])
   })
 })

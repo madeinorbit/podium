@@ -198,9 +198,9 @@ describe('SidebarUnified selection weight (#41 redesign)', () => {
 
     // Balanced and compact density own their distinct vertical padding in CSS,
     // rather than baking one mode's geometry into the component utility list.
-    expect(cssBlock('.shell-work-row')).toContain('padding-block: 8px')
+    expect(cssBlock('.shell-work-row')).toContain('padding-block: 9px')
     expect(cssBlock('html[data-density="compact"] .shell-work-row')).toContain(
-      'padding-block: 6.5px',
+      'padding-block: 7.5px',
     )
 
     // The selection ring is an inset box-shadow, never a border that changes

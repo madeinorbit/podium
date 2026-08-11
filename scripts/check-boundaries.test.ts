@@ -67,7 +67,7 @@ describe('ui-storage-ownership (POD-329)', () => {
     // Mutant that must stay silent: passing the storage object into the adapter.
     expect(
       checkUiStorageOwnership(
-        'apps/web/src/lib/shadow/runner.ts',
+        'apps/web/src/features/replica-note.ts',
         'const s = window.localStorage\nvoid s',
       ),
     ).toEqual([])

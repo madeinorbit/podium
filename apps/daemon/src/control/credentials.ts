@@ -31,6 +31,23 @@ const PORTABLE_CREDENTIAL_PATHS: Record<PortableCredentialKind, (home: string) =
     join(process.env.CLAUDE_CONFIG_DIR?.trim() || join(home, '.claude'), '.credentials.json'),
 }
 
+const REAL_PORTABLE_CREDENTIAL_PATHS: Record<PortableCredentialKind, (home: string) => string> = {
+  codex: (home) => join(home, '.codex', 'auth.json'),
+  grok: (home) => join(home, '.grok', 'auth.json'),
+  'claude-code-state': (home) => join(home, '.claude.json'),
+  'claude-code': (home) => join(home, '.claude', '.credentials.json'),
+}
+
+const PROPAGATABLE_CREDENTIAL_KINDS: ReadonlySet<PortableCredentialKind> = new Set([
+  'claude-code',
+  'codex',
+])
+
+const CREDENTIAL_VALIDATORS: Partial<Record<PortableCredentialKind, (value: string) => boolean>> = {
+  'claude-code': hasValidClaudeCredential,
+  codex: hasValidCodexCredential,
+}
+
 export interface PortableCredentialOptions {
   /** Use the user's real native home, never a configured/managed redirect. */
   realHome?: boolean
@@ -43,25 +60,12 @@ function credentialPath(
   home: string,
   options: PortableCredentialOptions = {},
 ): string {
-  if (options.realHome) {
-    switch (kind) {
-      case 'codex':
-        return join(home, '.codex', 'auth.json')
-      case 'claude-code':
-        return join(home, '.claude', '.credentials.json')
-      case 'claude-code-state':
-        return join(home, '.claude.json')
-      case 'grok':
-        return join(home, '.grok', 'auth.json')
-    }
-  }
-  return PORTABLE_CREDENTIAL_PATHS[kind](home)
+  const paths = options.realHome ? REAL_PORTABLE_CREDENTIAL_PATHS : PORTABLE_CREDENTIAL_PATHS
+  return paths[kind](home)
 }
 
 function validCredential(kind: PortableCredentialKind, contents: string): boolean {
-  if (kind === 'codex') return hasValidCodexCredential(contents)
-  if (kind === 'claude-code') return hasValidClaudeCredential(contents)
-  return false
+  return CREDENTIAL_VALIDATORS[kind]?.(contents) ?? false
 }
 
 function propagationComparator(kind: PortableCredentialKind) {
@@ -122,7 +126,7 @@ function atomicInstall(path: string, content: Buffer): void {
 }
 
 function guardedInstall(bundle: PortableCredentialBundle, path: string, content: Buffer): boolean {
-  if (bundle.kind !== 'codex' && bundle.kind !== 'claude-code') {
+  if (!PROPAGATABLE_CREDENTIAL_KINDS.has(bundle.kind)) {
     throw new Error('credential propagation only supports native Codex and Claude files')
   }
   const before = snapshot(path)
@@ -181,7 +185,7 @@ export function readPortableCredential(
   home: string,
   options: PortableCredentialOptions = {},
 ): PortableCredentialBundle | null {
-  if (options.guarded && kind !== 'codex' && kind !== 'claude-code') return null
+  if (options.guarded && !PROPAGATABLE_CREDENTIAL_KINDS.has(kind)) return null
   const path = credentialPath(kind, home, options)
   if (!existsSync(path)) return null
   const stat = lstatSync(path)

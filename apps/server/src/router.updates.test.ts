@@ -12,10 +12,13 @@ const target = (version = '0.4.2'): UpdateTarget =>
   ({ version, critical: false, artifacts: {} }) as UpdateTarget
 
 const priorAppVersion = process.env.PODIUM_APP_VERSION
+const priorChannel = process.env.PODIUM_UPDATE_CHANNEL
 
-function harness() {
+function harness(requestCoordinatorRestart?: () => void) {
   const registry = new SessionRegistry(undefined, undefined, { instanceId: 'updates-test' })
-  registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
+  const hostMachineId = registry.sessionStore.hostMachineId
+  registry.gateway.attachDaemon(hostMachineId, () => {})
+  registry.modules.machines.setUpdateChannel(hostMachineId, 'dev')
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
   const caller = appRouter.createCaller({
@@ -24,6 +27,7 @@ function harness() {
     superagent,
     capability: OPERATOR,
     principal: userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin'),
+    ...(requestCoordinatorRestart ? { requestCoordinatorRestart } : {}),
   })
   return { registry, caller }
 }
@@ -31,6 +35,104 @@ function harness() {
 afterEach(() => {
   if (priorAppVersion === undefined) delete process.env.PODIUM_APP_VERSION
   else process.env.PODIUM_APP_VERSION = priorAppVersion
+  if (priorChannel === undefined) delete process.env.PODIUM_UPDATE_CHANNEL
+  else process.env.PODIUM_UPDATE_CHANNEL = priorChannel
+})
+
+/**
+ * POD-1882. A machine with no pin of its own follows the instance's fleet default,
+ * and the fleet default is what Settings → Updates writes. `updateChannel` on the
+ * wire is therefore the RESOLVED answer; `updateChannelOverride` is the pin.
+ */
+describe('fleet default update channel', () => {
+  function addMachine(registry: ReturnType<typeof harness>['registry'], id: string) {
+    registry.sessionStore.machines.upsertMachine({
+      id,
+      name: id,
+      hostname: id,
+      tokenHash: `${id}-token`,
+      ownerUserId: FIRST_ADMIN_USER_ID,
+    })
+  }
+
+  it('resolves an unpinned machine onto the fleet default', () => {
+    process.env.PODIUM_UPDATE_CHANNEL = 'edge'
+    const { registry } = harness()
+    addMachine(registry, 'unpinned')
+
+    const machine = registry.modules.machines
+      .listMachines()
+      .find((candidate) => candidate.id === 'unpinned')
+    expect(machine?.updateChannelOverride ?? null).toBeNull()
+    expect(machine?.updateChannel).toBe('edge')
+    expect(registry.modules.machines.updateChannel('unpinned')).toBe('edge')
+    registry.dispose()
+  })
+
+  it('lets a pin win over the fleet default, and survives it changing', () => {
+    process.env.PODIUM_UPDATE_CHANNEL = 'edge'
+    const { registry } = harness()
+    addMachine(registry, 'pinned')
+    registry.modules.machines.setUpdateChannel('pinned', 'stable')
+
+    expect(registry.modules.machines.updateChannel('pinned')).toBe('stable')
+
+    // The fleet moves; the pinned machine does not.
+    process.env.PODIUM_UPDATE_CHANNEL = 'dev'
+    expect(registry.modules.machines.updateChannel('pinned')).toBe('stable')
+    const pinned = registry.modules.machines
+      .listMachines()
+      .find((candidate) => candidate.id === 'pinned')
+    expect(pinned?.updateChannelOverride).toBe('stable')
+    registry.dispose()
+  })
+
+  it('moves an unpinned machine\'s resolved channel and target the moment the fleet default changes, and leaves a pinned one alone', () => {
+    process.env.PODIUM_UPDATE_CHANNEL = 'stable'
+    const { registry } = harness()
+    addMachine(registry, 'follower')
+    addMachine(registry, 'pinned')
+    registry.modules.machines.setUpdateChannel('pinned', 'stable')
+    registry.modules.updates.setTarget(target())
+
+    const before = registry.modules.machines.listMachines()
+    const followerBefore = before.find((m) => m.id === 'follower')
+    expect(followerBefore?.updateChannel).toBe('stable')
+
+    // The fleet default moves — exactly what Settings → Updates writes.
+    process.env.PODIUM_UPDATE_CHANNEL = 'dev'
+    registry.modules.machines.refreshFleetChannel()
+
+    const after = registry.modules.machines.listMachines()
+    expect(after.find((m) => m.id === 'follower')?.updateChannel).toBe('dev')
+    // Target is resolved per machine from its channel, so it moves with it.
+    expect(after.find((m) => m.id === 'follower')?.targetVersion).not.toBe(
+      followerBefore?.targetVersion,
+    )
+    // The pin is the whole point: it does not follow.
+    expect(after.find((m) => m.id === 'pinned')?.updateChannel).toBe('stable')
+    expect(after.find((m) => m.id === 'pinned')?.targetVersion).toBe(
+      before.find((m) => m.id === 'pinned')?.targetVersion,
+    )
+    registry.dispose()
+  })
+
+  it('hands a machine back to the fleet default when its pin is cleared', () => {
+    process.env.PODIUM_UPDATE_CHANNEL = 'edge'
+    const { registry } = harness()
+    addMachine(registry, 'released')
+    registry.modules.machines.setUpdateChannel('released', 'dev')
+    expect(registry.modules.machines.updateChannel('released')).toBe('dev')
+
+    registry.modules.machines.setUpdateChannel('released', null)
+
+    expect(registry.modules.machines.updateChannel('released')).toBe('edge')
+    const released = registry.modules.machines
+      .listMachines()
+      .find((candidate) => candidate.id === 'released')
+    expect(released?.updateChannelOverride ?? null).toBeNull()
+    registry.dispose()
+  })
 })
 
 describe('updates tRPC', () => {
@@ -45,21 +147,73 @@ describe('updates tRPC', () => {
     registry.dispose()
   })
 
-  it('refuses a convergence request when the server is already on its target', async () => {
+  it('refuses a convergence request when every place is already on target', async () => {
     process.env.PODIUM_APP_VERSION = '0.4.2'
     const { registry, caller } = harness()
+    registry.modules.machines.setMachineBuild(
+      registry.sessionStore.hostMachineId,
+      { appVersion: '0.4.2' },
+      [],
+      '2026-08-10T00:00:00.000Z',
+    )
     registry.modules.updates.setTarget(target())
 
     await expect(caller.updates.converge()).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',
-      message: 'The server is already at this version.',
+      message: 'Podium is already at this version everywhere.',
     })
+    registry.dispose()
+  })
+
+  it('starts a machine-only wave while the coordinating server is current', async () => {
+    process.env.PODIUM_APP_VERSION = '0.4.2'
+    const { registry, caller } = harness()
+    const grants: unknown[] = []
+
+    registry.modules.machines.setMachineBuild(
+      registry.sessionStore.hostMachineId,
+      { appVersion: '0.4.2' },
+      [],
+      '2026-08-10T00:00:00.000Z',
+    )
+    registry.sessionStore.machines.upsertMachine({
+      id: 'flatblock',
+      name: 'Flatblock',
+      hostname: 'flatblock',
+      tokenHash: 'flatblock-token',
+      ownerUserId: FIRST_ADMIN_USER_ID,
+    })
+    registry.modules.machines.setUpdateChannel('flatblock', 'dev')
+    registry.modules.machines.setMachineBuild(
+      'flatblock',
+      { appVersion: '0.4.1' },
+      [],
+      '2026-08-10T00:00:00.000Z',
+    )
+    registry.gateway.attachDaemon('flatblock', (message) => grants.push(message))
+    registry.modules.updates.setTarget(target())
+
+    const result = await caller.updates.converge()
+    expect(result).toMatchObject({
+      state: 'in-progress',
+      version: '0.4.2',
+      total: 1,
+      grantedMachineIds: ['flatblock'],
+    })
+    expect(grants).toEqual([expect.objectContaining({ type: 'updateGrant' })])
     registry.dispose()
   })
 
   it('returns an in-progress wave after the human authorizes convergence', async () => {
     process.env.PODIUM_APP_VERSION = '0.4.1'
-    const { registry, caller } = harness()
+    const requestCoordinatorRestart = vi.fn()
+    const { registry, caller } = harness(requestCoordinatorRestart)
+    registry.modules.machines.setMachineBuild(
+      registry.sessionStore.hostMachineId,
+      { appVersion: '0.4.2' },
+      [],
+      '2026-08-10T00:00:00.000Z',
+    )
     registry.modules.updates.setTarget(target())
 
     const result = await caller.updates.converge()
@@ -71,6 +225,31 @@ describe('updates tRPC', () => {
     expect(result.total).toBeGreaterThanOrEqual(1)
     expect(result.fleet.targetVersion).toBe('0.4.2')
     expect(result.fleet.machines.length).toBeGreaterThanOrEqual(1)
+    expect(requestCoordinatorRestart).toHaveBeenCalledOnce()
+    registry.dispose()
+  })
+
+  it('does not count or grant a machine selected onto another channel', async () => {
+    process.env.PODIUM_APP_VERSION = '0.4.2'
+    const { registry, caller } = harness()
+    registry.sessionStore.machines.upsertMachine({
+      id: 'stable-machine',
+      name: 'Stable machine',
+      hostname: 'stable-machine',
+      tokenHash: 'stable-token',
+      ownerUserId: FIRST_ADMIN_USER_ID,
+    })
+    registry.modules.machines.setUpdateChannel('stable-machine', 'stable')
+    registry.modules.machines.setMachineBuild(
+      'stable-machine',
+      { appVersion: '0.4.1' },
+      [],
+      '2026-08-10T00:00:00.000Z',
+    )
+    registry.modules.updates.setTarget(target())
+
+    const fleet = await caller.updates.fleet()
+    expect(fleet.machines.map((machine) => machine.id)).not.toContain('stable-machine')
     registry.dispose()
   })
 

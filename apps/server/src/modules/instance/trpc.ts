@@ -24,12 +24,28 @@ const instanceService = (state: {
   users?: InstanceAccountStore | undefined
   loginRequired?: (() => boolean) | undefined
   caller: { userId: string }
+  modules?:
+    | {
+        machines: { refreshFleetChannel(): void }
+        updates: { refreshTarget(channel: string): Promise<unknown> }
+      }
+    | undefined
 }) =>
   new InstanceService({
     emitter: state.telemetry?.emitter as never,
     users: state.users,
     callerUserId: state.caller.userId,
     loginRequired: state.loginRequired,
+    // POD-1882: the fleet default is the channel every unpinned machine follows,
+    // so writing it has to re-resolve their targets and push the new projection.
+    onFleetChannelChanged: state.modules
+      ? async (channel) => {
+          // Order matters: load the new channel's target FIRST, then broadcast.
+          // Broadcasting first would ship the new channel with the old target.
+          await state.modules?.updates.refreshTarget(channel)
+          state.modules?.machines.refreshFleetChannel()
+        }
+      : undefined,
   })
 
 export type SetupProcedures = FamilyProcedures<typeof SETUP_COMMANDS_TRPC, typeof SETUP_QUERIES>

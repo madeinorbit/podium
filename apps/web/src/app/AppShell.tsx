@@ -18,9 +18,8 @@ import { SidebarRail } from '@/features/worklist/SidebarRail'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import { ResizableAside, ResizableColumn } from '@/features/worklist/sidebar-common'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
-import { effectiveIssueColorHex, FLOW_SLATE } from '@/lib/issueColors'
+import { effectiveIssueColorHex, FLOW_CSS } from '@/lib/issueColors'
 import type { KernelAssembly } from '@/lib/kernelReplica'
-import { ShadowComparisonRunner } from '@/lib/shadow/ShadowComparisonRunner'
 import { useFeature } from '@/lib/use-feature'
 import { usePersistedUiState, usePersistedUiValue } from '@/lib/use-persisted-ui-state'
 import { useKernelReplica } from '@/lib/use-kernel-replica'
@@ -94,7 +93,7 @@ export function AppShell(): JSX.Element {
   // One tRPC client for the gate, memoized on the origin so the gate's effect
   // does not re-run (and re-open IndexedDB) on every render.
   const [gateTrpc] = useState(() => makeTrpc(config.httpOrigin))
-  const kernel = useKernelReplica({ httpOrigin: config.httpOrigin, trpc: gateTrpc })
+  const kernel = useKernelReplica({ trpc: gateTrpc })
 
   // Queued offline writes the boot migration could not simply carry across
   // (POD-1232). Shown once, as a toast rather than a console line, because the
@@ -105,9 +104,8 @@ export function AppShell(): JSX.Element {
     if (migrationNotice !== undefined) toast(migrationNotice)
   }, [migrationNotice])
 
-  // The store must not mount until BOTH gates settle: the desktop SQLite
-  // replica and the kernel-replica decision. Each one is a synchronous read the
-  // engine makes at construction.
+  // The store must not mount until its private replica is open. The engine reads
+  // rows synchronously at construction, so there is no usable fallback assembly.
   if (kernel.status === 'resolving') {
     return (
       <TooltipProvider>
@@ -122,7 +120,6 @@ export function AppShell(): JSX.Element {
         <AppErrorPage
           title="Podium could not open its private replica"
           message={kernel.failure}
-          onRetry={() => window.location.reload()}
         />
       </TooltipProvider>
     )
@@ -152,14 +149,6 @@ export function AppShell(): JSX.Element {
             createOutboxFn={kernel.assembly.createOutboxFn}
           >
             <KernelHubAttach assembly={kernel.assembly} />
-            {kernel.shadow ? (
-              <ShadowComparisonRunner
-                assembly={kernel.assembly}
-                trpc={gateTrpc}
-                wsClientUrl={config.wsClientUrl}
-                authorityScoped={kernel.authorityScoped}
-              />
-            ) : null}
             <RoutedDensityProvider>
               <ThemeUiStateMirror />
               <BrowserOpenOverlay />
@@ -285,7 +274,7 @@ function AppBody(): JSX.Element {
   }
   const persistedFlightDeckWidth = (): number => {
     const stored = Number(uiState.get('podium:superagent:width'))
-    return Number.isFinite(stored) && stored >= 300 && stored <= 620 ? stored : 360
+    return Number.isFinite(stored) && stored >= 300 && stored <= 620 ? stored : 366
   }
   const animateFlightDeckWidth = (from: number, to: number, onFinish?: () => void): void => {
     const shell = flightDeckShellRef.current
@@ -422,7 +411,7 @@ function AppBody(): JSX.Element {
   const effectiveHex = effectiveIssueColorHex(selectedIssue, (id) =>
     issues.find((issue) => issue.id === id),
   )
-  const issueAccent = effectiveHex ?? FLOW_SLATE
+  const issueAccent = effectiveHex ?? FLOW_CSS
   const issueStyle = { '--issue': issueAccent } as CSSProperties
   // One colour-pick handler for every shell surface showing the ID square.
   const changeIssueColor = selectedIssue
@@ -489,7 +478,7 @@ function AppBody(): JSX.Element {
                   storageKey="podium:superagent:width"
                   min={300}
                   max={620}
-                  defaultWidth={360}
+                  defaultWidth={366}
                   handleLabel="Resize Flight Deck"
                   className="max-w-[45vw]"
                 >
@@ -504,7 +493,7 @@ function AppBody(): JSX.Element {
               storageKey="podium:rightdock:width"
               min={280}
               max={860}
-              defaultWidth={340}
+              defaultWidth={316}
               handleLabel="Resize right dock"
               handleSide="left"
               className="max-w-[45vw]"

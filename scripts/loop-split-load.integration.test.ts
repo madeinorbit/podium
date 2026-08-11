@@ -84,10 +84,7 @@ describe('loop split representative load [spec:SP-c29e]', () => {
     store.transact(() => {
       for (let seq = 1; seq <= ISSUE_COUNT; seq += 1) store.issues.upsertIssue(issueRow(seq))
     })
-    const registry = new SessionRegistry(store, undefined, {
-      instanceId: 'default',
-      publicationShadowCompare: true,
-    })
+    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
     const sessionIds: SessionId[] = []
     let loop: ReturnType<typeof startLoopMetrics> | undefined
     try {
@@ -120,22 +117,13 @@ describe('loop split representative load [spec:SP-c29e]', () => {
           return sessionId
         })
         const id = registry.clientGateway.attachClient({
-          send: () => {},
+          send: (message) => {
+            if (message.type === 'feedBootstrap' || message.type === 'feedDelta') {
+              publications.push(JSON.stringify(message))
+            }
+          },
           userId: FIRST_ADMIN_USER_ID,
           userRole: 'admin',
-          publication: {
-            sendPrepared: (bytes) => publications.push(bytes),
-            principal: FIRST_ADMIN_USER_ID,
-            scope: `principal:${FIRST_ADMIN_USER_ID}`,
-            serverRole: 'standalone',
-            protocolVersion: WIRE_VERSION,
-            global: false,
-            snapshot: () => ({
-              revision: 1,
-              allowedSignature: JSON.stringify(allowedSessionIds),
-              allowedSessionIds,
-            }),
-          },
         })
         clients.push({ id, publications, allowedSessionIds })
         registry.clientGateway.routeClientFrame(id, {
@@ -150,7 +138,6 @@ describe('loop split representative load [spec:SP-c29e]', () => {
       // Hello changes the ViewKey after the pre-capability bootstrap has already
       // been queued. Do not let that intentional bootstrap replacement bleed
       // into the measured steady-state window.
-      await until(() => registry.modules.sessions.publicationMetrics().queueDepth === 0, 15_000)
       await new Promise((resolve) => setTimeout(resolve, 250))
 
       registry.modules.perf.reset()
@@ -181,11 +168,9 @@ describe('loop split representative load [spec:SP-c29e]', () => {
         // throughput benchmark that no human client can generate.
         await new Promise((resolve) => setTimeout(resolve, 5))
       }
-      await until(() => registry.modules.sessions.publicationMetrics().queueDepth === 0, 15_000)
 
       const eventLoop = loop.snapshot()
       const perf = registry.modules.perf.snapshot().phases
-      const worker = registry.modules.sessions.publicationMetrics()
       expect(percentile(interactionMs, 0.95)).toBeLessThan(INTERACTION_P95_TARGET_MS)
       expect(percentile(interactionMs, 0.99)).toBeLessThan(INTERACTION_P99_TARGET_MS)
       expect(eventLoop.p99, loopWarnings.join('\n')).toBeLessThan(LOOP_P99_TARGET_MS)
@@ -196,17 +181,6 @@ describe('loop split representative load [spec:SP-c29e]', () => {
       expect(perf['ws.detach']?.p95Ms).toBeLessThan(INTERACTION_P95_TARGET_MS)
       expect(perf['ws.detach']?.p99Ms).toBeLessThan(INTERACTION_P99_TARGET_MS)
       expect(perf['sessionsBroadcast.total']?.p99Ms).toBeLessThan(LOOP_P99_TARGET_MS)
-      expect(worker).toMatchObject({
-        queueDepth: 0,
-        failures: 0,
-        shadowMismatches: 0,
-      })
-      expect(worker.shadowComparisons).toBeGreaterThanOrEqual(INTERACTION_CYCLES * CLIENT_COUNT)
-      expect(worker.completedJobs).toBeGreaterThan(0)
-      expect(worker.coalescedJobs).toBeGreaterThanOrEqual(0)
-      expect(worker.supersededJobs).toBeGreaterThanOrEqual(0)
-      expect(worker.maxUninterruptedSliceMs).toBeLessThan(LOOP_P99_TARGET_MS)
-      expect(worker.maxJobAgeMs).toBeGreaterThanOrEqual(0)
     } finally {
       loop?.stop()
       registry.dispose()

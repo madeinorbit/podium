@@ -222,6 +222,17 @@ export type HostMetricsWire = z.infer<typeof HostMetricsWire>
 export const MachineUseDecision = z.enum(['granted', 'denied'])
 export type MachineUseDecision = z.infer<typeof MachineUseDecision>
 
+/**
+ * The update authority selected for one managed machine.
+ *
+ * `dev` is the coordinating source server's exact signed git/bundle target.
+ * `edge` and `stable` are release targets whose artifacts must verify against
+ * Podium's baked release key. The value is an authority choice, not a build
+ * identity: a machine may still report its previous release while converging.
+ */
+export const UpdateChannel = z.enum(['dev', 'edge', 'stable'])
+export type UpdateChannel = z.infer<typeof UpdateChannel>
+
 export const MachineWire = z.object({
   /** THE machine id itself — and the site that made ADR 1 Amendment 2 D16.2 an
    *  ORDERING constraint rather than a preference: while the server upserted this
@@ -261,6 +272,17 @@ export const MachineWire = z.object({
     .optional(),
   /** `USE` — see {@link Inventory}. */
   inventory: Inventory.optional(),
+  /**
+   * The channel this machine will actually update from — its own pin when it has
+   * one, otherwise the instance's fleet default. Read this to say what a machine
+   * DOES; read `updateChannelOverride` to say what an operator CHOSE (POD-1882).
+   */
+  updateChannel: UpdateChannel.optional(),
+  /**
+   * The operator's per-machine pin, or `null` for "follows the fleet default".
+   * Null is meaningful, so this is nullable rather than merely absent.
+   */
+  updateChannelOverride: UpdateChannel.nullable().optional(),
   /** Peer-asserted build label; absent/null until the daemon reports one. */
   appVersion: z.string().nullable().optional(),
   /** Peer-asserted protocol schema digest; informational only. */
@@ -273,6 +295,10 @@ export const MachineWire = z.object({
   buildReportedAt: z.string().nullable().optional(),
   /** Derived relative state; never persisted. */
   versionState: z.enum(['unreported', 'current', 'behind', 'ahead']).optional(),
+  /** The selected channel's currently advertised target label, when available. */
+  targetVersion: z.string().nullable().optional(),
+  /** Why the selected authority currently has no trusted target. */
+  targetUnavailableReason: z.string().nullable().optional(),
 })
 export type MachineWire = z.infer<typeof MachineWire>
 

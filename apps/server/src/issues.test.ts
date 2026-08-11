@@ -1,13 +1,13 @@
 import {
   asArtifactId,
   asIssueId,
+  asMachineId,
   asSessionId,
   asUserId,
   FIRST_ADMIN_USER_ID,
   type IssueId,
   type SessionMeta,
   type SessionMetaInput,
-  asMachineId,
 } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
@@ -1694,6 +1694,82 @@ describe('IssueService.start', () => {
       repoPath: '/home/bob/src/podium',
       worktreePath: '/home/bob/src/podium/.worktrees/issue-1-moved-session',
     })
+  })
+
+  /**
+   * POD-1898. Resuming onto the machine the issue is ALREADY homed on, where that
+   * machine keeps the repo at its own path: the recorded worktree was compared by
+   * string, judged foreign, and recreated onto the directory that was right there
+   * ("fatal: ... already exists"). Sameness is identity, so the present worktree wins.
+   */
+  it('resume reuses the present worktree when the pin keeps the repo at another path', async () => {
+    const { svc, deps } = harness()
+    deps.requireMachineForRepo = vi.fn()
+    deps.findRepoOnMachine = vi.fn((repoPath: string, machineId: string) =>
+      repoPath === '/home/mgw/src/podium' && machineId === 'mach-b'
+        ? '/home/mgw/src/other/podium'
+        : null,
+    )
+    const created = svc.create({
+      repoPath: '/home/mgw/src/podium',
+      title: 'Homed here',
+      startNow: false,
+      machineId: asMachineId('mach-b'),
+    })
+    svc.update(created.id, {
+      branch: 'issue/1-homed-here',
+      worktreePath: '/home/mgw/src/other/podium/.worktrees/issue-1-homed-here',
+    })
+    deps.repoOp = vi.fn(async () => ({ ok: true, output: '## issue/1-homed-here' })) as typeof deps.repoOp
+
+    const result = await svc.ensureWorktree(created.id, 'mach-b')
+
+    expect(result).toMatchObject({
+      ok: true,
+      output: 'worktree already present',
+      worktreePath: '/home/mgw/src/other/podium/.worktrees/issue-1-homed-here',
+    })
+    expect(deps.repoOp).not.toHaveBeenCalledWith(
+      'worktreeAddExisting',
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+    )
+  })
+
+  it('recreate adopts a directory git refuses as already existing when it is our branch', async () => {
+    const { svc, deps } = harness()
+    const created = svc.create({ repoPath: '/r', title: 'Present', startNow: false })
+    svc.update(created.id, { branch: 'issue/1-present' })
+    deps.repoOp = vi.fn(async (op: string) =>
+      op === 'worktreeAddExisting'
+        ? { ok: false, output: "fatal: '/r/.worktrees/issue-1-present' already exists" }
+        : { ok: true, output: '## issue/1-present...origin/issue/1-present' },
+    ) as typeof deps.repoOp
+
+    const result = await svc.ensureWorktree(created.id)
+
+    expect(result).toMatchObject({ ok: true, worktreePath: '/r/.worktrees/issue-1-present' })
+    expect(result.output).toMatch(/already present/)
+    expect(svc.get(created.id)).toMatchObject({
+      worktreePath: '/r/.worktrees/issue-1-present',
+    })
+  })
+
+  it('recreate still fails when the existing path holds some OTHER branch', async () => {
+    const { svc, deps } = harness()
+    const created = svc.create({ repoPath: '/r', title: 'Occupied', startNow: false })
+    svc.update(created.id, { branch: 'issue/1-occupied' })
+    deps.repoOp = vi.fn(async (op: string) =>
+      op === 'worktreeAddExisting'
+        ? { ok: false, output: "fatal: '/r/.worktrees/issue-1-occupied' already exists" }
+        : { ok: true, output: '## some-other-branch' },
+    ) as typeof deps.repoOp
+
+    const result = await svc.ensureWorktree(created.id)
+
+    expect(result).toMatchObject({ ok: false, worktreePath: null })
+    expect(result.output).toMatch(/worktree recreate failed/)
   })
 
   it('an unpinned issue never consults the cross-machine resolver', async () => {
@@ -3706,7 +3782,10 @@ describe('IssueService.integrate (issue #70)', () => {
     const h = harness()
     const { epic } = epicWith(h, [{}, {}])
     const calls = scriptOps(h.deps, () => undefined)
-    const [r1, r2] = await Promise.all([h.svc.integrate(epic.id, AS_OPERATOR), h.svc.integrate(epic.id, AS_OPERATOR)])
+    const [r1, r2] = await Promise.all([
+      h.svc.integrate(epic.id, AS_OPERATOR),
+      h.svc.integrate(epic.id, AS_OPERATOR),
+    ])
     const refused = [r1, r2].filter((r) => /integration already running for #1/.test(r.output))
     const ran = [r1, r2].filter((r) => r.ok)
     expect(refused.length).toBe(1)
@@ -4394,8 +4473,12 @@ describe('IssueService agent mail (#103)', () => {
     const { svc, store } = harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     seedIssueMail(store, a.id, 'msg_once', { fromSession: asSessionId('sSender') })
-    expect(svc.mailInbox(a.id, { sessionId: asSessionId('sB') })[0]).toMatchObject({ wasUnread: true })
-    expect(svc.mailInbox(a.id, { sessionId: asSessionId('sB') })[0]).toMatchObject({ wasUnread: false })
+    expect(svc.mailInbox(a.id, { sessionId: asSessionId('sB') })[0]).toMatchObject({
+      wasUnread: true,
+    })
+    expect(svc.mailInbox(a.id, { sessionId: asSessionId('sB') })[0]).toMatchObject({
+      wasUnread: false,
+    })
     expect(svc.mailPending(a.id, { sessionId: asSessionId('sB') }).unread).toBe(0)
   })
 
@@ -4405,7 +4488,9 @@ describe('IssueService agent mail (#103)', () => {
     seedIssueMail(store, a.id, 'msg_claimed', { fromSession: asSessionId('sSender') })
     // Claim is the OPT-IN "I will act on this" signal; delivery must not depend
     // on it, so it retires the claimer's nag and nobody else's.
-    expect(svc.mailClaim('msg_claimed', 'issue:#1', { sessionId: asSessionId('sA') }).claimed).toBe(true)
+    expect(svc.mailClaim('msg_claimed', 'issue:#1', { sessionId: asSessionId('sA') }).claimed).toBe(
+      true,
+    )
     expect(svc.mailPending(a.id, { sessionId: asSessionId('sA') }).unread).toBe(0)
     expect(svc.mailPending(a.id, { sessionId: asSessionId('sB') }).unread).toBe(1)
   })
@@ -4544,7 +4629,7 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
 
   const observationFor = (
     h: { svc: IssueService },
-    id: string,
+    id: IssueId,
     mode: 'propose' | 'auto',
     afterDays = 14,
   ) => {

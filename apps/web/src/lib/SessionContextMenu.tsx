@@ -130,10 +130,13 @@ export function handoffRejectionText(rejection: HandoffRejection, agentKind: Age
 }
 
 /**
- * Right-click context menu for a session — the same actions the tab/panel/agent
+ * Right-click context menu for a session — the same actions the panel/agent
  * toolbars expose (rename, pin, snooze, hibernate, resume, BTW, archive, close),
  * gathered in one place so they're reachable without hunting hover targets. Used
- * by the sidebar panel rows and the workspace tab strip. Cursor-anchored portal
+ * by the sidebar panel rows and the FLIGHT DECK, which is where sessions live;
+ * POD-710 took it off the tab, because a tab is a view and a menu that can kill
+ * an agent from one is exactly the tab/session conflation that work undoes.
+ * Cursor-anchored portal
  * (matches SnoozeControl's pattern), clamped into the viewport, dismissed on
  * outside-click / Escape / scroll.
  */

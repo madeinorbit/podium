@@ -1,6 +1,0 @@
-[
-  {
-    "anchor": "    const persisted = this.store.readIdentity()\n    if (persisted !== null) {\n      assertOpaqueEpoch(persisted.epoch)\n      this.cached = persisted\n      return persisted\n    }\n",
-    "replace": ""
-  }
-]

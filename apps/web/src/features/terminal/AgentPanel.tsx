@@ -612,19 +612,24 @@ export function AgentPanel({
     // `relative` anchors the handover veil below the header (the terminal surface
     // positions its own overlays against itself, so nothing else moves).
     <div className="relative flex min-w-0 flex-1 flex-col">
-      {/* Session header, revised Variant A [POD-121]: 40px, issue-tinted surface
-          + hairline. Identity is de-boxed (kind glyph + name as the anchor), the
-          mode lives in ONE segmented control on the right (no eyebrow), and the
-          right cluster is model token · segment · snooze · archive · overflow. */}
+      {/* Session header [POD-121, remetered POD-725]: 36px, no surface of its own
+          — the sheet's card tone runs straight through it and a soft hairline is
+          the only thing under it. It was a 24%-issue-tinted band, which made
+          sense when the pane was a column on the app ground; inside a white sheet
+          whose tab strip is already nearly white, a coloured band across the
+          third row down was the one thing in the stage you could not stop
+          looking at. Identity is de-boxed (kind glyph + name as the anchor), the
+          mode lives in ONE segmented control on the right, and the right cluster
+          is model token · segment · snooze · archive · overflow. */}
       <div
         data-testid="agent-panel-header"
-        className="flex h-[40px] flex-none items-center overflow-hidden gap-2 border-b issue-hairline-45 issue-hairline-slate-40 issue-mix-24 issue-mix-slate-18 px-[10px]"
+        className="flex h-[36px] flex-none items-center overflow-hidden gap-3 border-b border-hairline-soft px-4"
       >
         {session && (
           <>
             <KindIcon kind={session.agentKind} />
             <span
-              className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[12.5px] font-semibold text-text-strong"
+              className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[11.5px] font-medium text-text-strong"
               title={sessionDisplayName(session)}
             >
               {sessionDisplayName(session)}
@@ -646,7 +651,7 @@ export function AgentPanel({
             session runs in. Truncates; full path on hover. */}
         {session?.cwd && (
           <span
-            className="hidden min-w-0 max-w-[34%] items-center gap-1 truncate text-[10.5px] text-(--issue-muted-bright) sm:inline-flex"
+            className="hidden min-w-0 max-w-[34%] items-center gap-1 truncate font-mono text-[10.5px] text-text-dim sm:inline-flex"
             title={session.cwd}
           >
             <Folder size={11} aria-hidden="true" className="flex-none" />
@@ -720,7 +725,13 @@ export function AgentPanel({
             <span
               role="tablist"
               aria-label="Panel view"
-              className="inline-flex h-[26px] flex-none items-stretch overflow-hidden rounded-[7px] border issue-hairline-30 bg-background/45"
+              // A TRACK WITH A CELL IN IT (POD-725), not two half-boxes divided by
+              // a rule: the track is the app ground recessed into the sheet and
+              // the current view is a white cell raised out of it — the same
+              // machined-segmented-control grammar the command bar's instrument
+              // uses, which is what stops two adjacent labels reading as two
+              // buttons where only one can be pressed.
+              className="inline-flex flex-none items-center gap-0 rounded-lg bg-background p-[2px]"
             >
               {(['chat', 'native'] as const).map((m) => (
                 <button
@@ -731,11 +742,10 @@ export function AgentPanel({
                   aria-selected={effectiveMode === m}
                   data-testid={`mode-${m}`}
                   className={cn(
-                    'inline-flex cursor-pointer items-center gap-[5px] px-[9px] text-[11px] font-medium transition-colors',
-                    m === 'native' && 'border-l issue-hairline-20',
+                    'inline-flex cursor-pointer items-center gap-[5px] rounded-md px-[10px] py-[4px] text-[10.5px] transition-colors',
                     effectiveMode === m
-                      ? 'bg-secondary text-text-strong'
-                      : 'text-(--issue-muted) hover:text-(--issue-bright)',
+                      ? 'bg-card font-semibold text-text-strong shadow-[0_1px_1px_var(--carve-drop)]'
+                      : 'text-text-dim hover:text-text-strong',
                   )}
                   onClick={() => pickModeWithTrace(m)}
                 >

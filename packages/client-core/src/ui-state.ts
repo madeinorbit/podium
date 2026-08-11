@@ -17,8 +17,8 @@ import {
   THEME_UI_KEYS,
 } from '@podium/model'
 import type { UiState } from './replica/contract'
-import type { DockTab, RecentFileEntry } from './viewmodels'
-import { readStoredDockTab } from './viewmodels'
+import type { DockTab, RecentFileEntry, WorkspaceMap } from './viewmodels'
+import { deserializeWorkspaces, readStoredDockTab, serializeWorkspaces } from './viewmodels'
 
 export type { UiState }
 
@@ -50,6 +50,8 @@ export const UI_STATE_KEYS = {
   paneA: 'podium.paneA',
   paneB: 'podium.paneB',
   split: 'podium.split',
+  /** Editor-style tab workspaces, one entry per task (POD-710). */
+  workspaces: 'podium.workspaces',
   superOpen: 'podium.superOpen.v2',
   panelMode: 'podium.panelMode',
   panelModeDefault: 'podium.panelModeDefault',
@@ -72,6 +74,7 @@ export const DOCK_TAB_KEY = UI_STATE_KEYS.dockTab
 export const PANE_A_KEY = UI_STATE_KEYS.paneA
 export const PANE_B_KEY = UI_STATE_KEYS.paneB
 export const SPLIT_KEY = UI_STATE_KEYS.split
+export const WORKSPACES_KEY = UI_STATE_KEYS.workspaces
 export const SUPER_OPEN_KEY = UI_STATE_KEYS.superOpen
 export const PANEL_MODE_KEY = UI_STATE_KEYS.panelMode
 export const PANEL_MODE_DEFAULT_KEY = UI_STATE_KEYS.panelModeDefault
@@ -126,6 +129,14 @@ export const UI_STATE_ROUTES = {
     home: 'device-local',
     reason: 'Split geometry is a property of this screen.',
   },
+  [UI_STATE_KEYS.workspaces]: {
+    home: 'device-local',
+    // Same reason as paneA/paneB/split, which are now derived FROM this: which
+    // tabs are open in which pane is screen geometry, and a phone has no
+    // business inheriting a desktop's split. The whole layout travels with the
+    // scalars it replaced (POD-710).
+    reason: 'Workspace tab layout is geometry for this screen, like the panes it supersedes.',
+  },
   [UI_STATE_KEYS.superOpen]: {
     home: 'per-user-replicated',
     reason: 'The personal superagent column is part of the user shell layout.',
@@ -135,8 +146,7 @@ export const UI_STATE_ROUTES = {
     // Decision coordinated with POD-1076 / layout-state: sidebar and tab LAYOUT
     // are per-user (doc §3.1.1). Per-session chat-vs-native presentation is that
     // family, not screen geometry — it should follow the person across devices.
-    reason:
-      'Per-session chat/native presentation is personal tab layout (POD-1076 layout family).',
+    reason: 'Per-session chat/native presentation is personal tab layout (POD-1076 layout family).',
   },
   [UI_STATE_KEYS.panelModeDefault]: {
     home: 'per-user-replicated',
@@ -194,6 +204,10 @@ export const CLIENT_DEVICE_LOCAL_UI_KEYS = [
    *  agent state, and a phone has no business inheriting a desktop's folds. */
   'podium.flightDeck.mode',
   'podium.flightDeck.folds',
+  /** Editor-style tab workspaces (POD-710). Declared here rather than in the
+   *  model's shared vocabulary because it is a client-only key; the routing
+   *  table above states its home and this list is what `uiStateRoute` reads. */
+  'podium.workspaces',
   /** Dev diagnostics: remote-typing echo HUD. */
   'podium.echoHud',
   /** Dev diagnostics: switch-latency console trace. */
@@ -702,6 +716,8 @@ export interface WorkspaceUiSnapshot {
   paneA: SessionId | null
   paneB: SessionId | null
   split: boolean
+  /** Per-task tab layouts (POD-710) — the truth the three scalars above mirror. */
+  workspaces: WorkspaceMap
   superOpen: boolean
   panelMode: Record<string, 'chat' | 'native'>
   dockShells: Record<string, SessionId>
@@ -813,6 +829,7 @@ const ALL_SNAPSHOT_KEYS = new Set<keyof WorkspaceUiSnapshot>([
   'paneA',
   'paneB',
   'split',
+  'workspaces',
   'superOpen',
   'panelMode',
   'dockShells',
@@ -852,6 +869,9 @@ export function createRouterUiState(init: {
           ? asSessionId(ui.get(UI_STATE_KEYS.paneB) as string)
           : null,
         split: ui.get(UI_STATE_KEYS.split) === '1',
+        // Total by contract: a corrupt or older-shaped blob restores {} rather
+        // than throwing on the boot path.
+        workspaces: deserializeWorkspaces(ui.get(UI_STATE_KEYS.workspaces)),
         superOpen: ui.get(UI_STATE_KEYS.superOpen) !== '0',
         panelMode: readStoredPanelModes(ui),
         dockShells: readStoredDockShells(ui),
@@ -873,6 +893,7 @@ export function createRouterUiState(init: {
       write('paneA', UI_STATE_KEYS.paneA, state.paneA)
       write('paneB', UI_STATE_KEYS.paneB, state.paneB)
       write('split', UI_STATE_KEYS.split, state.split ? '1' : '0')
+      write('workspaces', UI_STATE_KEYS.workspaces, serializeWorkspaces(state.workspaces))
       write('superOpen', UI_STATE_KEYS.superOpen, state.superOpen ? '1' : '0')
       write('panelMode', UI_STATE_KEYS.panelMode, JSON.stringify(state.panelMode))
       write('dockShells', UI_STATE_KEYS.dockShells, JSON.stringify(state.dockShells))

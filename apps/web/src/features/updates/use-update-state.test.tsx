@@ -1,7 +1,7 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { useEffect } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { useUpdateState, type UpdateStateResult } from './use-update-state'
+import { useUpdateState, type UpdateFleetState, type UpdateStateResult } from './use-update-state'
 
 const mocks = vi.hoisted(() => ({
   makeTrpc: vi.fn(),
@@ -38,14 +38,14 @@ function Probe({
   }, [onResult, result])
   return (
     <>
-      {result.actions.updateServer && (
-        <button type="button" onClick={() => void result.actions.updateServer?.()}>
-          update server
+      {result.actions.startUpdate && (
+        <button type="button" onClick={() => void result.actions.startUpdate?.()}>
+          update Podium
         </button>
       )}
       <output data-testid="view-state">
         {result.view.state === 'failed'
-          ? result.view.detail
+          ? [result.view.message, result.view.guidance, result.view.diagnostic].join('|')
           : result.view.state === 'in-progress'
             ? `${result.view.state}:${result.view.version}:${result.view.done}:${result.view.total}`
             : result.view.state}
@@ -80,7 +80,7 @@ function setupTransport(version = { appVersion: '0.4.1', target }): void {
   )
 }
 
-describe('useUpdateState server action', () => {
+describe('useUpdateState update action', () => {
   it('moves the shared dialog to in-progress after a successful convergence call', async () => {
     setupTransport()
     mocks.mutate.mockResolvedValue({
@@ -93,9 +93,9 @@ describe('useUpdateState server action', () => {
     const results: UpdateStateResult[] = []
 
     render(<Probe onResult={(result) => results.push(result)} />)
-    await waitFor(() => expect(screen.getByRole('button', { name: /update server/i })).toBeTruthy())
+    await waitFor(() => expect(screen.getByRole('button', { name: /update Podium/i })).toBeTruthy())
 
-    screen.getByRole('button', { name: /update server/i }).click()
+    screen.getByRole('button', { name: /update Podium/i }).click()
     await waitFor(() =>
       expect(screen.getByTestId('view-state').textContent).toContain('in-progress'),
     )
@@ -116,9 +116,9 @@ describe('useUpdateState server action', () => {
       calls += 1
       if (calls === 1) return { total: 3, behind: 3, converging: 0, failed: 0 }
       if (calls === 2)
-        return { total: 3, behind: 2, converging: 2, failed: 0, targetVersion: '0.4.2' }
+        return { total: 3, behind: 3, converging: 1, failed: 0, targetVersion: '0.4.2' }
       if (calls === 3)
-        return { total: 3, behind: 1, converging: 1, failed: 0, targetVersion: '0.4.2' }
+        return { total: 3, behind: 2, converging: 2, failed: 0, targetVersion: '0.4.2' }
       return { total: 3, behind: 0, converging: 0, failed: 0, targetVersion: '0.4.2' }
     })
     mocks.mutate.mockResolvedValue({
@@ -129,36 +129,197 @@ describe('useUpdateState server action', () => {
       fleet: { total: 3, behind: 3, converging: 3, failed: 0, targetVersion: '0.4.2' },
     })
 
-    render(<Probe onResult={() => {}} liveFleet />)
-    await waitFor(() => expect(screen.getByRole('button', { name: /update server/i })).toBeTruthy())
-    screen.getByRole('button', { name: /update server/i }).click()
+    const results: UpdateStateResult[] = []
+    render(<Probe onResult={(result) => results.push(result)} liveFleet />)
+    await waitFor(() => expect(screen.getByRole('button', { name: /update Podium/i })).toBeTruthy())
+    screen.getByRole('button', { name: /update Podium/i }).click()
 
-    await waitFor(
-      () => expect(screen.getByTestId('view-state').textContent).toContain('in-progress:0.4.2:1:4'),
-      { timeout: 4_000 },
-    )
+    await waitFor(() => {
+      expect(
+        results.some(
+          (result) =>
+            result.view.state === 'in-progress' &&
+            result.view.version === '0.4.2' &&
+            result.view.done === 1 &&
+            result.view.total === 4,
+        ),
+      ).toBe(true)
+    })
     expect(calls).toBeGreaterThanOrEqual(3)
   })
 
-  it('moves the shared dialog to failed with the server detail', async () => {
+  /**
+   * The fleet read used to happen ONCE at mount and swallow its failure, so a
+   * read that failed before the session was established (a 401 on the live
+   * server) left `behind: 0` for the life of the page — and with it, no server
+   * or machine places in the dialog, only "This app". The retry is what makes
+   * those places appear at all.
+   */
+  it('recovers the fleet after a failed first read, so the places appear', async () => {
+    vi.useFakeTimers()
+    try {
+      setupTransport()
+      let calls = 0
+      mocks.query.mockImplementation(async () => {
+        calls += 1
+        if (calls === 1) throw new Error('unauthorized')
+        return { total: 2, behind: 2, converging: 0, failed: 0, targetVersion: '0.4.2' }
+      })
+
+      const results: UpdateStateResult[] = []
+      render(<Probe onResult={(result) => results.push(result)} liveFleet />)
+
+      // The first read failed: nothing knows of any machine yet.
+      await vi.advanceTimersByTimeAsync(0)
+      expect(results.at(-1)?.fleet.behind ?? 0).toBe(0)
+
+      // The idle refresh recovers it without a reload or any user action.
+      await vi.advanceTimersByTimeAsync(30_000)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(calls).toBeGreaterThanOrEqual(2)
+      expect(results.at(-1)?.fleet.behind).toBe(2)
+
+      const view = results.at(-1)?.view
+      const places = view && 'places' in view ? view.places.map((place) => place.kind) : []
+      expect(places).toContain('machines')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('discovers a newly ready target on the idle refresh without reloading', async () => {
+    vi.useFakeTimers()
+    try {
+      mocks.makeTrpc.mockReturnValue({
+        setup: { channel: { query: vi.fn(async () => 'stable') } },
+        updates: {
+          fleet: { query: vi.fn().mockRejectedValue(new Error('unauthorized')) },
+          converge: { mutate: mocks.mutate },
+        },
+      })
+      let versionReads = 0
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string) => ({
+          ok: true,
+          json: async () => {
+            if (!url.endsWith('/version')) return { appVersion: '0.4.1' }
+            versionReads += 1
+            return versionReads > 2 ? { appVersion: '0.4.1', target } : { appVersion: '0.4.1' }
+          },
+        })),
+      )
+
+      render(<Probe onResult={() => {}} liveFleet />)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(screen.queryByRole('button', { name: /update Podium/i })).toBeNull()
+
+      await vi.advanceTimersByTimeAsync(30_000)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(screen.getByRole('button', { name: /update Podium/i })).toBeTruthy()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('moves the shared dialog to a translated, actionable server failure', async () => {
     setupTransport()
-    mocks.mutate.mockRejectedValue(new Error('The update transport is unavailable.'))
+    mocks.mutate.mockRejectedValueOnce(
+      new Error('Unable to connect. Is the computer able to access the url?'),
+    )
+    mocks.mutate.mockResolvedValueOnce({
+      state: 'in-progress',
+      version: '0.4.2',
+      done: 0,
+      total: 2,
+      fleet: { total: 1, behind: 1, converging: 1, failed: 0, targetVersion: '0.4.2' },
+    })
     const results: UpdateStateResult[] = []
 
     render(<Probe onResult={(result) => results.push(result)} />)
-    await waitFor(() => expect(screen.getByRole('button', { name: /update server/i })).toBeTruthy())
+    await waitFor(() => expect(screen.getByRole('button', { name: /update Podium/i })).toBeTruthy())
 
-    screen.getByRole('button', { name: /update server/i }).click()
-    await waitFor(() =>
-      expect(screen.getByTestId('view-state').textContent).toContain(
-        'The update transport is unavailable.',
-      ),
-    )
+    screen.getByRole('button', { name: /update Podium/i }).click()
+    await waitFor(() => expect(screen.getByTestId('view-state').textContent).toContain('try'))
 
     expect(results.at(-1)?.view).toEqual({
       state: 'failed',
-      detail: 'The update transport is unavailable.',
+      message: 'Podium could not reach the update source.',
+      guidance: "Check this server's internet connection, then try the update again.",
+      diagnostic: 'The update could not be downloaded.',
     })
+    expect(screen.getByTestId('view-state').textContent).not.toMatch(/unable to connect|url/i)
+
+    screen.getByRole('button', { name: /update Podium/i }).click()
+    await waitFor(() =>
+      expect(screen.getByTestId('view-state').textContent).toContain('in-progress'),
+    )
+    expect(mocks.mutate).toHaveBeenCalledTimes(2)
+  })
+
+  it('retains the guarded retry when the server reaches target before the attempt fails', async () => {
+    setupTransport()
+    const settledFleet: UpdateFleetState = {
+      total: 1,
+      behind: 1,
+      converging: 0,
+      failed: 0,
+      targetVersion: '0.4.2',
+    }
+    let queryCalls = 0
+    mocks.query.mockImplementation(() => {
+      queryCalls += 1
+      return Promise.resolve(settledFleet)
+    })
+
+    let failAttempt: (() => void) | undefined
+    mocks.mutate.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          failAttempt = () =>
+            reject(new Error('Unable to connect. Is the computer able to access the url?'))
+        }),
+    )
+    mocks.mutate.mockResolvedValueOnce({
+      state: 'in-progress',
+      version: '0.4.2',
+      done: 0,
+      total: 2,
+      fleet: { ...settledFleet, converging: 1, failed: 0 },
+    })
+
+    let versionReads = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => ({
+        ok: true,
+        json: async () =>
+          url.endsWith('/version')
+            ? { appVersion: ++versionReads === 1 ? '0.4.1' : '0.4.2', target }
+            : { appVersion: '0.4.1' },
+      })),
+    )
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} liveFleet />)
+    await waitFor(() => expect(screen.getByRole('button', { name: /update Podium/i })).toBeTruthy())
+    screen.getByRole('button', { name: /update Podium/i }).click()
+    await waitFor(() => {
+      expect(queryCalls).toBeGreaterThanOrEqual(2)
+      expect(results.at(-1)?.server.appVersion).toBe('0.4.2')
+    })
+
+    failAttempt?.()
+    await waitFor(() => {
+      expect(results.at(-1)?.view.state).toBe('failed')
+      expect(screen.getByRole('button', { name: /update Podium/i })).toBeTruthy()
+    })
+
+    screen.getByRole('button', { name: /update Podium/i }).click()
+    await waitFor(() =>
+      expect(screen.getByTestId('view-state').textContent).toContain('in-progress'),
+    )
+    expect(mocks.mutate).toHaveBeenCalledTimes(2)
   })
 
   it('does not expose an install action without the desktop bridge', async () => {
@@ -172,7 +333,7 @@ describe('useUpdateState server action', () => {
     })
 
     render(<Probe onResult={() => {}} />)
-    await waitFor(() => expect(screen.getByRole('button', { name: /update server/i })).toBeTruthy())
+    await waitFor(() => expect(screen.getByRole('button', { name: /update Podium/i })).toBeTruthy())
     expect(screen.queryByText('install action')).toBeNull()
   })
 
@@ -218,16 +379,36 @@ describe('useUpdateState server action', () => {
     setupTransport()
 
     render(<Probe onResult={() => {}} withReload />)
-    await waitFor(() => expect(screen.getByRole('button', { name: /update server/i })).toBeTruthy())
+    await waitFor(() => expect(screen.getByRole('button', { name: /update Podium/i })).toBeTruthy())
     expect(screen.queryByText('reload action')).toBeNull()
   })
 
-  it('does not expose reload when only machines are touched', async () => {
+  it('starts a machine-only update and counts only the affected machine', async () => {
     setupTransport({ appVersion: '0.4.2', target })
+    mocks.mutate.mockResolvedValue({
+      state: 'in-progress',
+      version: '0.4.2',
+      done: 0,
+      total: 1,
+      fleet: {
+        total: 1,
+        behind: 1,
+        converging: 1,
+        failed: 0,
+        targetVersion: '0.4.2',
+      },
+    })
+    const results: UpdateStateResult[] = []
 
-    render(<Probe onResult={() => {}} withReload />)
-    await waitFor(() => expect(screen.getByTestId('view-state').textContent).toBe('available'))
+    render(<Probe onResult={(result) => results.push(result)} withReload />)
+    await waitFor(() => expect(screen.getByRole('button', { name: /update Podium/i })).toBeTruthy())
     expect(screen.queryByText('reload action')).toBeNull()
-    expect(screen.queryByRole('button', { name: /update server/i })).toBeNull()
+
+    screen.getByRole('button', { name: /update Podium/i }).click()
+    await waitFor(() =>
+      expect(screen.getByTestId('view-state').textContent).toBe('in-progress:0.4.2:0:1'),
+    )
+    expect(results.at(-1)?.view).toMatchObject({ state: 'in-progress', total: 1 })
+    expect(mocks.mutate).toHaveBeenCalledOnce()
   })
 })

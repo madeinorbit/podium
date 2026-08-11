@@ -56,7 +56,6 @@ export function serveNative<T>(options: NativeServeOptions<T>): NativeServer<T> 
   return runtime.Bun.serve(options)
 }
 
-import type { PublicationAuthority } from '../modules/sessions/session'
 import type { SessionRegistry } from '../relay'
 import { wireClientSocket } from './client-socket'
 import { wireDaemonSocket } from './daemon-socket'
@@ -78,8 +77,6 @@ export interface WsAuthOptions {
   authorizeClient?: (request: Request) => boolean
   userForClient?: (request: Request) => UserId | undefined
   roleForClient?: (request: Request) => UserRole | undefined
-  resolvePublicationAuthority?: (request: Request) => PublicationAuthority
-  serverRole?: string
 }
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]'])
@@ -121,8 +118,6 @@ interface SocketData {
   url: string
   userId?: UserId
   userRole?: UserRole
-  publicationAuthority?: PublicationAuthority
-  serverRole?: string
   socket?: NativeGatewaySocket
 }
 
@@ -207,8 +202,6 @@ export function attachWebSockets(
       const id = wireClientSocket(socket, native.data.url, registry, {
         userId: native.data.userId,
         userRole: native.data.userRole,
-        publicationAuthority: native.data.publicationAuthority,
-        serverRole: native.data.serverRole,
       })
       if (id === undefined) clients.delete(socket)
     },
@@ -260,19 +253,11 @@ export function attachWebSockets(
         ) {
           return new Response('Unauthorized', { status: 401, headers: { connection: 'close' } })
         }
-        let publicationAuthority: PublicationAuthority | undefined
-        try {
-          publicationAuthority = auth.resolvePublicationAuthority?.(request)
-        } catch {
-          return new Response('Forbidden', { status: 403, headers: { connection: 'close' } })
-        }
         data = {
           kind: 'client',
           url: request.url,
           userId,
           userRole,
-          ...(publicationAuthority ? { publicationAuthority } : {}),
-          ...(auth.serverRole ? { serverRole: auth.serverRole } : {}),
         }
       } else {
         data = { kind: 'daemon', url: request.url }

@@ -8,7 +8,6 @@
  * single-operator placement.
  */
 
-import type { SuperThreadView } from '../viewmodels/slices/superagent'
 import type {
   AgentKind,
   IssueId,
@@ -23,12 +22,46 @@ import type { PodiumClientApi } from '../api'
 import type { SocketHub } from '../socket-transport'
 import type { SpawnTarget } from '../spawn-agent'
 import { type Router, routeDefaults } from '../ui-state'
-import type { DockTab, FileScope, FileTab, PinKind, PinState, RecentFileEntry } from '../viewmodels'
-import { reposToViews, tabIdFor } from '../viewmodels'
+import type {
+  DockTab,
+  FileScope,
+  FileTab,
+  PaneId,
+  PinKind,
+  PinState,
+  RecentFileEntry,
+  TabId,
+  WorkspaceLayout,
+  WorkspaceMap,
+} from '../viewmodels'
+import {
+  activateTab,
+  closePane,
+  closeTab,
+  focusPane,
+  leafPaneIds,
+  moveTab,
+  openTab,
+  promoteTab,
+  reposToViews,
+  resizeSplit,
+  splitPane,
+  tabIdFor,
+} from '../viewmodels'
+import type { SuperThreadView } from '../viewmodels/slices/superagent'
 import {
   createReplicatedLayoutController,
   type ReplicatedLayoutController,
 } from './replicated-layout'
+import {
+  currentWorkspace,
+  type WorkspacePatch,
+  type WorkspaceSelection,
+  workspaceFor,
+  workspaceKeyForState,
+  workspacesPatch,
+  workspaceWritePatch,
+} from './state'
 import type { Store, StoreNotices } from './types'
 import type { EngineOutbox, OutboxKinds } from './wiring'
 
@@ -48,6 +81,17 @@ export const UI_LOCAL_ACTIONS = [
   'setSelectedIssueId',
   'setPane',
   'setFocusedPane',
+  'setSplitEnabled',
+  'openSessionTab',
+  'openTabInWorkspace',
+  'promoteWorkspaceTab',
+  'activateWorkspaceTab',
+  'closeWorkspaceTab',
+  'moveWorkspaceTab',
+  'splitWorkspacePane',
+  'closeWorkspacePane',
+  'focusWorkspacePane',
+  'resizeWorkspaceSplit',
   'navigateToSession',
   'setDockShell',
   'setDockVisibleSession',
@@ -112,10 +156,12 @@ type ActionState = {
   paletteOpen: boolean
   selectedWorktree: string | null
   selectedIssueId: IssueId | null
+  workspaces: WorkspaceMap
   paneA: SessionId | null
   paneB: SessionId | null
   split: boolean
   focusedPane: 'A' | 'B'
+  splitEnabled: boolean
   panelMode: Record<string, 'chat' | 'native'>
   dockShells: Record<string, SessionId>
   dockVisibleSession: string | null
@@ -165,6 +211,57 @@ function reducePin(state: PinState, kind: PinKind, id: string, pinned: boolean):
   return { ...state, [key]: pinned ? [...values, id] : values }
 }
 
+/** The slice of action state a workspace write reads. */
+type WorkspaceStateSlice = Pick<
+  ActionState,
+  'issues' | 'selectedIssueId' | 'selectedWorktree' | 'workspaces'
+>
+
+/** Reduce the current workspace and re-derive the pane mirrors — the pure core
+ *  of every workspace action. */
+function workspaceEdit(
+  st: WorkspaceStateSlice,
+  reduce: (ws: WorkspaceLayout) => WorkspaceLayout,
+  selection?: Partial<WorkspaceSelection>,
+): WorkspacePatch {
+  const key = workspaceKeyForState(selection ? { ...st, ...selection } : st)
+  return workspaceWritePatch(st, key, reduce(workspaceFor(st, key)))
+}
+
+/**
+ * Drop a tab from EVERY workspace, not just the one on screen.
+ *
+ * Used where the thing behind the tab is gone (a killed session, a closed file),
+ * which is the only reason a tab may disappear from a workspace the operator is
+ * not looking at. Closing a tab by hand goes through `closeWorkspaceTab` and
+ * touches the current workspace alone.
+ */
+function forgetTab(st: WorkspaceStateSlice, tabId: TabId): WorkspacePatch {
+  return workspacesPatch(st, (ws) => closeTab(ws, tabId))
+}
+
+/**
+ * The pane scalars after a tab is forgotten.
+ *
+ * `patch` carries the mirror whenever the layout moved, and the mirror is the
+ * ONLY thing allowed to write these — spread it whole. The fallbacks cover the
+ * case where no layout held the tab (nothing to mirror) but a pane scalar still
+ * names it, which is the pre-POD-710 restore path. `=== undefined` rather than
+ * `??`, because `null` is a value the mirror legitimately computes: a `??` here
+ * discarded "this pane is now empty" and kept the dead id.
+ */
+function forgottenPanes(
+  patch: WorkspacePatch,
+  st: Pick<ActionState, 'paneA' | 'paneB'>,
+  tabId: TabId,
+): WorkspacePatch {
+  return {
+    ...patch,
+    ...(patch.paneA === undefined && st.paneA === tabId ? { paneA: null } : {}),
+    ...(patch.paneB === undefined && st.paneB === tabId ? { paneB: null } : {}),
+  }
+}
+
 export function createEngineActions<TApi extends PodiumClientApi>(
   rt: EngineActionRuntime<TApi>,
 ): EngineActions<TApi> {
@@ -174,6 +271,33 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     api,
     notices: rt.notices,
   })
+  /**
+   * ONE WRITE PATH for the tab workspaces (POD-710). Every action below rewrites
+   * exactly the CURRENT workspace and re-derives the pane mirrors from it, so
+   * `paneA`/`paneB`/`split`/`focusedPane` can never drift from what is on
+   * screen. `selection` names the workspace a navigation is moving TO, when the
+   * same apply also changes the selected issue/worktree.
+   */
+  const editWorkspace = (
+    reduce: (ws: WorkspaceLayout) => WorkspaceLayout,
+    selection?: Partial<WorkspaceSelection>,
+  ): void => {
+    rt.apply(workspaceEdit(rt.state(), reduce, selection))
+  }
+
+  const openInWorkspace = (tabId: TabId, opts?: { permanent?: boolean; paneId?: PaneId }): void => {
+    if (!tabId) return
+    editWorkspace((ws) =>
+      openTab(ws, tabId, {
+        // Default PERMANENT: only the flight deck's single click asks for a
+        // preview, and a caller that has not thought about it wants a tab that
+        // stays rather than one the next click recycles.
+        permanent: opts?.permanent !== false,
+        ...(opts?.paneId !== undefined ? { paneId: opts.paneId } : {}),
+      }),
+    )
+  }
+
   return {
     replicatedLayout,
     setPinned: async (kind: PinKind, id: string, pinned: boolean) => {
@@ -242,9 +366,63 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     setPaletteOpen: (paletteOpen) => rt.apply({ paletteOpen }),
     setSelectedWorktree: (selectedWorktree) => rt.apply({ selectedWorktree }),
     setSelectedIssueId: (selectedIssueId) => rt.apply({ selectedIssueId }),
-    setPane: (pane, id) =>
-      rt.apply(pane === 'A' ? { paneA: id, focusedPane: pane } : { paneB: id, focusedPane: pane }),
+    /**
+     * PANE-SHAPED ADAPTER over the workspace model, and nothing more.
+     *
+     * `A` is the first leaf pane and `B` the second, so selecting into one opens
+     * (or activates) a tab there and the mirror reports it back. Every branch
+     * goes through the layout: the scalars are DERIVED, and a second writer to a
+     * derived field is how they drift out of the strip that renders them.
+     *
+     * Two branches are therefore inert rather than raw writes:
+     *  - `id === null`. Clearing a pane is not an operation the model has — a
+     *    pane holds tabs and shows one of them; emptying it means closing them.
+     *    The callers that passed null (`selectWorktree` with no session to open)
+     *    are ALREADY covered: switching task/worktree switches workspace, and
+     *    that workspace's own layout — restored exactly, which is the point —
+     *    re-derives the scalars. Blanking them here overrode a restore.
+     *  - pane `B` with a single-leaf layout. There is no second pane; the
+     *    operator makes one by splitting. Writing `paneB` anyway produced a
+     *    session that the strip had no tab for and no pane rendered.
+     */
+    setPane: (pane, id) => {
+      if (id === null) return
+      const st = rt.state()
+      const leaves = leafPaneIds(workspaceFor(st, workspaceKeyForState(st)).root)
+      const paneId = pane === 'A' ? leaves[0] : leaves[1]
+      if (paneId === undefined) return
+      editWorkspace((ws) => openTab(ws, id, { permanent: true, paneId }))
+    },
+    openSessionTab: (sessionId, opts) => openInWorkspace(sessionId, opts),
+    openTabInWorkspace: (tabId, opts) => openInWorkspace(tabId, opts),
+    promoteWorkspaceTab: (tabId) => editWorkspace((ws) => promoteTab(ws, tabId)),
+    activateWorkspaceTab: (tabId) => editWorkspace((ws) => activateTab(ws, tabId)),
+    // Closing a tab closes a VIEW: the session is untouched (it lives in the
+    // flight deck now), and a file tab's buffer goes with its only view.
+    closeWorkspaceTab: (tabId) => {
+      const st = rt.state()
+      // A file tab's buffer dies with its view, so it leaves every workspace; a
+      // session tab is only a view here and closes in the one on screen.
+      const isFile = st.fileTabs.some((tab) => tab.id === tabId)
+      const patch = isFile ? forgetTab(st, tabId) : workspaceEdit(st, (ws) => closeTab(ws, tabId))
+      const fileTabs = st.fileTabs.filter((tab) => tab.id !== tabId)
+      rt.apply({
+        ...forgottenPanes(patch, st, tabId),
+        ...(fileTabs.length !== st.fileTabs.length ? { fileTabs } : {}),
+      })
+    },
+    moveWorkspaceTab: (tabId, toPaneId, toIndex) =>
+      editWorkspace((ws) => moveTab(ws, tabId, toPaneId, toIndex)),
+    splitWorkspacePane: (paneId, axis, opts) =>
+      editWorkspace((ws) => splitPane(ws, paneId, axis, opts)),
+    closeWorkspacePane: (paneId) => editWorkspace((ws) => closePane(ws, paneId)),
+    focusWorkspacePane: (paneId) => editWorkspace((ws) => focusPane(ws, paneId)),
+    resizeWorkspaceSplit: (path, sizes) => editWorkspace((ws) => resizeSplit(ws, path, sizes)),
     setFocusedPane: (focusedPane) => rt.apply({ focusedPane }),
+    // The view telling the engine what it renders — see EngineState.splitEnabled.
+    // Explicit and typed on purpose: the engine never reads a feature flag, and
+    // "every leaf is on screen" is an assumption it is not entitled to make.
+    setSplitEnabled: (splitEnabled) => rt.apply({ splitEnabled }),
     navigateToSession: (sessionIdOrRef) => {
       const state = rt.state()
       const meta = resolveSessionIdentifier(sessionIdOrRef, state.sessions)
@@ -255,11 +433,24 @@ export function createEngineActions<TApi extends PodiumClientApi>(
           .map((candidate) => candidate.path)
           .filter((path) => meta.cwd === path || meta.cwd.startsWith(`${path}/`))
           .sort((a, b) => b.length - a.length)[0] ?? state.selectedWorktree
-      rt.apply({
+      const selection = {
         ...(meta.issueId ? { selectedIssueId: meta.issueId } : {}),
         ...(worktree ? { selectedWorktree: worktree } : {}),
-        paneA: meta.sessionId,
-        focusedPane: 'A',
+      }
+      rt.apply({
+        ...selection,
+        // Landing on a session opens it as a real tab in the workspace it
+        // belongs to — otherwise the pane would show a session the strip has no
+        // tab for, and the next layout write would mirror it away. The mirror
+        // that comes back sets the pane scalars: forcing `paneA` on top of it
+        // put the session in BOTH panes of a split layout (the tab opened in
+        // the focused pane B, and the literal repeated it in A), blanking the
+        // other half.
+        ...workspaceEdit(
+          { ...state, ...selection },
+          (ws) => openTab(ws, meta.sessionId, { permanent: true }),
+          selection,
+        ),
       })
       rt.router.navigate({
         ...routeDefaults('workspace'),
@@ -281,7 +472,27 @@ export function createEngineActions<TApi extends PodiumClientApi>(
       else delete dockShells[worktreePath]
       rt.apply({ dockShells })
     },
-    toggleSplit: () => rt.apply({ split: !rt.state().split }),
+    /**
+     * SPLIT / UNSPLIT, as a layout edit (POD-710 wave 2).
+     *
+     * `split` is DERIVED from the layout's leaf count, so the old
+     * `rt.apply({ split: !split })` was a write that the very next layout write
+     * undid: it flipped the scalar true against a single-leaf layout and the
+     * mirror derived it straight back to false. Toggling now edits the thing the
+     * scalar is a mirror OF.
+     *
+     * Collapsing merges every other pane's tabs into the first (closePane's own
+     * rule) rather than closing them — unsplitting is a change of arrangement,
+     * and it must not silently take views away with it.
+     */
+    toggleSplit: () => {
+      const leaves = leafPaneIds(currentWorkspace(rt.state()).root)
+      if (leaves.length < 2) {
+        editWorkspace((ws) => splitPane(ws, ws.focusedPaneId, 'row'))
+        return
+      }
+      editWorkspace((ws) => leaves.slice(1).reduce((acc, paneId) => closePane(acc, paneId), ws))
+    },
     openFile: (sessionId, path) => {
       const scope: FileScope = { kind: 'session', sessionId }
       const id = tabIdFor(scope, path)
@@ -379,9 +590,11 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     closeFileTab: (id) => {
       const state = rt.state()
       rt.apply({
+        // The WHOLE mirror, not a hand-picked `workspaces`/`paneA`/`paneB`:
+        // dropping `split`/`focusedPane` left the layout saying one pane and
+        // the scalars saying two, with no later write able to correct it.
+        ...forgottenPanes(forgetTab(state, id), state, id),
         fileTabs: state.fileTabs.filter((tab) => tab.id !== id),
-        paneA: state.paneA === id ? null : state.paneA,
-        paneB: state.paneB === id ? null : state.paneB,
       })
     },
     readFileScoped: ((scope: FileScope, path: string) =>
@@ -425,12 +638,16 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     killSession: async (sessionId) => {
       await api.sessions.kill.mutate({ sessionId }).catch(() => {})
       const state = rt.state()
+      // A killed session's tabs are views onto something that no longer exists —
+      // the one case where a tab goes away without the operator closing it. The
+      // whole mirror is applied, `split` and `focusedPane` included: killing the
+      // session in the second pane collapses it, and a patch that computed that
+      // but did not write it left a phantom pane nothing could clear.
       rt.apply({
+        ...forgottenPanes(forgetTab(state, sessionId), state, sessionId),
         fileTabs: state.fileTabs.filter(
           (tab) => !(tab.scope.kind === 'session' && tab.scope.sessionId === sessionId),
         ),
-        paneA: state.paneA === sessionId ? null : state.paneA,
-        paneB: state.paneB === sessionId ? null : state.paneB,
         pins: { ...state.pins, panels: state.pins.panels.filter((id) => id !== sessionId) },
         tabOrders: Object.fromEntries(
           Object.entries(state.tabOrders).map(([worktree, ids]) => [

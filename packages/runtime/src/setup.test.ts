@@ -71,8 +71,12 @@ describe('setup core', () => {
     expect(loadConfig()).toMatchObject({ mode: 'server', publicUrl: 'https://relay.ts.net' })
   })
   it('applySetup takes an explicit mode (web server-only reachability, fresh config)', () => {
-    applySetup({ publicUrl: 'https://relay.ts.net', mode: 'server' })
-    expect(loadConfig()).toMatchObject({ mode: 'server', publicUrl: 'https://relay.ts.net' })
+    applySetup({ publicUrl: 'https://relay.ts.net', mode: 'server', port: 24_444 })
+    expect(loadConfig()).toMatchObject({
+      mode: 'server',
+      publicUrl: 'https://relay.ts.net',
+      port: 24_444,
+    })
   })
   it('applySetup does not overwrite a persistence the box already chose', () => {
     saveConfig({ mode: 'all-in-one', persistence: 'detached' })

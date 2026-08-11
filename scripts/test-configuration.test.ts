@@ -23,6 +23,7 @@ import { REUSE_GUARD_SETUP_FILE } from '../apps/server/vitest.shard'
 import serverStoreConfig from '../apps/server/vitest.store.config'
 import webConfig from '../apps/web/vitest.config'
 import frontendPerfConfig from '../apps/web/vitest.frontend-perf.config'
+import syncPerfConfig from '../packages/sync/vitest.perf.config'
 import phase3BrowserConfig from '../tests/e2e/.phase3-playwright.config'
 import browserConfig from '../tests/e2e/playwright.config'
 import acceptanceConfig from '../vitest.acceptance.config'
@@ -36,6 +37,7 @@ import { QUARANTINE } from './browser-quarantine'
 import { HEAVY_LANES, ORACLE_LANES } from './oracle'
 import { runWithHeavyTestLease } from './test-heavy'
 import scriptsConfig from './vitest.config'
+import rearchConfig from './vitest.rearch.config'
 
 type Project =
   | string
@@ -93,7 +95,7 @@ const smokeTestFiles = (dir: URL, prefix = ''): string[] =>
   readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const relative = prefix ? `${prefix}/${entry.name}` : entry.name
     if (entry.isDirectory()) {
-      if (['.git', '.worktrees', 'node_modules'].includes(entry.name)) return []
+      if (['.git', '.worktrees', '.claude', 'node_modules'].includes(entry.name)) return []
       return smokeTestFiles(new URL(`${entry.name}/`, dir), relative)
     }
     return /\.smoke\.test\.(?:ts|tsx)$/.test(entry.name) ? [relative] : []
@@ -357,13 +359,36 @@ describe('test lane configuration', () => {
     expect(config(frontendPerfConfig).test?.fileParallelism).toBe(false)
   })
 
-  it('routes the default unit lane through cached package tasks', () => {
+  it('keeps quadratic benchmarks out of the default gate and explicitly heavy', () => {
+    expect(nodeProject(unitConfig).test?.exclude).toContain('**/*.bench.test.{ts,tsx}')
+    expect(config(syncPerfConfig).test?.include).toEqual([
+      'packages/sync/src/adapters/indexeddb/apply-scaling.bench.test.ts',
+    ])
+    expect(config(syncPerfConfig).test?.retry).toBe(0)
+    expect(config(syncPerfConfig).test?.maxWorkers).toBe(1)
+    expect(config(syncPerfConfig).test?.fileParallelism).toBe(false)
+
+    const root = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+      scripts: Record<string, string>
+    }
+    const sync = JSON.parse(
+      readFileSync(new URL('../packages/sync/package.json', import.meta.url), 'utf8'),
+    ) as { scripts: Record<string, string> }
+    expect(root.scripts['test:perf:sync']).toBe(
+      'bun run --cwd packages/sync test:perf:apply-scaling',
+    )
+    expect(sync.scripts['test:perf:apply-scaling']).toContain('validation-admission.ts heavy')
+  })
+
+  it('keeps the conventional default lean and the exhaustive lane explicit', () => {
     const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
       scripts: Record<string, string>
     }
-    expect(pkg.scripts.test).toBe('bun scripts/test.ts')
+    expect(pkg.scripts.test).toContain('bun run typecheck &&')
+    expect(pkg.scripts['test:agent']).toBe('bun run test')
+    expect(pkg.scripts['test:full']).toBe('bun run typecheck && bun scripts/test.ts')
     expect(pkg.scripts['test:unit']).toBe('bun scripts/test.ts')
-    expect(pkg.scripts.test).not.toContain('vitest.unit.config.ts')
+    expect(pkg.scripts.test).toContain('vitest.unit.config.ts')
     expect(pkg.scripts.test).not.toContain('test:web')
     expect(pkg.scripts.test).not.toContain('test:bun:unit')
     expect(pkg.scripts.test).not.toContain('test:integration')
@@ -387,7 +412,32 @@ describe('test lane configuration', () => {
     }
     expect(pkg.scripts['test:perf:frontend']).toBe('bun run --cwd apps/web test:perf:large-state')
     expect(pkg.scripts['test:e2e']).toContain('NODE_OPTIONS=--conditions=@podium/source')
+    expect(pkg.scripts.test).toContain('bun run typecheck &&')
     expect(pkg.scripts['test:smoke:agents']).toContain('PODIUM_REAL_CLI=1')
+    expect(pkg.scripts.test).toContain('--maxWorkers=1')
+    expect(pkg.scripts.test).not.toContain('validation-admission.ts')
+    expect(pkg.scripts.test).toContain('packages/runtime/src/boot.test.ts')
+    expect(pkg.scripts.test).toContain('apps/server/src/router.setup.test.ts')
+    expect(pkg.scripts.test).toContain('apps/daemon/src/connection-state.test.ts')
+    expect(pkg.scripts.test).toContain('scripts/test-configuration.test.ts')
+    expect(pkg.scripts.test).not.toContain('scripts/test.ts')
+  })
+
+  it('keeps rewrite migration tests out of routine package validation', () => {
+    expect(config(scriptsConfig).test?.exclude).toContain('scripts/rearch-audit.test.ts')
+    expect(config(rearchConfig).test?.include).toEqual(['scripts/rearch-audit.test.ts'])
+    expect(config(rearchConfig).test?.maxWorkers).toBe(1)
+
+    const root = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+      scripts: Record<string, string>
+    }
+    const scripts = JSON.parse(
+      readFileSync(new URL('./package.json', import.meta.url), 'utf8'),
+    ) as { scripts: Record<string, string> }
+    expect(root.scripts['test:rearch']).toBe(
+      'bun run audit:rearch && bun run --cwd scripts test:rearch',
+    )
+    expect(scripts.scripts['test:rearch']).toContain('vitest.rearch.config.ts')
   })
 
   it('guards direct package validation and passes root ownership through Turbo', () => {
@@ -410,6 +460,13 @@ describe('test lane configuration', () => {
       }
       for (const [name, script] of Object.entries(pkg.scripts ?? {})) {
         if (!/^(test|typecheck)(?::|$)/.test(name)) continue
+        if (/^typecheck(?::|$)/.test(name)) {
+          expect(
+            script,
+            `${pkg.name ?? file.pathname}#${name} must stay admission-free`,
+          ).not.toContain('validation-admission.ts')
+          continue
+        }
         expect(
           script,
           `${pkg.name ?? file.pathname}#${name} bypasses validation admission`,
@@ -496,12 +553,10 @@ describe('test lane configuration', () => {
       await runWithHeavyTestLease(['bash', '-c', 'exit 0'], { cwd: fileURLToPath(repoRoot) }),
     ).toBe(0)
 
-    // …and that either selected admission path is awaited inside process.exit(), rather
-    // than having its result computed and dropped.
+    // Both the lock-free focused child and heavy full-graph path must propagate red.
     const source = readFileSync(new URL('./test.ts', import.meta.url), 'utf8')
-    expect(source).toMatch(
-      /process\.exit\(\s*admission\.shared\s*\?\s*await runWithValidationAdmission\([\s\S]*?:\s*await runWithHeavyTestLease\(/,
-    )
+    expect(source).toContain('process.exit(await proc.exited)')
+    expect(source).toMatch(/process\.exit\(\s*await runWithHeavyTestLease\(/)
   })
 
   it('reports every lane without running anything on a failed dependency [POD-520]', () => {
@@ -567,7 +622,6 @@ describe('test lane configuration', () => {
     expect(lane).toMatch(/resolveSelectedSuites|suiteSelectors/)
   })
 
-
   it('keeps webServer budget for harness boot only [POD-535]', () => {
     // Builds left this command; serve-harness answers /health in ~5s. A multi-
     // minute floor would re-invite stuffing builds back into webServer.
@@ -575,9 +629,10 @@ describe('test lane configuration', () => {
       const { timeout, command } = webServerEntry(playwright)
       expect(command).toContain('serve-harness.ts')
       expect(timeout, 'webServer timeout missing').toBeTypeOf('number')
-      expect(timeout!, 'harness-only boot should not need a multi-minute budget').toBeLessThanOrEqual(
-        180_000,
-      )
+      expect(
+        timeout!,
+        'harness-only boot should not need a multi-minute budget',
+      ).toBeLessThanOrEqual(180_000)
       expect(timeout!, 'harness-only boot still needs some headroom').toBeGreaterThanOrEqual(60_000)
     }
   })

@@ -13,20 +13,22 @@ package and are omitted.
 
 | License | Packages |
 | --- | --- |
-| MIT | 417 |
-| ISC | 24 |
+| MIT | 421 |
+| ISC | 23 |
+| Apache-2.0 | 6 |
 | BSD-3-Clause | 6 |
-| Apache-2.0 | 5 |
 | BSD-2-Clause | 5 |
+| BlueOak-1.0.0 | 3 |
 | MPL-2.0 | 3 |
-| BlueOak-1.0.0 | 2 |
 | OFL-1.1 | 2 |
 | SEE LICENSE IN LICENSE.md | 2 |
 | (MIT OR CC0-1.0) | 1 |
 | (MPL-2.0 OR Apache-2.0) | 1 |
 | 0BSD | 1 |
+| Apache-2.0 OR MIT | 1 |
 | CC-BY-4.0 | 1 |
 | CC0-1.0 | 1 |
+| MIT OR Apache-2.0 | 1 |
 | Python-2.0 | 1 |
 | SEE LICENSE IN README.md | 1 |
 | Unlicense | 1 |
@@ -600,7 +602,7 @@ The following third-party sources are vendored (copied) into this repository:
 - Copyright (c) 2024 Colin McDonnell
 - https://standardschema.dev
 
-### @tanstack/db@0.6.14
+### @tanstack/db@0.6.16
 
 - License: MIT
 - Copyright (c) 2025 Kyle Mathews
@@ -612,13 +614,19 @@ The following third-party sources are vendored (copied) into this repository:
 - Copyright (c) 2025 Kyle Mathews
 - https://tanstack.com/db
 
+### @tanstack/db-sqlite-persistence-core@0.2.8
+
+- License: MIT
+- Copyright (c) 2025 Kyle Mathews
+- https://tanstack.com/db
+
 ### @tanstack/pacer-lite@0.2.2
 
 - License: MIT
 - Copyright (c) 2025 Tanner Linsley
 - https://tanstack.com/pacer
 
-### @tanstack/react-db@0.1.92
+### @tanstack/react-db@0.1.94
 
 - License: MIT
 - Copyright (c) 2025 Kyle Mathews
@@ -635,6 +643,15 @@ The following third-party sources are vendored (copied) into this repository:
 - License: MIT
 - Copyright (c) 2021 Tanner Linsley
 - https://tanstack.com/store
+
+### @tauri-apps/api@2.11.1
+
+- License: Apache-2.0 OR MIT
+- https://github.com/tauri-apps/tauri#readme
+
+### @tauri-apps/plugin-sql@2.4.0
+
+- License: MIT OR Apache-2.0
 
 ### @tiptap/core@3.27.3
 
@@ -800,6 +817,10 @@ The following third-party sources are vendored (copied) into this repository:
 - License: MIT
 - Copyright (c) 2018, The xterm.js authors (https://github.com/xtermjs/xterm.js)
 
+### @xterm/headless@5.5.0
+
+- License: MIT
+
 ### @xterm/xterm@5.5.0
 
 - License: MIT
@@ -850,7 +871,7 @@ The following third-party sources are vendored (copied) into this repository:
 ### ansi-regex@6.2.2
 
 - License: MIT
-- Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)
+- Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)
 
 ### argparse@2.0.1
 
@@ -1103,7 +1124,7 @@ The following third-party sources are vendored (copied) into this repository:
 ### define-lazy-prop@2.0.0
 
 - License: MIT
-- Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)
+- Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)
 
 ### define-lazy-prop@3.0.0
 
@@ -1144,6 +1165,12 @@ The following third-party sources are vendored (copied) into this repository:
 - License: BSD-2-Clause
 - Copyright (c) 2015, Scott Motte
 - https://github.com/motdotla/dotenv#readme
+
+### drizzle-orm@1.0.0-rc.4
+
+- License: Apache-2.0
+- Copyright Drizzle Team
+- https://orm.drizzle.team
 
 ### dunder-proto@1.0.1
 
@@ -1363,6 +1390,11 @@ The following third-party sources are vendored (copied) into this repository:
 - Copyright arv@rocicorp.dev
 - https://github.com/rocicorp/fractional-indexing#readme
 
+### framer-motion@12.42.2
+
+- License: MIT
+- Copyright (c) 2018 Framer B.V.
+
 ### fresh@2.0.0
 
 - License: MIT
@@ -1372,7 +1404,7 @@ The following third-party sources are vendored (copied) into this repository:
 ### fs-extra@11.3.5
 
 - License: MIT
-- Copyright (c) 2011-2024 JP Richardson
+- Copyright (c) 2011-2017 JP Richardson
 - https://github.com/jprichardson/node-fs-extra
 
 ### function-bind@1.1.2
@@ -1482,8 +1514,8 @@ The following third-party sources are vendored (copied) into this repository:
 - License: Apache-2.0
 - copyright notice that is included in or attached to the work
 - copyright license to reproduce, prepare Derivative Works of,
-- Copyright 2019 ehmicky <ehmicky@gmail.com>
-- https://git.io/JeluP
+- Copyright 2025 ehmicky <ehmicky@gmail.com>
+- https://www.github.com/ehmicky/human-signals
 
 ### human-signals@8.0.1
 
@@ -1576,7 +1608,7 @@ The following third-party sources are vendored (copied) into this repository:
 ### is-obj@2.0.0
 
 - License: MIT
-- Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)
+- Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)
 
 ### is-obj@3.0.0
 
@@ -1586,7 +1618,7 @@ The following third-party sources are vendored (copied) into this repository:
 ### is-plain-obj@4.1.0
 
 - License: MIT
-- Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)
+- Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)
 
 ### is-promise@4.0.0
 
@@ -1626,14 +1658,13 @@ The following third-party sources are vendored (copied) into this repository:
 ### is-wsl@3.1.1
 
 - License: MIT
-- Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)
+- Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)
 
 ### isexe@2.0.0
 
-- License: ISC
-- Copyright (c) Isaac Z. Schlueter and Contributors
-- copyright notice and this permission notice appear in all copies.
-- https://github.com/isaacs/isexe#readme
+- License: BlueOak-1.0.0
+- Copyright
+- copyright in it.
 
 ### isexe@3.1.5
 
@@ -1690,8 +1721,8 @@ The following third-party sources are vendored (copied) into this repository:
 ### json-schema-typed@7.0.3
 
 - License: BSD-2-Clause
-- Copyright (c) 2018 IETF Trust, Austin Wright, Henry Andrews, Geraint Luff,
-- https://github.com/typeslick/json-schema-typed
+- Copyright Remy Rylan
+- https://github.com/RemyRylan/json-schema-typed/tree/main/dist/node
 
 ### json-schema-typed@8.0.2
 
@@ -1845,6 +1876,21 @@ The following third-party sources are vendored (copied) into this repository:
 - COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 - https://github.com/minimistjs/minimist
 
+### motion@12.42.2
+
+- License: MIT
+- Copyright (c) 2024 [Motion](https://motion.dev) B.V.
+
+### motion-dom@12.42.2
+
+- License: MIT
+- Copyright (c) 2024 [Motion](https://motion.dev) B.V.
+
+### motion-utils@12.39.0
+
+- License: MIT
+- Copyright (c) 2024 [Motion](https://motion.dev) B.V.
+
 ### ms@2.1.3
 
 - License: MIT
@@ -1863,12 +1909,6 @@ The following third-party sources are vendored (copied) into this repository:
 - Copyright (c) 2012-2014 Isaac Z. Schlueter
 - Copyright (c) 2014-2015 Douglas Christopher Wilson
 
-### node-addon-api@7.1.1
-
-- License: MIT
-- Copyright (c) 2017 [Node.js API collaborators](https://github.com/nodejs/node-addon-api#collaborators)
-- https://github.com/nodejs/node-addon-api
-
 ### node-domexception@1.0.0
 
 - License: MIT
@@ -1881,14 +1921,6 @@ The following third-party sources are vendored (copied) into this repository:
 - Copyright (c) 2016 - 2020 Node Fetch Team
 - https://github.com/node-fetch/node-fetch
 
-### node-pty@1.1.0
-
-- License: MIT
-- Copyright (c) 2012-2015, Christopher Jeffrey (https://github.com/chjj/)
-- Copyright (c) 2016, Daniel Imms (http://www.growingwiththeweb.com)
-- Copyright (c) 2018 - present Microsoft Corporation
-- https://github.com/microsoft/node-pty
-
 ### node-releases@2.0.47
 
 - License: MIT
@@ -1897,7 +1929,7 @@ The following third-party sources are vendored (copied) into this repository:
 ### npm-run-path@4.0.1
 
 - License: MIT
-- Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)
+- Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)
 
 ### npm-run-path@6.0.0
 
@@ -2020,7 +2052,7 @@ The following third-party sources are vendored (copied) into this repository:
 ### path-key@4.0.0
 
 - License: MIT
-- Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)
+- Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)
 
 ### path-to-regexp@8.4.2
 
@@ -2388,12 +2420,14 @@ The following third-party sources are vendored (copied) into this repository:
 ### signal-exit@4.1.0
 
 - License: ISC
-- Copyright (c) 2015-2023 Benjamin Coe, Isaac Z. Schlueter, and Contributors
+- Copyright (c) 2015, Contributors
+- https://github.com/tapjs/signal-exit
 
 ### signal-exit@4.1.0
 
 - License: ISC
-- Copyright (c) 2015-2023 Benjamin Coe, Isaac Z. Schlueter, and Contributors
+- Copyright (c) 2015, Contributors
+- https://github.com/tapjs/signal-exit
 
 ### sisteransi@1.0.5
 
@@ -2459,7 +2493,7 @@ The following third-party sources are vendored (copied) into this repository:
 ### strip-ansi@7.2.0
 
 - License: MIT
-- Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)
+- Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)
 
 ### strip-bom@3.0.0
 
@@ -2469,7 +2503,7 @@ The following third-party sources are vendored (copied) into this repository:
 ### strip-final-newline@2.0.0
 
 - License: MIT
-- Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)
+- Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)
 
 ### strip-final-newline@4.0.0
 

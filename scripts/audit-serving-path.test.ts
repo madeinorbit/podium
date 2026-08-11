@@ -38,14 +38,6 @@ describe('the shipped objects have one serving tail', () => {
     expect(SessionLifecycle.prototype).not.toHaveProperty('sendMetadataDelta')
   })
 
-  it('the methods the cutover put in their place ARE there', () => {
-    // The paired half. Without it, the absences above are equally satisfied by a
-    // sessions service with no delivery at all — POD-732's empty router, which
-    // "satisfies every absence claim perfectly".
-    expect(SessionLifecycle.prototype).toHaveProperty('deliverEntityMessage')
-    expect(SessionLifecycle.prototype).toHaveProperty('onFeedPublished')
-  })
-
   it('a REAL edge serves a v1 peer from the feed, with no list builder in reach', () => {
     const plumbing = feedTestPlumbing()
     plumbing.ledger.commit({

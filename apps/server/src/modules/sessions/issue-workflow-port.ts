@@ -1,4 +1,4 @@
-import type { IssueWire, SessionId } from '@podium/model'
+import type { IssueRehomeTarget, IssueWire, SessionId } from '@podium/model'
 import type { CommandPrincipal } from '../../command-principal'
 
 /**
@@ -17,10 +17,7 @@ export interface SessionIssueWorkflowPort {
     principal: CommandPrincipal,
     options: { force: boolean },
   ): Promise<{ ok: boolean; output: string; worktreeFreed: boolean }>
-  rehome(
-    issueId: string,
-    where: { machineId: string; repoPath: string; worktreePath: string },
-  ): IssueWire | null
+  rehome(issueId: string, where: IssueRehomeTarget): IssueWire | null
   recordSessionGitActivity?(
     sessionId: SessionId,
     input: { commits?: string[]; touched?: string[] },

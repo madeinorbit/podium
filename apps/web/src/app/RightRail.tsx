@@ -19,7 +19,7 @@ import { useReplicaIssues, useStoreSelector } from './store'
 /** The rail sits on the flat --bar tier (POD-516 item 9: the right dock is a
  *  dark default surface, not the selected issue's tint) — corner badges punch
  *  out of it, so this must name the rail's ACTUAL surface. */
-const RAIL_SURFACE = 'var(--bar)'
+const RAIL_SURFACE = 'var(--rail)'
 
 function railBadge(phase: MotionPhase, waitingCount: number): IdSquareBadge | null {
   if (waitingCount > 0) return { kind: 'count', count: waitingCount }
@@ -130,14 +130,14 @@ export function RightRail({
             aria-pressed={rightPanel === panel.id}
             title={panel.label}
             onClick={() => onPanelChange(rightPanel === panel.id ? null : panel.id)}
-            className={cn(
-              // `.right-rail-cell` is unlayered and sets no `position`, so the
-              // utility `relative` is safe here (unlike a border — see above).
-              'right-rail-cell relative',
-              rightPanel === panel.id && 'bg-secondary text-primary',
-            )}
+            // `.right-rail-cell` is unlayered and sets no `position`, so the
+            // utility `relative` is safe here (unlike a border — see above).
+            // The open panel's raised, ringed, issue-coloured cell lives in
+            // `.right-rail-cell[aria-pressed="true"]` (styles.css), so the rail's
+            // one "you are here" recipe is written in one place.
+            className="right-rail-cell relative"
           >
-            <panel.icon size={15} strokeWidth={1.8} aria-hidden="true" />
+            <panel.icon size={17} strokeWidth={1.7} aria-hidden="true" />
             {/* The same corner badge the ID square above renders, from the same
                 component — one geometry, one colour, one morph, one phrasing
                 for "N waiting on you" across the whole rail. */}

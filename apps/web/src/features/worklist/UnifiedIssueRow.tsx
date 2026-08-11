@@ -104,7 +104,7 @@ function FleetSummary({
               key={kind}
               data-agent-kind={kind}
               className={cn(
-                'relative flex size-[19px] items-center justify-center rounded-[6px] border',
+                'relative flex size-[18px] items-center justify-center rounded-[5px] border',
                 tileTint,
                 index > 0 && '-ml-[5px]',
               )}
@@ -124,7 +124,7 @@ function FleetSummary({
       </span>
       {live.length > 1 && (
         <span
-          className="shell-type-micro font-mono tabular-nums text-muted-foreground"
+          className="font-mono text-[9.5px] tabular-nums text-text-dim"
           data-testid="issue-fleet-total"
         >
           {live.length}
@@ -132,7 +132,7 @@ function FleetSummary({
       )}
       {nativeCount > 0 && (
         <span
-          className="shell-type-micro rounded-[5px] border border-claude/35 bg-claude/12 px-[3px] font-mono text-claude"
+          className="rounded-[5px] border border-claude/35 bg-claude/12 px-[3px] font-mono text-[9.5px] leading-[14px] text-claude"
           data-testid="issue-fleet-subagent-count"
         >
           ×{nativeCount}
@@ -252,6 +252,11 @@ export function UnifiedIssueRow({
       state={phase}
       selected={active}
       size={30}
+      // The corner badge punches out of the ROW's own ground, not the card tier
+      // it used to assume — a white ring around the dot was visible on every
+      // paper row. `--row-bg` is set by the tinted-row case in WorkRowShell; the
+      // fallback covers plain and selected rows, whose ground is the column.
+      ringColor="var(--row-bg, var(--sidebar))"
       // The ask wins the corner (amber dot); otherwise a working row shows the
       // blue spinner badge on the square itself (POD-293), not beside line 2.
       badge={waitingCount > 0 ? { kind: 'dot' } : phase === 'working' ? { kind: 'spinner' } : null}
@@ -350,7 +355,7 @@ export function UnifiedIssueRow({
             sinceMs={timing.sinceMs}
             baseMs={timing.baseMs ?? 0}
             totalMs={timing.totalMs}
-            size={11}
+            size={10}
             showSpinner={false}
             plainLanguage
             leadingSeparator

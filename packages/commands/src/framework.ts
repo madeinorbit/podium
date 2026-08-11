@@ -48,12 +48,10 @@ export type CommandScope = 'issue' | 'repo' | 'global'
  * fields never reach a log or a persisted envelope).
  *
  * They live HERE rather than in a new package because this file already IS the
- * contract framework's home, and POD-311's own scope is *"fold in the stranded
- * protocol contracts (protocol/commands.ts CommandDef, messages/mutations.ts
- * MutationEnvelope/MutationResult) so there is ONE contract framework"* — i.e.
- * POD-311 RELOCATES this, and a second framework built next to it is precisely
- * what that instruction forbids. Creating `packages/commands` here would also
- * take a new-package scaffolding commit the ledger assigns to POD-311.
+ * contract framework's home. POD-311 relocated the command definition here, and
+ * a second framework built next to it is precisely what that instruction forbids.
+ * Creating `packages/commands` here would also take a new-package scaffolding
+ * commit the ledger assigns to POD-311.
  *
  * All four are OPTIONAL on `CommandDef` so the ~70 issue/lock defs that predate
  * them still compile. That is deliberately NOT a default: `exposure` absent means
@@ -275,8 +273,8 @@ export function isExposedOn(def: CommandDef, transport: CommandTransport): boole
 /**
  * Declare one namespace's command table. Runtime-trivial (it just pairs the
  * pieces); the value is in inference — `NS` and the per-key defs stay literal,
- * so {@link CommandName} can produce the dotted wire names the
- * MutationEnvelope's `command` field carries.
+ * so {@link CommandName} can produce the dotted names carried by
+ * `OutboxCommand.name`.
  */
 export function defineCommands<NS extends string, T extends Record<string, CommandDef>>(
   namespace: NS,

@@ -36,7 +36,7 @@ vi.mock('@/app/trpc', async (importOriginal) => {
   }
 })
 
-import { SetupView } from './SetupView'
+import { reachablePort, SetupView } from './SetupView'
 
 const flush = async (): Promise<void> => {
   for (let i = 0; i < 5; i++) await Promise.resolve()
@@ -103,6 +103,22 @@ afterEach(() => {
   cleanup()
   vi.clearAllMocks()
   vi.unstubAllGlobals()
+})
+
+describe('reachablePort (POD-1583)', () => {
+  it('names the port the instance is actually served on', () => {
+    expect(reachablePort({ port: '18899' })).toBe(18899)
+  })
+
+  it('falls back to the default only when the location carries no explicit port', () => {
+    // https://podium.example on 443: naming 443 would be wrong too, so fall back.
+    expect(reachablePort({ port: '' })).toBe(18787)
+    expect(reachablePort({})).toBe(18787)
+  })
+
+  it('still yields the default when the instance IS on the default port', () => {
+    expect(reachablePort({ port: '18787' })).toBe(18787)
+  })
 })
 
 describe('SetupView', () => {

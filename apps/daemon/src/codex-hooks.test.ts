@@ -260,11 +260,14 @@ describe('codex hooks real-binary smoke', () => {
       }
     })()
 
-  it('recognizes the installed real Codex binary before editing hook files', async () => {
-    const version = parseCodexVersion(await detectCodexVersion())
-    if (!version) throw new Error('installed Codex binary did not report a parseable version')
-    expect(supportsCodexHooks(version)).toBe(true)
-  })
+  it.skipIf(!enabled)(
+    'recognizes the installed real Codex binary before editing hook files',
+    async () => {
+      const version = parseCodexVersion(await detectCodexVersion())
+      if (!version) throw new Error('installed Codex binary did not report a parseable version')
+      expect(supportsCodexHooks(version)).toBe(true)
+    },
+  )
 
   it.skipIf(!enabled)(
     '[real-agent:codex] official hook payload reaches the ingest URL',

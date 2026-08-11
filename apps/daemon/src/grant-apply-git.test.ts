@@ -51,6 +51,7 @@ describe('applyGrant git delivery', () => {
     expect(fetchArtifact).toHaveBeenCalledWith(
       grant.target.artifacts.headlessAlternatives?.[0],
       'git',
+      undefined,
     )
     expect(deps.swap).not.toHaveBeenCalled()
     expect(order).toEqual(['write', 'restart'])

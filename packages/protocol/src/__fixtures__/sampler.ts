@@ -84,6 +84,7 @@ const sampleString = (schema: z.ZodTypeAny, path: string): string => {
   else if (kinds.has('date')) value = '2026-01-02'
   else if (kinds.has('time')) value = '03:04:05'
   else if (kinds.has('url')) value = `https://example.test/${encodeURIComponent(path)}`
+  else if (kinds.has('regex') && /(digest|sha256)$/i.test(path)) value = 'a'.repeat(64)
   else if (kinds.has('cuid') || kinds.has('cuid2') || kinds.has('ulid'))
     value = 'fixtureid000000000000000'
   else if (kinds.has('regex') || kinds.has('emoji') || kinds.has('ip')) {

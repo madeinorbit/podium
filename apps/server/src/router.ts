@@ -49,7 +49,7 @@ import { cloudFamilyProcedures } from './modules/cloud/trpc'
 import { conversationFamilyProcedures } from './modules/conversations/trpc'
 import { familyState, queryProcedures } from './modules/derived-family'
 import { fileFamilyProcedures } from './modules/files/trpc'
-import { DISCOVERY_QUERIES, REPO_QUERIES } from './modules/fleet/queries'
+import { DISCOVERY_QUERIES, REPO_QUERIES, serverTransferStatusQuery } from './modules/fleet/queries'
 import { hostFamilyProcedures } from './modules/hosts/trpc'
 import {
   authFamilyProcedures,
@@ -255,7 +255,7 @@ const fleet = fleetProcedures({
           publicUrl,
           pairCode,
           podiumManaged,
-          channel: resolveUpdateChannel(config),
+          channel: resolveUpdateChannel(config) === 'stable' ? 'stable' : 'edge',
         })
       : null
   },
@@ -408,6 +408,7 @@ export const appRouter = t.router({
       visibleMachinesFor(familyState(ctx).modules, ctx.capability),
     ),
     // rename · revoke · pairingCode — DERIVED (POD-384). All three are hub-role
+    serverTransferStatus: t.procedure.query(({ ctx }) => serverTransferStatusQuery(ctx)),
     // by contract (`serverRole: 'hub'`), which is where the 404 now comes from.
     ...fleet.machines,
   }),

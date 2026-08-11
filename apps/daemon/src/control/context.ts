@@ -1,6 +1,6 @@
 import type { agentLaunchCommand } from '@podium/harness'
 import type { SessionId, UsageBucketWire } from '@podium/model'
-import type { ControlMessage, DaemonMessage } from '@podium/protocol'
+import type { ControlMessage, DaemonMessage, ServerTransferServingProof } from '@podium/protocol'
 import type { AgentSession } from '@podium/pty'
 import type { ConversationDeltaWire } from '../active-refresh'
 import type { AgentRelayHub } from '../agent-relay'
@@ -9,6 +9,7 @@ import type { BrowserOpenManager } from '../browser-open'
 import type { ComposerSyncEngine } from '../composer-sync'
 import type { HeadlessTurnHandle } from '../headless-drivers.js'
 import type { OutputScheduler } from '../output-scheduler'
+import type { PortableStateFence } from '../portable-state-fence'
 import type { SessionBinding } from '../session-binding'
 import type { SessionObservers } from '../session-observers'
 import type { DiscoveryWorkerClient } from '../worker-client'
@@ -87,10 +88,23 @@ export interface DaemonContext {
     getAgentQuota(refresh?: boolean): Promise<import('@podium/model').AgentQuotaWire[]>
   }
   /** Usage-scan memo (mutable box — handlers replace the value). */
-  usageMemo: { value?: { atMs: number; sinceMs: number; buckets: UsageBucketWire[] } }
+  usageMemo: {
+    value?: { atMs: number; sinceMs: number; buckets: UsageBucketWire[] }
+  }
 
-  /** Starts the promoted server and waits for its local readiness proof before replying. */
-  restartAfterTransfer?: () => Promise<void> | void
+  /** Process-wide admission/drain fence for daemon-owned portable-state mutations. */
+  portableStateFence: PortableStateFence
+
+  /** Starts the promoted server and returns only after the expected state is serving. */
+  restartAfterTransfer?: (
+    expected: ServerTransferServingProof,
+  ) => Promise<ServerTransferServingProof> | ServerTransferServingProof
+  /** Retires the target daemon only after promoted proof is acknowledged. */
+  retireAfterTransfer?: () => void | Promise<void>
+  /** Test-only injected process-death boundary; production leaves this absent. */
+  serverTransferCrashPoint?: (
+    point: import('../server-transfer').ServerTransferCrashPoint,
+  ) => void | Promise<void>
 
   /** Server-granted convergence is wired by the production composition root. */
   applyUpdateGrant: (

@@ -223,6 +223,8 @@ export const CONTROL_PLANE_CLASS = {
   serverTransferValidateRequest: 'control.command',
   serverTransferPromoteRequest: 'control.command',
   serverTransferAbortRequest: 'control.command',
+  serverTransferStatusRequest: 'control.command',
+  serverTransferAcknowledgeRequest: 'control.command',
 } as const satisfies Record<ControlMessage['type'], PlaneClass>
 
 /**

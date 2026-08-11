@@ -12,6 +12,7 @@ import type { UpdateActions } from './UpdateDialog'
 import { computeTouched } from './touched'
 import {
   describeUpdate,
+  describeUpdateFailure,
   type DesktopUpdateInfo,
   type UpdateInput,
   type UpdateView,
@@ -19,9 +20,12 @@ import {
 
 const BUILD_STAMP_FILE = 'podium-build.json'
 const FLEET_POLL_MS = 1_000
+/** Idle cadence: enough to recover a failed first read, quiet enough to ignore. */
+const FLEET_IDLE_POLL_MS = 30_000
 
 export interface UpdateMachineState {
   id: string
+  name?: string
   version: string
   state: 'current' | 'granted' | 'downloading' | 'restarting' | 'rejected' | 'stuck'
   online: boolean
@@ -36,6 +40,7 @@ export interface UpdateFleetState {
   failed: number
   targetVersion?: string | null
   machines?: readonly UpdateMachineState[]
+  allMachines?: readonly UpdateMachineState[]
 }
 
 export interface UseUpdateStateOptions {
@@ -45,7 +50,7 @@ export interface UseUpdateStateOptions {
   surface?: UpdateInput['surface']
   serverName?: string
   fleet?: UpdateFleetState
-  updateServer?: UpdateActions['updateServer']
+  startUpdate?: UpdateActions['startUpdate']
 }
 
 interface LocalBuild {
@@ -53,10 +58,16 @@ interface LocalBuild {
   appDigest?: string
 }
 
-type ServerActionState =
+type UpdateActionState =
   | { state: 'idle' }
-  | { state: 'in-progress'; version: string; done: number; total: number }
-  | { state: 'failed'; detail: string }
+  | {
+      state: 'in-progress'
+      version: string
+      done: number
+      total: number
+      includesServer: boolean
+    }
+  | { state: 'failed'; detail: string; machineName?: string }
 
 const EMPTY_FLEET: UpdateFleetState = {
   total: 0,
@@ -123,7 +134,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   const [server, setServer] = useState<ServerVersion>({})
   const [localBuild, setLocalBuild] = useState<LocalBuild>({ appVersion: 'dev' })
   const [fleetState, setFleetState] = useState<UpdateFleetState>(options.fleet ?? EMPTY_FLEET)
-  const [serverAction, setServerAction] = useState<ServerActionState>({ state: 'idle' })
+  const [updateAction, setUpdateAction] = useState<UpdateActionState>({ state: 'idle' })
   const [desktopUpdate, setDesktopUpdate] = useState<DesktopUpdateInfo | undefined>()
   const trpc = useMemo(() => makeTrpc(options.httpOrigin), [options.httpOrigin])
   useEffect(() => {
@@ -135,9 +146,14 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     if (!check) return
 
     let cancelled = false
-    const channel = trpc.setup.channel.query().catch(() => 'stable' as const)
+    // setup.channel now answers with the EFFECTIVE fleet default plus whether the
+    // environment forced it (POD-1882); the desktop check only wants the channel.
+    const channel = trpc.setup.channel
+      .query()
+      .then((c) => c.channel)
+      .catch(() => 'stable' as const)
     void channel
-      .then((selected) => check(selected))
+      .then((selected) => check(selected === 'dev' ? 'edge' : selected))
       .then((next) => {
         if (!cancelled) setDesktopUpdate(next ?? undefined)
       })
@@ -168,24 +184,31 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   useEffect(() => {
     if (options.fleet !== undefined) return
 
-    const active = serverAction.state === 'in-progress' || fleetState.converging > 0
+    const active = updateAction.state === 'in-progress' || fleetState.converging > 0
     let cancelled = false
     let inFlight = false
     const load = async (): Promise<void> => {
       if (inFlight) return
       inFlight = true
       try {
-        const [next, serverRaw] = await Promise.all([
-          trpc.updates.fleet.query(),
-          active ? readJson(options.httpOrigin + '/version') : Promise.resolve(undefined),
+        const [fleetRead, serverRaw] = await Promise.all([
+          trpc.updates.fleet.query().then(
+            (value) => ({ ok: true as const, value }),
+            () => ({ ok: false as const }),
+          ),
+          readJson(options.httpOrigin + '/version'),
         ])
         if (cancelled) return
+
+        const nextServer = parseServerVersion(serverRaw)
+        if (serverRaw !== undefined) setServer(nextServer)
+        if (!fleetRead.ok) return
+
+        const next = fleetRead.value
         setFleetState(next)
 
         if (active) {
-          const nextServer = parseServerVersion(serverRaw)
-          if (serverRaw !== undefined) setServer(nextServer)
-          setServerAction((current) => {
+          setUpdateAction((current) => {
             if (current.state !== 'in-progress') return current
             if (next.failed > 0) {
               const failure = next.machines?.find(
@@ -193,22 +216,25 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
               )
               return {
                 state: 'failed',
+                ...(failure?.name ? { machineName: failure.name } : {}),
                 detail:
                   failure?.detail ??
                   (next.failed === 1 ? 'A machine' : String(next.failed) + ' machines') +
                     ' could not finish this update.',
               }
             }
-            if (next.converging === 0) return { state: 'idle' }
             const serverDone =
               next.targetVersion !== null && nextServer.appVersion === next.targetVersion
-            const total = Math.max(current.total, 1 + next.total)
-            const done = Math.max(0, total - next.behind - next.converging - (serverDone ? 0 : 1))
+            const serverRemaining = current.includesServer && !serverDone ? 1 : 0
+            const remaining = serverRemaining + next.behind
+            if (next.converging === 0 && remaining === 0) return { state: 'idle' }
+            const done = Math.max(0, Math.min(current.total, current.total - remaining))
             return {
               state: 'in-progress',
               version: next.targetVersion ?? current.version,
               done,
-              total,
+              total: current.total,
+              includesServer: current.includesServer,
             }
           })
         }
@@ -220,13 +246,20 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
       }
     }
     void load()
-    if (!active) return
-    const interval = window.setInterval(() => void load(), FLEET_POLL_MS)
+    // A single read at mount was the whole fleet story. If that one call failed
+    // — the session not established yet, a transient disconnect — the snapshot
+    // stayed empty for the life of the page, so `behind` was 0 and the dialog
+    // could only ever name "this app". Keep a slow refresh so the server and
+    // machine places appear once the read succeeds.
+    const interval = window.setInterval(
+      () => void load(),
+      active ? FLEET_POLL_MS : FLEET_IDLE_POLL_MS,
+    )
     return () => {
       cancelled = true
       window.clearInterval(interval)
     }
-  }, [fleetState.converging, options.fleet, options.httpOrigin, serverAction.state, trpc])
+  }, [fleetState.converging, options.fleet, options.httpOrigin, updateAction.state, trpc])
 
   const fleet = options.fleet ?? fleetState
   const localVersion = localBuild.appVersion
@@ -238,14 +271,15 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
       server.appVersion !== undefined &&
       server.appVersion !== target.version,
   )
+  const machinesBehind = fleet.behind
   const touched = target
     ? computeTouched({
         localDigests: { ...(localBuild.appDigest ? { app: localBuild.appDigest } : {}) },
         target,
-        fleetBehind: fleet.behind,
+        fleetBehind: machinesBehind,
         serverBehind,
       })
-    : { app: false, server: serverBehind, machines: fleet.behind > 0 }
+    : { app: false, server: serverBehind, machines: machinesBehind > 0 }
   if (options.needRefresh || desktopUpdate !== undefined || desktopTargeted) touched.app = true
 
   const skew = classifySkew(server, { wire: WIRE_VERSION, digest: wireSchemaDigest() })
@@ -262,33 +296,49 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   const baseView = describeUpdate(input)
 
   useEffect(() => {
-    setServerAction({ state: 'idle' })
+    setUpdateAction({ state: 'idle' })
   }, [target?.version])
 
-  const updateServer = useMemo<UpdateActions['updateServer']>(() => {
-    if (!options.updateServer && (!target || !serverBehind)) return undefined
+  const retryableUpdateFailure = updateAction.state === 'failed'
+  const startUpdate = useMemo<UpdateActions['startUpdate']>(() => {
+    if (
+      !options.startUpdate &&
+      !retryableUpdateFailure &&
+      (!target || (!serverBehind && fleet.behind === 0))
+    )
+      return undefined
     const version = target?.version ?? localVersion
-    const total = Math.max(1, 1 + fleet.behind)
+    const includesServer = serverBehind
+    const total = Math.max(1, (includesServer ? 1 : 0) + fleet.behind)
     return async () => {
-      setServerAction({ state: 'in-progress', version, done: 0, total })
+      setUpdateAction({ state: 'in-progress', version, done: 0, total, includesServer })
       try {
-        if (options.updateServer) {
-          await options.updateServer()
+        if (options.startUpdate) {
+          await options.startUpdate()
           return
         }
         const result = await trpc.updates.converge.mutate()
         setFleetState(result.fleet)
-        setServerAction({
+        setUpdateAction({
           state: 'in-progress',
           version: result.version,
           done: result.done,
           total: result.total,
+          includesServer,
         })
       } catch (error) {
-        setServerAction({ state: 'failed', detail: updateErrorDetail(error) })
+        setUpdateAction({ state: 'failed', detail: updateErrorDetail(error) })
       }
     }
-  }, [fleet.behind, localVersion, options.updateServer, serverBehind, target, trpc])
+  }, [
+    fleet.behind,
+    localVersion,
+    options.startUpdate,
+    retryableUpdateFailure,
+    serverBehind,
+    target,
+    trpc,
+  ])
 
   const actions = useMemo<UpdateActions>(() => {
     const install = nativeDesktopBridge()?.installUpdate
@@ -298,20 +348,20 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     return {
       ...(options.reload && touched.app ? { reload: options.reload } : {}),
       ...(installApp ? { installApp } : {}),
-      ...(updateServer ? { updateServer } : {}),
+      ...(startUpdate ? { startUpdate } : {}),
     }
-  }, [desktopTargeted, desktopUpdate, options.reload, touched.app, updateServer])
+  }, [desktopTargeted, desktopUpdate, options.reload, touched.app, startUpdate])
 
   const view: UpdateView =
-    serverAction.state === 'in-progress'
+    updateAction.state === 'in-progress'
       ? {
           state: 'in-progress',
-          version: serverAction.version,
-          done: serverAction.done,
-          total: serverAction.total,
+          version: updateAction.version,
+          done: updateAction.done,
+          total: updateAction.total,
         }
-      : serverAction.state === 'failed'
-        ? { state: 'failed', detail: serverAction.detail }
+      : updateAction.state === 'failed'
+        ? describeUpdateFailure(updateAction.detail, updateAction.machineName)
         : baseView
 
   return { view, actions, server, fleet }

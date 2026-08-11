@@ -196,10 +196,8 @@ export class BrowserOpenGateway {
   }
 
   private clientMaySeeSession(client: ClientConn, sessionId: SessionId): boolean {
-    const authority = client.publication
-    if (authority) {
-      return authority.global || authority.snapshot().allowedSessionIds.includes(sessionId)
-    }
+    // Use the same live owner/grant facts the feed visibility policy reads; no
+    // connection-cached authorization copy can outlive a grant revocation.
     const ownership = this.deps.sessionOwner(sessionId)
     if (!ownership) return false
     return (
