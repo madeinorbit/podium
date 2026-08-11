@@ -295,6 +295,19 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
     deps: [],
   },
 
+  // The second L0 leaf, and it has to be one: every layer logs, so a logger at
+  // any higher layer would be an upward import from somewhere. Dependency-free
+  // by construction (not even zod) and browser-safe — the record shape is plain
+  // objects and the only IO it does is through a sink somebody else registers.
+  // Node-only sinks (file, rotation, stdout) land behind a `./node` subpath in
+  // chunk 2, which is what keeps this tag honest as the package grows.
+  'packages/logger': {
+    layer: 0,
+    platform: 'browser-safe',
+    features: ['logging'],
+    deps: [],
+  },
+
   // L1 — wire / commands / contracts.
   // Near-leaf (legacy rule 3): since POD-300 the entity schemas live in L0 model
   // and protocol imports them. That single edge is the whole set.
@@ -536,6 +549,12 @@ export const SAME_LAYER_ALLOWED: ReadonlySet<string> = new Set<string>([
  * slipped through.
  */
 export const BROWSER_ENTRYPOINTS: ReadonlyMap<string, string> = new Map([
+  // packages/logger — the WHOLE package. It is tagged browser-safe rather than
+  // neutral, so the bare specifier is the entire surface and this entry is what
+  // holds it there: chunk 2's file/rotation/stdout sinks must arrive behind a
+  // `./node` subpath, and the day one of them is imported from the barrel this
+  // audit is what says no.
+  ['@podium/logger', 'packages/logger/src/index.ts'],
   // packages/runtime — the root barrel only. Every node-only concern (config,
   // sqlite, git, connectivity, auth-store) lives behind its own subpath, which
   // is what makes "the bare specifier is the whole browser surface" true.

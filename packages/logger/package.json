@@ -1,0 +1,21 @@
+{
+  "name": "@podium/logger",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The one logging core every Podium runtime shares [spec:2026-08-11-logging-strategy-design]: namespaced loggers, five levels, child-bound structured context, the NDJSON record shape, and the fail-open sink fan-out with the console and ring-buffer sinks. Dependency-free and browser-safe by construction — the whole package is a declared browser entrypoint and is held to it by scripts/audit-browser-reach.ts. Node-only sinks (file, rotation, stdout) land behind their own ./node subpath, never here.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "bun ../../scripts/validation-admission.ts typecheck --label @podium/logger:typecheck -- tsc --noEmit",
+    "test": "bun ../../scripts/validation-admission.ts focused --label @podium/logger:test -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  }
+}

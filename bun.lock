@@ -297,6 +297,13 @@
         "typescript": "^6.0.3",
       },
     },
+    "packages/logger": {
+      "name": "@podium/logger",
+      "version": "0.0.0",
+      "devDependencies": {
+        "typescript": "^6.0.3",
+      },
+    },
     "packages/model": {
       "name": "@podium/model",
       "version": "0.0.0",
@@ -1152,6 +1159,8 @@
     "@podium/janitor": ["@podium/janitor@workspace:apps/janitor"],
 
     "@podium/keyecho": ["@podium/keyecho@workspace:tests/keyecho"],
+
+    "@podium/logger": ["@podium/logger@workspace:packages/logger"],
 
     "@podium/mobile": ["@podium/mobile@workspace:apps/mobile"],
 

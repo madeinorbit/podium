@@ -1,0 +1,9 @@
+{
+  // dom, not node: this package is browser-safe, and the type space should say
+  // so. `console` is the one global it uses and DOM types it; `process` stays
+  // UNDECLARED on purpose, so the two places that read env have to reach it off
+  // globalThis with an explicit cast rather than typing `process.env` and
+  // shipping a Node global to the web bundle by accident.
+  "extends": "../../tooling/tsconfig/dom.json",
+  "include": ["src"]
+}
