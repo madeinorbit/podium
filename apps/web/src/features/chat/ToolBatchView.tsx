@@ -174,6 +174,7 @@ export function ToolBatchView({
   dimmed,
   forceOpen,
   live = false,
+  endsFeed = false,
   waiting,
   arrived = false,
   turn,
@@ -186,8 +187,12 @@ export function ToolBatchView({
   highlighted: boolean
   dimmed: boolean
   forceOpen: boolean
-  /** True only for the trailing run of a turn the agent is still working on. */
+  /** True only for the trailing run of a turn with a call actually in flight. */
   live?: boolean
+  /** This run is the last thing in the feed and the transcript tail has stood
+   *  down for it (POD-747), so the row takes the tail's rule out to the right
+   *  edge — the transcript still has to END somewhere visible. */
+  endsFeed?: boolean
   /** A live tool that is an external dependency: named and still, never a
    *  second spinner beside the transcript tail. */
   waiting?: { label: string; detail?: string | undefined } | undefined
@@ -258,6 +263,7 @@ export function ToolBatchView({
           data-open={expanded ? 'true' : 'false'}
           data-single={count === 1 ? 'true' : undefined}
           data-settle={settling ? 'true' : undefined}
+          data-ends-feed={endsFeed ? 'true' : undefined}
           data-testid="work-line"
         >
           {/* The fanned deck: two same-tone tiers, hidden for a lone call and

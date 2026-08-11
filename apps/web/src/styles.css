@@ -2302,31 +2302,23 @@ html[data-density="balanced"] .header-quota-pools {
    air between separate messages rather than as paragraph spacing inside one
    answer, which is what these rows usually are.
 
-   THE MEASURE. The design's stage is ~700px wide, so its 56px side margins land
-   the answer at a comfortable ~88 characters. Ours is elastic: with both side
-   docks closed the stage passes 1200px and the same margins would set the
-   answer at 140 characters, which is unreadable regardless of how good the type
-   is. So the column takes a measure and centres, exactly as `.markdown-preview`
-   does — on the ROW, not the scroller, so the scrollbar and the reading rail
-   stay pinned to the pane edge while the prose finds its own middle.
-   44em ≈ 88 characters of Geist. In em, not ch: `ch` measures the "0" glyph,
-   which is far wider than the average letter in a proportional face. The token
-   is shared with the feed's tail and its optimistic rows, which each carried
-   their own 960px cap while the real rows had none — so the column used to get
-   NARROWER when a message landed. */
+   THE PANE IS THE MEASURE (POD-747). There used to be two nested caps here — a
+   44em one on the row and a 62ch one on the prose inside it — and the result was
+   a document with three different right edges: a work line stopping at 704px, a
+   paragraph at 704, an answer at 620, inside a pane 992 wide, with the rest of
+   the pane (the composer, the offer, the hibernation strip, the tail's rule)
+   running the full width underneath them. A measure that only some of the column
+   obeys does not read as typography; it reads as a layout that failed to fill.
+
+   So the row takes the pane, and the operator sets the measure by sizing the
+   pane — which is the honest instrument behaviour here, because this column is
+   one of several the shell already lets them drag. The caps are gone rather than
+   retuned: a single cap would put the dead margin back the moment the pane is
+   wider than it, which is exactly the state this replaces. */
 .transcript-row {
-  --transcript-measure: 44em;
   display: flex;
   flex-direction: row;
   gap: 0;
-  max-width: var(--transcript-measure);
-  /* Capped on the right, flush on the left. Centring the column was the first
-     instinct and the wrong one: the offer and the composer below it are pane-
-     width and cannot be centred with it, so a centred document put three
-     different left edges on one pane. The design keeps everything on one left
-     edge; at a wide stage the slack goes to the right margin, where it reads as
-     air rather than as misalignment. */
-  margin-inline-end: auto;
   padding-top: 8px;
   padding-bottom: 8px;
 }
@@ -2396,16 +2388,32 @@ html[data-density="balanced"] .header-quota-pools {
   margin-bottom: 9px;
 }
 
-/* The pinned request becomes a compact context shelf. Two reading lines keep
-   the active brief available without letting it blanket the answer beneath it;
-   the fixed label row always keeps Read more reachable. */
+/* The pinned request becomes a context shelf — but a SHELF, not a two-line
+   stub. The collapsed cap was 2.95em, which against the brief's own 22.95px
+   line is one line and three quarters: a two-line prompt arrived pre-truncated,
+   faded out mid-sentence, with a "Read more" for the four words it was hiding
+   (POD-747). Nothing was gained by that — a brief is one to three lines in the
+   overwhelming case, and the clamp exists to stop a PASTED wall of text
+   blanketing the answer while it is pinned, not to shorten ordinary typing.
+
+   So the cap is whichever is larger: five lines of the brief's own setting, or
+   a quarter of the chat viewport. Every ordinary prompt now renders whole and
+   shows no control at all; only a genuinely long one clamps, and then the fade
+   and the toggle are telling the truth about something worth expanding. Both
+   terms are stable while the pane is, which is what the sticky pin needs — the
+   row must not change height as it sticks and unsticks. */
 .transcript-you-clamp {
   --transcript-prompt-chrome: 66px;
+  /* 13.5px × 1.7, the brief's line box. Stated so the cap moves if the type does. */
+  --transcript-brief-line: 22.95px;
 }
 .transcript-you-clamp[data-clamped="true"] {
   position: relative;
   overflow: hidden;
-  max-height: 2.95em;
+  max-height: max(
+    calc(var(--transcript-brief-line) * 5),
+    calc(var(--chat-viewport-h, 100dvh) * 0.25)
+  );
 }
 /* Expanded is bounded too, and scrolls inside itself. A prompt taller than the
    scrollport cannot pin its top — it scrolls away with the content, taking the
@@ -2433,9 +2441,15 @@ html[data-density="balanced"] .header-quota-pools {
   position: absolute;
   inset-inline: 0;
   bottom: 0;
-  height: 34px;
+  /* Two lines tall and opaque by two thirds of the way down (POD-747). The cap
+     is a fraction of the viewport, so the cut almost never lands on a line
+     boundary — at 34px with a gradient that only reached the ground at its very
+     bottom, the ascenders of the clipped line showed through as a ghost rule
+     across the whole column. It has to be tall enough to swallow a full line
+     and solid before it gets there. */
+  height: 46px;
   pointer-events: none;
-  background: linear-gradient(to bottom, transparent, var(--transcript-you-bg));
+  background: linear-gradient(to bottom, transparent, var(--transcript-you-bg) 62%);
   color: var(--muted-foreground);
   font-size: 15px;
   line-height: 1;
@@ -2524,8 +2538,7 @@ html[data-density="balanced"] .header-quota-pools {
   align-items: center;
   gap: 10px;
   width: 100%;
-  max-width: 960px;
-  margin: 26px auto 6px;
+  margin: 26px 0 6px;
 }
 .transcript-daymark::before,
 .transcript-daymark::after {
@@ -2857,25 +2870,59 @@ html[data-density="balanced"] .header-quota-pools {
    quiet band on navy and a solid grey slab on paper, which turned the map into
    the loudest column in the pane. --text-dim and --text-faint are already tuned
    per theme to be exactly this legible, which is what the map wants — the shape
-   of a session, not a barcode. */
+   of a session, not a barcode.
+
+   FOUR RUNGS, NOT FOUR GREYS (POD-747). Staying inside the ramp was right; the
+   spacing inside it was not. `you` mixed only 55% of the issue hue into
+   --text-dim, which lands within a few points of --text-dim itself, and `answer`
+   WAS --text-dim — so the two bands a reader actually scrubs for were the same
+   colour, and `agent` and `work` were two more near-identical faints under them.
+   Measured on the dark theme the whole map spanned rgb(111,117,128) to
+   rgb(132,138,148): four rungs inside eight points of lightness.
+
+   The ladder now uses the ramp's real span, and it is weighted the way a map
+   wants rather than the way the ramp is ordered: narration and machine work are
+   MOST of a transcript, so they are the quiet field, and the two landmarks a
+   reader actually scrubs for stand out of it. Each rung still carries its width,
+   so the shape survives with no colour at all:
+
+     answer   the strongest neutral, near-white. Where an exchange concludes —
+              the brightest thing on the map because it is what you came for.
+              Full width.
+     you      the issue's own hue, lifted a little toward strong ink so an
+              uncoloured issue's slate still clears the field under it. Where an
+              exchange BEGINS. Full width, and the only hue on the column.
+     agent    narration. Faint, stepped in 5px.
+     work     machine activity. Faintest, stepped in 11px.
+
+   Weighting it the other way — which is what "you > answer > agent > work" in
+   ramp order produced — filled two thirds of the column with a light grey field
+   and left the landmarks with nowhere to stand. */
 .minimap-tick--you {
   inset-inline: 0;
-  background: color-mix(in oklab, var(--issue, var(--info)) 55%, var(--text-dim));
+  background: color-mix(
+    in oklab,
+    var(--issue, var(--info)) 80%,
+    var(--text-strong, var(--foreground))
+  );
 }
 .minimap-tick--answer {
   inset-inline: 0;
-  background: var(--text-dim);
+  background: color-mix(in oklab, var(--text-strong, var(--foreground)) 78%, transparent);
 }
 .minimap-tick--agent {
-  inset-inline: 0 6px;
-  background: var(--text-faint);
+  inset-inline: 0 5px;
+  background: color-mix(in oklab, var(--text-faint) 82%, transparent);
 }
 .minimap-tick--work {
-  inset-inline: 0 12px;
-  background: color-mix(in oklab, var(--text-faint) 55%, transparent);
+  inset-inline: 0 11px;
+  background: color-mix(in oklab, var(--text-faint) 42%, transparent);
 }
+/* A ring, not a brightness filter: brightening works on navy and does nothing to
+   a near-black band on paper, so the hover cue used to vanish in Daylight. */
 .minimap-tick--hover {
-  filter: brightness(1.6);
+  box-shadow: 0 0 0 1px var(--background);
+  filter: brightness(1.25) saturate(1.15);
 }
 /* A search hit rides the right edge rather than repainting the band, so "what
    is this" and "is it a match" stay two separate questions with two answers. */
@@ -2893,13 +2940,16 @@ html[data-density="balanced"] .header-quota-pools {
   background: color-mix(in oklab, var(--issue, var(--info)) 78%, var(--foreground));
   box-shadow: 0 0 6px color-mix(in oklab, var(--issue, var(--info)) 38%, transparent);
 }
+/* Where you ARE, over a map whose bands now carry the issue hue themselves — so
+   the viewport frame goes neutral and bright rather than tinted, or "you are
+   here" and "this is your prompt" would be the same colour on the same column. */
 .minimap-view {
   position: absolute;
   inset-inline: 0;
   pointer-events: none;
-  border: 1px solid color-mix(in oklab, var(--issue, var(--text-dim)) 45%, var(--text-dim));
+  border: 1px solid color-mix(in oklab, var(--text-strong, var(--foreground)) 55%, transparent);
   border-radius: 2px;
-  background: color-mix(in oklab, var(--issue, var(--foreground)) 8%, transparent);
+  background: color-mix(in oklab, var(--text-strong, var(--foreground)) 9%, transparent);
 }
 
 /* The legend, delivered on hover and tied to the band under the pointer. */
@@ -3310,6 +3360,32 @@ html[data-density="balanced"] .header-quota-pools {
    reads as a bruise. */
 [data-theme="superade"]:not(.dark) .work-line {
   --work-line-carve: rgb(29 28 25 / 0.12);
+}
+/* THE RUN THAT ENDS THE FEED (POD-747). When a call is in flight the tail stands
+   down and this row is the last thing in the transcript, so it inherits the
+   tail's job of showing that the document ENDS — one hairline under the run, in
+   the live hue, the same weight and alpha the tail's own rule carries. It is a
+   ::after on the container rather than a border on the chip so the fanned deck
+   behind a folded run still reads between the two. */
+.work-line[data-ends-feed="true"] {
+  margin-bottom: 16px;
+}
+.work-line[data-ends-feed="true"]::after {
+  content: "";
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  left: 0;
+  height: 1px;
+  background: var(--live, var(--info));
+  opacity: 0.2;
+  pointer-events: none;
+}
+.work-line[data-ends-feed="true"][data-state="wait"]::after {
+  background: var(--muted-foreground);
+}
+.work-line[data-open="true"][data-ends-feed="true"]::after {
+  display: none;
 }
 .work-line-deck {
   position: absolute;
@@ -3995,7 +4071,7 @@ html[data-density="balanced"] .header-quota-pools {
    than it does at full width — 14 against a 13px body. */
 .chat-compact .transcript-answer .chat-md {
   font-size: 14px;
-  line-height: 1.6;
+  line-height: 22px;
 }
 
 /* PER-MESSAGE ACTIONS. Absolutely positioned and fading only in opacity, so a
@@ -4059,6 +4135,67 @@ html[data-density="balanced"] .header-quota-pools {
   padding-inline-end: 52px;
 }
 
+/* THE PANE STATE BAR (POD-747) — the strip over a transcript whose process is
+   not running: hibernated, exited, crashed.
+
+   It used to be a tinted slab: `bg-primary/10` with `text-primary` and a
+   primary-bordered button, which put a band of Superade Yellow across the top of
+   the pane for a session that is asking nothing of anyone. Hibernation is a
+   STATE, not a request, and The Signal Rule reserves yellow for the thing that
+   needs you — so the bar spends none of it.
+
+   What it is instead: the same object as the status strip that closes the bottom
+   of the window. `--bar` ground, one hairline seam, machine voice at the mono
+   micro size, `--status-strip-h` tall so the transcript is framed top and bottom
+   by chrome of one height. The state's own word is the only thing in strong ink;
+   its glyph carries the tone. A fault (exited, crashed) takes the warning ink on
+   those two elements ONLY — never as a fill, because a filled red or amber slab
+   is the enterprise-console look this system opens by rejecting. */
+.pane-state-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--status-strip-h);
+  padding: 0 8px 0 11px;
+  border-bottom: 1px solid var(--hairline-soft, var(--border));
+  background: var(--bar, var(--background));
+  color: var(--text-dim, var(--muted-foreground));
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--shell-type-micro);
+  line-height: var(--shell-leading-micro);
+}
+.pane-state-bar-mark {
+  display: flex;
+  flex: none;
+  align-items: center;
+  color: var(--text-faint, var(--muted-foreground));
+}
+.pane-state-bar-copy {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+/* The state's own word, and nothing else, steps up to strong ink — "Hibernated"
+   and "Exited" are what the reader is scanning for; the sentence after them is
+   the consequence and stays where the rest of the machine voice lives. */
+.pane-state-bar-word {
+  color: var(--text-strong, var(--foreground));
+}
+.pane-state-bar[data-tone="fault"] .pane-state-bar-mark,
+.pane-state-bar[data-tone="fault"] .pane-state-bar-word {
+  color: var(--warning, var(--destructive));
+}
+/* A fault line can carry the daemon's diagnosis and run to two lines; the
+   control must not drift down with it. */
+.pane-state-bar[data-tone="fault"] {
+  align-items: flex-start;
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+.pane-state-bar[data-tone="fault"] .pane-state-bar-mark {
+  margin-top: 2px;
+}
+
 /* THE TAIL — where the transcript ENDS, in three weights. One shape (mark,
    phrase, mono figure, rule running out to the right edge); what changes is
    what the state deserves. See TranscriptTail.tsx for the reasoning. */
@@ -4067,8 +4204,6 @@ html[data-density="balanced"] .header-quota-pools {
   align-items: center;
   gap: 9px;
   width: 100%;
-  max-width: 44em;
-  margin: 0 auto 0 0;
   padding: 13px 0 5px;
 }
 .feed-tail-body {
@@ -4366,36 +4501,29 @@ html[data-density="balanced"] .header-quota-pools {
 
 /* The feed's four registers used to live inside three pixels — prose 14, prompt
    13.5, work line 13, tool row 11 — so every distinction had to be carried by a
-   box. The band is now 15 / 13.5 / 11.5 / 10.5 (POD-376): the ANSWER is the only
-   thing that got bigger, intermediate narration steps back a half point, and
-   machine voice steps down to DESIGN.md's mono size. Net reading load falls. */
+   box. The band is 15 / 13.5 / 11.5 / 10.5 (POD-376): the ANSWER is the only
+   thing that is bigger, intermediate narration steps back a half point, and
+   machine voice steps down to DESIGN.md's mono size. Net reading load falls.
+
+   THE BAND, RESTORED (POD-747). Narration was wired to `--shell-type-reading`,
+   and when POD-725 raised that role to 15/25 for the flight deck's column the
+   feed came with it — so narration and the ANSWER both arrived at 15/25 and the
+   one typographic step this document has (the conclusion is a point and a half
+   above the working-out that led to it) silently closed. Narration is stated
+   here instead of borrowed, because the feed's band is a four-rung ladder of its
+   own and only one of its rungs is a shell role. It shares the brief's 13.5 and
+   its 1.7 leading, so the two quiet registers sit on one rhythm and the answer
+   is the only thing that steps. */
 .chat-md {
-  font-size: var(--shell-type-reading);
-  line-height: var(--shell-leading-reading);
+  font-size: 13.5px;
+  line-height: 23px;
   color: var(--foreground);
   overflow-wrap: anywhere;
   text-wrap: pretty;
 }
-/* THE MEASURE (POD-701). The reading column is capped at 960px, which at the
-   feed's 15px answer type measures 96 characters a line — well past the 65–75
-   a reader tracks across without losing the return sweep, and on a widescreen
-   with the side columns folded that is what every paragraph ran to. 62ch of
-   Geist measures ~72 characters, inside the band.
-
-   The cap goes on the PROSE children rather than on the row, because the things
-   that genuinely want the full width — a code block, a table, a diff — are the
-   same things a narrow measure would force into a horizontal scroll. It is
-   inert below ~62ch of available width, which is the narrow dock and most
-   panes at most widths. */
-.chat-md > :is(p, ul, ol, dl, blockquote, h1, h2, h3, h4, h5, h6) {
-  max-width: 62ch;
-}
-/* …except inside the operator's panel, which is the one BOXED surface in the
-   feed. Prose that stops two-thirds of the way across an unboxed column reads
-   as a measure; the same rag inside a bordered, tinted panel reads as a layout
-   fault, and a prompt is one to three lines in the overwhelming case anyway. */
-.transcript-you .chat-md > * {
-  max-width: none;
+html[data-density="compact"] .chat-md {
+  font-size: 13px;
+  line-height: 21px;
 }
 .chat-md > :first-child {
   margin-top: 0;
@@ -4463,6 +4591,24 @@ html[data-density="balanced"] .header-quota-pools {
 .chat-md ol {
   padding-left: 1.5em;
   margin: 0.75em 0;
+}
+/* An ordered list's marker box is `outside`, so it has to fit in the padding —
+   and 1.5em fits "9." and not "10." (POD-747). Agents write ten-, twelve- and
+   twenty-step plans constantly, and past the ninth item the numbers were
+   crowding into the text or clipping at the column edge. 2.3em holds two digits
+   with the same optical gap one digit gets; tabular figures keep the run of
+   markers on one vertical edge instead of drifting right as the digits widen. */
+.chat-md ol {
+  padding-left: 2.3em;
+}
+.chat-md ol > li::marker {
+  font-variant-numeric: tabular-nums;
+}
+/* A list is the continuation of the sentence that introduces it, not a new
+   block after it: 0.85em of paragraph air above a list detaches it from its own
+   lead-in, which is exactly the sentence a reader needs it attached to. */
+.chat-md p + :is(ul, ol) {
+  margin-top: 0.3em;
 }
 /* Tailwind's preflight strips list markers globally, and nothing put them back
    here — so every list an agent wrote arrived as unmarked indented lines and an
@@ -6447,16 +6593,20 @@ a.ref-link--session::before {
   padding-top: 8px;
   padding-bottom: 8px;
 }
+/* The narrow dock is half the width, so the band steps down a point rather than
+   borrowing the shell's reading role — which is set for the flight deck's
+   column and, taken literally here, put 15px narration ABOVE the 14px answer
+   under it and inverted the one hierarchy the feed has (POD-747). */
 .chat-compact .chat-md {
-  font-size: var(--shell-type-reading);
-  line-height: var(--shell-leading-reading);
+  font-size: 13px;
+  line-height: 21px;
 }
 .chat-compact .transcript-you {
   padding: 10px 13px;
 }
 .chat-compact .transcript-you .chat-md {
-  font-size: var(--shell-type-reading);
-  line-height: var(--shell-leading-reading);
+  font-size: 13px;
+  line-height: 21px;
   font-weight: 500;
 }
 .chat-compact .transcript-answer {

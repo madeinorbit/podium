@@ -19,7 +19,7 @@ import type { PendingItem, QueuedChatMessage } from './chat'
 import { ToolBatchView } from './ToolBatchView'
 import { TranscriptCold } from './TranscriptCold'
 import { TranscriptStandby } from './TranscriptStandby'
-import { TranscriptTail, transcriptTailState } from './TranscriptTail'
+import { TranscriptTail, trailingRunIsLive, transcriptTailState } from './TranscriptTail'
 import { dayKey, dayLabel, rowTimestamp } from './transcript-time'
 import { rowIdentity, useFeedArrivals } from './use-feed-arrivals'
 import type { HeadlessOverlay } from './use-headless-turn'
@@ -191,6 +191,9 @@ export function TranscriptFeed({
   const dayMarks = useMemo(() => dayMarksByPosition(rows, new Date()), [rows])
   const lastRow = rows[rows.length - 1]?.row
   const tailState = transcriptTailState(activity, session, lastRow)
+  // The trailing run has a call in flight, so it IS the end of the feed and the
+  // tail stands down rather than spinning a second time beside it (POD-747).
+  const runOwnsTail = trailingRunIsLive(activity, lastRow)
   // A live question is already the attention surface. Repeating the same
   // yellow signal in the tail weakens both objects, so the card owns it alone.
   const questionOwnsAttention = livePendingAskIndex >= 0 && activity?.tone === 'attention'
@@ -276,13 +279,21 @@ export function TranscriptFeed({
                 search.filtering && !row.blockIndices.some((bi) => blockMatches(blocks[bi]!, query))
               }
               // The work line reads as LIVE only for the trailing run of a turn
-              // the agent is still working: the spinner and counting timer are the
-              // motion grammar's "an agent is computing", and a run that has
-              // already been overtaken by prose is finished whatever the session
-              // is doing now. MOUNT POSITION, not `idx`: `rows` is the bounded
-              // trailing window and `idx` is the ABSOLUTE index into the full row
-              // list, so the last mounted row is `pos === rows.length - 1`.
-              live={activity?.tone === 'working' && pos === rows.length - 1}
+              // with a call actually IN FLIGHT: the spinner and counting timer
+              // are the motion grammar's "an agent is computing", and a run that
+              // has been overtaken by prose — or whose last result has landed
+              // while the agent thinks about the next step — is finished
+              // whatever the session is doing now. It used to mean "the turn is
+              // running", so a settled run kept spinning under the name of a
+              // call that had already returned while the tail counted the same
+              // turn beneath it (POD-747). MOUNT POSITION, not `idx`: `rows` is
+              // the bounded trailing window and `idx` is the ABSOLUTE index into
+              // the full row list, so the last mounted row is
+              // `pos === rows.length - 1`.
+              live={runOwnsTail && pos === rows.length - 1}
+              // The run that owns the tail also takes the tail's rule, so the
+              // feed still ends on a line rather than trailing off mid-column.
+              endsFeed={runOwnsTail && pos === rows.length - 1}
               waiting={
                 pos === rows.length - 1 && tailState?.mode === 'wait'
                   ? { label: tailState.label, detail: tailState.detail }
@@ -420,15 +431,19 @@ export function TranscriptFeed({
       {/* Where the transcript ENDS: working, waiting on you, or idle — one
           object in three weights (TranscriptTail). The headless driver's own
           status line already says what the agent is doing, so the tail defers
-          to it and falls back to the idle clock underneath. */}
-      {(phase === 'ready' || activity?.tone === 'working') && !questionOwnsAttention && (
-        <TranscriptTail
-          activity={overlay?.status ? null : activity}
-          since={session?.agentState?.since}
-          session={session}
-          lastRow={lastRow}
-        />
-      )}
+          to it and falls back to the idle clock underneath — and it defers the
+          same way to a run with a call in flight, which is already spinning,
+          already naming the call and already counting it (POD-747). */}
+      {(phase === 'ready' || activity?.tone === 'working') &&
+        !questionOwnsAttention &&
+        !runOwnsTail && (
+          <TranscriptTail
+            activity={overlay?.status ? null : activity}
+            since={session?.agentState?.since}
+            session={session}
+            lastRow={lastRow}
+          />
+        )}
     </div>
   )
 }

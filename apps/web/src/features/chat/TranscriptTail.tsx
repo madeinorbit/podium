@@ -61,6 +61,42 @@ export interface TranscriptTailState {
   since?: string
 }
 
+/**
+ * ONE LIVE OBJECT AT THE END OF A TURN (POD-747).
+ *
+ * The feed used to end in two of them. A run with a call in flight renders its
+ * own braille spinner, the name of that call and a timer counting the call; the
+ * tail underneath it then rendered a second spinner, a second phrase and a
+ * second timer counting the turn — "Running ls node_modules… 3:08" with
+ * "Working 3:21" stacked beneath it. Two spinners for one fact, and in the
+ * dependency case the two rows read the SAME words, because the tail derived its
+ * phrase from the very row above it.
+ *
+ * The rule is that the tail is the transcript's period, and a period is not
+ * written twice: whatever is already live directly above it owns the state, and
+ * the tail defers. That is exactly and only while a call is IN FLIGHT — the row
+ * is then telling the truth about something running. The moment the last result
+ * lands, the run settles to its verdict and the tail takes the turn back, so the
+ * thinking between one run and the next is still counted and still moves. The
+ * live run grows the tail's own rule out to the right edge (`.work-line--tail`)
+ * so the feed keeps visibly ENDING somewhere in both arrangements.
+ *
+ * This is the RENDER decision, so it lives beside the feed's own rendering and
+ * not inside `transcriptTailState` — that function still has to compute the
+ * dependency wording ("Waiting on shell · bun test") for the work line to
+ * borrow, and a state function that returned null for the very case the row
+ * needs would have been two truths again.
+ */
+export function trailingRunIsLive(
+  activity: ChatActivity | null,
+  lastRow: ChatRow | undefined,
+): boolean {
+  if (activity?.tone !== 'working' || lastRow?.kind !== 'tools') return false
+  const last = lastRow.blocks[lastRow.blocks.length - 1]
+  if (!last) return false
+  return last.result === undefined && last.item.toolResult === undefined
+}
+
 function dependencySubject(item: TranscriptItem): string | undefined {
   const raw = item.toolTitle ?? item.toolInput
   if (!raw) return undefined

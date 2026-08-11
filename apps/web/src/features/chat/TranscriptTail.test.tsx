@@ -3,7 +3,7 @@ import type { SessionMeta, TranscriptItem } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { TranscriptTail } from './TranscriptTail'
+import { TranscriptTail, trailingRunIsLive } from './TranscriptTail'
 
 // THE TAIL (POD-376): one object, three weights. What this pins is which state
 // the feed ends in, what figure that state is allowed to show, and that the two
@@ -201,5 +201,42 @@ describe('TranscriptTail', () => {
     expect(tail()?.getAttribute('aria-live')).toBeNull()
     mount({ label: 'Working…', tone: 'working' }, ago(1000))
     expect(tail()?.getAttribute('aria-live')).toBe('polite')
+  })
+})
+
+// ONE LIVE OBJECT AT THE END OF A TURN (POD-747). The feed ended in two of them
+// — a run spinning under the name of the call in flight, and a tail spinning
+// under the name of the turn — so what this pins is the handover: while a call
+// is in flight the RUN owns the ending, and the moment its result lands the tail
+// takes the turn back so the thinking in between is still counted.
+describe('trailingRunIsLive', () => {
+  const working: ChatActivity = { label: 'Working…', tone: 'working' }
+  const call = (toolResult?: string): TranscriptItem =>
+    ({
+      id: 't1',
+      role: 'tool',
+      toolName: 'Bash',
+      ts: ago(3000),
+      ...(toolResult === undefined ? {} : { toolResult }),
+    }) as unknown as TranscriptItem
+
+  it('is true while the trailing run has a call in flight', () => {
+    expect(trailingRunIsLive(working, toolRow(call()))).toBe(true)
+  })
+
+  it('is false once that call has returned, so the tail counts the thinking', () => {
+    expect(trailingRunIsLive(working, toolRow(call('done')))).toBe(false)
+  })
+
+  it('is false when the run has been overtaken by prose', () => {
+    const prose = { kind: 'block', block: { item: { role: 'assistant' } } } as unknown as ChatRow
+    expect(trailingRunIsLive(working, prose)).toBe(false)
+  })
+
+  it('is false when the session is not working at all', () => {
+    expect(trailingRunIsLive(null, toolRow(call()))).toBe(false)
+    expect(trailingRunIsLive({ label: 'needs answer', tone: 'attention' }, toolRow(call()))).toBe(
+      false,
+    )
   })
 })
