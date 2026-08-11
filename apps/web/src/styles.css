@@ -781,7 +781,16 @@ html[data-density="balanced"] .header-quota-pools {
    Hover shows the preview; click pins + widens it into the full breakdown.
    The only lifted surface tier — popover shadow per the carved-elevation rule. */
 .health-popover {
+  display: flex;
+  flex-direction: column;
   width: 296px;
+  /* The pinned breakdown names every session and worktree on the host, so it has
+     no natural ceiling. Cap it against the room the positioner reports below the
+     chip (never taller than a comfortable read) and hand the overflow to
+     `.hp-scroll`; unbounded, a busy machine ran the panel off both edges of the
+     window (POD-751). */
+  max-height: min(var(--available-height, 100dvh), 520px);
+  overflow: hidden;
   border: 1px solid var(--input);
   border-radius: 8px;
   background: var(--popover);
@@ -800,10 +809,20 @@ html[data-density="balanced"] .header-quota-pools {
 }
 .hp-header {
   display: flex;
+  flex: none;
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
   padding: 9px 12px 7px;
+}
+/* The scrolling middle of a health popover. Which host you are looking at
+   (`.hp-header`) and how to dismiss it (`.hp-footer`) stay pinned; everything
+   between them scrolls once the panel hits its cap. */
+.hp-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .hp-title {
   font-size: 11.5px;
@@ -867,6 +886,7 @@ html[data-density="balanced"] .header-quota-pools {
 }
 .hp-footer {
   display: flex;
+  flex: none;
   justify-content: space-between;
   gap: 8px;
   padding: 6px 12px;
@@ -1084,11 +1104,13 @@ html[data-density="balanced"] .header-quota-pools {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
+/* A top-level popover block, not a child of `.hp-section` — so it carries the
+   same 12px gutter itself, or its prose runs into the left and right borders. */
 .hp-hibernation {
-  margin-top: 10px;
-  padding-top: 9px;
+  padding: 9px 12px 10px;
   border-top: 1px solid var(--border);
   font-size: 10.5px;
+  line-height: 1.45;
   color: var(--muted-foreground);
 }
 .hp-link {
