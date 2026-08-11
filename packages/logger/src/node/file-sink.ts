@@ -100,6 +100,13 @@ export function createFileSink(options: FileSinkOptions): FileSink {
    * `x.ndjson.3` → `.4`, … , `x.ndjson` → `.1`, oldest dropped. Renaming from
    * the OLDEST end is what makes this safe to interrupt: a crash mid-rotation
    * loses at most one archive, never overwrites a younger one with an older one.
+   *
+   * EVERY DESTINATION IS UNLINKED BEFORE ITS RENAME, and that is not belt-and-
+   * braces. `renameSync` silently replaces an existing destination on POSIX but
+   * THROWS on Windows, so a rotation that leaned on the overwrite would work
+   * here and, from the second rotation onward, throw on Windows — where the
+   * throw is caught by the degrade path, so the symptom would be a Windows
+   * install quietly logging to the console forever with a full `.1` on disk.
    */
   function rotate(): void {
     if (fd !== undefined) {
@@ -108,11 +115,18 @@ export function createFileSink(options: FileSinkOptions): FileSink {
     }
     const archive = (index: number): string => `${options.path}.${index}`
     if (maxFiles > 1) {
+      // The oldest archive is dropped rather than shifted: it is the one that
+      // falls off the end of the budget.
       rmSync(archive(maxFiles - 1), { force: true })
       for (let i = maxFiles - 2; i >= 1; i--) {
-        if (existsSync(archive(i))) renameSync(archive(i), archive(i + 1))
+        if (!existsSync(archive(i))) continue
+        rmSync(archive(i + 1), { force: true })
+        renameSync(archive(i), archive(i + 1))
       }
-      if (existsSync(options.path)) renameSync(options.path, archive(1))
+      if (existsSync(options.path)) {
+        rmSync(archive(1), { force: true })
+        renameSync(options.path, archive(1))
+      }
     } else {
       // No archives: the live file IS the whole budget, so it starts over.
       rmSync(options.path, { force: true })

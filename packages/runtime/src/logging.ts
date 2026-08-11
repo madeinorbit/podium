@@ -31,9 +31,9 @@ import {
   configureLevelsFromEnv,
   createConsoleSink,
   type LogLevel,
+  type Sink,
   setLogLevel,
   setProcessContext,
-  type Sink,
 } from '@podium/logger'
 import { createFileSink, createStdoutSink } from '@podium/logger/node'
 import { type EnvSource, resolveInstanceId, resolveRunRecordMode } from './config'
@@ -41,20 +41,6 @@ import { logDir } from './run-registry'
 
 /** How the process is supervised — the sink selector. */
 export type LoggingMode = 'systemd' | 'detached' | 'foreground'
-
-/**
- * The drain seam of the sink contract: `flush()` settles what is buffered and
- * resolves when it is durable, `close()` releases resources and implies a final
- * flush. Both are optional — a sink with nothing to settle declares neither.
- *
- * TEMPORARY LOCAL SHAPE. These are becoming optional members of `Sink` itself in
- * `@podium/logger`; this alias only exists so this file compiles before that
- * lands on the integration branch. Delete it at the rebase and use `Sink`.
- */
-type DrainableSink = Sink & {
-  flush?(): Promise<void>
-  close?(): Promise<void>
-}
 
 export interface ProcessLoggingOptions {
   /** `server` | `daemon` | `janitor` | `all-in-one` | `cli` — names the file too. */
@@ -82,7 +68,7 @@ export interface ProcessLoggingOptions {
 export interface ProcessLogging {
   mode: LoggingMode
   /** The sink actually registered, for tests and for a shutdown drain. */
-  sink: DrainableSink
+  sink: Sink
   /** Where records are going, for a boot line a human can act on. */
   destination: string
   /** Settle whatever is buffered; resolves when it is durable. Repeatable. */
@@ -145,7 +131,7 @@ export function configureProcessLogging(options: ProcessLoggingOptions): Process
       : mode === 'detached'
         ? logFilePath(options.role, options.dir)
         : 'console'
-  const sink: DrainableSink =
+  const sink: Sink =
     mode === 'systemd'
       ? createStdoutSink()
       : mode === 'detached'
