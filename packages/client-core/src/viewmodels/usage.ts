@@ -106,37 +106,99 @@ export interface UsageSummaryView {
   unpricedModels: string[]
 }
 
-// Per-MTok API list prices (approximate; used as the "what this would have cost
-// off-subscription" equivalence). Cache reads bill at 10% of input on both
-// providers; cache writes at 125% (Anthropic — OpenAI doesn't bill them, and
-// Codex reports the field as 0, so the term vanishes on its own).
-//
-// Substring matching keeps new model ids in the right family, which is what
-// makes this table survive a release: `gpt-5.6-sol` and `gpt-5-codex` both land
-// on the gpt-5 row. ORDER IS SIGNIFICANT — first match wins, so a narrower id
-// has to precede the family it belongs to, or `gpt-5-mini` bills as `gpt-5`.
-const PRICING: { match: string; inPerM: number; outPerM: number }[] = [
+/**
+ * Per-MTok API list price for one model family — the "what this would have cost
+ * off-subscription" equivalence. All four billing classes are carried
+ * EXPLICITLY rather than derived from the input rate by multiplier, because the
+ * multipliers are not universal: Anthropic bills a cache write at 1.25x input,
+ * OpenAI bills it at 1.25x on the gpt-5.6 family and NOT AT ALL on every other
+ * gpt-5.x. A single hardcoded 1.25x quietly invented a charge OpenAI does not
+ * make, and only stayed invisible because Codex's rollouts report the field as
+ * zero. A rate of 0 is now a statement the table makes on purpose.
+ */
+interface ModelPricing {
+  match: string
+  inPerM: number
+  outPerM: number
+  cacheReadPerM: number
+  /** 0 where the provider does not bill cache writes at all. */
+  cacheWritePerM: number
+}
+
+/**
+ * Substring matching keeps new model ids in the right family, which is what
+ * makes this table survive a release. ORDER IS SIGNIFICANT — first match wins,
+ * so a narrower id has to precede the family it belongs to, or `gpt-5-mini`
+ * bills as `gpt-5` and `gpt-5.6-sol` bills as neither.
+ *
+ * VERIFIED AGAINST THE VENDOR PRICE LISTS ON 2026-08-10 (POD-718). Two rows had
+ * drifted far enough to invert the sheet's headline reading:
+ *
+ *  - `opus` sat at $15/$75, the retired Opus 4.1 tier. Every Opus this matches
+ *    (5, 4.8, 4.7, 4.6, 4.5) lists at $5/$25, so every Anthropic figure on the
+ *    sheet read 3x high — and Opus is nearly all of an agent fleet's traffic.
+ *  - The whole gpt-5.6 family reached the `gpt-5` row at $1.25/$10 by substring
+ *    fallback. Sol is $5/$30 and Luna is $0.20/$1.20: a 25x spread that no
+ *    single fallback rate can serve. Sol, the Codex default, was undercharged
+ *    4x on input and 3x on output.
+ *
+ * gpt-5.6 is priced in two context bands (>272K input tokens roughly doubles
+ * every rate). The rows below are the SHORT band, because an hour x model
+ * bucket cannot reconstruct the context size of the requests inside it — so
+ * long-context Codex work is understated here, and knowingly so.
+ */
+const PRICING: ModelPricing[] = [
   // Fable's id carries no family name the rows below would catch, so it fell
   // through to the Sonnet-priced fallback — 3.3x under its real rate, on a
-  // model that gets reached for precisely on the expensive work. First,
-  // because its price is the highest here and nothing narrower can exist.
-  { match: 'fable', inPerM: 10, outPerM: 50 },
-  { match: 'opus', inPerM: 15, outPerM: 75 },
-  { match: 'sonnet', inPerM: 3, outPerM: 15 },
-  { match: 'haiku', inPerM: 1, outPerM: 5 },
-  { match: 'gpt-5-nano', inPerM: 0.05, outPerM: 0.4 },
-  { match: 'gpt-5-mini', inPerM: 0.25, outPerM: 2 },
-  { match: 'gpt-5', inPerM: 1.25, outPerM: 10 },
-  // Codex's own model ids don't all carry the family name: its guardian
-  // subagent bills as `codex-auto-review`, which without this row landed on the
-  // Sonnet-priced fallback — 2.4x its likely rate, on a real share of the
-  // machine's Codex traffic.
-  { match: 'codex', inPerM: 1.25, outPerM: 10 },
+  // model that gets reached for precisely on the expensive work.
+  { match: 'fable', inPerM: 10, outPerM: 50, cacheReadPerM: 1, cacheWritePerM: 12.5 },
+  { match: 'mythos', inPerM: 10, outPerM: 50, cacheReadPerM: 1, cacheWritePerM: 12.5 },
+  { match: 'opus', inPerM: 5, outPerM: 25, cacheReadPerM: 0.5, cacheWritePerM: 6.25 },
+  // Sonnet 5 carries a $2/$10 introductory rate through 2026-08-31 that this
+  // row deliberately does not model: `bucketCostUsd` has no clock, and a price
+  // that changes under a pure function is a worse defect than 21 days of a
+  // slightly high Sonnet line. $3/$15 is the standing rate either side of it.
+  { match: 'sonnet', inPerM: 3, outPerM: 15, cacheReadPerM: 0.3, cacheWritePerM: 3.75 },
+  { match: 'haiku', inPerM: 1, outPerM: 5, cacheReadPerM: 0.1, cacheWritePerM: 1.25 },
+  // The gpt-5.6 family, narrowest first — and ahead of every `gpt-5` row below,
+  // which all of these ids also contain. This is the only OpenAI family that
+  // bills for cache writes.
+  { match: 'gpt-5.6-luna', inPerM: 0.2, outPerM: 1.2, cacheReadPerM: 0.02, cacheWritePerM: 0.25 },
+  { match: 'gpt-5.6-terra', inPerM: 2, outPerM: 12, cacheReadPerM: 0.2, cacheWritePerM: 2.5 },
+  { match: 'gpt-5.6-sol', inPerM: 5, outPerM: 30, cacheReadPerM: 0.5, cacheWritePerM: 6.25 },
+  // The bare `gpt-5.6` alias routes to Sol, so it prices as Sol.
+  { match: 'gpt-5.6', inPerM: 5, outPerM: 30, cacheReadPerM: 0.5, cacheWritePerM: 6.25 },
+  { match: 'gpt-5.5', inPerM: 5, outPerM: 30, cacheReadPerM: 0.5, cacheWritePerM: 0 },
+  { match: 'gpt-5.4-mini', inPerM: 0.75, outPerM: 4.5, cacheReadPerM: 0.075, cacheWritePerM: 0 },
+  { match: 'gpt-5.4', inPerM: 2.5, outPerM: 15, cacheReadPerM: 0.25, cacheWritePerM: 0 },
+  { match: 'gpt-5.3', inPerM: 1.75, outPerM: 14, cacheReadPerM: 0.175, cacheWritePerM: 0 },
+  { match: 'gpt-5.2', inPerM: 1.75, outPerM: 14, cacheReadPerM: 0.175, cacheWritePerM: 0 },
+  { match: 'gpt-5.1', inPerM: 1.25, outPerM: 10, cacheReadPerM: 0.125, cacheWritePerM: 0 },
+  { match: 'gpt-5-nano', inPerM: 0.05, outPerM: 0.4, cacheReadPerM: 0.005, cacheWritePerM: 0 },
+  { match: 'gpt-5-mini', inPerM: 0.25, outPerM: 2, cacheReadPerM: 0.025, cacheWritePerM: 0 },
+  // Also catches the retired `gpt-5-codex`, which billed at this rate.
+  { match: 'gpt-5', inPerM: 1.25, outPerM: 10, cacheReadPerM: 0.125, cacheWritePerM: 0 },
+  // NO BLANKET `codex` ROW. It existed to keep `codex-auto-review` off the
+  // fallback, at a rate nobody could source — and OpenAI publishes no price for
+  // that id anywhere. An invented number the sheet presents as list price is
+  // worse than the fallback, because the fallback is the one thing the sheet
+  // ADMITS TO: unpriced models are named in the provenance footer.
 ]
-const DEFAULT_PRICING = { inPerM: 3, outPerM: 15 }
+
+/**
+ * What an unmatched model is charged, and a claim the sheet makes out loud —
+ * `unpricedModels` puts every model that lands here in the footer, so the figure
+ * is labelled as the guess it is rather than passing as a list price.
+ */
+const DEFAULT_PRICING: Omit<ModelPricing, 'match'> = {
+  inPerM: 3,
+  outPerM: 15,
+  cacheReadPerM: 0.3,
+  cacheWritePerM: 3.75,
+}
 
 function pricingForModel(model: string): {
-  pricing: { inPerM: number; outPerM: number }
+  pricing: Omit<ModelPricing, 'match'>
   matched: boolean
 } {
   const pricing = PRICING.find((x) => model.includes(x.match))
@@ -147,8 +209,8 @@ function pricingForModel(model: string): {
 function bucketCostByClass(b: UsageBucketWire): Record<TokenClass, number> {
   const p = pricingForModel(b.model).pricing
   return {
-    cacheRead: (b.cacheReadTokens / 1e6) * p.inPerM * 0.1,
-    cacheWrite: (b.cacheCreationTokens / 1e6) * p.inPerM * 1.25,
+    cacheRead: (b.cacheReadTokens / 1e6) * p.cacheReadPerM,
+    cacheWrite: (b.cacheCreationTokens / 1e6) * p.cacheWritePerM,
     input: (b.inputTokens / 1e6) * p.inPerM,
     output: (b.outputTokens / 1e6) * p.outPerM,
   }
@@ -157,6 +219,20 @@ function bucketCostByClass(b: UsageBucketWire): Record<TokenClass, number> {
 export function bucketCostUsd(b: UsageBucketWire): number {
   const c = bucketCostByClass(b)
   return c.cacheRead + c.cacheWrite + c.input + c.output
+}
+
+/**
+ * What this bucket's cache reads would have cost at the model's full input rate,
+ * less what they actually cost — the counterfactual the sheet reports as saved.
+ *
+ * Derived from the two RATES rather than from "cache reads are a tenth of
+ * input, so the saving is nine times the charge". That identity holds for every
+ * row in the table today and is exactly the kind of thing a future row breaks
+ * silently, in the direction of overstating good news.
+ */
+function bucketCacheSavingsUsd(b: UsageBucketWire): number {
+  const p = pricingForModel(b.model).pricing
+  return (b.cacheReadTokens / 1e6) * (p.inPerM - p.cacheReadPerM)
 }
 
 const totalTokensOf = (b: UsageBucketWire): number =>
@@ -234,9 +310,21 @@ const CLASS_LABELS: Record<TokenClass, string> = {
 }
 
 export function usageSummary(all: UsageBucketWire[], nowMs: number): UsageSummaryView {
-  const buckets = all.filter((b) => !isSyntheticModel(b.model))
+  // ONE WINDOW FOR EVERY AGGREGATE. The headline is a rolling seven days, and
+  // the composition, model table and provider rollup are all labelled as shares
+  // of it — but they used to be summed over whatever the daemon happened to
+  // deliver, which is not the same set. The daemon ships a bucket an hour EARLY
+  // (`sinceMs - 3_600_000`, its own clock, not the client's), so the oldest hour
+  // could be counted in every share while sitting outside the total those shares
+  // are quoted against: percentages that don't add up to the figure above them.
+  // Cutting once here makes the agreement structural rather than a coincidence
+  // of when the last agent happened to run.
+  const weekSince = nowMs - 7 * 24 * 3_600_000
+  const buckets = all.filter(
+    (b) => !isSyntheticModel(b.model) && Date.parse(b.hour) >= weekSince,
+  )
   const fiveHour = windowOver(buckets, nowMs - 5 * 3_600_000)
-  const week = windowOver(buckets, nowMs - 7 * 24 * 3_600_000)
+  const week = windowOver(buckets, weekSince)
 
   // Seven local days of 24 hour slots, oldest first, keyed by the local hour
   // start so a bucket lands in the slot the operator's own clock would put it.
@@ -276,8 +364,10 @@ export function usageSummary(all: UsageBucketWire[], nowMs: number): UsageSummar
     output: { tokens: 0, estCostUsd: 0 },
   }
   const modelMap = new Map<string, { totalTokens: number; estCostUsd: number; messages: number }>()
+  let cacheSavingsUsd = 0
   for (const b of buckets) {
     const cost = bucketCostUsd(b)
+    cacheSavingsUsd += bucketCacheSavingsUsd(b)
     const tokens = totalTokensOf(b)
     // The bucket hour is UTC; the slot key is the local hour containing it.
     const slot = slots.get(Math.floor(Date.parse(b.hour) / 3_600_000) * 3_600_000)
@@ -340,9 +430,6 @@ export function usageSummary(all: UsageBucketWire[], nowMs: number): UsageSummar
     // have cost, and a table sorted on a different measure than the figure
     // above it reads as two answers to one question.
     .sort((a, b) => b.estCostUsd - a.estCostUsd)
-  const cacheReadCost = composition.cacheRead.estCostUsd
-  const cacheSavingsUsd = cacheReadCost * 9
-
   return {
     fiveHour,
     week,
