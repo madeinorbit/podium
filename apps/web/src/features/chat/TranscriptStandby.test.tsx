@@ -6,26 +6,29 @@ const session = (over: Partial<SessionMeta>): SessionMeta =>
   ({ agentKind: 'claude-code', status: 'live', ...over }) as SessionMeta
 
 describe('standbyCopy', () => {
-  it('names the agent standing by, and points at the composer', () => {
+  it('asks the operator what to work on, and nothing else', () => {
     const copy = standbyCopy(session({ agentKind: 'claude-code', status: 'live' }))
-    expect(copy.title).toBe('Claude is standing by')
-    expect(copy.hint).toMatch(/prompt/i)
+    expect(copy.title).toBe('What do you want to work on?')
+    expect(copy.asking).toBe(true)
+    // The composer is directly below the question — a note pointing at it would
+    // be the instruction line POD-746 removed.
+    expect(copy.note).toBeUndefined()
   })
 
   it('treats a shell as having no transcript BY DESIGN, not as a missing one', () => {
     const copy = standbyCopy(session({ agentKind: 'shell' }))
     expect(copy.title).toMatch(/shell/i)
-    expect(copy.lede).toMatch(/Native/)
+    expect(copy.note).toMatch(/Native/)
   })
 
   it('says a stopped session wrote nothing — and asks nothing of the reader', () => {
     const copy = standbyCopy(session({ status: 'exited' }))
     expect(copy.title).toBe('This session wrote nothing')
-    expect(copy.hint).toBeUndefined()
+    expect(copy.asking).toBe(false)
   })
 
-  it('falls back to standby copy with no session at all', () => {
-    expect(standbyCopy(undefined).title).toMatch(/standing by/)
+  it('falls back to the question with no session at all', () => {
+    expect(standbyCopy(undefined).asking).toBe(true)
   })
 })
 

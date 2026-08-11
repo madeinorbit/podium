@@ -1,27 +1,34 @@
 import { panelLabel } from '@podium/client-core/viewmodels'
 import type { SessionMeta } from '@podium/model'
-import { SquareTerminal } from 'lucide-react'
 import type { JSX } from 'react'
-import { agentIconFor } from '@/lib/agent-tone'
+import { modelLabel } from '@/lib/agent-models'
 
 /**
- * STANDBY (POD-701) — the chat that has not started.
+ * STANDBY (POD-701, redrawn POD-746) — the chat that has not started.
  *
- * The empty transcript used to be the same grey strip as "loading", carrying
- * one line that said only what was ABSENT ("No transcript yet"). It is in fact
- * the FIRST thing a reader sees on every freshly spawned agent, and the moment
- * they most need the pane to answer three questions: which agent is this,
- * where is it running, and what happens next.
+ * It was a bordered card in the middle of the pane: an icon in a box, a title,
+ * a two-line lede explaining what a transcript is, a three-row AGENT/FOLDER/
+ * SESSION table, and a closing instruction to use the composer. Six objects to
+ * say one thing. Nobody reads a definition of "transcript" on their way to
+ * typing, and a card floated in a void is the exact "content stopped halfway"
+ * tell — so the card is gone.
  *
- * So it states the session's coordinates and points at the composer directly
- * below it. Three states, because "empty" means three different things here and
- * one sentence cannot serve them: a shell (no transcript BY DESIGN — the
- * terminal is the product), a session that has stopped without writing one, and
- * an agent standing by for its first prompt.
+ * What is left is the question, asked where the answer gets typed: bottom of
+ * the pane, sitting on the composer, so the eye goes question → cursor with
+ * nothing in between. A yellow caret in the margin marks it as the one thing
+ * waiting on the operator (The Signal Rule — and the composer's own send button
+ * is still grey at this moment, so the region has exactly one yellow voice).
+ * Under it, one mono line of coordinates: who is answering and from which
+ * folder — the wrong worktree being the expensive mistake here, and the only
+ * fact from the old table that the surrounding chrome does not already state.
  *
- * It holds still. An agent that has not been asked anything is waiting on YOU,
- * and stillness is how this system says that — no pulse on the mark, no
- * skeleton rows pretending content is on the way.
+ * Three states, because "empty" means three different things: a shell (no
+ * transcript BY DESIGN — the terminal is the product), a session that stopped
+ * without writing one, and an agent standing by. Only the third asks anything,
+ * so only the third gets the caret and the question.
+ *
+ * It holds still after one authored moment. An agent that has not been asked
+ * anything is waiting on YOU, and stillness is how this system says that.
  */
 
 /** The tail of a path, for a 430px column. The client has no idea what the
@@ -37,32 +44,50 @@ export function shortPath(cwd: string): string {
 
 interface StandbyCopy {
   title: string
-  lede: string
-  hint?: string
+  /** Present only where the reader would otherwise be stuck — a state they can
+   *  do nothing about needs to say where the output went. The state that IS
+   *  actionable needs no note: the composer is directly below the question. */
+  note?: string
+  /** Something is being asked of the operator. Drives the caret, which is the
+   *  only yellow this pane spends. */
+  asking: boolean
 }
 
 /** What "empty" means for THIS session. Keyed on the two facts that change the
  *  answer — whether the harness writes a transcript at all, and whether the
  *  process is still running. */
 export function standbyCopy(session: SessionMeta | undefined): StandbyCopy {
-  const name = session ? panelLabel(session.agentKind) : 'This agent'
   if (session?.agentKind === 'shell')
     return {
       title: 'A shell keeps no transcript',
-      lede: 'Shell sessions are raw terminal — every command and its output lives in Native view, which is the whole point of running one.',
-      hint: 'Switch this pane to Native to use it.',
+      note: 'Every command and its output is in Native view.',
+      asking: false,
     }
   const running = session?.status === 'live' || session?.status === 'starting'
   if (session && !running)
     return {
       title: 'This session wrote nothing',
-      lede: `${name} stopped before it produced any output. Whatever the terminal printed is still in Native view.`,
+      note: 'Whatever it printed is still in Native view.',
+      asking: false,
     }
-  return {
-    title: `${name} is standing by`,
-    lede: 'Everything it writes lands here — its reasoning as it works, the tools it runs, and the answer at the end.',
-    hint: 'Send the first prompt below.',
+  return { title: 'What do you want to work on?', asking: true }
+}
+
+/** Who is answering, and from where. Omitted rather than shown empty. */
+function coordinates(session: SessionMeta | undefined, cwd: string): readonly string[] {
+  const out: string[] = []
+  if (session) {
+    // A shell has no model — whatever a spawn-time selection left on the row is
+    // not a fact about the process running in this pane.
+    const model =
+      session.agentKind === 'shell'
+        ? undefined
+        : modelLabel(session.agentKind, session.observedModel ?? session.model)
+    out.push(panelLabel(session.agentKind))
+    if (model && model !== 'Auto') out.push(model)
   }
+  if (cwd !== '/') out.push(shortPath(cwd))
+  return out
 }
 
 export function TranscriptStandby({
@@ -73,52 +98,38 @@ export function TranscriptStandby({
   cwd: string
 }): JSX.Element {
   const copy = standbyCopy(session)
-  const AgentIcon = session ? agentIconFor(session.agentKind) : undefined
-  // A shell has no model — whatever a spawn-time selection left on the row is
-  // not a fact about the process running in this pane.
-  const model =
-    session?.agentKind === 'shell' ? undefined : (session?.observedModel ?? session?.model)
-  const agentLine = session
-    ? [panelLabel(session.agentKind), model].filter(Boolean).join(' · ')
-    : undefined
+  const where = coordinates(session, cwd)
 
   return (
-    <div className="transcript-standby" data-testid="transcript-empty-state">
-      <span className="transcript-standby-mark" aria-hidden="true">
-        {AgentIcon ? (
-          <AgentIcon size={17} strokeWidth={1.6} />
-        ) : (
-          <SquareTerminal size={17} strokeWidth={1.6} />
+    <div
+      className={copy.asking ? 'transcript-standby is-asking' : 'transcript-standby'}
+      data-testid="transcript-empty-state"
+    >
+      <p className="transcript-standby-ask shell-type-column-title">
+        {copy.asking && (
+          <span className="transcript-standby-caret" aria-hidden="true">
+            ❯
+          </span>
         )}
-      </span>
-      <strong className="transcript-standby-title">{copy.title}</strong>
-      <p className="transcript-standby-lede">{copy.lede}</p>
-      {/* The coordinates. A reader who just spawned an agent checks these before
-          typing — the wrong worktree is the expensive mistake here, not the
-          wrong model. Rows are omitted rather than shown empty. */}
-      {(agentLine || cwd !== '/' || session?.displayRef) && (
-        <dl className="transcript-standby-facts">
-          {agentLine && (
-            <>
-              <dt>Agent</dt>
-              <dd>{agentLine}</dd>
-            </>
-          )}
-          {cwd !== '/' && (
-            <>
-              <dt>Folder</dt>
-              <dd title={cwd}>{shortPath(cwd)}</dd>
-            </>
-          )}
-          {session?.displayRef && (
-            <>
-              <dt>Session</dt>
-              <dd>{session.displayRef}</dd>
-            </>
-          )}
-        </dl>
+        <span>{copy.title}</span>
+      </p>
+      {copy.note && <p className="transcript-standby-note">{copy.note}</p>}
+      {where.length > 0 && (
+        <p className="transcript-standby-where">
+          {where.map((part, i) => (
+            // The path is the one part that can be abbreviated, so it keeps the
+            // full value in `title`; the rest are already whole.
+            <span key={part} title={part.startsWith('…/') ? cwd : undefined}>
+              {i > 0 && (
+                <span className="transcript-standby-sep" aria-hidden="true">
+                  ·
+                </span>
+              )}
+              {part}
+            </span>
+          ))}
+        </p>
       )}
-      {copy.hint && <p className="transcript-standby-hint">{copy.hint}</p>}
     </div>
   )
 }

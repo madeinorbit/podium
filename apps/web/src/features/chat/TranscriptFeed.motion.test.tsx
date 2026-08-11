@@ -146,9 +146,9 @@ describe('TranscriptFeed — the streaming caret', () => {
 
 describe('TranscriptFeed — boundary states', () => {
   // A state that RESOLVES into content and one that never will must not be the
-  // same object (POD-700). Loading is the feed's own geometry, unfilled and
-  // bottom-anchored; empty is POD-701's centred standby card.
-  it('shows the cold transcript while loading and the standby card only when empty', () => {
+  // same object (POD-700). Loading is the feed's own geometry, unfilled; empty
+  // is the standby question. Both sit on the composer (POD-746).
+  it('shows the cold transcript while loading and the standby question only when empty', () => {
     render([], null, { phase: 'loading' })
     const cold = host.querySelector('[data-testid="transcript-cold"]')
     expect(cold).not.toBeNull()
@@ -158,7 +158,7 @@ describe('TranscriptFeed — boundary states', () => {
     expect(cold?.querySelectorAll('.transcript-cold-line').length).toBeGreaterThan(4)
     // Never the empty state's object, and never a spinner.
     expect(host.querySelector('[data-testid="transcript-empty-state"]')).toBeNull()
-    expect(host.querySelector('.transcript-standby-title')).toBeNull()
+    expect(host.querySelector('.transcript-standby-ask')).toBeNull()
     expect(host.querySelector('.spb')).toBeNull()
     // Bottom-anchored like the conversation it stands in for: the scrollport
     // takes the same auto-margin spacer `ready` uses, and does not centre.
@@ -167,9 +167,13 @@ describe('TranscriptFeed — boundary states', () => {
 
     render([], null, { phase: 'empty' })
     expect(host.querySelector('[data-testid="transcript-empty-state"]')).not.toBeNull()
-    expect(host.querySelector('.transcript-standby-title')).not.toBeNull()
+    expect(host.querySelector('.transcript-standby-ask')?.textContent).toContain(
+      'What do you want to work on?',
+    )
     expect(host.querySelector('[data-testid="transcript-cold"]')).toBeNull()
-    expect(host.querySelector('.justify-center')).not.toBeNull()
+    // The question is asked ON the composer, not centred in the void above it.
+    expect(host.querySelector('.mt-auto')).not.toBeNull()
+    expect(host.querySelector('.justify-center')).toBeNull()
     expect(host.querySelector('.spb')).toBeNull()
   })
 

@@ -3412,123 +3412,104 @@ html[data-density="balanced"] .header-quota-pools {
   color: var(--text-dim, var(--muted-foreground));
   font-size: 10.5px;
 }
-/* ── STANDBY: the transcript that has not started (POD-701) ────────────────
-   The empty chat used to be the same 420px grey strip as "loading" — one line
-   of copy that said only what was ABSENT. It is in fact the first thing a
-   reader sees on every freshly spawned agent, and the moment they most need
-   the pane to say which agent this is, where it is running, and what to do
-   next. So it states the session's coordinates and points at the composer,
-   and it holds still: a live agent that has not been asked anything yet is
-   waiting on YOU, and stillness is how this system says that. */
+/* ── STANDBY: the transcript that has not started (POD-701, redrawn POD-746) ─
+   A card in the middle of the pane — icon box, title, lede, a three-row
+   coordinate table, a closing instruction — was six objects saying one thing,
+   floated in a void. What is left is the question, set at the column title and
+   asked WHERE THE ANSWER GETS TYPED: bottom-anchored onto the composer, so the
+   eye runs question → cursor with nothing between them. The caret hangs in the
+   margin so the question and its coordinates share one left edge, and it is
+   Attention ink because this is the pane's one thing waiting on the operator.
+   It holds still after one authored moment. */
 .transcript-standby {
+  flex: none;
+  width: 100%;
+  padding-bottom: 2px;
+  animation: transcript-standby-in 260ms cubic-bezier(0.22, 0.8, 0.28, 1) both;
+}
+/* Hanging caret: the block is indented by the caret's own column, so the
+   question, the note and the coordinates all start on the same axis and only
+   the mark sits outside it. */
+.transcript-standby.is-asking {
+  padding-left: 18px;
+}
+/* Flex on the BASELINE, not absolute positioning: the caret is a smaller font
+   in the same line, and only a baseline join makes the two read as one line of
+   type rather than as a glyph parked beside a heading. */
+.transcript-standby-ask {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  width: min(430px, 100%);
-  margin: 0 auto;
-  padding: 20px 22px 18px;
-  border: 1px solid
-    color-mix(
-      in srgb,
-      var(--issue, transparent) calc(30 * var(--issue-line-scale, 1%)),
-      var(--border)
-    );
-  border-radius: 10px;
-  /* The PANEL surface, tinted by the issue channel — not `background` darkened
-     toward black, which is what the operator's engraved prompt does and which
-     on a light ground turns into a grey slab rather than a panel. */
-  background: color-mix(
-    in srgb,
-    var(--issue, transparent) calc(5 * var(--issue-tint-scale, 1%)),
-    var(--card)
-  );
-  box-shadow:
-    inset 0 3px 8px -3px var(--carve-engraved),
-    inset 0 -1px 0 color-mix(in oklab, var(--border) 40%, transparent);
-}
-.transcript-standby-mark {
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  margin-bottom: 13px;
-  border: 1px solid color-mix(in oklab, var(--border) 85%, transparent);
-  border-radius: 8px;
-  color: var(--muted-foreground);
-  background: color-mix(in oklab, var(--foreground) 4%, transparent);
-}
-.transcript-standby-title {
-  font-size: 15px;
+  align-items: baseline;
   font-weight: 600;
-  line-height: 1.3;
-  letter-spacing: -0.01em;
   color: var(--text-strong, var(--foreground));
+  text-wrap: pretty;
 }
-.transcript-standby-lede {
-  margin-top: 5px;
-  max-width: 46ch;
-  font-size: 12.5px;
-  line-height: 1.55;
+.transcript-standby-caret {
+  flex: none;
+  width: 18px;
+  margin-left: -18px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.85em;
+  font-weight: 500;
+  color: var(--attention);
+}
+.transcript-standby-note {
+  margin-top: 4px;
+  max-width: 52ch;
+  font-size: var(--shell-type-secondary);
+  line-height: var(--shell-leading-secondary);
   text-wrap: pretty;
   color: var(--muted-foreground);
 }
-/* The session's coordinates, as a machine-voice key/value pair per line. Two
-   columns on one baseline grid — not chips, not a card grid: this is the same
-   readout grammar the instrument well uses, at the feed's scale. */
-.transcript-standby-facts {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  /* The key sits a size below its value, so align the two on their baselines
-     rather than on their line boxes — stretched grid items put the smaller cap
-     height visibly high. */
-  align-items: baseline;
-  gap: 5px 14px;
-  width: 100%;
-  margin-top: 15px;
-  padding-top: 13px;
-  border-top: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+/* Machine voice, one line: who answers and from where. Settles after the
+   question rather than with it — the same delayed one-shot the cold pass uses,
+   so the pane resolves in a reading order instead of all at once. */
+.transcript-standby-where {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  margin-top: 9px;
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 10.5px;
-  line-height: 1.5;
+  font-size: var(--shell-type-micro);
+  line-height: var(--shell-leading-micro);
+  /* Dim, not Faint: the folder is the fact that stops an operator prompting the
+     wrong worktree, so it has to be READ, not merely present. */
+  color: var(--text-dim, var(--muted-foreground));
+  animation: transcript-standby-in 260ms cubic-bezier(0.22, 0.8, 0.28, 1) 70ms both;
 }
-.transcript-standby-facts dt {
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  font-size: 9px;
-  line-height: 1.75;
-  color: color-mix(in oklab, var(--muted-foreground) 68%, transparent);
-}
-.transcript-standby-facts dd {
+.transcript-standby-where > span {
   min-width: 0;
   overflow: hidden;
-  color: var(--foreground);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.transcript-standby-hint {
-  margin-top: 14px;
-  padding-top: 11px;
-  width: 100%;
-  border-top: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
-  font-size: 11.5px;
-  line-height: 1.45;
-  color: var(--text-dim, var(--muted-foreground));
+.transcript-standby-sep {
+  padding: 0 7px;
+  color: color-mix(in oklab, var(--text-dim, var(--muted-foreground)) 55%, transparent);
 }
-.transcript-standby-hint kbd {
-  padding: 1px 4px;
-  border: 1px solid color-mix(in oklab, var(--border) 90%, transparent);
-  border-radius: 4px;
-  background: color-mix(in oklab, var(--foreground) 5%, transparent);
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 9.5px;
-  color: var(--muted-foreground);
+@keyframes transcript-standby-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .transcript-standby,
+  .transcript-standby-where {
+    animation-duration: 1ms;
+    animation-delay: 0ms;
+  }
 }
 /* The narrow dock (§2.5) runs the same object with its own air. */
-.chat-compact .transcript-standby {
-  padding: 15px 15px 13px;
+.chat-compact .transcript-standby.is-asking {
+  padding-left: 16px;
 }
-.chat-compact .transcript-standby-facts {
-  display: none;
+.chat-compact .transcript-standby-caret {
+  width: 16px;
+  margin-left: -16px;
 }
 
 .transcript-pager {

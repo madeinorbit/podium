@@ -204,10 +204,6 @@ export function TranscriptFeed({
         // at a full-width stage and gives way gracefully in a split pane, which
         // a flat 56px would not — it would have eaten a third of a half-pane.
         compact ? 'px-3.5 pt-3 pb-4' : 'px-[clamp(20px,7.5%,56px)] pt-[26px] pb-5',
-        // Only the terminal empty state centres itself. `loading` is bottom-anchored
-        // like the conversation it is standing in for (POD-700) — a state that
-        // resolves into content must occupy where that content will be.
-        phase === 'empty' && 'justify-center',
       )}
       ref={scrollerRef}
       onScroll={onScroll}
@@ -216,8 +212,11 @@ export function TranscriptFeed({
           top of an empty scrollport. An auto-margin spacer rather than
           `justify-end`, which makes overflow past the START edge unreachable in
           some engines: this collapses to zero the moment the feed overflows, so
-          the scroll math never sees it. */}
-      {(phase === 'ready' || phase === 'loading') && <div className="mt-auto" aria-hidden="true" />}
+          the scroll math never sees it. Every phase takes it: a state that
+          resolves into content must occupy where that content will be (POD-700),
+          and the standby's question belongs on the composer it is asking the
+          reader to type into rather than centred in a void (POD-746). */}
+      <div className="mt-auto" aria-hidden="true" />
       {phase === 'loading' && <TranscriptCold compact={compact} />}
       {phase === 'empty' && <TranscriptStandby session={session} cwd={cwd} />}
       {/* Top sentinel: only the bounded tail of ROWS is mounted; more exist
